@@ -37,19 +37,19 @@ pub struct WaitStatus {
 impl WaitStatus {
     // method is called type() in rr.
     fn wait_type(&self) -> Type {
-        if let Some(exit_code) = self.exit_code() {
+        if let Some(_exit_code) = self.exit_code() {
             return Exit;
         }
 
-        if let Some(fatal_sig) = self.fatal_sig() {
+        if let Some(_fatal_sig) = self.fatal_sig() {
             return FatalSignal;
         }
 
-        if let Some(stop_sig) = self.stop_sig() {
+        if let Some(_stop_sig) = self.stop_sig() {
             return SignalStop;
         }
 
-        if let Some(group_stop_sig) = self.group_stop_sig() {
+        if let Some(_group_stop_sig) = self.group_stop_sig() {
             return GroupStop;
         }
 
@@ -57,7 +57,7 @@ impl WaitStatus {
             return SyscallStop;
         }
 
-        if let Some(ptrace_event) = self.ptrace_event() {
+        if let Some(_ptrace_event) = self.ptrace_event() {
             return PtraceEvent;
         }
 
