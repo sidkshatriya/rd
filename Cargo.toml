@@ -3,6 +3,7 @@ name = "rd"
 version = "0.1.0"
 authors = ["Sidharth Kshatriya"]
 edition = "2018"
+build = "build.rs"
 
 [dependencies]
 capnp = "0.11.1"
