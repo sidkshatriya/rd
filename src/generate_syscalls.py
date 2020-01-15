@@ -13,8 +13,7 @@ def arch_syscall_number(arch, syscall):
         s = -1
     return s
 
-def write_syscall_enum(f, arch):
-    f.write("enum Syscalls {\n")
+def write_syscall_consts(f, arch):
     undefined_syscall = -1
     for name, obj in sorted(syscalls.all(), key=lambda x: arch_syscall_number(arch, x)):
         syscall_number = getattr(obj, arch)
@@ -23,13 +22,12 @@ def write_syscall_enum(f, arch):
         else:
             enum_number = undefined_syscall
             undefined_syscall -= 1
-        f.write("  %s = %d,\n" % (name, enum_number))
-    f.write("  SYSCALL_COUNT,\n")
-    f.write("};\n")
+        f.write("pub const %s : i32 = %d;\n" % (name.upper(), enum_number))
+    # @TODO.
+    # f.write("pub const SYSCALL_COUNT,\n")
     f.write("\n")
 
-def write_syscall_enum_for_tests(f, arch):
-    f.write("enum Syscalls {\n")
+def write_syscall_consts_for_tests(f, arch):
     undefined_syscall = -1
     for name, obj in sorted(syscalls.all(), key=lambda x: arch_syscall_number(arch, x)):
         syscall_number = getattr(obj, arch)
@@ -38,29 +36,33 @@ def write_syscall_enum_for_tests(f, arch):
         else:
             enum_number = undefined_syscall
             undefined_syscall -= 1
-        f.write("  RR_%s = %d,\n" % (name, enum_number))
-    f.write("};\n")
+        f.write("pub const RR_%s = %d,\n" % (name.upper(), enum_number))
     f.write("\n")
 
-def write_syscallname_arch(f):
-    f.write("template <typename Arch> static std::string syscallname_arch(int syscall);\n")
+def write_syscallname_arch(f, arch):
+    f.write("use std::fmt::Write;\n")
+    if arch == 'x86':
+        specializer = 'x86_arch'
+    elif arch == 'x64':
+        specializer = 'x64_arch'
+    f.write("use crate:: %s;\n" % (specializer))
     f.write("\n");
-    for specializer, arch in [("X86Arch", "x86"), ("X64Arch", "x64")]:
-        f.write("template <> std::string syscallname_arch<%s>(int syscall) {\n" % specializer)
-        f.write("  switch (syscall) {\n");
-        def write_case(name):
-            f.write("    case %(specializer)s::%(syscall)s: return \"%(syscall)s\";\n"
-                    % { 'specializer': specializer, 'syscall': name })
-        for name, _ in syscalls.for_arch(arch):
-            write_case(name)
-        f.write("    default: {")
-        f.write("      char buf[100];")
-        f.write("      sprintf(buf, \"<unknown-syscall-%d>\", syscall);")
-        f.write("      return buf;\n")
-        f.write("    }\n")
-        f.write("  }\n")
-        f.write("}\n")
-        f.write("\n")
+
+    f.write("pub fn syscallname_arch(syscall : i32) -> String {\n")
+    f.write("  match syscall {\n");
+    def write_case(name):
+        f.write("    %(specializer)s::%(syscall_upper)s => \"%(syscall)s\".into(),\n"
+                % { 'specializer': specializer, 'syscall_upper': name.upper(), 'syscall': name })
+    for name, _ in syscalls.for_arch(arch):
+        write_case(name)
+    f.write("    _ => {\n")
+    f.write("      let mut s = String::new();\n")
+    f.write("      write!(s, \"<unknown-syscall-{}>\", syscall).unwrap();\n")
+    f.write("      s\n")
+    f.write("    }\n")
+    f.write("  }\n")
+    f.write("}\n")
+    f.write("\n")
 
 def write_syscall_record_cases(f):
     def write_recorder_for_arg(syscall, arg):
@@ -141,11 +143,12 @@ def write_check_syscall_numbers(f):
 generators_for = {
     'AssemblyTemplates': lambda f: assembly_templates.generate(f),
     'CheckSyscallNumbers': write_check_syscall_numbers,
-    'SyscallEnumsX86': lambda f: write_syscall_enum(f, 'x86'),
-    'SyscallEnumsX64': lambda f: write_syscall_enum(f, 'x64'),
-    'SyscallEnumsForTestsX86': lambda f: write_syscall_enum_for_tests(f, 'x86'),
-    'SyscallEnumsForTestsX64': lambda f: write_syscall_enum_for_tests(f, 'x64'),
-    'SyscallnameArch': write_syscallname_arch,
+    'syscall_consts_x86_generated': lambda f: write_syscall_consts(f, 'x86'),
+    'syscall_consts_x64_generated': lambda f: write_syscall_consts(f, 'x64'),
+    'syscall_consts_for_tests_x86_generated': lambda f: write_syscall_consts_for_tests(f, 'x86'),
+    'syscall_consts_for_tests_x64_generated': lambda f: write_syscall_consts_for_tests(f, 'x64'),
+    'syscall_name_arch_x86_generated': lambda f: write_syscallname_arch(f, 'x86'),
+    'syscall_name_arch_x64_generated': lambda f: write_syscallname_arch(f, 'x64'),
     'SyscallRecordCase': write_syscall_record_cases,
     'SyscallHelperFunctions': write_syscall_helper_functions,
 }
