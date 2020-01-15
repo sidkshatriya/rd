@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 mod flags;
 mod kernel_metadata;
 mod record_task;
