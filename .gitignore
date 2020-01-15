@@ -1,2 +1,5 @@
 /target
 **/*.rs.bk
+.vscode
+**/*generated.rs
+**/__pycache__
