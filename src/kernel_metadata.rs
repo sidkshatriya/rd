@@ -1,3 +1,9 @@
+use crate::kernel_abi::SupportedArch;
+
+pub fn syscall_name(syscall: i32, arch: SupportedArch) -> String {
+    rr_arch_function!(syscallname_arch, arch, syscall)
+}
+
 pub fn signal_name(sig: i32) -> String {
     /* strsignal() would be nice to use here, but it provides TMI. */
     if 32 <= sig && sig <= 64 {

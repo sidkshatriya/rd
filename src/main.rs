@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+#[macro_use]
+mod kernel_abi;
 mod flags;
 mod kernel_metadata;
 mod record_task;
