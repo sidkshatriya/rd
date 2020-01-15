@@ -47,18 +47,18 @@ def write_syscallname_arch(f, arch):
         specializer = 'x86_arch'
     elif arch == 'x64':
         specializer = 'x64_arch'
-    f.write("use crate:: %s;\n" % (specializer))
+    f.write("use crate::%s;\n" % (specializer))
     f.write("\n");
 
-    f.write("pub fn syscallname_arch(syscall : i32) -> String {\n")
-    f.write("  match syscall {\n");
+    f.write("pub fn syscallname_arch(syscall: i32) -> String {\n")
+    f.write("    match syscall {\n");
     def write_case(name):
-        f.write("    %(specializer)s::%(syscall_upper)s => \"%(syscall)s\".into(),\n"
+        f.write("        %(specializer)s::%(syscall_upper)s => \"%(syscall)s\".into(),\n"
                 % { 'specializer': specializer, 'syscall_upper': name.upper(), 'syscall': name })
     for name, _ in syscalls.for_arch(arch):
         write_case(name)
-    f.write("    _ =>  format!(\"<unknown-syscall-{}>\", syscall),\n")
-    f.write("  }\n")
+    f.write("        _ => format!(\"<unknown-syscall-{}>\", syscall),\n")
+    f.write("    }\n")
     f.write("}\n")
     f.write("\n")
 

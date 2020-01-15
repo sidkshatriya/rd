@@ -1,7 +1,7 @@
 pub fn signal_name(sig: i32) -> String {
     /* strsignal() would be nice to use here, but it provides TMI. */
     if 32 <= sig && sig <= 64 {
-        return format!("signal({}))", sig)
+        return format!("SIGRT{}", sig);
     }
 
     match sig {
@@ -66,7 +66,7 @@ pub fn ptrace_event_name(event: i32) -> String {
          * assertions when event is 0.
          */
         0 => "PTRACE_EVENT(0)".into(),
-        _ => format!("PTRACE_EVENT({})", event)
+        _ => format!("PTRACE_EVENT({})", event),
     }
 }
 
@@ -104,7 +104,7 @@ pub fn ptrace_req_name(request: u32) -> String {
         // These aren't part of the official ptrace-request enum.
         // libc::PTRACE_SYSEMU => "PTRACE_SYSEMU".into(),
         // libc::PTRACE_SYSEMU_SINGLESTEP => "PTRACE_SYSEMU_SINGLESTEP".into(),
-        _ => format!("PTRACE_REQUEST({})", request)
+        _ => format!("PTRACE_REQUEST({})", request),
     }
 }
 
@@ -242,6 +242,6 @@ pub fn errno_name(err: i32) -> String {
         libc::ENOTRECOVERABLE => "ENOTRECOVERABLE".into(),
         libc::ERFKILL => "ERFKILL".into(),
         libc::EHWPOISON => "EHWPOISON".into(),
-        _ => format!("errno({})", err)
+        _ => format!("errno({})", err),
     }
 }
