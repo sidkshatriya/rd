@@ -76,7 +76,7 @@ def write_syscall_record_cases(f):
                 write_recorder_for_arg(obj, arg)
             f.write("    return PREVENT_SWITCH;\n")
 
-has_syscall = string.Template("""
+has_syscall = string.Template("""${no_snake_case}
 pub fn has_${syscall}_syscall(arch: SupportedArch) -> bool {
     match arch {
         X86 => x86_arch::${syscall_upper} >= 0,
@@ -85,7 +85,7 @@ pub fn has_${syscall}_syscall(arch: SupportedArch) -> bool {
 }
 """)
 
-is_syscall = string.Template("""
+is_syscall = string.Template("""${no_snake_case}
 pub fn is_${syscall}_syscall(syscallno: i32, arch: SupportedArch) -> bool {
     match arch {
         X86 => syscallno >= 0 && syscallno == x86_arch::${syscall_upper},
@@ -94,7 +94,7 @@ pub fn is_${syscall}_syscall(syscallno: i32, arch: SupportedArch) -> bool {
 }
 """)
 
-syscall_number = string.Template("""
+syscall_number = string.Template("""${no_snake_case}
 pub fn syscall_number_for_${syscall}(arch: SupportedArch) -> i32 {
     match arch {
         X86 => {
@@ -111,7 +111,11 @@ pub fn syscall_number_for_${syscall}(arch: SupportedArch) -> i32 {
 
 def write_syscall_helper_functions(f):
     def write_helpers(syscall):
-        subs = { 'syscall': syscall, 'syscall_upper':syscall.upper() }
+        no_snake_case = ''
+        if syscall.startswith('_') or syscall.endswith('_'):
+            no_snake_case = '\n#[allow(non_snake_case)]'
+        subs = {'syscall': syscall, 'syscall_upper': syscall.upper(),
+                'no_snake_case': no_snake_case}
         f.write(has_syscall.safe_substitute(subs))
         f.write(is_syscall.safe_substitute(subs))
         f.write(syscall_number.safe_substitute(subs))
