@@ -1,3 +1,4 @@
+use crate::kernel_abi;
 use crate::kernel_abi::SupportedArch;
 
 pub fn syscall_name(syscall: i32, arch: SupportedArch) -> String {
@@ -250,4 +251,9 @@ pub fn errno_name(err: i32) -> String {
         libc::EHWPOISON => "EHWPOISON".into(),
         _ => format!("errno({})", err),
     }
+}
+
+fn is_sigreturn(syscallno: i32, arch: SupportedArch) -> bool {
+    kernel_abi::is_sigreturn_syscall(syscallno, arch)
+        || kernel_abi::is_rt_sigreturn_syscall(syscallno, arch)
 }

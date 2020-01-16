@@ -2,6 +2,7 @@ mod syscall_helper_functions_generated;
 
 pub use crate::kernel_abi::syscall_helper_functions_generated::*;
 
+#[derive(Copy, Clone)]
 pub enum SupportedArch {
     X86,
     X86_64,
