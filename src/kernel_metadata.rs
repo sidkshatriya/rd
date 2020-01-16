@@ -257,3 +257,81 @@ fn is_sigreturn(syscallno: i32, arch: SupportedArch) -> bool {
     kernel_abi::is_sigreturn_syscall(syscallno, arch)
         || kernel_abi::is_rt_sigreturn_syscall(syscallno, arch)
 }
+
+macro_rules! case {
+    ($match_var:expr, $mod_name:ident, $($case_name:ident),+) => {{
+        use crate::$mod_name;
+        match $match_var {
+            $($mod_name::$case_name => return stringify!($case_name).into(),)+
+            _ => ()
+        }
+    }};
+}
+
+fn sicode_name(code: i32, sig: i32) -> String {
+    case!(
+        code, signal, SI_USER, SI_KERNEL, SI_QUEUE, SI_TIMER, SI_MESGQ, SI_ASYNCIO, SI_SIGIO,
+        SI_TKILL, SI_ASYNCNL
+    );
+
+    match sig {
+        libc::SIGSEGV => case!(code as u32, signal, SEGV_MAPERR, SEGV_ACCERR),
+        // @TODO for some reason this is not picked up.
+        // libc::SIGTRAP => case!(signal, code, TRAP_BRKPT, TRAP_TRACE),
+        libc::SIGILL => case!(
+            code as u32,
+            signal,
+            ILL_ILLOPC,
+            ILL_ILLOPN,
+            ILL_ILLADR,
+            ILL_ILLTRP,
+            ILL_PRVOPC,
+            ILL_PRVREG,
+            ILL_COPROC,
+            ILL_BADSTK
+        ),
+        libc::SIGFPE => case!(
+            code as u32,
+            signal,
+            FPE_INTDIV,
+            FPE_INTOVF,
+            FPE_FLTDIV,
+            FPE_FLTOVF,
+            FPE_FLTUND,
+            FPE_FLTRES,
+            FPE_FLTINV,
+            FPE_FLTSUB
+        ),
+        libc::SIGBUS => case!(
+            code as u32,
+            signal,
+            BUS_ADRALN,
+            BUS_ADRERR,
+            BUS_OBJERR,
+            BUS_MCEERR_AR,
+            BUS_MCEERR_AO
+        ),
+        libc::SIGCHLD => case!(
+            code as u32,
+            signal,
+            CLD_EXITED,
+            CLD_KILLED,
+            CLD_DUMPED,
+            CLD_TRAPPED,
+            CLD_STOPPED,
+            CLD_CONTINUED
+        ),
+        libc::SIGPOLL => case!(
+            code as u32,
+            signal,
+            POLL_IN,
+            POLL_OUT,
+            POLL_MSG,
+            POLL_ERR,
+            POLL_PRI,
+            POLL_HUP
+        ),
+        _ => (),
+    }
+    format!("sicode({})", code)
+}

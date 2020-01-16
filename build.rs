@@ -1,8 +1,13 @@
 use bindgen::Builder;
 use bindgen::CargoCallbacks;
+use std::env;
+use std::path::PathBuf;
 use std::process::Command;
 
 fn main() {
+    let out_dir = env::var("OUT_DIR").unwrap();
+    let path = PathBuf::from(out_dir);
+
     Command::new("scripts/generate_syscalls.py")
         .arg("src/x64_arch/syscall_consts_x64_generated.rs")
         .status()
@@ -37,6 +42,6 @@ fn main() {
         .unwrap();
 
     bindings
-        .write_to_file("src/signal/signal_bindings_generated.rs")
+        .write_to_file(path.join("signal_bindings_generated.rs"))
         .unwrap();
 }
