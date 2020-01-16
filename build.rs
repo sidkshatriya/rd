@@ -20,4 +20,9 @@ fn main() {
         .arg("src/x86_arch/syscall_name_arch_x86_generated.rs")
         .status()
         .unwrap();
+
+    Command::new("scripts/generate_syscalls.py")
+        .arg("src/kernel_abi/syscall_helper_functions_generated.rs")
+        .status()
+        .unwrap();
 }
