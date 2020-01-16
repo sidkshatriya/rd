@@ -9,27 +9,27 @@ fn main() {
     let path = PathBuf::from(out_dir);
 
     Command::new("scripts/generate_syscalls.py")
-        .arg("src/x64_arch/syscall_consts_x64_generated.rs")
+        .arg(path.join("syscall_consts_x64_generated.rs"))
         .status()
         .unwrap();
 
     Command::new("scripts/generate_syscalls.py")
-        .arg("src/x86_arch/syscall_consts_x86_generated.rs")
+        .arg(path.join("syscall_consts_x86_generated.rs"))
         .status()
         .unwrap();
 
     Command::new("scripts/generate_syscalls.py")
-        .arg("src/x64_arch/syscall_name_arch_x64_generated.rs")
+        .arg(path.join("syscall_name_arch_x64_generated.rs"))
         .status()
         .unwrap();
 
     Command::new("scripts/generate_syscalls.py")
-        .arg("src/x86_arch/syscall_name_arch_x86_generated.rs")
+        .arg(path.join("syscall_name_arch_x86_generated.rs"))
         .status()
         .unwrap();
 
     Command::new("scripts/generate_syscalls.py")
-        .arg("src/kernel_abi/syscall_helper_functions_generated.rs")
+        .arg(path.join("syscall_helper_functions_generated.rs"))
         .status()
         .unwrap();
 

@@ -1,7 +1,3 @@
-mod syscall_helper_functions_generated;
-
-pub use crate::kernel_abi::syscall_helper_functions_generated::*;
-
 #[derive(Copy, Clone)]
 pub enum SupportedArch {
     X86,
@@ -9,6 +5,11 @@ pub enum SupportedArch {
     // @TODO
     // What about SupportArch_Max?
 }
+
+include!(concat!(
+    env!("OUT_DIR"),
+    "/syscall_helper_functions_generated.rs"
+));
 
 #[cfg(target_arch = "x86_64")]
 pub const RR_NATIVE_ARCH: SupportedArch = SupportedArch::X86_64;
