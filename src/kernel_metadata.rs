@@ -67,7 +67,7 @@ pub fn ptrace_event_name(event: i32) -> String {
         // libc::PTRACE_EVENT_SECCOMP_OBSOLETE => "PTRACE_EVENT_SECCOMP_OBSOLETE".into(),
         libc::PTRACE_EVENT_SECCOMP => "PTRACE_EVENT_SECCOMP".into(),
         // @TODO.
-        // libc::PTRACE_EVENT_STOP => "PTRACE_EVENT_STOP".into(),
+        // libc::PTRACE_EVENT_STOP  => "PTRACE_EVENT_STOP".into(),
         /* Special-case this.
          * This case is common because we often pass ptrace_event_name(event) to
          * assertions when event is 0.

@@ -4,6 +4,7 @@
 mod kernel_abi;
 mod flags;
 mod kernel_metadata;
+mod ptrace;
 mod record_task;
 mod signal;
 mod wait_status;

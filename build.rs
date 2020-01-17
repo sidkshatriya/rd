@@ -35,13 +35,24 @@ fn main() {
 
     println!("cargo:rerun-if-changed=bindgen/wrapper.h");
 
-    let bindings = Builder::default()
+    let signal_bindings = Builder::default()
         .parse_callbacks(Box::new(CargoCallbacks))
-        .header("bindgen/wrapper.h")
+        .header("bindgen/signal_wrapper.h")
         .generate()
         .unwrap();
 
-    bindings
+    signal_bindings
         .write_to_file(path.join("signal_bindings_generated.rs"))
+        .unwrap();
+
+    let ptrace_bindings = Builder::default()
+        .parse_callbacks(Box::new(CargoCallbacks))
+        .prepend_enum_name(false)
+        .header("bindgen/ptrace_wrapper.h")
+        .generate()
+        .unwrap();
+
+    ptrace_bindings
+        .write_to_file(path.join("ptrace_bindings_generated.rs"))
         .unwrap();
 }

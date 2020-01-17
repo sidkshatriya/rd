@@ -1,13 +1,13 @@
 use crate::kernel_metadata::ptrace_event_name;
 use crate::kernel_metadata::signal_name;
+use crate::ptrace::PTRACE_EVENT_STOP as _PTRACE_EVENT_STOP;
 use crate::record_task::RecordTask;
 use libc::PTRACE_O_TRACESYSGOOD;
 use libc::{SIGSTOP, SIGTRAP};
 use libc::{WEXITSTATUS, WIFEXITED, WIFSIGNALED, WIFSTOPPED, WSTOPSIG, WTERMSIG};
 use std::fmt;
 
-// How to get this from libc?
-const PTRACE_EVENT_STOP: i32 = 128;
+pub const PTRACE_EVENT_STOP: i32 = _PTRACE_EVENT_STOP as i32;
 
 enum Type {
     // Task exited normally.
