@@ -276,8 +276,7 @@ fn sicode_name(code: i32, sig: i32) -> String {
 
     match sig {
         libc::SIGSEGV => case!(code as u32, signal, SEGV_MAPERR, SEGV_ACCERR),
-        // @TODO for some reason this is not picked up.
-        // libc::SIGTRAP => case!(signal, code, TRAP_BRKPT, TRAP_TRACE),
+        libc::SIGTRAP => case!(code as u32, signal, TRAP_BRKPT, TRAP_TRACE),
         libc::SIGILL => case!(
             code as u32,
             signal,
