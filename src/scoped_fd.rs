@@ -10,15 +10,15 @@ pub struct ScopedFd {
 }
 
 impl ScopedFd {
-    fn new() -> Self {
+    pub fn new() -> Self {
         ScopedFd { fd: -1 }
     }
 
-    fn new_from_fd(fd: RawFd) -> Self {
+    pub fn new_from_fd(fd: RawFd) -> Self {
         ScopedFd { fd: fd }
     }
 
-    pub fn new_from_path<P: ?Sized + NixPath>(path: &P, oflag: OFlag, mode: Mode) -> Self {
+    pub fn open_from_path<P: ?Sized + NixPath>(path: &P, oflag: OFlag, mode: Mode) -> Self {
         let rawfd = open(path, oflag, mode).unwrap();
         ScopedFd { fd: rawfd }
     }
@@ -29,6 +29,10 @@ impl ScopedFd {
         }
 
         self.fd = -1;
+    }
+
+    pub fn is_open(&self) -> bool {
+        self.fd >= 0
     }
 
     pub fn get(&self) -> RawFd {

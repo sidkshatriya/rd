@@ -1,1 +1,1 @@
-struct Task;
+pub struct Task;
