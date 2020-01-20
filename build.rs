@@ -33,7 +33,7 @@ fn main() {
         .status()
         .unwrap();
 
-    println!("cargo:rerun-if-changed=bindgen/wrapper.h");
+    println!("cargo:rerun-if-changed=bindgen/signal_wrapper.h");
 
     let signal_bindings = Builder::default()
         .parse_callbacks(Box::new(CargoCallbacks))
@@ -54,5 +54,16 @@ fn main() {
 
     ptrace_bindings
         .write_to_file(path.join("ptrace_bindings_generated.rs"))
+        .unwrap();
+
+    let perf_event_bindings = Builder::default()
+        .parse_callbacks(Box::new(CargoCallbacks))
+        .prepend_enum_name(false)
+        .header("bindgen/perf_event_wrapper.h")
+        .generate()
+        .unwrap();
+
+    perf_event_bindings
+        .write_to_file(path.join("perf_event_bindings_generated.rs"))
         .unwrap();
 }
