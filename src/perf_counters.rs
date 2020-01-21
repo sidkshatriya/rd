@@ -4,6 +4,8 @@ use crate::task::Task;
 use crate::ticks::Ticks;
 use libc::ioctl;
 use nix::unistd::Pid;
+use std::convert::TryInto;
+use std::mem::size_of_val;
 use std::os::unix::io::RawFd;
 
 // @TODO Do we want these as global variables?
@@ -14,17 +16,17 @@ static ticks_attr: perf_event_attr = perf_event_attr {};
 static minus_ticks_attr: perf_event_attr = perf_event_attr;
 static cycles_attr: perf_event_attr = perf_event_attr;
 static hw_interrupts_attr: perf_event_attr = perf_event_attr;
-static pmu_flags: u32 = 0;
 static skid_size: u32 = 0;
-static has_xen_pmi_bug: bool = false;
 static supports_txcp: bool = false;
 static only_one_counter: bool = false;
 static activate_useless_counter: bool = false;
 */
 
+static PMU_FLAGS: PmuFlags = PmuFlags::PMU_ZERO;
 static ATTRIBUTES_INITIALIZED: bool = false;
 static HAS_IOC_PERIOD_BUG: bool = false;
 static HAS_KVM_IN_TXCP_BUG: bool = false;
+static HAS_XEN_PMI_BUG: bool = false;
 
 const NUM_BRANCHES: i32 = 500;
 const RR_SKID_MAXL: i32 = 1000;
@@ -263,6 +265,20 @@ fn always_recreate_counters() -> bool {
     HAS_IOC_PERIOD_BUG || HAS_KVM_IN_TXCP_BUG
 }
 
+fn read_counter(fd: &ScopedFd) -> u64 {
+    let mut val: u64 = 0;
+    // @TODO what about checking for errno?
+    let nread = unsafe {
+        libc::read(
+            **fd,
+            &mut val as *mut u64 as *mut libc::c_void,
+            size_of_val(&val),
+        )
+    };
+    debug_assert!(nread == size_of_val(&val).try_into().unwrap());
+    val
+}
+
 struct PerfCounters {
     // Only valid while 'counting' is true
     counting_period: Ticks,
@@ -362,19 +378,25 @@ impl PerfCounters {
 
     /// Return the number of ticks we need for an emulated branch.
     pub fn ticks_for_unconditional_indirect_branch(task: &Task) -> Ticks {
-        // @TODO.
-        5
+        if PMU_FLAGS & PmuFlags::PMU_TICKS_TAKEN_BRANCHES == PmuFlags::PMU_TICKS_TAKEN_BRANCHES {
+            1
+        } else {
+            0
+        }
     }
 
     /// Return the number of ticks we need for a direct call.
     pub fn ticks_for_direct_call(t: &Task) -> Ticks {
-        // @TODO.
-        5
+        if PMU_FLAGS & PmuFlags::PMU_TICKS_TAKEN_BRANCHES == PmuFlags::PMU_TICKS_TAKEN_BRANCHES {
+            1
+        } else {
+            0
+        }
     }
 
     /// Read the current value of the ticks counter.
     /// `t` is used for debugging purposes.
-    pub fn read_ticks(t: &Task) -> Ticks {
+    pub fn read_ticks(&self, t: &Task) -> Ticks {
         // @TODO.
         5
     }
