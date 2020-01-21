@@ -1,6 +1,9 @@
 #![allow(dead_code)]
 
 #[macro_use]
+extern crate bitflags;
+
+#[macro_use]
 mod kernel_abi;
 mod flags;
 mod kernel_metadata;

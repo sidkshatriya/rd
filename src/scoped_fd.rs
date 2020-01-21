@@ -3,6 +3,7 @@ use nix::fcntl::OFlag;
 use nix::sys::stat::Mode;
 use nix::unistd::close;
 use nix::NixPath;
+use std::ops::Deref;
 use std::os::unix::io::RawFd;
 
 pub struct ScopedFd {
@@ -49,5 +50,13 @@ impl ScopedFd {
 impl Drop for ScopedFd {
     fn drop(&mut self) {
         self.close()
+    }
+}
+
+impl Deref for ScopedFd {
+    type Target = i32;
+
+    fn deref(&self) -> &i32 {
+        &self.fd
     }
 }

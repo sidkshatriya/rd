@@ -1,3 +1,6 @@
 #define _GNU_SOURCE
 
 #include <linux/perf_event.h>
+
+const __u64 PERF_EVENT_IOC_ENABLE_ = PERF_EVENT_IOC_ENABLE;
+const __u64 PERF_EVENT_IOC_DISABLE_ = PERF_EVENT_IOC_DISABLE;
