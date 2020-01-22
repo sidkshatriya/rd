@@ -3,3 +3,4 @@
 .vscode
 **/*generated.rs
 **/__pycache__
+.idea
