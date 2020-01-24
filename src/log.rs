@@ -213,55 +213,66 @@ pub fn log(
     NewLineTerminatingOstream::new(log_level, filename, line, module_path)
 }
 
+/// Outputs to (possibly write buffered) log file (or stderr if no log file was specified)
+/// After this program continues normally.
 macro_rules! log {
-    ($log_level:expr, $($args:tt)*) => {{
-        use std::io::Write;
-        let mut stream = crate::log::log(
-            $log_level,
-            file!(),
-            line!(),
-            module_path!()
-        );
-        write!(stream, $($args)*).unwrap()
-    }};
-}
-
-macro_rules! fatal {
-    ($($args:tt)+) => {{
+    ($log_level:expr, $($args:tt)*) => {
         {
             use std::io::Write;
-            use crate::log::LogFatal;
             let mut stream = crate::log::log(
-                LogFatal,
+                $log_level,
                 file!(),
                 line!(),
                 module_path!()
             );
-            write!(stream, $($args)+).unwrap();
+            write!(stream, $($args)*).unwrap()
         }
-        crate::log::notifying_abort(backtrace::Backtrace::new());
-    }};
+    };
 }
 
+/// Outputs to (possibly write buffered) log file (or stderr if no log file was specified)
+/// Prints out the backtrace to stderr and aborts.
+macro_rules! fatal {
+    ($($args:tt)+) => {
+        {
+            {
+                use std::io::Write;
+                use crate::log::LogFatal;
+                let mut stream = crate::log::log(
+                    LogFatal,
+                    file!(),
+                    line!(),
+                    module_path!()
+                );
+                write!(stream, $($args)+).unwrap();
+            }
+            crate::log::notifying_abort(backtrace::Backtrace::new());
+        }
+    };
+}
+
+/// Output to stderr always. No backtrace -- simply exit.
 macro_rules! clean_fatal {
-    ($($args:tt)+) => {{
+    ($($args:tt)+) => {
         use std::io::Write;
         use std::io::stderr;
         crate::log::write_prefix(&mut stderr(), LogFatal, file!(), line!(), module_path!());
         write!(stderr(), $($args)+).unwrap();
         write!(stderr(), "\n").unwrap();
         std::process::exit(1);
-    }};
+    };
 }
 
+/// Dump the stacktrace and abort.
 pub fn notifying_abort(bt: Backtrace) {
     // @TODO running under test monitor stuff.
-    dump_rr_stack(bt);
+    dump_rd_stack(bt);
     std::process::abort();
 }
 
-fn dump_rr_stack(bt: Backtrace) {
-    write!(io::stderr(), "=== Start rr backtrace:\n").unwrap();
+/// Write the backtrace to stderr.
+fn dump_rd_stack(bt: Backtrace) {
+    write!(io::stderr(), "=== Start rd backtrace:\n").unwrap();
     write!(io::stderr(), "{:?}", bt).unwrap();
-    write!(io::stderr(), "=== End rr backtrace\n").unwrap();
+    write!(io::stderr(), "=== End rd backtrace\n").unwrap();
 }
