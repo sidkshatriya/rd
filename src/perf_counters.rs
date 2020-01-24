@@ -12,9 +12,10 @@ use std::io::Write;
 use std::mem::size_of_val;
 use std::os::unix::io::RawFd;
 
-// @TODO Do we want these as global variables?
 // At some point we might support multiple kinds of ticks for the same CPU arch.
 // At that point this will need to become more complicated.
+
+// @TODO Do we want these as global variables?
 /*
 static ticks_attr: perf_event_attr = perf_event_attr {};
 static minus_ticks_attr: perf_event_attr = perf_event_attr;
@@ -52,23 +53,23 @@ bitflags! {
     struct PmuFlags: u32 {
         const PMU_ZERO = 0;
 
-        // Set if this CPU supports ticks counting retired conditional branches.
+        /// Set if this CPU supports ticks counting retired conditional branches.
         const PMU_TICKS_RCB = 1<<0;
 
-        // Some CPUs turn off the whole PMU when there are no remaining events
-        // scheduled (perhaps as a power consumption optimization). This can be a
-        // very expensive operation, and is thus best avoided. For cpus, where this
-        // is a problem, we keep a cycles counter (which corresponds to one of the
-        // fixed function counters, so we don't use up a programmable PMC) that we
-        // don't otherwise use, but keeps the PMU active, greatly increasing
-        // performance.
+        /// Some CPUs turn off the whole PMU when there are no remaining events
+        /// scheduled (perhaps as a power consumption optimization). This can be a
+        /// very expensive operation, and is thus best avoided. For cpus, where this
+        /// is a problem, we keep a cycles counter (which corresponds to one of the
+        /// fixed function counters, so we don't use up a programmable PMC) that we
+        /// don't otherwise use, but keeps the PMU active, greatly increasing
+        /// performance.
         const PMU_BENEFITS_FROM_USELESS_COUNTER = 1<<1;
 
-        // Whether to skip the check for Intel CPU bugs
+        /// Whether to skip the check for Intel CPU bugs
         const PMU_SKIP_INTEL_BUG_CHECK = 1<<2;
 
-        // Set if this CPU supports ticks counting all taken branches
-        // (excluding interrupts, far branches, and rets).
+        /// Set if this CPU supports ticks counting all taken branches
+        /// (excluding interrupts, far branches, and rets).
         const PMU_TICKS_TAKEN_BRANCHES = 1<<3;
 
         const PMU_TICKS_TAKEN_BRANCHES_WITH_SKIP_INTEL_BUG_CHECK =
