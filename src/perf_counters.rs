@@ -166,7 +166,7 @@ fn get_cpu_microarch() -> CpuMicroarch {
              For post-Ryzen CPUs, please file a Github issue."
         );
     } else {
-        clean_fatal!("Intel CPU type {:x} unknown", cpu_type);
+        clean_fatal!("Intel CPU type {:#x} unknown", cpu_type);
     }
 
     UnknownCpu // not reached

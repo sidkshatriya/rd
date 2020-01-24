@@ -61,7 +61,7 @@ impl WaitStatus {
             return PtraceEvent;
         }
 
-        fatal!("Status {:x} not understood", self.status);
+        fatal!("Status {:#x} not understood", self.status);
 
         return Exit;
     }
@@ -197,7 +197,7 @@ impl WaitStatus {
 
 impl fmt::Display for WaitStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:x}", self.status)?;
+        write!(f, "{:#x}", self.status)?;
         match self.wait_type() {
             Exit => write!(f, " (EXIT-{})", self.exit_code().unwrap()),
             FatalSignal => write!(f, " (FATAL-{})", signal_name(self.fatal_sig().unwrap())),
