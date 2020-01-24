@@ -1,3 +1,4 @@
+use backtrace::Backtrace;
 use std::collections::HashMap;
 use std::fs::File;
 use std::fs::OpenOptions;
@@ -137,7 +138,8 @@ impl NewLineTerminatingOstream {
     ) -> NewLineTerminatingOstream {
         let mut lock = LOG_GLOBALS.lock().unwrap();
         let m = get_log_module(filename, &mut lock);
-        let enabled = level <= m.level;
+        // @TODO. Cannot ignore LogFatal. Make sure of consistency with rr.
+        let enabled = level == LogFatal || level <= m.level;
         let mut this = NewLineTerminatingOstream {
             message: Vec::new(),
             enabled,
@@ -222,4 +224,32 @@ macro_rules! log {
         );
         write!(stream, $($args)*).unwrap()
     }};
+}
+
+macro_rules! fatal {
+    ($($args:tt)+) => {{
+        {
+            use std::io::Write;
+            let mut stream = crate::log::log(
+                LogFatal,
+                file!(),
+                line!(),
+                module_path!()
+            );
+            write!(stream, $($args)+).unwrap();
+        }
+        log::notifying_abort(backtrace::Backtrace::new());
+    }};
+}
+
+pub fn notifying_abort(bt: Backtrace) {
+    // @TODO running under test monitor stuff.
+    dump_rr_stack(bt);
+    std::process::abort();
+}
+
+fn dump_rr_stack(bt: Backtrace) {
+    write!(io::stderr(), "=== Start rr backtrace:\n").unwrap();
+    write!(io::stderr(), "{:?}", bt).unwrap();
+    write!(io::stderr(), "=== End rr backtrace\n").unwrap();
 }
