@@ -158,7 +158,7 @@ impl NewLineTerminatingOstream {
     }
 }
 
-fn write_prefix(
+pub fn write_prefix(
     stream: &mut dyn Write,
     level: LogLevel,
     filename: &str,
@@ -240,6 +240,17 @@ macro_rules! fatal {
             write!(stream, $($args)+).unwrap();
         }
         crate::log::notifying_abort(backtrace::Backtrace::new());
+    }};
+}
+
+macro_rules! clean_fatal {
+    ($($args:tt)+) => {{
+        use std::io::Write;
+        use std::io::stderr;
+        crate::log::write_prefix(&mut stderr(), LogFatal, file!(), line!(), module_path!());
+        write!(stderr(), $($args)+).unwrap();
+        write!(stderr(), "\n").unwrap();
+        std::process::exit(1);
     }};
 }
 
