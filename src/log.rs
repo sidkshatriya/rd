@@ -230,6 +230,7 @@ macro_rules! fatal {
     ($($args:tt)+) => {{
         {
             use std::io::Write;
+            use crate::log::LogFatal;
             let mut stream = crate::log::log(
                 LogFatal,
                 file!(),
@@ -238,7 +239,7 @@ macro_rules! fatal {
             );
             write!(stream, $($args)+).unwrap();
         }
-        log::notifying_abort(backtrace::Backtrace::new());
+        crate::log::notifying_abort(backtrace::Backtrace::new());
     }};
 }
 

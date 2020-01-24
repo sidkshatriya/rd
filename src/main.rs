@@ -27,5 +27,5 @@ use log::LogLevel::*;
 
 fn main() {
     println!("Hello, world!");
-    fatal!("{}", "hello!");
+    log!(LogError, "{}", "hello!");
 }

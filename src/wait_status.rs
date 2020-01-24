@@ -61,7 +61,7 @@ impl WaitStatus {
             return PtraceEvent;
         }
 
-        // @TODO port FATAL() macro and call.
+        fatal!("Status {:x} not understood", self.status);
 
         return Exit;
     }
