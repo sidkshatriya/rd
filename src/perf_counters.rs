@@ -1,10 +1,14 @@
+use crate::log::*;
 use crate::perf_event::{PERF_EVENT_IOC_DISABLE, PERF_EVENT_IOC_ENABLE};
 use crate::scoped_fd::ScopedFd;
 use crate::task::Task;
 use crate::ticks::Ticks;
 use libc::ioctl;
 use nix::unistd::Pid;
+use raw_cpuid::CpuId;
 use std::convert::TryInto;
+use std::io::stderr;
+use std::io::Write;
 use std::mem::size_of_val;
 use std::os::unix::io::RawFd;
 
@@ -24,9 +28,14 @@ static activate_useless_counter: bool = false;
 
 static PMU_FLAGS: PmuFlags = PmuFlags::PMU_ZERO;
 static ATTRIBUTES_INITIALIZED: bool = false;
-static HAS_IOC_PERIOD_BUG: bool = false;
-static HAS_KVM_IN_TXCP_BUG: bool = false;
-static HAS_XEN_PMI_BUG: bool = false;
+lazy_static! {
+    static ref HAS_IOC_PERIOD_BUG: bool = false;
+}
+
+// @TODO for now we just hardcode this.
+const HAS_KVM_IN_TXCP_BUG: bool = false;
+const HAS_XEN_PMI_BUG: bool = false;
+// end hardcode.
 
 const NUM_BRANCHES: i32 = 500;
 const RR_SKID_MAXL: i32 = 1000;
@@ -77,6 +86,7 @@ enum TicksSemantics {
 /// Full list of CPUIDs at http://sandpile.org/x86/cpuid.htm
 /// Another list at
 /// http://software.intel.com/en-us/articles/intel-architecture-and-processor-identification-with-cpuid-model-and-family-numbers
+#[derive(Copy, Clone, Debug)]
 enum CpuMicroarch {
     UnknownCpu,
     IntelMerom,
@@ -97,6 +107,70 @@ enum CpuMicroarch {
 }
 
 use CpuMicroarch::*;
+
+/// Return the detected, known microarchitecture of this CPU, or don't
+/// return; i.e. never return UnknownCpu.
+fn get_cpu_microarch() -> CpuMicroarch {
+    // @TODO forced micro arch from command line options.
+    let cpuid = CpuId::new();
+    let vendor_info_string = cpuid.get_vendor_info().unwrap().as_string().to_owned();
+
+    if vendor_info_string != "GenuineIntel" && vendor_info_string != "AuthenticAMD" {
+        clean_fatal!("Unknown CPU vendor '{}'", vendor_info_string);
+    }
+
+    let cpuid_data = cpuid.get_feature_info().unwrap();
+    // let cpu_type : u32 = cpuid_data.eax & 0xF0FF0;
+    let cpu_type: u32 = ((cpuid_data.model_id() as u32) << 4)
+        + ((cpuid_data.family_id() as u32) << 8)
+        + ((cpuid_data.extended_model_id() as u32) << 16);
+    let ext_family: u8 = cpuid_data.extended_family_id();
+    match cpu_type {
+        0x006F0 | 0x10660 => return IntelMerom,
+        0x10670 | 0x106D0 => return IntelPenryn,
+        0x106A0 | 0x106E0 | 0x206E0 => return IntelNehalem,
+        0x20650 | 0x206C0 | 0x206F0 => return IntelWestmere,
+        0x206A0 | 0x206D0 | 0x306e0 => return IntelSandyBridge,
+        0x306A0 => return IntelIvyBridge,
+        0x306C0 | 0x306F0 | 0x40650 | 0x40660 => return IntelHaswell,
+        0x306D0 | 0x40670 | 0x406F0 | 0x50660 => return IntelBroadwell,
+        0x406e0 | 0x50650 | 0x506e0 => return IntelSkylake,
+        0x30670 | 0x406c0 | 0x50670 => return IntelSilvermont,
+        0x506f0 => return IntelGoldmont,
+        0x806e0 | 0x906e0 => return IntelKabylake,
+        0xa0660 => return IntelCometlake,
+        0x30f00 => return AMDF15R30,
+        0x00f10 => {
+            if ext_family == 8 {
+                // @TODO Supress environment warnings.
+                write!(
+                    stderr(),
+                    "You have a Ryzen CPU. The Ryzen\n\
+                     retired-conditional-branches hardware\n\
+                     performance counter is not accurate enough; rr will\n\
+                     be unreliable.\n\
+                     See https://github.com/mozilla/rr/issues/2034.\n"
+                )
+                .unwrap();
+                // }
+                return AMDRyzen;
+            }
+        }
+        _ => (),
+    }
+
+    if vendor_info_string == "AuthenticAMD" {
+        clean_fatal!(
+            "AMD CPUs not supported.\n\
+             For Ryzen, see https://github.com/mozilla/rr/issues/2034.\n\
+             For post-Ryzen CPUs, please file a Github issue."
+        );
+    } else {
+        clean_fatal!("Intel CPU type {:x} unknown", cpu_type);
+    }
+
+    UnknownCpu // not reached
+}
 
 /// XXX please only edit this if you really know what you're doing.
 /// event = 0x5101c4:
@@ -262,7 +336,7 @@ struct PmuConfig {
 fn always_recreate_counters() -> bool {
     // When we have the KVM IN_TXCP bug, reenabling the TXCP counter after
     // disabling it does not work.
-    HAS_IOC_PERIOD_BUG || HAS_KVM_IN_TXCP_BUG
+    *HAS_IOC_PERIOD_BUG || HAS_KVM_IN_TXCP_BUG
 }
 
 fn read_counter(fd: &ScopedFd) -> u64 {
