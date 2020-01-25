@@ -8,6 +8,7 @@ use crate::task::Task;
 use crate::ticks::Ticks;
 use crate::util::*;
 use libc::ioctl;
+use nix::errno::errno;
 use nix::unistd::Pid;
 use raw_cpuid::CpuId;
 use std::convert::TryInto;
@@ -109,6 +110,7 @@ use CpuMicroarch::*;
 
 /// Return the detected, known microarchitecture of this CPU, or don't
 /// return; i.e. never return UnknownCpu.
+#[allow(unreachable_code)]
 fn get_cpu_microarch() -> CpuMicroarch {
     // @TODO forced micro arch from command line options.
     let cpuid = CpuId::new();
@@ -454,6 +456,73 @@ fn read_counter(fd: &ScopedFd) -> u64 {
     };
     debug_assert!(nread == size_of_val(&val).try_into().unwrap());
     val
+}
+
+fn start_counter(tid: Pid, group_fd: i32, attr: &mut perf_event_attr) -> (ScopedFd, bool) {
+    let mut disabled_txcp = false;
+
+    attr.set_pinned(0);
+    if group_fd == -1 {
+        attr.set_pinned(1);
+    }
+
+    let mut fd: i32 = unsafe {
+        libc::syscall(libc::SYS_perf_event_open, attr as *mut perf_event_attr, tid, -1, group_fd, 0) as i32
+    };
+    if 0 >= fd
+        && errno() == libc::EINVAL
+        && attr.type_ == PERF_TYPE_RAW
+        && (attr.config & IN_TXCP == IN_TXCP)
+    {
+        // The kernel might not support IN_TXCP, so try again without it.
+        let mut tmp_attr: perf_event_attr = *attr;
+        tmp_attr.config = tmp_attr.config & !IN_TXCP;
+        fd = unsafe {
+            libc::syscall(
+                libc::SYS_perf_event_open,
+                &mut tmp_attr,
+                tid,
+                -1,
+                group_fd,
+                0,
+            ) as i32
+        };
+        if fd >= 0 {
+            disabled_txcp = true;
+
+            log!(LogWarn, "kernel does not support IN_TXCP");
+            let cpuid = CpuId::new();
+            // @TODO. Check for supress environmental warnings.
+            if cpuid.get_extended_feature_info().unwrap().has_hle() {
+                write!(
+                    stderr(),
+                    "Your CPU supports Hardware Lock Elision but your kernel does\n\
+                     not support setting the IN_TXCP PMU flag. Record and replay\n\
+                     of code that uses HLE will fail unless you update your\n\
+                     kernel.\n"
+                )
+                .unwrap();
+            }
+        }
+    }
+
+    if 0 >= fd {
+        if errno() == libc::EACCES {
+            fatal!(
+                "Permission denied to use 'perf_event_open'; are perf events \n\
+                 enabled? Try 'perf record'."
+            );
+        }
+        if errno() == libc::ENOENT {
+            fatal!(
+                "Unable to open performance counter with 'perf_event_open'; \n\
+                 are perf events enabled? Try 'perf record'."
+            );
+        }
+        fatal!("Failed to initialize counter");
+    }
+
+    (ScopedFd::new_from_fd(fd), disabled_txcp)
 }
 
 struct PerfCounters {
