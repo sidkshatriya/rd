@@ -37,7 +37,7 @@ const HAS_KVM_IN_TXCP_BUG: bool = false;
 const HAS_XEN_PMI_BUG: bool = false;
 // end hardcode.
 
-const NUM_BRANCHES: i32 = 500;
+const NUM_BRANCHES: u64 = 500;
 const RD_SKID_MAX: u32 = 1000;
 const PERF_COUNT_RD: u32 = 0x72727272;
 
@@ -211,8 +211,8 @@ fn get_init_attributes() -> PmuAttributes {
     }
 
     let pmu = maybe_pmu.unwrap();
-    if !(pmu.flags & (PmuFlags::PMU_TICKS_RCB | PmuFlags::PMU_TICKS_TAKEN_BRANCHES)
-        == (PmuFlags::PMU_TICKS_RCB | PmuFlags::PMU_TICKS_TAKEN_BRANCHES))
+    if !((pmu.flags & PmuFlags::PMU_TICKS_RCB == PmuFlags::PMU_TICKS_RCB)
+        || (pmu.flags & PmuFlags::PMU_TICKS_TAKEN_BRANCHES == PmuFlags::PMU_TICKS_TAKEN_BRANCHES))
     {
         fatal!("Microarchitecture `{}' currently unsupported.", pmu.name);
     }
@@ -467,7 +467,14 @@ fn start_counter(tid: Pid, group_fd: i32, attr: &mut perf_event_attr) -> (Scoped
     }
 
     let mut fd: i32 = unsafe {
-        libc::syscall(libc::SYS_perf_event_open, attr as *mut perf_event_attr, tid, -1, group_fd, 0) as i32
+        libc::syscall(
+            libc::SYS_perf_event_open,
+            attr as *mut perf_event_attr,
+            tid.as_raw(),
+            -1,
+            group_fd,
+            0,
+        ) as i32
     };
     if 0 >= fd
         && errno() == libc::EINVAL
@@ -481,7 +488,7 @@ fn start_counter(tid: Pid, group_fd: i32, attr: &mut perf_event_attr) -> (Scoped
             libc::syscall(
                 libc::SYS_perf_event_open,
                 &mut tmp_attr,
-                tid,
+                tid.as_raw(),
                 -1,
                 group_fd,
                 0,
@@ -523,6 +530,74 @@ fn start_counter(tid: Pid, group_fd: i32, attr: &mut perf_event_attr) -> (Scoped
     }
 
     (ScopedFd::new_from_fd(fd), disabled_txcp)
+}
+
+// @TODO not sure if this is ported properly.
+fn do_branches() -> u32 {
+    // Do NUM_BRANCHES conditional branches that can't be optimized out.
+    // 'accumulator' is always odd and can't be zero
+    let mut accumulator: u32 = (unsafe { libc::rand() } as u32) * 2 + 1;
+    for _ in 0..NUM_BRANCHES {
+        if accumulator == 0 {
+            break;
+        }
+        accumulator = ((((accumulator as u64) * 7) + 2) & 0xffffff) as u32;
+    }
+
+    accumulator
+}
+
+fn check_working_counters() {
+    let mut attr = PMU_ATTRIBUTES.ticks_attr;
+    attr.__bindgen_anon_1.sample_period = 0;
+
+    let mut attr2 = PMU_ATTRIBUTES.cycles_attr.unwrap();
+    // @TODO check
+    attr2.__bindgen_anon_1.sample_period = 0;
+
+    let (fd, _) = start_counter(Pid::from_raw(0), -1, &mut attr);
+    let (fd2, _) = start_counter(Pid::from_raw(0), -1, &mut attr2);
+    do_branches();
+    let events = read_counter(&fd);
+    let events2 = read_counter(&fd2);
+
+    // @TODO the perf stat command does not seem to be correct.
+    if events < NUM_BRANCHES {
+        fatal!(
+            "\nGot {} branch events, expected at least {}.\n\n\
+             The hardware performance counter seems to not be working. Check\n\
+             that hardware performance counters are working by running:\n\
+             perf stat --event=r{:#x} true\n\
+             in a linux shell and checking that it reports a nonzero number of events.\n\
+             If performance counters seem to be working with 'perf', file an\n\
+             rd issue, otherwise check your hardware/OS/VM configuration. Also\n\
+             check that other software is not using performance counters on\n\
+             this CPU.",
+            events,
+            NUM_BRANCHES,
+            PMU_ATTRIBUTES.ticks_attr.config
+        );
+    }
+
+    let mut only_one_counter = false;
+    if events2 == 0 {
+        only_one_counter = true;
+    }
+    log!(LogWarn, "only_one_counter={}", only_one_counter);
+    let cpuid = CpuId::new();
+
+    // @TODO. Check for suppress environmental warnings.
+    if only_one_counter && cpuid.get_extended_feature_info().unwrap().has_hle() {
+        write!(
+            stderr(),
+            "Your CPU supports Hardware Lock Elision but you only have one\n\
+             hardware performance counter available. Record and replay\n\
+             of code that uses HLE will fail unless you alter your\n\
+             configuration to make more than one hardware performance counter\n\
+             available.\n"
+        )
+        .unwrap();
+    }
 }
 
 struct PerfCounters {
