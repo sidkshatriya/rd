@@ -19,6 +19,7 @@ mod scoped_fd;
 mod signal;
 mod task;
 mod ticks;
+mod util;
 mod wait_status;
 mod x64_arch;
 mod x86_arch;

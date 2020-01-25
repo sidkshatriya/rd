@@ -1,8 +1,12 @@
 use crate::log::*;
+use crate::perf_event::perf_event_attr;
+use crate::perf_event::perf_type_id;
+use crate::perf_event::{PERF_COUNT_HW_CPU_CYCLES, PERF_TYPE_HARDWARE, PERF_TYPE_RAW};
 use crate::perf_event::{PERF_EVENT_IOC_DISABLE, PERF_EVENT_IOC_ENABLE};
 use crate::scoped_fd::ScopedFd;
 use crate::task::Task;
 use crate::ticks::Ticks;
+use crate::util::*;
 use libc::ioctl;
 use nix::unistd::Pid;
 use raw_cpuid::CpuId;
@@ -10,27 +14,21 @@ use std::convert::TryInto;
 use std::io::stderr;
 use std::io::Write;
 use std::mem::size_of_val;
+use std::mem::zeroed;
 use std::os::unix::io::RawFd;
 
 // At some point we might support multiple kinds of ticks for the same CPU arch.
 // At that point this will need to become more complicated.
 
-// @TODO Do we want these as global variables?
-/*
-static ticks_attr: perf_event_attr = perf_event_attr {};
-static minus_ticks_attr: perf_event_attr = perf_event_attr;
-static cycles_attr: perf_event_attr = perf_event_attr;
-static hw_interrupts_attr: perf_event_attr = perf_event_attr;
-static skid_size: u32 = 0;
-static supports_txcp: bool = false;
-static only_one_counter: bool = false;
-static activate_useless_counter: bool = false;
-*/
+// @TODO Pending possible globals
+// static supports_txcp: bool = false;
+// static only_one_counter: bool = false;
+// end pending possible globals
 
-static PMU_FLAGS: PmuFlags = PmuFlags::PMU_ZERO;
-static ATTRIBUTES_INITIALIZED: bool = false;
 lazy_static! {
+    // @TODO need code to check for ioc period bug. Hardcoded for now.
     static ref HAS_IOC_PERIOD_BUG: bool = false;
+    static ref PMU_ATTRIBUTES: PmuAttributes = get_init_attributes();
 }
 
 // @TODO for now we just hardcode this.
@@ -39,8 +37,8 @@ const HAS_XEN_PMI_BUG: bool = false;
 // end hardcode.
 
 const NUM_BRANCHES: i32 = 500;
-const RR_SKID_MAXL: i32 = 1000;
-const PERF_COUNT_RR: i32 = 0x72727272;
+const RD_SKID_MAX: u32 = 1000;
+const PERF_COUNT_RD: u32 = 0x72727272;
 
 /// This choice is fairly arbitrary; linux doesn't use SIGSTKFLT so we
 /// hope that tracees don't either.
@@ -87,7 +85,7 @@ enum TicksSemantics {
 /// Full list of CPUIDs at http://sandpile.org/x86/cpuid.htm
 /// Another list at
 /// http://software.intel.com/en-us/articles/intel-architecture-and-processor-identification-with-cpuid-model-and-family-numbers
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 enum CpuMicroarch {
     UnknownCpu,
     IntelMerom,
@@ -171,6 +169,110 @@ fn get_cpu_microarch() -> CpuMicroarch {
     }
 
     UnknownCpu // not reached
+}
+
+/// @TODO.
+fn check_for_bugs() {}
+
+/// init_perf_event_attr() in rr.
+fn new_perf_event_attr(type_id: perf_type_id, config: u64) -> perf_event_attr {
+    let mut attr: perf_event_attr = unsafe { zeroed() };
+    attr.type_ = type_id;
+    attr.size = size_of_val(&attr) as u32;
+    attr.config = config;
+    // rr requires that its events count userspace tracee code
+    // only.
+    attr.set_exclude_kernel(1);
+    attr.set_exclude_guest(1);
+    attr
+}
+
+struct PmuAttributes {
+    pmu_flags: PmuFlags,
+    skid_size: u32,
+    ticks_attr: perf_event_attr,
+    hw_interrupts_attr: Option<perf_event_attr>,
+    cycles_attr: Option<perf_event_attr>,
+    minus_ticks_attr: Option<perf_event_attr>,
+    activate_useless_counter: Option<bool>,
+}
+
+/// Gets the values for the lazy_static! global PMU_ATTRIBUTES.
+fn get_init_attributes() -> PmuAttributes {
+    let uarch = get_cpu_microarch();
+    let mut maybe_pmu: Option<&PmuConfig> = None;
+    for config in &PMU_CONFIGS {
+        if uarch == config.uarch {
+            maybe_pmu = Some(config);
+            break;
+        }
+    }
+
+    let pmu = maybe_pmu.unwrap();
+    if !(pmu.flags & (PmuFlags::PMU_TICKS_RCB | PmuFlags::PMU_TICKS_TAKEN_BRANCHES)
+        == (PmuFlags::PMU_TICKS_RCB | PmuFlags::PMU_TICKS_TAKEN_BRANCHES))
+    {
+        fatal!("Microarchitecture `{}' currently unsupported.", pmu.name);
+    }
+
+    let pmu_flags;
+    let skid_size;
+    let ticks_attr;
+    let mut hw_interrupts_attr = None;
+    let mut cycles_attr = None;
+    let mut minus_ticks_attr = None;
+    let mut activate_useless_counter = None;
+    if running_under_rd() {
+        ticks_attr = new_perf_event_attr(PERF_TYPE_HARDWARE, PERF_COUNT_RD as u64);
+        skid_size = RD_SKID_MAX;
+        pmu_flags = pmu.flags & (PmuFlags::PMU_TICKS_RCB | PmuFlags::PMU_TICKS_TAKEN_BRANCHES);
+    } else {
+        skid_size = pmu.skid_size;
+        pmu_flags = pmu.flags;
+        ticks_attr = new_perf_event_attr(PERF_TYPE_RAW, pmu.rcb_cntr_event as u64);
+        if pmu.minus_ticks_cntr_event != 0 {
+            minus_ticks_attr = Some(new_perf_event_attr(
+                PERF_TYPE_RAW,
+                pmu.minus_ticks_cntr_event as u64,
+            ));
+        }
+
+        cycles_attr = Some(new_perf_event_attr(
+            PERF_TYPE_HARDWARE,
+            PERF_COUNT_HW_CPU_CYCLES as u64,
+        ));
+        let mut hw_interrupts_attr_bare =
+            new_perf_event_attr(PERF_TYPE_RAW, pmu.hw_intr_cntr_event as u64);
+        // libpfm encodes the event with this bit set, so we'll do the
+        // same thing.  Unclear if necessary.
+        hw_interrupts_attr_bare.set_exclude_hv(1);
+        hw_interrupts_attr = Some(hw_interrupts_attr_bare);
+
+        if !(pmu_flags & PmuFlags::PMU_SKIP_INTEL_BUG_CHECK == PmuFlags::PMU_SKIP_INTEL_BUG_CHECK) {
+            check_for_bugs();
+        }
+
+        // For maintainability, and since it doesn't impact performance when not
+        // needed, we always activate this. If it ever turns out to be a problem,
+        // this can be set to pmu->flags & PMU_BENEFITS_FROM_USELESS_COUNTER,
+        // instead.
+        //
+        // We also disable this counter when running under rr. Even though it's the
+        // same event for the same task as the outer rr, the linux kernel does not
+        // coalesce them and tries to schedule the new one on a general purpose PMC.
+        // On CPUs with only 2 general PMCs (e.g. KNL), we'd run out.
+        activate_useless_counter = Some(*HAS_IOC_PERIOD_BUG && !running_under_rd());
+    }
+
+    PmuAttributes {
+        pmu_flags,
+        skid_size,
+        ticks_attr,
+        hw_interrupts_attr,
+        cycles_attr,
+        minus_ticks_attr,
+        activate_useless_counter,
+    }
 }
 
 /// XXX please only edit this if you really know what you're doing.
@@ -453,7 +555,9 @@ impl PerfCounters {
 
     /// Return the number of ticks we need for an emulated branch.
     pub fn ticks_for_unconditional_indirect_branch(task: &Task) -> Ticks {
-        if PMU_FLAGS & PmuFlags::PMU_TICKS_TAKEN_BRANCHES == PmuFlags::PMU_TICKS_TAKEN_BRANCHES {
+        if PMU_ATTRIBUTES.pmu_flags & PmuFlags::PMU_TICKS_TAKEN_BRANCHES
+            == PmuFlags::PMU_TICKS_TAKEN_BRANCHES
+        {
             1
         } else {
             0
@@ -462,7 +566,9 @@ impl PerfCounters {
 
     /// Return the number of ticks we need for a direct call.
     pub fn ticks_for_direct_call(t: &Task) -> Ticks {
-        if PMU_FLAGS & PmuFlags::PMU_TICKS_TAKEN_BRANCHES == PmuFlags::PMU_TICKS_TAKEN_BRANCHES {
+        if PMU_ATTRIBUTES.pmu_flags & PmuFlags::PMU_TICKS_TAKEN_BRANCHES
+            == PmuFlags::PMU_TICKS_TAKEN_BRANCHES
+        {
             1
         } else {
             0

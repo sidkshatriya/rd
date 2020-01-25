@@ -36,8 +36,8 @@ struct LogGlobals {
 
 lazy_static! {
     static ref LOG_GLOBALS: Mutex<LogGlobals> = {
-        let maybe_filename = option_env!("RR_LOG_FILE");
-        let maybe_append_filename = option_env!("R_APPEND_LOG_FILE");
+        let maybe_filename = option_env!("RD_LOG_FILE");
+        let maybe_append_filename = option_env!("RD_APPEND_LOG_FILE");
         let mut f: Box<dyn Write + Sync + Send>;
         // @TODO what about atexit flush log file??
         if let Some(filename) = maybe_filename {
@@ -48,7 +48,7 @@ lazy_static! {
             f = Box::new(io::stderr());
         }
 
-        let maybe_buf_size = option_env!("RR_LOG_BUFFER");
+        let maybe_buf_size = option_env!("RD_LOG_BUFFER");
         if let Some(buf_size) = maybe_buf_size {
             // @TODO. Will panic -- nicer way for error?
             let log_buffer_size = buf_size.parse::<usize>().unwrap();
