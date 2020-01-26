@@ -23,18 +23,15 @@ use std::os::unix::io::RawFd;
 // At that point this will need to become more complicated.
 
 // @TODO Pending possible globals
-// static supports_txcp: bool = false;
 // static only_one_counter: bool = false;
 // end pending possible globals
 
 lazy_static! {
-    // @TODO need code to check for ioc period bug. Hardcoded for now.
-    static ref HAS_IOC_PERIOD_BUG: bool = false;
+    static ref PMU_BUGS_AND_EXTRA: PmuBugsAndExtra = check_for_bugs_and_extra();
     static ref PMU_ATTRIBUTES: PmuAttributes = get_init_attributes();
 }
 
 // @TODO for now we just hardcode this.
-const HAS_KVM_IN_TXCP_BUG: bool = false;
 const HAS_XEN_PMI_BUG: bool = false;
 // end hardcode.
 
@@ -174,11 +171,59 @@ fn get_cpu_microarch() -> CpuMicroarch {
     UnknownCpu // not reached
 }
 
-/// @TODO.
-fn check_for_bugs() {}
+struct PmuBugsAndExtra {
+    has_ioc_period_bug: bool,
+    supports_txcp: bool,
+    has_kvm_in_txcp_bug: bool,
+    activate_useless_counter: bool,
+    only_one_counter: bool,
+}
+
+/// check_for_bugs() in rr.
+fn check_for_bugs_and_extra() -> PmuBugsAndExtra {
+    let has_ioc_period_bug;
+    let supports_txcp;
+    let has_kvm_in_txcp_bug;
+    let only_one_counter;
+
+    if PMU_ATTRIBUTES.pmu_flags & PmuFlags::PMU_SKIP_INTEL_BUG_CHECK
+        == PmuFlags::PMU_SKIP_INTEL_BUG_CHECK
+    {
+        // Set some defaults since we're not checking the CPU.
+        has_ioc_period_bug = false;
+        supports_txcp = false;
+        has_kvm_in_txcp_bug = false;
+        // @TODO is this a reasonable default? Should this be true?
+        // In rr, it seems that only_one_counter = false by default.
+        only_one_counter = false;
+    } else {
+        has_ioc_period_bug = system_has_ioc_period_bug();
+        let res = supports_txp_and_has_kvm_in_txcp_bug();
+        supports_txcp = res.0;
+        has_kvm_in_txcp_bug = res.1;
+        only_one_counter = check_working_counters();
+    }
+    // For maintainability, and since it doesn't impact performance when not
+    // needed, we always activate this. If it ever turns out to be a problem,
+    // this can be set to pmu->flags & PMU_BENEFITS_FROM_USELESS_COUNTER,
+    // instead.
+    //
+    // We also disable this counter when running under rr. Even though it's the
+    // same event for the same task as the outer rr, the linux kernel does not
+    // coalesce them and tries to schedule the new one on a general purpose PMC.
+    // On CPUs with only 2 general PMCs (e.g. KNL), we'd run out.
+    let activate_useless_counter = has_ioc_period_bug && !running_under_rd();
+    PmuBugsAndExtra {
+        has_ioc_period_bug,
+        supports_txcp,
+        has_kvm_in_txcp_bug,
+        activate_useless_counter,
+        only_one_counter,
+    }
+}
 
 /// check_for_ioc_period_bug() in rr
-fn has_ioc_period_bug() -> bool {
+fn system_has_ioc_period_bug() -> bool {
     // Start a cycles counter
     let mut attr: perf_event_attr = PMU_ATTRIBUTES.ticks_attr;
     attr.__bindgen_anon_1.sample_period = 0xffffffff;
@@ -254,7 +299,6 @@ struct PmuAttributes {
     hw_interrupts_attr: Option<perf_event_attr>,
     cycles_attr: Option<perf_event_attr>,
     minus_ticks_attr: Option<perf_event_attr>,
-    activate_useless_counter: Option<bool>,
 }
 
 /// Gets the values for the lazy_static! global PMU_ATTRIBUTES.
@@ -281,7 +325,6 @@ fn get_init_attributes() -> PmuAttributes {
     let mut hw_interrupts_attr = None;
     let mut cycles_attr = None;
     let mut minus_ticks_attr = None;
-    let mut activate_useless_counter = None;
     if running_under_rd() {
         ticks_attr = new_perf_event_attr(PERF_TYPE_HARDWARE, PERF_COUNT_RD as u64);
         skid_size = RD_SKID_MAX;
@@ -307,21 +350,6 @@ fn get_init_attributes() -> PmuAttributes {
         // same thing.  Unclear if necessary.
         hw_interrupts_attr_bare.set_exclude_hv(1);
         hw_interrupts_attr = Some(hw_interrupts_attr_bare);
-
-        if !(pmu_flags & PmuFlags::PMU_SKIP_INTEL_BUG_CHECK == PmuFlags::PMU_SKIP_INTEL_BUG_CHECK) {
-            check_for_bugs();
-        }
-
-        // For maintainability, and since it doesn't impact performance when not
-        // needed, we always activate this. If it ever turns out to be a problem,
-        // this can be set to pmu->flags & PMU_BENEFITS_FROM_USELESS_COUNTER,
-        // instead.
-        //
-        // We also disable this counter when running under rr. Even though it's the
-        // same event for the same task as the outer rr, the linux kernel does not
-        // coalesce them and tries to schedule the new one on a general purpose PMC.
-        // On CPUs with only 2 general PMCs (e.g. KNL), we'd run out.
-        activate_useless_counter = Some(*HAS_IOC_PERIOD_BUG && !running_under_rd());
     }
 
     PmuAttributes {
@@ -331,7 +359,6 @@ fn get_init_attributes() -> PmuAttributes {
         hw_interrupts_attr,
         cycles_attr,
         minus_ticks_attr,
-        activate_useless_counter,
     }
 }
 
@@ -499,7 +526,7 @@ struct PmuConfig {
 fn always_recreate_counters() -> bool {
     // When we have the KVM IN_TXCP bug, reenabling the TXCP counter after
     // disabling it does not work.
-    *HAS_IOC_PERIOD_BUG || HAS_KVM_IN_TXCP_BUG
+    PMU_BUGS_AND_EXTRA.has_ioc_period_bug || PMU_BUGS_AND_EXTRA.has_kvm_in_txcp_bug
 }
 
 fn read_counter(fd: &ScopedFd) -> u64 {
@@ -605,7 +632,8 @@ fn do_branches() -> u32 {
     accumulator
 }
 
-fn check_working_counters() {
+/// Returns true if there is only 1 working counter, false otherwise.
+fn check_working_counters() -> bool {
     let mut attr = PMU_ATTRIBUTES.ticks_attr;
     attr.__bindgen_anon_1.sample_period = 0;
 
@@ -656,6 +684,7 @@ fn check_working_counters() {
         )
         .unwrap();
     }
+    only_one_counter
 }
 
 struct PerfCounters {
