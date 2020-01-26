@@ -2,13 +2,14 @@ use crate::log::*;
 use crate::perf_event::perf_event_attr;
 use crate::perf_event::perf_type_id;
 use crate::perf_event::{PERF_COUNT_HW_CPU_CYCLES, PERF_TYPE_HARDWARE, PERF_TYPE_RAW};
-use crate::perf_event::{PERF_EVENT_IOC_DISABLE, PERF_EVENT_IOC_ENABLE};
+use crate::perf_event::{PERF_EVENT_IOC_DISABLE, PERF_EVENT_IOC_ENABLE, PERF_EVENT_IOC_PERIOD};
 use crate::scoped_fd::ScopedFd;
 use crate::task::Task;
 use crate::ticks::Ticks;
 use crate::util::*;
 use libc::ioctl;
 use nix::errno::errno;
+use nix::poll::{poll, PollFd, PollFlags};
 use nix::unistd::Pid;
 use raw_cpuid::CpuId;
 use std::convert::TryInto;
@@ -175,6 +176,63 @@ fn get_cpu_microarch() -> CpuMicroarch {
 
 /// @TODO.
 fn check_for_bugs() {}
+
+/// check_for_ioc_period_bug() in rr
+fn has_ioc_period_bug() -> bool {
+    // Start a cycles counter
+    let mut attr: perf_event_attr = PMU_ATTRIBUTES.ticks_attr;
+    attr.__bindgen_anon_1.sample_period = 0xffffffff;
+    attr.set_exclude_kernel(1);
+    let (bug_fd, _) = start_counter(Pid::from_raw(0), -1, &mut attr);
+
+    let new_period: u64 = 1;
+    let ioctl_result = unsafe {
+        libc::ioctl(
+            bug_fd.as_raw(),
+            PERF_EVENT_IOC_PERIOD,
+            &new_period as *const u64,
+        )
+    };
+
+    if ioctl_result != 0 {
+        fatal!("ioctl(PERF_EVENT_IOC_PERIOD) failed");
+    }
+
+    let mut poll_bug_fd = [PollFd::new(bug_fd.as_raw(), PollFlags::POLLIN)];
+    poll(&mut poll_bug_fd, 0).unwrap();
+
+    let has_ioc_period_bug = poll_bug_fd[0].revents().is_none();
+    log!(LogDebug, "has_ioc_period_bug={}", has_ioc_period_bug);
+    has_ioc_period_bug
+}
+
+/// check_for_kvm_in_txcp_bug() in rr
+fn supports_txp_and_has_kvm_in_txcp_bug() -> (bool, bool) {
+    let mut count: u64 = 0;
+    let mut attr: perf_event_attr = PMU_ATTRIBUTES.ticks_attr;
+    attr.config = attr.config | IN_TXCP;
+    attr.__bindgen_anon_1.sample_period = 0;
+    let (fd, disabled_txcp) = start_counter(Pid::from_raw(0), -1, &mut attr);
+    if fd.is_open() && !disabled_txcp {
+        unsafe {
+            ioctl(fd.as_raw(), PERF_EVENT_IOC_DISABLE, 0);
+            ioctl(fd.as_raw(), PERF_EVENT_IOC_ENABLE, 0);
+        }
+        do_branches();
+        count = read_counter(&fd);
+    }
+
+    let supports_txcp = count > 0;
+    let has_kvm_in_txcp_bug = supports_txcp && count < NUM_BRANCHES;
+    log!(LogDebug, "supports txcp={}", supports_txcp);
+    log!(
+        LogDebug,
+        "has_kvm_in_txcp_bug={} count={}",
+        has_kvm_in_txcp_bug,
+        count
+    );
+    (supports_txcp, has_kvm_in_txcp_bug)
+}
 
 /// init_perf_event_attr() in rr.
 fn new_perf_event_attr(type_id: perf_type_id, config: u64) -> perf_event_attr {
@@ -613,7 +671,7 @@ struct PerfCounters {
     fd_ticks_interrupt: ScopedFd,
     fd_ticks_in_transaction: ScopedFd,
     fd_useless_counter: ScopedFd,
-    ticks_semantics_: TicksSemantics,
+    ticks_semantics: TicksSemantics,
     started: bool,
     counting: bool,
 }
@@ -622,7 +680,7 @@ impl PerfCounters {
     pub fn new(tid: Pid, ticks_semantics: TicksSemantics) -> Self {
         PerfCounters {
             tid,
-            ticks_semantics_: ticks_semantics,
+            ticks_semantics,
             started: false,
             counting: false,
             fd_ticks_measure: ScopedFd::new(),
@@ -736,7 +794,7 @@ impl PerfCounters {
 
     /// Returns what ticks mean for these counters.
     pub fn ticks_semantics(&self) -> TicksSemantics {
-        self.ticks_semantics_
+        self.ticks_semantics
     }
 
     /// Return the fd we last used to generate the ticks-counter signal.

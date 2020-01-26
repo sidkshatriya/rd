@@ -28,5 +28,4 @@ use log::LogLevel::*;
 
 fn main() {
     println!("Hello, world!");
-    log!(LogError, "{}", "hello!");
 }

@@ -64,7 +64,7 @@ lazy_static! {
             logging_stream: String::new(),
             // Possibly buffered
             log_file: f,
-            default_level: LogError,
+            default_level: LogDebug,
         })
     };
 }
@@ -148,7 +148,7 @@ impl NewLineTerminatingOstream {
         };
         if enabled {
             if level == LogDebug {
-                write!(this, "[{}]", m.name).unwrap();
+                write!(this, "[{}] ", m.name).unwrap();
             } else {
                 write_prefix(&mut this, level, filename, line, func_name);
             }
