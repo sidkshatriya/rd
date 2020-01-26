@@ -1,13 +1,20 @@
+use crate::fcntl::{f_owner_ex, F_OWNER_TID, F_SETOWN_EX, F_SETSIG};
+use crate::kernel_metadata::signal_name;
 use crate::log::*;
 use crate::perf_event::perf_event_attr;
 use crate::perf_event::perf_type_id;
 use crate::perf_event::{PERF_COUNT_HW_CPU_CYCLES, PERF_TYPE_HARDWARE, PERF_TYPE_RAW};
-use crate::perf_event::{PERF_EVENT_IOC_DISABLE, PERF_EVENT_IOC_ENABLE, PERF_EVENT_IOC_PERIOD};
+use crate::perf_event::{
+    PERF_EVENT_IOC_DISABLE, PERF_EVENT_IOC_ENABLE, PERF_EVENT_IOC_PERIOD, PERF_EVENT_IOC_RESET,
+};
 use crate::scoped_fd::ScopedFd;
 use crate::task::Task;
 use crate::ticks::Ticks;
 use crate::util::*;
+use libc::fcntl;
 use libc::ioctl;
+use libc::F_SETFL;
+use libc::O_ASYNC;
 use nix::errno::errno;
 use nix::poll::{poll, PollFd, PollFlags};
 use nix::unistd::Pid;
@@ -705,6 +712,18 @@ struct PerfCounters {
     counting: bool,
 }
 
+fn make_counter_async(fd: &ScopedFd, signal: i32) {
+    if unsafe {
+        fcntl(fd.as_raw(), F_SETFL, O_ASYNC) != 0
+            || fcntl(fd.as_raw(), F_SETSIG as i32, signal) != 0
+    } {
+        fatal!(
+            "Failed to make ticks counter ASYNC with sig{}",
+            signal_name(signal)
+        );
+    }
+}
+
 impl PerfCounters {
     pub fn new(tid: Pid, ticks_semantics: TicksSemantics) -> Self {
         PerfCounters {
@@ -733,8 +752,157 @@ impl PerfCounters {
     /// This must be called while the task is stopped, and it must be called
     /// before the task is allowed to run again.
     /// `ticks_period` of zero means don't interrupt at all.
-    pub fn reset(ticks_period: Ticks) {
-        // @TODO.
+    pub fn reset(&mut self, mut ticks_period: Ticks) {
+        if ticks_period == 0 && !always_recreate_counters() {
+            // We can't switch a counter between sampling and non-sampling via
+            // PERF_EVENT_IOC_PERIOD so just turn 0 into a very big number.
+            ticks_period = 1 << 60;
+        }
+
+        if !self.started {
+            log!(LogDebug, "Recreating counters with period {}", ticks_period);
+
+            let mut attr = PMU_ATTRIBUTES.ticks_attr;
+            let mut minus_attr = PMU_ATTRIBUTES.minus_ticks_attr.unwrap();
+            attr.__bindgen_anon_1.sample_period = ticks_period;
+            self.fd_ticks_interrupt = start_counter(self.tid, -1, &mut attr).0;
+            if minus_attr.config != 0 {
+                self.fd_minus_ticks_measure =
+                    start_counter(self.tid, self.fd_ticks_interrupt.as_raw(), &mut minus_attr).0;
+            }
+
+            if !PMU_BUGS_AND_EXTRA.only_one_counter && PMU_BUGS_AND_EXTRA.supports_txcp {
+                if PMU_BUGS_AND_EXTRA.has_kvm_in_txcp_bug {
+                    // IN_TXCP isn't going to work reliably. Assume that HLE/RTM are not
+                    // used,
+                    // and check that.
+                    attr.__bindgen_anon_1.sample_period = 0;
+                    attr.config = attr.config | IN_TX;
+                    self.fd_ticks_in_transaction =
+                        start_counter(self.tid, self.fd_ticks_interrupt.as_raw(), &mut attr).0;
+                } else {
+                    // Set up a separate counter for measuring ticks, which does not have
+                    // a sample period and does not count events during aborted
+                    // transactions.
+                    // We have to use two separate counters here because the kernel does
+                    // not support setting a sample_period with IN_TXCP, apparently for
+                    // reasons related to this Intel note on IA32_PERFEVTSEL2:
+                    // ``When IN_TXCP=1 & IN_TX=1 and in sampling, spurious PMI may
+                    // occur and transactions may continuously abort near overflow
+                    // conditions. Software should favor using IN_TXCP for counting over
+                    // sampling. If sampling, software should use large “sample-after“
+                    // value after clearing the counter configured to use IN_TXCP and
+                    // also always reset the counter even when no overflow condition
+                    // was reported.''
+                    attr.__bindgen_anon_1.sample_period = 0;
+                    attr.config = attr.config | IN_TXCP;
+                    self.fd_ticks_measure =
+                        start_counter(self.tid, self.fd_ticks_interrupt.as_raw(), &mut attr).0;
+                }
+            }
+
+            // This creates a local copy.
+            let mut cycles_attr = PMU_ATTRIBUTES.cycles_attr.unwrap();
+            if PMU_BUGS_AND_EXTRA.activate_useless_counter && !self.fd_useless_counter.is_open() {
+                // N.B.: This is deliberately not in the same group as the other counters
+                // since we want to keep it scheduled at all times.
+                self.fd_useless_counter = start_counter(self.tid, -1, &mut cycles_attr).0;
+            }
+
+            let own = f_owner_ex {
+                type_: F_OWNER_TID,
+                pid: self.tid.as_raw(),
+            };
+            if unsafe {
+                fcntl(
+                    self.fd_ticks_interrupt.as_raw(),
+                    F_SETOWN_EX as i32,
+                    &own as *const f_owner_ex,
+                )
+            } != 0
+            {
+                fatal!("Failed to SETOWN_EX ticks event fd");
+            }
+            make_counter_async(&self.fd_ticks_interrupt, TIME_SLICE_SIGNAL);
+        } else {
+            log!(LogDebug, "Resetting counters with period {}", ticks_period);
+
+            if unsafe { ioctl(self.fd_ticks_interrupt.as_raw(), PERF_EVENT_IOC_RESET, 0) } != 0 {
+                fatal!("ioctl(PERF_EVENT_IOC_RESET) failed");
+            }
+            if unsafe {
+                ioctl(
+                    self.fd_ticks_interrupt.as_raw(),
+                    PERF_EVENT_IOC_PERIOD,
+                    &ticks_period,
+                )
+            } != 0
+            {
+                fatal!(
+                    "ioctl(PERF_EVENT_IOC_PERIOD) failed with period {}",
+                    ticks_period
+                );
+            }
+            if unsafe { ioctl(self.fd_ticks_interrupt.as_raw(), PERF_EVENT_IOC_ENABLE, 0) } != 0 {
+                fatal!("ioctl(PERF_EVENT_IOC_ENABLE) failed");
+            }
+            if self.fd_minus_ticks_measure.is_open() {
+                if unsafe {
+                    ioctl(
+                        self.fd_minus_ticks_measure.as_raw(),
+                        PERF_EVENT_IOC_RESET,
+                        0,
+                    )
+                } != 0
+                {
+                    fatal!("ioctl(PERF_EVENT_IOC_RESET) failed");
+                }
+                if unsafe {
+                    ioctl(
+                        self.fd_minus_ticks_measure.as_raw(),
+                        PERF_EVENT_IOC_ENABLE,
+                        0,
+                    )
+                } != 0
+                {
+                    fatal!("ioctl(PERF_EVENT_IOC_ENABLE) failed");
+                }
+            }
+            if self.fd_ticks_measure.is_open() {
+                if unsafe { ioctl(self.fd_ticks_measure.as_raw(), PERF_EVENT_IOC_RESET, 0) } != 0 {
+                    fatal!("ioctl(PERF_EVENT_IOC_RESET) failed");
+                }
+                if unsafe { ioctl(self.fd_ticks_measure.as_raw(), PERF_EVENT_IOC_ENABLE, 0) } != 0 {
+                    fatal!("ioctl(PERF_EVENT_IOC_ENABLE) failed");
+                }
+            }
+            if self.fd_ticks_in_transaction.is_open() {
+                if unsafe {
+                    ioctl(
+                        self.fd_ticks_in_transaction.as_raw(),
+                        PERF_EVENT_IOC_RESET,
+                        0,
+                    )
+                } != 0
+                {
+                    fatal!("ioctl(PERF_EVENT_IOC_RESET) failed");
+                }
+                if unsafe {
+                    ioctl(
+                        self.fd_ticks_in_transaction.as_raw(),
+                        PERF_EVENT_IOC_ENABLE,
+                        0,
+                    )
+                } != 0
+                {
+                    fatal!("ioctl(PERF_EVENT_IOC_ENABLE) failed");
+                }
+            }
+        }
+
+        self.started = true;
+        self.counting = true;
+        self.counting_period = ticks_period;
     }
 
     /// Close the perfcounter fds. They will be automatically reopened if/when

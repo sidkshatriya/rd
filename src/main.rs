@@ -11,6 +11,7 @@ mod flags;
 mod kernel_metadata;
 #[macro_use]
 mod log;
+mod fcntl;
 mod perf_counters;
 mod perf_event;
 mod ptrace;

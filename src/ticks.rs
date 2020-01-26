@@ -1,1 +1,2 @@
-pub type Ticks = i64;
+/// rr defines this as i64.
+pub type Ticks = u64;
