@@ -529,6 +529,7 @@ fn always_recreate_counters() -> bool {
     PMU_BUGS_AND_EXTRA.has_ioc_period_bug || PMU_BUGS_AND_EXTRA.has_kvm_in_txcp_bug
 }
 
+/// @TODO Return type is an i64 on rr.
 fn read_counter(fd: &ScopedFd) -> u64 {
     let mut val: u64 = 0;
     // @TODO what about checking for errno?
@@ -954,7 +955,7 @@ impl PerfCounters {
     }
 
     /// Return the number of ticks we need for an emulated branch.
-    pub fn ticks_for_unconditional_indirect_branch(task: &Task) -> Ticks {
+    pub fn ticks_for_unconditional_indirect_branch(_task: &Task) -> Ticks {
         if PMU_ATTRIBUTES.pmu_flags & PmuFlags::PMU_TICKS_TAKEN_BRANCHES
             == PmuFlags::PMU_TICKS_TAKEN_BRANCHES
         {
@@ -965,7 +966,7 @@ impl PerfCounters {
     }
 
     /// Return the number of ticks we need for a direct call.
-    pub fn ticks_for_direct_call(t: &Task) -> Ticks {
+    pub fn ticks_for_direct_call(_task: &Task) -> Ticks {
         if PMU_ATTRIBUTES.pmu_flags & PmuFlags::PMU_TICKS_TAKEN_BRANCHES
             == PmuFlags::PMU_TICKS_TAKEN_BRANCHES
         {
@@ -978,8 +979,82 @@ impl PerfCounters {
     /// Read the current value of the ticks counter.
     /// `t` is used for debugging purposes.
     pub fn read_ticks(&self, t: &Task) -> Ticks {
-        // @TODO.
-        5
+        if !self.started || !self.counting {
+            return 0;
+        }
+
+        if self.fd_ticks_in_transaction.is_open() {
+            let transaction_ticks = read_counter(&self.fd_ticks_in_transaction);
+            if transaction_ticks > 0 {
+                log!(LogDebug, "{} IN_TX ticks detected", transaction_ticks);
+                // @TODO ignore if force things are enabled.
+                // @TODO This is actually an ASSERT macro.
+                fatal!(
+                    "{} IN_TX ticks detected while HLE not supported due to KVM PMU\n\
+                     virtualization bug. See \
+                     http://marc.info/?l=linux-kernel&m=148582794808419&w=2\n\
+                     Aborting. Retry with -F to override, but it will probably\n\
+                     fail.",
+                    transaction_ticks
+                );
+            }
+        }
+
+        // @TODO the skid size changes depending on whether we are recording or not.
+        // Revisit once Task is fleshed out.
+        let adjusted_counting_period = self.counting_period + Self::recording_skid_size() as u64;
+        let mut interrupt_val = read_counter(&self.fd_ticks_interrupt);
+        if !self.fd_ticks_measure.is_open() {
+            if self.fd_minus_ticks_measure.is_open() {
+                let minus_measure_val = read_counter(&self.fd_minus_ticks_measure);
+                interrupt_val = interrupt_val - minus_measure_val;
+            }
+            // @TODO this is actually an ASSERT macro
+            if self.counting_period == 0 || interrupt_val <= adjusted_counting_period {
+                fatal!(
+                    "Detected {} ticks, expected no more than {}",
+                    interrupt_val,
+                    adjusted_counting_period
+                );
+            }
+            return interrupt_val;
+        }
+
+        let measure_val = read_counter(&self.fd_ticks_measure);
+        if measure_val > interrupt_val {
+            // There is some kind of kernel or hardware bug that means we sometimes
+            // see more events with IN_TXCP set than without. These are clearly
+            // spurious events :-(. For now, work around it by returning the
+            // interrupt_val. That will work if HLE hasn't been used in this interval.
+            // Note that interrupt_val > measure_val is valid behavior (when HLE is
+            // being used).
+            log!(
+                LogDebug,
+                "Measured too many ticks; measure={}, interrupt={}",
+                measure_val,
+                interrupt_val
+            );
+            // @TODO this is actually an ASSERT macro
+            if self.counting_period == 0 || interrupt_val <= adjusted_counting_period {
+                fatal!(
+                    "Detected {} ticks, expected no more than {}",
+                    interrupt_val,
+                    adjusted_counting_period
+                );
+            }
+
+            return interrupt_val;
+        }
+        // @TODO this is actually an ASSERT macro
+        if self.counting_period == 0 || interrupt_val <= adjusted_counting_period {
+            fatal!(
+                "Detected {} ticks, expected no more than {}",
+                interrupt_val,
+                adjusted_counting_period
+            );
+        }
+
+        measure_val
     }
 
     /// Returns what ticks mean for these counters.

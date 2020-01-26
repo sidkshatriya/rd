@@ -22,8 +22,6 @@ mod wait_status;
 mod x64_arch;
 mod x86_arch;
 
-use log::LogLevel::*;
-
 fn main() {
     println!("Hello, world!");
 }
