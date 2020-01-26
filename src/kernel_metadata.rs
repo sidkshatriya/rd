@@ -259,10 +259,9 @@ fn is_sigreturn(syscallno: i32, arch: SupportedArch) -> bool {
 }
 
 macro_rules! case {
-    ($match_var:expr, $mod_name:ident, $($case_name:ident),+) => {{
-        use crate::$mod_name;
+    ($match_var:expr, $mod_name:ident, $sub_mod_name:ident, $($case_name:ident),+) => {{
         match $match_var {
-            $($mod_name::$case_name => return stringify!($case_name).into(),)+
+            $(crate::$mod_name::$sub_mod_name::$case_name => return stringify!($case_name).into(),)+
             _ => ()
         }
     }};
@@ -270,15 +269,16 @@ macro_rules! case {
 
 fn sicode_name(code: i32, sig: i32) -> String {
     case!(
-        code, signal, SI_USER, SI_KERNEL, SI_QUEUE, SI_TIMER, SI_MESGQ, SI_ASYNCIO, SI_SIGIO,
-        SI_TKILL, SI_ASYNCNL
+        code, bindings, signal, SI_USER, SI_KERNEL, SI_QUEUE, SI_TIMER, SI_MESGQ, SI_ASYNCIO,
+        SI_SIGIO, SI_TKILL, SI_ASYNCNL
     );
 
     match sig {
-        libc::SIGSEGV => case!(code as u32, signal, SEGV_MAPERR, SEGV_ACCERR),
-        libc::SIGTRAP => case!(code as u32, signal, TRAP_BRKPT, TRAP_TRACE),
+        libc::SIGSEGV => case!(code as u32, bindings, signal, SEGV_MAPERR, SEGV_ACCERR),
+        libc::SIGTRAP => case!(code as u32, bindings, signal, TRAP_BRKPT, TRAP_TRACE),
         libc::SIGILL => case!(
             code as u32,
+            bindings,
             signal,
             ILL_ILLOPC,
             ILL_ILLOPN,
@@ -291,6 +291,7 @@ fn sicode_name(code: i32, sig: i32) -> String {
         ),
         libc::SIGFPE => case!(
             code as u32,
+            bindings,
             signal,
             FPE_INTDIV,
             FPE_INTOVF,
@@ -303,6 +304,7 @@ fn sicode_name(code: i32, sig: i32) -> String {
         ),
         libc::SIGBUS => case!(
             code as u32,
+            bindings,
             signal,
             BUS_ADRALN,
             BUS_ADRERR,
@@ -312,6 +314,7 @@ fn sicode_name(code: i32, sig: i32) -> String {
         ),
         libc::SIGCHLD => case!(
             code as u32,
+            bindings,
             signal,
             CLD_EXITED,
             CLD_KILLED,
@@ -322,6 +325,7 @@ fn sicode_name(code: i32, sig: i32) -> String {
         ),
         libc::SIGPOLL => case!(
             code as u32,
+            bindings,
             signal,
             POLL_IN,
             POLL_OUT,
