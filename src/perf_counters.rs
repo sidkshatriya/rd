@@ -26,13 +26,6 @@ use std::mem::size_of_val;
 use std::mem::zeroed;
 use std::os::unix::io::RawFd;
 
-// At some point we might support multiple kinds of ticks for the same CPU arch.
-// At that point this will need to become more complicated.
-
-// @TODO Pending possible globals
-// static only_one_counter: bool = false;
-// end pending possible globals
-
 lazy_static! {
     static ref PMU_BUGS_AND_EXTRA: PmuBugsAndExtra = check_for_bugs_and_extra();
     static ref PMU_ATTRIBUTES: PmuAttributes = get_init_attributes();
@@ -81,11 +74,13 @@ bitflags! {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 enum TicksSemantics {
     TicksRetiredConditionalBranches,
     TicksTakenBranches,
 }
+
+use TicksSemantics::*;
 
 /// Find out the cpu model using the cpuid instruction.
 /// Full list of CPUIDs at http://sandpile.org/x86/cpuid.htm
@@ -517,8 +512,6 @@ const PMU_CONFIGS: [PmuConfig; 15] = [
         flags: PmuFlags::PMU_TICKS_RCB,
     },
 ];
-
-use TicksSemantics::*;
 
 struct PmuConfig {
     uarch: CpuMicroarch,
@@ -999,24 +992,39 @@ impl PerfCounters {
         self.fd_ticks_interrupt.as_raw()
     }
 
-    // @TODO
-    // fn is_rr_ticks_attr(const perf_event_attr& attr) -> bool ;
+    pub fn is_rd_ticks_attr(attr: &perf_event_attr) -> bool {
+        attr.type_ == PERF_TYPE_HARDWARE && attr.config == PERF_COUNT_RD as u64
+    }
 
     pub fn supports_ticks_semantics(ticks_semantics: TicksSemantics) -> bool {
-        // @TODO.
-        false
+        match ticks_semantics {
+            TicksRetiredConditionalBranches => {
+                (PMU_ATTRIBUTES.pmu_flags & PmuFlags::PMU_TICKS_RCB) == PmuFlags::PMU_TICKS_RCB
+            }
+            TicksTakenBranches => {
+                (PMU_ATTRIBUTES.pmu_flags & PmuFlags::PMU_TICKS_TAKEN_BRANCHES)
+                    == PmuFlags::PMU_TICKS_TAKEN_BRANCHES
+            }
+        }
     }
 
     pub fn default_ticks_semantics() -> TicksSemantics {
-        // @TODO.
-        TicksRetiredConditionalBranches
+        if PMU_ATTRIBUTES.pmu_flags & PmuFlags::PMU_TICKS_TAKEN_BRANCHES
+            == PmuFlags::PMU_TICKS_TAKEN_BRANCHES
+        {
+            return TicksTakenBranches;
+        }
+        if PMU_ATTRIBUTES.pmu_flags & PmuFlags::PMU_TICKS_RCB == PmuFlags::PMU_TICKS_RCB {
+            return TicksRetiredConditionalBranches;
+        }
+        fatal!("Unsupported architecture");
+        return TicksTakenBranches;
     }
 
     /// When an interrupt is requested, at most this many ticks may elapse before
     /// the interrupt is delivered.
     pub fn skid_size() -> u32 {
-        // @TODO.
-        5
+        PMU_ATTRIBUTES.skid_size
     }
 
     /// Use a separate skid_size for recording since we seem to see more skid
