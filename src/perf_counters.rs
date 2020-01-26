@@ -449,7 +449,7 @@ fn read_counter(fd: &ScopedFd) -> u64 {
     // @TODO what about checking for errno?
     let nread = unsafe {
         libc::read(
-            **fd,
+            fd.as_raw(),
             &mut val as *mut u64 as *mut libc::c_void,
             size_of_val(&val),
         )
@@ -529,7 +529,7 @@ fn start_counter(tid: Pid, group_fd: i32, attr: &mut perf_event_attr) -> (Scoped
         fatal!("Failed to initialize counter");
     }
 
-    (ScopedFd::new_from_fd(fd), disabled_txcp)
+    (ScopedFd::from_raw(fd), disabled_txcp)
 }
 
 // @TODO not sure if this is ported properly.
@@ -677,21 +677,29 @@ impl PerfCounters {
             self.stop()
         } else {
             unsafe {
-                ioctl(*self.fd_ticks_interrupt, PERF_EVENT_IOC_DISABLE, 0);
+                ioctl(self.fd_ticks_interrupt.as_raw(), PERF_EVENT_IOC_DISABLE, 0);
             }
             if self.fd_minus_ticks_measure.is_open() {
                 unsafe {
-                    ioctl(*self.fd_minus_ticks_measure, PERF_EVENT_IOC_DISABLE, 0);
+                    ioctl(
+                        self.fd_minus_ticks_measure.as_raw(),
+                        PERF_EVENT_IOC_DISABLE,
+                        0,
+                    );
                 }
             }
             if self.fd_ticks_measure.is_open() {
                 unsafe {
-                    ioctl(*self.fd_ticks_measure, PERF_EVENT_IOC_DISABLE, 0);
+                    ioctl(self.fd_ticks_measure.as_raw(), PERF_EVENT_IOC_DISABLE, 0);
                 }
             }
             if self.fd_ticks_in_transaction.is_open() {
                 unsafe {
-                    ioctl(*self.fd_ticks_in_transaction, PERF_EVENT_IOC_DISABLE, 0);
+                    ioctl(
+                        self.fd_ticks_in_transaction.as_raw(),
+                        PERF_EVENT_IOC_DISABLE,
+                        0,
+                    );
                 }
             }
         }
@@ -733,7 +741,7 @@ impl PerfCounters {
 
     /// Return the fd we last used to generate the ticks-counter signal.
     pub fn ticks_interrupt_fd(&self) -> RawFd {
-        self.fd_ticks_interrupt.get()
+        self.fd_ticks_interrupt.as_raw()
     }
 
     // @TODO
