@@ -233,15 +233,7 @@ fn system_has_ioc_period_bug() -> bool {
     let (bug_fd, _) = start_counter(Pid::from_raw(0), -1, &mut attr);
 
     let new_period: u64 = 1;
-    let ioctl_result = unsafe {
-        libc::ioctl(
-            bug_fd.as_raw(),
-            PERF_EVENT_IOC_PERIOD,
-            &new_period as *const u64,
-        )
-    };
-
-    if ioctl_result != 0 {
+    if perf_ioctl(&bug_fd, PERF_EVENT_IOC_PERIOD, &new_period) != 0 {
         fatal!("ioctl(PERF_EVENT_IOC_PERIOD) failed");
     }
 
@@ -261,10 +253,8 @@ fn supports_txp_and_has_kvm_in_txcp_bug() -> (bool, bool) {
     attr.__bindgen_anon_1.sample_period = 0;
     let (fd, disabled_txcp) = start_counter(Pid::from_raw(0), -1, &mut attr);
     if fd.is_open() && !disabled_txcp {
-        unsafe {
-            ioctl(fd.as_raw(), PERF_EVENT_IOC_DISABLE, 0);
-            ioctl(fd.as_raw(), PERF_EVENT_IOC_ENABLE, 0);
-        }
+        perf_ioctl_null(&fd, PERF_EVENT_IOC_DISABLE);
+        perf_ioctl_null(&fd, PERF_EVENT_IOC_ENABLE);
         do_branches();
         count = read_counter(&fd);
     }
@@ -618,6 +608,15 @@ fn start_counter(tid: Pid, group_fd: i32, attr: &mut perf_event_attr) -> (Scoped
     (ScopedFd::from_raw(fd), disabled_txcp)
 }
 
+fn perf_ioctl(fd: &ScopedFd, param1: u64, param2: &u64) -> i32 {
+    unsafe { ioctl(fd.as_raw(), param1, param2) }
+}
+
+/// Same as perf_ioctl() except third param is always 0.
+fn perf_ioctl_null(fd: &ScopedFd, param1: u64) -> i32 {
+    unsafe { ioctl(fd.as_raw(), param1, 0) }
+}
+
 // @TODO not sure if this is ported properly.
 fn do_branches() -> u32 {
     // Do NUM_BRANCHES conditional branches that can't be optimized out.
@@ -746,7 +745,8 @@ impl PerfCounters {
     /// This must be called while the task is stopped, and it must be called
     /// before the task is allowed to run again.
     /// `ticks_period` of zero means don't interrupt at all.
-    pub fn reset(&mut self, mut ticks_period: Ticks) {
+    pub fn reset(&mut self, param_ticks_period: Ticks) {
+        let mut ticks_period = param_ticks_period;
         if ticks_period == 0 && !always_recreate_counters() {
             // We can't switch a counter between sampling and non-sampling via
             // PERF_EVENT_IOC_PERIOD so just turn 0 into a very big number.
@@ -821,74 +821,44 @@ impl PerfCounters {
         } else {
             log!(LogDebug, "Resetting counters with period {}", ticks_period);
 
-            if unsafe { ioctl(self.fd_ticks_interrupt.as_raw(), PERF_EVENT_IOC_RESET, 0) } != 0 {
+            if perf_ioctl_null(&self.fd_ticks_interrupt, PERF_EVENT_IOC_RESET) != 0 {
                 fatal!("ioctl(PERF_EVENT_IOC_RESET) failed");
             }
-            if unsafe {
-                ioctl(
-                    self.fd_ticks_interrupt.as_raw(),
-                    PERF_EVENT_IOC_PERIOD,
-                    &ticks_period,
-                )
-            } != 0
+            if perf_ioctl(
+                &self.fd_ticks_interrupt,
+                PERF_EVENT_IOC_PERIOD,
+                &ticks_period,
+            ) != 0
             {
                 fatal!(
                     "ioctl(PERF_EVENT_IOC_PERIOD) failed with period {}",
                     ticks_period
                 );
             }
-            if unsafe { ioctl(self.fd_ticks_interrupt.as_raw(), PERF_EVENT_IOC_ENABLE, 0) } != 0 {
+            if perf_ioctl_null(&self.fd_ticks_interrupt, PERF_EVENT_IOC_ENABLE) != 0 {
                 fatal!("ioctl(PERF_EVENT_IOC_ENABLE) failed");
             }
             if self.fd_minus_ticks_measure.is_open() {
-                if unsafe {
-                    ioctl(
-                        self.fd_minus_ticks_measure.as_raw(),
-                        PERF_EVENT_IOC_RESET,
-                        0,
-                    )
-                } != 0
-                {
+                if perf_ioctl_null(&self.fd_minus_ticks_measure, PERF_EVENT_IOC_RESET) != 0 {
                     fatal!("ioctl(PERF_EVENT_IOC_RESET) failed");
                 }
-                if unsafe {
-                    ioctl(
-                        self.fd_minus_ticks_measure.as_raw(),
-                        PERF_EVENT_IOC_ENABLE,
-                        0,
-                    )
-                } != 0
-                {
+                if perf_ioctl_null(&self.fd_minus_ticks_measure, PERF_EVENT_IOC_ENABLE) != 0 {
                     fatal!("ioctl(PERF_EVENT_IOC_ENABLE) failed");
                 }
             }
             if self.fd_ticks_measure.is_open() {
-                if unsafe { ioctl(self.fd_ticks_measure.as_raw(), PERF_EVENT_IOC_RESET, 0) } != 0 {
+                if perf_ioctl_null(&self.fd_ticks_measure, PERF_EVENT_IOC_RESET) != 0 {
                     fatal!("ioctl(PERF_EVENT_IOC_RESET) failed");
                 }
-                if unsafe { ioctl(self.fd_ticks_measure.as_raw(), PERF_EVENT_IOC_ENABLE, 0) } != 0 {
+                if perf_ioctl_null(&self.fd_ticks_measure, PERF_EVENT_IOC_ENABLE) != 0 {
                     fatal!("ioctl(PERF_EVENT_IOC_ENABLE) failed");
                 }
             }
             if self.fd_ticks_in_transaction.is_open() {
-                if unsafe {
-                    ioctl(
-                        self.fd_ticks_in_transaction.as_raw(),
-                        PERF_EVENT_IOC_RESET,
-                        0,
-                    )
-                } != 0
-                {
+                if perf_ioctl_null(&self.fd_ticks_in_transaction, PERF_EVENT_IOC_RESET) != 0 {
                     fatal!("ioctl(PERF_EVENT_IOC_RESET) failed");
                 }
-                if unsafe {
-                    ioctl(
-                        self.fd_ticks_in_transaction.as_raw(),
-                        PERF_EVENT_IOC_ENABLE,
-                        0,
-                    )
-                } != 0
-                {
+                if perf_ioctl_null(&self.fd_ticks_in_transaction, PERF_EVENT_IOC_ENABLE) != 0 {
                     fatal!("ioctl(PERF_EVENT_IOC_ENABLE) failed");
                 }
             }
@@ -925,31 +895,16 @@ impl PerfCounters {
         if always_recreate_counters() {
             self.stop()
         } else {
-            unsafe {
-                ioctl(self.fd_ticks_interrupt.as_raw(), PERF_EVENT_IOC_DISABLE, 0);
-            }
+            // @TODO should we check if the ioctl calls succeded?
+            perf_ioctl_null(&self.fd_ticks_interrupt, PERF_EVENT_IOC_DISABLE);
             if self.fd_minus_ticks_measure.is_open() {
-                unsafe {
-                    ioctl(
-                        self.fd_minus_ticks_measure.as_raw(),
-                        PERF_EVENT_IOC_DISABLE,
-                        0,
-                    );
-                }
+                perf_ioctl_null(&self.fd_minus_ticks_measure, PERF_EVENT_IOC_DISABLE);
             }
             if self.fd_ticks_measure.is_open() {
-                unsafe {
-                    ioctl(self.fd_ticks_measure.as_raw(), PERF_EVENT_IOC_DISABLE, 0);
-                }
+                perf_ioctl_null(&self.fd_ticks_measure, PERF_EVENT_IOC_DISABLE);
             }
             if self.fd_ticks_in_transaction.is_open() {
-                unsafe {
-                    ioctl(
-                        self.fd_ticks_in_transaction.as_raw(),
-                        PERF_EVENT_IOC_DISABLE,
-                        0,
-                    );
-                }
+                perf_ioctl_null(&self.fd_ticks_in_transaction, PERF_EVENT_IOC_DISABLE);
             }
         }
     }
