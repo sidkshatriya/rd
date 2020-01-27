@@ -542,7 +542,7 @@ fn start_counter(tid: Pid, group_fd: i32, attr: &mut perf_event_attr) -> (Scoped
         attr.set_pinned(1);
     }
 
-    let mut fd: i32 = unsafe {
+    let mut fd: RawFd = unsafe {
         libc::syscall(
             libc::SYS_perf_event_open,
             attr as *mut perf_event_attr,
@@ -550,7 +550,7 @@ fn start_counter(tid: Pid, group_fd: i32, attr: &mut perf_event_attr) -> (Scoped
             -1,
             group_fd,
             0,
-        ) as i32
+        ) as RawFd
     };
     if 0 >= fd
         && errno() == libc::EINVAL
@@ -568,7 +568,7 @@ fn start_counter(tid: Pid, group_fd: i32, attr: &mut perf_event_attr) -> (Scoped
                 -1,
                 group_fd,
                 0,
-            ) as i32
+            ) as RawFd
         };
         if fd >= 0 {
             disabled_txcp = true;
@@ -608,6 +608,7 @@ fn start_counter(tid: Pid, group_fd: i32, attr: &mut perf_event_attr) -> (Scoped
     (ScopedFd::from_raw(fd), disabled_txcp)
 }
 
+/// Wrapper for the libc ioctl call.
 fn perf_ioctl(fd: &ScopedFd, param1: u64, param2: &u64) -> i32 {
     unsafe { ioctl(fd.as_raw(), param1, param2) }
 }
