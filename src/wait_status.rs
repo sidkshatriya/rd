@@ -5,7 +5,9 @@ use crate::record_task::RecordTask;
 use libc::PTRACE_O_TRACESYSGOOD;
 use libc::{SIGSTOP, SIGTRAP};
 use libc::{WEXITSTATUS, WIFEXITED, WIFSIGNALED, WIFSTOPPED, WSTOPSIG, WTERMSIG};
-use std::fmt;
+use std::fmt::Display;
+use std::fmt::Formatter;
+use std::fmt::Result;
 
 pub const PTRACE_EVENT_STOP: i32 = _PTRACE_EVENT_STOP as i32;
 
@@ -195,8 +197,8 @@ impl WaitStatus {
     }
 }
 
-impl fmt::Display for WaitStatus {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Display for WaitStatus {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         write!(f, "{:#x}", self.status)?;
         match self.wait_type() {
             Exit => write!(f, " (EXIT-{})", self.exit_code().unwrap()),
