@@ -31,3 +31,10 @@ macro_rules! rr_arch_function {
         }
     };
 }
+
+pub fn syscall_instruction_length(arch: SupportedArch) -> usize {
+    match arch {
+        SupportedArch::X86 => 2,
+        SupportedArch::X86_64 => 2,
+    }
+}

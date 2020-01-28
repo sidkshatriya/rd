@@ -14,6 +14,7 @@ mod log;
 mod bindings;
 mod perf_counters;
 mod record_task;
+mod remote_code_ptr;
 mod remote_ptr;
 mod scoped_fd;
 mod task;

@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::convert::TryInto;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::Result;
@@ -7,7 +8,7 @@ use std::ops::Add;
 use std::ops::Sub;
 
 #[derive(Copy, Clone)]
-struct RemotePtr<T> {
+pub struct RemotePtr<T> {
     ptr: usize,
     phantom: PhantomData<T>,
 }
@@ -27,9 +28,12 @@ impl<T> RemotePtr<T> {
         }
     }
 
-    /// as_int() in rr
-    pub fn as_uint(&self) -> usize {
+    pub fn as_usize(&self) -> usize {
         self.ptr
+    }
+
+    pub fn as_isize(&self) -> isize {
+        self.ptr.try_into().unwrap()
     }
 
     pub fn is_null(&self) -> bool {
@@ -51,11 +55,29 @@ impl<T> Display for RemotePtr<T> {
     }
 }
 
+impl<T> Add<isize> for RemotePtr<T> {
+    type Output = Self;
+
+    fn add(self, delta: isize) -> Self::Output {
+        let result: isize = self.as_isize() + delta * (std::mem::size_of::<T>() as isize);
+        Self::new_from_val(result.try_into().unwrap())
+    }
+}
+
+impl<T> Sub<isize> for RemotePtr<T> {
+    type Output = Self;
+
+    fn sub(self, delta: isize) -> Self::Output {
+        let result: isize = self.as_isize() - delta * (std::mem::size_of::<T>() as isize);
+        Self::new_from_val(result.try_into().unwrap())
+    }
+}
+
 impl<T> Add<usize> for RemotePtr<T> {
     type Output = Self;
 
     fn add(self, delta: usize) -> Self::Output {
-        let result = self.as_uint() + delta * std::mem::size_of::<T>();
+        let result: usize = self.as_usize() + delta * std::mem::size_of::<T>();
         Self::new_from_val(result)
     }
 }
@@ -64,7 +86,7 @@ impl<T> Sub<usize> for RemotePtr<T> {
     type Output = Self;
 
     fn sub(self, delta: usize) -> Self::Output {
-        let result = self.as_uint() - delta * std::mem::size_of::<T>();
+        let result: usize = self.as_usize() - delta * std::mem::size_of::<T>();
         Self::new_from_val(result)
     }
 }
@@ -73,7 +95,7 @@ impl<T, U> Sub<RemotePtr<U>> for RemotePtr<T> {
     type Output = isize;
 
     fn sub(self, rhs: RemotePtr<U>) -> Self::Output {
-        let delta: isize = (self.as_uint() - rhs.as_uint()) as isize;
+        let delta: isize = self.as_isize() - rhs.as_isize();
         delta / std::mem::size_of::<usize>() as isize
     }
 }
@@ -111,22 +133,22 @@ mod tests {
     #[test]
     fn new_test() {
         let a = RemotePtr::<u64>::new();
-        assert_eq!(0, a.as_uint());
+        assert_eq!(0, a.as_usize());
     }
 
     #[test]
     fn add_test() {
         let a = RemotePtr::<u64>::new();
-        let b = a + 1;
-        assert_eq!(8, b.as_uint());
+        let b = a + 1 as usize;
+        assert_eq!(8, b.as_usize());
     }
 
     #[test]
     fn add_test_with_custom_struct() {
         struct S(u64, u64);
         let a = RemotePtr::<S>::new();
-        let b = a + 1;
-        assert_eq!(16, b.as_uint());
+        let b = a + 1 as usize;
+        assert_eq!(16, b.as_usize());
     }
 
     #[test]
@@ -139,9 +161,9 @@ mod tests {
     #[test]
     fn add_sub_test() {
         let a = RemotePtr::<u64>::new();
-        let b = a + 1;
-        let c = b - 1;
-        assert_eq!(0, c.as_uint());
+        let b = a + 1 as usize;
+        let c = b - 1 as usize;
+        assert_eq!(0, c.as_usize());
     }
 
     #[test]
