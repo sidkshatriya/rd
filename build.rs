@@ -77,4 +77,9 @@ fn main() {
     fcntl_event_bindings
         .write_to_file(path.join("fcntl_bindings_generated.rs"))
         .unwrap();
+
+    capnpc::CompilerCommand::new()
+        .file("schema/trace.capnp")
+        .run()
+        .unwrap();
 }

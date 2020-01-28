@@ -19,6 +19,7 @@ mod remote_ptr;
 mod scoped_fd;
 mod task;
 mod ticks;
+mod trace_capnp;
 mod util;
 mod wait_status;
 mod x64_arch;
