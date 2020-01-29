@@ -290,6 +290,9 @@ fn dump_rd_stack(bt: Backtrace) {
 macro_rules! ed_assert {
     ($task:expr, $cond:expr) => {
         {
+            use crate::task::Task;
+            // For type checking. Will use this param later though.
+            let _t : &Task = $task;
             if !$cond {
                 {
                     use std::io::Write;
@@ -311,6 +314,9 @@ macro_rules! ed_assert {
     };
     ($task:expr, $cond:expr, $($args:tt)+) => {
         {
+            use crate::task::Task;
+            // For type checking. Will use this param later though.
+            let _t : &Task = $task;
             if !$cond {
                 {
                     use std::io::Write;
