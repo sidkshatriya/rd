@@ -137,11 +137,11 @@ impl NewLineTerminatingOstream {
         filename: &str,
         line: u32,
         func_name: &str,
+        always_enabled: bool,
     ) -> NewLineTerminatingOstream {
         let mut lock = LOG_GLOBALS.lock().unwrap();
         let m = get_log_module(filename, &mut lock);
-        // @TODO. Cannot ignore LogFatal. Make sure of consistency with rr.
-        let enabled = level == LogFatal || level <= m.level;
+        let enabled = always_enabled || level <= m.level;
         let mut this = NewLineTerminatingOstream {
             message: Vec::new(),
             enabled,
@@ -202,12 +202,12 @@ pub fn write_prefix(
         write!(stream, "{}:{} ", filename, line).unwrap();
     }
 
-    write!(stream, "{}() ", func_name).unwrap();
+    write!(stream, "{}()", func_name).unwrap();
     let err = errno();
     if level <= LogWarn && err != 0 {
-        write!(stream, "errno: {}", errno_name(err)).unwrap();
+        write!(stream, " errno: {}", errno_name(err)).unwrap();
     }
-    write!(stream, "]").unwrap();
+    write!(stream, "] ").unwrap();
 }
 
 pub fn log(
@@ -215,8 +215,9 @@ pub fn log(
     filename: &str,
     line: u32,
     module_path: &str,
+    always_enabled: bool,
 ) -> NewLineTerminatingOstream {
-    NewLineTerminatingOstream::new(log_level, filename, line, module_path)
+    NewLineTerminatingOstream::new(log_level, filename, line, module_path, always_enabled)
 }
 
 /// Outputs to (possibly write buffered) log file (or stderr if no log file was specified)
@@ -229,7 +230,8 @@ macro_rules! log {
                 $log_level,
                 file!(),
                 line!(),
-                module_path!()
+                module_path!(),
+                false
             );
             write!(stream, $($args)*).unwrap()
         }
@@ -248,7 +250,8 @@ macro_rules! fatal {
                     LogFatal,
                     file!(),
                     line!(),
-                    module_path!()
+                    module_path!(),
+                    true
                 );
                 write!(stream, $($args)+).unwrap();
             }
@@ -281,4 +284,51 @@ fn dump_rd_stack(bt: Backtrace) {
     write!(io::stderr(), "=== Start rd backtrace:\n").unwrap();
     write!(io::stderr(), "{:?}", bt).unwrap();
     write!(io::stderr(), "=== End rd backtrace\n").unwrap();
+}
+
+// If asserting fails, start an emergency debug session
+macro_rules! ed_assert {
+    ($task:expr, $cond:expr) => {
+        {
+            if !$cond {
+                {
+                    use std::io::Write;
+                    use crate::log::LogFatal;
+                    let mut stream = crate::log::log(
+                        LogFatal,
+                        file!(),
+                        line!(),
+                        module_path!(),
+                        true
+                    );
+                    // @TODO also add task details and trace time etc.
+                    write!(stream, "Assertion `{}' failed to hold. ", stringify!($cond)).unwrap();
+                }
+                // @TODO this should be replaced with starting an emergency debug session
+                crate::log::notifying_abort(backtrace::Backtrace::new());
+            }
+        }
+    };
+    ($task:expr, $cond:expr, $($args:tt)+) => {
+        {
+            if !$cond {
+                {
+                    use std::io::Write;
+                    use crate::log::LogFatal;
+                    let mut stream = crate::log::log(
+                        LogFatal,
+                        file!(),
+                        line!(),
+                        module_path!(),
+                        true
+                    );
+                    // @TODO also add task details and trace time etc.
+                    write!(stream, "Assertion `{}' failed to hold. ", stringify!($cond)).unwrap();
+                    write!(stream, $($args)+).unwrap();
+                }
+                // @TODO this should be replaced with starting an emergency debug session
+                crate::log::notifying_abort(backtrace::Backtrace::new());
+            }
+        }
+    };
 }
