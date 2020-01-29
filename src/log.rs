@@ -1,4 +1,6 @@
+use crate::kernel_metadata::errno_name;
 use backtrace::Backtrace;
+use nix::errno::errno;
 use std::collections::HashMap;
 use std::fs::File;
 use std::fs::OpenOptions;
@@ -158,22 +160,6 @@ impl NewLineTerminatingOstream {
     }
 }
 
-pub fn write_prefix(
-    stream: &mut dyn Write,
-    level: LogLevel,
-    filename: &str,
-    line: u32,
-    func_name: &str,
-) {
-    write!(stream, "[{}] ", log_name(level)).unwrap();
-    if level <= LogError {
-        write!(stream, "{}:{} ", filename, line).unwrap();
-    }
-
-    // @TODO Outputting errno to stream.
-    write!(stream, "{}() ", func_name).unwrap();
-}
-
 impl Drop for NewLineTerminatingOstream {
     fn drop(&mut self) {
         if self.enabled {
@@ -202,6 +188,26 @@ impl Write for NewLineTerminatingOstream {
         // Custom { kind: WriteZero, error: "failed to write whole buffer" }
         Ok(buf.len())
     }
+}
+
+pub fn write_prefix(
+    stream: &mut dyn Write,
+    level: LogLevel,
+    filename: &str,
+    line: u32,
+    func_name: &str,
+) {
+    write!(stream, "[{} ", log_name(level)).unwrap();
+    if level <= LogError {
+        write!(stream, "{}:{} ", filename, line).unwrap();
+    }
+
+    write!(stream, "{}() ", func_name).unwrap();
+    let err = errno();
+    if level <= LogWarn && err != 0 {
+        write!(stream, "errno: {}", errno_name(err)).unwrap();
+    }
+    write!(stream, "]").unwrap();
 }
 
 pub fn log(
