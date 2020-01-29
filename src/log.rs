@@ -223,7 +223,7 @@ pub fn log(
 /// Outputs to (possibly write buffered) log file (or stderr if no log file was specified)
 /// After this program continues normally.
 macro_rules! log {
-    ($log_level:expr, $($args:tt)*) => {
+    ($log_level:expr, $($args:tt)+) => {
         {
             use std::io::Write;
             let mut stream = crate::log::log(
@@ -233,7 +233,7 @@ macro_rules! log {
                 module_path!(),
                 false
             );
-            write!(stream, $($args)*).unwrap()
+            write!(stream, $($args)+).unwrap()
         }
     };
 }
