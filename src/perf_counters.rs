@@ -944,8 +944,9 @@ impl PerfCounters {
             if transaction_ticks > 0 {
                 log!(LogDebug, "{} IN_TX ticks detected", transaction_ticks);
                 // @TODO ignore if force things are enabled.
-                // @TODO This is actually an ASSERT macro.
-                fatal!(
+                ed_assert!(
+                    t,
+                    false,
                     "{} IN_TX ticks detected while HLE not supported due to KVM PMU\n\
                      virtualization bug. See \
                      http://marc.info/?l=linux-kernel&m=148582794808419&w=2\n\
@@ -965,14 +966,13 @@ impl PerfCounters {
                 let minus_measure_val = read_counter(&self.fd_minus_ticks_measure);
                 interrupt_val = interrupt_val - minus_measure_val;
             }
-            // @TODO this is actually an ASSERT macro
-            if self.counting_period == 0 || interrupt_val <= adjusted_counting_period {
-                fatal!(
-                    "Detected {} ticks, expected no more than {}",
-                    interrupt_val,
-                    adjusted_counting_period
-                );
-            }
+            ed_assert!(
+                t,
+                self.counting_period == 0 || interrupt_val <= adjusted_counting_period,
+                "Detected {} ticks, expected no more than {}",
+                interrupt_val,
+                adjusted_counting_period
+            );
             return interrupt_val;
         }
 
@@ -990,25 +990,23 @@ impl PerfCounters {
                 measure_val,
                 interrupt_val
             );
-            // @TODO this is actually an ASSERT macro
-            if self.counting_period == 0 || interrupt_val <= adjusted_counting_period {
-                fatal!(
-                    "Detected {} ticks, expected no more than {}",
-                    interrupt_val,
-                    adjusted_counting_period
-                );
-            }
-
-            return interrupt_val;
-        }
-        // @TODO this is actually an ASSERT macro
-        if self.counting_period == 0 || interrupt_val <= adjusted_counting_period {
-            fatal!(
+            ed_assert!(
+                t,
+                self.counting_period == 0 || interrupt_val <= adjusted_counting_period,
                 "Detected {} ticks, expected no more than {}",
                 interrupt_val,
                 adjusted_counting_period
             );
+
+            return interrupt_val;
         }
+        ed_assert!(
+            t,
+            self.counting_period == 0 || interrupt_val <= adjusted_counting_period,
+            "Detected {} ticks, expected no more than {}",
+            interrupt_val,
+            adjusted_counting_period
+        );
 
         measure_val
     }
