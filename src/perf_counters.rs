@@ -11,6 +11,7 @@ use crate::scoped_fd::ScopedFd;
 use crate::task::Task;
 use crate::ticks::Ticks;
 use crate::util::*;
+use libc::c_ulong;
 use libc::fcntl;
 use libc::ioctl;
 use libc::F_SETFL;
@@ -233,7 +234,7 @@ fn system_has_ioc_period_bug() -> bool {
     let (bug_fd, _) = start_counter(Pid::from_raw(0), -1, &mut attr);
 
     let new_period: u64 = 1;
-    if perf_ioctl(&bug_fd, PERF_EVENT_IOC_PERIOD, &new_period) != 0 {
+    if perf_ioctl(&bug_fd, PERF_EVENT_IOC_PERIOD, &new_period as *const u64) != 0 {
         fatal!("ioctl(PERF_EVENT_IOC_PERIOD) failed");
     }
 
@@ -609,12 +610,12 @@ fn start_counter(tid: Pid, group_fd: i32, attr: &mut perf_event_attr) -> (Scoped
 }
 
 /// Wrapper for the libc ioctl call.
-fn perf_ioctl(fd: &ScopedFd, param1: u64, param2: &u64) -> i32 {
+fn perf_ioctl(fd: &ScopedFd, param1: c_ulong, param2: *const u64) -> i32 {
     unsafe { ioctl(fd.as_raw(), param1, param2) }
 }
 
 /// Same as perf_ioctl() except third param is always 0.
-fn perf_ioctl_null(fd: &ScopedFd, param1: u64) -> i32 {
+fn perf_ioctl_null(fd: &ScopedFd, param1: c_ulong) -> i32 {
     unsafe { ioctl(fd.as_raw(), param1, 0) }
 }
 
@@ -747,7 +748,7 @@ impl PerfCounters {
     /// before the task is allowed to run again.
     /// `ticks_period` of zero means don't interrupt at all.
     pub fn reset(&mut self, param_ticks_period: Ticks) {
-        let mut ticks_period = param_ticks_period;
+        let mut ticks_period: u64 = param_ticks_period;
         if ticks_period == 0 && !always_recreate_counters() {
             // We can't switch a counter between sampling and non-sampling via
             // PERF_EVENT_IOC_PERIOD so just turn 0 into a very big number.

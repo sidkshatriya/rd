@@ -78,6 +78,18 @@ fn main() {
         .write_to_file(path.join("fcntl_bindings_generated.rs"))
         .unwrap();
 
+    let kernel_abi_bindings = Builder::default()
+        .parse_callbacks(Box::new(CargoCallbacks))
+        .blacklist_type("timex")
+        .prepend_enum_name(false)
+        .header("bindgen/kernel_wrapper.h")
+        .generate()
+        .unwrap();
+
+    kernel_abi_bindings
+        .write_to_file(path.join("kernel_bindings_generated.rs"))
+        .unwrap();
+
     capnpc::CompilerCommand::new()
         .file("schema/trace.capnp")
         .run()
