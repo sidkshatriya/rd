@@ -320,3 +320,142 @@ assert_eq_size!(kernel::siginfo_t, siginfo_t_x86_64);
 assert_eq_align!(kernel::siginfo_t, siginfo_t_x86);
 #[cfg(target_arch = "x86")]
 assert_eq_size!(kernel::siginfo_t, siginfo_t_x86);
+
+///////////////////// user_regs_struct
+#[cfg(target_arch = "x86_64")]
+struct user_regs_struct_x86_64 {
+    r15: u64,
+    r14: u64,
+    r13: u64,
+    r12: u64,
+    rbp: u64,
+    rbx: u64,
+    r11: u64,
+    r10: u64,
+    r9: u64,
+    r8: u64,
+    rax: u64,
+    rcx: u64,
+    rdx: u64,
+    rsi: u64,
+    rdi: u64,
+    // Unsigned type matches <sys/user.h>, but we need to treat this as
+    // signed in practice.
+    orig_rax: u64,
+    rip: u64,
+    cs: u64,
+    eflags: u64,
+    rsp: u64,
+    ss: u64,
+    // These _base registers are architecturally defined MSRs and really do
+    // need to be 64-bit.
+    fs_base: u64,
+    gs_base: u64,
+    ds: u64,
+    es: u64,
+    fs: u64,
+    gs: u64,
+}
+
+struct user_regs_struct_x86 {
+    ebx: i32,
+    ecx: i32,
+    edx: i32,
+    esi: i32,
+    edi: i32,
+    ebp: i32,
+    eax: i32,
+    xds: i32,
+    xes: i32,
+    xfs: i32,
+    xgs: i32,
+    orig_eax: i32,
+    eip: i32,
+    xcs: i32,
+    eflags: i32,
+    esp: i32,
+    xss: i32,
+}
+
+#[cfg(target_arch = "x86_64")]
+assert_eq_align!(kernel::user_regs_struct, user_regs_struct_x86_64);
+#[cfg(target_arch = "x86_64")]
+assert_eq_size!(kernel::user_regs_struct, user_regs_struct_x86_64);
+
+#[cfg(target_arch = "x86")]
+assert_eq_align!(kernel::user_regs_struct, user_regs_struct_x86);
+#[cfg(target_arch = "x86")]
+assert_eq_size!(kernel::user_regs_struct, user_regs_struct_x86);
+
+///////////////////// sigcontext
+struct sigcontext_x86_64 {
+    r8: u64,
+    r9: u64,
+    r10: u64,
+    r11: u64,
+    r12: u64,
+    r13: u64,
+    r14: u64,
+    r15: u64,
+    di: u64,
+    si: u64,
+    bp: u64,
+    bx: u64,
+    dx: u64,
+    ax: u64,
+    cx: u64,
+    sp: u64,
+    ip: u64,
+    flags: u64,
+    cs: u16,
+    gs: u16,
+    fs: u16,
+    __pad0: u16,
+    err: u64,
+    trapno: u64,
+    oldmask: u64,
+    cr2: u64,
+    fpstate: u64,
+    reserved: [u64; 8],
+}
+
+struct sigcontext_x86 {
+    gs: u16,
+    __gsh: u16,
+    fs: u16,
+    __fsh: u16,
+    es: u16,
+    __esh: u16,
+    ds: u16,
+    __dsh: u16,
+    di: u32,
+    si: u32,
+    bp: u32,
+    sp: u32,
+    bx: u32,
+    dx: u32,
+    cx: u32,
+    ax: u32,
+    trapno: u32,
+    err: u32,
+    ip: u32,
+    cs: u16,
+    __csh: u16,
+    flags: u16,
+    sp_at_signal: u32,
+    ss: u16,
+    __ssh: u16,
+    fpstate: u32,
+    oldmask: u32,
+    cr2: u32,
+}
+
+#[cfg(target_arch = "x86_64")]
+assert_eq_align!(kernel::sigcontext, sigcontext_x86_64);
+#[cfg(target_arch = "x86_64")]
+assert_eq_size!(kernel::sigcontext, sigcontext_x86_64);
+
+#[cfg(target_arch = "x86")]
+assert_eq_align!(kernel::sigcontext, sigcontext_x86);
+#[cfg(target_arch = "x86")]
+assert_eq_size!(kernel::sigcontext, sigcontext_x86);
