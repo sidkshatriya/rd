@@ -323,6 +323,8 @@ assert_eq_size!(kernel::siginfo_t, siginfo_t_x86);
 
 ///////////////////// user_regs_struct
 #[cfg(target_arch = "x86_64")]
+#[repr(C)]
+#[derive(Copy, Clone, Default)]
 struct user_regs_struct_x86_64 {
     r15: u64,
     r14: u64,
@@ -357,6 +359,8 @@ struct user_regs_struct_x86_64 {
     gs: u64,
 }
 
+#[repr(C)]
+#[derive(Copy, Clone, Default)]
 struct user_regs_struct_x86 {
     ebx: i32,
     ecx: i32,
@@ -388,6 +392,9 @@ assert_eq_align!(kernel::user_regs_struct, user_regs_struct_x86);
 assert_eq_size!(kernel::user_regs_struct, user_regs_struct_x86);
 
 ///////////////////// sigcontext
+#[cfg(target_arch = "x86_64")]
+#[repr(C)]
+#[derive(Copy, Clone, Default)]
 struct sigcontext_x86_64 {
     r8: u64,
     r9: u64,
@@ -419,6 +426,8 @@ struct sigcontext_x86_64 {
     reserved: [u64; 8],
 }
 
+#[repr(C)]
+#[derive(Copy, Clone, Default)]
 struct sigcontext_x86 {
     gs: u16,
     __gsh: u16,
@@ -459,3 +468,39 @@ assert_eq_size!(kernel::sigcontext, sigcontext_x86_64);
 assert_eq_align!(kernel::sigcontext, sigcontext_x86);
 #[cfg(target_arch = "x86")]
 assert_eq_size!(kernel::sigcontext, sigcontext_x86);
+
+///////////////////// sigcontext
+// @TODO this is packed struct in rr but this causes static assertion issues.
+#[cfg(target_arch = "x86_64")]
+#[repr(C)]
+#[derive(Copy, Clone, Default)]
+struct stat64_x86_64 {
+    st_dev: u64,
+    __pad1: u32,
+    __st_ino: u64,
+    st_mode: u32,
+    st_nlink: u64,
+    st_uid: u32,
+    st_gid: u32,
+    st_rdev: u64,
+    __pad2: u32,
+    st_size: u64,
+    st_blksize: i64,
+    st_blocks: i64,
+    st_atim: timespec<i64>,
+    st_mtim: timespec<i64>,
+    st_ctim: timespec<i64>,
+    st_ino: u64,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Default)]
+struct timespec<SLongT: Copy + Clone> {
+    tv_sec: SLongT,
+    tv_nsec: SLongT,
+}
+
+#[cfg(target_arch = "x86_64")]
+assert_eq_align!(kernel::stat64, stat64_x86_64);
+#[cfg(target_arch = "x86_64")]
+assert_eq_size!(kernel::stat64, stat64_x86_64);
