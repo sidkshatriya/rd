@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+#![feature(const_generics)]
 
 #[macro_use]
 extern crate bitflags;
