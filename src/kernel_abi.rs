@@ -289,7 +289,7 @@ assert_eq_align!(kernel::stat64, stat64_x86_64);
 #[cfg(target_arch = "x86_64")]
 assert_eq_size!(kernel::stat64, stat64_x86_64);
 
-mod common {
+pub mod common {
     pub type int16_t = i16;
     pub type int32_t = i32;
     pub type int64_t = i64;
@@ -306,32 +306,10 @@ mod common {
     pub type dev_t = uint64_t;
     pub type mode_t = uint32_t;
     pub type __kernel_timer_t = int32_t;
-    pub type cc_t = u8;
 }
 
-mod x86_64 {
+pub mod w64 {
     pub use super::common::*;
-    use std::marker::PhantomData;
-
-    #[repr(C)]
-    #[derive(Copy, Clone)]
-    pub struct ptr<T: Copy + Clone> {
-        w: usize,
-        r: PhantomData<T>,
-    }
-
-    #[repr(C)]
-    #[derive(Copy, Clone)]
-    pub struct ptr64<T: Copy + Clone> {
-        w: u64,
-        r: PhantomData<T>,
-    }
-
-    //////////////////////////////////
-    pub type speed_t = unsigned_int;
-    pub type tcflag_t = unsigned_int;
-    /////////////////////////////////
-
     pub type signed_short = int16_t;
     pub type unsigned_short = uint16_t;
 
@@ -354,34 +332,73 @@ mod x86_64 {
     pub type syscall_ulong_t = uint64_t;
     pub type sigchld_clock_t = int64_t;
     pub type __statfs_word = signed_long;
+}
 
-    pub type time_t = syscall_slong_t;
-    pub type off_t = syscall_slong_t;
-    pub type blkcnt_t = syscall_slong_t;
-    pub type blksize_t = syscall_slong_t;
-    pub type rlim_t = syscall_ulong_t;
-    pub type fsblkcnt_t = syscall_ulong_t;
-    pub type fsfilcnt_t = syscall_ulong_t;
-    pub type ino_t = syscall_ulong_t;
-    pub type nlink_t = syscall_ulong_t;
+#[cfg(target_arch = "x86_64")]
+pub mod x86_64 {
+    pub use super::w64::*;
+    use std::marker::PhantomData;
 
-    pub type off64_t = int64_t;
-    pub type loff_t = int64_t;
-    pub type rlim64_t = uint64_t;
-    pub type ino64_t = uint64_t;
-    pub type blkcnt64_t = int64_t;
+    #[repr(C)]
+    #[derive(Copy, Clone)]
+    pub struct ptr<T: Copy + Clone> {
+        w: u64,
+        r: PhantomData<T>,
+    }
 
-    pub type clock_t = syscall_slong_t;
-    pub type __kernel_key_t = signed_int;
-    pub type __kernel_uid32_t = signed_int;
-    pub type __kernel_gid32_t = signed_int;
-    pub type __kernel_mode_t = unsigned_int;
-    pub type __kernel_ulong_t = unsigned_long;
-    pub type __kernel_long_t = signed_long;
-    pub type __kernel_time_t = __kernel_long_t;
-    pub type __kernel_suseconds_t = __kernel_long_t;
-    pub type __kernel_pid_t = signed_int;
-    pub type __kernel_loff_t = int64_t;
+    #[repr(C)]
+    #[derive(Copy, Clone)]
+    pub struct ptr64<T: Copy + Clone> {
+        w: u64,
+        r: PhantomData<T>,
+    }
+
+    include!("include/struct_defns.rs");
+}
+
+pub mod w32 {
+    pub use super::common::*;
+    pub type signed_short = int16_t;
+    pub type unsigned_short = uint16_t;
+
+    pub type signed_int = int32_t;
+    pub type unsigned_int = uint32_t;
+    pub type int = int32_t;
+
+    pub type signed_long = int32_t;
+    pub type unsigned_long = uint32_t;
+
+    pub type signed_word = int32_t;
+    pub type unsigned_word = uint32_t;
+
+    pub type size_t = uint32_t;
+    pub type ssize_t = int32_t;
+
+    // These really only exist as proper abstractions so that adding x32
+    // (x86-64's ILP32 ABI) support is relatively easy.
+    pub type syscall_slong_t = int32_t;
+    pub type syscall_ulong_t = uint32_t;
+    pub type sigchld_clock_t = int32_t;
+    pub type __statfs_word = uint32_t;
+}
+
+pub mod x86 {
+    pub use super::w32::*;
+    use std::marker::PhantomData;
+
+    #[repr(C)]
+    #[derive(Copy, Clone)]
+    pub struct ptr<T: Copy + Clone> {
+        w: u32,
+        r: PhantomData<T>,
+    }
+
+    #[repr(C)]
+    #[derive(Copy, Clone)]
+    pub struct ptr64<T: Copy + Clone> {
+        w: u64,
+        r: PhantomData<T>,
+    }
 
     include!("include/struct_defns.rs");
 }

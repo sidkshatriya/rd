@@ -1,3 +1,31 @@
+pub type time_t = syscall_slong_t;
+pub type off_t = syscall_slong_t;
+pub type blkcnt_t = syscall_slong_t;
+pub type blksize_t = syscall_slong_t;
+pub type rlim_t = syscall_ulong_t;
+pub type fsblkcnt_t = syscall_ulong_t;
+pub type fsfilcnt_t = syscall_ulong_t;
+pub type ino_t = syscall_ulong_t;
+pub type nlink_t = syscall_ulong_t;
+
+pub type off64_t = int64_t;
+pub type loff_t = int64_t;
+pub type rlim64_t = uint64_t;
+pub type ino64_t = uint64_t;
+pub type blkcnt64_t = int64_t;
+
+pub type clock_t = syscall_slong_t;
+pub type __kernel_key_t = signed_int;
+pub type __kernel_uid32_t = signed_int;
+pub type __kernel_gid32_t = signed_int;
+pub type __kernel_mode_t = unsigned_int;
+pub type __kernel_ulong_t = unsigned_long;
+pub type __kernel_long_t = signed_long;
+pub type __kernel_time_t = __kernel_long_t;
+pub type __kernel_suseconds_t = __kernel_long_t;
+pub type __kernel_pid_t = signed_int;
+pub type __kernel_loff_t = int64_t;
+
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub union sigval_t {
@@ -189,6 +217,10 @@ struct siginfo_t<const SIGINFO_PADDING: usize> {
     pub _sifields: siginfo_sifields<SIGINFO_PADDING>,
 }
 //RR_VERIFY_TYPE_EXPLICIT(siginfo_t, ::siginfo_t)
+
+pub type cc_t = u8;
+pub type speed_t = unsigned_int;
+pub type tcflag_t = unsigned_int;
 
 #[repr(C)]
 #[derive(Copy, Clone)]
