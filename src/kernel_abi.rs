@@ -353,7 +353,7 @@ pub mod x86_64 {
         r: PhantomData<T>,
     }
 
-    include!("include/struct_defns.rs");
+    include!("include/base_arch_defns.rs");
 }
 
 pub mod w32 {
@@ -400,5 +400,5 @@ pub mod x86 {
         r: PhantomData<T>,
     }
 
-    include!("include/struct_defns.rs");
+    include!("include/base_arch_defns.rs");
 }
