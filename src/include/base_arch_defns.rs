@@ -26,6 +26,13 @@ pub type __kernel_suseconds_t = __kernel_long_t;
 pub type __kernel_pid_t = signed_int;
 pub type __kernel_loff_t = int64_t;
 
+pub const STD_PAD: usize = std::mem::size_of::<unsigned_long>() - std::mem::size_of::<int>();
+pub const KERNEL_SIGSET_SIZE : usize = 64 / (8 * std::mem::size_of::<unsigned_long>());
+pub const SIGSET_SIZE : usize = 1024 / (8 * std::mem::size_of::<unsigned_long>());
+pub const MAX_FDS : usize = 1024;
+pub const FD_SET_NUM : usize = MAX_FDS / (8 * std::mem::size_of::<unsigned_long>());
+pub const SYSINFO_F_SIZE : usize = 20 - 2 * std::mem::size_of::<__kernel_ulong_t>() - std::mem::size_of::<uint32_t>();
+
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub union sigval_t {
@@ -84,7 +91,7 @@ pub struct iovec {
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub struct msghdr<const STD_PAD: usize> {
+pub struct msghdr {
     pub msg_name: ptr<u8>,
     pub msg_namelen: socklen_t,
     pub _padding: [u8; STD_PAD],
@@ -110,8 +117,8 @@ pub struct cmsghdr {
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub struct mmsghdr<const STD_PAD: usize> {
-    pub msg_hdr: msghdr<STD_PAD>,
+pub struct mmsghdr {
+    pub msg_hdr: msghdr,
     pub msg_len: unsigned_int,
 }
 //RR_VERIFY_TYPE(mmsghdr);
@@ -197,7 +204,7 @@ pub struct siginfo_sigsys {
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub union siginfo_sifields<const SIGINFO_PADDING: usize> {
+pub union siginfo_sifields {
     padding: [i32; SIGINFO_PADDING],
     _kill: siginfo_kill,
     _timer: siginfo_timer,
@@ -210,13 +217,13 @@ pub union siginfo_sifields<const SIGINFO_PADDING: usize> {
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-struct siginfo_t<const SIGINFO_PADDING: usize> {
+struct siginfo_t {
     pub si_signo: signed_int,
     pub si_errno: signed_int,
     pub si_code: signed_int,
-    pub _sifields: siginfo_sifields<SIGINFO_PADDING>,
+    pub _sifields: siginfo_sifields,
 }
-//RR_VERIFY_TYPE_EXPLICIT(siginfo_t, ::siginfo_t)
+//RR_VERIFY_TYPE_EXPLICIT(siginfo_t, ::siginfo_t);
 
 pub type cc_t = u8;
 pub type speed_t = unsigned_int;
@@ -261,7 +268,7 @@ pub struct winsize {
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub struct ipc64_perm<const STD_PAD: usize> {
+pub struct ipc64_perm {
     pub key: __kernel_key_t,
     pub uid: __kernel_uid32_t,
     pub gid: __kernel_gid32_t,
@@ -278,8 +285,8 @@ pub struct ipc64_perm<const STD_PAD: usize> {
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub struct msqid64_ds<const STD_PAD: usize> {
-    pub msg_perm: ipc64_perm<STD_PAD>,
+pub struct msqid64_ds {
+    pub msg_perm: ipc64_perm,
     // These msg*time fields are really __kernel_time_t plus
     // appropriate padding.  We don't touch the fields, though.
     //
@@ -316,8 +323,8 @@ pub struct msginfo {
 /* Don't align for the 64-bit values on 32-bit x86 */
 #[repr(C, packed)]
 #[derive(Copy, Clone)]
-pub struct shmid64_ds<const STD_PAD: usize> {
-    pub shm_perm: ipc64_perm<STD_PAD>,
+pub struct shmid64_ds {
+    pub shm_perm: ipc64_perm,
     pub shm_segsz: size_t,
     pub shm_atime_only_little_endian: uint64_t,
     pub shm_dtime_only_little_endian: uint64_t,
@@ -347,7 +354,7 @@ pub struct shminfo64 {
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub struct shm_info<const STD_PAD: usize> {
+pub struct shm_info {
     pub used_ids: int,
     pub __pad: [u8; STD_PAD],
     pub shm_tot: __kernel_ulong_t,
@@ -360,8 +367,8 @@ pub struct shm_info<const STD_PAD: usize> {
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub struct semid64_ds<const STD_PAD: usize> {
-    pub sem_perm: ipc64_perm<STD_PAD>,
+pub struct semid64_ds {
+    pub sem_perm: ipc64_perm,
     pub sem_otime: __kernel_time_t,
     pub __unused1: __kernel_ulong_t,
     pub sem_ctime: __kernel_time_t,
@@ -530,7 +537,7 @@ pub union ifc_ifcu {
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub struct ifconf<const STD_PAD: usize> {
+pub struct ifconf {
     pub ifc_len: signed_int,
     pub __pad: [u8; STD_PAD],
     pub ifc_ifcu: ifc_ifcu,
@@ -633,7 +640,7 @@ pub struct ethtool_cmd {
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub struct _flock<const STD_PAD: usize> {
+pub struct _flock {
     pub l_type: signed_short,
     pub l_whence: signed_short,
     pub __pad: [u8; STD_PAD],
@@ -641,11 +648,11 @@ pub struct _flock<const STD_PAD: usize> {
     pub l_len: off_t,
     pub l_pid: pid_t,
 }
-//RR_VERIFY_TYPE_EXPLICIT(struct ::flock, _flock) :
+//RR_VERIFY_TYPE_EXPLICIT(struct ::flock, _flock);
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub struct flock64<const STD_PAD: usize> {
+pub struct flock64 {
     pub l_type: signed_short,
     pub l_whence: signed_short,
     // @TODO compare with the rr version for padding
@@ -669,7 +676,7 @@ pub struct f_owner_ex {
 // them here makes their definitions more concise.
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub struct accept_args<const STD_PAD: usize> {
+pub struct accept_args {
     pub sockfd: signed_int,
     pub __pad: [u8; STD_PAD],
     pub addr: ptr<sockaddr>,
@@ -678,7 +685,7 @@ pub struct accept_args<const STD_PAD: usize> {
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub struct accept4_args<const STD_PAD: usize> {
+pub struct accept4_args {
     pub sockfd: signed_int,
     pub __pad: [u8; STD_PAD],
     pub addr: ptr<sockaddr>,
@@ -688,7 +695,7 @@ pub struct accept4_args<const STD_PAD: usize> {
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub struct getsockname_args<const STD_PAD: usize> {
+pub struct getsockname_args {
     pub sockfd: signed_int,
     pub __pad: [u8; STD_PAD],
     pub addr: ptr<sockaddr>,
@@ -697,7 +704,7 @@ pub struct getsockname_args<const STD_PAD: usize> {
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub struct getsockopt_args<const STD_PAD: usize> {
+pub struct getsockopt_args {
     pub sockfd: signed_int,
     pub level: signed_int,
     pub optname: signed_int,
@@ -726,7 +733,7 @@ pub struct connect_args {
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub struct recv_args<const STD_PAD: usize> {
+pub struct recv_args {
     pub sockfd: signed_int,
     pub __pad: [u8; STD_PAD],
     pub buf: ptr<u8>,
@@ -747,19 +754,19 @@ pub struct recvfrom_args {
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub struct recvmsg_args<const STD_PAD: usize> {
+pub struct recvmsg_args {
     pub fd: signed_int,
     pub __pad: [u8; STD_PAD],
-    pub msg: ptr<msghdr<STD_PAD>>,
+    pub msg: ptr<msghdr>,
     pub flags: signed_int,
 }
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub struct recvmmsg_args<const STD_PAD: usize> {
+pub struct recvmmsg_args {
     pub sockfd: signed_int,
     pub __pad: [u8; STD_PAD],
-    pub msgvec: ptr<mmsghdr<STD_PAD>>,
+    pub msgvec: ptr<mmsghdr>,
     pub vlen: unsigned_int,
     pub flags: unsigned_int,
     pub timeout: ptr<timespec>,
@@ -767,26 +774,26 @@ pub struct recvmmsg_args<const STD_PAD: usize> {
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub struct sendmsg_args<const STD_PAD: usize> {
+pub struct sendmsg_args {
     pub fd: signed_int,
     pub __pad: [u8; STD_PAD],
-    pub msg: ptr<msghdr<STD_PAD>>,
+    pub msg: ptr<msghdr>,
     pub flags: signed_int,
 }
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub struct sendmmsg_args<const STD_PAD: usize> {
+pub struct sendmmsg_args {
     pub sockfd: signed_int,
     pub __pad: [u8; STD_PAD],
-    pub msgvec: ptr<mmsghdr<STD_PAD>>,
+    pub msgvec: ptr<mmsghdr>,
     pub vlen: unsigned_int,
     pub flags: unsigned_int,
 }
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub struct socketpair_args<const STD_PAD: usize> {
+pub struct socketpair_args {
     pub domain: signed_int,
     pub type_: signed_int,
     pub protocol: signed_int,
@@ -805,7 +812,7 @@ enum MmapCallingSemantics {
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub struct mmap_args<const STD_PAD: usize> {
+pub struct mmap_args {
     pub addr: ptr<u8>,
     pub len: size_t,
     pub prot: signed_int,
@@ -830,18 +837,18 @@ enum SelectCallingSemantics {
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub struct fd_set<const FD_SET_NUM: usize> {
+pub struct fd_set {
     pub fds_bits: [unsigned_long; FD_SET_NUM],
 }
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub struct select_args<const STD_PAD: usize, const FD_SET_NUM: usize> {
+pub struct select_args {
     pub n_fds: signed_int,
     pub __pad: [u8; STD_PAD],
-    pub read_fds: ptr<fd_set<FD_SET_NUM>>,
-    pub write_fds: ptr<fd_set<FD_SET_NUM>>,
-    pub except_fds: ptr<fd_set<FD_SET_NUM>>,
+    pub read_fds: ptr<fd_set>,
+    pub write_fds: ptr<fd_set>,
+    pub except_fds: ptr<fd_set>,
     pub timeout: ptr<timeval>,
 }
 
@@ -858,7 +865,7 @@ pub struct ipc_kludge_args {
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub struct __sysctl_args<const STD_PAD: usize> {
+pub struct __sysctl_args {
     pub name: ptr<signed_int>,
     pub nlen: signed_int,
     pub __pad: [u8; STD_PAD],
@@ -872,7 +879,7 @@ pub struct __sysctl_args<const STD_PAD: usize> {
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub struct kernel_sigset_t<const KERNEL_SIGSET_SIZE: usize> {
+pub struct kernel_sigset_t {
     pub __val: [unsigned_long; KERNEL_SIGSET_SIZE],
 }
 
@@ -880,25 +887,25 @@ pub struct kernel_sigset_t<const KERNEL_SIGSET_SIZE: usize> {
 // extensibility.
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub struct sigset_t<const SIGSET_SIZE: usize> {
+pub struct sigset_t {
     pub __val: [unsigned_long; SIGSET_SIZE],
 }
 //RR_VERIFY_TYPE(sigset_t);
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub struct pselect6_arg6<const KERNEL_SIGSET_SIZE: usize> {
-    pub ss: ptr<kernel_sigset_t<KERNEL_SIGSET_SIZE>>,
+pub struct pselect6_arg6 {
+    pub ss: ptr<kernel_sigset_t>,
     pub ss_len: size_t,
 }
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub struct kernel_sigaction<const KERNEL_SIGSET_SIZE: usize> {
+pub struct kernel_sigaction {
     pub k_sa_handler: ptr<u8>,
     pub sa_flags: unsigned_long,
     pub sa_restorer: ptr<u8>,
-    pub sa_mask: kernel_sigset_t<KERNEL_SIGSET_SIZE>,
+    pub sa_mask: kernel_sigset_t,
 }
 
 #[repr(C)]
@@ -933,7 +940,7 @@ pub struct timezone {
     pub tz_minuteswest: int,
     pub tz_dsttime: int,
 }
-//RR_VERIFY_TYPE_EXPLICIT(struct ::timezone, timezone) :
+//RR_VERIFY_TYPE_EXPLICIT(struct ::timezone, timezone);
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -957,7 +964,7 @@ pub struct statfs {
     pub f_flags: __statfs_word,
     pub f_spare: [__statfs_word; 4],
 }
-//RR_VERIFY_TYPE_EXPLICIT(struct ::statfs, statfs)
+//RR_VERIFY_TYPE_EXPLICIT(struct ::statfs, statfs);
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -975,7 +982,7 @@ pub struct statfs64 {
     pub f_flags: __statfs_word,
     pub f_spare: [__statfs_word; 4],
 }
-//RR_VERIFY_TYPE_EXPLICIT(struct ::statfs64, statfs64)
+//RR_VERIFY_TYPE_EXPLICIT(struct ::statfs64, statfs64);
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -995,19 +1002,19 @@ pub struct itimerspec {
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub struct sigaltstack<const STD_PAD: usize> {
+pub struct sigaltstack {
     pub ss_sp: ptr<u8>,
     pub ss_flags: int,
     pub __pad: [u8; STD_PAD],
     pub ss_size: size_t,
 }
 
-pub type stack_t<const STD_PAD: usize> = sigaltstack<STD_PAD>;
+pub type stack_t = sigaltstack;
 //RR_VERIFY_TYPE(stack_t);
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub struct sysinfo<const STD_PAD: usize, const SYSINFO_F_SIZE: usize> {
+pub struct sysinfo {
     pub uptime: __kernel_long_t,
     pub loads: [__kernel_ulong_t; 3],
     pub totalram: __kernel_ulong_t,
@@ -1024,7 +1031,7 @@ pub struct sysinfo<const STD_PAD: usize, const SYSINFO_F_SIZE: usize> {
     pub mem_unit: uint32_t,
     pub _f: [u8; SYSINFO_F_SIZE],
 }
-//RR_VERIFY_TYPE_EXPLICIT(struct pub ::sysinfo, sysinfo)
+//RR_VERIFY_TYPE_EXPLICIT(struct pub ::sysinfo, sysinfo);
 
 pub const UTSNAME_LENGTH: usize = 65;
 #[repr(C)]
@@ -1070,7 +1077,7 @@ pub union v4l2_buffer_m {
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub struct v4l2_buffer<const STD_PAD: usize> {
+pub struct v4l2_buffer {
     pub index: uint32_t,
     pub type_: uint32_t,
     pub bytesused: uint32_t,
@@ -1100,7 +1107,7 @@ pub struct sock_filter {
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub struct sock_fprog<const STD_PAD: usize> {
+pub struct sock_fprog {
     pub len: uint16_t,
     pub _padding: [u8; STD_PAD],
     pub filter: ptr<sock_filter>,
@@ -1251,7 +1258,7 @@ pub struct ipt_replace {
 }
 // The corresponding header requires -fpermissive, which we don't pass. Skip
 // this check.
-// //RR_VERIFY_TYPE(ipt_replace);
+//RR_VERIFY_TYPE(ipt_replace);
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -1383,9 +1390,9 @@ pub struct statx_timestamp {
     pub __reserved: int32_t,
 }
 // statx_timestamp not yet widely available in system headers
-// //RR_VERIFY_TYPE(statx_timestamp);
+//RR_VERIFY_TYPE(statx_timestamp);
 
-pub struct statx_struct {
+pub struct statx {
     pub stx_mask: uint32_t,
     pub stx_blksize: uint32_t,
     pub stx_attributes: uint64_t,
@@ -1409,7 +1416,7 @@ pub struct statx_struct {
     pub __spare2: [uint64_t; 14],
 }
 // statx not yet widely available in system headers
-// //RR_VERIFY_TYPE(statx);
+//RR_VERIFY_TYPE(statx);
 
 #[repr(C)]
 #[derive(Copy, Clone)]

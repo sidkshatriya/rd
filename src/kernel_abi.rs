@@ -195,6 +195,7 @@ pub mod w64 {
 pub mod x86_64 {
     pub use super::w64::*;
     use crate::bindings::kernel;
+    pub const SIGINFO_PADDING: usize = 28;
 
     pub type ptr<T> = super::Ptr<u64, T>;
 
@@ -275,6 +276,238 @@ pub mod x86_64 {
 
     assert_eq_align!(kernel::sigcontext, sigcontext);
     assert_eq_size!(kernel::sigcontext, sigcontext);
+
+    assert_eq_size!(kernel::sockaddr, sockaddr);
+    assert_eq_align!(kernel::sockaddr, sockaddr);
+
+    assert_eq_size!(kernel::sockaddr_un, sockaddr_un);
+    assert_eq_align!(kernel::sockaddr_un, sockaddr_un);
+
+    assert_eq_size!(kernel::timeval, timeval);
+    assert_eq_align!(kernel::timeval, timeval);
+
+    assert_eq_size!(kernel::timespec, timespec);
+    assert_eq_align!(kernel::timespec, timespec);
+
+    assert_eq_size!(kernel::pollfd, pollfd);
+    assert_eq_align!(kernel::pollfd, pollfd);
+
+    assert_eq_size!(kernel::iovec, iovec);
+    assert_eq_align!(kernel::iovec, iovec);
+
+    assert_eq_size!(kernel::msghdr, msghdr);
+    assert_eq_align!(kernel::msghdr, msghdr);
+
+    assert_eq_size!(kernel::cmsghdr, cmsghdr);
+    assert_eq_align!(kernel::cmsghdr, cmsghdr);
+
+    assert_eq_size!(kernel::mmsghdr, mmsghdr);
+    assert_eq_align!(kernel::mmsghdr, mmsghdr);
+
+    assert_eq_size!(kernel::rusage, rusage);
+    assert_eq_align!(kernel::rusage, rusage);
+
+    assert_eq_size!(kernel::siginfo_t, siginfo_t);
+    assert_eq_align!(kernel::siginfo_t, siginfo_t);
+
+    assert_eq_size!(kernel::termios, termios);
+    assert_eq_align!(kernel::termios, termios);
+
+    assert_eq_size!(kernel::termio, termio);
+    assert_eq_align!(kernel::termio, termio);
+
+    assert_eq_size!(kernel::winsize, winsize);
+    assert_eq_align!(kernel::winsize, winsize);
+
+    assert_eq_size!(kernel::ipc64_perm, ipc64_perm);
+    assert_eq_align!(kernel::ipc64_perm, ipc64_perm);
+
+    assert_eq_size!(kernel::msqid64_ds, msqid64_ds);
+    assert_eq_align!(kernel::msqid64_ds, msqid64_ds);
+
+    assert_eq_size!(kernel::msginfo, msginfo);
+    assert_eq_align!(kernel::msginfo, msginfo);
+
+    assert_eq_size!(kernel::shmid64_ds, shmid64_ds);
+    // @TODO
+    // assert_eq_align!(kernel::shmid64_ds, shmid64_ds);
+
+    assert_eq_size!(kernel::shminfo64, shminfo64);
+    assert_eq_align!(kernel::shminfo64, shminfo64);
+
+    assert_eq_size!(kernel::shm_info, shm_info);
+    assert_eq_align!(kernel::shm_info, shm_info);
+
+    assert_eq_size!(kernel::semid64_ds, semid64_ds);
+    assert_eq_align!(kernel::semid64_ds, semid64_ds);
+
+    assert_eq_size!(kernel::seminfo, seminfo);
+    assert_eq_align!(kernel::seminfo, seminfo);
+
+    // @TODO.
+    // assert_eq_size!(kernel::user_desc, user_desc);
+    // assert_eq_align!(kernel::user_desc, user_desc);
+
+    assert_eq_size!(kernel::__user_cap_header_struct, __user_cap_header_struct);
+    assert_eq_align!(kernel::__user_cap_header_struct, __user_cap_header_struct);
+
+    assert_eq_size!(kernel::__user_cap_data_struct, __user_cap_data_struct);
+    assert_eq_align!(kernel::__user_cap_data_struct, __user_cap_data_struct);
+
+    assert_eq_size!(kernel::dqblk, dqblk);
+    assert_eq_align!(kernel::dqblk, dqblk);
+
+    assert_eq_size!(kernel::dqinfo, dqinfo);
+    assert_eq_align!(kernel::dqinfo, dqinfo);
+
+    assert_eq_size!(kernel::ifmap, ifmap);
+    assert_eq_align!(kernel::ifmap, ifmap);
+
+    assert_eq_size!(kernel::if_settings, if_settings);
+    assert_eq_align!(kernel::if_settings, if_settings);
+
+    assert_eq_size!(kernel::ifreq, ifreq);
+    assert_eq_align!(kernel::ifreq, ifreq);
+
+    assert_eq_size!(kernel::ifconf, ifconf);
+    assert_eq_align!(kernel::ifconf, ifconf);
+
+    assert_eq_size!(kernel::iw_param, iw_param);
+    assert_eq_align!(kernel::iw_param, iw_param);
+
+    assert_eq_size!(kernel::iw_point, iw_point);
+    assert_eq_align!(kernel::iw_point, iw_point);
+
+    assert_eq_size!(kernel::iw_freq, iw_freq);
+    assert_eq_align!(kernel::iw_freq, iw_freq);
+
+    assert_eq_size!(kernel::iw_quality, iw_quality);
+    assert_eq_align!(kernel::iw_quality, iw_quality);
+
+    assert_eq_size!(kernel::iwreq_data, iwreq_data);
+    assert_eq_align!(kernel::iwreq_data, iwreq_data);
+
+    assert_eq_size!(kernel::iwreq, iwreq);
+    assert_eq_align!(kernel::iwreq, iwreq);
+
+    assert_eq_size!(kernel::ethtool_cmd, ethtool_cmd);
+    assert_eq_align!(kernel::ethtool_cmd, ethtool_cmd);
+
+    assert_eq_size!(kernel::flock, _flock);
+    assert_eq_align!(kernel::flock, _flock);
+
+    assert_eq_size!(kernel::flock64, flock64);
+    assert_eq_align!(kernel::flock64, flock64);
+
+    assert_eq_size!(kernel::f_owner_ex, f_owner_ex);
+    assert_eq_align!(kernel::f_owner_ex, f_owner_ex);
+
+    assert_eq_size!(kernel::__sysctl_args, __sysctl_args);
+    assert_eq_align!(kernel::__sysctl_args, __sysctl_args);
+
+    assert_eq_size!(kernel::sigset_t, sigset_t);
+    assert_eq_align!(kernel::sigset_t, sigset_t);
+
+    assert_eq_size!(kernel::tms, tms);
+    assert_eq_align!(kernel::tms, tms);
+
+    assert_eq_size!(kernel::rlimit, rlimit);
+    assert_eq_align!(kernel::rlimit, rlimit);
+
+    assert_eq_size!(kernel::rlimit64, rlimit64);
+    assert_eq_align!(kernel::rlimit64, rlimit64);
+
+    assert_eq_size!(kernel::timezone, timezone);
+    assert_eq_align!(kernel::timezone, timezone);
+
+    assert_eq_size!(kernel::statfs, statfs);
+    assert_eq_align!(kernel::statfs, statfs);
+
+    assert_eq_size!(kernel::statfs64, statfs64);
+    assert_eq_align!(kernel::statfs64, statfs64);
+
+    assert_eq_size!(kernel::itimerval, itimerval);
+    assert_eq_align!(kernel::itimerval, itimerval);
+
+    assert_eq_size!(kernel::itimerspec, itimerspec);
+    assert_eq_align!(kernel::itimerspec, itimerspec);
+
+    assert_eq_size!(kernel::stack_t, stack_t);
+    assert_eq_align!(kernel::stack_t, stack_t);
+
+    assert_eq_size!(kernel::sysinfo, sysinfo);
+    assert_eq_align!(kernel::sysinfo, sysinfo);
+
+    assert_eq_size!(kernel::utsname, utsname);
+    assert_eq_align!(kernel::utsname, utsname);
+
+    // @TODO.
+    // assert_eq_size!(kernel::sched_param, sched_param);
+    // assert_eq_align!(kernel::sched_param, sched_param);
+
+    assert_eq_size!(kernel::v4l2_timecode, v4l2_timecode);
+    assert_eq_align!(kernel::v4l2_timecode, v4l2_timecode);
+
+    assert_eq_size!(kernel::v4l2_buffer, v4l2_buffer);
+    assert_eq_align!(kernel::v4l2_buffer, v4l2_buffer);
+
+    assert_eq_size!(kernel::sock_filter, sock_filter);
+    assert_eq_align!(kernel::sock_filter, sock_filter);
+
+    assert_eq_size!(kernel::sock_fprog, sock_fprog);
+    assert_eq_align!(kernel::sock_fprog, sock_fprog);
+
+    assert_eq_size!(kernel::robust_list, robust_list);
+    assert_eq_align!(kernel::robust_list, robust_list);
+
+    assert_eq_size!(kernel::robust_list_head, robust_list_head);
+    assert_eq_align!(kernel::robust_list_head, robust_list_head);
+
+    assert_eq_size!(kernel::snd_ctl_card_info, snd_ctl_card_info);
+    assert_eq_align!(kernel::snd_ctl_card_info, snd_ctl_card_info);
+
+    assert_eq_size!(kernel::usbdevfs_iso_packet_desc, usbdevfs_iso_packet_desc);
+    assert_eq_align!(kernel::usbdevfs_iso_packet_desc, usbdevfs_iso_packet_desc);
+
+    assert_eq_size!(kernel::usbdevfs_urb, usbdevfs_urb);
+    assert_eq_align!(kernel::usbdevfs_urb, usbdevfs_urb);
+
+    assert_eq_size!(kernel::usbdevfs_ioctl, usbdevfs_ioctl);
+    assert_eq_align!(kernel::usbdevfs_ioctl, usbdevfs_ioctl);
+
+    assert_eq_size!(kernel::usbdevfs_ctrltransfer, usbdevfs_ctrltransfer);
+    assert_eq_align!(kernel::usbdevfs_ctrltransfer, usbdevfs_ctrltransfer);
+
+    assert_eq_size!(kernel::dirent, dirent);
+    assert_eq_align!(kernel::dirent, dirent);
+
+    assert_eq_size!(kernel::dirent64, dirent64);
+    assert_eq_align!(kernel::dirent64, dirent64);
+
+    assert_eq_size!(kernel::mq_attr, mq_attr);
+    assert_eq_align!(kernel::mq_attr, mq_attr);
+
+    assert_eq_size!(kernel::xt_counters, xt_counters);
+    assert_eq_align!(kernel::xt_counters, xt_counters);
+
+    // @TODO
+    // assert_eq_size!(kernel::ipt_replace, ipt_replace);
+    // assert_eq_align!(kernel::ipt_replace, ipt_replace);
+
+    assert_eq_size!(kernel::ifbond, ifbond);
+    assert_eq_align!(kernel::ifbond, ifbond);
+
+    assert_eq_size!(kernel::timex, timex);
+    assert_eq_align!(kernel::timex, timex);
+
+    assert_eq_size!(kernel::statx_timestamp, statx_timestamp);
+    assert_eq_align!(kernel::statx_timestamp, statx_timestamp);
+
+    assert_eq_size!(kernel::statx, statx);
+    assert_eq_align!(kernel::statx, statx);
+
+    assert_eq_size!(kernel::sg_io_hdr, sg_io_hdr);
+    assert_eq_align!(kernel::sg_io_hdr, sg_io_hdr);
 }
 
 pub mod w32 {
@@ -307,6 +540,7 @@ pub mod x86 {
     pub use super::w32::*;
     use crate::bindings::kernel;
 
+    pub const SIGINFO_PADDING: usize = 29;
     pub type ptr<T> = super::Ptr<u32, T>;
 
     // IMPORTANT ! ////////////////////////
@@ -376,4 +610,243 @@ pub mod x86 {
     assert_eq_align!(kernel::sigcontext, sigcontext);
     #[cfg(target_arch = "x86")]
     assert_eq_size!(kernel::sigcontext, sigcontext);
+
+    #[cfg(target_arch = "x86")]
+    mod assert {
+        use super::*;
+        assert_eq_align!(kernel::sigcontext, sigcontext);
+        assert_eq_size!(kernel::sigcontext, sigcontext);
+
+        assert_eq_size!(kernel::sockaddr, sockaddr);
+        assert_eq_align!(kernel::sockaddr, sockaddr);
+
+        assert_eq_size!(kernel::sockaddr_un, sockaddr_un);
+        assert_eq_align!(kernel::sockaddr_un, sockaddr_un);
+
+        assert_eq_size!(kernel::timeval, timeval);
+        assert_eq_align!(kernel::timeval, timeval);
+
+        assert_eq_size!(kernel::timespec, timespec);
+        assert_eq_align!(kernel::timespec, timespec);
+
+        assert_eq_size!(kernel::pollfd, pollfd);
+        assert_eq_align!(kernel::pollfd, pollfd);
+
+        assert_eq_size!(kernel::iovec, iovec);
+        assert_eq_align!(kernel::iovec, iovec);
+
+        assert_eq_size!(kernel::msghdr, msghdr);
+        assert_eq_align!(kernel::msghdr, msghdr);
+
+        assert_eq_size!(kernel::cmsghdr, cmsghdr);
+        assert_eq_align!(kernel::cmsghdr, cmsghdr);
+
+        assert_eq_size!(kernel::mmsghdr, mmsghdr);
+        assert_eq_align!(kernel::mmsghdr, mmsghdr);
+
+        assert_eq_size!(kernel::rusage, rusage);
+        assert_eq_align!(kernel::rusage, rusage);
+
+        assert_eq_size!(kernel::siginfo_t, siginfo_t);
+        assert_eq_align!(kernel::siginfo_t, siginfo_t);
+
+        assert_eq_size!(kernel::termios, termios);
+        assert_eq_align!(kernel::termios, termios);
+
+        assert_eq_size!(kernel::termio, termio);
+        assert_eq_align!(kernel::termio, termio);
+
+        assert_eq_size!(kernel::winsize, winsize);
+        assert_eq_align!(kernel::winsize, winsize);
+
+        assert_eq_size!(kernel::ipc64_perm, ipc64_perm);
+        assert_eq_align!(kernel::ipc64_perm, ipc64_perm);
+
+        assert_eq_size!(kernel::msqid64_ds, msqid64_ds);
+        assert_eq_align!(kernel::msqid64_ds, msqid64_ds);
+
+        assert_eq_size!(kernel::msginfo, msginfo);
+        assert_eq_align!(kernel::msginfo, msginfo);
+
+        assert_eq_size!(kernel::shmid64_ds, shmid64_ds);
+        // @TODO
+        // assert_eq_align!(kernel::shmid64_ds, shmid64_ds);
+
+        assert_eq_size!(kernel::shminfo64, shminfo64);
+        assert_eq_align!(kernel::shminfo64, shminfo64);
+
+        assert_eq_size!(kernel::shm_info, shm_info);
+        assert_eq_align!(kernel::shm_info, shm_info);
+
+        assert_eq_size!(kernel::semid64_ds, semid64_ds);
+        assert_eq_align!(kernel::semid64_ds, semid64_ds);
+
+        assert_eq_size!(kernel::seminfo, seminfo);
+        assert_eq_align!(kernel::seminfo, seminfo);
+
+        // @TODO.
+        // assert_eq_size!(kernel::user_desc, user_desc);
+        // assert_eq_align!(kernel::user_desc, user_desc);
+
+        assert_eq_size!(kernel::__user_cap_header_struct, __user_cap_header_struct);
+        assert_eq_align!(kernel::__user_cap_header_struct, __user_cap_header_struct);
+
+        assert_eq_size!(kernel::__user_cap_data_struct, __user_cap_data_struct);
+        assert_eq_align!(kernel::__user_cap_data_struct, __user_cap_data_struct);
+
+        assert_eq_size!(kernel::dqblk, dqblk);
+        assert_eq_align!(kernel::dqblk, dqblk);
+
+        assert_eq_size!(kernel::dqinfo, dqinfo);
+        assert_eq_align!(kernel::dqinfo, dqinfo);
+
+        assert_eq_size!(kernel::ifmap, ifmap);
+        assert_eq_align!(kernel::ifmap, ifmap);
+
+        assert_eq_size!(kernel::if_settings, if_settings);
+        assert_eq_align!(kernel::if_settings, if_settings);
+
+        assert_eq_size!(kernel::ifreq, ifreq);
+        assert_eq_align!(kernel::ifreq, ifreq);
+
+        assert_eq_size!(kernel::ifconf, ifconf);
+        assert_eq_align!(kernel::ifconf, ifconf);
+
+        assert_eq_size!(kernel::iw_param, iw_param);
+        assert_eq_align!(kernel::iw_param, iw_param);
+
+        assert_eq_size!(kernel::iw_point, iw_point);
+        assert_eq_align!(kernel::iw_point, iw_point);
+
+        assert_eq_size!(kernel::iw_freq, iw_freq);
+        assert_eq_align!(kernel::iw_freq, iw_freq);
+
+        assert_eq_size!(kernel::iw_quality, iw_quality);
+        assert_eq_align!(kernel::iw_quality, iw_quality);
+
+        assert_eq_size!(kernel::iwreq_data, iwreq_data);
+        assert_eq_align!(kernel::iwreq_data, iwreq_data);
+
+        assert_eq_size!(kernel::iwreq, iwreq);
+        assert_eq_align!(kernel::iwreq, iwreq);
+
+        assert_eq_size!(kernel::ethtool_cmd, ethtool_cmd);
+        assert_eq_align!(kernel::ethtool_cmd, ethtool_cmd);
+
+        assert_eq_size!(kernel::flock, _flock);
+        assert_eq_align!(kernel::flock, _flock);
+
+        assert_eq_size!(kernel::flock64, flock64);
+        assert_eq_align!(kernel::flock64, flock64);
+
+        assert_eq_size!(kernel::f_owner_ex, f_owner_ex);
+        assert_eq_align!(kernel::f_owner_ex, f_owner_ex);
+
+        assert_eq_size!(kernel::__sysctl_args, __sysctl_args);
+        assert_eq_align!(kernel::__sysctl_args, __sysctl_args);
+
+        assert_eq_size!(kernel::sigset_t, sigset_t);
+        assert_eq_align!(kernel::sigset_t, sigset_t);
+
+        assert_eq_size!(kernel::tms, tms);
+        assert_eq_align!(kernel::tms, tms);
+
+        assert_eq_size!(kernel::rlimit, rlimit);
+        assert_eq_align!(kernel::rlimit, rlimit);
+
+        assert_eq_size!(kernel::rlimit64, rlimit64);
+        assert_eq_align!(kernel::rlimit64, rlimit64);
+
+        assert_eq_size!(kernel::timezone, timezone);
+        assert_eq_align!(kernel::timezone, timezone);
+
+        assert_eq_size!(kernel::statfs, statfs);
+        assert_eq_align!(kernel::statfs, statfs);
+
+        assert_eq_size!(kernel::statfs64, statfs64);
+        assert_eq_align!(kernel::statfs64, statfs64);
+
+        assert_eq_size!(kernel::itimerval, itimerval);
+        assert_eq_align!(kernel::itimerval, itimerval);
+
+        assert_eq_size!(kernel::itimerspec, itimerspec);
+        assert_eq_align!(kernel::itimerspec, itimerspec);
+
+        assert_eq_size!(kernel::stack_t, stack_t);
+        assert_eq_align!(kernel::stack_t, stack_t);
+
+        assert_eq_size!(kernel::sysinfo, sysinfo);
+        assert_eq_align!(kernel::sysinfo, sysinfo);
+
+        assert_eq_size!(kernel::utsname, utsname);
+        assert_eq_align!(kernel::utsname, utsname);
+
+        // @TODO.
+        // assert_eq_size!(kernel::sched_param, sched_param);
+        // assert_eq_align!(kernel::sched_param, sched_param);
+
+        assert_eq_size!(kernel::v4l2_timecode, v4l2_timecode);
+        assert_eq_align!(kernel::v4l2_timecode, v4l2_timecode);
+
+        assert_eq_size!(kernel::v4l2_buffer, v4l2_buffer);
+        assert_eq_align!(kernel::v4l2_buffer, v4l2_buffer);
+
+        assert_eq_size!(kernel::sock_filter, sock_filter);
+        assert_eq_align!(kernel::sock_filter, sock_filter);
+
+        assert_eq_size!(kernel::sock_fprog, sock_fprog);
+        assert_eq_align!(kernel::sock_fprog, sock_fprog);
+
+        assert_eq_size!(kernel::robust_list, robust_list);
+        assert_eq_align!(kernel::robust_list, robust_list);
+
+        assert_eq_size!(kernel::robust_list_head, robust_list_head);
+        assert_eq_align!(kernel::robust_list_head, robust_list_head);
+
+        assert_eq_size!(kernel::snd_ctl_card_info, snd_ctl_card_info);
+        assert_eq_align!(kernel::snd_ctl_card_info, snd_ctl_card_info);
+
+        assert_eq_size!(kernel::usbdevfs_iso_packet_desc, usbdevfs_iso_packet_desc);
+        assert_eq_align!(kernel::usbdevfs_iso_packet_desc, usbdevfs_iso_packet_desc);
+
+        assert_eq_size!(kernel::usbdevfs_urb, usbdevfs_urb);
+        assert_eq_align!(kernel::usbdevfs_urb, usbdevfs_urb);
+
+        assert_eq_size!(kernel::usbdevfs_ioctl, usbdevfs_ioctl);
+        assert_eq_align!(kernel::usbdevfs_ioctl, usbdevfs_ioctl);
+
+        assert_eq_size!(kernel::usbdevfs_ctrltransfer, usbdevfs_ctrltransfer);
+        assert_eq_align!(kernel::usbdevfs_ctrltransfer, usbdevfs_ctrltransfer);
+
+        assert_eq_size!(kernel::dirent, dirent);
+        assert_eq_align!(kernel::dirent, dirent);
+
+        assert_eq_size!(kernel::dirent64, dirent64);
+        assert_eq_align!(kernel::dirent64, dirent64);
+
+        assert_eq_size!(kernel::mq_attr, mq_attr);
+        assert_eq_align!(kernel::mq_attr, mq_attr);
+
+        assert_eq_size!(kernel::xt_counters, xt_counters);
+        assert_eq_align!(kernel::xt_counters, xt_counters);
+
+        // @TODO
+        // assert_eq_size!(kernel::ipt_replace, ipt_replace);
+        // assert_eq_align!(kernel::ipt_replace, ipt_replace);
+
+        assert_eq_size!(kernel::ifbond, ifbond);
+        assert_eq_align!(kernel::ifbond, ifbond);
+
+        assert_eq_size!(kernel::timex, timex);
+        assert_eq_align!(kernel::timex, timex);
+
+        assert_eq_size!(kernel::statx_timestamp, statx_timestamp);
+        assert_eq_align!(kernel::statx_timestamp, statx_timestamp);
+
+        assert_eq_size!(kernel::statx, statx);
+        assert_eq_align!(kernel::statx, statx);
+
+        assert_eq_size!(kernel::sg_io_hdr, sg_io_hdr);
+        assert_eq_align!(kernel::sg_io_hdr, sg_io_hdr);
+    }
 }
