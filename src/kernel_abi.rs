@@ -60,14 +60,20 @@ impl Architecture for X86Arch {}
 impl Architecture for X8664Arch {}
 
 ///////////////////// Ptr
+#[repr(C, align(8))]
+#[derive(Copy, Clone)]
+pub struct aligned_u64 {
+    pub val: u64,
+}
+
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
-pub struct Ptr<ValT: Copy + Clone + Default, ReferentT> {
+pub struct Ptr<ValT: Copy + Clone, ReferentT> {
     val: ValT,
     referent: PhantomData<ReferentT>,
 }
 
-impl<ValT: Copy + Clone + Default, ReferentT> Ptr<ValT, ReferentT> {
+impl<ValT: Copy + Clone, ReferentT> Ptr<ValT, ReferentT> {
     pub fn referent_size(&self) -> usize {
         std::mem::size_of::<ReferentT>()
     }
@@ -87,7 +93,6 @@ impl<ReferentT> Ptr<u32, ReferentT> {
     }
 }
 
-#[cfg(target_arch = "x86_64")]
 impl<ReferentT> Ptr<u64, ReferentT> {
     pub fn rptr(&self) -> RemotePtr<ReferentT> {
         RemotePtr::new_from_val(self.val as usize)
@@ -101,9 +106,6 @@ impl<ReferentT> Ptr<u64, ReferentT> {
         }
     }
 }
-
-pub type PtrX8664<T> = Ptr<u64, T>;
-pub type PtrX86<T> = Ptr<u32, T>;
 
 ///////////////////// stat64
 // @TODO this is packed struct in rr but this causes static assertion issues.
@@ -158,6 +160,9 @@ pub mod common {
     pub type dev_t = uint64_t;
     pub type mode_t = uint32_t;
     pub type __kernel_timer_t = int32_t;
+
+    pub use super::aligned_u64;
+    pub type ptr64<T> = super::Ptr<aligned_u64, T>;
 }
 
 pub mod w64 {
@@ -190,21 +195,8 @@ pub mod w64 {
 pub mod x86_64 {
     pub use super::w64::*;
     use crate::bindings::kernel;
-    use std::marker::PhantomData;
 
-    #[repr(C)]
-    #[derive(Copy, Clone)]
-    pub struct ptr<T: Copy + Clone> {
-        w: u64,
-        r: PhantomData<T>,
-    }
-
-    #[repr(C)]
-    #[derive(Copy, Clone)]
-    pub struct ptr64<T: Copy + Clone> {
-        w: u64,
-        r: PhantomData<T>,
-    }
+    pub type ptr<T> = super::Ptr<u64, T>;
 
     // IMPORTANT ! ////////////////////////
     include!("include/base_arch_defns.rs");
@@ -314,21 +306,8 @@ pub mod w32 {
 pub mod x86 {
     pub use super::w32::*;
     use crate::bindings::kernel;
-    use std::marker::PhantomData;
 
-    #[repr(C)]
-    #[derive(Copy, Clone)]
-    pub struct ptr<T: Copy + Clone> {
-        w: u32,
-        r: PhantomData<T>,
-    }
-
-    #[repr(C)]
-    #[derive(Copy, Clone)]
-    pub struct ptr64<T: Copy + Clone> {
-        w: u64,
-        r: PhantomData<T>,
-    }
+    pub type ptr<T> = super::Ptr<u32, T>;
 
     // IMPORTANT ! ////////////////////////
     include!("include/base_arch_defns.rs");
