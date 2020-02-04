@@ -24,8 +24,6 @@ mod ticks;
 mod trace_capnp;
 mod util;
 mod wait_status;
-mod x64_arch;
-mod x86_arch;
 
 fn main() {
     println!("Hello, world!");
