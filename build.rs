@@ -90,6 +90,17 @@ fn main() {
         .write_to_file(path.join("kernel_bindings_generated.rs"))
         .unwrap();
 
+    let gdb_register_bindings = Builder::default()
+        .parse_callbacks(Box::new(CargoCallbacks))
+        .prepend_enum_name(false)
+        .header("bindgen/gdb_register_wrapper.h")
+        .generate()
+        .unwrap();
+
+    gdb_register_bindings
+        .write_to_file(path.join("gdb_register_bindings_generated.rs"))
+        .unwrap();
+
     capnpc::CompilerCommand::new()
         .file("schema/trace.capnp")
         .run()

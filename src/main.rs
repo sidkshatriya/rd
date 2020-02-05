@@ -16,6 +16,8 @@ mod log;
 mod bindings;
 mod perf_counters;
 mod record_task;
+#[macro_use]
+mod registers;
 mod remote_code_ptr;
 mod remote_ptr;
 mod scoped_fd;

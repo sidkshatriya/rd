@@ -7,7 +7,7 @@ use crate::remote_ptr::RemotePtr;
 use std::convert::TryInto;
 use std::marker::PhantomData;
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq)]
 pub enum SupportedArch {
     X86,
     X64,
@@ -19,7 +19,7 @@ include!(concat!(
 ));
 
 #[cfg(target_arch = "x86_64")]
-pub const RR_NATIVE_ARCH: SupportedArch = SupportedArch::X64;
+pub const RD_NATIVE_ARCH: SupportedArch = SupportedArch::X64;
 
 #[cfg(target_arch = "x86")]
 pub const RR_NATIVE_ARCH: SupportedArch = SupportedArch::X86;
@@ -213,37 +213,37 @@ pub mod x64 {
     #[repr(C)]
     #[derive(Copy, Clone, Default)]
     pub struct user_regs_struct {
-        r15: u64,
-        r14: u64,
-        r13: u64,
-        r12: u64,
-        rbp: u64,
-        rbx: u64,
-        r11: u64,
-        r10: u64,
-        r9: u64,
-        r8: u64,
-        rax: u64,
-        rcx: u64,
-        rdx: u64,
-        rsi: u64,
-        rdi: u64,
+        pub r15: u64,
+        pub r14: u64,
+        pub r13: u64,
+        pub r12: u64,
+        pub rbp: u64,
+        pub rbx: u64,
+        pub r11: u64,
+        pub r10: u64,
+        pub r9: u64,
+        pub r8: u64,
+        pub rax: u64,
+        pub rcx: u64,
+        pub rdx: u64,
+        pub rsi: u64,
+        pub rdi: u64,
         // Unsigned type matches <sys/user.h>, but we need to treat this as
         // signed in practice.
-        orig_rax: u64,
-        rip: u64,
-        cs: u64,
-        eflags: u64,
-        rsp: u64,
-        ss: u64,
+        pub orig_rax: u64,
+        pub rip: u64,
+        pub cs: u64,
+        pub eflags: u64,
+        pub rsp: u64,
+        pub ss: u64,
         // These _base registers are architecturally defined MSRs and really do
         // need to be 64-bit.
-        fs_base: u64,
-        gs_base: u64,
-        ds: u64,
-        es: u64,
-        fs: u64,
-        gs: u64,
+        pub fs_base: u64,
+        pub gs_base: u64,
+        pub ds: u64,
+        pub es: u64,
+        pub fs: u64,
+        pub gs: u64,
     }
 
     assert_eq_align!(kernel::user_regs_struct, user_regs_struct);
@@ -252,34 +252,34 @@ pub mod x64 {
     #[repr(C)]
     #[derive(Copy, Clone, Default)]
     pub struct sigcontext {
-        r8: u64,
-        r9: u64,
-        r10: u64,
-        r11: u64,
-        r12: u64,
-        r13: u64,
-        r14: u64,
-        r15: u64,
-        di: u64,
-        si: u64,
-        bp: u64,
-        bx: u64,
-        dx: u64,
-        ax: u64,
-        cx: u64,
-        sp: u64,
-        ip: u64,
-        flags: u64,
-        cs: u16,
-        gs: u16,
-        fs: u16,
-        __pad0: u16,
-        err: u64,
-        trapno: u64,
-        oldmask: u64,
-        cr2: u64,
-        fpstate: u64,
-        reserved: [u64; 8],
+        pub r8: u64,
+        pub r9: u64,
+        pub r10: u64,
+        pub r11: u64,
+        pub r12: u64,
+        pub r13: u64,
+        pub r14: u64,
+        pub r15: u64,
+        pub di: u64,
+        pub si: u64,
+        pub bp: u64,
+        pub bx: u64,
+        pub dx: u64,
+        pub ax: u64,
+        pub cx: u64,
+        pub sp: u64,
+        pub ip: u64,
+        pub flags: u64,
+        pub cs: u16,
+        pub gs: u16,
+        pub fs: u16,
+        pub __pad0: u16,
+        pub err: u64,
+        pub trapno: u64,
+        pub oldmask: u64,
+        pub cr2: u64,
+        pub fpstate: u64,
+        pub reserved: [u64; 8],
     }
 
     assert_eq_align!(kernel::sigcontext, sigcontext);
@@ -566,23 +566,23 @@ pub mod x86 {
     #[repr(C)]
     #[derive(Copy, Clone, Default)]
     pub struct user_regs_struct {
-        ebx: i32,
-        ecx: i32,
-        edx: i32,
-        esi: i32,
-        edi: i32,
-        ebp: i32,
-        eax: i32,
-        xds: i32,
-        xes: i32,
-        xfs: i32,
-        xgs: i32,
-        orig_eax: i32,
-        eip: i32,
-        xcs: i32,
-        eflags: i32,
-        esp: i32,
-        xss: i32,
+        pub ebx: i32,
+        pub ecx: i32,
+        pub edx: i32,
+        pub esi: i32,
+        pub edi: i32,
+        pub ebp: i32,
+        pub eax: i32,
+        pub xds: i32,
+        pub xes: i32,
+        pub xfs: i32,
+        pub xgs: i32,
+        pub orig_eax: i32,
+        pub eip: i32,
+        pub xcs: i32,
+        pub eflags: i32,
+        pub esp: i32,
+        pub xss: i32,
     }
 
     #[cfg(target_arch = "x86")]
