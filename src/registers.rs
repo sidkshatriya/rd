@@ -293,6 +293,127 @@ impl Registers {
     pub fn set_original_syscallno(&mut self, syscallno: usize) {
         rd_set_reg!(self, orig_eax, orig_rax, syscallno);
     }
+
+    pub fn arg1(&self) -> usize {
+        rd_get_reg!(self, ebx, rdi)
+    }
+    pub fn arg1_signed(&self) -> isize {
+        rd_get_reg_signed!(self, ebx, rdi)
+    }
+    pub fn set_arg1(&mut self, value: usize) {
+        rd_set_reg!(self, ebx, rdi, value);
+    }
+    pub fn set_arg1_from_remote_ptr<T>(&mut self, value: RemotePtr<T>) {
+        rd_set_reg!(self, ebx, rdi, value.as_usize());
+    }
+
+    pub fn arg2(&self) -> usize {
+        rd_get_reg!(self, ecx, rsi)
+    }
+    pub fn arg2_signed(&self) -> isize {
+        rd_get_reg_signed!(self, ecx, rsi)
+    }
+    pub fn set_arg2(&mut self, value: usize) {
+        rd_set_reg!(self, ecx, rsi, value);
+    }
+    pub fn set_arg2_from_remote_ptr<T>(&mut self, value: RemotePtr<T>) {
+        rd_set_reg!(self, ecx, rsi, value.as_usize());
+    }
+
+    pub fn arg3(&self) -> usize {
+        rd_get_reg!(self, edx, rdx)
+    }
+    pub fn arg3_signed(&self) -> isize {
+        rd_get_reg_signed!(self, edx, rdx)
+    }
+    pub fn set_arg3(&mut self, value: usize) {
+        rd_set_reg!(self, edx, rdx, value);
+    }
+    pub fn set_arg3_from_remote_ptr<T>(&mut self, value: RemotePtr<T>) {
+        rd_set_reg!(self, edx, rdx, value.as_usize());
+    }
+
+    pub fn arg4(&self) -> usize {
+        rd_get_reg!(self, esi, r10)
+    }
+    pub fn arg4_signed(&self) -> isize {
+        rd_get_reg_signed!(self, esi, r10)
+    }
+    pub fn set_arg4(&mut self, value: usize) {
+        rd_set_reg!(self, esi, r10, value);
+    }
+    pub fn set_arg4_from_remote_ptr<T>(&mut self, value: RemotePtr<T>) {
+        rd_set_reg!(self, esi, r10, value.as_usize());
+    }
+
+    pub fn arg5(&self) -> usize {
+        rd_get_reg!(self, edi, r8)
+    }
+    pub fn arg5_signed(&self) -> isize {
+        rd_get_reg_signed!(self, edi, r8)
+    }
+    pub fn set_arg5(&mut self, value: usize) {
+        rd_set_reg!(self, edi, r8, value);
+    }
+    pub fn set_arg5_from_remote_ptr<T>(&mut self, value: RemotePtr<T>) {
+        rd_set_reg!(self, edi, r8, value.as_usize());
+    }
+
+    pub fn arg6(&self) -> usize {
+        rd_get_reg!(self, ebp, r9)
+    }
+    pub fn arg6_signed(&self) -> isize {
+        rd_get_reg_signed!(self, ebp, r9)
+    }
+    pub fn set_arg6(&mut self, value: usize) {
+        rd_set_reg!(self, ebp, r9, value);
+    }
+    pub fn set_arg6_from_remote_ptr<T>(&mut self, value: RemotePtr<T>) {
+        rd_set_reg!(self, ebp, r9, value.as_usize());
+    }
+
+    pub fn arg(&self, index: i32) -> usize {
+        match index {
+            1 => self.arg1(),
+            2 => self.arg2(),
+            3 => self.arg3(),
+            4 => self.arg4(),
+            5 => self.arg5(),
+            6 => self.arg6(),
+            _ => {
+                debug_assert!(false, "Argument index out of range");
+                0
+            }
+        }
+    }
+
+    pub fn set_arg(&mut self, index: i32, value: usize) {
+        match index {
+            1 => self.set_arg1(value),
+            2 => self.set_arg2(value),
+            3 => self.set_arg3(value),
+            4 => self.set_arg4(value),
+            5 => self.set_arg5(value),
+            6 => self.set_arg6(value),
+            _ => {
+                debug_assert!(false, "Argument index out of range");
+            }
+        }
+    }
+
+    pub fn set_arg_from_remote_ptr<T>(&mut self, index: i32, value: RemotePtr<T>) {
+        match index {
+            1 => self.set_arg1_from_remote_ptr(value),
+            2 => self.set_arg2_from_remote_ptr(value),
+            3 => self.set_arg3_from_remote_ptr(value),
+            4 => self.set_arg4_from_remote_ptr(value),
+            5 => self.set_arg5_from_remote_ptr(value),
+            6 => self.set_arg6_from_remote_ptr(value),
+            _ => {
+                debug_assert!(false, "Argument index out of range");
+            }
+        }
+    }
 }
 
 fn to_x86_narrow(r32: &mut i32, r64: u64) {
