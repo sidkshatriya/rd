@@ -142,8 +142,72 @@ impl Registers {
         }
     }
 
-    pub fn get_ptrace_for_arch(arch: SupportedArch) -> Vec<u8> {
-        unimplemented!()
+    pub fn get_ptrace_for_self_arch(&self) -> &[u8] {
+        match self.arch_ {
+            X86 => {
+                let l = std::mem::size_of::<x86::user_regs_struct>();
+                unsafe {
+                    std::slice::from_raw_parts(
+                        &self.u.x86 as *const x86::user_regs_struct as *const u8,
+                        l,
+                    )
+                }
+            }
+            X64 => {
+                let l = std::mem::size_of::<x64::user_regs_struct>();
+                unsafe {
+                    std::slice::from_raw_parts(
+                        &self.u.x64 as *const x64::user_regs_struct as *const u8,
+                        l,
+                    )
+                }
+            }
+        }
+    }
+
+    pub fn get_ptrace_for_arch(&self, arch: SupportedArch) -> Vec<u8> {
+        let mut tmp_regs = Registers::new(arch);
+        tmp_regs.set_from_ptrace(&self.get_ptrace());
+        let l = match arch {
+            X86 => std::mem::size_of::<x86::user_regs_struct>(),
+            X64 => std::mem::size_of::<x64::user_regs_struct>(),
+        };
+
+        let mut v: Vec<u8> = Vec::with_capacity(l);
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                &tmp_regs as *const Registers as *const u8,
+                v.as_mut_ptr(),
+                l,
+            );
+        }
+        v
+    }
+
+    pub fn set_from_ptrace_for_arch(&mut self, arch: SupportedArch, data: &[u8]) {
+        if arch == RD_NATIVE_ARCH {
+            debug_assert_eq!(data.len(), std::mem::size_of::<native_user_regs_struct>());
+            let mut n = RegistersNativeUnion::default();
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    data.as_ptr(),
+                    &mut n.native as *mut native_user_regs_struct as *mut u8,
+                    data.len(),
+                );
+                self.set_from_ptrace(&n.native);
+            }
+        } else {
+            debug_assert!(arch == X86 && RD_NATIVE_ARCH == X64);
+            debug_assert!(self.arch() == X86);
+            debug_assert_eq!(data.len(), std::mem::size_of::<x86::user_regs_struct>());
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    data.as_ptr(),
+                    &mut self.u.x86 as *mut x86::user_regs_struct as *mut u8,
+                    std::mem::size_of::<x86::user_regs_struct>(),
+                );
+            }
+        }
     }
 
     // @TODO should this be signed or unsigned?
@@ -165,7 +229,7 @@ impl Registers {
 
     pub fn flags(&self) -> usize {
         unsafe {
-            match self.arch() {
+            match self.arch_ {
                 X86 => self.u.x86.eflags as usize,
                 X64 => self.u.x64.eflags as usize,
             }
@@ -173,10 +237,15 @@ impl Registers {
     }
 
     pub fn set_flags(&mut self, value: usize) {
-        match self.arch() {
+        match self.arch_ {
             X86 => self.u.x86.eflags = value as i32,
             X64 => self.u.x64.eflags = value as u64,
         }
+    }
+
+    pub fn syscall_failed(&self) -> bool {
+        let result = self.syscall_result_signed();
+        -4096 < result && result < 0
     }
 }
 
