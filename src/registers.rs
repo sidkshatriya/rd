@@ -3,6 +3,11 @@ use crate::kernel_abi::x64;
 use crate::kernel_abi::x86;
 use crate::kernel_abi::SupportedArch;
 use crate::kernel_abi::RD_NATIVE_ARCH;
+use crate::kernel_supplement::{
+    ERESTARTNOHAND, ERESTARTNOINTR, ERESTARTSYS, ERESTART_RESTARTBLOCK,
+};
+use crate::remote_code_ptr::RemoteCodePtr;
+use crate::remote_ptr::RemotePtr;
 
 use SupportedArch::*;
 
@@ -227,6 +232,14 @@ impl Registers {
         rd_get_reg_signed!(self, eax, rax)
     }
 
+    pub fn set_syscall_result(&mut self, syscall_result: usize) {
+        rd_set_reg!(self, eax, rax, syscall_result);
+    }
+
+    pub fn set_syscall_result_from_remote_ptr<T>(&mut self, syscall_result: RemotePtr<T>) {
+        rd_set_reg!(self, eax, rax, syscall_result.as_usize());
+    }
+
     pub fn flags(&self) -> usize {
         unsafe {
             match self.arch_ {
@@ -246,6 +259,39 @@ impl Registers {
     pub fn syscall_failed(&self) -> bool {
         let result = self.syscall_result_signed();
         -4096 < result && result < 0
+    }
+
+    pub fn syscall_may_restart(&self) -> bool {
+        match -self.syscall_result_signed() as u32 {
+            ERESTART_RESTARTBLOCK | ERESTARTNOINTR | ERESTARTNOHAND | ERESTARTSYS => true,
+            _ => false,
+        }
+    }
+
+    pub fn ip(&self) -> RemoteCodePtr {
+        let addr = rd_get_reg!(self, eip, rip);
+        RemoteCodePtr::new_from_val(addr)
+    }
+
+    pub fn set_ip(&mut self, addr: RemoteCodePtr) {
+        rd_set_reg!(self, eip, rip, addr.as_usize());
+    }
+
+    pub fn sp(&self) -> RemotePtr<u8> {
+        let addr = rd_get_reg!(self, esp, rsp);
+        RemotePtr::<u8>::new_from_val(addr)
+    }
+
+    pub fn set_sp(&mut self, addr: RemotePtr<u8>) {
+        rd_set_reg!(self, esp, rsp, addr.as_usize());
+    }
+
+    pub fn original_syscallno(&self) -> isize {
+        rd_get_reg_signed!(self, orig_eax, orig_rax)
+    }
+
+    pub fn set_original_syscallno(&mut self, syscallno: usize) {
+        rd_set_reg!(self, orig_eax, orig_rax, syscallno);
     }
 }
 
