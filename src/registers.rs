@@ -56,6 +56,22 @@ pub union RegistersUnion {
     x64: x64::user_regs_struct,
 }
 
+impl RegistersUnion {
+    pub fn default() -> RegistersUnion {
+        RegistersUnion {
+            x64: x64::user_regs_struct::default(),
+        }
+    }
+}
+
+impl RegistersNativeUnion {
+    pub fn default() -> RegistersNativeUnion {
+        RegistersNativeUnion {
+            x64: x64::user_regs_struct::default(),
+        }
+    }
+}
+
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub union RegistersNativeUnion {
@@ -82,6 +98,28 @@ impl Registers {
         self.arch_
     }
 
+    pub fn set_arch(&mut self, arch: SupportedArch) {
+        self.arch_ = arch;
+    }
+
+    pub fn set_from_ptrace(&mut self, ptrace_regs: &native_user_regs_struct) {
+        let mut native = RegistersNativeUnion::default();
+        native.native = *ptrace_regs;
+
+        if self.arch() == RD_NATIVE_ARCH {
+            unsafe {
+                self.u = std::mem::transmute::<RegistersNativeUnion, RegistersUnion>(native);
+            }
+        } else {
+            debug_assert!(self.arch() == X86 && RD_NATIVE_ARCH == X64);
+            unsafe {
+                let regs = std::mem::transmute::<RegistersNativeUnion, RegistersUnion>(native);
+
+                convert_x86_narrow(&mut self.u.x86, &regs.x64, to_x86_narrow, to_x86_narrow);
+            }
+        }
+    }
+
     pub fn get_ptrace(&self) -> native_user_regs_struct {
         if self.arch() == RD_NATIVE_ARCH {
             unsafe {
@@ -90,11 +128,9 @@ impl Registers {
             }
         } else {
             debug_assert!(self.arch() == X86 && RD_NATIVE_ARCH == X64);
-            let mut result = RegistersUnion {
-                x64: x64::user_regs_struct::default(),
-            };
+            let mut result = RegistersUnion::default();
             unsafe {
-                convert_x86(
+                convert_x86_widen(
                     &mut result.x64,
                     &self.u.x86,
                     from_x86_narrow,
@@ -156,7 +192,7 @@ fn from_x86_narrow_signed(r64: &mut u64, r32: i32) {
     *r64 = r32 as i64 as u64;
 }
 
-fn convert_x86<F1, F2>(
+fn convert_x86_widen<F1, F2>(
     x64: &mut x64::user_regs_struct,
     x86: &x86::user_regs_struct,
     widen: F1,
@@ -183,4 +219,33 @@ where
     widen(&mut x64.fs, x86.xfs);
     widen(&mut x64.gs, x86.xgs);
     widen(&mut x64.ss, x86.xss);
+}
+
+fn convert_x86_narrow<F1, F2>(
+    x86: &mut x86::user_regs_struct,
+    x64: &x64::user_regs_struct,
+    narrow: F1,
+    narrow_signed: F2,
+) -> ()
+where
+    F1: Fn(&mut i32, u64),
+    F2: Fn(&mut i32, u64),
+{
+    narrow_signed(&mut x86.eax, x64.rax);
+    narrow(&mut x86.ebx, x64.rbx);
+    narrow(&mut x86.ecx, x64.rcx);
+    narrow(&mut x86.edx, x64.rdx);
+    narrow(&mut x86.esi, x64.rsi);
+    narrow(&mut x86.edi, x64.rdi);
+    narrow(&mut x86.esp, x64.rsp);
+    narrow(&mut x86.ebp, x64.rbp);
+    narrow(&mut x86.eip, x64.rip);
+    narrow(&mut x86.orig_eax, x64.orig_rax);
+    narrow(&mut x86.eflags, x64.eflags);
+    narrow(&mut x86.xcs, x64.cs);
+    narrow(&mut x86.xds, x64.ds);
+    narrow(&mut x86.xes, x64.es);
+    narrow(&mut x86.xfs, x64.fs);
+    narrow(&mut x86.xgs, x64.gs);
+    narrow(&mut x86.xss, x64.ss);
 }
