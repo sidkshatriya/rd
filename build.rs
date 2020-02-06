@@ -101,6 +101,17 @@ fn main() {
         .write_to_file(path.join("gdb_register_bindings_generated.rs"))
         .unwrap();
 
+    let kernel_supplement_bindings = Builder::default()
+        .parse_callbacks(Box::new(CargoCallbacks))
+        .prepend_enum_name(false)
+        .header("bindgen/kernel_supplement_wrapper.h")
+        .generate()
+        .unwrap();
+
+    kernel_supplement_bindings
+        .write_to_file(path.join("kernel_supplement_bindings_generated.rs"))
+        .unwrap();
+
     capnpc::CompilerCommand::new()
         .file("schema/trace.capnp")
         .run()
