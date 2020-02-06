@@ -414,6 +414,114 @@ impl Registers {
             }
         }
     }
+
+    pub fn set_rdtsc_output(&mut self, value: u64) {
+        rd_set_reg!(self, eax, rax, value & 0xffffffff);
+        rd_set_reg!(self, edx, rdx, value >> 32);
+    }
+
+    pub fn set_cpuid_output(&mut self, eax: u32, ebx: u32, ecx: u32, edx: u32) {
+        rd_set_reg!(self, eax, rax, eax);
+        rd_set_reg!(self, ebx, rbx, ebx);
+        rd_set_reg!(self, ecx, rcx, ecx);
+        rd_set_reg!(self, edx, rdx, edx);
+    }
+
+    pub fn set_r8(&mut self, value: u64) {
+        debug_assert!(self.arch() == X64);
+        self.u.x64.r8 = value;
+    }
+
+    pub fn set_r9(&mut self, value: u64) {
+        debug_assert!(self.arch() == X64);
+        self.u.x64.r9 = value;
+    }
+
+    pub fn set_r10(&mut self, value: u64) {
+        debug_assert!(self.arch() == X64);
+        self.u.x64.r10 = value;
+    }
+
+    pub fn set_r11(&mut self, value: u64) {
+        debug_assert!(self.arch() == X64);
+        self.u.x64.r11 = value;
+    }
+
+    pub fn di(&self) -> usize {
+        rd_get_reg!(self, edi, rdi)
+    }
+    pub fn set_di(&mut self, value: usize) {
+        rd_set_reg!(self, edi, rdi, value);
+    }
+
+    pub fn si(&self) -> usize {
+        rd_get_reg!(self, esi, rsi)
+    }
+    pub fn set_si(&mut self, value: usize) {
+        rd_set_reg!(self, esi, rsi, value);
+    }
+
+    pub fn cx(&self) -> usize {
+        rd_get_reg!(self, ecx, rcx)
+    }
+    pub fn set_cx(&mut self, value: usize) {
+        rd_set_reg!(self, ecx, rcx, value);
+    }
+
+    pub fn ax(&self) -> usize {
+        rd_get_reg!(self, eax, rax)
+    }
+    pub fn bp(&self) -> usize {
+        rd_get_reg!(self, ebp, rbp)
+    }
+
+    pub fn singlestep_flag(&self) -> bool {
+        self.flags() & X86_TF_FLAG == X86_TF_FLAG
+    }
+    pub fn clear_singlestep_flag(&mut self) {
+        self.set_flags(self.flags() & !X86_TF_FLAG);
+    }
+    pub fn df_flag(&self) -> bool {
+        self.flags() & X86_DF_FLAG == X86_DF_FLAG
+    }
+
+    pub fn fs_base(&self) -> u64 {
+        debug_assert!(self.arch() == X64);
+        unsafe { self.u.x64.fs_base }
+    }
+    pub fn gs_base(&self) -> u64 {
+        debug_assert!(self.arch() == X64);
+        unsafe { self.u.x64.gs_base }
+    }
+
+    pub fn set_fs_base(&mut self, fs_base: u64) {
+        debug_assert!(self.arch() == X64);
+        self.u.x64.fs_base = fs_base;
+    }
+
+    pub fn set_gs_base(&mut self, gs_base: u64) {
+        debug_assert!(self.arch() == X64);
+        self.u.x64.gs_base = gs_base;
+    }
+
+    pub fn cs(&self) -> usize {
+        rd_get_reg!(self, xcs, cs)
+    }
+    pub fn ss(&self) -> usize {
+        rd_get_reg!(self, xss, ss)
+    }
+    pub fn ds(&self) -> usize {
+        rd_get_reg!(self, xds, ds)
+    }
+    pub fn es(&self) -> usize {
+        rd_get_reg!(self, xes, es)
+    }
+    pub fn fs(&self) -> usize {
+        rd_get_reg!(self, xfs, fs)
+    }
+    pub fn gs(&self) -> usize {
+        rd_get_reg!(self, xgs, gs)
+    }
 }
 
 fn to_x86_narrow(r32: &mut i32, r64: u64) {
