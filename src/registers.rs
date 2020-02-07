@@ -1,5 +1,5 @@
 use crate::bindings::kernel::user_regs_struct as native_user_regs_struct;
-use crate::gdb_register::GdbRegister;
+use crate::gdb_register::*;
 use crate::kernel_abi::x64;
 use crate::kernel_abi::x86;
 use crate::kernel_abi::SupportedArch;
@@ -21,17 +21,33 @@ pub struct X64Arch;
 
 pub trait Architecture {
     fn get_regs() -> &'static HashMap<u32, RegisterValue>;
+    fn ignore_undefined_register(regno: GdbRegister) -> bool;
+    fn num_registers() -> u32;
 }
 
 impl Architecture for X86Arch {
     fn get_regs() -> &'static HashMap<u32, RegisterValue> {
         &*REGISTERS_X86
     }
+
+    fn ignore_undefined_register(regno: GdbRegister) -> bool {
+        regno == DREG_FOSEG || regno == DREG_MXCSR
+    }
+    fn num_registers() -> u32 {
+        DREG_NUM_LINUX_I386
+    }
 }
 
 impl Architecture for X64Arch {
     fn get_regs() -> &'static HashMap<u32, RegisterValue> {
         &*REGISTERS_X64
+    }
+
+    fn ignore_undefined_register(regno: GdbRegister) -> bool {
+        regno == DREG_64_FOSEG || regno == DREG_64_MXCSR
+    }
+    fn num_registers() -> u32 {
+        DREG_NUM_LINUX_X86_64
     }
 }
 
@@ -142,6 +158,41 @@ impl Registers {
         } else {
             None
         }
+    }
+
+    pub fn read_registers(&self, buf: &mut [u8], regno: GdbRegister) -> Option<usize> {
+        rd_arch_function!(self, read_registers_arch, self.arch(), buf, regno)
+    }
+
+    pub fn read_registers_by_user_offset_arch<Arch: Architecture>(
+        &self,
+        buf: &mut [u8],
+        offset: usize,
+        regno: GdbRegister,
+    ) -> Option<usize> {
+        let regs = Arch::get_regs();
+        for (_, rv) in regs.iter() {
+            if rv.offset == offset {
+                return self.read_registers_arch::<Arch>(buf, regno);
+            }
+        }
+        None
+    }
+
+    pub fn read_registers_by_user_offset(
+        &self,
+        buf: &mut [u8],
+        offset: usize,
+        regno: GdbRegister,
+    ) -> Option<usize> {
+        rd_arch_function!(
+            self,
+            read_registers_by_user_offset_arch,
+            self.arch(),
+            buf,
+            offset,
+            regno
+        )
     }
 
     pub fn new(arch: SupportedArch) -> Registers {

@@ -39,21 +39,21 @@ macro_rules! rr_arch_function {
     };
 }
 
+macro_rules! rd_arch_function {
+    ($slf:expr, $func_name:ident, $arch:expr, $($exp:tt)*) => {
+        match $arch {
+            SupportedArch::X86 => $slf.$func_name::<X86Arch>($($exp)*),
+            SupportedArch::X64 => $slf.$func_name::<X64Arch>($($exp)*),
+        }
+    };
+}
+
 pub fn syscall_instruction_length(arch: SupportedArch) -> usize {
     match arch {
         SupportedArch::X86 => 2,
         SupportedArch::X64 => 2,
     }
 }
-
-struct X86Arch;
-struct X8664Arch;
-
-trait Architecture {}
-
-impl Architecture for X86Arch {}
-
-impl Architecture for X8664Arch {}
 
 ///////////////////// Ptr
 #[repr(C, align(8))]
