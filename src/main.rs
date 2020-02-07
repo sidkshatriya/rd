@@ -18,6 +18,7 @@ mod perf_counters;
 mod record_task;
 #[macro_use]
 mod registers;
+mod gdb_register;
 mod kernel_supplement;
 mod remote_code_ptr;
 mod remote_ptr;

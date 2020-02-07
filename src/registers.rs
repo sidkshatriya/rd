@@ -8,8 +8,17 @@ use crate::kernel_supplement::{
 };
 use crate::remote_code_ptr::RemoteCodePtr;
 use crate::remote_ptr::RemotePtr;
+use std::fmt::Display;
+use std::fmt::Formatter;
+use std::fmt::Result;
+use std::num::Wrapping;
 
 use SupportedArch::*;
+
+lazy_static! {
+    static ref REGISTERS_X86: [(usize, RegisterValue); 17] = x86regs();
+    static ref REGISTERS_X64: [(usize, RegisterValue); 27] = x64regs();
+}
 
 macro_rules! rd_get_reg {
     ($slf:expr, $x86case:ident, $x64case:ident) => {
@@ -592,4 +601,236 @@ where
     narrow(&mut x86.xfs, x64.fs);
     narrow(&mut x86.xgs, x64.gs);
     narrow(&mut x86.xss, x64.ss);
+}
+
+impl Display for Registers {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        write!(
+            f,
+            "{{ args:({:#x},{:#x},{:#x},{:#x},{:#x},{:#x}) orig_syscall:{} }}",
+            self.arg1(),
+            self.arg2(),
+            self.arg3(),
+            self.arg4(),
+            self.arg5(),
+            self.arg6(),
+            self.original_syscallno()
+        )
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct RegisterValue {
+    /// The name of this register.
+    pub name: &'static str,
+    /// The offsetof the register in user_regs_struct.
+    pub offset: usize,
+    /// The size of the register.  0 means we cannot read it.
+    pub nbytes: usize,
+    /// Mask to be applied to register values prior to comparing them.  Will
+    /// typically be ((1 << nbytes*8) - 1), but some registers may have special
+    /// comparison semantics.
+    pub comparison_mask: u64,
+}
+
+impl RegisterValue {
+    pub fn new(name: &'static str, offset: usize, nbytes: usize) -> RegisterValue {
+        let comparison_mask: u64 = RegisterValue::mask_for_nbytes(nbytes);
+        RegisterValue {
+            name,
+            offset,
+            comparison_mask,
+            nbytes,
+        }
+    }
+
+    pub fn new_with_mask(
+        name: &'static str,
+        offset: usize,
+        nbytes: usize,
+        comparison_mask: u64,
+    ) -> RegisterValue {
+        // Ensure no bits are set outside of the register's bitwidth.
+        debug_assert!((comparison_mask & !RegisterValue::mask_for_nbytes(nbytes)) == 0);
+        RegisterValue {
+            name,
+            offset,
+            comparison_mask,
+            nbytes,
+        }
+    }
+
+    pub fn new_with_mask_with_size_override(
+        name: &'static str,
+        offset: usize,
+        mut nbytes: usize,
+        comparison_mask: u64,
+        size_override: usize,
+    ) -> RegisterValue {
+        // Ensure no bits are set outside of the register's bitwidth.
+        debug_assert!((comparison_mask & !RegisterValue::mask_for_nbytes(nbytes)) == 0);
+
+        if size_override > 0 {
+            nbytes = size_override;
+        }
+        RegisterValue {
+            name,
+            offset,
+            comparison_mask,
+            nbytes,
+        }
+    }
+
+    pub fn mask_for_nbytes(nbytes: usize) -> u64 {
+        debug_assert!(nbytes <= std::mem::size_of::<u64>());
+        if nbytes == std::mem::size_of::<u64>() {
+            -1i64 as u64
+        } else {
+            let minus_one = Wrapping(-1i64 as u64);
+            let shifted = Wrapping(1u64 << (nbytes * 8));
+            let result = minus_one + shifted;
+            result.0
+        }
+    }
+}
+
+macro_rules! rv_arch {
+    ($gdb_name:ident, $name:ident, $arch:ident) => {{
+        let el = crate::kernel_abi::$arch::user_regs_struct::default();
+        let nbytes = std::mem::size_of_val(&el.$name);
+        (
+            crate::gdb_register::$gdb_name as usize,
+            crate::registers::RegisterValue::new(
+                stringify!($name),
+                unsafe {
+                    &(*(std::ptr::null::<crate::kernel_abi::$arch::user_regs_struct>())).$name
+                        as *const _ as usize
+                },
+                nbytes,
+            ),
+        )
+    }};
+    ($gdb_name:ident, $name:ident, $arch:ident, $comparison_mask:expr) => {{
+        let el = crate::kernel_abi::$arch::user_regs_struct::default();
+        let nbytes = std::mem::size_of_val(&el.$name);
+        (
+            crate::gdb_register::$gdb_name as usize,
+            crate::registers::RegisterValue::new_with_mask(
+                stringify!($name),
+                unsafe {
+                    &(*(std::ptr::null::<crate::kernel_abi::$arch::user_regs_struct>())).$name
+                        as *const _ as usize
+                },
+                nbytes,
+                $comparison_mask,
+            ),
+        )
+    }};
+    ($gdb_name:ident, $name:ident, $arch:ident, $comparison_mask:expr, $size_override:expr) => {{
+        let el = crate::kernel_abi::$arch::user_regs_struct::default();
+        let nbytes = std::mem::size_of_val(&el.$name);
+        (
+            crate::gdb_register::$gdb_name as usize,
+            crate::registers::RegisterValue::new_with_mask_with_size_override(
+                stringify!($name),
+                unsafe {
+                    &(*(std::ptr::null::<crate::kernel_abi::$arch::user_regs_struct>())).$name
+                        as *const _ as usize
+                },
+                nbytes,
+                $comparison_mask,
+                $size_override,
+            ),
+        )
+    }};
+}
+
+macro_rules! rv_x86 {
+    ($gdb_name:ident, $name:ident) => {
+        rv_arch!($gdb_name, $name, x86)
+    };
+}
+
+macro_rules! rv_x64 {
+    ($gdb_name:ident, $name:ident) => {
+        rv_arch!($gdb_name, $name, x64)
+    };
+}
+
+macro_rules! rv_x64_with_mask_with_size {
+    ($gdb_name:ident, $name:ident, $comparison_mask:expr, $size_override:expr) => {
+        rv_arch!($gdb_name, $name, x64, $comparison_mask, $size_override)
+    };
+}
+
+macro_rules! rv_x86_with_mask {
+    ($gdb_name:ident, $name:ident, $comparison_mask:expr) => {
+        rv_arch!($gdb_name, $name, x86, $comparison_mask)
+    };
+}
+
+fn x86regs() -> [(usize, RegisterValue); 17] {
+    let regs = [
+        rv_x86!(DREG_EAX, eax),
+        rv_x86!(DREG_ECX, ecx),
+        rv_x86!(DREG_EDX, edx),
+        rv_x86!(DREG_EBX, ebx),
+        rv_x86!(DREG_ESP, esp),
+        rv_x86!(DREG_EBP, ebp),
+        rv_x86!(DREG_ESI, esi),
+        rv_x86!(DREG_EDI, edi),
+        rv_x86!(DREG_EIP, eip),
+        rv_x86_with_mask!(DREG_EFLAGS, eflags, 0),
+        rv_x86_with_mask!(DREG_CS, xcs, 0),
+        rv_x86_with_mask!(DREG_SS, xss, 0),
+        rv_x86_with_mask!(DREG_DS, xds, 0),
+        rv_x86_with_mask!(DREG_ES, xes, 0),
+        // Mask out the RPL from the fs and gs segment selectors. The kernel
+        // unconditionally sets RPL=3 on sigreturn, but if the segment index is 0,
+        // the RPL doesn't matter, and the CPU resets the entire register to 0,
+        // so whether or not we see this depends on whether the value round-tripped
+        // to the CPU yet.
+        rv_x86_with_mask!(DREG_FS, xfs, !3u16 as u64),
+        rv_x86_with_mask!(DREG_GS, xgs, !3u16 as u64),
+        // The comparison for this is handled specially elsewhere.
+        rv_x86_with_mask!(DREG_ORIG_EAX, orig_eax, 0),
+    ];
+
+    regs
+}
+
+fn x64regs() -> [(usize, RegisterValue); 27] {
+    let regs = [
+        rv_x64!(DREG_RAX, rax),
+        rv_x64!(DREG_RCX, rcx),
+        rv_x64!(DREG_RDX, rdx),
+        rv_x64!(DREG_RBX, rbx),
+        rv_x64_with_mask_with_size!(DREG_RSP, rsp, 0, 8),
+        rv_x64!(DREG_RBP, rbp),
+        rv_x64!(DREG_RSI, rsi),
+        rv_x64!(DREG_RDI, rdi),
+        rv_x64!(DREG_R8, r8),
+        rv_x64!(DREG_R9, r9),
+        rv_x64!(DREG_R10, r10),
+        rv_x64!(DREG_R11, r11),
+        rv_x64!(DREG_R12, r12),
+        rv_x64!(DREG_R13, r13),
+        rv_x64!(DREG_R14, r14),
+        rv_x64!(DREG_R15, r15),
+        rv_x64!(DREG_RIP, rip),
+        rv_x64_with_mask_with_size!(DREG_64_EFLAGS, eflags, 0, 4),
+        rv_x64_with_mask_with_size!(DREG_64_CS, cs, 0, 4),
+        rv_x64_with_mask_with_size!(DREG_64_SS, ss, 0, 4),
+        rv_x64_with_mask_with_size!(DREG_64_DS, ds, 0, 4),
+        rv_x64_with_mask_with_size!(DREG_64_ES, es, 0, 4),
+        rv_x64_with_mask_with_size!(DREG_64_FS, fs, 0xffffffff, 4),
+        rv_x64_with_mask_with_size!(DREG_64_GS, gs, 0xffffffff, 4),
+        // The comparison for this is handled specially
+        // elsewhere.
+        rv_x64_with_mask_with_size!(DREG_ORIG_RAX, orig_rax, 0, 8),
+        rv_x64!(DREG_FS_BASE, fs_base),
+        rv_x64!(DREG_GS_BASE, gs_base),
+    ];
+
+    regs
 }
