@@ -7,6 +7,7 @@ use crate::kernel_abi::RD_NATIVE_ARCH;
 use crate::kernel_supplement::{
     ERESTARTNOHAND, ERESTARTNOINTR, ERESTARTSYS, ERESTART_RESTARTBLOCK,
 };
+use crate::log::LogLevel::LogWarn;
 use crate::remote_code_ptr::RemoteCodePtr;
 use crate::remote_ptr::RemotePtr;
 use std::collections::HashMap;
@@ -20,13 +21,13 @@ pub struct X86Arch;
 pub struct X64Arch;
 
 pub trait Architecture {
-    fn get_regs() -> &'static HashMap<u32, RegisterValue>;
+    fn get_regs_info() -> &'static HashMap<u32, RegisterValue>;
     fn ignore_undefined_register(regno: GdbRegister) -> bool;
     fn num_registers() -> u32;
 }
 
 impl Architecture for X86Arch {
-    fn get_regs() -> &'static HashMap<u32, RegisterValue> {
+    fn get_regs_info() -> &'static HashMap<u32, RegisterValue> {
         &*REGISTERS_X86
     }
 
@@ -39,7 +40,7 @@ impl Architecture for X86Arch {
 }
 
 impl Architecture for X64Arch {
-    fn get_regs() -> &'static HashMap<u32, RegisterValue> {
+    fn get_regs_info() -> &'static HashMap<u32, RegisterValue> {
         &*REGISTERS_X64
     }
 
@@ -141,7 +142,7 @@ impl Registers {
         buf: &mut [u8],
         regno: GdbRegister,
     ) -> Option<usize> {
-        let regs = Arch::get_regs();
+        let regs = Arch::get_regs_info();
         if let Some(rv) = regs.get(&regno) {
             if rv.nbytes == 0 {
                 None
@@ -160,6 +161,27 @@ impl Registers {
         }
     }
 
+    pub fn write_registers_arch<Arch: Architecture>(&mut self, value: &[u8], regno: GdbRegister) {
+        let regs = Arch::get_regs_info();
+        if let Some(rv) = regs.get(&regno) {
+            if rv.nbytes == 0 {
+                // TODO: can we get away with not writing these?
+                if Arch::ignore_undefined_register(regno) {
+                    return;
+                }
+                log!(LogWarn, "Unhandled register name {}", regno);
+            } else {
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        value.as_ptr(),
+                        rv.mut_pointer_into(&mut self.u),
+                        value.len(),
+                    );
+                };
+            }
+        }
+    }
+
     pub fn read_registers(&self, buf: &mut [u8], regno: GdbRegister) -> Option<usize> {
         rd_arch_function!(self, read_registers_arch, self.arch(), buf, regno)
     }
@@ -170,7 +192,7 @@ impl Registers {
         offset: usize,
         regno: GdbRegister,
     ) -> Option<usize> {
-        let regs = Arch::get_regs();
+        let regs = Arch::get_regs_info();
         for (_, rv) in regs.iter() {
             if rv.offset == offset {
                 return self.read_registers_arch::<Arch>(buf, regno);
@@ -790,6 +812,10 @@ impl RegisterValue {
 
     pub fn pointer_into(&self, regs: &RegistersUnion) -> *const u8 {
         unsafe { (regs as *const _ as *const u8).add(self.offset) }
+    }
+
+    pub fn mut_pointer_into(&self, regs: &mut RegistersUnion) -> *mut u8 {
+        unsafe { (regs as *mut _ as *mut u8).add(self.offset) }
     }
 }
 
