@@ -47,14 +47,12 @@ pub fn syscall_instruction_length(arch: SupportedArch) -> usize {
 }
 
 struct X86Arch;
-#[cfg(target_arch = "x86_64")]
 struct X8664Arch;
 
 trait Architecture {}
 
 impl Architecture for X86Arch {}
 
-#[cfg(target_arch = "x86_64")]
 impl Architecture for X8664Arch {}
 
 ///////////////////// Ptr
@@ -549,7 +547,6 @@ pub mod w32 {
 
 pub mod x86 {
     pub use super::w32::*;
-    use crate::bindings::kernel;
 
     pub const SIGINFO_PADDING: usize = 29;
     pub type ptr<T> = super::Ptr<u32, T>;

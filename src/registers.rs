@@ -1,4 +1,5 @@
 use crate::bindings::kernel::user_regs_struct as native_user_regs_struct;
+use crate::gdb_register::GdbRegister;
 use crate::kernel_abi::x64;
 use crate::kernel_abi::x86;
 use crate::kernel_abi::SupportedArch;
@@ -8,16 +9,35 @@ use crate::kernel_supplement::{
 };
 use crate::remote_code_ptr::RemoteCodePtr;
 use crate::remote_ptr::RemotePtr;
+use std::collections::HashMap;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::Result;
 use std::num::Wrapping;
-
 use SupportedArch::*;
 
+pub struct X86Arch;
+pub struct X64Arch;
+
+pub trait Architecture {
+    fn get_regs() -> &'static HashMap<u32, RegisterValue>;
+}
+
+impl Architecture for X86Arch {
+    fn get_regs() -> &'static HashMap<u32, RegisterValue> {
+        &*REGISTERS_X86
+    }
+}
+
+impl Architecture for X64Arch {
+    fn get_regs() -> &'static HashMap<u32, RegisterValue> {
+        &*REGISTERS_X64
+    }
+}
+
 lazy_static! {
-    static ref REGISTERS_X86: [(usize, RegisterValue); 17] = x86regs();
-    static ref REGISTERS_X64: [(usize, RegisterValue); 27] = x64regs();
+    static ref REGISTERS_X86: HashMap<u32, RegisterValue> = x86regs();
+    static ref REGISTERS_X64: HashMap<u32, RegisterValue> = x64regs();
 }
 
 macro_rules! rd_get_reg {
@@ -100,6 +120,30 @@ pub struct Registers {
 }
 
 impl Registers {
+    pub fn read_registers_arch<Arch: Architecture>(
+        &self,
+        buf: &mut [u8],
+        regno: GdbRegister,
+    ) -> Option<usize> {
+        let regs = Arch::get_regs();
+        if let Some(rv) = regs.get(&regno) {
+            if rv.nbytes == 0 {
+                None
+            } else {
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        rv.pointer_into(&self.u),
+                        buf.as_mut_ptr(),
+                        rv.nbytes,
+                    );
+                };
+                Some(rv.nbytes)
+            }
+        } else {
+            None
+        }
+    }
+
     pub fn new(arch: SupportedArch) -> Registers {
         let r = RegistersUnion {
             x64: x64::user_regs_struct::default(),
@@ -692,6 +736,10 @@ impl RegisterValue {
             result.0
         }
     }
+
+    pub fn pointer_into(&self, regs: &RegistersUnion) -> *const u8 {
+        unsafe { (regs as *const _ as *const u8).add(self.offset) }
+    }
 }
 
 macro_rules! rv_arch {
@@ -699,7 +747,7 @@ macro_rules! rv_arch {
         let el = crate::kernel_abi::$arch::user_regs_struct::default();
         let nbytes = std::mem::size_of_val(&el.$name);
         (
-            crate::gdb_register::$gdb_name as usize,
+            crate::gdb_register::$gdb_name,
             crate::registers::RegisterValue::new(
                 stringify!($name),
                 unsafe {
@@ -714,7 +762,7 @@ macro_rules! rv_arch {
         let el = crate::kernel_abi::$arch::user_regs_struct::default();
         let nbytes = std::mem::size_of_val(&el.$name);
         (
-            crate::gdb_register::$gdb_name as usize,
+            crate::gdb_register::$gdb_name,
             crate::registers::RegisterValue::new_with_mask(
                 stringify!($name),
                 unsafe {
@@ -730,7 +778,7 @@ macro_rules! rv_arch {
         let el = crate::kernel_abi::$arch::user_regs_struct::default();
         let nbytes = std::mem::size_of_val(&el.$name);
         (
-            crate::gdb_register::$gdb_name as usize,
+            crate::gdb_register::$gdb_name,
             crate::registers::RegisterValue::new_with_mask_with_size_override(
                 stringify!($name),
                 unsafe {
@@ -769,7 +817,7 @@ macro_rules! rv_x86_with_mask {
     };
 }
 
-fn x86regs() -> [(usize, RegisterValue); 17] {
+fn x86regs() -> HashMap<u32, RegisterValue> {
     let regs = [
         rv_x86!(DREG_EAX, eax),
         rv_x86!(DREG_ECX, ecx),
@@ -796,10 +844,15 @@ fn x86regs() -> [(usize, RegisterValue); 17] {
         rv_x86_with_mask!(DREG_ORIG_EAX, orig_eax, 0),
     ];
 
-    regs
+    let mut map: HashMap<u32, RegisterValue> = HashMap::new();
+    for reg in regs.iter() {
+        map.insert(reg.0, reg.1);
+    }
+
+    map
 }
 
-fn x64regs() -> [(usize, RegisterValue); 27] {
+fn x64regs() -> HashMap<u32, RegisterValue> {
     let regs = [
         rv_x64!(DREG_RAX, rax),
         rv_x64!(DREG_RCX, rcx),
@@ -832,5 +885,10 @@ fn x64regs() -> [(usize, RegisterValue); 27] {
         rv_x64!(DREG_GS_BASE, gs_base),
     ];
 
-    regs
+    let mut map: HashMap<u32, RegisterValue> = HashMap::new();
+    for reg in regs.iter() {
+        map.insert(reg.0, reg.1);
+    }
+
+    map
 }
