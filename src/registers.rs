@@ -14,8 +14,15 @@ use std::collections::HashMap;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::Result;
+use std::io;
+use std::io::Write;
 use std::num::Wrapping;
 use SupportedArch::*;
+
+enum TraceStyle {
+    Annotated,
+    Raw,
+}
 
 pub struct X86Arch;
 pub struct X64Arch;
@@ -682,6 +689,33 @@ impl Registers {
     }
     pub fn gs(&self) -> usize {
         rd_get_reg!(self, xgs, gs)
+    }
+
+    pub fn write_register_file_for_trace_raw(&self, f: &mut dyn Write) -> io::Result<()> {
+        unsafe {
+            write!(
+                f,
+                " {} {} {} {} {} {} {} {} {} {} {}",
+                self.u.x86.eax,
+                self.u.x86.ebx,
+                self.u.x86.ecx,
+                self.u.x86.edx,
+                self.u.x86.esi,
+                self.u.x86.edi,
+                self.u.x86.ebp,
+                self.u.x86.orig_eax,
+                self.u.x86.esp,
+                self.u.x86.eip,
+                self.u.x86.eflags
+            )
+        }
+    }
+
+    pub fn write_register_file_for_trace_arch<Arch: Architecture>(
+        &self,
+        f: &mut dyn Write,
+        style: TraceStyle,
+    ) {
     }
 }
 
