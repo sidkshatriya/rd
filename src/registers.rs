@@ -161,7 +161,11 @@ impl Registers {
         }
     }
 
-    pub fn write_registers_arch<Arch: Architecture>(&mut self, value: &[u8], regno: GdbRegister) {
+    pub fn read_registers(&self, buf: &mut [u8], regno: GdbRegister) -> Option<usize> {
+        rd_arch_function!(self, read_registers_arch, self.arch(), buf, regno)
+    }
+
+    pub fn write_register_arch<Arch: Architecture>(&mut self, value: &[u8], regno: GdbRegister) {
         let regs = Arch::get_regs_info();
         if let Some(rv) = regs.get(&regno) {
             if rv.nbytes == 0 {
@@ -182,8 +186,39 @@ impl Registers {
         }
     }
 
-    pub fn read_registers(&self, buf: &mut [u8], regno: GdbRegister) -> Option<usize> {
-        rd_arch_function!(self, read_registers_arch, self.arch(), buf, regno)
+    pub fn write_register(&mut self, value: &[u8], regno: GdbRegister) {
+        rd_arch_function!(self, write_register_arch, self.arch(), value, regno)
+    }
+
+    pub fn write_register_by_user_offset_arch<Arch: Architecture>(
+        &mut self,
+        offset: usize,
+        value: usize,
+    ) {
+        let regs = Arch::get_regs_info();
+        for (_, rv) in regs.iter() {
+            if rv.offset == offset {
+                debug_assert!(rv.nbytes <= std::mem::size_of::<usize>());
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        &value as *const _ as *const u8,
+                        rv.mut_pointer_into(&mut self.u),
+                        rv.nbytes,
+                    );
+                };
+                return;
+            }
+        }
+    }
+
+    pub fn write_register_by_user_offset(&mut self, offset: usize, value: usize) {
+        rd_arch_function!(
+            self,
+            write_register_by_user_offset_arch,
+            self.arch(),
+            offset,
+            value
+        )
     }
 
     pub fn read_registers_by_user_offset_arch<Arch: Architecture>(
