@@ -19,6 +19,7 @@ use std::io::Write;
 use std::num::Wrapping;
 use SupportedArch::*;
 
+#[derive(Copy, Clone, PartialEq)]
 enum TraceStyle {
     Annotated,
     Raw,
@@ -144,7 +145,7 @@ pub struct Registers {
 }
 
 impl Registers {
-    pub fn read_registers_arch<Arch: Architecture>(
+    pub fn read_register_arch<Arch: Architecture>(
         &self,
         buf: &mut [u8],
         regno: GdbRegister,
@@ -169,7 +170,7 @@ impl Registers {
     }
 
     pub fn read_registers(&self, buf: &mut [u8], regno: GdbRegister) -> Option<usize> {
-        rd_arch_function!(self, read_registers_arch, self.arch(), buf, regno)
+        rd_arch_function!(self, read_register_arch, self.arch(), buf, regno)
     }
 
     pub fn write_register_arch<Arch: Architecture>(&mut self, value: &[u8], regno: GdbRegister) {
@@ -237,7 +238,7 @@ impl Registers {
         let regs = Arch::get_regs_info();
         for (_, rv) in regs.iter() {
             if rv.offset == offset {
-                return self.read_registers_arch::<Arch>(buf, regno);
+                return self.read_register_arch::<Arch>(buf, regno);
             }
         }
         None
@@ -711,11 +712,110 @@ impl Registers {
         }
     }
 
-    pub fn write_register_file_for_trace_arch<Arch: Architecture>(
+    fn write_register_file_for_trace_arch<Arch: Architecture>(
         &self,
         f: &mut dyn Write,
         style: TraceStyle,
-    ) {
+    ) -> io::Result<()> {
+        let regs_info = Arch::get_regs_info();
+        let mut first = true;
+        for (_, rv) in regs_info {
+            if rv.nbytes == 0 {
+                continue;
+            }
+
+            if !first {
+                write!(f, " ")?;
+            }
+            first = false;
+            let name = match style {
+                TraceStyle::Annotated => rv.name,
+                _ => "",
+            };
+
+            match rv.nbytes {
+                8 | 4 => {
+                    self.write_single_register(f, name, rv.nbytes, rv.pointer_into(&self.u))?
+                }
+                _ => debug_assert!(false, "bad register size"),
+            }
+        }
+
+        Ok(())
+    }
+
+    fn write_register_file_for_trace(
+        &self,
+        f: &mut dyn Write,
+        style: TraceStyle,
+    ) -> io::Result<()> {
+        rd_arch_function!(
+            self,
+            write_register_file_for_trace_arch,
+            self.arch(),
+            f,
+            style
+        )
+    }
+
+    fn write_register_file_arch<Arch: Architecture>(&self, f: &mut dyn Write) -> io::Result<()> {
+        write!(f, "Printing register file:\n")?;
+        let regs_info = Arch::get_regs_info();
+        for (_, rv) in regs_info {
+            if rv.nbytes == 0 {
+                continue;
+            }
+
+            match rv.nbytes {
+                8 | 4 => {
+                    self.write_single_register(f, rv.name, rv.nbytes, rv.pointer_into(&self.u))?
+                }
+                _ => debug_assert!(false, "bad register size"),
+            }
+            write!(f, "\n")?;
+        }
+        write!(f, "\n")?;
+
+        Ok(())
+    }
+
+    pub fn write_register_file(&self, f: &mut dyn Write) -> io::Result<()> {
+        rd_arch_function!(self, write_register_file_arch, self.arch(), f)
+    }
+
+    pub fn write_register_file_compact(&self, f: &mut dyn Write) -> io::Result<()> {
+        rd_arch_function!(
+            self,
+            write_register_file_for_trace_arch,
+            self.arch(),
+            f,
+            TraceStyle::Annotated
+        )
+    }
+
+    fn write_single_register(
+        &self,
+        f: &mut dyn Write,
+        name: &str,
+        nbytes: usize,
+        register_ptr: *const u8,
+    ) -> io::Result<()> {
+        if name.len() > 0 {
+            write!(f, "{}:", name)?
+        } else {
+            write!(f, " ")?
+        }
+
+        unsafe {
+            match nbytes {
+                4 => write!(f, "{:x}", *(register_ptr as *const u32)),
+                8 => write!(f, "{:x}", *(register_ptr as *const u64)),
+                _ => {
+                    debug_assert!(false, "bad register size");
+                    Ok(())
+                }
+            }
+        }
     }
 }
 
