@@ -10,6 +10,7 @@ use crate::kernel_supplement::{
 use crate::log::LogLevel::{LogError, LogInfo, LogWarn};
 use crate::remote_code_ptr::RemoteCodePtr;
 use crate::remote_ptr::RemotePtr;
+use crate::task::Task;
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::fmt::Formatter;
@@ -32,6 +33,7 @@ pub trait Architecture {
     fn get_regs_info() -> &'static HashMap<u32, RegisterValue>;
     fn ignore_undefined_register(regno: GdbRegister) -> bool;
     fn num_registers() -> u32;
+    fn get_arch() -> SupportedArch;
 }
 
 impl Architecture for X86Arch {
@@ -45,6 +47,9 @@ impl Architecture for X86Arch {
     fn num_registers() -> u32 {
         DREG_NUM_LINUX_I386
     }
+    fn get_arch() -> SupportedArch {
+        SupportedArch::X86
+    }
 }
 
 impl Architecture for X64Arch {
@@ -57,6 +62,9 @@ impl Architecture for X64Arch {
     }
     fn num_registers() -> u32 {
         DREG_NUM_LINUX_X86_64
+    }
+    fn get_arch() -> SupportedArch {
+        SupportedArch::X64
     }
 }
 
@@ -146,7 +154,7 @@ pub struct Registers {
 }
 
 impl Registers {
-    fn compare_registers_core<Arch: Architecture>(
+    fn compare_registers_arch<Arch: Architecture>(
         name1: &str,
         name2: &str,
         regs1: &Registers,
@@ -156,6 +164,45 @@ impl Registers {
         let mut match_ = true;
         let regs_info = Arch::get_regs_info();
 
+        unsafe {
+            match Arch::get_arch() {
+                X86 => {
+                    // When the kernel is entered via an interrupt, orig_rax is set to -IRQ.
+                    // We observe negative orig_eax values at SCHED events and signals and other
+                    // timer interrupts. These values are only really meaningful to compare when
+                    // they reflect original syscall numbers, in which case both will be positive.
+                    if regs1.u.x86.orig_eax >= 0 && regs2.u.x86.orig_eax > 0 {
+                        if regs1.u.x86.orig_eax != regs2.u.x86.orig_eax {
+                            maybe_log_reg_mismatch(
+                                mismatch_behavior,
+                                "orig_eax",
+                                name1,
+                                regs1.u.x86.orig_eax as u64,
+                                name2,
+                                regs2.u.x86.orig_eax as u64,
+                            );
+                            match_ = false;
+                        }
+                    }
+                }
+                X64 => {
+                    // See comment in the x86 case
+                    if (regs1.u.x64.orig_rax as i64) >= 0 && (regs2.u.x64.orig_rax as i64) > 0 {
+                        if regs1.u.x64.orig_rax != regs2.u.x64.orig_rax {
+                            maybe_log_reg_mismatch(
+                                mismatch_behavior,
+                                "orig_rax",
+                                name1,
+                                regs1.u.x64.orig_rax,
+                                name2,
+                                regs2.u.x64.orig_rax,
+                            );
+                            match_ = false;
+                        }
+                    }
+                }
+            }
+        }
         for (_, rv) in regs_info.iter() {
             if rv.nbytes == 0 {
                 continue;
@@ -214,6 +261,86 @@ impl Registers {
 
         match_
     }
+
+    fn compare_register_files_internal(
+        name1: &str,
+        regs1: &Registers,
+        name2: &str,
+        regs2: &Registers,
+        mismatch_behavior: MismatchBehavior,
+    ) -> bool {
+        debug_assert!(regs1.arch() == regs2.arch());
+        match regs1.arch() {
+            X86 => Registers::compare_registers_arch::<X86Arch>(
+                name1,
+                name2,
+                regs1,
+                regs2,
+                mismatch_behavior,
+            ),
+            X64 => Registers::compare_registers_arch::<X64Arch>(
+                name1,
+                name2,
+                regs1,
+                regs2,
+                mismatch_behavior,
+            ),
+        }
+    }
+
+    // @TODO the first param shold be Option<&ReplayTask>
+    pub fn compare_register_files(
+        maybe_t: Option<&Task>,
+        name1: &str,
+        regs1: &Registers,
+        name2: &str,
+        regs2: &Registers,
+        mismatch_behavior: MismatchBehavior,
+    ) -> bool {
+        let bail_error = mismatch_behavior >= MismatchBehavior::BailOnMismatch;
+        let match_ = Registers::compare_register_files_internal(
+            name1,
+            regs1,
+            name2,
+            regs2,
+            mismatch_behavior,
+        );
+        if let Some(t) = maybe_t {
+            // @TODO complete this.
+            ed_assert!(
+                t,
+                !bail_error || match_,
+                "Fatal register mismatch (ticks/rec:{}/{}",
+                1,
+                1
+            );
+        } else {
+            debug_assert!(!bail_error || match_);
+        }
+
+        if match_ && mismatch_behavior == MismatchBehavior::LogMismatches {
+            log!(
+                LogInfo,
+                "(register files are the same for {} and {}",
+                name1,
+                name2
+            );
+        }
+
+        match_
+    }
+
+    pub fn matches(&self, other: &Registers) -> bool {
+        Registers::compare_register_files(
+            None,
+            "",
+            self,
+            "",
+            other,
+            MismatchBehavior::ExpectMismatches,
+        )
+    }
+
     pub fn read_register_arch<Arch: Architecture>(
         &self,
         buf: &mut [u8],

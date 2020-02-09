@@ -22,6 +22,7 @@ mod gdb_register;
 mod kernel_supplement;
 mod remote_code_ptr;
 mod remote_ptr;
+mod replay_task;
 mod scoped_fd;
 mod task;
 mod ticks;
