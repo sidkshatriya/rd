@@ -1,1 +1,1 @@
-# rd -- The Record & Debug Tool
+# `rd` The Record & Debug Tool
