@@ -7,7 +7,7 @@ use crate::kernel_abi::RD_NATIVE_ARCH;
 use crate::kernel_supplement::{
     ERESTARTNOHAND, ERESTARTNOINTR, ERESTARTSYS, ERESTART_RESTARTBLOCK,
 };
-use crate::log::LogLevel::LogWarn;
+use crate::log::LogLevel::{LogError, LogInfo, LogWarn};
 use crate::remote_code_ptr::RemoteCodePtr;
 use crate::remote_ptr::RemotePtr;
 use std::collections::HashMap;
@@ -95,10 +95,11 @@ macro_rules! rd_get_reg_signed {
     };
 }
 
+#[derive(Copy, Clone, PartialEq, PartialOrd)]
 pub enum MismatchBehavior {
-    ExpectMismatches,
-    LogMismatches,
-    BailOnMismatch,
+    ExpectMismatches = 1,
+    LogMismatches = 2,
+    BailOnMismatch = 3,
 }
 
 const X86_RESERVED_FLAG: usize = 1 << 1;
@@ -145,6 +146,74 @@ pub struct Registers {
 }
 
 impl Registers {
+    fn compare_registers_core<Arch: Architecture>(
+        name1: &str,
+        name2: &str,
+        regs1: &Registers,
+        regs2: &Registers,
+        mismatch_behavior: MismatchBehavior,
+    ) -> bool {
+        let mut match_ = true;
+        let regs_info = Arch::get_regs_info();
+
+        for (_, rv) in regs_info.iter() {
+            if rv.nbytes == 0 {
+                continue;
+            }
+
+            // Disregard registers that will trivially compare equal.
+            if rv.comparison_mask == 0 {
+                continue;
+            }
+
+            let mut val1: u64 = 0;
+            let mut val2: u64 = 0;
+            match rv.nbytes {
+                4 => {
+                    let mut val1_32: u32 = 0;
+                    let mut val2_32: u32 = 0;
+
+                    unsafe {
+                        std::ptr::copy_nonoverlapping(
+                            rv.u32_pointer_into(&regs1.u),
+                            &mut val1_32 as *mut u32,
+                            1,
+                        );
+                        std::ptr::copy_nonoverlapping(
+                            rv.u32_pointer_into(&regs2.u),
+                            &mut val2_32 as *mut u32,
+                            1,
+                        );
+                    }
+
+                    val1 = val1_32 as u64;
+                    val2 = val2_32 as u64;
+                }
+                8 => unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        rv.u64_pointer_into(&regs1.u),
+                        &mut val1 as *mut u64,
+                        1,
+                    );
+                    std::ptr::copy_nonoverlapping(
+                        rv.u64_pointer_into(&regs2.u),
+                        &mut val2 as *mut u64,
+                        1,
+                    );
+                },
+                _ => {
+                    debug_assert!(false, "bad register size");
+                }
+            }
+
+            if val1 & rv.comparison_mask != val2 & rv.comparison_mask {
+                maybe_log_reg_mismatch(mismatch_behavior, rv.name, name1, val1, name2, val2);
+                match_ = false;
+            }
+        }
+
+        match_
+    }
     pub fn read_register_arch<Arch: Architecture>(
         &self,
         buf: &mut [u8],
@@ -983,6 +1052,22 @@ impl RegisterValue {
         unsafe { (regs as *const _ as *const u8).add(self.offset) }
     }
 
+    pub fn u32_pointer_into(&self, regs: &RegistersUnion) -> *const u32 {
+        self.pointer_into(regs) as *const u32
+    }
+
+    pub fn u64_pointer_into(&self, regs: &RegistersUnion) -> *const u64 {
+        self.pointer_into(regs) as *const u64
+    }
+
+    pub fn mut_u32_pointer_into(&self, regs: &mut RegistersUnion) -> *mut u32 {
+        self.mut_pointer_into(regs) as *mut u32
+    }
+
+    pub fn mut_u64_pointer_into(&self, regs: &mut RegistersUnion) -> *mut u64 {
+        self.mut_pointer_into(regs) as *mut u64
+    }
+
     pub fn mut_pointer_into(&self, regs: &mut RegistersUnion) -> *mut u8 {
         unsafe { (regs as *mut _ as *mut u8).add(self.offset) }
     }
@@ -1137,4 +1222,35 @@ fn x64regs() -> HashMap<u32, RegisterValue> {
     }
 
     map
+}
+
+fn maybe_log_reg_mismatch(
+    mismatch_behavior: MismatchBehavior,
+    regname: &str,
+    label1: &str,
+    val1: u64,
+    label2: &str,
+    val2: u64,
+) {
+    if mismatch_behavior >= MismatchBehavior::BailOnMismatch {
+        log!(
+            LogError,
+            "{} {:x} != {:x} ({} vs. {})",
+            regname,
+            val1,
+            val2,
+            label1,
+            label2
+        )
+    } else if mismatch_behavior >= MismatchBehavior::LogMismatches {
+        log!(
+            LogInfo,
+            "{} {:x} != {:x} ({} vs. {})",
+            regname,
+            val1,
+            val2,
+            label1,
+            label2
+        )
+    }
 }
