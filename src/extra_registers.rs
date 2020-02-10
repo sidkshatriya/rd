@@ -6,6 +6,46 @@ use crate::util::XSaveLayout;
 use std::io;
 use std::io::Write;
 
+const AVX_FEATURE_BIT: i32 = 2;
+
+const XSAVE_HEADER_OFFSET: usize = 512;
+const XSAVE_HEADER_SIZE: usize = 64;
+const XSAVE_HEADER_END: usize = XSAVE_HEADER_OFFSET + XSAVE_HEADER_SIZE;
+/// This is always at 576 since AVX is always the first optional feature,
+/// if present.
+const AVX_XSAVE_OFFSET: usize = 576;
+
+// @TODO should some of these by usize instead of i32?
+/// This is the byte offset at which the ST0-7 register data begins
+/// with an xsave (or fxsave) block.
+const ST_REGS_OFFSET: i32 = 32;
+/// NB: each STx register holds 10 bytes of actual data, but each
+/// occupies 16 bytes of space within (f)xsave, presumably for
+/// alignment purposes.
+const ST_REG_SPACE: i32 = 16;
+
+/// Byte offset at which the XMM0-15 register data begins with (f)xsave.
+const XMM_REGS_OFFSET: i32 = 160;
+const XMM_REG_SPACE: i32 = 16;
+
+const XSAVE_FEATURE_PKRU: i32 = 9;
+
+/// The Intel documentation says that the following layout is only valid in
+/// 32-bit mode, or when fxsave is executed in 64-bit mode without an
+/// appropriate REX prefix.  The kernel seems to only use fxsave with the
+/// REX prefix, so one would think these offsets would be different.  But
+/// GDB seems happy to use these offsets, so that's what we use too.
+const FXSAVE_387_CTRL_OFFSETS: [u8; 8] = [
+    0,  // DREG_64_FCTRL
+    2,  // DREG_64_FSTAT
+    4,  // DREG_64_FTAG
+    12, // DREG_64_FISEG
+    8,  // DREG_64_FIOFF
+    20, // DREG_64_FOSEG
+    16, // DREG_64_FOOFF
+    6,  // DREG_64_FOP
+];
+
 /// On a x86 64-bit kernel, these structures are initialized by an XSAVE64 or
 /// FXSAVE64.
 /// On a x86 32-bit kernel, they are initialized by an XSAVE or FXSAVE.
