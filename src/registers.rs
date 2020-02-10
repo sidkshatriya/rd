@@ -1450,3 +1450,18 @@ fn maybe_log_reg_mismatch(
         )
     }
 }
+
+pub fn with_converted_registers<Ret, F: Fn(&Registers) -> Ret>(
+    regs: &Registers,
+    arch: SupportedArch,
+    f: F,
+) -> Ret {
+    if regs.arch() != arch {
+        let mut converted_regs = Registers::new(arch);
+        let data = regs.get_ptrace_for_arch(arch);
+        converted_regs.set_from_ptrace_for_arch(arch, &data);
+        f(&converted_regs)
+    } else {
+        f(regs)
+    }
+}
