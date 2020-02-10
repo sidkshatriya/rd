@@ -153,6 +153,22 @@ pub struct Registers {
     u: RegistersUnion,
 }
 
+/// A Registers object contains values for all general-purpose registers.
+/// These must include all registers used to pass syscall parameters and return
+/// syscall results.
+///
+/// When reading register values, be sure to cast the result to the correct
+/// type according to the kernel docs. E.g. int values should be cast
+/// to int explicitly (or implicitly, by assigning to an int-typed variable),
+/// size_t should be cast to size_t, etc. If the type is signed, call the
+/// _signed getter. This ensures that when building rr 64-bit we will use the
+/// right number of register bits whether the tracee is 32-bit or 64-bit, and
+/// get sign-extension right.
+///
+/// We have different register sets for different architectures. To ensure a
+/// trace can be dumped/processed by an rr build on any platform, we allow
+/// Registers to contain registers for any architecture. So we store them
+/// in a union of Arch::user_regs_structs for each known Arch.
 impl Registers {
     fn compare_registers_arch<Arch: Architecture>(
         name1: &str,
@@ -288,6 +304,12 @@ impl Registers {
         }
     }
 
+    /// Return true if |regs1| matches |regs2|.  Passing EXPECT_MISMATCHES
+    /// indicates that the caller is using this as a general register
+    /// compare and nothing special should be done if the register files
+    /// mismatch.  Passing LOG_MISMATCHES will log the registers that don't
+    /// match.  Passing BAIL_ON_MISMATCH will additionally abort on
+    /// mismatch.
     // @TODO the first param shold be Option<&ReplayTask>
     pub fn compare_register_files(
         maybe_t: Option<&Task>,
@@ -310,7 +332,7 @@ impl Registers {
             ed_assert!(
                 t,
                 !bail_error || match_,
-                "Fatal register mismatch (ticks/rec:{}/{}",
+                "Fatal register mismatch (ticks/rec:{}/{})",
                 1,
                 1
             );
@@ -321,7 +343,7 @@ impl Registers {
         if match_ && mismatch_behavior == MismatchBehavior::LogMismatches {
             log!(
                 LogInfo,
-                "(register files are the same for {} and {}",
+                "(register files are the same for {} and {})",
                 name1,
                 name2
             );
@@ -341,7 +363,7 @@ impl Registers {
         )
     }
 
-    pub fn read_register_arch<Arch: Architecture>(
+    fn read_register_arch<Arch: Architecture>(
         &self,
         buf: &mut [u8],
         regno: GdbRegister,
@@ -365,11 +387,15 @@ impl Registers {
         }
     }
 
-    pub fn read_registers(&self, buf: &mut [u8], regno: GdbRegister) -> Option<usize> {
+    /// Write the value for register |regno| into |buf|, which should
+    /// be large enough to hold any register supported by the target.
+    /// Return the size of the register in bytes. If None is returned it
+    /// indicates that no value was written to |buf|.
+    pub fn read_register(&self, buf: &mut [u8], regno: GdbRegister) -> Option<usize> {
         rd_arch_function!(self, read_register_arch, self.arch(), buf, regno)
     }
 
-    pub fn write_register_arch<Arch: Architecture>(&mut self, value: &[u8], regno: GdbRegister) {
+    fn write_register_arch<Arch: Architecture>(&mut self, value: &[u8], regno: GdbRegister) {
         let regs = Arch::get_regs_info();
         if let Some(rv) = regs.get(&regno) {
             if rv.nbytes == 0 {
@@ -390,11 +416,13 @@ impl Registers {
         }
     }
 
+    /// Update the register named |reg_name| to |value| with
+    /// |value_size| number of bytes.
     pub fn write_register(&mut self, value: &[u8], regno: GdbRegister) {
         rd_arch_function!(self, write_register_arch, self.arch(), value, regno)
     }
 
-    pub fn write_register_by_user_offset_arch<Arch: Architecture>(
+    fn write_register_by_user_offset_arch<Arch: Architecture>(
         &mut self,
         offset: usize,
         value: usize,
@@ -415,6 +443,8 @@ impl Registers {
         }
     }
 
+    /// Update the register at user offset |offset| to |value|, taking the low
+    /// bytes if necessary.
     pub fn write_register_by_user_offset(&mut self, offset: usize, value: usize) {
         rd_arch_function!(
             self,
@@ -425,34 +455,32 @@ impl Registers {
         )
     }
 
-    pub fn read_registers_by_user_offset_arch<Arch: Architecture>(
+    fn read_registers_by_user_offset_arch<Arch: Architecture>(
         &self,
         buf: &mut [u8],
         offset: usize,
-        regno: GdbRegister,
     ) -> Option<usize> {
         let regs = Arch::get_regs_info();
-        for (_, rv) in regs.iter() {
+        for (regno, rv) in regs.iter() {
             if rv.offset == offset {
-                return self.read_register_arch::<Arch>(buf, regno);
+                return self.read_register_arch::<Arch>(buf, *regno);
             }
         }
         None
     }
 
-    pub fn read_registers_by_user_offset(
-        &self,
-        buf: &mut [u8],
-        offset: usize,
-        regno: GdbRegister,
-    ) -> Option<usize> {
+    /// Write the value for register |offset| into |buf|, which should
+    /// be large enough to hold any register supported by the target.
+    /// Return the size of the register in bytes as an Option. If None
+    /// is returned it indicates that no value was written to |buf|.
+    /// |offset| is the offset of the register within a user_regs_struct.
+    pub fn read_registers_by_user_offset(&self, buf: &mut [u8], offset: usize) -> Option<usize> {
         rd_arch_function!(
             self,
             read_registers_by_user_offset_arch,
             self.arch(),
             buf,
-            offset,
-            regno
+            offset
         )
     }
 
@@ -472,6 +500,13 @@ impl Registers {
         self.arch_ = arch;
     }
 
+    /// Copy a user_regs_struct into these Registers. If the tracee architecture
+    /// is not rr's native architecture, then it must be a 32-bit tracee with a
+    /// 64-bit rr. In that case the user_regs_struct is 64-bit and we extract
+    /// the 32-bit register values from it into u.x86regs.
+    /// It's invalid to call this when the Registers' arch is 64-bit and the
+    /// rr build is 32-bit, or when the Registers' arch is completely different
+    /// to the rr build (e.g. ARM vs x86).
     pub fn set_from_ptrace(&mut self, ptrace_regs: &native_user_regs_struct) {
         let mut native = RegistersNativeUnion::default();
         native.native = *ptrace_regs;
@@ -490,6 +525,13 @@ impl Registers {
         }
     }
 
+    /// Get a user_regs_struct from these Registers. If the tracee architecture
+    /// is not rr's native architecture, then it must be a 32-bit tracee with a
+    /// 64-bit rr. In that case the user_regs_struct is 64-bit and we copy
+    /// the 32-bit register values from u.x86regs into it.
+    /// It's invalid to call this when the Registers' arch is 64-bit and the
+    /// rr build is 32-bit, or when the Registers' arch is completely different
+    /// to the rr build (e.g. ARM vs x86).
     pub fn get_ptrace(&self) -> native_user_regs_struct {
         if self.arch() == RD_NATIVE_ARCH {
             unsafe {
@@ -498,7 +540,7 @@ impl Registers {
             }
         } else {
             debug_assert!(self.arch() == X86 && RD_NATIVE_ARCH == X64);
-            let mut result = RegistersUnion::default();
+            let mut result = RegistersNativeUnion::default();
             unsafe {
                 convert_x86_widen(
                     &mut result.x64,
@@ -506,12 +548,12 @@ impl Registers {
                     from_x86_narrow,
                     from_x86_narrow_signed,
                 );
-                let n = std::mem::transmute::<RegistersUnion, RegistersNativeUnion>(result);
-                n.native
+                result.native
             }
         }
     }
 
+    /// Equivalent to get_ptrace_for_arch(arch()) but doesn't copy.
     pub fn get_ptrace_for_self_arch(&self) -> &[u8] {
         match self.arch_ {
             X86 => {
@@ -535,6 +577,10 @@ impl Registers {
         }
     }
 
+    /// Get a user_regs_struct for a particular Arch from these Registers.
+    /// It's invalid to call this when 'arch' is 64-bit and the
+    /// rr build is 32-bit, or when the Registers' arch is completely different
+    /// to the rr build (e.g. ARM vs x86).
     pub fn get_ptrace_for_arch(&self, arch: SupportedArch) -> Vec<u8> {
         let mut tmp_regs = Registers::new(arch);
         tmp_regs.set_from_ptrace(&self.get_ptrace());
@@ -554,6 +600,10 @@ impl Registers {
         v
     }
 
+    /// Copy an arch-specific user_regs_struct into these Registers.
+    /// It's invalid to call this when 'arch' is 64-bit and the
+    /// rr build is 32-bit, or when the Registers' arch is completely different
+    /// to the rr build (e.g. ARM vs x86).
     pub fn set_from_ptrace_for_arch(&mut self, arch: SupportedArch, data: &[u8]) {
         if arch == RD_NATIVE_ARCH {
             debug_assert_eq!(data.len(), std::mem::size_of::<native_user_regs_struct>());
@@ -621,11 +671,13 @@ impl Registers {
         }
     }
 
+    /// Returns true if syscall_result() indicates failure.
     pub fn syscall_failed(&self) -> bool {
         let result = self.syscall_result_signed();
         -4096 < result && result < 0
     }
 
+    /// Returns true if syscall_result() indicates a syscall restart.
     pub fn syscall_may_restart(&self) -> bool {
         match -self.syscall_result_signed() as u32 {
             ERESTART_RESTARTBLOCK | ERESTARTNOINTR | ERESTARTNOHAND | ERESTARTSYS => true,
@@ -651,6 +703,10 @@ impl Registers {
         rd_set_reg!(self, esp, rsp, addr.as_usize());
     }
 
+    /// This pseudo-register holds the system-call number when we get ptrace
+    /// enter-system-call and exit-system-call events. Setting it changes
+    /// the system-call executed when resuming after an enter-system-call
+    /// event.
     pub fn original_syscallno(&self) -> isize {
         rd_get_reg_signed!(self, orig_eax, orig_rax)
     }
@@ -780,6 +836,7 @@ impl Registers {
         }
     }
 
+    /// Set the output registers of the |rdtsc| instruction.
     pub fn set_rdtsc_output(&mut self, value: u64) {
         rd_set_reg!(self, eax, rax, value & 0xffffffff);
         rd_set_reg!(self, edx, rdx, value >> 32);
@@ -1018,15 +1075,26 @@ impl Registers {
 fn to_x86_narrow(r32: &mut i32, r64: u64) {
     *r32 = r64 as i32;
 }
-// No signed extension
+/// No signed extension
 fn from_x86_narrow(r64: &mut u64, r32: i32) {
     *r64 = r32 as u32 as u64
 }
-// Signed extension
+/// Signed extension
 fn from_x86_narrow_signed(r64: &mut u64, r32: i32) {
     *r64 = r32 as i64 as u64;
 }
 
+/// In theory it doesn't matter how 32-bit register values are sign extended
+/// to 64 bits for PTRACE_SETREGS. However:
+/// -- When setting up a signal handler frame, the kernel does some arithmetic
+/// on the 64-bit SP value and validates that the result points to writeable
+/// memory. This validation fails if SP has been sign-extended to point
+/// outside the 32-bit address space.
+/// -- Some kernels (e.g. 4.3.3-301.fc23.x86_64) with commmit
+/// c5c46f59e4e7c1ab244b8d38f2b61d317df90bba have a bug where if you clear
+/// the upper 32 bits of %rax while in the kernel, syscalls may fail to
+/// restart. So sign-extension is necessary for %eax in this case. We may as
+/// well sign-extend %eax in all cases.
 fn convert_x86_widen<F1, F2>(
     x64: &mut x64::user_regs_struct,
     x86: &x86::user_regs_struct,
@@ -1175,6 +1243,7 @@ impl RegisterValue {
         }
     }
 
+    /// Returns a pointer to the register in |regs| represented by |offset|.
     pub fn pointer_into(&self, regs: &RegistersUnion) -> *const u8 {
         unsafe { (regs as *const _ as *const u8).add(self.offset) }
     }
