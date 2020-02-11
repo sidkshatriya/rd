@@ -279,17 +279,17 @@ pub mod x64 {
     #[repr(C)]
     #[derive(Copy, Clone)]
     pub struct user_fpregs_struct {
-        cwd: uint16_t,
-        swd: uint16_t,
-        ftw: uint16_t,
-        fop: uint16_t,
-        rip: uint64_t,
-        rdp: uint64_t,
-        mxcsr: uint32_t,
-        mxcr_mask: uint32_t,
-        st_space: [uint32_t; 32],
-        xmm_space: [uint32_t; 64],
-        padding: [uint32_t; 24],
+        pub cwd: uint16_t,
+        pub swd: uint16_t,
+        pub ftw: uint16_t,
+        pub fop: uint16_t,
+        pub rip: uint64_t,
+        pub rdp: uint64_t,
+        pub mxcsr: uint32_t,
+        pub mxcr_mask: uint32_t,
+        pub st_space: [uint32_t; 32],
+        pub xmm_space: [uint32_t; 64],
+        pub padding: [uint32_t; 24],
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -608,57 +608,72 @@ pub mod x86 {
     #[repr(C)]
     #[derive(Copy, Clone, Default)]
     pub struct sigcontext {
-        gs: u16,
-        __gsh: u16,
-        fs: u16,
-        __fsh: u16,
-        es: u16,
-        __esh: u16,
-        ds: u16,
-        __dsh: u16,
-        di: u32,
-        si: u32,
-        bp: u32,
-        sp: u32,
-        bx: u32,
-        dx: u32,
-        cx: u32,
-        ax: u32,
-        trapno: u32,
-        err: u32,
-        ip: u32,
-        cs: u16,
-        __csh: u16,
-        flags: u16,
-        sp_at_signal: u32,
-        ss: u16,
-        __ssh: u16,
-        fpstate: u32,
-        oldmask: u32,
-        cr2: u32,
+        pub gs: u16,
+        pub __gsh: u16,
+        pub fs: u16,
+        pub __fsh: u16,
+        pub es: u16,
+        pub __esh: u16,
+        pub ds: u16,
+        pub __dsh: u16,
+        pub di: u32,
+        pub si: u32,
+        pub bp: u32,
+        pub sp: u32,
+        pub bx: u32,
+        pub dx: u32,
+        pub cx: u32,
+        pub ax: u32,
+        pub trapno: u32,
+        pub err: u32,
+        pub ip: u32,
+        pub cs: u16,
+        pub __csh: u16,
+        pub flags: u16,
+        pub sp_at_signal: u32,
+        pub ss: u16,
+        pub __ssh: u16,
+        pub fpstate: u32,
+        pub oldmask: u32,
+        pub cr2: u32,
     }
 
     #[repr(C)]
     #[derive(Copy, Clone)]
     pub struct user_fpxregs_struct {
-        cwd: uint16_t,
-        swd: uint16_t,
-        twd: uint16_t,
-        fop: uint16_t,
-        fip: int32_t,
-        fcs: int32_t,
-        foo: int32_t,
-        fos: int32_t,
-        mxcsr: int32_t,
-        reserved: int32_t,
-        st_space: [int32_t; 32],
-        xmm_space: [int32_t; 32],
-        padding: [int32_t; 56],
+        pub cwd: uint16_t,
+        pub swd: uint16_t,
+        pub twd: uint16_t,
+        pub fop: uint16_t,
+        pub fip: int32_t,
+        pub fcs: int32_t,
+        pub foo: int32_t,
+        pub fos: int32_t,
+        pub mxcsr: int32_t,
+        pub reserved: int32_t,
+        pub st_space: [int32_t; 32],
+        pub xmm_space: [int32_t; 32],
+        pub padding: [int32_t; 56],
+    }
+
+    #[repr(C)]
+    #[derive(Copy, Clone, Default)]
+    pub struct user_fpregs_struct {
+        pub cwd: int32_t,
+        pub swd: int32_t,
+        pub twd: int32_t,
+        pub fip: int32_t,
+        pub fcs: int32_t,
+        pub foo: int32_t,
+        pub fos: int32_t,
+        pub st_space: [int32_t; 20],
     }
 
     #[cfg(target_arch = "x86")]
     mod assert {
         use super::*;
+        assert_eq_align!(kernel::user_fpregs_struct, user_fpregs_struct);
+        assert_eq_size!(kernel::user_fpregs_struct, user_fpregs_struct);
 
         assert_eq_align!(kernel::user_fpxregs_struct, user_fpxregs_struct);
         assert_eq_size!(kernel::user_fpxregs_struct, user_fpxregs_struct);
