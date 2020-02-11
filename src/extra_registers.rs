@@ -1,4 +1,4 @@
-use crate::gdb_register::GdbRegister;
+use crate::gdb_register::*;
 use crate::kernel_abi::x86;
 use crate::kernel_abi::SupportedArch;
 use crate::kernel_metadata::xsave_feature_string;
@@ -10,7 +10,7 @@ use std::io::Write;
 use std::mem::size_of_val;
 use std::ptr::copy_nonoverlapping;
 
-const AVX_FEATURE_BIT: i32 = 2;
+const AVX_FEATURE_BIT: usize = 2;
 
 const XSAVE_HEADER_OFFSET: usize = 512;
 const XSAVE_HEADER_SIZE: usize = 64;
@@ -48,6 +48,8 @@ const FXSAVE_387_CTRL_OFFSETS: [usize; 8] = [
     16, // DREG_64_FOOFF
     6,  // DREG_64_FOP
 ];
+
+const XINUSE_OFFSET: usize = 512;
 
 /// On a x86 64-bit kernel, these structures are initialized by an XSAVE64 or
 /// FXSAVE64.
@@ -281,13 +283,56 @@ impl ExtraRegisters {
 
     /// Read XSAVE `xinuse` field
     pub fn read_xinuse(&self) -> Option<u64> {
-        unimplemented!()
+        let mut ret: u64 = 0;
+        if self.format_ != Format::XSave || self.data_.len() < 512 + size_of_val(&ret) {
+            return None;
+        }
+
+        unsafe {
+            copy_nonoverlapping(
+                self.data_.as_ptr().add(XINUSE_OFFSET),
+                &mut ret as *mut _ as *mut u8,
+                size_of_val(&ret),
+            );
+        }
+
+        Some(ret)
     }
 
     /// Like |Registers::read_register()|, except attempts to read
     /// the value of an "extra register" (floating point / vector).
     pub fn read_register(&self, buf: &mut [u8], regno: GdbRegister) -> Option<usize> {
-        unimplemented!()
+        if self.format_ != Format::XSave {
+            return None;
+        }
+
+        let reg_data = xsave_register_data(self.arch_, regno);
+        // @TODO check this. rr returns size even if offset is bad.
+        if reg_data.offset.is_none() || self.empty() {
+            return None;
+        }
+
+        debug_assert!(reg_data.size > 0);
+        // Apparently before any AVX registers are used, the feature bit is not set
+        // in the XSAVE data, so we'll just return 0 for them here.
+        if reg_data.xsave_feature_bit.is_some()
+            && (xsave_features(&self.data_) & (1 << reg_data.xsave_feature_bit.unwrap()) == 0)
+        {
+            unsafe {
+                std::ptr::write_bytes(buf.as_mut_ptr(), 0, reg_data.size);
+            }
+        } else {
+            debug_assert!(reg_data.offset.unwrap() + reg_data.size <= self.data_.len());
+            unsafe {
+                copy_nonoverlapping(
+                    self.data_.as_ptr().add(reg_data.offset.unwrap()),
+                    buf.as_mut_ptr(),
+                    reg_data.size,
+                );
+            }
+        }
+
+        Some(reg_data.size)
     }
 
     /// Get a user_fpregs_struct for a particular Arch from these ExtraRegisters.
@@ -357,4 +402,148 @@ fn all_zeros(data: &[u8]) -> bool {
     }
 
     true
+}
+
+// @TODO this differs from the rr implementation a bit
+// with usize instead of i32 and Options<usize> in some
+// places.
+struct RegData {
+    offset: Option<usize>,
+    size: usize,
+    xsave_feature_bit: Option<usize>,
+}
+
+impl RegData {
+    pub fn default() -> RegData {
+        RegData {
+            offset: None,
+            size: 0,
+            xsave_feature_bit: None,
+        }
+    }
+
+    pub fn new(offset: usize, size: usize) -> RegData {
+        RegData {
+            offset: Some(offset),
+            size: size,
+            xsave_feature_bit: None,
+        }
+    }
+}
+
+/// Return the size and data location of register |regno|.
+/// If we can't read the register, returns -1 in 'offset'.
+fn xsave_register_data(arch: SupportedArch, regno_param: GdbRegister) -> RegData {
+    let mut regno = regno_param;
+    // Check regno is in range, and if it's 32-bit then convert it to the
+    // equivalent 64-bit register.
+    match arch {
+        X86 => {
+            // Convert regno to the equivalent 64-bit version since the XSAVE layout
+            // is compatible
+            if regno >= DREG_XMM0 && regno <= DREG_XMM7 {
+                regno = regno - DREG_XMM0 + DREG_64_XMM0;
+            } else if regno >= DREG_YMM0H && regno <= DREG_YMM7H {
+                regno = regno - DREG_YMM0H + DREG_64_YMM0H;
+            } else if regno < DREG_FIRST_FXSAVE_REG || regno > DREG_LAST_FXSAVE_REG {
+                return RegData::default();
+            } else if regno == DREG_MXCSR {
+                regno = DREG_64_MXCSR;
+            } else {
+                regno = regno - DREG_FIRST_FXSAVE_REG + DREG_64_FIRST_FXSAVE_REG;
+            }
+            ()
+        }
+        X64 => (),
+    }
+
+    let mut result: RegData = RegData::default();
+    if reg_in_range(
+        regno,
+        DREG_64_ST0,
+        DREG_64_ST7,
+        ST_REGS_OFFSET,
+        ST_REG_SPACE,
+        10,
+        &mut result,
+    ) {
+        return result;
+    }
+    if reg_in_range(
+        regno,
+        DREG_64_XMM0,
+        DREG_64_XMM15,
+        XMM_REGS_OFFSET,
+        XMM_REG_SPACE,
+        16,
+        &mut result,
+    ) {
+        return result;
+    }
+
+    if reg_in_range(
+        regno,
+        DREG_64_YMM0H,
+        DREG_64_YMM15H,
+        AVX_XSAVE_OFFSET,
+        16,
+        16,
+        &mut result,
+    ) {
+        result.xsave_feature_bit = Some(AVX_FEATURE_BIT);
+        return result;
+    }
+
+    if regno < DREG_64_FIRST_FXSAVE_REG || regno > DREG_64_LAST_FXSAVE_REG {
+        return RegData::default();
+    }
+    if regno == DREG_64_MXCSR {
+        return RegData::new(24, 4);
+    }
+    debug_assert!(regno >= DREG_64_FCTRL && regno <= DREG_64_FOP);
+    // NB: most of these registers only occupy 2 bytes of space in
+    // the (f)xsave region, but gdb's default x86 target
+    // config expects us to send back 4 bytes of data for
+    // each.
+    RegData::new(
+        FXSAVE_387_CTRL_OFFSETS[regno as usize - DREG_64_FCTRL as usize],
+        4,
+    )
+}
+
+// Note: uses usize for variables instead of i32 as in rr
+fn reg_in_range(
+    regno: GdbRegister,
+    low: GdbRegister,
+    high: GdbRegister,
+    offset_base: usize,
+    offset_stride: usize,
+    size: usize,
+    out: &mut RegData,
+) -> bool {
+    if regno < low || regno > high {
+        return false;
+    }
+    out.offset = Some(offset_base + offset_stride * (regno as usize - low as usize));
+    out.size = size;
+
+    true
+}
+
+fn xsave_features(data: &[u8]) -> u64 {
+    // If this is just FXSAVE(64) data then we we have no XSAVE header and no
+    // XSAVE(64) features enabled.
+    if data.len() < XSAVE_HEADER_OFFSET + XSAVE_HEADER_SIZE {
+        0
+    } else {
+        let mut result: u64 = 0;
+        unsafe {
+            copy_nonoverlapping(
+                data.as_ptr().add(XSAVE_HEADER_OFFSET),
+                &mut result as *mut _ as *mut u8,
+                size_of_val(&result),
+            );
+        }
+        result
+    }
 }
