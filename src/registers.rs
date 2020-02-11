@@ -590,6 +590,7 @@ impl Registers {
         };
 
         let mut v: Vec<u8> = Vec::with_capacity(l);
+        v.resize(l, 0);
         unsafe {
             std::ptr::copy_nonoverlapping(
                 &tmp_regs as *const Registers as *const u8,
