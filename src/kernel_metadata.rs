@@ -338,3 +338,46 @@ fn sicode_name(code: i32, sig: i32) -> String {
     }
     format!("sicode({})", code)
 }
+
+pub fn xsave_feature_string(xsave_features: u64) -> String {
+    let mut ret: String = String::from("");
+    if xsave_features & 0x01 != 0 {
+        ret += "x87 ";
+    }
+    if xsave_features & 0x02 != 0 {
+        ret += "SSE ";
+    }
+    if xsave_features & 0x04 != 0 {
+        ret += "AVX ";
+    }
+    if xsave_features & 0x08 != 0 {
+        ret += "MPX-BNDREGS ";
+    }
+    if xsave_features & 0x10 != 0 {
+        ret += "MPX-BNDCSR ";
+    }
+    if xsave_features & 0x20 != 0 {
+        ret += "AVX512-opmask ";
+    }
+    if xsave_features & 0x40 != 0 {
+        ret += "AVX512-ZMM_Hi256 ";
+    }
+    if xsave_features & 0x80 != 0 {
+        ret += "AVX512-Hi16_ZMM ";
+    }
+    if xsave_features & 0x100 != 0 {
+        ret += "PT ";
+    }
+    if xsave_features & 0x200 != 0 {
+        ret += "PKRU ";
+    }
+    if xsave_features & 0x2000 != 0 {
+        ret += "HDC ";
+    }
+
+    if ret.len() > 0 {
+        ret.trim_end().to_string()
+    } else {
+        ret
+    }
+}
