@@ -1,6 +1,8 @@
 use crate::gdb_register::*;
+use crate::kernel_abi::x64;
 use crate::kernel_abi::x86;
 use crate::kernel_abi::SupportedArch;
+use crate::kernel_abi::SupportedArch::*;
 use crate::kernel_metadata::xsave_feature_string;
 use crate::log::LogLevel::LogError;
 use crate::task::Task;
@@ -337,7 +339,34 @@ impl ExtraRegisters {
 
     /// Get a user_fpregs_struct for a particular Arch from these ExtraRegisters.
     pub fn get_user_fpregs_struct(&self, arch: SupportedArch) -> Vec<u8> {
-        unimplemented!()
+        debug_assert!(self.format_ == Format::XSave);
+        match arch {
+            X86 => {
+                debug_assert!(self.data_.len() >= std::mem::size_of::<x86::user_fpxregs_struct>());
+                unsafe {
+                    let mut result =
+                        convert_fxsave_to_x86_fpregs(std::mem::transmute::<
+                            *const u8,
+                            &x86::user_fpxregs_struct,
+                        >(self.data_.as_ptr()));
+                    return Vec::from_raw_parts(
+                        &mut result as *mut _ as *mut u8,
+                        size_of_val(&result),
+                        size_of_val(&result),
+                    );
+                }
+            }
+            X64 => {
+                debug_assert!(self.data_.len() >= std::mem::size_of::<x64::user_fpregs_struct>());
+                let l = std::mem::size_of::<x64::user_fpregs_struct>();
+                let mut new_vec: Vec<u8> = Vec::with_capacity(l);
+                new_vec.resize(l, 0);
+                unsafe {
+                    copy_nonoverlapping(self.data_.as_ptr(), new_vec.as_mut_ptr(), l);
+                }
+                return new_vec;
+            }
+        }
     }
 
     /// Update registers from a user_fpregs_struct.
@@ -546,4 +575,31 @@ fn xsave_features(data: &[u8]) -> u64 {
         }
         result
     }
+}
+
+fn convert_fxsave_to_x86_fpregs(buf: &x86::user_fpxregs_struct) -> x86::user_fpregs_struct {
+    let mut result = x86::user_fpregs_struct::default();
+
+    for i in 0..8 {
+        unsafe {
+            // @TODO check this. Is this correct?
+            copy_nonoverlapping(
+                &buf.st_space[i * 4] as *const i32 as *const u8,
+                std::mem::transmute::<&[i32; 20], *mut u8>(&result.st_space).add(i * 10),
+                10,
+            );
+        }
+    }
+
+    // @TODO check this.
+    result.cwd = (buf.cwd as u32 | 0xffff0000) as i32;
+    result.swd = (buf.swd as u32 | 0xffff0000) as i32;
+    // XXX Computing the correct twd is a pain. It probably doesn't matter to us
+    // in practice.
+    result.twd = 0;
+    result.fip = buf.fip;
+    result.fcs = buf.fcs;
+    result.foo = buf.foo;
+    result.fos = buf.fos;
+    result
 }
