@@ -567,6 +567,7 @@ pub mod w32 {
 
 pub mod x86 {
     pub use super::w32::*;
+    use crate::bindings::kernel;
 
     pub const SIGINFO_PADDING: usize = 29;
     pub type ptr<T> = super::Ptr<u32, T>;
