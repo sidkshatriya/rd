@@ -7,6 +7,7 @@ use crate::kernel_metadata::xsave_feature_string;
 use crate::log::LogLevel::LogError;
 use crate::task::Task;
 use crate::util::{xsave_native_layout, XSaveFeatureLayout, XSaveLayout};
+use std::convert::TryInto;
 use std::io;
 use std::io::Write;
 use std::mem::size_of;
@@ -377,18 +378,72 @@ impl ExtraRegisters {
     }
 
     /// Update registers from a user_fpregs_struct.
-    pub fn set_user_fpregs_struct(&mut self, t: &Task, arch: SupportedArch, data: &[u8]) {
-        unimplemented!()
+    pub fn set_user_fpregs_struct(&mut self, t: &Task, arch: SupportedArch, data_from: &[u8]) {
+        debug_assert!(self.format_ == Format::XSave);
+        match arch {
+            X86 => {
+                ed_assert!(t, data_from.len() >= size_of::<x86::user_fpregs_struct>());
+                ed_assert!(t, self.data_.len() >= size_of::<x86::user_fpxregs_struct>());
+                let mut user_fpregs_data_from = x86::user_fpregs_struct::default();
+                unsafe {
+                    copy_nonoverlapping(
+                        data_from.as_ptr(),
+                        &mut user_fpregs_data_from as *mut _ as *mut u8,
+                        size_of::<x86::user_fpregs_struct>(),
+                    );
+                }
+                let mut result = x86::user_fpxregs_struct::default();
+                convert_x86_fpregs_to_fxsave(&user_fpregs_data_from, &mut result);
+                unsafe {
+                    copy_nonoverlapping(
+                        &result as *const _ as *const u8,
+                        self.data_.as_mut_ptr(),
+                        size_of::<x86::user_fpxregs_struct>(),
+                    );
+                }
+            }
+            X64 => {
+                ed_assert!(t, self.data_.len() >= size_of::<x64::user_fpregs_struct>());
+                ed_assert!(t, data_from.len() >= size_of::<x64::user_fpregs_struct>());
+                unsafe {
+                    copy_nonoverlapping(
+                        data_from.as_ptr(),
+                        self.data_.as_mut_ptr(),
+                        size_of::<x64::user_fpregs_struct>(),
+                    );
+                }
+            }
+        }
     }
 
     /// Get a user_fpxregs_struct for from these ExtraRegisters.
     pub fn get_user_fpxregs_struct(&self) -> x86::user_fpxregs_struct {
-        unimplemented!()
+        debug_assert!(self.format_ == Format::XSave);
+        debug_assert!(self.arch_ == X86);
+        debug_assert!(self.data_.len() >= size_of::<x86::user_fpxregs_struct>());
+        let mut regs = x86::user_fpxregs_struct::default();
+        unsafe {
+            copy_nonoverlapping(
+                self.data_.as_ptr(),
+                &mut regs as *mut _ as *mut u8,
+                size_of::<x86::user_fpxregs_struct>(),
+            );
+        }
+        regs
     }
 
     /// Update registers from a user_fpxregs_struct.
     pub fn set_user_fpxregs_struct(&mut self, t: &Task, regs: &x86::user_fpxregs_struct) {
-        unimplemented!()
+        ed_assert!(t, self.format_ == Format::XSave);
+        ed_assert!(t, self.arch_ == X86);
+        ed_assert!(t, self.data_.len() >= size_of::<x86::user_fpxregs_struct>());
+        unsafe {
+            copy_nonoverlapping(
+                regs as *const _ as *const u8,
+                self.data_.as_mut_ptr(),
+                size_of::<x86::user_fpxregs_struct>(),
+            );
+        }
     }
 
     pub fn write_register_file_compact(&self, f: &mut dyn Write) -> io::Result<()> {
@@ -397,11 +452,56 @@ impl ExtraRegisters {
 
     /// Reset to post-exec initial state
     pub fn reset(&mut self) {
-        unimplemented!()
+        debug_assert!(self.format_ == Format::XSave);
+        unsafe {
+            std::ptr::write_bytes(self.data_.as_mut_ptr(), 0, self.data_.len());
+        }
+        match self.arch() {
+            X64 => {
+                set_word(self.arch(), &mut self.data_, DREG_64_MXCSR, 0x1f80);
+                set_word(self.arch(), &mut self.data_, DREG_64_FCTRL, 0x37f);
+            }
+            X86 => {
+                set_word(self.arch(), &mut self.data_, DREG_MXCSR, 0x1f80);
+                set_word(self.arch(), &mut self.data_, DREG_FCTRL, 0x37f);
+            }
+        }
+        let mut xinuse: u64 = 0;
+        if self.data_.len() >= XINUSE_OFFSET + size_of::<u64>() {
+            // We have observed (Skylake, Linux 4.10) the system setting XINUSE's 0 bit
+            // to indicate x87-in-use, at times unrelated to x87 actually being used.
+            // Work around this by setting the bit unconditionally after exec.
+            unsafe {
+                copy_nonoverlapping(
+                    self.data_.as_mut_ptr().add(XINUSE_OFFSET),
+                    &mut xinuse as *mut _ as *mut u8,
+                    size_of::<u64>(),
+                );
+                xinuse |= 1;
+                copy_nonoverlapping(
+                    &xinuse as *const _ as *const u8,
+                    self.data_.as_mut_ptr().add(XINUSE_OFFSET),
+                    size_of::<u64>(),
+                );
+            }
+        }
     }
 
     pub fn validate(&self, t: &Task) {
-        unimplemented!()
+        if self.format_ != Format::XSave {
+            return;
+        }
+
+        ed_assert!(t, self.data_.len() >= 512);
+        let mut offset: usize = 512;
+        if self.data_.len() > offset {
+            ed_assert!(t, self.data_.len() >= offset + 64);
+            offset += 64;
+            let features: u64 = xsave_features(&self.data_);
+            if features & (1 << AVX_FEATURE_BIT) != 0 {
+                ed_assert!(t, self.data_.len() >= offset + 256);
+            }
+        }
     }
 }
 
@@ -609,4 +709,43 @@ fn convert_fxsave_to_x86_fpregs(buf: &x86::user_fpxregs_struct) -> x86::user_fpr
     result.foo = buf.foo;
     result.fos = buf.fos;
     result
+}
+
+fn convert_x86_fpregs_to_fxsave(
+    buf: &x86::user_fpregs_struct,
+    result: &mut x86::user_fpxregs_struct,
+) {
+    for i in 0..8 {
+        unsafe {
+            // @TODO check this. Is this correct?
+            copy_nonoverlapping(
+                std::mem::transmute::<&[i32; 20], *const u8>(&buf.st_space).add(i * 10),
+                &mut result.st_space[i * 4] as *mut i32 as *mut u8,
+                10,
+            );
+        }
+    }
+
+    result.cwd = buf.cwd.try_into().unwrap();
+    result.swd = buf.swd.try_into().unwrap();
+    // XXX Computing the correct twd is a pain. It probably doesn't matter to us
+    // in practice.
+    result.fip = buf.fip;
+    result.fcs = buf.fcs;
+    result.foo = buf.foo;
+    result.fos = buf.fos;
+}
+
+fn set_word(arch: SupportedArch, v: &mut [u8], r: GdbRegister, word: i32) {
+    let d: RegData = xsave_register_data(arch, r);
+    debug_assert!(d.size == 4);
+    debug_assert!(d.offset.is_some() && d.offset.unwrap() + d.size <= v.len());
+    debug_assert!(d.xsave_feature_bit.is_none());
+    unsafe {
+        copy_nonoverlapping(
+            &word as *const _ as *const u8,
+            v.as_mut_ptr().add(d.offset.unwrap()),
+            size_of::<i32>(),
+        )
+    }
 }
