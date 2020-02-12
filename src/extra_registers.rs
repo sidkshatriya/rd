@@ -133,13 +133,12 @@ impl ExtraRegisters {
             return false;
         }
 
-        unsafe {
-            copy_nonoverlapping(
-                data_from.as_ptr(),
-                self.data_.as_mut_ptr(),
-                XSAVE_HEADER_OFFSET,
-            );
+        self.data_
+            .get_mut(0..XSAVE_HEADER_OFFSET)
+            .unwrap()
+            .copy_from_slice(data_from.get(0..XSAVE_HEADER_OFFSET).unwrap());
 
+        unsafe {
             std::ptr::write_bytes(
                 self.data_.as_mut_ptr().add(XSAVE_HEADER_OFFSET),
                 0,
@@ -175,36 +174,29 @@ impl ExtraRegisters {
             // Degenerate XSAVE format without an actual XSAVE header. Assume x87+XMM
             // are in use.
             let assume_features_used: u64 = 0x3;
-            unsafe {
-                copy_nonoverlapping(
-                    &assume_features_used as *const _ as *const u8,
-                    self.data_.as_mut_ptr().add(XSAVE_HEADER_OFFSET),
-                    size_of::<u64>(),
-                );
-            }
+            self.data_
+                .get_mut(XSAVE_HEADER_OFFSET..XSAVE_HEADER_OFFSET + 8)
+                .unwrap()
+                .copy_from_slice(&assume_features_used.to_le_bytes());
             return true;
         }
 
         let features: u64 = features_used(data_from, &layout);
         // OK, now both our native layout and the input layout are using the full
         // XSAVE header. Copy the header. Make sure to use our updated `features`.
-        unsafe {
-            copy_nonoverlapping(
-                &features as *const _ as *const u8,
-                self.data_.as_mut_ptr().add(XSAVE_HEADER_OFFSET),
-                size_of::<u64>(),
-            );
+        self.data_
+            .get_mut(XSAVE_HEADER_OFFSET..XSAVE_HEADER_OFFSET + 8)
+            .unwrap()
+            .copy_from_slice(&features.to_le_bytes());
 
-            copy_nonoverlapping(
+        self.data_
+            .get_mut(XSAVE_HEADER_OFFSET + 8..XSAVE_HEADER_OFFSET + XSAVE_HEADER_SIZE)
+            .unwrap()
+            .copy_from_slice(
                 data_from
-                    .as_ptr()
-                    .add(XSAVE_HEADER_OFFSET + size_of::<u64>()),
-                self.data_
-                    .as_mut_ptr()
-                    .add(XSAVE_HEADER_OFFSET + size_of::<u64>()),
-                XSAVE_HEADER_SIZE - size_of::<u64>(),
+                    .get(XSAVE_HEADER_OFFSET + 8..XSAVE_HEADER_OFFSET + XSAVE_HEADER_SIZE)
+                    .unwrap(),
             );
-        }
 
         // Now copy each optional and present area into the right place in our struct
         for i in 2..64 {
@@ -246,13 +238,19 @@ impl ExtraRegisters {
                     native_feature.offset as usize + native_feature.size as usize
                         <= native_layout.full_size
                 );
-                unsafe {
-                    copy_nonoverlapping(
-                        data_from.as_ptr().add(feature.offset as usize),
-                        self.data_.as_mut_ptr().add(native_feature.offset as usize),
-                        feature.size as usize,
+
+                let native_offset = native_feature.offset as usize;
+                let feature_offset = feature.offset as usize;
+                let feature_size = feature.size as usize;
+
+                self.data_
+                    .get_mut(native_offset..native_offset + feature_size)
+                    .unwrap()
+                    .copy_from_slice(
+                        data_from
+                            .get(feature_offset..feature_offset + feature_size)
+                            .unwrap(),
                     );
-                }
             }
         }
 
@@ -286,19 +284,17 @@ impl ExtraRegisters {
 
     /// Read XSAVE `xinuse` field
     pub fn read_xinuse(&self) -> Option<u64> {
-        let mut ret: u64 = 0;
         if self.format_ != Format::XSave || self.data_.len() < 512 + size_of::<u64>() {
             return None;
         }
 
-        unsafe {
-            copy_nonoverlapping(
-                self.data_.as_ptr().add(XINUSE_OFFSET),
-                &mut ret as *mut _ as *mut u8,
-                size_of::<u64>(),
-            );
-        }
-
+        let ret = u64::from_le_bytes(
+            self.data_
+                .get(XINUSE_OFFSET..XINUSE_OFFSET + 8)
+                .unwrap()
+                .try_into()
+                .unwrap(),
+        );
         Some(ret)
     }
 
@@ -326,13 +322,10 @@ impl ExtraRegisters {
             }
         } else {
             debug_assert!(reg_data.offset.unwrap() + reg_data.size <= self.data_.len());
-            unsafe {
-                copy_nonoverlapping(
-                    self.data_.as_ptr().add(reg_data.offset.unwrap()),
-                    buf.as_mut_ptr(),
-                    reg_data.size,
-                );
-            }
+            let off = reg_data.offset.unwrap();
+            buf.get_mut(0..reg_data.size)
+                .unwrap()
+                .copy_from_slice(self.data_.get(off..off + reg_data.size).unwrap());
         }
 
         Some(reg_data.size)
@@ -367,11 +360,11 @@ impl ExtraRegisters {
                 debug_assert!(self.data_.len() >= std::mem::size_of::<x64::user_fpregs_struct>());
                 let l = std::mem::size_of::<x64::user_fpregs_struct>();
                 let mut new_vec: Vec<u8> = Vec::with_capacity(l);
-                // @TODO This could be made more efficient by avoiding resize and simply using set_len?
                 new_vec.resize(l, 0);
-                unsafe {
-                    copy_nonoverlapping(self.data_.as_ptr(), new_vec.as_mut_ptr(), l);
-                }
+                new_vec
+                    .get_mut(0..l)
+                    .unwrap()
+                    .copy_from_slice(self.data_.get(0..l).unwrap());
                 return new_vec;
             }
         }
@@ -478,24 +471,24 @@ impl ExtraRegisters {
                 set_word(self.arch(), &mut self.data_, DREG_FCTRL, 0x37f);
             }
         }
-        let mut xinuse: u64 = 0;
+
         if self.data_.len() >= XINUSE_OFFSET + size_of::<u64>() {
             // We have observed (Skylake, Linux 4.10) the system setting XINUSE's 0 bit
             // to indicate x87-in-use, at times unrelated to x87 actually being used.
             // Work around this by setting the bit unconditionally after exec.
-            unsafe {
-                copy_nonoverlapping(
-                    self.data_.as_mut_ptr().add(XINUSE_OFFSET),
-                    &mut xinuse as *mut _ as *mut u8,
-                    size_of::<u64>(),
-                );
-                xinuse |= 1;
-                copy_nonoverlapping(
-                    &xinuse as *const _ as *const u8,
-                    self.data_.as_mut_ptr().add(XINUSE_OFFSET),
-                    size_of::<u64>(),
-                );
-            }
+            let mut xinuse = u64::from_le_bytes(
+                self.data_
+                    .get(XINUSE_OFFSET..XINUSE_OFFSET + 8)
+                    .unwrap()
+                    .try_into()
+                    .unwrap(),
+            );
+
+            xinuse = xinuse | 1;
+            self.data_
+                .get_mut(XINUSE_OFFSET..XINUSE_OFFSET + 8)
+                .unwrap()
+                .copy_from_slice(&xinuse.to_le_bytes());
         }
     }
 
@@ -518,22 +511,20 @@ impl ExtraRegisters {
 }
 
 fn features_used(data: &[u8], layout: &XSaveLayout) -> u64 {
-    let mut features: u64 = 0;
-    unsafe {
-        copy_nonoverlapping(
-            data.as_ptr(),
-            &mut features as *mut _ as *mut u8,
-            size_of::<u64>(),
-        );
-    }
+    let mut features: u64 = u64::from_le_bytes(
+        data.get(XSAVE_HEADER_OFFSET..XSAVE_HEADER_OFFSET + 8)
+            .unwrap()
+            .try_into()
+            .unwrap(),
+    );
 
     let pkru_bit = 1 << XSAVE_FEATURE_PKRU;
     if features & pkru_bit != 0 && XSAVE_FEATURE_PKRU < layout.feature_layouts.len() {
         let fl: XSaveFeatureLayout = layout.feature_layouts[XSAVE_FEATURE_PKRU];
-        if fl.offset as usize + fl.size as usize <= layout.full_size
-            && all_zeros(unsafe {
-                std::slice::from_raw_parts(data.as_ptr().add(fl.offset as usize), fl.size as usize)
-            })
+        let fl_offset = fl.offset as usize;
+        let fl_size = fl.size as usize;
+        if fl_offset + fl_size as usize <= layout.full_size
+            && all_zeros(data.get(fl_offset..fl_offset + fl_size).unwrap())
         {
             features = features & !pkru_bit
         }
@@ -684,14 +675,12 @@ fn xsave_features(data: &[u8]) -> u64 {
     if data.len() < XSAVE_HEADER_OFFSET + XSAVE_HEADER_SIZE {
         0
     } else {
-        let mut result: u64 = 0;
-        unsafe {
-            copy_nonoverlapping(
-                data.as_ptr().add(XSAVE_HEADER_OFFSET),
-                &mut result as *mut _ as *mut u8,
-                size_of::<u64>(),
-            );
-        }
+        let result: u64 = u64::from_le_bytes(
+            data.get(XSAVE_HEADER_OFFSET..XSAVE_HEADER_OFFSET + 8)
+                .unwrap()
+                .try_into()
+                .unwrap(),
+        );
         result
     }
 }
@@ -754,13 +743,10 @@ fn set_word(arch: SupportedArch, v: &mut [u8], r: GdbRegister, word: i32) {
     debug_assert!(d.size == 4);
     debug_assert!(d.offset.is_some() && d.offset.unwrap() + d.size <= v.len());
     debug_assert!(d.xsave_feature_bit.is_none());
-    unsafe {
-        copy_nonoverlapping(
-            &word as *const _ as *const u8,
-            v.as_mut_ptr().add(d.offset.unwrap()),
-            size_of::<i32>(),
-        )
-    }
+    let d_offset = d.offset.unwrap();
+    v.get_mut(d_offset..d_offset + 4)
+        .unwrap()
+        .copy_from_slice(&word.to_le_bytes());
 }
 
 fn write_regs(
