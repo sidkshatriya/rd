@@ -276,7 +276,7 @@ fn supports_txp_and_has_kvm_in_txcp_bug() -> (bool, bool) {
 fn new_perf_event_attr(type_id: perf_type_id, config: u64) -> perf_event_attr {
     let mut attr: perf_event_attr = unsafe { zeroed() };
     attr.type_ = type_id;
-    attr.size = size_of_val(&attr) as u32;
+    attr.size = std::mem::size_of::<perf_event_attr>() as u32;
     attr.config = config;
     // rr requires that its events count userspace tracee code
     // only.
@@ -528,7 +528,7 @@ fn read_counter(fd: &ScopedFd) -> u64 {
         libc::read(
             fd.as_raw(),
             &mut val as *mut u64 as *mut libc::c_void,
-            size_of_val(&val),
+            std::mem::size_of::<u64>(),
         )
     };
     debug_assert!(nread == size_of_val(&val).try_into().unwrap());

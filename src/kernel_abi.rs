@@ -640,7 +640,7 @@ pub mod x86 {
     }
 
     #[repr(C)]
-    #[derive(Copy, Clone)]
+    #[derive(Copy, Clone, Default)]
     pub struct user_fpxregs_struct {
         pub cwd: uint16_t,
         pub swd: uint16_t,
@@ -654,7 +654,11 @@ pub mod x86 {
         pub reserved: int32_t,
         pub st_space: [int32_t; 32],
         pub xmm_space: [int32_t; 32],
-        pub padding: [int32_t; 56],
+        // Break this up into padding_1 and padding_2
+        // instead of a single `padding: [int32_t;56]`
+        // so that we can #[derive(Default)]
+        pub padding_1: [int32_t; 28],
+        pub padding_2: [int32_t; 28],
     }
 
     #[repr(C)]

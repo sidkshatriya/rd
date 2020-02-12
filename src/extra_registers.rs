@@ -9,7 +9,7 @@ use crate::task::Task;
 use crate::util::{xsave_native_layout, XSaveFeatureLayout, XSaveLayout};
 use std::io;
 use std::io::Write;
-use std::mem::size_of_val;
+use std::mem::size_of;
 use std::ptr::copy_nonoverlapping;
 
 const AVX_FEATURE_BIT: usize = 2;
@@ -178,7 +178,7 @@ impl ExtraRegisters {
                 copy_nonoverlapping(
                     &assume_features_used as *const _ as *const u8,
                     self.data_.as_mut_ptr().add(XSAVE_HEADER_OFFSET),
-                    size_of_val(&assume_features_used),
+                    size_of::<u64>(),
                 );
             }
             return true;
@@ -191,17 +191,17 @@ impl ExtraRegisters {
             copy_nonoverlapping(
                 &features as *const _ as *const u8,
                 self.data_.as_mut_ptr().add(XSAVE_HEADER_OFFSET),
-                size_of_val(&features),
+                size_of::<u64>(),
             );
 
             copy_nonoverlapping(
                 data_from
                     .as_ptr()
-                    .add(XSAVE_HEADER_OFFSET + size_of_val(&features)),
+                    .add(XSAVE_HEADER_OFFSET + size_of::<u64>()),
                 self.data_
                     .as_mut_ptr()
-                    .add(XSAVE_HEADER_OFFSET + size_of_val(&features)),
-                XSAVE_HEADER_SIZE - size_of_val(&features),
+                    .add(XSAVE_HEADER_OFFSET + size_of::<u64>()),
+                XSAVE_HEADER_SIZE - size_of::<u64>(),
             );
         }
 
@@ -286,7 +286,7 @@ impl ExtraRegisters {
     /// Read XSAVE `xinuse` field
     pub fn read_xinuse(&self) -> Option<u64> {
         let mut ret: u64 = 0;
-        if self.format_ != Format::XSave || self.data_.len() < 512 + size_of_val(&ret) {
+        if self.format_ != Format::XSave || self.data_.len() < 512 + size_of::<u64>() {
             return None;
         }
 
@@ -294,7 +294,7 @@ impl ExtraRegisters {
             copy_nonoverlapping(
                 self.data_.as_ptr().add(XINUSE_OFFSET),
                 &mut ret as *mut _ as *mut u8,
-                size_of_val(&ret),
+                size_of::<u64>(),
             );
         }
 
@@ -343,23 +343,30 @@ impl ExtraRegisters {
         match arch {
             X86 => {
                 debug_assert!(self.data_.len() >= std::mem::size_of::<x86::user_fpxregs_struct>());
+                let mut regs = x86::user_fpxregs_struct::default();
                 unsafe {
-                    let mut result =
-                        convert_fxsave_to_x86_fpregs(std::mem::transmute::<
-                            *const u8,
-                            &x86::user_fpxregs_struct,
-                        >(self.data_.as_ptr()));
-                    return Vec::from_raw_parts(
-                        &mut result as *mut _ as *mut u8,
-                        size_of_val(&result),
-                        size_of_val(&result),
+                    copy_nonoverlapping(
+                        self.data_.as_ptr(),
+                        &mut regs as *mut _ as *mut u8,
+                        size_of::<x86::user_fpxregs_struct>(),
                     );
                 }
+
+                let result = convert_fxsave_to_x86_fpregs(&regs);
+                let l = std::mem::size_of::<x64::user_fpregs_struct>();
+                let mut new_vec: Vec<u8> = Vec::with_capacity(l);
+                // @TODO This could be made more efficient by avoiding resize and simply using set_len?
+                new_vec.resize(l, 0);
+                unsafe {
+                    copy_nonoverlapping(&result as *const _ as *const u8, new_vec.as_mut_ptr(), l);
+                }
+                return new_vec;
             }
             X64 => {
                 debug_assert!(self.data_.len() >= std::mem::size_of::<x64::user_fpregs_struct>());
                 let l = std::mem::size_of::<x64::user_fpregs_struct>();
                 let mut new_vec: Vec<u8> = Vec::with_capacity(l);
+                // @TODO This could be made more efficient by avoiding resize and simply using set_len?
                 new_vec.resize(l, 0);
                 unsafe {
                     copy_nonoverlapping(self.data_.as_ptr(), new_vec.as_mut_ptr(), l);
@@ -404,7 +411,7 @@ fn features_used(data: &[u8], layout: &XSaveLayout) -> u64 {
         copy_nonoverlapping(
             data.as_ptr(),
             &mut features as *mut _ as *mut u8,
-            size_of_val(&features),
+            size_of::<u64>(),
         );
     }
 
@@ -570,7 +577,7 @@ fn xsave_features(data: &[u8]) -> u64 {
             copy_nonoverlapping(
                 data.as_ptr().add(XSAVE_HEADER_OFFSET),
                 &mut result as *mut _ as *mut u8,
-                size_of_val(&result),
+                size_of::<u64>(),
             );
         }
         result
