@@ -18,6 +18,7 @@ use std::fmt::Result;
 use std::io;
 use std::io::Write;
 use std::num::Wrapping;
+use std::ptr::copy_nonoverlapping;
 use SupportedArch::*;
 
 #[derive(Copy, Clone, PartialEq)]
@@ -237,12 +238,12 @@ impl Registers {
                     let mut val2_32: u32 = 0;
 
                     unsafe {
-                        std::ptr::copy_nonoverlapping(
+                        copy_nonoverlapping(
                             rv.u32_pointer_into(&regs1.u),
                             &mut val1_32 as *mut u32,
                             1,
                         );
-                        std::ptr::copy_nonoverlapping(
+                        copy_nonoverlapping(
                             rv.u32_pointer_into(&regs2.u),
                             &mut val2_32 as *mut u32,
                             1,
@@ -253,16 +254,8 @@ impl Registers {
                     val2 = val2_32 as u64;
                 }
                 8 => unsafe {
-                    std::ptr::copy_nonoverlapping(
-                        rv.u64_pointer_into(&regs1.u),
-                        &mut val1 as *mut u64,
-                        1,
-                    );
-                    std::ptr::copy_nonoverlapping(
-                        rv.u64_pointer_into(&regs2.u),
-                        &mut val2 as *mut u64,
-                        1,
-                    );
+                    copy_nonoverlapping(rv.u64_pointer_into(&regs1.u), &mut val1 as *mut u64, 1);
+                    copy_nonoverlapping(rv.u64_pointer_into(&regs2.u), &mut val2 as *mut u64, 1);
                 },
                 _ => {
                     debug_assert!(false, "bad register size");
@@ -374,11 +367,7 @@ impl Registers {
                 None
             } else {
                 unsafe {
-                    std::ptr::copy_nonoverlapping(
-                        rv.pointer_into(&self.u),
-                        buf.as_mut_ptr(),
-                        rv.nbytes,
-                    );
+                    copy_nonoverlapping(rv.pointer_into(&self.u), buf.as_mut_ptr(), rv.nbytes);
                 };
                 Some(rv.nbytes)
             }
@@ -406,7 +395,7 @@ impl Registers {
                 log!(LogWarn, "Unhandled register name {}", regno);
             } else {
                 unsafe {
-                    std::ptr::copy_nonoverlapping(
+                    copy_nonoverlapping(
                         value.as_ptr(),
                         rv.mut_pointer_into(&mut self.u),
                         value.len(),
@@ -432,7 +421,7 @@ impl Registers {
             if rv.offset == offset {
                 debug_assert!(rv.nbytes <= std::mem::size_of::<usize>());
                 unsafe {
-                    std::ptr::copy_nonoverlapping(
+                    copy_nonoverlapping(
                         &value as *const _ as *const u8,
                         rv.mut_pointer_into(&mut self.u),
                         rv.nbytes,
@@ -592,7 +581,7 @@ impl Registers {
         let mut v: Vec<u8> = Vec::with_capacity(l);
         v.resize(l, 0);
         unsafe {
-            std::ptr::copy_nonoverlapping(
+            copy_nonoverlapping(
                 &tmp_regs as *const Registers as *const u8,
                 v.as_mut_ptr(),
                 l,
@@ -610,7 +599,7 @@ impl Registers {
             debug_assert_eq!(data.len(), std::mem::size_of::<native_user_regs_struct>());
             let mut n = RegistersNativeUnion::default();
             unsafe {
-                std::ptr::copy_nonoverlapping(
+                copy_nonoverlapping(
                     data.as_ptr(),
                     &mut n.native as *mut native_user_regs_struct as *mut u8,
                     data.len(),
@@ -622,7 +611,7 @@ impl Registers {
             debug_assert!(self.arch() == X86);
             debug_assert_eq!(data.len(), std::mem::size_of::<x86::user_regs_struct>());
             unsafe {
-                std::ptr::copy_nonoverlapping(
+                copy_nonoverlapping(
                     data.as_ptr(),
                     &mut self.u.x86 as *mut x86::user_regs_struct as *mut u8,
                     std::mem::size_of::<x86::user_regs_struct>(),

@@ -726,6 +726,7 @@ fn convert_x86_fpregs_to_fxsave(
         }
     }
 
+    // @TODO check this.
     result.cwd = buf.cwd.try_into().unwrap();
     result.swd = buf.swd.try_into().unwrap();
     // XXX Computing the correct twd is a pain. It probably doesn't matter to us
