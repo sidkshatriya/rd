@@ -8,8 +8,8 @@ use crate::log::LogLevel::LogError;
 use crate::task::Task;
 use crate::util::{xsave_native_layout, XSaveFeatureLayout, XSaveLayout};
 use std::convert::TryInto;
+use std::fmt::Write;
 use std::io;
-use std::io::Write;
 use std::mem::size_of;
 use std::ptr::copy_nonoverlapping;
 
@@ -446,8 +446,20 @@ impl ExtraRegisters {
         }
     }
 
-    pub fn write_register_file_compact(&self, f: &mut dyn Write) -> io::Result<()> {
-        unimplemented!()
+    pub fn write_register_file_compact(&self, f: &mut dyn io::Write) -> io::Result<()> {
+        match self.arch_ {
+            X86 => {
+                write_regs(self, DREG_ST0, 0, 8, "st", f)?;
+                write!(f, " ")?;
+                write_regs(self, DREG_XMM0, DREG_YMM0H, 8, "ymm", f)?;
+            }
+            X64 => {
+                write_regs(self, DREG_64_ST0, 0, 8, "st", f)?;
+                write!(f, " ")?;
+                write_regs(self, DREG_64_XMM0, DREG_64_YMM0H, 16, "ymm", f)?;
+            }
+        }
+        Ok(())
     }
 
     /// Reset to post-exec initial state
@@ -749,4 +761,62 @@ fn set_word(arch: SupportedArch, v: &mut [u8], r: GdbRegister, word: i32) {
             size_of::<i32>(),
         )
     }
+}
+
+fn write_regs(
+    r: &ExtraRegisters,
+    low: GdbRegister,
+    hi: GdbRegister,
+    num_regs: u32,
+    name_base: &str,
+    f: &mut dyn io::Write,
+) -> io::Result<()> {
+    for i in 0..num_regs {
+        let mut s = String::new();
+        write!(s, "{}{}", name_base, i).unwrap();
+        let hip = if hi == 0 { 0 } else { hi + i };
+        write_reg(r, low + i, hip, &s, f)?;
+        if i < num_regs - 1 {
+            write!(f, " ")?;
+        }
+    }
+
+    Ok(())
+}
+
+fn write_reg(
+    r: &ExtraRegisters,
+    low: GdbRegister,
+    hi: GdbRegister,
+    name: &str,
+    f: &mut dyn io::Write,
+) -> io::Result<()> {
+    let mut buf: [u8; 128] = [0; 128];
+    let len = r.read_register(&mut buf, low);
+    debug_assert!(len.is_some() && len.unwrap() <= 64);
+    let mut final_len = len.unwrap();
+    if hi != 0 {
+        let len2 = r.read_register(buf.get_mut(len.unwrap()..).unwrap(), hi);
+        if len2.is_some() {
+            debug_assert!(len.unwrap() == len2.unwrap());
+            final_len += len2.unwrap();
+        }
+    }
+
+    let mut out = String::new();
+    let mut printed_digit = false;
+    let mut i = final_len as isize - 1;
+    while i >= 0 {
+        if !printed_digit && buf[i as usize] == 0 && i > 0 {
+            continue;
+        }
+        if printed_digit {
+            write!(out, "{:02x}", buf[i as usize]).unwrap();
+        } else {
+            write!(out, "{:x}", buf[i as usize]).unwrap();
+        }
+        printed_digit = true;
+        i = i - 1;
+    }
+    write!(f, "{}:0x{}", name, out)
 }
