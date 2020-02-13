@@ -12,61 +12,21 @@ use crate::remote_code_ptr::RemoteCodePtr;
 use crate::remote_ptr::RemotePtr;
 use crate::task::Task;
 use std::collections::HashMap;
+use std::convert::TryInto;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::Result;
 use std::io;
 use std::io::Write;
+use std::mem::size_of;
+use std::mem::zeroed;
 use std::num::Wrapping;
 use std::ptr::copy_nonoverlapping;
-use SupportedArch::*;
 
 #[derive(Copy, Clone, PartialEq)]
 enum TraceStyle {
     Annotated,
     Raw,
-}
-
-pub struct X86Arch;
-pub struct X64Arch;
-
-pub trait Architecture {
-    fn get_regs_info() -> &'static HashMap<u32, RegisterValue>;
-    fn ignore_undefined_register(regno: GdbRegister) -> bool;
-    fn num_registers() -> u32;
-    fn get_arch() -> SupportedArch;
-}
-
-impl Architecture for X86Arch {
-    fn get_regs_info() -> &'static HashMap<u32, RegisterValue> {
-        &*REGISTERS_X86
-    }
-
-    fn ignore_undefined_register(regno: GdbRegister) -> bool {
-        regno == DREG_FOSEG || regno == DREG_MXCSR
-    }
-    fn num_registers() -> u32 {
-        DREG_NUM_LINUX_I386
-    }
-    fn get_arch() -> SupportedArch {
-        SupportedArch::X86
-    }
-}
-
-impl Architecture for X64Arch {
-    fn get_regs_info() -> &'static HashMap<u32, RegisterValue> {
-        &*REGISTERS_X64
-    }
-
-    fn ignore_undefined_register(regno: GdbRegister) -> bool {
-        regno == DREG_64_FOSEG || regno == DREG_64_MXCSR
-    }
-    fn num_registers() -> u32 {
-        DREG_NUM_LINUX_X86_64
-    }
-    fn get_arch() -> SupportedArch {
-        SupportedArch::X64
-    }
 }
 
 lazy_static! {
@@ -76,23 +36,21 @@ lazy_static! {
 
 macro_rules! rd_get_reg {
     ($slf:expr, $x86case:ident, $x64case:ident) => {
-        unsafe {
-            match $slf.arch_ {
-                crate::kernel_abi::SupportedArch::X86 => $slf.u.x86.$x86case as usize,
-                crate::kernel_abi::SupportedArch::X64 => $slf.u.x64.$x64case as usize,
-            }
+        match $slf {
+            X86(regs) => regs.$x86case as usize,
+            X64(regs) => regs.$x64case as usize,
         }
     };
 }
 
 macro_rules! rd_set_reg {
     ($slf:expr, $x86case:ident, $x64case:ident, $val:expr) => {
-        match $slf.arch_ {
-            crate::kernel_abi::SupportedArch::X86 => {
-                $slf.u.x86.$x86case = $val as i32;
+        match $slf {
+            X86(regs) => {
+                regs.$x86case = $val as i32;
             }
-            crate::kernel_abi::SupportedArch::X64 => {
-                $slf.u.x64.$x64case = $val as u64;
+            X64(regs) => {
+                regs.$x64case = $val as u64;
             }
         }
     };
@@ -118,41 +76,13 @@ const X86_DF_FLAG: usize = 1 << 10;
 const X86_RF_FLAG: usize = 1 << 16;
 const X86_ID_FLAG: usize = 1 << 21;
 
-#[repr(C)]
 #[derive(Copy, Clone)]
-pub union RegistersUnion {
-    x86: x86::user_regs_struct,
-    x64: x64::user_regs_struct,
+pub enum Registers {
+    X64(x64::user_regs_struct),
+    X86(x86::user_regs_struct),
 }
 
-impl RegistersUnion {
-    pub fn default() -> RegistersUnion {
-        RegistersUnion {
-            x64: x64::user_regs_struct::default(),
-        }
-    }
-}
-
-impl RegistersNativeUnion {
-    pub fn default() -> RegistersNativeUnion {
-        RegistersNativeUnion {
-            x64: x64::user_regs_struct::default(),
-        }
-    }
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub union RegistersNativeUnion {
-    native: native_user_regs_struct,
-    x64: x64::user_regs_struct,
-}
-
-#[derive(Copy, Clone)]
-pub struct Registers {
-    arch_: SupportedArch,
-    u: RegistersUnion,
-}
+use Registers::*;
 
 /// A Registers object contains values for all general-purpose registers.
 /// These must include all registers used to pass syscall parameters and return
@@ -171,7 +101,55 @@ pub struct Registers {
 /// Registers to contain registers for any architecture. So we store them
 /// in a union of Arch::user_regs_structs for each known Arch.
 impl Registers {
-    fn compare_registers_arch<Arch: Architecture>(
+    fn get_regs_info(&self) -> &'static HashMap<u32, RegisterValue> {
+        match self {
+            X86(_) => &*REGISTERS_X86,
+            X64(_) => &*REGISTERS_X64,
+        }
+    }
+
+    fn ignore_undefined_register(&self, regno: GdbRegister) -> bool {
+        match self {
+            X86(_) => regno == DREG_FOSEG || regno == DREG_MXCSR,
+            X64(_) => regno == DREG_64_FOSEG || regno == DREG_64_MXCSR,
+        }
+    }
+    fn num_registers(&self) -> u32 {
+        match self {
+            X86(_) => DREG_NUM_LINUX_I386,
+            X64(_) => DREG_NUM_LINUX_X86_64,
+        }
+    }
+
+    fn x86(&self) -> &x86::user_regs_struct {
+        match self {
+            X86(regs) => regs,
+            X64(_) => panic!("Not an x86::user_regs_struct"),
+        }
+    }
+
+    fn x86_mut(&mut self) -> &mut x86::user_regs_struct {
+        match self {
+            X86(regs) => regs,
+            X64(_) => panic!("Not an x86::user_regs_struct"),
+        }
+    }
+
+    fn x64(&self) -> &x64::user_regs_struct {
+        match self {
+            X64(regs) => regs,
+            X86(_) => panic!("Not an x64::user_regs_struct"),
+        }
+    }
+
+    fn x64_mut(&mut self) -> &mut x64::user_regs_struct {
+        match self {
+            X64(regs) => regs,
+            X86(_) => panic!("Not an x64::user_regs_struct"),
+        }
+    }
+
+    fn compare_registers_arch(
         name1: &str,
         name2: &str,
         regs1: &Registers,
@@ -179,47 +157,51 @@ impl Registers {
         mismatch_behavior: MismatchBehavior,
     ) -> bool {
         let mut match_ = true;
-        let regs_info = Arch::get_regs_info();
+        debug_assert!(regs1.arch() == regs2.arch());
+        let regs_info = regs1.get_regs_info();
 
-        unsafe {
-            match Arch::get_arch() {
-                X86 => {
-                    // When the kernel is entered via an interrupt, orig_rax is set to -IRQ.
-                    // We observe negative orig_eax values at SCHED events and signals and other
-                    // timer interrupts. These values are only really meaningful to compare when
-                    // they reflect original syscall numbers, in which case both will be positive.
-                    if regs1.u.x86.orig_eax >= 0 && regs2.u.x86.orig_eax > 0 {
-                        if regs1.u.x86.orig_eax != regs2.u.x86.orig_eax {
-                            maybe_log_reg_mismatch(
-                                mismatch_behavior,
-                                "orig_eax",
-                                name1,
-                                regs1.u.x86.orig_eax as u64,
-                                name2,
-                                regs2.u.x86.orig_eax as u64,
-                            );
-                            match_ = false;
-                        }
+        match regs1 {
+            X86(regs1_x86) => {
+                let regs2_x86 = regs2.x86();
+                // When the kernel is entered via an interrupt, orig_rax is set to -IRQ.
+                // We observe negative orig_eax values at SCHED events and signals and other
+                // timer interrupts. These values are only really meaningful to compare when
+                // they reflect original syscall numbers, in which case both will be positive.
+                if regs1_x86.orig_eax >= 0 && regs2_x86.orig_eax > 0 {
+                    if regs1_x86.orig_eax != regs2_x86.orig_eax {
+                        maybe_log_reg_mismatch(
+                            mismatch_behavior,
+                            "orig_eax",
+                            name1,
+                            regs1_x86.orig_eax as u64,
+                            name2,
+                            regs2_x86.orig_eax as u64,
+                        );
+                        match_ = false;
                     }
                 }
-                X64 => {
-                    // See comment in the x86 case
-                    if (regs1.u.x64.orig_rax as i64) >= 0 && (regs2.u.x64.orig_rax as i64) > 0 {
-                        if regs1.u.x64.orig_rax != regs2.u.x64.orig_rax {
-                            maybe_log_reg_mismatch(
-                                mismatch_behavior,
-                                "orig_rax",
-                                name1,
-                                regs1.u.x64.orig_rax,
-                                name2,
-                                regs2.u.x64.orig_rax,
-                            );
-                            match_ = false;
-                        }
+            }
+            X64(regs1_x64) => {
+                let regs2_x64 = regs2.x64();
+                // See comment in the x86 case
+                if (regs1_x64.orig_rax as i64) >= 0 && (regs2_x64.orig_rax as i64) > 0 {
+                    if regs1_x64.orig_rax != regs2_x64.orig_rax {
+                        maybe_log_reg_mismatch(
+                            mismatch_behavior,
+                            "orig_rax",
+                            name1,
+                            regs1_x64.orig_rax,
+                            name2,
+                            regs2_x64.orig_rax,
+                        );
+                        match_ = false;
                     }
                 }
             }
         }
+
+        let mut val1: u64;
+        let mut val2: u64;
         for (_, rv) in regs_info.iter() {
             if rv.nbytes == 0 {
                 continue;
@@ -230,35 +212,21 @@ impl Registers {
                 continue;
             }
 
-            let mut val1: u64 = 0;
-            let mut val2: u64 = 0;
-            match rv.nbytes {
-                4 => {
-                    let mut val1_32: u32 = 0;
-                    let mut val2_32: u32 = 0;
-
-                    unsafe {
-                        copy_nonoverlapping(
-                            rv.u32_pointer_into(&regs1.u),
-                            &mut val1_32 as *mut u32,
-                            1,
-                        );
-                        copy_nonoverlapping(
-                            rv.u32_pointer_into(&regs2.u),
-                            &mut val2_32 as *mut u32,
-                            1,
-                        );
-                    }
+            match regs1 {
+                X86(regs1_x86) => {
+                    let regs2_x86 = regs2.x86();
+                    debug_assert!(rv.nbytes == 4);
+                    let val1_32 = rv.u32_into_x86(&regs1_x86);
+                    let val2_32 = rv.u32_into_x86(&regs2_x86);
 
                     val1 = val1_32 as u64;
                     val2 = val2_32 as u64;
                 }
-                8 => unsafe {
-                    copy_nonoverlapping(rv.u64_pointer_into(&regs1.u), &mut val1 as *mut u64, 1);
-                    copy_nonoverlapping(rv.u64_pointer_into(&regs2.u), &mut val2 as *mut u64, 1);
-                },
-                _ => {
-                    debug_assert!(false, "bad register size");
+                X64(regs1_x64) => {
+                    let regs2_x64 = regs2.x64();
+                    debug_assert!(rv.nbytes == 8);
+                    val1 = rv.u64_into_x64(&regs1_x64);
+                    val2 = rv.u64_into_x64(&regs2_x64);
                 }
             }
 
@@ -279,22 +247,7 @@ impl Registers {
         mismatch_behavior: MismatchBehavior,
     ) -> bool {
         debug_assert!(regs1.arch() == regs2.arch());
-        match regs1.arch() {
-            X86 => Registers::compare_registers_arch::<X86Arch>(
-                name1,
-                name2,
-                regs1,
-                regs2,
-                mismatch_behavior,
-            ),
-            X64 => Registers::compare_registers_arch::<X64Arch>(
-                name1,
-                name2,
-                regs1,
-                regs2,
-                mismatch_behavior,
-            ),
-        }
+        Registers::compare_registers_arch(name1, name2, regs1, regs2, mismatch_behavior)
     }
 
     /// Return true if |regs1| matches |regs2|.  Passing EXPECT_MISMATCHES
@@ -356,78 +309,61 @@ impl Registers {
         )
     }
 
-    fn read_register_arch<Arch: Architecture>(
-        &self,
-        buf: &mut [u8],
-        regno: GdbRegister,
-    ) -> Option<usize> {
-        let regs = Arch::get_regs_info();
+    /// Write the value for register |regno| into |buf|, which should
+    /// be large enough to hold any register supported by the target.
+    /// Return the size of the register in bytes. If None is returned it
+    /// indicates that no value was written to |buf|.
+    fn read_register(&self, buf: &mut [u8], regno: GdbRegister) -> Option<usize> {
+        let regs = self.get_regs_info();
         if let Some(rv) = regs.get(&regno) {
-            if rv.nbytes == 0 {
-                None
-            } else {
-                unsafe {
-                    copy_nonoverlapping(rv.pointer_into(&self.u), buf.as_mut_ptr(), rv.nbytes);
-                };
-                Some(rv.nbytes)
+            match rv.nbytes {
+                0 => None,
+                4 => {
+                    buf.get_mut(0..rv.nbytes)
+                        .unwrap()
+                        .copy_from_slice(&rv.u32_into_x86(self.x86()).to_le_bytes());
+                    Some(rv.nbytes)
+                }
+                8 => {
+                    buf.get_mut(0..rv.nbytes)
+                        .unwrap()
+                        .copy_from_slice(&rv.u64_into_x64(self.x64()).to_le_bytes());
+                    Some(rv.nbytes)
+                }
+                _ => {
+                    debug_assert!(false, format!("Unknown register size: {}", rv.nbytes));
+                    None
+                }
             }
         } else {
             None
         }
     }
 
-    /// Write the value for register |regno| into |buf|, which should
-    /// be large enough to hold any register supported by the target.
-    /// Return the size of the register in bytes. If None is returned it
-    /// indicates that no value was written to |buf|.
-    pub fn read_register(&self, buf: &mut [u8], regno: GdbRegister) -> Option<usize> {
-        rd_arch_function!(self, read_register_arch, self.arch(), buf, regno)
-    }
-
-    fn write_register_arch<Arch: Architecture>(&mut self, value: &[u8], regno: GdbRegister) {
-        let regs = Arch::get_regs_info();
-        if let Some(rv) = regs.get(&regno) {
-            if rv.nbytes == 0 {
-                // TODO: can we get away with not writing these?
-                if Arch::ignore_undefined_register(regno) {
-                    return;
-                }
-                log!(LogWarn, "Unhandled register name {}", regno);
-            } else {
-                unsafe {
-                    copy_nonoverlapping(
-                        value.as_ptr(),
-                        rv.mut_pointer_into(&mut self.u),
-                        value.len(),
-                    );
-                };
-            }
-        }
-    }
-
     /// Update the register named |reg_name| to |value| with
     /// |value_size| number of bytes.
     pub fn write_register(&mut self, value: &[u8], regno: GdbRegister) {
-        rd_arch_function!(self, write_register_arch, self.arch(), value, regno)
-    }
-
-    fn write_register_by_user_offset_arch<Arch: Architecture>(
-        &mut self,
-        offset: usize,
-        value: usize,
-    ) {
-        let regs = Arch::get_regs_info();
-        for (_, rv) in regs.iter() {
-            if rv.offset == offset {
-                debug_assert!(rv.nbytes <= std::mem::size_of::<usize>());
-                unsafe {
-                    copy_nonoverlapping(
-                        &value as *const _ as *const u8,
-                        rv.mut_pointer_into(&mut self.u),
-                        rv.nbytes,
-                    );
-                };
-                return;
+        let regs = self.get_regs_info();
+        if let Some(rv) = regs.get(&regno) {
+            match rv.nbytes {
+                0 => {
+                    // TODO: can we get away with not writing these?
+                    if self.ignore_undefined_register(regno) {
+                        return;
+                    }
+                    log!(LogWarn, "Unhandled register name {}", regno);
+                }
+                4 => {
+                    let rv_ref = rv.mut_u32_ref_into_x86(&mut self.x86_mut());
+                    *rv_ref = u32::from_le_bytes(value.get(0..4).unwrap().try_into().unwrap());
+                }
+                8 => {
+                    let rv_ref = rv.mut_u64_ref_into_x64(&mut self.x64_mut());
+                    *rv_ref = u64::from_le_bytes(value.get(0..8).unwrap().try_into().unwrap());
+                }
+                _ => {
+                    debug_assert!(false, format!("Unknown register size: {}", rv.nbytes));
+                }
             }
         }
     }
@@ -435,27 +371,35 @@ impl Registers {
     /// Update the register at user offset |offset| to |value|, taking the low
     /// bytes if necessary.
     pub fn write_register_by_user_offset(&mut self, offset: usize, value: usize) {
-        rd_arch_function!(
-            self,
-            write_register_by_user_offset_arch,
-            self.arch(),
-            offset,
-            value
-        )
-    }
-
-    fn read_registers_by_user_offset_arch<Arch: Architecture>(
-        &self,
-        buf: &mut [u8],
-        offset: usize,
-    ) -> Option<usize> {
-        let regs = Arch::get_regs_info();
-        for (regno, rv) in regs.iter() {
+        let regs = self.get_regs_info();
+        for (_, rv) in regs.iter() {
             if rv.offset == offset {
-                return self.read_register_arch::<Arch>(buf, *regno);
+                debug_assert!(rv.nbytes <= size_of::<usize>());
+
+                match self {
+                    X86(regs_x86) => {
+                        unsafe {
+                            copy_nonoverlapping(
+                                &value as *const _ as *const u8,
+                                rv.mut_pointer_into_x86(regs_x86),
+                                rv.nbytes,
+                            );
+                        };
+                    }
+                    X64(regs_x64) => {
+                        unsafe {
+                            copy_nonoverlapping(
+                                &value as *const _ as *const u8,
+                                rv.mut_pointer_into_x64(regs_x64),
+                                rv.nbytes,
+                            );
+                        };
+                    }
+                }
+
+                return;
             }
         }
-        None
     }
 
     /// Write the value for register |offset| into |buf|, which should
@@ -464,29 +408,27 @@ impl Registers {
     /// is returned it indicates that no value was written to |buf|.
     /// |offset| is the offset of the register within a user_regs_struct.
     pub fn read_registers_by_user_offset(&self, buf: &mut [u8], offset: usize) -> Option<usize> {
-        rd_arch_function!(
-            self,
-            read_registers_by_user_offset_arch,
-            self.arch(),
-            buf,
-            offset
-        )
+        let regs = self.get_regs_info();
+        for (regno, rv) in regs.iter() {
+            if rv.offset == offset {
+                return self.read_register(buf, *regno);
+            }
+        }
+        None
     }
 
     pub fn new(arch: SupportedArch) -> Registers {
-        let r = RegistersUnion {
-            x64: x64::user_regs_struct::default(),
-        };
-
-        Registers { arch_: arch, u: r }
+        match arch {
+            SupportedArch::X86 => Registers::X86(x86::user_regs_struct::default()),
+            SupportedArch::X64 => Registers::X64(x64::user_regs_struct::default()),
+        }
     }
 
     pub fn arch(&self) -> SupportedArch {
-        self.arch_
-    }
-
-    pub fn set_arch(&mut self, arch: SupportedArch) {
-        self.arch_ = arch;
+        match self {
+            X86(_) => SupportedArch::X86,
+            X64(_) => SupportedArch::X64,
+        }
     }
 
     /// Copy a user_regs_struct into these Registers. If the tracee architecture
@@ -497,20 +439,33 @@ impl Registers {
     /// rr build is 32-bit, or when the Registers' arch is completely different
     /// to the rr build (e.g. ARM vs x86).
     pub fn set_from_ptrace(&mut self, ptrace_regs: &native_user_regs_struct) {
-        let mut native = RegistersNativeUnion::default();
-        native.native = *ptrace_regs;
-
-        if self.arch() == RD_NATIVE_ARCH {
-            unsafe {
-                self.u = std::mem::transmute::<RegistersNativeUnion, RegistersUnion>(native);
+        #[cfg(target_arch = "x86")]
+        match self {
+            X86(regs_x86) => unsafe {
+                *regs_x86 = std::mem::transmute::<native_user_regs_struct, x86::user_regs_struct>(
+                    *ptrace_regs,
+                );
+            },
+            X64(regs_x64) => {
+                panic!("Not possible to have 64 bit tracee in 32 bit rd.");
             }
-        } else {
-            debug_assert!(self.arch() == X86 && RD_NATIVE_ARCH == X64);
-            unsafe {
-                let regs = std::mem::transmute::<RegistersNativeUnion, RegistersUnion>(native);
+        }
 
-                convert_x86_narrow(&mut self.u.x86, &regs.x64, to_x86_narrow, to_x86_narrow);
-            }
+        #[cfg(target_arch = "x86_64")]
+        match self {
+            X86(regs_x86) => unsafe {
+                let regs_x64_tmp = std::mem::transmute::<
+                    native_user_regs_struct,
+                    x64::user_regs_struct,
+                >(*ptrace_regs);
+
+                convert_x86_narrow(regs_x86, &regs_x64_tmp, to_x86_narrow, to_x86_narrow);
+            },
+            X64(regs_x64) => unsafe {
+                *regs_x64 = std::mem::transmute::<native_user_regs_struct, x64::user_regs_struct>(
+                    *ptrace_regs,
+                );
+            },
         }
     }
 
@@ -522,43 +477,56 @@ impl Registers {
     /// rr build is 32-bit, or when the Registers' arch is completely different
     /// to the rr build (e.g. ARM vs x86).
     pub fn get_ptrace(&self) -> native_user_regs_struct {
-        if self.arch() == RD_NATIVE_ARCH {
-            unsafe {
-                let n = std::mem::transmute::<RegistersUnion, RegistersNativeUnion>(self.u);
-                n.native
+        #[cfg(target_arch = "x86")]
+        match self {
+            X86(regs_x86) => unsafe {
+                std::mem::transmute::<x86::user_regs_struct, native_user_regs_struct>(*regs_x86)
+            },
+            X64(regs_x64) => {
+                panic!("Not possible to have 64 bit tracee in 32 bit rd.");
             }
-        } else {
-            debug_assert!(self.arch() == X86 && RD_NATIVE_ARCH == X64);
-            let mut result = RegistersNativeUnion::default();
-            unsafe {
+        }
+
+        #[cfg(target_arch = "x86_64")]
+        match self {
+            X86(regs_x86) => {
+                let mut result_x64 = x64::user_regs_struct::default();
                 convert_x86_widen(
-                    &mut result.x64,
-                    &self.u.x86,
+                    &mut result_x64,
+                    regs_x86,
                     from_x86_narrow,
                     from_x86_narrow_signed,
                 );
-                result.native
+
+                unsafe {
+                    std::mem::transmute::<x64::user_regs_struct, native_user_regs_struct>(
+                        result_x64,
+                    )
+                }
             }
+            X64(regs_x64) => unsafe {
+                std::mem::transmute::<x64::user_regs_struct, native_user_regs_struct>(*regs_x64)
+            },
         }
     }
 
     /// Equivalent to get_ptrace_for_arch(arch()) but doesn't copy.
     pub fn get_ptrace_for_self_arch(&self) -> &[u8] {
-        match self.arch_ {
-            X86 => {
-                let l = std::mem::size_of::<x86::user_regs_struct>();
+        match self {
+            X86(regs_x86) => {
+                let l = size_of::<x86::user_regs_struct>();
                 unsafe {
                     std::slice::from_raw_parts(
-                        &self.u.x86 as *const x86::user_regs_struct as *const u8,
+                        regs_x86 as *const x86::user_regs_struct as *const u8,
                         l,
                     )
                 }
             }
-            X64 => {
-                let l = std::mem::size_of::<x64::user_regs_struct>();
+            X64(regs_x64) => {
+                let l = size_of::<x64::user_regs_struct>();
                 unsafe {
                     std::slice::from_raw_parts(
-                        &self.u.x64 as *const x64::user_regs_struct as *const u8,
+                        regs_x64 as *const x64::user_regs_struct as *const u8,
                         l,
                     )
                 }
@@ -573,9 +541,9 @@ impl Registers {
     pub fn get_ptrace_for_arch(&self, arch: SupportedArch) -> Vec<u8> {
         let mut tmp_regs = Registers::new(arch);
         tmp_regs.set_from_ptrace(&self.get_ptrace());
-        let l = match arch {
-            X86 => std::mem::size_of::<x86::user_regs_struct>(),
-            X64 => std::mem::size_of::<x64::user_regs_struct>(),
+        let l = match self {
+            X86(_) => size_of::<x86::user_regs_struct>(),
+            X64(_) => size_of::<x64::user_regs_struct>(),
         };
 
         let mut v: Vec<u8> = Vec::with_capacity(l);
@@ -596,25 +564,25 @@ impl Registers {
     /// to the rr build (e.g. ARM vs x86).
     pub fn set_from_ptrace_for_arch(&mut self, arch: SupportedArch, data: &[u8]) {
         if arch == RD_NATIVE_ARCH {
-            debug_assert_eq!(data.len(), std::mem::size_of::<native_user_regs_struct>());
-            let mut n = RegistersNativeUnion::default();
+            debug_assert_eq!(data.len(), size_of::<native_user_regs_struct>());
+            let mut n: native_user_regs_struct = unsafe { zeroed() };
             unsafe {
                 copy_nonoverlapping(
                     data.as_ptr(),
-                    &mut n.native as *mut native_user_regs_struct as *mut u8,
+                    &mut n as *mut native_user_regs_struct as *mut u8,
                     data.len(),
                 );
-                self.set_from_ptrace(&n.native);
+                self.set_from_ptrace(&n);
             }
         } else {
-            debug_assert!(arch == X86 && RD_NATIVE_ARCH == X64);
-            debug_assert!(self.arch() == X86);
-            debug_assert_eq!(data.len(), std::mem::size_of::<x86::user_regs_struct>());
+            debug_assert!(arch == SupportedArch::X86 && RD_NATIVE_ARCH == SupportedArch::X64);
+            debug_assert!(self.arch() == SupportedArch::X86);
+            debug_assert_eq!(data.len(), size_of::<x86::user_regs_struct>());
             unsafe {
                 copy_nonoverlapping(
                     data.as_ptr(),
-                    &mut self.u.x86 as *mut x86::user_regs_struct as *mut u8,
-                    std::mem::size_of::<x86::user_regs_struct>(),
+                    self.x86_mut() as *mut x86::user_regs_struct as *mut u8,
+                    size_of::<x86::user_regs_struct>(),
                 );
             }
         }
@@ -646,18 +614,16 @@ impl Registers {
     }
 
     pub fn flags(&self) -> usize {
-        unsafe {
-            match self.arch_ {
-                X86 => self.u.x86.eflags as usize,
-                X64 => self.u.x64.eflags as usize,
-            }
+        match self {
+            X86(regs_x86) => regs_x86.eflags as usize,
+            X64(regs_x64) => regs_x64.eflags as usize,
         }
     }
 
     pub fn set_flags(&mut self, value: usize) {
-        match self.arch_ {
-            X86 => self.u.x86.eflags = value as i32,
-            X64 => self.u.x64.eflags = value as u64,
+        match self {
+            X86(regs_x86) => regs_x86.eflags = value as i32,
+            X64(regs_x64) => regs_x64.eflags = value as u64,
         }
     }
 
@@ -840,23 +806,23 @@ impl Registers {
     }
 
     pub fn set_r8(&mut self, value: u64) {
-        debug_assert!(self.arch() == X64);
-        self.u.x64.r8 = value;
+        let mut x64 = self.x64_mut();
+        x64.r8 = value;
     }
 
     pub fn set_r9(&mut self, value: u64) {
-        debug_assert!(self.arch() == X64);
-        self.u.x64.r9 = value;
+        let mut x64 = self.x64_mut();
+        x64.r9 = value;
     }
 
     pub fn set_r10(&mut self, value: u64) {
-        debug_assert!(self.arch() == X64);
-        self.u.x64.r10 = value;
+        let mut x64 = self.x64_mut();
+        x64.r10 = value;
     }
 
     pub fn set_r11(&mut self, value: u64) {
-        debug_assert!(self.arch() == X64);
-        self.u.x64.r11 = value;
+        let mut x64 = self.x64_mut();
+        x64.r11 = value;
     }
 
     pub fn di(&self) -> usize {
@@ -898,22 +864,22 @@ impl Registers {
     }
 
     pub fn fs_base(&self) -> u64 {
-        debug_assert!(self.arch() == X64);
-        unsafe { self.u.x64.fs_base }
+        let x64 = self.x64();
+        x64.fs_base
     }
     pub fn gs_base(&self) -> u64 {
-        debug_assert!(self.arch() == X64);
-        unsafe { self.u.x64.gs_base }
+        let x64 = self.x64();
+        x64.gs_base
     }
 
     pub fn set_fs_base(&mut self, fs_base: u64) {
-        debug_assert!(self.arch() == X64);
-        self.u.x64.fs_base = fs_base;
+        let mut x64 = self.x64_mut();
+        x64.fs_base = fs_base;
     }
 
     pub fn set_gs_base(&mut self, gs_base: u64) {
-        debug_assert!(self.arch() == X64);
-        self.u.x64.gs_base = gs_base;
+        let mut x64 = self.x64_mut();
+        x64.gs_base = gs_base;
     }
 
     pub fn cs(&self) -> usize {
@@ -936,31 +902,30 @@ impl Registers {
     }
 
     pub fn write_register_file_for_trace_raw(&self, f: &mut dyn Write) -> io::Result<()> {
-        unsafe {
-            write!(
-                f,
-                " {} {} {} {} {} {} {} {} {} {} {}",
-                self.u.x86.eax,
-                self.u.x86.ebx,
-                self.u.x86.ecx,
-                self.u.x86.edx,
-                self.u.x86.esi,
-                self.u.x86.edi,
-                self.u.x86.ebp,
-                self.u.x86.orig_eax,
-                self.u.x86.esp,
-                self.u.x86.eip,
-                self.u.x86.eflags
-            )
-        }
+        let x86 = self.x86();
+        write!(
+            f,
+            " {} {} {} {} {} {} {} {} {} {} {}",
+            x86.eax,
+            x86.ebx,
+            x86.ecx,
+            x86.edx,
+            x86.esi,
+            x86.edi,
+            x86.ebp,
+            x86.orig_eax,
+            x86.esp,
+            x86.eip,
+            x86.eflags
+        )
     }
 
-    fn write_register_file_for_trace_arch<Arch: Architecture>(
+    fn write_register_file_for_trace(
         &self,
         f: &mut dyn Write,
         style: TraceStyle,
     ) -> io::Result<()> {
-        let regs_info = Arch::get_regs_info();
+        let regs_info = self.get_regs_info();
         let mut first = true;
         for (_, rv) in regs_info {
             if rv.nbytes == 0 {
@@ -977,8 +942,11 @@ impl Registers {
             };
 
             match rv.nbytes {
-                8 | 4 => {
-                    self.write_single_register(f, name, rv.nbytes, rv.pointer_into(&self.u))?
+                4 => {
+                    self.write_single_register(f, name, rv.nbytes, rv.pointer_into_x86(self.x86()))?
+                }
+                8 => {
+                    self.write_single_register(f, name, rv.nbytes, rv.pointer_into_x64(self.x64()))?
                 }
                 _ => debug_assert!(false, "bad register size"),
             }
@@ -987,32 +955,27 @@ impl Registers {
         Ok(())
     }
 
-    fn write_register_file_for_trace(
-        &self,
-        f: &mut dyn Write,
-        style: TraceStyle,
-    ) -> io::Result<()> {
-        rd_arch_function!(
-            self,
-            write_register_file_for_trace_arch,
-            self.arch(),
-            f,
-            style
-        )
-    }
-
-    fn write_register_file_arch<Arch: Architecture>(&self, f: &mut dyn Write) -> io::Result<()> {
+    pub fn write_register_file(&self, f: &mut dyn Write) -> io::Result<()> {
         write!(f, "Printing register file:\n")?;
-        let regs_info = Arch::get_regs_info();
+        let regs_info = self.get_regs_info();
         for (_, rv) in regs_info {
             if rv.nbytes == 0 {
                 continue;
             }
 
             match rv.nbytes {
-                8 | 4 => {
-                    self.write_single_register(f, rv.name, rv.nbytes, rv.pointer_into(&self.u))?
-                }
+                4 => self.write_single_register(
+                    f,
+                    rv.name,
+                    rv.nbytes,
+                    rv.pointer_into_x86(self.x86()),
+                )?,
+                8 => self.write_single_register(
+                    f,
+                    rv.name,
+                    rv.nbytes,
+                    rv.pointer_into_x64(self.x64()),
+                )?,
                 _ => debug_assert!(false, "bad register size"),
             }
             write!(f, "\n")?;
@@ -1022,18 +985,8 @@ impl Registers {
         Ok(())
     }
 
-    pub fn write_register_file(&self, f: &mut dyn Write) -> io::Result<()> {
-        rd_arch_function!(self, write_register_file_arch, self.arch(), f)
-    }
-
     pub fn write_register_file_compact(&self, f: &mut dyn Write) -> io::Result<()> {
-        rd_arch_function!(
-            self,
-            write_register_file_for_trace_arch,
-            self.arch(),
-            f,
-            TraceStyle::Annotated
-        )
+        self.write_register_file_for_trace(f, TraceStyle::Annotated)
     }
 
     fn write_single_register(
@@ -1222,8 +1175,8 @@ impl RegisterValue {
     }
 
     pub fn mask_for_nbytes(nbytes: usize) -> u64 {
-        debug_assert!(nbytes <= std::mem::size_of::<u64>());
-        if nbytes == std::mem::size_of::<u64>() {
+        debug_assert!(nbytes <= size_of::<u64>());
+        if nbytes == size_of::<u64>() {
             -1i64 as u64
         } else {
             let minus_one = Wrapping(-1i64 as u64);
@@ -1234,27 +1187,52 @@ impl RegisterValue {
     }
 
     /// Returns a pointer to the register in |regs| represented by |offset|.
-    pub fn pointer_into(&self, regs: &RegistersUnion) -> *const u8 {
+    pub fn pointer_into_x86(&self, regs: &x86::user_regs_struct) -> *const u8 {
         unsafe { (regs as *const _ as *const u8).add(self.offset) }
     }
 
-    pub fn u32_pointer_into(&self, regs: &RegistersUnion) -> *const u32 {
-        self.pointer_into(regs) as *const u32
+    /// Returns a pointer to the register in |regs| represented by |offset|.
+    pub fn pointer_into_x64(&self, regs: &x64::user_regs_struct) -> *const u8 {
+        unsafe { (regs as *const _ as *const u8).add(self.offset) }
     }
 
-    pub fn u64_pointer_into(&self, regs: &RegistersUnion) -> *const u64 {
-        self.pointer_into(regs) as *const u64
+    pub fn u32_into_x86(&self, regs: &x86::user_regs_struct) -> u32 {
+        unsafe {
+            *((self.pointer_into_x86(regs) as *const u32)
+                .as_ref()
+                .unwrap())
+        }
     }
 
-    pub fn mut_u32_pointer_into(&self, regs: &mut RegistersUnion) -> *mut u32 {
-        self.mut_pointer_into(regs) as *mut u32
+    pub fn u64_into_x64(&self, regs: &x64::user_regs_struct) -> u64 {
+        unsafe {
+            *((self.pointer_into_x64(regs) as *const u64)
+                .as_ref()
+                .unwrap())
+        }
     }
 
-    pub fn mut_u64_pointer_into(&self, regs: &mut RegistersUnion) -> *mut u64 {
-        self.mut_pointer_into(regs) as *mut u64
+    pub fn mut_u32_ref_into_x86(&self, regs: &mut x86::user_regs_struct) -> &mut u32 {
+        unsafe {
+            (self.mut_pointer_into_x86(regs) as *mut u32)
+                .as_mut()
+                .unwrap()
+        }
     }
 
-    pub fn mut_pointer_into(&self, regs: &mut RegistersUnion) -> *mut u8 {
+    pub fn mut_u64_ref_into_x64(&self, regs: &mut x64::user_regs_struct) -> &mut u64 {
+        unsafe {
+            (self.mut_pointer_into_x64(regs) as *mut u64)
+                .as_mut()
+                .unwrap()
+        }
+    }
+
+    pub fn mut_pointer_into_x86(&self, regs: &mut x86::user_regs_struct) -> *mut u8 {
+        unsafe { (regs as *mut _ as *mut u8).add(self.offset) }
+    }
+
+    pub fn mut_pointer_into_x64(&self, regs: &mut x64::user_regs_struct) -> *mut u8 {
         unsafe { (regs as *mut _ as *mut u8).add(self.offset) }
     }
 }
