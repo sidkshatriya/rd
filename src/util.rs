@@ -100,6 +100,7 @@ fn xsave_native_layout_init() -> XSaveLayout {
             .feature_layouts
             .push(XSaveFeatureLayout { offset: 0, size: 0 });
         for info in extended_state_info.iter() {
+            // @TODO check this `is_in_xcr0` test again. Do we need it?
             if info.is_in_xcr0() {
                 layout.supported_feature_bits = layout.supported_feature_bits | (1 << info.subleaf);
                 layout.feature_layouts.push(XSaveFeatureLayout {
