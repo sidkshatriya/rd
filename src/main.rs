@@ -20,6 +20,7 @@ mod perf_counters;
 mod record_task;
 #[macro_use]
 mod registers;
+mod address_space;
 mod extra_registers;
 mod gdb_register;
 mod kernel_supplement;
@@ -28,6 +29,8 @@ mod remote_ptr;
 mod replay_task;
 mod scoped_fd;
 mod task;
+mod task_set;
+mod task_trait;
 mod ticks;
 mod trace_capnp;
 mod util;
