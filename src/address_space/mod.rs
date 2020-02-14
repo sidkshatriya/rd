@@ -86,7 +86,7 @@ mod kernel_mapping {
             debug_assert!(self.offset % page_size() as u64 == 0);
         }
 
-        fn extend(&self, end: RemotePtr<u8>) -> KernelMapping {
+        pub fn extend(&self, end: RemotePtr<u8>) -> KernelMapping {
             debug_assert!(end >= self.end());
             KernelMapping::new_with_opts(
                 self.start(),
@@ -99,7 +99,7 @@ mod kernel_mapping {
                 self.offset,
             )
         }
-        fn set_range(&self, start: RemotePtr<u8>, end: RemotePtr<u8>) -> KernelMapping {
+        pub fn set_range(&self, start: RemotePtr<u8>, end: RemotePtr<u8>) -> KernelMapping {
             KernelMapping::new_with_opts(
                 start,
                 end,
@@ -111,7 +111,7 @@ mod kernel_mapping {
                 self.offset,
             )
         }
-        fn subrange(&self, start: RemotePtr<u8>, end: RemotePtr<u8>) -> KernelMapping {
+        pub fn subrange(&self, start: RemotePtr<u8>, end: RemotePtr<u8>) -> KernelMapping {
             debug_assert!(start >= self.start() && end <= self.end());
             let start_addr: u64 = if self.is_real_device() {
                 (start - self.start()).try_into().unwrap()
@@ -129,7 +129,7 @@ mod kernel_mapping {
                 self.offset + start_addr,
             )
         }
-        fn set_prot(&self, prot: i32) -> KernelMapping {
+        pub fn set_prot(&self, prot: i32) -> KernelMapping {
             KernelMapping::new_with_opts(
                 self.start(),
                 self.end(),
@@ -142,47 +142,47 @@ mod kernel_mapping {
             )
         }
 
-        fn fsname(&self) -> String {
+        pub fn fsname(&self) -> String {
             self.fsname_.clone()
         }
-        fn device(&self) -> dev_t {
+        pub fn device(&self) -> dev_t {
             self.device_
         }
-        fn inode(&self) -> ino_t {
+        pub fn inode(&self) -> ino_t {
             self.inode_
         }
-        fn prot(&self) -> i32 {
+        pub fn prot(&self) -> i32 {
             self.prot_
         }
-        fn flags(&self) -> i32 {
+        pub fn flags(&self) -> i32 {
             self.flags_
         }
-        fn file_offset_bytes(&self) -> u64 {
+        pub fn file_offset_bytes(&self) -> u64 {
             self.offset
         }
 
         /// Return true if this file is/was backed by an external
         /// device, as opposed to a transient RAM mapping.
-        fn is_real_device(&self) -> bool {
+        pub fn is_real_device(&self) -> bool {
             self.device() > NO_DEVICE
         }
-        fn is_vdso(&self) -> bool {
+        pub fn is_vdso(&self) -> bool {
             self.fsname() == "[vdso]"
         }
-        fn is_heap(&self) -> bool {
+        pub fn is_heap(&self) -> bool {
             self.fsname() == "[heap]"
         }
-        fn is_stack(&self) -> bool {
+        pub fn is_stack(&self) -> bool {
             if let Some(loc) = self.fsname().find("[stack") {
                 loc == 0
             } else {
                 false
             }
         }
-        fn is_vvar(&self) -> bool {
+        pub fn is_vvar(&self) -> bool {
             self.fsname() == "[vvar]"
         }
-        fn is_vsyscall(&self) -> bool {
+        pub fn is_vsyscall(&self) -> bool {
             self.fsname() == "[vsyscall]"
         }
     }
