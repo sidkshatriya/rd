@@ -107,7 +107,7 @@ impl<T> PartialOrd for RemotePtr<T> {
 }
 
 impl<T> Ord for RemotePtr<T> {
-    fn cmp(&self, other: &RemotePtr<T>) -> Ordering {
+    fn cmp(&self, other: &Self) -> Ordering {
         if self.ptr < other.ptr {
             Ordering::Less
         } else if self.ptr == other.ptr {
@@ -119,7 +119,7 @@ impl<T> Ord for RemotePtr<T> {
 }
 
 impl<T> PartialEq for RemotePtr<T> {
-    fn eq(&self, other: &RemotePtr<T>) -> bool {
+    fn eq(&self, other: &Self) -> bool {
         self.ptr == other.ptr
     }
 }

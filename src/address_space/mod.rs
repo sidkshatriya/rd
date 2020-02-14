@@ -1,5 +1,27 @@
 use crate::task_set::*;
 use std::ops::{Deref, DerefMut};
+pub mod memory_range;
+
+use memory_range::MemoryRange;
+
+pub struct KernelMapping {
+    mr: MemoryRange,
+}
+
+impl KernelMapping {}
+
+impl<'a> Deref for KernelMapping {
+    type Target = MemoryRange;
+    fn deref(&self) -> &Self::Target {
+        &self.mr
+    }
+}
+
+impl<'a> DerefMut for KernelMapping {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.mr
+    }
+}
 
 pub struct AddressSpace<'a> {
     task_set: TaskSet<'a>,
