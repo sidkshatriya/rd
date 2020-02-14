@@ -3,7 +3,6 @@ use std::cmp::{max, min};
 use std::convert::TryInto;
 use std::fmt::{Display, Formatter, Result};
 
-// @TODO Should this be a Copy?
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub struct MemoryRange {
     pub(super) start_: RemotePtr<u8>,

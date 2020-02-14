@@ -1,4 +1,7 @@
+use nix::unistd::sysconf;
+use nix::unistd::SysconfVar::PAGE_SIZE;
 use raw_cpuid::CpuId;
+use std::convert::TryInto;
 
 pub const CPUID_GETVENDORSTRING: u32 = 0x0;
 pub const CPUID_GETFEATURES: u32 = 0x1;
@@ -22,6 +25,7 @@ pub const CPUID_INTELBRANDSTRINGEND: u32 = 0x80000004;
 
 lazy_static! {
     static ref XSAVE_NATIVE_LAYOUT: XSaveLayout = xsave_native_layout_init();
+    static ref SYSTEM_PAGE_SIZE: usize = page_size_init();
 }
 
 pub fn running_under_rd() -> bool {
@@ -245,4 +249,12 @@ fn gather_cpuid_records(up_to: u32) -> Vec<CPUIDRecord> {
     }
 
     results
+}
+
+fn page_size_init() -> usize {
+    sysconf(PAGE_SIZE).unwrap().unwrap().try_into().unwrap()
+}
+
+pub fn page_size() -> usize {
+    *SYSTEM_PAGE_SIZE
 }
