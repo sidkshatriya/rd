@@ -10,6 +10,7 @@ pub struct MemoryRange {
     pub(super) end_: RemotePtr<u8>,
 }
 
+/// Note: The end point (end_) is implicitly NOT included in the MemoryRange
 impl MemoryRange {
     pub fn new() -> MemoryRange {
         MemoryRange {
