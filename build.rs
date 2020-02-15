@@ -59,6 +59,9 @@ fn main() {
     let perf_event_bindings = Builder::default()
         .parse_callbacks(Box::new(CargoCallbacks))
         .prepend_enum_name(false)
+        .blacklist_type("perf_event_mmap_page")
+        .blacklist_type("perf_event_mmap_page__bindgen_ty_1__bindgen_ty_1")
+        .blacklist_type("perf_event_mmap_page__bindgen_ty_1")
         .header("bindgen/perf_event_wrapper.h")
         .generate()
         .unwrap();
