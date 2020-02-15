@@ -29,6 +29,42 @@ pub enum DebugStatus {
     DsSingleStep = 1 << 14,
 }
 
+#[derive(Copy, Clone)]
+pub enum MappingFlags {
+    FlagNone = 0x0,
+    /// This mapping represents a syscallbuf. It needs to handled specially
+    /// during checksumming since its contents are not fully restored by the
+    /// replay.
+    IsSyscallbuf = 0x1,
+    /// This mapping is used as our thread-local variable area for this
+    /// address space
+    IsThreadLocals = 0x2,
+    /// This mapping is used for syscallbuf patch stubs
+    IsPatchStubs = 0x4,
+    /// This mapping is the rd page
+    IsRdPage = 0x8,
+}
+
+pub enum Traced {
+    Traced,
+    Untraced,
+}
+pub enum Privileged {
+    Privileged,
+    Unpriviledged,
+}
+pub enum Enabled {
+    RecordingOnly,
+    ReplayOnly,
+    RecordingAndReplay,
+}
+
+pub struct SyscallType {
+    traced: Traced,
+    priviledged: Privileged,
+    enabled: Enabled,
+}
+
 pub struct AddressSpace<'a> {
     task_set: TaskSet<'a>,
 }
