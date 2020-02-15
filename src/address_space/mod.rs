@@ -2,9 +2,53 @@ use crate::task_set::*;
 use std::ops::{Deref, DerefMut};
 pub mod kernel_mapping;
 pub mod memory_range;
+use crate::remote_ptr::RemotePtr;
+
+#[derive(Copy, Clone)]
+pub enum BreakpointType {
+    BkptNone = 0,
+    /// Trap for internal rr purposes, f.e. replaying async
+    /// signals.
+    BkptInternal = 1,
+    /// Trap on behalf of a debugger user.
+    BkptUser = 2,
+}
+
+/// NB: these random-looking enumeration values are chosen to
+/// match the numbers programmed into x86 debug registers.
+#[derive(Copy, Clone)]
+pub enum WatchType {
+    WatchExec = 0x00,
+    WatchWrite = 0x01,
+    WatchReadWrite = 0x03,
+}
+
+#[derive(Copy, Clone)]
+pub enum DebugStatus {
+    DsWatchpointAny = 0xf,
+    DsSingleStep = 1 << 14,
+}
 
 pub struct AddressSpace<'a> {
     task_set: TaskSet<'a>,
+}
+
+/// A distinct watchpoint, corresponding to the information needed to
+/// program a single x86 debug register.
+pub struct WatchConfig {
+    pub addr: RemotePtr<u8>,
+    pub num_bytes: usize,
+    pub type_: WatchType,
+}
+
+impl WatchConfig {
+    pub fn new(addr: RemotePtr<u8>, num_bytes: usize, type_: WatchType) -> WatchConfig {
+        WatchConfig {
+            addr,
+            num_bytes,
+            type_,
+        }
+    }
 }
 
 impl<'a> AddressSpace<'a> {
