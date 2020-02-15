@@ -2,9 +2,9 @@
 # It is not intended for manual editing.
 [[package]]
 name = "aho-corasick"
-version = "0.7.7"
+version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f56c476256dc249def911d6f7580b5fc7e875895b5d7ee88f5d602208035744"
+checksum = "743ad5a418686aad3b87fd14c43badd828cf26e214a00f92a384291cf22e1811"
 dependencies = [
  "memchr",
 ]
@@ -31,9 +31,9 @@ dependencies = [
 
 [[package]]
 name = "backtrace"
-version = "0.3.43"
+version = "0.3.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f80256bc78f67e7df7e36d77366f636ed976895d91fe2ab9efa3973e8fe8c4f"
+checksum = "e4036b9bf40f3cf16aba72a3d65e8a520fc4bafcdc7079aea8f848c58c5b5536"
 dependencies = [
  "backtrace-sys",
  "cfg-if",
@@ -53,9 +53,9 @@ dependencies = [
 
 [[package]]
 name = "bindgen"
-version = "0.52.0"
+version = "0.53.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1c85344eb535a31b62f0af37be84441ba9e7f0f4111eb0530f43d15e513fe57"
+checksum = "99de13bb6361e01e493b3db7928085dcc474b7ba4f5481818e53a89d76b8393f"
 dependencies = [
  "bitflags",
  "cexpr",
@@ -82,12 +82,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf1de2fe8c75bc145a2f577add951f8134889b4795d47466a54a5c846d691693"
 
 [[package]]
-name = "byteorder"
-version = "1.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a7c3dd8985a7111efc5c80b44e23ecdd8c007de8ade3b96595387e812b957cf5"
-
-[[package]]
 name = "capnp"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -95,9 +89,9 @@ checksum = "e12c88f0850bda4b226c3365912fa6740a3bfb26065953602ad9daa54172a368"
 
 [[package]]
 name = "capnpc"
-version = "0.12.0"
+version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "805e848aeb68f9312f716f7dff14e55db726759f62085c7bdf471ceb43438eef"
+checksum = "e743c780bd50b5462f26cdb59a7754c655e11e3e333cedc5329c145e1f3fc3f3"
 dependencies = [
  "capnp",
 ]
@@ -234,15 +228,15 @@ dependencies = [
 
 [[package]]
 name = "memchr"
-version = "2.3.0"
+version = "2.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3197e20c7edb283f87c071ddfc7a2cca8f8e0b888c242959846a6fce03c72223"
+checksum = "53445de381a1f436797497c61d851644d0e8e88e6140f22872ad33a704933978"
 
 [[package]]
 name = "nix"
-version = "0.16.1"
+version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd0eaf8df8bab402257e0a5c17a254e4cc1f72a93588a1ddfb5d356c801aa7cb"
+checksum = "50e4785f2c3b7589a0d0c1dd60285e1188adac4006e8abd6dd578e1567027363"
 dependencies = [
  "bitflags",
  "cc",
@@ -269,9 +263,9 @@ checksum = "19b17cddbe7ec3f8bc800887bab5e717348c95ea2ca0b1bf0837fb964dc67099"
 
 [[package]]
 name = "proc-macro-error"
-version = "0.4.6"
+version = "0.4.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a427176b1223957a219780f6bd014fad03f59543ff7feb3854a6fb8e9626ac2b"
+checksum = "052b3c9af39c7e5e94245f820530487d19eb285faedcb40e0c3275132293f242"
 dependencies = [
  "proc-macro-error-attr",
  "proc-macro2",
@@ -282,9 +276,9 @@ dependencies = [
 
 [[package]]
 name = "proc-macro-error-attr"
-version = "0.4.6"
+version = "0.4.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1f3e4daa0eae3f30db348ecfa5f942281173d441588ebdac871d730acbfc7f16"
+checksum = "d175bef481c7902e63e3165627123fff3502f06ac043d3ef42d08c1246da9253"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -371,12 +365,9 @@ checksum = "4c691c0e608126e00913e33f0ccf3727d5fc84573623b8d65b2df340b5201783"
 
 [[package]]
 name = "rustc-hash"
-version = "1.0.1"
+version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7540fc8b0c49f096ee9c961cda096467dce8084bec6bdca2fc83895fd9b28cb8"
-dependencies = [
- "byteorder",
-]
+checksum = "08d43f7aa6b08d49f382cde6a7982047c3426db949b1424bc4b7ec9ae12c6ce2"
 
 [[package]]
 name = "rustc_version"
@@ -433,9 +424,9 @@ checksum = "8ea5119cdb4c55b55d432abb513a0429384878c15dde60cc77b1c99de1a95a6a"
 
 [[package]]
 name = "structopt"
-version = "0.3.8"
+version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df136b42d76b1fbea72e2ab3057343977b04b4a2e00836c3c7c0673829572713"
+checksum = "a1bcbed7d48956fcbb5d80c6b95aedb553513de0a1b451ea92679d999c010e98"
 dependencies = [
  "clap",
  "lazy_static",
@@ -444,9 +435,9 @@ dependencies = [
 
 [[package]]
 name = "structopt-derive"
-version = "0.4.1"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd50a87d2f7b8958055f3e73a963d78feaccca3836767a9069844e34b5b03c0a"
+checksum = "095064aa1f5b94d14e635d0a5684cf140c43ae40a0fd990708d38f5d669e5f64"
 dependencies = [
  "heck",
  "proc-macro-error",
