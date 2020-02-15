@@ -1,10 +1,12 @@
-
 use super::memory_range::MemoryRange;
 use crate::remote_ptr::RemotePtr;
 use crate::util::page_size;
-use libc::{dev_t, ino_t};
+use libc::{c_long, dev_t, ino_t, stat, PROT_EXEC, PROT_READ, PROT_WRITE};
 use libc::{MAP_ANONYMOUS, MAP_GROWSDOWN, MAP_NORESERVE, MAP_PRIVATE, MAP_SHARED, MAP_STACK};
+use nix::sys::stat::{major, minor};
 use std::convert::TryInto;
+use std::fmt::{Display, Formatter, Result};
+use std::mem::zeroed;
 use std::ops::{Deref, DerefMut};
 
 /// These are the flags we track internally to distinguish
@@ -181,6 +183,61 @@ impl KernelMapping {
     pub fn is_vsyscall(&self) -> bool {
         self.fsname() == "[vsyscall]"
     }
+
+    pub fn fake_stat(&self) -> stat {
+        let mut fake_stat: stat = unsafe { zeroed() };
+        fake_stat.st_dev = self.device();
+        fake_stat.st_ino = self.inode();
+        fake_stat.st_size = self.size() as c_long;
+        fake_stat
+    }
+
+    /// Dump a representation of |self| to a string in a format
+    /// similar to the former part of /proc/[tid]/maps.
+    pub fn str(&self) -> String {
+        let map_shared = if MAP_SHARED & self.flags_ == MAP_SHARED {
+            's'
+        } else {
+            'p'
+        };
+
+        // @TODO this needs to be checked.
+        let s = format!(
+            "{:8x}-{:8x} {}{} {:08x} {:02x}:{:02x} {:<10} ",
+            self.start().as_usize(),
+            self.end().as_usize(),
+            self.prot_string(),
+            map_shared,
+            self.offset,
+            major(self.device()),
+            minor(self.device()),
+            self.inode()
+        );
+        s + &self.fsname()
+    }
+
+    fn prot_string(&self) -> String {
+        let mut s = String::with_capacity(3);
+        if PROT_READ & self.prot_ == PROT_READ {
+            s += "r";
+        } else {
+            s += "-";
+        }
+
+        if PROT_WRITE & self.prot_ == PROT_WRITE {
+            s += "w";
+        } else {
+            s += "-";
+        }
+
+        if PROT_EXEC & self.prot_ == PROT_EXEC {
+            s += "x";
+        } else {
+            s += "-";
+        }
+
+        s
+    }
 }
 
 impl Clone for KernelMapping {
@@ -209,5 +266,11 @@ impl Deref for KernelMapping {
 impl DerefMut for KernelMapping {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.mr
+    }
+}
+
+impl Display for KernelMapping {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        write!(f, "{}", self.str())
     }
 }

@@ -30,7 +30,7 @@ impl<'a> DerefMut for AddressSpace<'a> {
 
 #[cfg(test)]
 mod test {
-    use super::address_space::AddressSpace;
+    use super::AddressSpace;
     use crate::task_trait::TaskTrait;
 
     struct Task(u32);
