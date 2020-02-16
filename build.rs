@@ -59,6 +59,8 @@ fn main() {
     let perf_event_bindings = Builder::default()
         .parse_callbacks(Box::new(CargoCallbacks))
         .prepend_enum_name(false)
+        // Workaround for "error[E0587]: type has conflicting packed and align representation hints"
+        // We don't need these types so just omit them.
         .blacklist_type("perf_event_mmap_page")
         .blacklist_type("perf_event_mmap_page__bindgen_ty_1__bindgen_ty_1")
         .blacklist_type("perf_event_mmap_page__bindgen_ty_1")
@@ -83,7 +85,6 @@ fn main() {
 
     let kernel_abi_bindings = Builder::default()
         .parse_callbacks(Box::new(CargoCallbacks))
-        .blacklist_type("timex")
         .prepend_enum_name(false)
         .header("bindgen/kernel_wrapper.h")
         .generate()
