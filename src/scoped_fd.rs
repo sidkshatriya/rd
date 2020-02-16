@@ -5,6 +5,7 @@ use nix::unistd::close;
 use nix::NixPath;
 use std::os::unix::io::RawFd;
 
+// We DON'T want this to be Copy or Clone because of the Drop.
 pub struct ScopedFd {
     fd: RawFd,
 }

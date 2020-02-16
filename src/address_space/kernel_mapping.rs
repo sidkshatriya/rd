@@ -21,6 +21,7 @@ pub const NO_DEVICE: dev_t = 0;
 pub const NO_INODE: ino_t = 0;
 
 /// Clone trait is manually derived. See below.
+/// This type cannot be Copy as fsname_, a String, is not Copy.
 pub struct KernelMapping {
     mr: MemoryRange,
     /// The kernel's name for the mapping, as per /proc/<pid>/maps. This must
@@ -71,7 +72,7 @@ impl KernelMapping {
             flags_: flags,
             offset: offset,
             fsname_: fsname.into(),
-            mr: MemoryRange::new_from_range(start, end),
+            mr: MemoryRange::from_range(start, end),
         };
         result.assert_valid();
         result

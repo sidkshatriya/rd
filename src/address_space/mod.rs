@@ -1,5 +1,3 @@
-use crate::task_set::*;
-use std::ops::{Deref, DerefMut};
 pub mod kernel_mapping;
 pub mod memory_range;
 use crate::remote_ptr::RemotePtr;
@@ -65,10 +63,6 @@ pub struct SyscallType {
     enabled: Enabled,
 }
 
-pub struct AddressSpace<'a> {
-    task_set: TaskSet<'a>,
-}
-
 /// A distinct watchpoint, corresponding to the information needed to
 /// program a single x86 debug register.
 pub struct WatchConfig {
@@ -87,30 +81,41 @@ impl WatchConfig {
     }
 }
 
-impl<'a> AddressSpace<'a> {
-    pub fn new() -> AddressSpace<'a> {
-        AddressSpace {
-            task_set: TaskSet::new(),
+mod address_space {
+    use crate::task_set::TaskSet;
+    use std::ops::{Deref, DerefMut};
+
+    /// Models the address space for a set of tasks.  This includes the set
+    /// of mapped pages, and the resources those mappings refer to.
+    pub struct AddressSpace<'a> {
+        task_set: TaskSet<'a>,
+    }
+
+    impl<'a> AddressSpace<'a> {
+        pub fn new() -> AddressSpace<'a> {
+            AddressSpace {
+                task_set: TaskSet::new(),
+            }
         }
     }
-}
 
-impl<'a> Deref for AddressSpace<'a> {
-    type Target = TaskSet<'a>;
-    fn deref(&self) -> &Self::Target {
-        &self.task_set
+    impl<'a> Deref for AddressSpace<'a> {
+        type Target = TaskSet<'a>;
+        fn deref(&self) -> &Self::Target {
+            &self.task_set
+        }
     }
-}
 
-impl<'a> DerefMut for AddressSpace<'a> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.task_set
+    impl<'a> DerefMut for AddressSpace<'a> {
+        fn deref_mut(&mut self) -> &mut Self::Target {
+            &mut self.task_set
+        }
     }
 }
 
 #[cfg(test)]
 mod test {
-    use super::AddressSpace;
+    use super::address_space::AddressSpace;
     use crate::task_trait::TaskTrait;
 
     struct Task(u32);

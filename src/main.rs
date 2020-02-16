@@ -21,6 +21,7 @@ mod record_task;
 #[macro_use]
 mod registers;
 mod address_space;
+mod emu_fs;
 mod extra_registers;
 mod gdb_register;
 mod kernel_supplement;

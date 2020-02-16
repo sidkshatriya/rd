@@ -27,7 +27,7 @@ impl MemoryRange {
         }
     }
 
-    pub fn new_from_range(addr: RemotePtr<u8>, end: RemotePtr<u8>) -> MemoryRange {
+    pub fn from_range(addr: RemotePtr<u8>, end: RemotePtr<u8>) -> MemoryRange {
         let result = MemoryRange {
             start_: addr,
             end_: end,

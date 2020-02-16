@@ -1,3 +1,5 @@
+use crate::scoped_fd::ScopedFd;
+use nix::unistd::ftruncate;
 use nix::unistd::sysconf;
 use nix::unistd::SysconfVar::PAGE_SIZE;
 use raw_cpuid::CpuId;
@@ -257,4 +259,11 @@ fn page_size_init() -> usize {
 
 pub fn page_size() -> usize {
     *SYSTEM_PAGE_SIZE
+}
+
+pub fn resize_shmem_segment(fd: &ScopedFd, num_bytes: u64) {
+    if ftruncate(fd.as_raw(), num_bytes as libc::off_t).is_err() {
+        // errno will be reported as part of fatal
+        fatal!("Failed to resize shmem to {}", num_bytes);
+    }
 }
