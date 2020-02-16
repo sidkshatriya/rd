@@ -80,7 +80,7 @@ impl<ReferentT> Ptr<u32, ReferentT> {
         RemotePtr::new_from_val(self.val as usize)
     }
 
-    pub fn new_from_remote_ptr<T>(r: RemotePtr<T>) -> Ptr<u32, T> {
+    pub fn from_remote_ptr<T>(r: RemotePtr<T>) -> Ptr<u32, T> {
         let addr = r.as_usize();
         Ptr {
             val: addr.try_into().unwrap(),
@@ -94,7 +94,7 @@ impl<ReferentT> Ptr<u64, ReferentT> {
         RemotePtr::new_from_val(self.val as usize)
     }
 
-    pub fn new_from_remote_ptr<T>(r: RemotePtr<T>) -> Ptr<u64, T> {
+    pub fn from_remote_ptr<T>(r: RemotePtr<T>) -> Ptr<u64, T> {
         let addr = r.as_usize();
         Ptr {
             val: addr as u64,

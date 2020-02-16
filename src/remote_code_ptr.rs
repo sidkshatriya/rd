@@ -19,7 +19,7 @@ impl RemoteCodePtr {
         RemoteCodePtr { ptr: 0 }
     }
 
-    pub fn new_from_val(val: usize) -> RemoteCodePtr {
+    pub fn from_val(val: usize) -> RemoteCodePtr {
         RemoteCodePtr { ptr: val }
     }
 
@@ -70,7 +70,7 @@ impl Add<isize> for RemoteCodePtr {
 
     fn add(self, delta: isize) -> Self::Output {
         let result: isize = self.as_isize() + delta;
-        Self::new_from_val(result.try_into().unwrap())
+        Self::from_val(result.try_into().unwrap())
     }
 }
 
@@ -78,7 +78,7 @@ impl Add<usize> for RemoteCodePtr {
     type Output = Self;
 
     fn add(self, delta: usize) -> Self::Output {
-        Self::new_from_val(self.as_usize() + delta)
+        Self::from_val(self.as_usize() + delta)
     }
 }
 
@@ -87,7 +87,7 @@ impl Sub<isize> for RemoteCodePtr {
 
     fn sub(self, delta: isize) -> Self::Output {
         let result: isize = self.as_isize() - delta;
-        Self::new_from_val(result.try_into().unwrap())
+        Self::from_val(result.try_into().unwrap())
     }
 }
 
@@ -95,7 +95,7 @@ impl Sub<usize> for RemoteCodePtr {
     type Output = Self;
 
     fn sub(self, delta: usize) -> Self::Output {
-        Self::new_from_val(self.as_usize() - delta)
+        Self::from_val(self.as_usize() - delta)
     }
 }
 

@@ -643,7 +643,7 @@ impl Registers {
 
     pub fn ip(&self) -> RemoteCodePtr {
         let addr = rd_get_reg!(self, eip, rip);
-        RemoteCodePtr::new_from_val(addr)
+        RemoteCodePtr::from_val(addr)
     }
 
     pub fn set_ip(&mut self, addr: RemoteCodePtr) {
