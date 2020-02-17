@@ -47,8 +47,6 @@ use std::convert::TryInto;
 use std::ffi::CString;
 use std::rc::{Rc, Weak};
 
-const BUF_LEN: usize = 65536 / std::mem::size_of::<u64>();
-
 pub type EmuFsSharedPtr = Rc<RefCell<EmuFs>>;
 pub type EmuFileSharedPtr = Rc<RefCell<EmuFile>>;
 
@@ -68,6 +66,8 @@ pub struct EmuFile {
 }
 
 impl EmuFile {
+    const BUF_LEN: usize = 65536 / std::mem::size_of::<u64>();
+
     /// Note this is NOT pub. Note the move for ScopedFd and owner.
     fn new(
         owner: EmuFsSharedPtr,
@@ -136,11 +136,11 @@ impl EmuFile {
             self.size_,
         );
 
-        let mut data: [u64; BUF_LEN] = [0; BUF_LEN];
+        let mut data: [u64; Self::BUF_LEN] = [0; Self::BUF_LEN];
         let mut offset: u64 = 0;
 
         while offset < self.size_ {
-            let mut amount: usize = min((self.size_ - offset).try_into().unwrap(), BUF_LEN);
+            let mut amount: usize = min((self.size_ - offset).try_into().unwrap(), Self::BUF_LEN);
             let mut ret: isize = unsafe {
                 pread64(
                     self.fd().as_raw(),

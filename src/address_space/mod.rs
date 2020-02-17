@@ -111,6 +111,8 @@ mod address_space {
             &mut self.task_set
         }
     }
+
+    struct Mapping {}
 }
 
 #[cfg(test)]
