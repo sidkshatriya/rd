@@ -166,6 +166,46 @@ pub struct EmuFs {
 }
 
 impl EmuFs {
+    /// Create and return a new emufs.
+    pub fn create() -> EmuFsSharedPtr {
+        unimplemented!()
+    }
+
+    /// Return the EmuFile for |recorded_map|, which must exist or this won't
+    /// return.
+    pub fn at(&self, recorded_map: &KernelMapping) -> EmuFileSharedPtr {
+        unimplemented!()
+    }
+
+    pub fn has_file_for(&self, recorded_map: &KernelMapping) -> bool {
+        unimplemented!()
+    }
+
+    pub fn clone_file(&mut self, emu_file: EmuFileSharedPtr) -> EmuFileSharedPtr {
+        unimplemented!()
+    }
+
+    /// Return an emulated file representing the recorded shared mapping
+    /// |recorded_km|.
+    pub fn get_or_create(&mut self, recorded_map: &KernelMapping) -> EmuFileSharedPtr {
+        unimplemented!()
+    }
+
+    /// Return an already-existing emulated file for the given device/inode.
+    /// Returns null if not found.
+    pub fn find(&self, device: dev_t, inode: ino_t) -> Option<EmuFileSharedPtr> {
+        unimplemented!()
+    }
+
+    /// Dump information about this emufs to the "error" log.
+    pub fn log(&self) {
+        unimplemented!()
+    }
+
+    pub fn size(&self) -> usize {
+        self.files.len()
+    }
+
     pub fn destroyed_file(&mut self, emu_file: &EmuFile) {
         self.files.remove(&FileId::from_emu_file(emu_file));
     }
