@@ -35,14 +35,19 @@ use crate::address_space::kernel_mapping::KernelMapping;
 use crate::log::LogDebug;
 use crate::scoped_fd::ScopedFd;
 use crate::util::resize_shmem_segment;
+use libc::{c_void, pread64, pwrite64};
 use libc::{dev_t, ino_t};
 use nix::unistd::getpid;
 use std::cell::RefCell;
+use std::cmp::min;
 use std::collections::HashMap;
+use std::convert::TryInto;
 use std::rc::{Rc, Weak};
 
-pub type EmuFsSharedPtr = Rc<EmuFs>;
-pub type EmuFileSharedPtr = Rc<EmuFile>;
+const BUF_LEN: usize = 65536 / std::mem::size_of::<u64>();
+
+pub type EmuFsSharedPtr = Rc<RefCell<EmuFs>>;
+pub type EmuFileSharedPtr = Rc<RefCell<EmuFile>>;
 
 type FileMap = HashMap<FileId, Weak<EmuFile>>;
 
@@ -62,7 +67,7 @@ pub struct EmuFile {
 impl EmuFile {
     /// Note this is NOT pub. Note the move for ScopedFd and owner.
     fn new(
-        owner: Rc<RefCell<EmuFs>>,
+        owner: EmuFsSharedPtr,
         fd: ScopedFd,
         orig_path: &str,
         real_path: &str,
@@ -119,8 +124,59 @@ impl EmuFile {
 
     /// Return a copy of this file.  See |create()| for the meaning
     /// of |fs_tag|.
-    fn clone(&self, owner: &EmuFs) -> EmuFileSharedPtr {
-        unimplemented!()
+    fn clone(&self, owner: EmuFsSharedPtr) -> EmuFileSharedPtr {
+        let f = EmuFile::create(
+            owner,
+            &self.emu_path(),
+            self.device(),
+            self.inode(),
+            self.size_,
+        );
+
+        let mut data: [u64; BUF_LEN] = [0; BUF_LEN];
+        let mut offset: u64 = 0;
+
+        while offset < self.size_ {
+            let mut amount: usize = min((self.size_ - offset).try_into().unwrap(), BUF_LEN);
+            let mut ret: isize = unsafe {
+                pread64(
+                    self.fd().as_raw(),
+                    &mut data as *mut _ as *mut c_void,
+                    amount,
+                    offset as i64,
+                )
+            };
+            if ret <= 0 {
+                fatal!("Couldn't read all the data");
+            }
+            // There could have been a short read
+            // Note: The if condition above ensures ret > 0
+            amount = ret as usize;
+            let mut data_ptr = data.as_ptr() as *const u8;
+            while amount > 0 {
+                ret = unsafe {
+                    pwrite64(
+                        f.borrow().fd().as_raw(),
+                        data_ptr as *const c_void,
+                        amount,
+                        offset as i64,
+                    )
+                };
+                if ret <= 0 {
+                    fatal!("Couldn't write all the data");
+                }
+                if amount as isize - ret < 0 {
+                    fatal!("Impossible situation. Read more than asked for")
+                }
+                // Note: The if condition above ensures ret > 0
+                unsafe {
+                    data_ptr = data_ptr.add(ret as usize);
+                }
+                offset += ret as u64;
+            }
+        }
+
+        f
     }
 
     /// Ensure that the emulated file is sized to match a later
@@ -134,7 +190,7 @@ impl EmuFile {
     /// uniquely identify this file among multiple EmuFs's that
     /// might exist concurrently in this tracer process.
     fn create(
-        owner: &EmuFs,
+        owner: EmuFsSharedPtr,
         orig_path: &str,
         orig_device: dev_t,
         orig_inode: ino_t,
