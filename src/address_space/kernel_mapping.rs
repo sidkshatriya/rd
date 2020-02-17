@@ -17,8 +17,6 @@ use std::ops::{Deref, DerefMut};
 pub const MAP_FLAGS_MASK: i32 =
     MAP_ANONYMOUS | MAP_NORESERVE | MAP_PRIVATE | MAP_SHARED | MAP_STACK | MAP_GROWSDOWN;
 pub const CHECKABLE_FLAGS_MASK: i32 = MAP_PRIVATE | MAP_SHARED;
-pub const NO_DEVICE: dev_t = 0;
-pub const NO_INODE: ino_t = 0;
 
 /// Clone trait is manually derived. See below.
 /// This type cannot be Copy as fsname_, a String, is not Copy.
@@ -42,6 +40,9 @@ pub struct KernelMapping {
 }
 
 impl KernelMapping {
+    pub const NO_DEVICE: dev_t = 0;
+    pub const NO_INODE: ino_t = 0;
+
     pub fn new() -> KernelMapping {
         KernelMapping {
             device_: 0,
@@ -163,7 +164,7 @@ impl KernelMapping {
     /// Return true if this file is/was backed by an external
     /// device, as opposed to a transient RAM mapping.
     pub fn is_real_device(&self) -> bool {
-        self.device() > NO_DEVICE
+        self.device() > Self::NO_DEVICE
     }
     pub fn is_vdso(&self) -> bool {
         self.fsname() == "[vdso]"
