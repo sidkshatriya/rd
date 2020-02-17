@@ -37,11 +37,14 @@ use crate::scoped_fd::ScopedFd;
 use crate::util::resize_shmem_segment;
 use libc::{c_void, pread64, pwrite64};
 use libc::{dev_t, ino_t};
+use nix::sys::memfd::memfd_create;
+use nix::sys::memfd::MemFdCreateFlag;
 use nix::unistd::getpid;
 use std::cell::RefCell;
 use std::cmp::min;
 use std::collections::HashMap;
 use std::convert::TryInto;
+use std::ffi::CString;
 use std::rc::{Rc, Weak};
 
 const BUF_LEN: usize = 65536 / std::mem::size_of::<u64>();
@@ -182,7 +185,8 @@ impl EmuFile {
     /// Ensure that the emulated file is sized to match a later
     /// stat() of it.
     fn update(&mut self, device: dev_t, inode: ino_t, size: u64) {
-        unimplemented!()
+        debug_assert!(self.device_ == device && self.inode_ == inode);
+        self.ensure_size(size);
     }
 
     /// Create a new emulated file for |orig_path| that will
@@ -196,7 +200,41 @@ impl EmuFile {
         orig_inode: ino_t,
         orig_file_size: u64,
     ) -> EmuFileSharedPtr {
-        unimplemented!()
+        let mut fd_and_name: Option<(ScopedFd, String)> =
+            create_memfd_file(orig_path, orig_device, orig_inode);
+        if fd_and_name.is_none() {
+            fd_and_name = create_tmpfs_file(orig_path, orig_device, orig_inode);
+            if fd_and_name.is_none() {
+                fatal!(
+                    "Failed to create shmem segment for {}:{} {}",
+                    orig_device,
+                    orig_inode,
+                    orig_path
+                );
+            }
+        }
+
+        let (fd, real_name) = fd_and_name.unwrap();
+        resize_shmem_segment(&fd, orig_file_size);
+
+        let f = Rc::new(RefCell::new(EmuFile::new(
+            owner,
+            fd,
+            orig_path,
+            &real_name,
+            orig_device,
+            orig_inode,
+            orig_file_size,
+        )));
+
+        log!(
+            LogDebug,
+            "created emulated file for {} as {}",
+            orig_path,
+            real_name
+        );
+
+        f
     }
 }
 
@@ -292,4 +330,36 @@ impl FileId {
             inode: emu_file.inode_,
         }
     }
+}
+
+fn create_memfd_file(
+    orig_path: &str,
+    orig_device: dev_t,
+    orig_inode: ino_t,
+) -> Option<(ScopedFd, String)> {
+    let mut name = format!(
+        "rr-emufs-{}-dev-{}-inode-{}-{}",
+        getpid(),
+        orig_device,
+        orig_inode,
+        orig_path
+    );
+    name.truncate(255);
+
+    let cname = CString::new(name.clone()).unwrap();
+    let result = memfd_create(&cname, MemFdCreateFlag::empty());
+    if result.is_ok() {
+        Some((ScopedFd::from_raw(result.unwrap()), name))
+    } else {
+        None
+    }
+}
+
+/// Used only when memfd_create is not available, i.e. Linux < 3.17
+fn create_tmpfs_file(
+    orig_path: &str,
+    orig_device: dev_t,
+    orig_inode: ino_t,
+) -> Option<(ScopedFd, String)> {
+    unimplemented!()
 }
