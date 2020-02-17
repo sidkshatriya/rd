@@ -26,6 +26,8 @@ mod extra_registers;
 mod gdb_register;
 mod kernel_supplement;
 mod monitored_shared_memory;
+mod monkey_patcher;
+mod property_table;
 mod remote_code_ptr;
 mod remote_ptr;
 mod replay_task;
@@ -37,6 +39,7 @@ mod task_trait;
 mod taskish_uid;
 mod ticks;
 mod trace_capnp;
+mod trace_frame;
 mod util;
 mod wait_status;
 

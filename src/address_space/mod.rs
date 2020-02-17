@@ -43,20 +43,24 @@ pub enum MappingFlags {
     IsRdPage = 0x8,
 }
 
+#[derive(Copy, Clone)]
 pub enum Traced {
     Traced,
     Untraced,
 }
+#[derive(Copy, Clone)]
 pub enum Privileged {
     Privileged,
     Unpriviledged,
 }
+#[derive(Copy, Clone)]
 pub enum Enabled {
     RecordingOnly,
     ReplayOnly,
     RecordingAndReplay,
 }
 
+#[derive(Copy, Clone)]
 pub struct SyscallType {
     traced: Traced,
     priviledged: Privileged,
@@ -88,15 +92,22 @@ mod address_space {
     use crate::emu_fs::EmuFileSharedPtr;
     use crate::kernel_abi::SupportedArch;
     use crate::monitored_shared_memory::MonitoredSharedMemorySharedPtr;
+    use crate::monkey_patcher::MonkeyPatcher;
+    use crate::property_table::PropertyTable;
+    use crate::record_task::RecordTask;
     use crate::remote_code_ptr::RemoteCodePtr;
     use crate::remote_ptr::RemotePtr;
+    use crate::scoped_fd::ScopedFd;
     use crate::session::Session;
     use crate::task::Task;
     use crate::task_set::TaskSet;
     use crate::taskish_uid::AddressSpaceUid;
+    use crate::taskish_uid::TaskUid;
+    use crate::trace_frame::FrameTime;
     use libc::{dev_t, ino_t, pid_t};
     use std::cell::RefCell;
     use std::collections::BTreeMap;
+    use std::collections::HashSet;
     use std::ops::Drop;
     use std::ops::{Deref, DerefMut};
     use std::rc::Rc;
@@ -106,6 +117,8 @@ mod address_space {
     pub type MemoryMap = BTreeMap<MemoryRange, Mapping>;
 
     pub type AddressSpaceSharedPtr<'a> = Rc<RefCell<AddressSpace<'a>>>;
+
+    pub struct Maps {}
 
     /// Models the address space for a set of tasks.  This includes the set
     /// of mapped pages, and the resources those mappings refer to.
@@ -274,6 +287,361 @@ mod address_space {
         pub fn has_rd_page(&self) -> bool {
             unimplemented!()
         }
+
+        pub fn monitored_addrs(&self) -> &HashSet<RemotePtr<u8>> {
+            unimplemented!()
+        }
+
+        /// Change the protection bits of [addr, addr + num_bytes) to
+        /// |prot|.
+        pub fn protect(&self, t: &Task, addr: RemotePtr<u8>, num_bytes: usize, prot: i32) {
+            unimplemented!()
+        }
+
+        /// Fix up mprotect registers parameters to take account of PROT_GROWSDOWN.
+        pub fn fixup_mprotect_growsdown_parameters(&self, t: &Task) {
+            unimplemented!()
+        }
+
+        /// Move the mapping [old_addr, old_addr + old_num_bytes) to
+        /// [new_addr, old_addr + new_num_bytes), preserving metadata.
+        pub fn remap(
+            &self,
+            t: &Task,
+            old_addr: RemotePtr<u8>,
+            old_num_bytes: usize,
+            new_addr: RemotePtr<u8>,
+            new_num_bytes: usize,
+        ) {
+            unimplemented!()
+        }
+
+        /// Notify that data was written to this address space by rr or
+        /// by the kernel.
+        /// |flags| can contain values from Task::WriteFlags.
+        pub fn notify_written(&self, addr: RemotePtr<u8>, num_bytes: usize, flags: u32) {
+            unimplemented!()
+        }
+
+        /// Ensure a breakpoint of |type| is set at |addr|.
+        pub fn add_breakpoint(&mut self, addr: RemoteCodePtr, type_: BreakpointType) {
+            unimplemented!()
+        }
+        /// Remove a |type| reference to the breakpoint at |addr|.  If
+        /// the removed reference was the last, the breakpoint is
+        /// destroyed.
+        pub fn remove_breakpoint(&mut self, addr: RemoteCodePtr, type_: BreakpointType) {
+            unimplemented!()
+        }
+        /// Destroy all breakpoints in this VM, regardless of their
+        /// reference counts.
+        pub fn remove_all_breakpoints(&mut self) {
+            unimplemented!()
+        }
+
+        /// Temporarily remove the breakpoint at |addr|.
+        pub fn suspend_breakpoint_at(&self, addr: RemoteCodePtr) {
+            unimplemented!()
+        }
+
+        /// Restore any temporarily removed breakpoint at |addr|.
+        pub fn restore_breakpoint_at(&self, addr: RemoteCodePtr) {
+            unimplemented!()
+        }
+
+        /// Manage watchpoints.  Analogous to breakpoint-managing
+        /// methods above, except that watchpoints can be set for an
+        /// address range.
+        pub fn add_watchpoint(
+            &self,
+            addr: RemotePtr<u8>,
+            num_bytes: usize,
+            type_: WatchType,
+        ) -> bool {
+            unimplemented!()
+        }
+        pub fn remove_watchpoint(&self, addr: RemotePtr<u8>, num_bytes: usize, type_: WatchType) {
+            unimplemented!()
+        }
+        pub fn remove_all_watchpoints(&self) {
+            unimplemented!()
+        }
+        pub fn all_watchpoints(&self) -> Vec<WatchConfig> {
+            unimplemented!()
+        }
+
+        /// Save all watchpoint state onto a stack.
+        pub fn save_watchpoints() {
+            unimplemented!()
+        }
+        /// Pop all watchpoint state from the saved-state stack.
+        pub fn restore_watchpoints() -> bool {
+            unimplemented!()
+        }
+
+        /// Notify that at least one watchpoint was hit --- recheck them all.
+        /// Returns true if any watchpoint actually triggered. Note that
+        /// debug_status can indicate a hit watchpoint that doesn't actually
+        /// trigger, because the value of a write-watchpoint did not change.
+        /// Likewise, debug_status can indicate a watchpoint wasn't hit that
+        /// actually was (because in some configurations, e.g. VMWare
+        /// hypervisor with 32-bit x86 guest, debug_status watchpoint bits
+        /// are known to not be set on singlestep).
+        /// @TODO debug_status param type
+        pub fn notify_watchpoint_fired(
+            &self,
+            debug_status: usize,
+            address_of_singlestep_start: RemoteCodePtr,
+        ) -> bool {
+            unimplemented!()
+        }
+
+        /// Return true if any watchpoint has fired. Will keep returning true until
+        /// consume_watchpoint_changes() is called.
+        pub fn has_any_watchpoint_changes(&self) {
+            unimplemented!()
+        }
+
+        /// Return true if an EXEC watchpoint has fired at addr since the last
+        /// consume_watchpoint_changes.
+        pub fn has_exec_watchpoint_fired(&self, addr: RemoteCodePtr) {
+            unimplemented!()
+        }
+
+        /// Return all changed watchpoints in |watches| and clear their changed flags.
+        pub fn consume_watchpoint_changes(&self) -> Vec<WatchConfig> {
+            unimplemented!()
+        }
+
+        pub fn set_shm_size(&self, addr: RemotePtr<u8>, bytes: usize) {
+            unimplemented!()
+        }
+
+        /// Dies if no shm size is registered for the address.
+        pub fn get_shm_size(&self, addr: RemotePtr<u8>) -> usize {
+            unimplemented!()
+        }
+        pub fn remove_shm_size(&self, addr: RemotePtr<u8>) {
+            unimplemented!()
+        }
+
+        /// Make [addr, addr + num_bytes) inaccessible within this
+        /// address space.
+        pub fn unmap(&self, t: &Task, addr: RemotePtr<u8>, snum_bytes: usize) {
+            unimplemented!()
+        }
+
+        /// Notification of madvise call.
+        pub fn advise(&self, t: &Task, addr: RemotePtr<u8>, snum_bytes: usize, advice: i32) {
+            unimplemented!()
+        }
+
+        /// Return the vdso mapping of this.
+        pub fn vdso(&self) -> KernelMapping {
+            unimplemented!()
+        }
+
+        /// Verify that this cached address space matches what the
+        /// kernel thinks it should be.
+        pub fn verify(&self, t: &Task) {
+            unimplemented!()
+        }
+
+        pub fn has_breakpoints(&self) -> bool {
+            unimplemented!()
+        }
+        pub fn has_watchpoints(&self) -> bool {
+            unimplemented!()
+        }
+
+        /// Encoding of the |int $3| instruction.
+        pub const BREAKPOINT_INSN: u8 = 0xCC;
+
+        pub fn mem_fd(&self) -> &ScopedFd {
+            unimplemented!()
+        }
+        pub fn set_mem_fd(&mut self, fd: ScopedFd) {
+            unimplemented!()
+        }
+
+        pub fn monkeypatcher(&self) -> &MonkeyPatcher {
+            unimplemented!()
+        }
+
+        pub fn at_preload_init(&self, t: &Task) {
+            unimplemented!()
+        }
+
+        /// The address of the syscall instruction from which traced syscalls made by
+        /// the syscallbuf will originate.
+        pub fn traced_syscall_ip(&self) -> RemoteCodePtr {
+            unimplemented!()
+        }
+
+        /// The address of the syscall instruction from which privileged traced
+        /// syscalls made by the syscallbuf will originate.
+        pub fn privileged_traced_syscall_ip(&self) -> RemoteCodePtr {
+            unimplemented!()
+        }
+
+        pub fn syscallbuf_enabled(&self) {
+            unimplemented!()
+        }
+
+        /// We'll map a page of memory here into every exec'ed process for our own
+        /// use.
+        pub fn rd_page_start() -> RemotePtr<u8> {
+            unimplemented!()
+        }
+
+        /// This might not be the length of an actual system page, but we allocate
+        /// at least this much space.
+        pub fn rd_page_size() -> u32 {
+            4096
+        }
+        pub fn rr_page_end() -> RemotePtr<u8> {
+            unimplemented!()
+        }
+
+        pub fn preload_thread_locals_start() -> RemotePtr<u8> {
+            unimplemented!()
+        }
+        pub fn preload_thread_locals_size() -> u32 {
+            unimplemented!()
+        }
+
+        pub fn rr_page_syscall_exit_point(
+            traced: Traced,
+            privileged: Privileged,
+            enabled: Enabled,
+        ) -> RemoteCodePtr {
+            unimplemented!()
+        }
+        pub fn rr_page_syscall_entry_point(
+            traced: Traced,
+            privileged: Privileged,
+            enabled: Enabled,
+            arch: SupportedArch,
+        ) -> RemoteCodePtr {
+            unimplemented!()
+        }
+
+        pub fn rd_page_syscalls() -> Vec<SyscallType> {
+            unimplemented!()
+        }
+        pub fn rd_page_syscall_from_exit_point(ip: RemoteCodePtr) -> SyscallType {
+            unimplemented!()
+        }
+        pub fn rd_page_syscall_from_entry_point(ip: RemoteCodePtr) -> SyscallType {
+            unimplemented!()
+        }
+
+        /// Return a pointer to 8 bytes of 0xFF
+        pub fn rd_page_ff_bytes() -> RemotePtr<u8> {
+            unimplemented!()
+        }
+
+        /// Locate a syscall instruction in t's VDSO.
+        /// This gives us a way to execute remote syscalls without having to write
+        /// a syscall instruction into executable tracee memory (which might not be
+        /// possible with some kernels, e.g. PaX).
+        pub fn find_syscall_instruction(t: &Task) -> RemoteCodePtr {
+            unimplemented!()
+        }
+
+        /// Task |t| just forked from this address space. Apply dont_fork settings.
+        pub fn did_fork_into(t: &Task) {
+            unimplemented!()
+        }
+
+        pub fn set_first_run_event(event: FrameTime) {
+            unimplemented!()
+        }
+        pub fn first_run_event() -> FrameTime {
+            unimplemented!()
+        }
+
+        pub fn saved_auxv(&self) -> &[u8] {
+            unimplemented!()
+        }
+        pub fn save_auxv(t: &Task) {
+            unimplemented!()
+        }
+
+        /// Reads the /proc/<pid>/maps entry for a specific address. Does no caching.
+        /// If performed on a file in a btrfs file system, this may return the
+        /// wrong device number! If you stick to anonymous or special file
+        /// mappings, this should be OK.
+        pub fn read_kernel_mapping(t: &Task, addr: RemotePtr<u8>) -> KernelMapping {
+            unimplemented!()
+        }
+
+        /// Same as read_kernel_mapping, but reads rd's own memory map.
+        pub fn read_local_kernel_mapping(addr: *const u8) -> KernelMapping {
+            unimplemented!()
+        }
+
+        pub fn chaos_mode_min_stack_size() -> u32 {
+            8 * 1024 * 1024
+        }
+
+        pub fn chaos_mode_find_free_memory(t: &RecordTask, len: usize) -> RemotePtr<u8> {
+            unimplemented!()
+        }
+        pub fn find_free_memory(len: usize, after: Option<RemotePtr<u8>>) -> RemotePtr<u8> {
+            unimplemented!()
+        }
+
+        pub fn properties(&self) -> &PropertyTable {
+            unimplemented!()
+        }
+
+        /// The return value indicates whether we (re)created the preload_thread_locals
+        /// area.
+        pub fn post_vm_clone(t: &Task) {
+            unimplemented!()
+        }
+
+        /// TaskUid for the task whose locals are stored in the preload_thread_locals
+        /// area.
+        pub fn thread_locals_tuid(&self) -> &TaskUid {
+            unimplemented!()
+        }
+        pub fn set_thread_locals_tuid(&mut self, tuid: &TaskUid) {
+            unimplemented!()
+        }
+
+        /// Call this when the memory at [addr,addr+len) was externally overwritten.
+        /// This will attempt to update any breakpoints that may be set within the
+        /// range (resetting them and storing the new value).
+        pub fn maybe_update_breakpoints(t: &Task, addr: RemotePtr<u8>, len: usize) {
+            unimplemented!()
+        }
+
+        /// Call this to ensure that the mappings in `range` during replay has the same length
+        /// is collapsed to a single mapping. The caller guarantees that all the
+        /// mappings in the range can be coalesced (because they corresponded to a single
+        /// mapping during recording).
+        /// The end of the range might be in the middle of a mapping.
+        /// The start of the range might also be in the middle of a mapping.
+        pub fn ensure_replay_matches_single_recorded_mapping(t: &Task, range: MemoryRange) {
+            unimplemented!()
+        }
+
+        /// Print process maps.
+        pub fn print_process_maps(t: &Task) {
+            unimplemented!()
+        }
+
+        pub fn add_stap_semaphore_range(t: &Task, range: MemoryRange) {
+            unimplemented!()
+        }
+        pub fn remove_stap_semaphore_range(t: &Task, range: MemoryRange) {
+            unimplemented!()
+        }
+        pub fn is_stap_semaphore(addr: RemotePtr<u16>) {
+            unimplemented!()
+        }
     }
 
     impl<'a> Deref for AddressSpace<'a> {
@@ -309,10 +677,12 @@ mod test {
         let mut addr_space = AddressSpace::new();
         let t1 = Task(1);
         let t2 = Task(2);
-        assert!(addr_space.insert_task(&t1));
+        // @TODO
+        // assert!(addr_space.insert_task(&t1));
         assert!(addr_space.has_task(&t1));
         assert!(!addr_space.insert_task(&t1));
-        assert!(addr_space.insert_task(&t2));
+        // @TODO
+        // assert!(addr_space.insert_task(&t2));
         assert!(addr_space.has_task(&t2));
         assert!(addr_space.erase_task(&t1));
         assert!(!addr_space.erase_task(&t1));
