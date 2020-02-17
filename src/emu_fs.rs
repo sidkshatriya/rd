@@ -32,7 +32,7 @@
 //! assumption mentioned above.
 
 use crate::address_space::kernel_mapping::KernelMapping;
-use crate::log::LogDebug;
+use crate::log::{LogDebug, LogError};
 use crate::scoped_fd::ScopedFd;
 use crate::util::resize_shmem_segment;
 use libc::{c_void, pread64, pwrite64};
@@ -52,7 +52,7 @@ const BUF_LEN: usize = 65536 / std::mem::size_of::<u64>();
 pub type EmuFsSharedPtr = Rc<RefCell<EmuFs>>;
 pub type EmuFileSharedPtr = Rc<RefCell<EmuFile>>;
 
-type FileMap = HashMap<FileId, Weak<EmuFile>>;
+type FileMap = HashMap<FileId, Weak<RefCell<EmuFile>>>;
 
 // We DONT want this to be either Copy or Clone.
 pub struct EmuFile {
@@ -127,7 +127,7 @@ impl EmuFile {
 
     /// Return a copy of this file.  See |create()| for the meaning
     /// of |fs_tag|.
-    fn clone(&self, owner: EmuFsSharedPtr) -> EmuFileSharedPtr {
+    fn clone_file(&self, owner: EmuFsSharedPtr) -> EmuFileSharedPtr {
         let f = EmuFile::create(
             owner,
             &self.emu_path(),
@@ -262,38 +262,89 @@ pub struct EmuFs {
 impl EmuFs {
     /// Create and return a new emufs.
     pub fn create() -> EmuFsSharedPtr {
-        unimplemented!()
+        Rc::new(RefCell::new(EmuFs::new()))
+    }
+
+    /// Note that this is a NOT pub
+    fn new() -> EmuFs {
+        EmuFs {
+            files: HashMap::new(),
+        }
     }
 
     /// Return the EmuFile for |recorded_map|, which must exist or this won't
     /// return.
-    pub fn at(&self, recorded_map: &KernelMapping) -> EmuFileSharedPtr {
-        unimplemented!()
+    pub fn at(&self, recorded_map: &KernelMapping) -> Option<EmuFileSharedPtr> {
+        // @TODO Assuming upgrade() always works.
+        self.files
+            .get(&FileId::from_kernel_mapping(recorded_map))
+            .map(|val| val.upgrade().unwrap())
     }
 
     pub fn has_file_for(&self, recorded_map: &KernelMapping) -> bool {
-        unimplemented!()
+        self.files
+            .get(&FileId::from_kernel_mapping(recorded_map))
+            .is_some()
     }
 
-    pub fn clone_file(&mut self, emu_file: EmuFileSharedPtr) -> EmuFileSharedPtr {
-        unimplemented!()
+    pub fn clone_file(
+        &mut self,
+        emu_file: EmuFileSharedPtr,
+        owner: EmuFsSharedPtr,
+    ) -> EmuFileSharedPtr {
+        let f = emu_file.borrow().clone_file(owner);
+        self.files
+            .insert(FileId::from_emu_file(&emu_file.borrow()), Rc::downgrade(&f));
+        f
     }
 
     /// Return an emulated file representing the recorded shared mapping
     /// |recorded_km|.
-    pub fn get_or_create(&mut self, recorded_map: &KernelMapping) -> EmuFileSharedPtr {
-        unimplemented!()
+    pub fn get_or_create(
+        &mut self,
+        recorded_km: &KernelMapping,
+        owner: EmuFsSharedPtr,
+    ) -> EmuFileSharedPtr {
+        let file_id = FileId::from_kernel_mapping(recorded_km);
+        let maybe_file_weak_ptr = self.files.get(&file_id);
+        let min_file_size: u64 = recorded_km.file_offset_bytes() + recorded_km.size() as u64;
+        if maybe_file_weak_ptr.is_some() {
+            let rc = maybe_file_weak_ptr.unwrap().upgrade().unwrap();
+            rc.borrow_mut()
+                .update(recorded_km.device(), recorded_km.inode(), min_file_size);
+            return rc;
+        }
+
+        let vf = EmuFile::create(
+            owner,
+            &recorded_km.fsname(),
+            recorded_km.device(),
+            recorded_km.inode(),
+            min_file_size,
+        );
+        self.files.insert(file_id, Rc::downgrade(&vf));
+        vf
     }
 
     /// Return an already-existing emulated file for the given device/inode.
     /// Returns null if not found.
     pub fn find(&self, device: dev_t, inode: ino_t) -> Option<EmuFileSharedPtr> {
-        unimplemented!()
+        let file_id = FileId::new(device, inode);
+        let maybe_file_weak_ptr = self.files.get(&file_id);
+        match maybe_file_weak_ptr {
+            Some(file_weak_ptr) => Some(file_weak_ptr.upgrade().unwrap()),
+            None => None,
+        }
     }
 
     /// Dump information about this emufs to the "error" log.
     pub fn log(&self) {
-        unimplemented!()
+        let addr = self as *const _ as *const u8 as usize;
+        log!(LogError, "EmuFs {:x} with {} files:", addr, self.size());
+        for (_, v) in &self.files {
+            let emu_path = v.upgrade().unwrap().borrow().emu_path();
+            log!(LogError, "  {}", emu_path);
+        }
     }
 
     pub fn size(&self) -> usize {
