@@ -5,7 +5,7 @@ use crate::kernel_abi::SupportedArch;
 use crate::kernel_abi::SupportedArch::*;
 use crate::kernel_metadata::xsave_feature_string;
 use crate::log::LogLevel::LogError;
-use crate::task::Task;
+use crate::task::task::Task;
 use crate::util::{xsave_native_layout, XSaveFeatureLayout, XSaveLayout};
 use std::convert::TryInto;
 use std::fmt::Write;

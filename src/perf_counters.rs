@@ -8,7 +8,7 @@ use crate::bindings::perf_event::{
 use crate::kernel_metadata::signal_name;
 use crate::log::*;
 use crate::scoped_fd::ScopedFd;
-use crate::task::Task;
+use crate::task::task::Task;
 use crate::ticks::Ticks;
 use crate::util::*;
 use libc::c_ulong;

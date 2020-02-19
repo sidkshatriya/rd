@@ -85,7 +85,7 @@ impl WatchConfig {
     }
 }
 
-mod address_space {
+pub mod address_space {
     use super::*;
     use crate::address_space::kernel_mapping::KernelMapping;
     use crate::address_space::memory_range::MemoryRange;
@@ -100,7 +100,7 @@ mod address_space {
     use crate::remote_ptr::RemotePtr;
     use crate::scoped_fd::ScopedFd;
     use crate::session::Session;
-    use crate::task::Task;
+    use crate::task::task::Task;
     use crate::task_set::TaskSet;
     use crate::taskish_uid::AddressSpaceUid;
     use crate::taskish_uid::TaskUid;
