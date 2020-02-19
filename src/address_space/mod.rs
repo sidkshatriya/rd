@@ -89,6 +89,7 @@ mod address_space {
     use super::*;
     use crate::address_space::kernel_mapping::KernelMapping;
     use crate::address_space::memory_range::MemoryRange;
+    use crate::auto_remote_syscalls::AutoRemoteSyscalls;
     use crate::emu_fs::EmuFileSharedPtr;
     use crate::kernel_abi::SupportedArch;
     use crate::monitored_shared_memory::MonitoredSharedMemorySharedPtr;
@@ -106,6 +107,8 @@ mod address_space {
     use crate::trace_frame::FrameTime;
     use libc::{dev_t, ino_t, pid_t};
     use std::cell::RefCell;
+    use std::collections::btree_map::Iter as BTreeMapIter;
+    use std::collections::hash_map::Iter as HashMapIter;
     use std::collections::HashSet;
     use std::collections::{BTreeMap, HashMap};
     use std::ops::Drop;
@@ -115,6 +118,7 @@ mod address_space {
     pub struct Mapping {}
 
     pub type MemoryMap = BTreeMap<MemoryRange, Mapping>;
+    pub type MemoryMapIter<'a> = BTreeMapIter<'a, MemoryRange, Mapping>;
 
     pub type AddressSpaceSharedPtr = Rc<RefCell<AddressSpace>>;
     pub struct Maps {}
@@ -127,6 +131,7 @@ mod address_space {
     struct Breakpoint {}
 
     type BreakpointMap = HashMap<RemoteCodePtr, Breakpoint>;
+    type BreakpointMapIter<'a> = HashMapIter<'a, RemoteCodePtr, Breakpoint>;
 
     /// XXX one is tempted to merge Breakpoint and Watchpoint into a single
     /// entity, but the semantics are just different enough that separate
@@ -135,6 +140,31 @@ mod address_space {
     /// Track the watched accesses of a contiguous range of memory
     /// addresses.
     struct Watchpoint {}
+
+    #[derive(Copy, Clone)]
+    enum WatchpointFilter {
+        AllWatchpoints,
+        ChangedWatchpoints,
+    }
+
+    #[derive(Copy, Clone)]
+    enum WillSetTaskState {
+        SettingTaskState,
+        NotSettingTaskState,
+    }
+
+    #[derive(Copy, Clone)]
+    enum IterateHow {
+        IterateDefault,
+        IterateContiguous,
+    }
+
+    #[derive(Copy, Clone)]
+    enum RwxBits {
+        ExecBit = 1 << 0,
+        ReadBit = 1 << 1,
+        WriteBit = 1 << 2,
+    }
 
     /// Models the address space for a set of tasks.  This includes the set
     /// of mapped pages, and the resources those mappings refer to.
@@ -725,6 +755,103 @@ mod address_space {
             leader_serial: u32,
             exec_count: u32,
         ) -> AddressSpace {
+            unimplemented!()
+        }
+
+        /// After an exec, populate the new address space of |t| with
+        /// the existing mappings we find in /proc/maps.
+        fn populate_address_space(&mut self, t: &Task) {
+            unimplemented!()
+        }
+
+        fn unmap_internal(&self, t: &Task, addr: RemotePtr<u8>, num_bytes: isize) {
+            unimplemented!()
+        }
+
+        /// Also sets brk_ptr.
+        fn map_rd_page(&self, remote: &AutoRemoteSyscalls) {
+            unimplemented!()
+        }
+
+        fn update_watchpoint_value(&self, range: &MemoryRange, watchpoint: &Watchpoint) {
+            unimplemented!()
+        }
+
+        fn update_watchpoint_values(&self, start: RemotePtr<u8>, end: RemotePtr<u8>) {
+            unimplemented!()
+        }
+        fn get_watchpoints_internal(&self, filter: WatchpointFilter) -> Vec<WatchConfig> {
+            unimplemented!()
+        }
+
+        fn get_watch_configs(will_set_task_state: WillSetTaskState) -> Vec<WatchConfig> {
+            unimplemented!()
+        }
+
+        /// Construct a minimal set of watchpoints to be enabled based
+        /// on |set_watchpoint()| calls, and program them for each task
+        /// in this address space.
+        fn allocate_watchpoints(&self) -> bool {
+            unimplemented!()
+        }
+
+        /// Merge the mappings adjacent to |it| in memory that are
+        /// semantically "adjacent mappings" of the same resource as
+        /// well, for example have adjacent file offsets and the same
+        /// prot and flags.
+        fn coalesce_around(&self, t: &Task, it: MemoryMapIter) {
+            unimplemented!()
+        }
+
+        /// Erase |it| from |breakpoints| and restore any memory in
+        /// this it may have overwritten.
+        fn destroy_breakpoint(it: BreakpointMapIter) {
+            unimplemented!()
+        }
+
+        /// For each mapped segment overlapping [addr, addr +
+        /// num_bytes), call |f|.  Pass |f| the overlapping mapping,
+        /// the mapped resource, and the range of addresses remaining
+        /// to be iterated over.
+        /// Pass |IterateContiguous| to stop iterating when the last
+        /// contiguous mapping after |addr| within the region is seen.
+        /// Default is to iterate all mappings in the region.
+        fn for_each_in_range<F: Fn(&Mapping, &MemoryRange)>(
+            &self,
+            addr: RemotePtr<u8>,
+            num_bytes: isize,
+            f: F,
+            how: IterateHow,
+        ) {
+            unimplemented!()
+        }
+
+        /// Map |m| of |r| into this address space, and coalesce any
+        /// mappings of |r| that are adjacent to |m|.
+        fn map_and_coalesce(
+            &self,
+            t: &Task,
+            m: &KernelMapping,
+            recorded_map: &KernelMapping,
+            emu_file: EmuFileSharedPtr,
+            mapped_file_stat: libc::stat,
+            local_addr: *const u8,
+            monitored: MonitoredSharedMemorySharedPtr,
+        ) {
+            unimplemented!()
+        }
+
+        fn remove_from_map(&self, range: &MemoryRange) {
+            unimplemented!()
+        }
+
+        /// Call this only during recording.
+        fn at_preload_init_arch<Arch>(&self, t: &Task) {
+            unimplemented!()
+        }
+
+        /// Return the access bits above needed to watch |type|.
+        fn access_bits_of(type_: WatchType) -> RwxBits {
             unimplemented!()
         }
     }
