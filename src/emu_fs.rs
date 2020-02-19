@@ -58,8 +58,7 @@ pub struct EmuFile {
     orig_path: String,
     tmp_path: String,
     file: ScopedFd,
-    /// The lifetime of the reference is the same as the lifetime on EmuFs.
-    owner: Weak<RefCell<EmuFs>>,
+    owner: *mut EmuFs,
     size_: u64,
     device_: dev_t,
     inode_: ino_t,
@@ -68,9 +67,17 @@ pub struct EmuFile {
 impl EmuFile {
     const BUF_LEN: usize = 65536 / std::mem::size_of::<u64>();
 
+    fn owner_ref(&self) -> &EmuFs {
+        unsafe { self.owner.as_ref() }.unwrap()
+    }
+
+    fn owner_mut(&self) -> &mut EmuFs {
+        unsafe { self.owner.as_mut() }.unwrap()
+    }
+
     /// Note this is NOT pub. Note the move for ScopedFd and owner.
     fn new(
-        owner: EmuFsSharedPtr,
+        owner: *mut EmuFs,
         fd: ScopedFd,
         orig_path: &str,
         real_path: &str,
@@ -82,7 +89,7 @@ impl EmuFile {
             orig_path: orig_path.to_owned(),
             tmp_path: real_path.to_owned(),
             file: fd,
-            owner: Rc::downgrade(&owner),
+            owner,
             size_: file_size,
             device_: device,
             inode_: inode,
@@ -127,9 +134,9 @@ impl EmuFile {
 
     /// Return a copy of this file.  See |create()| for the meaning
     /// of |fs_tag|.
-    fn clone_file(&self, owner: EmuFsSharedPtr) -> EmuFileSharedPtr {
+    fn clone_file(&self) -> EmuFileSharedPtr {
         let f = EmuFile::create(
-            owner,
+            self.owner,
             &self.emu_path(),
             self.device(),
             self.inode(),
@@ -194,7 +201,7 @@ impl EmuFile {
     /// uniquely identify this file among multiple EmuFs's that
     /// might exist concurrently in this tracer process.
     fn create(
-        owner: EmuFsSharedPtr,
+        owner: *mut EmuFs,
         orig_path: &str,
         orig_device: dev_t,
         orig_inode: ino_t,
@@ -245,12 +252,7 @@ impl Drop for EmuFile {
             "     emufs::emu_file::Drop(einode:{})",
             self.inode_
         );
-        // @TODO should we avoid unwrap() here? Can this fail?
-        self.owner
-            .upgrade()
-            .unwrap()
-            .borrow_mut()
-            .destroyed_file(self);
+        self.owner_mut().destroyed_file(self);
     }
 }
 
@@ -287,12 +289,8 @@ impl EmuFs {
             .is_some()
     }
 
-    pub fn clone_file(
-        &mut self,
-        emu_file: EmuFileSharedPtr,
-        owner: EmuFsSharedPtr,
-    ) -> EmuFileSharedPtr {
-        let f = emu_file.borrow().clone_file(owner);
+    pub fn clone_file(&mut self, emu_file: EmuFileSharedPtr) -> EmuFileSharedPtr {
+        let f = emu_file.borrow().clone_file();
         self.files
             .insert(FileId::from_emu_file(&emu_file.borrow()), Rc::downgrade(&f));
         f
@@ -316,7 +314,7 @@ impl EmuFs {
         }
 
         let vf = EmuFile::create(
-            owner,
+            self as *mut Self,
             &recorded_km.fsname(),
             recorded_km.device(),
             recorded_km.inode(),

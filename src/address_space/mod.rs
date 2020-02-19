@@ -106,8 +106,8 @@ mod address_space {
     use crate::trace_frame::FrameTime;
     use libc::{dev_t, ino_t, pid_t};
     use std::cell::RefCell;
-    use std::collections::BTreeMap;
     use std::collections::HashSet;
+    use std::collections::{BTreeMap, HashMap};
     use std::ops::Drop;
     use std::ops::{Deref, DerefMut};
     use std::rc::Rc;
@@ -117,21 +117,93 @@ mod address_space {
     pub type MemoryMap = BTreeMap<MemoryRange, Mapping>;
 
     pub type AddressSpaceSharedPtr<'a> = Rc<RefCell<AddressSpace<'a>>>;
-
     pub struct Maps {}
+
+    /// Represents a refcount set on a particular address.  Because there
+    /// can be multiple refcounts of multiple types set on a single
+    /// address, Breakpoint stores explicit USER and INTERNAL breakpoint
+    /// refcounts.  Clients adding/removing breakpoints at this addr must
+    /// call ref()/unref() as appropriate.
+    struct Breakpoint {}
+
+    type BreakpointMap = HashMap<RemoteCodePtr, Breakpoint>;
+
+    /// XXX one is tempted to merge Breakpoint and Watchpoint into a single
+    /// entity, but the semantics are just different enough that separate
+    /// objects are easier for now.
+    ///
+    /// Track the watched accesses of a contiguous range of memory
+    /// addresses.
+    struct Watchpoint {}
 
     /// Models the address space for a set of tasks.  This includes the set
     /// of mapped pages, and the resources those mappings refer to.
     pub struct AddressSpace<'a> {
         task_set: TaskSet<'a>,
+        /// All breakpoints set in this VM.
+        breakpoints: BreakpointMap,
+        /// Path of the real executable image this address space was
+        /// exec()'d with.
+        exe: String,
+        /// Pid of first task for this address space
+        leader_tid_: pid_t,
+        /// Serial number of first task for this address space
+        leader_serial: u32,
+        exec_count: u32,
+        /// Only valid during recording
+        brk_start: RemotePtr<u8>,
+        /// Current brk. Not necessarily page-aligned.
+        brk_end: RemotePtr<u8>,
+        /// All segments mapped into this address space.
+        mem: MemoryMap,
+        /// Sizes of SYSV shm segments, by address. We use this to determine the size
+        /// of memory regions unmapped via shmdt().
+        shm_sizes: HashMap<RemotePtr<u8>, usize>,
+        monitored_mem: HashSet<RemotePtr<u8>>,
+        /// madvise DONTFORK regions
+        dont_fork: HashSet<MemoryRange>,
+        /// The session that created this.  We save a ref to it so that
+        /// we can notify it when we die.
+        session_: *mut Session,
+        /// tid of the task whose thread-locals are in preload_thread_locals
+        thread_locals_tuid_: TaskUid,
+        /// First mapped byte of the vdso.
+        vdso_start_addr: RemotePtr<u8>,
+        /// The monkeypatcher that's handling this address space.
+        monkeypatch_state: Option<MonkeyPatcher>,
+        /// The watchpoints set for tasks in this VM.  Watchpoints are
+        /// programmed per Task, but we track them per address space on
+        /// behalf of debuggers that assume that model.
+        watchpoints: HashMap<MemoryRange, Watchpoint>,
+        saved_watchpoints: Vec<HashMap<MemoryRange, Watchpoint>>,
+        /// Tracee memory is read and written through this fd, which is
+        /// opened for the tracee's magic /proc/[tid]/mem device.  The
+        /// advantage of this over ptrace is that we can access it even
+        /// when the tracee isn't at a ptrace-stop.  It's also
+        /// theoretically faster for large data transfers, which rd can
+        /// do often.
+        ///
+        /// Users of child_mem_fd should fall back to ptrace-based memory
+        /// access when child_mem_fd is not open.
+        child_mem_fd: ScopedFd,
+        traced_syscall_ip_: RemoteCodePtr,
+        privileged_traced_syscall_ip_: RemoteCodePtr,
+        syscallbuf_enabled_: bool,
+
+        saved_auxv_: Vec<u8>,
+
+        /// The time of the first event that ran code for a task in this address space.
+        /// 0 if no such event has occurred.
+        /// @TODO should this be an Option?
+        first_run_event_: FrameTime,
     }
 
     impl<'a> AddressSpace<'a> {
-        pub fn new() -> AddressSpace<'a> {
+        /*pub fn new() -> AddressSpace<'a> {
             AddressSpace {
                 task_set: TaskSet::new(),
             }
-        }
+        }*/
 
         /// Call this after a new task has been cloned within this
         /// address space.
@@ -630,16 +702,6 @@ mod address_space {
 
         /// Print process maps.
         pub fn print_process_maps(t: &Task) {
-            unimplemented!()
-        }
-
-        pub fn add_stap_semaphore_range(t: &Task, range: MemoryRange) {
-            unimplemented!()
-        }
-        pub fn remove_stap_semaphore_range(t: &Task, range: MemoryRange) {
-            unimplemented!()
-        }
-        pub fn is_stap_semaphore(addr: RemotePtr<u16>) {
             unimplemented!()
         }
     }
