@@ -1,3 +1,6 @@
+/// @TODO temporarily define locally.
+const PRELOAD_THREAD_LOCALS_SIZE: usize = 104;
+
 pub enum CloneFlags {
     /// The child gets a semantic copy of all parent resources (and
     /// becomes a new thread group).  This is the semantics of the
@@ -65,6 +68,7 @@ pub mod task {
     use crate::extra_registers::ExtraRegisters;
     use crate::fd_table::FdTableSharedPtr;
     use crate::kernel_abi::SupportedArch;
+    use crate::property_table::PropertyTable;
     use crate::registers::Registers;
     use crate::remote_code_ptr::RemoteCodePtr;
     use crate::remote_ptr::RemotePtr;
@@ -86,6 +90,9 @@ pub mod task {
     pub struct Task;
 
     pub type DebugRegs = Vec<WatchConfig>;
+
+    pub type ThreadLocals = [u8; PRELOAD_THREAD_LOCALS_SIZE];
+
     enum WriteFlags {
         IsBreakpointRelated = 0x1,
     }
@@ -671,6 +678,28 @@ pub mod task {
         }
 
         pub fn last_execution_resume(&self) -> RemoteCodePtr {
+            unimplemented!()
+        }
+
+        pub fn properties(&self) -> &PropertyTable {
+            unimplemented!()
+        }
+        pub fn usable_scratch_size(&self) {
+            unimplemented!()
+        }
+        pub fn syscallbuf_alt_stack(&self) -> RemotePtr<u8> {
+            unimplemented!()
+        }
+        pub fn setup_preload_thread_locals(&self) {
+            unimplemented!()
+        }
+        pub fn setup_preload_thread_locals_from_clone(&self, origin: &Task) {
+            unimplemented!()
+        }
+        pub fn fetch_preload_thread_locals(&self) -> &ThreadLocals {
+            unimplemented!()
+        }
+        pub fn activate_preload_thread_locals(&self) {
             unimplemented!()
         }
     }
