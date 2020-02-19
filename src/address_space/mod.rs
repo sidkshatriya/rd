@@ -875,29 +875,3 @@ mod address_space {
         }
     }
 }
-
-#[cfg(test)]
-mod test {
-    use super::address_space::AddressSpace;
-    use crate::task_trait::TaskTrait;
-
-    struct Task(u32);
-    impl TaskTrait for Task {}
-
-    #[test]
-    fn basic_test() {
-        let mut addr_space = AddressSpace::new();
-        let t1 = Task(1);
-        let t2 = Task(2);
-        // @TODO
-        // assert!(addr_space.insert_task(&t1));
-        assert!(addr_space.has_task(&t1));
-        assert!(!addr_space.insert_task(&t1));
-        // @TODO
-        // assert!(addr_space.insert_task(&t2));
-        assert!(addr_space.has_task(&t2));
-        assert!(addr_space.erase_task(&t1));
-        assert!(!addr_space.erase_task(&t1));
-        assert!(!addr_space.has_task(&t1));
-    }
-}
