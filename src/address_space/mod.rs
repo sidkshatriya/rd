@@ -116,7 +116,7 @@ mod address_space {
 
     pub type MemoryMap = BTreeMap<MemoryRange, Mapping>;
 
-    pub type AddressSpaceSharedPtr<'a> = Rc<RefCell<AddressSpace<'a>>>;
+    pub type AddressSpaceSharedPtr = Rc<RefCell<AddressSpace>>;
     pub struct Maps {}
 
     /// Represents a refcount set on a particular address.  Because there
@@ -138,8 +138,8 @@ mod address_space {
 
     /// Models the address space for a set of tasks.  This includes the set
     /// of mapped pages, and the resources those mappings refer to.
-    pub struct AddressSpace<'a> {
-        task_set: TaskSet<'a>,
+    pub struct AddressSpace {
+        task_set: TaskSet,
         /// All breakpoints set in this VM.
         breakpoints: BreakpointMap,
         /// Path of the real executable image this address space was
@@ -198,7 +198,7 @@ mod address_space {
         first_run_event_: FrameTime,
     }
 
-    impl<'a> AddressSpace<'a> {
+    impl AddressSpace {
         /*pub fn new() -> AddressSpace<'a> {
             AddressSpace {
                 task_set: TaskSet::new(),
@@ -245,8 +245,12 @@ mod address_space {
             unimplemented!()
         }
 
-        pub fn session(&self) -> &Session {
-            unimplemented!()
+        pub fn session_ref(&self) -> &Session {
+            unsafe { self.session_.as_ref() }.unwrap()
+        }
+
+        pub fn session_mut(&self) -> &mut Session {
+            unsafe { self.session_.as_mut() }.unwrap()
         }
 
         pub fn arch(&self) -> SupportedArch {
@@ -704,22 +708,41 @@ mod address_space {
         pub fn print_process_maps(t: &Task) {
             unimplemented!()
         }
+
+        /// Called after a successful execve to set up the new AddressSpace.
+        /// Also called once for the initial spawn.
+        fn new_after_execve(t: &Task, exe: &str, exec_count: u32) -> AddressSpace {
+            unimplemented!()
+        }
+
+        /// Called when an AddressSpace is cloned due to a fork() or a Session
+        /// clone. After this, and the task is properly set up, post_vm_clone will
+        /// be called.
+        fn new_after_fork_or_session_clone(
+            session: &Session,
+            o: &AddressSpace,
+            leader_tid: pid_t,
+            leader_serial: u32,
+            exec_count: u32,
+        ) -> AddressSpace {
+            unimplemented!()
+        }
     }
 
-    impl<'a> Deref for AddressSpace<'a> {
-        type Target = TaskSet<'a>;
+    impl Deref for AddressSpace {
+        type Target = TaskSet;
         fn deref(&self) -> &Self::Target {
             &self.task_set
         }
     }
 
-    impl<'a> DerefMut for AddressSpace<'a> {
+    impl DerefMut for AddressSpace {
         fn deref_mut(&mut self) -> &mut Self::Target {
             &mut self.task_set
         }
     }
 
-    impl<'a> Drop for AddressSpace<'a> {
+    impl Drop for AddressSpace {
         fn drop(&mut self) {
             unimplemented!()
         }
