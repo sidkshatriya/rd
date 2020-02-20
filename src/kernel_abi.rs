@@ -156,19 +156,24 @@ pub mod common {
     pub type dev_t = uint64_t;
     pub type mode_t = uint32_t;
     pub type __kernel_timer_t = int32_t;
+    pub type int = int32_t;
+    pub type signed_int = int32_t;
+    pub type unsigned_int = uint32_t;
 
     pub use super::aligned_u64;
     pub type ptr64<T> = super::Ptr<aligned_u64, T>;
+
+    // IMPORTANT ! ////////////////////////
+    pub mod preload_interface {
+        use super::*;
+        include!("include/preload_interface.rs");
+    }
 }
 
 pub mod w64 {
     pub use super::common::*;
     pub type signed_short = int16_t;
     pub type unsigned_short = uint16_t;
-
-    pub type signed_int = int32_t;
-    pub type unsigned_int = uint32_t;
-    pub type int = int32_t;
 
     pub type signed_long = int64_t;
     pub type unsigned_long = uint64_t;
@@ -206,6 +211,12 @@ pub mod x64 {
 
     // IMPORTANT ! ////////////////////////
     include!("include/base_arch_defns.rs");
+
+    // IMPORTANT ! ////////////////////////
+    pub mod preload_interface {
+        use super::*;
+        include!("include/preload_interface_arch.rs");
+    }
 
     #[repr(C)]
     #[derive(Copy, Clone, Default)]
@@ -544,10 +555,6 @@ pub mod w32 {
     pub type signed_short = int16_t;
     pub type unsigned_short = uint16_t;
 
-    pub type signed_int = int32_t;
-    pub type unsigned_int = uint32_t;
-    pub type int = int32_t;
-
     pub type signed_long = int32_t;
     pub type unsigned_long = uint32_t;
 
@@ -584,6 +591,11 @@ pub mod x86 {
     // IMPORTANT ! ////////////////////////
     include!("include/base_arch_defns.rs");
 
+    // IMPORTANT ! ////////////////////////
+    pub mod preload_interface {
+        use super::*;
+        include!("include/preload_interface_arch.rs");
+    }
     #[repr(C)]
     #[derive(Copy, Clone, Default)]
     pub struct user_regs_struct {

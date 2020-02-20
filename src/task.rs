@@ -2,9 +2,9 @@ use crate::bindings::ptrace::{
     PTRACE_CONT, PTRACE_SINGLESTEP, PTRACE_SYSCALL, PTRACE_SYSEMU, PTRACE_SYSEMU_SINGLESTEP,
 };
 
-/// @TODO temporarily define locally.
-const PRELOAD_THREAD_LOCALS_SIZE: usize = 104;
+use crate::kernel_abi::common::preload_interface::PRELOAD_THREAD_LOCALS_SIZE;
 
+#[derive(Copy, Clone, Debug)]
 pub enum CloneFlags {
     /// The child gets a semantic copy of all parent resources (and
     /// becomes a new thread group).  This is the semantics of the
@@ -32,14 +32,17 @@ pub enum CloneFlags {
 /// part of the official ptrace API, and we want to use a strong type
 /// for these resume requests to ensure callers don't confuse their
 /// arguments.
+#[repr(u32)]
+#[derive(Copy, Clone, Debug)]
 pub enum ResumeRequest {
-    ResumeCont = PTRACE_CONT as isize,
-    ResumeSinglestep = PTRACE_SINGLESTEP as isize,
-    ResumeSyscall = PTRACE_SYSCALL as isize,
-    ResumeSysemu = PTRACE_SYSEMU as isize,
-    ResumeSysemuSinglestep = PTRACE_SYSEMU_SINGLESTEP as isize,
+    ResumeCont = PTRACE_CONT,
+    ResumeSinglestep = PTRACE_SINGLESTEP,
+    ResumeSyscall = PTRACE_SYSCALL,
+    ResumeSysemu = PTRACE_SYSEMU,
+    ResumeSysemuSinglestep = PTRACE_SYSEMU_SINGLESTEP,
 }
 
+#[derive(Copy, Clone, Debug)]
 pub enum WaitRequest {
     /// After resuming, blocking-waitpid() until tracee status
     /// changes.
@@ -48,6 +51,7 @@ pub enum WaitRequest {
     ResumeNonblocking,
 }
 
+#[derive(Copy, Clone, Debug)]
 pub enum TicksRequest {
     /// We don't expect to see any ticks (though we seem to on the odd buggy
     /// system...). Using this is a small performance optimization because we don't
@@ -96,10 +100,12 @@ pub mod task {
 
     pub type ThreadLocals = [u8; PRELOAD_THREAD_LOCALS_SIZE];
 
+    #[derive(Copy, Clone, Debug)]
     enum WriteFlags {
         IsBreakpointRelated = 0x1,
     }
 
+    #[derive(Copy, Clone, Debug)]
     enum CloneReason {
         /// Cloning a task in the same session due to tracee fork()/vfork()/clone()
         TraceeClone,
