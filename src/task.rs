@@ -74,7 +74,9 @@ pub mod task {
     use crate::bindings::kernel::user_desc;
     use crate::extra_registers::ExtraRegisters;
     use crate::fd_table::FdTableSharedPtr;
+    use crate::kernel_abi::common::preload_interface::preload_globals;
     use crate::kernel_abi::SupportedArch;
+    use crate::perf_counters::PerfCounters;
     use crate::property_table::PropertyTable;
     use crate::registers::Registers;
     use crate::remote_code_ptr::RemoteCodePtr;
@@ -84,25 +86,179 @@ pub mod task {
     use crate::syscallbuf_record::{syscallbuf_hdr, syscallbuf_record};
     use crate::task_trait::TaskTrait;
     use crate::taskish_uid::TaskUid;
-    use crate::thread_group::ThreadGroup;
+    use crate::thread_group::{ThreadGroup, ThreadGroupSharedPtr};
     use crate::ticks::Ticks;
     use crate::wait_status::WaitStatus;
     use libc::{pid_t, siginfo_t, uid_t};
     use std::cell::RefCell;
     use std::io::Write;
     use std::rc::Rc;
+    use crate::util::TrappedInstruction;
 
     pub struct TrapReason;
+    type ThreadLocals = [u8; PRELOAD_THREAD_LOCALS_SIZE];
 
-    pub struct Task;
+    pub struct Task {
+        /// Imagine that task A passes buffer |b| to the read()
+        /// syscall.  Imagine that, after A is switched out for task B,
+        /// task B then writes to |b|.  Then B is switched out for A.
+        /// Since rr doesn't schedule the kernel code, the result is
+        /// nondeterministic.  To avoid that class of replay
+        /// divergence, we "redirect" (in)outparams passed to may-block
+        /// syscalls, to "scratch memory".  The kernel writes to
+        /// scratch deterministically, and when A (in the example
+        /// above) exits its read() syscall, rr copies the scratch data
+        /// back to the original buffers, serializing A and B in the
+        /// example above.
+        ///
+        /// Syscalls can "nest" due to signal handlers.  If a syscall A
+        /// is interrupted by a signal, and the sighandler calls B,
+        /// then we can have scratch buffers set up for args of both A
+        /// and B.  In linux, B won't actually re-enter A; A is exited
+        /// with a "will-restart" error code and its args are saved for
+        /// when (or if) it's restarted after the signal.  But that
+        /// doesn't really matter wrt scratch space.  (TODO: in the
+        /// future, we may be able to use that fact to simplify
+        /// things.)
+        ///
+        /// Because of nesting, at first blush it seems we should push
+        /// scratch allocations onto a stack and pop them as syscalls
+        /// (or restarts thereof) complete.  But under a critical
+        /// assumption, we can actually skip that.  The critical
+        /// assumption is that the kernel writes its (in)outparams
+        /// atomically wrt signal interruptions, and only writes them
+        /// on successful exit.  Each syscall will complete in stack
+        /// order, and it's invariant that the syscall processors must
+        /// only write back to user buffers///only* the data that was
+        /// written by the kernel.  So as long as the atomicity
+        /// assumption holds, the completion of syscalls higher in the
+        /// event stack may overwrite scratch space, but the completion
+        /// of each syscall will overwrite those overwrites again, and
+        /// that over-overwritten data is exactly and only what we'll
+        /// write back to the tracee.
+        ///
+        /// |scratch_ptr| points at the mapped address in the child,
+        /// and |size| is the total available space.
+        pub scratch_ptr: RemotePtr<u8>,
+        /// The full size of the scratch buffer.
+        /// The last page of the scratch buffer is used as an alternate stack
+        /// for the syscallbuf code. So the usable size is less than this.
+        pub scratch_size: isize,
+
+        /// The child's desched counter event fd number
+        pub desched_fd_child: i32,
+        /// The child's cloned_file_data_fd
+        pub cloned_file_data_fd_child: i32,
+
+        pub hpc: PerfCounters,
+
+        /// This is always the "real" tid of the tracee.
+        pub tid: pid_t,
+        /// This is always the recorded tid of the tracee.  During
+        /// recording, it's synonymous with |tid|, and during replay
+        /// it's the tid that was recorded.
+        pub rec_tid: pid_t,
+
+        pub syscallbuf_size: usize,
+        /// Points at the tracee's mapping of the buffer.
+        pub syscallbuf_child: RemotePtr<syscallbuf_hdr>,
+        /// XXX Move these fields to ReplayTask
+        pub stopping_breakpoint_table: RemoteCodePtr,
+        pub stopping_breakpoint_table_entry_size: i32,
+
+        pub preload_globals: RemotePtr<preload_globals>,
+        pub thread_locals: ThreadLocals,
+
+        /// These are private
+        serial: u32,
+        /// The address space of this task.
+        as_: AddressSpaceSharedPtr,
+        /// The file descriptor table of this task.
+        fds: FdTableSharedPtr,
+        /// Task's OS name.
+        prname: String,
+        /// Count of all ticks seen by this task since tracees became
+        /// consistent and the task last wait()ed.
+        ticks: Ticks,
+        /// When |is_stopped|, these are our child registers.
+        registers: Registers,
+        /// Where we last resumed execution
+        address_of_last_execution_resume: RemoteCodePtr,
+        how_last_execution_resumed: ResumeRequest,
+        /// In certain circumstances, due to hardware bugs, we need to fudge the
+        /// cx register. If so, we record the orginal value here. See comments in
+        /// Task.cc
+        last_resume_orig_cx: u64,
+        /// The instruction type we're singlestepping through.
+        singlestepping_instruction: TrappedInstruction,
+        /// True if we set a breakpoint after a singlestepped CPUID instruction.
+        /// We need this in addition to `singlestepping_instruction` because that
+        /// might be CPUID but we failed to set the breakpoint.
+        did_set_breakpoint_after_cpuid: bool,
+        /// True when we know via waitpid() that the task is stopped and we haven't
+        /// resumed it.
+        is_stopped: bool,
+        /// True when the seccomp filter has been enabled via prctl(). This happens
+        /// in the first system call issued by the initial tracee (after it returns
+        /// from kill(SIGSTOP) to synchronize with the tracer).
+        seccomp_bpf_enabled: bool,
+        /// True when we consumed a PTRACE_EVENT_EXIT that was about to race with
+        /// a resume_execution, that was issued while stopped (i.e. SIGKILL).
+        detected_unexpected_exit: bool,
+        /// True when 'registers' has changes that haven't been flushed back to the
+        /// task yet.
+        registers_dirty: bool,
+        /// When |extra_registers_known|, we have saved our extra registers.
+        extra_registers: ExtraRegisters,
+        extra_registers_known: bool,
+        /// The session we're part of.
+        session_: *mut Session,
+        /// The thread group this belongs to.
+        tg: ThreadGroupSharedPtr,
+        /// Entries set by |set_thread_area()| or the |tls| argument to |clone()|
+        /// (when that's a user_desc). May be more than one due to different
+        /// entry_numbers.
+        thread_areas_: Vec<user_desc>,
+        /// The |stack| argument passed to |clone()|, which for
+        /// "threads" is the top of the user-allocated stack.
+        top_of_stack: RemotePtr<u8>,
+        /// The most recent status of this task as returned by
+        /// waitpid().
+        wait_status: WaitStatus,
+        /// The most recent siginfo (captured when wait_status shows pending_sig())
+        pending_siginfo: siginfo_t,
+        /// True when a PTRACE_EXIT_EVENT has been observed in the wait_status
+        /// for this task.
+        seen_ptrace_exit_event: bool,
+    }
 
     pub type DebugRegs = Vec<WatchConfig>;
-
-    pub type ThreadLocals = [u8; PRELOAD_THREAD_LOCALS_SIZE];
 
     #[derive(Copy, Clone, Debug)]
     enum WriteFlags {
         IsBreakpointRelated = 0x1,
+    }
+
+    pub struct CapturedState {
+        pub ticks: Ticks,
+        pub regs: Registers,
+        pub extra_regs: ExtraRegisters,
+        pub prname: String,
+        pub thread_areas: Vec<user_desc>,
+        pub syscallbuf_child: RemotePtr<syscallbuf_hdr>,
+        pub syscallbuf_size: usize,
+        pub num_syscallbuf_bytes: usize,
+        pub preload_globals: RemotePtr<preload_globals>,
+        pub scratch_ptr: RemotePtr<u8>,
+        pub scratch_size: isize,
+        pub top_of_stack: RemotePtr<u8>,
+        pub cloned_file_data_offset: u64,
+        pub thread_locals: ThreadLocals,
+        pub rec_tid: pid_t,
+        pub serial: u32,
+        pub desched_fd_child: i32,
+        pub cloned_file_data_fd_child: i32,
+        pub wait_status: WaitStatus,
     }
 
     #[derive(Copy, Clone, Debug)]

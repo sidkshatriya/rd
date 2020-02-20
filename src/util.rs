@@ -267,3 +267,13 @@ pub fn resize_shmem_segment(fd: &ScopedFd, num_bytes: u64) {
         fatal!("Failed to resize shmem to {}", num_bytes);
     }
 }
+
+pub enum TrappedInstruction {
+    None = 0,
+    Rdtsc = 1,
+    Rdtscp = 2,
+    CpuId = 3,
+    Int3 = 4,
+    Pushf = 5,
+    Pushf16 = 6,
+}

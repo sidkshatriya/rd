@@ -76,7 +76,7 @@ bitflags! {
 }
 
 #[derive(Copy, Clone, Debug)]
-enum TicksSemantics {
+pub enum TicksSemantics {
     TicksRetiredConditionalBranches,
     TicksTakenBranches,
 }
@@ -689,7 +689,7 @@ fn check_working_counters() -> bool {
     only_one_counter
 }
 
-struct PerfCounters {
+pub struct PerfCounters {
     // Only valid while 'counting' is true
     counting_period: Ticks,
     tid: Pid,
