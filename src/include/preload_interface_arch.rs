@@ -46,7 +46,7 @@ pub struct preload_thread_locals {
     /// existing during replay, some traces with SYSCALLBUF_PROTOCOL_VERSION 0
     /// don't have it.
     // @TODO Is this OK?
-    pub original_syscall_parameters: *const syscall_info,
+    pub original_syscall_parameters: ptr<syscall_info>,
 
     /// Nonzero when thread-local state like the syscallbuf has been
     /// initialized.
