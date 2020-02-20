@@ -1,3 +1,7 @@
+use crate::bindings::ptrace::{
+    PTRACE_CONT, PTRACE_SINGLESTEP, PTRACE_SYSCALL, PTRACE_SYSEMU, PTRACE_SYSEMU_SINGLESTEP,
+};
+
 /// @TODO temporarily define locally.
 const PRELOAD_THREAD_LOCALS_SIZE: usize = 104;
 
@@ -28,13 +32,12 @@ pub enum CloneFlags {
 /// part of the official ptrace API, and we want to use a strong type
 /// for these resume requests to ensure callers don't confuse their
 /// arguments.
-/// @TODO Need to associated with actual PTRACE_ constants.
 pub enum ResumeRequest {
-    ResumeCont,
-    ResumeSinglestep,
-    ResumeSyscall,
-    ResumeSysemu,
-    ResumeSysemuSinglestep,
+    ResumeCont = PTRACE_CONT as isize,
+    ResumeSinglestep = PTRACE_SINGLESTEP as isize,
+    ResumeSyscall = PTRACE_SYSCALL as isize,
+    ResumeSysemu = PTRACE_SYSEMU as isize,
+    ResumeSysemuSinglestep = PTRACE_SYSEMU_SINGLESTEP as isize,
 }
 
 pub enum WaitRequest {
