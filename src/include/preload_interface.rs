@@ -265,7 +265,8 @@ pub struct syscallbuf_hdr {
 
 /// Each bit of of syscallbuf_hdr->locked indicates a reason why the syscallbuf
 /// is locked. These are all the bits that are currently defined.
-#[repr(C,u8)]
+/// @TODO repr(C,u8) gives warning `warning[E0566]: conflicting representation hints`
+#[repr(u8)]
 #[derive(Debug, Copy, Clone)]
 pub enum syscallbuf_locked_why {
     /// Used by the tracee, during interruptible syscalls to avoid recursion
