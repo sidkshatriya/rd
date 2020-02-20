@@ -106,7 +106,8 @@ pub mod task {
     }
 
     #[derive(Copy, Clone, Debug)]
-    enum CloneReason {
+    // @TODO originally this was NOT pub. Adjust?
+    pub enum CloneReason {
         /// Cloning a task in the same session due to tracee fork()/vfork()/clone()
         TraceeClone,
         /// Cloning a task into a new session as the leader for a checkpoint
