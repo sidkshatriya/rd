@@ -69,6 +69,7 @@ pub enum TicksRequest {
 pub mod task {
     use super::*;
     use crate::address_space::address_space::AddressSpaceSharedPtr;
+    use crate::address_space::kernel_mapping::KernelMapping;
     use crate::address_space::WatchConfig;
     use crate::auto_remote_syscalls::AutoRemoteSyscalls;
     use crate::bindings::kernel::user_desc;
@@ -88,12 +89,14 @@ pub mod task {
     use crate::taskish_uid::TaskUid;
     use crate::thread_group::{ThreadGroup, ThreadGroupSharedPtr};
     use crate::ticks::Ticks;
+    use crate::trace_stream::TraceStream;
+    use crate::util::TrappedInstruction;
     use crate::wait_status::WaitStatus;
     use libc::{pid_t, siginfo_t, uid_t};
     use std::cell::RefCell;
     use std::io::Write;
+    use std::os::raw::c_long;
     use std::rc::Rc;
-    use crate::util::TrappedInstruction;
 
     pub struct TrapReason;
     type ThreadLocals = [u8; PRELOAD_THREAD_LOCALS_SIZE];
@@ -585,7 +588,7 @@ pub mod task {
             unimplemented!()
         }
 
-        /** Set the tracee's extra registers to |regs|. */
+        /// Set the tracee's extra registers to |regs|. */
         pub fn set_extra_regs(&self, regs: &ExtraRegisters) {
             unimplemented!()
         }
@@ -866,6 +869,156 @@ pub mod task {
             unimplemented!()
         }
         pub fn activate_preload_thread_locals(&self) {
+            unimplemented!()
+        }
+
+        fn new(session: &Session, tid: pid_t, rec_tid: pid_t, serial: u32, a: SupportedArch) {
+            unimplemented!()
+        }
+
+        fn on_syscall_exit_arch(&self, syscallno: i32, regs: &Registers) {
+            unimplemented!()
+        }
+
+        /// Helper function for init_buffers. */
+        fn init_buffers_arch(&self, map_hint: RemotePtr<u8>) {
+            unimplemented!()
+        }
+
+        /// Grab state from this task into a structure that we can use to
+        /// initialize a new task via os_clone_into/os_fork_into and copy_state.
+        fn capture_state(&self) -> CapturedState {
+            unimplemented!()
+        }
+
+        /// Make this task look like an identical copy of the task whose state
+        /// was captured by capture_task_state(), in
+        /// every way relevant to replay.  This task should have been
+        /// created by calling os_clone_into() or os_fork_into(),
+        /// and if it wasn't results are undefined.
+        ///
+        /// Some task state must be copied into this by injecting and
+        /// running syscalls in this task.  Other state is metadata
+        /// that can simply be copied over in local memory.
+        fn copy_state(&self, stat: &CapturedState) {
+            unimplemented!()
+        }
+
+        /// Make the ptrace |request| with |addr| and |data|, return
+        /// the ptrace return value.
+        fn fallible_ptrace(&self, request: i32, addr: RemotePtr<u8>, data: &mut [u8]) -> c_long {
+            unimplemented!()
+        }
+
+        /// Like |fallible_ptrace()| but completely infallible.
+        /// All errors are treated as fatal.
+        fn xptrace(&self, request: i32, addr: RemotePtr<u8>, data: &mut [u8]) {
+            unimplemented!()
+        }
+
+        /// Read tracee memory using PTRACE_PEEKDATA calls. Slow, only use
+        /// as fallback. Returns number of bytes actually read.
+        /// @TODO return an isize or usize?
+        fn read_bytes_ptrace(&self, buf: &mut [u8], addr: RemotePtr<u8>) -> usize {
+            unimplemented!()
+        }
+
+        /// Write tracee memory using PTRACE_POKEDATA calls. Slow, only use
+        /// as fallback. Returns number of bytes actually written.
+        /// @TODO return an isize or usize?
+        fn write_bytes_ptrace(&self, addr: RemotePtr<u8>, buf: &[u8]) -> usize {
+            unimplemented!()
+        }
+
+        /// Try writing 'buf' to 'addr' by replacing pages in the tracee
+        /// address-space using a temporary file. This may work around PaX issues.
+        fn try_replace_pages(&self, addr: RemotePtr<u8>, buf: &[u8]) -> bool {
+            unimplemented!()
+        }
+
+        /// Map the syscallbuffer for this, shared with this process.
+        /// |map_hint| is the address where the syscallbuf is expected
+        /// to be mapped --- and this is asserted --- or nullptr if
+        /// there are no expectations.
+        /// Initializes syscallbuf_child.
+        fn init_syscall_buffer(
+            &self,
+            remote: &AutoRemoteSyscalls,
+            map_hint: RemotePtr<u8>,
+        ) -> KernelMapping {
+            unimplemented!()
+        }
+
+        /// Make the OS-level calls to create a new fork or clone that
+        /// will eventually be a copy of this task and return that Task
+        /// metadata.  These methods are used in concert with
+        /// |Task::copy_state()| to create task copies during
+        /// checkpointing.
+        ///
+        /// For |os_fork_into()|, |session| will be tracking the
+        /// returned fork child.
+        ///
+        /// For |os_clone_into()|, |task_leader| is the "main thread"
+        /// in the process into which the copy of this task will be
+        /// created.  |task_leader| will perform the actual OS calls to
+        /// create the new child.
+        fn os_fork_into(&self, session: &Session) -> &Task {
+            unimplemented!()
+        }
+        fn os_clone_into(state: &CapturedState, remote: &AutoRemoteSyscalls) -> *mut Task {
+            unimplemented!()
+        }
+
+        /// Return the TraceStream that we're using, if in recording or replay.
+        /// Returns null if we're not in record or replay.
+        fn trace_stream(&self) -> &TraceStream {
+            unimplemented!()
+        }
+
+        /// Make the OS-level calls to clone |parent| into |session|
+        /// and return the resulting Task metadata for that new
+        /// process.  This is as opposed to |Task::clone()|, which only
+        /// attaches Task metadata to an /existing/ process.
+        ///
+        /// The new clone will be tracked in |session|.  The other
+        /// arguments are as for |Task::clone()| above.
+        fn os_clone(
+            reason: CloneReason,
+            session: &Session,
+            remote: &AutoRemoteSyscalls,
+            rec_child_tid: pid_t,
+            new_serial: u32,
+            base_flags: u32,
+            stack: RemotePtr<u8>,
+            ptid: RemotePtr<i32>,
+            tls: RemotePtr<u8>,
+            ctid: RemotePtr<i32>,
+        ) {
+            unimplemented!()
+        }
+
+        /// Fork and exec the initial task. If something goes wrong later
+        /// (i.e. an exec does not occur before an exit), an error may be
+        /// readable from the other end of the pipe whose write end is error_fd.
+        fn spawn<'a>(
+            session: &'a Session,
+            error_fd: &ScopedFd,
+            sock_fd_out: &ScopedFd,
+            tracee_socket_fd_number_out: &mut i32,
+            trace: &TraceStream,
+            exe_path: &str,
+            argv: &[&str],
+            envp: &[&str],
+            rec_tid: pid_t,
+        ) -> &'a Task {
+            unimplemented!()
+        }
+
+        fn work_around_knl_string_singlestep_bug() -> bool {
+            unimplemented!()
+        }
+
+        fn preload_thread_locals(&self) -> &mut u8 {
             unimplemented!()
         }
     }

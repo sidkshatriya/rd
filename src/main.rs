@@ -44,6 +44,7 @@ mod thread_group;
 mod ticks;
 mod trace_capnp;
 mod trace_frame;
+mod trace_stream;
 mod util;
 mod wait_status;
 
