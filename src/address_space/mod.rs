@@ -69,6 +69,7 @@ pub struct SyscallType {
 
 /// A distinct watchpoint, corresponding to the information needed to
 /// program a single x86 debug register.
+#[derive(Copy, Clone)]
 pub struct WatchConfig {
     pub addr: RemotePtr<u8>,
     pub num_bytes: usize,
