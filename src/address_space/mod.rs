@@ -100,7 +100,7 @@ pub mod address_space {
     use crate::remote_code_ptr::RemoteCodePtr;
     use crate::remote_ptr::RemotePtr;
     use crate::scoped_fd::ScopedFd;
-    use crate::session::Session;
+    use crate::session::session::Session;
     use crate::task::task::Task;
     use crate::task_set::TaskSet;
     use crate::taskish_uid::AddressSpaceUid;

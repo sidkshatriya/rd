@@ -76,6 +76,7 @@ pub mod task {
     use crate::extra_registers::ExtraRegisters;
     use crate::fd_table::FdTableSharedPtr;
     use crate::kernel_abi::common::preload_interface::preload_globals;
+    use crate::kernel_abi::common::preload_interface::{syscallbuf_hdr, syscallbuf_record};
     use crate::kernel_abi::SupportedArch;
     use crate::perf_counters::PerfCounters;
     use crate::property_table::PropertyTable;
@@ -83,8 +84,7 @@ pub mod task {
     use crate::remote_code_ptr::RemoteCodePtr;
     use crate::remote_ptr::RemotePtr;
     use crate::scoped_fd::ScopedFd;
-    use crate::session::Session;
-    use crate::syscallbuf_record::{syscallbuf_hdr, syscallbuf_record};
+    use crate::session::session::Session;
     use crate::task_trait::TaskTrait;
     use crate::taskish_uid::TaskUid;
     use crate::thread_group::{ThreadGroup, ThreadGroupSharedPtr};
@@ -242,6 +242,7 @@ pub mod task {
         IsBreakpointRelated = 0x1,
     }
 
+    #[derive(Clone)]
     pub struct CapturedState {
         pub ticks: Ticks,
         pub regs: Registers,

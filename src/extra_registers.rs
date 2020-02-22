@@ -81,6 +81,7 @@ pub enum Format {
     XSave,
 }
 
+#[derive(Clone)]
 pub struct ExtraRegisters {
     format_: Format,
     arch_: SupportedArch,

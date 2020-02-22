@@ -32,6 +32,7 @@ enum Type {
 
 use Type::*;
 
+#[derive(Copy, Clone)]
 pub struct WaitStatus {
     status: i32,
 }
