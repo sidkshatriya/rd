@@ -11,8 +11,11 @@ use crate::taskish_uid::{AddressSpaceUid, TaskUid, ThreadGroupUid};
 use crate::thread_group::{ThreadGroup, ThreadGroupSharedPtr};
 use crate::trace_stream::TraceStream;
 use libc::pid_t;
+use std::ops::Deref;
 
 pub trait SessionInterface {
+    fn as_session(&self) -> &Session;
+
     fn on_destroy(&self, t: &Task);
     fn as_record(&self) -> Option<&RecordSession> {
         None
@@ -36,7 +39,7 @@ pub trait SessionInterface {
     fn trace_stream(&self) -> Option<&TraceStream> {
         None
     }
-    fn cpu_binding(&self, trace: &TraceStream) -> i32;
+    fn cpu_binding(&self, trace: &TraceStream) -> Option<i32>;
     fn on_create(&self, t: &Task);
 
     /// NOTE: called Session::copy_state_to() in rr.
@@ -104,10 +107,10 @@ pub trait SessionInterface {
 
     /// Return the set of Tasks being traced in this session.
     /// @TODO shouldn't need for this to be mutable but it is due to finish_initializing()
-    fn tasks(&mut self) -> &TaskMap {
-        self.finish_initializing();
-        &self.task_map
-    }
+    //fn tasks(&mut self) -> &TaskMap {
+    //    self.finish_initializing();
+    //    &self.as_session().task_map
+    //}
 
     /// Call |post_exec()| immediately after a tracee has successfully
     /// |execve()|'d.  After that, |done_initial_exec()| returns true.

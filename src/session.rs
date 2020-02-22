@@ -69,15 +69,18 @@ pub mod session {
     use crate::address_space::address_space::{AddressSpace, AddressSpaceSharedPtr, Mapping};
     use crate::address_space::kernel_mapping::KernelMapping;
     use crate::auto_remote_syscalls::AutoRemoteSyscalls;
-    use crate::emu_fs::EmuFs;
+    use crate::kernel_abi::SupportedArch;
     use crate::monitored_shared_memory::MonitoredSharedMemorySharedPtr;
     use crate::perf_counters::TicksSemantics;
     use crate::remote_ptr::RemotePtr;
     use crate::scoped_fd::ScopedFd;
+    use crate::session_interface::SessionInterface;
     use crate::task::task::{CapturedState, Task};
-    use crate::taskish_uid::{AddressSpaceUid, TaskUid, ThreadGroupUid};
+    use crate::task_interface::TaskInterface;
+    use crate::taskish_uid::{AddressSpaceUid, ThreadGroupUid};
     use crate::thread_group::{ThreadGroup, ThreadGroupSharedPtr};
     use crate::ticks::Ticks;
+    use crate::trace_stream::TraceStream;
     use libc::pid_t;
     use std::cell::RefCell;
     use std::collections::HashMap;
@@ -88,7 +91,7 @@ pub mod session {
     /// we don't get confused. TaskMap is indexed by tid since there can never be
     /// two Tasks with the same tid at the same time.
     pub type AddressSpaceMap = HashMap<AddressSpaceUid, *mut AddressSpace>;
-    pub type TaskMap = HashMap<pid_t, *mut Task>;
+    pub type TaskMap = HashMap<pid_t, *mut dyn TaskInterface>;
     pub type ThreadGroupMap = HashMap<ThreadGroupUid, *mut ThreadGroup>;
 
     #[derive(Copy, Clone)]
@@ -378,5 +381,27 @@ pub mod session {
 
         /// True while the execution of this session is visible to users.
         visible_execution_: bool,
+    }
+
+    impl SessionInterface for Session {
+        fn as_session(&self) -> &Session {
+            self
+        }
+
+        fn on_destroy(&self, t: &Task) {
+            unimplemented!()
+        }
+
+        fn new_task(&self, tid: i32, rec_tid: i32, serial: u32, a: SupportedArch) {
+            unimplemented!()
+        }
+
+        fn cpu_binding(&self, trace: &TraceStream) -> Option<i32> {
+            unimplemented!()
+        }
+
+        fn on_create(&self, t: &Task) {
+            unimplemented!()
+        }
     }
 }
