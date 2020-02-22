@@ -128,20 +128,6 @@ pub mod session {
     /// Multiple sessions can coexist in the same process.  This
     /// is required when using replay checkpoints, for example.
     impl Session {
-        /// Call |post_exec()| immediately after a tracee has successfully
-        /// |execve()|'d.  After that, |done_initial_exec()| returns true.
-        /// This is called while we're still in the execve syscall so it's not safe
-        /// to perform remote syscalls in this method.
-        ///
-        /// Tracee state can't be validated before the first exec,
-        /// because the address space inside the rr process for |rr
-        /// replay| will be different than it was for |rr record|.
-        /// After the first exec, we're running tracee code, and
-        /// everything must be the same.
-        pub fn post_exec(&mut self) {
-            unimplemented!()
-        }
-
         /// Returns true after the tracee has done the initial exec in Task::spawn.
         /// Before then, tracee state can be inconsistent; from the exec exit-event
         /// onwards, the tracee state much be consistent.
@@ -177,61 +163,9 @@ pub mod session {
             unimplemented!()
         }
 
-        /// Return a copy of |tg| with the same mappings.
-        /// NOTE: Called simply Session::clone() in rr
-        pub fn clone_tg(&mut self, t: &Task, tg: ThreadGroupSharedPtr) -> ThreadGroupSharedPtr {
-            unimplemented!()
-        }
-
-        /// See Task::clone().
-        /// This method is simply called Session::clone in rr.
-        pub fn clone_task(
-            &mut self,
-            p: &Task,
-            flags: i32,
-            stack: RemotePtr<u8>,
-            tls: RemotePtr<u8>,
-            cleartid_addr: RemotePtr<i32>,
-            new_tid: pid_t,
-            new_rec_tid: Option<pid_t>,
-        ) -> &Task {
-            unimplemented!()
-        }
-
         pub fn next_task_serial(&mut self) -> u32 {
             self.next_task_serial_ += 1;
             self.next_task_serial_
-        }
-
-        /// Return the task created with |rec_tid|, or None if no such
-        /// task exists.
-        /// NOTE: Method is simply called Session::find task() in rr
-        pub fn find_task_from_rec_tid(&self, rec_tid: pid_t) -> Option<&Task> {
-            unimplemented!()
-        }
-
-        /// NOTE: Method is simply called Session::find task() in rr
-        pub fn find_task_from_task_uid(&self, tuid: &TaskUid) -> Option<&Task> {
-            unimplemented!()
-        }
-
-        /// Return the thread group whose unique ID is |tguid|, or None if no such
-        /// thread group exists.
-        /// NOTE: Method is simply called Session::find thread_group() in rr
-        pub fn find_thread_group_from_tguid(&self, tguid: &ThreadGroupUid) -> Option<&ThreadGroup> {
-            unimplemented!()
-        }
-
-        /// Find the thread group for a specific pid
-        /// NOTE: Method is simply called Session::find thread_group() in rr
-        pub fn find_thread_group_from_pid(&self, pid: pid_t) -> Option<&ThreadGroup> {
-            unimplemented!()
-        }
-
-        /// Return the AddressSpace whose unique ID is |vmuid|, or None if no such
-        /// address space exists.
-        pub fn find_address_space(&self, vmuid: &AddressSpaceUid) -> Option<&AddressSpace> {
-            unimplemented!()
         }
 
         /// |tasks().size()| will be zero and all the OS tasks will be
@@ -253,13 +187,6 @@ pub mod session {
         /// NOTE: Method is simply called on_Session::on_destroy() in rr.
         pub fn on_destroy_tg(&mut self, tg: &ThreadGroup) {
             unimplemented!()
-        }
-
-        /// Return the set of Tasks being traced in this session.
-        /// @TODO shouldn't need for this to be mutable but it is due to finish_initializing()
-        pub fn tasks(&mut self) -> &TaskMap {
-            self.finish_initializing();
-            &self.task_map
         }
 
         /// Return the set of AddressSpaces being tracked in this session.
@@ -389,18 +316,8 @@ pub mod session {
             unimplemented!()
         }
 
-        /// NOTE: called Session::copy_state_to() in rr.
-        fn copy_state_to_session(&self, dest: &Session, emu_fs: &EmuFs, dest_emu_fs: EmuFs) {
-            unimplemented!()
-        }
-
         /// XXX Move CloneCompletion/CaptureState etc to ReplayTask/ReplaySession
 
-        /// Call this before doing anything that requires access to the full set
-        /// of tasks (i.e., almost anything!).
-        fn finish_initializing(&mut self) {
-            unimplemented!()
-        }
         fn assert_fully_initialized(&self) {
             unimplemented!()
         }
