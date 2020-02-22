@@ -11,6 +11,7 @@ pub struct BreakStatus {
     /// instruction that triggered the watchpoint has completed.
     pub watchpoints_hit: Vec<WatchConfig>,
     /// When non-null, we stopped because a signal was delivered to |task|.
+    /// @TODO does this really need to be a Box?
     pub signal: Box<siginfo_t>,
     /// True when we stopped because we hit a software breakpoint at |task|'s
     /// current ip().
@@ -58,6 +59,10 @@ pub enum RunCommand {
     RunSinglestepFastForward,
 }
 
+pub fn is_singlestep(command: RunCommand) -> bool {
+    unimplemented!()
+}
+
 pub mod session {
     use super::BreakStatus;
     use super::RunCommand;
@@ -99,10 +104,6 @@ pub mod session {
         PtraceSyscallBeforeSeccompUnknown,
     }
 
-    pub fn is_singlestep(command: RunCommand) -> bool {
-        unimplemented!()
-    }
-
     /// struct is NOT pub
     #[derive(Clone)]
     struct AddressSpaceClone {
@@ -137,7 +138,7 @@ pub mod session {
         /// replay| will be different than it was for |rr record|.
         /// After the first exec, we're running tracee code, and
         /// everything must be the same.
-        pub fn post_exec(&self) {
+        pub fn post_exec(&mut self) {
             unimplemented!()
         }
 
@@ -145,19 +146,20 @@ pub mod session {
         /// Before then, tracee state can be inconsistent; from the exec exit-event
         /// onwards, the tracee state much be consistent.
         pub fn done_initial_exec(&self) -> bool {
-            unimplemented!()
+            self.done_initial_exec_
         }
 
         /// Create and return a new address space that's constructed
         /// from |t|'s actual OS address space. When spawning, |exe| is the empty
         /// string; it will be replaced during the first execve(), when we first
         /// start running real tracee code.
-        /// @TODO exec and exec_count params
+        /// If |exe| is not specified it is assumed to be an empty string.
+        /// If |exec_count| is not specified it is assumed to be 0.
         pub fn create_vm(
-            &self,
+            &mut self,
             t: &Task,
-            exe: &mut String,
-            exec_count: u32,
+            exe: Option<&str>,
+            exec_count: Option<u32>,
         ) -> AddressSpaceSharedPtr {
             unimplemented!()
         }
@@ -165,23 +167,26 @@ pub mod session {
         /// Return a copy of |vm| with the same mappings.  If any
         /// mapping is changed, only the |clone()|d copy is updated,
         /// not its origin (i.e. copy-on-write semantics).
-        pub fn clone_vm(&self, t: &Task, vm: AddressSpaceSharedPtr) -> AddressSpaceSharedPtr {
+        /// NOTE: Called simply Session::clone() in rr
+        pub fn clone_vm(&mut self, t: &Task, vm: AddressSpaceSharedPtr) -> AddressSpaceSharedPtr {
             unimplemented!()
         }
 
         /// Create the initial thread group.
-        pub fn create_initial_tg(&self, t: &Task) -> ThreadGroupSharedPtr {
+        pub fn create_initial_tg(&mut self, t: &Task) -> ThreadGroupSharedPtr {
             unimplemented!()
         }
 
         /// Return a copy of |tg| with the same mappings.
-        pub fn clone_tg(&self, t: &Task, tg: ThreadGroupSharedPtr) -> ThreadGroupSharedPtr {
+        /// NOTE: Called simply Session::clone() in rr
+        pub fn clone_tg(&mut self, t: &Task, tg: ThreadGroupSharedPtr) -> ThreadGroupSharedPtr {
             unimplemented!()
         }
 
         /// See Task::clone().
-        pub fn clone(
-            &self,
+        /// This method is simply called Session::clone in rr.
+        pub fn clone_task(
+            &mut self,
             p: &Task,
             flags: i32,
             stack: RemotePtr<u8>,
@@ -193,58 +198,68 @@ pub mod session {
             unimplemented!()
         }
 
-        pub fn next_task_serial(&self) -> u32 {
-            unimplemented!()
+        pub fn next_task_serial(&mut self) -> u32 {
+            self.next_task_serial_ += 1;
+            self.next_task_serial_
         }
 
-        /// Return the task created with |rec_tid|, or nullptr if no such
+        /// Return the task created with |rec_tid|, or None if no such
         /// task exists.
-        pub fn find_task_from_pid(&self, rec_tid: pid_t) -> &Task {
+        /// NOTE: Method is simply called Session::find task() in rr
+        pub fn find_task_from_rec_tid(&self, rec_tid: pid_t) -> Option<&Task> {
             unimplemented!()
         }
 
-        pub fn find_task_from_task_uid(&self, tuid: &TaskUid) -> &Task {
+        /// NOTE: Method is simply called Session::find task() in rr
+        pub fn find_task_from_task_uid(&self, tuid: &TaskUid) -> Option<&Task> {
             unimplemented!()
         }
 
-        /// Return the thread group whose unique ID is |tguid|, or nullptr if no such
+        /// Return the thread group whose unique ID is |tguid|, or None if no such
         /// thread group exists.
-        pub fn find_thread_group_from_tguid(&self, tguid: Option<&ThreadGroupUid>) -> &ThreadGroup {
+        /// NOTE: Method is simply called Session::find thread_group() in rr
+        pub fn find_thread_group_from_tguid(&self, tguid: &ThreadGroupUid) -> Option<&ThreadGroup> {
             unimplemented!()
         }
 
         /// Find the thread group for a specific pid
-        pub fn find_thread_group_from_pid(&self, pid: pid_t) -> &ThreadGroup {
+        /// NOTE: Method is simply called Session::find thread_group() in rr
+        pub fn find_thread_group_from_pid(&self, pid: pid_t) -> Option<&ThreadGroup> {
             unimplemented!()
         }
 
-        /// Return the AddressSpace whose unique ID is |vmuid|, or nullptr if no such
+        /// Return the AddressSpace whose unique ID is |vmuid|, or None if no such
         /// address space exists.
-        pub fn find_address_space(&self, vmuid: &AddressSpaceUid) -> &AddressSpace {
+        pub fn find_address_space(&self, vmuid: &AddressSpaceUid) -> Option<&AddressSpace> {
             unimplemented!()
         }
 
         /// |tasks().size()| will be zero and all the OS tasks will be
         /// gone when this returns, or this won't return.
-        pub fn kill_all_tasks(&self) {
+        pub fn kill_all_tasks(&mut self) {
             unimplemented!()
         }
 
         /// Call these functions from the objects' destructors in order
         /// to notify this session that the objects are dying.
-        pub fn on_destroy_vm(&self, vm: &AddressSpace) {
+        /// NOTE: Method is simply called on_Session::on_destroy() in rr.
+        pub fn on_destroy_vm(&mut self, vm: &AddressSpace) {
             unimplemented!()
         }
-        pub fn on_create_tg(&self, tg: &ThreadGroup) {
+        /// NOTE: Method is simply called on_Session::on_create() in rr.
+        pub fn on_create_tg(&mut self, tg: &ThreadGroup) {
             unimplemented!()
         }
-        pub fn on_destroy_tg(&self, tg: &ThreadGroup) {
+        /// NOTE: Method is simply called on_Session::on_destroy() in rr.
+        pub fn on_destroy_tg(&mut self, tg: &ThreadGroup) {
             unimplemented!()
         }
 
         /// Return the set of Tasks being traced in this session.
-        pub fn tasks(&self) -> &TaskMap {
-            unimplemented!()
+        /// @TODO shouldn't need for this to be mutable but it is due to finish_initializing()
+        pub fn tasks(&mut self) -> &TaskMap {
+            self.finish_initializing();
+            &self.task_map
         }
 
         /// Return the set of AddressSpaces being tracked in this session.
@@ -263,40 +278,44 @@ pub mod session {
         }
 
         pub fn visible_execution(&self) -> bool {
-            unimplemented!();
+            self.visible_execution_
         }
-        pub fn set_visible_execution(&self, visible: bool) {
-            unimplemented!()
+        pub fn set_visible_execution(&mut self, visible: bool) {
+            self.visible_execution_ = visible
         }
-        pub fn accumulate_bytes_written(&self, bytes_written: u64) {
-            unimplemented!()
+        pub fn accumulate_bytes_written(&mut self, bytes_written: u64) {
+            self.statistics_.bytes_written += bytes_written
         }
-        pub fn accumulate_syscall_performed(&self) {
-            unimplemented!()
+        pub fn accumulate_syscall_performed(&mut self) {
+            self.statistics_.syscalls_performed += 1
         }
-        pub fn accumulate_ticks_processed(&self, ticks: Ticks) {
-            unimplemented!()
+        pub fn accumulate_ticks_processed(&mut self, ticks: Ticks) {
+            self.statistics_.ticks_processed += ticks;
         }
         pub fn statistics(&self) -> Statistics {
-            unimplemented!()
+            self.statistics_
         }
 
         pub fn read_spawned_task_error(&self) -> String {
             unimplemented!()
         }
 
+        /// If None is provided for |tracee_prot|, PROT_READ | PROT_WRITE is assumed.
+        /// If None is provided for |tracee_flags|, 0 is assumed
+        /// If None is provided for |monitored| it is assumed that there is no memory monitor.
         pub fn create_shared_mmap(
             remote: &AutoRemoteSyscalls,
             size: usize,
             map_hint: RemotePtr<u8>,
             name: &str,
-            tracee_prot: i32,
-            tracee_flags: i32,
+            tracee_prot: Option<i32>,
+            tracee_flags: Option<i32>,
             monitored: Option<MonitoredSharedMemorySharedPtr>,
         ) -> KernelMapping {
             unimplemented!()
         }
 
+        /// As this stands, it looks to be a move as far as m is concerned.
         pub fn make_private_shared(remote: &AutoRemoteSyscalls, m: Mapping) -> bool {
             unimplemented!()
         }
@@ -307,10 +326,13 @@ pub mod session {
         /// DiscardContents.
         /// OK to call this while 'm' references one of the mappings in remote's
         /// AddressSpace
+        /// If None is provided for |preserve| then DISCARD_CONTENTS is assumed
+        /// If None is provided for |monitored| it is assumed that there is no memory monitor.
+        /// @TODO figure out lifetime
         pub fn recreate_shared_mmap<'a>(
             remote: &AutoRemoteSyscalls,
             m: &Mapping,
-            preserve: PreserveContents,
+            preserve: Option<PreserveContents>,
             monitored: Option<MonitoredSharedMemorySharedPtr>,
         ) -> &'a Mapping {
             unimplemented!()
@@ -319,6 +341,8 @@ pub mod session {
         /// Takes a mapping and replaces it by one that is shared between rr and
         /// the tracee. The caller is responsible for filling the contents of the
         /// new mapping.
+        /// If None is provided for |monitored| it is assumed that there is no memory monitor.
+        /// @TODO figure out lifetime
         pub fn steal_mapping<'a>(
             remote: &AutoRemoteSyscalls,
             m: &Mapping,
@@ -328,32 +352,33 @@ pub mod session {
         }
 
         pub fn syscall_seccomp_ordering(&self) -> PtraceSyscallBeforeSeccomp {
-            unimplemented!()
+            self.syscall_seccomp_ordering_
         }
 
         pub fn has_cpuid_faulting() -> bool {
             unimplemented!()
         }
-        pub fn rr_mapping_prefix() -> String {
-            unimplemented!()
+        pub fn rd_mapping_prefix() -> &'static str {
+            "/rd-shared-"
         }
 
-        pub fn tracee_socket_fd(&self) -> &ScopedFd {
-            unimplemented!()
+        /// @TODO is the return type what we really want?
+        pub fn tracee_socket_fd(&self) -> Rc<RefCell<ScopedFd>> {
+            self.tracee_socket.clone()
         }
         pub fn tracee_fd_number(&self) -> i32 {
-            unimplemented!()
+            self.tracee_socket_fd_number
         }
 
         pub fn ticks_semantics(&self) -> TicksSemantics {
-            unimplemented!()
+            self.ticks_semantics_
         }
 
         fn new() {
             unimplemented!()
         }
 
-        fn create_spawn_task_error_pipe(&self) -> ScopedFd {
+        fn create_spawn_task_error_pipe(&mut self) -> ScopedFd {
             unimplemented!()
         }
 
@@ -364,18 +389,25 @@ pub mod session {
             unimplemented!()
         }
 
-        fn copy_state_to(&self, dest: &Session, emu_fs: &EmuFs, dest_emu_fs: EmuFs) {
+        /// NOTE: called Session::copy_state_to() in rr.
+        fn copy_state_to_session(&self, dest: &Session, emu_fs: &EmuFs, dest_emu_fs: EmuFs) {
             unimplemented!()
         }
 
         /// XXX Move CloneCompletion/CaptureState etc to ReplayTask/ReplaySession
 
         /// Call this before doing anything that requires access to the full set
-        /// of tasks (i.e., almost anything!). Not really !
-        fn finish_initializing(&self) {
+        /// of tasks (i.e., almost anything!).
+        fn finish_initializing(&mut self) {
             unimplemented!()
         }
         fn assert_fully_initialized(&self) {
+            unimplemented!()
+        }
+    }
+
+    impl Drop for Session {
+        fn drop(&mut self) {
             unimplemented!()
         }
     }
@@ -407,9 +439,10 @@ pub mod session {
         task_map: TaskMap,
         thread_group_map: ThreadGroupMap,
 
-        /// If non-null, data required to finish initializing the tasks of this
+        /// If non-None, data required to finish initializing the tasks of this
         /// session.
-        clone_completion: Box<CloneCompletion>,
+        /// @TODO is a Box required here?
+        clone_completion: Option<Box<CloneCompletion>>,
 
         statistics_: Statistics,
 
