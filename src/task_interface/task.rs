@@ -948,4 +948,29 @@ pub mod task {
             unimplemented!()
         }
     }
+
+    impl TaskInterface for Task {
+        fn on_syscall_exit(&self, syscallno: i32, arch: SupportedArch, regs: &Registers) {
+            unimplemented!()
+        }
+
+        fn at_preload_init(&self) {
+            unimplemented!()
+        }
+
+        fn clone_task(
+            &self,
+            reason: CloneReason,
+            flags: i32,
+            stack: RemotePtr<u8>,
+            tls: RemotePtr<u8>,
+            cleartid_addr: RemotePtr<i32>,
+            new_tid: i32,
+            new_rec_tid: i32,
+            new_serial: u32,
+            other_session: Option<&SessionInterface>,
+        ) -> &Task {
+            unimplemented!()
+        }
+    }
 }
