@@ -6,7 +6,7 @@ use crate::record_session::RecordSession;
 use crate::remote_ptr::RemotePtr;
 use crate::replay_session::ReplaySession;
 use crate::session_interface::session::session::{Session, TaskMap};
-use crate::task::task::Task;
+use crate::task_interface::TaskInterface;
 use crate::taskish_uid::{AddressSpaceUid, TaskUid, ThreadGroupUid};
 use crate::thread_group::{ThreadGroup, ThreadGroupSharedPtr};
 use crate::trace_stream::TraceStream;
@@ -18,7 +18,7 @@ pub mod session;
 pub trait SessionInterface {
     fn as_session(&self) -> &Session;
 
-    fn on_destroy(&self, t: &Task);
+    fn on_destroy(&self, t: &dyn TaskInterface);
     fn as_record(&self) -> Option<&RecordSession> {
         None
     }
@@ -42,7 +42,7 @@ pub trait SessionInterface {
         None
     }
     fn cpu_binding(&self, trace: &TraceStream) -> Option<u32>;
-    fn on_create(&self, t: &Task);
+    fn on_create(&self, t: &dyn TaskInterface);
 
     /// NOTE: called Session::copy_state_to() in rr.
     fn copy_state_to_session(&self, dest: &Session, emu_fs: &EmuFs, dest_emu_fs: EmuFs) {
@@ -59,26 +59,26 @@ pub trait SessionInterface {
     /// This method is simply called Session::clone in rr.
     fn clone_task(
         &mut self,
-        p: &Task,
+        p: &dyn TaskInterface,
         flags: i32,
         stack: RemotePtr<u8>,
         tls: RemotePtr<u8>,
         cleartid_addr: RemotePtr<i32>,
         new_tid: pid_t,
         new_rec_tid: Option<pid_t>,
-    ) -> &Task {
+    ) -> &dyn TaskInterface {
         unimplemented!()
     }
 
     /// Return the task created with |rec_tid|, or None if no such
     /// task exists.
     /// NOTE: Method is simply called Session::find task() in rr
-    fn find_task_from_rec_tid(&self, rec_tid: pid_t) -> Option<&Task> {
+    fn find_task_from_rec_tid(&self, rec_tid: pid_t) -> Option<&dyn TaskInterface> {
         unimplemented!()
     }
 
     /// NOTE: Method is simply called Session::find task() in rr
-    fn find_task_from_task_uid(&self, tuid: &TaskUid) -> Option<&Task> {
+    fn find_task_from_task_uid(&self, tuid: &TaskUid) -> Option<&dyn TaskInterface> {
         unimplemented!()
     }
 
@@ -103,7 +103,11 @@ pub trait SessionInterface {
 
     /// Return a copy of |tg| with the same mappings.
     /// NOTE: Called simply Session::clone() in rr
-    fn clone_tg(&mut self, t: &Task, tg: ThreadGroupSharedPtr) -> ThreadGroupSharedPtr {
+    fn clone_tg(
+        &mut self,
+        t: &dyn TaskInterface,
+        tg: ThreadGroupSharedPtr,
+    ) -> ThreadGroupSharedPtr {
         unimplemented!()
     }
 

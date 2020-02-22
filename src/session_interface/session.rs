@@ -75,7 +75,7 @@ pub mod session {
     use crate::remote_ptr::RemotePtr;
     use crate::scoped_fd::ScopedFd;
     use crate::session_interface::SessionInterface;
-    use crate::task::task::{CapturedState, Task};
+    use crate::task::task::CapturedState;
     use crate::task_interface::TaskInterface;
     use crate::taskish_uid::{AddressSpaceUid, ThreadGroupUid};
     use crate::thread_group::{ThreadGroup, ThreadGroupSharedPtr};
@@ -109,8 +109,8 @@ pub mod session {
 
     /// struct is NOT pub
     #[derive(Clone)]
-    struct AddressSpaceClone {
-        pub clone_leader: *mut Task,
+    pub(in super::super) struct AddressSpaceClone {
+        pub clone_leader: *mut dyn TaskInterface,
         pub clone_leader_state: CapturedState,
         pub member_states: Vec<CapturedState>,
         pub captured_memory: Vec<(RemotePtr<u8>, Vec<u8>)>,
@@ -118,7 +118,7 @@ pub mod session {
 
     /// struct is NOT pub
     #[derive(Clone)]
-    struct CloneCompletion {
+    pub(in super::super) struct CloneCompletion {
         pub address_spaces: Vec<AddressSpaceClone>,
     }
 
@@ -146,7 +146,7 @@ pub mod session {
         /// If |exec_count| is not specified it is assumed to be 0.
         pub fn create_vm(
             &mut self,
-            t: &Task,
+            t: &dyn TaskInterface,
             exe: Option<&str>,
             exec_count: Option<u32>,
         ) -> AddressSpaceSharedPtr {
@@ -157,12 +157,16 @@ pub mod session {
         /// mapping is changed, only the |clone()|d copy is updated,
         /// not its origin (i.e. copy-on-write semantics).
         /// NOTE: Called simply Session::clone() in rr
-        pub fn clone_vm(&mut self, t: &Task, vm: AddressSpaceSharedPtr) -> AddressSpaceSharedPtr {
+        pub fn clone_vm(
+            &mut self,
+            t: &dyn TaskInterface,
+            vm: AddressSpaceSharedPtr,
+        ) -> AddressSpaceSharedPtr {
             unimplemented!()
         }
 
         /// Create the initial thread group.
-        pub fn create_initial_tg(&mut self, t: &Task) -> ThreadGroupSharedPtr {
+        pub fn create_initial_tg(&mut self, t: &dyn TaskInterface) -> ThreadGroupSharedPtr {
             unimplemented!()
         }
 
@@ -312,10 +316,14 @@ pub mod session {
             unimplemented!()
         }
 
-        fn diagnose_debugger_trap(&self, t: &Task, run_command: RunCommand) -> BreakStatus {
+        fn diagnose_debugger_trap(
+            &self,
+            t: &dyn TaskInterface,
+            run_command: RunCommand,
+        ) -> BreakStatus {
             unimplemented!()
         }
-        fn check_for_watchpoint_changes(&self, t: &Task, break_status: &BreakStatus) {
+        fn check_for_watchpoint_changes(&self, t: &dyn TaskInterface, break_status: &BreakStatus) {
             unimplemented!()
         }
 
@@ -388,7 +396,7 @@ pub mod session {
             self
         }
 
-        fn on_destroy(&self, t: &Task) {
+        fn on_destroy(&self, t: &dyn TaskInterface) {
             unimplemented!()
         }
 
@@ -400,7 +408,7 @@ pub mod session {
             unimplemented!()
         }
 
-        fn on_create(&self, t: &Task) {
+        fn on_create(&self, t: &dyn TaskInterface) {
             unimplemented!()
         }
     }
