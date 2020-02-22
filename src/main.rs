@@ -39,7 +39,6 @@ mod replay_task;
 mod scoped_fd;
 mod session_interface;
 mod syscallbuf_record;
-mod task;
 mod task_interface;
 mod task_set;
 mod taskish_uid;

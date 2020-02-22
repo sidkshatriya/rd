@@ -1,5 +1,5 @@
 use crate::address_space::WatchConfig;
-use crate::task::task::Task;
+use crate::task_interface::task::task::Task;
 use libc::siginfo_t;
 
 #[derive(Clone)]
@@ -75,7 +75,7 @@ pub mod session {
     use crate::remote_ptr::RemotePtr;
     use crate::scoped_fd::ScopedFd;
     use crate::session_interface::SessionInterface;
-    use crate::task::task::CapturedState;
+    use crate::task_interface::task::task::CapturedState;
     use crate::task_interface::TaskInterface;
     use crate::taskish_uid::{AddressSpaceUid, ThreadGroupUid};
     use crate::thread_group::{ThreadGroup, ThreadGroupSharedPtr};

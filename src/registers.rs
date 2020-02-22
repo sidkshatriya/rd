@@ -10,7 +10,7 @@ use crate::kernel_supplement::{
 use crate::log::LogLevel::{LogError, LogInfo, LogWarn};
 use crate::remote_code_ptr::RemoteCodePtr;
 use crate::remote_ptr::RemotePtr;
-use crate::task::task::Task;
+use crate::task_interface::task::task::Task;
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::fmt::Display;

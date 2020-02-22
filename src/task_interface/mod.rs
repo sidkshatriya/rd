@@ -2,12 +2,13 @@ use crate::kernel_abi::SupportedArch;
 use crate::registers::Registers;
 use crate::remote_ptr::RemotePtr;
 use crate::session_interface::session::session::Session;
-use crate::task::task::CloneReason;
-use crate::task::task::Task;
-use crate::task::{ResumeRequest, TicksRequest, WaitRequest};
+use crate::task_interface::task::task::CloneReason;
+use crate::task_interface::task::task::Task;
+use crate::task_interface::task::{ResumeRequest, TicksRequest, WaitRequest};
 use libc::pid_t;
 use std::hash::{Hash, Hasher};
 
+pub mod task;
 /// @TODO should we store *const dyn TaskInterface?
 #[derive(Copy, Clone)]
 pub struct TaskInterfaceRawPtr(pub *mut dyn TaskInterface);
