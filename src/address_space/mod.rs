@@ -175,10 +175,52 @@ pub mod address_space {
     ///
     /// Track the watched accesses of a contiguous range of memory
     /// addresses.
-    struct Watchpoint {}
+    #[derive(Clone)]
+    struct WatchPoint {
+        /// Watchpoints stay alive until all watched access typed have
+        /// been cleared.  We track refcounts of each watchable access
+        /// separately.
+        pub exec_count: i32,
+        pub read_count: i32,
+        pub write_count: i32,
+        /// Debug registers allocated for read/exec access checking.
+        /// Write watchpoints are always triggered by checking for actual memory
+        /// value changes. Read/exec watchpoints can't be triggered that way, so
+        /// we look for these registers being triggered instead.
+        pub debug_regs_for_exec_read: Vec<u8>,
+        pub value_bytes: Vec<u8>,
+        pub valid: bool,
+        pub changed: bool,
+    }
+
+    impl WatchPoint {
+        pub fn new(num_bytes: usize) {
+            unimplemented!()
+        }
+        pub fn watch(&self, which: i32) {
+            unimplemented!()
+        }
+        pub fn unwatch(&self, which: i32) -> i32 {
+            unimplemented!()
+        }
+
+        pub fn watched_bits(&self) -> i32 {
+            unimplemented!()
+        }
+
+        pub fn assert_valid(&self) {
+            unimplemented!()
+        }
+    }
+
+    impl Drop for WatchPoint {
+        fn drop(&mut self) {
+            self.assert_valid();
+        }
+    }
 
     #[derive(Copy, Clone)]
-    enum WatchpointFilter {
+    enum WatchPointFilter {
         AllWatchpoints,
         ChangedWatchpoints,
     }
@@ -240,8 +282,8 @@ pub mod address_space {
         /// The watchpoints set for tasks in this VM.  Watchpoints are
         /// programmed per Task, but we track them per address space on
         /// behalf of debuggers that assume that model.
-        watchpoints: HashMap<MemoryRange, Watchpoint>,
-        saved_watchpoints: Vec<HashMap<MemoryRange, Watchpoint>>,
+        watchpoints: HashMap<MemoryRange, WatchPoint>,
+        saved_watchpoints: Vec<HashMap<MemoryRange, WatchPoint>>,
         /// Tracee memory is read and written through this fd, which is
         /// opened for the tracee's magic /proc/[tid]/mem device.  The
         /// advantage of this over ptrace is that we can access it even
@@ -809,14 +851,14 @@ pub mod address_space {
             unimplemented!()
         }
 
-        fn update_watchpoint_value(&self, range: &MemoryRange, watchpoint: &Watchpoint) {
+        fn update_watchpoint_value(&self, range: &MemoryRange, watchpoint: &WatchPoint) {
             unimplemented!()
         }
 
         fn update_watchpoint_values(&self, start: RemotePtr<u8>, end: RemotePtr<u8>) {
             unimplemented!()
         }
-        fn get_watchpoints_internal(&self, filter: WatchpointFilter) -> Vec<WatchConfig> {
+        fn get_watchpoints_internal(&self, filter: WatchPointFilter) -> Vec<WatchConfig> {
             unimplemented!()
         }
 
