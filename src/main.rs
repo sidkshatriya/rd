@@ -38,7 +38,7 @@ mod session;
 mod syscallbuf_record;
 mod task;
 mod task_set;
-mod task_trait;
+mod task_interface;
 mod taskish_uid;
 mod thread_group;
 mod ticks;

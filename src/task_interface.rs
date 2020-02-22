@@ -8,28 +8,28 @@ use crate::task::{ResumeRequest, TicksRequest, WaitRequest};
 use libc::pid_t;
 use std::hash::{Hash, Hasher};
 
-/// @TODO should we store *const dyn TaskTrait?
+/// @TODO should we store *const dyn TaskInterface?
 #[derive(Copy, Clone)]
-pub struct TaskTraitRawPtr(pub *mut dyn TaskTrait);
+pub struct TaskInterfaceRawPtr(pub *mut dyn TaskInterface);
 
-impl PartialEq for TaskTraitRawPtr {
+impl PartialEq for TaskInterfaceRawPtr {
     fn eq(&self, other: &Self) -> bool {
-        // If the addresses of the dyn TaskTrait ptrs are same then they are the same task.
+        // If the addresses of the dyn TaskInterface ptrs are same then they are the same task.
         self.0 as *const u8 as usize == other.0 as *const u8 as usize
     }
 }
 
-impl Eq for TaskTraitRawPtr {}
+impl Eq for TaskInterfaceRawPtr {}
 
-impl Hash for TaskTraitRawPtr {
+impl Hash for TaskInterfaceRawPtr {
     fn hash<H: Hasher>(&self, state: &mut H) {
         let addr = self.0 as *const u8 as usize;
-        // The hash is the hash of the address of the task (dyn TaskTrait).
+        // The hash is the hash of the address of the task (dyn TaskInterface).
         addr.hash(state);
     }
 }
 
-pub trait TaskTrait {
+pub trait TaskInterface {
     /// Dump all pending events to the RecordTask INFO log.
     fn log_pending_events(&self) {}
 
