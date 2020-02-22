@@ -285,21 +285,7 @@ pub mod task {
             unimplemented!()
         }
 
-        /// This must be in an emulated syscall, entered through
-        /// |cont_sysemu()| or |cont_sysemu_singlestep()|, but that's
-        /// not checked.  If so, step over the system call instruction
-        /// to "exit" the emulated syscall.
-        pub fn finish_emulated_syscall(&self) {
-            unimplemented!()
-        }
-
         pub fn syscallbuf_data_size(&self) -> usize {
-            unimplemented!()
-        }
-
-        /// Dump attributes of this process, including pending events,
-        /// to |out|, which defaults to LOG_FILE.
-        pub fn dump(&self, out: Option<&dyn Write>) {
             unimplemented!()
         }
 
@@ -336,13 +322,6 @@ pub mod task {
         /// Get the name of the file referenced by |fd| in the context of this
         /// task's fd table.
         pub fn file_name_of_fd(&self, fd: i32) -> String {
-            unimplemented!()
-        }
-
-        /// Force the wait status of this to |status|, as if
-        /// |wait()/try_wait()| had returned it. Call this whenever a waitpid
-        /// returned activity for this past.
-        pub fn did_waitpid(&self, status: WaitStatus) {
             unimplemented!()
         }
 
@@ -447,29 +426,6 @@ pub mod task {
             unimplemented!()
         }
 
-        /// Assuming we've just entered a syscall, exit that syscall and reset
-        /// state to reenter the syscall just as it was called the first time.
-        /// Returns false if we see the process exit instead.
-        pub fn exit_syscall_and_prepare_restart(&self) -> bool {
-            unimplemented!()
-        }
-
-        /// We're currently in user-space with registers set up to perform a system
-        /// call. Continue into the kernel and stop where we can modify the syscall
-        /// state.
-        pub fn enter_syscall(&self) {
-            unimplemented!()
-        }
-
-        /// We have observed entry to a syscall (either by PTRACE_EVENT_SECCOMP or
-        /// a syscall, depending on the value of Session::syscall_seccomp_ordering()).
-        /// Continue into the kernel to perform the syscall and stop at the
-        /// PTRACE_SYSCALL syscall-exit trap. Returns false if we see the process exit
-        /// before that.
-        pub fn exit_syscall(&self) -> bool {
-            unimplemented!()
-        }
-
         /// Return the "task name"; i.e. what |prctl(PR_GET_NAME)| or
         /// /proc/tid/comm would say that the task's name is.
         pub fn name(&self) -> String {
@@ -553,24 +509,6 @@ pub mod task {
         /// Read and return the C string located at |child_addr| in
         /// this address space.
         pub fn read_c_str(&self, child_addr: RemotePtr<u8>) -> String {
-            unimplemented!()
-        }
-
-        /// Resume execution |how|, deliverying |sig| if nonzero.
-        /// After resuming, |wait_how|. In replay, reset hpcs and
-        /// request a tick period of tick_period. The default value
-        /// of tick_period is 0, which means effectively infinite.
-        /// If interrupt_after_elapsed is nonzero, we interrupt the task
-        /// after that many seconds have elapsed.
-        ///
-        /// All tracee execution goes through here.
-        pub fn resume_execution(
-            &self,
-            how: ResumeRequest,
-            wait_how: WaitRequest,
-            tick_period: TicksRequest,
-            sig: Option<i32>,
-        ) {
             unimplemented!()
         }
 
@@ -718,25 +656,6 @@ pub mod task {
         }
 
         pub fn fd_table(&self) -> FdTableSharedPtr {
-            unimplemented!()
-        }
-
-        /// Block until the status of this changes. wait() expects the wait to end
-        /// with the process in a stopped() state. If interrupt_after_elapsed > 0,
-        /// interrupt the task after that many seconds have elapsed.
-        pub fn wait(&self, interrupt_after_elapsed: Option<f64>) {
-            unimplemented!()
-        }
-
-        /// Return true if the status of this has changed, but don't
-        /// block.
-        pub fn try_wait(&self) -> bool {
-            unimplemented!()
-        }
-
-        /// Return true if an unexpected exit was already detected for this task and
-        /// it is ready to be reported.
-        pub fn wait_unexpected_exit(&self) -> bool {
             unimplemented!()
         }
 
