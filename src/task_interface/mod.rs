@@ -2,13 +2,14 @@ use crate::kernel_abi::SupportedArch;
 use crate::registers::Registers;
 use crate::remote_ptr::RemotePtr;
 use crate::session_interface::session::session::Session;
+use crate::session_interface::SessionInterface;
 use crate::task_interface::task::task::CloneReason;
 use crate::task_interface::task::task::Task;
 use crate::task_interface::task::{ResumeRequest, TicksRequest, WaitRequest};
+use crate::wait_status::WaitStatus;
 use libc::pid_t;
 use std::hash::{Hash, Hasher};
 use std::io::Write;
-use crate::wait_status::WaitStatus;
 
 pub mod task;
 /// @TODO should we store *const dyn TaskInterface?
@@ -82,7 +83,7 @@ pub trait TaskInterface {
         new_tid: pid_t,
         new_rec_tid: pid_t,
         new_serial: u32,
-        other_session: Option<&Session>,
+        other_session: Option<&dyn SessionInterface>,
     ) -> &Task;
 
     /// Internal method called after the first wait() during a clone().

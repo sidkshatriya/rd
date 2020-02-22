@@ -84,7 +84,7 @@ pub mod task {
     use crate::remote_code_ptr::RemoteCodePtr;
     use crate::remote_ptr::RemotePtr;
     use crate::scoped_fd::ScopedFd;
-    use crate::session_interface::session::session::Session;
+    use crate::session_interface::SessionInterface;
     use crate::task_interface::TaskInterface;
     use crate::taskish_uid::TaskUid;
     use crate::thread_group::{ThreadGroup, ThreadGroupSharedPtr};
@@ -215,7 +215,7 @@ pub mod task {
         extra_registers: ExtraRegisters,
         extra_registers_known: bool,
         /// The session we're part of.
-        session_: *mut Session,
+        session_: *mut dyn SessionInterface,
         /// The thread group this belongs to.
         tg: ThreadGroupSharedPtr,
         /// Entries set by |set_thread_area()| or the |tls| argument to |clone()|
@@ -513,7 +513,7 @@ pub mod task {
         }
 
         /// Return the session this is part of.
-        pub fn session(&self) -> &Session {
+        pub fn session(&self) -> &dyn SessionInterface {
             unimplemented!()
         }
 
@@ -792,7 +792,13 @@ pub mod task {
             unimplemented!()
         }
 
-        fn new(session: &Session, tid: pid_t, rec_tid: pid_t, serial: u32, a: SupportedArch) {
+        fn new(
+            session: &dyn SessionInterface,
+            tid: pid_t,
+            rec_tid: pid_t,
+            serial: u32,
+            a: SupportedArch,
+        ) {
             unimplemented!()
         }
 
@@ -882,7 +888,7 @@ pub mod task {
         /// in the process into which the copy of this task will be
         /// created.  |task_leader| will perform the actual OS calls to
         /// create the new child.
-        fn os_fork_into(&self, session: &Session) -> &Task {
+        fn os_fork_into(&self, session: &dyn SessionInterface) -> &Task {
             unimplemented!()
         }
         fn os_clone_into(state: &CapturedState, remote: &AutoRemoteSyscalls) -> *mut Task {
@@ -904,7 +910,7 @@ pub mod task {
         /// arguments are as for |Task::clone()| above.
         fn os_clone(
             reason: CloneReason,
-            session: &Session,
+            session: &dyn SessionInterface,
             remote: &AutoRemoteSyscalls,
             rec_child_tid: pid_t,
             new_serial: u32,
@@ -921,7 +927,7 @@ pub mod task {
         /// (i.e. an exec does not occur before an exit), an error may be
         /// readable from the other end of the pipe whose write end is error_fd.
         fn spawn<'a>(
-            session: &'a Session,
+            session: &'a SessionInterface,
             error_fd: &ScopedFd,
             sock_fd_out: &ScopedFd,
             tracee_socket_fd_number_out: &mut i32,
