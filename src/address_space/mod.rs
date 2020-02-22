@@ -27,6 +27,7 @@ pub enum DebugStatus {
     DsSingleStep = 1 << 14,
 }
 
+#[repr(u32)]
 #[derive(Copy, Clone)]
 pub enum MappingFlags {
     FlagNone = 0x0,
@@ -106,6 +107,7 @@ pub mod address_space {
     use crate::taskish_uid::AddressSpaceUid;
     use crate::taskish_uid::TaskUid;
     use crate::trace_frame::FrameTime;
+    use libc::stat;
     use libc::{dev_t, ino_t, pid_t};
     use std::cell::RefCell;
     use std::collections::btree_map::Iter as BTreeMapIter;
@@ -116,7 +118,40 @@ pub mod address_space {
     use std::ops::{Deref, DerefMut};
     use std::rc::Rc;
 
-    pub struct Mapping {}
+    #[derive(Clone)]
+    pub struct Mapping {
+        pub map: KernelMapping,
+        /// The corresponding KernelMapping in the recording. During recording,
+        /// equal to 'map'.
+        pub recorded_map: KernelMapping,
+        pub emu_file: EmuFileSharedPtr,
+        /// @TODO do we need a Box here?
+        pub mapped_file_stat: Box<stat>,
+        /// If this mapping has been mapped into the local address space,
+        /// this is the address of the first byte of the equivalent local mapping.
+        /// This mapping is always mapped as PROT_READ|PROT_WRITE regardless of the
+        /// mapping's permissions in the tracee. Also note that it is the caller's
+        /// responsibility to keep this alive at least as long as this mapping is
+        /// present in the address space.
+        pub local_addr: *mut u8,
+        pub monitored_shared_memory: Option<MonitoredSharedMemorySharedPtr>,
+        /// Flags indicate mappings that require special handling. Adjacent mappings
+        /// may only be merged if their `flags` value agree.
+        pub flags: MappingFlags,
+    }
+
+    impl Mapping {
+        pub fn new(
+            map: &KernelMapping,
+            recorded_map: &KernelMapping,
+            emu_file: Option<EmuFileSharedPtr>,
+            mapped_file_stat: Option<Box<stat>>,
+            local_addr: Option<*mut u8>,
+            monitored: Option<MonitoredSharedMemorySharedPtr>,
+        ) {
+            unimplemented!()
+        }
+    }
 
     pub type MemoryMap = BTreeMap<MemoryRange, Mapping>;
     pub type MemoryMapIter<'a> = BTreeMapIter<'a, MemoryRange, Mapping>;
