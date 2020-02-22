@@ -102,6 +102,7 @@ pub mod address_space {
     use crate::remote_ptr::RemotePtr;
     use crate::scoped_fd::ScopedFd;
     use crate::session_interface::session::session::Session;
+    use crate::session_interface::session::BreakStatus;
     use crate::task_interface::task::task::Task;
     use crate::task_set::TaskSet;
     use crate::taskish_uid::AddressSpaceUid;
@@ -164,7 +165,47 @@ pub mod address_space {
     /// address, Breakpoint stores explicit USER and INTERNAL breakpoint
     /// refcounts.  Clients adding/removing breakpoints at this addr must
     /// call ref()/unref() as appropriate.
-    struct Breakpoint {}
+    #[derive(Clone)]
+    struct Breakpoint {
+        /// "Refcounts" of breakpoints set at |addr|.  The breakpoint
+        /// object must be unique since we have to save the overwritten
+        /// data, and we can't enforce the order in which breakpoints
+        /// are set/removed.
+        /// @TODO should we make these u32?
+        pub internal_count: i32,
+        pub user_count: i32,
+        pub overwritten_data: u8,
+    }
+
+    impl Breakpoint {
+        pub fn new() -> BreakStatus {
+            unimplemented!()
+        }
+
+        /// Method is called ref() in rr.
+        pub fn do_ref(&self, which: Breakpoint) {
+            unimplemented!()
+        }
+
+        /// Method is called unref() in rr.
+        pub fn do_unref(&self, which: Breakpoint) -> i32 {
+            unimplemented!()
+        }
+
+        pub fn type_(&self) -> BreakpointType {
+            unimplemented!()
+        }
+
+        pub fn counter(&mut self, which: BreakpointType) -> &mut i32 {
+            unimplemented!()
+        }
+    }
+
+    impl Drop for Breakpoint {
+        fn drop(&mut self) {
+            unimplemented!()
+        }
+    }
 
     type BreakpointMap = HashMap<RemoteCodePtr, Breakpoint>;
     type BreakpointMapIter<'a> = HashMapIter<'a, RemoteCodePtr, Breakpoint>;
@@ -176,10 +217,11 @@ pub mod address_space {
     /// Track the watched accesses of a contiguous range of memory
     /// addresses.
     #[derive(Clone)]
-    struct WatchPoint {
+    struct Watchpoint {
         /// Watchpoints stay alive until all watched access typed have
         /// been cleared.  We track refcounts of each watchable access
         /// separately.
+        /// @TODO should we make these u32?
         pub exec_count: i32,
         pub read_count: i32,
         pub write_count: i32,
@@ -193,8 +235,8 @@ pub mod address_space {
         pub changed: bool,
     }
 
-    impl WatchPoint {
-        pub fn new(num_bytes: usize) {
+    impl Watchpoint {
+        pub fn new(num_bytes: usize) -> Watchpoint {
             unimplemented!()
         }
         pub fn watch(&self, which: i32) {
@@ -213,7 +255,7 @@ pub mod address_space {
         }
     }
 
-    impl Drop for WatchPoint {
+    impl Drop for Watchpoint {
         fn drop(&mut self) {
             self.assert_valid();
         }
@@ -282,8 +324,8 @@ pub mod address_space {
         /// The watchpoints set for tasks in this VM.  Watchpoints are
         /// programmed per Task, but we track them per address space on
         /// behalf of debuggers that assume that model.
-        watchpoints: HashMap<MemoryRange, WatchPoint>,
-        saved_watchpoints: Vec<HashMap<MemoryRange, WatchPoint>>,
+        watchpoints: HashMap<MemoryRange, Watchpoint>,
+        saved_watchpoints: Vec<HashMap<MemoryRange, Watchpoint>>,
         /// Tracee memory is read and written through this fd, which is
         /// opened for the tracee's magic /proc/[tid]/mem device.  The
         /// advantage of this over ptrace is that we can access it even
@@ -851,7 +893,7 @@ pub mod address_space {
             unimplemented!()
         }
 
-        fn update_watchpoint_value(&self, range: &MemoryRange, watchpoint: &WatchPoint) {
+        fn update_watchpoint_value(&self, range: &MemoryRange, watchpoint: &Watchpoint) {
             unimplemented!()
         }
 
