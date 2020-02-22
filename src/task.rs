@@ -84,7 +84,7 @@ pub mod task {
     use crate::remote_code_ptr::RemoteCodePtr;
     use crate::remote_ptr::RemotePtr;
     use crate::scoped_fd::ScopedFd;
-    use crate::session::session::Session;
+    use crate::session_interface::session::session::Session;
     use crate::task_interface::TaskInterface;
     use crate::taskish_uid::TaskUid;
     use crate::thread_group::{ThreadGroup, ThreadGroupSharedPtr};

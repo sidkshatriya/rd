@@ -1,7 +1,7 @@
 use crate::kernel_abi::SupportedArch;
 use crate::registers::Registers;
 use crate::remote_ptr::RemotePtr;
-use crate::session::session::Session;
+use crate::session_interface::session::session::Session;
 use crate::task::task::CloneReason;
 use crate::task::task::Task;
 use crate::task::{ResumeRequest, TicksRequest, WaitRequest};

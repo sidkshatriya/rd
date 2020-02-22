@@ -37,7 +37,6 @@ mod remote_ptr;
 mod replay_session;
 mod replay_task;
 mod scoped_fd;
-mod session;
 mod session_interface;
 mod syscallbuf_record;
 mod task;

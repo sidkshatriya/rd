@@ -355,32 +355,32 @@ pub mod session {
     /// is required when using replay checkpoints, for example.
     pub struct Session {
         /// All these members are NOT pub
-        vm_map: AddressSpaceMap,
-        task_map: TaskMap,
-        thread_group_map: ThreadGroupMap,
+        pub(in super::super) vm_map: AddressSpaceMap,
+        pub(in super::super) task_map: TaskMap,
+        pub(in super::super) thread_group_map: ThreadGroupMap,
 
         /// If non-None, data required to finish initializing the tasks of this
         /// session.
         /// @TODO is a Box required here?
-        clone_completion: Option<Box<CloneCompletion>>,
+        pub(in super::super) clone_completion: Option<Box<CloneCompletion>>,
 
-        statistics_: Statistics,
+        pub(in super::super) statistics_: Statistics,
 
-        tracee_socket: Rc<RefCell<ScopedFd>>,
-        tracee_socket_fd_number: i32,
-        next_task_serial_: u32,
-        spawned_task_error_fd_: ScopedFd,
+        pub(in super::super) tracee_socket: Rc<RefCell<ScopedFd>>,
+        pub(in super::super) tracee_socket_fd_number: i32,
+        pub(in super::super) next_task_serial_: u32,
+        pub(in super::super) spawned_task_error_fd_: ScopedFd,
 
-        syscall_seccomp_ordering_: PtraceSyscallBeforeSeccomp,
+        pub(in super::super) syscall_seccomp_ordering_: PtraceSyscallBeforeSeccomp,
 
-        ticks_semantics_: TicksSemantics,
+        pub(in super::super) ticks_semantics_: TicksSemantics,
 
         /// True if we've done an exec so tracees are now in a state that will be
         /// consistent across record and replay.
-        done_initial_exec_: bool,
+        pub(in super::super) done_initial_exec_: bool,
 
         /// True while the execution of this session is visible to users.
-        visible_execution_: bool,
+        pub(in super::super) visible_execution_: bool,
     }
 
     impl SessionInterface for Session {
@@ -396,7 +396,7 @@ pub mod session {
             unimplemented!()
         }
 
-        fn cpu_binding(&self, trace: &TraceStream) -> Option<i32> {
+        fn cpu_binding(&self, trace: &TraceStream) -> Option<u32> {
             unimplemented!()
         }
 
