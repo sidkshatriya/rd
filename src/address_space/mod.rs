@@ -2,7 +2,7 @@ pub mod kernel_mapping;
 pub mod memory_range;
 use crate::remote_ptr::RemotePtr;
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub enum BreakpointType {
     BkptNone = 0,
     /// Trap for internal rr purposes, f.e. replaying async
@@ -190,45 +190,74 @@ pub mod address_space {
     /// address, Breakpoint stores explicit USER and INTERNAL breakpoint
     /// refcounts.  Clients adding/removing breakpoints at this addr must
     /// call ref()/unref() as appropriate.
+    /// NOTE: This could be made Copy easily. But we don't for now and keep
+    /// it consistent with Watchpoint which also NOT Copy.
     #[derive(Clone)]
     struct Breakpoint {
         /// "Refcounts" of breakpoints set at |addr|.  The breakpoint
         /// object must be unique since we have to save the overwritten
         /// data, and we can't enforce the order in which breakpoints
         /// are set/removed.
-        /// @TODO should we make these u32?
-        pub internal_count: i32,
-        pub user_count: i32,
-        pub overwritten_data: u8,
+        /// Note: These are signed integers in rr.
+        pub internal_count: u32,
+        pub user_count: u32,
+        /// This is a bare uint8_t in rr
+        pub overwritten_data: Option<u8>,
     }
 
+    /// In rr there are a lot of DEBUG_ASSERTs but we don't need them
+    /// as struct members are u32 and any attempt to make them negative
+    /// will cause a panic in the debug build.
     impl Breakpoint {
-        pub fn new() -> BreakStatus {
-            unimplemented!()
+        pub fn new() -> Breakpoint {
+            Breakpoint {
+                internal_count: 0,
+                user_count: 0,
+                overwritten_data: None,
+            }
         }
 
         /// Method is called ref() in rr.
-        pub fn do_ref(&self, which: Breakpoint) {
-            unimplemented!()
+        pub fn do_ref(&mut self, which: BreakpointType) {
+            let v: &mut u32 = self.counter(which);
+            *v += 1;
         }
 
         /// Method is called unref() in rr.
-        pub fn do_unref(&self, which: Breakpoint) -> i32 {
-            unimplemented!()
+        pub fn do_unref(&mut self, which: BreakpointType) -> u32 {
+            let v: &mut u32 = self.counter(which);
+            *v -= 1;
+            self.internal_count + self.user_count
         }
 
-        pub fn type_(&self) -> BreakpointType {
-            unimplemented!()
+        /// Called Breakpoint::type() in rr.
+        pub fn bp_type(&self) -> BreakpointType {
+            // NB: USER breakpoints need to be processed before
+            // INTERNAL ones.  We want to give the debugger a
+            // chance to dispatch commands before we attend to the
+            // internal rd business.  So if there's a USER "ref"
+            // on the breakpoint, treat it as a USER breakpoint.
+            if self.user_count > 0 {
+                BreakpointType::BkptUser
+            } else {
+                BreakpointType::BkptInternal
+            }
         }
 
-        pub fn counter(&mut self, which: BreakpointType) -> &mut i32 {
-            unimplemented!()
+        pub fn data_length(&self) -> usize {
+            1
         }
-    }
 
-    impl Drop for Breakpoint {
-        fn drop(&mut self) {
-            unimplemented!()
+        pub fn original_data(&self) -> Option<u8> {
+            self.overwritten_data
+        }
+
+        pub fn counter(&mut self, which: BreakpointType) -> &mut u32 {
+            if which == BreakpointType::BkptUser {
+                &mut self.user_count
+            } else {
+                &mut self.internal_count
+            }
         }
     }
 
@@ -246,14 +275,19 @@ pub mod address_space {
         /// Watchpoints stay alive until all watched access typed have
         /// been cleared.  We track refcounts of each watchable access
         /// separately.
-        /// @TODO should we make these u32?
-        pub exec_count: i32,
-        pub read_count: i32,
-        pub write_count: i32,
+        /// NOTE: These are signed integers in rr.
+        /// These are accompanied with a lot of DEBUG_ASSERTs to ensure
+        /// these remain >= 0.
+        /// In rd we keep them as unsigned because any attempts to make them
+        /// negative will result in a panic in the debug build.
+        pub exec_count: u32,
+        pub read_count: u32,
+        pub write_count: u32,
         /// Debug registers allocated for read/exec access checking.
         /// Write watchpoints are always triggered by checking for actual memory
         /// value changes. Read/exec watchpoints can't be triggered that way, so
         /// we look for these registers being triggered instead.
+        /// @TODO might we want to have some of these as Option types?
         pub debug_regs_for_exec_read: Vec<u8>,
         pub value_bytes: Vec<u8>,
         pub valid: bool,
@@ -262,7 +296,16 @@ pub mod address_space {
 
     impl Watchpoint {
         pub fn new(num_bytes: usize) -> Watchpoint {
-            unimplemented!()
+            Watchpoint {
+                exec_count: 0,
+                read_count: 0,
+                write_count: 0,
+                // @TODO is this default what we really need?
+                debug_regs_for_exec_read: Vec::new(),
+                value_bytes: Vec::with_capacity(num_bytes),
+                valid: false,
+                changed: false,
+            }
         }
         pub fn watch(&self, which: i32) {
             unimplemented!()
@@ -304,11 +347,13 @@ pub mod address_space {
         IterateContiguous,
     }
 
-    #[derive(Copy, Clone)]
-    enum RwxBits {
-        ExecBit = 1 << 0,
-        ReadBit = 1 << 1,
-        WriteBit = 1 << 2,
+    bitflags! {
+        struct RwxBits: u32 {
+            const EXEC_BIT = 1 << 0;
+            const READ_BIT = 1 << 1;
+            const WRITE_BIT = 1 << 2;
+            const READ_WRITE_BITS = Self::READ_BIT.bits | Self::WRITE_BIT.bits;
+        }
     }
 
     /// Models the address space for a set of tasks.  This includes the set

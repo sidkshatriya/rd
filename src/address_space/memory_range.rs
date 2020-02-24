@@ -3,7 +3,7 @@ use core::cmp::Ordering;
 use std::cmp::{max, min};
 use std::convert::TryInto;
 use std::fmt::{Display, Formatter, Result};
-use std::ops::{DerefMut, Deref};
+use std::ops::{Deref, DerefMut};
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub struct MemoryRange {
@@ -83,6 +83,7 @@ impl Display for MemoryRange {
 }
 
 /// This wrapper type is needed for special ordering requirements
+/// Traits PartialOrd, Ord, PartialEq, Eq are manually derived (see below).
 #[derive(Copy, Clone)]
 pub struct MemoryRangeKey(pub MemoryRange);
 
