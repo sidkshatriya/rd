@@ -94,7 +94,6 @@ pub mod task {
     use crate::wait_status::WaitStatus;
     use libc::{pid_t, siginfo_t, uid_t};
     use std::cell::RefCell;
-    use std::io::Write;
     use std::os::raw::c_long;
     use std::rc::Rc;
 
@@ -927,7 +926,7 @@ pub mod task {
         /// (i.e. an exec does not occur before an exit), an error may be
         /// readable from the other end of the pipe whose write end is error_fd.
         fn spawn<'a>(
-            session: &'a SessionInterface,
+            session: &'a dyn SessionInterface,
             error_fd: &ScopedFd,
             sock_fd_out: &ScopedFd,
             tracee_socket_fd_number_out: &mut i32,
@@ -968,7 +967,7 @@ pub mod task {
             new_tid: i32,
             new_rec_tid: i32,
             new_serial: u32,
-            other_session: Option<&SessionInterface>,
+            other_session: Option<&dyn SessionInterface>,
         ) -> &Task {
             unimplemented!()
         }

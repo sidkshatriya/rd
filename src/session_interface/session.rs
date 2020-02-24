@@ -47,7 +47,7 @@ impl BreakStatus {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq, Eq)]
 pub enum RunCommand {
     /// Continue until we hit a breakpoint or a new replay event
     RunContinue,
@@ -59,8 +59,9 @@ pub enum RunCommand {
     RunSinglestepFastForward,
 }
 
+#[inline]
 pub fn is_singlestep(command: RunCommand) -> bool {
-    unimplemented!()
+    command == RunCommand::RunSinglestep || command == RunCommand::RunSinglestepFastForward
 }
 
 pub mod session {

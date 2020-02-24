@@ -11,7 +11,6 @@ use crate::taskish_uid::{AddressSpaceUid, TaskUid, ThreadGroupUid};
 use crate::thread_group::{ThreadGroup, ThreadGroupSharedPtr};
 use crate::trace_stream::TraceStream;
 use libc::pid_t;
-use std::ops::Deref;
 
 pub mod session;
 

@@ -102,7 +102,6 @@ pub mod address_space {
     use crate::remote_ptr::RemotePtr;
     use crate::scoped_fd::ScopedFd;
     use crate::session_interface::session::session::Session;
-    use crate::session_interface::session::BreakStatus;
     use crate::task_interface::task::task::Task;
     use crate::task_set::TaskSet;
     use crate::taskish_uid::AddressSpaceUid;
@@ -111,7 +110,6 @@ pub mod address_space {
     use libc::stat;
     use libc::{dev_t, ino_t, pid_t};
     use std::cell::RefCell;
-    use std::collections::btree_map::Iter as BTreeMapIter;
     use std::collections::btree_map::Range;
     use std::collections::hash_map::Iter as HashMapIter;
     use std::collections::HashSet;
@@ -127,16 +125,18 @@ pub mod address_space {
         /// The corresponding KernelMapping in the recording. During recording,
         /// equal to 'map'.
         pub recorded_map: KernelMapping,
-        pub emu_file: EmuFileSharedPtr,
-        /// @TODO do we need a Box here?
-        pub mapped_file_stat: Box<stat>,
+        /// Multiple Mapping-s might point to the same EmuFile.
+        pub emu_file: Option<EmuFileSharedPtr>,
+        /// @TODO This used to be a Box<stat>. Should be OK though.
+        pub mapped_file_stat: Option<stat>,
         /// If this mapping has been mapped into the local address space,
         /// this is the address of the first byte of the equivalent local mapping.
         /// This mapping is always mapped as PROT_READ|PROT_WRITE regardless of the
         /// mapping's permissions in the tracee. Also note that it is the caller's
         /// responsibility to keep this alive at least as long as this mapping is
         /// present in the address space.
-        pub local_addr: *mut u8,
+        pub local_addr: Option<*mut u8>,
+        /// Multiple Mapping-s might point to the same MonitoredSharedMemory object.
         pub monitored_shared_memory: Option<MonitoredSharedMemorySharedPtr>,
         /// Flags indicate mappings that require special handling. Adjacent mappings
         /// may only be merged if their `flags` value agree.
@@ -148,11 +148,19 @@ pub mod address_space {
             map: &KernelMapping,
             recorded_map: &KernelMapping,
             emu_file: Option<EmuFileSharedPtr>,
-            mapped_file_stat: Option<Box<stat>>,
+            mapped_file_stat: Option<stat>,
             local_addr: Option<*mut u8>,
             monitored: Option<MonitoredSharedMemorySharedPtr>,
-        ) {
-            unimplemented!()
+        ) -> Mapping {
+            Mapping {
+                map: map.clone(),
+                recorded_map: recorded_map.clone(),
+                emu_file,
+                mapped_file_stat,
+                local_addr,
+                monitored_shared_memory: monitored,
+                flags: MappingFlags::FlagNone,
+            }
         }
     }
 
@@ -343,12 +351,6 @@ pub mod address_space {
                 watched |= RwxBits::WRITE_BIT;
             }
             watched
-        }
-    }
-
-    impl Drop for Watchpoint {
-        fn drop(&mut self) {
-            self.assert_valid();
         }
     }
 

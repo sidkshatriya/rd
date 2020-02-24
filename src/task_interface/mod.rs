@@ -1,7 +1,6 @@
 use crate::kernel_abi::SupportedArch;
 use crate::registers::Registers;
 use crate::remote_ptr::RemotePtr;
-use crate::session_interface::session::session::Session;
 use crate::session_interface::SessionInterface;
 use crate::task_interface::task::task::CloneReason;
 use crate::task_interface::task::task::Task;
