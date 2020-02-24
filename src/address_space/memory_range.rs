@@ -1,9 +1,10 @@
 use crate::remote_ptr::RemotePtr;
+use core::cmp::Ordering;
 use std::cmp::{max, min};
 use std::convert::TryInto;
 use std::fmt::{Display, Formatter, Result};
 
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub struct MemoryRange {
     pub(super) start_: RemotePtr<u8>,
     pub(super) end_: RemotePtr<u8>,
@@ -36,21 +37,14 @@ impl MemoryRange {
         result
     }
 
-    /// Avoid implementing this logic in an Ord.
-    pub fn less_than(&self, other: &Self) -> bool {
-        if self.start_ != other.start_ {
-            self.start_ < other.start_
-        } else {
-            self.end_ < other.end_
-        }
-    }
+    /// Operator < (basically lexicographic comparison) and == automatically derived
 
-    // Return true iff |other| is an address range fully contained by self.
+    /// Return true iff |other| is an address range fully contained by self.
     pub fn contains(&self, other: &Self) -> bool {
         self.start_ <= other.start_ && other.end_ <= self.end_
     }
 
-    // @TODO Note that we have p < self.end_ and not p <= self.end here.
+    /// Note that we have p < self.end_ and not p <= self.end here.
     pub fn contains_ptr(&self, p: RemotePtr<u8>) -> bool {
         self.start_ <= p && p < self.end_
     }
@@ -62,6 +56,12 @@ impl MemoryRange {
             start_: s,
             end_: max(s, e),
         }
+    }
+
+    pub fn intersects(&self, other: &MemoryRange) -> bool {
+        let s = max(self.start_, other.start_);
+        let e = min(self.end_, other.end_);
+        s < e
     }
 
     pub fn start(&self) -> RemotePtr<u8> {
@@ -80,3 +80,41 @@ impl Display for MemoryRange {
         write!(f, "{}-{}", self.start_, self.end_)
     }
 }
+
+/// This wrapper type is needed for special ordering requirements
+#[derive(Copy, Clone)]
+pub struct MemoryRangeKey(MemoryRange);
+
+impl PartialOrd for MemoryRangeKey {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for MemoryRangeKey {
+    fn cmp(&self, other: &Self) -> Ordering {
+        if !self.0.intersects(&other.0) {
+            if self.0.start_ < other.0.start_ {
+                Ordering::Less
+            } else if self.0.start_ > other.0.start_ {
+                Ordering::Greater
+            } else {
+                Ordering::Equal
+            }
+        } else {
+            Ordering::Equal
+        }
+    }
+}
+
+impl PartialEq for MemoryRangeKey {
+    fn eq(&self, other: &Self) -> bool {
+        if !self.0.intersects(&other.0) {
+            self.0.start_ == other.0.start_
+        } else {
+            true
+        }
+    }
+}
+
+impl Eq for MemoryRangeKey {}
