@@ -3,6 +3,7 @@ use core::cmp::Ordering;
 use std::cmp::{max, min};
 use std::convert::TryInto;
 use std::fmt::{Display, Formatter, Result};
+use std::ops::{DerefMut, Deref};
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub struct MemoryRange {
@@ -83,7 +84,7 @@ impl Display for MemoryRange {
 
 /// This wrapper type is needed for special ordering requirements
 #[derive(Copy, Clone)]
-pub struct MemoryRangeKey(MemoryRange);
+pub struct MemoryRangeKey(pub MemoryRange);
 
 impl PartialOrd for MemoryRangeKey {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
@@ -118,3 +119,17 @@ impl PartialEq for MemoryRangeKey {
 }
 
 impl Eq for MemoryRangeKey {}
+
+impl Deref for MemoryRangeKey {
+    type Target = MemoryRange;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for MemoryRangeKey {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}

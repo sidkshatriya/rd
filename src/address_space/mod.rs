@@ -90,7 +90,7 @@ impl WatchConfig {
 pub mod address_space {
     use super::*;
     use crate::address_space::kernel_mapping::KernelMapping;
-    use crate::address_space::memory_range::MemoryRange;
+    use crate::address_space::memory_range::{MemoryRange, MemoryRangeKey};
     use crate::auto_remote_syscalls::AutoRemoteSyscalls;
     use crate::emu_fs::EmuFileSharedPtr;
     use crate::kernel_abi::SupportedArch;
@@ -112,9 +112,11 @@ pub mod address_space {
     use libc::{dev_t, ino_t, pid_t};
     use std::cell::RefCell;
     use std::collections::btree_map::Iter as BTreeMapIter;
+    use std::collections::btree_map::Range;
     use std::collections::hash_map::Iter as HashMapIter;
     use std::collections::HashSet;
     use std::collections::{BTreeMap, HashMap};
+    use std::ops::Bound::{Included, Unbounded};
     use std::ops::Drop;
     use std::ops::{Deref, DerefMut};
     use std::rc::Rc;
@@ -154,11 +156,34 @@ pub mod address_space {
         }
     }
 
-    pub type MemoryMap = BTreeMap<MemoryRange, Mapping>;
-    pub type MemoryMapIter<'a> = BTreeMapIter<'a, MemoryRange, Mapping>;
+    pub type MemoryMap = BTreeMap<MemoryRangeKey, Mapping>;
+    pub type MemoryMapIter<'a> = Range<'a, MemoryRangeKey, Mapping>;
 
     pub type AddressSpaceSharedPtr = Rc<RefCell<AddressSpace>>;
-    pub struct Maps {}
+    pub struct Maps<'a> {
+        outer: &'a AddressSpace,
+        start: RemotePtr<u8>,
+    }
+
+    impl<'a> Maps<'a> {
+        pub fn new(outer: &'a AddressSpace, start: RemotePtr<u8>) -> Maps {
+            Maps { outer, start }
+        }
+    }
+
+    impl<'a> IntoIterator for Maps<'a> {
+        type Item = (&'a MemoryRangeKey, &'a Mapping);
+        type IntoIter = Range<'a, MemoryRangeKey, Mapping>;
+
+        fn into_iter(self) -> Self::IntoIter {
+            self.outer.mem.range((
+                Included(MemoryRangeKey(MemoryRange::from_range(
+                    self.start, self.start,
+                ))),
+                Unbounded,
+            ))
+        }
+    }
 
     /// Represents a refcount set on a particular address.  Because there
     /// can be multiple refcounts of multiple types set on a single
@@ -499,7 +524,8 @@ pub mod address_space {
         }
 
         /// Return true if there is some mapping for the byte at 'addr'.
-        pub fn has_mapping(addr: RemotePtr<u8>) -> bool {
+        /// Use Self::mapping_of() instead in most cases.
+        pub fn has_mapping(&self, addr: RemotePtr<u8>) -> bool {
             unimplemented!()
         }
 
@@ -512,6 +538,19 @@ pub mod address_space {
         /// Return true if the rd page is mapped at its expected address.
         pub fn has_rd_page(&self) -> bool {
             unimplemented!()
+        }
+
+        pub fn maps(&self) -> Maps {
+            Maps::new(self, RemotePtr::new())
+        }
+        pub fn maps_starting_at(&self, start: RemotePtr<u8>) -> Maps {
+            Maps::new(self, start)
+        }
+        pub fn maps_containing_or_after(&self, start: RemotePtr<u8>) -> Maps {
+            match self.mapping_of(start) {
+                Some(found) => Maps::new(self, found.map.start()),
+                _ => Maps::new(self, start),
+            }
         }
 
         pub fn monitored_addrs(&self) -> &HashSet<RemotePtr<u8>> {
