@@ -307,19 +307,42 @@ pub mod address_space {
                 changed: false,
             }
         }
-        pub fn watch(&self, which: i32) {
-            unimplemented!()
+        pub fn watch(&mut self, which: RwxBits) {
+            if which & RwxBits::EXEC_BIT == RwxBits::EXEC_BIT {
+                self.exec_count += 1;
+            }
+            if which & RwxBits::READ_BIT == RwxBits::READ_BIT {
+                self.read_count += 1;
+            }
+            if which & RwxBits::WRITE_BIT == RwxBits::WRITE_BIT {
+                self.write_count += 1;
+            }
         }
-        pub fn unwatch(&self, which: i32) -> i32 {
-            unimplemented!()
+        pub fn unwatch(&mut self, which: RwxBits) -> u32 {
+            if which & RwxBits::EXEC_BIT == RwxBits::EXEC_BIT {
+                self.exec_count -= 1;
+            }
+            if which & RwxBits::READ_BIT == RwxBits::READ_BIT {
+                self.read_count -= 1;
+            }
+            if which & RwxBits::WRITE_BIT == RwxBits::WRITE_BIT {
+                self.write_count -= 1;
+            }
+            self.exec_count + self.read_count + self.write_count
         }
 
-        pub fn watched_bits(&self) -> i32 {
-            unimplemented!()
-        }
-
-        pub fn assert_valid(&self) {
-            unimplemented!()
+        pub fn watched_bits(&self) -> RwxBits {
+            let mut watched = RwxBits::empty();
+            if self.exec_count > 0 {
+                watched |= RwxBits::EXEC_BIT;
+            }
+            if self.read_count > 0 {
+                watched |= RwxBits::READ_BIT;
+            }
+            if self.write_count > 0 {
+                watched |= RwxBits::WRITE_BIT;
+            }
+            watched
         }
     }
 

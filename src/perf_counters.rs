@@ -49,6 +49,7 @@ const IN_TXCP: u64 = 1 << 33;
 
 bitflags! {
     struct PmuFlags: u32 {
+        /// @TODO bitflags! with 0 value have some strange properties. Check if this is OK.
         const PMU_ZERO = 0;
 
         /// Set if this CPU supports ticks counting retired conditional branches.
