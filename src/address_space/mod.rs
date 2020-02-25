@@ -483,13 +483,13 @@ pub mod address_space {
 
         /// Call this after a successful execve syscall has completed. At this point
         /// it is safe to perform remote syscalls.
-        pub fn post_exec_syscall(&self, t: &Task) {
+        pub fn post_exec_syscall(&self, t: &dyn TaskInterface) {
             unimplemented!()
         }
 
         /// Change the program data break of this address space to
         /// |addr|. Only called during recording!
-        pub fn brk(&self, t: &Task, addr: RemotePtr<Void>, prot: i32) {
+        pub fn brk(&self, t: &dyn TaskInterface, addr: RemotePtr<Void>, prot: i32) {
             unimplemented!()
         }
 
@@ -556,7 +556,7 @@ pub mod address_space {
 
         /// Return true if there's a breakpoint instruction at |ip|. This might
         /// be an explicit instruction, even if there's no breakpoint set via our API.
-        pub fn is_breakpoint_instruction(t: &Task, ip: RemoteCodePtr) -> bool {
+        pub fn is_breakpoint_instruction(t: &dyn TaskInterface, ip: RemoteCodePtr) -> bool {
             unimplemented!()
         }
 
@@ -584,7 +584,7 @@ pub mod address_space {
         /// or null if it's not shared with the tracee. AddressSpace takes ownership
         /// of the shared memory and is responsible for unmapping it.
         pub fn map(
-            t: &Task,
+            t: &dyn TaskInterface,
             addr: RemotePtr<Void>,
             num_bytes: usize,
             prot: i32,
@@ -654,12 +654,12 @@ pub mod address_space {
 
         /// Change the protection bits of [addr, addr + num_bytes) to
         /// |prot|.
-        pub fn protect(&self, t: &Task, addr: RemotePtr<Void>, num_bytes: usize, prot: i32) {
+        pub fn protect(&self, t: &dyn TaskInterface, addr: RemotePtr<Void>, num_bytes: usize, prot: i32) {
             unimplemented!()
         }
 
         /// Fix up mprotect registers parameters to take account of PROT_GROWSDOWN.
-        pub fn fixup_mprotect_growsdown_parameters(&self, t: &Task) {
+        pub fn fixup_mprotect_growsdown_parameters(&self, t: &dyn TaskInterface) {
             unimplemented!()
         }
 
@@ -667,7 +667,7 @@ pub mod address_space {
         /// [new_addr, old_addr + new_num_bytes), preserving metadata.
         pub fn remap(
             &self,
-            t: &Task,
+            t: &dyn TaskInterface,
             old_addr: RemotePtr<Void>,
             old_num_bytes: usize,
             new_addr: RemotePtr<Void>,
@@ -787,12 +787,12 @@ pub mod address_space {
 
         /// Make [addr, addr + num_bytes) inaccessible within this
         /// address space.
-        pub fn unmap(&self, t: &Task, addr: RemotePtr<Void>, snum_bytes: usize) {
+        pub fn unmap(&self, t: &dyn TaskInterface, addr: RemotePtr<Void>, snum_bytes: usize) {
             unimplemented!()
         }
 
         /// Notification of madvise call.
-        pub fn advise(&self, t: &Task, addr: RemotePtr<Void>, snum_bytes: usize, advice: i32) {
+        pub fn advise(&self, t: &dyn TaskInterface, addr: RemotePtr<Void>, snum_bytes: usize, advice: i32) {
             unimplemented!()
         }
 
@@ -803,7 +803,7 @@ pub mod address_space {
 
         /// Verify that this cached address space matches what the
         /// kernel thinks it should be.
-        pub fn verify(&self, t: &Task) {
+        pub fn verify(&self, t: &dyn TaskInterface) {
             unimplemented!()
         }
 
@@ -828,7 +828,7 @@ pub mod address_space {
             unimplemented!()
         }
 
-        pub fn at_preload_init(&self, t: &Task) {
+        pub fn at_preload_init(&self, t: &dyn TaskInterface) {
             unimplemented!()
         }
 
@@ -934,7 +934,7 @@ pub mod address_space {
         }
 
         /// Task |t| just forked from this address space. Apply dont_fork settings.
-        pub fn did_fork_into(t: &Task) {
+        pub fn did_fork_into(t: &dyn TaskInterface) {
             unimplemented!()
         }
 
@@ -948,7 +948,7 @@ pub mod address_space {
         pub fn saved_auxv(&self) -> &[u8] {
             unimplemented!()
         }
-        pub fn save_auxv(t: &Task) {
+        pub fn save_auxv(t: &dyn TaskInterface) {
             unimplemented!()
         }
 
@@ -956,7 +956,7 @@ pub mod address_space {
         /// If performed on a file in a btrfs file system, this may return the
         /// wrong device number! If you stick to anonymous or special file
         /// mappings, this should be OK.
-        pub fn read_kernel_mapping(t: &Task, addr: RemotePtr<Void>) -> KernelMapping {
+        pub fn read_kernel_mapping(t: &dyn TaskInterface, addr: RemotePtr<Void>) -> KernelMapping {
             unimplemented!()
         }
 
@@ -982,7 +982,7 @@ pub mod address_space {
 
         /// The return value indicates whether we (re)created the preload_thread_locals
         /// area.
-        pub fn post_vm_clone(t: &Task) {
+        pub fn post_vm_clone(t: &dyn TaskInterface) {
             unimplemented!()
         }
 
@@ -998,7 +998,7 @@ pub mod address_space {
         /// Call this when the memory at [addr,addr+len) was externally overwritten.
         /// This will attempt to update any breakpoints that may be set within the
         /// range (resetting them and storing the new value).
-        pub fn maybe_update_breakpoints(t: &Task, addr: RemotePtr<u8>, len: usize) {
+        pub fn maybe_update_breakpoints(t: &dyn TaskInterface, addr: RemotePtr<u8>, len: usize) {
             unimplemented!()
         }
 
@@ -1008,18 +1008,18 @@ pub mod address_space {
         /// mapping during recording).
         /// The end of the range might be in the middle of a mapping.
         /// The start of the range might also be in the middle of a mapping.
-        pub fn ensure_replay_matches_single_recorded_mapping(t: &Task, range: MemoryRange) {
+        pub fn ensure_replay_matches_single_recorded_mapping(t: &dyn TaskInterface, range: MemoryRange) {
             unimplemented!()
         }
 
         /// Print process maps.
-        pub fn print_process_maps(t: &Task) {
+        pub fn print_process_maps(t: &dyn TaskInterface) {
             unimplemented!()
         }
 
         /// Called after a successful execve to set up the new AddressSpace.
         /// Also called once for the initial spawn.
-        fn new_after_execve(t: &Task, exe: &str, exec_count: u32) -> AddressSpace {
+        fn new_after_execve(t: &dyn TaskInterface, exe: &str, exec_count: u32) -> AddressSpace {
             unimplemented!()
         }
 
@@ -1038,11 +1038,11 @@ pub mod address_space {
 
         /// After an exec, populate the new address space of |t| with
         /// the existing mappings we find in /proc/maps.
-        fn populate_address_space(&mut self, t: &Task) {
+        fn populate_address_space(&mut self, t: &dyn TaskInterface) {
             unimplemented!()
         }
 
-        fn unmap_internal(&self, t: &Task, addr: RemotePtr<Void>, num_bytes: isize) {
+        fn unmap_internal(&self, t: &dyn TaskInterface, addr: RemotePtr<Void>, num_bytes: isize) {
             unimplemented!()
         }
 
@@ -1125,7 +1125,7 @@ pub mod address_space {
         /// semantically "adjacent mappings" of the same resource as
         /// well, for example have adjacent file offsets and the same
         /// prot and flags.
-        fn coalesce_around(&self, t: &Task, it: MemoryMapIter) {
+        fn coalesce_around(&self, t: &dyn TaskInterface, it: MemoryMapIter) {
             unimplemented!()
         }
 
@@ -1156,7 +1156,7 @@ pub mod address_space {
         /// mappings of |r| that are adjacent to |m|.
         fn map_and_coalesce(
             &self,
-            t: &Task,
+            t: &dyn TaskInterface,
             m: &KernelMapping,
             recorded_map: &KernelMapping,
             emu_file: EmuFileSharedPtr,
@@ -1172,7 +1172,7 @@ pub mod address_space {
         }
 
         /// Call this only during recording.
-        fn at_preload_init_arch<Arch>(&self, t: &Task) {
+        fn at_preload_init_arch<Arch>(&self, t: &dyn TaskInterface) {
             unimplemented!()
         }
 
