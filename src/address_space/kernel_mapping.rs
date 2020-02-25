@@ -1,5 +1,6 @@
 use super::memory_range::MemoryRange;
 use crate::remote_ptr::RemotePtr;
+use crate::remote_ptr::Void;
 use crate::util::page_size;
 use libc::{c_long, dev_t, ino_t, stat, PROT_EXEC, PROT_READ, PROT_WRITE};
 use libc::{MAP_ANONYMOUS, MAP_GROWSDOWN, MAP_NORESERVE, MAP_PRIVATE, MAP_SHARED, MAP_STACK};
@@ -57,8 +58,8 @@ impl KernelMapping {
     }
 
     pub fn new_with_opts(
-        start: RemotePtr<u8>,
-        end: RemotePtr<u8>,
+        start: RemotePtr<Void>,
+        end: RemotePtr<Void>,
         fsname: &str,
         device: dev_t,
         inode: ino_t,
@@ -86,7 +87,7 @@ impl KernelMapping {
         debug_assert!(self.offset % page_size() as u64 == 0);
     }
 
-    pub fn extend(&self, end: RemotePtr<u8>) -> KernelMapping {
+    pub fn extend(&self, end: RemotePtr<Void>) -> KernelMapping {
         debug_assert!(end >= self.end());
         KernelMapping::new_with_opts(
             self.start(),
@@ -99,7 +100,7 @@ impl KernelMapping {
             self.offset,
         )
     }
-    pub fn set_range(&self, start: RemotePtr<u8>, end: RemotePtr<u8>) -> KernelMapping {
+    pub fn set_range(&self, start: RemotePtr<Void>, end: RemotePtr<Void>) -> KernelMapping {
         KernelMapping::new_with_opts(
             start,
             end,
@@ -111,7 +112,7 @@ impl KernelMapping {
             self.offset,
         )
     }
-    pub fn subrange(&self, start: RemotePtr<u8>, end: RemotePtr<u8>) -> KernelMapping {
+    pub fn subrange(&self, start: RemotePtr<Void>, end: RemotePtr<Void>) -> KernelMapping {
         debug_assert!(start >= self.start() && end <= self.end());
         let start_addr: u64 = if self.is_real_device() {
             (start - self.start()).try_into().unwrap()
