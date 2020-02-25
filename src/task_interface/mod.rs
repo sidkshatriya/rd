@@ -1,6 +1,6 @@
 use crate::kernel_abi::SupportedArch;
 use crate::registers::Registers;
-use crate::remote_ptr::RemotePtr;
+use crate::remote_ptr::{RemotePtr, Void};
 use crate::session_interface::SessionInterface;
 use crate::task_interface::task::task::CloneReason;
 use crate::task_interface::task::task::Task;
@@ -76,8 +76,8 @@ pub trait TaskInterface {
         &self,
         reason: CloneReason,
         flags: i32,
-        stack: RemotePtr<u8>,
-        tls: RemotePtr<u8>,
+        stack: RemotePtr<Void>,
+        tls: RemotePtr<Void>,
         cleartid_addr: RemotePtr<i32>,
         new_tid: pid_t,
         new_rec_tid: pid_t,

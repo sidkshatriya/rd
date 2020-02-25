@@ -82,7 +82,7 @@ pub mod task {
     use crate::property_table::PropertyTable;
     use crate::registers::Registers;
     use crate::remote_code_ptr::RemoteCodePtr;
-    use crate::remote_ptr::RemotePtr;
+    use crate::remote_ptr::{RemotePtr, Void};
     use crate::scoped_fd::ScopedFd;
     use crate::session_interface::SessionInterface;
     use crate::task_interface::TaskInterface;
@@ -94,6 +94,7 @@ pub mod task {
     use crate::wait_status::WaitStatus;
     use libc::{pid_t, siginfo_t, uid_t};
     use std::cell::RefCell;
+    use std::ffi::CString;
     use std::os::raw::c_long;
     use std::rc::Rc;
 
@@ -141,7 +142,7 @@ pub mod task {
         ///
         /// |scratch_ptr| points at the mapped address in the child,
         /// and |size| is the total available space.
-        pub scratch_ptr: RemotePtr<u8>,
+        pub scratch_ptr: RemotePtr<Void>,
         /// The full size of the scratch buffer.
         /// The last page of the scratch buffer is used as an alternate stack
         /// for the syscallbuf code. So the usable size is less than this.
@@ -223,7 +224,7 @@ pub mod task {
         thread_areas_: Vec<user_desc>,
         /// The |stack| argument passed to |clone()|, which for
         /// "threads" is the top of the user-allocated stack.
-        top_of_stack: RemotePtr<u8>,
+        top_of_stack: RemotePtr<Void>,
         /// The most recent status of this task as returned by
         /// waitpid().
         wait_status: WaitStatus,
@@ -252,9 +253,9 @@ pub mod task {
         pub syscallbuf_size: usize,
         pub num_syscallbuf_bytes: usize,
         pub preload_globals: RemotePtr<preload_globals>,
-        pub scratch_ptr: RemotePtr<u8>,
+        pub scratch_ptr: RemotePtr<Void>,
         pub scratch_size: isize,
-        pub top_of_stack: RemotePtr<u8>,
+        pub top_of_stack: RemotePtr<Void>,
         pub cloned_file_data_offset: u64,
         pub thread_locals: ThreadLocals,
         pub rec_tid: pid_t,
@@ -451,7 +452,7 @@ pub mod task {
 
         /// Read |N| bytes from |child_addr| into |buf|, or don't
         /// return.
-        pub fn read_bytes(&self, child_addr: RemotePtr<u8>, buf: &mut [u8]) {
+        pub fn read_bytes(&self, child_addr: RemotePtr<Void>, buf: &mut [u8]) {
             unimplemented!()
         }
 
@@ -507,7 +508,7 @@ pub mod task {
 
         /// Read and return the C string located at |child_addr| in
         /// this address space.
-        pub fn read_c_str(&self, child_addr: RemotePtr<u8>) -> String {
+        pub fn read_c_str(&self, child_addr: RemotePtr<u8>) -> CString {
             unimplemented!()
         }
 
@@ -636,7 +637,7 @@ pub mod task {
         /// |prctl(PR_SET_NAME)| call to change the task name to the
         /// string pointed at in the tracee's address space by
         /// |child_addr|.
-        pub fn update_prname(&self, child_addr: RemotePtr<u8>) {
+        pub fn update_prname(&self, child_addr: RemotePtr<Void>) {
             unimplemented!()
         }
 
@@ -665,7 +666,7 @@ pub mod task {
         }
 
         /// Write |N| bytes from |buf| to |child_addr|, or don't return.
-        pub fn write_bytes(&self, child_addr: RemotePtr<u8>, buf: &[u8]) {
+        pub fn write_bytes(&self, child_addr: RemotePtr<Void>, buf: &[u8]) {
             unimplemented!()
         }
 
@@ -696,20 +697,20 @@ pub mod task {
         /// Read/write the number of bytes that the template wrapper
         /// inferred.
         /// @TODO why is this returning a signed value?
-        pub fn read_bytes_fallible(&self, addr: RemotePtr<u8>, buf: &[u8]) -> isize {
+        pub fn read_bytes_fallible(&self, addr: RemotePtr<Void>, buf: &[u8]) -> isize {
             unimplemented!()
         }
 
         /// If the data can't all be read, then if |ok| is non-null, sets *ok to
         /// false, otherwise asserts.
-        pub fn read_bytes_helper(&self, addr: RemotePtr<u8>, buf: &[u8], ok: Option<&mut bool>) {
+        pub fn read_bytes_helper(&self, addr: RemotePtr<Void>, buf: &[u8], ok: Option<&mut bool>) {
             unimplemented!()
         }
 
         /// |flags| is bits from WriteFlags.
         pub fn write_bytes_helper(
             &self,
-            addr: RemotePtr<u8>,
+            addr: RemotePtr<Void>,
             buf: &[u8],
             ok: Option<&mut bool>,
             flags: Option<u32>,
@@ -757,7 +758,7 @@ pub mod task {
         /// we got ESRCH. This can happen any time during recording when the
         /// task gets a SIGKILL from outside.
         /// @TODO param data
-        pub fn ptrace_if_alive(&self, request: i32, addr: RemotePtr<u8>, data: &[u8]) -> bool {
+        pub fn ptrace_if_alive(&self, request: i32, addr: RemotePtr<Void>, data: &[u8]) -> bool {
             unimplemented!()
         }
 
@@ -775,7 +776,7 @@ pub mod task {
         pub fn usable_scratch_size(&self) {
             unimplemented!()
         }
-        pub fn syscallbuf_alt_stack(&self) -> RemotePtr<u8> {
+        pub fn syscallbuf_alt_stack(&self) -> RemotePtr<Void> {
             unimplemented!()
         }
         pub fn setup_preload_thread_locals(&self) {
@@ -806,7 +807,7 @@ pub mod task {
         }
 
         /// Helper function for init_buffers. */
-        fn init_buffers_arch(&self, map_hint: RemotePtr<u8>) {
+        fn init_buffers_arch(&self, map_hint: RemotePtr<Void>) {
             unimplemented!()
         }
 
@@ -831,33 +832,33 @@ pub mod task {
 
         /// Make the ptrace |request| with |addr| and |data|, return
         /// the ptrace return value.
-        fn fallible_ptrace(&self, request: i32, addr: RemotePtr<u8>, data: &mut [u8]) -> c_long {
+        fn fallible_ptrace(&self, request: i32, addr: RemotePtr<Void>, data: &mut [u8]) -> c_long {
             unimplemented!()
         }
 
         /// Like |fallible_ptrace()| but completely infallible.
         /// All errors are treated as fatal.
-        fn xptrace(&self, request: i32, addr: RemotePtr<u8>, data: &mut [u8]) {
+        fn xptrace(&self, request: i32, addr: RemotePtr<Void>, data: &mut [u8]) {
             unimplemented!()
         }
 
         /// Read tracee memory using PTRACE_PEEKDATA calls. Slow, only use
         /// as fallback. Returns number of bytes actually read.
         /// @TODO return an isize or usize?
-        fn read_bytes_ptrace(&self, buf: &mut [u8], addr: RemotePtr<u8>) -> usize {
+        fn read_bytes_ptrace(&self, buf: &mut [u8], addr: RemotePtr<Void>) -> usize {
             unimplemented!()
         }
 
         /// Write tracee memory using PTRACE_POKEDATA calls. Slow, only use
         /// as fallback. Returns number of bytes actually written.
         /// @TODO return an isize or usize?
-        fn write_bytes_ptrace(&self, addr: RemotePtr<u8>, buf: &[u8]) -> usize {
+        fn write_bytes_ptrace(&self, addr: RemotePtr<Void>, buf: &[u8]) -> usize {
             unimplemented!()
         }
 
         /// Try writing 'buf' to 'addr' by replacing pages in the tracee
         /// address-space using a temporary file. This may work around PaX issues.
-        fn try_replace_pages(&self, addr: RemotePtr<u8>, buf: &[u8]) -> bool {
+        fn try_replace_pages(&self, addr: RemotePtr<Void>, buf: &[u8]) -> bool {
             unimplemented!()
         }
 
@@ -869,7 +870,7 @@ pub mod task {
         fn init_syscall_buffer(
             &self,
             remote: &AutoRemoteSyscalls,
-            map_hint: RemotePtr<u8>,
+            map_hint: RemotePtr<Void>,
         ) -> KernelMapping {
             unimplemented!()
         }
@@ -914,9 +915,9 @@ pub mod task {
             rec_child_tid: pid_t,
             new_serial: u32,
             base_flags: u32,
-            stack: RemotePtr<u8>,
+            stack: RemotePtr<Void>,
             ptid: RemotePtr<i32>,
-            tls: RemotePtr<u8>,
+            tls: RemotePtr<Void>,
             ctid: RemotePtr<i32>,
         ) {
             unimplemented!()
@@ -961,8 +962,8 @@ pub mod task {
             &self,
             reason: CloneReason,
             flags: i32,
-            stack: RemotePtr<u8>,
-            tls: RemotePtr<u8>,
+            stack: RemotePtr<Void>,
+            tls: RemotePtr<Void>,
             cleartid_addr: RemotePtr<i32>,
             new_tid: i32,
             new_rec_tid: i32,

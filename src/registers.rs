@@ -9,7 +9,7 @@ use crate::kernel_supplement::{
 };
 use crate::log::LogLevel::{LogError, LogInfo, LogWarn};
 use crate::remote_code_ptr::RemoteCodePtr;
-use crate::remote_ptr::RemotePtr;
+use crate::remote_ptr::{RemotePtr, Void};
 use crate::task_interface::task::task::Task;
 use std::collections::HashMap;
 use std::convert::TryInto;
@@ -650,12 +650,12 @@ impl Registers {
         rd_set_reg!(self, eip, rip, addr.as_usize());
     }
 
-    pub fn sp(&self) -> RemotePtr<u8> {
+    pub fn sp(&self) -> RemotePtr<Void> {
         let addr = rd_get_reg!(self, esp, rsp);
         RemotePtr::<u8>::new_from_val(addr)
     }
 
-    pub fn set_sp(&mut self, addr: RemotePtr<u8>) {
+    pub fn set_sp(&mut self, addr: RemotePtr<Void>) {
         rd_set_reg!(self, esp, rsp, addr.as_usize());
     }
 
