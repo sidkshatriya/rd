@@ -3,7 +3,7 @@ use crate::diversion_session::DiversionSession;
 use crate::emu_fs::EmuFs;
 use crate::kernel_abi::SupportedArch;
 use crate::record_session::RecordSession;
-use crate::remote_ptr::RemotePtr;
+use crate::remote_ptr::{RemotePtr, Void};
 use crate::replay_session::ReplaySession;
 use crate::session_interface::session::session::{Session, TaskMap};
 use crate::task_interface::TaskInterface;
@@ -60,8 +60,8 @@ pub trait SessionInterface {
         &mut self,
         p: &dyn TaskInterface,
         flags: i32,
-        stack: RemotePtr<u8>,
-        tls: RemotePtr<u8>,
+        stack: RemotePtr<Void>,
+        tls: RemotePtr<Void>,
         cleartid_addr: RemotePtr<i32>,
         new_tid: pid_t,
         new_rec_tid: Option<pid_t>,

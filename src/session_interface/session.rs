@@ -73,7 +73,7 @@ pub mod session {
     use crate::kernel_abi::SupportedArch;
     use crate::monitored_shared_memory::MonitoredSharedMemorySharedPtr;
     use crate::perf_counters::TicksSemantics;
-    use crate::remote_ptr::RemotePtr;
+    use crate::remote_ptr::{RemotePtr, Void};
     use crate::scoped_fd::ScopedFd;
     use crate::session_interface::SessionInterface;
     use crate::task_interface::task::task::CapturedState;
@@ -114,7 +114,7 @@ pub mod session {
         pub clone_leader: *mut dyn TaskInterface,
         pub clone_leader_state: CapturedState,
         pub member_states: Vec<CapturedState>,
-        pub captured_memory: Vec<(RemotePtr<u8>, Vec<u8>)>,
+        pub captured_memory: Vec<(RemotePtr<Void>, Vec<u8>)>,
     }
 
     /// struct is NOT pub
@@ -241,7 +241,7 @@ pub mod session {
         pub fn create_shared_mmap(
             remote: &AutoRemoteSyscalls,
             size: usize,
-            map_hint: RemotePtr<u8>,
+            map_hint: RemotePtr<Void>,
             name: &str,
             tracee_prot: Option<i32>,
             tracee_flags: Option<i32>,
