@@ -1020,8 +1020,35 @@ pub mod address_space {
             unimplemented!()
         }
 
-        fn get_watch_configs(&self, will_set_task_state: WillSetTaskState) -> Vec<WatchConfig> {
-            unimplemented!()
+        fn get_watch_configs(&mut self, will_set_task_state: WillSetTaskState) -> Vec<WatchConfig> {
+            let mut result: Vec<WatchConfig> = Vec::new();
+            for (r, v) in &mut self.watchpoints {
+                let mut assigned_regs: Option<&mut Vec<u8>> = None;
+                let watching = v.watched_bits();
+                if will_set_task_state == WillSetTaskState::SettingTaskState {
+                    v.debug_regs_for_exec_read.clear();
+                    assigned_regs = Some(&mut v.debug_regs_for_exec_read);
+                }
+                if watching.contains(RwxBits::EXEC_BIT) {
+                    configure_watch_registers(
+                        &mut result,
+                        r,
+                        WatchType::WatchExec,
+                        &mut assigned_regs,
+                    );
+                }
+                if watching.contains(RwxBits::READ_BIT) {
+                    configure_watch_registers(
+                        &mut result,
+                        r,
+                        WatchType::WatchReadWrite,
+                        &mut assigned_regs,
+                    );
+                } else if watching.contains(RwxBits::WRITE_BIT) {
+                    configure_watch_registers(&mut result, r, WatchType::WatchWrite, &mut None);
+                }
+            }
+            result
         }
 
         /// Construct a minimal set of watchpoints to be enabled based
@@ -1144,9 +1171,9 @@ pub mod address_space {
 
 fn configure_watch_registers(
     regs: &mut Vec<WatchConfig>,
-    range: MemoryRange,
+    range: &MemoryRange,
     watchtype: WatchType,
-    mut maybe_assigned_regs: Option<&mut Vec<i8>>,
+    maybe_assigned_regs: &mut Option<&mut Vec<u8>>,
 ) {
     // Zero-sized WatchConfigs return no ranges here, so are ignored.
     let mut split_ranges = split_range(range);
@@ -1167,7 +1194,7 @@ fn configure_watch_registers(
         let aligned_start = RemotePtr::new_from_val(range.start().as_usize() & !(align - 1));
         let aligned_end =
             RemotePtr::new_from_val((range.end().as_usize() + (align - 1)) & !(align - 1));
-        let split = split_range(MemoryRange::from_range(aligned_start, aligned_end));
+        let split = split_range(&MemoryRange::from_range(aligned_start, aligned_end));
         // If the aligned range doesn't reduce register usage, use the original
         // split to avoid spurious triggerings
         if split.len() < split_ranges.len() {
@@ -1177,16 +1204,16 @@ fn configure_watch_registers(
 
     for r in &split_ranges {
         match maybe_assigned_regs {
-            Some(ref mut assigned_regs) => assigned_regs.push(regs.len().try_into().unwrap()),
+            Some(assigned_regs) => assigned_regs.push(regs.len().try_into().unwrap()),
             _ => (),
         }
         regs.push(WatchConfig::new(r.start(), r.size(), watchtype));
     }
 }
 
-fn split_range(range: MemoryRange) -> Vec<MemoryRange> {
+fn split_range(range: &MemoryRange) -> Vec<MemoryRange> {
     let mut result = Vec::new();
-    let mut r: MemoryRange = range;
+    let mut r: MemoryRange = *range;
     while r.size() > 0 {
         if (size_of::<usize>() < 8 || !try_split_unaligned_range(&mut r, 8, &mut result))
             && !try_split_unaligned_range(&mut r, 4, &mut result)
