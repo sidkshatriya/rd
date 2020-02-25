@@ -1,6 +1,7 @@
 pub mod kernel_mapping;
 pub mod memory_range;
 use crate::remote_ptr::RemotePtr;
+use crate::remote_ptr::Void;
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub enum BreakpointType {
@@ -72,13 +73,13 @@ pub struct SyscallType {
 /// program a single x86 debug register.
 #[derive(Copy, Clone)]
 pub struct WatchConfig {
-    pub addr: RemotePtr<u8>,
+    pub addr: RemotePtr<Void>,
     pub num_bytes: usize,
     pub type_: WatchType,
 }
 
 impl WatchConfig {
-    pub fn new(addr: RemotePtr<u8>, num_bytes: usize, type_: WatchType) -> WatchConfig {
+    pub fn new(addr: RemotePtr<Void>, num_bytes: usize, type_: WatchType) -> WatchConfig {
         WatchConfig {
             addr,
             num_bytes,
@@ -170,11 +171,11 @@ pub mod address_space {
     pub type AddressSpaceSharedPtr = Rc<RefCell<AddressSpace>>;
     pub struct Maps<'a> {
         outer: &'a AddressSpace,
-        start: RemotePtr<u8>,
+        start: RemotePtr<Void>,
     }
 
     impl<'a> Maps<'a> {
-        pub fn new(outer: &'a AddressSpace, start: RemotePtr<u8>) -> Maps {
+        pub fn new(outer: &'a AddressSpace, start: RemotePtr<Void>) -> Maps {
             Maps { outer, start }
         }
     }
@@ -396,15 +397,15 @@ pub mod address_space {
         leader_serial: u32,
         exec_count: u32,
         /// Only valid during recording
-        brk_start: RemotePtr<u8>,
+        brk_start: RemotePtr<Void>,
         /// Current brk. Not necessarily page-aligned.
-        brk_end: RemotePtr<u8>,
+        brk_end: RemotePtr<Void>,
         /// All segments mapped into this address space.
         mem: MemoryMap,
         /// Sizes of SYSV shm segments, by address. We use this to determine the size
         /// of memory regions unmapped via shmdt().
-        shm_sizes: HashMap<RemotePtr<u8>, usize>,
-        monitored_mem: HashSet<RemotePtr<u8>>,
+        shm_sizes: HashMap<RemotePtr<Void>, usize>,
+        monitored_mem: HashSet<RemotePtr<Void>>,
         /// madvise DONTFORK regions
         dont_fork: HashSet<MemoryRange>,
         /// The session that created this.  We save a ref to it so that
@@ -413,7 +414,7 @@ pub mod address_space {
         /// tid of the task whose thread-locals are in preload_thread_locals
         thread_locals_tuid_: TaskUid,
         /// First mapped byte of the vdso.
-        vdso_start_addr: RemotePtr<u8>,
+        vdso_start_addr: RemotePtr<Void>,
         /// The monkeypatcher that's handling this address space.
         monkeypatch_state: Option<MonkeyPatcher>,
         /// The watchpoints set for tasks in this VM.  Watchpoints are
@@ -464,12 +465,12 @@ pub mod address_space {
 
         /// Change the program data break of this address space to
         /// |addr|. Only called during recording!
-        pub fn brk(&self, t: &Task, addr: RemotePtr<u8>, prot: i32) {
+        pub fn brk(&self, t: &Task, addr: RemotePtr<Void>, prot: i32) {
             unimplemented!()
         }
 
         /// This can only be called during recording.
-        pub fn current_brk() -> RemotePtr<u8> {
+        pub fn current_brk() -> RemotePtr<Void> {
             unimplemented!()
         }
 
@@ -560,7 +561,7 @@ pub mod address_space {
         /// of the shared memory and is responsible for unmapping it.
         pub fn map(
             t: &Task,
-            addr: RemotePtr<u8>,
+            addr: RemotePtr<Void>,
             num_bytes: usize,
             prot: i32,
             flags: i32,
@@ -578,30 +579,30 @@ pub mod address_space {
         }
 
         /// Return the mapping and mapped resource for the byte at address 'addr'.
-        pub fn mapping_of(&self, addr: RemotePtr<u8>) -> Option<&Mapping> {
+        pub fn mapping_of(&self, addr: RemotePtr<Void>) -> Option<&Mapping> {
             unimplemented!()
         }
 
         /// Detach local mapping and return it.
-        pub fn detach_local_mapping(addr: RemotePtr<u8>) -> Option<*const u8> {
+        pub fn detach_local_mapping(addr: RemotePtr<Void>) -> Option<*const u8> {
             unimplemented!()
         }
 
         /// Return a reference to the flags of the mapping at this address, allowing
         /// manipulation.
-        pub fn mapping_flags_of(&mut self, addr: RemotePtr<u8>) -> Option<&mut u32> {
+        pub fn mapping_flags_of(&mut self, addr: RemotePtr<Void>) -> Option<&mut u32> {
             unimplemented!()
         }
 
         /// Return true if there is some mapping for the byte at 'addr'.
         /// Use Self::mapping_of() instead in most cases.
-        pub fn has_mapping(&self, addr: RemotePtr<u8>) -> bool {
+        pub fn has_mapping(&self, addr: RemotePtr<Void>) -> bool {
             unimplemented!()
         }
 
         /// If the given memory region is mapped into the local address space, obtain
         /// the local address from which the `size` bytes at `addr` can be accessed.
-        pub fn local_mapping(&self, addr: RemotePtr<u8>, size: usize) -> &[u8] {
+        pub fn local_mapping(&self, addr: RemotePtr<Void>, size: usize) -> &[u8] {
             unimplemented!()
         }
 
@@ -613,23 +614,23 @@ pub mod address_space {
         pub fn maps(&self) -> Maps {
             Maps::new(self, RemotePtr::new())
         }
-        pub fn maps_starting_at(&self, start: RemotePtr<u8>) -> Maps {
+        pub fn maps_starting_at(&self, start: RemotePtr<Void>) -> Maps {
             Maps::new(self, start)
         }
-        pub fn maps_containing_or_after(&self, start: RemotePtr<u8>) -> Maps {
+        pub fn maps_containing_or_after(&self, start: RemotePtr<Void>) -> Maps {
             match self.mapping_of(start) {
                 Some(found) => Maps::new(self, found.map.start()),
                 _ => Maps::new(self, start),
             }
         }
 
-        pub fn monitored_addrs(&self) -> &HashSet<RemotePtr<u8>> {
+        pub fn monitored_addrs(&self) -> &HashSet<RemotePtr<Void>> {
             unimplemented!()
         }
 
         /// Change the protection bits of [addr, addr + num_bytes) to
         /// |prot|.
-        pub fn protect(&self, t: &Task, addr: RemotePtr<u8>, num_bytes: usize, prot: i32) {
+        pub fn protect(&self, t: &Task, addr: RemotePtr<Void>, num_bytes: usize, prot: i32) {
             unimplemented!()
         }
 
@@ -643,9 +644,9 @@ pub mod address_space {
         pub fn remap(
             &self,
             t: &Task,
-            old_addr: RemotePtr<u8>,
+            old_addr: RemotePtr<Void>,
             old_num_bytes: usize,
-            new_addr: RemotePtr<u8>,
+            new_addr: RemotePtr<Void>,
             new_num_bytes: usize,
         ) {
             unimplemented!()
@@ -654,7 +655,7 @@ pub mod address_space {
         /// Notify that data was written to this address space by rr or
         /// by the kernel.
         /// |flags| can contain values from Task::WriteFlags.
-        pub fn notify_written(&self, addr: RemotePtr<u8>, num_bytes: usize, flags: u32) {
+        pub fn notify_written(&self, addr: RemotePtr<Void>, num_bytes: usize, flags: u32) {
             unimplemented!()
         }
 
@@ -689,13 +690,13 @@ pub mod address_space {
         /// address range.
         pub fn add_watchpoint(
             &self,
-            addr: RemotePtr<u8>,
+            addr: RemotePtr<Void>,
             num_bytes: usize,
             type_: WatchType,
         ) -> bool {
             unimplemented!()
         }
-        pub fn remove_watchpoint(&self, addr: RemotePtr<u8>, num_bytes: usize, type_: WatchType) {
+        pub fn remove_watchpoint(&self, addr: RemotePtr<Void>, num_bytes: usize, type_: WatchType) {
             unimplemented!()
         }
         pub fn remove_all_watchpoints(&self) {
@@ -748,26 +749,26 @@ pub mod address_space {
             unimplemented!()
         }
 
-        pub fn set_shm_size(&self, addr: RemotePtr<u8>, bytes: usize) {
+        pub fn set_shm_size(&self, addr: RemotePtr<Void>, bytes: usize) {
             unimplemented!()
         }
 
         /// Dies if no shm size is registered for the address.
-        pub fn get_shm_size(&self, addr: RemotePtr<u8>) -> usize {
+        pub fn get_shm_size(&self, addr: RemotePtr<Void>) -> usize {
             unimplemented!()
         }
-        pub fn remove_shm_size(&self, addr: RemotePtr<u8>) {
+        pub fn remove_shm_size(&self, addr: RemotePtr<Void>) {
             unimplemented!()
         }
 
         /// Make [addr, addr + num_bytes) inaccessible within this
         /// address space.
-        pub fn unmap(&self, t: &Task, addr: RemotePtr<u8>, snum_bytes: usize) {
+        pub fn unmap(&self, t: &Task, addr: RemotePtr<Void>, snum_bytes: usize) {
             unimplemented!()
         }
 
         /// Notification of madvise call.
-        pub fn advise(&self, t: &Task, addr: RemotePtr<u8>, snum_bytes: usize, advice: i32) {
+        pub fn advise(&self, t: &Task, addr: RemotePtr<Void>, snum_bytes: usize, advice: i32) {
             unimplemented!()
         }
 
@@ -825,7 +826,7 @@ pub mod address_space {
 
         /// We'll map a page of memory here into every exec'ed process for our own
         /// use.
-        pub fn rd_page_start() -> RemotePtr<u8> {
+        pub fn rd_page_start() -> RemotePtr<Void> {
             unimplemented!()
         }
 
@@ -834,11 +835,11 @@ pub mod address_space {
         pub fn rd_page_size() -> u32 {
             4096
         }
-        pub fn rr_page_end() -> RemotePtr<u8> {
+        pub fn rr_page_end() -> RemotePtr<Void> {
             unimplemented!()
         }
 
-        pub fn preload_thread_locals_start() -> RemotePtr<u8> {
+        pub fn preload_thread_locals_start() -> RemotePtr<Void> {
             unimplemented!()
         }
         pub fn preload_thread_locals_size() -> u32 {
@@ -907,7 +908,7 @@ pub mod address_space {
         /// If performed on a file in a btrfs file system, this may return the
         /// wrong device number! If you stick to anonymous or special file
         /// mappings, this should be OK.
-        pub fn read_kernel_mapping(t: &Task, addr: RemotePtr<u8>) -> KernelMapping {
+        pub fn read_kernel_mapping(t: &Task, addr: RemotePtr<Void>) -> KernelMapping {
             unimplemented!()
         }
 
@@ -920,10 +921,10 @@ pub mod address_space {
             8 * 1024 * 1024
         }
 
-        pub fn chaos_mode_find_free_memory(t: &RecordTask, len: usize) -> RemotePtr<u8> {
+        pub fn chaos_mode_find_free_memory(t: &RecordTask, len: usize) -> RemotePtr<Void> {
             unimplemented!()
         }
-        pub fn find_free_memory(len: usize, after: Option<RemotePtr<u8>>) -> RemotePtr<u8> {
+        pub fn find_free_memory(len: usize, after: Option<RemotePtr<Void>>) -> RemotePtr<Void> {
             unimplemented!()
         }
 
@@ -993,7 +994,7 @@ pub mod address_space {
             unimplemented!()
         }
 
-        fn unmap_internal(&self, t: &Task, addr: RemotePtr<u8>, num_bytes: isize) {
+        fn unmap_internal(&self, t: &Task, addr: RemotePtr<Void>, num_bytes: isize) {
             unimplemented!()
         }
 
@@ -1006,7 +1007,7 @@ pub mod address_space {
             unimplemented!()
         }
 
-        fn update_watchpoint_values(&self, start: RemotePtr<u8>, end: RemotePtr<u8>) {
+        fn update_watchpoint_values(&self, start: RemotePtr<Void>, end: RemotePtr<Void>) {
             unimplemented!()
         }
         fn get_watchpoints_internal(&self, filter: WatchPointFilter) -> Vec<WatchConfig> {
@@ -1047,7 +1048,7 @@ pub mod address_space {
         /// Default is to iterate all mappings in the region.
         fn for_each_in_range<F: Fn(&Mapping, &MemoryRange)>(
             &self,
-            addr: RemotePtr<u8>,
+            addr: RemotePtr<Void>,
             num_bytes: isize,
             f: F,
             how: IterateHow,

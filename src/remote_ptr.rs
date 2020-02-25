@@ -7,6 +7,9 @@ use std::marker::PhantomData;
 use std::ops::Add;
 use std::ops::Sub;
 
+/// Useful alias.
+pub type Void = u8;
+
 #[derive(Copy, Clone)]
 pub struct RemotePtr<T> {
     ptr: usize,
