@@ -48,6 +48,21 @@ macro_rules! rd_arch_function {
     };
 }
 
+const INT80_INSN: [u8; 2] = [0xcd, 0x80];
+const SYSENTER_INSN: [u8; 2] = [0x0f, 0x34];
+const SYSCALL_INSN: [u8; 2] = [0x0f, 0x05];
+
+/// Return the code bytes of an invoke-syscall instruction. The vector must
+/// have the length given by |syscall_instruction_length|.
+pub fn syscall_instruction(arch: SupportedArch) -> &'static [u8] {
+    match arch {
+        SupportedArch::X86 => &INT80_INSN,
+        SupportedArch::X64 => &SYSCALL_INSN,
+    }
+}
+
+/// Return the length of all invoke-syscall instructions. Currently,
+/// they must all have the same length!
 pub fn syscall_instruction_length(arch: SupportedArch) -> usize {
     match arch {
         SupportedArch::X86 => 2,

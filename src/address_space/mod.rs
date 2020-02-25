@@ -97,7 +97,7 @@ pub mod address_space {
     use crate::address_space::memory_range::{MemoryRange, MemoryRangeKey};
     use crate::auto_remote_syscalls::AutoRemoteSyscalls;
     use crate::emu_fs::EmuFileSharedPtr;
-    use crate::kernel_abi::SupportedArch;
+    use crate::kernel_abi::{syscall_instruction, SupportedArch};
     use crate::monitored_shared_memory::MonitoredSharedMemorySharedPtr;
     use crate::monkey_patcher::MonkeyPatcher;
     use crate::property_table::PropertyTable;
@@ -107,6 +107,7 @@ pub mod address_space {
     use crate::scoped_fd::ScopedFd;
     use crate::session_interface::session::session::Session;
     use crate::task_interface::task::task::Task;
+    use crate::task_interface::TaskInterface;
     use crate::task_set::TaskSet;
     use crate::taskish_uid::AddressSpaceUid;
     use crate::taskish_uid::TaskUid;
@@ -124,6 +125,23 @@ pub mod address_space {
     use std::ops::Drop;
     use std::ops::{Deref, DerefMut};
     use std::rc::Rc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static OFFSET_TO_SYSCALL_IN_X86: AtomicUsize = AtomicUsize::new(0);
+    static OFFSET_TO_SYSCALL_IN_X64: AtomicUsize = AtomicUsize::new(0);
+
+    fn find_offset_of_syscall_instruction_in(arch: SupportedArch, vdso: &[u8]) -> Option<usize> {
+        let instruction = syscall_instruction(arch);
+        let instruction_size = instruction.len();
+        let limit = vdso.len() - instruction.len();
+        for i in 1..limit {
+            if vdso.get(i..i + instruction_size).unwrap() == instruction {
+                return Some(i);
+            }
+        }
+
+        return None;
+    }
 
     #[derive(Clone)]
     pub struct Mapping {
@@ -887,8 +905,32 @@ pub mod address_space {
         /// This gives us a way to execute remote syscalls without having to write
         /// a syscall instruction into executable tracee memory (which might not be
         /// possible with some kernels, e.g. PaX).
-        pub fn find_syscall_instruction(t: &Task) -> RemoteCodePtr {
-            unimplemented!()
+        pub fn find_syscall_instruction(&self, t: &dyn TaskInterface) -> RemoteCodePtr {
+            let arch = t.as_task().arch();
+            let mut offset = match arch {
+                SupportedArch::X86 => OFFSET_TO_SYSCALL_IN_X64.load(Ordering::SeqCst),
+                SupportedArch::X64 => OFFSET_TO_SYSCALL_IN_X86.load(Ordering::SeqCst),
+            };
+
+            if offset == 0 {
+                let vdso =
+                    t.as_task()
+                        .read_mem::<u8>(self.vdso().start(), self.vdso().size(), None);
+                let maybe_offset = find_offset_of_syscall_instruction_in(arch, &vdso);
+                ed_assert!(
+                    t.as_task(),
+                    maybe_offset.is_some(),
+                    "No syscall instruction found in VDSO"
+                );
+                offset = maybe_offset.unwrap();
+                assert!(offset != 0);
+                match arch {
+                    SupportedArch::X86 => OFFSET_TO_SYSCALL_IN_X64.store(offset, Ordering::SeqCst),
+                    SupportedArch::X64 => OFFSET_TO_SYSCALL_IN_X86.store(offset, Ordering::SeqCst),
+                };
+            }
+
+            RemoteCodePtr::from_val(self.vdso().start().as_usize() + offset)
         }
 
         /// Task |t| just forked from this address space. Apply dont_fork settings.
@@ -1060,7 +1102,7 @@ pub mod address_space {
             if regs.len() <= 0x7f {
                 let mut ok = true;
                 for t in self.task_set() {
-                    if !t.set_debug_regs(&mut regs) {
+                    if !t.as_task().set_debug_regs(&mut regs) {
                         ok = false;
                     }
                 }
@@ -1071,7 +1113,7 @@ pub mod address_space {
 
             regs.clear();
             for t2 in self.task_set() {
-                t2.set_debug_regs(&mut regs);
+                t2.as_task().set_debug_regs(&mut regs);
             }
             for (_, v) in &mut self.watchpoints {
                 v.debug_regs_for_exec_read.clear();
