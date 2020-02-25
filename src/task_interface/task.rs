@@ -71,15 +71,18 @@ pub mod task {
     use crate::address_space::address_space::AddressSpaceSharedPtr;
     use crate::address_space::kernel_mapping::KernelMapping;
     use crate::address_space::WatchConfig;
-    use crate::auto_remote_syscalls::AutoRemoteSyscalls;
+    use crate::auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem};
     use crate::bindings::kernel::user_desc;
     use crate::extra_registers::ExtraRegisters;
     use crate::fd_table::FdTableSharedPtr;
     use crate::kernel_abi::common::preload_interface::preload_globals;
     use crate::kernel_abi::common::preload_interface::{syscallbuf_hdr, syscallbuf_record};
     use crate::kernel_abi::SupportedArch;
+    use crate::kernel_abi::{syscall_number_for_close, syscall_number_for_openat};
+    use crate::log::LogLevel::{LogInfo, LogWarn};
     use crate::perf_counters::PerfCounters;
     use crate::property_table::PropertyTable;
+    use crate::rd::RD_RESERVED_ROOT_DIR_FD;
     use crate::registers::Registers;
     use crate::remote_code_ptr::RemoteCodePtr;
     use crate::remote_ptr::{RemotePtr, Void};
@@ -92,10 +95,14 @@ pub mod task {
     use crate::trace_stream::TraceStream;
     use crate::util::TrappedInstruction;
     use crate::wait_status::WaitStatus;
+    use libc::ESRCH;
     use libc::{pid_t, siginfo_t, uid_t};
+    use nix::fcntl::OFlag;
     use std::cell::RefCell;
+    use std::convert::TryInto;
     use std::ffi::CString;
     use std::os::raw::c_long;
+    use std::path::Path;
     use std::rc::Rc;
 
     pub struct TrapReason;
@@ -513,8 +520,13 @@ pub mod task {
         }
 
         /// Return the session this is part of.
-        pub fn session(&self) -> &dyn SessionInterface {
-            unimplemented!()
+        pub fn session_interface(&self) -> &dyn SessionInterface {
+            unsafe { self.session_.as_ref() }.unwrap()
+        }
+
+        /// Return the session this is part of.
+        pub fn session_interface_mut(&self) -> &mut dyn SessionInterface {
+            unsafe { self.session_.as_mut() }.unwrap()
         }
 
         /// Set the tracee's registers to |regs|. Lazy.
@@ -739,7 +751,68 @@ pub mod task {
         /// itself and smuggle the fd back to us.
         /// Returns false if the process no longer exists.
         pub fn open_mem_fd(&self) -> bool {
-            unimplemented!()
+            // Use ptrace to read/write during open_mem_fd
+            self.as_.borrow_mut().set_mem_fd(ScopedFd::new());
+
+            if !self.is_stopped {
+                log!(
+                    LogWarn,
+                    "Can't retrieve mem fd for {}; process not stopped, racing with exec?",
+                    self.tid
+                );
+                return false;
+            }
+
+            // We could try opening /proc/<pid>/mem directly first and
+            // only do this dance if that fails. But it's simpler to
+            // always take this path, and gives better test coverage. On Ubuntu
+            // the child has to open its own mem file (unless rr is root).
+            let path = "/proc/self/mem";
+
+            let remote = AutoRemoteSyscalls::new(self);
+            let remote_fd: i32;
+            {
+                let remote_path: AutoRestoreMem = AutoRestoreMem::push_cstr(&remote, path);
+                if remote_path.get().is_some() {
+                    // skip leading '/' since we want the path to be relative to the root fd
+                    remote_fd = remote
+                        .syscall3(
+                            syscall_number_for_openat(self.arch()),
+                            RD_RESERVED_ROOT_DIR_FD as usize,
+                            // Skip the leading '/' in the path as this is a relative path.
+                            remote_path.get().unwrap().as_usize() + 1,
+                            libc::O_RDWR as usize,
+                        )
+                        .try_into()
+                        .unwrap();
+                } else {
+                    remote_fd = -ESRCH;
+                }
+            }
+            let mut fd: ScopedFd = ScopedFd::new();
+            if remote_fd != -ESRCH {
+                if remote_fd < 0 {
+                    // This can happen when a process fork()s after setuid; it can no longer
+                    // open its own /proc/self/mem. Hopefully we can read the child's
+                    // mem file in this case (because rr is probably running as root).
+                    let buf: String = format!("/proc/{}/mem", self.tid);
+                    fd = ScopedFd::open_path(Path::new(&buf), OFlag::O_RDWR);
+                } else {
+                    fd = remote.retrieve_fd(remote_fd);
+                    // Leak fd if the syscall fails due to the task being SIGKILLed unexpectedly
+                    remote.syscall1(syscall_number_for_close(self.arch()), remote_fd as usize);
+                }
+            }
+            if !fd.is_open() {
+                log!(
+                    LogInfo,
+                    "Can't retrieve mem fd for {}; process no longer exists?",
+                    self.tid
+                );
+                return false;
+            }
+            self.as_.borrow_mut().set_mem_fd(fd.try_into().unwrap());
+            true
         }
 
         /// Calls open_mem_fd if this task's AddressSpace doesn't already have one.

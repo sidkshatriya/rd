@@ -95,8 +95,10 @@ pub mod address_space {
     use super::*;
     use crate::address_space::kernel_mapping::KernelMapping;
     use crate::address_space::memory_range::{MemoryRange, MemoryRangeKey};
+    use crate::address_space::MappingFlags::IsThreadLocals;
     use crate::auto_remote_syscalls::AutoRemoteSyscalls;
     use crate::emu_fs::EmuFileSharedPtr;
+    use crate::kernel_abi::common::preload_interface::{PRELOAD_THREAD_LOCALS_SIZE, RD_PAGE_ADDR};
     use crate::kernel_abi::{syscall_instruction, SupportedArch};
     use crate::monitored_shared_memory::MonitoredSharedMemorySharedPtr;
     use crate::monkey_patcher::MonkeyPatcher;
@@ -340,24 +342,24 @@ pub mod address_space {
             }
         }
         pub fn watch(&mut self, which: RwxBits) {
-            if which & RwxBits::EXEC_BIT == RwxBits::EXEC_BIT {
+            if which.contains(RwxBits::EXEC_BIT) {
                 self.exec_count += 1;
             }
-            if which & RwxBits::READ_BIT == RwxBits::READ_BIT {
+            if which.contains(RwxBits::READ_BIT) {
                 self.read_count += 1;
             }
-            if which & RwxBits::WRITE_BIT == RwxBits::WRITE_BIT {
+            if which.contains(RwxBits::WRITE_BIT) {
                 self.write_count += 1;
             }
         }
         pub fn unwatch(&mut self, which: RwxBits) -> u32 {
-            if which & RwxBits::EXEC_BIT == RwxBits::EXEC_BIT {
+            if which.contains(RwxBits::EXEC_BIT) {
                 self.exec_count -= 1;
             }
-            if which & RwxBits::READ_BIT == RwxBits::READ_BIT {
+            if which.contains(RwxBits::READ_BIT) {
                 self.read_count -= 1;
             }
-            if which & RwxBits::WRITE_BIT == RwxBits::WRITE_BIT {
+            if which.contains(RwxBits::WRITE_BIT) {
                 self.write_count -= 1;
             }
             self.exec_count + self.read_count + self.write_count
@@ -457,7 +459,7 @@ pub mod address_space {
         /// access when child_mem_fd is not open.
         child_mem_fd: ScopedFd,
         traced_syscall_ip_: RemoteCodePtr,
-        privileged_traced_syscall_ip_: RemoteCodePtr,
+        privileged_traced_syscall_ip_: Option<RemoteCodePtr>,
         syscallbuf_enabled_: bool,
 
         saved_auxv_: Vec<u8>,
@@ -483,8 +485,32 @@ pub mod address_space {
 
         /// Call this after a successful execve syscall has completed. At this point
         /// it is safe to perform remote syscalls.
-        pub fn post_exec_syscall(&self, t: &dyn TaskInterface) {
-            unimplemented!()
+        pub fn post_exec_syscall(&mut self, t: &dyn TaskInterface) {
+            // First locate a syscall instruction we can use for remote syscalls.
+            self.traced_syscall_ip_ = self.find_syscall_instruction(t);
+            self.privileged_traced_syscall_ip_ = None;
+            // Now remote syscalls work, we can open_mem_fd.
+            t.as_task().open_mem_fd();
+
+            // Set up AutoRemoteSyscalls again now that the mem-fd is open.
+            let remote = AutoRemoteSyscalls::new(t);
+            // Now we can set up the "rd page" at its fixed address. This gives
+            // us traced and untraced syscall instructions at known, fixed addresses.
+            self.map_rd_page(&remote);
+            // Set up the preload_thread_locals shared area.
+            Session::create_shared_mmap(
+                &remote,
+                PRELOAD_THREAD_LOCALS_SIZE,
+                Self::preload_thread_locals_start(),
+                "preload_thread_locals",
+                None,
+                None,
+                None,
+            );
+            let flags = self
+                .mapping_flags_of(Self::preload_thread_locals_start())
+                .unwrap();
+            *flags = *flags | IsThreadLocals as u32;
         }
 
         /// Change the program data break of this address space to
@@ -654,7 +680,13 @@ pub mod address_space {
 
         /// Change the protection bits of [addr, addr + num_bytes) to
         /// |prot|.
-        pub fn protect(&self, t: &dyn TaskInterface, addr: RemotePtr<Void>, num_bytes: usize, prot: i32) {
+        pub fn protect(
+            &self,
+            t: &dyn TaskInterface,
+            addr: RemotePtr<Void>,
+            num_bytes: usize,
+            prot: i32,
+        ) {
             unimplemented!()
         }
 
@@ -792,7 +824,13 @@ pub mod address_space {
         }
 
         /// Notification of madvise call.
-        pub fn advise(&self, t: &dyn TaskInterface, addr: RemotePtr<Void>, snum_bytes: usize, advice: i32) {
+        pub fn advise(
+            &self,
+            t: &dyn TaskInterface,
+            addr: RemotePtr<Void>,
+            num_bytes: usize,
+            advice: i32,
+        ) {
             unimplemented!()
         }
 
@@ -818,10 +856,13 @@ pub mod address_space {
         pub const BREAKPOINT_INSN: u8 = 0xCC;
 
         pub fn mem_fd(&self) -> &ScopedFd {
-            unimplemented!()
+            &self.child_mem_fd
+        }
+        pub fn mem_fd_mut(&mut self) -> &mut ScopedFd {
+            &mut self.child_mem_fd
         }
         pub fn set_mem_fd(&mut self, fd: ScopedFd) {
-            unimplemented!()
+            self.child_mem_fd = fd;
         }
 
         pub fn monkeypatcher(&self) -> &MonkeyPatcher {
@@ -851,7 +892,7 @@ pub mod address_space {
         /// We'll map a page of memory here into every exec'ed process for our own
         /// use.
         pub fn rd_page_start() -> RemotePtr<Void> {
-            unimplemented!()
+            RemotePtr::<Void>::new_from_val(RD_PAGE_ADDR)
         }
 
         /// This might not be the length of an actual system page, but we allocate
@@ -864,7 +905,7 @@ pub mod address_space {
         }
 
         pub fn preload_thread_locals_start() -> RemotePtr<Void> {
-            unimplemented!()
+            Self::rd_page_start()
         }
         pub fn preload_thread_locals_size() -> u32 {
             unimplemented!()
@@ -1008,7 +1049,10 @@ pub mod address_space {
         /// mapping during recording).
         /// The end of the range might be in the middle of a mapping.
         /// The start of the range might also be in the middle of a mapping.
-        pub fn ensure_replay_matches_single_recorded_mapping(t: &dyn TaskInterface, range: MemoryRange) {
+        pub fn ensure_replay_matches_single_recorded_mapping(
+            t: &dyn TaskInterface,
+            range: MemoryRange,
+        ) {
             unimplemented!()
         }
 
@@ -1047,7 +1091,7 @@ pub mod address_space {
         }
 
         /// Also sets brk_ptr.
-        fn map_rd_page(&self, remote: &AutoRemoteSyscalls) {
+        fn map_rd_page(&mut self, remote: &AutoRemoteSyscalls) {
             unimplemented!()
         }
 

@@ -31,6 +31,7 @@ mod kernel_supplement;
 mod monitored_shared_memory;
 mod monkey_patcher;
 mod property_table;
+mod rd;
 mod record_session;
 mod remote_code_ptr;
 mod remote_ptr;

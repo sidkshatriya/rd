@@ -19,7 +19,12 @@ impl ScopedFd {
         ScopedFd { fd: fd }
     }
 
-    pub fn open_from_path<P: ?Sized + NixPath>(path: &P, oflag: OFlag, mode: Mode) -> Self {
+    pub fn open_path<P: ?Sized + NixPath>(path: &P, oflag: OFlag) -> Self {
+        let rawfd = open(path, oflag, Mode::empty()).unwrap();
+        ScopedFd { fd: rawfd }
+    }
+
+    pub fn open_path_with_mode<P: ?Sized + NixPath>(path: &P, oflag: OFlag, mode: Mode) -> Self {
         let rawfd = open(path, oflag, mode).unwrap();
         ScopedFd { fd: rawfd }
     }
