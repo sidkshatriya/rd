@@ -108,8 +108,10 @@ pub mod address_space {
     use crate::taskish_uid::AddressSpaceUid;
     use crate::taskish_uid::TaskUid;
     use crate::trace_frame::FrameTime;
+    use core::ffi::c_void;
     use libc::stat;
     use libc::{dev_t, ino_t, pid_t};
+    use nix::sys::mman::munmap;
     use std::cell::RefCell;
     use std::collections::btree_map::Range;
     use std::collections::hash_map::Iter as HashMapIter;
@@ -136,7 +138,7 @@ pub mod address_space {
         /// mapping's permissions in the tracee. Also note that it is the caller's
         /// responsibility to keep this alive at least as long as this mapping is
         /// present in the address space.
-        pub local_addr: Option<*mut u8>,
+        pub local_addr: Option<*mut c_void>,
         /// Multiple Mapping-s might point to the same MonitoredSharedMemory object.
         pub monitored_shared_memory: Option<MonitoredSharedMemorySharedPtr>,
         /// Flags indicate mappings that require special handling. Adjacent mappings
@@ -150,7 +152,7 @@ pub mod address_space {
             recorded_map: &KernelMapping,
             emu_file: Option<EmuFileSharedPtr>,
             mapped_file_stat: Option<stat>,
-            local_addr: Option<*mut u8>,
+            local_addr: Option<*mut c_void>,
             monitored: Option<MonitoredSharedMemorySharedPtr>,
         ) -> Mapping {
             Mapping {
@@ -385,6 +387,7 @@ pub mod address_space {
     /// Models the address space for a set of tasks.  This includes the set
     /// of mapped pages, and the resources those mappings refer to.
     pub struct AddressSpace {
+        /// The struct Deref-s and DerefMut-s to task_set.
         task_set: TaskSet,
         /// All breakpoints set in this VM.
         breakpoints: BreakpointMap,
@@ -1101,7 +1104,16 @@ pub mod address_space {
 
     impl Drop for AddressSpace {
         fn drop(&mut self) {
-            unimplemented!()
+            for (_, m) in &self.mem {
+                match m.local_addr {
+                    Some(local) => {
+                        if unsafe { munmap(local, m.map.size()) }.is_err() {
+                            fatal!("Can't munmap");
+                        }
+                    }
+                    _ => (),
+                }
+            }
         }
     }
 }
