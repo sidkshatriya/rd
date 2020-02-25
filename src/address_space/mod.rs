@@ -1,7 +1,10 @@
 pub mod kernel_mapping;
 pub mod memory_range;
+use crate::address_space::memory_range::MemoryRange;
 use crate::remote_ptr::RemotePtr;
 use crate::remote_ptr::Void;
+use std::convert::TryInto;
+use std::mem::size_of;
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub enum BreakpointType {
@@ -15,21 +18,21 @@ pub enum BreakpointType {
 
 /// NB: these random-looking enumeration values are chosen to
 /// match the numbers programmed into x86 debug registers.
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub enum WatchType {
     WatchExec = 0x00,
     WatchWrite = 0x01,
     WatchReadWrite = 0x03,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub enum DebugStatus {
     DsWatchpointAny = 0xf,
     DsSingleStep = 1 << 14,
 }
 
 #[repr(u32)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub enum MappingFlags {
     FlagNone = 0x0,
     /// This mapping represents a syscallbuf. It needs to handled specially
@@ -45,24 +48,24 @@ pub enum MappingFlags {
     IsRdPage = 0x8,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub enum Traced {
     Traced,
     Untraced,
 }
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub enum Privileged {
     Privileged,
     Unpriviledged,
 }
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub enum Enabled {
     RecordingOnly,
     ReplayOnly,
     RecordingAndReplay,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub struct SyscallType {
     traced: Traced,
     priviledged: Privileged,
@@ -357,19 +360,19 @@ pub mod address_space {
         }
     }
 
-    #[derive(Copy, Clone)]
+    #[derive(Copy, Clone, Eq, PartialEq)]
     enum WatchPointFilter {
         AllWatchpoints,
         ChangedWatchpoints,
     }
 
-    #[derive(Copy, Clone)]
+    #[derive(Copy, Clone, Eq, PartialEq)]
     enum WillSetTaskState {
         SettingTaskState,
         NotSettingTaskState,
     }
 
-    #[derive(Copy, Clone)]
+    #[derive(Copy, Clone, Eq, PartialEq)]
     enum IterateHow {
         IterateDefault,
         IterateContiguous,
@@ -456,8 +459,8 @@ pub mod address_space {
 
         /// Call this after a new task has been cloned within this
         /// address space.
-        pub fn after_clone(&self) {
-            unimplemented!()
+        pub fn after_clone(&mut self) {
+            self.allocate_watchpoints();
         }
 
         /// Call this after a successful execve syscall has completed. At this point
@@ -1017,15 +1020,16 @@ pub mod address_space {
             unimplemented!()
         }
 
-        fn get_watch_configs(will_set_task_state: WillSetTaskState) -> Vec<WatchConfig> {
+        fn get_watch_configs(&self, will_set_task_state: WillSetTaskState) -> Vec<WatchConfig> {
             unimplemented!()
         }
 
         /// Construct a minimal set of watchpoints to be enabled based
         /// on |set_watchpoint()| calls, and program them for each task
         /// in this address space.
-        fn allocate_watchpoints(&self) -> bool {
-            unimplemented!()
+        fn allocate_watchpoints(&mut self) -> bool {
+            let regs = self.get_watch_configs(WillSetTaskState::SettingTaskState);
+            false
         }
 
         /// Merge the mappings adjacent to |it| in memory that are
@@ -1116,4 +1120,75 @@ pub mod address_space {
             }
         }
     }
+}
+
+fn configure_watch_registers(
+    regs: &mut Vec<WatchConfig>,
+    range: MemoryRange,
+    watchtype: WatchType,
+    mut maybe_assigned_regs: Option<&mut Vec<i8>>,
+) {
+    // Zero-sized WatchConfigs return no ranges here, so are ignored.
+    let mut split_ranges = split_range(range);
+
+    if watchtype == WatchType::WatchWrite && range.size() > 1 {
+        // We can suppress spurious write-watchpoint triggerings by checking
+        // whether memory values have changed. So we can sometimes conserve
+        // debug registers by upgrading an unaligned range to an aligned range
+        // of a larger size.
+        let align: usize;
+        if range.size() <= 2 {
+            align = 2;
+        } else if range.size() <= 4 || size_of::<usize>() <= 4 {
+            align = 4;
+        } else {
+            align = 8;
+        }
+        let aligned_start = RemotePtr::new_from_val(range.start().as_usize() & !(align - 1));
+        let aligned_end =
+            RemotePtr::new_from_val((range.end().as_usize() + (align - 1)) & !(align - 1));
+        let split = split_range(MemoryRange::from_range(aligned_start, aligned_end));
+        // If the aligned range doesn't reduce register usage, use the original
+        // split to avoid spurious triggerings
+        if split.len() < split_ranges.len() {
+            split_ranges = split;
+        }
+    }
+
+    for r in &split_ranges {
+        match maybe_assigned_regs {
+            Some(ref mut assigned_regs) => assigned_regs.push(regs.len().try_into().unwrap()),
+            _ => (),
+        }
+        regs.push(WatchConfig::new(r.start(), r.size(), watchtype));
+    }
+}
+
+fn split_range(range: MemoryRange) -> Vec<MemoryRange> {
+    let mut result = Vec::new();
+    let mut r: MemoryRange = range;
+    while r.size() > 0 {
+        if (size_of::<usize>() < 8 || !try_split_unaligned_range(&mut r, 8, &mut result))
+            && !try_split_unaligned_range(&mut r, 4, &mut result)
+            && !try_split_unaligned_range(&mut r, 2, &mut result)
+        {
+            let ret = try_split_unaligned_range(&mut r, 1, &mut result);
+            debug_assert!(ret);
+        }
+    }
+    result
+}
+
+fn try_split_unaligned_range(
+    range: &mut MemoryRange,
+    bytes: usize,
+    result: &mut Vec<MemoryRange>,
+) -> bool {
+    if range.start().as_usize() & (bytes - 1) != 0 || range.size() < bytes {
+        return false;
+    }
+
+    result.push(MemoryRange::new_range(range.start(), bytes));
+    range.start_ = range.start() + bytes;
+    true
 }

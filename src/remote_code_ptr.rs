@@ -1,7 +1,6 @@
 use crate::kernel_abi::syscall_instruction_length;
 use crate::kernel_abi::SupportedArch;
 use crate::remote_ptr::RemotePtr;
-use std::cmp::Ordering;
 use std::convert::TryInto;
 use std::fmt::Display;
 use std::fmt::Formatter;
@@ -9,7 +8,7 @@ use std::fmt::Result;
 use std::ops::Add;
 use std::ops::Sub;
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub struct RemoteCodePtr {
     ptr: usize,
 }
@@ -106,32 +105,6 @@ impl Sub<RemoteCodePtr> for RemoteCodePtr {
         self.as_isize() - rhs.as_isize()
     }
 }
-
-impl PartialOrd for RemoteCodePtr {
-    fn partial_cmp(&self, other: &RemoteCodePtr) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for RemoteCodePtr {
-    fn cmp(&self, other: &RemoteCodePtr) -> Ordering {
-        if self.ptr < other.ptr {
-            Ordering::Less
-        } else if self.ptr == other.ptr {
-            Ordering::Equal
-        } else {
-            Ordering::Greater
-        }
-    }
-}
-
-impl PartialEq for RemoteCodePtr {
-    fn eq(&self, other: &RemoteCodePtr) -> bool {
-        self.ptr == other.ptr
-    }
-}
-
-impl Eq for RemoteCodePtr {}
 
 #[cfg(test)]
 mod tests {
