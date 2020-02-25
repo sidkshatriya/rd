@@ -1028,8 +1028,28 @@ pub mod address_space {
         /// on |set_watchpoint()| calls, and program them for each task
         /// in this address space.
         fn allocate_watchpoints(&mut self) -> bool {
-            let regs = self.get_watch_configs(WillSetTaskState::SettingTaskState);
-            false
+            let mut regs = self.get_watch_configs(WillSetTaskState::SettingTaskState);
+
+            if regs.len() <= 0x7f {
+                let mut ok = true;
+                for t in self.task_set() {
+                    if !t.set_debug_regs(&mut regs) {
+                        ok = false;
+                    }
+                }
+                if ok {
+                    return true;
+                }
+            }
+
+            regs.clear();
+            for t2 in self.task_set() {
+                t2.set_debug_regs(&mut regs);
+            }
+            for (_, v) in &mut self.watchpoints {
+                v.debug_regs_for_exec_read.clear();
+            }
+            return false;
         }
 
         /// Merge the mappings adjacent to |it| in memory that are

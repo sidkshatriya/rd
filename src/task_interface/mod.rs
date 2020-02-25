@@ -6,9 +6,11 @@ use crate::task_interface::task::task::CloneReason;
 use crate::task_interface::task::task::Task;
 use crate::task_interface::task::{ResumeRequest, TicksRequest, WaitRequest};
 use crate::wait_status::WaitStatus;
+use bitflags::_core::ops::DerefMut;
 use libc::pid_t;
 use std::hash::{Hash, Hasher};
 use std::io::Write;
+use std::ops::Deref;
 
 pub mod task;
 /// @TODO should we store *const dyn TaskInterface?
@@ -32,7 +34,38 @@ impl Hash for TaskInterfaceRawPtr {
     }
 }
 
+impl Deref for TaskInterfaceRawPtr {
+    type Target = dyn TaskInterface;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { self.0.as_ref() }.unwrap()
+    }
+}
+
+impl DerefMut for TaskInterfaceRawPtr {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { self.0.as_mut() }.unwrap()
+    }
+}
+
+impl Deref for dyn TaskInterface {
+    type Target = Task;
+
+    fn deref(&self) -> &Self::Target {
+        self.as_task()
+    }
+}
+
+impl DerefMut for dyn TaskInterface {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.as_task_mut()
+    }
+}
+
 pub trait TaskInterface {
+    fn as_task(&self) -> &Task;
+    fn as_task_mut(&mut self) -> &mut Task;
+
     /// Dump all pending events to the RecordTask INFO log.
     fn log_pending_events(&self) {}
 

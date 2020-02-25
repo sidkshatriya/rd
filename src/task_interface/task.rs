@@ -950,6 +950,14 @@ pub mod task {
     }
 
     impl TaskInterface for Task {
+        fn as_task(&self) -> &Task {
+            self
+        }
+
+        fn as_task_mut(&mut self) -> &mut Task {
+            self
+        }
+
         fn on_syscall_exit(&self, syscallno: i32, arch: SupportedArch, regs: &Registers) {
             unimplemented!()
         }
