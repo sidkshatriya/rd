@@ -1,4 +1,5 @@
 use crate::remote_ptr::RemotePtr;
+use crate::remote_ptr::Void;
 use core::cmp::Ordering;
 use std::cmp::{max, min};
 use std::convert::TryInto;
@@ -7,8 +8,8 @@ use std::ops::{Deref, DerefMut};
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub struct MemoryRange {
-    pub(super) start_: RemotePtr<u8>,
-    pub(super) end_: RemotePtr<u8>,
+    pub(super) start_: RemotePtr<Void>,
+    pub(super) end_: RemotePtr<Void>,
 }
 
 /// Note: The end point (end_) is implicitly NOT included in the MemoryRange
@@ -20,7 +21,7 @@ impl MemoryRange {
         }
     }
 
-    pub fn new_range(addr: RemotePtr<u8>, num_bytes: usize) -> MemoryRange {
+    pub fn new_range(addr: RemotePtr<Void>, num_bytes: usize) -> MemoryRange {
         // If there is an overflow in addition, rust should panic in debug mode.
         // So no need for debug_assert!(result.start_ <= result.end_).
         MemoryRange {
@@ -29,7 +30,7 @@ impl MemoryRange {
         }
     }
 
-    pub fn from_range(addr: RemotePtr<u8>, end: RemotePtr<u8>) -> MemoryRange {
+    pub fn from_range(addr: RemotePtr<Void>, end: RemotePtr<Void>) -> MemoryRange {
         let result = MemoryRange {
             start_: addr,
             end_: end,
@@ -46,7 +47,7 @@ impl MemoryRange {
     }
 
     /// Note that we have p < self.end_ and not p <= self.end here.
-    pub fn contains_ptr(&self, p: RemotePtr<u8>) -> bool {
+    pub fn contains_ptr(&self, p: RemotePtr<Void>) -> bool {
         self.start_ <= p && p < self.end_
     }
 
@@ -65,10 +66,10 @@ impl MemoryRange {
         s < e
     }
 
-    pub fn start(&self) -> RemotePtr<u8> {
+    pub fn start(&self) -> RemotePtr<Void> {
         self.start_
     }
-    pub fn end(&self) -> RemotePtr<u8> {
+    pub fn end(&self) -> RemotePtr<Void> {
         self.end_
     }
     pub fn size(&self) -> usize {
