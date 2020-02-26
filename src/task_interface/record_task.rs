@@ -21,15 +21,15 @@ struct Sighandler {
 /// Different kinds of waits a task can do.
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub enum WaitType {
-    // Not waiting for anything
+    /// Not waiting for anything
     WaitTypeNone,
-    // Waiting for any child process
+    /// Waiting for any child process
     WaitTypeAny,
-    // Waiting for any child with the same process group ID
+    /// Waiting for any child with the same process group ID
     WaitTypeSamePgid,
-    // Waiting for any child with a specific process group ID
+    /// Waiting for any child with a specific process group ID
     WaitTypePgid,
-    // Waiting for a specific process ID
+    /// Waiting for a specific process ID
     WaitTypePid,
 }
 
@@ -98,7 +98,7 @@ pub mod record_task {
         ///
         /// We use this to drive scheduling decisions. rd's scheduler is
         /// deliberately simple and unfair; a task never runs as long as there's
-        /// another runnable task with a lower nice value. */
+        /// another runnable task with a lower nice value.
         pub priority: i32,
         /// Tasks with in_round_robin_queue set are in the session's
         /// in_round_robin_queue instead of its task_priority_set.
@@ -115,11 +115,13 @@ pub mod record_task {
         /// Code to deliver to ptracer/waiter when it waits. Note that zero can be a
         /// valid code! Reset to zero when leaving the stop due to PTRACE_CONT etc.
         pub emulated_stop_code: WaitStatus,
-        /// Always zero while no ptracer is attached.
-        pub emulated_ptrace_options: i32,
-        /// One of PTRACE_CONT, PTRACE_SYSCALL --- or 0 if the tracee has not been
+        /// None while no ptracer is attached.
+        /// Different from rr which uses 0.
+        pub emulated_ptrace_options: Option<i32>,
+        /// One of PTRACE_CONT, PTRACE_SYSCALL --- or None if the tracee has not been
         /// continued by its ptracer yet, or has no ptracer.
-        pub emulated_ptrace_cont_command: i32,
+        /// Different from rr which uses 0 and a signed int.
+        pub emulated_ptrace_cont_command: Option<u32>,
         /// true when a ptracer/waiter wait() can return |emulated_stop_code|.
         pub emulated_stop_pending: bool,
         /// true if this task needs to send a SIGCHLD to its ptracer for its
@@ -194,7 +196,7 @@ pub mod record_task {
         pub own_namespace_rec_tid: pid_t,
         pub exit_code: i32,
         /// Signal delivered by the kernel when this task terminates
-        /// Note this is a bare int in rr. Also should this be a u32?
+        /// @TODO Note this is a bare int in rr. Also should this be a u32?
         pub termination_signal: Option<i32>,
 
         /// Our value for PR_GET/SET_TSC (one of PR_TSC_ENABLED, PR_TSC_SIGSEGV).

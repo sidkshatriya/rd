@@ -12,21 +12,21 @@ use std::fmt::Result;
 pub const PTRACE_EVENT_STOP: i32 = _PTRACE_EVENT_STOP as i32;
 
 enum Type {
-    // Task exited normally.
+    /// Task exited normally.
     Exit,
-    // Task exited due to fatal signal.
+    /// Task exited due to fatal signal.
     FatalSignal,
-    // Task is in a signal-delivery-stop.
+    /// Task is in a signal-delivery-stop.
     SignalStop,
-    // Task is in a group-stop. (See ptrace man page.)
-    // You must use PTRACE_SEIZE to generate PTRACE_EVENT_STOPs, or these
-    // will be treated as STOP_SIGNAL.
+    /// Task is in a group-stop. (See ptrace man page.)
+    /// You must use PTRACE_SEIZE to generate PTRACE_EVENT_STOPs, or these
+    /// will be treated as STOP_SIGNAL.
     GroupStop,
-    // Task is in a syscall-stop triggered by PTRACE_SYSCALL
-    // and PTRACE_O_TRACESYSGOOD.
+    /// Task is in a syscall-stop triggered by PTRACE_SYSCALL
+    /// and PTRACE_O_TRACESYSGOOD.
     SyscallStop,
-    // Task is in a PTRACE_EVENT stop, except for PTRACE_EVENT_STOP
-    // which is treated as GroupStop.
+    /// Task is in a PTRACE_EVENT stop, except for PTRACE_EVENT_STOP
+    /// which is treated as GroupStop.
     PtraceEvent,
 }
 
@@ -38,7 +38,7 @@ pub struct WaitStatus {
 }
 
 impl WaitStatus {
-    // method is called type() in rr.
+    /// method is called type() in rr.
     fn wait_type(&self) -> Type {
         if let Some(_exit_code) = self.exit_code() {
             return Exit;
@@ -183,7 +183,9 @@ impl WaitStatus {
 
     fn for_syscall(t: &RecordTask) -> WaitStatus {
         let mut code: i32 = (SIGTRAP << 8) | 0x7f;
-        if t.emulated_ptrace_options & PTRACE_O_TRACESYSGOOD != 0 {
+        if t.emulated_ptrace_options.is_some()
+            && (t.emulated_ptrace_options.unwrap() & PTRACE_O_TRACESYSGOOD != 0)
+        {
             code |= 0x80 << 8;
         }
 
