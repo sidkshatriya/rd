@@ -204,7 +204,9 @@ impl Display for WaitStatus {
         write!(f, "{:#x}", self.status)?;
         match self.wait_type() {
             WaitType::Exit => write!(f, " (EXIT-{})", self.exit_code().unwrap()),
-            WaitType::FatalSignal => write!(f, " (FATAL-{})", signal_name(self.fatal_sig().unwrap())),
+            WaitType::FatalSignal => {
+                write!(f, " (FATAL-{})", signal_name(self.fatal_sig().unwrap()))
+            }
             WaitType::SignalStop => write!(f, " (STOP-{})", signal_name(self.stop_sig().unwrap())),
             WaitType::GroupStop => write!(
                 f,
@@ -212,7 +214,9 @@ impl Display for WaitStatus {
                 signal_name(self.group_stop_sig().unwrap())
             ),
             WaitType::SyscallStop => write!(f, " (SYSCALL)"),
-            WaitType::PtraceEvent => write!(f, " ({})", ptrace_event_name(self.ptrace_event().unwrap())),
+            WaitType::PtraceEvent => {
+                write!(f, " ({})", ptrace_event_name(self.ptrace_event().unwrap()))
+            }
         }
     }
 }

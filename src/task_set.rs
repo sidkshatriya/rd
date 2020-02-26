@@ -2,6 +2,7 @@ use crate::task_interface::*;
 use std::collections::HashSet;
 use std::ops::Deref;
 
+#[derive(Clone)]
 pub struct TaskSet(HashSet<TaskInterfaceRawPtr>);
 
 impl TaskSet {

@@ -26,6 +26,7 @@ mod emu_fs;
 mod event;
 mod extra_registers;
 mod fd_table;
+mod file_monitor;
 mod gdb_register;
 mod kernel_supplement;
 mod monitored_shared_memory;
