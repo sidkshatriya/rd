@@ -17,13 +17,13 @@ mod kernel_metadata;
 mod log;
 mod bindings;
 mod perf_counters;
-mod record_task;
 #[macro_use]
 mod registers;
 mod address_space;
 mod auto_remote_syscalls;
 mod diversion_session;
 mod emu_fs;
+mod event;
 mod extra_registers;
 mod fd_table;
 mod gdb_register;

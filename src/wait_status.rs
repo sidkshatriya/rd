@@ -1,7 +1,7 @@
 use crate::bindings::ptrace::PTRACE_EVENT_STOP as _PTRACE_EVENT_STOP;
 use crate::kernel_metadata::ptrace_event_name;
 use crate::kernel_metadata::signal_name;
-use crate::record_task::RecordTask;
+use crate::task_interface::record_task::record_task::RecordTask;
 use libc::PTRACE_O_TRACESYSGOOD;
 use libc::{SIGSTOP, SIGTRAP};
 use libc::{WEXITSTATUS, WIFEXITED, WIFSIGNALED, WIFSTOPPED, WSTOPSIG, WTERMSIG};
@@ -26,7 +26,7 @@ enum Type {
     // and PTRACE_O_TRACESYSGOOD.
     SyscallStop,
     // Task is in a PTRACE_EVENT stop, except for PTRACE_EVENT_STOP
-    // which is treated as GROUP_STOP.
+    // which is treated as GroupStop.
     PtraceEvent,
 }
 

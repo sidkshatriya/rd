@@ -12,6 +12,7 @@ use std::hash::{Hash, Hasher};
 use std::io::Write;
 use std::ops::Deref;
 
+pub mod record_task;
 pub mod task;
 /// @TODO should we store *const dyn TaskInterface?
 #[derive(Copy, Clone)]

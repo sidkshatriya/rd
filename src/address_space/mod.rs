@@ -103,12 +103,11 @@ pub mod address_space {
     use crate::monitored_shared_memory::MonitoredSharedMemorySharedPtr;
     use crate::monkey_patcher::MonkeyPatcher;
     use crate::property_table::PropertyTable;
-    use crate::record_task::RecordTask;
     use crate::remote_code_ptr::RemoteCodePtr;
     use crate::remote_ptr::RemotePtr;
     use crate::scoped_fd::ScopedFd;
     use crate::session_interface::session::session::Session;
-    use crate::task_interface::task::task::Task;
+    use crate::task_interface::record_task::record_task::RecordTask;
     use crate::task_interface::TaskInterface;
     use crate::task_set::TaskSet;
     use crate::taskish_uid::AddressSpaceUid;

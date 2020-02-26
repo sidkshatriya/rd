@@ -15,7 +15,7 @@
 //! it will get a chance to see updated memory values.
 
 use crate::address_space::address_space;
-use crate::record_task::RecordTask;
+use crate::task_interface::record_task::record_task::RecordTask;
 use std::cell::RefCell;
 use std::rc::Rc;
 
