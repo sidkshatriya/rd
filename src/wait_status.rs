@@ -11,7 +11,8 @@ use std::fmt::Result;
 
 pub const PTRACE_EVENT_STOP: i32 = _PTRACE_EVENT_STOP as i32;
 
-enum Type {
+/// Called simply Type in rr.
+enum WaitType {
     /// Task exited normally.
     Exit,
     /// Task exited due to fatal signal.
@@ -30,8 +31,6 @@ enum Type {
     PtraceEvent,
 }
 
-use Type::*;
-
 #[derive(Copy, Clone)]
 pub struct WaitStatus {
     status: i32,
@@ -39,34 +38,34 @@ pub struct WaitStatus {
 
 impl WaitStatus {
     /// method is called type() in rr.
-    fn wait_type(&self) -> Type {
+    fn wait_type(&self) -> WaitType {
         if let Some(_exit_code) = self.exit_code() {
-            return Exit;
+            return WaitType::Exit;
         }
 
         if let Some(_fatal_sig) = self.fatal_sig() {
-            return FatalSignal;
+            return WaitType::FatalSignal;
         }
 
         if let Some(_stop_sig) = self.stop_sig() {
-            return SignalStop;
+            return WaitType::SignalStop;
         }
 
         if let Some(_group_stop_sig) = self.group_stop_sig() {
-            return GroupStop;
+            return WaitType::GroupStop;
         }
 
         if self.is_syscall() {
-            return SyscallStop;
+            return WaitType::SyscallStop;
         }
 
         if let Some(_ptrace_event) = self.ptrace_event() {
-            return PtraceEvent;
+            return WaitType::PtraceEvent;
         }
 
         fatal!("Status {:#x} not understood", self.status);
 
-        return Exit;
+        return WaitType::Exit;
     }
 
     /// What was the exit code of the process?
@@ -114,7 +113,7 @@ impl WaitStatus {
         }
     }
 
-    // This method is called group_stop() in the rr codebase.
+    /// This method is called group_stop() in the rr codebase.
     fn group_stop_sig(&self) -> Option<i32> {
         unsafe {
             if !WIFSTOPPED(self.status) || ((self.status >> 16) & 0xff != PTRACE_EVENT_STOP) {
@@ -151,19 +150,19 @@ impl WaitStatus {
         }
     }
 
-    // Return a WaitStatus for a process exit.
+    /// Return a WaitStatus for a process exit.
     fn for_exit_code(code: i32) -> WaitStatus {
         debug_assert!(code >= 0 && code < 0x100);
         WaitStatus { status: code << 8 }
     }
 
-    // Return a WaitStatus for a fatal signal
+    /// Return a WaitStatus for a fatal signal
     fn for_fatal_sig(sig: i32) -> WaitStatus {
         debug_assert!(sig >= 1 && sig < 0x80);
         WaitStatus { status: sig }
     }
 
-    // Return a WaitStatus for a stop signal
+    /// Return a WaitStatus for a stop signal
     fn for_stop_sig(sig: i32) -> WaitStatus {
         debug_assert!(sig >= 1 && sig < 0x80);
         WaitStatus {
@@ -204,16 +203,16 @@ impl Display for WaitStatus {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         write!(f, "{:#x}", self.status)?;
         match self.wait_type() {
-            Exit => write!(f, " (EXIT-{})", self.exit_code().unwrap()),
-            FatalSignal => write!(f, " (FATAL-{})", signal_name(self.fatal_sig().unwrap())),
-            SignalStop => write!(f, " (STOP-{})", signal_name(self.stop_sig().unwrap())),
-            GroupStop => write!(
+            WaitType::Exit => write!(f, " (EXIT-{})", self.exit_code().unwrap()),
+            WaitType::FatalSignal => write!(f, " (FATAL-{})", signal_name(self.fatal_sig().unwrap())),
+            WaitType::SignalStop => write!(f, " (STOP-{})", signal_name(self.stop_sig().unwrap())),
+            WaitType::GroupStop => write!(
                 f,
                 " (GROUP-STOP-{})",
                 signal_name(self.group_stop_sig().unwrap())
             ),
-            SyscallStop => write!(f, " (SYSCALL)"),
-            PtraceEvent => write!(f, " ({})", ptrace_event_name(self.ptrace_event().unwrap())),
+            WaitType::SyscallStop => write!(f, " (SYSCALL)"),
+            WaitType::PtraceEvent => write!(f, " ({})", ptrace_event_name(self.ptrace_event().unwrap())),
         }
     }
 }
