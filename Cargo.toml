@@ -6,6 +6,7 @@ edition = "2018"
 build = "build.rs"
 
 [dependencies]
+array-init = "0.1.1"
 capnp = "0.12.1"
 # gimli = "0.20.0"
 # goblin = "0.1.3"
