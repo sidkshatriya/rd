@@ -1,17 +1,27 @@
-use crate::kernel_abi::{x64, x86};
+use crate::kernel_abi::syscall_number_for_rt_sigaction;
+use crate::kernel_abi::{x64, x86, SupportedArch};
 use crate::kernel_supplement::{SA_RESETHAND, SA_SIGINFO, _NSIG};
 use crate::remote_code_ptr::RemoteCodePtr;
 use crate::remote_ptr::{RemotePtr, Void};
+use libc::EINVAL;
+use nix::errno::errno;
 use std::mem::size_of;
 use std::ptr::copy_nonoverlapping;
 
 struct X86Arch;
 struct X64Arch;
 
+#[cfg(target_arch = "x86_64")]
+type NativeArch = X64Arch;
+
+#[cfg(target_arch = "x86")]
+type NativeArch = X86Arch;
+
 pub trait Architecture {
     type kernel_sigaction: Default;
     fn get_k_sa_handler(k: &Self::kernel_sigaction) -> RemotePtr<Void>;
     fn get_sa_flags(k: &Self::kernel_sigaction) -> usize;
+    fn arch() -> SupportedArch;
 }
 
 impl Architecture for X86Arch {
@@ -24,6 +34,10 @@ impl Architecture for X86Arch {
     fn get_sa_flags(k: &Self::kernel_sigaction) -> usize {
         k.sa_flags as usize
     }
+
+    fn arch() -> SupportedArch {
+        SupportedArch::X86
+    }
 }
 
 impl Architecture for X64Arch {
@@ -33,6 +47,9 @@ impl Architecture for X64Arch {
     }
     fn get_sa_flags(k: &Self::kernel_sigaction) -> usize {
         k.sa_flags as usize
+    }
+    fn arch() -> SupportedArch {
+        SupportedArch::X64
     }
 }
 
@@ -51,6 +68,10 @@ impl Default for Sighandlers {
 }
 
 impl Sighandlers {
+    pub fn new() -> Sighandlers {
+        Self::default()
+    }
+
     pub fn get_mut(&mut self, sig: usize) -> &mut Sighandler {
         self.assert_valid(sig);
         &mut self.handlers[sig]
@@ -63,6 +84,50 @@ impl Sighandlers {
 
     pub fn assert_valid(&self, sig: usize) {
         debug_assert!((sig > 0 && sig < self.handlers.len()));
+    }
+
+    pub fn init_from_current_process(&mut self) {
+        for i in 1.._NSIG as usize {
+            let h = &mut self.handlers[i];
+
+            let mut sa = <NativeArch as Architecture>::kernel_sigaction::default();
+            if 0 != unsafe {
+                libc::syscall(
+                    syscall_number_for_rt_sigaction(NativeArch::arch()) as _,
+                    i,
+                    0,
+                    &mut sa,
+                    size_of::<u64>(),
+                )
+            } {
+                // EINVAL means we're querying an unused signal number.
+                debug_assert!(EINVAL == errno());
+                continue;
+            }
+            // @TODO msan unpoison?
+
+            h.init_arch::<NativeArch>(&sa);
+        }
+    }
+
+    /// For each signal in |table| such that is_user_handler() is
+    /// true, reset the disposition of that signal to SIG_DFL, and
+    /// clear the resethand flag if it's set.  SIG_IGN signals are
+    /// not modified.
+    ///
+    /// (After an exec() call copies the original sighandler table,
+    /// this is the operation required by POSIX to initialize that
+    /// table copy.)
+    pub fn reset_user_handlers(&mut self, arch: SupportedArch) {
+        for i in 1.._NSIG as usize {
+            let mut h = &mut self.handlers[i];
+            // If the handler was a user handler, reset to
+            // default.  If it was SIG_IGN or SIG_DFL,
+            // leave it alone.
+            if h.disposition() == SignalDisposition::SignalHandler {
+                reset_handler(&mut h, arch);
+            }
+        }
     }
 }
 
@@ -83,7 +148,7 @@ pub struct Sighandler {
 
 impl Sighandler {
     pub fn new() -> Sighandler {
-        Sighandler::default()
+        Self::default()
     }
 
     pub fn init_arch<Arch: Architecture>(&mut self, ksa: &Arch::kernel_sigaction) {
@@ -91,6 +156,7 @@ impl Sighandler {
         self.sa.resize(size_of::<Arch::kernel_sigaction>(), 0);
         unsafe {
             copy_nonoverlapping(
+                // @TODO does this cat of an associated type reference work as expected?
                 ksa as *const _ as *const u8,
                 self.sa.as_mut_ptr() as *mut u8,
                 size_of::<Arch::kernel_sigaction>(),
@@ -120,6 +186,10 @@ impl Sighandler {
             None
         }
     }
+}
+
+fn reset_handler(handler: &mut Sighandler, arch: SupportedArch) {
+    rd_arch_function!(handler, reset_arch, arch);
 }
 
 impl Default for Sighandler {

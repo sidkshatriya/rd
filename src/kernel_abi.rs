@@ -40,6 +40,12 @@ macro_rules! rr_arch_function {
 }
 
 macro_rules! rd_arch_function {
+    ($slf:expr, $func_name:ident, $arch:expr) => {
+        match $arch {
+            SupportedArch::X86 => $slf.$func_name::<X86Arch>(),
+            SupportedArch::X64 => $slf.$func_name::<X64Arch>(),
+        }
+    };
     ($slf:expr, $func_name:ident, $arch:expr, $($exp:tt)*) => {
         match $arch {
             SupportedArch::X86 => $slf.$func_name::<X86Arch>($($exp)*),
