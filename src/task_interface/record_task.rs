@@ -68,6 +68,9 @@ impl Sighandlers {
 
 /// NOTE that the struct is NOT pub
 #[derive(Clone)]
+/// Stores the table of signal dispositions and metadata for an
+/// arbitrary set of tasks.  Each of those tasks must own one one of
+/// the |refcount|s while they still refer to this.
 /// @TODO forced to pub this struct even though rr does not.
 pub struct Sighandler {
     /// @TODO are all these pub(self) useful? Should they be there?
@@ -82,6 +85,7 @@ impl Sighandler {
     pub fn new() -> Sighandler {
         Sighandler::default()
     }
+
     pub fn init_arch<Arch: Architecture>(&mut self, ksa: &Arch::kernel_sigaction) {
         self.k_sa_handler = Arch::get_k_sa_handler(ksa);
         self.sa.resize(size_of::<Arch::kernel_sigaction>(), 0);
@@ -94,6 +98,27 @@ impl Sighandler {
         }
         self.resethand = Arch::get_sa_flags(ksa) & SA_RESETHAND as usize != 0;
         self.takes_siginfo = Arch::get_sa_flags(ksa) & SA_SIGINFO as usize != 0;
+    }
+
+    pub fn reset_arch<Arch: Architecture>(&mut self) {
+        let ksa = Arch::kernel_sigaction::default();
+        self.init_arch::<Arch>(&ksa);
+    }
+
+    pub fn disposition(&self) -> SignalDisposition {
+        match self.k_sa_handler.as_usize() {
+            0 => SignalDisposition::SignalDefault,
+            1 => SignalDisposition::SignalIgnore,
+            _ => SignalDisposition::SignalHandler,
+        }
+    }
+
+    pub fn get_user_handler(&self) -> Option<RemoteCodePtr> {
+        if self.disposition() == SignalDisposition::SignalHandler {
+            Some(RemoteCodePtr::from_val(self.k_sa_handler.as_usize()))
+        } else {
+            None
+        }
     }
 }
 
