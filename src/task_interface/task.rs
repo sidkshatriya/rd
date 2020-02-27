@@ -101,6 +101,7 @@ pub mod task {
     use std::cell::RefCell;
     use std::convert::TryInto;
     use std::ffi::CString;
+    use std::mem::size_of;
     use std::os::raw::c_long;
     use std::path::Path;
     use std::rc::Rc;
@@ -715,8 +716,27 @@ pub mod task {
 
         /// If the data can't all be read, then if |ok| is non-null, sets *ok to
         /// false, otherwise asserts.
-        pub fn read_bytes_helper(&self, addr: RemotePtr<Void>, buf: &[u8], ok: Option<&mut bool>) {
+        pub fn read_bytes_helper(
+            &self,
+            addr: RemotePtr<Void>,
+            buf: &mut [u8],
+            ok: Option<&mut bool>,
+        ) {
             unimplemented!()
+        }
+
+        /// If the data can't all be read, then if |ok| is non-null, sets *ok to
+        /// false, otherwise asserts.
+        pub fn read_bytes_helper_for<T>(
+            &self,
+            addr: RemotePtr<T>,
+            data: &mut T,
+            ok: Option<&mut bool>,
+        ) {
+            let buf = unsafe {
+                std::slice::from_raw_parts_mut(data as *mut T as *mut u8, size_of::<T>())
+            };
+            self.read_bytes_helper(RemotePtr::cast(addr), buf, ok);
         }
 
         /// |flags| is bits from WriteFlags.

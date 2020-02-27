@@ -1,21 +1,111 @@
+use crate::kernel_abi::{x64, x86};
+use crate::kernel_supplement::{SA_RESETHAND, SA_SIGINFO, _NSIG};
 use crate::remote_code_ptr::RemoteCodePtr;
 use crate::remote_ptr::{RemotePtr, Void};
+use std::mem::size_of;
+use std::ptr::copy_nonoverlapping;
+
+struct X86Arch;
+struct X64Arch;
+
+pub trait Architecture {
+    type kernel_sigaction: Default;
+    fn get_k_sa_handler(k: &Self::kernel_sigaction) -> RemotePtr<Void>;
+    fn get_sa_flags(k: &Self::kernel_sigaction) -> usize;
+}
+
+impl Architecture for X86Arch {
+    type kernel_sigaction = x86::kernel_sigaction;
+
+    fn get_k_sa_handler(k: &Self::kernel_sigaction) -> RemotePtr<Void> {
+        k.k_sa_handler.rptr()
+    }
+
+    fn get_sa_flags(k: &Self::kernel_sigaction) -> usize {
+        k.sa_flags as usize
+    }
+}
+
+impl Architecture for X64Arch {
+    type kernel_sigaction = x64::kernel_sigaction;
+    fn get_k_sa_handler(k: &Self::kernel_sigaction) -> RemotePtr<Void> {
+        k.k_sa_handler.rptr()
+    }
+    fn get_sa_flags(k: &Self::kernel_sigaction) -> usize {
+        k.sa_flags as usize
+    }
+}
 
 #[derive(Clone)]
 pub struct Sighandlers {
     /// @TODO Keep as opaque for now. Need to ensure correct visibility.
-    /// Need a compile time constant here.
-    handlers: [Sighandler; 32],
+    handlers: [Sighandler; _NSIG as usize],
+}
+
+impl Default for Sighandlers {
+    fn default() -> Self {
+        Sighandlers {
+            handlers: array_init::array_init(|_| Sighandler::default()),
+        }
+    }
+}
+
+impl Sighandlers {
+    pub fn get_mut(&mut self, sig: usize) -> &mut Sighandler {
+        self.assert_valid(sig);
+        &mut self.handlers[sig]
+    }
+
+    pub fn get(&self, sig: usize) -> &Sighandler {
+        self.assert_valid(sig);
+        &self.handlers[sig]
+    }
+
+    pub fn assert_valid(&self, sig: usize) {
+        debug_assert!((sig > 0 && sig < self.handlers.len()));
+    }
 }
 
 /// NOTE that the struct is NOT pub
 #[derive(Clone)]
-struct Sighandler {
-    pub k_sa_handler: RemotePtr<Void>,
+/// @TODO forced to pub this struct even though rr does not.
+pub struct Sighandler {
+    /// @TODO are all these pub(self) useful? Should they be there?
+    pub(self) k_sa_handler: RemotePtr<Void>,
     /// Saved kernel_sigaction; used to restore handler
-    pub sa: Vec<u8>,
-    pub resethand: bool,
-    pub takes_siginfo: bool,
+    pub(self) sa: Vec<u8>,
+    pub(self) resethand: bool,
+    pub(self) takes_siginfo: bool,
+}
+
+impl Sighandler {
+    pub fn new() -> Sighandler {
+        Sighandler::default()
+    }
+    pub fn init_arch<Arch: Architecture>(&mut self, ksa: &Arch::kernel_sigaction) {
+        self.k_sa_handler = Arch::get_k_sa_handler(ksa);
+        self.sa.resize(size_of::<Arch::kernel_sigaction>(), 0);
+        unsafe {
+            copy_nonoverlapping(
+                ksa as *const _ as *const u8,
+                self.sa.as_mut_ptr() as *mut u8,
+                size_of::<Arch::kernel_sigaction>(),
+            );
+        }
+        self.resethand = Arch::get_sa_flags(ksa) & SA_RESETHAND as usize != 0;
+        self.takes_siginfo = Arch::get_sa_flags(ksa) & SA_SIGINFO as usize != 0;
+    }
+}
+
+impl Default for Sighandler {
+    fn default() -> Self {
+        Sighandler {
+            resethand: false,
+            takes_siginfo: false,
+            sa: Vec::new(),
+            k_sa_handler: RemotePtr::new(),
+        }
+    }
 }
 
 /// Different kinds of waits a task can do.
@@ -72,7 +162,6 @@ pub mod record_task {
     use crate::event::{Event, EventType, SignalDeterministic, SignalResolvedDisposition};
     use crate::kernel_abi::common::preload_interface::syscallbuf_record;
     use crate::kernel_abi::SupportedArch;
-    use crate::kernel_abi::{x64, x86};
     use crate::kernel_supplement::sig_set_t;
     use crate::kernel_supplement::{CLD_STOPPED, CLD_TRAPPED};
     use crate::record_session::RecordSession;
@@ -929,8 +1018,22 @@ pub mod record_task {
         }
 
         /// Helper function for update_sigaction.
-        fn update_sigaction_arch<Arch>(&self, regs: &Registers) {
-            unimplemented!()
+        fn update_sigaction_arch<Arch: Architecture>(&self, regs: &Registers) {
+            // @TODO in rr this is regs.args1_signed(). Why??
+            let sig = regs.arg1();
+            let new_sigaction = RemotePtr::<Arch::kernel_sigaction>::new_from_val(regs.arg2());
+            if 0 == regs.syscall_result() && !new_sigaction.is_null() {
+                // A new sighandler was installed.  Update our
+                // sighandler table.
+                // TODO: discard attempts to handle or ignore signals
+                // that can't be by POSIX
+                let mut sa: Arch::kernel_sigaction = Arch::kernel_sigaction::default();
+                self.read_bytes_helper_for::<Arch::kernel_sigaction>(new_sigaction, &mut sa, None);
+                self.sighandlers
+                    .borrow_mut()
+                    .get_mut(sig)
+                    .init_arch::<Arch>(&sa);
+            }
         }
 
         /// Update the clear-tid futex to |tid_addr|.

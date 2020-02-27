@@ -1,3 +1,4 @@
+use crate::kernel_abi::Ptr;
 use std::cmp::Ordering;
 use std::convert::TryInto;
 use std::fmt::Display;

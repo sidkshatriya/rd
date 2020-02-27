@@ -878,7 +878,7 @@ pub struct __sysctl_args {
 //RR_VERIFY_TYPE(__sysctl_args);
 
 #[repr(C)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Default)]
 pub struct kernel_sigset_t {
     pub __val: [unsigned_long; KERNEL_SIGSET_SIZE],
 }
@@ -900,7 +900,7 @@ pub struct pselect6_arg6 {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Default)]
 pub struct kernel_sigaction {
     pub k_sa_handler: ptr<u8>,
     pub sa_flags: unsigned_long,
