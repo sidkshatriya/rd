@@ -164,7 +164,7 @@ pub struct siginfo_timer {
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-struct siginfo_rt {
+pub struct siginfo_rt {
     pub si_pid_: pid_t,
     pub si_uid_: uid_t,
     pub si_sigval_: sigval_t,
@@ -205,19 +205,19 @@ pub struct siginfo_sigsys {
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub union siginfo_sifields {
-    padding: [i32; SIGINFO_PADDING],
-    _kill: siginfo_kill,
-    _timer: siginfo_timer,
-    _rt: siginfo_rt,
-    _sigchld: siginfo_sigchld,
-    _sigfault: siginfo_sigfault,
-    _sigpoll: siginfo_sigpoll,
-    _sigsys: siginfo_sigsys,
+    pub padding: [i32; SIGINFO_PADDING],
+    pub _kill: siginfo_kill,
+    pub _timer: siginfo_timer,
+    pub _rt: siginfo_rt,
+    pub _sigchld: siginfo_sigchld,
+    pub _sigfault: siginfo_sigfault,
+    pub _sigpoll: siginfo_sigpoll,
+    pub _sigsys: siginfo_sigsys,
 }
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-struct siginfo_t {
+pub struct siginfo_t {
     pub si_signo: signed_int,
     pub si_errno: signed_int,
     pub si_code: signed_int,
@@ -1337,7 +1337,7 @@ pub struct hci_dev_info {
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-struct ifbond {
+pub struct ifbond {
     pub bond_mode: int32_t,
     pub num_slaves: int32_t,
     pub miimon: int32_t,

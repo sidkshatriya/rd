@@ -34,6 +34,7 @@ pub enum WaitType {
 }
 
 /// Reasons why we simulate stopping of a task (see ptrace(2) man page).
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub enum EmulatedStopType {
     NotStopped,
     /// stopped by a signal. This applies to non-ptracees too.
@@ -44,6 +45,7 @@ pub enum EmulatedStopType {
 
 /// Pass UseSysgood to emulate_ptrace_stop to add 0x80 to the signal
 /// if PTRACE_O_TRACESYSGOOD is in effect.
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub enum AddSysgoodFlag {
     IgnoreSysgood,
     UseSysgood,
@@ -57,6 +59,7 @@ pub struct SyscallbufCodeLayout {
     pub syscallbuf_final_exit_instruction: RemoteCodePtr,
 }
 
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub enum SignalDisposition {
     SignalDefault,
     SignalIgnore,
@@ -65,10 +68,16 @@ pub enum SignalDisposition {
 
 pub mod record_task {
     use super::*;
-    use crate::event::{Event, SignalDeterministic};
+    use crate::address_space::memory_range::MemoryRange;
+    use crate::event::{Event, EventType, SignalDeterministic, SignalResolvedDisposition};
+    use crate::kernel_abi::common::preload_interface::syscallbuf_record;
     use crate::kernel_abi::SupportedArch;
+    use crate::kernel_abi::{x64, x86};
     use crate::kernel_supplement::sig_set_t;
+    use crate::kernel_supplement::{CLD_STOPPED, CLD_TRAPPED};
+    use crate::record_session::RecordSession;
     use crate::registers::Registers;
+    use crate::remote_code_ptr::RemoteCodePtr;
     use crate::remote_ptr::{RemotePtr, Void};
     use crate::scoped_fd::ScopedFd;
     use crate::session_interface::SessionInterface;
@@ -76,15 +85,34 @@ pub mod record_task {
     use crate::task_interface::TaskInterface;
     use crate::ticks::Ticks;
     use crate::trace_frame::FrameTime;
+    use crate::trace_writer::TraceWriter;
     use crate::wait_status::WaitStatus;
     use libc::{pid_t, siginfo_t};
     use std::cell::RefCell;
     use std::collections::{HashSet, VecDeque};
+    use std::ops::{Deref, DerefMut};
     use std::rc::Rc;
 
     pub struct StashedSignal {
         siginfo: siginfo_t,
         deterministic: SignalDeterministic,
+    }
+
+    #[derive(Copy, Clone, Eq, PartialEq)]
+    pub enum FlushSyscallbuf {
+        FlushSyscallbuf,
+        /* Pass this if it's safe to replay the event before we process the
+         * syscallbuf records.
+         */
+        DontFlushSyscallbuf,
+    }
+    #[derive(Copy, Clone, Eq, PartialEq)]
+    pub enum AllowSyscallbufReset {
+        AllowResetSyscallbuf,
+        /* Pass this if it's safe to replay the event before we process the
+         * syscallbuf records.
+         */
+        DontResetSyscallbuf,
     }
 
     pub struct RecordTask {
@@ -225,6 +253,20 @@ pub mod record_task {
         pub did_record_robust_futex_changes: bool,
     }
 
+    impl Deref for RecordTask {
+        type Target = Task;
+
+        fn deref(&self) -> &Self::Target {
+            &self.task
+        }
+    }
+
+    impl DerefMut for RecordTask {
+        fn deref_mut(&mut self) -> &mut Self::Target {
+            &mut self.task
+        }
+    }
+
     impl TaskInterface for RecordTask {
         fn as_task(&self) -> &Task {
             &self.task
@@ -254,6 +296,645 @@ pub mod record_task {
             new_serial: u32,
             other_session: Option<&dyn SessionInterface>,
         ) -> &Task {
+            unimplemented!()
+        }
+    }
+
+    impl RecordTask {
+        /// Every Task owned by a RecordSession is a RecordTask. Functionality that
+        /// only applies during recording belongs here.
+        pub fn new(
+            session: &RecordSession,
+            tid: pid_t,
+            serial: u32,
+            a: SupportedArch,
+        ) -> RecordTask {
+            unimplemented!()
+        }
+
+        // @TODO clone_task() ??
+        pub fn syscallbuf_syscall_entry_breakpoints(&self) -> Vec<RemoteCodePtr> {
+            unimplemented!()
+        }
+        pub fn is_at_syscallbuf_syscall_entry_breakpoint(&self) -> bool {
+            unimplemented!()
+        }
+        pub fn is_at_syscallbuf_final_instruction_breakpoint(&self) -> bool {
+            unimplemented!()
+        }
+
+        /// Initialize tracee buffers in this, i.e., implement
+        /// RRCALL_init_syscall_buffer.  This task must be at the point
+        /// of *exit from* the rrcall.  Registers will be updated with
+        /// the return value from the rrcall, which is also returned
+        /// from this call.
+        pub fn init_buffers(&self) {
+            unimplemented!()
+        }
+        pub fn post_exec(&self) {
+            unimplemented!()
+        }
+
+        pub fn session(&self) -> &RecordSession {
+            unimplemented!()
+        }
+        pub fn trace_writer(&self) -> &TraceWriter {
+            unimplemented!()
+        }
+
+        /// Emulate 'tracer' ptracing this task.
+        pub fn set_emulated_ptracer(&self, tracer: &RecordTask) {
+            unimplemented!()
+        }
+
+        /// Call this when an event occurs that should stop a ptraced task.
+        /// If we're emulating ptrace of the task, stop the task and wake the ptracer
+        /// if it's waiting, and queue "status" to be reported to the
+        /// ptracer. If siginfo is non-null, we'll report that siginfo, otherwise we'll
+        /// make one up based on the status (unless the status is an exit code).
+        /// Returns true if the task is stopped-for-emulated-ptrace, false otherwise.
+        pub fn emulate_ptrace_stop(
+            &self,
+            status: WaitStatus,
+            siginfo: Option<&siginfo_t>,
+            si_code: Option<i32>,
+        ) -> bool {
+            unimplemented!()
+        }
+
+        /// Force the ptrace-stop state no matter what state the task is currently in.
+        pub fn force_emulate_ptrace_stopstatus(&self) -> WaitStatus {
+            unimplemented!()
+        }
+
+        /// Called when we're about to deliver a signal to this task. If it's a
+        /// synthetic SIGCHLD and there's a ptraced task that needs to SIGCHLD,
+        /// update the siginfo to reflect the status and note that that
+        /// ptraced task has had its SIGCHLD sent.
+        /// Note that we can't set the correct siginfo when we send the signal, because
+        /// it requires us to set information only the kernel has permission to set.
+        /// Returns false if this signal should be deferred.
+        pub fn set_siginfo_for_synthetic_sigchld(&self, si: &siginfo_t) -> bool {
+            unimplemented!()
+        }
+
+        /// Sets up |si| as if we're delivering a SIGCHLD/waitid for this waited task.
+        /// @TODO Find a more elegant approach instead of two exact methods here for x64 and x86.
+        pub fn set_siginfo_for_waited_task_x64(&self, si: &mut x64::siginfo_t) {
+            // XXX handle CLD_EXITED here
+            if self.emulated_stop_type == EmulatedStopType::GroupStop {
+                si.si_code = CLD_STOPPED as _;
+                // @TODO Is the unwrap fail safe?
+                si._sifields._sigchld.si_status_ = self.emulated_stop_code.stop_sig().unwrap();
+            } else {
+                si.si_code = CLD_TRAPPED as _;
+                // @TODO Is the unwrap fail safe?
+                si._sifields._sigchld.si_status_ = self.emulated_stop_code.ptrace_signal().unwrap();
+            }
+            si._sifields._sigchld.si_pid_ = self.tgid();
+            si._sifields._sigchld.si_uid_ = self.getuid();
+        }
+        pub fn set_siginfo_for_waited_task_x86(&self, si: &mut x86::siginfo_t) {
+            // XXX handle CLD_EXITED here
+            if self.emulated_stop_type == EmulatedStopType::GroupStop {
+                si.si_code = CLD_STOPPED as _;
+                // @TODO Is the unwrap fail safe?
+                si._sifields._sigchld.si_status_ = self.emulated_stop_code.stop_sig().unwrap();
+            } else {
+                si.si_code = CLD_TRAPPED as _;
+                // @TODO Is the unwrap fail safe?
+                si._sifields._sigchld.si_status_ = self.emulated_stop_code.ptrace_signal().unwrap();
+            }
+            si._sifields._sigchld.si_pid_ = self.tgid();
+            si._sifields._sigchld.si_uid_ = self.getuid();
+        }
+
+        /// Return a reference to the saved siginfo record for the stop-signal
+        /// that we're currently in a ptrace-stop for.
+        pub fn get_saved_ptrace_siginfo(&self) -> &siginfo_t {
+            unimplemented!()
+        }
+
+        /// When emulating a ptrace-continue with a signal number, extract the siginfo
+        /// that was saved by |save_ptrace_signal_siginfo|. If no such siginfo was
+        /// saved, make one up.
+        pub fn take_ptrace_signal_siginfo(&self, sig: i32) -> siginfo_t {
+            unimplemented!()
+        }
+
+        /// Returns true if this task is in a waitpid or similar that would return
+        /// when t's status changes due to a ptrace event.
+        pub fn is_waiting_for_ptrace(&self, t: &RecordTask) -> bool {
+            unimplemented!()
+        }
+
+        /// Returns true if this task is in a waitpid or similar that would return
+        /// when t's status changes due to a regular event (exit).
+        pub fn is_waiting_for(&self, t: &RecordTask) -> bool {
+            unimplemented!()
+        }
+
+        /// Call this to force a group stop for this task with signal 'sig',
+        /// notifying ptracer if necessary.
+        pub fn apply_group_stop(&self, sig: i32) {
+            unimplemented!()
+        }
+
+        /// Call this after |sig| is delivered to this task.  Emulate
+        /// sighandler updates induced by the signal delivery.
+        pub fn signal_delivered(&self, sig: i32) {
+            unimplemented!()
+        }
+
+        /// Return true if |sig| is pending but hasn't been reported to ptrace yet
+        pub fn is_signal_pending(&self, sig: i32) -> bool {
+            unimplemented!()
+        }
+
+        /// Return true if there are any signals pending that are not blocked.
+        pub fn has_any_actionable_signal(&self) -> bool {
+            unimplemented!()
+        }
+
+        /// Get all threads out of an emulated GROUP_STOP
+        pub fn emulate_sigcont(&self) {
+            unimplemented!()
+        }
+
+        /// Return true if the disposition of |sig| in |table| isn't
+        /// SIG_IGN or SIG_DFL, that is, if a user sighandler will be
+        /// invoked when |sig| is received.
+        pub fn signal_has_user_handler(&self, sig: i32) -> bool {
+            unimplemented!()
+        }
+
+        /// If signal_has_user_handler(sig) is true, return the address of the
+        /// user handler, otherwise return null.
+        pub fn get_signal_user_handler(&self, sig: i32) -> RemoteCodePtr {
+            unimplemented!()
+        }
+
+        /// Return true if the signal handler for |sig| takes a &siginfo_t
+        /// parameter.
+        pub fn signal_handler_takes_siginfo(&self, sig: i32) -> bool {
+            unimplemented!()
+        }
+
+        /// Return |sig|'s current sigaction. Returned as raw bytes since the
+        /// data is architecture-dependent.
+        pub fn signal_action(&self, sig: i32) -> &[u8] {
+            unimplemented!()
+        }
+
+        /// Return true iff |sig| is blocked for this.
+        pub fn is_sig_blocked(&self, sig: i32) -> bool {
+            unimplemented!()
+        }
+
+        /// Return true iff |sig| is SIG_IGN, or it's SIG_DFL and the
+        /// default disposition is "ignore".
+        pub fn is_sig_ignored(&self, sig: i32) -> bool {
+            unimplemented!()
+        }
+
+        /// Return the applications current disposition of |sig|.
+        pub fn sig_disposition(&self, sig: i32) -> SignalDisposition {
+            unimplemented!()
+        }
+
+        /// Return the resolved disposition --- what this signal will actually do,
+        /// taking into account the default behavior.
+        pub fn sig_resolved_disposition(
+            &self,
+            sig: i32,
+            deterministic: SignalDeterministic,
+        ) -> SignalResolvedDisposition {
+            unimplemented!()
+        }
+
+        /// Set the siginfo for the signal-stop of this.
+        pub fn set_siginfo(&self, si: &siginfo_t) {
+            unimplemented!()
+        }
+
+        /// Note that the task sigmask needs to be refetched.
+        pub fn invalidate_sigmask(&self) {
+            unimplemented!()
+        }
+
+        /// Reset the signal handler for this signal to the default.
+        pub fn did_set_sig_handler_default(&self, sig: i32) {
+            unimplemented!()
+        }
+
+        /// Check that our status for |sig| matches what's in /proc/<pid>/status.
+        pub fn verify_signal_states(&self) {
+            unimplemented!()
+        }
+
+        /// Stashed-signal API: if a signal becomes pending at an
+        /// awkward time, but could be handled "soon", call
+        /// |stash_sig()| to stash the current pending-signal state.
+        ///
+        /// |has_stashed_sig()| obviously returns true if |stash_sig()|
+        /// has been called successfully.
+        ///
+        /// |pop_stash_sig()| restores the (relevant) state of this
+        /// Task to what was saved in |stash_sig()|, and returns the
+        /// saved siginfo.  After this call, |has_stashed_sig()| is
+        /// false.
+        ///
+        /// NB: |get_siginfo()| will always return the "real" siginfo,
+        /// regardless of stash popped-ness state.  Callers must ensure
+        /// they do the right thing with the popped siginfo.
+        ///
+        /// If the process unexpectedly died (due to SIGKILL), we don't
+        /// stash anything.
+        pub fn stash_sig(&self) {
+            unimplemented!()
+        }
+        pub fn stash_synthetic_sig(&self, si: &siginfo_t, deterministic: SignalDeterministic) {
+            unimplemented!()
+        }
+        pub fn has_any_stashed_sig(&self) -> bool {
+            unimplemented!()
+        }
+        pub fn stashed_sig_not_synthetic_sigchld(&self) -> &siginfo_t {
+            unimplemented!()
+        }
+        pub fn has_stashed_sig(&self, sig: i32) -> bool {
+            unimplemented!()
+        }
+        pub fn peek_stashed_sig_to_deliver(&self) -> &StashedSignal {
+            unimplemented!()
+        }
+        pub fn pop_stash_sig(&self, stashed: &StashedSignal) {
+            unimplemented!()
+        }
+        pub fn stashed_signal_processed(&self) {
+            unimplemented!()
+        }
+
+        /// If a group-stop occurs at an inconvenient time, stash it and
+        /// process it later.
+        pub fn stash_group_stop(&self) {
+            unimplemented!()
+        }
+        pub fn clear_stashed_group_stop(&self) {
+            unimplemented!()
+        }
+        pub fn has_stashed_group_stop(&self) -> bool {
+            unimplemented!()
+        }
+
+        /// Return true if the current state of this looks like the
+        /// interrupted syscall at the top of our event stack, if there
+        /// is one.
+        pub fn is_syscall_restart(&self) -> bool {
+            unimplemented!()
+        }
+
+        /// Return true iff this is at an execution state where
+        /// resuming execution may lead to the restart of an
+        /// interrupted syscall.
+        ///
+        /// For example, if a signal without a user handler is about to
+        /// be delivered to this just after a syscall interruption,
+        /// then delivering the signal may restart the first syscall
+        /// and this method will return true.
+        pub fn at_may_restart_syscall(&self) -> bool {
+            unimplemented!()
+        }
+
+        /// Return true if this is at an arm-desched-event syscall.
+        pub fn is_arm_desched_event_syscall(&self) -> bool {
+            unimplemented!()
+        }
+
+        /// Return true if this is at a disarm-desched-event syscall.
+        pub fn is_disarm_desched_event_syscall(&self) -> bool {
+            unimplemented!()
+        }
+
+        /// Return true if |t| may not be immediately runnable,
+        /// i.e., resuming execution and then |waitpid()|'ing may block
+        /// for an unbounded amount of time.  When the task is in this
+        /// state, the tracer must await a |waitpid()| notification
+        /// that the task is no longer possibly-blocked before resuming
+        /// its execution.
+        pub fn may_be_blocked(&self) -> bool {
+            unimplemented!()
+        }
+
+        /// Returns true if it looks like this task has been spinning on an atomic
+        /// access/lock.
+        pub fn maybe_in_spinlock(&self) -> bool {
+            unimplemented!()
+        }
+
+        /// Return true if this is within the syscallbuf library.  This
+        /// *does not* imply that $ip is at a buffered syscall.
+        pub fn is_in_syscallbuf(&self) -> bool {
+            unimplemented!()
+        }
+
+        /// Shortcut to the most recent |pending_event->desched.rec| when
+        /// there's a desched event on the stack, and nullptr otherwise.
+        /// Exists just so that clients don't need to dig around in the
+        /// event stack to find this record.
+        pub fn desched_rec(&self) -> RemotePtr<syscallbuf_record> {
+            unimplemented!()
+        }
+
+        /// Returns true when the task is in a signal handler in an interrupted
+        /// system call being handled by syscall buffering.
+        pub fn running_inside_desched(&self) -> bool {
+            unimplemented!()
+        }
+        pub fn get_ptrace_eventmsg_seccomp_data(&self) -> u16 {
+            unimplemented!()
+        }
+
+        /// Save tracee data to the trace.  |addr| is the address in
+        /// the address space of this task.  The |record_local*()|
+        /// variants record data that's already been read from this,
+        /// and the |record_remote*()| variants read the data and then
+        /// record it.
+        /// If 'addr' is null then no record is written.
+        /// @TODO In the rr implementation ssize_t is being used instead of size_t
+        /// for the record_* methods in many places. Why??
+        pub fn record_local(addr: RemotePtr<Void>, buf: &[u8]) {
+            unimplemented!()
+        }
+        pub fn record_local_for<T>(addr: RemotePtr<T>, data: &T) {
+            unimplemented!()
+        }
+        pub fn record_local_for_slice<T>(addr: RemotePtr<T>, buf: &[T]) {
+            unimplemented!()
+        }
+
+        pub fn record_remote(addr: RemotePtr<Void>, num_bytes: usize) {
+            unimplemented!()
+        }
+        pub fn record_remote_for<T>(addr: RemotePtr<T>) {
+            unimplemented!()
+        }
+        pub fn record_remote_range(range: &MemoryRange) {
+            unimplemented!()
+        }
+        pub fn record_remote_range_fallible(range: &MemoryRange) -> usize {
+            unimplemented!()
+        }
+
+        /// Record as much as we can of the bytes in this range. Will record only
+        /// contiguous mapped data starting at `addr`.
+        pub fn record_remote_fallible(&self, addr: RemotePtr<Void>, num_bytes: usize) -> isize {
+            unimplemented!()
+        }
+
+        /// Record as much as we can of the bytes in this range. Will record only
+        /// contiguous mapped-writable data starting at `addr`.
+        pub fn record_remote_writable(&self, addr: RemotePtr<Void>, num_bytes: usize) {
+            unimplemented!()
+        }
+
+        /// Simple helper that attempts to use the local mapping to record if one
+        /// exists
+        pub fn record_remote_by_local_map(&self, addr: RemotePtr<Void>, num_bytes: usize) -> bool {
+            unimplemented!()
+        }
+
+        /// Save tracee data to the trace.  |addr| is the address in
+        /// the address space of this task.
+        /// If 'addr' is null then a zero-length record is written.
+        pub fn record_remote_even_if_null(&self, addr: RemotePtr<Void>, num_bytes: usize) {
+            unimplemented!()
+        }
+        pub fn record_remote_even_if_null_for<T>(addr: RemotePtr<T>) {
+            unimplemented!()
+        }
+
+        /// Manage pending events.  |push_event()| pushes the given
+        /// event onto the top of the event stack.  The |pop_*()|
+        /// helpers pop the event at top of the stack, which must be of
+        /// the specified type.
+        pub fn push_event(&self, ev: &Event) {
+            unimplemented!()
+        }
+        pub fn push_syscall_eventsyscallno(&self, no: i32) {
+            unimplemented!()
+        }
+        pub fn pop_eventexpected_type(&self) -> EventType {
+            unimplemented!()
+        }
+        pub fn pop_noop(&self) {
+            unimplemented!()
+        }
+        pub fn pop_desched(&self) {
+            unimplemented!()
+        }
+        pub fn pop_seccomp_trap(&self) {
+            unimplemented!()
+        }
+        pub fn pop_signal_delivery(&self) {
+            unimplemented!()
+        }
+        pub fn pop_signal_handler(&self) {
+            unimplemented!()
+        }
+        pub fn pop_syscall(&self) {
+            unimplemented!()
+        }
+        pub fn pop_syscall_interruption(&self) {
+            unimplemented!()
+        }
+        /// Return the event at the top of this's stack.
+        pub fn ev(&self) -> &Event {
+            unimplemented!()
+        }
+        pub fn ev_mut(&self) -> &mut Event {
+            unimplemented!()
+        }
+
+        /// Call this before recording events or data.  Records
+        /// syscallbuf data and flushes the buffer, if there's buffered
+        /// data.
+        ///
+        /// The timing of calls to this is tricky. We must flush the syscallbuf
+        /// before recording any data associated with events that happened after the
+        /// buffered syscalls. But we don't support flushing a syscallbuf twice with
+        /// no intervening reset, i.e. after flushing we have to be sure we'll get
+        /// a chance to reset the syscallbuf (i.e. record some other kind of event)
+        /// before the tracee runs again in a way that might append another buffered
+        /// syscall --- so we can't flush too early
+        pub fn maybe_flush_syscallbuf(&self) {
+            unimplemented!()
+        }
+
+        /// Call this after recording an event when it might be safe to reset the
+        /// syscallbuf. It must be after recording an event to ensure during replay
+        /// we run past any syscallbuf after-syscall code that uses the buffer data.
+        pub fn maybe_reset_syscallbuf(&self) {
+            unimplemented!()
+        }
+
+        /// Record an event on behalf of this.  Record the registers of
+        /// this (and other relevant execution state) so that it can be
+        /// used or verified during replay, if that state is available
+        /// and meaningful at this's current execution point.
+        /// |record_current_event()| record |this->ev()|, and
+        /// |record_event()| records the specified event.
+        pub fn record_current_event(&self) {
+            unimplemented!()
+        }
+        pub fn record_event(
+            &self,
+            ev: &Event,
+            flush: Option<FlushSyscallbuf>,
+            reset: Option<AllowSyscallbufReset>,
+            registers: Option<&Registers>,
+        ) {
+            unimplemented!()
+        }
+
+        pub fn is_fatal_signal(&self, sig: i32, deterministic: SignalDeterministic) -> bool {
+            unimplemented!()
+        }
+
+        /// Return the pid of the newborn thread created by this task.
+        /// Called when this task has a PTRACE_CLONE_EVENT with CLONE_THREAD.
+        pub fn find_newborn_thread(&self) -> pid_t {
+            unimplemented!()
+        }
+
+        /// Return the pid of the newborn process (whose parent has pid `parent_pid`,
+        /// which need not be the same as the current task's pid, due to CLONE_PARENT)
+        /// created by this task. Called when this task has a PTRACE_CLONE_EVENT
+        /// without CLONE_THREAD, or PTRACE_FORK_EVENT.
+        pub fn find_newborn_process(&self, child_parent: pid_t) -> pid_t {
+            unimplemented!()
+        }
+
+        /// Do a tgkill to send a specific signal to this task.
+        pub fn tgkill(&self, sig: i32) {
+            unimplemented!()
+        }
+
+        /// If the process looks alive, kill it. It is recommended to call try_wait(),
+        /// on this task before, to make sure liveness is correctly reflected when
+        /// making this decision
+        pub fn kill_if_alive(&self) {
+            unimplemented!()
+        }
+
+        pub fn robust_list(&self) -> RemotePtr<Void> {
+            unimplemented!()
+        }
+        pub fn robust_list_len(&self) -> usize {
+            unimplemented!()
+        }
+
+        /// Uses /proc so not trivially cheap.
+        pub fn get_parent_pid(&self) -> pid_t {
+            unimplemented!()
+        }
+
+        /// Return true if this is a "clone child" per the wait(2) man page.
+        pub fn is_clone_child(&self) -> bool {
+            unimplemented!()
+        }
+
+        pub fn set_termination_signal(&self, sig: i32) {
+            unimplemented!()
+        }
+
+        /// When a signal triggers an emulated a ptrace-stop for this task,
+        /// save the siginfo so a later emulated ptrace-continue with this signal
+        /// number can use it.
+        pub fn save_ptrace_signal_siginfo(&self, si: &siginfo_t) {
+            unimplemented!()
+        }
+
+        /// Tasks normally can't change their tid. There is one very special situation
+        /// where they can: when a non-main-thread does an execve, its tid changes
+        /// to the tid of the thread-group leader.
+        pub fn set_tid_and_update_serial(&self, tid: pid_t, own_namespace_tid: pid_t) {
+            unimplemented!()
+        }
+
+        /// Return our cached copy of the signal mask, updating it if necessary.
+        pub fn get_sigmask(&self) -> sig_set_t {
+            unimplemented!()
+        }
+
+        /// Just get the signal mask of the process.
+        pub fn read_sigmask_from_process(&self) -> sig_set_t {
+            unimplemented!()
+        }
+
+        /// Unblock the signal for the process.
+        pub fn unblock_signal(&self, sig: i32) {
+            unimplemented!()
+        }
+
+        /// Set the signal handler to default for the process.
+        pub fn set_sig_handler_default(&self, sig: i32) {
+            unimplemented!()
+        }
+
+        pub fn maybe_restore_original_syscall_registers(&self) {
+            unimplemented!()
+        }
+
+        /// Retrieve the tid of this task from the tracee and store it
+        fn update_own_namespace_tid(&self) {
+            unimplemented!()
+        }
+
+        /// Wait for |futex| in this address space to have the value
+        /// |val|.
+        ///
+        /// WARNING: this implementation semi-busy-waits for the value
+        /// change.  This must only be used in contexts where the futex
+        /// will change "soon".
+        fn futex_wait(&self, futex: RemotePtr<i32>, val: i32, ok: Option<&mut bool>) {
+            unimplemented!()
+        }
+
+        /// Called when this task is able to receive a SIGCHLD (e.g. because
+        /// we completed delivery of a signal). Sends a new synthetic
+        /// SIGCHLD to the task if there are still tasks that need a SIGCHLD
+        /// sent for them.
+        /// May queue signals for specific tasks.
+        fn send_synthetic_sigchld_if_necessary(&self) {
+            unimplemented!()
+        }
+
+        /// Call this when SYS_sigaction is finishing with |regs|.
+        fn update_sigaction(&self, regs: &Registers) {
+            unimplemented!()
+        }
+
+        /// Update the futex robust list head pointer to |list| (which
+        /// is of size |len|).
+        fn set_robust_list(&self, list: RemotePtr<Void>, len: usize) {
+            unimplemented!()
+        }
+
+        fn init_buffers_arch<Arch>(&self) {
+            unimplemented!()
+        }
+        fn on_syscall_exit_arch<Arch>(&self, syscallno: i32, regs: &Registers) {
+            unimplemented!()
+        }
+
+        /// Helper function for update_sigaction.
+        fn update_sigaction_arch<Arch>(&self, regs: &Registers) {
+            unimplemented!()
+        }
+
+        /// Update the clear-tid futex to |tid_addr|.
+        fn set_tid_addr(&self, tid_addr: RemotePtr<i32>) {
             unimplemented!()
         }
     }

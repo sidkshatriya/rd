@@ -11,8 +11,8 @@ use std::fmt::Result;
 
 pub const PTRACE_EVENT_STOP: i32 = _PTRACE_EVENT_STOP as i32;
 
-/// Called simply Type in rr.
-enum WaitType {
+/// Called simply `Type` in rr.
+pub enum WaitType {
     /// Task exited normally.
     Exit,
     /// Task exited due to fatal signal.
@@ -38,7 +38,7 @@ pub struct WaitStatus {
 
 impl WaitStatus {
     /// method is called type() in rr.
-    fn wait_type(&self) -> WaitType {
+    pub fn wait_type(&self) -> WaitType {
         if let Some(_exit_code) = self.exit_code() {
             return WaitType::Exit;
         }
@@ -69,7 +69,8 @@ impl WaitStatus {
     }
 
     /// What was the exit code of the process?
-    fn exit_code(&self) -> Option<i32> {
+    /// Exit code if wait_type() == EXIT, otherwise None.
+    pub fn exit_code(&self) -> Option<i32> {
         unsafe {
             if WIFEXITED(self.status) {
                 Some(WEXITSTATUS(self.status))
@@ -80,7 +81,8 @@ impl WaitStatus {
     }
 
     /// Did we receive a fatal signal?
-    fn fatal_sig(&self) -> Option<i32> {
+    /// Fatal signal if wait_type() == FATAL_SIGNAL, otherwise None.
+    pub fn fatal_sig(&self) -> Option<i32> {
         unsafe {
             if WIFSIGNALED(self.status) {
                 Some(WTERMSIG(self.status))
@@ -91,7 +93,9 @@ impl WaitStatus {
     }
 
     /// What was the stopping signal?
-    fn stop_sig(&self) -> Option<i32> {
+    /// Stop signal if wait_type() == STOP_SIGNAL, otherwise None. A zero signal
+    /// (rare but observed via PTRACE_INTERRUPT) is converted to SIGSTOP.
+    pub fn stop_sig(&self) -> Option<i32> {
         unsafe {
             if !WIFSTOPPED(self.status) || ((self.status >> 16) & 0xff != 0) {
                 return None;
@@ -108,13 +112,14 @@ impl WaitStatus {
         if sig != 0 {
             Some(sig)
         } else {
-            // @TODO. Assume SIGSTOP. Is this OK?
             Some(SIGSTOP)
         }
     }
 
+    /// Stop signal if wait_type() == GROUP_STOP, otherwise None. A zero signal
+    /// (rare but observed via PTRACE_INTERRUPT) is converted to SIGSTOP.
     /// This method is called group_stop() in the rr codebase.
-    fn group_stop_sig(&self) -> Option<i32> {
+    pub fn group_stop_sig(&self) -> Option<i32> {
         unsafe {
             if !WIFSTOPPED(self.status) || ((self.status >> 16) & 0xff != PTRACE_EVENT_STOP) {
                 return None;
@@ -126,12 +131,11 @@ impl WaitStatus {
         if sig != 0 {
             Some(sig)
         } else {
-            // @TODO. Assume SIGSTOP. Is this OK?
             Some(SIGSTOP)
         }
     }
 
-    fn is_syscall(&self) -> bool {
+    pub fn is_syscall(&self) -> bool {
         unsafe {
             if self.ptrace_event().is_some() || !WIFSTOPPED(self.status) {
                 return false;
@@ -141,7 +145,8 @@ impl WaitStatus {
         }
     }
 
-    fn ptrace_event(&self) -> Option<i32> {
+    /// ptrace event if wait_type() == PTRACE_EVENT, None otherwise.
+    pub fn ptrace_event(&self) -> Option<i32> {
         let event: i32 = (self.status >> 16) & 0xff;
         if event == PTRACE_EVENT_STOP {
             None
@@ -150,27 +155,39 @@ impl WaitStatus {
         }
     }
 
+    /// For exit_code() and fatal_sig(), returns None. For all other types
+    /// returns the signal involved.
+    pub fn ptrace_signal(&self) -> Option<i32> {
+        unsafe {
+            if WIFSTOPPED(self.status) {
+                Some(WSTOPSIG(self.status) & 0x7f)
+            } else {
+                None
+            }
+        }
+    }
+
     /// Return a WaitStatus for a process exit.
-    fn for_exit_code(code: i32) -> WaitStatus {
+    pub fn for_exit_code(code: i32) -> WaitStatus {
         debug_assert!(code >= 0 && code < 0x100);
         WaitStatus { status: code << 8 }
     }
 
     /// Return a WaitStatus for a fatal signal
-    fn for_fatal_sig(sig: i32) -> WaitStatus {
+    pub fn for_fatal_sig(sig: i32) -> WaitStatus {
         debug_assert!(sig >= 1 && sig < 0x80);
         WaitStatus { status: sig }
     }
 
     /// Return a WaitStatus for a stop signal
-    fn for_stop_sig(sig: i32) -> WaitStatus {
+    pub fn for_stop_sig(sig: i32) -> WaitStatus {
         debug_assert!(sig >= 1 && sig < 0x80);
         WaitStatus {
             status: (sig << 8) | 0x7f,
         }
     }
 
-    fn for_group_sig(sig: i32, t: &RecordTask) -> WaitStatus {
+    pub fn for_group_sig(sig: i32, t: &RecordTask) -> WaitStatus {
         debug_assert!(sig >= 1 && sig < 0x80);
         let mut code: i32 = (sig << 8) | 0x7f;
         if t.emulated_ptrace_seized {
@@ -180,7 +197,7 @@ impl WaitStatus {
         WaitStatus { status: code }
     }
 
-    fn for_syscall(t: &RecordTask) -> WaitStatus {
+    pub fn for_syscall(t: &RecordTask) -> WaitStatus {
         let mut code: i32 = (SIGTRAP << 8) | 0x7f;
         if t.emulated_ptrace_options.is_some()
             && (t.emulated_ptrace_options.unwrap() & PTRACE_O_TRACESYSGOOD != 0)
@@ -191,7 +208,7 @@ impl WaitStatus {
         WaitStatus { status: code }
     }
 
-    fn for_ptrace_event(ptrace_event: i32) -> WaitStatus {
+    pub fn for_ptrace_event(ptrace_event: i32) -> WaitStatus {
         debug_assert!(ptrace_event >= 1 && ptrace_event < 0x100);
         WaitStatus {
             status: (ptrace_event << 16) | (SIGTRAP << 8) | 0x7f,
