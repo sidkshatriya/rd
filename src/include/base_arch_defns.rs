@@ -1,3 +1,5 @@
+use std::mem::size_of;
+
 pub type time_t = syscall_slong_t;
 pub type off_t = syscall_slong_t;
 pub type blkcnt_t = syscall_slong_t;
@@ -26,12 +28,12 @@ pub type __kernel_suseconds_t = __kernel_long_t;
 pub type __kernel_pid_t = signed_int;
 pub type __kernel_loff_t = int64_t;
 
-pub const STD_PAD: usize = std::mem::size_of::<unsigned_long>() - std::mem::size_of::<int>();
-pub const KERNEL_SIGSET_SIZE : usize = 64 / (8 * std::mem::size_of::<unsigned_long>());
-pub const SIGSET_SIZE : usize = 1024 / (8 * std::mem::size_of::<unsigned_long>());
+pub const STD_PAD: usize = size_of::<unsigned_long>() - size_of::<int>();
+pub const KERNEL_SIGSET_SIZE : usize = 64 / (8 * size_of::<unsigned_long>());
+pub const SIGSET_SIZE : usize = 1024 / (8 * size_of::<unsigned_long>());
 pub const MAX_FDS : usize = 1024;
-pub const FD_SET_NUM : usize = MAX_FDS / (8 * std::mem::size_of::<unsigned_long>());
-pub const SYSINFO_F_SIZE : usize = 20 - 2 * std::mem::size_of::<__kernel_ulong_t>() - std::mem::size_of::<uint32_t>();
+pub const FD_SET_NUM : usize = MAX_FDS / (8 * size_of::<unsigned_long>());
+pub const SYSINFO_F_SIZE : usize = 20 - 2 * size_of::<__kernel_ulong_t>() - size_of::<uint32_t>();
 
 #[repr(C)]
 #[derive(Copy, Clone)]

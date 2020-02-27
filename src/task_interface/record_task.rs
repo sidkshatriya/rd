@@ -156,7 +156,7 @@ impl Sighandler {
         self.sa.resize(size_of::<Arch::kernel_sigaction>(), 0);
         unsafe {
             copy_nonoverlapping(
-                // @TODO does this cat of an associated type reference work as expected?
+                // @TODO does this cast of an associated type reference work as expected?
                 ksa as *const _ as *const u8,
                 self.sa.as_mut_ptr() as *mut u8,
                 size_of::<Arch::kernel_sigaction>(),
