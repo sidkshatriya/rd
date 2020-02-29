@@ -340,6 +340,7 @@ dependencies = [
  "capnpc",
  "lazy_static",
  "libc",
+ "memchr",
  "nix",
  "raw-cpuid",
  "static_assertions",
