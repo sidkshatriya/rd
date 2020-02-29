@@ -9,6 +9,8 @@ extern crate raw_cpuid;
 #[macro_use]
 extern crate static_assertions;
 
+use crate::core::check_type_has_no_holes;
+
 #[macro_use]
 mod kernel_abi;
 mod flags;
@@ -21,6 +23,7 @@ mod perf_counters;
 mod registers;
 mod address_space;
 mod auto_remote_syscalls;
+mod core;
 mod diversion_session;
 mod emu_fs;
 mod event;
