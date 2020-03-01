@@ -97,6 +97,7 @@ pub mod task {
     use libc::ESRCH;
     use libc::{pid_t, siginfo_t, uid_t};
     use nix::fcntl::OFlag;
+    use nix::unistd::getuid;
     use std::cell::RefCell;
     use std::convert::TryInto;
     use std::ffi::CString;
@@ -289,7 +290,7 @@ pub mod task {
         /// We hide the destructor and require clients to call this instead. This
         /// lets us make virtual calls from within the destruction code. This
         /// does the actual PTRACE_DETACH and then calls the real destructor.
-        fn destroy(&self) {
+        pub fn destroy(&self) {
             unimplemented!()
         }
 
@@ -309,7 +310,7 @@ pub mod task {
         /// Updates tick count from the current performance counter values if
         /// necessary.
         pub fn tick_count(&self) -> Ticks {
-            unimplemented!()
+            self.ticks
         }
 
         /// Stat |fd| in the context of this task's fd table.
@@ -417,7 +418,7 @@ pub mod task {
             unimplemented!()
         }
 
-        pub fn is_in_rr_page(&self) -> bool {
+        pub fn is_in_rd_page(&self) -> bool {
             unimplemented!()
         }
 
@@ -436,8 +437,8 @@ pub mod task {
 
         /// Return the "task name"; i.e. what |prctl(PR_GET_NAME)| or
         /// /proc/tid/comm would say that the task's name is.
-        pub fn name(&self) -> String {
-            unreachable!()
+        pub fn name(&self) -> &str {
+            &self.prname
         }
 
         /// Call this method when this task has just performed an |execve()|
@@ -466,17 +467,17 @@ pub mod task {
 
         /// Return the current regs of this.
         pub fn regs(&self) -> &Registers {
-            unimplemented!()
+            &self.registers
         }
 
         /// Return the extra registers of this.
         pub fn extra_regs(&self) -> &ExtraRegisters {
-            unimplemented!()
+            &self.extra_registers
         }
 
         /// Return the current arch of this. This can change due to exec(). */
         pub fn arch(&self) -> SupportedArch {
-            unimplemented!()
+            self.registers.arch()
         }
 
         /// Return the debug status (DR6 on x86). The debug status is always cleared
@@ -595,32 +596,32 @@ pub mod task {
 
         /// Return true when the task is running, false if it's stopped.
         pub fn is_running(&self) -> bool {
-            unimplemented!()
+            !self.is_stopped
         }
 
         /// Return the status of this as of the last successful wait()/try_wait() call.
         pub fn status(&self) -> WaitStatus {
-            unimplemented!()
+            self.wait_status
         }
 
         /// Return the ptrace event as of the last call to |wait()/try_wait()|.
-        pub fn ptrace_event(&self) -> i32 {
-            unimplemented!()
+        pub fn ptrace_event(&self) -> Option<i32> {
+            self.wait_status.ptrace_event()
         }
 
         /// Return the signal that's pending for this as of the last
         /// call to |wait()/try_wait()|.  Return of `None` means "no signal".
         pub fn stop_sig(&self) -> Option<i32> {
-            unimplemented!()
+            self.wait_status.stop_sig()
         }
 
-        pub fn clear_wait_status(&self) {
-            unimplemented!()
+        pub fn clear_wait_status(&mut self) {
+            self.wait_status = WaitStatus::default();
         }
 
         /// Return the thread group this belongs to.
         pub fn thread_group(&self) -> Rc<RefCell<ThreadGroup>> {
-            unimplemented!()
+            self.tg.clone()
         }
 
         /// Return the id of this task's recorded thread group. */
@@ -668,7 +669,7 @@ pub mod task {
         /// Return the virtual memory mapping (address space) of this
         /// task.
         pub fn vm(&self) -> AddressSpaceSharedPtr {
-            unimplemented!()
+            self.as_.clone()
         }
 
         pub fn fd_table(&self) -> FdTableSharedPtr {
@@ -678,7 +679,7 @@ pub mod task {
         /// Currently we don't allow recording across uid changes, so we can
         /// just return rd's uid.
         pub fn getuid(&self) -> uid_t {
-            unimplemented!()
+            getuid().as_raw()
         }
 
         /// Write |N| bytes from |buf| to |child_addr|, or don't return.

@@ -92,7 +92,7 @@ pub trait TaskInterface {
     /// Return the pid of the task in its own pid namespace.
     /// Only RecordTasks actually change pid namespaces.
     fn own_namespace_tid(&self) -> pid_t {
-        unimplemented!()
+        self.as_task().tid
     }
 
     /// Called when SYS_rrcall_init_preload has happened.

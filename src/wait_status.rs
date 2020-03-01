@@ -36,7 +36,17 @@ pub struct WaitStatus {
     status: i32,
 }
 
+impl Default for WaitStatus {
+    fn default() -> Self {
+        Self::new(0)
+    }
+}
+
 impl WaitStatus {
+    pub fn new(status: i32) -> WaitStatus {
+        WaitStatus { status }
+    }
+
     /// method is called type() in rr.
     pub fn wait_type(&self) -> WaitType {
         if let Some(_exit_code) = self.exit_code() {
@@ -213,6 +223,10 @@ impl WaitStatus {
         WaitStatus {
             status: (ptrace_event << 16) | (SIGTRAP << 8) | 0x7f,
         }
+    }
+
+    pub fn get(&self) -> i32 {
+        self.status
     }
 }
 
