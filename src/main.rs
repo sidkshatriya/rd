@@ -9,8 +9,6 @@ extern crate raw_cpuid;
 #[macro_use]
 extern crate static_assertions;
 
-use crate::core::check_type_has_no_holes;
-
 #[macro_use]
 mod kernel_abi;
 mod flags;

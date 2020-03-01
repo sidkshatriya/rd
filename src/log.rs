@@ -40,6 +40,7 @@ lazy_static! {
     static ref LOG_GLOBALS: Mutex<LogGlobals> = {
         let maybe_filename = option_env!("RD_LOG_FILE");
         let maybe_append_filename = option_env!("RD_APPEND_LOG_FILE");
+        // @TODO Ok to simply add Sync + Send?
         let mut f: Box<dyn Write + Sync + Send>;
         // @TODO what about atexit flush log file??
         if let Some(filename) = maybe_filename {
