@@ -1,15 +1,19 @@
 use crate::address_space::kernel_mapping::KernelMapping;
 use crate::address_space::memory_range::MemoryRange;
 use crate::auto_remote_syscalls::MemParamsEnabled::DisableMemoryParams;
-use crate::kernel_abi::syscall_number_for_munmap;
 use crate::kernel_abi::SupportedArch;
+use crate::kernel_abi::{
+    has_mmap2_syscall, syscall_number_for_mmap, syscall_number_for_mmap2, syscall_number_for_munmap,
+};
 use crate::registers::Registers;
 use crate::remote_code_ptr::RemoteCodePtr;
 use crate::remote_ptr::{RemotePtr, Void};
 use crate::scoped_fd::ScopedFd;
 use crate::task_interface::task::task::Task;
+use crate::util::page_size;
 use crate::wait_status::WaitStatus;
-use libc::{pid_t, MAP_ANONYMOUS, MAP_PRIVATE, PROT_READ, PROT_WRITE};
+use libc::{pid_t, MAP_ANONYMOUS, MAP_FIXED, MAP_PRIVATE, PROT_READ, PROT_WRITE};
+use std::convert::TryInto;
 use std::ops::{Deref, DerefMut};
 
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -157,10 +161,9 @@ impl<'a> AutoRemoteSyscalls<'a> {
         // Unmap our scratch region if required
         if self.scratch_mem_was_mapped {
             let remote = AutoRemoteSyscalls::new(some_t);
-            remote.infallible_syscall2(
+            remote.infallible_syscall(
                 syscall_number_for_munmap(remote.arch()),
-                self.fixed_sp.unwrap().as_usize() - 4096,
-                4096,
+                vec![self.fixed_sp.unwrap().as_usize() - 4096, 4096],
             );
         }
         if !self.replaced_bytes.is_empty() {
@@ -184,105 +187,17 @@ impl<'a> AutoRemoteSyscalls<'a> {
     /// Make |syscallno| with variadic |args| (limited to 6 on
     /// x86).  Return the raw kernel return value.
     /// Returns -ESRCH if the process dies or has died.
-    pub fn syscall1(&self, syscallno: i32, arg1: usize) -> isize {
-        unimplemented!()
-    }
-    pub fn syscall2(&self, syscallno: i32, arg1: usize, arg2: usize) -> isize {
+    pub fn syscall(&self, syscallno: i32, args: Vec<usize>) -> isize {
         unimplemented!()
     }
 
-    pub fn syscall3(&self, syscallno: i32, arg1: usize, arg2: usize, arg3: usize) -> isize {
+    pub fn infallible_syscall(&self, syscallno: i32, args: Vec<usize>) -> isize {
         unimplemented!()
     }
 
-    pub fn syscall4(
-        &self,
-        syscallno: i32,
-        arg1: usize,
-        arg2: usize,
-        arg3: usize,
-        arg4: usize,
-    ) -> isize {
+    pub fn infallible_syscall_ptr(&self, syscallno: i32, args: Vec<usize>) -> RemotePtr<Void> {
         unimplemented!()
     }
-
-    pub fn syscall5(
-        &self,
-        syscallno: i32,
-        arg1: usize,
-        arg2: usize,
-        arg3: usize,
-        arg4: usize,
-        arg5: usize,
-    ) -> isize {
-        unimplemented!()
-    }
-    pub fn syscall6(
-        &self,
-        syscallno: i32,
-        arg1: usize,
-        arg2: usize,
-        arg3: usize,
-        arg4: usize,
-        arg5: usize,
-        arg6: usize,
-    ) -> isize {
-        unimplemented!()
-    }
-
-    pub fn infallible_syscall1(&self, syscallno: i32, arg1: usize) -> isize {
-        unimplemented!()
-    }
-    pub fn infallible_syscall2(&self, syscallno: i32, arg1: usize, arg2: usize) -> isize {
-        unimplemented!()
-    }
-
-    pub fn infallible_syscall3(
-        &self,
-        syscallno: i32,
-        arg1: usize,
-        arg2: usize,
-        arg3: usize,
-    ) -> isize {
-        unimplemented!()
-    }
-
-    pub fn infallible_syscall4(
-        &self,
-        syscallno: i32,
-        arg1: usize,
-        arg2: usize,
-        arg3: usize,
-        arg4: usize,
-    ) -> isize {
-        unimplemented!()
-    }
-
-    pub fn infallible_syscall5(
-        &self,
-        syscallno: i32,
-        arg1: usize,
-        arg2: usize,
-        arg3: usize,
-        arg4: usize,
-        arg5: usize,
-    ) -> isize {
-        unimplemented!()
-    }
-    pub fn infallible_syscall6(
-        &self,
-        syscallno: i32,
-        arg1: usize,
-        arg2: usize,
-        arg3: usize,
-        arg4: usize,
-        arg5: usize,
-        arg6: usize,
-    ) -> isize {
-        unimplemented!()
-    }
-
-    /// @TODO infallible_syscall_ptr & infallible_syscall.
 
     /// Remote mmap syscalls are common and non-trivial due to the need to
     /// select either mmap2 or mmap.
@@ -295,7 +210,40 @@ impl<'a> AutoRemoteSyscalls<'a> {
         child_fd: i32,
         offset_pages: u64,
     ) -> RemotePtr<Void> {
-        unimplemented!()
+        // The first syscall argument is called "arg 1", so
+        // our syscall-arg-index template parameter starts
+        // with "1".
+        let ret: RemotePtr<Void> = if has_mmap2_syscall(self.arch()) {
+            self.infallible_syscall_ptr(
+                syscall_number_for_mmap2(self.arch()),
+                vec![
+                    addr.as_usize(),
+                    length,
+                    prot as _,
+                    flags as _,
+                    child_fd as isize as _,
+                    offset_pages.try_into().unwrap(),
+                ],
+            )
+        } else {
+            self.infallible_syscall_ptr(
+                syscall_number_for_mmap(self.arch()),
+                vec![
+                    addr.as_usize(),
+                    length,
+                    prot as _,
+                    flags as _,
+                    child_fd as isize as usize,
+                    (offset_pages * page_size() as u64).try_into().unwrap(),
+                ],
+            )
+        };
+
+        if flags & MAP_FIXED == MAP_FIXED {
+            ed_assert!(self.t, addr == ret, "MAP_FIXED at {} but got {}", addr, ret);
+        }
+
+        ret
     }
 
     /// @TODO Note: offset is signed.

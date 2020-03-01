@@ -794,12 +794,14 @@ pub mod task {
                 if remote_path.get().is_some() {
                     // skip leading '/' since we want the path to be relative to the root fd
                     remote_fd = remote
-                        .syscall3(
+                        .syscall(
                             syscall_number_for_openat(remote.arch()),
-                            RD_RESERVED_ROOT_DIR_FD as usize,
-                            // Skip the leading '/' in the path as this is a relative path.
-                            remote_path.get().unwrap().as_usize() + 1,
-                            libc::O_RDWR as usize,
+                            vec![
+                                RD_RESERVED_ROOT_DIR_FD as usize,
+                                // Skip the leading '/' in the path as this is a relative path.
+                                remote_path.get().unwrap().as_usize() + 1,
+                                libc::O_RDWR as usize,
+                            ],
                         )
                         .try_into()
                         .unwrap();
@@ -818,7 +820,10 @@ pub mod task {
                 } else {
                     fd = remote.retrieve_fd(remote_fd);
                     // Leak fd if the syscall fails due to the task being SIGKILLed unexpectedly
-                    remote.syscall1(syscall_number_for_close(remote.arch()), remote_fd as usize);
+                    remote.syscall(
+                        syscall_number_for_close(remote.arch()),
+                        vec![remote_fd as usize],
+                    );
                 }
             }
             if !fd.is_open() {
