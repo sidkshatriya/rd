@@ -486,12 +486,12 @@ pub mod address_space {
 
         /// Call this after a successful execve syscall has completed. At this point
         /// it is safe to perform remote syscalls.
-        pub fn post_exec_syscall(&mut self, t: &dyn TaskInterface) {
+        pub fn post_exec_syscall(&mut self, t: &mut dyn TaskInterface) {
             // First locate a syscall instruction we can use for remote syscalls.
             self.traced_syscall_ip_ = self.find_syscall_instruction(t);
             self.privileged_traced_syscall_ip_ = None;
             // Now remote syscalls work, we can open_mem_fd.
-            t.as_task().open_mem_fd();
+            t.open_mem_fd();
 
             // Set up AutoRemoteSyscalls again now that the mem-fd is open.
             let remote = AutoRemoteSyscalls::new(t);
@@ -949,19 +949,17 @@ pub mod address_space {
         /// a syscall instruction into executable tracee memory (which might not be
         /// possible with some kernels, e.g. PaX).
         pub fn find_syscall_instruction(&self, t: &dyn TaskInterface) -> RemoteCodePtr {
-            let arch = t.as_task().arch();
+            let arch = t.arch();
             let mut offset = match arch {
                 SupportedArch::X86 => OFFSET_TO_SYSCALL_IN_X64.load(Ordering::SeqCst),
                 SupportedArch::X64 => OFFSET_TO_SYSCALL_IN_X86.load(Ordering::SeqCst),
             };
 
             if offset == 0 {
-                let vdso =
-                    t.as_task()
-                        .read_mem::<u8>(self.vdso().start(), self.vdso().size(), None);
+                let vdso = t.read_mem::<u8>(self.vdso().start(), self.vdso().size(), None);
                 let maybe_offset = find_offset_of_syscall_instruction_in(arch, &vdso);
                 ed_assert!(
-                    t.as_task(),
+                    t,
                     maybe_offset.is_some(),
                     "No syscall instruction found in VDSO"
                 );

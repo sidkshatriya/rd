@@ -1,6 +1,8 @@
+use crate::address_space::address_space::AddressSpace;
 use crate::address_space::kernel_mapping::KernelMapping;
 use crate::address_space::memory_range::MemoryRange;
 use crate::auto_remote_syscalls::MemParamsEnabled::DisableMemoryParams;
+use crate::kernel_abi::syscall_number_for_munmap;
 use crate::kernel_abi::SupportedArch;
 use crate::registers::Registers;
 use crate::remote_code_ptr::RemoteCodePtr;
@@ -9,6 +11,7 @@ use crate::scoped_fd::ScopedFd;
 use crate::task_interface::task::task::Task;
 use crate::wait_status::WaitStatus;
 use libc::{pid_t, MAP_ANONYMOUS, MAP_PRIVATE, PROT_READ, PROT_WRITE};
+use std::ops::{Deref, DerefMut};
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub enum MemParamsEnabled {
@@ -38,7 +41,7 @@ impl AutoRestoreMem {
 ///
 /// Note: We do NOT want Copy or Clone.
 pub struct AutoRemoteSyscalls<'a> {
-    t: &'a Task,
+    t: &'a mut Task,
     initial_regs: Registers,
     initial_ip: RemoteCodePtr,
     initial_sp: RemotePtr<Void>,
@@ -63,11 +66,10 @@ impl<'a> AutoRemoteSyscalls<'a> {
     /// the caller *must* ensure the callee will not receive any
     /// signals.  This code does not attempt to deal with signals.
     pub fn new_with_mem_params(
-        t: &Task,
+        t: &mut Task,
         enable_mem_params: MemParamsEnabled,
     ) -> AutoRemoteSyscalls {
         AutoRemoteSyscalls {
-            t,
             initial_regs: t.regs().clone(),
             initial_ip: t.ip(),
             initial_sp: t.regs().sp(),
@@ -78,11 +80,12 @@ impl<'a> AutoRemoteSyscalls<'a> {
             scratch_mem_was_mapped: false,
             use_singlestep_path: false,
             enable_mem_params_: enable_mem_params,
+            t,
         }
     }
 
     /// You mostly want to use this convenience method.
-    pub fn new(t: &Task) -> AutoRemoteSyscalls {
+    pub fn new(t: &mut Task) -> AutoRemoteSyscalls {
         Self::new_with_mem_params(t, MemParamsEnabled::EnableMemoryParams)
     }
 
@@ -115,7 +118,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         }
 
         if found_stack.is_none() {
-            let remote = Self::new_with_mem_params(&self.t, DisableMemoryParams);
+            let remote = Self::new_with_mem_params(self.t, DisableMemoryParams);
             found_stack = Some(MemoryRange::new_range(
                 remote.infallible_mmap_syscall(
                     RemotePtr::<Void>::new(),
@@ -148,10 +151,35 @@ impl<'a> AutoRemoteSyscalls<'a> {
     ///  This is usually called automatically by the destructor;
     ///  don't call it directly unless you really know what you'd
     ///  doing.  *ESPECIALLY* don't call this on a |t| other than
-    ///  the one passed to the contructor, unless you really know
+    ///  the one passed to the constructor, unless you really know
     ///  what you're doing.
-    pub fn restore_state_to(&self, t: &Task) {
-        unimplemented!()
+    pub fn restore_state_to(&mut self, maybe_other_task: Option<&mut Task>) {
+        let some_t = maybe_other_task.unwrap_or(self.t);
+        // Unmap our scratch region if required
+        if self.scratch_mem_was_mapped {
+            let remote = AutoRemoteSyscalls::new(some_t);
+            remote.infallible_syscall2(
+                syscall_number_for_munmap(remote.arch()),
+                self.fixed_sp.unwrap().as_usize() - 4096,
+                4096,
+            );
+        }
+        if !self.replaced_bytes.is_empty() {
+            // XXX how to clean up if the task died and the address space is shared with live task?
+            some_t.write_mem(
+                self.initial_regs.ip().to_data_ptr(),
+                &self.replaced_bytes,
+                None,
+            );
+        }
+
+        // Make a copy
+        let mut regs = self.initial_regs;
+        regs.set_ip(self.initial_ip);
+        regs.set_sp(self.initial_sp);
+        // Restore stomped registers.
+        some_t.set_regs(&regs);
+        some_t.set_status(self.restore_wait_status);
     }
 
     /// Make |syscallno| with variadic |args| (limited to 6 on
@@ -191,6 +219,58 @@ impl<'a> AutoRemoteSyscalls<'a> {
         unimplemented!()
     }
     pub fn syscall6(
+        &self,
+        syscallno: i32,
+        arg1: usize,
+        arg2: usize,
+        arg3: usize,
+        arg4: usize,
+        arg5: usize,
+        arg6: usize,
+    ) -> isize {
+        unimplemented!()
+    }
+
+    pub fn infallible_syscall1(&self, syscallno: i32, arg1: usize) -> isize {
+        unimplemented!()
+    }
+    pub fn infallible_syscall2(&self, syscallno: i32, arg1: usize, arg2: usize) -> isize {
+        unimplemented!()
+    }
+
+    pub fn infallible_syscall3(
+        &self,
+        syscallno: i32,
+        arg1: usize,
+        arg2: usize,
+        arg3: usize,
+    ) -> isize {
+        unimplemented!()
+    }
+
+    pub fn infallible_syscall4(
+        &self,
+        syscallno: i32,
+        arg1: usize,
+        arg2: usize,
+        arg3: usize,
+        arg4: usize,
+    ) -> isize {
+        unimplemented!()
+    }
+
+    pub fn infallible_syscall5(
+        &self,
+        syscallno: i32,
+        arg1: usize,
+        arg2: usize,
+        arg3: usize,
+        arg4: usize,
+        arg5: usize,
+    ) -> isize {
+        unimplemented!()
+    }
+    pub fn infallible_syscall6(
         &self,
         syscallno: i32,
         arg1: usize,
@@ -261,11 +341,25 @@ impl<'a> AutoRemoteSyscalls<'a> {
 
 impl<'a> Drop for AutoRemoteSyscalls<'a> {
     fn drop(&mut self) {
-        self.restore_state_to(self.t)
+        self.restore_state_to(None)
     }
 }
 
 fn is_usable_area(km: &KernelMapping) -> bool {
     (km.prot() & (PROT_READ | PROT_WRITE)) == (PROT_READ | PROT_WRITE)
         && (km.flags() & MAP_PRIVATE == MAP_PRIVATE)
+}
+
+impl<'a> Deref for AutoRemoteSyscalls<'a> {
+    type Target = Task;
+
+    fn deref(&self) -> &Self::Target {
+        self.t
+    }
+}
+
+impl<'a> DerefMut for AutoRemoteSyscalls<'a> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.t
+    }
 }

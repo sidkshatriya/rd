@@ -382,7 +382,7 @@ pub mod task {
 
         /// Return the current $ip of this.
         pub fn ip(&self) -> RemoteCodePtr {
-            unimplemented!()
+            self.registers.ip()
         }
 
         /// Emulate a jump to a new IP, updating the ticks counter as appropriate.
@@ -532,8 +532,10 @@ pub mod task {
         }
 
         /// Set the tracee's registers to |regs|. Lazy.
-        pub fn set_regs(&self, regs: &Registers) {
-            unimplemented!()
+        pub fn set_regs(&mut self, regs: &Registers) {
+            ed_assert!(self, self.is_stopped);
+            self.registers = *regs;
+            self.registers_dirty = true;
         }
 
         /// Ensure registers are flushed back to the underlying task.
@@ -587,8 +589,8 @@ pub mod task {
             unimplemented!()
         }
 
-        pub fn set_status(&self, status: WaitStatus) {
-            unimplemented!()
+        pub fn set_status(&mut self, status: WaitStatus) {
+            self.wait_status = status;
         }
 
         /// Return true when the task is running, false if it's stopped.
@@ -695,13 +697,7 @@ pub mod task {
             unimplemented!()
         }
 
-        pub fn write_mem<T>(
-            &self,
-            child_addr: RemotePtr<T>,
-            val: &[T],
-            count: usize,
-            ok: Option<&mut bool>,
-        ) {
+        pub fn write_mem<T>(&self, child_addr: RemotePtr<T>, val: &[T], ok: Option<&mut bool>) {
             unimplemented!()
         }
 
@@ -771,7 +767,7 @@ pub mod task {
         /// first. If necessary we force the tracee to open the file
         /// itself and smuggle the fd back to us.
         /// Returns false if the process no longer exists.
-        pub fn open_mem_fd(&self) -> bool {
+        pub fn open_mem_fd(&mut self) -> bool {
             // Use ptrace to read/write during open_mem_fd
             self.as_.borrow_mut().set_mem_fd(ScopedFd::new());
 
@@ -798,7 +794,7 @@ pub mod task {
                     // skip leading '/' since we want the path to be relative to the root fd
                     remote_fd = remote
                         .syscall3(
-                            syscall_number_for_openat(self.arch()),
+                            syscall_number_for_openat(remote.arch()),
                             RD_RESERVED_ROOT_DIR_FD as usize,
                             // Skip the leading '/' in the path as this is a relative path.
                             remote_path.get().unwrap().as_usize() + 1,
@@ -816,23 +812,23 @@ pub mod task {
                     // This can happen when a process fork()s after setuid; it can no longer
                     // open its own /proc/self/mem. Hopefully we can read the child's
                     // mem file in this case (because rr is probably running as root).
-                    let buf: String = format!("/proc/{}/mem", self.tid);
+                    let buf: String = format!("/proc/{}/mem", remote.tid);
                     fd = ScopedFd::open_path(Path::new(&buf), OFlag::O_RDWR);
                 } else {
                     fd = remote.retrieve_fd(remote_fd);
                     // Leak fd if the syscall fails due to the task being SIGKILLed unexpectedly
-                    remote.syscall1(syscall_number_for_close(self.arch()), remote_fd as usize);
+                    remote.syscall1(syscall_number_for_close(remote.arch()), remote_fd as usize);
                 }
             }
             if !fd.is_open() {
                 log!(
                     LogInfo,
                     "Can't retrieve mem fd for {}; process no longer exists?",
-                    self.tid
+                    remote.tid
                 );
                 return false;
             }
-            self.as_.borrow_mut().set_mem_fd(fd.try_into().unwrap());
+            remote.as_.borrow_mut().set_mem_fd(fd.try_into().unwrap());
             true
         }
 

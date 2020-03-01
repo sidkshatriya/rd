@@ -6,11 +6,11 @@ use crate::task_interface::task::task::CloneReason;
 use crate::task_interface::task::task::Task;
 use crate::task_interface::task::{ResumeRequest, TicksRequest, WaitRequest};
 use crate::wait_status::WaitStatus;
-use bitflags::_core::ops::DerefMut;
 use libc::pid_t;
 use std::hash::{Hash, Hasher};
 use std::io::Write;
 use std::ops::Deref;
+use std::ops::DerefMut;
 
 pub mod record_task;
 pub mod task;
