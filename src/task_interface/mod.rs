@@ -49,7 +49,7 @@ impl DerefMut for TaskInterfaceRawPtr {
     }
 }
 
-/*impl Deref for dyn TaskInterface {
+impl<'a> Deref for dyn TaskInterface + 'a {
     type Target = Task;
 
     fn deref(&self) -> &Self::Target {
@@ -57,11 +57,11 @@ impl DerefMut for TaskInterfaceRawPtr {
     }
 }
 
-impl DerefMut for dyn TaskInterface {
+impl<'a> DerefMut for dyn TaskInterface + 'a {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.as_task_mut()
     }
-}*/
+}
 
 pub trait TaskInterface {
     fn as_task(&self) -> &Task;

@@ -1,6 +1,6 @@
 use crate::remote_ptr::{RemotePtr, Void};
 use crate::scoped_fd::ScopedFd;
-use crate::task_interface::TaskInterface;
+use crate::task_interface::task::task::Task;
 
 pub struct AutoRestoreMem {}
 
@@ -19,7 +19,7 @@ impl AutoRestoreMem {
 pub struct AutoRemoteSyscalls {}
 
 impl AutoRemoteSyscalls {
-    pub fn new(t: &dyn TaskInterface) -> AutoRemoteSyscalls {
+    pub fn new(t: &Task) -> AutoRemoteSyscalls {
         unimplemented!()
     }
 

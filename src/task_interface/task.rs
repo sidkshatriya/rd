@@ -1041,37 +1041,4 @@ pub mod task {
             unimplemented!()
         }
     }
-
-    impl TaskInterface for Task {
-        fn as_task(&self) -> &Task {
-            self
-        }
-
-        fn as_task_mut(&mut self) -> &mut Task {
-            self
-        }
-
-        fn on_syscall_exit(&self, syscallno: i32, arch: SupportedArch, regs: &Registers) {
-            unimplemented!()
-        }
-
-        fn at_preload_init(&self) {
-            unimplemented!()
-        }
-
-        fn clone_task(
-            &self,
-            reason: CloneReason,
-            flags: i32,
-            stack: RemotePtr<Void>,
-            tls: RemotePtr<Void>,
-            cleartid_addr: RemotePtr<i32>,
-            new_tid: i32,
-            new_rec_tid: i32,
-            new_serial: u32,
-            other_session: Option<&dyn SessionInterface>,
-        ) -> &Task {
-            unimplemented!()
-        }
-    }
 }
