@@ -11,11 +11,13 @@ use crate::taskish_uid::{AddressSpaceUid, TaskUid, ThreadGroupUid};
 use crate::thread_group::{ThreadGroup, ThreadGroupSharedPtr};
 use crate::trace_stream::TraceStream;
 use libc::pid_t;
+use std::ops::{Deref, DerefMut};
 
 pub mod session;
 
 pub trait SessionInterface {
     fn as_session(&self) -> &Session;
+    fn as_session_mut(&self) -> &mut Session;
 
     fn on_destroy(&self, t: &dyn TaskInterface);
     fn as_record(&self) -> Option<&RecordSession> {
@@ -129,5 +131,19 @@ pub trait SessionInterface {
     /// everything must be the same.
     fn post_exec(&mut self) {
         unimplemented!()
+    }
+}
+
+impl<'a> Deref for dyn SessionInterface + 'a {
+    type Target = Session;
+
+    fn deref(&self) -> &Self::Target {
+        self.as_session()
+    }
+}
+
+impl<'a> DerefMut for dyn SessionInterface + 'a {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.as_session_mut()
     }
 }

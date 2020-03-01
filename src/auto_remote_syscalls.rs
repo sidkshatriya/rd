@@ -1,10 +1,14 @@
+use crate::address_space::kernel_mapping::KernelMapping;
+use crate::address_space::memory_range::MemoryRange;
+use crate::auto_remote_syscalls::MemParamsEnabled::DisableMemoryParams;
+use crate::kernel_abi::SupportedArch;
 use crate::registers::Registers;
 use crate::remote_code_ptr::RemoteCodePtr;
 use crate::remote_ptr::{RemotePtr, Void};
 use crate::scoped_fd::ScopedFd;
 use crate::task_interface::task::task::Task;
 use crate::wait_status::WaitStatus;
-use libc::pid_t;
+use libc::{pid_t, MAP_ANONYMOUS, MAP_PRIVATE, PROT_READ, PROT_WRITE};
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub enum MemParamsEnabled {
@@ -34,7 +38,7 @@ impl AutoRestoreMem {
 ///
 /// Note: We do NOT want Copy or Clone.
 pub struct AutoRemoteSyscalls<'a> {
-    task: &'a Task,
+    t: &'a Task,
     initial_regs: Registers,
     initial_ip: RemoteCodePtr,
     initial_sp: RemotePtr<Void>,
@@ -63,7 +67,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         enable_mem_params: MemParamsEnabled,
     ) -> AutoRemoteSyscalls {
         AutoRemoteSyscalls {
-            task: t,
+            t,
             initial_regs: t.regs().clone(),
             initial_ip: t.ip(),
             initial_sp: t.regs().sp(),
@@ -84,8 +88,50 @@ impl<'a> AutoRemoteSyscalls<'a> {
 
     ///  If t's stack pointer doesn't look valid, temporarily adjust it to
     ///  the top of *some* stack area.
-    pub fn maybe_fix_stack_pointer() {
-        unimplemented!()
+    pub fn maybe_fix_stack_pointer(&mut self) {
+        if !self.t.session_interface().done_initial_exec() {
+            return;
+        }
+
+        let last_stack_byte: RemotePtr<Void> = self.t.regs().sp() - 1usize;
+        match self.t.vm().borrow().mapping_of(last_stack_byte) {
+            Some(m) => {
+                if is_usable_area(&m.map) && m.map.start() + 2048usize <= self.t.regs().sp() {
+                    // 'sp' is in a stack region and there's plenty of space there. No need
+                    // to fix anything.
+                    return;
+                }
+            }
+            None => (),
+        }
+
+        let mut found_stack: Option<MemoryRange> = None;
+        for (_, m) in self.t.vm().borrow().maps() {
+            if is_usable_area(&m.map) {
+                // m.map Deref-s into a MemoryRange
+                found_stack = Some(*m.map);
+                break;
+            }
+        }
+
+        if found_stack.is_none() {
+            let remote = Self::new_with_mem_params(&self.t, DisableMemoryParams);
+            found_stack = Some(MemoryRange::new_range(
+                remote.infallible_mmap_syscall(
+                    RemotePtr::<Void>::new(),
+                    4096,
+                    PROT_READ | PROT_WRITE,
+                    MAP_PRIVATE | MAP_ANONYMOUS,
+                    -1,
+                    0,
+                ),
+                4096,
+            ));
+            self.scratch_mem_was_mapped = true;
+        }
+
+        self.fixed_sp = Some(found_stack.unwrap().end());
+        self.initial_regs.set_sp(self.fixed_sp.unwrap());
     }
 
     ///  "Initial" registers saved from the target task.
@@ -157,16 +203,69 @@ impl<'a> AutoRemoteSyscalls<'a> {
         unimplemented!()
     }
 
+    /// @TODO infallible_syscall_ptr & infallible_syscall.
+
+    /// Remote mmap syscalls are common and non-trivial due to the need to
+    /// select either mmap2 or mmap.
+    pub fn infallible_mmap_syscall(
+        &self,
+        addr: RemotePtr<Void>,
+        length: usize,
+        prot: i32,
+        flags: i32,
+        child_fd: i32,
+        offset_pages: u64,
+    ) -> RemotePtr<Void> {
+        unimplemented!()
+    }
+
+    /// @TODO Note: offset is signed.
+    pub fn infallible_lseek_syscall(&self, fd: i32, offset: i64, whence: i32) -> i64 {
+        unimplemented!()
+    }
+
+    /// The Task in the context of which we're making syscalls.
+    pub fn task(&self) -> &Task {
+        self.t
+    }
+
+    /// A small helper to get at the Task's arch.
+    pub fn arch(&self) -> SupportedArch {
+        self.t.arch()
+    }
+
     /// Arranges for 'fd' to be transmitted to this process and returns
     /// our opened version of it.
     /// Returns a closed fd if the process dies or has died.
     pub fn retrieve_fd(&self, fd: i32) -> ScopedFd {
         unimplemented!()
     }
+
+    /// Remotely invoke in |t| the specified syscall with the given
+    /// arguments.  The arguments must of course be valid in |t|,
+    /// and no checking of that is done by this function.
+    ///
+    /// The syscall is finished in |t| and the result is returned.
+    /// @TODO    long syscall_base(int syscallno, Registers& callregs);
+
+    pub fn enable_mem_params(&self) -> MemParamsEnabled {
+        self.enable_mem_params_
+    }
+
+    /// When the syscall is 'clone', this will be recovered from the
+    /// PTRACE_EVENT_FORK/VFORK/CLONE.
+    pub fn new_tid(&self) -> Option<pid_t> {
+        self.new_tid_
+    }
 }
 
 impl<'a> Drop for AutoRemoteSyscalls<'a> {
     fn drop(&mut self) {
-        self.restore_state_to(self.task)
+        self.restore_state_to(self.t)
     }
+}
+
+fn is_usable_area(km: &KernelMapping) -> bool {
+    (km.prot() & (PROT_READ | PROT_WRITE)) == (PROT_READ | PROT_WRITE)
+        && (km.flags() & MAP_PRIVATE == MAP_PRIVATE)
 }

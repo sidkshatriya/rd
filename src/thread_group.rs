@@ -1,4 +1,5 @@
 use crate::session_interface::session::session::Session;
+use crate::session_interface::SessionInterface;
 use crate::task_set::TaskSet;
 use crate::taskish_uid::ThreadGroupUid;
 use crate::wait_status::WaitStatus;
@@ -39,7 +40,7 @@ pub struct ThreadGroup {
 
     /// private fields
     /// In rr, nullptr is used to indicate no session.
-    session_: Option<*mut Session>,
+    session_interface: Option<*mut dyn SessionInterface>,
     /// Parent ThreadGroup, or None if it's not a tracee (rd or init).
     /// Different from rr where nullptr is used.
     parent_: Option<*mut ThreadGroup>,
@@ -151,11 +152,15 @@ impl ThreadGroup {
         unimplemented!()
     }
 
-    pub fn session(&self) -> &Session {
-        unimplemented!()
+    pub fn session_interface(&self) -> &dyn SessionInterface {
+        unsafe { self.session_interface.unwrap().as_ref() }.unwrap()
+    }
+    /// @TODO Should we have &mut self here?
+    pub fn session_interface_mut(&self) -> &mut dyn SessionInterface {
+        unsafe { self.session_interface.unwrap().as_mut() }.unwrap()
     }
     pub fn forget_session(&mut self) {
-        self.session_ = None;
+        self.session_interface = None;
     }
 
     pub fn parent(&self) -> Option<&ThreadGroup> {

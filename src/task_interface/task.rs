@@ -88,7 +88,6 @@ pub mod task {
     use crate::remote_ptr::{RemotePtr, Void};
     use crate::scoped_fd::ScopedFd;
     use crate::session_interface::SessionInterface;
-    use crate::task_interface::TaskInterface;
     use crate::taskish_uid::TaskUid;
     use crate::thread_group::{ThreadGroup, ThreadGroupSharedPtr};
     use crate::ticks::Ticks;
@@ -223,7 +222,8 @@ pub mod task {
         extra_registers: ExtraRegisters,
         extra_registers_known: bool,
         /// The session we're part of.
-        session_: *mut dyn SessionInterface,
+        /// `session_` in rr.
+        session_interface: *mut dyn SessionInterface,
         /// The thread group this belongs to.
         tg: ThreadGroupSharedPtr,
         /// Entries set by |set_thread_area()| or the |tls| argument to |clone()|
@@ -522,12 +522,13 @@ pub mod task {
 
         /// Return the session this is part of.
         pub fn session_interface(&self) -> &dyn SessionInterface {
-            unsafe { self.session_.as_ref() }.unwrap()
+            unsafe { self.session_interface.as_ref() }.unwrap()
         }
 
         /// Return the session this is part of.
+        /// @TODO Should we have &mut self here?
         pub fn session_interface_mut(&self) -> &mut dyn SessionInterface {
-            unsafe { self.session_.as_mut() }.unwrap()
+            unsafe { self.session_interface.as_mut() }.unwrap()
         }
 
         /// Set the tracee's registers to |regs|. Lazy.

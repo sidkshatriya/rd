@@ -519,9 +519,6 @@ pub mod record_task {
             unimplemented!()
         }
 
-        pub fn session(&self) -> &RecordSession {
-            unimplemented!()
-        }
         pub fn trace_writer(&self) -> &TraceWriter {
             unimplemented!()
         }

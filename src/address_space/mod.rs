@@ -107,6 +107,7 @@ pub mod address_space {
     use crate::remote_ptr::RemotePtr;
     use crate::scoped_fd::ScopedFd;
     use crate::session_interface::session::session::Session;
+    use crate::session_interface::SessionInterface;
     use crate::task_interface::record_task::record_task::RecordTask;
     use crate::task_interface::TaskInterface;
     use crate::task_set::TaskSet;
@@ -435,7 +436,8 @@ pub mod address_space {
         dont_fork: HashSet<MemoryRange>,
         /// The session that created this.  We save a ref to it so that
         /// we can notify it when we die.
-        session_: *mut Session,
+        /// `session_` in rr.
+        session_interface: *mut dyn SessionInterface,
         /// tid of the task whose thread-locals are in preload_thread_locals
         thread_locals_tuid_: TaskUid,
         /// First mapped byte of the vdso.
@@ -540,12 +542,13 @@ pub mod address_space {
             unimplemented!()
         }
 
-        pub fn session_ref(&self) -> &Session {
-            unsafe { self.session_.as_ref() }.unwrap()
+        pub fn session_interface(&self) -> &dyn SessionInterface {
+            unsafe { self.session_interface.as_ref() }.unwrap()
         }
 
-        pub fn session_mut(&self) -> &mut Session {
-            unsafe { self.session_.as_mut() }.unwrap()
+        /// @TODO Should we have &mut self here?
+        pub fn session_interface_mut(&self) -> &mut dyn SessionInterface {
+            unsafe { self.session_interface.as_mut() }.unwrap()
         }
 
         pub fn arch(&self) -> SupportedArch {
