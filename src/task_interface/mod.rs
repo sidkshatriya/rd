@@ -88,7 +88,7 @@ pub trait TaskInterface: DerefMut<Target = Task> {
     /// Return the pid of the task in its own pid namespace.
     /// Only RecordTasks actually change pid namespaces.
     fn own_namespace_tid(&self) -> pid_t {
-        self.as_task().tid
+        self.tid
     }
 
     /// Called when SYS_rrcall_init_preload has happened.

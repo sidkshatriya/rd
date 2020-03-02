@@ -1146,7 +1146,7 @@ pub mod address_space {
             if regs.len() <= 0x7f {
                 let mut ok = true;
                 for t in self.task_set() {
-                    if !t.as_task().set_debug_regs(&mut regs) {
+                    if !t.set_debug_regs(&mut regs) {
                         ok = false;
                     }
                 }
@@ -1157,7 +1157,7 @@ pub mod address_space {
 
             regs.clear();
             for t2 in self.task_set() {
-                t2.as_task().set_debug_regs(&mut regs);
+                t2.set_debug_regs(&mut regs);
             }
             for (_, v) in &mut self.watchpoints {
                 v.debug_regs_for_exec_read.clear();

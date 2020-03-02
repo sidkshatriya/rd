@@ -664,11 +664,11 @@ fn ignore_signal(t: &dyn TaskInterface) -> bool {
         return false;
     }
 
-    if t.as_task().session_interface().is_replaying() {
+    if t.session_interface().is_replaying() {
         if ReplaySession::is_ignored_signal(sig.unwrap()) {
             return true;
         }
-    } else if t.as_task().session_interface().is_recording() {
+    } else if t.session_interface().is_recording() {
         let rt = t.as_record_task().unwrap();
         if sig.unwrap()
             != rt
