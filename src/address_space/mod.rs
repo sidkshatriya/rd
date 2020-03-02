@@ -913,14 +913,14 @@ pub mod address_space {
             unimplemented!()
         }
 
-        pub fn rr_page_syscall_exit_point(
+        pub fn rd_page_syscall_exit_point(
             traced: Traced,
             privileged: Privileged,
             enabled: Enabled,
         ) -> RemoteCodePtr {
             unimplemented!()
         }
-        pub fn rr_page_syscall_entry_point(
+        pub fn rd_page_syscall_entry_point(
             traced: Traced,
             privileged: Privileged,
             enabled: Enabled,

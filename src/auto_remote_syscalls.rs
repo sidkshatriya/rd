@@ -1,13 +1,15 @@
+use crate::address_space::address_space::AddressSpace;
 use crate::address_space::kernel_mapping::KernelMapping;
 use crate::address_space::memory_range::MemoryRange;
+use crate::address_space::{Enabled, Privileged, Traced};
 use crate::auto_remote_syscalls::MemParamsEnabled::{DisableMemoryParams, EnableMemoryParams};
-use crate::kernel_abi::SupportedArch;
 use crate::kernel_abi::{
     has_mmap2_syscall, is_clone_syscall, is_open_syscall, is_openat_syscall,
     is_rt_sigaction_syscall, is_sigaction_syscall, is_signal_syscall, syscall_number_for__llseek,
     syscall_number_for_lseek, syscall_number_for_mmap, syscall_number_for_mmap2,
     syscall_number_for_munmap,
 };
+use crate::kernel_abi::{syscall_instruction, SupportedArch};
 use crate::kernel_metadata::{errno_name, syscall_name};
 use crate::log::LogLevel::LogDebug;
 use crate::registers::Registers;
@@ -544,8 +546,56 @@ impl<'a> AutoRemoteSyscalls<'a> {
     }
 
     /// Private methods start
-    fn setup_path(&self, enable_singlestep_path: bool) {
-        unimplemented!()
+    fn setup_path(&mut self, enable_singlestep_path: bool) {
+        if !self.replaced_bytes.is_empty() {
+            // XXX what to do here to clean up if the task died unexpectedly?
+            self.t.write_mem(
+                self.initial_regs.ip().to_data_ptr::<u8>(),
+                &self.replaced_bytes,
+                None,
+            );
+        }
+
+        let syscall_ip: RemoteCodePtr;
+        self.use_singlestep_path = enable_singlestep_path;
+        if self.use_singlestep_path {
+            syscall_ip = AddressSpace::rd_page_syscall_entry_point(
+                Traced::Untraced,
+                Privileged::Privileged,
+                Enabled::RecordingAndReplay,
+                self.t.arch(),
+            );
+        } else {
+            syscall_ip = self.t.vm().borrow().traced_syscall_ip();
+        }
+        self.initial_regs.set_ip(syscall_ip);
+
+        // We need to make sure to clear any breakpoints or other alterations of
+        // the syscall instruction we're using. Note that the tracee may have set its
+        // own breakpoints or otherwise modified the instruction, so suspending our
+        // own breakpoint is insufficient.
+        let syscall = syscall_instruction(self.t.arch());
+        let mut ok = true;
+        self.replaced_bytes = self.t.read_mem(
+            self.initial_regs.ip().to_data_ptr::<u8>(),
+            syscall.len(),
+            Some(&mut ok),
+        );
+
+        if !ok {
+            // The task died
+            return;
+        }
+
+        if self.replaced_bytes == syscall {
+            self.replaced_bytes.clear();
+        } else {
+            self.t.write_mem(
+                self.initial_regs.ip().to_data_ptr::<u8>(),
+                syscall,
+                Some(&mut ok),
+            );
+        }
     }
 
     fn check_syscall_result(&self, ret: isize, syscallno: i32) {
