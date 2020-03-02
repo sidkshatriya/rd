@@ -10,12 +10,13 @@ use crate::kernel_abi::{
     syscall_number_for_munmap,
 };
 use crate::kernel_abi::{syscall_instruction, SupportedArch};
-use crate::kernel_metadata::{errno_name, syscall_name};
+use crate::kernel_metadata::{errno_name, signal_name, syscall_name};
 use crate::log::LogLevel::LogDebug;
 use crate::registers::Registers;
 use crate::remote_code_ptr::RemoteCodePtr;
 use crate::remote_ptr::{RemotePtr, Void};
 use crate::scoped_fd::ScopedFd;
+use crate::session_interface::replay_session::ReplaySession;
 use crate::task_interface::task::task::Task;
 use crate::task_interface::task::ResumeRequest::{ResumeSinglestep, ResumeSyscall};
 use crate::task_interface::task::TicksRequest::ResumeNoTicks;
@@ -657,6 +658,29 @@ impl<'a> DerefMut for AutoRemoteSyscalls<'a> {
     }
 }
 
-fn ignore_signal(t: &Task) -> bool {
-    unimplemented!()
+fn ignore_signal(t: &dyn TaskInterface) -> bool {
+    let sig = t.stop_sig();
+    if sig.is_none() {
+        return false;
+    }
+
+    if t.as_task().session_interface().is_replaying() {
+        if ReplaySession::is_ignored_signal(sig.unwrap()) {
+            return true;
+        }
+    } else if t.as_task().session_interface().is_recording() {
+        let rt = t.as_record_task().unwrap();
+        if sig.unwrap()
+            != rt
+                .session_interface()
+                .as_record()
+                .unwrap()
+                .syscallbuf_desched_sig()
+        {
+            rt.stash_sig();
+        }
+        return true;
+    }
+    ed_assert!(t, false, "Unexpected signal {}", signal_name(sig.unwrap()));
+    return false;
 }

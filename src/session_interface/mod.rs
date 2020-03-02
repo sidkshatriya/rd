@@ -2,9 +2,9 @@ use crate::address_space::address_space::AddressSpace;
 use crate::diversion_session::DiversionSession;
 use crate::emu_fs::EmuFs;
 use crate::kernel_abi::SupportedArch;
-use crate::record_session::RecordSession;
 use crate::remote_ptr::{RemotePtr, Void};
-use crate::replay_session::ReplaySession;
+use crate::session_interface::record_session::RecordSession;
+use crate::session_interface::replay_session::ReplaySession;
 use crate::session_interface::session::session::{Session, TaskMap};
 use crate::task_interface::TaskInterface;
 use crate::taskish_uid::{AddressSpaceUid, TaskUid, ThreadGroupUid};
@@ -13,6 +13,8 @@ use crate::trace_stream::TraceStream;
 use libc::pid_t;
 use std::ops::{Deref, DerefMut};
 
+pub mod record_session;
+pub mod replay_session;
 pub mod session;
 
 pub trait SessionInterface {

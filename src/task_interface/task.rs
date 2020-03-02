@@ -528,12 +528,14 @@ pub mod task {
         }
 
         /// Return the session this is part of.
+        /// @TODO Can we avoid the raw pointer?
         pub fn session_interface(&self) -> &dyn SessionInterface {
             unsafe { self.session_interface.as_ref() }.unwrap()
         }
 
         /// Return the session this is part of.
         /// @TODO Should we have &mut self here?
+        /// @TODO Can we avoid the raw pointer?
         pub fn session_interface_mut(&self) -> &mut dyn SessionInterface {
             unsafe { self.session_interface.as_mut() }.unwrap()
         }

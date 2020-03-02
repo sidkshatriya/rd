@@ -2,6 +2,8 @@ use crate::kernel_abi::SupportedArch;
 use crate::registers::Registers;
 use crate::remote_ptr::{RemotePtr, Void};
 use crate::session_interface::SessionInterface;
+use crate::task_interface::record_task::record_task::RecordTask;
+use crate::task_interface::replay_task::ReplayTask;
 use crate::task_interface::task::task::CloneReason;
 use crate::task_interface::task::task::Task;
 use crate::task_interface::task::{ResumeRequest, TicksRequest, WaitRequest};
@@ -13,7 +15,9 @@ use std::ops::Deref;
 use std::ops::DerefMut;
 
 pub mod record_task;
+pub mod replay_task;
 pub mod task;
+
 /// @TODO should we store *const dyn TaskInterface?
 #[derive(Copy, Clone)]
 pub struct TaskInterfaceRawPtr(pub *mut dyn TaskInterface);
@@ -52,6 +56,12 @@ impl DerefMut for TaskInterfaceRawPtr {
 pub trait TaskInterface: DerefMut<Target = Task> {
     fn as_task(&self) -> &Task;
     fn as_task_mut(&mut self) -> &mut Task;
+
+    fn as_record_task(&self) -> Option<&RecordTask>;
+    fn as_record_task_mut(&mut self) -> Option<&mut RecordTask>;
+
+    fn as_replay_task(&self) -> Option<&ReplayTask>;
+    fn as_replay_task_mut(&mut self) -> Option<&mut ReplayTask>;
 
     /// Dump all pending events to the RecordTask INFO log.
     fn log_pending_events(&self) {}

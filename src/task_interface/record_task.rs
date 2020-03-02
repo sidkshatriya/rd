@@ -259,12 +259,13 @@ pub mod record_task {
     use crate::kernel_abi::SupportedArch;
     use crate::kernel_supplement::sig_set_t;
     use crate::kernel_supplement::{CLD_STOPPED, CLD_TRAPPED};
-    use crate::record_session::RecordSession;
     use crate::registers::Registers;
     use crate::remote_code_ptr::RemoteCodePtr;
     use crate::remote_ptr::{RemotePtr, Void};
     use crate::scoped_fd::ScopedFd;
+    use crate::session_interface::record_session::RecordSession;
     use crate::session_interface::SessionInterface;
+    use crate::task_interface::replay_task::ReplayTask;
     use crate::task_interface::task::task::{open_mem_fd, CloneReason, Task};
     use crate::task_interface::TaskInterface;
     use crate::ticks::Ticks;
@@ -458,6 +459,22 @@ pub mod record_task {
 
         fn as_task_mut(&mut self) -> &mut Task {
             &mut self.task
+        }
+
+        fn as_record_task(&self) -> Option<&RecordTask> {
+            Some(self)
+        }
+
+        fn as_record_task_mut(&mut self) -> Option<&mut RecordTask> {
+            Some(self)
+        }
+
+        fn as_replay_task(&self) -> Option<&ReplayTask> {
+            None
+        }
+
+        fn as_replay_task_mut(&mut self) -> Option<&mut ReplayTask> {
+            None
         }
 
         fn on_syscall_exit(&self, syscallno: i32, arch: SupportedArch, regs: &Registers) {
