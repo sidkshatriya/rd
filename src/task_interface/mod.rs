@@ -49,21 +49,7 @@ impl DerefMut for TaskInterfaceRawPtr {
     }
 }
 
-impl<'a> Deref for dyn TaskInterface + 'a {
-    type Target = Task;
-
-    fn deref(&self) -> &Self::Target {
-        self.as_task()
-    }
-}
-
-impl<'a> DerefMut for dyn TaskInterface + 'a {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.as_task_mut()
-    }
-}
-
-pub trait TaskInterface {
+pub trait TaskInterface: DerefMut<Target = Task> {
     fn as_task(&self) -> &Task;
     fn as_task_mut(&mut self) -> &mut Task;
 
@@ -207,4 +193,7 @@ pub trait TaskInterface {
     fn wait_unexpected_exit(&self) -> bool {
         unimplemented!()
     }
+
+    /// Forwarded method
+    fn open_mem_fd(&mut self) -> bool;
 }

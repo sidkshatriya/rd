@@ -1,3 +1,4 @@
+use crate::bindings::signal::{SI_KERNEL, TRAP_BRKPT};
 use crate::scoped_fd::ScopedFd;
 use nix::unistd::ftruncate;
 use nix::unistd::sysconf;
@@ -276,4 +277,11 @@ pub enum TrappedInstruction {
     Int3 = 4,
     Pushf = 5,
     Pushf16 = 6,
+}
+
+pub fn is_kernel_trap(si_code: i32) -> bool {
+    // XXX unable to find docs on which of these "should" be
+    // right.  The SI_KERNEL code is seen in the int3 test, so we
+    // at least need to handle that.
+    si_code == TRAP_BRKPT as i32 || si_code == SI_KERNEL
 }

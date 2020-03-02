@@ -265,7 +265,7 @@ pub mod record_task {
     use crate::remote_ptr::{RemotePtr, Void};
     use crate::scoped_fd::ScopedFd;
     use crate::session_interface::SessionInterface;
-    use crate::task_interface::task::task::{CloneReason, Task};
+    use crate::task_interface::task::task::{open_mem_fd, CloneReason, Task};
     use crate::task_interface::TaskInterface;
     use crate::ticks::Ticks;
     use crate::trace_frame::FrameTime;
@@ -481,6 +481,11 @@ pub mod record_task {
             other_session: Option<&dyn SessionInterface>,
         ) -> &Task {
             unimplemented!()
+        }
+
+        /// Forwarded method
+        fn open_mem_fd(&mut self) -> bool {
+            open_mem_fd(self)
         }
     }
 

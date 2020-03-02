@@ -764,7 +764,7 @@ impl Registers {
         }
     }
 
-    pub fn set_arg(&mut self, index: i32, value: usize) {
+    pub fn set_arg(&mut self, index: usize, value: usize) {
         match index {
             1 => self.set_arg1(value),
             2 => self.set_arg2(value),
