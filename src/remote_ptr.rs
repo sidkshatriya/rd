@@ -129,6 +129,12 @@ impl<T> PartialEq for RemotePtr<T> {
 
 impl<T> Eq for RemotePtr<T> {}
 
+impl<T> From<usize> for RemotePtr<T> {
+    fn from(addr: usize) -> Self {
+        RemotePtr::<T>::new_from_val(addr)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

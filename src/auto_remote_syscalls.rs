@@ -3,11 +3,11 @@ use crate::address_space::memory_range::MemoryRange;
 use crate::auto_remote_syscalls::MemParamsEnabled::DisableMemoryParams;
 use crate::kernel_abi::SupportedArch;
 use crate::kernel_abi::{
-    has_mmap2_syscall, is_clone_syscall, is_rt_sigaction_syscall, is_sigaction_syscall,
-    is_signal_syscall, syscall_number_for_mmap, syscall_number_for_mmap2,
-    syscall_number_for_munmap,
+    has_mmap2_syscall, is_clone_syscall, is_open_syscall, is_openat_syscall,
+    is_rt_sigaction_syscall, is_sigaction_syscall, is_signal_syscall, syscall_number_for_mmap,
+    syscall_number_for_mmap2, syscall_number_for_munmap,
 };
-use crate::kernel_metadata::syscall_name;
+use crate::kernel_metadata::{errno_name, syscall_name};
 use crate::log::LogLevel::LogDebug;
 use crate::registers::Registers;
 use crate::remote_code_ptr::RemoteCodePtr;
@@ -152,6 +152,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
     }
 
     ///  "Initial" registers saved from the target task.
+    /// Called regs() in rr
     pub fn initial_regs_ref(&self) -> &Registers {
         &self.initial_regs
     }
@@ -171,10 +172,10 @@ impl<'a> AutoRemoteSyscalls<'a> {
         let some_t = maybe_other_task.unwrap_or(self.t);
         // Unmap our scratch region if required
         if self.scratch_mem_was_mapped {
-            let remote = AutoRemoteSyscalls::new(some_t);
+            let mut remote = AutoRemoteSyscalls::new(some_t);
             remote.infallible_syscall(
                 syscall_number_for_munmap(remote.arch()),
-                vec![self.fixed_sp.unwrap().as_usize() - 4096, 4096],
+                &vec![self.fixed_sp.unwrap().as_usize() - 4096, 4096],
             );
         }
         if !self.replaced_bytes.is_empty() {
@@ -198,7 +199,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
     /// Make |syscallno| with variadic |args| (limited to 6 on
     /// x86).  Return the raw kernel return value.
     /// Returns -ESRCH if the process dies or has died.
-    pub fn syscall(&mut self, syscallno: i32, args: Vec<usize>) -> isize {
+    pub fn syscall(&mut self, syscallno: i32, args: &[usize]) -> isize {
         // Make a copy
         let mut callregs = self.initial_regs;
         debug_assert!(args.len() <= 6);
@@ -208,12 +209,14 @@ impl<'a> AutoRemoteSyscalls<'a> {
         self.syscall_base(syscallno, &mut callregs)
     }
 
-    pub fn infallible_syscall(&self, syscallno: i32, args: Vec<usize>) -> isize {
-        unimplemented!()
+    pub fn infallible_syscall(&mut self, syscallno: i32, args: &[usize]) -> isize {
+        let ret = self.syscall(syscallno, args);
+        self.check_syscall_result(ret, syscallno);
+        ret
     }
 
-    pub fn infallible_syscall_ptr(&self, syscallno: i32, args: Vec<usize>) -> RemotePtr<Void> {
-        unimplemented!()
+    pub fn infallible_syscall_ptr(&self, syscallno: i32, args: &[usize]) -> RemotePtr<Void> {
+        self.infallible_syscall_ptr(syscallno, args).into()
     }
 
     /// Remote mmap syscalls are common and non-trivial due to the need to
@@ -233,7 +236,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         let ret: RemotePtr<Void> = if has_mmap2_syscall(self.arch()) {
             self.infallible_syscall_ptr(
                 syscall_number_for_mmap2(self.arch()),
-                vec![
+                &vec![
                     addr.as_usize(),
                     length,
                     prot as _,
@@ -245,7 +248,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         } else {
             self.infallible_syscall_ptr(
                 syscall_number_for_mmap(self.arch()),
-                vec![
+                &vec![
                     addr.as_usize(),
                     length,
                     prot as _,
@@ -385,10 +388,10 @@ impl<'a> AutoRemoteSyscalls<'a> {
 
         if self.t.is_dying() {
             log!(LogDebug, "Task is dying, no status result");
-            return -ESRCH as isize;
+            -ESRCH as isize
         } else {
             log!(LogDebug, "done, result={}", self.t.regs().syscall_result());
-            return self.t.regs().syscall_result_signed();
+            self.t.regs().syscall_result_signed()
         }
     }
 
@@ -408,7 +411,32 @@ impl<'a> AutoRemoteSyscalls<'a> {
     }
 
     fn check_syscall_result(&self, ret: isize, syscallno: i32) {
-        unimplemented!()
+        if -4096 < ret && ret < 0 {
+            let mut extra_msg: String = String::new();
+            if is_open_syscall(syscallno, self.arch()) {
+                extra_msg = format!(
+                    "{} opening ",
+                    self.t
+                        .read_c_str(self.t.regs().arg1().into())
+                        .to_string_lossy()
+                );
+            } else if is_openat_syscall(syscallno, self.arch()) {
+                extra_msg = format!(
+                    "{} opening ",
+                    self.t
+                        .read_c_str(self.t.regs().arg2().into())
+                        .to_string_lossy()
+                );
+            }
+            ed_assert!(
+                self.t,
+                false,
+                "Syscall {} failed with errno {} {}",
+                syscall_name(syscallno, self.arch()),
+                errno_name(-ret as i32),
+                extra_msg
+            );
+        }
     }
 
     fn retrieve_fd_arch(&self, fd: i32) -> ScopedFd {
