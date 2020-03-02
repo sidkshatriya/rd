@@ -135,6 +135,12 @@ impl<T> From<usize> for RemotePtr<T> {
     }
 }
 
+impl<T> Into<usize> for RemotePtr<T> {
+    fn into(self) -> usize {
+        self.as_usize()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

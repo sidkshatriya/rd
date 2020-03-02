@@ -1,11 +1,12 @@
 use crate::address_space::kernel_mapping::KernelMapping;
 use crate::address_space::memory_range::MemoryRange;
-use crate::auto_remote_syscalls::MemParamsEnabled::DisableMemoryParams;
+use crate::auto_remote_syscalls::MemParamsEnabled::{DisableMemoryParams, EnableMemoryParams};
 use crate::kernel_abi::SupportedArch;
 use crate::kernel_abi::{
     has_mmap2_syscall, is_clone_syscall, is_open_syscall, is_openat_syscall,
-    is_rt_sigaction_syscall, is_sigaction_syscall, is_signal_syscall, syscall_number_for_mmap,
-    syscall_number_for_mmap2, syscall_number_for_munmap,
+    is_rt_sigaction_syscall, is_sigaction_syscall, is_signal_syscall, syscall_number_for__llseek,
+    syscall_number_for_lseek, syscall_number_for_mmap, syscall_number_for_mmap2,
+    syscall_number_for_munmap,
 };
 use crate::kernel_metadata::{errno_name, syscall_name};
 use crate::log::LogLevel::LogDebug;
@@ -25,6 +26,7 @@ use libc::{
     SIGTRAP,
 };
 use std::convert::TryInto;
+use std::mem::size_of;
 use std::ops::{Deref, DerefMut};
 
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -33,18 +35,123 @@ pub enum MemParamsEnabled {
     DisableMemoryParams,
 }
 
-pub struct AutoRestoreMem {}
+/// Do NOT want Copy or Clone for this struct
+pub struct AutoRestoreMem<'a, 'b> {
+    remote: &'a mut AutoRemoteSyscalls<'b>,
+    /// Address of tmp mem.
+    addr: Option<RemotePtr<Void>>,
+    /// Saved data
+    data: Vec<u8>,
+    /// (We keep this around for error checking.)
+    saved_sp: RemotePtr<Void>,
+    /// Length of tmp mem
+    len: usize,
+}
 
-impl AutoRestoreMem {
+impl<'a, 'b> Deref for AutoRestoreMem<'a, 'b> {
+    type Target = AutoRemoteSyscalls<'b>;
+
+    fn deref(&self) -> &Self::Target {
+        self.remote
+    }
+}
+
+impl<'a, 'b> DerefMut for AutoRestoreMem<'a, 'b> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.remote
+    }
+}
+
+impl<'a, 'b> Drop for AutoRestoreMem<'a, 'b> {
+    fn drop(&mut self) {
+        let new_sp = self.regs_ref().sp() + self.len;
+        ed_assert!(self.remote.task_ref(), self.saved_sp == new_sp);
+
+        if self.addr.is_some() {
+            // XXX what should we do if this task was sigkilled but the address
+            // space is used by other live tasks?
+            self.remote
+                .task_mut()
+                .write_bytes_helper(self.addr.unwrap(), &self.data, None, None);
+        }
+        self.remote.regs_mut().set_sp(new_sp);
+        // Make a copy
+        let new_regs = *self.remote.regs_ref();
+        self.remote.task_mut().set_regs(&new_regs);
+    }
+}
+
+impl<'a, 'b> AutoRestoreMem<'a, 'b> {
+    /// Write |mem| into address space of the Task prepared for
+    /// remote syscalls in |remote|, in such a way that the write
+    /// will be undone.  The address of the reserved mem space is
+    /// available via |get|.
+    /// If |mem| is None, data is not written, only the space is reserved.
+    /// You must provide |len| whether or not you are passing in mem. The |len|
+    /// needs to be consistent if mem is provided. i.e. mem.unwrap().len() == len
+    pub fn new(
+        remote: &'a mut AutoRemoteSyscalls<'b>,
+        mem: Option<&[u8]>,
+        len: usize,
+    ) -> AutoRestoreMem<'a, 'b> {
+        let mut v = Vec::with_capacity(len);
+        v.resize(len, 0);
+        let mut result = AutoRestoreMem {
+            remote,
+            addr: None,
+            data: v,
+            saved_sp: 0.into(),
+            len,
+        };
+        mem.map(|s| debug_assert_eq!(len, s.len()));
+        result.init(mem);
+        result
+    }
+
     /// Convenience constructor for pushing a C string |str|, including
     /// the trailing '\0' byte.
-    pub fn push_cstr(remote: &AutoRemoteSyscalls, s: &str) -> AutoRestoreMem {
+    pub fn push_cstr(remote: &'a mut AutoRemoteSyscalls<'b>, s: &str) -> AutoRestoreMem<'a, 'b> {
         unimplemented!()
     }
     /// Get a pointer to the reserved memory.
     /// Returns None if we failed.
     pub fn get(&self) -> Option<RemotePtr<Void>> {
-        unimplemented!()
+        self.addr
+    }
+
+    fn init(&mut self, mem: Option<&[u8]>) {
+        ed_assert!(
+            self.remote.task_ref(),
+            self.remote.enable_mem_params() == EnableMemoryParams,
+            "Memory parameters were disabled"
+        );
+
+        self.saved_sp = self.remote.regs_ref().sp();
+
+        let new_sp = self.remote.regs_ref().sp() - self.len;
+        self.remote.initial_regs_mut().set_sp(new_sp);
+
+        // Copy regs
+        let remote_regs = *self.remote.regs_ref();
+        self.remote.task_mut().set_regs(&remote_regs);
+        self.addr = Some(remote_regs.sp());
+
+        let mut ok = true;
+        self.remote
+            .task_ref()
+            .read_bytes_helper(self.addr.unwrap(), &mut self.data, Some(&mut ok));
+        // @TODO what do we do if ok is false due to read_bytes_helper call above?
+        if mem.is_some() {
+            self.remote.task_ref().write_bytes_helper(
+                self.addr.unwrap(),
+                mem.unwrap(),
+                Some(&mut ok),
+                None,
+            );
+        }
+        if !ok {
+            self.addr = None;
+        }
     }
 }
 
@@ -84,9 +191,9 @@ impl<'a> AutoRemoteSyscalls<'a> {
         enable_mem_params: MemParamsEnabled,
     ) -> AutoRemoteSyscalls {
         AutoRemoteSyscalls {
-            initial_regs: t.regs().clone(),
+            initial_regs: t.regs_ref().clone(),
             initial_ip: t.ip(),
-            initial_sp: t.regs().sp(),
+            initial_sp: t.regs_ref().sp(),
             fixed_sp: None,
             replaced_bytes: vec![],
             restore_wait_status: t.status(),
@@ -110,10 +217,10 @@ impl<'a> AutoRemoteSyscalls<'a> {
             return;
         }
 
-        let last_stack_byte: RemotePtr<Void> = self.t.regs().sp() - 1usize;
+        let last_stack_byte: RemotePtr<Void> = self.t.regs_ref().sp() - 1usize;
         match self.t.vm().borrow().mapping_of(last_stack_byte) {
             Some(m) => {
-                if is_usable_area(&m.map) && m.map.start() + 2048usize <= self.t.regs().sp() {
+                if is_usable_area(&m.map) && m.map.start() + 2048usize <= self.t.regs_ref().sp() {
                     // 'sp' is in a stack region and there's plenty of space there. No need
                     // to fix anything.
                     return;
@@ -132,7 +239,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         }
 
         if found_stack.is_none() {
-            let remote = Self::new_with_mem_params(self.t, DisableMemoryParams);
+            let mut remote = Self::new_with_mem_params(self.t, DisableMemoryParams);
             found_stack = Some(MemoryRange::new_range(
                 remote.infallible_mmap_syscall(
                     RemotePtr::<Void>::new(),
@@ -215,14 +322,14 @@ impl<'a> AutoRemoteSyscalls<'a> {
         ret
     }
 
-    pub fn infallible_syscall_ptr(&self, syscallno: i32, args: &[usize]) -> RemotePtr<Void> {
-        self.infallible_syscall_ptr(syscallno, args).into()
+    pub fn infallible_syscall_ptr(&mut self, syscallno: i32, args: &[usize]) -> RemotePtr<Void> {
+        (self.infallible_syscall(syscallno, args) as usize).into()
     }
 
     /// Remote mmap syscalls are common and non-trivial due to the need to
     /// select either mmap2 or mmap.
     pub fn infallible_mmap_syscall(
-        &self,
+        &mut self,
         addr: RemotePtr<Void>,
         length: usize,
         prot: i32,
@@ -241,7 +348,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
                     length,
                     prot as _,
                     flags as _,
-                    child_fd as isize as _,
+                    child_fd as _,
                     offset_pages.try_into().unwrap(),
                 ],
             )
@@ -253,7 +360,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
                     length,
                     prot as _,
                     flags as _,
-                    child_fd as isize as usize,
+                    child_fd as _,
                     (offset_pages * page_size() as u64).try_into().unwrap(),
                 ],
             )
@@ -266,13 +373,40 @@ impl<'a> AutoRemoteSyscalls<'a> {
         ret
     }
 
-    /// @TODO Note: offset is signed.
-    pub fn infallible_lseek_syscall(&self, fd: i32, offset: i64, whence: i32) -> i64 {
-        unimplemented!()
+    /// Note: offset is signed.
+    pub fn infallible_lseek_syscall(&mut self, fd: i32, offset: i64, whence: i32) -> isize {
+        match self.arch() {
+            SupportedArch::X86 => {
+                let mut mem =
+                    AutoRestoreMem::new(self, Some(&offset.to_le_bytes()), size_of::<i64>());
+                let arch = mem.arch();
+                let addr = mem.get().unwrap();
+                // AutoRestoreMem DerefMut-s to AutoRemoteSyscalls
+                mem.infallible_syscall(
+                    syscall_number_for__llseek(arch),
+                    &vec![
+                        fd as usize,
+                        (offset >> 32) as usize,
+                        offset.try_into().unwrap(),
+                        addr.as_usize(),
+                        whence as usize,
+                    ],
+                );
+                mem.t.read_val_mem::<isize>(RemotePtr::cast(addr), None)
+            }
+            SupportedArch::X64 => self.infallible_syscall(
+                syscall_number_for_lseek(self.arch()),
+                &vec![fd as usize, offset as usize, whence as usize],
+            ),
+        }
     }
 
     /// The Task in the context of which we're making syscalls.
-    pub fn task(&self) -> &Task {
+    pub fn task_ref(&self) -> &dyn TaskInterface {
+        self.t
+    }
+
+    pub fn task_mut(&mut self) -> &mut dyn TaskInterface {
         self.t
     }
 
@@ -365,7 +499,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
                 continue;
             }
             if ignore_signal(self.t) {
-                if self.t.regs().syscall_may_restart() {
+                if self.t.regs_ref().syscall_may_restart() {
                     self.t.enter_syscall();
                     log!(
                         LogDebug,
@@ -390,8 +524,12 @@ impl<'a> AutoRemoteSyscalls<'a> {
             log!(LogDebug, "Task is dying, no status result");
             -ESRCH as isize
         } else {
-            log!(LogDebug, "done, result={}", self.t.regs().syscall_result());
-            self.t.regs().syscall_result_signed()
+            log!(
+                LogDebug,
+                "done, result={}",
+                self.t.regs_ref().syscall_result()
+            );
+            self.t.regs_ref().syscall_result_signed()
         }
     }
 
@@ -417,14 +555,14 @@ impl<'a> AutoRemoteSyscalls<'a> {
                 extra_msg = format!(
                     "{} opening ",
                     self.t
-                        .read_c_str(self.t.regs().arg1().into())
+                        .read_c_str(self.t.regs_ref().arg1().into())
                         .to_string_lossy()
                 );
             } else if is_openat_syscall(syscallno, self.arch()) {
                 extra_msg = format!(
                     "{} opening ",
                     self.t
-                        .read_c_str(self.t.regs().arg2().into())
+                        .read_c_str(self.t.regs_ref().arg2().into())
                         .to_string_lossy()
                 );
             }

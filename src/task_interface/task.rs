@@ -467,8 +467,13 @@ pub mod task {
         }
 
         /// Return the current regs of this.
-        pub fn regs(&self) -> &Registers {
+        pub fn regs_ref(&self) -> &Registers {
             &self.registers
+        }
+
+        /// Return the current regs of this.
+        pub fn regs_mut(&mut self) -> &mut Registers {
+            &mut self.registers
         }
 
         /// Return the extra registers of this.
@@ -502,7 +507,7 @@ pub mod task {
         /// Read |val| from |child_addr|.
         /// If the data can't all be read, then if |ok| is non-null
         /// sets *ok to false, otherwise asserts.
-        pub fn read_val_mem<T>(&self, child_addr: RemotePtr<T>, ok: Option<&mut bool>) {
+        pub fn read_val_mem<T>(&self, child_addr: RemotePtr<T>, ok: Option<&mut bool>) -> T {
             unimplemented!()
         }
 
@@ -998,16 +1003,19 @@ pub mod task {
         let mut remote = AutoRemoteSyscalls::new(taski);
         let remote_fd: i32;
         {
-            let remote_path: AutoRestoreMem = AutoRestoreMem::push_cstr(&remote, path);
+            let mut remote_path: AutoRestoreMem = AutoRestoreMem::push_cstr(&mut remote, path);
             if remote_path.get().is_some() {
+                let remote_arch = remote_path.arch();
+                let remote_addr = remote_path.get().unwrap();
+                // AutoRestoreMem DerefMut-s to AutoRemoteSyscalls
                 // skip leading '/' since we want the path to be relative to the root fd
-                remote_fd = remote
+                remote_fd = remote_path
                     .syscall(
-                        syscall_number_for_openat(remote.arch()),
+                        syscall_number_for_openat(remote_arch),
                         &vec![
                             RD_RESERVED_ROOT_DIR_FD as usize,
                             // Skip the leading '/' in the path as this is a relative path.
-                            remote_path.get().unwrap().as_usize() + 1,
+                            (remote_addr + 1usize).into(),
                             libc::O_RDWR as usize,
                         ],
                     )
