@@ -4,6 +4,7 @@ use crate::address_space::memory_range::MemoryRange;
 use crate::address_space::{Enabled, Privileged, Traced};
 use crate::arch::Architecture;
 use crate::auto_remote_syscalls::MemParamsEnabled::{DisableMemoryParams, EnableMemoryParams};
+use crate::kernel_abi::RD_NATIVE_ARCH;
 use crate::kernel_abi::{
     has_mmap2_syscall, is_clone_syscall, is_open_syscall, is_openat_syscall,
     is_rt_sigaction_syscall, is_sigaction_syscall, is_signal_syscall, syscall_number_for__llseek,
@@ -30,7 +31,8 @@ use libc::{
     PTRACE_EVENT_EXIT, SCM_RIGHTS, SIGTRAP, SOL_SOCKET,
 };
 use std::convert::TryInto;
-use std::mem::{size_of, size_of_val};
+use std::ffi::c_void;
+use std::mem::{size_of, size_of_val, transmute_copy, zeroed};
 use std::ops::{Deref, DerefMut};
 use std::ptr::copy_nonoverlapping;
 
@@ -780,7 +782,7 @@ fn child_sendmsg<Arch: Architecture>(
     Arch::set_msghdr(&mut msg, remote_cmsgbuf, cmsgbuf_size, remote_msgdata, 1);
     remote_buf.t.write_val_mem(remote_msg, &msg, Some(&mut ok));
 
-    let data_offset = rd_kernel_abi_arch_function!(cmsg_data_offset, Arch::arch());
+    let cmsg_data_off = rd_kernel_abi_arch_function!(cmsg_data_offset, Arch::arch());
     let mut cmsghdr = Arch::cmsghdr::default();
     Arch::set_csmsghdr(
         &mut cmsghdr,
@@ -798,7 +800,7 @@ fn child_sendmsg<Arch: Architecture>(
     }
     // Copy the fd into the cmsgbuf
     cmsgbuf
-        .get_mut(data_offset..data_offset + size_of_val(&fd))
+        .get_mut(cmsg_data_off..cmsg_data_off + size_of_val(&fd))
         .unwrap()
         .copy_from_slice(&fd.to_le_bytes());
 
@@ -834,4 +836,34 @@ fn child_sendmsg<Arch: Architecture>(
         syscall_number_for_socketcall(arch),
         &[SYS_sendmsg as _, sc_args.unwrap().as_usize()],
     )
+}
+
+fn recvmsg_socket(sock: &ScopedFd) -> i32 {
+    let mut received_data: u8 = 0;
+    let mut msgdata: libc::iovec = unsafe { zeroed() };
+    msgdata.iov_base = &mut received_data as *mut u8 as *mut c_void;
+    msgdata.iov_len = 1;
+
+    // The i32 is our fd
+    let cmsgbuf_size = rd_kernel_abi_arch_function!(cmsg_space, RD_NATIVE_ARCH, size_of::<i32>());
+    let mut cmsgbuf = vec![0u8; cmsgbuf_size];
+    let mut msg: libc::msghdr = unsafe { zeroed() };
+    msg.msg_control = cmsgbuf.as_mut_ptr() as *mut u8 as *mut c_void;
+    msg.msg_controllen = cmsgbuf_size;
+    msg.msg_iov = &mut msgdata as *mut libc::iovec;
+    msg.msg_iovlen = 1;
+
+    if 0 > unsafe { libc::recvmsg(sock.as_raw(), &mut msg, 0) } {
+        fatal!("Failed to receive fd");
+    }
+
+    let cmsg_data_off = rd_kernel_abi_arch_function!(cmsg_data_offset, RD_NATIVE_ARCH);
+    let cmsghdr: libc::cmsghdr = unsafe { transmute_copy(&cmsgbuf) };
+    debug_assert!(cmsghdr.cmsg_level == SOL_SOCKET && cmsghdr.cmsg_type == SCM_RIGHTS);
+    let idata = cmsgbuf
+        .get(cmsg_data_off..cmsg_data_off + size_of::<i32>())
+        .unwrap();
+    let our_fd: i32 = i32::from_le_bytes(idata.try_into().unwrap());
+    debug_assert!(our_fd >= 0);
+    our_fd
 }
