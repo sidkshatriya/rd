@@ -80,6 +80,7 @@ impl<T> Add<usize> for RemotePtr<T> {
     type Output = Self;
 
     fn add(self, delta: usize) -> Self::Output {
+        // Will automatically deal with underflow in debug mode.
         let result: usize = self.as_usize() + delta * std::mem::size_of::<T>();
         Self::new_from_val(result)
     }
@@ -89,17 +90,19 @@ impl<T> Sub<usize> for RemotePtr<T> {
     type Output = Self;
 
     fn sub(self, delta: usize) -> Self::Output {
+        // Will automatically deal with underflow in debug mode.
         let result: usize = self.as_usize() - delta * std::mem::size_of::<T>();
         Self::new_from_val(result)
     }
 }
 
-impl<T, U> Sub<RemotePtr<U>> for RemotePtr<T> {
-    type Output = isize;
+impl<T> Sub<RemotePtr<T>> for RemotePtr<T> {
+    type Output = usize;
 
-    fn sub(self, rhs: RemotePtr<U>) -> Self::Output {
-        let delta: isize = self.as_isize() - rhs.as_isize();
-        delta / std::mem::size_of::<usize>() as isize
+    fn sub(self, rhs: RemotePtr<T>) -> Self::Output {
+        // Will automatically deal with underflow in debug mode.
+        let delta: usize = self.as_usize() - rhs.as_usize();
+        delta / std::mem::size_of::<T>()
     }
 }
 

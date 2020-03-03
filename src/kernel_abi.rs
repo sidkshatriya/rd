@@ -64,7 +64,7 @@ pub fn syscall_instruction_length(arch: SupportedArch) -> usize {
 
 ///////////////////// Ptr
 #[repr(C, align(8))]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Default)]
 pub struct aligned_u64 {
     pub val: u64,
 }

@@ -696,7 +696,12 @@ pub mod task {
         }
 
         /// Write |val| to |child_addr|.
-        pub fn write_val_mem<T>(
+        pub fn write_val_mem<T>(&self, child_addr: RemotePtr<T>, val: &T, ok: Option<&mut bool>) {
+            unimplemented!()
+        }
+
+        /// Write |val| to |child_addr|.
+        pub fn write_val_mem_with_flags<T>(
             &self,
             child_addr: RemotePtr<T>,
             val: &T,
