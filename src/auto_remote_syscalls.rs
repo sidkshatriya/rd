@@ -6,10 +6,11 @@ use crate::arch::Architecture;
 use crate::auto_remote_syscalls::MemParamsEnabled::{DisableMemoryParams, EnableMemoryParams};
 use crate::kernel_abi::RD_NATIVE_ARCH;
 use crate::kernel_abi::{
-    has_mmap2_syscall, is_clone_syscall, is_open_syscall, is_openat_syscall,
-    is_rt_sigaction_syscall, is_sigaction_syscall, is_signal_syscall, syscall_number_for__llseek,
-    syscall_number_for_lseek, syscall_number_for_mmap, syscall_number_for_mmap2,
-    syscall_number_for_munmap, syscall_number_for_sendmsg, syscall_number_for_socketcall,
+    has_mmap2_syscall, has_socketcall_syscall, is_clone_syscall, is_open_syscall,
+    is_openat_syscall, is_rt_sigaction_syscall, is_sigaction_syscall, is_signal_syscall,
+    syscall_number_for__llseek, syscall_number_for_lseek, syscall_number_for_mmap,
+    syscall_number_for_mmap2, syscall_number_for_munmap, syscall_number_for_sendmsg,
+    syscall_number_for_socketcall,
 };
 use crate::kernel_abi::{syscall_instruction, SupportedArch};
 use crate::kernel_metadata::{errno_name, signal_name, syscall_name};
@@ -30,6 +31,7 @@ use libc::{
     pid_t, SYS_sendmsg, ESRCH, MAP_ANONYMOUS, MAP_FIXED, MAP_PRIVATE, PROT_READ, PROT_WRITE,
     PTRACE_EVENT_EXIT, SCM_RIGHTS, SIGTRAP, SOL_SOCKET,
 };
+use std::cmp::max;
 use std::convert::TryInto;
 use std::ffi::c_void;
 use std::mem::{size_of, size_of_val, transmute_copy, zeroed};
@@ -431,8 +433,54 @@ impl<'a> AutoRemoteSyscalls<'a> {
     /// Arranges for 'fd' to be transmitted to this process and returns
     /// our opened version of it.
     /// Returns a closed fd if the process dies or has died.
-    pub fn retrieve_fd(&self, fd: i32) -> ScopedFd {
-        unimplemented!()
+    pub fn retrieve_fd<Arch: Architecture>(&mut self, fd: i32) -> ScopedFd {
+        let mut data_length: usize = max(
+            reserve::<Arch::sockaddr_un>(),
+            reserve::<Arch::msghdr>()
+                // This is the aligned space don't need to align again.
+                + rd_kernel_abi_arch_function!(cmsg_space, Arch::arch(), size_of_val(&fd))
+                + reserve::<Arch::iovec>(),
+        );
+        if has_socketcall_syscall(Arch::arch()) {
+            data_length += reserve::<SocketcallArgs<Arch>>();
+        }
+        let mut remote_buf = AutoRestoreMem::new(self, None, data_length);
+        if remote_buf.get().is_none() {
+            // Task must be dead
+            return ScopedFd::new();
+        }
+
+        let mut sc_args_end: RemotePtr<Void> = remote_buf.get().unwrap();
+        let mut maybe_sc_args: Option<RemotePtr<SocketcallArgs<Arch>>> = None;
+        if has_socketcall_syscall(Arch::arch()) {
+            maybe_sc_args = Some(allocate::<SocketcallArgs<Arch>>(
+                &mut sc_args_end,
+                &remote_buf,
+            ));
+        }
+
+        let child_sock = remote_buf.task_ref().session_interface().tracee_fd_number();
+        let child_syscall_result: isize =
+            child_sendmsg(&mut remote_buf, maybe_sc_args, sc_args_end, child_sock, fd);
+        if child_syscall_result == -ESRCH as isize {
+            return ScopedFd::new();
+        }
+
+        ed_assert!(
+            remote_buf.task_ref(),
+            child_syscall_result > 0,
+            "Failed to sendmsg() in tracee; err={}",
+            errno_name((-child_syscall_result).try_into().unwrap())
+        );
+
+        let our_fd: i32 = recvmsg_socket(
+            &remote_buf
+                .task_ref()
+                .session_interface()
+                .tracee_socket_fd()
+                .borrow(),
+        );
+        ScopedFd::from_raw(our_fd)
     }
 
     /// Remotely invoke in |t| the specified syscall with the given
@@ -729,7 +777,7 @@ fn write_socketcall_args<Arch: Architecture>(
     ok
 }
 
-fn align_size(size: usize) -> usize {
+const fn align_size(size: usize) -> usize {
     let align_amount = size_of::<usize>();
     (size + align_amount - 1) & !(align_amount - 1)
 }
@@ -866,4 +914,8 @@ fn recvmsg_socket(sock: &ScopedFd) -> i32 {
     let our_fd: i32 = i32::from_le_bytes(idata.try_into().unwrap());
     debug_assert!(our_fd >= 0);
     our_fd
+}
+
+const fn reserve<T>() -> usize {
+    align_size(size_of::<T>())
 }

@@ -36,6 +36,7 @@ pub trait Architecture {
     type msghdr: Copy + Default;
     type cmsghdr: Copy + Default;
     type siginfo_t;
+    type sockaddr_un: Copy;
 
     fn to_signed_long(val: usize) -> Self::signed_long;
     fn get_k_sa_handler(k: &Self::kernel_sigaction) -> RemotePtr<Void>;
@@ -62,6 +63,7 @@ impl Architecture for X86Arch {
     type msghdr = x86::msghdr;
     type cmsghdr = x86::cmsghdr;
     type siginfo_t = x86::siginfo_t;
+    type sockaddr_un = x86::sockaddr_un;
 
     fn to_signed_long(val: usize) -> Self::signed_long {
         val.try_into().unwrap()
@@ -126,6 +128,7 @@ impl Architecture for X64Arch {
     type msghdr = x64::msghdr;
     type cmsghdr = x64::cmsghdr;
     type siginfo_t = x64::siginfo_t;
+    type sockaddr_un = x64::sockaddr_un;
 
     fn to_signed_long(val: usize) -> Self::signed_long {
         val as Self::signed_long
