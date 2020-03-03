@@ -1,7 +1,7 @@
 use crate::arch::Architecture;
 use crate::arch::NativeArch;
 use crate::kernel_abi::syscall_number_for_rt_sigaction;
-use crate::kernel_abi::{x64, x86, SupportedArch};
+use crate::kernel_abi::SupportedArch;
 use crate::kernel_supplement::{SA_RESETHAND, SA_SIGINFO, _NSIG};
 use crate::remote_code_ptr::RemoteCodePtr;
 use crate::remote_ptr::{RemotePtr, Void};
@@ -215,7 +215,6 @@ pub mod record_task {
     use crate::kernel_abi::common::preload_interface::syscallbuf_record;
     use crate::kernel_abi::SupportedArch;
     use crate::kernel_supplement::sig_set_t;
-    use crate::kernel_supplement::{CLD_STOPPED, CLD_TRAPPED};
     use crate::registers::Registers;
     use crate::remote_code_ptr::RemoteCodePtr;
     use crate::remote_ptr::{RemotePtr, Void};
@@ -538,35 +537,15 @@ pub mod record_task {
             unimplemented!()
         }
 
-        /// Sets up |si| as if we're delivering a SIGCHLD/waitid for this waited task.
-        /// @TODO Find a more elegant approach instead of two exact methods here for x64 and x86.
-        pub fn set_siginfo_for_waited_task_x64(&self, si: &mut x64::siginfo_t) {
-            // XXX handle CLD_EXITED here
-            if self.emulated_stop_type == EmulatedStopType::GroupStop {
-                si.si_code = CLD_STOPPED as _;
-                // @TODO Is the unwrap fail safe?
-                si._sifields._sigchld.si_status_ = self.emulated_stop_code.stop_sig().unwrap();
-            } else {
-                si.si_code = CLD_TRAPPED as _;
-                // @TODO Is the unwrap fail safe?
-                si._sifields._sigchld.si_status_ = self.emulated_stop_code.ptrace_signal().unwrap();
+        pub fn set_siginfo_for_waited_task<Arch: Architecture>(&self, si: &mut Arch::siginfo_t) {
+            match Arch::arch() {
+                SupportedArch::X86 => {
+                    Arch::set_siginfo_for_waited_task(self, si);
+                }
+                SupportedArch::X64 => {
+                    Arch::set_siginfo_for_waited_task(self, si);
+                }
             }
-            si._sifields._sigchld.si_pid_ = self.tgid();
-            si._sifields._sigchld.si_uid_ = self.getuid();
-        }
-        pub fn set_siginfo_for_waited_task_x86(&self, si: &mut x86::siginfo_t) {
-            // XXX handle CLD_EXITED here
-            if self.emulated_stop_type == EmulatedStopType::GroupStop {
-                si.si_code = CLD_STOPPED as _;
-                // @TODO Is the unwrap fail safe?
-                si._sifields._sigchld.si_status_ = self.emulated_stop_code.stop_sig().unwrap();
-            } else {
-                si.si_code = CLD_TRAPPED as _;
-                // @TODO Is the unwrap fail safe?
-                si._sifields._sigchld.si_status_ = self.emulated_stop_code.ptrace_signal().unwrap();
-            }
-            si._sifields._sigchld.si_pid_ = self.tgid();
-            si._sifields._sigchld.si_uid_ = self.getuid();
         }
 
         /// Return a reference to the saved siginfo record for the stop-signal

@@ -701,7 +701,6 @@ struct SocketcallArgs<Arch: Architecture> {
     args: [Arch::signed_long; 3],
 }
 
-
 /// We derive Copy and Clone manually as the struct is marked packed.
 impl<Arch: Architecture> Clone for SocketcallArgs<Arch> {
     fn clone(&self) -> Self {

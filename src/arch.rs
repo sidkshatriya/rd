@@ -1,5 +1,8 @@
 use crate::kernel_abi::{x64, x86, SupportedArch};
+use crate::kernel_supplement::{CLD_STOPPED, CLD_TRAPPED};
 use crate::remote_ptr::{RemotePtr, Void};
+use crate::task_interface::record_task::record_task::RecordTask;
+use crate::task_interface::record_task::EmulatedStopType;
 use std::convert::TryInto;
 
 pub struct X86Arch;
@@ -32,6 +35,7 @@ pub trait Architecture {
     type iovec: Copy + Default;
     type msghdr: Copy + Default;
     type cmsghdr: Copy + Default;
+    type siginfo_t;
 
     fn to_signed_long(val: usize) -> Self::signed_long;
     fn get_k_sa_handler(k: &Self::kernel_sigaction) -> RemotePtr<Void>;
@@ -47,6 +51,8 @@ pub trait Architecture {
     );
 
     fn set_csmsghdr(msg: &mut Self::cmsghdr, cmsg_len: usize, cmsg_level: i32, cmsg_type: i32);
+
+    fn set_siginfo_for_waited_task(r: &RecordTask, si: &mut Self::siginfo_t);
 }
 
 impl Architecture for X86Arch {
@@ -55,6 +61,7 @@ impl Architecture for X86Arch {
     type iovec = x86::iovec;
     type msghdr = x86::msghdr;
     type cmsghdr = x86::cmsghdr;
+    type siginfo_t = x86::siginfo_t;
 
     fn to_signed_long(val: usize) -> Self::signed_long {
         val.try_into().unwrap()
@@ -95,6 +102,21 @@ impl Architecture for X86Arch {
         cmsghdr.cmsg_level = cmsg_level;
         cmsghdr.cmsg_type = cmsg_type;
     }
+
+    fn set_siginfo_for_waited_task(r: &RecordTask, si: &mut x86::siginfo_t) {
+        // XXX handle CLD_EXITED here
+        if r.emulated_stop_type == EmulatedStopType::GroupStop {
+            si.si_code = CLD_STOPPED as _;
+            // @TODO Is the unwrap fail safe?
+            si._sifields._sigchld.si_status_ = r.emulated_stop_code.stop_sig().unwrap();
+        } else {
+            si.si_code = CLD_TRAPPED as _;
+            // @TODO Is the unwrap fail safe?
+            si._sifields._sigchld.si_status_ = r.emulated_stop_code.ptrace_signal().unwrap();
+        }
+        si._sifields._sigchld.si_pid_ = r.tgid();
+        si._sifields._sigchld.si_uid_ = r.getuid();
+    }
 }
 
 impl Architecture for X64Arch {
@@ -103,6 +125,7 @@ impl Architecture for X64Arch {
     type iovec = x64::iovec;
     type msghdr = x64::msghdr;
     type cmsghdr = x64::cmsghdr;
+    type siginfo_t = x64::siginfo_t;
 
     fn to_signed_long(val: usize) -> Self::signed_long {
         val as Self::signed_long
@@ -140,5 +163,20 @@ impl Architecture for X64Arch {
         cmsghdr.cmsg_len = cmsg_len as _;
         cmsghdr.cmsg_level = cmsg_level;
         cmsghdr.cmsg_type = cmsg_type;
+    }
+
+    fn set_siginfo_for_waited_task(r: &RecordTask, si: &mut x64::siginfo_t) {
+        // XXX handle CLD_EXITED here
+        if r.emulated_stop_type == EmulatedStopType::GroupStop {
+            si.si_code = CLD_STOPPED as _;
+            // @TODO Is the unwrap fail safe?
+            si._sifields._sigchld.si_status_ = r.emulated_stop_code.stop_sig().unwrap();
+        } else {
+            si.si_code = CLD_TRAPPED as _;
+            // @TODO Is the unwrap fail safe?
+            si._sifields._sigchld.si_status_ = r.emulated_stop_code.ptrace_signal().unwrap();
+        }
+        si._sifields._sigchld.si_pid_ = r.tgid();
+        si._sifields._sigchld.si_uid_ = r.getuid();
     }
 }
