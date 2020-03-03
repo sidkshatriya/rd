@@ -1,3 +1,5 @@
+use crate::arch::Architecture;
+use crate::arch::NativeArch;
 use crate::kernel_abi::syscall_number_for_rt_sigaction;
 use crate::kernel_abi::{x64, x86, SupportedArch};
 use crate::kernel_supplement::{SA_RESETHAND, SA_SIGINFO, _NSIG};
@@ -7,51 +9,6 @@ use libc::EINVAL;
 use nix::errno::errno;
 use std::mem::size_of;
 use std::ptr::copy_nonoverlapping;
-
-struct X86Arch;
-struct X64Arch;
-
-#[cfg(target_arch = "x86_64")]
-type NativeArch = X64Arch;
-
-#[cfg(target_arch = "x86")]
-type NativeArch = X86Arch;
-
-pub trait Architecture {
-    type kernel_sigaction: Default;
-    fn get_k_sa_handler(k: &Self::kernel_sigaction) -> RemotePtr<Void>;
-    fn get_sa_flags(k: &Self::kernel_sigaction) -> usize;
-    fn arch() -> SupportedArch;
-}
-
-impl Architecture for X86Arch {
-    type kernel_sigaction = x86::kernel_sigaction;
-
-    fn get_k_sa_handler(k: &Self::kernel_sigaction) -> RemotePtr<Void> {
-        k.k_sa_handler.rptr()
-    }
-
-    fn get_sa_flags(k: &Self::kernel_sigaction) -> usize {
-        k.sa_flags as usize
-    }
-
-    fn arch() -> SupportedArch {
-        SupportedArch::X86
-    }
-}
-
-impl Architecture for X64Arch {
-    type kernel_sigaction = x64::kernel_sigaction;
-    fn get_k_sa_handler(k: &Self::kernel_sigaction) -> RemotePtr<Void> {
-        k.k_sa_handler.rptr()
-    }
-    fn get_sa_flags(k: &Self::kernel_sigaction) -> usize {
-        k.sa_flags as usize
-    }
-    fn arch() -> SupportedArch {
-        SupportedArch::X64
-    }
-}
 
 #[derive(Clone)]
 pub struct Sighandlers {

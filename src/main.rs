@@ -10,6 +10,8 @@ extern crate raw_cpuid;
 extern crate static_assertions;
 
 #[macro_use]
+mod arch;
+#[macro_use]
 mod kernel_abi;
 mod flags;
 mod kernel_metadata;

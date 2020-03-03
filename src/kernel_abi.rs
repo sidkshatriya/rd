@@ -13,6 +13,7 @@ pub enum SupportedArch {
     X64,
 }
 
+// IMPORTANT //
 include!(concat!(
     env!("OUT_DIR"),
     "/syscall_helper_functions_generated.rs"
@@ -24,7 +25,7 @@ pub const RD_NATIVE_ARCH: SupportedArch = SupportedArch::X64;
 #[cfg(target_arch = "x86")]
 pub const RD_NATIVE_ARCH: SupportedArch = SupportedArch::X86;
 
-macro_rules! rr_arch_function {
+macro_rules! rd_kernel_abi_arch_function {
     ($func_name:ident, $arch:expr) => {
         match $arch {
             SupportedArch::X86 => crate::kernel_abi::x86::$func_name(),
@@ -35,21 +36,6 @@ macro_rules! rr_arch_function {
         match $arch {
             SupportedArch::X86 => crate::kernel_abi::x86::$func_name($($exp),+),
             SupportedArch::X64 => crate::kernel_abi::x64::$func_name($($exp),+),
-        }
-    };
-}
-
-macro_rules! rd_arch_function {
-    ($slf:expr, $func_name:ident, $arch:expr) => {
-        match $arch {
-            SupportedArch::X86 => $slf.$func_name::<X86Arch>(),
-            SupportedArch::X64 => $slf.$func_name::<X64Arch>(),
-        }
-    };
-    ($slf:expr, $func_name:ident, $arch:expr, $($exp:tt)*) => {
-        match $arch {
-            SupportedArch::X86 => $slf.$func_name::<X86Arch>($($exp)*),
-            SupportedArch::X64 => $slf.$func_name::<X64Arch>($($exp)*),
         }
     };
 }
