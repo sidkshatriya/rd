@@ -1,7 +1,6 @@
 use crate::kernel_abi::{x64, x86, SupportedArch};
 use crate::remote_ptr::{RemotePtr, Void};
 use std::convert::TryInto;
-use std::ops::Deref;
 
 pub struct X86Arch;
 pub struct X64Arch;
@@ -29,11 +28,12 @@ macro_rules! rd_arch_function {
 
 pub trait Architecture {
     type kernel_sigaction: Default + Copy;
-    type signed_long: Copy;
+    type signed_long: Copy + From<i32>;
     type iovec: Copy + Default;
     type msghdr: Copy + Default;
     type cmsghdr: Copy + Default;
 
+    fn to_signed_long(val: usize) -> Self::signed_long;
     fn get_k_sa_handler(k: &Self::kernel_sigaction) -> RemotePtr<Void>;
     fn get_sa_flags(k: &Self::kernel_sigaction) -> usize;
     fn arch() -> SupportedArch;
@@ -55,6 +55,10 @@ impl Architecture for X86Arch {
     type iovec = x86::iovec;
     type msghdr = x86::msghdr;
     type cmsghdr = x86::cmsghdr;
+
+    fn to_signed_long(val: usize) -> Self::signed_long {
+        val.try_into().unwrap()
+    }
 
     fn get_k_sa_handler(k: &Self::kernel_sigaction) -> RemotePtr<Void> {
         k.k_sa_handler.rptr()
@@ -99,6 +103,10 @@ impl Architecture for X64Arch {
     type iovec = x64::iovec;
     type msghdr = x64::msghdr;
     type cmsghdr = x64::cmsghdr;
+
+    fn to_signed_long(val: usize) -> Self::signed_long {
+        val as Self::signed_long
+    }
 
     fn get_k_sa_handler(k: &Self::kernel_sigaction) -> RemotePtr<Void> {
         k.k_sa_handler.rptr()

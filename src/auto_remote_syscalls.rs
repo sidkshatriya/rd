@@ -2,12 +2,13 @@ use crate::address_space::address_space::AddressSpace;
 use crate::address_space::kernel_mapping::KernelMapping;
 use crate::address_space::memory_range::MemoryRange;
 use crate::address_space::{Enabled, Privileged, Traced};
+use crate::arch::Architecture;
 use crate::auto_remote_syscalls::MemParamsEnabled::{DisableMemoryParams, EnableMemoryParams};
 use crate::kernel_abi::{
     has_mmap2_syscall, is_clone_syscall, is_open_syscall, is_openat_syscall,
     is_rt_sigaction_syscall, is_sigaction_syscall, is_signal_syscall, syscall_number_for__llseek,
     syscall_number_for_lseek, syscall_number_for_mmap, syscall_number_for_mmap2,
-    syscall_number_for_munmap,
+    syscall_number_for_munmap, syscall_number_for_sendmsg, syscall_number_for_socketcall,
 };
 use crate::kernel_abi::{syscall_instruction, SupportedArch};
 use crate::kernel_metadata::{errno_name, signal_name, syscall_name};
@@ -25,12 +26,13 @@ use crate::task_interface::TaskInterface;
 use crate::util::{is_kernel_trap, page_size};
 use crate::wait_status::WaitStatus;
 use libc::{
-    pid_t, ESRCH, MAP_ANONYMOUS, MAP_FIXED, MAP_PRIVATE, PROT_READ, PROT_WRITE, PTRACE_EVENT_EXIT,
-    SIGTRAP,
+    pid_t, SYS_sendmsg, ESRCH, MAP_ANONYMOUS, MAP_FIXED, MAP_PRIVATE, PROT_READ, PROT_WRITE,
+    PTRACE_EVENT_EXIT, SCM_RIGHTS, SIGTRAP, SOL_SOCKET,
 };
 use std::convert::TryInto;
-use std::mem::size_of;
+use std::mem::{size_of, size_of_val};
 use std::ops::{Deref, DerefMut};
+use std::ptr::copy_nonoverlapping;
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub enum MemParamsEnabled {
@@ -103,6 +105,7 @@ impl<'a, 'b> AutoRestoreMem<'a, 'b> {
             remote,
             addr: None,
             data: v,
+            // We don't need an Option here because init will always add a value.
             saved_sp: 0.into(),
             len,
         };
@@ -155,6 +158,11 @@ impl<'a, 'b> AutoRestoreMem<'a, 'b> {
         if !ok {
             self.addr = None;
         }
+    }
+
+    /// Return size of reserved memory buffer.
+    pub fn len(&self) -> usize {
+        self.data.len()
     }
 }
 
@@ -285,7 +293,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
             let mut remote = AutoRemoteSyscalls::new(some_t);
             remote.infallible_syscall(
                 syscall_number_for_munmap(remote.arch()),
-                &vec![self.fixed_sp.unwrap().as_usize() - 4096, 4096],
+                &[self.fixed_sp.unwrap().as_usize() - 4096, 4096],
             );
         }
         if !self.replaced_bytes.is_empty() {
@@ -346,7 +354,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         let ret: RemotePtr<Void> = if has_mmap2_syscall(self.arch()) {
             self.infallible_syscall_ptr(
                 syscall_number_for_mmap2(self.arch()),
-                &vec![
+                &[
                     addr.as_usize(),
                     length,
                     prot as _,
@@ -358,7 +366,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         } else {
             self.infallible_syscall_ptr(
                 syscall_number_for_mmap(self.arch()),
-                &vec![
+                &[
                     addr.as_usize(),
                     length,
                     prot as _,
@@ -387,7 +395,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
                 // AutoRestoreMem DerefMut-s to AutoRemoteSyscalls
                 mem.infallible_syscall(
                     syscall_number_for__llseek(arch),
-                    &vec![
+                    &[
                         fd as usize,
                         (offset >> 32) as usize,
                         offset.try_into().unwrap(),
@@ -399,7 +407,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
             }
             SupportedArch::X64 => self.infallible_syscall(
                 syscall_number_for_lseek(self.arch()),
-                &vec![fd as usize, offset as usize, whence as usize],
+                &[fd as usize, offset as usize, whence as usize],
             ),
         }
     }
@@ -682,5 +690,149 @@ fn ignore_signal(t: &dyn TaskInterface) -> bool {
         return true;
     }
     ed_assert!(t, false, "Unexpected signal {}", signal_name(sig.unwrap()));
-    return false;
+    false
+}
+
+/// The ABI of the socketcall syscall is a nightmare; the first arg to
+/// the kernel is the sub-operation, and the second argument is a
+/// pointer to the args.  The args depend on the sub-op.
+#[repr(C, packed)]
+struct SocketcallArgs<Arch: Architecture> {
+    args: [Arch::signed_long; 3],
+}
+
+
+/// We derive Copy and Clone manually as the struct is marked packed.
+impl<Arch: Architecture> Clone for SocketcallArgs<Arch> {
+    fn clone(&self) -> Self {
+        SocketcallArgs {
+            args: self.args.clone(),
+        }
+    }
+}
+
+impl<Arch: Architecture> Copy for SocketcallArgs<Arch> {}
+
+/// The rr version takes a `bool ok` argument
+/// This version simple returns a bool for success/failure
+fn write_socketcall_args<Arch: Architecture>(
+    t: &dyn TaskInterface,
+    remote_mem: RemotePtr<SocketcallArgs<Arch>>,
+    arg1: Arch::signed_long,
+    arg2: Arch::signed_long,
+    arg3: Arch::signed_long,
+) -> bool {
+    let mut ok: bool = false;
+    let sc_args = [arg1, arg2, arg3];
+    t.write_mem(RemotePtr::cast(remote_mem), &sc_args, Some(&mut ok));
+    ok
+}
+
+fn align_size(size: usize) -> usize {
+    let align_amount = size_of::<usize>();
+    (size + align_amount - 1) & !(align_amount - 1)
+}
+
+/// Called allocate() in rr
+fn allocate_bytes(
+    buf_end: &mut RemotePtr<Void>,
+    remote_buf: &AutoRestoreMem,
+    size: usize,
+) -> RemotePtr<Void> {
+    let r = *buf_end;
+    // Note the mutation of buf_end here. A sort of bump pointer.
+    *buf_end = *buf_end + align_size(size);
+    if (*buf_end - remote_buf.get().unwrap()) > remote_buf.len() {
+        fatal!("overflow");
+    }
+    // The data can be placed at r
+    r
+}
+
+fn allocate<T>(buf_end: &mut RemotePtr<Void>, remote_buf: &AutoRestoreMem) -> RemotePtr<T> {
+    RemotePtr::cast(allocate_bytes(buf_end, remote_buf, size_of::<T>()))
+}
+
+/// We don't need an AutoRemoteSyscall like rr does.
+/// AutoRestoreMem Deref-s/DerefMut-s to AutoRemoteSyscalls
+fn child_sendmsg<Arch: Architecture>(
+    remote_buf: &mut AutoRestoreMem,
+    sc_args: Option<RemotePtr<SocketcallArgs<Arch>>>,
+    mut buf_end: RemotePtr<Void>,
+    child_sock: i32,
+    fd: i32,
+) -> isize {
+    let cmsgbuf_size = rd_kernel_abi_arch_function!(cmsg_space, Arch::arch(), size_of_val(&fd));
+    let mut cmsgbuf = vec![0u8; cmsgbuf_size];
+
+    // Pull the puppet strings to have the child send its fd
+    // to us.  Similarly to above, we DONT_WAIT on the
+    // call to finish, since it's likely not defined whether the
+    // sendmsg() may block on our recvmsg()ing what the tracee
+    // sent us (in which case we would deadlock with the tracee).
+    // We call sendmsg on child socket, but first we have to prepare a lot of
+    // data.
+    let remote_msg = allocate::<Arch::msghdr>(&mut buf_end, remote_buf);
+    let remote_msgdata = allocate::<Arch::iovec>(&mut buf_end, remote_buf);
+    let remote_cmsgbuf = allocate_bytes(&mut buf_end, remote_buf, cmsgbuf_size);
+
+    let mut ok = true;
+    let mut msg = Arch::msghdr::default();
+    Arch::set_msghdr(&mut msg, remote_cmsgbuf, cmsgbuf_size, remote_msgdata, 1);
+    remote_buf.t.write_val_mem(remote_msg, &msg, Some(&mut ok));
+
+    let data_offset = rd_kernel_abi_arch_function!(cmsg_data_offset, Arch::arch());
+    let mut cmsghdr = Arch::cmsghdr::default();
+    Arch::set_csmsghdr(
+        &mut cmsghdr,
+        rd_kernel_abi_arch_function!(cmsg_len, Arch::arch(), size_of_val(&fd)),
+        SOL_SOCKET,
+        SCM_RIGHTS,
+    );
+    // Copy the cmsghdr into the cmsgbuf
+    unsafe {
+        copy_nonoverlapping(
+            &cmsghdr as *const _ as *const u8,
+            cmsgbuf.as_mut_ptr(),
+            size_of::<Arch::cmsghdr>(),
+        );
+    }
+    // Copy the fd into the cmsgbuf
+    cmsgbuf
+        .get_mut(data_offset..data_offset + size_of_val(&fd))
+        .unwrap()
+        .copy_from_slice(&fd.to_le_bytes());
+
+    remote_buf
+        .task_ref()
+        .write_mem(remote_cmsgbuf, &cmsgbuf, Some(&mut ok));
+
+    if !ok {
+        return -ESRCH as isize;
+    }
+
+    let arch = remote_buf.arch();
+    if sc_args.is_none() {
+        return remote_buf.syscall(
+            syscall_number_for_sendmsg(arch),
+            &[child_sock as usize, remote_msg.as_usize(), 0],
+        );
+    }
+
+    let success = write_socketcall_args::<Arch>(
+        remote_buf.task_ref(),
+        sc_args.unwrap(),
+        child_sock.into(),
+        Arch::to_signed_long(remote_msg.as_usize()),
+        0i32.into(),
+    );
+
+    if !success {
+        return -ESRCH as isize;
+    }
+
+    remote_buf.syscall(
+        syscall_number_for_socketcall(arch),
+        &[SYS_sendmsg as _, sc_args.unwrap().as_usize()],
+    )
 }

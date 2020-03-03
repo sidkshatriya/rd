@@ -1059,15 +1059,19 @@ pub struct sched_param {
 }
 //RR_VERIFY_TYPE(sched_param);
 
-pub fn cmsg_align(len: usize) -> usize {
+pub const fn cmsg_data_offset() -> usize {
+    cmsg_align(size_of::<cmsghdr>())
+}
+
+pub const fn cmsg_align(len: usize) -> usize {
     (len + size_of::<size_t>() - 1) & !(size_of::<size_t>() - 1)
 }
 
-pub fn cmsg_space(len: usize) -> usize {
+pub const fn cmsg_space(len: usize) -> usize {
     cmsg_align(size_of::<cmsghdr>()) + cmsg_align(len)
 }
 
-pub fn cmsg_len(len: usize) -> usize {
+pub const fn cmsg_len(len: usize) -> usize {
     cmsg_align(size_of::<cmsghdr>()) + len
 }
 

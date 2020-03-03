@@ -1019,7 +1019,7 @@ pub mod task {
                 remote_fd = remote_path
                     .syscall(
                         syscall_number_for_openat(remote_arch),
-                        &vec![
+                        &[
                             RD_RESERVED_ROOT_DIR_FD as usize,
                             // Skip the leading '/' in the path as this is a relative path.
                             (remote_addr + 1usize).into(),
@@ -1045,7 +1045,7 @@ pub mod task {
                 // Leak fd if the syscall fails due to the task being SIGKILLed unexpectedly
                 remote.syscall(
                     syscall_number_for_close(remote.arch()),
-                    &vec![remote_fd as usize],
+                    &[remote_fd as usize],
                 );
             }
         }
