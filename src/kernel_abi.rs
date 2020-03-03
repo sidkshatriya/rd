@@ -96,6 +96,18 @@ impl<ReferentT> Ptr<u32, ReferentT> {
     }
 }
 
+impl<T> From<RemotePtr<T>> for Ptr<u32, T> {
+    fn from(r: RemotePtr<T>) -> Self {
+        Ptr::<u32, T>::from_remote_ptr(r)
+    }
+}
+
+impl<T> From<RemotePtr<T>> for Ptr<u64, T> {
+    fn from(r: RemotePtr<T>) -> Self {
+        Ptr::<u64, T>::from_remote_ptr(r)
+    }
+}
+
 impl<ReferentT> Ptr<u64, ReferentT> {
     pub fn rptr(&self) -> RemotePtr<ReferentT> {
         RemotePtr::new_from_val(self.val as usize)
