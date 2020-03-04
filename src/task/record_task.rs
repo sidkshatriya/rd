@@ -257,7 +257,7 @@ pub mod record_task {
     }
 
     pub struct RecordTask {
-        pub task: TaskInner,
+        pub task_inner: TaskInner,
         pub ticks_at_last_recorded_syscall_exit: Ticks,
 
         /// Scheduler state
@@ -398,23 +398,23 @@ pub mod record_task {
         type Target = TaskInner;
 
         fn deref(&self) -> &Self::Target {
-            &self.task
+            &self.task_inner
         }
     }
 
     impl DerefMut for RecordTask {
         fn deref_mut(&mut self) -> &mut Self::Target {
-            &mut self.task
+            &mut self.task_inner
         }
     }
 
     impl Task for RecordTask {
         fn as_task_inner(&self) -> &TaskInner {
-            &self.task
+            &self.task_inner
         }
 
         fn as_task_inner_mut(&mut self) -> &mut TaskInner {
-            &mut self.task
+            &mut self.task_inner
         }
 
         fn as_record_task(&self) -> Option<&RecordTask> {
