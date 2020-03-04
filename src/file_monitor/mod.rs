@@ -14,8 +14,8 @@ pub mod proc_mem_monitor;
 pub mod stdio_monitor;
 pub mod virtual_perf_counter_monitor;
 
-pub type FileMonitorSharedPtr = Rc<RefCell<dyn FileMonitor>>;
-pub type FileMonitorSharedWeakPtr = Weak<RefCell<dyn FileMonitor>>;
+pub type FileMonitorSharedPtr = Rc<RefCell<Box<dyn FileMonitor>>>;
+pub type FileMonitorSharedWeakPtr = Weak<RefCell<Box<dyn FileMonitor>>>;
 
 /// This should NOT impl the FileMonitor trait
 pub struct FileMonitorInner;

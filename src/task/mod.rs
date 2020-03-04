@@ -20,8 +20,8 @@ pub mod record_task;
 pub mod replay_task;
 pub mod task_inner;
 
-pub type TaskSharedPtr = Rc<RefCell<dyn Task>>;
-pub type TaskSharedWeakPtr = Weak<RefCell<dyn Task>>;
+pub type TaskSharedPtr = Rc<RefCell<Box<dyn Task>>>;
+pub type TaskSharedWeakPtr = Weak<RefCell<Box<dyn Task>>>;
 
 /// @TODO should we store Weak pointers?
 #[derive(Copy, Clone)]

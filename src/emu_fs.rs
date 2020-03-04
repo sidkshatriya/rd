@@ -60,34 +60,32 @@ pub struct EmuFile {
     orig_path: String,
     tmp_path: String,
     file: ScopedFd,
-    owner: *mut EmuFs,
+    owner: EmuFsSharedWeakPtr,
     size_: u64,
     device_: dev_t,
     inode_: ino_t,
+    weak_self: EmuFileSharedWeakPtr,
 }
 
 impl EmuFile {
     const BUF_LEN: usize = 65536 / std::mem::size_of::<u64>();
 
-    fn owner_ref(&self) -> &EmuFs {
-        unsafe { self.owner.as_ref() }.unwrap()
+    fn owner(&self) -> EmuFsSharedPtr {
+        self.owner.upgrade().unwrap()
     }
 
-    fn owner_mut(&self) -> &mut EmuFs {
-        unsafe { self.owner.as_mut() }.unwrap()
-    }
-
-    /// Note this is NOT pub. Note the move for ScopedFd and owner.
+    /// Note this is NOT pub.
+    /// Also note the move for ScopedFd.
     fn new(
-        owner: *mut EmuFs,
+        owner: EmuFsSharedWeakPtr,
         fd: ScopedFd,
         orig_path: &str,
         real_path: &str,
         device: dev_t,
         inode: ino_t,
         file_size: u64,
-    ) -> EmuFile {
-        EmuFile {
+    ) -> EmuFileSharedPtr {
+        let file = EmuFile {
             orig_path: orig_path.to_owned(),
             tmp_path: real_path.to_owned(),
             file: fd,
@@ -95,8 +93,13 @@ impl EmuFile {
             size_: file_size,
             device_: device,
             inode_: inode,
-        }
+            weak_self: Weak::new(),
+        };
+        let file_shared = Rc::new(RefCell::new(file));
+        file_shared.borrow_mut().weak_self = Rc::downgrade(&file_shared);
+        file_shared
     }
+
     /// Return the fd of the real file backing this.
     pub fn fd(&self) -> &ScopedFd {
         &self.file
@@ -138,7 +141,7 @@ impl EmuFile {
     /// of |fs_tag|.
     fn clone_file(&self) -> EmuFileSharedPtr {
         let f = EmuFile::create(
-            self.owner,
+            self.owner.clone(),
             &self.emu_path(),
             self.device(),
             self.inode(),
@@ -203,7 +206,7 @@ impl EmuFile {
     /// uniquely identify this file among multiple EmuFs's that
     /// might exist concurrently in this tracer process.
     fn create(
-        owner: *mut EmuFs,
+        owner: EmuFsSharedWeakPtr,
         orig_path: &str,
         orig_device: dev_t,
         orig_inode: ino_t,
@@ -226,7 +229,7 @@ impl EmuFile {
         let (fd, real_name) = fd_and_name.unwrap();
         resize_shmem_segment(&fd, orig_file_size);
 
-        let f = Rc::new(RefCell::new(EmuFile::new(
+        let f = EmuFile::new(
             owner,
             fd,
             orig_path,
@@ -234,7 +237,7 @@ impl EmuFile {
             orig_device,
             orig_inode,
             orig_file_size,
-        )));
+        );
 
         log!(
             LogDebug,
@@ -254,26 +257,31 @@ impl Drop for EmuFile {
             "     emufs::emu_file::Drop(einode:{})",
             self.inode_
         );
-        self.owner_mut().destroyed_file(self);
+        self.owner().borrow_mut().destroyed_file(self);
     }
 }
 
 // We DONT want this to be either Copy or Clone.
 pub struct EmuFs {
     files: FileMap,
+    weak_self: EmuFsSharedWeakPtr,
 }
 
 impl EmuFs {
     /// Create and return a new emufs.
     pub fn create() -> EmuFsSharedPtr {
-        Rc::new(RefCell::new(EmuFs::new()))
+        EmuFs::new()
     }
 
     /// Note that this is a NOT pub
-    fn new() -> EmuFs {
-        EmuFs {
+    fn new() -> EmuFsSharedPtr {
+        let fs = EmuFs {
             files: HashMap::new(),
-        }
+            weak_self: Weak::new(),
+        };
+        let shared_fs = Rc::new(RefCell::new(fs));
+        shared_fs.borrow_mut().weak_self = Rc::downgrade(&shared_fs);
+        shared_fs
     }
 
     /// Return the EmuFile for |recorded_map|, which must exist or this won't
@@ -316,7 +324,7 @@ impl EmuFs {
         }
 
         let vf = EmuFile::create(
-            self as *mut Self,
+            self.weak_self.clone(),
             &recorded_km.fsname(),
             recorded_km.device(),
             recorded_km.inode(),

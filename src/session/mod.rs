@@ -20,8 +20,8 @@ pub mod record_session;
 pub mod replay_session;
 pub mod session_inner;
 
-pub type SessionSharedPtr = Rc<RefCell<dyn Session>>;
-pub type SessionSharedWeakPtr = Weak<RefCell<dyn Session>>;
+pub type SessionSharedPtr = Rc<RefCell<Box<dyn Session>>>;
+pub type SessionSharedWeakPtr = Weak<RefCell<Box<dyn Session>>>;
 
 pub trait Session: DerefMut<Target = SessionInner> {
     fn as_session_inner(&self) -> &SessionInner;
