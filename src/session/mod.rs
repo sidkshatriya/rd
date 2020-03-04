@@ -1,5 +1,5 @@
 use crate::address_space::address_space::AddressSpace;
-use crate::diversion_session::DiversionSession;
+use crate::session::diversion_session::DiversionSession;
 use crate::emu_fs::EmuFs;
 use crate::kernel_abi::SupportedArch;
 use crate::remote_ptr::{RemotePtr, Void};
@@ -17,6 +17,7 @@ use std::rc::{Rc, Weak};
 
 pub mod record_session;
 pub mod replay_session;
+pub mod diversion_session;
 pub mod session_inner;
 
 pub type SessionSharedPtr = Rc<RefCell<dyn Session>>;

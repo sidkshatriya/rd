@@ -24,7 +24,6 @@ mod registers;
 mod address_space;
 mod auto_remote_syscalls;
 mod core;
-mod diversion_session;
 mod emu_fs;
 mod event;
 mod extra_registers;

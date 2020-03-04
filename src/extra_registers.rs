@@ -519,7 +519,7 @@ fn features_used(data: &[u8], layout: &XSaveLayout) -> u64 {
             .unwrap(),
     );
 
-    let pkru_bit = 1 << XSAVE_FEATURE_PKRU;
+    let pkru_bit: u64 = 1u64 << XSAVE_FEATURE_PKRU;
     if features & pkru_bit != 0 && XSAVE_FEATURE_PKRU < layout.feature_layouts.len() {
         let fl: XSaveFeatureLayout = layout.feature_layouts[XSAVE_FEATURE_PKRU];
         let fl_offset = fl.offset as usize;
