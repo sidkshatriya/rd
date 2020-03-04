@@ -87,7 +87,7 @@ pub mod task_inner {
     use crate::remote_code_ptr::RemoteCodePtr;
     use crate::remote_ptr::{RemotePtr, Void};
     use crate::scoped_fd::ScopedFd;
-    use crate::session_interface::SessionInterface;
+    use crate::session::Session;
     use crate::task::Task;
     use crate::taskish_uid::TaskUid;
     use crate::thread_group::{ThreadGroup, ThreadGroupSharedPtr};
@@ -225,7 +225,7 @@ pub mod task_inner {
         extra_registers_known: bool,
         /// The session we're part of.
         /// `session_` in rr.
-        session_interface: *mut dyn SessionInterface,
+        session_interface: *mut dyn Session,
         /// The thread group this belongs to.
         tg: ThreadGroupSharedPtr,
         /// Entries set by |set_thread_area()| or the |tls| argument to |clone()|
@@ -529,14 +529,14 @@ pub mod task_inner {
 
         /// Return the session this is part of.
         /// @TODO Can we avoid the raw pointer?
-        pub fn session_interface(&self) -> &dyn SessionInterface {
+        pub fn session(&self) -> &dyn Session {
             unsafe { self.session_interface.as_ref() }.unwrap()
         }
 
         /// Return the session this is part of.
         /// @TODO Should we have &mut self here?
         /// @TODO Can we avoid the raw pointer?
-        pub fn session_interface_mut(&self) -> &mut dyn SessionInterface {
+        pub fn session_mut(&self) -> &mut dyn Session {
             unsafe { self.session_interface.as_mut() }.unwrap()
         }
 
@@ -827,13 +827,7 @@ pub mod task_inner {
             unimplemented!()
         }
 
-        fn new(
-            session: &dyn SessionInterface,
-            tid: pid_t,
-            rec_tid: pid_t,
-            serial: u32,
-            a: SupportedArch,
-        ) {
+        fn new(session: &dyn Session, tid: pid_t, rec_tid: pid_t, serial: u32, a: SupportedArch) {
             unimplemented!()
         }
 
@@ -923,7 +917,7 @@ pub mod task_inner {
         /// in the process into which the copy of this task will be
         /// created.  |task_leader| will perform the actual OS calls to
         /// create the new child.
-        fn os_fork_into(&self, session: &dyn SessionInterface) -> &TaskInner {
+        fn os_fork_into(&self, session: &dyn Session) -> &TaskInner {
             unimplemented!()
         }
         fn os_clone_into(state: &CapturedState, remote: &AutoRemoteSyscalls) -> *mut TaskInner {
@@ -945,7 +939,7 @@ pub mod task_inner {
         /// arguments are as for |Task::clone()| above.
         fn os_clone(
             reason: CloneReason,
-            session: &dyn SessionInterface,
+            session: &dyn Session,
             remote: &AutoRemoteSyscalls,
             rec_child_tid: pid_t,
             new_serial: u32,
@@ -962,7 +956,7 @@ pub mod task_inner {
         /// (i.e. an exec does not occur before an exit), an error may be
         /// readable from the other end of the pipe whose write end is error_fd.
         fn spawn<'a>(
-            session: &'a dyn SessionInterface,
+            session: &'a dyn Session,
             error_fd: &ScopedFd,
             sock_fd_out: &ScopedFd,
             tracee_socket_fd_number_out: &mut i32,

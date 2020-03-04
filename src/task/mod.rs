@@ -1,7 +1,7 @@
 use crate::kernel_abi::SupportedArch;
 use crate::registers::Registers;
 use crate::remote_ptr::{RemotePtr, Void};
-use crate::session_interface::SessionInterface;
+use crate::session::Session;
 use crate::task::record_task::record_task::RecordTask;
 use crate::task::replay_task::ReplayTask;
 use crate::task::task_inner::task_inner::CloneReason;
@@ -112,7 +112,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
         new_tid: pid_t,
         new_rec_tid: pid_t,
         new_serial: u32,
-        other_session: Option<&dyn SessionInterface>,
+        other_session: Option<&dyn Session>,
     ) -> &TaskInner;
 
     /// Internal method called after the first wait() during a clone().

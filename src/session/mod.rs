@@ -3,9 +3,9 @@ use crate::diversion_session::DiversionSession;
 use crate::emu_fs::EmuFs;
 use crate::kernel_abi::SupportedArch;
 use crate::remote_ptr::{RemotePtr, Void};
-use crate::session_interface::record_session::RecordSession;
-use crate::session_interface::replay_session::ReplaySession;
-use crate::session_interface::session::session::{Session, TaskMap};
+use crate::session::record_session::RecordSession;
+use crate::session::replay_session::ReplaySession;
+use crate::session::session_inner::session_inner::{SessionInner, TaskMap};
 use crate::task::Task;
 use crate::taskish_uid::{AddressSpaceUid, TaskUid, ThreadGroupUid};
 use crate::thread_group::{ThreadGroup, ThreadGroupSharedPtr};
@@ -15,11 +15,11 @@ use std::ops::{Deref, DerefMut};
 
 pub mod record_session;
 pub mod replay_session;
-pub mod session;
+pub mod session_inner;
 
-pub trait SessionInterface {
-    fn as_session(&self) -> &Session;
-    fn as_session_mut(&self) -> &mut Session;
+pub trait Session {
+    fn as_session_inner(&self) -> &SessionInner;
+    fn as_session_inner_mut(&self) -> &mut SessionInner;
 
     fn on_destroy(&self, t: &dyn Task);
     fn as_record(&self) -> Option<&RecordSession> {
@@ -48,7 +48,7 @@ pub trait SessionInterface {
     fn on_create(&self, t: &dyn Task);
 
     /// NOTE: called Session::copy_state_to() in rr.
-    fn copy_state_to_session(&self, dest: &Session, emu_fs: &EmuFs, dest_emu_fs: EmuFs) {
+    fn copy_state_to_session(&self, dest: &SessionInner, emu_fs: &EmuFs, dest_emu_fs: EmuFs) {
         unimplemented!()
     }
 
@@ -114,7 +114,7 @@ pub trait SessionInterface {
     /// @TODO shouldn't need for this to be mutable but it is due to finish_initializing()
     fn tasks(&mut self) -> &TaskMap {
         self.finish_initializing();
-        &self.as_session().task_map
+        &self.as_session_inner().task_map
     }
 
     /// Call |post_exec()| immediately after a tracee has successfully
@@ -132,16 +132,16 @@ pub trait SessionInterface {
     }
 }
 
-impl<'a> Deref for dyn SessionInterface + 'a {
-    type Target = Session;
+impl<'a> Deref for dyn Session + 'a {
+    type Target = SessionInner;
 
     fn deref(&self) -> &Self::Target {
-        self.as_session()
+        self.as_session_inner()
     }
 }
 
-impl<'a> DerefMut for dyn SessionInterface + 'a {
+impl<'a> DerefMut for dyn Session + 'a {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.as_session_mut()
+        self.as_session_inner_mut()
     }
 }

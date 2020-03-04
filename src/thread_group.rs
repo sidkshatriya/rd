@@ -1,5 +1,5 @@
-use crate::session_interface::session::session::Session;
-use crate::session_interface::SessionInterface;
+use crate::session::session_inner::session_inner::SessionInner;
+use crate::session::Session;
 use crate::task_set::TaskSet;
 use crate::taskish_uid::ThreadGroupUid;
 use crate::wait_status::WaitStatus;
@@ -40,7 +40,7 @@ pub struct ThreadGroup {
 
     /// private fields
     /// In rr, nullptr is used to indicate no session.
-    session_interface: Option<*mut dyn SessionInterface>,
+    session_interface: Option<*mut dyn Session>,
     /// Parent ThreadGroup, or None if it's not a tracee (rd or init).
     /// Different from rr where nullptr is used.
     parent_: Option<*mut ThreadGroup>,
@@ -76,7 +76,7 @@ impl DerefMut for ThreadGroup {
 /// task must own a reference to this.
 impl ThreadGroup {
     pub fn new(
-        session: &Session,
+        session: &SessionInner,
         parent: Option<&ThreadGroup>,
         tgid: pid_t,
         real_tgid: pid_t,
@@ -152,11 +152,12 @@ impl ThreadGroup {
         unimplemented!()
     }
 
-    pub fn session_interface(&self) -> &dyn SessionInterface {
+    /// @TODO avoid this unsafe somehow?
+    pub fn session(&self) -> &dyn Session {
         unsafe { self.session_interface.unwrap().as_ref() }.unwrap()
     }
     /// @TODO Should we have &mut self here?
-    pub fn session_interface_mut(&self) -> &mut dyn SessionInterface {
+    pub fn session_mut(&self) -> &mut dyn Session {
         unsafe { self.session_interface.unwrap().as_mut() }.unwrap()
     }
     pub fn forget_session(&mut self) {

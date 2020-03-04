@@ -106,8 +106,8 @@ pub mod address_space {
     use crate::remote_code_ptr::RemoteCodePtr;
     use crate::remote_ptr::RemotePtr;
     use crate::scoped_fd::ScopedFd;
-    use crate::session_interface::session::session::Session;
-    use crate::session_interface::SessionInterface;
+    use crate::session::session_inner::session_inner::SessionInner;
+    use crate::session::Session;
     use crate::task::record_task::record_task::RecordTask;
     use crate::task::Task;
     use crate::task_set::TaskSet;
@@ -437,7 +437,7 @@ pub mod address_space {
         /// The session that created this.  We save a ref to it so that
         /// we can notify it when we die.
         /// `session_` in rr.
-        session_interface: *mut dyn SessionInterface,
+        session_interface: *mut dyn Session,
         /// tid of the task whose thread-locals are in preload_thread_locals
         thread_locals_tuid_: TaskUid,
         /// First mapped byte of the vdso.
@@ -499,7 +499,7 @@ pub mod address_space {
             // us traced and untraced syscall instructions at known, fixed addresses.
             self.map_rd_page(&remote);
             // Set up the preload_thread_locals shared area.
-            Session::create_shared_mmap(
+            SessionInner::create_shared_mmap(
                 &remote,
                 PRELOAD_THREAD_LOCALS_SIZE,
                 Self::preload_thread_locals_start(),
@@ -542,12 +542,13 @@ pub mod address_space {
             unimplemented!()
         }
 
-        pub fn session_interface(&self) -> &dyn SessionInterface {
+        /// @TODO Avoid this unsafe somehow?
+        pub fn session(&self) -> &dyn Session {
             unsafe { self.session_interface.as_ref() }.unwrap()
         }
 
         /// @TODO Should we have &mut self here?
-        pub fn session_interface_mut(&self) -> &mut dyn SessionInterface {
+        pub fn session_mut(&self) -> &mut dyn Session {
             unsafe { self.session_interface.as_mut() }.unwrap()
         }
 
@@ -1056,7 +1057,7 @@ pub mod address_space {
         /// clone. After this, and the task is properly set up, post_vm_clone will
         /// be called.
         fn new_after_fork_or_session_clone(
-            session: &Session,
+            session: &SessionInner,
             o: &AddressSpace,
             leader_tid: pid_t,
             leader_serial: u32,

@@ -19,7 +19,7 @@ use crate::registers::Registers;
 use crate::remote_code_ptr::RemoteCodePtr;
 use crate::remote_ptr::{RemotePtr, Void};
 use crate::scoped_fd::ScopedFd;
-use crate::session_interface::replay_session::ReplaySession;
+use crate::session::replay_session::ReplaySession;
 use crate::task::task_inner::task_inner::TaskInner;
 use crate::task::task_inner::ResumeRequest::{ResumeSinglestep, ResumeSyscall};
 use crate::task::task_inner::TicksRequest::ResumeNoTicks;
@@ -228,7 +228,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
     ///  If t's stack pointer doesn't look valid, temporarily adjust it to
     ///  the top of *some* stack area.
     pub fn maybe_fix_stack_pointer(&mut self) {
-        if !self.t.session_interface().done_initial_exec() {
+        if !self.t.session().done_initial_exec() {
             return;
         }
 
@@ -459,7 +459,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
             ));
         }
 
-        let child_sock = remote_buf.task_ref().session_interface().tracee_fd_number();
+        let child_sock = remote_buf.task_ref().session().tracee_fd_number();
         let child_syscall_result: isize =
             child_sendmsg(&mut remote_buf, maybe_sc_args, sc_args_end, child_sock, fd);
         if child_syscall_result == -ESRCH as isize {
@@ -473,13 +473,8 @@ impl<'a> AutoRemoteSyscalls<'a> {
             errno_name((-child_syscall_result).try_into().unwrap())
         );
 
-        let our_fd: i32 = recvmsg_socket(
-            &remote_buf
-                .task_ref()
-                .session_interface()
-                .tracee_socket_fd()
-                .borrow(),
-        );
+        let our_fd: i32 =
+            recvmsg_socket(&remote_buf.task_ref().session().tracee_socket_fd().borrow());
         ScopedFd::from_raw(our_fd)
     }
 
@@ -722,19 +717,13 @@ fn ignore_signal(t: &dyn Task) -> bool {
         return false;
     }
 
-    if t.session_interface().is_replaying() {
+    if t.session().is_replaying() {
         if ReplaySession::is_ignored_signal(sig.unwrap()) {
             return true;
         }
-    } else if t.session_interface().is_recording() {
+    } else if t.session().is_recording() {
         let rt = t.as_record_task().unwrap();
-        if sig.unwrap()
-            != rt
-                .session_interface()
-                .as_record()
-                .unwrap()
-                .syscallbuf_desched_sig()
-        {
+        if sig.unwrap() != rt.session().as_record().unwrap().syscallbuf_desched_sig() {
             rt.stash_sig();
         }
         return true;

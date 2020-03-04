@@ -219,8 +219,8 @@ pub mod record_task {
     use crate::remote_code_ptr::RemoteCodePtr;
     use crate::remote_ptr::{RemotePtr, Void};
     use crate::scoped_fd::ScopedFd;
-    use crate::session_interface::record_session::RecordSession;
-    use crate::session_interface::SessionInterface;
+    use crate::session::record_session::RecordSession;
+    use crate::session::Session;
     use crate::task::replay_task::ReplayTask;
     use crate::task::task_inner::task_inner::{open_mem_fd, CloneReason, TaskInner};
     use crate::task::Task;
@@ -451,7 +451,7 @@ pub mod record_task {
             new_tid: i32,
             new_rec_tid: i32,
             new_serial: u32,
-            other_session: Option<&dyn SessionInterface>,
+            other_session: Option<&dyn Session>,
         ) -> &TaskInner {
             unimplemented!()
         }

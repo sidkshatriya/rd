@@ -39,7 +39,7 @@ mod rd;
 mod remote_code_ptr;
 mod remote_ptr;
 mod scoped_fd;
-mod session_interface;
+mod session;
 mod task;
 mod task_set;
 mod taskish_uid;

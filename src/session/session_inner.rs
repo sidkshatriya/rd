@@ -64,7 +64,7 @@ pub fn is_singlestep(command: RunCommand) -> bool {
     command == RunCommand::RunSinglestep || command == RunCommand::RunSinglestepFastForward
 }
 
-pub mod session {
+pub mod session_inner {
     use super::BreakStatus;
     use super::RunCommand;
     use crate::address_space::address_space::{AddressSpace, AddressSpaceSharedPtr, Mapping};
@@ -128,7 +128,7 @@ pub mod session {
     ///
     /// Multiple sessions can coexist in the same process.  This
     /// is required when using replay checkpoints, for example.
-    impl Session {
+    impl SessionInner {
         /// Returns true after the tracee has done the initial exec in Task::spawn.
         /// Before then, tracee state can be inconsistent; from the exec exit-event
         /// onwards, the tracee state much be consistent.
@@ -328,7 +328,7 @@ pub mod session {
         }
     }
 
-    impl Drop for Session {
+    impl Drop for SessionInner {
         fn drop(&mut self) {
             unimplemented!()
         }
@@ -355,7 +355,7 @@ pub mod session {
     ///
     /// Multiple sessions can coexist in the same process.  This
     /// is required when using replay checkpoints, for example.
-    pub struct Session {
+    pub struct SessionInner {
         /// All these members are NOT pub
         pub(in super::super) vm_map: AddressSpaceMap,
         pub(in super::super) task_map: TaskMap,
