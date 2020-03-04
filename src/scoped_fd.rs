@@ -20,17 +20,18 @@ impl ScopedFd {
     }
 
     pub fn open_path<P: ?Sized + NixPath>(path: &P, oflag: OFlag) -> Self {
-        let rawfd = open(path, oflag, Mode::empty()).unwrap();
+        let rawfd = open(path, oflag, Mode::empty()).unwrap_or(-1);
         ScopedFd { fd: rawfd }
     }
 
     pub fn open_path_with_mode<P: ?Sized + NixPath>(path: &P, oflag: OFlag, mode: Mode) -> Self {
-        let rawfd = open(path, oflag, mode).unwrap();
+        let rawfd = open(path, oflag, mode).unwrap_or(-1);
         ScopedFd { fd: rawfd }
     }
 
     pub fn close(&mut self) {
         if self.fd >= 0 {
+            // @TODO rr swallows any error but we leave this for now.
             close(self.fd).unwrap();
         }
 

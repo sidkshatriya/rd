@@ -230,7 +230,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
     ///  If t's stack pointer doesn't look valid, temporarily adjust it to
     ///  the top of *some* stack area.
     pub fn maybe_fix_stack_pointer(&mut self) {
-        if !self.t.session().borrow_mut().done_initial_exec() {
+        if !self.t.session().borrow().done_initial_exec() {
             return;
         }
 
