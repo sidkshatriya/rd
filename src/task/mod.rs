@@ -9,16 +9,21 @@ use crate::task::task_inner::task_inner::TaskInner;
 use crate::task::task_inner::{ResumeRequest, TicksRequest, WaitRequest};
 use crate::wait_status::WaitStatus;
 use libc::pid_t;
+use std::cell::RefCell;
 use std::hash::{Hash, Hasher};
 use std::io::Write;
 use std::ops::Deref;
 use std::ops::DerefMut;
+use std::rc::{Rc, Weak};
 
 pub mod record_task;
 pub mod replay_task;
 pub mod task_inner;
 
-/// @TODO should we store *const dyn Task?
+pub type TaskSharedPtr = Rc<RefCell<dyn Task>>;
+pub type TaskSharedWeakPtr = Weak<RefCell<dyn Task>>;
+
+/// @TODO should we store Weak pointers?
 #[derive(Copy, Clone)]
 pub struct TaskRawPtr(pub *mut dyn Task);
 

@@ -11,11 +11,16 @@ use crate::taskish_uid::{AddressSpaceUid, TaskUid, ThreadGroupUid};
 use crate::thread_group::{ThreadGroup, ThreadGroupSharedPtr};
 use crate::trace_stream::TraceStream;
 use libc::pid_t;
-use std::ops::{Deref, DerefMut};
+use std::cell::RefCell;
+use std::ops::DerefMut;
+use std::rc::{Rc, Weak};
 
 pub mod record_session;
 pub mod replay_session;
 pub mod session_inner;
+
+pub type SessionSharedPtr = Rc<RefCell<dyn Session>>;
+pub type SessionSharedWeakPtr = Weak<RefCell<dyn Session>>;
 
 pub trait Session: DerefMut<Target = SessionInner> {
     fn as_session_inner(&self) -> &SessionInner;

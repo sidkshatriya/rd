@@ -87,8 +87,8 @@ pub mod task_inner {
     use crate::remote_code_ptr::RemoteCodePtr;
     use crate::remote_ptr::{RemotePtr, Void};
     use crate::scoped_fd::ScopedFd;
-    use crate::session::Session;
-    use crate::task::Task;
+    use crate::session::{Session, SessionSharedPtr, SessionSharedWeakPtr};
+    use crate::task::{Task, TaskSharedWeakPtr};
     use crate::taskish_uid::TaskUid;
     use crate::thread_group::{ThreadGroup, ThreadGroupSharedPtr};
     use crate::ticks::Ticks;
@@ -224,9 +224,8 @@ pub mod task_inner {
         /// When |extra_registers_known|, we have saved our extra registers.
         extra_registers: ExtraRegisters,
         extra_registers_known: bool,
-        /// The session we're part of.
-        /// `session_` in rr.
-        session_: *mut dyn Session,
+        /// A weak pointer to the  session we're part of.
+        session_: SessionSharedWeakPtr,
         /// The thread group this belongs to.
         tg: ThreadGroupSharedPtr,
         /// Entries set by |set_thread_area()| or the |tls| argument to |clone()|
@@ -244,6 +243,8 @@ pub mod task_inner {
         /// True when a PTRACE_EXIT_EVENT has been observed in the wait_status
         /// for this task.
         seen_ptrace_exit_event: bool,
+        /// Important. Weak dyn Task pointer to self.
+        weak_self_task: TaskSharedWeakPtr,
     }
 
     pub type DebugRegs = Vec<WatchConfig>;
@@ -529,16 +530,8 @@ pub mod task_inner {
         }
 
         /// Return the session this is part of.
-        /// @TODO Can we avoid the raw pointer?
-        pub fn session(&self) -> &dyn Session {
-            unsafe { self.session_.as_ref() }.unwrap()
-        }
-
-        /// Return the session this is part of.
-        /// @TODO Should we have &mut self here?
-        /// @TODO Can we avoid the raw pointer?
-        pub fn session_mut(&self) -> &mut dyn Session {
-            unsafe { self.session_.as_mut() }.unwrap()
+        pub fn session(&self) -> SessionSharedPtr {
+            self.session_.upgrade().unwrap()
         }
 
         /// Set the tracee's registers to |regs|. Lazy.

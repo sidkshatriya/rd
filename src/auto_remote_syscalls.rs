@@ -228,7 +228,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
     ///  If t's stack pointer doesn't look valid, temporarily adjust it to
     ///  the top of *some* stack area.
     pub fn maybe_fix_stack_pointer(&mut self) {
-        if !self.t.session().done_initial_exec() {
+        if !self.t.session().borrow_mut().done_initial_exec() {
             return;
         }
 
@@ -437,7 +437,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         let mut data_length: usize = max(
             reserve::<Arch::sockaddr_un>(),
             reserve::<Arch::msghdr>()
-                // This is the aligned space don't need to align again.
+                // This is the aligned space. Don't need to align again.
                 + rd_kernel_abi_arch_function!(cmsg_space, Arch::arch(), size_of_val(&fd))
                 + reserve::<Arch::iovec>(),
         );
@@ -459,7 +459,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
             ));
         }
 
-        let child_sock = remote_buf.task_ref().session().tracee_fd_number();
+        let child_sock = remote_buf.task_ref().session().borrow().tracee_fd_number();
         let child_syscall_result: isize =
             child_sendmsg(&mut remote_buf, maybe_sc_args, sc_args_end, child_sock, fd);
         if child_syscall_result == -ESRCH as isize {
@@ -473,8 +473,14 @@ impl<'a> AutoRemoteSyscalls<'a> {
             errno_name((-child_syscall_result).try_into().unwrap())
         );
 
-        let our_fd: i32 =
-            recvmsg_socket(&remote_buf.task_ref().session().tracee_socket_fd().borrow());
+        let our_fd: i32 = recvmsg_socket(
+            &remote_buf
+                .task_ref()
+                .session()
+                .borrow()
+                .tracee_socket_fd()
+                .borrow(),
+        );
         ScopedFd::from_raw(our_fd)
     }
 
@@ -717,13 +723,20 @@ fn ignore_signal(t: &dyn Task) -> bool {
         return false;
     }
 
-    if t.session().is_replaying() {
+    if t.session().borrow().is_replaying() {
         if ReplaySession::is_ignored_signal(sig.unwrap()) {
             return true;
         }
-    } else if t.session().is_recording() {
+    } else if t.session().borrow().is_recording() {
         let rt = t.as_record_task().unwrap();
-        if sig.unwrap() != rt.session().as_record().unwrap().syscallbuf_desched_sig() {
+        if sig.unwrap()
+            != rt
+                .session()
+                .borrow()
+                .as_record()
+                .unwrap()
+                .syscallbuf_desched_sig()
+        {
             rt.stash_sig();
         }
         return true;
@@ -744,7 +757,9 @@ struct SocketcallArgs<Arch: Architecture> {
 impl<Arch: Architecture> Clone for SocketcallArgs<Arch> {
     fn clone(&self) -> Self {
         SocketcallArgs {
-            args: self.args.clone(),
+            // Wrapped in unsafe because of:
+            // warning: borrow of packed field is unsafe and requires unsafe function or block (error E0133)
+            args: unsafe { self.args.clone() },
         }
     }
 }

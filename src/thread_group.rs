@@ -1,5 +1,5 @@
 use crate::session::session_inner::session_inner::SessionInner;
-use crate::session::Session;
+use crate::session::{SessionSharedPtr, SessionSharedWeakPtr};
 use crate::task_set::TaskSet;
 use crate::taskish_uid::ThreadGroupUid;
 use crate::wait_status::WaitStatus;
@@ -41,12 +41,15 @@ pub struct ThreadGroup {
 
     /// private fields
     /// In rr, nullptr is used to indicate no session.
-    session_interface: Option<*mut dyn Session>,
+    /// However, in rd we always assume there is a session.
+    /// The only place where session is removed is the forget_session() method in rr
+    /// which we don't use.
+    session_: SessionSharedWeakPtr,
     /// Parent ThreadGroup, or None if it's not a tracee (rd or init).
     /// Different from rr where nullptr is used.
-    parent_: Option<*mut ThreadGroup>,
+    parent_: Option<ThreadGroupSharedWeakPtr>,
 
-    children_: HashSet<*mut ThreadGroup>,
+    children_: HashSet<ThreadGroupSharedWeakPtr>,
 
     serial: u32,
 }
@@ -153,16 +156,8 @@ impl ThreadGroup {
         unimplemented!()
     }
 
-    /// @TODO avoid this unsafe somehow?
-    pub fn session(&self) -> &dyn Session {
-        unsafe { self.session_interface.unwrap().as_ref() }.unwrap()
-    }
-    /// @TODO Should we have &mut self here?
-    pub fn session_mut(&self) -> &mut dyn Session {
-        unsafe { self.session_interface.unwrap().as_mut() }.unwrap()
-    }
-    pub fn forget_session(&mut self) {
-        self.session_interface = None;
+    pub fn session(&self) -> SessionSharedPtr {
+        self.session_.upgrade().unwrap()
     }
 
     pub fn parent(&self) -> Option<&ThreadGroup> {

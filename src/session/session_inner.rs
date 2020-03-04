@@ -67,17 +67,20 @@ pub fn is_singlestep(command: RunCommand) -> bool {
 pub mod session_inner {
     use super::BreakStatus;
     use super::RunCommand;
-    use crate::address_space::address_space::{AddressSpace, AddressSpaceSharedPtr, Mapping};
+    use crate::address_space::address_space::{
+        AddressSpace, AddressSpaceSharedPtr, AddressSpaceSharedWeakPtr, Mapping,
+    };
     use crate::address_space::kernel_mapping::KernelMapping;
     use crate::auto_remote_syscalls::AutoRemoteSyscalls;
     use crate::monitored_shared_memory::MonitoredSharedMemorySharedPtr;
     use crate::perf_counters::TicksSemantics;
     use crate::remote_ptr::{RemotePtr, Void};
     use crate::scoped_fd::ScopedFd;
+    use crate::session::SessionSharedWeakPtr;
     use crate::task::task_inner::task_inner::CapturedState;
-    use crate::task::Task;
+    use crate::task::{Task, TaskSharedPtr, TaskSharedWeakPtr};
     use crate::taskish_uid::{AddressSpaceUid, ThreadGroupUid};
-    use crate::thread_group::{ThreadGroup, ThreadGroupSharedPtr};
+    use crate::thread_group::{ThreadGroup, ThreadGroupSharedPtr, ThreadGroupSharedWeakPtr};
     use crate::ticks::Ticks;
     use libc::pid_t;
     use std::cell::RefCell;
@@ -88,9 +91,9 @@ pub mod session_inner {
     /// (effectively), so that if the first task dies and its tid is recycled,
     /// we don't get confused. TaskMap is indexed by tid since there can never be
     /// two Tasks with the same tid at the same time.
-    pub type AddressSpaceMap = HashMap<AddressSpaceUid, *mut AddressSpace>;
-    pub type TaskMap = HashMap<pid_t, *mut dyn Task>;
-    pub type ThreadGroupMap = HashMap<ThreadGroupUid, *mut ThreadGroup>;
+    pub type AddressSpaceMap = HashMap<AddressSpaceUid, AddressSpaceSharedWeakPtr>;
+    pub type TaskMap = HashMap<pid_t, TaskSharedPtr>;
+    pub type ThreadGroupMap = HashMap<ThreadGroupUid, ThreadGroupSharedWeakPtr>;
 
     #[derive(Copy, Clone)]
     pub enum PreserveContents {
@@ -108,7 +111,8 @@ pub mod session_inner {
     /// struct is NOT pub
     #[derive(Clone)]
     pub(in super::super) struct AddressSpaceClone {
-        pub clone_leader: *mut dyn Task,
+        /// @TODO need to think about this
+        pub clone_leader: TaskSharedWeakPtr,
         pub clone_leader_state: CapturedState,
         pub member_states: Vec<CapturedState>,
         pub captured_memory: Vec<(RemotePtr<Void>, Vec<u8>)>,
@@ -358,6 +362,8 @@ pub mod session_inner {
     ///
     /// This struct should NOT impl the Session trait
     pub struct SessionInner {
+        /// Weak dyn Session pointer to self
+        pub(in super::super) weak_self_session: SessionSharedWeakPtr,
         /// All these members are NOT pub
         pub(in super::super) vm_map: AddressSpaceMap,
         pub(in super::super) task_map: TaskMap,

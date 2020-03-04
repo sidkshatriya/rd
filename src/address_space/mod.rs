@@ -107,7 +107,7 @@ pub mod address_space {
     use crate::remote_ptr::RemotePtr;
     use crate::scoped_fd::ScopedFd;
     use crate::session::session_inner::session_inner::SessionInner;
-    use crate::session::Session;
+    use crate::session::{SessionSharedPtr, SessionSharedWeakPtr};
     use crate::task::record_task::record_task::RecordTask;
     use crate::task::Task;
     use crate::task_set::TaskSet;
@@ -438,7 +438,7 @@ pub mod address_space {
         /// The session that created this.  We save a ref to it so that
         /// we can notify it when we die.
         /// `session_` in rr.
-        session_interface: *mut dyn Session,
+        session_: SessionSharedWeakPtr,
         /// tid of the task whose thread-locals are in preload_thread_locals
         thread_locals_tuid_: TaskUid,
         /// First mapped byte of the vdso.
@@ -543,14 +543,8 @@ pub mod address_space {
             unimplemented!()
         }
 
-        /// @TODO Avoid this unsafe somehow?
-        pub fn session(&self) -> &dyn Session {
-            unsafe { self.session_interface.as_ref() }.unwrap()
-        }
-
-        /// @TODO Should we have &mut self here?
-        pub fn session_mut(&self) -> &mut dyn Session {
-            unsafe { self.session_interface.as_mut() }.unwrap()
+        pub fn session(&self) -> SessionSharedPtr {
+            self.session_.upgrade().unwrap()
         }
 
         pub fn arch(&self) -> SupportedArch {
