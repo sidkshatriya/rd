@@ -6,7 +6,7 @@ pub fn syscall_name(syscall: i32, arch: SupportedArch) -> String {
 }
 
 pub fn signal_name(sig: i32) -> String {
-    /* strsignal() would be nice to use here, but it provides TMI. */
+    // strsignal() would be nice to use here, but it provides TMI.
     if 32 <= sig && sig <= 64 {
         return format!("SIGRT{}", sig);
     }
@@ -43,10 +43,9 @@ pub fn signal_name(sig: i32) -> String {
         libc::SIGIO => "SIGIO".into(),
         libc::SIGPWR => "SIGPWR".into(),
         libc::SIGSYS => "SIGSYS".into(),
-        /* Special-case this so we don't need to sprintf in this common case.
-         * This case is common because we often pass signal_name(sig) to assertions
-         * when sig is 0.
-         */
+        // Special-case this so we don't need to sprintf in this common case.
+        // This case is common because we often pass signal_name(sig) to assertions
+        // when sig is 0.
         0 => "signal(0)".into(),
         _ => format!("signal({}))", sig)
     }
@@ -61,17 +60,16 @@ pub fn ptrace_event_name(event: i32) -> String {
         libc::PTRACE_EVENT_VFORK_DONE => "PTRACE_EVENT_VFORK_DONE".into(),
         libc::PTRACE_EVENT_EXIT => "PTRACE_EVENT_EXIT".into(),
         // @TODO.
-        /* XXX Ubuntu 12.04 defines a "PTRACE_EVENT_STOP", but that
-         * has the same value as the newer EVENT_SECCOMP, so we'll
-         * ignore STOP. */
+        // XXX Ubuntu 12.04 defines a "PTRACE_EVENT_STOP", but that
+        // has the same value as the newer EVENT_SECCOMP, so we'll
+        // ignore STOP.
         // libc::PTRACE_EVENT_SECCOMP_OBSOLETE => "PTRACE_EVENT_SECCOMP_OBSOLETE".into(),
         libc::PTRACE_EVENT_SECCOMP => "PTRACE_EVENT_SECCOMP".into(),
         // @TODO.
         // libc::PTRACE_EVENT_STOP  => "PTRACE_EVENT_STOP".into(),
-        /* Special-case this.
-         * This case is common because we often pass ptrace_event_name(event) to
-         * assertions when event is 0.
-         */
+        // Special-case this.
+        // This case is common because we often pass ptrace_event_name(event) to
+        // assertions when event is 0.
         0 => "PTRACE_EVENT(0)".into(),
         _ => format!("PTRACE_EVENT({})", event),
     }

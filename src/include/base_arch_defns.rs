@@ -857,10 +857,8 @@ pub struct select_args {
     pub timeout: ptr<timeval>,
 }
 
-/**
- *  Some ipc calls require 7 params, so two of them are stashed into
- *  one of these structs and a pointer to this is passed instead.
- */
+///  Some ipc calls require 7 params, so two of them are stashed into
+///  one of these structs and a pointer to this is passed instead.
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
 pub struct ipc_kludge_args {

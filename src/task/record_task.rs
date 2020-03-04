@@ -242,17 +242,15 @@ pub mod record_task {
     #[derive(Copy, Clone, Eq, PartialEq)]
     pub enum FlushSyscallbuf {
         FlushSyscallbuf,
-        /* Pass this if it's safe to replay the event before we process the
-         * syscallbuf records.
-         */
+        /// Pass this if it's safe to replay the event before we process the
+        /// syscallbuf records.
         DontFlushSyscallbuf,
     }
     #[derive(Copy, Clone, Eq, PartialEq)]
     pub enum AllowSyscallbufReset {
         AllowResetSyscallbuf,
-        /* Pass this if it's safe to replay the event before we process the
-         * syscallbuf records.
-         */
+        /// Pass this if it's safe to replay the event before we process the
+        /// syscallbuf records.
         DontResetSyscallbuf,
     }
 
