@@ -1,5 +1,5 @@
 use crate::event::Switchable;
-use crate::file_monitor::{FileMonitorInterface, FileMonitorSharedPtr, LazyOffset, Range};
+use crate::file_monitor::{FileMonitor, FileMonitorSharedPtr, LazyOffset, Range};
 use crate::task::record_task::record_task::RecordTask;
 use crate::task::replay_task::ReplayTask;
 use crate::task::task_inner::task_inner::TaskInner;
@@ -21,7 +21,7 @@ pub struct FdTable {
 }
 
 impl FdTable {
-    pub fn add_monitor(&self, t: &dyn Task, fd: i32, monitor: &dyn FileMonitorInterface) {
+    pub fn add_monitor(&self, t: &dyn Task, fd: i32, monitor: &dyn FileMonitor) {
         unimplemented!()
     }
     pub fn emulate_ioctl(&self, fd: i32, t: &RecordTask, result: &mut u64) -> bool {
@@ -73,7 +73,7 @@ impl FdTable {
         unimplemented!()
     }
 
-    pub fn get_monitor(&self, fd: i32) -> &dyn FileMonitorInterface {
+    pub fn get_monitor(&self, fd: i32) -> &dyn FileMonitor {
         unimplemented!()
     }
 

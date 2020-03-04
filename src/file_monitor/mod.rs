@@ -4,12 +4,22 @@ use crate::remote_ptr::{RemotePtr, Void};
 use crate::task::record_task::record_task::RecordTask;
 use crate::task::Task;
 use std::cell::RefCell;
+use std::ops::DerefMut;
 use std::rc::{Rc, Weak};
 
-pub type FileMonitorSharedPtr = Rc<RefCell<dyn FileMonitorInterface>>;
-pub type FileMonitorSharedWeakPtr = Weak<RefCell<dyn FileMonitorInterface>>;
+pub mod magic_save_data_monitor;
+pub mod mmapped_file_monitor;
+pub mod preserve_file_monitor;
+pub mod proc_fd_dir_monitor;
+pub mod proc_mem_monitor;
+pub mod stdio_monitor;
+pub mod virtual_perf_counter_monitor;
 
-pub struct FileMonitor;
+pub type FileMonitorSharedPtr = Rc<RefCell<dyn FileMonitor>>;
+pub type FileMonitorSharedWeakPtr = Weak<RefCell<dyn FileMonitor>>;
+
+/// This should NOT impl the FileMonitor trait
+pub struct FileMonitorInner;
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub enum FileMonitorType {
@@ -42,6 +52,8 @@ impl Range {
 /// an expensive operation if the offset is implicit (i.e. is taken from the
 /// file descriptor), so we only do it if we actually need to look at the
 /// offset.
+/// @TODO do we need BOTH t and regs here?
+/// If regs belongs to t it may just be simpler to have t.
 pub struct LazyOffset<'a> {
     t: &'a dyn Task,
     regs: &'a Registers,
@@ -57,10 +69,11 @@ impl<'a> LazyOffset<'a> {
     }
 }
 
-pub trait FileMonitorInterface {
-    fn file_monitor_type(&self) -> FileMonitorType {
-        FileMonitorType::Base
-    }
+/// We DONT need a DerefMut<Target=FileMonitorInner> at the moment because
+/// The FileMonitorInner struct does not have any members at the moment.
+pub trait FileMonitor {
+    /// You have to provide a type if you implement this trait
+    fn file_monitor_type(&self);
 
     /// Overriding this to return true will cause close() (and related fd-smashing
     /// operations such as dup2) to return EBADF, and hide it from the tracee's

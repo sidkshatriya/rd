@@ -110,6 +110,7 @@ pub mod task_inner {
     pub struct TrapReason;
     type ThreadLocals = [u8; PRELOAD_THREAD_LOCALS_SIZE];
 
+    /// This struct should NOT impl the Task trait
     pub struct TaskInner {
         /// Imagine that task A passes buffer |b| to the read()
         /// syscall.  Imagine that, after A is switched out for task B,

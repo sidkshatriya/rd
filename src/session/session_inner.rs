@@ -355,6 +355,8 @@ pub mod session_inner {
     ///
     /// Multiple sessions can coexist in the same process.  This
     /// is required when using replay checkpoints, for example.
+    ///
+    /// This struct should NOT impl the Session trait
     pub struct SessionInner {
         /// All these members are NOT pub
         pub(in super::super) vm_map: AddressSpaceMap,
