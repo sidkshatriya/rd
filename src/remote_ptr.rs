@@ -96,6 +96,7 @@ impl<T> Sub<usize> for RemotePtr<T> {
     }
 }
 
+/// Note that the other RemotePtr must have SAME referent type.
 impl<T> Sub<RemotePtr<T>> for RemotePtr<T> {
     type Output = usize;
 
@@ -182,17 +183,6 @@ mod tests {
         let b = a + 1 as usize;
         let c = b - 1 as usize;
         assert_eq!(0, c.as_usize());
-    }
-
-    #[test]
-    fn sub_with_different_test() {
-        struct S(u64, u64);
-        let a = RemotePtr::<u64>::new_from_val(8);
-        let b = RemotePtr::<S>::new_from_val(96);
-        #[cfg(target_arch = "x86_64")]
-        assert_eq!(11, b - a);
-        #[cfg(target_arch = "x86")]
-        assert_eq!(22, b - a);
     }
 
     #[test]

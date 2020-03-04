@@ -1,8 +1,8 @@
 use crate::address_space::address_space::AddressSpace;
-use crate::session::diversion_session::DiversionSession;
 use crate::emu_fs::EmuFs;
 use crate::kernel_abi::SupportedArch;
 use crate::remote_ptr::{RemotePtr, Void};
+use crate::session::diversion_session::DiversionSession;
 use crate::session::record_session::RecordSession;
 use crate::session::replay_session::ReplaySession;
 use crate::session::session_inner::session_inner::{SessionInner, TaskMap};
@@ -15,9 +15,9 @@ use std::cell::RefCell;
 use std::ops::DerefMut;
 use std::rc::{Rc, Weak};
 
+pub mod diversion_session;
 pub mod record_session;
 pub mod replay_session;
-pub mod diversion_session;
 pub mod session_inner;
 
 pub type SessionSharedPtr = Rc<RefCell<dyn Session>>;
