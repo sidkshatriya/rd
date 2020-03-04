@@ -33,7 +33,7 @@ use libc::{
 };
 use std::cmp::max;
 use std::convert::TryInto;
-use std::ffi::c_void;
+use std::ffi::{c_void, CStr};
 use std::mem::{size_of, size_of_val, transmute_copy, zeroed};
 use std::ops::{Deref, DerefMut};
 use std::ptr::copy_nonoverlapping;
@@ -120,9 +120,11 @@ impl<'a, 'b> AutoRestoreMem<'a, 'b> {
 
     /// Convenience constructor for pushing a C string |str|, including
     /// the trailing '\0' byte.
-    pub fn push_cstr(remote: &'a mut AutoRemoteSyscalls<'b>, s: &str) -> AutoRestoreMem<'a, 'b> {
-        unimplemented!()
+    pub fn push_cstr(remote: &'a mut AutoRemoteSyscalls<'b>, s: &CStr) -> AutoRestoreMem<'a, 'b> {
+        let c = s.to_bytes_with_nul();
+        Self::new(remote, Some(c), c.len())
     }
+
     /// Get a pointer to the reserved memory.
     /// Returns None if we failed.
     pub fn get(&self) -> Option<RemotePtr<Void>> {

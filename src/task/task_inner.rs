@@ -101,7 +101,7 @@ pub mod task_inner {
     use nix::unistd::getuid;
     use std::cell::RefCell;
     use std::convert::TryInto;
-    use std::ffi::CString;
+    use std::ffi::{CStr, CString};
     use std::mem::size_of;
     use std::os::raw::c_long;
     use std::path::Path;
@@ -993,7 +993,7 @@ pub mod task_inner {
         // only do this dance if that fails. But it's simpler to
         // always take this path, and gives better test coverage. On Ubuntu
         // the child has to open its own mem file (unless rr is root).
-        let path = "/proc/self/mem";
+        let path = CStr::from_bytes_with_nul(b"/proc/self/mem\0").unwrap();
 
         let arch = task.arch();
         let mut remote = AutoRemoteSyscalls::new(task);
