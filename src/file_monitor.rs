@@ -1,8 +1,8 @@
 use crate::event::Switchable;
 use crate::registers::Registers;
 use crate::remote_ptr::{RemotePtr, Void};
-use crate::task_interface::record_task::record_task::RecordTask;
-use crate::task_interface::TaskInterface;
+use crate::task::record_task::record_task::RecordTask;
+use crate::task::Task;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -42,13 +42,13 @@ impl Range {
 /// file descriptor), so we only do it if we actually need to look at the
 /// offset.
 pub struct LazyOffset<'a> {
-    t: &'a dyn TaskInterface,
+    t: &'a dyn Task,
     regs: &'a Registers,
     syscallno: i64,
 }
 
 impl<'a> LazyOffset<'a> {
-    pub fn new(t: &'a dyn TaskInterface, regs: &'a Registers, syscallno: i64) -> LazyOffset<'a> {
+    pub fn new(t: &'a dyn Task, regs: &'a Registers, syscallno: i64) -> LazyOffset<'a> {
         LazyOffset { t, regs, syscallno }
     }
     pub fn retrieve(needed_for_replay: bool) -> i64 {
@@ -77,11 +77,11 @@ pub trait FileMonitorInterface {
     /// on it is OK), this notification can return PREVENT_SWITCH to make the
     /// write a blocking write. This ensures that writes are performed in the order
     /// of will_write notifications.
-    fn will_write(&self, t: &dyn TaskInterface) -> Switchable {
+    fn will_write(&self, t: &dyn Task) -> Switchable {
         Switchable::AllowSwitch
     }
 
-    fn did_write(&self, t: &dyn TaskInterface, rv: Vec<Range>, l: &LazyOffset) {}
+    fn did_write(&self, t: &dyn Task, rv: Vec<Range>, l: &LazyOffset) {}
 
     /// Return true if the ioctl should be fully emulated. If so the result
     /// is stored in the last parameter.

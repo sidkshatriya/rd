@@ -66,7 +66,7 @@ pub enum TicksRequest {
     MaxTicksRequest = 2000000000,
 }
 
-pub mod task {
+pub mod task_inner {
     use super::*;
     use crate::address_space::address_space::AddressSpaceSharedPtr;
     use crate::address_space::kernel_mapping::KernelMapping;
@@ -88,7 +88,7 @@ pub mod task {
     use crate::remote_ptr::{RemotePtr, Void};
     use crate::scoped_fd::ScopedFd;
     use crate::session_interface::SessionInterface;
-    use crate::task_interface::TaskInterface;
+    use crate::task::Task;
     use crate::taskish_uid::TaskUid;
     use crate::thread_group::{ThreadGroup, ThreadGroupSharedPtr};
     use crate::ticks::Ticks;
@@ -110,7 +110,7 @@ pub mod task {
     pub struct TrapReason;
     type ThreadLocals = [u8; PRELOAD_THREAD_LOCALS_SIZE];
 
-    pub struct Task {
+    pub struct TaskInner {
         /// Imagine that task A passes buffer |b| to the read()
         /// syscall.  Imagine that, after A is switched out for task B,
         /// task B then writes to |b|.  Then B is switched out for A.
@@ -287,7 +287,7 @@ pub mod task {
         SessionCloneNonleader,
     }
 
-    impl Task {
+    impl TaskInner {
         /// We hide the destructor and require clients to call this instead. This
         /// lets us make virtual calls from within the destruction code. This
         /// does the actual PTRACE_DETACH and then calls the real destructor.
@@ -365,13 +365,13 @@ pub mod task {
         pub fn unmap_buffers_for(
             &self,
             remote: &AutoRemoteSyscalls,
-            t: &Task,
+            t: &TaskInner,
             saved_syscallbuf_child: RemotePtr<syscallbuf_hdr>,
         ) {
             unimplemented!()
         }
 
-        pub fn close_buffers_for(&self, remote: &AutoRemoteSyscalls, t: &Task) {
+        pub fn close_buffers_for(&self, remote: &AutoRemoteSyscalls, t: &TaskInner) {
             unimplemented!()
         }
 
@@ -817,7 +817,7 @@ pub mod task {
         pub fn setup_preload_thread_locals(&self) {
             unimplemented!()
         }
-        pub fn setup_preload_thread_locals_from_clone(&self, origin: &Task) {
+        pub fn setup_preload_thread_locals_from_clone(&self, origin: &TaskInner) {
             unimplemented!()
         }
         pub fn fetch_preload_thread_locals(&self) -> &ThreadLocals {
@@ -923,10 +923,10 @@ pub mod task {
         /// in the process into which the copy of this task will be
         /// created.  |task_leader| will perform the actual OS calls to
         /// create the new child.
-        fn os_fork_into(&self, session: &dyn SessionInterface) -> &Task {
+        fn os_fork_into(&self, session: &dyn SessionInterface) -> &TaskInner {
             unimplemented!()
         }
-        fn os_clone_into(state: &CapturedState, remote: &AutoRemoteSyscalls) -> *mut Task {
+        fn os_clone_into(state: &CapturedState, remote: &AutoRemoteSyscalls) -> *mut TaskInner {
             unimplemented!()
         }
 
@@ -971,7 +971,7 @@ pub mod task {
             argv: &[&str],
             envp: &[&str],
             rec_tid: pid_t,
-        ) -> &'a Task {
+        ) -> &'a TaskInner {
             unimplemented!()
         }
 
@@ -988,15 +988,15 @@ pub mod task {
     /// first. If necessary we force the tracee to open the file
     /// itself and smuggle the fd back to us.
     /// Returns false if the process no longer exists.
-    pub fn open_mem_fd<T: TaskInterface>(taski: &mut T) -> bool {
+    pub fn open_mem_fd<T: Task>(task: &mut T) -> bool {
         // Use ptrace to read/write during open_mem_fd
-        taski.as_.borrow_mut().set_mem_fd(ScopedFd::new());
+        task.as_.borrow_mut().set_mem_fd(ScopedFd::new());
 
-        if !taski.is_stopped {
+        if !task.is_stopped {
             log!(
                 LogWarn,
                 "Can't retrieve mem fd for {}; process not stopped, racing with exec?",
-                taski.tid
+                task.tid
             );
             return false;
         }
@@ -1007,8 +1007,8 @@ pub mod task {
         // the child has to open its own mem file (unless rr is root).
         let path = "/proc/self/mem";
 
-        let arch = taski.arch();
-        let mut remote = AutoRemoteSyscalls::new(taski);
+        let arch = task.arch();
+        let mut remote = AutoRemoteSyscalls::new(task);
         let remote_fd: i32;
         {
             let mut remote_path: AutoRestoreMem = AutoRestoreMem::push_cstr(&mut remote, path);

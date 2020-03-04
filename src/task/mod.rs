@@ -2,11 +2,11 @@ use crate::kernel_abi::SupportedArch;
 use crate::registers::Registers;
 use crate::remote_ptr::{RemotePtr, Void};
 use crate::session_interface::SessionInterface;
-use crate::task_interface::record_task::record_task::RecordTask;
-use crate::task_interface::replay_task::ReplayTask;
-use crate::task_interface::task::task::CloneReason;
-use crate::task_interface::task::task::Task;
-use crate::task_interface::task::{ResumeRequest, TicksRequest, WaitRequest};
+use crate::task::record_task::record_task::RecordTask;
+use crate::task::replay_task::ReplayTask;
+use crate::task::task_inner::task_inner::CloneReason;
+use crate::task::task_inner::task_inner::TaskInner;
+use crate::task::task_inner::{ResumeRequest, TicksRequest, WaitRequest};
 use crate::wait_status::WaitStatus;
 use libc::pid_t;
 use std::hash::{Hash, Hasher};
@@ -16,11 +16,11 @@ use std::ops::DerefMut;
 
 pub mod record_task;
 pub mod replay_task;
-pub mod task;
+pub mod task_inner;
 
 /// @TODO should we store *const dyn TaskInterface?
 #[derive(Copy, Clone)]
-pub struct TaskInterfaceRawPtr(pub *mut dyn TaskInterface);
+pub struct TaskInterfaceRawPtr(pub *mut dyn Task);
 
 impl PartialEq for TaskInterfaceRawPtr {
     fn eq(&self, other: &Self) -> bool {
@@ -40,7 +40,7 @@ impl Hash for TaskInterfaceRawPtr {
 }
 
 impl Deref for TaskInterfaceRawPtr {
-    type Target = dyn TaskInterface;
+    type Target = dyn Task;
 
     fn deref(&self) -> &Self::Target {
         unsafe { self.0.as_ref() }.unwrap()
@@ -53,9 +53,9 @@ impl DerefMut for TaskInterfaceRawPtr {
     }
 }
 
-pub trait TaskInterface: DerefMut<Target = Task> {
-    fn as_task(&self) -> &Task;
-    fn as_task_mut(&mut self) -> &mut Task;
+pub trait Task: DerefMut<Target = TaskInner> {
+    fn as_task_inner(&self) -> &TaskInner;
+    fn as_task_inner_mut(&mut self) -> &mut TaskInner;
 
     fn as_record_task(&self) -> Option<&RecordTask>;
     fn as_record_task_mut(&mut self) -> Option<&mut RecordTask>;
@@ -113,13 +113,13 @@ pub trait TaskInterface: DerefMut<Target = Task> {
         new_rec_tid: pid_t,
         new_serial: u32,
         other_session: Option<&dyn SessionInterface>,
-    ) -> &Task;
+    ) -> &TaskInner;
 
     /// Internal method called after the first wait() during a clone().
-    fn post_wait_clone(&self, t: &Task, flags: i32) {}
+    fn post_wait_clone(&self, t: &TaskInner, flags: i32) {}
 
     /// Internal method called after the clone to fix up the new address space.
-    fn post_vm_clone(&self, reason: CloneReason, flags: i32, origin: &Task) -> bool {
+    fn post_vm_clone(&self, reason: CloneReason, flags: i32, origin: &TaskInner) -> bool {
         unimplemented!()
     }
 

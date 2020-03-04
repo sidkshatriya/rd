@@ -10,7 +10,7 @@ use crate::kernel_supplement::{
 use crate::log::LogLevel::{LogError, LogInfo, LogWarn};
 use crate::remote_code_ptr::RemoteCodePtr;
 use crate::remote_ptr::{RemotePtr, Void};
-use crate::task_interface::task::task::Task;
+use crate::task::task_inner::task_inner::TaskInner;
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::fmt::Display;
@@ -258,7 +258,7 @@ impl Registers {
     /// mismatch.
     // @TODO the first param shold be Option<&ReplayTask>
     pub fn compare_register_files(
-        maybe_t: Option<&Task>,
+        maybe_t: Option<&TaskInner>,
         name1: &str,
         regs1: &Registers,
         name2: &str,

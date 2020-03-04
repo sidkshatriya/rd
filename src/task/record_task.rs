@@ -221,9 +221,9 @@ pub mod record_task {
     use crate::scoped_fd::ScopedFd;
     use crate::session_interface::record_session::RecordSession;
     use crate::session_interface::SessionInterface;
-    use crate::task_interface::replay_task::ReplayTask;
-    use crate::task_interface::task::task::{open_mem_fd, CloneReason, Task};
-    use crate::task_interface::TaskInterface;
+    use crate::task::replay_task::ReplayTask;
+    use crate::task::task_inner::task_inner::{open_mem_fd, CloneReason, TaskInner};
+    use crate::task::Task;
     use crate::ticks::Ticks;
     use crate::trace_frame::FrameTime;
     use crate::trace_writer::TraceWriter;
@@ -257,7 +257,7 @@ pub mod record_task {
     }
 
     pub struct RecordTask {
-        pub task: Task,
+        pub task: TaskInner,
         pub ticks_at_last_recorded_syscall_exit: Ticks,
 
         /// Scheduler state
@@ -395,7 +395,7 @@ pub mod record_task {
     }
 
     impl Deref for RecordTask {
-        type Target = Task;
+        type Target = TaskInner;
 
         fn deref(&self) -> &Self::Target {
             &self.task
@@ -408,12 +408,12 @@ pub mod record_task {
         }
     }
 
-    impl TaskInterface for RecordTask {
-        fn as_task(&self) -> &Task {
+    impl Task for RecordTask {
+        fn as_task_inner(&self) -> &TaskInner {
             &self.task
         }
 
-        fn as_task_mut(&mut self) -> &mut Task {
+        fn as_task_inner_mut(&mut self) -> &mut TaskInner {
             &mut self.task
         }
 
@@ -452,7 +452,7 @@ pub mod record_task {
             new_rec_tid: i32,
             new_serial: u32,
             other_session: Option<&dyn SessionInterface>,
-        ) -> &Task {
+        ) -> &TaskInner {
             unimplemented!()
         }
 

@@ -1,4 +1,4 @@
-use crate::task_interface::*;
+use crate::task::*;
 use std::collections::HashSet;
 use std::ops::Deref;
 
@@ -12,13 +12,13 @@ impl TaskSet {
     pub fn task_set(&self) -> &HashSet<TaskInterfaceRawPtr> {
         &self.0
     }
-    pub fn insert_task(&mut self, t: *mut dyn TaskInterface) -> bool {
+    pub fn insert_task(&mut self, t: *mut dyn Task) -> bool {
         self.0.insert(TaskInterfaceRawPtr(t))
     }
-    pub fn erase_task(&mut self, t: *mut dyn TaskInterface) -> bool {
+    pub fn erase_task(&mut self, t: *mut dyn Task) -> bool {
         self.0.remove(&TaskInterfaceRawPtr(t))
     }
-    pub fn has_task(&self, t: *mut dyn TaskInterface) -> bool {
+    pub fn has_task(&self, t: *mut dyn Task) -> bool {
         self.0.contains(&TaskInterfaceRawPtr(t))
     }
 }

@@ -20,11 +20,11 @@ use crate::remote_code_ptr::RemoteCodePtr;
 use crate::remote_ptr::{RemotePtr, Void};
 use crate::scoped_fd::ScopedFd;
 use crate::session_interface::replay_session::ReplaySession;
-use crate::task_interface::task::task::Task;
-use crate::task_interface::task::ResumeRequest::{ResumeSinglestep, ResumeSyscall};
-use crate::task_interface::task::TicksRequest::ResumeNoTicks;
-use crate::task_interface::task::WaitRequest::ResumeWait;
-use crate::task_interface::TaskInterface;
+use crate::task::task_inner::task_inner::TaskInner;
+use crate::task::task_inner::ResumeRequest::{ResumeSinglestep, ResumeSyscall};
+use crate::task::task_inner::TicksRequest::ResumeNoTicks;
+use crate::task::task_inner::WaitRequest::ResumeWait;
+use crate::task::Task;
 use crate::util::{is_kernel_trap, page_size};
 use crate::wait_status::WaitStatus;
 use libc::{
@@ -177,7 +177,7 @@ impl<'a, 'b> AutoRestoreMem<'a, 'b> {
 ///
 /// Note: We do NOT want Copy or Clone.
 pub struct AutoRemoteSyscalls<'a> {
-    t: &'a mut dyn TaskInterface,
+    t: &'a mut dyn Task,
     initial_regs: Registers,
     initial_ip: RemoteCodePtr,
     initial_sp: RemotePtr<Void>,
@@ -202,7 +202,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
     /// the caller *must* ensure the callee will not receive any
     /// signals.  This code does not attempt to deal with signals.
     pub fn new_with_mem_params(
-        t: &mut dyn TaskInterface,
+        t: &mut dyn Task,
         enable_mem_params: MemParamsEnabled,
     ) -> AutoRemoteSyscalls {
         AutoRemoteSyscalls {
@@ -221,7 +221,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
     }
 
     /// You mostly want to use this convenience method.
-    pub fn new(t: &mut dyn TaskInterface) -> AutoRemoteSyscalls {
+    pub fn new(t: &mut dyn Task) -> AutoRemoteSyscalls {
         Self::new_with_mem_params(t, MemParamsEnabled::EnableMemoryParams)
     }
 
@@ -290,7 +290,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
     ///  doing.  *ESPECIALLY* don't call this on a |t| other than
     ///  the one passed to the constructor, unless you really know
     ///  what you're doing.
-    pub fn restore_state_to(&mut self, maybe_other_task: Option<&'a mut dyn TaskInterface>) {
+    pub fn restore_state_to(&mut self, maybe_other_task: Option<&'a mut dyn Task>) {
         let some_t = maybe_other_task.unwrap_or(self.t);
         // Unmap our scratch region if required
         if self.scratch_mem_was_mapped {
@@ -417,11 +417,11 @@ impl<'a> AutoRemoteSyscalls<'a> {
     }
 
     /// The Task in the context of which we're making syscalls.
-    pub fn task_ref(&self) -> &dyn TaskInterface {
+    pub fn task_ref(&self) -> &dyn Task {
         self.t
     }
 
-    pub fn task_mut(&mut self) -> &mut dyn TaskInterface {
+    pub fn task_mut(&mut self) -> &mut dyn Task {
         self.t
     }
 
@@ -703,7 +703,7 @@ fn is_usable_area(km: &KernelMapping) -> bool {
 }
 
 impl<'a> Deref for AutoRemoteSyscalls<'a> {
-    type Target = Task;
+    type Target = TaskInner;
 
     fn deref(&self) -> &Self::Target {
         self.t
@@ -716,7 +716,7 @@ impl<'a> DerefMut for AutoRemoteSyscalls<'a> {
     }
 }
 
-fn ignore_signal(t: &dyn TaskInterface) -> bool {
+fn ignore_signal(t: &dyn Task) -> bool {
     let sig = t.stop_sig();
     if sig.is_none() {
         return false;
@@ -765,7 +765,7 @@ impl<Arch: Architecture> Copy for SocketcallArgs<Arch> {}
 /// The rr version takes a `bool ok` argument
 /// This version simple returns a bool for success/failure
 fn write_socketcall_args<Arch: Architecture>(
-    t: &dyn TaskInterface,
+    t: &dyn Task,
     remote_mem: RemotePtr<SocketcallArgs<Arch>>,
     arg1: Arch::signed_long,
     arg2: Arch::signed_long,

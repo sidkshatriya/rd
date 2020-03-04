@@ -1,7 +1,7 @@
 use crate::bindings::ptrace::PTRACE_EVENT_STOP as _PTRACE_EVENT_STOP;
 use crate::kernel_metadata::ptrace_event_name;
 use crate::kernel_metadata::signal_name;
-use crate::task_interface::record_task::record_task::RecordTask;
+use crate::task::record_task::record_task::RecordTask;
 use libc::PTRACE_O_TRACESYSGOOD;
 use libc::{SIGSTOP, SIGTRAP};
 use libc::{WEXITSTATUS, WIFEXITED, WIFSIGNALED, WIFSTOPPED, WSTOPSIG, WTERMSIG};

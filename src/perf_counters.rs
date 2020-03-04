@@ -8,7 +8,7 @@ use crate::bindings::perf_event::{
 use crate::kernel_metadata::signal_name;
 use crate::log::*;
 use crate::scoped_fd::ScopedFd;
-use crate::task_interface::task::task::Task;
+use crate::task::task_inner::task_inner::TaskInner;
 use crate::ticks::Ticks;
 use crate::util::*;
 use libc::c_ulong;
@@ -913,7 +913,7 @@ impl PerfCounters {
     }
 
     /// Return the number of ticks we need for an emulated branch.
-    pub fn ticks_for_unconditional_indirect_branch(_task: &Task) -> Ticks {
+    pub fn ticks_for_unconditional_indirect_branch(_task: &TaskInner) -> Ticks {
         if PMU_ATTRIBUTES.pmu_flags & PmuFlags::PMU_TICKS_TAKEN_BRANCHES
             == PmuFlags::PMU_TICKS_TAKEN_BRANCHES
         {
@@ -924,7 +924,7 @@ impl PerfCounters {
     }
 
     /// Return the number of ticks we need for a direct call.
-    pub fn ticks_for_direct_call(_task: &Task) -> Ticks {
+    pub fn ticks_for_direct_call(_task: &TaskInner) -> Ticks {
         if PMU_ATTRIBUTES.pmu_flags & PmuFlags::PMU_TICKS_TAKEN_BRANCHES
             == PmuFlags::PMU_TICKS_TAKEN_BRANCHES
         {
@@ -936,7 +936,7 @@ impl PerfCounters {
 
     /// Read the current value of the ticks counter.
     /// `t` is used for debugging purposes.
-    pub fn read_ticks(&self, t: &Task) -> Ticks {
+    pub fn read_ticks(&self, t: &TaskInner) -> Ticks {
         if !self.started || !self.counting {
             return 0;
         }

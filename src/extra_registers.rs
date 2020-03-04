@@ -5,7 +5,7 @@ use crate::kernel_abi::SupportedArch;
 use crate::kernel_abi::SupportedArch::*;
 use crate::kernel_metadata::xsave_feature_string;
 use crate::log::LogLevel::LogError;
-use crate::task_interface::task::task::Task;
+use crate::task::task_inner::task_inner::TaskInner;
 use crate::util::{xsave_native_layout, XSaveFeatureLayout, XSaveLayout};
 use std::convert::TryInto;
 use std::fmt::Write;
@@ -372,7 +372,7 @@ impl ExtraRegisters {
     }
 
     /// Update registers from a user_fpregs_struct.
-    pub fn set_user_fpregs_struct(&mut self, t: &Task, arch: SupportedArch, data_from: &[u8]) {
+    pub fn set_user_fpregs_struct(&mut self, t: &TaskInner, arch: SupportedArch, data_from: &[u8]) {
         debug_assert!(self.format_ == Format::XSave);
         match arch {
             X86 => {
@@ -427,7 +427,7 @@ impl ExtraRegisters {
     }
 
     /// Update registers from a user_fpxregs_struct.
-    pub fn set_user_fpxregs_struct(&mut self, t: &Task, regs: &x86::user_fpxregs_struct) {
+    pub fn set_user_fpxregs_struct(&mut self, t: &TaskInner, regs: &x86::user_fpxregs_struct) {
         ed_assert!(t, self.format_ == Format::XSave);
         ed_assert!(t, self.arch_ == X86);
         ed_assert!(t, self.data_.len() >= size_of::<x86::user_fpxregs_struct>());
@@ -493,7 +493,7 @@ impl ExtraRegisters {
         }
     }
 
-    pub fn validate(&self, t: &Task) {
+    pub fn validate(&self, t: &TaskInner) {
         if self.format_ != Format::XSave {
             return;
         }

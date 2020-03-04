@@ -1,9 +1,9 @@
 use crate::event::Switchable;
 use crate::file_monitor::{FileMonitorInterface, FileMonitorSharedPtr, LazyOffset, Range};
-use crate::task_interface::record_task::record_task::RecordTask;
-use crate::task_interface::replay_task::ReplayTask;
-use crate::task_interface::task::task::Task;
-use crate::task_interface::TaskInterface;
+use crate::task::record_task::record_task::RecordTask;
+use crate::task::replay_task::ReplayTask;
+use crate::task::task_inner::task_inner::TaskInner;
+use crate::task::Task;
 use crate::task_set::TaskSet;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -20,7 +20,7 @@ pub struct FdTable {
 }
 
 impl FdTable {
-    pub fn add_monitor(&self, t: &dyn TaskInterface, fd: i32, monitor: &dyn FileMonitorInterface) {
+    pub fn add_monitor(&self, t: &dyn Task, fd: i32, monitor: &dyn FileMonitorInterface) {
         unimplemented!()
     }
     pub fn emulate_ioctl(&self, fd: i32, t: &RecordTask, result: &mut u64) -> bool {
@@ -45,10 +45,10 @@ impl FdTable {
     pub fn is_rd_fd(&self, fd: i32) {
         unimplemented!()
     }
-    pub fn will_write(&self, t: &Task, fd: i32) -> Switchable {
+    pub fn will_write(&self, t: &TaskInner, fd: i32) -> Switchable {
         unimplemented!()
     }
-    pub fn did_write(&self, t: &Task, fd: i32, ranges: Vec<Range>, offset: LazyOffset) {
+    pub fn did_write(&self, t: &TaskInner, fd: i32, ranges: Vec<Range>, offset: LazyOffset) {
         unimplemented!()
     }
     pub fn did_dup(&self, from: i32, to: i32) {
@@ -58,10 +58,10 @@ impl FdTable {
         unimplemented!()
     }
 
-    pub fn clone(&self, t: &Task) -> FileMonitorSharedPtr {
+    pub fn clone(&self, t: &TaskInner) -> FileMonitorSharedPtr {
         unimplemented!()
     }
-    pub fn create(t: &Task) -> FileMonitorSharedPtr {
+    pub fn create(t: &TaskInner) -> FileMonitorSharedPtr {
         unimplemented!()
     }
 
@@ -80,7 +80,7 @@ impl FdTable {
      * Regenerate syscallbuf_fds_disabled in task |t|.
      * Called during initialization of the preload library.
      */
-    pub fn init_syscallbuf_fds_disabled(&self, t: &Task) {
+    pub fn init_syscallbuf_fds_disabled(&self, t: &TaskInner) {
         unimplemented!()
     }
 

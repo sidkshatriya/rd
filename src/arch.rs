@@ -1,8 +1,8 @@
 use crate::kernel_abi::{x64, x86, SupportedArch};
 use crate::kernel_supplement::{CLD_STOPPED, CLD_TRAPPED};
 use crate::remote_ptr::{RemotePtr, Void};
-use crate::task_interface::record_task::record_task::RecordTask;
-use crate::task_interface::record_task::EmulatedStopType;
+use crate::task::record_task::record_task::RecordTask;
+use crate::task::record_task::EmulatedStopType;
 use std::convert::TryInto;
 
 pub struct X86Arch;

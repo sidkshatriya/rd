@@ -1,12 +1,12 @@
 use crate::address_space::WatchConfig;
-use crate::task_interface::task::task::Task;
+use crate::task::task_inner::task_inner::TaskInner;
 use libc::siginfo_t;
 
 #[derive(Clone)]
 pub struct BreakStatus {
     /// The triggering Task. This may be different from session->current_task()
     /// when replay switches to a new task when ReplaySession::replay_step() ends.
-    pub task: *mut Task,
+    pub task: *mut TaskInner,
     /// List of watchpoints hit; any watchpoint hit causes a stop after the
     /// instruction that triggered the watchpoint has completed.
     pub watchpoints_hit: Vec<WatchConfig>,
@@ -74,8 +74,8 @@ pub mod session {
     use crate::perf_counters::TicksSemantics;
     use crate::remote_ptr::{RemotePtr, Void};
     use crate::scoped_fd::ScopedFd;
-    use crate::task_interface::task::task::CapturedState;
-    use crate::task_interface::TaskInterface;
+    use crate::task::task_inner::task_inner::CapturedState;
+    use crate::task::Task;
     use crate::taskish_uid::{AddressSpaceUid, ThreadGroupUid};
     use crate::thread_group::{ThreadGroup, ThreadGroupSharedPtr};
     use crate::ticks::Ticks;
@@ -89,7 +89,7 @@ pub mod session {
     /// we don't get confused. TaskMap is indexed by tid since there can never be
     /// two Tasks with the same tid at the same time.
     pub type AddressSpaceMap = HashMap<AddressSpaceUid, *mut AddressSpace>;
-    pub type TaskMap = HashMap<pid_t, *mut dyn TaskInterface>;
+    pub type TaskMap = HashMap<pid_t, *mut dyn Task>;
     pub type ThreadGroupMap = HashMap<ThreadGroupUid, *mut ThreadGroup>;
 
     #[derive(Copy, Clone)]
@@ -108,7 +108,7 @@ pub mod session {
     /// struct is NOT pub
     #[derive(Clone)]
     pub(in super::super) struct AddressSpaceClone {
-        pub clone_leader: *mut dyn TaskInterface,
+        pub clone_leader: *mut dyn Task,
         pub clone_leader_state: CapturedState,
         pub member_states: Vec<CapturedState>,
         pub captured_memory: Vec<(RemotePtr<Void>, Vec<u8>)>,
@@ -144,7 +144,7 @@ pub mod session {
         /// If |exec_count| is not specified it is assumed to be 0.
         pub fn create_vm(
             &mut self,
-            t: &dyn TaskInterface,
+            t: &dyn Task,
             exe: Option<&str>,
             exec_count: Option<u32>,
         ) -> AddressSpaceSharedPtr {
@@ -157,14 +157,14 @@ pub mod session {
         /// NOTE: Called simply Session::clone() in rr
         pub fn clone_vm(
             &mut self,
-            t: &dyn TaskInterface,
+            t: &dyn Task,
             vm: AddressSpaceSharedPtr,
         ) -> AddressSpaceSharedPtr {
             unimplemented!()
         }
 
         /// Create the initial thread group.
-        pub fn create_initial_tg(&mut self, t: &dyn TaskInterface) -> ThreadGroupSharedPtr {
+        pub fn create_initial_tg(&mut self, t: &dyn Task) -> ThreadGroupSharedPtr {
             unimplemented!()
         }
 
@@ -314,14 +314,10 @@ pub mod session {
             unimplemented!()
         }
 
-        fn diagnose_debugger_trap(
-            &self,
-            t: &dyn TaskInterface,
-            run_command: RunCommand,
-        ) -> BreakStatus {
+        fn diagnose_debugger_trap(&self, t: &dyn Task, run_command: RunCommand) -> BreakStatus {
             unimplemented!()
         }
-        fn check_for_watchpoint_changes(&self, t: &dyn TaskInterface, break_status: &BreakStatus) {
+        fn check_for_watchpoint_changes(&self, t: &dyn Task, break_status: &BreakStatus) {
             unimplemented!()
         }
 
