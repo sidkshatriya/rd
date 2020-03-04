@@ -18,7 +18,7 @@ pub type ThreadGroupSharedPtr = Rc<RefCell<ThreadGroup>>;
 ///
 /// Note: We DONT want to derive Clone.
 pub struct ThreadGroup {
-    /// These are the various tasks (dyn TaskInterface) that are part of the
+    /// These are the various tasks (dyn Task) that are part of the
     /// thread group.
     tasks: TaskSet,
     pub tgid: pid_t,

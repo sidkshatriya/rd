@@ -18,28 +18,28 @@ pub mod record_task;
 pub mod replay_task;
 pub mod task_inner;
 
-/// @TODO should we store *const dyn TaskInterface?
+/// @TODO should we store *const dyn Task?
 #[derive(Copy, Clone)]
-pub struct TaskInterfaceRawPtr(pub *mut dyn Task);
+pub struct TaskRawPtr(pub *mut dyn Task);
 
-impl PartialEq for TaskInterfaceRawPtr {
+impl PartialEq for TaskRawPtr {
     fn eq(&self, other: &Self) -> bool {
-        // If the addresses of the dyn TaskInterface ptrs are same then they are the same task.
+        // If the addresses of the dyn Task ptrs are same then they are the same task.
         self.0 as *const u8 as usize == other.0 as *const u8 as usize
     }
 }
 
-impl Eq for TaskInterfaceRawPtr {}
+impl Eq for TaskRawPtr {}
 
-impl Hash for TaskInterfaceRawPtr {
+impl Hash for TaskRawPtr {
     fn hash<H: Hasher>(&self, state: &mut H) {
         let addr = self.0 as *const u8 as usize;
-        // The hash is the hash of the address of the task (dyn TaskInterface).
+        // The hash is the hash of the address of the task (dyn Task).
         addr.hash(state);
     }
 }
 
-impl Deref for TaskInterfaceRawPtr {
+impl Deref for TaskRawPtr {
     type Target = dyn Task;
 
     fn deref(&self) -> &Self::Target {
@@ -47,7 +47,7 @@ impl Deref for TaskInterfaceRawPtr {
     }
 }
 
-impl DerefMut for TaskInterfaceRawPtr {
+impl DerefMut for TaskRawPtr {
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe { self.0.as_mut() }.unwrap()
     }
