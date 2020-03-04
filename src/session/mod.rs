@@ -17,7 +17,7 @@ pub mod record_session;
 pub mod replay_session;
 pub mod session_inner;
 
-pub trait Session {
+pub trait Session: DerefMut<Target = SessionInner> {
     fn as_session_inner(&self) -> &SessionInner;
     fn as_session_inner_mut(&self) -> &mut SessionInner;
 
@@ -129,19 +129,5 @@ pub trait Session {
     /// everything must be the same.
     fn post_exec(&mut self) {
         unimplemented!()
-    }
-}
-
-impl<'a> Deref for dyn Session + 'a {
-    type Target = SessionInner;
-
-    fn deref(&self) -> &Self::Target {
-        self.as_session_inner()
-    }
-}
-
-impl<'a> DerefMut for dyn Session + 'a {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.as_session_inner_mut()
     }
 }

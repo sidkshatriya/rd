@@ -225,7 +225,7 @@ pub mod task_inner {
         extra_registers_known: bool,
         /// The session we're part of.
         /// `session_` in rr.
-        session_interface: *mut dyn Session,
+        session_: *mut dyn Session,
         /// The thread group this belongs to.
         tg: ThreadGroupSharedPtr,
         /// Entries set by |set_thread_area()| or the |tls| argument to |clone()|
@@ -530,14 +530,14 @@ pub mod task_inner {
         /// Return the session this is part of.
         /// @TODO Can we avoid the raw pointer?
         pub fn session(&self) -> &dyn Session {
-            unsafe { self.session_interface.as_ref() }.unwrap()
+            unsafe { self.session_.as_ref() }.unwrap()
         }
 
         /// Return the session this is part of.
         /// @TODO Should we have &mut self here?
         /// @TODO Can we avoid the raw pointer?
         pub fn session_mut(&self) -> &mut dyn Session {
-            unsafe { self.session_interface.as_mut() }.unwrap()
+            unsafe { self.session_.as_mut() }.unwrap()
         }
 
         /// Set the tracee's registers to |regs|. Lazy.

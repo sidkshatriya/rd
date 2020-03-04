@@ -4,9 +4,10 @@ use crate::remote_ptr::{RemotePtr, Void};
 use crate::task::record_task::record_task::RecordTask;
 use crate::task::Task;
 use std::cell::RefCell;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 
 pub type FileMonitorSharedPtr = Rc<RefCell<dyn FileMonitorInterface>>;
+pub type FileMonitorSharedWeakPtr = Weak<RefCell<dyn FileMonitorInterface>>;
 
 pub struct FileMonitor;
 

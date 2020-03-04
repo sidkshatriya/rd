@@ -49,6 +49,8 @@ use std::rc::{Rc, Weak};
 
 pub type EmuFsSharedPtr = Rc<RefCell<EmuFs>>;
 pub type EmuFileSharedPtr = Rc<RefCell<EmuFile>>;
+pub type EmuFsSharedWeakPtr = Weak<RefCell<EmuFs>>;
+pub type EmuFileSharedWeakPtr = Weak<RefCell<EmuFile>>;
 
 type FileMap = HashMap<FileId, Weak<RefCell<EmuFile>>>;
 

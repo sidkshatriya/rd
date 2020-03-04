@@ -17,9 +17,10 @@
 use crate::address_space::address_space;
 use crate::task::record_task::record_task::RecordTask;
 use std::cell::RefCell;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 
 pub type MonitoredSharedMemorySharedPtr = Rc<RefCell<MonitoredSharedMemory>>;
+pub type MonitoredSharedMemorySharedWeakPtr = Weak<RefCell<MonitoredSharedMemory>>;
 
 pub struct MonitoredSharedMemory {
     real_mem: *mut [u8],

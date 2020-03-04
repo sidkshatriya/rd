@@ -7,9 +7,10 @@ use crate::task::Task;
 use crate::task_set::TaskSet;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 
 pub type FdTableSharedPtr = Rc<RefCell<FdTable>>;
+pub type FdTableSharedWeakPtr = Weak<RefCell<FdTable>>;
 
 #[derive(Clone)]
 pub struct FdTable {

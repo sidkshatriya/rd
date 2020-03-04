@@ -126,7 +126,7 @@ pub mod address_space {
     use std::ops::Bound::{Included, Unbounded};
     use std::ops::Drop;
     use std::ops::{Deref, DerefMut};
-    use std::rc::Rc;
+    use std::rc::{Rc, Weak};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     static OFFSET_TO_SYSCALL_IN_X86: AtomicUsize = AtomicUsize::new(0);
@@ -194,6 +194,7 @@ pub mod address_space {
     pub type MemoryMapIter<'a> = Range<'a, MemoryRangeKey, Mapping>;
 
     pub type AddressSpaceSharedPtr = Rc<RefCell<AddressSpace>>;
+    pub type AddressSpaceSharedWeakPtr = Weak<RefCell<AddressSpace>>;
     pub struct Maps<'a> {
         outer: &'a AddressSpace,
         start: RemotePtr<Void>,

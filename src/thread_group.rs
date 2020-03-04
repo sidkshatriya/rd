@@ -7,9 +7,10 @@ use libc::pid_t;
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::ops::{Deref, DerefMut};
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 
 pub type ThreadGroupSharedPtr = Rc<RefCell<ThreadGroup>>;
+pub type ThreadGroupSharedWeakPtr = Weak<RefCell<ThreadGroup>>;
 
 /// Tracks a group of tasks with an associated ID, set from the
 /// original "thread group leader", the child of |fork()| which became
