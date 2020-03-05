@@ -129,9 +129,6 @@ pub mod address_space {
     use std::rc::{Rc, Weak};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    static OFFSET_TO_SYSCALL_IN_X86: AtomicUsize = AtomicUsize::new(0);
-    static OFFSET_TO_SYSCALL_IN_X64: AtomicUsize = AtomicUsize::new(0);
-
     fn find_offset_of_syscall_instruction_in(arch: SupportedArch, vdso: &[u8]) -> Option<usize> {
         let instruction = syscall_instruction(arch);
         let instruction_size = instruction.len();
@@ -933,10 +930,13 @@ pub mod address_space {
         /// a syscall instruction into executable tracee memory (which might not be
         /// possible with some kernels, e.g. PaX).
         pub fn find_syscall_instruction(&self, t: &dyn Task) -> RemoteCodePtr {
+            static OFFSET_TO_SYSCALL_IN_X86: AtomicUsize = AtomicUsize::new(0);
+            static OFFSET_TO_SYSCALL_IN_X64: AtomicUsize = AtomicUsize::new(0);
+
             let arch = t.arch();
             let mut offset = match arch {
-                SupportedArch::X86 => OFFSET_TO_SYSCALL_IN_X64.load(Ordering::SeqCst),
-                SupportedArch::X64 => OFFSET_TO_SYSCALL_IN_X86.load(Ordering::SeqCst),
+                SupportedArch::X86 => OFFSET_TO_SYSCALL_IN_X86.load(Ordering::SeqCst),
+                SupportedArch::X64 => OFFSET_TO_SYSCALL_IN_X64.load(Ordering::SeqCst),
             };
 
             if offset == 0 {
@@ -950,8 +950,8 @@ pub mod address_space {
                 offset = maybe_offset.unwrap();
                 assert!(offset != 0);
                 match arch {
-                    SupportedArch::X86 => OFFSET_TO_SYSCALL_IN_X64.store(offset, Ordering::SeqCst),
-                    SupportedArch::X64 => OFFSET_TO_SYSCALL_IN_X86.store(offset, Ordering::SeqCst),
+                    SupportedArch::X86 => OFFSET_TO_SYSCALL_IN_X86.store(offset, Ordering::SeqCst),
+                    SupportedArch::X64 => OFFSET_TO_SYSCALL_IN_X64.store(offset, Ordering::SeqCst),
                 };
             }
 

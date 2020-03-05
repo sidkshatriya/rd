@@ -1080,6 +1080,7 @@ fn recvmsg_socket(sock: &ScopedFd) -> i32 {
     }
 
     let cmsg_data_off = rd_kernel_abi_arch_function!(cmsg_data_offset, RD_NATIVE_ARCH);
+    // @TODO review this transmute_copy
     let cmsghdr: libc::cmsghdr = unsafe { transmute_copy(&cmsgbuf) };
     debug_assert!(cmsghdr.cmsg_level == SOL_SOCKET && cmsghdr.cmsg_type == SCM_RIGHTS);
     let idata = cmsgbuf
