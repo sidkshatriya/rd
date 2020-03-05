@@ -96,16 +96,19 @@ pub mod task_inner {
     use crate::util::{ceil_page_size, TrappedInstruction};
     use crate::wait_status::WaitStatus;
     use libc::ESRCH;
-    use libc::{__errno_location, pid_t, pread64, siginfo_t, uid_t};
+    use libc::{
+        __errno_location, pid_t, pread64, siginfo_t, uid_t, PTRACE_PEEKDATA, PTRACE_POKEDATA,
+    };
     use nix::errno::errno;
     use nix::fcntl::OFlag;
     use nix::unistd::getuid;
     use std::cell::RefCell;
+    use std::cmp::min;
     use std::convert::TryInto;
     use std::ffi::{c_void, CStr, CString};
     use std::mem::size_of;
-    use std::os::raw::c_long;
     use std::path::Path;
+    use std::ptr::copy_nonoverlapping;
     use std::rc::Rc;
 
     pub struct TrapReason;
@@ -816,7 +819,12 @@ pub mod task_inner {
 
         /// Make the ptrace `request` with `addr` and `data`, return
         /// the ptrace return value.
-        fn fallible_ptrace(&self, request: i32, addr: RemotePtr<Void>, data: &mut [u8]) -> c_long {
+        fn fallible_ptrace(
+            &self,
+            request: u32,
+            addr: RemotePtr<Void>,
+            data: Option<&mut [u8]>,
+        ) -> isize {
             unimplemented!()
         }
 
@@ -835,9 +843,45 @@ pub mod task_inner {
 
         /// Write tracee memory using PTRACE_POKEDATA calls. Slow, only use
         /// as fallback. Returns number of bytes actually written.
-        /// @TODO return an isize or usize?
         fn write_bytes_ptrace(&self, addr: RemotePtr<Void>, buf: &[u8]) -> usize {
-            unimplemented!()
+            let mut nwritten: usize = 0;
+            // ptrace operates on the word size of the host, so we really do want
+            // to use sizes of host types here.
+            let word_size = size_of::<isize>();
+            unsafe { *(__errno_location()) = 0 };
+            // Only write aligned words. This ensures we can always write the last
+            // byte before an unmapped region.
+            let buf_size = buf.len();
+            while nwritten < buf_size {
+                let start: usize = addr.as_usize() + nwritten;
+                let start_word: usize = start & !(word_size - 1);
+                let end_word: usize = start_word + word_size;
+                let length = min(end_word - start, buf.len() - nwritten);
+
+                let mut v: isize = 0;
+                if length < word_size {
+                    v = self.fallible_ptrace(PTRACE_PEEKDATA, start_word.into(), None);
+                    if errno() != 0 {
+                        break;
+                    }
+                }
+                unsafe {
+                    copy_nonoverlapping(
+                        buf.as_ptr().add(nwritten),
+                        (&mut v as *mut _ as *mut u8).add(start - start_word),
+                        length,
+                    );
+                }
+
+                self.fallible_ptrace(
+                    PTRACE_POKEDATA,
+                    start_word.into(),
+                    Some(&mut v.to_le_bytes()),
+                );
+                nwritten += length;
+            }
+
+            nwritten
         }
 
         /// Try writing 'buf' to 'addr' by replacing pages in the tracee
