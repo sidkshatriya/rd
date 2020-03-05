@@ -168,7 +168,7 @@ impl<'a, 'b> AutoRestoreMem<'a, 'b> {
 
         let mut ok = true;
         self.remote
-            .task()
+            .task_mut()
             .read_bytes_helper(self.addr.unwrap(), &mut self.data, Some(&mut ok));
         // @TODO what do we do if ok is false due to read_bytes_helper call above?
         if mem.is_some() {
@@ -678,7 +678,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         }
     }
 
-    fn check_syscall_result(&self, ret: isize, syscallno: i32) {
+    fn check_syscall_result(&mut self, ret: isize, syscallno: i32) {
         if -4096 < ret && ret < 0 {
             let mut extra_msg: String = String::new();
             if is_open_syscall(syscallno, self.arch()) {

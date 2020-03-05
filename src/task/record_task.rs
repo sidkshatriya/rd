@@ -222,7 +222,10 @@ pub mod record_task {
     use crate::session::record_session::RecordSession;
     use crate::session::Session;
     use crate::task::replay_task::ReplayTask;
-    use crate::task::task_inner::task_inner::{open_mem_fd, CloneReason, TaskInner};
+    use crate::task::task_inner::task_inner::{
+        open_mem_fd, read_bytes_fallible, read_bytes_helper, read_bytes_helper_for, read_c_str,
+        CloneReason, TaskInner,
+    };
     use crate::task::Task;
     use crate::ticks::Ticks;
     use crate::trace_frame::FrameTime;
@@ -231,6 +234,7 @@ pub mod record_task {
     use libc::{pid_t, siginfo_t};
     use std::cell::RefCell;
     use std::collections::{HashSet, VecDeque};
+    use std::ffi::CString;
     use std::ops::{Deref, DerefMut};
     use std::rc::Rc;
 
@@ -457,6 +461,30 @@ pub mod record_task {
         /// Forwarded method
         fn open_mem_fd(&mut self) -> bool {
             open_mem_fd(self)
+        }
+
+        /// Forwarded method
+        fn read_bytes_fallible(
+            &mut self,
+            addr: RemotePtr<Void>,
+            buf: &mut [u8],
+        ) -> Result<usize, ()> {
+            read_bytes_fallible(self, addr, buf)
+        }
+
+        /// Forwarded method
+        fn read_bytes_helper(
+            &mut self,
+            addr: RemotePtr<Void>,
+            buf: &mut [u8],
+            ok: Option<&mut bool>,
+        ) {
+            read_bytes_helper(self, addr, buf, ok)
+        }
+
+        /// Forwarded method
+        fn read_c_str(&mut self, child_addr: RemotePtr<u8>) -> CString {
+            read_c_str(self, child_addr)
         }
     }
 
@@ -1066,17 +1094,22 @@ pub mod record_task {
         }
 
         /// Helper function for update_sigaction.
-        fn update_sigaction_arch<Arch: Architecture>(&self, regs: &Registers) {
+        fn update_sigaction_arch<Arch: Architecture>(&mut self, regs: &Registers) {
             // @TODO in rr this is regs.args1_signed(). Why??
             let sig = regs.arg1();
-            let new_sigaction = RemotePtr::<Arch::kernel_sigaction>::new_from_val(regs.arg2());
-            if 0 == regs.syscall_result() && !new_sigaction.is_null() {
+            let new_sigaction_addr = RemotePtr::<Arch::kernel_sigaction>::new_from_val(regs.arg2());
+            if 0 == regs.syscall_result() && !new_sigaction_addr.is_null() {
                 // A new sighandler was installed.  Update our
                 // sighandler table.
                 // TODO: discard attempts to handle or ignore signals
                 // that can't be by POSIX
                 let mut sa: Arch::kernel_sigaction = Arch::kernel_sigaction::default();
-                self.read_bytes_helper_for::<Arch::kernel_sigaction>(new_sigaction, &mut sa, None);
+                read_bytes_helper_for::<Self, Arch::kernel_sigaction>(
+                    self,
+                    new_sigaction_addr,
+                    &mut sa,
+                    None,
+                );
                 self.sighandlers
                     .borrow_mut()
                     .get_mut(sig)

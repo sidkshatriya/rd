@@ -109,6 +109,7 @@ pub mod task_inner {
     use std::rc::Rc;
 
     pub struct TrapReason;
+
     type ThreadLocals = [u8; PRELOAD_THREAD_LOCALS_SIZE];
 
     /// This struct should NOT impl the Task trait
@@ -524,34 +525,6 @@ pub mod task_inner {
             unimplemented!()
         }
 
-        /// Read and return the C string located at `child_addr` in
-        /// this address space.
-        pub fn read_c_str(&self, child_addr: RemotePtr<u8>) -> CString {
-            // XXX handle invalid C strings
-            // e.g. c-strings that don't end even when an unmapped region of memory
-            // is reached.
-            let mut p = child_addr;
-            let mut s: Vec<u8> = Vec::new();
-            loop {
-                // We're only guaranteed that [child_addr, end_of_page) is mapped.
-                // So be conservative and assume that c-string ends before the
-                // end of the page. In case it _hasn't_ ended then we try on the
-                // next page and so forth.
-                let end_of_page: RemotePtr<Void> = ceil_page_size(p.as_usize() + 1).into();
-                let nbytes: usize = end_of_page - p;
-                let mut buf = Vec::<u8>::with_capacity(nbytes);
-                self.read_bytes_helper(p, &mut buf, None);
-                for i in 0..nbytes {
-                    if 0 == buf[i] {
-                        // We have already checked it so unsafe is OK!
-                        return unsafe { CString::from_vec_unchecked(s) };
-                    }
-                    s.push(buf[i]);
-                }
-                p = end_of_page;
-            }
-        }
-
         /// Return the session this is part of.
         pub fn session(&self) -> SessionSharedPtr {
             self.session_.upgrade().unwrap()
@@ -730,31 +703,6 @@ pub mod task_inner {
 
         pub fn write_mem<T>(&self, child_addr: RemotePtr<T>, val: &[T], ok: Option<&mut bool>) {
             unimplemented!()
-        }
-
-        /// If the data can't all be read, then if `ok` is non-null, sets *ok to
-        /// false, otherwise asserts.
-        pub fn read_bytes_helper(
-            &self,
-            addr: RemotePtr<Void>,
-            buf: &mut [u8],
-            ok: Option<&mut bool>,
-        ) {
-            unimplemented!()
-        }
-
-        /// If the data can't all be read, then if `ok` is non-null, sets *ok to
-        /// false, otherwise asserts.
-        pub fn read_bytes_helper_for<T>(
-            &self,
-            addr: RemotePtr<T>,
-            data: &mut T,
-            ok: Option<&mut bool>,
-        ) {
-            let buf = unsafe {
-                std::slice::from_raw_parts_mut(data as *mut T as *mut u8, size_of::<T>())
-            };
-            self.read_bytes_helper(RemotePtr::cast(addr), buf, ok);
         }
 
         /// `flags` is bits from WriteFlags.
@@ -985,6 +933,8 @@ pub mod task_inner {
         }
     }
 
+    /// Forwarded method definition
+    ///
     /// Open /proc/[tid]/mem fd for our AddressSpace, closing the old one
     /// first. If necessary we force the tracee to open the file
     /// itself and smuggle the fd back to us.
@@ -1063,6 +1013,8 @@ pub mod task_inner {
         true
     }
 
+    /// Forwarded method definition
+    ///
     /// Read/write the number of bytes.
     /// Number of bytes read can be less than desired
     /// - Returns Err(()) if No bytes could be read at all AND there was an error
@@ -1134,5 +1086,61 @@ pub mod task_inner {
         }
 
         Ok(all_read)
+    }
+
+    /// Forwarded method definition
+    ///
+    /// If the data can't all be read, then if `ok` is non-null, sets *ok to
+    /// false, otherwise asserts.
+    pub fn read_bytes_helper<T: Task>(
+        task: &mut T,
+        addr: RemotePtr<Void>,
+        buf: &mut [u8],
+        ok: Option<&mut bool>,
+    ) {
+        unimplemented!()
+    }
+
+    /// NOT a Forwarded method due to extra template parameter
+    ///
+    /// If the data can't all be read, then if `ok` is non-null, sets *ok to
+    /// false, otherwise asserts.
+    pub fn read_bytes_helper_for<T: Task, D>(
+        task: &mut dyn Task,
+        addr: RemotePtr<D>,
+        data: &mut D,
+        ok: Option<&mut bool>,
+    ) {
+        let buf =
+            unsafe { std::slice::from_raw_parts_mut(data as *mut D as *mut u8, size_of::<D>()) };
+        task.read_bytes_helper(RemotePtr::cast(addr), buf, ok);
+    }
+
+    /// Read and return the C string located at `child_addr` in
+    /// this address space.
+    pub fn read_c_str<T: Task>(task: &mut T, child_addr: RemotePtr<u8>) -> CString {
+        // XXX handle invalid C strings
+        // e.g. c-strings that don't end even when an unmapped region of memory
+        // is reached.
+        let mut p = child_addr;
+        let mut s: Vec<u8> = Vec::new();
+        loop {
+            // We're only guaranteed that [child_addr, end_of_page) is mapped.
+            // So be conservative and assume that c-string ends before the
+            // end of the page. In case it _hasn't_ ended then we try on the
+            // next page and so forth.
+            let end_of_page: RemotePtr<Void> = ceil_page_size(p.as_usize() + 1).into();
+            let nbytes: usize = end_of_page - p;
+            let mut buf = Vec::<u8>::with_capacity(nbytes);
+            task.read_bytes_helper(p, &mut buf, None);
+            for i in 0..nbytes {
+                if 0 == buf[i] {
+                    // We have already checked it so unsafe is OK!
+                    return unsafe { CString::from_vec_unchecked(s) };
+                }
+                s.push(buf[i]);
+            }
+            p = end_of_page;
+        }
     }
 }

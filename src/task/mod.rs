@@ -10,6 +10,7 @@ use crate::task::task_inner::{ResumeRequest, TicksRequest, WaitRequest};
 use crate::wait_status::WaitStatus;
 use libc::pid_t;
 use std::cell::RefCell;
+use std::ffi::CString;
 use std::hash::{Hash, Hasher};
 use std::io::Write;
 use std::ops::Deref;
@@ -209,11 +210,15 @@ pub trait Task: DerefMut<Target = TaskInner> {
         unimplemented!()
     }
 
-    /// Forwarded method
+    /// Forwarded method signature
     fn open_mem_fd(&mut self) -> bool;
 
-    /// Forwarded method
-    fn read_bytes_fallible(&mut self, addr: RemotePtr<Void>, buf: &mut [u8]) -> Result<usize, ()> {
-        read_bytes_fallible(self, addr, buf)
-    }
+    /// Forwarded method signature
+    fn read_bytes_fallible(&mut self, addr: RemotePtr<Void>, buf: &mut [u8]) -> Result<usize, ()>;
+
+    /// Forwarded method signature
+    fn read_bytes_helper(&mut self, addr: RemotePtr<Void>, buf: &mut [u8], ok: Option<&mut bool>);
+
+    /// Forwarded method signature
+    fn read_c_str(&mut self, child_addr: RemotePtr<u8>) -> CString;
 }
