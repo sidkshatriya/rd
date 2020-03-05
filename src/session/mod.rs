@@ -79,7 +79,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
         unimplemented!()
     }
 
-    /// Return the task created with |rec_tid|, or None if no such
+    /// Return the task created with `rec_tid`, or None if no such
     /// task exists.
     /// NOTE: Method is simply called Session::find task() in rr
     fn find_task_from_rec_tid(&self, rec_tid: pid_t) -> Option<&dyn Task> {
@@ -91,7 +91,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
         unimplemented!()
     }
 
-    /// Return the thread group whose unique ID is |tguid|, or None if no such
+    /// Return the thread group whose unique ID is `tguid`, or None if no such
     /// thread group exists.
     /// NOTE: Method is simply called Session::find thread_group() in rr
     fn find_thread_group_from_tguid(&self, tguid: &ThreadGroupUid) -> Option<&ThreadGroup> {
@@ -104,13 +104,13 @@ pub trait Session: DerefMut<Target = SessionInner> {
         unimplemented!()
     }
 
-    /// Return the AddressSpace whose unique ID is |vmuid|, or None if no such
+    /// Return the AddressSpace whose unique ID is `vmuid`, or None if no such
     /// address space exists.
     fn find_address_space(&self, vmuid: &AddressSpaceUid) -> Option<&AddressSpace> {
         unimplemented!()
     }
 
-    /// Return a copy of |tg| with the same mappings.
+    /// Return a copy of `tg` with the same mappings.
     /// NOTE: Called simply Session::clone() in rr
     fn clone_tg(&mut self, t: &dyn Task, tg: ThreadGroupSharedPtr) -> ThreadGroupSharedPtr {
         unimplemented!()
@@ -123,14 +123,14 @@ pub trait Session: DerefMut<Target = SessionInner> {
         &self.as_session_inner().task_map
     }
 
-    /// Call |post_exec()| immediately after a tracee has successfully
-    /// |execve()|'d.  After that, |done_initial_exec()| returns true.
+    /// Call `post_exec()` immediately after a tracee has successfully
+    /// `execve()`'d.  After that, `done_initial_exec()` returns true.
     /// This is called while we're still in the execve syscall so it's not safe
     /// to perform remote syscalls in this method.
     ///
     /// Tracee state can't be validated before the first exec,
     /// because the address space inside the rr process for |rr
-    /// replay| will be different than it was for |rr record|.
+    /// replay| will be different than it was for `rr record`.
     /// After the first exec, we're running tracee code, and
     /// everything must be the same.
     fn post_exec(&mut self) {

@@ -8,7 +8,7 @@
 //!
 //! The rr EmuFs creates "emulated files" in shared memory during
 //! replay.  Each efile is uniquely identified at a given event in the
-//! trace by |(edev, einode)| (i.e., the recorded device ID and inode).
+//! trace by `(edev, einode)` (i.e., the recorded device ID and inode).
 //! "What about inode recycling", you're probably thinking to yourself.
 //! This scheme can cope with inode recycling, given a very important
 //! assumption discussed below.
@@ -19,7 +19,7 @@
 //! ID was recycled in [t_0, t_1), then all references to F_0 must have
 //! been dropped in that interval.  A corollary of that is that all
 //! memory mappings of F_0 must have been fully unmapped in the
-//! interval.  As per the first long comment in |gc()| below, an
+//! interval.  As per the first long comment in `gc()` below, an
 //! emulated file can only be "live" during replay if some tracee still
 //! has a mapping of it.  Tracees' mappings of emulated files is a
 //! subset of the ways they can create references to real files during
@@ -137,8 +137,8 @@ impl EmuFile {
         }
     }
 
-    /// Return a copy of this file.  See |create()| for the meaning
-    /// of |fs_tag|.
+    /// Return a copy of this file.  See `create()` for the meaning
+    /// of `fs_tag`.
     fn clone_file(&self) -> EmuFileSharedPtr {
         let f = EmuFile::create(
             self.owner.clone(),
@@ -201,8 +201,8 @@ impl EmuFile {
         self.ensure_size(size);
     }
 
-    /// Create a new emulated file for |orig_path| that will
-    /// emulate the recorded attributes |est|.  |tag| is used to
+    /// Create a new emulated file for `orig_path` that will
+    /// emulate the recorded attributes `est`.  `tag` is used to
     /// uniquely identify this file among multiple EmuFs's that
     /// might exist concurrently in this tracer process.
     fn create(
@@ -284,7 +284,7 @@ impl EmuFs {
         shared_fs
     }
 
-    /// Return the EmuFile for |recorded_map|, which must exist or this won't
+    /// Return the EmuFile for `recorded_map`, which must exist or this won't
     /// return.
     pub fn at(&self, recorded_map: &KernelMapping) -> Option<EmuFileSharedPtr> {
         // @TODO Assuming upgrade() always works.
@@ -307,7 +307,7 @@ impl EmuFs {
     }
 
     /// Return an emulated file representing the recorded shared mapping
-    /// |recorded_km|.
+    /// `recorded_km`.
     pub fn get_or_create(
         &mut self,
         recorded_km: &KernelMapping,

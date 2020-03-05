@@ -21,7 +21,7 @@ pub enum CloneFlags {
     CloneShareFiles = 1 << 3,
     /// Kernel will clear and notify tid futex on task exit.
     CloneCleartid = 1 << 4,
-    /// Set the thread area to what's specified by the |tls| arg.
+    /// Set the thread area to what's specified by the `tls` arg.
     CloneSetTls = 1 << 5,
 }
 
@@ -112,9 +112,9 @@ pub mod task_inner {
 
     /// This struct should NOT impl the Task trait
     pub struct TaskInner {
-        /// Imagine that task A passes buffer |b| to the read()
+        /// Imagine that task A passes buffer `b` to the read()
         /// syscall.  Imagine that, after A is switched out for task B,
-        /// task B then writes to |b|.  Then B is switched out for A.
+        /// task B then writes to `b`.  Then B is switched out for A.
         /// Since rr doesn't schedule the kernel code, the result is
         /// nondeterministic.  To avoid that class of replay
         /// divergence, we "redirect" (in)outparams passed to may-block
@@ -150,8 +150,8 @@ pub mod task_inner {
         /// that over-overwritten data is exactly and only what we'll
         /// write back to the tracee.
         ///
-        /// |scratch_ptr| points at the mapped address in the child,
-        /// and |size| is the total available space.
+        /// `scratch_ptr` points at the mapped address in the child,
+        /// and `size` is the total available space.
         pub scratch_ptr: RemotePtr<Void>,
         /// The full size of the scratch buffer.
         /// The last page of the scratch buffer is used as an alternate stack
@@ -168,7 +168,7 @@ pub mod task_inner {
         /// This is always the "real" tid of the tracee.
         pub tid: pid_t,
         /// This is always the recorded tid of the tracee.  During
-        /// recording, it's synonymous with |tid|, and during replay
+        /// recording, it's synonymous with `tid`, and during replay
         /// it's the tid that was recorded.
         pub rec_tid: pid_t,
 
@@ -193,7 +193,7 @@ pub mod task_inner {
         /// Count of all ticks seen by this task since tracees became
         /// consistent and the task last wait()ed.
         ticks: Ticks,
-        /// When |is_stopped|, these are our child registers.
+        /// When `is_stopped`, these are our child registers.
         registers: Registers,
         /// Where we last resumed execution
         address_of_last_execution_resume: RemoteCodePtr,
@@ -221,18 +221,18 @@ pub mod task_inner {
         /// True when 'registers' has changes that haven't been flushed back to the
         /// task yet.
         registers_dirty: bool,
-        /// When |extra_registers_known|, we have saved our extra registers.
+        /// When `extra_registers_known`, we have saved our extra registers.
         extra_registers: ExtraRegisters,
         extra_registers_known: bool,
         /// A weak pointer to the  session we're part of.
         session_: SessionSharedWeakPtr,
         /// The thread group this belongs to.
         tg: ThreadGroupSharedPtr,
-        /// Entries set by |set_thread_area()| or the |tls| argument to |clone()|
+        /// Entries set by `set_thread_area()` or the `tls` argument to `clone()`
         /// (when that's a user_desc). May be more than one due to different
         /// entry_numbers.
         thread_areas_: Vec<user_desc>,
-        /// The |stack| argument passed to |clone()|, which for
+        /// The `stack` argument passed to `clone()`, which for
         /// "threads" is the top of the user-allocated stack.
         top_of_stack: RemotePtr<Void>,
         /// The most recent status of this task as returned by
@@ -316,29 +316,29 @@ pub mod task_inner {
             self.ticks
         }
 
-        /// Stat |fd| in the context of this task's fd table.
+        /// Stat `fd` in the context of this task's fd table.
         pub fn stat_fd(&self, fd: i32) -> libc::stat {
             unimplemented!()
         }
 
-        /// Lstat |fd| in the context of this task's fd table.
+        /// Lstat `fd` in the context of this task's fd table.
         pub fn lstat_fd(fd: i32) -> libc::stat {
             unimplemented!()
         }
 
-        /// Open |fd| in the context of this task's fd table.
+        /// Open `fd` in the context of this task's fd table.
         pub fn open_fd(&self, fd: i32, flags: i32) -> ScopedFd {
             unimplemented!()
         }
 
-        /// Get the name of the file referenced by |fd| in the context of this
+        /// Get the name of the file referenced by `fd` in the context of this
         /// task's fd table.
         pub fn file_name_of_fd(&self, fd: i32) -> String {
             unimplemented!()
         }
 
         /// Syscalls have side effects on registers (e.g. setting the flags register).
-        /// Perform those side effects on |registers| to make it look like a syscall
+        /// Perform those side effects on `registers` to make it look like a syscall
         /// happened.
         pub fn canonicalize_regs(&self, syscall_arch: SupportedArch) {
             unimplemented!()
@@ -401,7 +401,7 @@ pub mod task_inner {
         }
 
         /// Return true when this task is in a traced syscall made by the
-        /// syscallbuf code. Callers may assume |is_in_syscallbuf()|
+        /// syscallbuf code. Callers may assume `is_in_syscallbuf()`
         /// is implied by this. Note that once we've entered the traced syscall,
         /// ip() is immediately after the syscall instruction.
         pub fn is_in_traced_syscall(&self) -> bool {
@@ -414,7 +414,7 @@ pub mod task_inner {
 
         /// Return true when this task is in an untraced syscall, i.e. one
         /// initiated by a function in the syscallbuf. Callers may
-        /// assume |is_in_syscallbuf()| is implied by this. Note that once we've
+        /// assume `is_in_syscallbuf()` is implied by this. Note that once we've
         /// entered the traced syscall, ip() is immediately after the syscall
         /// instruction.
         pub fn is_in_untraced_syscall(&self) -> bool {
@@ -425,7 +425,7 @@ pub mod task_inner {
             unimplemented!()
         }
 
-        /// Return true if |ptrace_event()| is the trace event
+        /// Return true if `ptrace_event()` is the trace event
         /// generated by the syscallbuf seccomp-bpf when a traced
         /// syscall is entered.
         pub fn is_ptrace_seccomp_event(&self) -> bool {
@@ -438,13 +438,13 @@ pub mod task_inner {
             unimplemented!()
         }
 
-        /// Return the "task name"; i.e. what |prctl(PR_GET_NAME)| or
+        /// Return the "task name"; i.e. what `prctl(PR_GET_NAME)` or
         /// /proc/tid/comm would say that the task's name is.
         pub fn name(&self) -> &str {
             &self.prname
         }
 
-        /// Call this method when this task has just performed an |execve()|
+        /// Call this method when this task has just performed an `execve()`
         /// (so we're in the new address space), but before the system call has
         /// returned.
         pub fn post_exec(&self, exe_file: &str) {
@@ -462,7 +462,7 @@ pub mod task_inner {
             unimplemented!()
         }
 
-        /// Read |N| bytes from |child_addr| into |buf|, or don't
+        /// Read `N` bytes from `child_addr` into `buf`, or don't
         /// return.
         pub fn read_bytes(&self, child_addr: RemotePtr<Void>, buf: &mut [u8]) {
             unimplemented!()
@@ -506,14 +506,14 @@ pub mod task_inner {
             unimplemented!()
         }
 
-        /// Read |val| from |child_addr|.
-        /// If the data can't all be read, then if |ok| is non-null
+        /// Read `val` from `child_addr`.
+        /// If the data can't all be read, then if `ok` is non-null
         /// sets *ok to false, otherwise asserts.
         pub fn read_val_mem<T>(&self, child_addr: RemotePtr<T>, ok: Option<&mut bool>) -> T {
             unimplemented!()
         }
 
-        /// Read |count| values from |child_addr|.
+        /// Read `count` values from `child_addr`.
         pub fn read_mem<T>(
             &self,
             child_addr: RemotePtr<T>,
@@ -523,7 +523,7 @@ pub mod task_inner {
             unimplemented!()
         }
 
-        /// Read and return the C string located at |child_addr| in
+        /// Read and return the C string located at `child_addr` in
         /// this address space.
         pub fn read_c_str(&self, child_addr: RemotePtr<u8>) -> CString {
             unimplemented!()
@@ -534,7 +534,7 @@ pub mod task_inner {
             self.session_.upgrade().unwrap()
         }
 
-        /// Set the tracee's registers to |regs|. Lazy.
+        /// Set the tracee's registers to `regs`. Lazy.
         pub fn set_regs(&mut self, regs: &Registers) {
             ed_assert!(self, self.is_stopped);
             self.registers = *regs;
@@ -546,17 +546,17 @@ pub mod task_inner {
             unimplemented!()
         }
 
-        /// Set the tracee's extra registers to |regs|. */
+        /// Set the tracee's extra registers to `regs`. */
         pub fn set_extra_regs(&self, regs: &ExtraRegisters) {
             unimplemented!()
         }
 
         /// Program the debug registers to the vector of watchpoint
-        /// configurations in |reg| (also updating the debug control
+        /// configurations in `reg` (also updating the debug control
         /// register appropriately).  Return true if all registers were
         /// successfully programmed, false otherwise.  Any time false
         /// is returned, the caller is guaranteed that no watchpoint
-        /// has been enabled; either all of |regs| is enabled and true
+        /// has been enabled; either all of `regs` is enabled and true
         /// is returned, or none are and false is returned.
         pub fn set_debug_regs(&self, regs: &DebugRegs) -> bool {
             unimplemented!()
@@ -571,7 +571,7 @@ pub mod task_inner {
             unimplemented!()
         }
 
-        /// Update the thread area to |addr|.
+        /// Update the thread area to `addr`.
         pub fn set_thread_area(&self, tls: RemotePtr<user_desc>) {
             unimplemented!()
         }
@@ -606,13 +606,13 @@ pub mod task_inner {
             self.wait_status
         }
 
-        /// Return the ptrace event as of the last call to |wait()/try_wait()|.
+        /// Return the ptrace event as of the last call to `wait()/try_wait()`.
         pub fn ptrace_event(&self) -> Option<i32> {
             self.wait_status.ptrace_event()
         }
 
         /// Return the signal that's pending for this as of the last
-        /// call to |wait()/try_wait()|.  Return of `None` means "no signal".
+        /// call to `wait()/try_wait()`.  Return of `None` means "no signal".
         pub fn stop_sig(&self) -> Option<i32> {
             self.wait_status.stop_sig()
         }
@@ -645,7 +645,7 @@ pub mod task_inner {
         }
 
         /// Get the current "time" measured as ticks on recording trace
-        /// events.  |task_time()| returns that "time" wrt this task
+        /// events.  `task_time()` returns that "time" wrt this task
         /// only.
         /// @TODO should we be returning some other type?
         pub fn trace_time(&self) -> u32 {
@@ -653,9 +653,9 @@ pub mod task_inner {
         }
 
         /// Call this after the tracee successfully makes a
-        /// |prctl(PR_SET_NAME)| call to change the task name to the
+        /// `prctl(PR_SET_NAME)` call to change the task name to the
         /// string pointed at in the tracee's address space by
-        /// |child_addr|.
+        /// `child_addr`.
         pub fn update_prname(&self, child_addr: RemotePtr<Void>) {
             unimplemented!()
         }
@@ -684,17 +684,17 @@ pub mod task_inner {
             getuid().as_raw()
         }
 
-        /// Write |N| bytes from |buf| to |child_addr|, or don't return.
+        /// Write `N` bytes from `buf` to `child_addr`, or don't return.
         pub fn write_bytes(&self, child_addr: RemotePtr<Void>, buf: &[u8]) {
             unimplemented!()
         }
 
-        /// Write |val| to |child_addr|.
+        /// Write `val` to `child_addr`.
         pub fn write_val_mem<T>(&self, child_addr: RemotePtr<T>, val: &T, ok: Option<&mut bool>) {
             unimplemented!()
         }
 
-        /// Write |val| to |child_addr|.
+        /// Write `val` to `child_addr`.
         pub fn write_val_mem_with_flags<T>(
             &self,
             child_addr: RemotePtr<T>,
@@ -719,7 +719,7 @@ pub mod task_inner {
             unimplemented!()
         }
 
-        /// If the data can't all be read, then if |ok| is non-null, sets *ok to
+        /// If the data can't all be read, then if `ok` is non-null, sets *ok to
         /// false, otherwise asserts.
         pub fn read_bytes_helper(
             &self,
@@ -730,7 +730,7 @@ pub mod task_inner {
             unimplemented!()
         }
 
-        /// If the data can't all be read, then if |ok| is non-null, sets *ok to
+        /// If the data can't all be read, then if `ok` is non-null, sets *ok to
         /// false, otherwise asserts.
         pub fn read_bytes_helper_for<T>(
             &self,
@@ -744,7 +744,7 @@ pub mod task_inner {
             self.read_bytes_helper(RemotePtr::cast(addr), buf, ok);
         }
 
-        /// |flags| is bits from WriteFlags.
+        /// `flags` is bits from WriteFlags.
         pub fn write_bytes_helper(
             &self,
             addr: RemotePtr<Void>,
@@ -782,7 +782,7 @@ pub mod task_inner {
             unimplemented!()
         }
 
-        /// Like |fallible_ptrace()| but infallible for most purposes.
+        /// Like `fallible_ptrace()` but infallible for most purposes.
         /// Errors other than ESRCH are treated as fatal. Returns false if
         /// we got ESRCH. This can happen any time during recording when the
         /// task gets a SIGKILL from outside.
@@ -853,13 +853,13 @@ pub mod task_inner {
             unimplemented!()
         }
 
-        /// Make the ptrace |request| with |addr| and |data|, return
+        /// Make the ptrace `request` with `addr` and `data`, return
         /// the ptrace return value.
         fn fallible_ptrace(&self, request: i32, addr: RemotePtr<Void>, data: &mut [u8]) -> c_long {
             unimplemented!()
         }
 
-        /// Like |fallible_ptrace()| but completely infallible.
+        /// Like `fallible_ptrace()` but completely infallible.
         /// All errors are treated as fatal.
         fn xptrace(&self, request: i32, addr: RemotePtr<Void>, data: &mut [u8]) {
             unimplemented!()
@@ -886,7 +886,7 @@ pub mod task_inner {
         }
 
         /// Map the syscallbuffer for this, shared with this process.
-        /// |map_hint| is the address where the syscallbuf is expected
+        /// `map_hint` is the address where the syscallbuf is expected
         /// to be mapped --- and this is asserted --- or nullptr if
         /// there are no expectations.
         /// Initializes syscallbuf_child.
@@ -901,15 +901,15 @@ pub mod task_inner {
         /// Make the OS-level calls to create a new fork or clone that
         /// will eventually be a copy of this task and return that Task
         /// metadata.  These methods are used in concert with
-        /// |Task::copy_state()| to create task copies during
+        /// `Task::copy_state()` to create task copies during
         /// checkpointing.
         ///
-        /// For |os_fork_into()|, |session| will be tracking the
+        /// For `os_fork_into()`, `session` will be tracking the
         /// returned fork child.
         ///
-        /// For |os_clone_into()|, |task_leader| is the "main thread"
+        /// For `os_clone_into()`, `task_leader` is the "main thread"
         /// in the process into which the copy of this task will be
-        /// created.  |task_leader| will perform the actual OS calls to
+        /// created.  `task_leader` will perform the actual OS calls to
         /// create the new child.
         fn os_fork_into(&self, session: &dyn Session) -> &TaskInner {
             unimplemented!()
@@ -924,13 +924,13 @@ pub mod task_inner {
             unimplemented!()
         }
 
-        /// Make the OS-level calls to clone |parent| into |session|
+        /// Make the OS-level calls to clone `parent` into `session`
         /// and return the resulting Task metadata for that new
-        /// process.  This is as opposed to |Task::clone()|, which only
+        /// process.  This is as opposed to `Task::clone()`, which only
         /// attaches Task metadata to an /existing/ process.
         ///
-        /// The new clone will be tracked in |session|.  The other
-        /// arguments are as for |Task::clone()| above.
+        /// The new clone will be tracked in `session`.  The other
+        /// arguments are as for `Task::clone()` above.
         fn os_clone(
             reason: CloneReason,
             session: &dyn Session,

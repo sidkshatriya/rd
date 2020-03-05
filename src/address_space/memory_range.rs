@@ -41,7 +41,7 @@ impl MemoryRange {
 
     /// Operator < (basically lexicographic comparison) and == automatically derived
 
-    /// Return true iff |other| is an address range fully contained by self.
+    /// Return true iff `other` is an address range fully contained by self.
     pub fn contains(&self, other: &Self) -> bool {
         self.start_ <= other.start_ && other.end_ <= self.end_
     }

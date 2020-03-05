@@ -13,7 +13,7 @@ pub struct syscall_info {
 /// Can be architecture dependent. The rd process does not manipulate
 /// these except to save and restore the values on task switches so that
 /// the values are always effectively local to the current task. rd also
-/// sets the |syscallbuf_stub_alt_stack| field.
+/// sets the `syscallbuf_stub_alt_stack` field.
 /// We use this instead of regular libc TLS because sometimes buggy application
 /// code breaks libc TLS for some tasks. With this approach we can be sure
 /// thread-locals are usable for any task in any state.
@@ -54,7 +54,7 @@ pub struct preload_thread_locals {
     /// The offset of this field MUST NOT CHANGE, it is part of the ABI tools
     /// depend on. When buffering is enabled, points at the thread's mapped buffer
     /// segment.  At the start of the segment is an object of type |struct
-    /// syscallbuf_hdr|, so |buffer| is also a pointer to the buffer
+    /// syscallbuf_hdr|, so `buffer` is also a pointer to the buffer
     /// header.
     pub buffer: ptr<u8>,
     pub buffer_size: size_t,
@@ -101,7 +101,7 @@ pub struct preload_thread_locals {
     pub notify_control_msg: ptr<msghdr>,
 }
 
-/// Packs up the parameters passed to |SYS_rdcall_init_preload|.
+/// Packs up the parameters passed to `SYS_rdcall_init_preload`.
 /// We use this struct because it's a little cleaner.
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -129,7 +129,7 @@ pub struct rdcall_init_preload_params {
     pub breakpoint_table_entry_size: int,
 }
 
-/// Packs up the inout parameters passed to |SYS_rdcall_init_buffers|.
+/// Packs up the inout parameters passed to `SYS_rdcall_init_buffers`.
 /// We use this struct because there are too many params to pass
 /// through registers on at least x86.  (It's also a little cleaner.)
 #[repr(C)]

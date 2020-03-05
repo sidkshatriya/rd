@@ -14,7 +14,7 @@ use std::ops::{Deref, DerefMut};
 /// between adjacent segments.  For example, the kernel
 /// considers a NORESERVE anonynmous mapping that's adjacent to
 /// a non-NORESERVE mapping distinct, even if all other
-/// metadata are the same.  See |is_adjacent_mapping()|.
+/// metadata are the same.  See `is_adjacent_mapping()`.
 pub const MAP_FLAGS_MASK: i32 =
     MAP_ANONYMOUS | MAP_NORESERVE | MAP_PRIVATE | MAP_SHARED | MAP_STACK | MAP_GROWSDOWN;
 pub const CHECKABLE_FLAGS_MASK: i32 = MAP_PRIVATE | MAP_SHARED;
@@ -195,7 +195,7 @@ impl KernelMapping {
         fake_stat
     }
 
-    /// Dump a representation of |self| to a string in a format
+    /// Dump a representation of `self` to a string in a format
     /// similar to the former part of /proc/[tid]/maps.
     pub fn str(&self) -> String {
         let map_shared = if MAP_SHARED & self.flags_ == MAP_SHARED {

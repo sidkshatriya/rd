@@ -10,18 +10,18 @@ pub struct BreakStatus {
     /// List of watchpoints hit; any watchpoint hit causes a stop after the
     /// instruction that triggered the watchpoint has completed.
     pub watchpoints_hit: Vec<WatchConfig>,
-    /// When non-null, we stopped because a signal was delivered to |task|.
+    /// When non-null, we stopped because a signal was delivered to `task`.
     /// @TODO does this really need to be a Box?
     pub signal: Box<siginfo_t>,
-    /// True when we stopped because we hit a software breakpoint at |task|'s
+    /// True when we stopped because we hit a software breakpoint at `task`'s
     /// current ip().
     pub breakpoint_hit: bool,
-    /// True when we stopped because a singlestep completed in |task|.
+    /// True when we stopped because a singlestep completed in `task`.
     pub singlestep_complete: bool,
     /// True when we stopped because we got too close to the specified ticks
     /// target.
     pub approaching_ticks_target: bool,
-    /// True when we stopped because |task| is about to exit.
+    /// True when we stopped because `task` is about to exit.
     pub task_exit: bool,
 }
 
@@ -32,7 +32,7 @@ impl BreakStatus {
     }
 
     /// True when we stopped because we hit a software or hardware breakpoint at
-    /// |task|'s current ip().
+    /// `task`'s current ip().
     pub fn hardware_or_software_breakpoint_hit() -> bool {
         unimplemented!()
     }
@@ -132,11 +132,11 @@ pub mod session_inner {
         }
 
         /// Create and return a new address space that's constructed
-        /// from |t|'s actual OS address space. When spawning, |exe| is the empty
+        /// from `t`'s actual OS address space. When spawning, `exe` is the empty
         /// string; it will be replaced during the first execve(), when we first
         /// start running real tracee code.
-        /// If |exe| is not specified it is assumed to be an empty string.
-        /// If |exec_count| is not specified it is assumed to be 0.
+        /// If `exe` is not specified it is assumed to be an empty string.
+        /// If `exec_count` is not specified it is assumed to be 0.
         pub fn create_vm(
             &mut self,
             t: &dyn Task,
@@ -146,8 +146,8 @@ pub mod session_inner {
             unimplemented!()
         }
 
-        /// Return a copy of |vm| with the same mappings.  If any
-        /// mapping is changed, only the |clone()|d copy is updated,
+        /// Return a copy of `vm` with the same mappings.  If any
+        /// mapping is changed, only the `clone()`d copy is updated,
         /// not its origin (i.e. copy-on-write semantics).
         /// NOTE: Called simply Session::clone() in rr
         pub fn clone_vm(
@@ -168,7 +168,7 @@ pub mod session_inner {
             self.next_task_serial_
         }
 
-        /// |tasks().size()| will be zero and all the OS tasks will be
+        /// `tasks().size()` will be zero and all the OS tasks will be
         /// gone when this returns, or this won't return.
         pub fn kill_all_tasks(&mut self) {
             unimplemented!()

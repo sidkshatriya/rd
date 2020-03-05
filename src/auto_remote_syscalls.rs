@@ -98,12 +98,12 @@ impl<'a, 'b> Drop for AutoRestoreMem<'a, 'b> {
 }
 
 impl<'a, 'b> AutoRestoreMem<'a, 'b> {
-    /// Write |mem| into address space of the Task prepared for
-    /// remote syscalls in |remote|, in such a way that the write
+    /// Write `mem` into address space of the Task prepared for
+    /// remote syscalls in `remote`, in such a way that the write
     /// will be undone.  The address of the reserved mem space is
-    /// available via |get|.
-    /// If |mem| is None, data is not written, only the space is reserved.
-    /// You must provide |len| whether or not you are passing in mem. The |len|
+    /// available via `get`.
+    /// If `mem` is None, data is not written, only the space is reserved.
+    /// You must provide `len` whether or not you are passing in mem. The `len`
     /// needs to be consistent if mem is provided. i.e. mem.unwrap().len() == len
     pub fn new(
         remote: &'a mut AutoRemoteSyscalls<'b>,
@@ -125,7 +125,7 @@ impl<'a, 'b> AutoRestoreMem<'a, 'b> {
         result
     }
 
-    /// Convenience constructor for pushing a C string |str|, including
+    /// Convenience constructor for pushing a C string `str`, including
     /// the trailing '\0' byte.
     pub fn push_cstr(remote: &'a mut AutoRemoteSyscalls<'b>, s: &CStr) -> AutoRestoreMem<'a, 'b> {
         let c = s.to_bytes_with_nul();
@@ -205,7 +205,7 @@ pub struct AutoRemoteSyscalls<'a> {
 }
 
 impl<'a> AutoRemoteSyscalls<'a> {
-    /// Prepare |t| for a series of remote syscalls.
+    /// Prepare `t` for a series of remote syscalls.
     ///
     /// NBBB!  Before preparing for a series of remote syscalls,
     /// the caller *must* ensure the callee will not receive any
@@ -292,11 +292,11 @@ impl<'a> AutoRemoteSyscalls<'a> {
         &mut self.initial_regs
     }
 
-    ///  Undo any preparations to make remote syscalls in the context of |t|.
+    ///  Undo any preparations to make remote syscalls in the context of `t`.
     ///
     ///  This is usually called automatically by the destructor;
     ///  don't call it directly unless you really know what you'd
-    ///  doing.  *ESPECIALLY* don't call this on a |t| other than
+    ///  doing.  *ESPECIALLY* don't call this on a `t` other than
     ///  the one passed to the constructor, unless you really know
     ///  what you're doing.
     pub fn restore_state_to(&mut self, maybe_other_task: Option<&'a mut dyn Task>) {
@@ -327,7 +327,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         some_t.set_status(self.restore_wait_status);
     }
 
-    /// Make |syscallno| with variadic |args| (limited to 6 on
+    /// Make `syscallno` with variadic `args` (limited to 6 on
     /// x86).  Return the raw kernel return value.
     /// Returns -ESRCH if the process dies or has died.
     pub fn syscall(&mut self, syscallno: i32, args: &[usize]) -> isize {
@@ -493,11 +493,11 @@ impl<'a> AutoRemoteSyscalls<'a> {
         ScopedFd::from_raw(our_fd)
     }
 
-    /// Remotely invoke in |t| the specified syscall with the given
-    /// arguments.  The arguments must of course be valid in |t|,
+    /// Remotely invoke in `t` the specified syscall with the given
+    /// arguments.  The arguments must of course be valid in `t`,
     /// and no checking of that is done by this function.
     ///
-    /// The syscall is finished in |t| and the result is returned.
+    /// The syscall is finished in `t` and the result is returned.
     pub fn syscall_base(&mut self, syscallno: i32, callregs: &mut Registers) -> isize {
         log!(LogDebug, "syscall {}", syscall_name(syscallno, self.arch()));
 
@@ -700,9 +700,9 @@ impl<'a> AutoRemoteSyscalls<'a> {
         rd_arch_function!(self, retrieve_fd_arch, self.arch(), fd)
     }
 
-    /// If None is provided for |tracee_prot|, PROT_READ | PROT_WRITE is assumed.
-    /// If None is provided for |tracee_flags|, 0 is assumed
-    /// If None is provided for |monitored| it is assumed that there is no memory monitor.
+    /// If None is provided for |tracee_prot`, PROT_READ ` PROT_WRITE is assumed.
+    /// If None is provided for `tracee_flags`, 0 is assumed
+    /// If None is provided for `monitored` it is assumed that there is no memory monitor.
     /// If None is provided for `map_hint` it is assumed that we DONT use MAP_FIXED
     pub fn create_shared_mmap(
         &self,
@@ -727,8 +727,8 @@ impl<'a> AutoRemoteSyscalls<'a> {
     /// DiscardContents.
     /// OK to call this while 'm' references one of the mappings in remote's
     /// AddressSpace
-    /// If None is provided for |preserve| then DiscardContents is assumed
-    /// If None is provided for |monitored| it is assumed that there is no memory monitor.
+    /// If None is provided for `preserve` then DiscardContents is assumed
+    /// If None is provided for `monitored` it is assumed that there is no memory monitor.
     pub fn recreate_shared_mmap(
         &self,
         m: &Mapping,
@@ -741,7 +741,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
     /// Takes a mapping and replaces it by one that is shared between rr and
     /// the tracee. The caller is responsible for filling the contents of the
     /// new mapping.
-    /// If None is provided for |monitored| it is assumed that there is no memory monitor.
+    /// If None is provided for `monitored` it is assumed that there is no memory monitor.
     pub fn steal_mapping(
         &self,
         m: &Mapping,

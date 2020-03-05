@@ -229,7 +229,7 @@ pub mod address_space {
     /// it consistent with Watchpoint which also NOT Copy.
     #[derive(Clone)]
     struct Breakpoint {
-        /// "Refcounts" of breakpoints set at |addr|.  The breakpoint
+        /// "Refcounts" of breakpoints set at `addr`.  The breakpoint
         /// object must be unique since we have to save the overwritten
         /// data, and we can't enforce the order in which breakpoints
         /// are set/removed.
@@ -515,7 +515,7 @@ pub mod address_space {
         }
 
         /// Change the program data break of this address space to
-        /// |addr|. Only called during recording!
+        /// `addr`. Only called during recording!
         pub fn brk(&self, t: &dyn Task, addr: RemotePtr<Void>, prot: i32) {
             unimplemented!()
         }
@@ -525,7 +525,7 @@ pub mod address_space {
             unimplemented!()
         }
 
-        /// Dump a representation of |this| to stderr in a format
+        /// Dump a representation of `self` to stderr in a format
         /// similar to /proc/[tid]/maps.
         /// @TODO impl Display
         pub fn dump(&self) {
@@ -557,19 +557,19 @@ pub mod address_space {
 
         /// Assuming the last retired instruction has raised a SIGTRAP
         /// and might be a breakpoint trap instruction, return the type
-        /// of breakpoint set at |ip() - sizeof(breakpoint_insn)|, if
+        /// of breakpoint set at `ip() - sizeof(breakpoint_insn)`, if
         /// one exists.  Otherwise return TRAP_NONE.
         pub fn get_breakpoint_type_for_retired_insn(&self, ip: RemoteCodePtr) -> BreakpointType {
             unimplemented!()
         }
 
         /// Return the type of breakpoint that's been registered for
-        /// |addr|.
+        /// `addr`.
         pub fn get_breakpoint_type_at_addr(addr: RemoteCodePtr) -> BreakpointType {
             unimplemented!()
         }
 
-        /// Returns true when the breakpoint at |addr| is in private
+        /// Returns true when the breakpoint at `addr` is in private
         /// non-writeable memory. When this returns true, the breakpoint can't be
         /// overwritten by the tracee without an intervening mprotect or mmap
         /// syscall.
@@ -577,14 +577,14 @@ pub mod address_space {
             unimplemented!()
         }
 
-        /// Return true if there's a breakpoint instruction at |ip|. This might
+        /// Return true if there's a breakpoint instruction at `ip`. This might
         /// be an explicit instruction, even if there's no breakpoint set via our API.
         pub fn is_breakpoint_instruction(t: &dyn Task, ip: RemoteCodePtr) -> bool {
             unimplemented!()
         }
 
-        /// The buffer |dest| of length |length| represents the contents of tracee
-        /// memory at |addr|. Replace the bytes in |dest| that have been overwritten
+        /// The buffer `dest` of length `length` represents the contents of tracee
+        /// memory at `addr`. Replace the bytes in `dest` that have been overwritten
         /// by breakpoints with the original data that was replaced by the breakpoints.
         pub fn replace_breakpoints_with_original_values(
             &self,
@@ -594,16 +594,16 @@ pub mod address_space {
             unimplemented!()
         }
 
-        /// Map |num_bytes| into this address space at |addr|, with
-        /// |prot| protection and |flags|.  The pages are (possibly
-        /// initially) backed starting at |offset| of |res|. |fsname|, |device| and
-        /// |inode| are values that will appear in the /proc/<pid>/maps entry.
-        /// |mapped_file_stat| is a complete copy of the 'stat' data for the mapped
+        /// Map `num_bytes` into this address space at `addr`, with
+        /// `prot` protection and `flags`.  The pages are (possibly
+        /// initially) backed starting at `offset` of `res`. `fsname`, `device` and
+        /// `inode` are values that will appear in the /proc/<pid>/maps entry.
+        /// `mapped_file_stat` is a complete copy of the 'stat' data for the mapped
         /// file, or null if this isn't a file mapping or isn't during recording.
-        /// |*recorded_map| is the mapping during recording, or null if the mapping
+        /// `*recorded_map` is the mapping during recording, or null if the mapping
         /// during recording is known to be the same as the new map (e.g. because
         /// we are recording!).
-        /// |local_addr| is the local address of the memory shared with the tracee,
+        /// `local_addr` is the local address of the memory shared with the tracee,
         /// or null if it's not shared with the tracee. AddressSpace takes ownership
         /// of the shared memory and is responsible for unmapping it.
         pub fn map(
@@ -676,7 +676,7 @@ pub mod address_space {
         }
 
         /// Change the protection bits of [addr, addr + num_bytes) to
-        /// |prot|.
+        /// `prot`.
         pub fn protect(&self, t: &dyn Task, addr: RemotePtr<Void>, num_bytes: usize, prot: i32) {
             unimplemented!()
         }
@@ -701,16 +701,16 @@ pub mod address_space {
 
         /// Notify that data was written to this address space by rr or
         /// by the kernel.
-        /// |flags| can contain values from Task::WriteFlags.
+        /// `flags` can contain values from Task::WriteFlags.
         pub fn notify_written(&self, addr: RemotePtr<Void>, num_bytes: usize, flags: u32) {
             unimplemented!()
         }
 
-        /// Ensure a breakpoint of |type| is set at |addr|.
+        /// Ensure a breakpoint of `type` is set at `addr`.
         pub fn add_breakpoint(&mut self, addr: RemoteCodePtr, type_: BreakpointType) {
             unimplemented!()
         }
-        /// Remove a |type| reference to the breakpoint at |addr|.  If
+        /// Remove a `type` reference to the breakpoint at `addr`.  If
         /// the removed reference was the last, the breakpoint is
         /// destroyed.
         pub fn remove_breakpoint(&mut self, addr: RemoteCodePtr, type_: BreakpointType) {
@@ -722,12 +722,12 @@ pub mod address_space {
             unimplemented!()
         }
 
-        /// Temporarily remove the breakpoint at |addr|.
+        /// Temporarily remove the breakpoint at `addr`.
         pub fn suspend_breakpoint_at(&self, addr: RemoteCodePtr) {
             unimplemented!()
         }
 
-        /// Restore any temporarily removed breakpoint at |addr|.
+        /// Restore any temporarily removed breakpoint at `addr`.
         pub fn restore_breakpoint_at(&self, addr: RemoteCodePtr) {
             unimplemented!()
         }
@@ -791,7 +791,7 @@ pub mod address_space {
             unimplemented!()
         }
 
-        /// Return all changed watchpoints in |watches| and clear their changed flags.
+        /// Return all changed watchpoints in `watches` and clear their changed flags.
         pub fn consume_watchpoint_changes(&self) -> Vec<WatchConfig> {
             unimplemented!()
         }
@@ -837,7 +837,7 @@ pub mod address_space {
             unimplemented!()
         }
 
-        /// Encoding of the |int $3| instruction.
+        /// Encoding of the `int $3` instruction.
         pub const BREAKPOINT_INSN: u8 = 0xCC;
 
         pub fn mem_fd(&self) -> &ScopedFd {
@@ -957,7 +957,7 @@ pub mod address_space {
             RemoteCodePtr::from_val(self.vdso().start().as_usize() + offset)
         }
 
-        /// Task |t| just forked from this address space. Apply dont_fork settings.
+        /// Task `t` just forked from this address space. Apply dont_fork settings.
         pub fn did_fork_into(t: &dyn Task) {
             unimplemented!()
         }
@@ -1060,7 +1060,7 @@ pub mod address_space {
             unimplemented!()
         }
 
-        /// After an exec, populate the new address space of |t| with
+        /// After an exec, populate the new address space of `t` with
         /// the existing mappings we find in /proc/maps.
         fn populate_address_space(&mut self, t: &dyn Task) {
             unimplemented!()
@@ -1118,7 +1118,7 @@ pub mod address_space {
         }
 
         /// Construct a minimal set of watchpoints to be enabled based
-        /// on |set_watchpoint()| calls, and program them for each task
+        /// on `set_watchpoint()` calls, and program them for each task
         /// in this address space.
         fn allocate_watchpoints(&mut self) -> bool {
             let mut regs = self.get_watch_configs(WillSetTaskState::SettingTaskState);
@@ -1145,7 +1145,7 @@ pub mod address_space {
             return false;
         }
 
-        /// Merge the mappings adjacent to |it| in memory that are
+        /// Merge the mappings adjacent to `it` in memory that are
         /// semantically "adjacent mappings" of the same resource as
         /// well, for example have adjacent file offsets and the same
         /// prot and flags.
@@ -1153,18 +1153,18 @@ pub mod address_space {
             unimplemented!()
         }
 
-        /// Erase |it| from |breakpoints| and restore any memory in
+        /// Erase `it` from `breakpoints` and restore any memory in
         /// this it may have overwritten.
         fn destroy_breakpoint(it: BreakpointMapIter) {
             unimplemented!()
         }
 
         /// For each mapped segment overlapping [addr, addr +
-        /// num_bytes), call |f|.  Pass |f| the overlapping mapping,
+        /// num_bytes), call `f`.  Pass `f` the overlapping mapping,
         /// the mapped resource, and the range of addresses remaining
         /// to be iterated over.
-        /// Pass |IterateContiguous| to stop iterating when the last
-        /// contiguous mapping after |addr| within the region is seen.
+        /// Pass `IterateContiguous` to stop iterating when the last
+        /// contiguous mapping after `addr` within the region is seen.
         /// Default is to iterate all mappings in the region.
         fn for_each_in_range<F: Fn(&Mapping, &MemoryRange)>(
             &self,
@@ -1176,8 +1176,8 @@ pub mod address_space {
             unimplemented!()
         }
 
-        /// Map |m| of |r| into this address space, and coalesce any
-        /// mappings of |r| that are adjacent to |m|.
+        /// Map `m` of `r` into this address space, and coalesce any
+        /// mappings of `r` that are adjacent to `m`.
         fn map_and_coalesce(
             &self,
             t: &dyn Task,
@@ -1200,7 +1200,7 @@ pub mod address_space {
             unimplemented!()
         }
 
-        /// Return the access bits above needed to watch |type|.
+        /// Return the access bits above needed to watch `type`.
         fn access_bits_of(type_: WatchType) -> RwxBits {
             unimplemented!()
         }

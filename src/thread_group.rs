@@ -13,7 +13,7 @@ pub type ThreadGroupSharedPtr = Rc<RefCell<ThreadGroup>>;
 pub type ThreadGroupSharedWeakPtr = Weak<RefCell<ThreadGroup>>;
 
 /// Tracks a group of tasks with an associated ID, set from the
-/// original "thread group leader", the child of |fork()| which became
+/// original "thread group leader", the child of `fork()` which became
 /// the ancestor of all other threads in the group.  Each constituent
 /// task must own a reference to this.
 ///
@@ -75,7 +75,7 @@ impl DerefMut for ThreadGroup {
 }
 
 /// Tracks a group of tasks with an associated ID, set from the
-/// original "thread group leader", the child of |fork()| which became
+/// original "thread group leader", the child of `fork()` which became
 /// the ancestor of all other threads in the group.  Each constituent
 /// task must own a reference to this.
 impl ThreadGroup {
@@ -92,7 +92,7 @@ impl ThreadGroup {
 
     /// Mark the members of this thread group as "unstable",
     /// meaning that even though a task may look runnable, it
-    /// actually might not be.  (And so |waitpid(-1)| should be
+    /// actually might not be.  (And so `waitpid(-1)` should be
     /// used to schedule the next task.)
     ///
     /// This is needed to handle the peculiarities of mass Task
@@ -128,7 +128,7 @@ impl ThreadGroup {
     ///     for each notified task.
     ///
     /// So why destabilization?  After (2), rd can't block on the
-    /// task shutting down (|waitpid(tid)|), because the kernel
+    /// task shutting down (`waitpid(tid)`), because the kernel
     /// harvests the LWPs of the dying thread group in an unknown
     /// order (which we shouldn't assume, even if we could guess
     /// it).  If rd blocks on the task harvest, it will (usually)

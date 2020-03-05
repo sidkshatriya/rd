@@ -32,7 +32,7 @@ pub enum FileMonitorType {
     VirtualPerfCounter,
 }
 
-/// Notification that task |t| wrote to the file descriptor.
+/// Notification that task `t` wrote to the file descriptor.
 /// Due to races, if will_write did not return PREVENT_SWITCH, it's possible
 /// that the data in the buffers is not what was actually written.
 #[derive(Copy, Clone)]
@@ -81,8 +81,8 @@ pub trait FileMonitor {
         false
     }
 
-    /// Notification that task |t| is about to write |data| bytes of length
-    /// |length| to the file.
+    /// Notification that task `t` is about to write `data` bytes of length
+    /// `length` to the file.
     /// In general writes can block, and concurrent blocking writes to the same
     /// file may race so that the kernel performs writes out of order
     /// with respect to will_write notifications.

@@ -1,10 +1,10 @@
 //! Support tracees that share memory read-only with a non-tracee that
 //! writes to the memory. Currently this just supports limited cases that
 //! suffice for dconf: no remapping, coalescing or splitting of the memory is
-//! allowed (|subrange| below just asserts). It doesn't handle mappings where
+//! allowed (`subrange` below just asserts). It doesn't handle mappings where
 //! the mapping has more pages than the file.
 //!
-//! After such memory is mapped in the tracee, we also map it in rd at |real_mem|
+//! After such memory is mapped in the tracee, we also map it in rd at `real_mem`
 //! and replace the tracee's mapping with a "shadow buffer" that's only shared
 //! with rd. Then periodically rd reads the real memory, and if it doesn't match
 //! the shadow buffer, we update the shadow buffer with the new values and

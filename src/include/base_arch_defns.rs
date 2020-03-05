@@ -406,13 +406,13 @@ enum CloneParameterOrdering {
 }
 
 /// Despite the clone(2) manpage describing the clone syscall as taking a
-/// pointer to |struct user_desc*|, the actual kernel interface treats the
+/// pointer to `struct user_desc*`, the actual kernel interface treats the
 /// TLS value as a opaque cookie, which architectures are then free to do
 /// whatever they like with.  See for instance the definition of TLS_VALUE
 /// in nptl/sysdeps/pthread/createthread.c in the glibc source.  We need to
 /// describe what the architecture uses so we can record things accurately.
 enum CloneTLSType {
-    /// |struct user_desc*|
+    /// `struct user_desc*`
     UserDescPointer,
     /// This is the default choice for TLS_VALUE in the glibc source.
     PthreadStructurePointer,

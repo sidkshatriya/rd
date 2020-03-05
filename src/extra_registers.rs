@@ -299,7 +299,7 @@ impl ExtraRegisters {
         Some(ret)
     }
 
-    /// Like |Registers::read_register()|, except attempts to read
+    /// Like `Registers::read_register()`, except attempts to read
     /// the value of an "extra register" (floating point / vector).
     pub fn read_register(&self, buf: &mut [u8], regno: GdbRegister) -> Option<usize> {
         if self.format_ != Format::XSave {
@@ -571,7 +571,7 @@ impl RegData {
     }
 }
 
-/// Return the size and data location of register |regno|.
+/// Return the size and data location of register `regno`.
 /// If we can't read the register, returns -1 in 'offset'.
 fn xsave_register_data(arch: SupportedArch, regno_param: GdbRegister) -> RegData {
     let mut regno = regno_param;

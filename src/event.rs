@@ -87,7 +87,7 @@ pub enum EventType {
 pub struct DeschedEvent {
     /// Record of the syscall that was interrupted by a desched
     /// notification.  It's legal to reference this memory /while
-    /// the desched is being processed only/, because |t| is in the
+    /// the desched is being processed only/, because `t` is in the
     /// middle of a desched, which means it's successfully
     /// allocated (but not yet committed) this syscall record.
     pub rec: RemotePtr<syscallbuf_record>,
@@ -117,7 +117,7 @@ pub struct SignalEvent {
     pub siginfo: siginfo_t,
     /// True if this signal will be deterministically raised as the
     /// side effect of retiring an instruction during replay, for
-    /// example |load $r 0x0| deterministically raises SIGSEGV.
+    /// example `load $r 0x0` deterministically raises SIGSEGV.
     pub deterministic: SignalDeterministic,
     pub disposition: SignalResolvedDisposition,
 }

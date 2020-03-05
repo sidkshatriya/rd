@@ -77,13 +77,13 @@ impl FdTable {
         unimplemented!()
     }
 
-    /// Regenerate syscallbuf_fds_disabled in task |t|.
+    /// Regenerate syscallbuf_fds_disabled in task `t`.
     /// Called during initialization of the preload library.
     pub fn init_syscallbuf_fds_disabled(&self, t: &TaskInner) {
         unimplemented!()
     }
 
-    /// Get list of fds that have been closed after |t| has done an execve.
+    /// Get list of fds that have been closed after `t` has done an execve.
     /// Rather than tracking CLOEXEC flags (which would be complicated), we just
     /// scan /proc/<pid>/fd during recording and note any monitored fds that have
     /// been closed.

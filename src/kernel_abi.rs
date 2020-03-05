@@ -45,7 +45,7 @@ const SYSENTER_INSN: [u8; 2] = [0x0f, 0x34];
 const SYSCALL_INSN: [u8; 2] = [0x0f, 0x05];
 
 /// Return the code bytes of an invoke-syscall instruction. The vector must
-/// have the length given by |syscall_instruction_length|.
+/// have the length given by `syscall_instruction_length`.
 pub fn syscall_instruction(arch: SupportedArch) -> &'static [u8] {
     match arch {
         SupportedArch::X86 => &INT80_INSN,

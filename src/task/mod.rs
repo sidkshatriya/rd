@@ -100,10 +100,10 @@ pub trait Task: DerefMut<Target = TaskInner> {
     fn at_preload_init(&self);
 
     /// (Note: Methods following this are protected in the rr implementation)
-    /// Return a new Task cloned from |p|.  |flags| are a set of
+    /// Return a new Task cloned from `p`.  `flags` are a set of
     /// CloneFlags (see above) that determine which resources are
-    /// shared or copied to the new child.  |new_tid| is the tid
-    /// assigned to the new task by the kernel.  |new_rec_tid| is
+    /// shared or copied to the new child.  `new_tid` is the tid
+    /// assigned to the new task by the kernel.  `new_rec_tid` is
     /// only relevant to replay, and is the pid that was assigned
     /// to the task during recording.
     /// NOTE: Called simply Task::clone() in rr.
@@ -129,13 +129,13 @@ pub trait Task: DerefMut<Target = TaskInner> {
     }
 
     /// Dump attributes of this process, including pending events,
-    /// to |out|, which defaults to LOG_FILE.
+    /// to `out`, which defaults to LOG_FILE.
     fn dump(&self, out: Option<&dyn Write>) {
         unimplemented!()
     }
 
-    /// Resume execution |how|, deliverying |sig| if nonzero.
-    /// After resuming, |wait_how|. In replay, reset hpcs and
+    /// Resume execution `how`, deliverying `sig` if nonzero.
+    /// After resuming, `wait_how`. In replay, reset hpcs and
     /// request a tick period of tick_period. The default value
     /// of tick_period is 0, which means effectively infinite.
     /// If interrupt_after_elapsed is nonzero, we interrupt the task
@@ -169,7 +169,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
     }
 
     /// This must be in an emulated syscall, entered through
-    /// |cont_sysemu()| or |cont_sysemu_singlestep()|, but that's
+    /// `cont_sysemu()` or `cont_sysemu_singlestep()`, but that's
     /// not checked.  If so, step over the system call instruction
     /// to "exit" the emulated syscall.
     fn finish_emulated_syscall(&self) {
@@ -183,8 +183,8 @@ pub trait Task: DerefMut<Target = TaskInner> {
         unimplemented!()
     }
 
-    /// Force the wait status of this to |status|, as if
-    /// |wait()/try_wait()| had returned it. Call this whenever a waitpid
+    /// Force the wait status of this to `status`, as if
+    /// `wait()/try_wait()` had returned it. Call this whenever a waitpid
     /// returned activity for this past.
     fn did_waitpid(&self, status: WaitStatus) {
         unimplemented!()

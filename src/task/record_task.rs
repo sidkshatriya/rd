@@ -67,7 +67,7 @@ impl Sighandlers {
         }
     }
 
-    /// For each signal in |table| such that is_user_handler() is
+    /// For each signal in `table` such that is_user_handler() is
     /// true, reset the disposition of that signal to SIG_DFL, and
     /// clear the resethand flag if it's set.  SIG_IGN signals are
     /// not modified.
@@ -92,7 +92,7 @@ impl Sighandlers {
 #[derive(Clone)]
 /// Stores the table of signal dispositions and metadata for an
 /// arbitrary set of tasks.  Each of those tasks must own one one of
-/// the |refcount|s while they still refer to this.
+/// the `refcount`s while they still refer to this.
 /// @TODO forced to pub this struct even though rr does not.
 pub struct Sighandler {
     /// @TODO are all these pub(self) useful? Should they be there?
@@ -289,7 +289,7 @@ pub mod record_task {
         /// continued by its ptracer yet, or has no ptracer.
         /// Different from rr which uses 0 and a signed int.
         pub emulated_ptrace_cont_command: Option<u32>,
-        /// true when a ptracer/waiter wait() can return |emulated_stop_code|.
+        /// true when a ptracer/waiter wait() can return `emulated_stop_code`.
         pub emulated_stop_pending: bool,
         /// true if this task needs to send a SIGCHLD to its ptracer for its
         /// emulated ptrace stop
@@ -333,7 +333,7 @@ pub mod record_task {
         /// Nonzero after the trace recorder has flushed the
         /// syscallbuf.  When this happens, the recorder must prepare a
         /// "reset" of the buffer, to zero the record count, at the
-        /// next available slow (taking |desched| into
+        /// next available slow (taking `desched` into
         /// consideration).
         pub flushed_syscallbuf: bool,
         /// This bit is set when code wants to prevent the syscall
@@ -350,7 +350,7 @@ pub mod record_task {
         /// Mirrored kernel state
         /// This state agrees with kernel-internal values
         ///
-        /// Futex list passed to |set_robust_list()|.  We could keep a
+        /// Futex list passed to `set_robust_list()`.  We could keep a
         /// strong type for this list head and read it if we wanted to,
         /// but for now we only need to remember its address / size at
         /// the time of the most recent set_robust_list() call.
@@ -553,7 +553,7 @@ pub mod record_task {
         }
 
         /// When emulating a ptrace-continue with a signal number, extract the siginfo
-        /// that was saved by |save_ptrace_signal_siginfo|. If no such siginfo was
+        /// that was saved by `save_ptrace_signal_siginfo`. If no such siginfo was
         /// saved, make one up.
         pub fn take_ptrace_signal_siginfo(&self, sig: i32) -> siginfo_t {
             unimplemented!()
@@ -577,13 +577,13 @@ pub mod record_task {
             unimplemented!()
         }
 
-        /// Call this after |sig| is delivered to this task.  Emulate
+        /// Call this after `sig` is delivered to this task.  Emulate
         /// sighandler updates induced by the signal delivery.
         pub fn signal_delivered(&self, sig: i32) {
             unimplemented!()
         }
 
-        /// Return true if |sig| is pending but hasn't been reported to ptrace yet
+        /// Return true if `sig` is pending but hasn't been reported to ptrace yet
         pub fn is_signal_pending(&self, sig: i32) -> bool {
             unimplemented!()
         }
@@ -598,9 +598,9 @@ pub mod record_task {
             unimplemented!()
         }
 
-        /// Return true if the disposition of |sig| in |table| isn't
+        /// Return true if the disposition of `sig` in `table` isn't
         /// SIG_IGN or SIG_DFL, that is, if a user sighandler will be
-        /// invoked when |sig| is received.
+        /// invoked when `sig` is received.
         pub fn signal_has_user_handler(&self, sig: i32) -> bool {
             unimplemented!()
         }
@@ -611,30 +611,30 @@ pub mod record_task {
             unimplemented!()
         }
 
-        /// Return true if the signal handler for |sig| takes a &siginfo_t
+        /// Return true if the signal handler for `sig` takes a &siginfo_t
         /// parameter.
         pub fn signal_handler_takes_siginfo(&self, sig: i32) -> bool {
             unimplemented!()
         }
 
-        /// Return |sig|'s current sigaction. Returned as raw bytes since the
+        /// Return `sig`'s current sigaction. Returned as raw bytes since the
         /// data is architecture-dependent.
         pub fn signal_action(&self, sig: i32) -> &[u8] {
             unimplemented!()
         }
 
-        /// Return true iff |sig| is blocked for this.
+        /// Return true iff `sig` is blocked for this.
         pub fn is_sig_blocked(&self, sig: i32) -> bool {
             unimplemented!()
         }
 
-        /// Return true iff |sig| is SIG_IGN, or it's SIG_DFL and the
+        /// Return true iff `sig` is SIG_IGN, or it's SIG_DFL and the
         /// default disposition is "ignore".
         pub fn is_sig_ignored(&self, sig: i32) -> bool {
             unimplemented!()
         }
 
-        /// Return the applications current disposition of |sig|.
+        /// Return the applications current disposition of `sig`.
         pub fn sig_disposition(&self, sig: i32) -> SignalDisposition {
             unimplemented!()
         }
@@ -664,24 +664,24 @@ pub mod record_task {
             unimplemented!()
         }
 
-        /// Check that our status for |sig| matches what's in /proc/<pid>/status.
+        /// Check that our status for `sig` matches what's in /proc/<pid>/status.
         pub fn verify_signal_states(&self) {
             unimplemented!()
         }
 
         /// Stashed-signal API: if a signal becomes pending at an
         /// awkward time, but could be handled "soon", call
-        /// |stash_sig()| to stash the current pending-signal state.
+        /// `stash_sig()` to stash the current pending-signal state.
         ///
-        /// |has_stashed_sig()| obviously returns true if |stash_sig()|
+        /// `has_stashed_sig()` obviously returns true if `stash_sig()`
         /// has been called successfully.
         ///
-        /// |pop_stash_sig()| restores the (relevant) state of this
-        /// Task to what was saved in |stash_sig()|, and returns the
-        /// saved siginfo.  After this call, |has_stashed_sig()| is
+        /// `pop_stash_sig()` restores the (relevant) state of this
+        /// Task to what was saved in `stash_sig()`, and returns the
+        /// saved siginfo.  After this call, `has_stashed_sig()` is
         /// false.
         ///
-        /// NB: |get_siginfo()| will always return the "real" siginfo,
+        /// NB: `get_siginfo()` will always return the "real" siginfo,
         /// regardless of stash popped-ness state.  Callers must ensure
         /// they do the right thing with the popped siginfo.
         ///
@@ -753,10 +753,10 @@ pub mod record_task {
             unimplemented!()
         }
 
-        /// Return true if |t| may not be immediately runnable,
-        /// i.e., resuming execution and then |waitpid()|'ing may block
+        /// Return true if `t` may not be immediately runnable,
+        /// i.e., resuming execution and then `waitpid()`'ing may block
         /// for an unbounded amount of time.  When the task is in this
-        /// state, the tracer must await a |waitpid()| notification
+        /// state, the tracer must await a `waitpid()` notification
         /// that the task is no longer possibly-blocked before resuming
         /// its execution.
         pub fn may_be_blocked(&self) -> bool {
@@ -775,7 +775,7 @@ pub mod record_task {
             unimplemented!()
         }
 
-        /// Shortcut to the most recent |pending_event->desched.rec| when
+        /// Shortcut to the most recent `pending_event->desched.rec` when
         /// there's a desched event on the stack, and nullptr otherwise.
         /// Exists just so that clients don't need to dig around in the
         /// event stack to find this record.
@@ -792,10 +792,10 @@ pub mod record_task {
             unimplemented!()
         }
 
-        /// Save tracee data to the trace.  |addr| is the address in
-        /// the address space of this task.  The |record_local*()|
+        /// Save tracee data to the trace.  `addr` is the address in
+        /// the address space of this task.  The `record_local*()`
         /// variants record data that's already been read from this,
-        /// and the |record_remote*()| variants read the data and then
+        /// and the `record_remote*()` variants read the data and then
         /// record it.
         /// If 'addr' is null then no record is written.
         /// @TODO In the rr implementation ssize_t is being used instead of size_t
@@ -841,7 +841,7 @@ pub mod record_task {
             unimplemented!()
         }
 
-        /// Save tracee data to the trace.  |addr| is the address in
+        /// Save tracee data to the trace.  `addr` is the address in
         /// the address space of this task.
         /// If 'addr' is null then a zero-length record is written.
         pub fn record_remote_even_if_null(&self, addr: RemotePtr<Void>, num_bytes: usize) {
@@ -851,8 +851,8 @@ pub mod record_task {
             unimplemented!()
         }
 
-        /// Manage pending events.  |push_event()| pushes the given
-        /// event onto the top of the event stack.  The |pop_*()|
+        /// Manage pending events.  `push_event()` pushes the given
+        /// event onto the top of the event stack.  The `pop_*()`
         /// helpers pop the event at top of the stack, which must be of
         /// the specified type.
         pub fn push_event(&self, ev: &Event) {
@@ -919,8 +919,8 @@ pub mod record_task {
         /// this (and other relevant execution state) so that it can be
         /// used or verified during replay, if that state is available
         /// and meaningful at this's current execution point.
-        /// |record_current_event()| record |this->ev()|, and
-        /// |record_event()| records the specified event.
+        /// `record_current_event()` record `this->ev()`, and
+        /// `record_event()` records the specified event.
         pub fn record_current_event(&self) {
             unimplemented!()
         }
@@ -1028,8 +1028,8 @@ pub mod record_task {
             unimplemented!()
         }
 
-        /// Wait for |futex| in this address space to have the value
-        /// |val|.
+        /// Wait for `futex` in this address space to have the value
+        /// `val`.
         ///
         /// WARNING: this implementation semi-busy-waits for the value
         /// change.  This must only be used in contexts where the futex
@@ -1047,13 +1047,13 @@ pub mod record_task {
             unimplemented!()
         }
 
-        /// Call this when SYS_sigaction is finishing with |regs|.
+        /// Call this when SYS_sigaction is finishing with `regs`.
         fn update_sigaction(&self, regs: &Registers) {
             unimplemented!()
         }
 
-        /// Update the futex robust list head pointer to |list| (which
-        /// is of size |len|).
+        /// Update the futex robust list head pointer to `list` (which
+        /// is of size `len`).
         fn set_robust_list(&self, list: RemotePtr<Void>, len: usize) {
             unimplemented!()
         }
@@ -1084,7 +1084,7 @@ pub mod record_task {
             }
         }
 
-        /// Update the clear-tid futex to |tid_addr|.
+        /// Update the clear-tid futex to `tid_addr`.
         fn set_tid_addr(&self, tid_addr: RemotePtr<i32>) {
             unimplemented!()
         }

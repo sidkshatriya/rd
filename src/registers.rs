@@ -250,7 +250,7 @@ impl Registers {
         Registers::compare_registers_arch(name1, name2, regs1, regs2, mismatch_behavior)
     }
 
-    /// Return true if |regs1| matches |regs2|.  Passing EXPECT_MISMATCHES
+    /// Return true if `regs1` matches `regs2`.  Passing EXPECT_MISMATCHES
     /// indicates that the caller is using this as a general register
     /// compare and nothing special should be done if the register files
     /// mismatch.  Passing LOG_MISMATCHES will log the registers that don't
@@ -309,10 +309,10 @@ impl Registers {
         )
     }
 
-    /// Write the value for register |regno| into |buf|, which should
+    /// Write the value for register `regno` into `buf`, which should
     /// be large enough to hold any register supported by the target.
     /// Return the size of the register in bytes. If None is returned it
-    /// indicates that no value was written to |buf|.
+    /// indicates that no value was written to `buf`.
     fn read_register(&self, buf: &mut [u8], regno: GdbRegister) -> Option<usize> {
         let regs = self.get_regs_info();
         if let Some(rv) = regs.get(&regno) {
@@ -340,8 +340,8 @@ impl Registers {
         }
     }
 
-    /// Update the register named |reg_name| to |value| with
-    /// |value_size| number of bytes.
+    /// Update the register named `reg_name` to `value` with
+    /// `value_size` number of bytes.
     pub fn write_register(&mut self, value: &[u8], regno: GdbRegister) {
         let regs = self.get_regs_info();
         if let Some(rv) = regs.get(&regno) {
@@ -368,7 +368,7 @@ impl Registers {
         }
     }
 
-    /// Update the register at user offset |offset| to |value|, taking the low
+    /// Update the register at user offset `offset` to `value`, taking the low
     /// bytes if necessary.
     pub fn write_register_by_user_offset(&mut self, offset: usize, value: usize) {
         let regs = self.get_regs_info();
@@ -402,11 +402,11 @@ impl Registers {
         }
     }
 
-    /// Write the value for register |offset| into |buf|, which should
+    /// Write the value for register `offset` into `buf`, which should
     /// be large enough to hold any register supported by the target.
     /// Return the size of the register in bytes as an Option. If None
-    /// is returned it indicates that no value was written to |buf|.
-    /// |offset| is the offset of the register within a user_regs_struct.
+    /// is returned it indicates that no value was written to `buf`.
+    /// `offset` is the offset of the register within a user_regs_struct.
     pub fn read_registers_by_user_offset(&self, buf: &mut [u8], offset: usize) -> Option<usize> {
         let regs = self.get_regs_info();
         for (regno, rv) in regs.iter() {
@@ -792,7 +792,7 @@ impl Registers {
         }
     }
 
-    /// Set the output registers of the |rdtsc| instruction.
+    /// Set the output registers of the `rdtsc` instruction.
     pub fn set_rdtsc_output(&mut self, value: u64) {
         rd_set_reg!(self, eax, rax, value & 0xffffffff);
         rd_set_reg!(self, edx, rdx, value >> 32);
@@ -1186,12 +1186,12 @@ impl RegisterValue {
         }
     }
 
-    /// Returns a pointer to the register in |regs| represented by |offset|.
+    /// Returns a pointer to the register in `regs` represented by `offset`.
     pub fn pointer_into_x86(&self, regs: &x86::user_regs_struct) -> *const u8 {
         unsafe { (regs as *const _ as *const u8).add(self.offset) }
     }
 
-    /// Returns a pointer to the register in |regs| represented by |offset|.
+    /// Returns a pointer to the register in `regs` represented by `offset`.
     pub fn pointer_into_x64(&self, regs: &x64::user_regs_struct) -> *const u8 {
         unsafe { (regs as *const _ as *const u8).add(self.offset) }
     }
