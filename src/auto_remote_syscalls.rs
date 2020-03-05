@@ -8,36 +8,43 @@ use crate::kernel_abi::RD_NATIVE_ARCH;
 use crate::kernel_abi::{
     has_mmap2_syscall, has_socketcall_syscall, is_clone_syscall, is_open_syscall,
     is_openat_syscall, is_rt_sigaction_syscall, is_sigaction_syscall, is_signal_syscall,
-    syscall_number_for__llseek, syscall_number_for_lseek, syscall_number_for_mmap,
-    syscall_number_for_mmap2, syscall_number_for_munmap, syscall_number_for_sendmsg,
-    syscall_number_for_socketcall,
+    syscall_number_for__llseek, syscall_number_for_close, syscall_number_for_lseek,
+    syscall_number_for_mmap, syscall_number_for_mmap2, syscall_number_for_munmap,
+    syscall_number_for_openat, syscall_number_for_sendmsg, syscall_number_for_socketcall,
 };
 use crate::kernel_abi::{syscall_instruction, SupportedArch};
 use crate::kernel_metadata::{errno_name, signal_name, syscall_name};
 use crate::log::LogLevel::LogDebug;
 use crate::monitored_shared_memory::MonitoredSharedMemorySharedPtr;
+use crate::rd::RD_RESERVED_ROOT_DIR_FD;
 use crate::registers::Registers;
 use crate::remote_code_ptr::RemoteCodePtr;
 use crate::remote_ptr::{RemotePtr, Void};
 use crate::scoped_fd::ScopedFd;
 use crate::session::replay_session::ReplaySession;
+use crate::session::session_inner::session_inner::SessionInner;
 use crate::task::task_inner::task_inner::TaskInner;
 use crate::task::task_inner::ResumeRequest::{ResumeSinglestep, ResumeSyscall};
 use crate::task::task_inner::TicksRequest::ResumeNoTicks;
 use crate::task::task_inner::WaitRequest::ResumeWait;
 use crate::task::Task;
-use crate::util::{is_kernel_trap, page_size};
+use crate::util::{is_kernel_trap, page_size, resize_shmem_segment, tmp_dir};
 use crate::wait_status::WaitStatus;
+use core::ffi::c_void;
 use libc::{
-    pid_t, SYS_sendmsg, ESRCH, MAP_ANONYMOUS, MAP_FIXED, MAP_PRIVATE, PROT_READ, PROT_WRITE,
-    PTRACE_EVENT_EXIT, SCM_RIGHTS, SIGTRAP, SOL_SOCKET,
+    pid_t, SYS_sendmsg, ESRCH, MAP_ANONYMOUS, MAP_FIXED, MAP_PRIVATE, MAP_SHARED, O_CLOEXEC,
+    O_CREAT, O_EXCL, O_RDWR, PROT_READ, PROT_WRITE, PTRACE_EVENT_EXIT, SCM_RIGHTS, SIGTRAP,
+    SOL_SOCKET,
 };
+use nix::sys::stat::fstat;
+use nix::unistd::unlink;
+use nix::NixPath;
 use std::cmp::max;
 use std::convert::TryInto;
-use std::ffi::{c_void, CStr};
 use std::mem::{size_of, size_of_val, transmute_copy, zeroed};
 use std::ops::{Deref, DerefMut};
 use std::ptr::copy_nonoverlapping;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub enum MemParamsEnabled {
@@ -81,7 +88,7 @@ impl<'a, 'b> DerefMut for AutoRestoreMem<'a, 'b> {
 impl<'a, 'b> Drop for AutoRestoreMem<'a, 'b> {
     fn drop(&mut self) {
         let new_sp = self.regs_ref().sp() + self.len;
-        ed_assert!(self.remote.task_ref(), self.saved_sp == new_sp);
+        ed_assert!(self.remote.task(), self.saved_sp == new_sp);
 
         if self.addr.is_some() {
             // XXX what should we do if this task was sigkilled but the address
@@ -127,9 +134,13 @@ impl<'a, 'b> AutoRestoreMem<'a, 'b> {
 
     /// Convenience constructor for pushing a C string `str`, including
     /// the trailing '\0' byte.
-    pub fn push_cstr(remote: &'a mut AutoRemoteSyscalls<'b>, s: &CStr) -> AutoRestoreMem<'a, 'b> {
-        let c = s.to_bytes_with_nul();
-        Self::new(remote, Some(c), c.len())
+    pub fn push_cstr<P: ?Sized + NixPath>(
+        remote: &'a mut AutoRemoteSyscalls<'b>,
+        s: &P,
+    ) -> AutoRestoreMem<'a, 'b> {
+        // rr assumes the construction always succeeds. We don't for now.
+        s.with_nix_path(move |c| Self::new(remote, Some(c.to_bytes_with_nul()), c.len()))
+            .unwrap()
     }
 
     /// Get a pointer to the reserved memory.
@@ -140,7 +151,7 @@ impl<'a, 'b> AutoRestoreMem<'a, 'b> {
 
     fn init(&mut self, mem: Option<&[u8]>) {
         ed_assert!(
-            self.remote.task_ref(),
+            self.remote.task(),
             self.remote.enable_mem_params() == EnableMemoryParams,
             "Memory parameters were disabled"
         );
@@ -157,11 +168,11 @@ impl<'a, 'b> AutoRestoreMem<'a, 'b> {
 
         let mut ok = true;
         self.remote
-            .task_ref()
+            .task()
             .read_bytes_helper(self.addr.unwrap(), &mut self.data, Some(&mut ok));
         // @TODO what do we do if ok is false due to read_bytes_helper call above?
         if mem.is_some() {
-            self.remote.task_ref().write_bytes_helper(
+            self.remote.task().write_bytes_helper(
                 self.addr.unwrap(),
                 mem.unwrap(),
                 Some(&mut ok),
@@ -426,7 +437,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
     }
 
     /// The Task in the context of which we're making syscalls.
-    pub fn task_ref(&self) -> &dyn Task {
+    pub fn task(&self) -> &dyn Task {
         self.t
     }
 
@@ -468,7 +479,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
             ));
         }
 
-        let child_sock = remote_buf.task_ref().session().borrow().tracee_fd_number();
+        let child_sock = remote_buf.task().session().borrow().tracee_fd_number();
         let child_syscall_result: isize =
             child_sendmsg(&mut remote_buf, maybe_sc_args, sc_args_end, child_sock, fd);
         if child_syscall_result == -ESRCH as isize {
@@ -476,7 +487,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         }
 
         ed_assert!(
-            remote_buf.task_ref(),
+            remote_buf.task(),
             child_syscall_result > 0,
             "Failed to sendmsg() in tracee; err={}",
             errno_name((-child_syscall_result).try_into().unwrap())
@@ -484,7 +495,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
 
         let our_fd: i32 = recvmsg_socket(
             &remote_buf
-                .task_ref()
+                .task()
                 .session()
                 .borrow()
                 .tracee_socket_fd()
@@ -705,15 +716,115 @@ impl<'a> AutoRemoteSyscalls<'a> {
     /// If None is provided for `monitored` it is assumed that there is no memory monitor.
     /// If None is provided for `map_hint` it is assumed that we DONT use MAP_FIXED
     pub fn create_shared_mmap(
-        &self,
+        &mut self,
         size: usize,
         map_hint: Option<RemotePtr<Void>>,
         name: &str,
-        tracee_prot: Option<i32>,
-        tracee_flags: Option<i32>,
+        maybe_tracee_prot: Option<i32>,
+        maybe_tracee_flags: Option<i32>,
         monitored: Option<MonitoredSharedMemorySharedPtr>,
     ) -> KernelMapping {
-        unimplemented!()
+        static NONCE: AtomicUsize = AtomicUsize::new(0);
+        let tracee_prot = maybe_tracee_prot.unwrap_or(PROT_READ | PROT_WRITE);
+        let tracee_flags = maybe_tracee_prot.unwrap_or(0);
+
+        // Create the segment we'll share with the tracee.
+        let path: String = format!(
+            "{}{}{}-{}-{}",
+            tmp_dir(),
+            SessionInner::rd_mapping_prefix(),
+            name,
+            self.task().real_tgid(),
+            NONCE.fetch_add(1, Ordering::SeqCst)
+        );
+
+        // Let the child create the shmem block and then send the fd back to us.
+        // This lets us avoid having to make the file world-writeable so that
+        // the child can read it when it's in a different user namespace (which
+        // would be a security hole, letting other users abuse rr users).
+        let child_shmem_fd: i32;
+        {
+            let arch = self.arch();
+            let mut child_path = AutoRestoreMem::push_cstr(self, path.as_str());
+            let path_addr_val = (child_path.get().unwrap() + 1usize).as_usize();
+            // skip leading '/' since we want the path to be relative to the root fd
+            child_shmem_fd = child_path
+                .infallible_syscall(
+                    syscall_number_for_openat(arch),
+                    &[
+                        RD_RESERVED_ROOT_DIR_FD as _,
+                        path_addr_val,
+                        (O_CREAT | O_EXCL | O_RDWR | O_CLOEXEC) as usize,
+                        0o600,
+                    ],
+                )
+                .try_into()
+                .unwrap();
+        }
+
+        // Remove the fs name so that we don't have to worry about cleaning
+        // up this segment in error conditions.
+        //
+        // rr swallows any potential error but we don't for now.
+        unlink(path.as_str()).unwrap();
+
+        let mut shmem_fd: ScopedFd = self.retrieve_fd(child_shmem_fd);
+        resize_shmem_segment(&shmem_fd, size);
+        log!(LogDebug, "created shmem segment {}", path);
+
+        // Map the segment in ours and the tracee's address spaces.
+        let mut flags = MAP_SHARED;
+        let map_addr = unsafe {
+            libc::mmap(
+                0 as *mut c_void,
+                size,
+                PROT_READ | PROT_WRITE,
+                flags,
+                shmem_fd.as_raw(),
+                0,
+            )
+        };
+        if map_addr as isize == -1 {
+            fatal!("Failed to mmap shmem region");
+        }
+        if map_hint.is_some() {
+            flags |= MAP_FIXED;
+        }
+        let child_map_addr = self.infallible_mmap_syscall(
+            map_hint.unwrap(),
+            size,
+            tracee_prot,
+            flags,
+            child_shmem_fd,
+            0,
+        );
+
+        let maybe_st = fstat(shmem_fd.as_raw());
+        ed_assert!(self.task(), maybe_st.is_ok());
+        let st = maybe_st.unwrap();
+        let km: KernelMapping = self.task().vm().borrow_mut().map(
+            self.task(),
+            child_map_addr,
+            size,
+            tracee_prot,
+            flags | tracee_flags,
+            0,
+            &path,
+            st.st_dev,
+            st.st_ino,
+            None,
+            None,
+            None,
+            map_addr,
+            monitored,
+        );
+
+        shmem_fd.close();
+        self.infallible_syscall(
+            syscall_number_for_close(self.arch()),
+            &[child_shmem_fd as _],
+        );
+        km
     }
 
     /// As this stands, it looks to be a move as far as m is concerned.
@@ -916,7 +1027,7 @@ fn child_sendmsg<Arch: Architecture>(
         .copy_from_slice(&fd.to_le_bytes());
 
     remote_buf
-        .task_ref()
+        .task()
         .write_mem(remote_cmsgbuf, &cmsgbuf, Some(&mut ok));
 
     if !ok {
@@ -932,7 +1043,7 @@ fn child_sendmsg<Arch: Architecture>(
     }
 
     let success = write_socketcall_args::<Arch>(
-        remote_buf.task_ref(),
+        remote_buf.task(),
         sc_args.unwrap(),
         child_sock.into(),
         Arch::to_signed_long(remote_msg.as_usize()),

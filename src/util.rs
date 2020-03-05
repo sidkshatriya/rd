@@ -1,10 +1,12 @@
 use crate::bindings::signal::{SI_KERNEL, TRAP_BRKPT};
 use crate::scoped_fd::ScopedFd;
-use nix::unistd::ftruncate;
-use nix::unistd::sysconf;
+use nix::sys::stat::Mode;
 use nix::unistd::SysconfVar::PAGE_SIZE;
+use nix::unistd::{access, ftruncate};
+use nix::unistd::{sysconf, AccessFlags};
 use raw_cpuid::CpuId;
 use std::convert::TryInto;
+use std::env;
 
 pub const CPUID_GETVENDORSTRING: u32 = 0x0;
 pub const CPUID_GETFEATURES: u32 = 0x1;
@@ -32,8 +34,7 @@ lazy_static! {
 }
 
 pub fn running_under_rd() -> bool {
-    let maybe_under = option_env!("RUNNING_UNDER_RD");
-    maybe_under.is_some()
+    env::var("RUNNING_UNDER_RD").is_ok()
 }
 
 #[derive(Copy, Clone)]
@@ -262,7 +263,7 @@ pub fn page_size() -> usize {
     *SYSTEM_PAGE_SIZE
 }
 
-pub fn resize_shmem_segment(fd: &ScopedFd, num_bytes: u64) {
+pub fn resize_shmem_segment(fd: &ScopedFd, num_bytes: usize) {
     if ftruncate(fd.as_raw(), num_bytes as libc::off_t).is_err() {
         // errno will be reported as part of fatal
         fatal!("Failed to resize shmem to {}", num_bytes);
@@ -284,4 +285,37 @@ pub fn is_kernel_trap(si_code: i32) -> bool {
     // right.  The SI_KERNEL code is seen in the int3 test, so we
     // at least need to handle that.
     si_code == TRAP_BRKPT as i32 || si_code == SI_KERNEL
+}
+
+pub fn tmp_dir() -> String {
+    let mut dir = env::var("RD_TMPDIR");
+    if dir.is_ok() {
+        ensure_dir(
+            dir.as_ref().unwrap(),
+            "temporary file directory (RD_TMPDIR)",
+            Mode::S_IRWXU,
+        );
+        return dir.unwrap();
+    }
+
+    dir = env::var("TMPDIR");
+    if dir.is_ok() {
+        ensure_dir(
+            dir.as_ref().unwrap(),
+            "temporary file directory (TMPDIR)",
+            Mode::S_IRWXU,
+        );
+        return dir.unwrap();
+    }
+
+    // Don't try to create "/tmp", that probably won't work well.
+    if access("/tmp", AccessFlags::W_OK).is_ok() {
+        fatal!("Can't write to temporary file directory /tmp.");
+    }
+
+    "/tmp".to_owned()
+}
+
+pub fn ensure_dir(dir: &str, dir_type: &str, mode: Mode) {
+    unimplemented!()
 }

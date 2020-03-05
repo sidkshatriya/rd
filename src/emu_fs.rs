@@ -132,7 +132,7 @@ impl EmuFile {
 
     pub fn ensure_size(&mut self, size: u64) {
         if self.size_ < size {
-            resize_shmem_segment(&self.file, size);
+            resize_shmem_segment(&self.file, size.try_into().unwrap());
             self.size_ = size;
         }
     }
@@ -227,7 +227,7 @@ impl EmuFile {
         }
 
         let (fd, real_name) = fd_and_name.unwrap();
-        resize_shmem_segment(&fd, orig_file_size);
+        resize_shmem_segment(&fd, orig_file_size.try_into().unwrap());
 
         let f = EmuFile::new(
             owner,

@@ -2,6 +2,7 @@ use crate::kernel_metadata::errno_name;
 use backtrace::Backtrace;
 use nix::errno::errno;
 use std::collections::HashMap;
+use std::env;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::{self, Write};
@@ -38,21 +39,21 @@ struct LogGlobals {
 
 lazy_static! {
     static ref LOG_GLOBALS: Mutex<LogGlobals> = {
-        let maybe_filename = option_env!("RD_LOG_FILE");
-        let maybe_append_filename = option_env!("RD_APPEND_LOG_FILE");
+        let maybe_filename = env::var("RD_LOG_FILE");
+        let maybe_append_filename = env::var("RD_APPEND_LOG_FILE");
         // @TODO Ok to simply add Sync + Send?
         let mut f: Box<dyn Write + Sync + Send>;
         // @TODO what about atexit flush log file??
-        if let Some(filename) = maybe_filename {
+        if let Ok(filename) = maybe_filename {
             f = Box::new(File::create(filename).unwrap());
-        } else if let Some(append_filename) = maybe_append_filename {
+        } else if let Ok(append_filename) = maybe_append_filename {
             f = Box::new(OpenOptions::new().append(true).create(true).open(append_filename).unwrap());
         } else {
             f = Box::new(io::stderr());
         }
 
-        let maybe_buf_size = option_env!("RD_LOG_BUFFER");
-        if let Some(buf_size) = maybe_buf_size {
+        let maybe_buf_size = env::var("RD_LOG_BUFFER");
+        if let Ok(buf_size) = maybe_buf_size {
             // @TODO. Will panic -- nicer way for error?
             let log_buffer_size = buf_size.parse::<usize>().unwrap();
             // @TODO what about atexit flush f buffer?

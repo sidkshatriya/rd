@@ -495,7 +495,7 @@ pub mod address_space {
             t.open_mem_fd();
 
             // Set up AutoRemoteSyscalls again now that the mem-fd is open.
-            let remote = AutoRemoteSyscalls::new(t);
+            let mut remote = AutoRemoteSyscalls::new(t);
             // Now we can set up the "rd page" at its fixed address. This gives
             // us traced and untraced syscall instructions at known, fixed addresses.
             self.map_rd_page(&remote);
@@ -607,6 +607,7 @@ pub mod address_space {
         /// or null if it's not shared with the tracee. AddressSpace takes ownership
         /// of the shared memory and is responsible for unmapping it.
         pub fn map(
+            &mut self,
             t: &dyn Task,
             addr: RemotePtr<Void>,
             num_bytes: usize,
@@ -619,9 +620,9 @@ pub mod address_space {
             mapped_file_stat: Option<Box<libc::stat>>,
             record_map: Option<&KernelMapping>,
             emu_file: Option<EmuFileSharedPtr>,
-            local_addr: *const u8,
+            local_addr: *const c_void,
             monitored: Option<MonitoredSharedMemorySharedPtr>,
-        ) {
+        ) -> KernelMapping {
             unimplemented!()
         }
 
