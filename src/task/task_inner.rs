@@ -836,9 +836,37 @@ pub mod task_inner {
 
         /// Read tracee memory using PTRACE_PEEKDATA calls. Slow, only use
         /// as fallback. Returns number of bytes actually read.
-        /// @TODO return an isize or usize?
         fn read_bytes_ptrace(&self, addr: RemotePtr<Void>, buf: &mut [u8]) -> usize {
-            unimplemented!()
+            let mut nwritten: usize = 0;
+            // ptrace operates on the word size of the host, so we really do want
+            // to use sizes of host types here.
+            let word_size = size_of::<isize>();
+            unsafe { *(__errno_location()) = 0 };
+            // Only write aligned words. This ensures we can always read the last
+            // byte before an unmapped region.
+            let buf_size = buf.len();
+            while nwritten < buf_size {
+                let start: usize = addr.as_usize() + nwritten;
+                let start_word: usize = start & !(word_size - 1);
+                let end_word: usize = start_word + word_size;
+                let length = min(end_word - start, buf_size - nwritten);
+
+                let v = self.fallible_ptrace(PTRACE_PEEKDATA, start_word.into(), None);
+                if errno() != 0 {
+                    break;
+                }
+                unsafe {
+                    copy_nonoverlapping(
+                        (&v as *const _ as *const u8).add(start - start_word),
+                        buf.as_mut_ptr().add(nwritten),
+                        length,
+                    );
+                }
+
+                nwritten += length;
+            }
+
+            nwritten
         }
 
         /// Write tracee memory using PTRACE_POKEDATA calls. Slow, only use
@@ -856,7 +884,7 @@ pub mod task_inner {
                 let start: usize = addr.as_usize() + nwritten;
                 let start_word: usize = start & !(word_size - 1);
                 let end_word: usize = start_word + word_size;
-                let length = min(end_word - start, buf.len() - nwritten);
+                let length = min(end_word - start, buf_size - nwritten);
 
                 let mut v: isize = 0;
                 if length < word_size {
