@@ -726,7 +726,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
     ) -> KernelMapping {
         static NONCE: AtomicUsize = AtomicUsize::new(0);
         let tracee_prot = maybe_tracee_prot.unwrap_or(PROT_READ | PROT_WRITE);
-        let tracee_flags = maybe_tracee_prot.unwrap_or(0);
+        let tracee_flags = maybe_tracee_flags.unwrap_or(0);
 
         // Create the segment we'll share with the tracee.
         let path: String = format!(

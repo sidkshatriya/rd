@@ -93,7 +93,7 @@ pub mod task_inner {
     use crate::thread_group::{ThreadGroup, ThreadGroupSharedPtr};
     use crate::ticks::Ticks;
     use crate::trace_stream::TraceStream;
-    use crate::util::TrappedInstruction;
+    use crate::util::{ceil_page_size, TrappedInstruction};
     use crate::wait_status::WaitStatus;
     use libc::ESRCH;
     use libc::{pid_t, siginfo_t, uid_t};
@@ -526,7 +526,29 @@ pub mod task_inner {
         /// Read and return the C string located at `child_addr` in
         /// this address space.
         pub fn read_c_str(&self, child_addr: RemotePtr<u8>) -> CString {
-            unimplemented!()
+            // XXX handle invalid C strings
+            // e.g. c-strings that don't end even when an unmapped region of memory
+            // is reached.
+            let mut p = child_addr;
+            let mut s: Vec<u8> = Vec::new();
+            loop {
+                // We're only guaranteed that [child_addr, end_of_page) is mapped.
+                // So be conservative and assume that c-string ends before the
+                // end of the page. In case it _hasn't_ ended then we try on the
+                // next page and so forth.
+                let end_of_page: RemotePtr<Void> = ceil_page_size(p.as_usize() + 1).into();
+                let nbytes: usize = end_of_page - p;
+                let mut buf = Vec::<u8>::with_capacity(nbytes);
+                self.read_bytes_helper(p, &mut buf, None);
+                for i in 0..nbytes {
+                    if 0 == buf[i] {
+                        // We have already checked it so unsafe is OK!
+                        return unsafe { CString::from_vec_unchecked(s) };
+                    }
+                    s.push(buf[i]);
+                }
+                p = end_of_page;
+            }
         }
 
         /// Return the session this is part of.

@@ -263,6 +263,10 @@ pub fn page_size() -> usize {
     *SYSTEM_PAGE_SIZE
 }
 
+pub fn ceil_page_size(size: usize) -> usize {
+    (size + page_size() - 1) & !(page_size() - 1)
+}
+
 pub fn resize_shmem_segment(fd: &ScopedFd, num_bytes: usize) {
     if ftruncate(fd.as_raw(), num_bytes as libc::off_t).is_err() {
         // errno will be reported as part of fatal
