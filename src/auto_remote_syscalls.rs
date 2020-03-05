@@ -1,4 +1,4 @@
-use crate::address_space::address_space::AddressSpace;
+use crate::address_space::address_space::{AddressSpace, Mapping};
 use crate::address_space::kernel_mapping::KernelMapping;
 use crate::address_space::memory_range::MemoryRange;
 use crate::address_space::{Enabled, Privileged, Traced};
@@ -15,6 +15,7 @@ use crate::kernel_abi::{
 use crate::kernel_abi::{syscall_instruction, SupportedArch};
 use crate::kernel_metadata::{errno_name, signal_name, syscall_name};
 use crate::log::LogLevel::LogDebug;
+use crate::monitored_shared_memory::MonitoredSharedMemorySharedPtr;
 use crate::registers::Registers;
 use crate::remote_code_ptr::RemoteCodePtr;
 use crate::remote_ptr::{RemotePtr, Void};
@@ -42,6 +43,12 @@ use std::ptr::copy_nonoverlapping;
 pub enum MemParamsEnabled {
     EnableMemoryParams,
     DisableMemoryParams,
+}
+
+#[derive(Copy, Clone, Eq, PartialEq)]
+pub enum PreserveContents {
+    PreserveContents,
+    DiscardContents,
 }
 
 /// Do NOT want Copy or Clone for this struct
@@ -435,7 +442,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
     /// Arranges for 'fd' to be transmitted to this process and returns
     /// our opened version of it.
     /// Returns a closed fd if the process dies or has died.
-    pub fn retrieve_fd<Arch: Architecture>(&mut self, fd: i32) -> ScopedFd {
+    pub fn retrieve_fd_arch<Arch: Architecture>(&mut self, fd: i32) -> ScopedFd {
         let mut data_length: usize = max(
             reserve::<Arch::sockaddr_un>(),
             reserve::<Arch::msghdr>()
@@ -689,7 +696,57 @@ impl<'a> AutoRemoteSyscalls<'a> {
         }
     }
 
-    fn retrieve_fd_arch(&self, fd: i32) -> ScopedFd {
+    pub fn retrieve_fd(&mut self, fd: i32) -> ScopedFd {
+        rd_arch_function!(self, retrieve_fd_arch, self.arch(), fd)
+    }
+
+    /// If None is provided for |tracee_prot|, PROT_READ | PROT_WRITE is assumed.
+    /// If None is provided for |tracee_flags|, 0 is assumed
+    /// If None is provided for |monitored| it is assumed that there is no memory monitor.
+    /// If None is provided for `map_hint` it is assumed that we DONT use MAP_FIXED
+    pub fn create_shared_mmap(
+        &self,
+        size: usize,
+        map_hint: Option<RemotePtr<Void>>,
+        name: &str,
+        tracee_prot: Option<i32>,
+        tracee_flags: Option<i32>,
+        monitored: Option<MonitoredSharedMemorySharedPtr>,
+    ) -> KernelMapping {
+        unimplemented!()
+    }
+
+    /// As this stands, it looks to be a move as far as m is concerned.
+    pub fn make_private_shared(&self, m: Mapping) -> bool {
+        unimplemented!()
+    }
+
+    /// Recreate an mmap region that is shared between rr and the tracee. The
+    /// caller
+    /// is responsible for recreating the data in the new mmap, if `preserve` is
+    /// DiscardContents.
+    /// OK to call this while 'm' references one of the mappings in remote's
+    /// AddressSpace
+    /// If None is provided for |preserve| then DiscardContents is assumed
+    /// If None is provided for |monitored| it is assumed that there is no memory monitor.
+    pub fn recreate_shared_mmap(
+        &self,
+        m: &Mapping,
+        option_preserve: Option<PreserveContents>,
+        monitored: Option<MonitoredSharedMemorySharedPtr>,
+    ) -> &'a Mapping {
+        unimplemented!()
+    }
+
+    /// Takes a mapping and replaces it by one that is shared between rr and
+    /// the tracee. The caller is responsible for filling the contents of the
+    /// new mapping.
+    /// If None is provided for |monitored| it is assumed that there is no memory monitor.
+    pub fn steal_mapping(
+        &self,
+        m: &Mapping,
+        monitored: Option<MonitoredSharedMemorySharedPtr>,
+    ) -> &'a Mapping {
         unimplemented!()
     }
 }

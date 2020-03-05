@@ -1030,7 +1030,7 @@ pub mod task_inner {
                 let buf: String = format!("/proc/{}/mem", remote.tid);
                 fd = ScopedFd::open_path(Path::new(&buf), OFlag::O_RDWR);
             } else {
-                fd = rd_arch_function!(remote, retrieve_fd, arch, remote_fd);
+                fd = rd_arch_function!(remote, retrieve_fd_arch, arch, remote_fd);
                 // Leak fd if the syscall fails due to the task being SIGKILLed unexpectedly
                 remote.syscall(
                     syscall_number_for_close(remote.arch()),

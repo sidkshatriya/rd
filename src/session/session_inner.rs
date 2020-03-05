@@ -68,11 +68,8 @@ pub mod session_inner {
     use super::BreakStatus;
     use super::RunCommand;
     use crate::address_space::address_space::{
-        AddressSpace, AddressSpaceSharedPtr, AddressSpaceSharedWeakPtr, Mapping,
+        AddressSpace, AddressSpaceSharedPtr, AddressSpaceSharedWeakPtr,
     };
-    use crate::address_space::kernel_mapping::KernelMapping;
-    use crate::auto_remote_syscalls::AutoRemoteSyscalls;
-    use crate::monitored_shared_memory::MonitoredSharedMemorySharedPtr;
     use crate::perf_counters::TicksSemantics;
     use crate::remote_ptr::{RemotePtr, Void};
     use crate::scoped_fd::ScopedFd;
@@ -94,12 +91,6 @@ pub mod session_inner {
     pub type AddressSpaceMap = HashMap<AddressSpaceUid, AddressSpaceSharedWeakPtr>;
     pub type TaskMap = HashMap<pid_t, TaskSharedPtr>;
     pub type ThreadGroupMap = HashMap<ThreadGroupUid, ThreadGroupSharedWeakPtr>;
-
-    #[derive(Copy, Clone)]
-    pub enum PreserveContents {
-        PreserveContents,
-        DiscardContents,
-    }
 
     #[derive(Copy, Clone)]
     pub enum PtraceSyscallBeforeSeccomp {
@@ -233,57 +224,6 @@ pub mod session_inner {
         }
 
         pub fn read_spawned_task_error(&self) -> String {
-            unimplemented!()
-        }
-
-        /// If None is provided for |tracee_prot|, PROT_READ | PROT_WRITE is assumed.
-        /// If None is provided for |tracee_flags|, 0 is assumed
-        /// If None is provided for |monitored| it is assumed that there is no memory monitor.
-        pub fn create_shared_mmap(
-            remote: &AutoRemoteSyscalls,
-            size: usize,
-            map_hint: RemotePtr<Void>,
-            name: &str,
-            tracee_prot: Option<i32>,
-            tracee_flags: Option<i32>,
-            monitored: Option<MonitoredSharedMemorySharedPtr>,
-        ) -> KernelMapping {
-            unimplemented!()
-        }
-
-        /// As this stands, it looks to be a move as far as m is concerned.
-        pub fn make_private_shared(remote: &AutoRemoteSyscalls, m: Mapping) -> bool {
-            unimplemented!()
-        }
-
-        /// Recreate an mmap region that is shared between rr and the tracee. The
-        /// caller
-        /// is responsible for recreating the data in the new mmap, if `preserve` is
-        /// DiscardContents.
-        /// OK to call this while 'm' references one of the mappings in remote's
-        /// AddressSpace
-        /// If None is provided for |preserve| then DISCARD_CONTENTS is assumed
-        /// If None is provided for |monitored| it is assumed that there is no memory monitor.
-        /// @TODO figure out lifetime
-        pub fn recreate_shared_mmap<'a>(
-            remote: &AutoRemoteSyscalls,
-            m: &Mapping,
-            preserve: Option<PreserveContents>,
-            monitored: Option<MonitoredSharedMemorySharedPtr>,
-        ) -> &'a Mapping {
-            unimplemented!()
-        }
-
-        /// Takes a mapping and replaces it by one that is shared between rr and
-        /// the tracee. The caller is responsible for filling the contents of the
-        /// new mapping.
-        /// If None is provided for |monitored| it is assumed that there is no memory monitor.
-        /// @TODO figure out lifetime
-        pub fn steal_mapping<'a>(
-            remote: &AutoRemoteSyscalls,
-            m: &Mapping,
-            monitored: Option<MonitoredSharedMemorySharedPtr>,
-        ) -> &'a Mapping {
             unimplemented!()
         }
 

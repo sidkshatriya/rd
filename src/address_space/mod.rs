@@ -500,10 +500,9 @@ pub mod address_space {
             // us traced and untraced syscall instructions at known, fixed addresses.
             self.map_rd_page(&remote);
             // Set up the preload_thread_locals shared area.
-            SessionInner::create_shared_mmap(
-                &remote,
+            remote.create_shared_mmap(
                 PRELOAD_THREAD_LOCALS_SIZE,
-                Self::preload_thread_locals_start(),
+                Some(Self::preload_thread_locals_start()),
                 "preload_thread_locals",
                 None,
                 None,
