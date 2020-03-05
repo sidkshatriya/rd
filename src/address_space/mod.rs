@@ -647,7 +647,7 @@ pub mod address_space {
 
         /// If the given memory region is mapped into the local address space, obtain
         /// the local address from which the `size` bytes at `addr` can be accessed.
-        pub fn local_mapping(&self, addr: RemotePtr<Void>, size: usize) -> &[u8] {
+        pub fn local_mapping(&self, addr: RemotePtr<Void>, size: usize) -> Option<&[u8]> {
             unimplemented!()
         }
 

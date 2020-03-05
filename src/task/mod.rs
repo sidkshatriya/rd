@@ -4,8 +4,8 @@ use crate::remote_ptr::{RemotePtr, Void};
 use crate::session::Session;
 use crate::task::record_task::record_task::RecordTask;
 use crate::task::replay_task::ReplayTask;
-use crate::task::task_inner::task_inner::CloneReason;
 use crate::task::task_inner::task_inner::TaskInner;
+use crate::task::task_inner::task_inner::{read_bytes_fallible, CloneReason};
 use crate::task::task_inner::{ResumeRequest, TicksRequest, WaitRequest};
 use crate::wait_status::WaitStatus;
 use libc::pid_t;
@@ -211,4 +211,9 @@ pub trait Task: DerefMut<Target = TaskInner> {
 
     /// Forwarded method
     fn open_mem_fd(&mut self) -> bool;
+
+    /// Forwarded method
+    fn read_bytes_fallible(&mut self, addr: RemotePtr<Void>, buf: &mut [u8]) -> Result<usize, ()> {
+        read_bytes_fallible(self, addr, buf)
+    }
 }

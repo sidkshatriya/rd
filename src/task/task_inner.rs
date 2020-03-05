@@ -96,12 +96,13 @@ pub mod task_inner {
     use crate::util::{ceil_page_size, TrappedInstruction};
     use crate::wait_status::WaitStatus;
     use libc::ESRCH;
-    use libc::{pid_t, siginfo_t, uid_t};
+    use libc::{__errno_location, pid_t, pread64, siginfo_t, uid_t};
+    use nix::errno::errno;
     use nix::fcntl::OFlag;
     use nix::unistd::getuid;
     use std::cell::RefCell;
     use std::convert::TryInto;
-    use std::ffi::{CStr, CString};
+    use std::ffi::{c_void, CStr, CString};
     use std::mem::size_of;
     use std::os::raw::c_long;
     use std::path::Path;
@@ -731,16 +732,6 @@ pub mod task_inner {
             unimplemented!()
         }
 
-        /// Don't use these helpers directly; use the safer and more
-        /// convenient variants above.
-        ///
-        /// Read/write the number of bytes that the template wrapper
-        /// inferred.
-        /// @TODO why is this returning a signed value?
-        pub fn read_bytes_fallible(&self, addr: RemotePtr<Void>, buf: &[u8]) -> isize {
-            unimplemented!()
-        }
-
         /// If the data can't all be read, then if `ok` is non-null, sets *ok to
         /// false, otherwise asserts.
         pub fn read_bytes_helper(
@@ -890,7 +881,7 @@ pub mod task_inner {
         /// Read tracee memory using PTRACE_PEEKDATA calls. Slow, only use
         /// as fallback. Returns number of bytes actually read.
         /// @TODO return an isize or usize?
-        fn read_bytes_ptrace(&self, buf: &mut [u8], addr: RemotePtr<Void>) -> usize {
+        fn read_bytes_ptrace(&self, addr: RemotePtr<Void>, buf: &mut [u8]) -> usize {
             unimplemented!()
         }
 
@@ -1070,5 +1061,78 @@ pub mod task_inner {
         }
         remote.as_.borrow_mut().set_mem_fd(fd.try_into().unwrap());
         true
+    }
+
+    /// Read/write the number of bytes.
+    /// Number of bytes read can be less than desired
+    /// - Returns Err(()) if No bytes could be read at all AND there was an error
+    /// - Returns Ok(usize) if 0 or more bytes could be read. All bytes requested may not have been
+    /// read.
+    pub fn read_bytes_fallible<T: Task>(
+        task: &mut T,
+        addr: RemotePtr<Void>,
+        buf: &mut [u8],
+    ) -> Result<usize, ()> {
+        if buf.len() == 0 {
+            return Ok(0);
+        }
+
+        match task.vm().borrow().local_mapping(addr, buf.len()) {
+            Some(found) => {
+                buf.copy_from_slice(found);
+                return Ok(buf.len());
+            }
+            None => (),
+        }
+
+        if !task.vm().borrow().mem_fd().is_open() {
+            return Ok(task.read_bytes_ptrace(addr, buf));
+        }
+
+        let mut all_read = 0;
+        while all_read < buf.len() {
+            unsafe { *(__errno_location()) = 0 };
+            let nread: isize = unsafe {
+                pread64(
+                    task.vm().borrow().mem_fd().as_raw(),
+                    buf.get_mut(all_read..).unwrap() as *mut _ as *mut c_void,
+                    // How much more left to read
+                    buf.len() - all_read,
+                    // Where you're reading from in the tracee
+                    // This is of type off_t which is a i32 in x86 and i64 on x64
+                    (addr.as_usize() + all_read) as isize as _,
+                )
+            };
+            // We open the mem_fd just after being notified of
+            // exec(), when the Task is created.  Trying to read from that
+            // fd seems to return 0 with errno 0.  Reopening the mem fd
+            // allows the pwrite to succeed.  It seems that the first mem
+            // fd we open, very early in exec, refers to the address space
+            // before the exec and the second mem fd refers to the address
+            // space after exec.
+            if 0 == nread && 0 == all_read && 0 == errno() {
+                // If we couldn't open the mem fd, then report 0 bytes read
+                if !task.open_mem_fd() {
+                    // @TODO is this a wise decision?
+                    // Hmmm.. given that errno is 0 it seems logical.
+                    return Ok(0);
+                }
+                // Try again
+                continue;
+            }
+            if nread <= 0 {
+                if all_read > 0 {
+                    // We did successfully read _some_ data, so return success and ignore
+                    // any error.
+                    unsafe { *(__errno_location()) = 0 };
+                    return Ok(all_read);
+                }
+                return Err(());
+            }
+            // We read some data. We should try again in case we get short reads.
+            all_read += nread as usize;
+        }
+
+        Ok(all_read)
     }
 }
