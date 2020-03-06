@@ -71,43 +71,33 @@ pub mod task_inner {
     use crate::address_space::address_space::AddressSpaceSharedPtr;
     use crate::address_space::kernel_mapping::KernelMapping;
     use crate::address_space::WatchConfig;
-    use crate::auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem};
+    use crate::auto_remote_syscalls::AutoRemoteSyscalls;
     use crate::bindings::kernel::user_desc;
     use crate::extra_registers::ExtraRegisters;
     use crate::fd_table::FdTableSharedPtr;
     use crate::kernel_abi::common::preload_interface::preload_globals;
     use crate::kernel_abi::common::preload_interface::{syscallbuf_hdr, syscallbuf_record};
     use crate::kernel_abi::SupportedArch;
-    use crate::kernel_abi::{syscall_number_for_close, syscall_number_for_openat};
-    use crate::log::LogLevel::{LogInfo, LogWarn};
     use crate::perf_counters::PerfCounters;
     use crate::property_table::PropertyTable;
-    use crate::rd::RD_RESERVED_ROOT_DIR_FD;
     use crate::registers::Registers;
     use crate::remote_code_ptr::RemoteCodePtr;
     use crate::remote_ptr::{RemotePtr, Void};
     use crate::scoped_fd::ScopedFd;
     use crate::session::{Session, SessionSharedPtr, SessionSharedWeakPtr};
-    use crate::task::{Task, TaskSharedWeakPtr};
+    use crate::task::TaskSharedWeakPtr;
     use crate::taskish_uid::TaskUid;
     use crate::thread_group::{ThreadGroup, ThreadGroupSharedPtr};
     use crate::ticks::Ticks;
     use crate::trace_stream::TraceStream;
-    use crate::util::{ceil_page_size, TrappedInstruction};
+    use crate::util::TrappedInstruction;
     use crate::wait_status::WaitStatus;
-    use libc::ESRCH;
-    use libc::{
-        __errno_location, pid_t, pread64, siginfo_t, uid_t, PTRACE_PEEKDATA, PTRACE_POKEDATA,
-    };
+    use libc::{__errno_location, pid_t, siginfo_t, uid_t, PTRACE_PEEKDATA, PTRACE_POKEDATA};
     use nix::errno::errno;
-    use nix::fcntl::OFlag;
     use nix::unistd::getuid;
     use std::cell::RefCell;
     use std::cmp::min;
-    use std::convert::TryInto;
-    use std::ffi::{c_void, CStr, CString};
     use std::mem::size_of;
-    use std::path::Path;
     use std::ptr::copy_nonoverlapping;
     use std::rc::Rc;
 
@@ -190,66 +180,66 @@ pub mod task_inner {
         /// These are private
         serial: u32,
         /// The address space of this task.
-        as_: AddressSpaceSharedPtr,
+        pub(in super::super) as_: AddressSpaceSharedPtr,
         /// The file descriptor table of this task.
-        fds: FdTableSharedPtr,
+        pub(in super::super) fds: FdTableSharedPtr,
         /// Task's OS name.
-        prname: String,
+        pub(in super::super) prname: String,
         /// Count of all ticks seen by this task since tracees became
         /// consistent and the task last wait()ed.
-        ticks: Ticks,
+        pub(in super::super) ticks: Ticks,
         /// When `is_stopped`, these are our child registers.
-        registers: Registers,
+        pub(in super::super) registers: Registers,
         /// Where we last resumed execution
-        address_of_last_execution_resume: RemoteCodePtr,
-        how_last_execution_resumed: ResumeRequest,
+        pub(in super::super) address_of_last_execution_resume: RemoteCodePtr,
+        pub(in super::super) how_last_execution_resumed: ResumeRequest,
         /// In certain circumstances, due to hardware bugs, we need to fudge the
         /// cx register. If so, we record the orginal value here. See comments in
         /// Task.cc
-        last_resume_orig_cx: u64,
+        pub(in super::super) last_resume_orig_cx: u64,
         /// The instruction type we're singlestepping through.
-        singlestepping_instruction: TrappedInstruction,
+        pub(in super::super) singlestepping_instruction: TrappedInstruction,
         /// True if we set a breakpoint after a singlestepped CPUID instruction.
         /// We need this in addition to `singlestepping_instruction` because that
         /// might be CPUID but we failed to set the breakpoint.
-        did_set_breakpoint_after_cpuid: bool,
+        pub(in super::super) did_set_breakpoint_after_cpuid: bool,
         /// True when we know via waitpid() that the task is stopped and we haven't
         /// resumed it.
-        is_stopped: bool,
+        pub(in super::super) is_stopped: bool,
         /// True when the seccomp filter has been enabled via prctl(). This happens
         /// in the first system call issued by the initial tracee (after it returns
         /// from kill(SIGSTOP) to synchronize with the tracer).
-        seccomp_bpf_enabled: bool,
+        pub(in super::super) seccomp_bpf_enabled: bool,
         /// True when we consumed a PTRACE_EVENT_EXIT that was about to race with
         /// a resume_execution, that was issued while stopped (i.e. SIGKILL).
-        detected_unexpected_exit: bool,
+        pub(in super::super) detected_unexpected_exit: bool,
         /// True when 'registers' has changes that haven't been flushed back to the
         /// task yet.
-        registers_dirty: bool,
+        pub(in super::super) registers_dirty: bool,
         /// When `extra_registers_known`, we have saved our extra registers.
-        extra_registers: ExtraRegisters,
-        extra_registers_known: bool,
+        pub(in super::super) extra_registers: ExtraRegisters,
+        pub(in super::super) extra_registers_known: bool,
         /// A weak pointer to the  session we're part of.
-        session_: SessionSharedWeakPtr,
+        pub(in super::super) session_: SessionSharedWeakPtr,
         /// The thread group this belongs to.
-        tg: ThreadGroupSharedPtr,
+        pub(in super::super) tg: ThreadGroupSharedPtr,
         /// Entries set by `set_thread_area()` or the `tls` argument to `clone()`
         /// (when that's a user_desc). May be more than one due to different
         /// entry_numbers.
-        thread_areas_: Vec<user_desc>,
+        pub(in super::super) thread_areas_: Vec<user_desc>,
         /// The `stack` argument passed to `clone()`, which for
         /// "threads" is the top of the user-allocated stack.
-        top_of_stack: RemotePtr<Void>,
+        pub(in super::super) top_of_stack: RemotePtr<Void>,
         /// The most recent status of this task as returned by
         /// waitpid().
-        wait_status: WaitStatus,
+        pub(in super::super) wait_status: WaitStatus,
         /// The most recent siginfo (captured when wait_status shows pending_sig())
-        pending_siginfo: siginfo_t,
+        pub(in super::super) pending_siginfo: siginfo_t,
         /// True when a PTRACE_EXIT_EVENT has been observed in the wait_status
         /// for this task.
-        seen_ptrace_exit_event: bool,
+        pub(in super::super) seen_ptrace_exit_event: bool,
         /// Important. Weak dyn Task pointer to self.
-        weak_self_task: TaskSharedWeakPtr,
+        pub(in super::super) weak_self_task: TaskSharedWeakPtr,
     }
 
     pub type DebugRegs = Vec<WatchConfig>;
@@ -785,22 +775,28 @@ pub mod task_inner {
             unimplemented!()
         }
 
-        fn new(session: &dyn Session, tid: pid_t, rec_tid: pid_t, serial: u32, a: SupportedArch) {
+        pub(in super::super) fn new(
+            session: &dyn Session,
+            tid: pid_t,
+            rec_tid: pid_t,
+            serial: u32,
+            a: SupportedArch,
+        ) {
             unimplemented!()
         }
 
-        fn on_syscall_exit_arch(&self, syscallno: i32, regs: &Registers) {
+        pub(in super::super) fn on_syscall_exit_arch(&self, syscallno: i32, regs: &Registers) {
             unimplemented!()
         }
 
         /// Helper function for init_buffers. */
-        fn init_buffers_arch(&self, map_hint: RemotePtr<Void>) {
+        pub(in super::super) fn init_buffers_arch(&self, map_hint: RemotePtr<Void>) {
             unimplemented!()
         }
 
         /// Grab state from this task into a structure that we can use to
         /// initialize a new task via os_clone_into/os_fork_into and copy_state.
-        fn capture_state(&self) -> CapturedState {
+        pub(in super::super) fn capture_state(&self) -> CapturedState {
             unimplemented!()
         }
 
@@ -813,13 +809,13 @@ pub mod task_inner {
         /// Some task state must be copied into this by injecting and
         /// running syscalls in this task.  Other state is metadata
         /// that can simply be copied over in local memory.
-        fn copy_state(&self, stat: &CapturedState) {
+        pub(in super::super) fn copy_state(&self, stat: &CapturedState) {
             unimplemented!()
         }
 
         /// Make the ptrace `request` with `addr` and `data`, return
         /// the ptrace return value.
-        fn fallible_ptrace(
+        pub(in super::super) fn fallible_ptrace(
             &self,
             request: u32,
             addr: RemotePtr<Void>,
@@ -830,13 +826,22 @@ pub mod task_inner {
 
         /// Like `fallible_ptrace()` but completely infallible.
         /// All errors are treated as fatal.
-        fn xptrace(&self, request: i32, addr: RemotePtr<Void>, data: &mut [u8]) {
+        pub(in super::super) fn xptrace(
+            &self,
+            request: i32,
+            addr: RemotePtr<Void>,
+            data: &mut [u8],
+        ) {
             unimplemented!()
         }
 
         /// Read tracee memory using PTRACE_PEEKDATA calls. Slow, only use
         /// as fallback. Returns number of bytes actually read.
-        fn read_bytes_ptrace(&self, addr: RemotePtr<Void>, buf: &mut [u8]) -> usize {
+        pub(in super::super) fn read_bytes_ptrace(
+            &self,
+            addr: RemotePtr<Void>,
+            buf: &mut [u8],
+        ) -> usize {
             let mut nwritten: usize = 0;
             // ptrace operates on the word size of the host, so we really do want
             // to use sizes of host types here.
@@ -871,7 +876,11 @@ pub mod task_inner {
 
         /// Write tracee memory using PTRACE_POKEDATA calls. Slow, only use
         /// as fallback. Returns number of bytes actually written.
-        fn write_bytes_ptrace(&self, addr: RemotePtr<Void>, buf: &[u8]) -> usize {
+        pub(in super::super) fn write_bytes_ptrace(
+            &self,
+            addr: RemotePtr<Void>,
+            buf: &[u8],
+        ) -> usize {
             let mut nwritten: usize = 0;
             // ptrace operates on the word size of the host, so we really do want
             // to use sizes of host types here.
@@ -914,7 +923,11 @@ pub mod task_inner {
 
         /// Try writing 'buf' to 'addr' by replacing pages in the tracee
         /// address-space using a temporary file. This may work around PaX issues.
-        fn try_replace_pages(&self, addr: RemotePtr<Void>, buf: &[u8]) -> bool {
+        pub(in super::super) fn try_replace_pages(
+            &self,
+            addr: RemotePtr<Void>,
+            buf: &[u8],
+        ) -> bool {
             unimplemented!()
         }
 
@@ -923,7 +936,7 @@ pub mod task_inner {
         /// to be mapped --- and this is asserted --- or nullptr if
         /// there are no expectations.
         /// Initializes syscallbuf_child.
-        fn init_syscall_buffer(
+        pub(in super::super) fn init_syscall_buffer(
             &self,
             remote: &AutoRemoteSyscalls,
             map_hint: RemotePtr<Void>,
@@ -944,16 +957,19 @@ pub mod task_inner {
         /// in the process into which the copy of this task will be
         /// created.  `task_leader` will perform the actual OS calls to
         /// create the new child.
-        fn os_fork_into(&self, session: &dyn Session) -> &TaskInner {
+        pub(in super::super) fn os_fork_into(&self, session: &dyn Session) -> &TaskInner {
             unimplemented!()
         }
-        fn os_clone_into(state: &CapturedState, remote: &AutoRemoteSyscalls) -> *mut TaskInner {
+        pub(in super::super) fn os_clone_into(
+            state: &CapturedState,
+            remote: &AutoRemoteSyscalls,
+        ) -> *mut TaskInner {
             unimplemented!()
         }
 
         /// Return the TraceStream that we're using, if in recording or replay.
         /// Returns null if we're not in record or replay.
-        fn trace_stream(&self) -> &TraceStream {
+        pub(in super::super) fn trace_stream(&self) -> &TraceStream {
             unimplemented!()
         }
 
@@ -964,7 +980,7 @@ pub mod task_inner {
         ///
         /// The new clone will be tracked in `session`.  The other
         /// arguments are as for `Task::clone()` above.
-        fn os_clone(
+        pub(in super::super) fn os_clone(
             reason: CloneReason,
             session: &dyn Session,
             remote: &AutoRemoteSyscalls,
@@ -982,7 +998,7 @@ pub mod task_inner {
         /// Fork and exec the initial task. If something goes wrong later
         /// (i.e. an exec does not occur before an exit), an error may be
         /// readable from the other end of the pipe whose write end is error_fd.
-        fn spawn<'a>(
+        pub(in super::super) fn spawn<'a>(
             session: &'a dyn Session,
             error_fd: &ScopedFd,
             sock_fd_out: &ScopedFd,
@@ -996,223 +1012,12 @@ pub mod task_inner {
             unimplemented!()
         }
 
-        fn work_around_knl_string_singlestep_bug() -> bool {
+        pub(in super::super) fn work_around_knl_string_singlestep_bug() -> bool {
             unimplemented!()
         }
 
-        fn preload_thread_locals(&self) -> &mut u8 {
+        pub(in super::super) fn preload_thread_locals(&self) -> &mut u8 {
             unimplemented!()
-        }
-    }
-
-    /// Forwarded method definition
-    ///
-    /// Open /proc/[tid]/mem fd for our AddressSpace, closing the old one
-    /// first. If necessary we force the tracee to open the file
-    /// itself and smuggle the fd back to us.
-    /// Returns false if the process no longer exists.
-    pub fn open_mem_fd<T: Task>(task: &mut T) -> bool {
-        // Use ptrace to read/write during open_mem_fd
-        task.as_.borrow_mut().set_mem_fd(ScopedFd::new());
-
-        if !task.is_stopped {
-            log!(
-                LogWarn,
-                "Can't retrieve mem fd for {}; process not stopped, racing with exec?",
-                task.tid
-            );
-            return false;
-        }
-
-        // We could try opening /proc/<pid>/mem directly first and
-        // only do this dance if that fails. But it's simpler to
-        // always take this path, and gives better test coverage. On Ubuntu
-        // the child has to open its own mem file (unless rr is root).
-        let path = CStr::from_bytes_with_nul(b"/proc/self/mem\0").unwrap();
-
-        let arch = task.arch();
-        let mut remote = AutoRemoteSyscalls::new(task);
-        let remote_fd: i32;
-        {
-            let mut remote_path: AutoRestoreMem = AutoRestoreMem::push_cstr(&mut remote, path);
-            if remote_path.get().is_some() {
-                let remote_arch = remote_path.arch();
-                let remote_addr = remote_path.get().unwrap();
-                // AutoRestoreMem DerefMut-s to AutoRemoteSyscalls
-                // skip leading '/' since we want the path to be relative to the root fd
-                remote_fd = remote_path
-                    .syscall(
-                        syscall_number_for_openat(remote_arch),
-                        &[
-                            RD_RESERVED_ROOT_DIR_FD as usize,
-                            // Skip the leading '/' in the path as this is a relative path.
-                            (remote_addr + 1usize).into(),
-                            libc::O_RDWR as usize,
-                        ],
-                    )
-                    .try_into()
-                    .unwrap();
-            } else {
-                remote_fd = -ESRCH;
-            }
-        }
-        let mut fd: ScopedFd = ScopedFd::new();
-        if remote_fd != -ESRCH {
-            if remote_fd < 0 {
-                // This can happen when a process fork()s after setuid; it can no longer
-                // open its own /proc/self/mem. Hopefully we can read the child's
-                // mem file in this case (because rr is probably running as root).
-                let buf: String = format!("/proc/{}/mem", remote.tid);
-                fd = ScopedFd::open_path(Path::new(&buf), OFlag::O_RDWR);
-            } else {
-                fd = rd_arch_function!(remote, retrieve_fd_arch, arch, remote_fd);
-                // Leak fd if the syscall fails due to the task being SIGKILLed unexpectedly
-                remote.syscall(
-                    syscall_number_for_close(remote.arch()),
-                    &[remote_fd as usize],
-                );
-            }
-        }
-        if !fd.is_open() {
-            log!(
-                LogInfo,
-                "Can't retrieve mem fd for {}; process no longer exists?",
-                remote.tid
-            );
-            return false;
-        }
-        remote.as_.borrow_mut().set_mem_fd(fd.try_into().unwrap());
-        true
-    }
-
-    /// Forwarded method definition
-    ///
-    /// Read/write the number of bytes.
-    /// Number of bytes read can be less than desired
-    /// - Returns Err(()) if No bytes could be read at all AND there was an error
-    /// - Returns Ok(usize) if 0 or more bytes could be read. All bytes requested may not have been
-    /// read.
-    pub fn read_bytes_fallible<T: Task>(
-        task: &mut T,
-        addr: RemotePtr<Void>,
-        buf: &mut [u8],
-    ) -> Result<usize, ()> {
-        if buf.len() == 0 {
-            return Ok(0);
-        }
-
-        match task.vm().borrow().local_mapping(addr, buf.len()) {
-            Some(found) => {
-                buf.copy_from_slice(found);
-                return Ok(buf.len());
-            }
-            None => (),
-        }
-
-        if !task.vm().borrow().mem_fd().is_open() {
-            return Ok(task.read_bytes_ptrace(addr, buf));
-        }
-
-        let mut all_read = 0;
-        while all_read < buf.len() {
-            unsafe { *(__errno_location()) = 0 };
-            let nread: isize = unsafe {
-                pread64(
-                    task.vm().borrow().mem_fd().as_raw(),
-                    buf.get_mut(all_read..).unwrap() as *mut _ as *mut c_void,
-                    // How much more left to read
-                    buf.len() - all_read,
-                    // Where you're reading from in the tracee
-                    // This is of type off_t which is a i32 in x86 and i64 on x64
-                    (addr.as_usize() + all_read) as isize as _,
-                )
-            };
-            // We open the mem_fd just after being notified of
-            // exec(), when the Task is created.  Trying to read from that
-            // fd seems to return 0 with errno 0.  Reopening the mem fd
-            // allows the pwrite to succeed.  It seems that the first mem
-            // fd we open, very early in exec, refers to the address space
-            // before the exec and the second mem fd refers to the address
-            // space after exec.
-            if 0 == nread && 0 == all_read && 0 == errno() {
-                // If we couldn't open the mem fd, then report 0 bytes read
-                if !task.open_mem_fd() {
-                    // @TODO is this a wise decision?
-                    // Hmmm.. given that errno is 0 it seems logical.
-                    return Ok(0);
-                }
-                // Try again
-                continue;
-            }
-            if nread <= 0 {
-                if all_read > 0 {
-                    // We did successfully read _some_ data, so return success and ignore
-                    // any error.
-                    unsafe { *(__errno_location()) = 0 };
-                    return Ok(all_read);
-                }
-                return Err(());
-            }
-            // We read some data. We should try again in case we get short reads.
-            all_read += nread as usize;
-        }
-
-        Ok(all_read)
-    }
-
-    /// Forwarded method definition
-    ///
-    /// If the data can't all be read, then if `ok` is non-null, sets *ok to
-    /// false, otherwise asserts.
-    pub fn read_bytes_helper<T: Task>(
-        task: &mut T,
-        addr: RemotePtr<Void>,
-        buf: &mut [u8],
-        ok: Option<&mut bool>,
-    ) {
-        unimplemented!()
-    }
-
-    /// NOT a Forwarded method due to extra template parameter
-    ///
-    /// If the data can't all be read, then if `ok` is non-null, sets *ok to
-    /// false, otherwise asserts.
-    pub fn read_bytes_helper_for<T: Task, D>(
-        task: &mut dyn Task,
-        addr: RemotePtr<D>,
-        data: &mut D,
-        ok: Option<&mut bool>,
-    ) {
-        let buf =
-            unsafe { std::slice::from_raw_parts_mut(data as *mut D as *mut u8, size_of::<D>()) };
-        task.read_bytes_helper(RemotePtr::cast(addr), buf, ok);
-    }
-
-    /// Read and return the C string located at `child_addr` in
-    /// this address space.
-    pub fn read_c_str<T: Task>(task: &mut T, child_addr: RemotePtr<u8>) -> CString {
-        // XXX handle invalid C strings
-        // e.g. c-strings that don't end even when an unmapped region of memory
-        // is reached.
-        let mut p = child_addr;
-        let mut s: Vec<u8> = Vec::new();
-        loop {
-            // We're only guaranteed that [child_addr, end_of_page) is mapped.
-            // So be conservative and assume that c-string ends before the
-            // end of the page. In case it _hasn't_ ended then we try on the
-            // next page and so forth.
-            let end_of_page: RemotePtr<Void> = ceil_page_size(p.as_usize() + 1).into();
-            let nbytes: usize = end_of_page - p;
-            let mut buf = Vec::<u8>::with_capacity(nbytes);
-            task.read_bytes_helper(p, &mut buf, None);
-            for i in 0..nbytes {
-                if 0 == buf[i] {
-                    // We have already checked it so unsafe is OK!
-                    return unsafe { CString::from_vec_unchecked(s) };
-                }
-                s.push(buf[i]);
-            }
-            p = end_of_page;
         }
     }
 }

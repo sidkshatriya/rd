@@ -17,6 +17,7 @@ use std::ops::Deref;
 use std::ops::DerefMut;
 use std::rc::{Rc, Weak};
 
+pub mod common;
 pub mod record_task;
 pub mod replay_task;
 pub mod task_inner;

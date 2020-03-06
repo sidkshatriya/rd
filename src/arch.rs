@@ -17,14 +17,14 @@ pub type NativeArch = X86Arch;
 macro_rules! rd_arch_function {
     ($slf:expr, $func_name:ident, $arch:expr) => {
         match $arch {
-            SupportedArch::X86 => $slf.$func_name::<crate::arch::X86Arch>(),
-            SupportedArch::X64 => $slf.$func_name::<crate::arch::X64Arch>(),
+            crate::kernel_abi::SupportedArch::X86 => $slf.$func_name::<crate::arch::X86Arch>(),
+            crate::kernel_abi::SupportedArch::X64 => $slf.$func_name::<crate::arch::X64Arch>(),
         }
     };
     ($slf:expr, $func_name:ident, $arch:expr, $($exp:tt)*) => {
         match $arch {
-            SupportedArch::X86 => $slf.$func_name::<crate::arch::X86Arch>($($exp)*),
-            SupportedArch::X64 => $slf.$func_name::<crate::arch::X64Arch>($($exp)*),
+            crate::kernel_abi::SupportedArch::X86 => $slf.$func_name::<crate::arch::X86Arch>($($exp)*),
+            crate::kernel_abi::SupportedArch::X64 => $slf.$func_name::<crate::arch::X64Arch>($($exp)*),
         }
     };
 }

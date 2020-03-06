@@ -221,11 +221,11 @@ pub mod record_task {
     use crate::scoped_fd::ScopedFd;
     use crate::session::record_session::RecordSession;
     use crate::session::Session;
-    use crate::task::replay_task::ReplayTask;
-    use crate::task::task_inner::task_inner::{
+    use crate::task::common::{
         open_mem_fd, read_bytes_fallible, read_bytes_helper, read_bytes_helper_for, read_c_str,
-        CloneReason, TaskInner,
     };
+    use crate::task::replay_task::ReplayTask;
+    use crate::task::task_inner::task_inner::{CloneReason, TaskInner};
     use crate::task::Task;
     use crate::ticks::Ticks;
     use crate::trace_frame::FrameTime;

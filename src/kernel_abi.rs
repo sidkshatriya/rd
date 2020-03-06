@@ -28,14 +28,14 @@ pub const RD_NATIVE_ARCH: SupportedArch = SupportedArch::X86;
 macro_rules! rd_kernel_abi_arch_function {
     ($func_name:ident, $arch:expr) => {
         match $arch {
-            SupportedArch::X86 => crate::kernel_abi::x86::$func_name(),
-            SupportedArch::X64 => crate::kernel_abi::x64::$func_name(),
+            crate::kernel_abi::SupportedArch::X86 => crate::kernel_abi::x86::$func_name(),
+            crate::kernel_abi::SupportedArch::X64 => crate::kernel_abi::x64::$func_name(),
         }
     };
     ($func_name:ident, $arch:expr, $($exp:expr),+) => {
         match $arch {
-            SupportedArch::X86 => crate::kernel_abi::x86::$func_name($($exp),+),
-            SupportedArch::X64 => crate::kernel_abi::x64::$func_name($($exp),+),
+            crate::kernel_abi::SupportedArch::X86 => crate::kernel_abi::x86::$func_name($($exp),+),
+            crate::kernel_abi::SupportedArch::X64 => crate::kernel_abi::x64::$func_name($($exp),+),
         }
     };
 }
