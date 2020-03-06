@@ -315,7 +315,7 @@ pub(super) fn safe_pwrite64(
 }
 
 /// `flags` is bits from WriteFlags.
-pub fn write_bytes_helper<T: Task>(
+pub(super) fn write_bytes_helper<T: Task>(
     task: &mut T,
     addr: RemotePtr<Void>,
     buf: &[u8],
