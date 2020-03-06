@@ -26,8 +26,9 @@ impl RemoteCodePtr {
         self.ptr
     }
 
+    /// As the name indicates this is just a cast. No try_into().unwrap() here!
     pub fn as_isize(&self) -> isize {
-        self.ptr.try_into().unwrap()
+        self.ptr as isize
     }
 
     pub fn is_null(&self) -> bool {
@@ -64,29 +65,11 @@ impl Display for RemoteCodePtr {
     }
 }
 
-impl Add<isize> for RemoteCodePtr {
-    type Output = Self;
-
-    fn add(self, delta: isize) -> Self::Output {
-        let result: isize = self.as_isize() + delta;
-        Self::from_val(result.try_into().unwrap())
-    }
-}
-
 impl Add<usize> for RemoteCodePtr {
     type Output = Self;
 
     fn add(self, delta: usize) -> Self::Output {
         Self::from_val(self.as_usize() + delta)
-    }
-}
-
-impl Sub<isize> for RemoteCodePtr {
-    type Output = Self;
-
-    fn sub(self, delta: isize) -> Self::Output {
-        let result: isize = self.as_isize() - delta;
-        Self::from_val(result.try_into().unwrap())
     }
 }
 
@@ -97,6 +80,9 @@ impl Sub<usize> for RemoteCodePtr {
         Self::from_val(self.as_usize() - delta)
     }
 }
+
+// ! Note that there is NO impl Add<isize> for RemoteCodePtr<T> and impl Sub<isize> for
+// RemoteCodePtr<T> !
 
 impl Sub<RemoteCodePtr> for RemoteCodePtr {
     type Output = isize;

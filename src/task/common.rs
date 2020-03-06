@@ -11,7 +11,7 @@
 //!     in task_inner.rs
 
 use crate::address_space::kernel_mapping::KernelMapping;
-use crate::address_space::memory_range::{MemoryRange, MemoryRangeKey};
+use crate::address_space::memory_range::MemoryRangeKey;
 use crate::auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem};
 use crate::kernel_abi::{
     syscall_number_for_close, syscall_number_for_mprotect, syscall_number_for_openat,

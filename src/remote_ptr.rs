@@ -35,8 +35,9 @@ impl<T> RemotePtr<T> {
         self.ptr
     }
 
+    /// As the name indicates this is just a cast. No try_into().unwrap() here!
     pub fn as_isize(&self) -> isize {
-        self.ptr.try_into().unwrap()
+        self.ptr as isize
     }
 
     pub fn is_null(&self) -> bool {
@@ -55,24 +56,6 @@ impl<T> RemotePtr<T> {
 impl<T> Display for RemotePtr<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         write!(f, "{:#x}", self.ptr)
-    }
-}
-
-impl<T> Add<isize> for RemotePtr<T> {
-    type Output = Self;
-
-    fn add(self, delta: isize) -> Self::Output {
-        let result: isize = self.as_isize() + delta * (std::mem::size_of::<T>() as isize);
-        Self::new_from_val(result.try_into().unwrap())
-    }
-}
-
-impl<T> Sub<isize> for RemotePtr<T> {
-    type Output = Self;
-
-    fn sub(self, delta: isize) -> Self::Output {
-        let result: isize = self.as_isize() - delta * (std::mem::size_of::<T>() as isize);
-        Self::new_from_val(result.try_into().unwrap())
     }
 }
 
@@ -95,6 +78,8 @@ impl<T> Sub<usize> for RemotePtr<T> {
         Self::new_from_val(result)
     }
 }
+
+// ! Note that there is NO impl Add<isize> for RemotePtr<T> and impl Sub<isize> for RemotePtr<T> !
 
 /// Note that the other RemotePtr must have SAME referent type.
 impl<T> Sub<RemotePtr<T>> for RemotePtr<T> {
