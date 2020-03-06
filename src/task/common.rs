@@ -233,6 +233,8 @@ pub fn read_bytes_helper_for<T: Task, D>(
     task.read_bytes_helper(RemotePtr::cast(addr), buf, ok);
 }
 
+/// Forwarded method definition
+///
 /// Read and return the C string located at `child_addr` in
 /// this address space.
 pub(super) fn read_c_str<T: Task>(task: &mut T, child_addr: RemotePtr<u8>) -> CString {
@@ -261,6 +263,8 @@ pub(super) fn read_c_str<T: Task>(task: &mut T, child_addr: RemotePtr<u8>) -> CS
     }
 }
 
+/// This is NOT a forwarded method
+///
 /// This function exists to work around
 /// https://bugzilla.kernel.org/show_bug.cgi?id=99101.
 /// On some kernels pwrite() to /proc/.../mem fails when writing to a region
@@ -314,6 +318,8 @@ pub(super) fn safe_pwrite64(
     nwritten_result
 }
 
+/// Forwarded method definition
+///
 /// `flags` is bits from WriteFlags.
 pub(super) fn write_bytes_helper<T: Task>(
     task: &mut T,
