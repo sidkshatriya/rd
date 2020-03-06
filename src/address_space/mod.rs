@@ -114,6 +114,7 @@ pub mod address_space {
     use crate::taskish_uid::AddressSpaceUid;
     use crate::taskish_uid::TaskUid;
     use crate::trace_frame::FrameTime;
+    use crate::util::floor_page_size;
     use core::ffi::c_void;
     use libc::stat;
     use libc::{dev_t, ino_t, pid_t};
@@ -650,8 +651,32 @@ pub mod address_space {
 
         /// If the given memory region is mapped into the local address space, obtain
         /// the local address from which the `size` bytes at `addr` can be accessed.
+        pub fn local_mapping_mut(&self, addr: RemotePtr<Void>, size: usize) -> Option<&mut [u8]> {
+            let maybe_map = self.mapping_of(addr);
+            if let Some(found_map) = maybe_map {
+                // Fall back to the slow path if we can't get the entire region
+                if size > found_map.map.end() - addr {
+                    return None;
+                }
+                if let Some(found_local_addr) = found_map.local_addr {
+                    let offset = addr - found_map.map.start();
+                    let data = unsafe {
+                        std::slice::from_raw_parts_mut::<u8>(
+                            found_local_addr.cast::<u8>().add(offset),
+                            size,
+                        )
+                    };
+                    return Some(data);
+                }
+            }
+
+            None
+        }
+
+        /// If the given memory region is mapped into the local address space, obtain
+        /// the local address from which the `size` bytes at `addr` can be accessed.
         pub fn local_mapping(&self, addr: RemotePtr<Void>, size: usize) -> Option<&[u8]> {
-            unimplemented!()
+            self.local_mapping_mut(addr, size).map(|data| &*data)
         }
 
         /// Return true if the rd page is mapped at its expected address.
