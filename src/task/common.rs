@@ -10,15 +10,19 @@
 //!     &mut dyn Task as their first parameter. It would have been confusing to include them
 //!     in task_inner.rs
 
+use crate::address_space::kernel_mapping::KernelMapping;
+use crate::address_space::memory_range::{MemoryRange, MemoryRangeKey};
 use crate::auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem};
-use crate::kernel_abi::{syscall_number_for_close, syscall_number_for_openat};
+use crate::kernel_abi::{
+    syscall_number_for_close, syscall_number_for_mprotect, syscall_number_for_openat,
+};
 use crate::log::LogLevel::{LogInfo, LogWarn};
 use crate::rd::RD_RESERVED_ROOT_DIR_FD;
 use crate::remote_ptr::{RemotePtr, Void};
 use crate::scoped_fd::ScopedFd;
 use crate::task::Task;
-use crate::util::ceil_page_size;
-use libc::{__errno_location, pread64, ESRCH};
+use crate::util::{ceil_page_size, floor_page_size, pwrite_all_fallible};
+use libc::{__errno_location, pread64, ESRCH, MAP_SHARED, PROT_READ, PROT_WRITE};
 use nix::errno::errno;
 use nix::fcntl::OFlag;
 use std::convert::TryInto;
@@ -235,4 +239,57 @@ pub(super) fn read_c_str<T: Task>(task: &mut T, child_addr: RemotePtr<u8>) -> CS
         }
         p = end_of_page;
     }
+}
+
+/// This function exists to work around
+/// https://bugzilla.kernel.org/show_bug.cgi?id=99101.
+/// On some kernels pwrite() to /proc/.../mem fails when writing to a region
+/// that's PROT_NONE.
+/// Also, writing through MAP_SHARED readonly mappings fails (even if the
+/// file was opened read-write originally), so we handle that here too.
+pub(super) fn safe_pwrite64(
+    t: &mut dyn Task,
+    buf: &[u8],
+    addr: RemotePtr<Void>,
+) -> Result<usize, ()> {
+    let mut mappings_to_fix: Vec<(MemoryRangeKey, i32)> = Vec::new();
+    let buf_size = buf.len();
+    for (k, m) in t.vm_ref().maps_containing_or_after(floor_page_size(addr)) {
+        if m.map.start() >= ceil_page_size(addr + buf_size) {
+            break;
+        }
+
+        if m.map.prot() & PROT_WRITE == PROT_WRITE {
+            continue;
+        }
+
+        if !(m.map.prot() & PROT_READ == PROT_READ) || (m.map.flags() & MAP_SHARED == MAP_SHARED) {
+            mappings_to_fix.push((*k, m.map.prot()));
+        }
+    }
+
+    if mappings_to_fix.is_empty() {
+        return pwrite_all_fallible(t.vm_ref().mem_fd().unwrap(), buf, addr.as_isize());
+    }
+
+    let mem_fd = t.vm_ref().mem_fd().unwrap();
+    let mprotect_syscallno: i32 = syscall_number_for_mprotect(t.arch());
+    let mut remote = AutoRemoteSyscalls::new(t);
+    for m in &mappings_to_fix {
+        remote.infallible_syscall(
+            mprotect_syscallno,
+            &[m.0.start().as_usize(), m.0.size(), (m.1 | PROT_WRITE) as _],
+        );
+    }
+
+    let nwritten_result: Result<usize, ()> = pwrite_all_fallible(mem_fd, buf, addr.as_isize());
+
+    for m in &mappings_to_fix {
+        remote.infallible_syscall(
+            mprotect_syscallno,
+            &[m.0.start().as_usize(), m.0.size(), m.1 as _],
+        );
+    }
+
+    nwritten_result
 }

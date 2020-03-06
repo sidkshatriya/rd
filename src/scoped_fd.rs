@@ -51,6 +51,14 @@ impl ScopedFd {
         self.fd = -1;
         result
     }
+
+    pub fn unwrap(&self) -> RawFd {
+        if self.fd < 0 {
+            panic!("fd is closed");
+        } else {
+            self.fd
+        }
+    }
 }
 
 impl Drop for ScopedFd {

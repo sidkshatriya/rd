@@ -1,5 +1,6 @@
 use crate::bindings::signal::{SI_KERNEL, TRAP_BRKPT};
 use crate::scoped_fd::ScopedFd;
+use libc::pwrite64;
 use nix::sys::stat::Mode;
 use nix::unistd::SysconfVar::PAGE_SIZE;
 use nix::unistd::{access, ftruncate};
@@ -7,6 +8,7 @@ use nix::unistd::{sysconf, AccessFlags};
 use raw_cpuid::CpuId;
 use std::convert::TryInto;
 use std::env;
+use std::ffi::c_void;
 
 pub const CPUID_GETVENDORSTRING: u32 = 0x0;
 pub const CPUID_GETFEATURES: u32 = 0x1;
@@ -263,8 +265,13 @@ pub fn page_size() -> usize {
     *SYSTEM_PAGE_SIZE
 }
 
-pub fn ceil_page_size(size: usize) -> usize {
-    (size + page_size() - 1) & !(page_size() - 1)
+pub fn ceil_page_size<T: Into<usize> + From<usize>>(size: T) -> T {
+    ((size.into() + page_size() - 1) & !(page_size() - 1)).into()
+}
+
+pub fn floor_page_size<T: Into<usize> + From<usize>>(sz: T) -> T {
+    let page_mask: usize = !(page_size() - 1);
+    (sz.into() & page_mask).into()
 }
 
 pub fn resize_shmem_segment(fd: &ScopedFd, num_bytes: usize) {
@@ -322,4 +329,33 @@ pub fn tmp_dir() -> String {
 
 pub fn ensure_dir(dir: &str, dir_type: &str, mode: Mode) {
     unimplemented!()
+}
+
+/// Like pwrite64(2) but we try to write all bytes by looping on short writes.
+///
+/// Slightly different from rr. Employs Result.
+pub fn pwrite_all_fallible(fd: i32, buf_initial: &[u8], offset: isize) -> Result<usize, ()> {
+    let mut written: usize = 0;
+    let mut cur_size = buf_initial.len();
+
+    let mut buf = buf_initial;
+    while cur_size > 0 {
+        let ret: isize =
+            unsafe { pwrite64(fd, buf.as_ptr().cast::<c_void>(), cur_size, offset as i64) };
+
+        if written > 0 && ret <= 0 {
+            return Ok(written);
+        } else if written == 0 && ret == 0 {
+            return Ok(written);
+        } else if ret < 0 {
+            return Err(());
+        } else {
+            // We know that ret > 0 by now so its safe to cast ret as usize in this block.
+            buf = buf.get(ret as usize..).unwrap();
+            written += ret as usize;
+            cur_size -= ret as usize;
+        }
+    }
+
+    Ok(written)
 }
