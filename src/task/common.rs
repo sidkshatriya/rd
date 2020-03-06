@@ -19,9 +19,10 @@ use crate::log::LogLevel::{LogInfo, LogWarn};
 use crate::rd::RD_RESERVED_ROOT_DIR_FD;
 use crate::remote_ptr::{RemotePtr, Void};
 use crate::scoped_fd::ScopedFd;
+use crate::task::task_inner::task_inner::WriteFlags;
 use crate::task::Task;
 use crate::util::{ceil_page_size, floor_page_size, pwrite_all_fallible};
-use libc::{__errno_location, pread64, ESRCH, MAP_SHARED, PROT_READ, PROT_WRITE};
+use libc::{__errno_location, pread64, EPERM, ESRCH, MAP_SHARED, PROT_READ, PROT_WRITE};
 use nix::errno::errno;
 use nix::fcntl::OFlag;
 use std::convert::TryInto;
@@ -311,4 +312,73 @@ pub(super) fn safe_pwrite64(
     }
 
     nwritten_result
+}
+
+/// `flags` is bits from WriteFlags.
+pub fn write_bytes_helper<T: Task>(
+    task: &mut T,
+    addr: RemotePtr<Void>,
+    buf: &[u8],
+    ok: Option<&mut bool>,
+    flags: Option<WriteFlags>,
+) {
+    let buf_size = buf.len();
+    if 0 == buf_size {
+        return;
+    }
+
+    if let Some(local) = task.vm_ref().local_mapping_mut(addr, buf_size) {
+        local.copy_from_slice(buf);
+        return;
+    }
+
+    if !task.vm_ref().mem_fd().is_open() {
+        let nwritten = task.write_bytes_ptrace(addr, buf);
+        if nwritten > 0 {
+            task.vm_mut().notify_written(addr, nwritten, flags);
+        }
+
+        if ok.is_some() && nwritten < buf_size {
+            *ok.unwrap() = false;
+        }
+        return;
+    }
+
+    unsafe {
+        *(__errno_location()) = 0;
+    }
+    let nwritten_result = safe_pwrite64(task, buf, addr);
+    // See comment in read_bytes_helper().
+    if let Ok(0) = nwritten_result {
+        task.open_mem_fd();
+        // Try again
+        return task.write_bytes_helper(addr, buf, ok, flags);
+    }
+    if errno() == EPERM {
+        fatal!(
+            "Can't write to /proc/{}/mem\n\
+                        Maybe you need to disable grsecurity MPROTECT with:\n\
+                           setfattr -n user.pax.flags -v 'emr' <executable>",
+            task.tid
+        );
+    }
+
+    let nwritten = nwritten_result.unwrap_or(0);
+    if ok.is_some() {
+        if nwritten < buf_size {
+            *ok.unwrap() = false;
+        }
+    } else {
+        ed_assert!(
+            task,
+            nwritten == buf_size,
+            "Should have written {} bytes to {}, but only wrote {}",
+            addr,
+            buf_size,
+            nwritten,
+        );
+    }
+    if nwritten > 0 {
+        task.vm_mut().notify_written(addr, nwritten, flags);
+    }
 }

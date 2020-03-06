@@ -87,6 +87,7 @@ pub mod task_inner {
     use crate::remote_ptr::{RemotePtr, Void};
     use crate::scoped_fd::ScopedFd;
     use crate::session::{Session, SessionSharedPtr, SessionSharedWeakPtr};
+    use crate::task::common::safe_pwrite64;
     use crate::task::TaskSharedWeakPtr;
     use crate::taskish_uid::TaskUid;
     use crate::thread_group::{ThreadGroup, ThreadGroupSharedPtr};
@@ -247,7 +248,7 @@ pub mod task_inner {
     pub type DebugRegs = Vec<WatchConfig>;
 
     #[derive(Copy, Clone, Debug)]
-    enum WriteFlags {
+    pub enum WriteFlags {
         IsBreakpointRelated = 0x1,
     }
 
@@ -704,17 +705,6 @@ pub mod task_inner {
         }
 
         pub fn write_mem<T>(&self, child_addr: RemotePtr<T>, val: &[T], ok: Option<&mut bool>) {
-            unimplemented!()
-        }
-
-        /// `flags` is bits from WriteFlags.
-        pub fn write_bytes_helper(
-            &self,
-            addr: RemotePtr<Void>,
-            buf: &[u8],
-            ok: Option<&mut bool>,
-            flags: Option<u32>,
-        ) {
             unimplemented!()
         }
 

@@ -171,8 +171,10 @@ impl<'a, 'b> AutoRestoreMem<'a, 'b> {
             .task_mut()
             .read_bytes_helper(self.addr.unwrap(), &mut self.data, Some(&mut ok));
         // @TODO what do we do if ok is false due to read_bytes_helper call above?
+        // Adding a debug_assert!() for now.
+        debug_assert!(ok);
         if mem.is_some() {
-            self.remote.task().write_bytes_helper(
+            self.remote.task_mut().write_bytes_helper(
                 self.addr.unwrap(),
                 mem.unwrap(),
                 Some(&mut ok),

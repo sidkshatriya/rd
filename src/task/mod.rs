@@ -4,8 +4,8 @@ use crate::remote_ptr::{RemotePtr, Void};
 use crate::session::Session;
 use crate::task::record_task::record_task::RecordTask;
 use crate::task::replay_task::ReplayTask;
-use crate::task::task_inner::task_inner::CloneReason;
 use crate::task::task_inner::task_inner::TaskInner;
+use crate::task::task_inner::task_inner::{CloneReason, WriteFlags};
 use crate::task::task_inner::{ResumeRequest, TicksRequest, WaitRequest};
 use crate::wait_status::WaitStatus;
 use libc::pid_t;
@@ -222,4 +222,13 @@ pub trait Task: DerefMut<Target = TaskInner> {
 
     /// Forwarded method signature
     fn read_c_str(&mut self, child_addr: RemotePtr<u8>) -> CString;
+
+    /// Forwarded method signature
+    fn write_bytes_helper(
+        &mut self,
+        addr: RemotePtr<Void>,
+        buf: &[u8],
+        ok: Option<&mut bool>,
+        flags: Option<WriteFlags>,
+    );
 }

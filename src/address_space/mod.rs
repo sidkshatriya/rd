@@ -109,12 +109,12 @@ pub mod address_space {
     use crate::session::session_inner::session_inner::SessionInner;
     use crate::session::{SessionSharedPtr, SessionSharedWeakPtr};
     use crate::task::record_task::record_task::RecordTask;
+    use crate::task::task_inner::task_inner::WriteFlags;
     use crate::task::Task;
     use crate::task_set::TaskSet;
     use crate::taskish_uid::AddressSpaceUid;
     use crate::taskish_uid::TaskUid;
     use crate::trace_frame::FrameTime;
-    use crate::util::floor_page_size;
     use core::ffi::c_void;
     use libc::stat;
     use libc::{dev_t, ino_t, pid_t};
@@ -728,7 +728,12 @@ pub mod address_space {
         /// Notify that data was written to this address space by rr or
         /// by the kernel.
         /// `flags` can contain values from Task::WriteFlags.
-        pub fn notify_written(&self, addr: RemotePtr<Void>, num_bytes: usize, flags: u32) {
+        pub fn notify_written(
+            &mut self,
+            addr: RemotePtr<Void>,
+            num_bytes: usize,
+            flags: Option<WriteFlags>,
+        ) {
             unimplemented!()
         }
 

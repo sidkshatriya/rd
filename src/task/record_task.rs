@@ -223,9 +223,10 @@ pub mod record_task {
     use crate::session::Session;
     use crate::task::common::{
         open_mem_fd, read_bytes_fallible, read_bytes_helper, read_bytes_helper_for, read_c_str,
+        write_bytes_helper,
     };
     use crate::task::replay_task::ReplayTask;
-    use crate::task::task_inner::task_inner::{CloneReason, TaskInner};
+    use crate::task::task_inner::task_inner::{CloneReason, TaskInner, WriteFlags};
     use crate::task::Task;
     use crate::ticks::Ticks;
     use crate::trace_frame::FrameTime;
@@ -485,6 +486,16 @@ pub mod record_task {
         /// Forwarded method
         fn read_c_str(&mut self, child_addr: RemotePtr<u8>) -> CString {
             read_c_str(self, child_addr)
+        }
+
+        fn write_bytes_helper(
+            &mut self,
+            addr: RemotePtr<u8>,
+            buf: &[u8],
+            ok: Option<&mut bool>,
+            flags: Option<WriteFlags>,
+        ) {
+            write_bytes_helper(self, addr, buf, ok, flags)
         }
     }
 
