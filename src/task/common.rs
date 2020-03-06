@@ -123,7 +123,7 @@ pub(super) fn read_bytes_fallible<T: Task>(
         return Ok(0);
     }
 
-    match task.vm().borrow().local_mapping(addr, buf.len()) {
+    match task.vm_ref().local_mapping(addr, buf.len()) {
         Some(found) => {
             buf.copy_from_slice(found);
             return Ok(buf.len());
@@ -131,7 +131,7 @@ pub(super) fn read_bytes_fallible<T: Task>(
         None => (),
     }
 
-    if !task.vm().borrow().mem_fd().is_open() {
+    if !task.vm_ref().mem_fd().is_open() {
         return Ok(task.read_bytes_ptrace(addr, buf));
     }
 
@@ -140,7 +140,7 @@ pub(super) fn read_bytes_fallible<T: Task>(
         unsafe { *(__errno_location()) = 0 };
         let nread: isize = unsafe {
             pread64(
-                task.vm().borrow().mem_fd().as_raw(),
+                task.vm_ref().mem_fd().as_raw(),
                 buf.get_mut(all_read..).unwrap() as *mut _ as *mut c_void,
                 // How much more left to read
                 buf.len() - all_read,

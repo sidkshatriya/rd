@@ -118,7 +118,7 @@ pub mod address_space {
     use libc::stat;
     use libc::{dev_t, ino_t, pid_t};
     use nix::sys::mman::munmap;
-    use std::cell::RefCell;
+    use std::cell::{Ref, RefCell, RefMut};
     use std::collections::btree_map::Range;
     use std::collections::hash_map::Iter as HashMapIter;
     use std::collections::HashSet;
@@ -192,6 +192,9 @@ pub mod address_space {
 
     pub type AddressSpaceSharedPtr = Rc<RefCell<AddressSpace>>;
     pub type AddressSpaceSharedWeakPtr = Weak<RefCell<AddressSpace>>;
+    pub type AddressSpaceRef<'a> = Ref<'a, AddressSpace>;
+    pub type AddressSpaceRefMut<'a> = RefMut<'a, AddressSpace>;
+
     pub struct Maps<'a> {
         outer: &'a AddressSpace,
         start: RemotePtr<Void>,

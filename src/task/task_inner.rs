@@ -68,7 +68,9 @@ pub enum TicksRequest {
 
 pub mod task_inner {
     use super::*;
-    use crate::address_space::address_space::AddressSpaceSharedPtr;
+    use crate::address_space::address_space::{
+        AddressSpaceRef, AddressSpaceRefMut, AddressSpaceSharedPtr,
+    };
     use crate::address_space::kernel_mapping::KernelMapping;
     use crate::address_space::WatchConfig;
     use crate::auto_remote_syscalls::AutoRemoteSyscalls;
@@ -659,8 +661,15 @@ pub mod task_inner {
 
         /// Return the virtual memory mapping (address space) of this
         /// task.
-        pub fn vm(&self) -> AddressSpaceSharedPtr {
-            self.as_.clone()
+        pub fn vm_ref(&self) -> AddressSpaceRef {
+            self.as_.borrow()
+        }
+
+        /// Return the virtual memory mapping (address space) of this
+        /// task.
+        /// Note that we DONT need &mut self here
+        pub fn vm_mut(&self) -> AddressSpaceRefMut {
+            self.as_.borrow_mut()
         }
 
         pub fn fd_table(&self) -> FdTableSharedPtr {

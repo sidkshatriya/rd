@@ -261,7 +261,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         }
 
         let last_stack_byte: RemotePtr<Void> = self.t.regs_ref().sp() - 1usize;
-        match self.t.vm().borrow().mapping_of(last_stack_byte) {
+        match self.t.vm_ref().mapping_of(last_stack_byte) {
             Some(m) => {
                 if is_usable_area(&m.map) && m.map.start() + 2048usize <= self.t.regs_ref().sp() {
                     // 'sp' is in a stack region and there's plenty of space there. No need
@@ -273,7 +273,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         }
 
         let mut found_stack: Option<MemoryRange> = None;
-        for (_, m) in self.t.vm().borrow().maps() {
+        for (_, m) in self.t.vm_ref().maps() {
             if is_usable_area(&m.map) {
                 // m.map Deref-s into a MemoryRange
                 found_stack = Some(*m.map);
@@ -654,7 +654,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
                 self.t.arch(),
             );
         } else {
-            syscall_ip = self.t.vm().borrow().traced_syscall_ip();
+            syscall_ip = self.t.vm_ref().traced_syscall_ip();
         }
         self.initial_regs.set_ip(syscall_ip);
 
@@ -810,7 +810,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         let maybe_st = fstat(shmem_fd.as_raw());
         ed_assert!(self.task(), maybe_st.is_ok());
         let st = maybe_st.unwrap();
-        let km: KernelMapping = self.task().vm().borrow_mut().map(
+        let km: KernelMapping = self.task().vm_mut().map(
             self.task(),
             child_map_addr,
             size,
