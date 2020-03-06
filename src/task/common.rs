@@ -10,7 +10,6 @@
 //!     &mut dyn Task as their first parameter. It would have been confusing to include them
 //!     in task_inner.rs
 
-use crate::address_space::kernel_mapping::KernelMapping;
 use crate::address_space::memory_range::MemoryRangeKey;
 use crate::auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem};
 use crate::kernel_abi::{
@@ -196,7 +195,27 @@ pub(super) fn read_bytes_helper<T: Task>(
     buf: &mut [u8],
     ok: Option<&mut bool>,
 ) {
-    unimplemented!()
+    // pread64 etc can't handle addresses that appear to be negative ...
+    // like [vsyscall].
+    let result_nread = task.read_bytes_fallible(addr, buf);
+    match result_nread {
+        Ok(nread) if nread == buf.len() => (),
+        _ => {
+            let nread = result_nread.unwrap_or(0);
+            if ok.is_some() {
+                *ok.unwrap() = false;
+            } else {
+                ed_assert!(
+                    task,
+                    false,
+                    "Should have read {} bytes from {}, but only read {}",
+                    buf.len(),
+                    addr,
+                    nread
+                );
+            }
+        }
+    }
 }
 
 /// NOT a Forwarded method due to extra template parameter

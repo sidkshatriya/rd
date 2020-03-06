@@ -1078,7 +1078,7 @@ fn recvmsg_socket(sock: &ScopedFd) -> i32 {
     let cmsgbuf_size = rd_kernel_abi_arch_function!(cmsg_space, RD_NATIVE_ARCH, size_of::<i32>());
     let mut cmsgbuf = vec![0u8; cmsgbuf_size];
     let mut msg: libc::msghdr = unsafe { zeroed() };
-    msg.msg_control = cmsgbuf.as_mut_ptr() as *mut u8 as *mut c_void;
+    msg.msg_control = cmsgbuf.as_mut_ptr().cast();
     msg.msg_controllen = cmsgbuf_size;
     msg.msg_iov = &mut msgdata as *mut libc::iovec;
     msg.msg_iovlen = 1;

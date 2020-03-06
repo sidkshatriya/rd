@@ -172,7 +172,7 @@ impl EmuFile {
                 ret = unsafe {
                     pwrite64(
                         f.borrow().fd().as_raw(),
-                        data_ptr as *const c_void,
+                        data_ptr.cast(),
                         amount,
                         offset as i64,
                     )

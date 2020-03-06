@@ -1,7 +1,6 @@
 use crate::kernel_abi::syscall_instruction_length;
 use crate::kernel_abi::SupportedArch;
 use crate::remote_ptr::RemotePtr;
-use std::convert::TryInto;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::Result;
