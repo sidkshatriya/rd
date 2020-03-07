@@ -4,6 +4,7 @@ use crate::remote_ptr::Void;
 use crate::util::page_size;
 use libc::{c_long, dev_t, ino_t, stat, PROT_EXEC, PROT_READ, PROT_WRITE};
 use libc::{MAP_ANONYMOUS, MAP_GROWSDOWN, MAP_NORESERVE, MAP_PRIVATE, MAP_SHARED, MAP_STACK};
+use nix::sys::mman::MapFlags;
 use nix::sys::stat::{major, minor};
 use std::convert::TryInto;
 use std::fmt::{Display, Formatter, Result};
@@ -15,9 +16,10 @@ use std::ops::{Deref, DerefMut};
 /// considers a NORESERVE anonynmous mapping that's adjacent to
 /// a non-NORESERVE mapping distinct, even if all other
 /// metadata are the same.  See `is_adjacent_mapping()`.
-pub const MAP_FLAGS_MASK: i32 =
-    MAP_ANONYMOUS | MAP_NORESERVE | MAP_PRIVATE | MAP_SHARED | MAP_STACK | MAP_GROWSDOWN;
-pub const CHECKABLE_FLAGS_MASK: i32 = MAP_PRIVATE | MAP_SHARED;
+pub const MAP_FLAGS_MASK: MapFlags = MapFlags::from_bits_truncate(
+    MAP_ANONYMOUS | MAP_NORESERVE | MAP_PRIVATE | MAP_SHARED | MAP_STACK | MAP_GROWSDOWN,
+);
+pub const CHECKABLE_FLAGS_MASK: MapFlags = MapFlags::from_bits_truncate(MAP_PRIVATE | MAP_SHARED);
 
 /// Clone trait is manually derived. See below.
 /// This type cannot be Copy as fsname_, a String, is not Copy.
@@ -36,7 +38,7 @@ pub struct KernelMapping {
     device_: dev_t,
     inode_: ino_t,
     prot_: i32,
-    flags_: i32,
+    flags_: MapFlags,
     offset: u64,
 }
 
@@ -49,7 +51,7 @@ impl KernelMapping {
             device_: 0,
             inode_: 0,
             prot_: 0,
-            flags_: 0,
+            flags_: MapFlags::empty(),
             offset: 0,
             // @TODO Is this OK?
             fsname_: String::new(),
@@ -64,7 +66,7 @@ impl KernelMapping {
         device: dev_t,
         inode: ino_t,
         prot: i32,
-        flags: i32,
+        flags: MapFlags,
         offset: u64,
     ) -> KernelMapping {
         let result = KernelMapping {
@@ -83,7 +85,7 @@ impl KernelMapping {
     pub fn assert_valid(&self) {
         debug_assert!(self.end() >= self.start());
         debug_assert!(self.size() % page_size() == 0);
-        debug_assert!(self.flags_ & !MAP_FLAGS_MASK == 0);
+        debug_assert!((self.flags_ & !MAP_FLAGS_MASK).is_empty());
         debug_assert!(self.offset % page_size() as u64 == 0);
     }
 
@@ -155,7 +157,7 @@ impl KernelMapping {
     pub fn prot(&self) -> i32 {
         self.prot_
     }
-    pub fn flags(&self) -> i32 {
+    pub fn flags(&self) -> MapFlags {
         self.flags_
     }
     pub fn file_offset_bytes(&self) -> u64 {
@@ -198,7 +200,7 @@ impl KernelMapping {
     /// Dump a representation of `self` to a string in a format
     /// similar to the former part of /proc/[tid]/maps.
     pub fn str(&self) -> String {
-        let map_shared = if MAP_SHARED & self.flags_ == MAP_SHARED {
+        let map_shared = if self.flags_.contains(MapFlags::MAP_SHARED) {
             's'
         } else {
             'p'

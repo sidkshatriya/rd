@@ -22,9 +22,10 @@ use crate::scoped_fd::ScopedFd;
 use crate::task::task_inner::task_inner::WriteFlags;
 use crate::task::Task;
 use crate::util::{ceil_page_size, floor_page_size, pwrite_all_fallible};
-use libc::{__errno_location, pread64, EPERM, ESRCH, MAP_SHARED, PROT_READ, PROT_WRITE};
+use libc::{__errno_location, pread64, EPERM, ESRCH, PROT_READ, PROT_WRITE};
 use nix::errno::errno;
 use nix::fcntl::OFlag;
+use nix::sys::mman::MapFlags;
 use std::convert::TryInto;
 use std::ffi::c_void;
 use std::ffi::{CStr, CString};
@@ -287,7 +288,9 @@ pub(super) fn safe_pwrite64(
             continue;
         }
 
-        if !(m.map.prot() & PROT_READ == PROT_READ) || (m.map.flags() & MAP_SHARED == MAP_SHARED) {
+        if !(m.map.prot() & PROT_READ == PROT_READ)
+            || (m.map.flags().contains(MapFlags::MAP_SHARED))
+        {
             mappings_to_fix.push((*k, m.map.prot()));
         }
     }

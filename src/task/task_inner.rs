@@ -87,7 +87,6 @@ pub mod task_inner {
     use crate::remote_ptr::{RemotePtr, Void};
     use crate::scoped_fd::ScopedFd;
     use crate::session::{Session, SessionSharedPtr, SessionSharedWeakPtr};
-    use crate::task::common::safe_pwrite64;
     use crate::task::TaskSharedWeakPtr;
     use crate::taskish_uid::TaskUid;
     use crate::thread_group::{ThreadGroup, ThreadGroupSharedPtr};

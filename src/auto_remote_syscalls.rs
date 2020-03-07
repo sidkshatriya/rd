@@ -32,10 +32,10 @@ use crate::util::{is_kernel_trap, page_size, resize_shmem_segment, tmp_dir};
 use crate::wait_status::WaitStatus;
 use core::ffi::c_void;
 use libc::{
-    pid_t, SYS_sendmsg, ESRCH, MAP_ANONYMOUS, MAP_FIXED, MAP_PRIVATE, MAP_SHARED, O_CLOEXEC,
-    O_CREAT, O_EXCL, O_RDWR, PROT_READ, PROT_WRITE, PTRACE_EVENT_EXIT, SCM_RIGHTS, SIGTRAP,
-    SOL_SOCKET,
+    pid_t, SYS_sendmsg, ESRCH, O_CLOEXEC, O_CREAT, O_EXCL, O_RDWR, PROT_READ, PROT_WRITE,
+    PTRACE_EVENT_EXIT, SCM_RIGHTS, SIGTRAP, SOL_SOCKET,
 };
+use nix::sys::mman::MapFlags;
 use nix::sys::stat::fstat;
 use nix::unistd::unlink;
 use nix::NixPath;
@@ -290,7 +290,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
                     RemotePtr::<Void>::new(),
                     4096,
                     PROT_READ | PROT_WRITE,
-                    MAP_PRIVATE | MAP_ANONYMOUS,
+                    MapFlags::MAP_PRIVATE | MapFlags::MAP_ANONYMOUS,
                     -1,
                     0,
                 ),
@@ -378,7 +378,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         addr: RemotePtr<Void>,
         length: usize,
         prot: i32,
-        flags: i32,
+        flags: MapFlags,
         child_fd: i32,
         offset_pages: u64,
     ) -> RemotePtr<Void> {
@@ -392,7 +392,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
                     addr.as_usize(),
                     length,
                     prot as _,
-                    flags as _,
+                    flags.bits() as u32 as _,
                     child_fd as _,
                     offset_pages.try_into().unwrap(),
                 ],
@@ -404,14 +404,14 @@ impl<'a> AutoRemoteSyscalls<'a> {
                     addr.as_usize(),
                     length,
                     prot as _,
-                    flags as _,
+                    flags.bits() as u32 as _,
                     child_fd as _,
                     (offset_pages * page_size() as u64).try_into().unwrap(),
                 ],
             )
         };
 
-        if flags & MAP_FIXED == MAP_FIXED {
+        if flags.contains(MapFlags::MAP_FIXED) {
             ed_assert!(self.t, addr == ret, "MAP_FIXED at {} but got {}", addr, ret);
         }
 
@@ -731,12 +731,12 @@ impl<'a> AutoRemoteSyscalls<'a> {
         map_hint: Option<RemotePtr<Void>>,
         name: &str,
         maybe_tracee_prot: Option<i32>,
-        maybe_tracee_flags: Option<i32>,
+        maybe_tracee_flags: Option<MapFlags>,
         monitored: Option<MonitoredSharedMemorySharedPtr>,
     ) -> KernelMapping {
         static NONCE: AtomicUsize = AtomicUsize::new(0);
         let tracee_prot = maybe_tracee_prot.unwrap_or(PROT_READ | PROT_WRITE);
-        let tracee_flags = maybe_tracee_flags.unwrap_or(0);
+        let tracee_flags = maybe_tracee_flags.unwrap_or(MapFlags::empty());
 
         // Create the segment we'll share with the tracee.
         let path: String = format!(
@@ -783,13 +783,13 @@ impl<'a> AutoRemoteSyscalls<'a> {
         log!(LogDebug, "created shmem segment {}", path);
 
         // Map the segment in ours and the tracee's address spaces.
-        let mut flags = MAP_SHARED;
+        let mut flags = MapFlags::MAP_SHARED;
         let map_addr = unsafe {
             libc::mmap(
                 0 as *mut c_void,
                 size,
                 PROT_READ | PROT_WRITE,
-                flags,
+                flags.bits(),
                 shmem_fd.as_raw(),
                 0,
             )
@@ -798,7 +798,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
             fatal!("Failed to mmap shmem region");
         }
         if map_hint.is_some() {
-            flags |= MAP_FIXED;
+            flags |= MapFlags::MAP_FIXED;
         }
         let child_map_addr = self.infallible_mmap_syscall(
             map_hint.unwrap(),
@@ -880,7 +880,7 @@ impl<'a> Drop for AutoRemoteSyscalls<'a> {
 
 fn is_usable_area(km: &KernelMapping) -> bool {
     (km.prot() & (PROT_READ | PROT_WRITE)) == (PROT_READ | PROT_WRITE)
-        && (km.flags() & MAP_PRIVATE == MAP_PRIVATE)
+        && (km.flags().contains(MapFlags::MAP_PRIVATE))
 }
 
 impl<'a> Deref for AutoRemoteSyscalls<'a> {
