@@ -99,6 +99,7 @@ pub mod task_inner {
     use nix::unistd::getuid;
     use std::cell::RefCell;
     use std::cmp::min;
+    use std::convert::TryInto;
     use std::mem::size_of;
     use std::ptr::copy_nonoverlapping;
     use std::rc::Rc;
@@ -294,10 +295,6 @@ pub mod task_inner {
             unimplemented!()
         }
 
-        pub fn syscallbuf_data_size(&self) -> usize {
-            unimplemented!()
-        }
-
         /// Called after the first exec in a session, when the session first
         /// enters a consistent state. Prior to that, the task state
         /// can vary based on how rr set up the child process. We have to flush
@@ -343,8 +340,13 @@ pub mod task_inner {
 
         /// Return the ptrace message pid associated with the current ptrace
         /// event, f.e. the new child's pid at PTRACE_EVENT_CLONE.
-        pub fn get_ptrace_eventmsg<T>(&self) -> T {
-            unimplemented!()
+        ///
+        /// This method is more generic in rr and is called get_ptrace_event_msg()
+        /// However, since it is only used to extract pid_t we monomorphize it in rd.
+        pub fn get_ptrace_eventmsg_pid(&self) -> pid_t {
+            let msg: usize = 0;
+            self.xptrace(libc::PTRACE_GETEVENTMSG, 0.into(), &mut msg.to_le_bytes());
+            msg.try_into().unwrap()
         }
 
         /// Return the siginfo at the signal-stop of this.
@@ -665,31 +667,6 @@ pub mod task_inner {
             getuid().as_raw()
         }
 
-        /// Write `N` bytes from `buf` to `child_addr`, or don't return.
-        pub fn write_bytes(&self, child_addr: RemotePtr<Void>, buf: &[u8]) {
-            unimplemented!()
-        }
-
-        /// Write `val` to `child_addr`.
-        pub fn write_val_mem<T>(&self, child_addr: RemotePtr<T>, val: &T, ok: Option<&mut bool>) {
-            unimplemented!()
-        }
-
-        /// Write `val` to `child_addr`.
-        pub fn write_val_mem_with_flags<T>(
-            &self,
-            child_addr: RemotePtr<T>,
-            val: &T,
-            ok: Option<&mut bool>,
-            flags: u32,
-        ) {
-            unimplemented!()
-        }
-
-        pub fn write_mem<T>(&self, child_addr: RemotePtr<T>, val: &[T], ok: Option<&mut bool>) {
-            unimplemented!()
-        }
-
         pub fn detect_syscall_arch(&self) -> SupportedArch {
             unimplemented!()
         }
@@ -809,7 +786,7 @@ pub mod task_inner {
         /// All errors are treated as fatal.
         pub(in super::super) fn xptrace(
             &self,
-            request: i32,
+            request: u32,
             addr: RemotePtr<Void>,
             data: &mut [u8],
         ) {

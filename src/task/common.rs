@@ -12,6 +12,8 @@
 
 use crate::address_space::memory_range::MemoryRangeKey;
 use crate::auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem};
+use crate::core::type_has_no_holes;
+use crate::kernel_abi::common::preload_interface::syscallbuf_hdr;
 use crate::kernel_abi::{
     syscall_number_for_close, syscall_number_for_mprotect, syscall_number_for_openat,
 };
@@ -401,6 +403,8 @@ pub(super) fn write_bytes_helper<T: Task>(
     }
 }
 
+/// NOT Forwarded method definition
+///
 /// Read `val` from `child_addr`.
 /// If the data can't all be read, then if `ok` is non-null
 /// sets *ok to false, otherwise asserts.
@@ -412,6 +416,8 @@ pub fn read_val_mem<D>(task: &mut dyn Task, child_addr: RemotePtr<D>, ok: Option
     return v;
 }
 
+/// NOT Forwarded method definition
+///
 /// Read `count` values from `child_addr`.
 pub fn read_mem<D: Clone>(
     task: &mut dyn Task,
@@ -425,4 +431,63 @@ pub fn read_mem<D: Clone>(
         unsafe { slice::from_raw_parts_mut(v.as_mut_ptr() as *mut u8, count * size_of::<D>()) };
     task.read_bytes_helper(RemotePtr::cast(child_addr), u8_slice, ok);
     return v;
+}
+
+/// Forwarded method definition
+///
+pub(super) fn syscallbuf_data_size<T: Task>(task: &mut T) -> usize {
+    let addr: RemotePtr<u32> = RemotePtr::cast(task.syscallbuf_child);
+    // @TODO this calculation could be made more generic. Right now assumes that
+    // number of bytes in syscallbuf is stored in a u32 in the beginning of the syscallbuf_hdr
+    read_val_mem::<u32>(task, addr, None) as usize + size_of::<syscallbuf_hdr>()
+}
+
+/// Forwarded method definition
+///
+/// Write `N` bytes from `buf` to `child_addr`, or don't return.
+pub(super) fn write_bytes<T: Task>(task: &mut T, child_addr: RemotePtr<Void>, buf: &[u8]) {
+    write_bytes_helper(task, child_addr, buf, None, None)
+}
+
+/// NOT Forwarded method definition
+///
+/// Write single `val` to `child_addr`.
+pub fn write_val_mem<D: 'static>(
+    task: &mut dyn Task,
+    child_addr: RemotePtr<D>,
+    val: &D,
+    ok: Option<&mut bool>,
+) {
+    write_val_mem_with_flags(task, child_addr, val, ok, None)
+}
+
+/// NOT Forwarded method definition
+///
+/// Write single `val` to `child_addr` and optionally specify a flag.
+pub fn write_val_mem_with_flags<D: 'static>(
+    task: &mut dyn Task,
+    child_addr: RemotePtr<D>,
+    val: &D,
+    ok: Option<&mut bool>,
+    flags: Option<WriteFlags>,
+) {
+    debug_assert!(type_has_no_holes::<D>());
+    let data_slice = unsafe { slice::from_raw_parts(val as *const _ as *const u8, size_of::<D>()) };
+
+    task.write_bytes_helper(RemotePtr::cast(child_addr), data_slice, ok, flags);
+}
+
+/// NOT Forwarded method definition
+///
+/// Write array of `val`s to `child_addr`.
+pub fn write_mem<D: 'static>(
+    task: &mut dyn Task,
+    child_addr: RemotePtr<D>,
+    val: &[D],
+    ok: Option<&mut bool>,
+) {
+    debug_assert!(type_has_no_holes::<D>());
+    let data_slice =
+        unsafe { slice::from_raw_parts(val.as_ptr() as *const u8, val.len() * size_of::<D>()) };
+    task.write_bytes_helper(RemotePtr::cast(child_addr), data_slice, ok, None);
 }

@@ -231,4 +231,10 @@ pub trait Task: DerefMut<Target = TaskInner> {
         ok: Option<&mut bool>,
         flags: Option<WriteFlags>,
     );
+
+    /// Forwarded method signature
+    fn syscallbuf_data_size(&mut self) -> usize;
+
+    /// Forwarded method signature
+    fn write_bytes(&mut self, child_addr: RemotePtr<Void>, buf: &[u8]);
 }

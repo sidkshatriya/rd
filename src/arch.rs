@@ -30,13 +30,13 @@ macro_rules! rd_arch_function {
 }
 
 pub trait Architecture {
-    type kernel_sigaction: Default + Copy;
-    type signed_long: Copy + From<i32>;
-    type iovec: Copy + Default;
-    type msghdr: Copy + Default;
-    type cmsghdr: Copy + Default;
-    type siginfo_t;
-    type sockaddr_un: Copy;
+    type kernel_sigaction: Default + Copy + 'static;
+    type signed_long: Copy + From<i32> + 'static;
+    type iovec: Copy + Default + 'static;
+    type msghdr: Copy + Default + 'static;
+    type cmsghdr: Copy + Default + 'static;
+    type siginfo_t: 'static;
+    type sockaddr_un: Copy + 'static;
 
     fn to_signed_long(val: usize) -> Self::signed_long;
     fn get_k_sa_handler(k: &Self::kernel_sigaction) -> RemotePtr<Void>;

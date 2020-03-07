@@ -23,8 +23,7 @@ use crate::remote_ptr::{RemotePtr, Void};
 use crate::scoped_fd::ScopedFd;
 use crate::session::replay_session::ReplaySession;
 use crate::session::session_inner::session_inner::SessionInner;
-use crate::task::common::{read_mem, read_val_mem};
-use crate::task::task_inner::task_inner::TaskInner;
+use crate::task::common::{read_mem, read_val_mem, write_mem, write_val_mem};
 use crate::task::task_inner::ResumeRequest::{ResumeSinglestep, ResumeSyscall};
 use crate::task::task_inner::TicksRequest::ResumeNoTicks;
 use crate::task::task_inner::WaitRequest::ResumeWait;
@@ -334,7 +333,8 @@ impl<'a> AutoRemoteSyscalls<'a> {
         }
         if !self.replaced_bytes.is_empty() {
             // XXX how to clean up if the task died and the address space is shared with live task?
-            some_t.write_mem(
+            write_mem(
+                some_t,
                 self.initial_regs.ip().to_data_ptr(),
                 &self.replaced_bytes,
                 None,
@@ -641,7 +641,8 @@ impl<'a> AutoRemoteSyscalls<'a> {
     fn setup_path(&mut self, enable_singlestep_path: bool) {
         if !self.replaced_bytes.is_empty() {
             // XXX what to do here to clean up if the task died unexpectedly?
-            self.t.write_mem(
+            write_mem(
+                self.t,
                 self.initial_regs.ip().to_data_ptr::<u8>(),
                 &self.replaced_bytes,
                 None,
@@ -683,7 +684,8 @@ impl<'a> AutoRemoteSyscalls<'a> {
         if self.replaced_bytes == syscall {
             self.replaced_bytes.clear();
         } else {
-            self.t.write_mem(
+            write_mem(
+                self.t,
                 self.initial_regs.ip().to_data_ptr::<u8>(),
                 syscall,
                 Some(&mut ok),
@@ -940,7 +942,7 @@ impl<Arch: Architecture> Copy for SocketcallArgs<Arch> {}
 /// The rr version takes a `bool ok` argument
 /// This version simple returns a bool for success/failure
 fn write_socketcall_args<Arch: Architecture>(
-    t: &dyn Task,
+    t: &mut dyn Task,
     remote_mem: RemotePtr<SocketcallArgs<Arch>>,
     arg1: Arch::signed_long,
     arg2: Arch::signed_long,
@@ -948,7 +950,7 @@ fn write_socketcall_args<Arch: Architecture>(
 ) -> bool {
     let mut ok: bool = false;
     let sc_args = [arg1, arg2, arg3];
-    t.write_mem(RemotePtr::cast(remote_mem), &sc_args, Some(&mut ok));
+    write_mem(t, RemotePtr::cast(remote_mem), &sc_args, Some(&mut ok));
     ok
 }
 
@@ -1003,7 +1005,7 @@ fn child_sendmsg<Arch: Architecture>(
     let mut ok = true;
     let mut msg = Arch::msghdr::default();
     Arch::set_msghdr(&mut msg, remote_cmsgbuf, cmsgbuf_size, remote_msgdata, 1);
-    remote_buf.t.write_val_mem(remote_msg, &msg, Some(&mut ok));
+    write_val_mem(remote_buf.remote.t, remote_msg, &msg, Some(&mut ok));
 
     let cmsg_data_off = rd_kernel_abi_arch_function!(cmsg_data_offset, Arch::arch());
     let mut cmsghdr = Arch::cmsghdr::default();
@@ -1027,9 +1029,12 @@ fn child_sendmsg<Arch: Architecture>(
         .unwrap()
         .copy_from_slice(&fd.to_le_bytes());
 
-    remote_buf
-        .task()
-        .write_mem(remote_cmsgbuf, &cmsgbuf, Some(&mut ok));
+    write_mem(
+        remote_buf.task_mut(),
+        remote_cmsgbuf,
+        &cmsgbuf,
+        Some(&mut ok),
+    );
 
     if !ok {
         return -ESRCH as isize;
@@ -1044,7 +1049,7 @@ fn child_sendmsg<Arch: Architecture>(
     }
 
     let success = write_socketcall_args::<Arch>(
-        remote_buf.task(),
+        remote_buf.task_mut(),
         sc_args.unwrap(),
         child_sock.into(),
         Arch::to_signed_long(remote_msg.as_usize()),
