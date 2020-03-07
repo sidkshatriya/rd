@@ -503,23 +503,6 @@ pub mod task_inner {
             unimplemented!()
         }
 
-        /// Read `val` from `child_addr`.
-        /// If the data can't all be read, then if `ok` is non-null
-        /// sets *ok to false, otherwise asserts.
-        pub fn read_val_mem<T>(&self, child_addr: RemotePtr<T>, ok: Option<&mut bool>) -> T {
-            unimplemented!()
-        }
-
-        /// Read `count` values from `child_addr`.
-        pub fn read_mem<T>(
-            &self,
-            child_addr: RemotePtr<T>,
-            count: usize,
-            ok: Option<&mut bool>,
-        ) -> Vec<T> {
-            unimplemented!()
-        }
-
         /// Return the session this is part of.
         pub fn session(&self) -> SessionSharedPtr {
             self.session_.upgrade().unwrap()

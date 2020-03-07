@@ -29,8 +29,9 @@ use nix::sys::mman::{MapFlags, ProtFlags};
 use std::convert::TryInto;
 use std::ffi::c_void;
 use std::ffi::{CStr, CString};
-use std::mem::size_of;
+use std::mem::{size_of, zeroed};
 use std::path::Path;
+use std::slice;
 
 /// Forwarded method definition
 ///
@@ -89,7 +90,7 @@ pub(super) fn open_mem_fd<T: Task>(task: &mut T) -> bool {
             // This can happen when a process fork()s after setuid; it can no longer
             // open its own /proc/self/mem. Hopefully we can read the child's
             // mem file in this case (because rr is probably running as root).
-            let buf: String = format!("/proc/{}/mem", remote.tid);
+            let buf: String = format!("/proc/{}/mem", remote.task().tid);
             fd = ScopedFd::open_path(Path::new(&buf), OFlag::O_RDWR);
         } else {
             fd = rd_arch_function!(remote, retrieve_fd_arch, arch, remote_fd);
@@ -104,11 +105,15 @@ pub(super) fn open_mem_fd<T: Task>(task: &mut T) -> bool {
         log!(
             LogInfo,
             "Can't retrieve mem fd for {}; process no longer exists?",
-            remote.tid
+            remote.task().tid
         );
         return false;
     }
-    remote.as_.borrow_mut().set_mem_fd(fd.try_into().unwrap());
+    remote
+        .task()
+        .as_
+        .borrow_mut()
+        .set_mem_fd(fd.try_into().unwrap());
     true
 }
 
@@ -394,4 +399,30 @@ pub(super) fn write_bytes_helper<T: Task>(
     if nwritten > 0 {
         task.vm_mut().notify_written(addr, nwritten, flags);
     }
+}
+
+/// Read `val` from `child_addr`.
+/// If the data can't all be read, then if `ok` is non-null
+/// sets *ok to false, otherwise asserts.
+pub fn read_val_mem<D>(task: &mut dyn Task, child_addr: RemotePtr<D>, ok: Option<&mut bool>) -> D {
+    let mut v: D = unsafe { zeroed::<D>() };
+    let u8_slice =
+        unsafe { slice::from_raw_parts_mut((&mut v) as *mut _ as *mut u8, size_of::<D>()) };
+    task.read_bytes_helper(RemotePtr::cast(child_addr), u8_slice, ok);
+    return v;
+}
+
+/// Read `count` values from `child_addr`.
+pub fn read_mem<D: Clone>(
+    task: &mut dyn Task,
+    child_addr: RemotePtr<D>,
+    count: usize,
+    ok: Option<&mut bool>,
+) -> Vec<D> {
+    let mut v: Vec<D> = Vec::with_capacity(count);
+    v.resize(count, unsafe { zeroed::<D>() });
+    let u8_slice =
+        unsafe { slice::from_raw_parts_mut(v.as_mut_ptr() as *mut u8, count * size_of::<D>()) };
+    task.read_bytes_helper(RemotePtr::cast(child_addr), u8_slice, ok);
+    return v;
 }

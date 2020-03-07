@@ -109,6 +109,7 @@ pub mod address_space {
     use crate::scoped_fd::ScopedFd;
     use crate::session::session_inner::session_inner::SessionInner;
     use crate::session::{SessionSharedPtr, SessionSharedWeakPtr};
+    use crate::task::common::read_mem;
     use crate::task::record_task::record_task::RecordTask;
     use crate::task::task_inner::task_inner::WriteFlags;
     use crate::task::Task;
@@ -963,7 +964,7 @@ pub mod address_space {
         /// This gives us a way to execute remote syscalls without having to write
         /// a syscall instruction into executable tracee memory (which might not be
         /// possible with some kernels, e.g. PaX).
-        pub fn find_syscall_instruction(&self, t: &dyn Task) -> RemoteCodePtr {
+        pub fn find_syscall_instruction(&self, t: &mut dyn Task) -> RemoteCodePtr {
             static OFFSET_TO_SYSCALL_IN_X86: AtomicUsize = AtomicUsize::new(0);
             static OFFSET_TO_SYSCALL_IN_X64: AtomicUsize = AtomicUsize::new(0);
 
@@ -974,7 +975,7 @@ pub mod address_space {
             };
 
             if offset == 0 {
-                let vdso = t.read_mem::<u8>(self.vdso().start(), self.vdso().size(), None);
+                let vdso = read_mem::<u8>(t, self.vdso().start(), self.vdso().size(), None);
                 let maybe_offset = find_offset_of_syscall_instruction_in(arch, &vdso);
                 ed_assert!(
                     t,

@@ -23,6 +23,7 @@ use crate::remote_ptr::{RemotePtr, Void};
 use crate::scoped_fd::ScopedFd;
 use crate::session::replay_session::ReplaySession;
 use crate::session::session_inner::session_inner::SessionInner;
+use crate::task::common::{read_mem, read_val_mem};
 use crate::task::task_inner::task_inner::TaskInner;
 use crate::task::task_inner::ResumeRequest::{ResumeSinglestep, ResumeSyscall};
 use crate::task::task_inner::TicksRequest::ResumeNoTicks;
@@ -88,7 +89,7 @@ impl<'a, 'b> DerefMut for AutoRestoreMem<'a, 'b> {
 
 impl<'a, 'b> Drop for AutoRestoreMem<'a, 'b> {
     fn drop(&mut self) {
-        let new_sp = self.regs_ref().sp() + self.len;
+        let new_sp = self.task().regs_ref().sp() + self.len;
         ed_assert!(self.remote.task(), self.saved_sp == new_sp);
 
         if self.addr.is_some() {
@@ -98,9 +99,9 @@ impl<'a, 'b> Drop for AutoRestoreMem<'a, 'b> {
                 .task_mut()
                 .write_bytes_helper(self.addr.unwrap(), &self.data, None, None);
         }
-        self.remote.regs_mut().set_sp(new_sp);
+        self.remote.task_mut().regs_mut().set_sp(new_sp);
         // Make a copy
-        let new_regs = *self.remote.regs_ref();
+        let new_regs = *self.remote.task().regs_ref();
         self.remote.task_mut().set_regs(&new_regs);
     }
 }
@@ -157,13 +158,13 @@ impl<'a, 'b> AutoRestoreMem<'a, 'b> {
             "Memory parameters were disabled"
         );
 
-        self.saved_sp = self.remote.regs_ref().sp();
+        self.saved_sp = self.remote.task().regs_ref().sp();
 
-        let new_sp = self.remote.regs_ref().sp() - self.len;
+        let new_sp = self.remote.task().regs_ref().sp() - self.len;
         self.remote.initial_regs_mut().set_sp(new_sp);
 
         // Copy regs
-        let remote_regs = *self.remote.regs_ref();
+        let remote_regs = *self.remote.task().regs_ref();
         self.remote.task_mut().set_regs(&remote_regs);
         self.addr = Some(remote_regs.sp());
 
@@ -438,7 +439,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
                         whence as usize,
                     ],
                 );
-                mem.t.read_val_mem::<isize>(RemotePtr::cast(addr), None)
+                read_val_mem::<isize>(mem.remote.t, RemotePtr::cast(addr), None)
             }
             SupportedArch::X64 => self.infallible_syscall(
                 syscall_number_for_lseek(self.arch()),
@@ -667,7 +668,8 @@ impl<'a> AutoRemoteSyscalls<'a> {
         // own breakpoint is insufficient.
         let syscall = syscall_instruction(self.t.arch());
         let mut ok = true;
-        self.replaced_bytes = self.t.read_mem(
+        self.replaced_bytes = read_mem(
+            self.t,
             self.initial_regs.ip().to_data_ptr::<u8>(),
             syscall.len(),
             Some(&mut ok),
@@ -884,20 +886,6 @@ fn is_usable_area(km: &KernelMapping) -> bool {
     (km.prot()
         .contains(ProtFlags::PROT_READ | ProtFlags::PROT_WRITE))
         && (km.flags().contains(MapFlags::MAP_PRIVATE))
-}
-
-impl<'a> Deref for AutoRemoteSyscalls<'a> {
-    type Target = TaskInner;
-
-    fn deref(&self) -> &Self::Target {
-        self.t
-    }
-}
-
-impl<'a> DerefMut for AutoRemoteSyscalls<'a> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.t
-    }
 }
 
 fn ignore_signal(t: &dyn Task) -> bool {
