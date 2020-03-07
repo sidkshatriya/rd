@@ -32,10 +32,11 @@ use crate::util::{is_kernel_trap, page_size, resize_shmem_segment, tmp_dir};
 use crate::wait_status::WaitStatus;
 use core::ffi::c_void;
 use libc::{
-    pid_t, SYS_sendmsg, ESRCH, O_CLOEXEC, O_CREAT, O_EXCL, O_RDWR, PROT_READ, PROT_WRITE,
-    PTRACE_EVENT_EXIT, SCM_RIGHTS, SIGTRAP, SOL_SOCKET,
+    pid_t, SYS_sendmsg, ESRCH, O_CLOEXEC, O_CREAT, O_EXCL, O_RDWR, PTRACE_EVENT_EXIT, SCM_RIGHTS,
+    SIGTRAP, SOL_SOCKET,
 };
 use nix::sys::mman::MapFlags;
+use nix::sys::mman::ProtFlags;
 use nix::sys::stat::fstat;
 use nix::unistd::unlink;
 use nix::NixPath;
@@ -289,7 +290,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
                 remote.infallible_mmap_syscall(
                     RemotePtr::<Void>::new(),
                     4096,
-                    PROT_READ | PROT_WRITE,
+                    ProtFlags::PROT_READ | ProtFlags::PROT_WRITE,
                     MapFlags::MAP_PRIVATE | MapFlags::MAP_ANONYMOUS,
                     -1,
                     0,
@@ -377,7 +378,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         &mut self,
         addr: RemotePtr<Void>,
         length: usize,
-        prot: i32,
+        prot: ProtFlags,
         flags: MapFlags,
         child_fd: i32,
         offset_pages: u64,
@@ -391,7 +392,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
                 &[
                     addr.as_usize(),
                     length,
-                    prot as _,
+                    prot.bits() as u32 as _,
                     flags.bits() as u32 as _,
                     child_fd as _,
                     offset_pages.try_into().unwrap(),
@@ -403,7 +404,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
                 &[
                     addr.as_usize(),
                     length,
-                    prot as _,
+                    prot.bits() as u32 as _,
                     flags.bits() as u32 as _,
                     child_fd as _,
                     (offset_pages * page_size() as u64).try_into().unwrap(),
@@ -730,12 +731,13 @@ impl<'a> AutoRemoteSyscalls<'a> {
         size: usize,
         map_hint: Option<RemotePtr<Void>>,
         name: &str,
-        maybe_tracee_prot: Option<i32>,
+        maybe_tracee_prot: Option<ProtFlags>,
         maybe_tracee_flags: Option<MapFlags>,
         monitored: Option<MonitoredSharedMemorySharedPtr>,
     ) -> KernelMapping {
         static NONCE: AtomicUsize = AtomicUsize::new(0);
-        let tracee_prot = maybe_tracee_prot.unwrap_or(PROT_READ | PROT_WRITE);
+        let tracee_prot: ProtFlags =
+            maybe_tracee_prot.unwrap_or(ProtFlags::PROT_READ | ProtFlags::PROT_WRITE);
         let tracee_flags = maybe_tracee_flags.unwrap_or(MapFlags::empty());
 
         // Create the segment we'll share with the tracee.
@@ -788,7 +790,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
             libc::mmap(
                 0 as *mut c_void,
                 size,
-                PROT_READ | PROT_WRITE,
+                (ProtFlags::PROT_READ | ProtFlags::PROT_WRITE).bits() as u32 as _,
                 flags.bits(),
                 shmem_fd.as_raw(),
                 0,
@@ -879,7 +881,8 @@ impl<'a> Drop for AutoRemoteSyscalls<'a> {
 }
 
 fn is_usable_area(km: &KernelMapping) -> bool {
-    (km.prot() & (PROT_READ | PROT_WRITE)) == (PROT_READ | PROT_WRITE)
+    (km.prot()
+        .contains(ProtFlags::PROT_READ | ProtFlags::PROT_WRITE))
         && (km.flags().contains(MapFlags::MAP_PRIVATE))
 }
 

@@ -22,10 +22,10 @@ use crate::scoped_fd::ScopedFd;
 use crate::task::task_inner::task_inner::WriteFlags;
 use crate::task::Task;
 use crate::util::{ceil_page_size, floor_page_size, pwrite_all_fallible};
-use libc::{__errno_location, pread64, EPERM, ESRCH, PROT_READ, PROT_WRITE};
+use libc::{__errno_location, pread64, EPERM, ESRCH};
 use nix::errno::errno;
 use nix::fcntl::OFlag;
-use nix::sys::mman::MapFlags;
+use nix::sys::mman::{MapFlags, ProtFlags};
 use std::convert::TryInto;
 use std::ffi::c_void;
 use std::ffi::{CStr, CString};
@@ -277,18 +277,18 @@ pub(super) fn safe_pwrite64(
     buf: &[u8],
     addr: RemotePtr<Void>,
 ) -> Result<usize, ()> {
-    let mut mappings_to_fix: Vec<(MemoryRangeKey, i32)> = Vec::new();
+    let mut mappings_to_fix: Vec<(MemoryRangeKey, ProtFlags)> = Vec::new();
     let buf_size = buf.len();
     for (k, m) in t.vm_ref().maps_containing_or_after(floor_page_size(addr)) {
         if m.map.start() >= ceil_page_size(addr + buf_size) {
             break;
         }
 
-        if m.map.prot() & PROT_WRITE == PROT_WRITE {
+        if m.map.prot().contains(ProtFlags::PROT_WRITE) {
             continue;
         }
 
-        if !(m.map.prot() & PROT_READ == PROT_READ)
+        if !(m.map.prot().contains(ProtFlags::PROT_READ))
             || (m.map.flags().contains(MapFlags::MAP_SHARED))
         {
             mappings_to_fix.push((*k, m.map.prot()));
@@ -305,7 +305,11 @@ pub(super) fn safe_pwrite64(
     for m in &mappings_to_fix {
         remote.infallible_syscall(
             mprotect_syscallno,
-            &[m.0.start().as_usize(), m.0.size(), (m.1 | PROT_WRITE) as _],
+            &[
+                m.0.start().as_usize(),
+                m.0.size(),
+                (m.1 | ProtFlags::PROT_WRITE).bits() as u32 as _,
+            ],
         );
     }
 
@@ -314,7 +318,7 @@ pub(super) fn safe_pwrite64(
     for m in &mappings_to_fix {
         remote.infallible_syscall(
             mprotect_syscallno,
-            &[m.0.start().as_usize(), m.0.size(), m.1 as _],
+            &[m.0.start().as_usize(), m.0.size(), m.1.bits() as u32 as _],
         );
     }
 

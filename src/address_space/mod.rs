@@ -3,7 +3,7 @@ pub mod memory_range;
 use crate::address_space::memory_range::MemoryRange;
 use crate::remote_ptr::RemotePtr;
 use crate::remote_ptr::Void;
-use nix::sys::mman::MapFlags;
+use nix::sys::mman::{MapFlags, ProtFlags};
 use std::convert::TryInto;
 use std::mem::size_of;
 
@@ -613,7 +613,7 @@ pub mod address_space {
             t: &dyn Task,
             addr: RemotePtr<Void>,
             num_bytes: usize,
-            prot: i32,
+            prot: ProtFlags,
             flags: MapFlags,
             offset_bytes: i64,
             fsname: &str,

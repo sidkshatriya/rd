@@ -2,9 +2,10 @@ use super::memory_range::MemoryRange;
 use crate::remote_ptr::RemotePtr;
 use crate::remote_ptr::Void;
 use crate::util::page_size;
-use libc::{c_long, dev_t, ino_t, stat, PROT_EXEC, PROT_READ, PROT_WRITE};
+use libc::{c_long, dev_t, ino_t, stat};
 use libc::{MAP_ANONYMOUS, MAP_GROWSDOWN, MAP_NORESERVE, MAP_PRIVATE, MAP_SHARED, MAP_STACK};
 use nix::sys::mman::MapFlags;
+use nix::sys::mman::ProtFlags;
 use nix::sys::stat::{major, minor};
 use std::convert::TryInto;
 use std::fmt::{Display, Formatter, Result};
@@ -37,7 +38,7 @@ pub struct KernelMapping {
     /// from reading /proc/.../maps for non-initial mappings.
     device_: dev_t,
     inode_: ino_t,
-    prot_: i32,
+    prot_: ProtFlags,
     flags_: MapFlags,
     offset: u64,
 }
@@ -50,7 +51,7 @@ impl KernelMapping {
         KernelMapping {
             device_: 0,
             inode_: 0,
-            prot_: 0,
+            prot_: ProtFlags::empty(),
             flags_: MapFlags::empty(),
             offset: 0,
             // @TODO Is this OK?
@@ -65,7 +66,7 @@ impl KernelMapping {
         fsname: &str,
         device: dev_t,
         inode: ino_t,
-        prot: i32,
+        prot: ProtFlags,
         flags: MapFlags,
         offset: u64,
     ) -> KernelMapping {
@@ -132,7 +133,7 @@ impl KernelMapping {
             self.offset + start_addr,
         )
     }
-    pub fn set_prot(&self, prot: i32) -> KernelMapping {
+    pub fn set_prot(&self, prot: ProtFlags) -> KernelMapping {
         KernelMapping::new_with_opts(
             self.start(),
             self.end(),
@@ -154,7 +155,7 @@ impl KernelMapping {
     pub fn inode(&self) -> ino_t {
         self.inode_
     }
-    pub fn prot(&self) -> i32 {
+    pub fn prot(&self) -> ProtFlags {
         self.prot_
     }
     pub fn flags(&self) -> MapFlags {
@@ -223,19 +224,19 @@ impl KernelMapping {
 
     fn prot_string(&self) -> String {
         let mut s = String::with_capacity(3);
-        if PROT_READ & self.prot_ == PROT_READ {
+        if self.prot_.contains(ProtFlags::PROT_READ) {
             s += "r";
         } else {
             s += "-";
         }
 
-        if PROT_WRITE & self.prot_ == PROT_WRITE {
+        if self.prot_.contains(ProtFlags::PROT_WRITE) {
             s += "w";
         } else {
             s += "-";
         }
 
-        if PROT_EXEC & self.prot_ == PROT_EXEC {
+        if self.prot_.contains(ProtFlags::PROT_EXEC) {
             s += "x";
         } else {
             s += "-";
