@@ -918,7 +918,7 @@ pub mod address_space {
         pub fn rd_page_size() -> u32 {
             4096
         }
-        pub fn rr_page_end() -> RemotePtr<Void> {
+        pub fn rd_page_end() -> RemotePtr<Void> {
             unimplemented!()
         }
 
@@ -1162,7 +1162,7 @@ pub mod address_space {
             if regs.len() <= 0x7f {
                 let mut ok = true;
                 for t in self.task_set() {
-                    if !t.set_debug_regs(&mut regs) {
+                    if !t.upgrade().unwrap().borrow_mut().set_debug_regs(&mut regs) {
                         ok = false;
                     }
                 }
@@ -1173,7 +1173,7 @@ pub mod address_space {
 
             regs.clear();
             for t2 in self.task_set() {
-                t2.set_debug_regs(&mut regs);
+                t2.upgrade().unwrap().borrow_mut().set_debug_regs(&mut regs);
             }
             for (_, v) in &mut self.watchpoints {
                 v.debug_regs_for_exec_read.clear();

@@ -25,38 +25,32 @@ pub mod task_inner;
 pub type TaskSharedPtr = Rc<RefCell<Box<dyn Task>>>;
 pub type TaskSharedWeakPtr = Weak<RefCell<Box<dyn Task>>>;
 
-/// @TODO should we store Weak pointers?
-#[derive(Copy, Clone)]
-pub struct TaskRawPtr(pub *mut dyn Task);
+#[derive(Clone)]
+pub struct TaskPtr(pub TaskSharedWeakPtr);
 
-impl PartialEq for TaskRawPtr {
+impl PartialEq for TaskPtr {
     fn eq(&self, other: &Self) -> bool {
         // If the addresses of the dyn Task ptrs are same then they are the same task.
-        self.0 as *const u8 as usize == other.0 as *const u8 as usize
+        self.0.upgrade().unwrap().as_ptr() as *const u8 as usize
+            == other.0.upgrade().unwrap().as_ptr() as *const u8 as usize
     }
 }
 
-impl Eq for TaskRawPtr {}
+impl Eq for TaskPtr {}
 
-impl Hash for TaskRawPtr {
+impl Hash for TaskPtr {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        let addr = self.0 as *const u8 as usize;
+        let addr = self.0.upgrade().unwrap().as_ptr() as *const u8 as usize;
         // The hash is the hash of the address of the task (dyn Task).
         addr.hash(state);
     }
 }
 
-impl Deref for TaskRawPtr {
-    type Target = dyn Task;
+impl Deref for TaskPtr {
+    type Target = TaskSharedWeakPtr;
 
     fn deref(&self) -> &Self::Target {
-        unsafe { self.0.as_ref() }.unwrap()
-    }
-}
-
-impl DerefMut for TaskRawPtr {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { self.0.as_mut() }.unwrap()
+        &self.0
     }
 }
 

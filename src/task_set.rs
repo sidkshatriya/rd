@@ -3,28 +3,28 @@ use std::collections::HashSet;
 use std::ops::Deref;
 
 #[derive(Clone)]
-pub struct TaskSet(HashSet<TaskRawPtr>);
+pub struct TaskSet(HashSet<TaskPtr>);
 
 impl TaskSet {
     pub fn new() -> TaskSet {
         TaskSet(HashSet::new())
     }
-    pub fn task_set(&self) -> &HashSet<TaskRawPtr> {
+    pub fn task_set(&self) -> &HashSet<TaskPtr> {
         &self.0
     }
-    pub fn insert_task(&mut self, t: *mut dyn Task) -> bool {
-        self.0.insert(TaskRawPtr(t))
+    pub fn insert_task(&mut self, t: TaskSharedWeakPtr) -> bool {
+        self.0.insert(TaskPtr(t))
     }
-    pub fn erase_task(&mut self, t: *mut dyn Task) -> bool {
-        self.0.remove(&TaskRawPtr(t))
+    pub fn erase_task(&mut self, t: TaskSharedWeakPtr) -> bool {
+        self.0.remove(&TaskPtr(t))
     }
-    pub fn has_task(&self, t: *mut dyn Task) -> bool {
-        self.0.contains(&TaskRawPtr(t))
+    pub fn has_task(&self, t: TaskSharedWeakPtr) -> bool {
+        self.0.contains(&TaskPtr(t))
     }
 }
 
 impl Deref for TaskSet {
-    type Target = HashSet<TaskRawPtr>;
+    type Target = HashSet<TaskPtr>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
