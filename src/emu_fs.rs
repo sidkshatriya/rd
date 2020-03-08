@@ -114,12 +114,12 @@ impl EmuFile {
 
     /// Return the path of the original file from recording, the
     /// one this is emulating.
-    pub fn emu_path(&self) -> String {
-        self.orig_path.clone()
+    pub fn emu_path(&self) -> &String {
+        &self.orig_path
     }
 
-    pub fn real_path(&self) -> String {
-        self.tmp_path.clone()
+    pub fn real_path(&self) -> &String {
+        &self.tmp_path
     }
 
     pub fn device(&self) -> dev_t {
@@ -350,7 +350,7 @@ impl EmuFs {
         let addr = self as *const _ as *const u8 as usize;
         log!(LogError, "EmuFs {:x} with {} files:", addr, self.size());
         for (_, v) in &self.files {
-            let emu_path = v.upgrade().unwrap().borrow().emu_path();
+            let emu_path = v.upgrade().unwrap().borrow().emu_path().clone();
             log!(LogError, "  {}", emu_path);
         }
     }

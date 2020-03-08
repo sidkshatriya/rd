@@ -831,7 +831,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
             None,
             None,
             None,
-            map_addr,
+            Some(map_addr),
             monitored,
         );
 

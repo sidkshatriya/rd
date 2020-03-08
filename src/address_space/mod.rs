@@ -42,7 +42,7 @@ pub struct MappingFlags: u32 {
         /// address space
         const IS_THREAD_LOCALS = 0x2;
         /// This mapping is used for syscallbuf patch stubs
-        const IS_PATCH_SUBTS = 0x4;
+        const IS_PATCH_STUBS = 0x4;
         /// This mapping is the rd page
         const IS_RD_PAGE = 0x8;
     }
@@ -100,6 +100,7 @@ pub mod address_space {
     use crate::emu_fs::EmuFileSharedPtr;
     use crate::kernel_abi::common::preload_interface::{PRELOAD_THREAD_LOCALS_SIZE, RD_PAGE_ADDR};
     use crate::kernel_abi::{syscall_instruction, SupportedArch};
+    use crate::log::LogLevel::LogDebug;
     use crate::monitored_shared_memory::MonitoredSharedMemorySharedPtr;
     use crate::monkey_patcher::MonkeyPatcher;
     use crate::property_table::PropertyTable;
@@ -116,7 +117,7 @@ pub mod address_space {
     use crate::taskish_uid::AddressSpaceUid;
     use crate::taskish_uid::TaskUid;
     use crate::trace_frame::FrameTime;
-    use crate::util::floor_page_size;
+    use crate::util::{ceil_page_size, floor_page_size};
     use core::ffi::c_void;
     use libc::stat;
     use libc::{dev_t, ino_t, pid_t};
@@ -126,6 +127,8 @@ pub mod address_space {
     use std::collections::hash_map::Iter as HashMapIter;
     use std::collections::HashSet;
     use std::collections::{BTreeMap, HashMap};
+    use std::io;
+    use std::io::Write;
     use std::ops::Bound::{Included, Unbounded};
     use std::ops::Drop;
     use std::ops::{Deref, DerefMut};
@@ -544,25 +547,54 @@ pub mod address_space {
 
         /// Change the program data break of this address space to
         /// `addr`. Only called during recording!
-        pub fn brk(&self, t: &dyn Task, addr: RemotePtr<Void>, prot: i32) {
-            unimplemented!()
+        pub fn brk(&mut self, t: &dyn Task, addr: RemotePtr<Void>, prot: ProtFlags) {
+            log!(LogDebug, "brk({})", addr);
+
+            let old_brk: RemotePtr<Void> = ceil_page_size(self.brk_end);
+            let new_brk: RemotePtr<Void> = ceil_page_size(addr);
+            if old_brk < new_brk {
+                self.map(
+                    t,
+                    old_brk,
+                    new_brk - old_brk,
+                    prot,
+                    MapFlags::MAP_ANONYMOUS | MapFlags::MAP_PRIVATE,
+                    0,
+                    "[heap]",
+                    KernelMapping::NO_DEVICE,
+                    KernelMapping::NO_INODE,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                );
+            } else {
+                self.unmap(t, new_brk, old_brk - new_brk);
+            }
+            self.brk_end = addr;
         }
 
         /// This can only be called during recording.
-        pub fn current_brk() -> RemotePtr<Void> {
-            unimplemented!()
+        pub fn current_brk(&self) -> RemotePtr<Void> {
+            debug_assert!(!self.brk_end.is_null());
+            self.brk_end
         }
 
-        /// Dump a representation of `self` to stderr in a format
+        /// Dump a representation of `self` to &mut dyn Write
         /// similar to /proc/[tid]/maps.
-        /// @TODO impl Display
-        pub fn dump(&self) {
-            unimplemented!()
+        pub fn dump(&self, f: &mut dyn Write) -> io::Result<()> {
+            write!(f, "  (heap: {}-{})\n", self.brk_start, self.brk_end)?;
+            for (_, m) in &self.mem {
+                let km = &m.map;
+                write!(f, "{}{}\n", km, stringify_flags(m.flags))?;
+            }
+            Ok(())
         }
 
         /// Return tid of the first task for this address space.
-        pub fn leader_tid() -> pid_t {
-            unimplemented!()
+        pub fn leader_tid(&self) -> pid_t {
+            self.leader_tid_
         }
 
         /// Return AddressSpaceUid for this address space.
@@ -575,12 +607,20 @@ pub mod address_space {
         }
 
         pub fn arch(&self) -> SupportedArch {
-            unimplemented!()
+            // Return the arch() of the first task in the address space
+            self.task_set
+                .iter()
+                .next()
+                .unwrap()
+                .upgrade()
+                .unwrap()
+                .borrow()
+                .arch()
         }
 
         /// Return the path this address space was exec()'d with.
-        pub fn exe_image(&self) -> String {
-            unimplemented!()
+        pub fn exe_image(&self) -> &String {
+            &self.exe
         }
 
         /// Assuming the last retired instruction has raised a SIGTRAP
@@ -648,7 +688,7 @@ pub mod address_space {
             mapped_file_stat: Option<Box<libc::stat>>,
             record_map: Option<&KernelMapping>,
             emu_file: Option<EmuFileSharedPtr>,
-            local_addr: *const c_void,
+            local_addr: Option<*const c_void>,
             monitored: Option<MonitoredSharedMemorySharedPtr>,
         ) -> KernelMapping {
             unimplemented!()
@@ -1377,4 +1417,24 @@ fn try_split_unaligned_range(
     result.push(MemoryRange::new_range(range.start(), bytes));
     range.start_ = range.start() + bytes;
     true
+}
+
+fn stringify_flags(flags: MappingFlags) -> &'static str {
+    if flags.is_empty() {
+        return "";
+    }
+
+    if flags.contains(MappingFlags::IS_SYSCALLBUF) {
+        return " [syscallbuf]";
+    }
+
+    if flags.contains(MappingFlags::IS_THREAD_LOCALS) {
+        return " [thread_locals]";
+    }
+
+    if flags.contains(MappingFlags::IS_PATCH_STUBS) {
+        return " [patch_stubs]";
+    }
+
+    return "[unknown_flags]";
 }

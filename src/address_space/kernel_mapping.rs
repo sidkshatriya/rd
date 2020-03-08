@@ -146,8 +146,8 @@ impl KernelMapping {
         )
     }
 
-    pub fn fsname(&self) -> String {
-        self.fsname_.clone()
+    pub fn fsname(&self) -> &String {
+        &self.fsname_
     }
     pub fn device(&self) -> dev_t {
         self.device_
@@ -200,7 +200,7 @@ impl KernelMapping {
 
     /// Dump a representation of `self` to a string in a format
     /// similar to the former part of /proc/[tid]/maps.
-    pub fn str(&self) -> String {
+    fn str(&self) -> String {
         let map_shared = if self.flags_.contains(MapFlags::MAP_SHARED) {
             's'
         } else {
