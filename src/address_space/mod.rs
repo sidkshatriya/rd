@@ -741,8 +741,13 @@ pub mod address_space {
         }
 
         /// Detach local mapping and return it.
-        pub fn detach_local_mapping(addr: RemotePtr<Void>) -> Option<*const u8> {
-            unimplemented!()
+        pub fn detach_local_mapping(&mut self, addr: RemotePtr<Void>) -> Option<*mut c_void> {
+            match self.mapping_of_mut(addr) {
+                Some(found_mapping) if found_mapping.local_addr.is_some() => {
+                    found_mapping.local_addr.take()
+                }
+                _ => None,
+            }
         }
 
         /// Return a reference to the flags of the mapping at this address, allowing
