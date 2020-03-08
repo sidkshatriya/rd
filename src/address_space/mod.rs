@@ -32,21 +32,20 @@ pub enum DebugStatus {
     DsSingleStep = 1 << 14,
 }
 
-#[repr(u32)]
-#[derive(Copy, Clone, Eq, PartialEq)]
-pub enum MappingFlags {
-    FlagNone = 0x0,
-    /// This mapping represents a syscallbuf. It needs to handled specially
-    /// during checksumming since its contents are not fully restored by the
-    /// replay.
-    IsSyscallbuf = 0x1,
-    /// This mapping is used as our thread-local variable area for this
-    /// address space
-    IsThreadLocals = 0x2,
-    /// This mapping is used for syscallbuf patch stubs
-    IsPatchStubs = 0x4,
-    /// This mapping is the rd page
-    IsRdPage = 0x8,
+bitflags! {
+pub struct MappingFlags: u32 {
+        /// This mapping represents a syscallbuf. It needs to handled specially
+        /// during checksumming since its contents are not fully restored by the
+        /// replay.
+        const IS_SYSCALLBUF = 0x1;
+        /// This mapping is used as our thread-local variable area for this
+        /// address space
+        const IS_THREAD_LOCALS = 0x2;
+        /// This mapping is used for syscallbuf patch stubs
+        const IS_PATCH_SUBTS = 0x4;
+        /// This mapping is the rd page
+        const IS_RD_PAGE = 0x8;
+    }
 }
 
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -96,7 +95,7 @@ pub mod address_space {
     use super::*;
     use crate::address_space::kernel_mapping::KernelMapping;
     use crate::address_space::memory_range::{MemoryRange, MemoryRangeKey};
-    use crate::address_space::MappingFlags::IsThreadLocals;
+    use crate::address_space::MappingFlags;
     use crate::auto_remote_syscalls::AutoRemoteSyscalls;
     use crate::emu_fs::EmuFileSharedPtr;
     use crate::kernel_abi::common::preload_interface::{PRELOAD_THREAD_LOCALS_SIZE, RD_PAGE_ADDR};
@@ -117,12 +116,13 @@ pub mod address_space {
     use crate::taskish_uid::AddressSpaceUid;
     use crate::taskish_uid::TaskUid;
     use crate::trace_frame::FrameTime;
+    use crate::util::floor_page_size;
     use core::ffi::c_void;
     use libc::stat;
     use libc::{dev_t, ino_t, pid_t};
     use nix::sys::mman::munmap;
     use std::cell::{Ref, RefCell, RefMut};
-    use std::collections::btree_map::Range;
+    use std::collections::btree_map::{Range, RangeMut};
     use std::collections::hash_map::Iter as HashMapIter;
     use std::collections::HashSet;
     use std::collections::{BTreeMap, HashMap};
@@ -185,7 +185,7 @@ pub mod address_space {
                 mapped_file_stat,
                 local_addr,
                 monitored_shared_memory: monitored,
-                flags: MappingFlags::FlagNone,
+                flags: MappingFlags::empty(),
             }
         }
     }
@@ -215,6 +215,31 @@ pub mod address_space {
 
         fn into_iter(self) -> Self::IntoIter {
             self.outer.mem.range((
+                Included(MemoryRangeKey(MemoryRange::from_range(
+                    self.start, self.start,
+                ))),
+                Unbounded,
+            ))
+        }
+    }
+
+    pub struct MapsMut<'a> {
+        outer: &'a mut AddressSpace,
+        start: RemotePtr<Void>,
+    }
+
+    impl<'a> MapsMut<'a> {
+        pub fn new(outer: &'a mut AddressSpace, start: RemotePtr<Void>) -> MapsMut {
+            MapsMut { outer, start }
+        }
+    }
+
+    impl<'a> IntoIterator for MapsMut<'a> {
+        type Item = (&'a MemoryRangeKey, &'a mut Mapping);
+        type IntoIter = RangeMut<'a, MemoryRangeKey, Mapping>;
+
+        fn into_iter(self) -> Self::IntoIter {
+            self.outer.mem.range_mut((
                 Included(MemoryRangeKey(MemoryRange::from_range(
                     self.start, self.start,
                 ))),
@@ -512,9 +537,9 @@ pub mod address_space {
                 None,
             );
             let flags = self
-                .mapping_flags_of(Self::preload_thread_locals_start())
+                .mapping_flags_of_mut(Self::preload_thread_locals_start())
                 .unwrap();
-            *flags = *flags | IsThreadLocals as u32;
+            *flags = *flags | MappingFlags::IS_THREAD_LOCALS;
         }
 
         /// Change the program data break of this address space to
@@ -631,7 +656,25 @@ pub mod address_space {
 
         /// Return the mapping and mapped resource for the byte at address 'addr'.
         pub fn mapping_of(&self, addr: RemotePtr<Void>) -> Option<&Mapping> {
-            unimplemented!()
+            // @TODO This floor_page_size does not seem necessary
+            let maps = Maps::new(self, floor_page_size(addr));
+            match maps.into_iter().next() {
+                Some((_, found_mapping)) if found_mapping.map.contains_ptr(addr) => {
+                    Some(found_mapping)
+                }
+                _ => None,
+            }
+        }
+
+        pub fn mapping_of_mut(&mut self, addr: RemotePtr<Void>) -> Option<&mut Mapping> {
+            // @TODO This floor_page_size does not seem necessary
+            let maps = MapsMut::new(self, addr);
+            match maps.into_iter().next() {
+                Some((_, found_mapping)) if found_mapping.map.contains_ptr(addr) => {
+                    Some(found_mapping)
+                }
+                _ => None,
+            }
         }
 
         /// Detach local mapping and return it.
@@ -641,14 +684,8 @@ pub mod address_space {
 
         /// Return a reference to the flags of the mapping at this address, allowing
         /// manipulation.
-        pub fn mapping_flags_of(&mut self, addr: RemotePtr<Void>) -> Option<&mut u32> {
-            unimplemented!()
-        }
-
-        /// Return true if there is some mapping for the byte at 'addr'.
-        /// Use Self::mapping_of() instead in most cases.
-        pub fn has_mapping(&self, addr: RemotePtr<Void>) -> bool {
-            unimplemented!()
+        pub fn mapping_flags_of_mut(&mut self, addr: RemotePtr<Void>) -> Option<&mut MappingFlags> {
+            self.mapping_of_mut(addr).map(|m| &mut m.flags)
         }
 
         /// If the given memory region is mapped into the local address space, obtain
