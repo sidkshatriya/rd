@@ -7,7 +7,7 @@ use std::fmt::Result;
 use std::ops::Add;
 use std::ops::Sub;
 
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct RemoteCodePtr {
     ptr: usize,
 }

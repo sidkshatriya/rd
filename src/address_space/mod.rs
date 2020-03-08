@@ -95,6 +95,7 @@ pub mod address_space {
     use super::*;
     use crate::address_space::kernel_mapping::KernelMapping;
     use crate::address_space::memory_range::{MemoryRange, MemoryRangeKey};
+    use crate::address_space::BreakpointType::BkptNone;
     use crate::address_space::MappingFlags;
     use crate::auto_remote_syscalls::AutoRemoteSyscalls;
     use crate::emu_fs::EmuFileSharedPtr;
@@ -109,7 +110,7 @@ pub mod address_space {
     use crate::scoped_fd::ScopedFd;
     use crate::session::session_inner::session_inner::SessionInner;
     use crate::session::{SessionSharedPtr, SessionSharedWeakPtr};
-    use crate::task::common::read_mem;
+    use crate::task::common::{read_mem, read_val_mem};
     use crate::task::record_task::record_task::RecordTask;
     use crate::task::task_inner::task_inner::WriteFlags;
     use crate::task::Task;
@@ -626,29 +627,51 @@ pub mod address_space {
         /// Assuming the last retired instruction has raised a SIGTRAP
         /// and might be a breakpoint trap instruction, return the type
         /// of breakpoint set at `ip() - sizeof(breakpoint_insn)`, if
-        /// one exists.  Otherwise return TRAP_NONE.
+        /// one exists.  Otherwise return BkptNone.
         pub fn get_breakpoint_type_for_retired_insn(&self, ip: RemoteCodePtr) -> BreakpointType {
-            unimplemented!()
+            let addr = ip.decrement_by_bkpt_insn_length(SupportedArch::X86);
+            self.get_breakpoint_type_at_addr(addr)
         }
 
         /// Return the type of breakpoint that's been registered for
         /// `addr`.
-        pub fn get_breakpoint_type_at_addr(addr: RemoteCodePtr) -> BreakpointType {
-            unimplemented!()
+        pub fn get_breakpoint_type_at_addr(&self, addr: RemoteCodePtr) -> BreakpointType {
+            self.breakpoints
+                .get(&addr)
+                .map_or(BkptNone, |bp| bp.bp_type())
         }
 
         /// Returns true when the breakpoint at `addr` is in private
         /// non-writeable memory. When this returns true, the breakpoint can't be
         /// overwritten by the tracee without an intervening mprotect or mmap
         /// syscall.
-        pub fn is_breakpoint_in_private_read_only_memory(addr: RemoteCodePtr) -> bool {
-            unimplemented!()
+        pub fn is_breakpoint_in_private_read_only_memory(&self, addr: RemoteCodePtr) -> bool {
+            // @TODO Its unclear why we need to iterate instead of just using
+            // AddressSpace::mapping_of() to check breakpoint prot() and flags().
+            for (_, m) in self.maps_containing_or_after(addr.to_data_ptr::<Void>()) {
+                if m.map.start()
+                    >= addr
+                        .increment_by_bkpt_insn_length(self.arch())
+                        .to_data_ptr::<Void>()
+                {
+                    break;
+                }
+                if m.map.prot().contains(ProtFlags::PROT_WRITE)
+                    || m.map.flags().contains(MapFlags::MAP_SHARED)
+                {
+                    return false;
+                }
+            }
+            true
         }
 
         /// Return true if there's a breakpoint instruction at `ip`. This might
         /// be an explicit instruction, even if there's no breakpoint set via our API.
-        pub fn is_breakpoint_instruction(t: &dyn Task, ip: RemoteCodePtr) -> bool {
-            unimplemented!()
+        pub fn is_breakpoint_instruction(t: &mut dyn Task, ip: RemoteCodePtr) -> bool {
+            let mut ok = true;
+            return read_val_mem::<u8>(t, ip.to_data_ptr::<u8>(), Some(&mut ok))
+                == Self::BREAKPOINT_INSN
+                && ok;
         }
 
         /// The buffer `dest` of length `length` represents the contents of tracee
