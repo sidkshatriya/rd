@@ -24,6 +24,7 @@ use crate::scoped_fd::ScopedFd;
 use crate::session::replay_session::ReplaySession;
 use crate::session::session_inner::session_inner::SessionInner;
 use crate::task::common::{read_mem, read_val_mem, write_mem, write_val_mem};
+use crate::task::task_inner::task_inner::WriteFlags;
 use crate::task::task_inner::ResumeRequest::{ResumeSinglestep, ResumeSyscall};
 use crate::task::task_inner::TicksRequest::ResumeNoTicks;
 use crate::task::task_inner::WaitRequest::ResumeWait;
@@ -94,9 +95,12 @@ impl<'a, 'b> Drop for AutoRestoreMem<'a, 'b> {
         if self.addr.is_some() {
             // XXX what should we do if this task was sigkilled but the address
             // space is used by other live tasks?
-            self.remote
-                .task_mut()
-                .write_bytes_helper(self.addr.unwrap(), &self.data, None, None);
+            self.remote.task_mut().write_bytes_helper(
+                self.addr.unwrap(),
+                &self.data,
+                None,
+                WriteFlags::empty(),
+            );
         }
         self.remote.task_mut().regs_mut().set_sp(new_sp);
         // Make a copy
@@ -179,7 +183,7 @@ impl<'a, 'b> AutoRestoreMem<'a, 'b> {
                 self.addr.unwrap(),
                 mem.unwrap(),
                 Some(&mut ok),
-                None,
+                WriteFlags::empty(),
             );
         }
         if !ok {

@@ -340,7 +340,7 @@ pub(super) fn write_bytes_helper<T: Task>(
     addr: RemotePtr<Void>,
     buf: &[u8],
     ok: Option<&mut bool>,
-    flags: Option<WriteFlags>,
+    flags: WriteFlags,
 ) {
     let buf_size = buf.len();
     if 0 == buf_size {
@@ -446,7 +446,7 @@ pub(super) fn syscallbuf_data_size<T: Task>(task: &mut T) -> usize {
 ///
 /// Write `N` bytes from `buf` to `child_addr`, or don't return.
 pub(super) fn write_bytes<T: Task>(task: &mut T, child_addr: RemotePtr<Void>, buf: &[u8]) {
-    write_bytes_helper(task, child_addr, buf, None, None)
+    write_bytes_helper(task, child_addr, buf, None, WriteFlags::empty())
 }
 
 /// NOT Forwarded method definition
@@ -458,7 +458,7 @@ pub fn write_val_mem<D: 'static>(
     val: &D,
     ok: Option<&mut bool>,
 ) {
-    write_val_mem_with_flags(task, child_addr, val, ok, None)
+    write_val_mem_with_flags(task, child_addr, val, ok, WriteFlags::empty())
 }
 
 /// NOT Forwarded method definition
@@ -469,7 +469,7 @@ pub fn write_val_mem_with_flags<D: 'static>(
     child_addr: RemotePtr<D>,
     val: &D,
     ok: Option<&mut bool>,
-    flags: Option<WriteFlags>,
+    flags: WriteFlags,
 ) {
     debug_assert!(type_has_no_holes::<D>());
     let data_slice = unsafe { slice::from_raw_parts(val as *const _ as *const u8, size_of::<D>()) };
@@ -489,5 +489,10 @@ pub fn write_mem<D: 'static>(
     debug_assert!(type_has_no_holes::<D>());
     let data_slice =
         unsafe { slice::from_raw_parts(val.as_ptr() as *const u8, val.len() * size_of::<D>()) };
-    task.write_bytes_helper(RemotePtr::cast(child_addr), data_slice, ok, None);
+    task.write_bytes_helper(
+        RemotePtr::cast(child_addr),
+        data_slice,
+        ok,
+        WriteFlags::empty(),
+    );
 }

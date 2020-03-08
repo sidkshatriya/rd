@@ -493,7 +493,7 @@ pub mod record_task {
             addr: RemotePtr<u8>,
             buf: &[u8],
             ok: Option<&mut bool>,
-            flags: Option<WriteFlags>,
+            flags: WriteFlags,
         ) {
             write_bytes_helper(self, addr, buf, ok, flags)
         }

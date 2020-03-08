@@ -49,9 +49,6 @@ const IN_TXCP: u64 = 1 << 33;
 
 bitflags! {
     struct PmuFlags: u32 {
-        /// @TODO bitflags! with 0 value have some strange properties. Check if this is OK.
-        const PMU_ZERO = 0;
-
         /// Set if this CPU supports ticks counting retired conditional branches.
         const PMU_TICKS_RCB = 1<<0;
 
@@ -474,7 +471,7 @@ const PMU_CONFIGS: [PmuConfig; 15] = [
         minus_ticks_cntr_event: 0,
         hw_intr_cntr_event: 0,
         skid_size: 100,
-        flags: PmuFlags::PMU_ZERO,
+        flags: PmuFlags::empty(),
     },
     PmuConfig {
         uarch: IntelMerom,
@@ -483,7 +480,7 @@ const PMU_CONFIGS: [PmuConfig; 15] = [
         minus_ticks_cntr_event: 0,
         hw_intr_cntr_event: 0,
         skid_size: 100,
-        flags: PmuFlags::PMU_ZERO,
+        flags: PmuFlags::empty(),
     },
     PmuConfig {
         uarch: AMDF15R30,

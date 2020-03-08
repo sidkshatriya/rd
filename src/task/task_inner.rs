@@ -247,9 +247,10 @@ pub mod task_inner {
 
     pub type DebugRegs = Vec<WatchConfig>;
 
-    #[derive(Copy, Clone, Debug)]
-    pub enum WriteFlags {
-        IsBreakpointRelated = 0x1,
+    bitflags! {
+        pub struct WriteFlags: u32 {
+            const IS_BREAKPOINT_RELATED = 0x1;
+        }
     }
 
     #[derive(Clone)]

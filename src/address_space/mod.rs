@@ -839,9 +839,14 @@ pub mod address_space {
             &mut self,
             addr: RemotePtr<Void>,
             num_bytes: usize,
-            flags: Option<WriteFlags>,
+            flags: WriteFlags,
         ) {
-            unimplemented!()
+            if !(flags.contains(WriteFlags::IS_BREAKPOINT_RELATED)) {
+                self.update_watchpoint_values(addr, addr + num_bytes);
+            }
+            self.session()
+                .borrow_mut()
+                .accumulate_bytes_written(num_bytes as u64);
         }
 
         /// Ensure a breakpoint of `type` is set at `addr`.

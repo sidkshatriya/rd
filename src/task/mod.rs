@@ -223,7 +223,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
         addr: RemotePtr<Void>,
         buf: &[u8],
         ok: Option<&mut bool>,
-        flags: Option<WriteFlags>,
+        flags: WriteFlags,
     );
 
     /// Forwarded method signature
