@@ -110,7 +110,7 @@ pub mod address_space {
     use crate::scoped_fd::ScopedFd;
     use crate::session::session_inner::session_inner::SessionInner;
     use crate::session::{SessionSharedPtr, SessionSharedWeakPtr};
-    use crate::task::common::{read_mem, read_val_mem};
+    use crate::task::common::{read_mem, read_val_mem, write_val_mem, write_val_mem_with_flags};
     use crate::task::record_task::record_task::RecordTask;
     use crate::task::task_inner::task_inner::WriteFlags;
     use crate::task::Task;
@@ -130,6 +130,7 @@ pub mod address_space {
     use std::collections::{BTreeMap, HashMap};
     use std::io;
     use std::io::Write;
+    use std::mem::size_of_val;
     use std::ops::Bound::{Included, Unbounded};
     use std::ops::Drop;
     use std::ops::{Deref, DerefMut};
@@ -268,19 +269,18 @@ pub mod address_space {
         /// Note: These are signed integers in rr.
         pub internal_count: u32,
         pub user_count: u32,
-        /// This is a bare uint8_t in rr
-        pub overwritten_data: Option<u8>,
+        pub overwritten_data: u8,
     }
 
     /// In rr there are a lot of DEBUG_ASSERTs but we don't need them
     /// as struct members are u32 and any attempt to make them negative
     /// will cause a panic in the debug build.
     impl Breakpoint {
-        pub fn new() -> Breakpoint {
+        pub fn new(overwritten_data: u8) -> Breakpoint {
             Breakpoint {
                 internal_count: 0,
                 user_count: 0,
-                overwritten_data: None,
+                overwritten_data,
             }
         }
 
@@ -315,7 +315,7 @@ pub mod address_space {
             1
         }
 
-        pub fn original_data(&self) -> Option<u8> {
+        pub fn original_data(&self) -> u8 {
             self.overwritten_data
         }
 
@@ -788,7 +788,8 @@ pub mod address_space {
 
         /// Return true if the rd page is mapped at its expected address.
         pub fn has_rd_page(&self) -> bool {
-            unimplemented!()
+            let found_mapping = self.mapping_of(RD_PAGE_ADDR.into());
+            found_mapping.is_some()
         }
 
         pub fn maps(&self) -> Maps {
@@ -805,12 +806,18 @@ pub mod address_space {
         }
 
         pub fn monitored_addrs(&self) -> &HashSet<RemotePtr<Void>> {
-            unimplemented!()
+            &self.monitored_mem
         }
 
         /// Change the protection bits of [addr, addr + num_bytes) to
         /// `prot`.
-        pub fn protect(&self, t: &dyn Task, addr: RemotePtr<Void>, num_bytes: usize, prot: i32) {
+        pub fn protect(
+            &self,
+            t: &dyn Task,
+            addr: RemotePtr<Void>,
+            num_bytes: usize,
+            prot: ProtFlags,
+        ) {
             unimplemented!()
         }
 
@@ -850,9 +857,40 @@ pub mod address_space {
         }
 
         /// Ensure a breakpoint of `type` is set at `addr`.
-        pub fn add_breakpoint(&mut self, addr: RemoteCodePtr, type_: BreakpointType) {
-            unimplemented!()
+        pub fn add_breakpoint(&mut self, addr: RemoteCodePtr, type_: BreakpointType) -> bool {
+            match self.breakpoints.get_mut(&addr) {
+                None => {
+                    let overwritten_data: u8 = 0;
+                    // Grab the first task from the VM so we can use its
+                    // read/write_mem() helpers.
+                    let rc_t = self.task_set().iter().next().unwrap().upgrade().unwrap();
+                    let read_result = rc_t.borrow_mut().read_bytes_fallible(
+                        addr.to_data_ptr::<u8>(),
+                        &mut overwritten_data.to_le_bytes(),
+                    );
+                    match read_result {
+                        Ok(read) if read == size_of::<u8>() => (),
+                        _ => return false,
+                    }
+
+                    write_val_mem_with_flags::<u8>(
+                        rc_t.borrow_mut().as_mut(),
+                        addr.to_data_ptr::<u8>(),
+                        &Self::BREAKPOINT_INSN,
+                        None,
+                        WriteFlags::IS_BREAKPOINT_RELATED,
+                    );
+
+                    let bp = Breakpoint::new(overwritten_data);
+                    self.breakpoints.insert(addr, bp);
+                }
+                Some(bp) => {
+                    bp.do_ref(type_);
+                }
+            }
+            true
         }
+
         /// Remove a `type` reference to the breakpoint at `addr`.  If
         /// the removed reference was the last, the breakpoint is
         /// destroyed.
@@ -889,8 +927,9 @@ pub mod address_space {
         pub fn remove_watchpoint(&self, addr: RemotePtr<Void>, num_bytes: usize, type_: WatchType) {
             unimplemented!()
         }
-        pub fn remove_all_watchpoints(&self) {
-            unimplemented!()
+        pub fn remove_all_watchpoints(&mut self) {
+            self.watchpoints.clear();
+            self.allocate_watchpoints();
         }
         pub fn all_watchpoints(&self) -> Vec<WatchConfig> {
             unimplemented!()
