@@ -262,12 +262,16 @@ pub mod address_space {
 
     pub struct Maps<'a> {
         outer: &'a AddressSpace,
-        start: RemotePtr<Void>,
+        range: MemoryRange,
     }
 
     impl<'a> Maps<'a> {
         pub fn new(outer: &'a AddressSpace, start: RemotePtr<Void>) -> Maps {
-            Maps { outer, start }
+            Maps { outer, range: MemoryRange::from_range(start, start) }
+        }
+
+        pub fn new_from_range(outer: &'a AddressSpace, range: MemoryRange) -> Maps {
+            Maps { outer, range }
         }
     }
 
@@ -277,9 +281,7 @@ pub mod address_space {
 
         fn into_iter(self) -> Self::IntoIter {
             self.outer.mem.range((
-                Included(MemoryRangeKey(MemoryRange::from_range(
-                    self.start, self.start,
-                ))),
+                Included(MemoryRangeKey(self.range)),
                 Unbounded,
             ))
         }
@@ -287,12 +289,16 @@ pub mod address_space {
 
     pub struct MapsMut<'a> {
         outer: &'a mut AddressSpace,
-        start: RemotePtr<Void>,
+        range: MemoryRange,
     }
 
     impl<'a> MapsMut<'a> {
         pub fn new(outer: &'a mut AddressSpace, start: RemotePtr<Void>) -> MapsMut {
-            MapsMut { outer, start }
+            MapsMut { outer, range: MemoryRange::from_range(start, start) }
+        }
+
+        pub fn new_from_range(outer: &'a mut AddressSpace, range: MemoryRange) -> MapsMut {
+            MapsMut { outer, range }
         }
     }
 
@@ -302,9 +308,7 @@ pub mod address_space {
 
         fn into_iter(self) -> Self::IntoIter {
             self.outer.mem.range_mut((
-                Included(MemoryRangeKey(MemoryRange::from_range(
-                    self.start, self.start,
-                ))),
+                Included(MemoryRangeKey(self.range)),
                 Unbounded,
             ))
         }
@@ -776,8 +780,10 @@ pub mod address_space {
 
         /// Return the mapping and mapped resource for the byte at address 'addr'.
         pub fn mapping_of(&self, addr: RemotePtr<Void>) -> Option<&Mapping> {
-            // @TODO This floor_page_size does not seem necessary
-            let maps = Maps::new(self, floor_page_size(addr));
+            // A size of 1 will allow .intersects() to become true in a containing map.
+            // @TODO This floor_page_size() call does not seem necessary
+            let mr = MemoryRange::new_range(floor_page_size(addr), 1);
+            let maps = Maps::new_from_range(self, mr);
             match maps.into_iter().next() {
                 Some((_, found_mapping)) if found_mapping.map.contains_ptr(addr) => {
                     Some(found_mapping)
@@ -787,8 +793,10 @@ pub mod address_space {
         }
 
         pub fn mapping_of_mut(&mut self, addr: RemotePtr<Void>) -> Option<&mut Mapping> {
-            // @TODO This floor_page_size does not seem necessary
-            let maps = MapsMut::new(self, addr);
+            // A size of 1 will allow .intersects() to become true in a containing map.
+            // @TODO This floor_page_size() call does not seem necessary
+            let mr = MemoryRange::new_range(floor_page_size(addr), 1);
+            let maps = MapsMut::new_from_range(self, mr);
             match maps.into_iter().next() {
                 Some((_, found_mapping)) if found_mapping.map.contains_ptr(addr) => {
                     Some(found_mapping)
@@ -858,7 +866,7 @@ pub mod address_space {
         pub fn maps_containing_or_after(&self, start: RemotePtr<Void>) -> Maps {
             match self.mapping_of(start) {
                 Some(found) => Maps::new(self, found.map.start()),
-                _ => Maps::new(self, start),
+                None => Maps::new(self, start),
             }
         }
 
@@ -1064,7 +1072,7 @@ pub mod address_space {
 
         /// Return true if any watchpoint has fired. Will keep returning true until
         /// consume_watchpoint_changes() is called.
-        pub fn has_any_watchpoint_changes(&self) {
+        pub fn has_any_watchpoint_changes(&self) -> bool {
             unimplemented!()
         }
 
