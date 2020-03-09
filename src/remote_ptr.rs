@@ -9,7 +9,7 @@ use std::ops::Sub;
 /// Useful alias.
 pub type Void = u8;
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Hash)]
 pub struct RemotePtr<T> {
     ptr: usize,
     phantom: PhantomData<T>,

@@ -1,6 +1,10 @@
 pub mod kernel_mapping;
 pub mod memory_range;
 use crate::address_space::memory_range::MemoryRange;
+use crate::kernel_abi::common::preload_interface::{
+    RD_PAGE_ADDR, RD_PAGE_SYSCALL_INSTRUCTION_END, RD_PAGE_SYSCALL_STUB_SIZE,
+};
+use crate::remote_code_ptr::RemoteCodePtr;
 use crate::remote_ptr::RemotePtr;
 use crate::remote_ptr::Void;
 use nix::sys::mman::{MapFlags, ProtFlags};
@@ -65,11 +69,65 @@ pub enum Enabled {
     RecordingAndReplay,
 }
 
+/// Must match generate_rr_page.py
+const ENTRY_POINTS: [SyscallType; 8] = [
+    SyscallType::new(
+        Traced::Traced,
+        Privileged::Unpriviledged,
+        Enabled::RecordingAndReplay,
+    ),
+    SyscallType::new(
+        Traced::Traced,
+        Privileged::Privileged,
+        Enabled::RecordingAndReplay,
+    ),
+    SyscallType::new(
+        Traced::Untraced,
+        Privileged::Unpriviledged,
+        Enabled::RecordingAndReplay,
+    ),
+    SyscallType::new(
+        Traced::Untraced,
+        Privileged::Unpriviledged,
+        Enabled::ReplayOnly,
+    ),
+    SyscallType::new(
+        Traced::Untraced,
+        Privileged::Unpriviledged,
+        Enabled::RecordingOnly,
+    ),
+    SyscallType::new(
+        Traced::Untraced,
+        Privileged::Privileged,
+        Enabled::RecordingAndReplay,
+    ),
+    SyscallType::new(
+        Traced::Untraced,
+        Privileged::Privileged,
+        Enabled::ReplayOnly,
+    ),
+    SyscallType::new(
+        Traced::Untraced,
+        Privileged::Privileged,
+        Enabled::RecordingOnly,
+    ),
+];
+
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub struct SyscallType {
     traced: Traced,
-    priviledged: Privileged,
+    privileged: Privileged,
     enabled: Enabled,
+}
+
+impl SyscallType {
+    pub const fn new(traced: Traced, privileged: Privileged, enabled: Enabled) -> SyscallType {
+        SyscallType {
+            traced,
+            privileged,
+            enabled,
+        }
+    }
 }
 
 /// A distinct watchpoint, corresponding to the information needed to
@@ -1027,10 +1085,11 @@ pub mod address_space {
 
         /// Dies if no shm size is registered for the address.
         pub fn get_shm_size(&self, addr: RemotePtr<Void>) -> usize {
-            unimplemented!()
+            *self.shm_sizes.get(&addr).unwrap()
         }
-        pub fn remove_shm_size(&self, addr: RemotePtr<Void>) {
-            unimplemented!()
+        /// Returns true it the key was present in the map
+        pub fn remove_shm_size(&mut self, addr: RemotePtr<Void>) -> bool {
+            self.shm_sizes.remove(&addr).is_some()
         }
 
         /// Make [addr, addr + num_bytes) inaccessible within this
@@ -1045,8 +1104,11 @@ pub mod address_space {
         }
 
         /// Return the vdso mapping of this.
+        ///
+        /// Panics if there is no Mapping of the vdso
         pub fn vdso(&self) -> KernelMapping {
-            unimplemented!()
+            debug_assert!(!self.vdso_start_addr.is_null());
+            self.mapping_of(self.vdso_start_addr).unwrap().map.clone()
         }
 
         /// Verify that this cached address space matches what the
@@ -1056,10 +1118,10 @@ pub mod address_space {
         }
 
         pub fn has_breakpoints(&self) -> bool {
-            unimplemented!()
+            !self.breakpoints.is_empty()
         }
         pub fn has_watchpoints(&self) -> bool {
-            unimplemented!()
+            !self.watchpoints.is_empty()
         }
 
         /// Encoding of the `int $3` instruction.
@@ -1086,17 +1148,17 @@ pub mod address_space {
         /// The address of the syscall instruction from which traced syscalls made by
         /// the syscallbuf will originate.
         pub fn traced_syscall_ip(&self) -> RemoteCodePtr {
-            unimplemented!()
+            self.traced_syscall_ip_
         }
 
         /// The address of the syscall instruction from which privileged traced
         /// syscalls made by the syscallbuf will originate.
-        pub fn privileged_traced_syscall_ip(&self) -> RemoteCodePtr {
-            unimplemented!()
+        pub fn privileged_traced_syscall_ip(&self) -> Option<RemoteCodePtr> {
+            self.privileged_traced_syscall_ip_
         }
 
-        pub fn syscallbuf_enabled(&self) {
-            unimplemented!()
+        pub fn syscallbuf_enabled(&self) -> bool {
+            self.syscallbuf_enabled_
         }
 
         /// We'll map a page of memory here into every exec'ed process for our own
@@ -1117,8 +1179,8 @@ pub mod address_space {
         pub fn preload_thread_locals_start() -> RemotePtr<Void> {
             Self::rd_page_start()
         }
-        pub fn preload_thread_locals_size() -> u32 {
-            unimplemented!()
+        pub fn preload_thread_locals_size() -> usize {
+            PRELOAD_THREAD_LOCALS_SIZE
         }
 
         pub fn rd_page_syscall_exit_point(
@@ -1134,17 +1196,38 @@ pub mod address_space {
             enabled: Enabled,
             arch: SupportedArch,
         ) -> RemoteCodePtr {
-            unimplemented!()
+            for (i, e) in ENTRY_POINTS.iter().enumerate() {
+                if e.traced == traced && e.privileged == privileged && e.enabled == enabled {
+                    return entry_ip_from_index(i);
+                }
+            }
+
+            unreachable!()
         }
 
+        /// @TODO what about just returning &'static ENTRY_POINTS?
         pub fn rd_page_syscalls() -> Vec<SyscallType> {
-            unimplemented!()
+            ENTRY_POINTS.to_vec()
         }
+
         pub fn rd_page_syscall_from_exit_point(ip: RemoteCodePtr) -> SyscallType {
-            unimplemented!()
+            for i in 0..ENTRY_POINTS.len() {
+                if exit_ip_from_index(i) == ip {
+                    return ENTRY_POINTS[i];
+                }
+            }
+
+            unreachable!()
         }
+
         pub fn rd_page_syscall_from_entry_point(ip: RemoteCodePtr) -> SyscallType {
-            unimplemented!()
+            for i in 0..ENTRY_POINTS.len() {
+                if entry_ip_from_index(i) == ip {
+                    return ENTRY_POINTS[i];
+                }
+            }
+
+            unreachable!()
         }
 
         /// Return a pointer to 8 bytes of 0xFF
@@ -1570,4 +1653,14 @@ fn stringify_flags(flags: MappingFlags) -> &'static str {
     }
 
     return "[unknown_flags]";
+}
+
+fn exit_ip_from_index(i: usize) -> RemoteCodePtr {
+    RemoteCodePtr::from_val(
+        RD_PAGE_ADDR + RD_PAGE_SYSCALL_STUB_SIZE * i + RD_PAGE_SYSCALL_INSTRUCTION_END,
+    )
+}
+
+fn entry_ip_from_index(i: usize) -> RemoteCodePtr {
+    RemoteCodePtr::from_val(RD_PAGE_ADDR + RD_PAGE_SYSCALL_STUB_SIZE * i)
 }
