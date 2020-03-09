@@ -267,7 +267,10 @@ pub mod address_space {
 
     impl<'a> Maps<'a> {
         pub fn new(outer: &'a AddressSpace, start: RemotePtr<Void>) -> Maps {
-            Maps { outer, range: MemoryRange::from_range(start, start) }
+            Maps {
+                outer,
+                range: MemoryRange::from_range(start, start),
+            }
         }
 
         pub fn new_from_range(outer: &'a AddressSpace, range: MemoryRange) -> Maps {
@@ -280,10 +283,9 @@ pub mod address_space {
         type IntoIter = Range<'a, MemoryRangeKey, Mapping>;
 
         fn into_iter(self) -> Self::IntoIter {
-            self.outer.mem.range((
-                Included(MemoryRangeKey(self.range)),
-                Unbounded,
-            ))
+            self.outer
+                .mem
+                .range((Included(MemoryRangeKey(self.range)), Unbounded))
         }
     }
 
@@ -294,7 +296,10 @@ pub mod address_space {
 
     impl<'a> MapsMut<'a> {
         pub fn new(outer: &'a mut AddressSpace, start: RemotePtr<Void>) -> MapsMut {
-            MapsMut { outer, range: MemoryRange::from_range(start, start) }
+            MapsMut {
+                outer,
+                range: MemoryRange::from_range(start, start),
+            }
         }
 
         pub fn new_from_range(outer: &'a mut AddressSpace, range: MemoryRange) -> MapsMut {
@@ -307,10 +312,9 @@ pub mod address_space {
         type IntoIter = RangeMut<'a, MemoryRangeKey, Mapping>;
 
         fn into_iter(self) -> Self::IntoIter {
-            self.outer.mem.range_mut((
-                Included(MemoryRangeKey(self.range)),
-                Unbounded,
-            ))
+            self.outer
+                .mem
+                .range_mut((Included(MemoryRangeKey(self.range)), Unbounded))
         }
     }
 
@@ -1498,19 +1502,68 @@ pub mod address_space {
 
         /// For each mapped segment overlapping [addr, addr +
         /// num_bytes), call `f`.  Pass `f` the overlapping mapping,
-        /// the mapped resource, and the range of addresses remaining
-        /// to be iterated over.
+        /// and the range of addresses remaining to be iterated over.
+        ///
         /// Pass `IterateContiguous` to stop iterating when the last
         /// contiguous mapping after `addr` within the region is seen.
-        /// Default is to iterate all mappings in the region.
-        fn for_each_in_range<F: Fn(&Mapping, &MemoryRange)>(
+        ///
+        /// `IterateDefault` will iterate all mappings in the region.
+        fn for_each_in_range<F: Fn(&Mapping, MemoryRange)>(
             &self,
             addr: RemotePtr<Void>,
-            num_bytes: isize,
+            // @TODO this is signed in rr.
+            num_bytes: usize,
             f: F,
             how: IterateHow,
         ) {
-            unimplemented!()
+            let region_start = floor_page_size(addr);
+            let mut last_f_mapped_end = region_start;
+            let region_end = ceil_page_size(addr + num_bytes);
+            while last_f_mapped_end < region_end {
+                // Invariant: `rem` is always exactly the region of
+                // memory remaining to be examined for pages to be
+                // f-mapped.
+                let rem = MemoryRange::from_range(last_f_mapped_end, region_end);
+
+                // The next Mapping to iterate may not be contiguous with
+                // the last one seen.
+                let it = Maps::new_from_range(self, rem);
+                match it.into_iter().next() {
+                    None => {
+                        log!(LogDebug, "  not found, done.");
+                        return;
+                    }
+                    Some((range, m)) => {
+                        // `f` is allowed to erase Mappings.
+                        if rem.end() <= range.start() {
+                            log!(
+                                LogDebug,
+                                "  mapping at {} out of range, done.",
+                                range.start()
+                            );
+                            return;
+                        }
+
+                        // range.start() < region_start would happen for the first region iterated
+                        if IterateHow::IterateContiguous == how
+                            && !(range.start() < region_start || rem.start() == range.start())
+                        {
+                            log!(
+                                LogDebug,
+                                "  discontiguous mapping at {}, done.",
+                                range.start()
+                            );
+                            return;
+                        }
+
+                        // fmap Mapping m!
+                        f(m, rem);
+
+                        // Maintain the loop invariant.
+                        last_f_mapped_end = range.end();
+                    }
+                }
+            }
         }
 
         /// Map `m` of `r` into this address space, and coalesce any
