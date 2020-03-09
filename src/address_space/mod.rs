@@ -110,10 +110,10 @@ pub mod address_space {
     use crate::scoped_fd::ScopedFd;
     use crate::session::session_inner::session_inner::SessionInner;
     use crate::session::{SessionSharedPtr, SessionSharedWeakPtr};
-    use crate::task::common::{read_mem, read_val_mem, write_val_mem, write_val_mem_with_flags};
+    use crate::task::common::{read_mem, read_val_mem, write_val_mem_with_flags};
     use crate::task::record_task::record_task::RecordTask;
     use crate::task::task_inner::task_inner::WriteFlags;
-    use crate::task::Task;
+    use crate::task::{Task, TaskSharedPtr};
     use crate::task_set::TaskSet;
     use crate::taskish_uid::AddressSpaceUid;
     use crate::taskish_uid::TaskUid;
@@ -856,14 +856,22 @@ pub mod address_space {
                 .accumulate_bytes_written(num_bytes as u64);
         }
 
+        /// Assumes any weak pointer can be upgraded but does not assume task_set is NOT empty.
+        pub fn any_task_from_task_set(&self) -> Option<TaskSharedPtr> {
+            self.task_set()
+                .iter()
+                .next()
+                .map_or(None, |v| Some(v.upgrade().unwrap()))
+        }
+
         /// Ensure a breakpoint of `type` is set at `addr`.
         pub fn add_breakpoint(&mut self, addr: RemoteCodePtr, type_: BreakpointType) -> bool {
             match self.breakpoints.get_mut(&addr) {
                 None => {
                     let overwritten_data: u8 = 0;
-                    // Grab the first task from the VM so we can use its
+                    // Grab a random task from the VM so we can use its
                     // read/write_mem() helpers.
-                    let rc_t = self.task_set().iter().next().unwrap().upgrade().unwrap();
+                    let rc_t = self.any_task_from_task_set().unwrap();
                     let read_result = rc_t.borrow_mut().read_bytes_fallible(
                         addr.to_data_ptr::<u8>(),
                         &mut overwritten_data.to_le_bytes(),
@@ -895,7 +903,14 @@ pub mod address_space {
         /// the removed reference was the last, the breakpoint is
         /// destroyed.
         pub fn remove_breakpoint(&mut self, addr: RemoteCodePtr, type_: BreakpointType) {
-            unimplemented!()
+            match self.breakpoints.get_mut(&addr) {
+                Some(bp) => {
+                    if bp.do_unref(type_) == 0 {
+                        self.destroy_breakpoint_at(addr);
+                    }
+                }
+                _ => (),
+            }
         }
         /// Destroy all breakpoints in this VM, regardless of their
         /// reference counts.
@@ -1340,8 +1355,26 @@ pub mod address_space {
 
         /// Erase `it` from `breakpoints` and restore any memory in
         /// this it may have overwritten.
-        fn destroy_breakpoint(it: BreakpointMapIter) {
-            unimplemented!()
+        ///
+        /// Assumes there IS a breakpoint at `addr` or will panic
+        ///
+        /// Called destroy_breakpoint() in rr.
+        fn destroy_breakpoint_at(&mut self, addr: RemoteCodePtr) {
+            match self.any_task_from_task_set() {
+                None => return,
+                Some(t) => {
+                    let data = self.breakpoints.get(&addr).unwrap().overwritten_data;
+                    log!(LogDebug, "Writing back {:x} at {}", data, addr);
+                    write_val_mem_with_flags::<u8>(
+                        t.borrow_mut().as_mut(),
+                        addr.to_data_ptr::<u8>(),
+                        &data,
+                        None,
+                        WriteFlags::IS_BREAKPOINT_RELATED,
+                    );
+                }
+            }
+            self.breakpoints.remove(&addr);
         }
 
         /// For each mapped segment overlapping [addr, addr +
