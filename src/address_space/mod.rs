@@ -110,7 +110,7 @@ pub mod address_space {
     use crate::scoped_fd::ScopedFd;
     use crate::session::session_inner::session_inner::SessionInner;
     use crate::session::{SessionSharedPtr, SessionSharedWeakPtr};
-    use crate::task::common::{read_mem, read_val_mem, write_val_mem_with_flags};
+    use crate::task::common::{read_mem, read_val_mem, write_val_mem, write_val_mem_with_flags};
     use crate::task::record_task::record_task::RecordTask;
     use crate::task::task_inner::task_inner::WriteFlags;
     use crate::task::{Task, TaskSharedPtr};
@@ -130,7 +130,6 @@ pub mod address_space {
     use std::collections::{BTreeMap, HashMap};
     use std::io;
     use std::io::Write;
-    use std::mem::size_of_val;
     use std::ops::Bound::{Included, Unbounded};
     use std::ops::Drop;
     use std::ops::{Deref, DerefMut};
@@ -915,17 +914,46 @@ pub mod address_space {
         /// Destroy all breakpoints in this VM, regardless of their
         /// reference counts.
         pub fn remove_all_breakpoints(&mut self) {
-            unimplemented!()
+            let mut bps_to_destroy = Vec::new();
+            for bp in self.breakpoints.keys() {
+                bps_to_destroy.push(*bp);
+            }
+
+            for bp in bps_to_destroy {
+                self.destroy_breakpoint_at(bp)
+            }
         }
 
         /// Temporarily remove the breakpoint at `addr`.
         pub fn suspend_breakpoint_at(&self, addr: RemoteCodePtr) {
-            unimplemented!()
+            match self.breakpoints.get(&addr) {
+                Some(bp) => {
+                    let t = self.any_task_from_task_set().unwrap();
+                    write_val_mem::<u8>(
+                        t.borrow_mut().as_mut(),
+                        addr.to_data_ptr::<u8>(),
+                        &bp.overwritten_data,
+                        None,
+                    );
+                }
+                None => (),
+            }
         }
 
         /// Restore any temporarily removed breakpoint at `addr`.
         pub fn restore_breakpoint_at(&self, addr: RemoteCodePtr) {
-            unimplemented!()
+            match self.breakpoints.get(&addr) {
+                Some(bp) => {
+                    let t = self.any_task_from_task_set().unwrap();
+                    write_val_mem::<u8>(
+                        t.borrow_mut().as_mut(),
+                        addr.to_data_ptr::<u8>(),
+                        &Self::BREAKPOINT_INSN,
+                        None,
+                    );
+                }
+                None => (),
+            }
         }
 
         /// Manage watchpoints.  Analogous to breakpoint-managing
