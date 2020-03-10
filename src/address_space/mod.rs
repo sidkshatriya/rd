@@ -929,7 +929,7 @@ pub mod address_space {
                         monitored,
                     );
                     underflow.flags = m.flags;
-                    slf.add_to_map(&underflow);
+                    slf.add_to_map(underflow);
                 }
                 // Remap the overlapping region with the new prot.
                 let new_end = min(rem.end(), m.map.end());
@@ -956,8 +956,8 @@ pub mod address_space {
                     new_monitored,
                 );
                 overlap.flags = m.flags;
-                slf.add_to_map(&overlap);
                 last_overlap = *overlap.map;
+                slf.add_to_map(overlap);
 
                 // If the last segment we protect overflows the
                 // region, remap the overflow region with previous
@@ -980,7 +980,7 @@ pub mod address_space {
                         new_monitored,
                     );
                     overflow.flags = m.flags;
-                    slf.add_to_map(&overflow);
+                    slf.add_to_map(overflow);
                 }
             };
 
@@ -1491,8 +1491,71 @@ pub mod address_space {
             unimplemented!()
         }
 
-        fn unmap_internal(&self, t: &dyn Task, addr: RemotePtr<Void>, num_bytes: isize) {
-            unimplemented!()
+        /// @TODO In rr `num_bytes` is signed. Why?
+        fn unmap_internal(&mut self, t: &dyn Task, addr: RemotePtr<Void>, num_bytes: usize) {
+            log!(LogDebug, "munmap({}, {}), ", addr, num_bytes);
+
+            let unmapper = |slf: &mut Self, m_key: MemoryRangeKey, rem: MemoryRange| {
+                log!(LogDebug, "  unmapping ({}) ...", rem);
+
+                let m = slf.mem.get(&m_key).unwrap().clone();
+                slf.remove_from_map(&m.map);
+
+                log!(LogDebug, "  erased ({}) ...", m.map);
+
+                // If the first segment we unmap underflows the unmap
+                // region, remap the underflow region.
+                let monitored = m.monitored_shared_memory.clone();
+                if m.map.start() < rem.start() {
+                    let mut underflow = Mapping::new(
+                        &m.map.subrange(m.map.start(), rem.start()),
+                        &m.recorded_map.subrange(m.map.start(), rem.start()),
+                        m.emu_file.clone(),
+                        m.mapped_file_stat.clone(),
+                        m.local_addr,
+                        monitored,
+                    );
+                    underflow.flags = m.flags;
+                    slf.add_to_map(underflow);
+                }
+                // If the last segment we unmap overflows the unmap
+                // region, remap the overflow region.
+                if rem.end() < m.map.end() {
+                    let new_local = m
+                        .local_addr
+                        .map(|addr| unsafe { addr.add(rem.end() - m.map.start()) });
+
+                    let new_monitored = m.monitored_shared_memory.clone().map(|r| {
+                        r.borrow()
+                            .subrange(rem.end() - m.map.start(), m.map.end() - rem.end())
+                    });
+                    let mut overflow = Mapping::new(
+                        &m.map.subrange(rem.end(), m.map.end()),
+                        &m.recorded_map.subrange(rem.end(), m.map.end()),
+                        m.emu_file,
+                        m.mapped_file_stat,
+                        new_local,
+                        new_monitored,
+                    );
+                    overflow.flags = m.flags;
+                    slf.add_to_map(overflow);
+                }
+
+                if m.local_addr.is_some() {
+                    if unsafe {
+                        munmap(
+                            m.local_addr.unwrap().add(rem.start() - m.map.start()),
+                            rem.size(),
+                        )
+                    }
+                    .is_err()
+                    {
+                        fatal!("Can't munmap");
+                    }
+                }
+            };
+            self.for_each_in_range(addr, num_bytes, unmapper, IterateHow::IterateDefault);
+            self.update_watchpoint_values(addr, addr + num_bytes);
         }
 
         /// Also sets brk_ptr.
@@ -1692,7 +1755,7 @@ pub mod address_space {
             unimplemented!()
         }
 
-        fn add_to_map(&mut self, m: &Mapping) {
+        fn add_to_map(&mut self, m: Mapping) {
             unimplemented!()
         }
 
