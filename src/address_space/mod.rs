@@ -182,6 +182,7 @@ pub mod address_space {
     use libc::{dev_t, ino_t, pid_t};
     use nix::sys::mman::munmap;
     use std::cell::{Ref, RefCell, RefMut};
+    use std::cmp::min;
     use std::collections::btree_map::{Range, RangeMut};
     use std::collections::hash_map::Iter as HashMapIter;
     use std::collections::HashSet;
@@ -253,7 +254,6 @@ pub mod address_space {
     }
 
     pub type MemoryMap = BTreeMap<MemoryRangeKey, Mapping>;
-    pub type MemoryMapIter<'a> = Range<'a, MemoryRangeKey, Mapping>;
 
     pub type AddressSpaceSharedPtr = Rc<RefCell<AddressSpace>>;
     pub type AddressSpaceSharedWeakPtr = Weak<RefCell<AddressSpace>>;
@@ -881,13 +881,115 @@ pub mod address_space {
         /// Change the protection bits of [addr, addr + num_bytes) to
         /// `prot`.
         pub fn protect(
-            &self,
+            &mut self,
             t: &dyn Task,
             addr: RemotePtr<Void>,
             num_bytes: usize,
             prot: ProtFlags,
         ) {
-            unimplemented!()
+            log!(LogDebug, "mprotect({}, {}, {:?})", addr, num_bytes, prot);
+
+            let mut last_overlap: MemoryRange = MemoryRange::new();
+            let protector = |slf: &mut Self, m_key: MemoryRangeKey, rem: MemoryRange| {
+                // Important !
+                let m = slf.mem.get(&m_key).unwrap().clone();
+                log!(LogDebug, "  protecting ({}) ...", rem);
+
+                slf.remove_from_map(&m.map);
+
+                // PROT_GROWSDOWN means that if this is a grows-down segment
+                // (which for us means "stack") then the change should be
+                // extended to the start of the segment.
+                // We don't try to handle the analogous PROT_GROWSUP, because we
+                // don't understand the idea of a grows-up segment.
+                let new_start: RemotePtr<Void>;
+                if m.map.start() < rem.start() && prot.contains(ProtFlags::PROT_GROWSDOWN) {
+                    new_start = m.map.start();
+                    log!(
+                        LogDebug,
+                        "  PROT_GROWSDOWN: expanded region down to {}",
+                        new_start
+                    );
+                } else {
+                    new_start = rem.start();
+                }
+                log!(LogDebug, "  erased ({})", m.map);
+
+                // If the first segment we protect underflows the
+                // region, remap the underflow region with previous
+                // prot.
+                let monitored = m.monitored_shared_memory.clone();
+                if m.map.start() < new_start {
+                    let mut underflow = Mapping::new(
+                        &m.map.subrange(m.map.start(), rem.start()),
+                        &m.recorded_map.subrange(m.recorded_map.start(), rem.start()),
+                        m.emu_file.clone(),
+                        m.mapped_file_stat.clone(),
+                        m.local_addr.clone(),
+                        monitored,
+                    );
+                    underflow.flags = m.flags;
+                    slf.add_to_map(&underflow);
+                }
+                // Remap the overlapping region with the new prot.
+                let new_end = min(rem.end(), m.map.end());
+
+                let new_prot =
+                    prot & (ProtFlags::PROT_READ | ProtFlags::PROT_WRITE | ProtFlags::PROT_EXEC);
+                let new_local_addr = m
+                    .local_addr
+                    .map(|addr| unsafe { addr.add(new_start - m.map.start()) });
+
+                let new_monitored = m.monitored_shared_memory.clone().map(|r| {
+                    r.borrow()
+                        .subrange(new_start - m.map.start(), new_end - new_start)
+                });
+
+                let mut overlap = Mapping::new(
+                    &m.map.subrange(new_start, new_end).set_prot(new_prot),
+                    &m.recorded_map
+                        .subrange(new_start, new_end)
+                        .set_prot(new_prot),
+                    m.emu_file.clone(),
+                    m.mapped_file_stat.clone(),
+                    new_local_addr,
+                    new_monitored,
+                );
+                overlap.flags = m.flags;
+                slf.add_to_map(&overlap);
+                last_overlap = *overlap.map;
+
+                // If the last segment we protect overflows the
+                // region, remap the overflow region with previous
+                // prot.
+                if rem.end() < m.map.end() {
+                    let new_local = m
+                        .local_addr
+                        .map(|addr| unsafe { addr.add(rem.end() - m.map.start()) });
+
+                    let new_monitored = m.monitored_shared_memory.clone().map(|r| {
+                        r.borrow()
+                            .subrange(rem.end() - m.map.start(), m.map.end() - rem.end())
+                    });
+                    let mut overflow = Mapping::new(
+                        &m.map.subrange(rem.end(), m.map.end()),
+                        &m.recorded_map.subrange(rem.end(), m.map.end()),
+                        m.emu_file.clone(),
+                        m.mapped_file_stat.clone(),
+                        new_local,
+                        new_monitored,
+                    );
+                    overflow.flags = m.flags;
+                    slf.add_to_map(&overflow);
+                }
+            };
+
+            self.for_each_in_range(addr, num_bytes, protector, IterateHow::IterateContiguous);
+            if last_overlap.size() > 0 {
+                // All mappings that we altered which might need coalescing
+                // are adjacent to |last_overlap|.
+                self.coalesce_around(t, &Maps::new_from_range(self, last_overlap));
+            }
         }
 
         /// Fix up mprotect registers parameters to take account of PROT_GROWSDOWN.
@@ -1472,7 +1574,7 @@ pub mod address_space {
         /// semantically "adjacent mappings" of the same resource as
         /// well, for example have adjacent file offsets and the same
         /// prot and flags.
-        fn coalesce_around(&self, t: &dyn Task, it: MemoryMapIter) {
+        fn coalesce_around(&self, t: &dyn Task, it: &Maps) {
             unimplemented!()
         }
 
@@ -1508,12 +1610,12 @@ pub mod address_space {
         /// contiguous mapping after `addr` within the region is seen.
         ///
         /// `IterateDefault` will iterate all mappings in the region.
-        fn for_each_in_range<F: Fn(&Mapping, MemoryRange)>(
-            &self,
+        fn for_each_in_range<F: FnMut(&mut Self, MemoryRangeKey, MemoryRange)>(
+            &mut self,
             addr: RemotePtr<Void>,
             // @TODO this is signed in rr.
             num_bytes: usize,
-            f: F,
+            mut f: F,
             how: IterateHow,
         ) {
             let region_start = floor_page_size(addr);
@@ -1527,42 +1629,47 @@ pub mod address_space {
 
                 // The next Mapping to iterate may not be contiguous with
                 // the last one seen.
-                let it = Maps::new_from_range(self, rem);
-                match it.into_iter().next() {
-                    None => {
-                        log!(LogDebug, "  not found, done.");
-                        return;
-                    }
-                    Some((range, m)) => {
-                        // `f` is allowed to erase Mappings.
-                        if rem.end() <= range.start() {
-                            log!(
-                                LogDebug,
-                                "  mapping at {} out of range, done.",
-                                range.start()
-                            );
+                let range: MemoryRangeKey;
+                {
+                    let mut iter = Maps::new_from_range(self, rem).into_iter();
+                    let result = iter.next();
+                    match result {
+                        Some((r, _)) => {
+                            range = *r;
+                        }
+                        None => {
+                            log!(LogDebug, "  not found, done.");
                             return;
                         }
-
-                        // range.start() < region_start would happen for the first region iterated
-                        if IterateHow::IterateContiguous == how
-                            && !(range.start() < region_start || rem.start() == range.start())
-                        {
-                            log!(
-                                LogDebug,
-                                "  discontiguous mapping at {}, done.",
-                                range.start()
-                            );
-                            return;
-                        }
-
-                        // fmap Mapping m!
-                        f(m, rem);
-
-                        // Maintain the loop invariant.
-                        last_f_mapped_end = range.end();
                     }
                 }
+                // `f` is allowed to erase Mappings.
+                if rem.end() <= range.start() {
+                    log!(
+                        LogDebug,
+                        "  mapping at {} out of range, done.",
+                        range.start()
+                    );
+                    return;
+                }
+
+                // range.start() < region_start would happen for the first region iterated
+                if IterateHow::IterateContiguous == how
+                    && !(range.start() < region_start || rem.start() == range.start())
+                {
+                    log!(
+                        LogDebug,
+                        "  discontiguous mapping at {}, done.",
+                        range.start()
+                    );
+                    return;
+                }
+
+                // fmap!
+                f(self, range, rem);
+
+                // Maintain the loop invariant.
+                last_f_mapped_end = range.end();
             }
         }
 
@@ -1581,7 +1688,11 @@ pub mod address_space {
             unimplemented!()
         }
 
-        fn remove_from_map(&self, range: &MemoryRange) {
+        fn remove_from_map(&mut self, range: &MemoryRange) {
+            unimplemented!()
+        }
+
+        fn add_to_map(&mut self, m: &Mapping) {
             unimplemented!()
         }
 

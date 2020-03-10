@@ -42,7 +42,11 @@ impl MonitoredSharedMemory {
     }
 
     /// This feature is currently unsupported
-    pub fn subrange(&self, start: usize, size: usize) -> MonitoredSharedMemory {
+    pub fn subrange(&self, start: usize, size: usize) -> MonitoredSharedMemorySharedPtr {
+        assert!(
+            false,
+            "Subranges in monitored shared memory not supported yet!"
+        );
         unimplemented!()
     }
 
