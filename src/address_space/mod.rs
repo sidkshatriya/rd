@@ -1,5 +1,6 @@
 pub mod kernel_mapping;
 pub mod memory_range;
+use crate::address_space::address_space::Mapping;
 use crate::address_space::memory_range::MemoryRange;
 use crate::kernel_abi::common::preload_interface::{
     RD_PAGE_ADDR, RD_PAGE_SYSCALL_INSTRUCTION_END, RD_PAGE_SYSCALL_STUB_SIZE,
@@ -7,6 +8,7 @@ use crate::kernel_abi::common::preload_interface::{
 use crate::remote_code_ptr::RemoteCodePtr;
 use crate::remote_ptr::RemotePtr;
 use crate::remote_ptr::Void;
+use crate::task::Task;
 use nix::sys::mman::{MapFlags, ProtFlags};
 use std::convert::TryInto;
 use std::mem::size_of;
@@ -889,13 +891,13 @@ pub mod address_space {
         ) {
             log!(LogDebug, "mprotect({}, {}, {:?})", addr, num_bytes, prot);
 
-            let mut last_overlap: MemoryRange = MemoryRange::new();
+            let mut last_overlap: Option<MemoryRangeKey> = None;
             let protector = |slf: &mut Self, m_key: MemoryRangeKey, rem: MemoryRange| {
                 // Important !
                 let m = slf.mem.get(&m_key).unwrap().clone();
                 log!(LogDebug, "  protecting ({}) ...", rem);
 
-                slf.remove_from_map(&m.map);
+                slf.remove_from_map(*m.map);
 
                 // PROT_GROWSDOWN means that if this is a grows-down segment
                 // (which for us means "stack") then the change should be
@@ -956,7 +958,7 @@ pub mod address_space {
                     new_monitored,
                 );
                 overlap.flags = m.flags;
-                last_overlap = *overlap.map;
+                last_overlap = Some(MemoryRangeKey(*overlap.map));
                 slf.add_to_map(overlap);
 
                 // If the last segment we protect overflows the
@@ -985,10 +987,13 @@ pub mod address_space {
             };
 
             self.for_each_in_range(addr, num_bytes, protector, IterateHow::IterateContiguous);
-            if last_overlap.size() > 0 {
-                // All mappings that we altered which might need coalescing
-                // are adjacent to |last_overlap|.
-                self.coalesce_around(t, &Maps::new_from_range(self, last_overlap));
+            match last_overlap {
+                Some(last_overlap_key) => {
+                    // All mappings that we altered which might need coalescing
+                    // are adjacent to |last_overlap|.
+                    self.coalesce_around(t, last_overlap_key);
+                }
+                None => (),
             }
         }
 
@@ -1499,7 +1504,7 @@ pub mod address_space {
                 log!(LogDebug, "  unmapping ({}) ...", rem);
 
                 let m = slf.mem.get(&m_key).unwrap().clone();
-                slf.remove_from_map(&m.map);
+                slf.remove_from_map(*m.map);
 
                 log!(LogDebug, "  erased ({}) ...", m.map);
 
@@ -1637,8 +1642,66 @@ pub mod address_space {
         /// semantically "adjacent mappings" of the same resource as
         /// well, for example have adjacent file offsets and the same
         /// prot and flags.
-        fn coalesce_around(&self, t: &dyn Task, it: &Maps) {
-            unimplemented!()
+        fn coalesce_around(&mut self, t: &dyn Task, key: MemoryRangeKey) {
+            let mut new_m: Mapping;
+            let first_k: MemoryRangeKey;
+            let last_k: MemoryRangeKey;
+
+            {
+                let mut forward_iterator = self.mem.range((Included(key), Unbounded));
+                let mut backward_iterator = self.mem.range((Unbounded, Included(key)));
+                let mut first_kv = backward_iterator.next_back().unwrap();
+                while let Some(prev_kv) = backward_iterator.next_back() {
+                    if !is_coalescable(prev_kv.1, first_kv.1) {
+                        break;
+                    } else {
+                        assert_coalesceable(t, &prev_kv.1, &first_kv.1);
+                        first_kv = prev_kv;
+                    }
+                }
+
+                let mut last_kv = forward_iterator.next().unwrap();
+                while let Some(next_kv) = forward_iterator.next() {
+                    if !is_coalescable(&last_kv.1, &next_kv.1) {
+                        break;
+                    } else {
+                        assert_coalesceable(t, &last_kv.1, &next_kv.1);
+                        last_kv = next_kv;
+                    }
+                }
+
+                if first_kv.0 == last_kv.0 {
+                    log!(LogDebug, "  no mappings to coalesce");
+                    return;
+                }
+
+                new_m = Mapping::new(
+                    &first_kv.1.map.extend(last_kv.0.end()),
+                    &first_kv.1.recorded_map.extend(last_kv.0.end()),
+                    first_kv.1.emu_file.clone(),
+                    first_kv.1.mapped_file_stat.clone(),
+                    first_kv.1.local_addr,
+                    first_kv.1.monitored_shared_memory.clone(),
+                );
+                new_m.flags = first_kv.1.flags;
+                log!(LogDebug, "  coalescing {}", new_m.map);
+                first_k = *first_kv.0;
+                last_k = *last_kv.0;
+            }
+
+            let result = self.mem.insert(MemoryRangeKey(*new_m.map), new_m);
+            debug_assert!(result.is_some());
+
+            // monitored-memory currently isn't coalescable so we don't need to
+            // adjust monitored_mem
+            let mut to_remove: Vec<MemoryRangeKey> = Vec::new();
+            for (k, _) in self.mem.range((Included(first_k), Included(last_k))) {
+                to_remove.push(*k);
+            }
+
+            for k in to_remove {
+                self.mem.remove(&k);
+            }
         }
 
         /// Erase `it` from `breakpoints` and restore any memory in
@@ -1751,12 +1814,17 @@ pub mod address_space {
             unimplemented!()
         }
 
-        fn remove_from_map(&mut self, range: &MemoryRange) {
-            unimplemented!()
+        fn remove_from_map(&mut self, range: MemoryRange) {
+            self.mem.remove(&MemoryRangeKey(range));
+            self.monitored_mem.remove(&range.start());
         }
 
         fn add_to_map(&mut self, m: Mapping) {
-            unimplemented!()
+            let start_addr = m.map.start();
+            if m.monitored_shared_memory.is_some() {
+                self.monitored_mem.insert(start_addr);
+            }
+            self.mem.insert(MemoryRangeKey(*m.map), m);
         }
 
         /// Call this only during recording.
@@ -1898,4 +1966,33 @@ fn exit_ip_from_index(i: usize) -> RemoteCodePtr {
 
 fn entry_ip_from_index(i: usize) -> RemoteCodePtr {
     RemoteCodePtr::from_val(RD_PAGE_ADDR + RD_PAGE_SYSCALL_STUB_SIZE * i)
+}
+
+fn assert_coalesceable(t: &dyn Task, lower: &Mapping, higher: &Mapping) {
+    // @TODO check the equality check.
+    let emu_file_comparison = match lower.emu_file.clone() {
+        Some(lower_emu) => match higher.emu_file.clone() {
+            Some(higher_emu) => lower_emu.as_ptr() == higher_emu.as_ptr(),
+            None => false,
+        },
+        None => higher.emu_file.is_none(),
+    };
+    ed_assert!(t, emu_file_comparison);
+    let local_addr_comparison = match lower.local_addr {
+        Some(lower_local) => match higher.local_addr {
+            Some(higher_local) => lower_local as usize + lower.map.size() == higher_local as usize,
+            None => false,
+        },
+        None => higher.local_addr.is_none(),
+    };
+    ed_assert!(t, local_addr_comparison);
+    ed_assert!(t, lower.flags == higher.flags);
+    ed_assert!(
+        t,
+        lower.monitored_shared_memory.is_none() && higher.monitored_shared_memory.is_none()
+    );
+}
+
+fn is_coalescable(mleft: &Mapping, mright: &Mapping) -> bool {
+    unimplemented!()
 }
