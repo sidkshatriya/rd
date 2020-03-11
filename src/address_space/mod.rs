@@ -1,7 +1,7 @@
 pub mod kernel_mapping;
 pub mod memory_range;
 use crate::address_space::address_space::Mapping;
-use crate::address_space::memory_range::MemoryRange;
+use crate::address_space::memory_range::{MemoryRange, MemoryRangeKey};
 use crate::kernel_abi::common::preload_interface::{
     RD_PAGE_ADDR, RD_PAGE_SYSCALL_INSTRUCTION_END, RD_PAGE_SYSCALL_STUB_SIZE,
 };
@@ -10,6 +10,7 @@ use crate::remote_ptr::RemotePtr;
 use crate::remote_ptr::Void;
 use crate::task::Task;
 use nix::sys::mman::{MapFlags, ProtFlags};
+use std::collections::BTreeSet;
 use std::convert::TryInto;
 use std::mem::size_of;
 
@@ -184,7 +185,7 @@ pub mod address_space {
     use libc::{dev_t, ino_t, pid_t};
     use nix::sys::mman::munmap;
     use std::cell::{Ref, RefCell, RefMut};
-    use std::cmp::min;
+    use std::cmp::{max, min};
     use std::collections::btree_map::{Range, RangeMut};
     use std::collections::hash_map::Iter as HashMapIter;
     use std::collections::HashSet;
@@ -749,7 +750,15 @@ pub mod address_space {
             dest: &mut [u8],
             addr: RemotePtr<u8>,
         ) {
-            unimplemented!()
+            for (k, v) in &self.breakpoints {
+                let bkpt_location = k.to_data_ptr::<u8>();
+                let start = max(addr, bkpt_location);
+                let end = min(addr + dest.len(), bkpt_location + v.data_length());
+                if start < end {
+                    // @TODO this code only works with x86/x64. Make generic like rr.
+                    *dest.get_mut(start - addr).unwrap() = v.overwritten_data;
+                }
+            }
         }
 
         /// Map `num_bytes` into this address space at `addr`, with
@@ -1995,4 +2004,29 @@ fn assert_coalesceable(t: &dyn Task, lower: &Mapping, higher: &Mapping) {
 
 fn is_coalescable(mleft: &Mapping, mright: &Mapping) -> bool {
     unimplemented!()
+}
+
+fn remove_range(ranges: &mut BTreeSet<MemoryRangeKey>, range: MemoryRangeKey) {
+    while let Some(matched_range) = ranges.get(&range).map(|r| *r) {
+        if matched_range.start() < range.start() {
+            ranges.insert(MemoryRangeKey(MemoryRange::from_range(
+                matched_range.start(),
+                range.start(),
+            )));
+        }
+        if range.end() < matched_range.end() {
+            ranges.insert(MemoryRangeKey(MemoryRange::from_range(
+                range.end(),
+                matched_range.end(),
+            )));
+        }
+        ranges.remove(&matched_range);
+    }
+}
+
+fn add_range(ranges: &mut BTreeSet<MemoryRangeKey>, range: MemoryRangeKey) {
+    // Remove overlapping ranges
+    remove_range(ranges, range);
+    ranges.insert(range);
+    // We could coalesce adjacent ranges, but there's probably no need.
 }
