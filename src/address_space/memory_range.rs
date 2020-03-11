@@ -6,7 +6,7 @@ use std::convert::TryInto;
 use std::fmt::{Display, Formatter, Result};
 use std::ops::{Deref, DerefMut};
 
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug)]
 pub struct MemoryRange {
     pub(super) start_: RemotePtr<Void>,
     pub(super) end_: RemotePtr<Void>,
@@ -85,7 +85,7 @@ impl Display for MemoryRange {
 
 /// This wrapper type is needed for special ordering requirements
 /// Traits PartialOrd, Ord, PartialEq, Eq are manually derived (see below).
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct MemoryRangeKey(pub MemoryRange);
 
 impl PartialOrd for MemoryRangeKey {
@@ -133,5 +133,88 @@ impl Deref for MemoryRangeKey {
 impl DerefMut for MemoryRangeKey {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::address_space::memory_range::{MemoryRange, MemoryRangeKey};
+    use std::collections::{BTreeMap, BTreeSet};
+    use std::ops::Bound::{Included, Unbounded};
+
+    #[test]
+    pub fn test_overlapping_and_iter() {
+        let mut m: BTreeSet<MemoryRangeKey> = BTreeSet::new();
+        let k1 = MemoryRangeKey(MemoryRange::from_range(0.into(), 10.into()));
+        let k2 = MemoryRangeKey(MemoryRange::from_range(10.into(), 15.into()));
+        let k4 = MemoryRangeKey(MemoryRange::from_range(1.into(), 10.into()));
+        m.insert(k1);
+        m.insert(k2);
+        let r0 = m.insert(k4);
+        assert_eq!(m.len(), 2);
+        assert_eq!(r0, false);
+
+        let mut found = 0;
+        let mut range = m.range((
+            Unbounded,
+            Included(MemoryRangeKey(MemoryRange::from_range(9.into(), 11.into()))),
+        ));
+
+        while range.next().is_some() {
+            found = found + 1;
+        }
+        assert_eq!(found, 1);
+        let k3 = MemoryRangeKey(MemoryRange::from_range(3.into(), 11.into()));
+        let r1 = m.remove(&k3);
+        assert_eq!(r1, true);
+        assert_eq!(m.len(), 1);
+        let r2 = m.remove(&k3);
+        assert_eq!(r2, true);
+        assert_eq!(m.len(), 0);
+        let r3 = m.remove(&k3);
+        assert_eq!(m.len(), 0);
+        assert_eq!(r3, false);
+    }
+
+    #[test]
+    pub fn test_remove() {
+        let mut m: BTreeSet<MemoryRangeKey> = BTreeSet::new();
+        let k1 = MemoryRangeKey(MemoryRange::from_range(0.into(), 10.into()));
+        let k2 = MemoryRangeKey(MemoryRange::from_range(10.into(), 15.into()));
+        m.insert(k1);
+        m.insert(k2);
+        assert_eq!(m.len(), 2);
+
+        let k3 = MemoryRangeKey(MemoryRange::from_range(3.into(), 11.into()));
+
+        let k1_prime = m.get(&k3).unwrap();
+        assert_eq!(k1_prime.start(), k1.start());
+        assert_eq!(k1_prime.end(), k1.end());
+        m.remove(&k3);
+
+        let k2_prime = m.get(&k3).unwrap();
+        assert_eq!(k2_prime.start(), k2.start());
+        assert_eq!(k2_prime.end(), k2.end());
+    }
+
+    #[test]
+    pub fn test_map_iter() {
+        let mut m: BTreeMap<MemoryRangeKey, usize> = BTreeMap::new();
+        let k1 = MemoryRangeKey(MemoryRange::from_range(0.into(), 10.into()));
+        let k2 = MemoryRangeKey(MemoryRange::from_range(10.into(), 15.into()));
+        m.insert(k1, 1);
+        m.insert(k2, 1);
+        assert_eq!(m.len(), 2);
+
+        let mut found = 0;
+        let mut range = m.range((
+            Unbounded,
+            Included(MemoryRangeKey(MemoryRange::from_range(9.into(), 11.into()))),
+        ));
+
+        while range.next().is_some() {
+            found = found + 1;
+        }
+        assert_eq!(found, 1);
     }
 }
