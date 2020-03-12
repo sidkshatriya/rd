@@ -1333,9 +1333,9 @@ pub mod address_space {
             unreachable!()
         }
 
-        /// @TODO what about just returning &'static ENTRY_POINTS?
-        pub fn rd_page_syscalls() -> Vec<SyscallType> {
-            ENTRY_POINTS.to_vec()
+        /// rr returns a std vector.
+        pub fn rd_page_syscalls() -> &'static [SyscallType] {
+            &ENTRY_POINTS
         }
 
         pub fn rd_page_syscall_from_exit_point(ip: RemoteCodePtr) -> SyscallType {
@@ -2008,6 +2008,9 @@ fn is_coalescable(mleft: &Mapping, mright: &Mapping) -> bool {
 
 fn remove_range(ranges: &mut BTreeSet<MemoryRangeKey>, range: MemoryRangeKey) {
     while let Some(matched_range) = ranges.get(&range).map(|r| *r) {
+        // Must remove first before we add because of possible overlaps
+        ranges.remove(&matched_range);
+
         if matched_range.start() < range.start() {
             ranges.insert(MemoryRangeKey(MemoryRange::from_range(
                 matched_range.start(),
@@ -2020,7 +2023,6 @@ fn remove_range(ranges: &mut BTreeSet<MemoryRangeKey>, range: MemoryRangeKey) {
                 matched_range.end(),
             )));
         }
-        ranges.remove(&matched_range);
     }
 }
 

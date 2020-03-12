@@ -136,6 +136,12 @@ impl DerefMut for MemoryRangeKey {
     }
 }
 
+impl From<MemoryRange> for MemoryRangeKey {
+    fn from(r: MemoryRange) -> Self {
+        MemoryRangeKey(r)
+    }
+}
+
 #[cfg(test)]
 mod test {
     use crate::address_space::memory_range::{MemoryRange, MemoryRangeKey};
