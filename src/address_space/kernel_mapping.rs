@@ -7,7 +7,6 @@ use libc::{MAP_ANONYMOUS, MAP_GROWSDOWN, MAP_NORESERVE, MAP_PRIVATE, MAP_SHARED,
 use nix::sys::mman::MapFlags;
 use nix::sys::mman::ProtFlags;
 use nix::sys::stat::{major, minor};
-use std::convert::TryInto;
 use std::fmt::{Display, Formatter, Result};
 use std::mem::zeroed;
 use std::ops::{Deref, DerefMut};

@@ -173,6 +173,7 @@ pub mod address_space {
     use crate::monitored_shared_memory::MonitoredSharedMemorySharedPtr;
     use crate::monkey_patcher::MonkeyPatcher;
     use crate::property_table::PropertyTable;
+    use crate::registers::Registers;
     use crate::remote_code_ptr::RemoteCodePtr;
     use crate::remote_ptr::RemotePtr;
     use crate::scoped_fd::ScopedFd;
@@ -190,6 +191,7 @@ pub mod address_space {
     use core::ffi::c_void;
     use libc::stat;
     use libc::{dev_t, ino_t, pid_t};
+    use libc::{PROT_GROWSDOWN, PROT_GROWSUP};
     use nix::sys::mman::munmap;
     use std::cell::{Ref, RefCell, RefMut};
     use std::cmp::{max, min};
@@ -1069,21 +1071,109 @@ pub mod address_space {
         }
 
         /// Fix up mprotect registers parameters to take account of PROT_GROWSDOWN.
-        pub fn fixup_mprotect_growsdown_parameters(&self, t: &dyn Task) {
-            unimplemented!()
+        pub fn fixup_mprotect_growsdown_parameters(&self, t: &mut dyn Task) {
+            ed_assert!(
+                t,
+                !(t.regs_ref().arg3() & PROT_GROWSUP as usize == PROT_GROWSUP as usize)
+            );
+            if t.regs_ref().arg3() & PROT_GROWSDOWN as usize == PROT_GROWSDOWN as usize {
+                let mut r: Registers = *t.regs_ref();
+                let maybe_mapping = self.mapping_of(r.arg1().into());
+                if r.arg1() == floor_page_size(r.arg1()) && maybe_mapping.is_some() {
+                    let km_flags = maybe_mapping.unwrap().map.flags();
+                    let new_start = maybe_mapping.unwrap().map.start();
+                    if km_flags.contains(MapFlags::MAP_GROWSDOWN) {
+                        r.set_arg2(r.arg1() + r.arg2() - new_start.as_usize());
+                        r.set_arg1(new_start.as_usize());
+                        r.set_arg3(r.arg3() & !(PROT_GROWSDOWN as usize));
+                        t.set_regs(&r);
+                    }
+                }
+            }
         }
 
         /// Move the mapping [old_addr, old_addr + old_num_bytes) to
         /// [new_addr, old_addr + new_num_bytes), preserving metadata.
         pub fn remap(
-            &self,
+            &mut self,
             t: &dyn Task,
             old_addr: RemotePtr<Void>,
-            old_num_bytes: usize,
+            mut old_num_bytes: usize,
             new_addr: RemotePtr<Void>,
-            new_num_bytes: usize,
+            mut new_num_bytes: usize,
         ) {
-            unimplemented!()
+            log!(
+                LogDebug,
+                "mremap({}, {}, {}, {})",
+                old_addr,
+                old_num_bytes,
+                new_addr,
+                new_num_bytes
+            );
+            old_num_bytes = ceil_page_size(old_num_bytes);
+
+            let m: Mapping = self.mapping_of(old_addr).unwrap().clone();
+            debug_assert!(m.monitored_shared_memory.is_none());
+
+            // @TODO Why not have these asserts??
+            // debug_assert_eq!(m.map.end(), old_addr + old_num_bytes);
+            // debug_assert_eq!(m.map.start(), old_addr);
+
+            let km = m
+                .map
+                .subrange(old_addr, min(m.map.end(), old_addr + old_num_bytes));
+
+            self.unmap_internal(t, old_addr, old_num_bytes);
+
+            // @TODO rr allows new_num_bytes to be 0. Is that correct?
+            // man mremap(2) seems to dissallow it.
+            debug_assert!(new_num_bytes != 0);
+            new_num_bytes = ceil_page_size(new_num_bytes);
+
+            let mut it = self.dont_fork.range((
+                Included(MemoryRangeKey(MemoryRange::new_range(
+                    old_addr,
+                    old_num_bytes,
+                ))),
+                Unbounded,
+            ));
+            let maybe_next: Option<&MemoryRangeKey> = it.next();
+            if maybe_next.is_some() && (maybe_next.unwrap().start() < old_addr + old_num_bytes) {
+                // mremap fails if some but not all pages are marked DONTFORK
+                debug_assert!(
+                    maybe_next.unwrap().0 == MemoryRange::new_range(old_addr, old_num_bytes)
+                );
+                remove_range(
+                    &mut self.dont_fork,
+                    MemoryRange::new_range(old_addr, old_num_bytes).into(),
+                );
+                add_range(
+                    &mut self.dont_fork,
+                    MemoryRange::new_range(new_addr, new_num_bytes).into(),
+                );
+            } else {
+                remove_range(
+                    &mut self.dont_fork,
+                    MemoryRange::new_range(old_addr, old_num_bytes).into(),
+                );
+                remove_range(
+                    &mut self.dont_fork,
+                    MemoryRange::new_range(new_addr, new_num_bytes).into(),
+                );
+            }
+
+            self.unmap_internal(t, new_addr, new_num_bytes);
+
+            let new_end = new_addr + new_num_bytes;
+            self.map_and_coalesce(
+                t,
+                km.set_range(new_addr, new_end),
+                m.recorded_map.set_range(new_addr, new_end),
+                m.emu_file,
+                m.mapped_file_stat,
+                None,
+                None,
+            );
         }
 
         /// Notify that data was written to this address space by rr or
