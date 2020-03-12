@@ -193,6 +193,7 @@ pub mod address_space {
     use libc::{dev_t, ino_t, pid_t};
     use libc::{PROT_GROWSDOWN, PROT_GROWSUP};
     use nix::sys::mman::munmap;
+    use nix::sys::mman::MmapAdvise;
     use std::cell::{Ref, RefCell, RefMut};
     use std::cmp::{max, min};
     use std::collections::btree_map::{Range, RangeMut};
@@ -1374,13 +1375,43 @@ pub mod address_space {
 
         /// Make [addr, addr + num_bytes) inaccessible within this
         /// address space.
-        pub fn unmap(&self, t: &dyn Task, addr: RemotePtr<Void>, snum_bytes: usize) {
-            unimplemented!()
+        pub fn unmap(&mut self, t: &dyn Task, addr: RemotePtr<Void>, num_bytes: usize) {
+            log!(LogDebug, "munmap({}, {})", addr, num_bytes);
+            let num_bytes = ceil_page_size(num_bytes);
+
+            // @TODO rr allows num_bytes to be 0 and simply returns
+            debug_assert!(num_bytes > 0);
+
+            remove_range(
+                &mut self.dont_fork,
+                MemoryRange::new_range(addr, num_bytes).into(),
+            );
+
+            self.unmap_internal(t, addr, num_bytes);
         }
 
         /// Notification of madvise call.
-        pub fn advise(&self, t: &dyn Task, addr: RemotePtr<Void>, num_bytes: usize, advice: i32) {
-            unimplemented!()
+        pub fn advise(
+            &mut self,
+            t: &dyn Task,
+            addr: RemotePtr<Void>,
+            num_bytes: usize,
+            advice: MmapAdvise,
+        ) {
+            log!(LogDebug, "madvise({}, {}, {:?})", addr, num_bytes, advice);
+            let num_bytes = ceil_page_size(num_bytes);
+
+            match advice {
+                MmapAdvise::MADV_DONTFORK => add_range(
+                    &mut self.dont_fork,
+                    MemoryRange::new_range(addr, num_bytes).into(),
+                ),
+                MmapAdvise::MADV_DOFORK => remove_range(
+                    &mut self.dont_fork,
+                    MemoryRange::new_range(addr, num_bytes).into(),
+                ),
+                _ => (),
+            }
         }
 
         /// Return the vdso mapping of this.
