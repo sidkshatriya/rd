@@ -15,6 +15,7 @@ use std::cmp::min;
 use std::collections::BTreeSet;
 use std::convert::TryInto;
 use std::mem::size_of;
+use crate::scoped_fd::ScopedFd;
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub enum BreakpointType {
@@ -166,14 +167,18 @@ pub mod address_space {
     use crate::address_space::memory_range::{MemoryRange, MemoryRangeKey};
     use crate::address_space::BreakpointType::BkptNone;
     use crate::address_space::MappingFlags;
-    use crate::auto_remote_syscalls::AutoRemoteSyscalls;
+    use crate::auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem};
     use crate::emu_fs::EmuFileSharedPtr;
     use crate::kernel_abi::common::preload_interface::{PRELOAD_THREAD_LOCALS_SIZE, RD_PAGE_ADDR};
     use crate::kernel_abi::{syscall_instruction, SupportedArch};
+    use crate::kernel_abi::{
+        syscall_number_for_brk, syscall_number_for_close, syscall_number_for_openat,
+    };
     use crate::log::LogLevel::LogDebug;
     use crate::monitored_shared_memory::MonitoredSharedMemorySharedPtr;
     use crate::monkey_patcher::MonkeyPatcher;
     use crate::property_table::PropertyTable;
+    use crate::rd::RD_RESERVED_ROOT_DIR_FD;
     use crate::registers::Registers;
     use crate::remote_code_ptr::RemoteCodePtr;
     use crate::remote_ptr::RemotePtr;
@@ -191,8 +196,9 @@ pub mod address_space {
     use crate::util::{ceil_page_size, floor_page_size};
     use core::ffi::c_void;
     use libc::stat;
-    use libc::{dev_t, ino_t, pid_t};
+    use libc::{dev_t, ino_t, pid_t, EACCES, ENOENT, O_RDONLY};
     use libc::{PROT_GROWSDOWN, PROT_GROWSUP};
+    use nix::fcntl::OFlag;
     use nix::sys::mman::munmap;
     use nix::sys::mman::MmapAdvise;
     use std::cell::{Ref, RefCell, RefMut};
@@ -609,7 +615,7 @@ pub mod address_space {
             let mut remote = AutoRemoteSyscalls::new(t);
             // Now we can set up the "rd page" at its fixed address. This gives
             // us traced and untraced syscall instructions at known, fixed addresses.
-            self.map_rd_page(&remote);
+            self.map_rd_page(&mut remote);
             // Set up the preload_thread_locals shared area.
             remote.create_shared_mmap(
                 PRELOAD_THREAD_LOCALS_SIZE,
@@ -1492,7 +1498,7 @@ pub mod address_space {
 
         /// This might not be the length of an actual system page, but we allocate
         /// at least this much space.
-        pub fn rd_page_size() -> u32 {
+        pub fn rd_page_size() -> usize {
             4096
         }
         pub fn rd_page_end() -> RemotePtr<Void> {
@@ -1768,8 +1774,135 @@ pub mod address_space {
         }
 
         /// Also sets brk_ptr.
-        fn map_rd_page(&mut self, remote: &AutoRemoteSyscalls) {
-            unimplemented!()
+        fn map_rd_page(&mut self, remote: &mut AutoRemoteSyscalls) {
+            let prot = ProtFlags::PROT_EXEC | ProtFlags::PROT_READ;
+            let mut flags = MapFlags::MAP_PRIVATE | MapFlags::MAP_FIXED;
+
+            let file_name: String;
+            let arch = remote.arch();
+
+            let path = find_rd_page_file(remote.task());
+            let mut child_path = AutoRestoreMem::push_cstr(remote, path.as_str());
+            let remote_path_addr = child_path.get().unwrap() + 1;
+            // skip leading '/' since we want the path to be relative to the root fd
+            let child_fd_ret = child_path.syscall(
+                syscall_number_for_openat(arch),
+                &[
+                    RD_RESERVED_ROOT_DIR_FD as _,
+                    remote_path_addr.as_usize(),
+                    O_RDONLY as _,
+                ],
+            );
+
+            let child_fd = child_fd_ret.try_into().unwrap();
+            if child_fd >= 0 {
+                child_path.infallible_mmap_syscall(
+                    Self::rd_page_start(),
+                    Self::rd_page_size(),
+                    prot,
+                    flags,
+                    child_fd,
+                    0,
+                );
+
+                let fstat: libc::stat = child_path.task().stat_fd(child_fd);
+                file_name = child_path.task().file_name_of_fd(child_fd);
+
+                child_path.infallible_syscall(syscall_number_for_close(arch), &[child_fd as _]);
+
+                self.map(
+                    child_path.task(),
+                    Self::rd_page_start(),
+                    Self::rd_page_size(),
+                    prot,
+                    flags,
+                    0,
+                    &file_name,
+                    fstat.st_dev,
+                    fstat.st_ino,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                );
+            } else {
+                ed_assert!(
+                    child_path.task(),
+                    child_fd != -ENOENT,
+                    "rr_page file not found: {}",
+                    path
+                );
+                ed_assert!(
+                    child_path.task(),
+                    child_fd == -EACCES,
+                    "Unexpected error mapping rr_page"
+                );
+                flags |= MapFlags::MAP_ANONYMOUS;
+                child_path.infallible_mmap_syscall(
+                    Self::rd_page_start(),
+                    Self::rd_page_size(),
+                    prot,
+                    flags,
+                    -1,
+                    0,
+                );
+                let page = ScopedFd::open_path(path.as_str(), OFlag::O_RDONLY);
+                ed_assert!(
+                    child_path.task(),
+                    page.is_open(),
+                    "Error opening rr_page ourselves"
+                );
+                // @TODO Different from rr. Make sure this is correct.
+                file_name = child_path.task().file_name_of_fd(page.as_raw());
+
+                let page_data: Vec<u8> = read_all(child_path.task(), &page);
+                child_path.task_mut().write_bytes_helper(
+                    Self::rd_page_start(),
+                    &page_data,
+                    None,
+                    WriteFlags::empty()
+                );
+
+                self.map(
+                    child_path.task(),
+                    Self::rd_page_start(),
+                    Self::rd_page_size(),
+                    prot,
+                    flags,
+                    0,
+                    &file_name,
+                    0,
+                    0,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                );
+            }
+            *self.mapping_flags_of_mut(Self::rd_page_start()).unwrap() = MappingFlags::IS_RD_PAGE;
+
+            if child_path.task().session().borrow().is_recording() {
+                // brk() will not have been called yet so the brk area is empty.
+                self.brk_start = (child_path.infallible_syscall(syscall_number_for_brk(arch), &[0]) as usize).into();
+                self.brk_end = self.brk_start;
+                ed_assert!(child_path.task(), !self.brk_end.is_null());
+            }
+
+            self.traced_syscall_ip_ = Self::rd_page_syscall_entry_point(
+                Traced::Traced,
+                Privileged::Unpriviledged,
+                Enabled::RecordingAndReplay,
+                child_path.arch(),
+            );
+            // @TODO do we want this an Option?
+            self.privileged_traced_syscall_ip_ = Some(Self::rd_page_syscall_entry_point(
+                Traced::Traced,
+                Privileged::Privileged,
+                Enabled::RecordingAndReplay,
+                child_path.arch(),
+            ));
         }
 
         fn update_watchpoint_value(&self, watchpoint_range: &MemoryRange) {
@@ -2335,4 +2468,12 @@ fn range_for_watchpoint(addr: RemotePtr<Void>, num_bytes: usize) -> MemoryRange 
     let p = addr.as_usize();
     let max_len = std::usize::MAX - p;
     MemoryRange::new_range(addr, min(num_bytes, max_len))
+}
+
+fn find_rd_page_file(t: &dyn Task) -> String {
+    unimplemented!()
+}
+
+fn read_all(t: &dyn Task, fd: &ScopedFd) -> Vec<u8> {
+    unimplemented!()
 }
