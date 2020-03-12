@@ -1,6 +1,7 @@
 pub mod kernel_mapping;
 pub mod memory_range;
 use crate::address_space::address_space::Mapping;
+use crate::address_space::kernel_mapping::KernelMapping;
 use crate::address_space::memory_range::{MemoryRange, MemoryRangeKey};
 use crate::kernel_abi::common::preload_interface::{
     RD_PAGE_ADDR, RD_PAGE_SYSCALL_INSTRUCTION_END, RD_PAGE_SYSCALL_STUB_SIZE,
@@ -70,6 +71,12 @@ pub enum Enabled {
     RecordingOnly,
     ReplayOnly,
     RecordingAndReplay,
+}
+
+#[derive(Copy, Clone, Eq, PartialEq)]
+enum HandleHeap {
+    TreatHeapAsAnonymous,
+    RespectHeap,
 }
 
 /// Must match generate_rr_page.py
@@ -2080,7 +2087,84 @@ fn assert_coalesceable(t: &dyn Task, lower: &Mapping, higher: &Mapping) {
 }
 
 fn is_coalescable(mleft: &Mapping, mright: &Mapping) -> bool {
-    unimplemented!()
+    if !is_adjacent_mapping(&mleft.map, &mright.map, HandleHeap::RespectHeap, None)
+        || !is_adjacent_mapping(
+            &mleft.recorded_map,
+            &mright.recorded_map,
+            HandleHeap::RespectHeap,
+            None,
+        )
+    {
+        return false;
+    }
+
+    return mleft.flags == mright.flags;
+}
+
+/// Return true iff |left| and |right| are located adjacently in memory
+/// with the same metadata, and map adjacent locations of the same
+/// underlying (real) device.
+fn is_adjacent_mapping(
+    mleft: &KernelMapping,
+    mright: &KernelMapping,
+    handle_heap: HandleHeap,
+    maybe_flags_to_check: Option<u32>,
+) -> bool {
+    if mleft.end() != mright.start() {
+        return false;
+    }
+
+    let flags_to_check: u32 = maybe_flags_to_check.unwrap_or(0xFFFFFFFF);
+    if ((mleft.flags().bits() as u32 ^ mright.flags().bits() as u32) & flags_to_check != 0)
+        || mleft.prot() != mright.prot()
+    {
+        return false;
+    }
+    if !normalized_file_names_equal(mleft, mright, handle_heap) {
+        return false;
+    }
+    if mleft.device() != mright.device() || mleft.inode() != mright.inode() {
+        return false;
+    }
+    if mleft.is_real_device()
+        && mleft.file_offset_bytes() + mleft.size() as u64 != mright.file_offset_bytes()
+    {
+        return false;
+    }
+
+    return true;
+}
+
+fn normalized_file_names_equal(
+    km1: &KernelMapping,
+    km2: &KernelMapping,
+    handle_heap: HandleHeap,
+) -> bool {
+    if km1.is_stack() || km2.is_stack() {
+        // The kernel seems to use "[stack:<tid>]" for any mapping area containing
+        // thread |tid|'s stack pointer. When the thread exits, the next read of
+        // the maps doesn't treat the area as stack at all. We don't want to track
+        // thread exits, so if one of the mappings is a stack, skip the name
+        // comparison. Device and inode numbers will still be checked.
+        return true;
+    }
+    if handle_heap == HandleHeap::TreatHeapAsAnonymous && (km1.is_heap() || km2.is_heap()) {
+        // The kernel's heuristics for treating an anonymous mapping as "[heap]"
+        // are obscure. Just skip the name check. Device and inode numbers will
+        // still be checked.
+        return true;
+    }
+    // We don't track when a file gets deleted, so it's possible for the kernel
+    // to have " (deleted)" when we don't.
+    return strip_deleted(km1.fsname()) == strip_deleted(km2.fsname());
+}
+
+fn strip_deleted(s: &str) -> &str {
+    let maybe_loc = s.find(" (deleted)");
+    match maybe_loc {
+        Some(loc) => &s[0..loc],
+        None => s,
+    }
 }
 
 fn remove_range(ranges: &mut BTreeSet<MemoryRangeKey>, range: MemoryRangeKey) {

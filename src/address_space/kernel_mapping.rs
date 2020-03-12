@@ -118,7 +118,7 @@ impl KernelMapping {
     pub fn subrange(&self, start: RemotePtr<Void>, end: RemotePtr<Void>) -> KernelMapping {
         debug_assert!(start >= self.start() && end <= self.end());
         let start_addr: u64 = if self.is_real_device() {
-            (start - self.start()).try_into().unwrap()
+            (start - self.start()) as u64
         } else {
             0
         };

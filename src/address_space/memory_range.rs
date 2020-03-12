@@ -2,7 +2,6 @@ use crate::remote_ptr::RemotePtr;
 use crate::remote_ptr::Void;
 use core::cmp::Ordering;
 use std::cmp::{max, min};
-use std::convert::TryInto;
 use std::fmt::{Display, Formatter, Result};
 use std::ops::{Deref, DerefMut};
 
@@ -73,7 +72,8 @@ impl MemoryRange {
         self.end_
     }
     pub fn size(&self) -> usize {
-        (self.end_ - self.start_).try_into().unwrap()
+        // Should automatically flag an error in debug mode if size() is negative
+        self.end_ - self.start_
     }
 }
 
