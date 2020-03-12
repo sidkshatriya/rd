@@ -1294,16 +1294,38 @@ pub mod address_space {
         /// methods above, except that watchpoints can be set for an
         /// address range.
         pub fn add_watchpoint(
-            &self,
+            &mut self,
             addr: RemotePtr<Void>,
             num_bytes: usize,
             type_: WatchType,
         ) -> bool {
-            unimplemented!()
+            let range = range_for_watchpoint(addr, num_bytes);
+            let mut result = self.watchpoints.get_mut(&range);
+            if let None = result {
+                let insert_result = self.watchpoints.insert(range, Watchpoint::new(num_bytes));
+                // Its a new key
+                debug_assert!(insert_result.is_none());
+                self.update_watchpoint_value(&range);
+                result = self.watchpoints.get_mut(&range);
+            }
+            result.unwrap().watch(Self::access_bits_of(type_));
+            self.allocate_watchpoints()
         }
-        pub fn remove_watchpoint(&self, addr: RemotePtr<Void>, num_bytes: usize, type_: WatchType) {
-            unimplemented!()
+        pub fn remove_watchpoint(
+            &mut self,
+            addr: RemotePtr<Void>,
+            num_bytes: usize,
+            type_: WatchType,
+        ) {
+            let r = range_for_watchpoint(addr, num_bytes);
+            if let Some(wp) = self.watchpoints.get_mut(&r) {
+                if 0 == wp.unwatch(Self::access_bits_of(type_)) {
+                    self.watchpoints.remove(&r);
+                }
+            }
+            self.allocate_watchpoints();
         }
+
         pub fn remove_all_watchpoints(&mut self) {
             self.watchpoints.clear();
             self.allocate_watchpoints();
@@ -1750,7 +1772,7 @@ pub mod address_space {
             unimplemented!()
         }
 
-        fn update_watchpoint_value(&self, range: &MemoryRange, watchpoint: &Watchpoint) {
+        fn update_watchpoint_value(&self, watchpoint_range: &MemoryRange) {
             unimplemented!()
         }
 
@@ -2300,4 +2322,17 @@ fn add_range(ranges: &mut BTreeSet<MemoryRange>, range: MemoryRange) {
     remove_range(ranges, range);
     ranges.insert(range);
     // We could coalesce adjacent ranges, but there's probably no need.
+}
+
+/// We do not allow a watchpoint to watch the last byte of memory addressable
+/// by rr. This avoids constructing a MemoryRange that wraps around.
+/// For 64-bit builds this is no problem because addresses at the top of memory
+/// are in kernel space. For 32-bit builds it seems impossible to map the last
+/// page of memory in Linux so we should be OK there too.
+/// Note that zero-length watchpoints are OK. configure_watch_registers just
+/// ignores them.
+fn range_for_watchpoint(addr: RemotePtr<Void>, num_bytes: usize) -> MemoryRange {
+    let p = addr.as_usize();
+    let max_len = std::usize::MAX - p;
+    MemoryRange::new_range(addr, min(num_bytes, max_len))
 }

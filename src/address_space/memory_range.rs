@@ -5,7 +5,7 @@ use std::cmp::{max, min};
 use std::fmt::{Display, Formatter, Result};
 use std::ops::{Deref, DerefMut};
 
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct MemoryRange {
     pub(super) start_: RemotePtr<Void>,
     pub(super) end_: RemotePtr<Void>,
