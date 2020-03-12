@@ -75,7 +75,7 @@ impl KernelMapping {
             inode_: inode,
             prot_: prot,
             flags_: flags,
-            offset: offset,
+            offset,
             fsname_: fsname.into(),
             mr: MemoryRange::from_range(start, end),
         };
@@ -246,6 +246,7 @@ impl KernelMapping {
     }
 }
 
+/// Need to implement this manually because of the assert_valid() check
 impl Clone for KernelMapping {
     fn clone(&self) -> Self {
         let result = KernelMapping {

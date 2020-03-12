@@ -237,16 +237,16 @@ pub mod address_space {
 
     impl Mapping {
         pub fn new(
-            map: &KernelMapping,
-            recorded_map: &KernelMapping,
+            map: KernelMapping,
+            recorded_map: KernelMapping,
             emu_file: Option<EmuFileSharedPtr>,
             mapped_file_stat: Option<stat>,
             local_addr: Option<*mut c_void>,
             monitored: Option<MonitoredSharedMemorySharedPtr>,
         ) -> Mapping {
             Mapping {
-                map: map.clone(),
-                recorded_map: recorded_map.clone(),
+                map,
+                recorded_map,
                 emu_file,
                 mapped_file_stat,
                 local_addr,
@@ -534,7 +534,7 @@ pub mod address_space {
         shm_sizes: HashMap<RemotePtr<Void>, usize>,
         monitored_mem: HashSet<RemotePtr<Void>>,
         /// madvise DONTFORK regions
-        dont_fork: HashSet<MemoryRange>,
+        dont_fork: BTreeSet<MemoryRangeKey>,
         /// The session that created this.  We save a ref to it so that
         /// we can notify it when we die.
         /// `session_` in rr.
@@ -780,17 +780,72 @@ pub mod address_space {
             num_bytes: usize,
             prot: ProtFlags,
             flags: MapFlags,
-            offset_bytes: i64,
+            // @TODO this is a i64 in rr
+            offset_bytes: u64,
             fsname: &str,
             device: dev_t,
             inode: ino_t,
-            mapped_file_stat: Option<Box<libc::stat>>,
+            mapped_file_stat: Option<libc::stat>,
             record_map: Option<&KernelMapping>,
             emu_file: Option<EmuFileSharedPtr>,
-            local_addr: Option<*const c_void>,
+            local_addr: Option<*mut c_void>,
             monitored: Option<MonitoredSharedMemorySharedPtr>,
         ) -> KernelMapping {
-            unimplemented!()
+            log!(
+                LogDebug,
+                "mmap({}, {}, {:?}, {:?}, {})",
+                addr,
+                num_bytes,
+                prot,
+                flags,
+                offset_bytes
+            );
+            let num_bytes = ceil_page_size(num_bytes);
+            let m = KernelMapping::new_with_opts(
+                addr,
+                addr + num_bytes,
+                fsname,
+                device,
+                inode,
+                prot,
+                flags,
+                offset_bytes,
+            );
+
+            // @TODO in rr a 0 length mapping accepted. Is this correct?
+            debug_assert!(num_bytes > 0);
+
+            remove_range(
+                &mut self.dont_fork,
+                MemoryRange::new_range(addr, num_bytes).into(),
+            );
+
+            // The mmap() man page doesn't specifically describe
+            // what should happen if an existing map is
+            // "overwritten" by a new map (of the same resource).
+            // In testing, the behavior seems to be as if the
+            // overlapping region is unmapped and then remapped
+            // per the arguments to the second call.
+            self.unmap_internal(t, addr, num_bytes);
+
+            let actual_recorded_map = record_map.map_or(m.clone(), |km| km.clone());
+            // During an emulated exec, we will explicitly map in a (copy of) the VDSO
+            // at the recorded address.
+            if actual_recorded_map.is_vdso() {
+                self.vdso_start_addr = addr;
+            }
+
+            self.map_and_coalesce(
+                t,
+                m.clone(),
+                actual_recorded_map,
+                emu_file,
+                mapped_file_stat,
+                local_addr,
+                monitored,
+            );
+
+            m
         }
 
         /// Return the mapping and mapped resource for the byte at address 'addr'.
@@ -932,8 +987,8 @@ pub mod address_space {
                 let monitored = m.monitored_shared_memory.clone();
                 if m.map.start() < new_start {
                     let mut underflow = Mapping::new(
-                        &m.map.subrange(m.map.start(), rem.start()),
-                        &m.recorded_map.subrange(m.recorded_map.start(), rem.start()),
+                        m.map.subrange(m.map.start(), rem.start()),
+                        m.recorded_map.subrange(m.recorded_map.start(), rem.start()),
                         m.emu_file.clone(),
                         m.mapped_file_stat.clone(),
                         m.local_addr.clone(),
@@ -957,8 +1012,8 @@ pub mod address_space {
                 });
 
                 let mut overlap = Mapping::new(
-                    &m.map.subrange(new_start, new_end).set_prot(new_prot),
-                    &m.recorded_map
+                    m.map.subrange(new_start, new_end).set_prot(new_prot),
+                    m.recorded_map
                         .subrange(new_start, new_end)
                         .set_prot(new_prot),
                     m.emu_file.clone(),
@@ -983,8 +1038,8 @@ pub mod address_space {
                             .subrange(rem.end() - m.map.start(), m.map.end() - rem.end())
                     });
                     let mut overflow = Mapping::new(
-                        &m.map.subrange(rem.end(), m.map.end()),
-                        &m.recorded_map.subrange(rem.end(), m.map.end()),
+                        m.map.subrange(rem.end(), m.map.end()),
+                        m.recorded_map.subrange(rem.end(), m.map.end()),
                         m.emu_file.clone(),
                         m.mapped_file_stat.clone(),
                         new_local,
@@ -1522,8 +1577,8 @@ pub mod address_space {
                 let monitored = m.monitored_shared_memory.clone();
                 if m.map.start() < rem.start() {
                     let mut underflow = Mapping::new(
-                        &m.map.subrange(m.map.start(), rem.start()),
-                        &m.recorded_map.subrange(m.map.start(), rem.start()),
+                        m.map.subrange(m.map.start(), rem.start()),
+                        m.recorded_map.subrange(m.map.start(), rem.start()),
                         m.emu_file.clone(),
                         m.mapped_file_stat.clone(),
                         m.local_addr,
@@ -1544,8 +1599,8 @@ pub mod address_space {
                             .subrange(rem.end() - m.map.start(), m.map.end() - rem.end())
                     });
                     let mut overflow = Mapping::new(
-                        &m.map.subrange(rem.end(), m.map.end()),
-                        &m.recorded_map.subrange(rem.end(), m.map.end()),
+                        m.map.subrange(rem.end(), m.map.end()),
+                        m.recorded_map.subrange(rem.end(), m.map.end()),
                         m.emu_file,
                         m.mapped_file_stat,
                         new_local,
@@ -1685,8 +1740,8 @@ pub mod address_space {
                 }
 
                 new_m = Mapping::new(
-                    &first_kv.1.map.extend(last_kv.0.end()),
-                    &first_kv.1.recorded_map.extend(last_kv.0.end()),
+                    first_kv.1.map.extend(last_kv.0.end()),
+                    first_kv.1.recorded_map.extend(last_kv.0.end()),
                     first_kv.1.emu_file.clone(),
                     first_kv.1.mapped_file_stat.clone(),
                     first_kv.1.local_addr,
@@ -1808,19 +1863,41 @@ pub mod address_space {
             }
         }
 
-        /// Map `m` of `r` into this address space, and coalesce any
-        /// mappings of `r` that are adjacent to `m`.
+        /// Map `km` into this address space, and coalesce any
+        /// mappings that are adjacent to `km`.
         fn map_and_coalesce(
-            &self,
+            &mut self,
             t: &dyn Task,
-            m: &KernelMapping,
-            recorded_map: &KernelMapping,
-            emu_file: EmuFileSharedPtr,
-            mapped_file_stat: libc::stat,
-            local_addr: *const u8,
-            monitored: MonitoredSharedMemorySharedPtr,
+            km: KernelMapping,
+            recorded_km: KernelMapping,
+            emu_file: Option<EmuFileSharedPtr>,
+            mapped_file_stat: Option<libc::stat>,
+            local_addr: Option<*mut c_void>,
+            monitored: Option<MonitoredSharedMemorySharedPtr>,
         ) {
-            unimplemented!()
+            log!(LogDebug, "  mapping {}", km);
+
+            if monitored.is_some() {
+                self.monitored_mem.insert(km.start());
+            }
+
+            let mr_key: MemoryRangeKey = MemoryRangeKey(*km);
+            let km_start = km.start();
+            let km_end = km.end();
+            self.mem.insert(
+                mr_key,
+                Mapping::new(
+                    km,
+                    recorded_km,
+                    emu_file,
+                    mapped_file_stat,
+                    local_addr,
+                    monitored,
+                ),
+            );
+            self.coalesce_around(t, mr_key);
+
+            self.update_watchpoint_values(km_start, km_end);
         }
 
         fn remove_from_map(&mut self, range: MemoryRange) {
