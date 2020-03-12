@@ -397,8 +397,8 @@ impl<'a> AutoRemoteSyscalls<'a> {
                 &[
                     addr.as_usize(),
                     length,
-                    prot.bits() as u32 as _,
-                    flags.bits() as u32 as _,
+                    prot.bits() as _,
+                    flags.bits() as _,
                     child_fd as _,
                     offset_pages.try_into().unwrap(),
                 ],
@@ -409,8 +409,8 @@ impl<'a> AutoRemoteSyscalls<'a> {
                 &[
                     addr.as_usize(),
                     length,
-                    prot.bits() as u32 as _,
-                    flags.bits() as u32 as _,
+                    prot.bits() as _,
+                    flags.bits() as _,
                     child_fd as _,
                     (offset_pages * page_size() as u64).try_into().unwrap(),
                 ],
@@ -798,7 +798,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
             libc::mmap(
                 0 as *mut c_void,
                 size,
-                (ProtFlags::PROT_READ | ProtFlags::PROT_WRITE).bits() as u32 as _,
+                (ProtFlags::PROT_READ | ProtFlags::PROT_WRITE).bits() as _,
                 flags.bits(),
                 shmem_fd.as_raw(),
                 0,

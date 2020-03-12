@@ -315,7 +315,7 @@ pub(super) fn safe_pwrite64(
             &[
                 m.0.start().as_usize(),
                 m.0.size(),
-                (m.1 | ProtFlags::PROT_WRITE).bits() as u32 as _,
+                (m.1 | ProtFlags::PROT_WRITE).bits() as _,
             ],
         );
     }
@@ -325,7 +325,7 @@ pub(super) fn safe_pwrite64(
     for m in &mappings_to_fix {
         remote.infallible_syscall(
             mprotect_syscallno,
-            &[m.0.start().as_usize(), m.0.size(), m.1.bits() as u32 as _],
+            &[m.0.start().as_usize(), m.0.size(), m.1.bits() as _],
         );
     }
 
