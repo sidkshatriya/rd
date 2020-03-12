@@ -2,7 +2,7 @@ pub mod kernel_mapping;
 pub mod memory_range;
 use crate::address_space::address_space::Mapping;
 use crate::address_space::kernel_mapping::KernelMapping;
-use crate::address_space::memory_range::{MemoryRange, MemoryRangeKey};
+use crate::address_space::memory_range::MemoryRange;
 use crate::kernel_abi::common::preload_interface::{
     RD_PAGE_ADDR, RD_PAGE_SYSCALL_INSTRUCTION_END, RD_PAGE_SYSCALL_STUB_SIZE,
 };
@@ -11,6 +11,7 @@ use crate::remote_ptr::RemotePtr;
 use crate::remote_ptr::Void;
 use crate::task::Task;
 use nix::sys::mman::{MapFlags, ProtFlags};
+use std::cmp::min;
 use std::collections::BTreeSet;
 use std::convert::TryInto;
 use std::mem::size_of;
@@ -544,7 +545,7 @@ pub mod address_space {
         shm_sizes: HashMap<RemotePtr<Void>, usize>,
         monitored_mem: HashSet<RemotePtr<Void>>,
         /// madvise DONTFORK regions
-        dont_fork: BTreeSet<MemoryRangeKey>,
+        dont_fork: BTreeSet<MemoryRange>,
         /// The session that created this.  We save a ref to it so that
         /// we can notify it when we die.
         /// `session_` in rr.
@@ -825,10 +826,7 @@ pub mod address_space {
             // @TODO in rr a 0 length mapping accepted. Is this correct?
             debug_assert!(num_bytes > 0);
 
-            remove_range(
-                &mut self.dont_fork,
-                MemoryRange::new_range(addr, num_bytes).into(),
-            );
+            remove_range(&mut self.dont_fork, MemoryRange::new_range(addr, num_bytes));
 
             // The mmap() man page doesn't specifically describe
             // what should happen if an existing map is
@@ -1132,34 +1130,31 @@ pub mod address_space {
             new_num_bytes = ceil_page_size(new_num_bytes);
 
             let mut it = self.dont_fork.range((
-                Included(MemoryRangeKey(MemoryRange::new_range(
-                    old_addr,
-                    old_num_bytes,
-                ))),
+                Included(MemoryRange::new_range(old_addr, old_num_bytes)),
                 Unbounded,
             ));
-            let maybe_next: Option<&MemoryRangeKey> = it.next();
+            let maybe_next: Option<&MemoryRange> = it.next();
             if maybe_next.is_some() && (maybe_next.unwrap().start() < old_addr + old_num_bytes) {
                 // mremap fails if some but not all pages are marked DONTFORK
                 debug_assert!(
-                    maybe_next.unwrap().0 == MemoryRange::new_range(old_addr, old_num_bytes)
+                    *maybe_next.unwrap() == MemoryRange::new_range(old_addr, old_num_bytes)
                 );
                 remove_range(
                     &mut self.dont_fork,
-                    MemoryRange::new_range(old_addr, old_num_bytes).into(),
+                    MemoryRange::new_range(old_addr, old_num_bytes),
                 );
                 add_range(
                     &mut self.dont_fork,
-                    MemoryRange::new_range(new_addr, new_num_bytes).into(),
+                    MemoryRange::new_range(new_addr, new_num_bytes),
                 );
             } else {
                 remove_range(
                     &mut self.dont_fork,
-                    MemoryRange::new_range(old_addr, old_num_bytes).into(),
+                    MemoryRange::new_range(old_addr, old_num_bytes),
                 );
                 remove_range(
                     &mut self.dont_fork,
-                    MemoryRange::new_range(new_addr, new_num_bytes).into(),
+                    MemoryRange::new_range(new_addr, new_num_bytes),
                 );
             }
 
@@ -1382,10 +1377,7 @@ pub mod address_space {
             // @TODO rr allows num_bytes to be 0 and simply returns
             debug_assert!(num_bytes > 0);
 
-            remove_range(
-                &mut self.dont_fork,
-                MemoryRange::new_range(addr, num_bytes).into(),
-            );
+            remove_range(&mut self.dont_fork, MemoryRange::new_range(addr, num_bytes));
 
             self.unmap_internal(t, addr, num_bytes);
         }
@@ -1402,14 +1394,12 @@ pub mod address_space {
             let num_bytes = ceil_page_size(num_bytes);
 
             match advice {
-                MmapAdvise::MADV_DONTFORK => add_range(
-                    &mut self.dont_fork,
-                    MemoryRange::new_range(addr, num_bytes).into(),
-                ),
-                MmapAdvise::MADV_DOFORK => remove_range(
-                    &mut self.dont_fork,
-                    MemoryRange::new_range(addr, num_bytes).into(),
-                ),
+                MmapAdvise::MADV_DONTFORK => {
+                    add_range(&mut self.dont_fork, MemoryRange::new_range(addr, num_bytes))
+                }
+                MmapAdvise::MADV_DOFORK => {
+                    remove_range(&mut self.dont_fork, MemoryRange::new_range(addr, num_bytes))
+                }
                 _ => (),
             }
         }
@@ -2288,27 +2278,24 @@ fn strip_deleted(s: &str) -> &str {
     }
 }
 
-fn remove_range(ranges: &mut BTreeSet<MemoryRangeKey>, range: MemoryRangeKey) {
+fn remove_range(ranges: &mut BTreeSet<MemoryRange>, range: MemoryRange) {
     while let Some(matched_range) = ranges.get(&range).map(|r| *r) {
         // Must remove first before we add because of possible overlaps
         ranges.remove(&matched_range);
 
         if matched_range.start() < range.start() {
-            ranges.insert(MemoryRangeKey(MemoryRange::from_range(
+            ranges.insert(MemoryRange::from_range(
                 matched_range.start(),
                 range.start(),
-            )));
+            ));
         }
         if range.end() < matched_range.end() {
-            ranges.insert(MemoryRangeKey(MemoryRange::from_range(
-                range.end(),
-                matched_range.end(),
-            )));
+            ranges.insert(MemoryRange::from_range(range.end(), matched_range.end()));
         }
     }
 }
 
-fn add_range(ranges: &mut BTreeSet<MemoryRangeKey>, range: MemoryRangeKey) {
+fn add_range(ranges: &mut BTreeSet<MemoryRange>, range: MemoryRange) {
     // Remove overlapping ranges
     remove_range(ranges, range);
     ranges.insert(range);
