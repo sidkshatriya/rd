@@ -188,7 +188,6 @@ pub mod address_space {
     use crate::remote_code_ptr::RemoteCodePtr;
     use crate::remote_ptr::RemotePtr;
     use crate::scoped_fd::ScopedFd;
-    use crate::session::session_inner::session_inner::SessionInner;
     use crate::session::{SessionSharedPtr, SessionSharedWeakPtr};
     use crate::task::common::{read_mem, read_val_mem, write_val_mem, write_val_mem_with_flags};
     use crate::task::record_task::record_task::RecordTask;
@@ -1686,23 +1685,68 @@ pub mod address_space {
             unimplemented!()
         }
 
+        /// Constructor
+        ///
         /// Called after a successful execve to set up the new AddressSpace.
         /// Also called once for the initial spawn.
         fn new_after_execve(t: &dyn Task, exe: &str, exec_count: u32) -> AddressSpace {
             unimplemented!()
         }
 
+        /// Constructor
+        ///
         /// Called when an AddressSpace is cloned due to a fork() or a Session
         /// clone. After this, and the task is properly set up, post_vm_clone will
         /// be called.
         fn new_after_fork_or_session_clone(
-            session: &SessionInner,
+            session: SessionSharedWeakPtr,
             o: &AddressSpace,
             leader_tid: pid_t,
             leader_serial: u32,
             exec_count: u32,
         ) -> AddressSpace {
-            unimplemented!()
+            let mut addr_space = AddressSpace {
+                exe: o.exe.clone(),
+                leader_tid_: leader_tid,
+                leader_serial,
+                exec_count,
+                brk_start: o.brk_start,
+                brk_end: o.brk_start,
+                mem: o.mem.clone(),
+                shm_sizes: o.shm_sizes.clone(),
+                monitored_mem: o.monitored_mem.clone(),
+                session_: session.clone(),
+                vdso_start_addr: o.vdso_start_addr,
+                monkeypatch_state: o.monkeypatch_state.clone(),
+                traced_syscall_ip_: o.traced_syscall_ip_,
+                privileged_traced_syscall_ip_: o.privileged_traced_syscall_ip_,
+                syscallbuf_enabled_: o.syscallbuf_enabled_,
+                saved_auxv_: o.saved_auxv_.clone(),
+                first_run_event_: 0,
+                watchpoints: o.watchpoints.clone(),
+                breakpoints: o.breakpoints.clone(),
+                // rr does not explicitly initialize these.
+                child_mem_fd: ScopedFd::new(),
+                dont_fork: BTreeSet::new(),
+                task_set: TaskSet::new(),
+                thread_locals_tuid_: TaskUid::new(),
+                saved_watchpoints: Vec::new(),
+            };
+
+            for (_, m) in &mut addr_space.mem {
+                // The original address space continues to have exclusive ownership of
+                // all local mappings.
+                m.local_addr = None;
+            }
+
+            if addr_space.session().as_ptr() != o.session().as_ptr() {
+                // Cloning into a new session means we're checkpointing.
+                addr_space.first_run_event_ = o.first_run_event_;
+            }
+            // cloned tasks will automatically get cloned debug registers and
+            // cloned address-space memory, so we don't need to do any more work here.
+
+            addr_space
         }
 
         /// After an exec, populate the new address space of `t` with
