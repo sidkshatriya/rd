@@ -13,7 +13,9 @@ use crate::remote_ptr::RemotePtr;
 use crate::remote_ptr::Void;
 use crate::scoped_fd::ScopedFd;
 use crate::task::Task;
+use libc::dev_t;
 use nix::sys::mman::{MapFlags, ProtFlags};
+use nix::sys::stat::stat;
 use std::cmp::min;
 use std::collections::BTreeSet;
 use std::convert::TryInto;
@@ -165,6 +167,7 @@ impl WatchConfig {
 
 pub mod address_space {
     use super::*;
+    use crate::address_space::kernel_map_iterator::KernelMapIterator;
     use crate::address_space::kernel_mapping::KernelMapping;
     use crate::address_space::memory_range::{MemoryRange, MemoryRangeKey};
     use crate::address_space::BreakpointType::BkptNone;
@@ -195,7 +198,7 @@ pub mod address_space {
     use crate::taskish_uid::AddressSpaceUid;
     use crate::taskish_uid::TaskUid;
     use crate::trace_frame::FrameTime;
-    use crate::util::{ceil_page_size, floor_page_size};
+    use crate::util::{ceil_page_size, floor_page_size, page_size, uses_invisible_guard_page};
     use core::ffi::c_void;
     use libc::stat;
     use libc::{dev_t, ino_t, pid_t, EACCES, ENOENT, O_RDONLY};
@@ -1705,7 +1708,65 @@ pub mod address_space {
         /// After an exec, populate the new address space of `t` with
         /// the existing mappings we find in /proc/maps.
         fn populate_address_space(&mut self, t: &dyn Task) {
-            unimplemented!()
+            let mut found_proper_stack = false;
+            let iter = KernelMapIterator::new(t);
+            for km in iter {
+                if km.is_stack() {
+                    found_proper_stack = true;
+                    break;
+                }
+            }
+
+            // If we're being recorded by rr, we'll see the outer rr's rr_page and
+            // preload_thread_locals. In post_exec() we'll remap those with our
+            // own mappings. That's OK because a) the rr_page contents are the same
+            // anyway and immutable and b) the preload_thread_locals page is only
+            // used by the preload library, and the preload library only knows about
+            // the inner rr. I.e. as far as the outer rr is concerned, the tracee is
+            // not doing syscall buffering.
+
+            let mut found_stacks = 0;
+            let iter = KernelMapIterator::new(t);
+            for km in iter {
+                let mut map_flags = km.flags();
+                let mut start = km.start();
+                let is_stack = if found_proper_stack {
+                    km.is_stack()
+                } else {
+                    could_be_stack(&km)
+                };
+
+                if is_stack {
+                    found_stacks += 1;
+                    map_flags |= MapFlags::MAP_GROWSDOWN;
+                    if uses_invisible_guard_page() {
+                        // MAP_GROWSDOWN segments really occupy one additional page before
+                        // the start address shown by /proc/<pid>/maps --- unless that page
+                        // is already occupied by another mapping.
+                        if !self.mapping_of(start - page_size()).is_some() {
+                            start -= page_size();
+                        }
+                    }
+                }
+
+                self.map(
+                    t,
+                    start,
+                    km.end() - start,
+                    km.prot(),
+                    map_flags,
+                    km.file_offset_bytes(),
+                    km.fsname(),
+                    check_device(&km),
+                    km.inode(),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                );
+            }
+            ed_assert!(t, found_stacks == 1);
         }
 
         /// @TODO In rr `num_bytes` is signed. Why?
@@ -2484,4 +2545,31 @@ fn read_all(t: &dyn Task, fd: &ScopedFd) -> Vec<u8> {
 /// Returns true if a task in t's task-group other than t is doing an exec.
 fn thread_group_in_exec(t: &dyn Task) -> bool {
     unimplemented!()
+}
+
+fn check_device(km: &KernelMapping) -> dev_t {
+    let maybe_first = km.fsname().chars().nth(0);
+    if maybe_first.is_some() && maybe_first.unwrap() != '/' {
+        return km.device();
+    }
+
+    // btrfs files can return the wrong device number in /proc/<pid>/maps
+    let ret = stat(km.fsname().as_str());
+    match ret {
+        Ok(st) => st.st_dev,
+        Err(_) => km.device(),
+    }
+}
+
+fn could_be_stack(km: &KernelMapping) -> bool {
+    // On 4.1.6-200.fc22.x86_64 we observe that during exec of the rr_exec_stub
+    // during replay, when the process switches from 32-bit to 64-bit, the 64-bit
+    // registers seem truncated to 32 bits during the initial PTRACE_GETREGS so
+    // our sp looks wrong and /proc/<pid>/maps doesn't identify the region as
+    // stack.
+    // On stub execs there should only be one read-writable memory area anyway.
+    km.prot() == (ProtFlags::PROT_READ | ProtFlags::PROT_WRITE)
+        && km.fsname() == ""
+        && km.device() == KernelMapping::NO_DEVICE
+        && km.inode() == KernelMapping::NO_INODE
 }

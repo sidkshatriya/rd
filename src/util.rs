@@ -359,3 +359,15 @@ pub fn pwrite_all_fallible(fd: i32, buf_initial: &[u8], offset: isize) -> Result
 
     Ok(written)
 }
+
+pub fn check_for_pax_kernel() -> bool {
+    unimplemented!()
+}
+
+lazy_static! {
+    static ref IS_PAX_KERNEL: bool = check_for_pax_kernel();
+}
+
+pub fn uses_invisible_guard_page() -> bool {
+    !*IS_PAX_KERNEL
+}

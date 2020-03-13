@@ -3,8 +3,8 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::Result;
 use std::marker::PhantomData;
-use std::ops::Add;
 use std::ops::Sub;
+use std::ops::{Add, AddAssign, SubAssign};
 
 /// Useful alias.
 pub type Void = u8;
@@ -126,6 +126,18 @@ impl<T> From<usize> for RemotePtr<T> {
 impl<T> Into<usize> for RemotePtr<T> {
     fn into(self) -> usize {
         self.as_usize()
+    }
+}
+
+impl<T> SubAssign<usize> for RemotePtr<T> {
+    fn sub_assign(&mut self, rhs: usize) {
+        self.ptr = self.ptr - rhs * std::mem::size_of::<T>();
+    }
+}
+
+impl<T> AddAssign<usize> for RemotePtr<T> {
+    fn add_assign(&mut self, rhs: usize) {
+        self.ptr = self.ptr + rhs * std::mem::size_of::<T>();
     }
 }
 

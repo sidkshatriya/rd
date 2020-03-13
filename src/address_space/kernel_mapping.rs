@@ -177,6 +177,7 @@ impl KernelMapping {
         self.fsname() == "[heap]"
     }
     pub fn is_stack(&self) -> bool {
+        // Note the lack of ending `]` in match string
         if let Some(loc) = self.fsname().find("[stack") {
             loc == 0
         } else {
