@@ -23,6 +23,7 @@ pub const CHECKABLE_FLAGS_MASK: MapFlags = MapFlags::from_bits_truncate(MAP_PRIV
 
 /// Clone trait is manually derived. See below.
 /// This type cannot be Copy as fsname_, a String, is not Copy.
+#[derive(Debug)]
 pub struct KernelMapping {
     mr: MemoryRange,
     /// The kernel's name for the mapping, as per /proc/<pid>/maps. This must

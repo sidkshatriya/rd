@@ -1,5 +1,7 @@
+pub mod kernel_map_iterator;
 pub mod kernel_mapping;
 pub mod memory_range;
+
 use crate::address_space::address_space::Mapping;
 use crate::address_space::kernel_mapping::KernelMapping;
 use crate::address_space::memory_range::MemoryRange;
@@ -9,13 +11,13 @@ use crate::kernel_abi::common::preload_interface::{
 use crate::remote_code_ptr::RemoteCodePtr;
 use crate::remote_ptr::RemotePtr;
 use crate::remote_ptr::Void;
+use crate::scoped_fd::ScopedFd;
 use crate::task::Task;
 use nix::sys::mman::{MapFlags, ProtFlags};
 use std::cmp::min;
 use std::collections::BTreeSet;
 use std::convert::TryInto;
 use std::mem::size_of;
-use crate::scoped_fd::ScopedFd;
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub enum BreakpointType {
@@ -1861,7 +1863,7 @@ pub mod address_space {
                     Self::rd_page_start(),
                     &page_data,
                     None,
-                    WriteFlags::empty()
+                    WriteFlags::empty(),
                 );
 
                 self.map(
@@ -1885,7 +1887,9 @@ pub mod address_space {
 
             if child_path.task().session().borrow().is_recording() {
                 // brk() will not have been called yet so the brk area is empty.
-                self.brk_start = (child_path.infallible_syscall(syscall_number_for_brk(arch), &[0]) as usize).into();
+                self.brk_start = (child_path.infallible_syscall(syscall_number_for_brk(arch), &[0])
+                    as usize)
+                    .into();
                 self.brk_end = self.brk_start;
                 ed_assert!(child_path.task(), !self.brk_end.is_null());
             }
@@ -1896,7 +1900,6 @@ pub mod address_space {
                 Enabled::RecordingAndReplay,
                 child_path.arch(),
             );
-            // @TODO do we want this an Option?
             self.privileged_traced_syscall_ip_ = Some(Self::rd_page_syscall_entry_point(
                 Traced::Traced,
                 Privileged::Privileged,
@@ -2475,5 +2478,10 @@ fn find_rd_page_file(t: &dyn Task) -> String {
 }
 
 fn read_all(t: &dyn Task, fd: &ScopedFd) -> Vec<u8> {
+    unimplemented!()
+}
+
+/// Returns true if a task in t's task-group other than t is doing an exec.
+fn thread_group_in_exec(t: &dyn Task) -> bool {
     unimplemented!()
 }
