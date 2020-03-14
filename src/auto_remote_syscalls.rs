@@ -292,7 +292,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
             let mut remote = Self::new_with_mem_params(self.t, DisableMemoryParams);
             found_stack = Some(MemoryRange::new_range(
                 remote.infallible_mmap_syscall(
-                    RemotePtr::<Void>::new(),
+                    None,
                     4096,
                     ProtFlags::PROT_READ | ProtFlags::PROT_WRITE,
                     MapFlags::MAP_PRIVATE | MapFlags::MAP_ANONYMOUS,
@@ -381,13 +381,14 @@ impl<'a> AutoRemoteSyscalls<'a> {
     /// select either mmap2 or mmap.
     pub fn infallible_mmap_syscall(
         &mut self,
-        addr: RemotePtr<Void>,
+        maybe_addr_hint: Option<RemotePtr<Void>>,
         length: usize,
         prot: ProtFlags,
         flags: MapFlags,
         child_fd: i32,
         offset_pages: u64,
     ) -> RemotePtr<Void> {
+        let addr_hint = maybe_addr_hint.unwrap_or(RemotePtr::new());
         // The first syscall argument is called "arg 1", so
         // our syscall-arg-index template parameter starts
         // with "1".
@@ -395,7 +396,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
             self.infallible_syscall_ptr(
                 syscall_number_for_mmap2(self.arch()),
                 &[
-                    addr.as_usize(),
+                    addr_hint.as_usize(),
                     length,
                     prot.bits() as _,
                     flags.bits() as _,
@@ -407,7 +408,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
             self.infallible_syscall_ptr(
                 syscall_number_for_mmap(self.arch()),
                 &[
-                    addr.as_usize(),
+                    addr_hint.as_usize(),
                     length,
                     prot.bits() as _,
                     flags.bits() as _,
@@ -418,7 +419,13 @@ impl<'a> AutoRemoteSyscalls<'a> {
         };
 
         if flags.contains(MapFlags::MAP_FIXED) {
-            ed_assert!(self.t, addr == ret, "MAP_FIXED at {} but got {}", addr, ret);
+            ed_assert!(
+                self.t,
+                addr_hint == ret,
+                "MAP_FIXED at {} but got {}",
+                addr_hint,
+                ret
+            );
         }
 
         ret
@@ -737,7 +744,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
     pub fn create_shared_mmap(
         &mut self,
         size: usize,
-        map_hint: Option<RemotePtr<Void>>,
+        maybe_map_hint: Option<RemotePtr<Void>>,
         name: &str,
         maybe_tracee_prot: Option<ProtFlags>,
         maybe_tracee_flags: Option<MapFlags>,
@@ -807,11 +814,11 @@ impl<'a> AutoRemoteSyscalls<'a> {
         if map_addr as isize == -1 {
             fatal!("Failed to mmap shmem region");
         }
-        if map_hint.is_some() {
+        if maybe_map_hint.is_some() {
             flags |= MapFlags::MAP_FIXED;
         }
         let child_map_addr = self.infallible_mmap_syscall(
-            map_hint.unwrap(),
+            maybe_map_hint,
             size,
             tracee_prot,
             flags,

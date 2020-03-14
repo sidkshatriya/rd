@@ -212,7 +212,6 @@ pub mod address_space {
     use std::collections::hash_map::Iter as HashMapIter;
     use std::collections::HashSet;
     use std::collections::{BTreeMap, HashMap};
-    use std::fmt::Write;
     use std::ops::Bound::{Included, Unbounded};
     use std::ops::Drop;
     use std::ops::{Deref, DerefMut};
@@ -623,9 +622,7 @@ pub mod address_space {
                 None,
                 None,
             );
-            let flags = self
-                .mapping_flags_of_mut(Self::preload_thread_locals_start())
-                .unwrap();
+            let flags = self.mapping_flags_of_mut(Self::preload_thread_locals_start());
             *flags = *flags | MappingFlags::IS_THREAD_LOCALS;
         }
 
@@ -897,10 +894,12 @@ pub mod address_space {
             }
         }
 
-        /// Return a reference to the flags of the mapping at this address, allowing
+        /// Return a mut ref to the flags of the mapping at this address, allowing
         /// manipulation.
-        pub fn mapping_flags_of_mut(&mut self, addr: RemotePtr<Void>) -> Option<&mut MappingFlags> {
-            self.mapping_of_mut(addr).map(|m| &mut m.flags)
+        ///
+        /// Assume a mapping exists at addr, otherwise panics.
+        pub fn mapping_flags_of_mut(&mut self, addr: RemotePtr<Void>) -> &mut MappingFlags {
+            &mut self.mapping_of_mut(addr).unwrap().flags
         }
 
         /// If the given memory region is mapped into the local address space, obtain
@@ -1644,17 +1643,47 @@ pub mod address_space {
 
         /// The return value indicates whether we (re)created the preload_thread_locals
         /// area.
-        pub fn post_vm_clone(t: &dyn Task) {
-            unimplemented!()
+        pub fn post_vm_clone(&mut self, t: &mut dyn Task) -> bool {
+            let maybe_m = self.mapping_of(Self::preload_thread_locals_start());
+            if maybe_m.is_some()
+                && !maybe_m
+                    .unwrap()
+                    .flags
+                    .contains(MappingFlags::IS_THREAD_LOCALS)
+            {
+                // The tracee already has a mapping at this address that doesn't belong to
+                // us. Don't touch it.
+                return false;
+            }
+
+            // Otherwise, the preload_thread_locals mapping is non-existent or ours.
+            // Recreate it.
+            let mut remote = AutoRemoteSyscalls::new(t);
+            remote.create_shared_mmap(
+                PRELOAD_THREAD_LOCALS_SIZE,
+                Some(Self::preload_thread_locals_start()),
+                "preload_thread_locals",
+                None,
+                None,
+                None,
+            );
+            *self.mapping_flags_of_mut(Self::preload_thread_locals_start()) |=
+                MappingFlags::IS_THREAD_LOCALS;
+
+            true
         }
 
         /// TaskUid for the task whose locals are stored in the preload_thread_locals
         /// area.
-        pub fn thread_locals_tuid(&self) -> &TaskUid {
-            unimplemented!()
+        ///
+        /// Note that TaskUid is Copy
+        pub fn thread_locals_tuid(&self) -> TaskUid {
+            self.thread_locals_tuid_
         }
-        pub fn set_thread_locals_tuid(&mut self, tuid: &TaskUid) {
-            unimplemented!()
+
+        /// Note that TaskUid is Copy
+        pub fn set_thread_locals_tuid(&mut self, tuid: TaskUid) {
+            self.thread_locals_tuid_ = tuid;
         }
 
         /// Call this when the memory at [addr,addr+len) was externally overwritten.
@@ -1910,7 +1939,7 @@ pub mod address_space {
             let child_fd = child_fd_ret.try_into().unwrap();
             if child_fd >= 0 {
                 child_path.infallible_mmap_syscall(
-                    Self::rd_page_start(),
+                    Some(Self::rd_page_start()),
                     Self::rd_page_size(),
                     prot,
                     flags,
@@ -1953,7 +1982,7 @@ pub mod address_space {
                 );
                 flags |= MapFlags::MAP_ANONYMOUS;
                 child_path.infallible_mmap_syscall(
-                    Self::rd_page_start(),
+                    Some(Self::rd_page_start()),
                     Self::rd_page_size(),
                     prot,
                     flags,
@@ -1994,7 +2023,7 @@ pub mod address_space {
                     None,
                 );
             }
-            *self.mapping_flags_of_mut(Self::rd_page_start()).unwrap() = MappingFlags::IS_RD_PAGE;
+            *self.mapping_flags_of_mut(Self::rd_page_start()) = MappingFlags::IS_RD_PAGE;
 
             if child_path.task().session().borrow().is_recording() {
                 // brk() will not have been called yet so the brk area is empty.
