@@ -1778,8 +1778,60 @@ pub mod address_space {
         ///
         /// Called after a successful execve to set up the new AddressSpace.
         /// Also called once for the initial spawn.
-        fn new_after_execve(t: &dyn Task, exe: &str, exec_count: u32) -> AddressSpace {
-            unimplemented!()
+        fn new_after_execve(t: &mut dyn Task, exe: &str, exec_count: u32) -> AddressSpace {
+            let patcher = if t.session().borrow().is_recording() {
+                Some(MonkeyPatcher::new())
+            } else {
+                None
+            };
+
+            let mut addr_space = AddressSpace {
+                exe: exe.to_owned(),
+                leader_tid_: t.rec_tid,
+                leader_serial: t.tuid().serial(),
+                exec_count,
+                session_: Rc::downgrade(&t.session()),
+                monkeypatch_state: patcher,
+                syscallbuf_enabled_: false,
+                first_run_event_: 0,
+                // Implicit
+                breakpoints: Default::default(),
+                watchpoints: Default::default(),
+                mem: Default::default(),
+                shm_sizes: Default::default(),
+                monitored_mem: Default::default(),
+                dont_fork: Default::default(),
+                saved_watchpoints: Vec::new(),
+                child_mem_fd: ScopedFd::new(),
+                privileged_traced_syscall_ip_: None,
+                saved_auxv_: Vec::new(),
+                // Is this what we want?
+                task_set: TaskSet::new(),
+                // Is TaskUid::new() what we want?
+                thread_locals_tuid_: TaskUid::new(),
+                // These are set below. Are both OK??
+                traced_syscall_ip_: 0usize.into(),
+                vdso_start_addr: 0usize.into(),
+                // Hmm...
+                brk_start: 0usize.into(),
+                brk_end: 0usize.into(),
+            };
+
+            // TODO: this is a workaround of
+            // https://github.com/mozilla/rr/issues/1113 .
+            if addr_space.session().borrow().done_initial_exec() {
+                addr_space.populate_address_space(t);
+                debug_assert!(!addr_space.vdso_start_addr.is_null());
+            } else {
+                // Setup traced_syscall_ip_ now because we need to do AutoRemoteSyscalls
+                // (for open_mem_fd) before the first exec. We rely on the fact that we
+                // haven't execed yet, so the address space layout is the same.
+                addr_space.traced_syscall_ip_ =
+                    // @TODO check this
+                    RemoteCodePtr::from_val(rd_syscall_addr as *const fn() as usize);
+            }
+
+            addr_space
         }
 
         /// Constructor
@@ -1817,7 +1869,9 @@ pub mod address_space {
                 // rr does not explicitly initialize these.
                 child_mem_fd: ScopedFd::new(),
                 dont_fork: BTreeSet::new(),
+                // Is this what we want?
                 task_set: TaskSet::new(),
+                // Is TaskUid::new() what we want?
                 thread_locals_tuid_: TaskUid::new(),
                 saved_watchpoints: Vec::new(),
             };
@@ -2390,7 +2444,11 @@ pub mod address_space {
 
         /// Return the access bits above needed to watch `type`.
         fn access_bits_of(type_: WatchType) -> RwxBits {
-            unimplemented!()
+            match type_ {
+                WatchType::WatchExec => RwxBits::EXEC_BIT,
+                WatchType::WatchWrite => RwxBits::WRITE_BIT,
+                WatchType::WatchReadWrite => RwxBits::READ_WRITE_BITS,
+            }
         }
     }
 
@@ -2797,4 +2855,11 @@ fn read_kernel_mapping(tid: pid_t, addr: RemotePtr<Void>) -> KernelMapping {
 
     // Assume this method always is able to find the mapping
     unreachable!()
+}
+
+// Just a place that rd's AutoSyscall functionality can use as a syscall
+// instruction in rd's address space for use before we have exec'd.
+#[no_mangle]
+pub extern "C" fn rd_syscall_addr() {
+    // @TODO Need to add syscall here. Will this work given this is a method?
 }

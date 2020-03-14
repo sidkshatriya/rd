@@ -91,6 +91,12 @@ impl Sub<RemoteCodePtr> for RemoteCodePtr {
     }
 }
 
+impl From<usize> for RemoteCodePtr {
+    fn from(addr: usize) -> Self {
+        RemoteCodePtr::from_val(addr)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
