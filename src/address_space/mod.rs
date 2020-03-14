@@ -1443,7 +1443,36 @@ pub mod address_space {
         /// Verify that this cached address space matches what the
         /// kernel thinks it should be.
         pub fn verify(&self, t: &dyn Task) {
-            unimplemented!()
+            ed_assert!(t, self.has_task(t.weak_self_ptr()));
+
+            if thread_group_in_exec(t) {
+                return;
+            }
+
+            log!(LogDebug, "Verifying address space for task {}", t.tid);
+
+            let mut mem_it = self.mem.values();
+            let mut kernel_it = KernelMapIterator::new(t);
+            let mut mem_m = mem_it.next();
+            let mut kernel_m = kernel_it.next();
+            while mem_m.is_some() && kernel_m.is_some() {
+                let mut km: KernelMapping = kernel_m.unwrap();
+                kernel_m = kernel_it.next();
+                while kernel_m.is_some() && try_merge_adjacent(&mut km, &kernel_m.clone().unwrap())
+                {
+                    kernel_m = kernel_it.next();
+                }
+
+                let mut vm = mem_m.unwrap().map.clone();
+                mem_m = mem_it.next();
+                while mem_m.is_some() && try_merge_adjacent(&mut vm, &mem_m.unwrap().map) {
+                    mem_m = mem_it.next();
+                }
+
+                assert_segments_match(t, &vm, &km);
+            }
+
+            ed_assert!(t, mem_m.is_none() && kernel_m.is_none());
         }
 
         pub fn has_breakpoints(&self) -> bool {

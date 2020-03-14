@@ -18,7 +18,7 @@ pub struct KernelMapIterator {
 impl Iterator for KernelMapIterator {
     type Item = KernelMapping;
 
-    fn next(&mut self) -> Option<Self::Item> {
+    fn next(&mut self) -> Option<KernelMapping> {
         let mut raw_line: String = String::new();
         if let Ok(read_bytes) = self.buf_reader.read_line(&mut raw_line) {
             if read_bytes == 0 {

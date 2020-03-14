@@ -289,6 +289,10 @@ pub mod task_inner {
     }
 
     impl TaskInner {
+        pub fn weak_self_ptr(&self) -> TaskSharedWeakPtr {
+            self.weak_self_task.clone()
+        }
+
         /// We hide the destructor and require clients to call this instead. This
         /// lets us make virtual calls from within the destruction code. This
         /// does the actual PTRACE_DETACH and then calls the real destructor.
