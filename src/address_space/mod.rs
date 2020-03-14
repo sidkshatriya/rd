@@ -3,6 +3,7 @@ pub mod kernel_mapping;
 pub mod memory_range;
 
 use crate::address_space::address_space::{AddressSpace, Mapping};
+use crate::address_space::kernel_map_iterator::KernelMapIterator;
 use crate::address_space::kernel_mapping::KernelMapping;
 use crate::address_space::memory_range::MemoryRange;
 use crate::kernel_abi::common::preload_interface::{
@@ -14,7 +15,7 @@ use crate::remote_ptr::RemotePtr;
 use crate::remote_ptr::Void;
 use crate::scoped_fd::ScopedFd;
 use crate::task::Task;
-use libc::dev_t;
+use libc::{dev_t, pid_t};
 use nix::sys::mman::{MapFlags, ProtFlags};
 use nix::sys::stat::stat;
 use std::cmp::min;
@@ -178,7 +179,8 @@ pub mod address_space {
     use crate::kernel_abi::common::preload_interface::{PRELOAD_THREAD_LOCALS_SIZE, RD_PAGE_ADDR};
     use crate::kernel_abi::{syscall_instruction, SupportedArch};
     use crate::kernel_abi::{
-        syscall_number_for_brk, syscall_number_for_close, syscall_number_for_openat,
+        syscall_number_for_brk, syscall_number_for_close, syscall_number_for_munmap,
+        syscall_number_for_openat,
     };
     use crate::log::LogLevel::LogDebug;
     use crate::monitored_shared_memory::MonitoredSharedMemorySharedPtr;
@@ -206,6 +208,7 @@ pub mod address_space {
     use nix::fcntl::OFlag;
     use nix::sys::mman::munmap;
     use nix::sys::mman::MmapAdvise;
+    use nix::unistd::getpid;
     use std::cell::{Ref, RefCell, RefMut};
     use std::cmp::{max, min};
     use std::collections::btree_map::{Range, RangeMut};
@@ -1499,11 +1502,11 @@ pub mod address_space {
             4096
         }
         pub fn rd_page_end() -> RemotePtr<Void> {
-            unimplemented!()
+            Self::rd_page_start() + Self::rd_page_size()
         }
 
         pub fn preload_thread_locals_start() -> RemotePtr<Void> {
-            Self::rd_page_start()
+            Self::rd_page_start() + page_size()
         }
         pub fn preload_thread_locals_size() -> usize {
             PRELOAD_THREAD_LOCALS_SIZE
@@ -1514,7 +1517,14 @@ pub mod address_space {
             privileged: Privileged,
             enabled: Enabled,
         ) -> RemoteCodePtr {
-            unimplemented!()
+            for (i, e) in ENTRY_POINTS.iter().enumerate() {
+                if e.traced == traced && e.privileged == privileged && e.enabled == enabled {
+                    // @TODO check this.
+                    return exit_ip_from_index(i);
+                }
+            }
+
+            unreachable!()
         }
         pub fn rd_page_syscall_entry_point(
             traced: Traced,
@@ -1524,6 +1534,7 @@ pub mod address_space {
         ) -> RemoteCodePtr {
             for (i, e) in ENTRY_POINTS.iter().enumerate() {
                 if e.traced == traced && e.privileged == privileged && e.enabled == enabled {
+                    // @TODO check this.
                     return entry_ip_from_index(i);
                 }
             }
@@ -1595,19 +1606,31 @@ pub mod address_space {
         }
 
         /// Task `t` just forked from this address space. Apply dont_fork settings.
-        pub fn did_fork_into(t: &dyn Task) {
-            unimplemented!()
+        pub fn did_fork_into(&self, t: &mut dyn Task) {
+            for range in &self.dont_fork {
+                // During recording we execute MADV_DONTFORK so the forked child will
+                // have had its dontfork areas unmapped by the kernel already
+                if !t.session().borrow().is_recording() {
+                    let mut remote = AutoRemoteSyscalls::new(t);
+                    let arch = remote.arch();
+                    remote.infallible_syscall(
+                        syscall_number_for_munmap(arch),
+                        &[range.start().as_usize(), range.size()],
+                    );
+                }
+                t.vm_mut().unmap(t, range.start(), range.size());
+            }
         }
 
-        pub fn set_first_run_event(event: FrameTime) {
-            unimplemented!()
+        pub fn set_first_run_event(&mut self, event: FrameTime) {
+            self.first_run_event_ = event;
         }
-        pub fn first_run_event() -> FrameTime {
-            unimplemented!()
+        pub fn first_run_event(&self) -> FrameTime {
+            self.first_run_event_
         }
 
         pub fn saved_auxv(&self) -> &[u8] {
-            unimplemented!()
+            &self.saved_auxv_
         }
         pub fn save_auxv(t: &dyn Task) {
             unimplemented!()
@@ -1618,12 +1641,12 @@ pub mod address_space {
         /// wrong device number! If you stick to anonymous or special file
         /// mappings, this should be OK.
         pub fn read_kernel_mapping(t: &dyn Task, addr: RemotePtr<Void>) -> KernelMapping {
-            unimplemented!()
+            read_kernel_mapping(t.tid, addr)
         }
 
         /// Same as read_kernel_mapping, but reads rd's own memory map.
         pub fn read_local_kernel_mapping(addr: *const u8) -> KernelMapping {
-            unimplemented!()
+            read_kernel_mapping(getpid().as_raw(), RemotePtr::new_from_val(addr as usize))
         }
 
         pub fn chaos_mode_min_stack_size() -> u32 {
@@ -2730,4 +2753,17 @@ fn normalized_device_number(m: &KernelMapping) -> dev_t {
         return -1i64 as dev_t;
     }
     m.device()
+}
+
+fn read_kernel_mapping(tid: pid_t, addr: RemotePtr<Void>) -> KernelMapping {
+    let range = MemoryRange::new_range(addr, 1);
+    let iter = KernelMapIterator::new_from_tid(tid);
+    for km in iter {
+        if km.contains(&range) {
+            return km;
+        }
+    }
+
+    // Assume this method always is able to find the mapping
+    unreachable!()
 }
