@@ -1748,13 +1748,91 @@ pub mod address_space {
         }
 
         /// Call this to ensure that the mappings in `range` during replay has the same length
-        /// is collapsed to a single mapping. The caller guarantees that all the
+        /// and is collapsed to a single mapping. The caller guarantees that all the
         /// mappings in the range can be coalesced (because they corresponded to a single
         /// mapping during recording).
         /// The end of the range might be in the middle of a mapping.
         /// The start of the range might also be in the middle of a mapping.
-        pub fn ensure_replay_matches_single_recorded_mapping(t: &dyn Task, range: MemoryRange) {
-            unimplemented!()
+        pub fn ensure_replay_matches_single_recorded_mapping(
+            &mut self,
+            t: &mut dyn Task,
+            range: MemoryRange,
+        ) {
+            // The only case where we eagerly coalesced during recording but not replay should
+            // be where we mapped private memory beyond-end-of-file.
+            // Don't do an actual coalescing check here; we rely on the caller to tell us
+            // the range to coalesce.
+            ed_assert!(t, range.start() == floor_page_size(range.start()));
+            ed_assert!(t, range.end() == ceil_page_size(range.end()));
+
+            let fixer = |slf: &mut Self, m_key: MemoryRangeKey, range: MemoryRange| {
+                // Important !
+                let mapping = slf.mem.get(&m_key).unwrap().clone();
+                if *mapping.map == range {
+                    // Existing single mapping covers entire range; nothing to do.
+                    return;
+                }
+
+                // These should be null during replay
+                ed_assert!(t, mapping.mapped_file_stat.is_none());
+                // These should not be in use for a beyond-end-of-file mapping
+                ed_assert!(t, mapping.local_addr.is_none());
+                // The mapping should be private
+                ed_assert!(t, mapping.map.flags().contains(MapFlags::MAP_PRIVATE));
+                ed_assert!(t, mapping.emu_file.is_none());
+                ed_assert!(t, mapping.monitored_shared_memory.is_none());
+                // Flagged mappings shouldn't be coalescable ever
+                ed_assert!(t, mapping.flags.is_empty());
+
+                if !(mapping.map.flags().contains(MapFlags::MAP_ANONYMOUS)) {
+                    // Direct-mapped piece. Turn it into an anonymous mapping.
+                    let mut buffer: Vec<u8> = Vec::with_capacity(mapping.map.size());
+                    buffer.resize(mapping.map.size(), 0);
+                    t.read_bytes_helper(mapping.map.start(), &mut buffer, None);
+                    {
+                        let mut remote = AutoRemoteSyscalls::new(t);
+                        remote.infallible_mmap_syscall(
+                            Some(mapping.map.start()),
+                            buffer.len(),
+                            mapping.map.prot(),
+                            mapping.map.flags() | MapFlags::MAP_ANONYMOUS | MapFlags::MAP_FIXED,
+                            -1,
+                            0,
+                        );
+                    }
+                    t.write_bytes_helper(mapping.map.start(), &buffer, None, WriteFlags::empty());
+
+                    // We replace the entire mapping even if part of it falls outside the desired range.
+                    // That's OK, this replacement preserves behaviour, it's simpler, even if a bit
+                    // less efficient in weird cases.
+                    slf.mem.remove(&MemoryRangeKey(*mapping.map));
+                    let anonymous_km = KernelMapping::new_with_opts(
+                        mapping.map.start(),
+                        mapping.map.end(),
+                        "",
+                        KernelMapping::NO_DEVICE,
+                        KernelMapping::NO_INODE,
+                        mapping.map.prot(),
+                        mapping.map.flags() | MapFlags::MAP_ANONYMOUS,
+                        0,
+                    );
+                    let new_mapping =
+                        Mapping::new(anonymous_km, mapping.recorded_map, None, None, None, None);
+                    slf.mem.insert(
+                        MemoryRange::from_range(mapping.map.start(), mapping.map.end()).into(),
+                        new_mapping,
+                    );
+                }
+            };
+
+            self.for_each_in_range(
+                range.start(),
+                range.size(),
+                fixer,
+                IterateHow::IterateDefault,
+            );
+
+            self.coalesce_around(t, range.into());
         }
 
         /// Dump process maps as string
@@ -2226,7 +2304,7 @@ pub mod address_space {
             return false;
         }
 
-        /// Merge the mappings adjacent to `it` in memory that are
+        /// Merge the mappings adjacent to `key` in memory that are
         /// semantically "adjacent mappings" of the same resource as
         /// well, for example have adjacent file offsets and the same
         /// prot and flags.
@@ -2862,4 +2940,5 @@ fn read_kernel_mapping(tid: pid_t, addr: RemotePtr<Void>) -> KernelMapping {
 #[no_mangle]
 pub extern "C" fn rd_syscall_addr() {
     // @TODO Need to add syscall here. Will this work given this is a method?
+    unimplemented!()
 }

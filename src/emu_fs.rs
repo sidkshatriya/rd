@@ -54,9 +54,9 @@ pub type EmuFileSharedWeakPtr = Weak<RefCell<EmuFile>>;
 
 type FileMap = HashMap<FileId, Weak<RefCell<EmuFile>>>;
 
-// We DONT want this to be either Copy or Clone.
+/// We DONT want this to be either Copy or Clone.
 pub struct EmuFile {
-    // @TODO Should we be using OSString here?
+    // @TODO At some point we should probably use OSString here?
     orig_path: String,
     tmp_path: String,
     file: ScopedFd,
