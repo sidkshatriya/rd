@@ -11,16 +11,6 @@ use std::fmt::{Display, Formatter, Result};
 use std::mem::zeroed;
 use std::ops::{Deref, DerefMut};
 
-/// These are the flags we track internally to distinguish
-/// between adjacent segments.  For example, the kernel
-/// considers a NORESERVE anonynmous mapping that's adjacent to
-/// a non-NORESERVE mapping distinct, even if all other
-/// metadata are the same.  See `is_adjacent_mapping()`.
-pub const MAP_FLAGS_MASK: MapFlags = MapFlags::from_bits_truncate(
-    MAP_ANONYMOUS | MAP_NORESERVE | MAP_PRIVATE | MAP_SHARED | MAP_STACK | MAP_GROWSDOWN,
-);
-pub const CHECKABLE_FLAGS_MASK: MapFlags = MapFlags::from_bits_truncate(MAP_PRIVATE | MAP_SHARED);
-
 /// Clone trait is manually derived. See below.
 /// This type cannot be Copy as fsname_, a String, is not Copy.
 #[derive(Debug)]
@@ -46,6 +36,17 @@ pub struct KernelMapping {
 impl KernelMapping {
     pub const NO_DEVICE: dev_t = 0;
     pub const NO_INODE: ino_t = 0;
+    pub const CHECKABLE_FLAGS_MASK: MapFlags =
+        MapFlags::from_bits_truncate(MAP_PRIVATE | MAP_SHARED);
+
+    /// These are the flags we track internally to distinguish
+    /// between adjacent segments.  For example, the kernel
+    /// considers a NORESERVE anonynmous mapping that's adjacent to
+    /// a non-NORESERVE mapping distinct, even if all other
+    /// metadata are the same.  See `is_adjacent_mapping()`.
+    pub const MAP_FLAGS_MASK: MapFlags = MapFlags::from_bits_truncate(
+        MAP_ANONYMOUS | MAP_NORESERVE | MAP_PRIVATE | MAP_SHARED | MAP_STACK | MAP_GROWSDOWN,
+    );
 
     pub fn new() -> KernelMapping {
         KernelMapping {
@@ -86,7 +87,7 @@ impl KernelMapping {
     pub fn assert_valid(&self) {
         debug_assert!(self.end() >= self.start());
         debug_assert!(self.size() % page_size() == 0);
-        debug_assert!((self.flags_ & !MAP_FLAGS_MASK).is_empty());
+        debug_assert!((self.flags_ & !KernelMapping::MAP_FLAGS_MASK).is_empty());
         debug_assert!(self.offset % page_size() as u64 == 0);
     }
 

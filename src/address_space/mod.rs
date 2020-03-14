@@ -594,12 +594,6 @@ pub mod address_space {
     }
 
     impl AddressSpace {
-        /*pub fn new() -> AddressSpace<'a> {
-            AddressSpace {
-                task_set: TaskSet::new(),
-            }
-        }*/
-
         /// Call this after a new task has been cloned within this
         /// address space.
         pub fn after_clone(&mut self) {
@@ -688,8 +682,8 @@ pub mod address_space {
         }
 
         /// Return AddressSpaceUid for this address space.
-        pub fn uid() -> AddressSpaceUid {
-            unimplemented!()
+        pub fn uid(&self) -> AddressSpaceUid {
+            AddressSpaceUid::new_with(self.leader_tid_, self.leader_serial, self.exec_count)
         }
 
         pub fn session(&self) -> SessionSharedPtr {
@@ -1387,8 +1381,8 @@ pub mod address_space {
             unimplemented!()
         }
 
-        pub fn set_shm_size(&self, addr: RemotePtr<Void>, bytes: usize) {
-            unimplemented!()
+        pub fn set_shm_size(&mut self, addr: RemotePtr<Void>, bytes: usize) {
+            self.shm_sizes.insert(addr, bytes);
         }
 
         /// Dies if no shm size is registered for the address.
@@ -2482,14 +2476,14 @@ fn is_adjacent_mapping(
     mleft: &KernelMapping,
     mright: &KernelMapping,
     handle_heap: HandleHeap,
-    maybe_flags_to_check: Option<u32>,
+    maybe_flags_to_check: Option<MapFlags>,
 ) -> bool {
     if mleft.end() != mright.start() {
         return false;
     }
 
-    let flags_to_check: u32 = maybe_flags_to_check.unwrap_or(0xFFFFFFFF);
-    if ((mleft.flags().bits() as u32 ^ mright.flags().bits() as u32) & flags_to_check != 0)
+    let flags_to_check: MapFlags = maybe_flags_to_check.unwrap_or(MapFlags::all());
+    if ((mleft.flags() ^ mright.flags()) & flags_to_check != MapFlags::empty())
         || mleft.prot() != mright.prot()
     {
         return false;
@@ -2616,4 +2610,30 @@ fn could_be_stack(km: &KernelMapping) -> bool {
         && km.fsname() == ""
         && km.device() == KernelMapping::NO_DEVICE
         && km.inode() == KernelMapping::NO_INODE
+}
+
+/// If |*left_m| and |right_m| are adjacent (see
+/// |is_adjacent_mapping()|), write a merged segment descriptor to
+/// |*left_m| and return true.  Otherwise return false.
+fn try_merge_adjacent(left_m: &mut KernelMapping, right_m: &KernelMapping) -> bool {
+    if is_adjacent_mapping(
+        left_m,
+        right_m,
+        HandleHeap::TreatHeapAsAnonymous,
+        Some(KernelMapping::CHECKABLE_FLAGS_MASK),
+    ) {
+        *left_m = KernelMapping::new_with_opts(
+            left_m.start(),
+            right_m.end(),
+            left_m.fsname(),
+            left_m.device(),
+            left_m.inode(),
+            right_m.prot(),
+            right_m.flags(),
+            left_m.file_offset_bytes(),
+        );
+        return true;
+    }
+
+    false
 }
