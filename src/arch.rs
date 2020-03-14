@@ -30,12 +30,25 @@ macro_rules! rd_arch_function {
 }
 
 pub trait Architecture {
+    #[allow(non_camel_case_types)]
     type kernel_sigaction: Default + Copy + 'static;
+
+    #[allow(non_camel_case_types)]
     type signed_long: Copy + From<i32> + 'static;
+
+    #[allow(non_camel_case_types)]
     type iovec: Copy + Default + 'static;
+
+    #[allow(non_camel_case_types)]
     type msghdr: Copy + Default + 'static;
+
+    #[allow(non_camel_case_types)]
     type cmsghdr: Copy + Default + 'static;
+
+    #[allow(non_camel_case_types)]
     type siginfo_t: 'static;
+
+    #[allow(non_camel_case_types)]
     type sockaddr_un: Copy + 'static;
 
     fn to_signed_long(val: usize) -> Self::signed_long;
