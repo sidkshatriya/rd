@@ -2,12 +2,13 @@ pub mod kernel_map_iterator;
 pub mod kernel_mapping;
 pub mod memory_range;
 
-use crate::address_space::address_space::Mapping;
+use crate::address_space::address_space::{AddressSpace, Mapping};
 use crate::address_space::kernel_mapping::KernelMapping;
 use crate::address_space::memory_range::MemoryRange;
 use crate::kernel_abi::common::preload_interface::{
     RD_PAGE_ADDR, RD_PAGE_SYSCALL_INSTRUCTION_END, RD_PAGE_SYSCALL_STUB_SIZE,
 };
+use crate::log::LogLevel::LogError;
 use crate::remote_code_ptr::RemoteCodePtr;
 use crate::remote_ptr::RemotePtr;
 use crate::remote_ptr::Void;
@@ -211,8 +212,7 @@ pub mod address_space {
     use std::collections::hash_map::Iter as HashMapIter;
     use std::collections::HashSet;
     use std::collections::{BTreeMap, HashMap};
-    use std::io;
-    use std::io::Write;
+    use std::fmt::Write;
     use std::ops::Bound::{Included, Unbounded};
     use std::ops::Drop;
     use std::ops::{Deref, DerefMut};
@@ -665,15 +665,15 @@ pub mod address_space {
             self.brk_end
         }
 
-        /// Dump a representation of `self` to &mut dyn Write
-        /// similar to /proc/[tid]/maps.
-        pub fn dump(&self, f: &mut dyn Write) -> io::Result<()> {
-            write!(f, "  (heap: {}-{})\n", self.brk_start, self.brk_end)?;
+        /// Dump a representation of `self` to a String similar to /proc/[tid]/maps.
+        pub fn dump(&self) -> String {
+            let mut out = String::new();
+            out += &format!("  (heap: {}-{})\n", self.brk_start, self.brk_end);
             for (_, m) in &self.mem {
                 let km = &m.map;
-                write!(f, "{}{}\n", km, stringify_flags(m.flags))?;
+                out += &format!("{}{}\n", km, stringify_flags(m.flags));
             }
-            Ok(())
+            out
         }
 
         /// Return tid of the first task for this address space.
@@ -1674,9 +1674,21 @@ pub mod address_space {
             unimplemented!()
         }
 
-        /// Print process maps.
-        pub fn print_process_maps(t: &dyn Task) {
-            unimplemented!()
+        /// Dump process maps as string
+        ///
+        /// Method is called print_process_maps() in rr and outputs to std err
+        /// Here we output as a String for more flexibility
+        ///
+        /// Another difference with rr is that we print our internal representation of data rather
+        /// than output the raw line obtained from /proc/{}/maps. This is likely to catch more
+        /// issues.
+        pub fn dump_process_maps(t: &dyn Task) -> String {
+            let mut out = String::new();
+            let iter = KernelMapIterator::new(t);
+            for km in iter {
+                out += &format!("{}\n", km);
+            }
+            out
         }
 
         /// Constructor
@@ -2636,4 +2648,57 @@ fn try_merge_adjacent(left_m: &mut KernelMapping, right_m: &KernelMapping) -> bo
     }
 
     false
+}
+
+fn assert_segments_match(t: &dyn Task, m: &KernelMapping, km: &KernelMapping) {
+    let mut err: &'static str = "";
+    if m.start() != km.start() {
+        err = "starts differ";
+    } else if m.end() != km.end() {
+        err = "ends differ";
+    } else if m.prot() != km.prot() {
+        err = "prots differ";
+    } else if (m.flags() ^ km.flags()) & KernelMapping::CHECKABLE_FLAGS_MASK != MapFlags::empty() {
+        err = "flags differ";
+    } else if !normalized_file_names_equal(m, km, HandleHeap::TreatHeapAsAnonymous)
+        && !(km.is_heap() && m.fsname() == "")
+        && !(m.is_heap() && km.fsname() == "")
+        && !km.is_vdso()
+    {
+        // Due to emulated exec, the kernel may identify any of our anonymous maps
+        // as [heap] (or not).
+        // Kernels before 3.16 have a bug where any mapping at the original VDSO
+        // address is marked [vdso] even if the VDSO was unmapped and replaced by
+        // something else, so if the kernel reports [vdso] it may be spurious and
+        // we skip this check. See kernel commit
+        // a62c34bd2a8a3f159945becd57401e478818d51c.
+        err = "filenames differ";
+    } else if normalized_device_number(m) != normalized_device_number(km) {
+        err = "devices_differ";
+    } else if m.inode() != km.inode() {
+        err = "inodes differ";
+    }
+    if err.len() > 0 {
+        log!(
+            LogError,
+            "cached mmap:\n{}\n /proc/{}/maps:\n",
+            t.vm_ref().dump(),
+            AddressSpace::dump_process_maps(t)
+        );
+        ed_assert!(t, false, "\nCached mapping {} should be {}; {}", m, km, err);
+    }
+}
+
+fn normalized_device_number(m: &KernelMapping) -> dev_t {
+    let maybe_first_char = m.fsname().chars().nth(0);
+    if maybe_first_char.is_some() && maybe_first_char.unwrap() != '/' {
+        return m.device();
+    }
+    // btrfs files can report the wrong device number in /proc/<pid>/maps, so
+    // restrict ourselves to checking whether the device number is != 0
+    if m.device() != KernelMapping::NO_DEVICE {
+        // Find a better way to return an "out of band" value like -1.
+        return -1i64 as dev_t;
+    }
+    m.device()
 }
