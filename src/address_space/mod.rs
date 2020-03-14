@@ -1656,8 +1656,39 @@ pub mod address_space {
         pub fn chaos_mode_find_free_memory(t: &RecordTask, len: usize) -> RemotePtr<Void> {
             unimplemented!()
         }
-        pub fn find_free_memory(len: usize, after: Option<RemotePtr<Void>>) -> RemotePtr<Void> {
-            unimplemented!()
+
+        /// We assume this method always succeeds
+        ///
+        /// If `maybe_after` is None, then starts finding free memory from the beginning of address
+        /// space, i.e. at address 0.
+        pub fn find_free_memory(
+            &self,
+            required_space: usize,
+            maybe_after: Option<RemotePtr<Void>>,
+        ) -> RemotePtr<Void> {
+            let after = maybe_after.unwrap_or(RemotePtr::new());
+            let mut iter = self.maps_starting_at(after).into_iter();
+            // This has to succeed otherwise we panic!
+            let mut current = iter.next().unwrap().1;
+            loop {
+                let maybe_next = iter.next().map(|v| v.1);
+                match maybe_next {
+                    None => {
+                        // If there is an overflow, rust will complain
+                        if current.map.end() + required_space >= current.map.end() {
+                            break;
+                        }
+                    }
+                    Some(found_next) => {
+                        if current.map.end() + required_space <= found_next.map.start() {
+                            break;
+                        }
+                    }
+                }
+                current = maybe_next.unwrap();
+            }
+
+            current.map.end()
         }
 
         pub fn properties(&self) -> &PropertyTable {
