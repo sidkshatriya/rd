@@ -284,6 +284,13 @@ impl Event {
         }
     }
 
+    pub fn syscall_mut(&mut self) -> &mut SyscallEvent {
+        match &mut self.event_extra_data {
+            EventExtraData::SyscallEvent(s) => s,
+            _ => panic!("Not a SyscallEvent"),
+        }
+    }
+
     pub fn event_type(&self) -> EventType {
         self.event_type
     }

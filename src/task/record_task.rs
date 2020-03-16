@@ -940,7 +940,8 @@ pub mod record_task {
         pub fn ev(&self) -> &Event {
             unimplemented!()
         }
-        pub fn ev_mut(&self) -> &mut Event {
+
+        pub fn ev_mut(&mut self) -> &mut Event {
             unimplemented!()
         }
 

@@ -29,6 +29,21 @@ macro_rules! rd_arch_function {
     };
 }
 
+macro_rules! rd_arch_function_selfless {
+    ($func_name:ident, $arch:expr) => {
+        match $arch {
+            crate::kernel_abi::SupportedArch::X86 => $func_name::<crate::arch::X86Arch>(),
+            crate::kernel_abi::SupportedArch::X64 => $func_name::<crate::arch::X64Arch>(),
+        }
+    };
+    ($func_name:ident, $arch:expr, $($exp:tt)*) => {
+        match $arch {
+            crate::kernel_abi::SupportedArch::X86 => $func_name::<crate::arch::X86Arch>($($exp)*),
+            crate::kernel_abi::SupportedArch::X64 => $func_name::<crate::arch::X64Arch>($($exp)*),
+        }
+    };
+}
+
 pub trait Architecture {
     #[allow(non_camel_case_types)]
     type kernel_sigaction: Default + Copy + 'static;

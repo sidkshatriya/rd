@@ -1,4 +1,6 @@
+use crate::arch::Architecture;
 use crate::event::Switchable;
+use crate::kernel_abi::SupportedArch;
 use crate::registers::Registers;
 use crate::remote_ptr::{RemotePtr, Void};
 use crate::task::record_task::record_task::RecordTask;
@@ -51,23 +53,72 @@ impl Range {
 /// an expensive operation if the offset is implicit (i.e. is taken from the
 /// file descriptor), so we only do it if we actually need to look at the
 /// offset.
-/// @TODO do we need BOTH t and regs here?
-/// If regs belongs to t it may just be simpler to have t.
 pub struct LazyOffset<'b, 'a: 'b> {
     t: &'a mut dyn Task,
     regs: &'b Registers,
-    syscallno: i64,
+    /// @TODO in rr this is an i64
+    syscallno: i32,
 }
 
 impl<'b, 'a: 'b> LazyOffset<'b, 'a> {
-    pub fn new(t: &'a mut dyn Task, regs: &'b Registers, syscallno: i64) -> LazyOffset<'b, 'a> {
+    pub fn new(t: &'a mut dyn Task, regs: &'b Registers, syscallno: i32) -> LazyOffset<'b, 'a> {
         LazyOffset { t, regs, syscallno }
     }
     /// @TODO In rr this returns an i64. We return a u64. Would stuff break?
     /// Retrieved offset can be negative under what circumstances?
-    pub fn retrieve(&self, needed_for_replay: bool) -> u64 {
-        unimplemented!()
+    pub fn retrieve(&mut self, needed_for_replay: bool) -> u64 {
+        let is_replay = self.t.session().borrow().is_replaying();
+        let is_implicit_offset = is_implict_offset_syscall(self.t.arch(), self.syscallno);
+        ed_assert!(self.t, needed_for_replay || !is_replay);
+        // There is no way we can figure out this information now, so retrieve it
+        // from the trace (we record it below under the same circumstance).
+        if is_replay && is_implicit_offset {
+            return self
+                .t
+                .as_replay_task()
+                .unwrap()
+                .current_trace_frame()
+                .event()
+                .syscall()
+                .write_offset
+                .unwrap();
+        }
+        // @TODO This is an i64 in rr
+        let offset: u64 = retrieve_offset(self.t, self.syscallno, self.regs);
+        if needed_for_replay && is_implicit_offset {
+            self.t
+                .as_record_task_mut()
+                .unwrap()
+                .ev_mut()
+                .syscall_mut()
+                .write_offset = Some(offset);
+        }
+
+        offset
     }
+}
+
+fn is_implicit_offset_syscall_arch<Arch: Architecture>(syscallno: i32) -> bool {
+    syscallno == rd_kernel_abi_constant!(Arch::arch(), WRITEV)
+        || syscallno == rd_kernel_abi_constant!(Arch::arch(), WRITE)
+}
+
+fn is_implict_offset_syscall(arch: SupportedArch, syscallno: i32) -> bool {
+    rd_arch_function_selfless!(is_implicit_offset_syscall_arch, arch, syscallno)
+}
+
+fn retrieve_offset_arch<Arch: Architecture>(
+    t: &mut dyn Task,
+    syscallno: i32,
+    regs: &Registers,
+) -> u64 {
+    unimplemented!()
+}
+
+/// @TODO This returns i64 in rr
+fn retrieve_offset(t: &mut dyn Task, syscallno: i32, regs: &Registers) -> u64 {
+    let arch = t.arch();
+    rd_arch_function_selfless!(retrieve_offset_arch, arch, t, syscallno, regs)
 }
 
 /// We DONT need a DerefMut<Target=FileMonitorInner> at the moment because
