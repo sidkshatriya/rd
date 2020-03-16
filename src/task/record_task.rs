@@ -229,8 +229,8 @@ pub mod record_task {
     use crate::task::task_inner::task_inner::{CloneReason, TaskInner, WriteFlags};
     use crate::task::Task;
     use crate::ticks::Ticks;
-    use crate::trace_frame::FrameTime;
-    use crate::trace_stream::trace_writer::TraceWriter;
+    use crate::trace::trace_frame::FrameTime;
+    use crate::trace::trace_writer::TraceWriter;
     use crate::wait_status::WaitStatus;
     use libc::{pid_t, siginfo_t};
     use std::cell::RefCell;

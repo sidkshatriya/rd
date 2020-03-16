@@ -9,7 +9,7 @@ use crate::session::session_inner::session_inner::{SessionInner, TaskMap};
 use crate::task::Task;
 use crate::taskish_uid::{AddressSpaceUid, TaskUid, ThreadGroupUid};
 use crate::thread_group::{ThreadGroup, ThreadGroupSharedPtr};
-use crate::trace_stream::TraceStream;
+use crate::trace::trace_stream::TraceStream;
 use libc::pid_t;
 use std::cell::RefCell;
 use std::ops::DerefMut;

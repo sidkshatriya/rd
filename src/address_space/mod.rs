@@ -199,7 +199,7 @@ pub mod address_space {
     use crate::task_set::TaskSet;
     use crate::taskish_uid::AddressSpaceUid;
     use crate::taskish_uid::TaskUid;
-    use crate::trace_frame::FrameTime;
+    use crate::trace::trace_frame::FrameTime;
     use crate::util::{ceil_page_size, floor_page_size, page_size, uses_invisible_guard_page};
     use core::ffi::c_void;
     use libc::stat;

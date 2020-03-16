@@ -91,7 +91,7 @@ pub mod task_inner {
     use crate::taskish_uid::TaskUid;
     use crate::thread_group::{ThreadGroup, ThreadGroupSharedPtr};
     use crate::ticks::Ticks;
-    use crate::trace_stream::TraceStream;
+    use crate::trace::trace_stream::TraceStream;
     use crate::util::TrappedInstruction;
     use crate::wait_status::WaitStatus;
     use libc::{__errno_location, pid_t, siginfo_t, uid_t, PTRACE_PEEKDATA, PTRACE_POKEDATA};

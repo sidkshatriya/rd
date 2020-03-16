@@ -2,7 +2,7 @@ use crate::kernel_abi::SupportedArch;
 use crate::session::session_inner::session_inner::SessionInner;
 use crate::session::Session;
 use crate::task::Task;
-use crate::trace_stream::TraceStream;
+use crate::trace::trace_stream::TraceStream;
 use std::ops::{Deref, DerefMut};
 
 pub struct RecordSession {
