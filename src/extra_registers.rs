@@ -1,8 +1,8 @@
 use crate::gdb_register::*;
-use crate::kernel_abi::x64;
 use crate::kernel_abi::x86;
 use crate::kernel_abi::SupportedArch;
 use crate::kernel_abi::SupportedArch::*;
+use crate::kernel_abi::{x64, RD_NATIVE_ARCH};
 use crate::kernel_metadata::xsave_feature_string;
 use crate::log::LogLevel::LogError;
 use crate::task::task_inner::task_inner::TaskInner;
@@ -86,6 +86,12 @@ pub struct ExtraRegisters {
     format_: Format,
     arch_: SupportedArch,
     data_: Vec<u8>,
+}
+
+impl Default for ExtraRegisters {
+    fn default() -> Self {
+        ExtraRegisters::new(RD_NATIVE_ARCH)
+    }
 }
 
 impl ExtraRegisters {

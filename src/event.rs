@@ -3,6 +3,7 @@ use crate::kernel_abi::SupportedArch;
 use crate::registers::Registers;
 use crate::remote_ptr::RemotePtr;
 use libc::{dev_t, ino_t, siginfo_t};
+use std::fmt::{Display, Formatter, Result};
 
 /// During recording, sometimes we need to ensure that an iteration of
 /// RecordSession::record_step schedules the same task as in the previous
@@ -31,7 +32,7 @@ pub enum Switchable {
 ///
 /// @TODO If this is stored in trace then will need worry about values
 /// and possibly ensure they are same as in rr.
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum EventType {
     EvUnassigned,
     EvSentinel,
@@ -148,7 +149,7 @@ pub struct SignalEvent {
 ///
 /// When PTRACE_SYSEMU is used, there will only be one event: an
 /// EnteringSyscallPtrace.
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum SyscallState {
     /// Not present in trace. Just a dummy value.
     NoSyscall,
@@ -214,11 +215,76 @@ struct SyscallInterruption;
 // @TODO
 // interrupted
 
-/// Sum type for all events
 #[derive(Clone)]
-pub enum Event {
-    DeschedEvent,
-    SignalEvent,
-    SyscallEvent,
-    SyscallbufFlushEvent,
+pub enum EventExtraData {
+    NoExtraData,
+    DeschedEvent(DeschedEvent),
+    SignalEvent(SignalEvent),
+    SyscallEvent(SyscallEvent),
+    SyscallbufFlushEvent(SyscallbufFlushEvent),
+}
+
+#[derive(Clone)]
+pub struct Event {
+    event_type: EventType,
+    event_extra_data: EventExtraData,
+}
+
+impl Default for EventExtraData {
+    fn default() -> Self {
+        EventExtraData::NoExtraData
+    }
+}
+
+impl Default for EventType {
+    fn default() -> Self {
+        EventType::EvUnassigned
+    }
+}
+
+impl Default for Event {
+    fn default() -> Self {
+        Event {
+            event_type: Default::default(),
+            event_extra_data: Default::default(),
+        }
+    }
+}
+impl Display for Event {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        unimplemented!()
+    }
+}
+
+impl Event {
+    pub fn is_syscall_event(&self) -> bool {
+        match self.event_type {
+            EventType::EvSyscall | EventType::EvSyscallInterruption => true,
+            _ => false,
+        }
+    }
+
+    pub fn record_regs(&self) -> bool {
+        match self.event_type {
+            EventType::EvInstructionTrap
+            | EventType::EvPatchSyscall
+            | EventType::EvSched
+            | EventType::EvSyscall
+            | EventType::EvSignal
+            | EventType::EvSignalDelivery
+            | EventType::EvSignalHandler => true,
+            _ => false,
+        }
+    }
+
+    pub fn syscall(&self) -> &SyscallEvent {
+        match &self.event_extra_data {
+            EventExtraData::SyscallEvent(s) => s,
+            _ => panic!("Not a SyscallEvent"),
+        }
+    }
+
+    pub fn event_type(&self) -> EventType {
+        self.event_type
+    }
 }

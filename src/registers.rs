@@ -10,7 +10,6 @@ use crate::kernel_supplement::{
 use crate::log::LogLevel::{LogError, LogInfo, LogWarn};
 use crate::remote_code_ptr::RemoteCodePtr;
 use crate::remote_ptr::{RemotePtr, Void};
-use crate::task::task_inner::task_inner::TaskInner;
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::fmt::Display;
@@ -82,6 +81,7 @@ pub enum Registers {
     X86(x86::user_regs_struct),
 }
 
+use crate::task::replay_task::ReplayTask;
 use Registers::*;
 
 /// A Registers object contains values for all general-purpose registers.
@@ -256,9 +256,8 @@ impl Registers {
     /// mismatch.  Passing LOG_MISMATCHES will log the registers that don't
     /// match.  Passing BAIL_ON_MISMATCH will additionally abort on
     /// mismatch.
-    // @TODO the first param shold be Option<&ReplayTask>
     pub fn compare_register_files(
-        maybe_t: Option<&TaskInner>,
+        maybe_t: Option<&ReplayTask>,
         name1: &str,
         regs1: &Registers,
         name2: &str,
@@ -588,7 +587,7 @@ impl Registers {
         }
     }
 
-    // @TODO should this be signed or unsigned?
+    /// Note: Syscall number is signed
     pub fn syscallno(&self) -> isize {
         rd_get_reg_signed!(self, eax, rax)
     }
@@ -1431,5 +1430,17 @@ pub fn with_converted_registers<Ret, F: Fn(&Registers) -> Ret>(
         f(&converted_regs)
     } else {
         f(regs)
+    }
+}
+
+impl Default for Registers {
+    #[cfg(target_arch = "x86_64")]
+    fn default() -> Self {
+        Registers::X64(x64::user_regs_struct::default())
+    }
+
+    #[cfg(target_arch = "x86")]
+    fn default() -> Self {
+        Registers::X86(x86::user_regs_struct::default())
     }
 }
