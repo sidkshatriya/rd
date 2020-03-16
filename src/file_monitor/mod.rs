@@ -63,7 +63,9 @@ impl<'b, 'a: 'b> LazyOffset<'b, 'a> {
     pub fn new(t: &'a mut dyn Task, regs: &'b Registers, syscallno: i64) -> LazyOffset<'b, 'a> {
         LazyOffset { t, regs, syscallno }
     }
-    pub fn retrieve(needed_for_replay: bool) -> i64 {
+    /// @TODO In rr this returns an i64. We return a u64. Would stuff break?
+    /// Retrieved offset can be negative under what circumstances?
+    pub fn retrieve(&self, needed_for_replay: bool) -> u64 {
         unimplemented!()
     }
 }
@@ -95,7 +97,7 @@ pub trait FileMonitor {
     }
 
     /// We don't have a task param like in rr as the task is included in `l`, the LazyOffset
-    fn did_write<'b, 'a: 'b>(&self, rv: &[Range], l: &mut LazyOffset<'b, 'a>) {}
+    fn did_write<'b, 'a: 'b>(&mut self, rv: &[Range], l: &mut LazyOffset<'b, 'a>) {}
 
     /// Return true if the ioctl should be fully emulated. If so the result
     /// is stored in the last parameter.

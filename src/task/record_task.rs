@@ -863,16 +863,20 @@ pub mod record_task {
         pub fn record_remote_for<T>(addr: RemotePtr<T>) {
             unimplemented!()
         }
-        pub fn record_remote_range(range: &MemoryRange) {
+        pub fn record_remote_range(range: MemoryRange) {
             unimplemented!()
         }
-        pub fn record_remote_range_fallible(range: &MemoryRange) -> usize {
+        pub fn record_remote_range_fallible(&mut self, range: MemoryRange) -> Result<usize, ()> {
             unimplemented!()
         }
 
         /// Record as much as we can of the bytes in this range. Will record only
         /// contiguous mapped data starting at `addr`.
-        pub fn record_remote_fallible(&self, addr: RemotePtr<Void>, num_bytes: usize) -> isize {
+        pub fn record_remote_fallible(
+            &mut self,
+            addr: RemotePtr<Void>,
+            num_bytes: usize,
+        ) -> Result<usize, ()> {
             unimplemented!()
         }
 

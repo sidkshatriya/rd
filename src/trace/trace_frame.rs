@@ -38,6 +38,7 @@ impl TraceFrame {
             ev: event,
             ticks_: tick_count,
             monotonic_time_: monotonic_time,
+            // @TODO Is this what we really want?
             recorded_regs: Registers::default(),
             recorded_extra_regs: ExtraRegisters::default(),
         }
@@ -50,6 +51,7 @@ impl TraceFrame {
             ev: Event::default(),
             ticks_: 0,
             monotonic_time_: 0.0,
+            // @TODO Is this what we really want?
             recorded_regs: Registers::default(),
             recorded_extra_regs: ExtraRegisters::default(),
         }

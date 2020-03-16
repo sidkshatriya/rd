@@ -3,6 +3,7 @@ use crate::file_monitor::{FileMonitor, FileMonitorType, LazyOffset, Range};
 use crate::remote_ptr::{RemotePtr, Void};
 use crate::task::replay_task::ReplayTask;
 
+/// A FileMonitor to track writes to RR_MAGIC_SAVE_DATA_FD.
 pub struct MagicSaveDataMonitor;
 
 impl FileMonitor for MagicSaveDataMonitor {
@@ -10,7 +11,7 @@ impl FileMonitor for MagicSaveDataMonitor {
         MagicSaveData
     }
 
-    fn did_write<'b, 'a: 'b>(&self, rv: &[Range], l: &mut LazyOffset<'b, 'a>) {
+    fn did_write<'b, 'a: 'b>(&mut self, rv: &[Range], l: &mut LazyOffset<'b, 'a>) {
         for r in rv {
             if l.t.session().borrow().is_recording() {
                 let rec_task = l.t.as_record_task().unwrap();
