@@ -857,7 +857,7 @@ pub mod record_task {
             unimplemented!()
         }
 
-        pub fn record_remote(addr: RemotePtr<Void>, num_bytes: usize) {
+        pub fn record_remote(&self, addr: RemotePtr<Void>, num_bytes: usize) {
             unimplemented!()
         }
         pub fn record_remote_for<T>(addr: RemotePtr<T>) {

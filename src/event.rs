@@ -215,6 +215,7 @@ struct SyscallInterruption;
 // interrupted
 
 /// Sum type for all events
+#[derive(Clone)]
 pub enum Event {
     DeschedEvent,
     SignalEvent,

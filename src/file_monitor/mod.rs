@@ -53,14 +53,14 @@ impl Range {
 /// offset.
 /// @TODO do we need BOTH t and regs here?
 /// If regs belongs to t it may just be simpler to have t.
-pub struct LazyOffset<'a> {
-    t: &'a dyn Task,
-    regs: &'a Registers,
+pub struct LazyOffset<'b, 'a: 'b> {
+    t: &'a mut dyn Task,
+    regs: &'b Registers,
     syscallno: i64,
 }
 
-impl<'a> LazyOffset<'a> {
-    pub fn new(t: &'a dyn Task, regs: &'a Registers, syscallno: i64) -> LazyOffset<'a> {
+impl<'b, 'a: 'b> LazyOffset<'b, 'a> {
+    pub fn new(t: &'a mut dyn Task, regs: &'b Registers, syscallno: i64) -> LazyOffset<'b, 'a> {
         LazyOffset { t, regs, syscallno }
     }
     pub fn retrieve(needed_for_replay: bool) -> i64 {
@@ -72,7 +72,7 @@ impl<'a> LazyOffset<'a> {
 /// The FileMonitorInner struct does not have any members at the moment.
 pub trait FileMonitor {
     /// You have to provide a type if you implement this trait
-    fn file_monitor_type(&self);
+    fn file_monitor_type(&self) -> FileMonitorType;
 
     /// Overriding this to return true will cause close() (and related fd-smashing
     /// operations such as dup2) to return EBADF, and hide it from the tracee's
@@ -94,7 +94,8 @@ pub trait FileMonitor {
         Switchable::AllowSwitch
     }
 
-    fn did_write(&self, t: &dyn Task, rv: Vec<Range>, l: &LazyOffset) {}
+    /// We don't have a task param like in rr as the task is included in `l`, the LazyOffset
+    fn did_write<'b, 'a: 'b>(&self, rv: &[Range], l: &mut LazyOffset<'b, 'a>) {}
 
     /// Return true if the ioctl should be fully emulated. If so the result
     /// is stored in the last parameter.
