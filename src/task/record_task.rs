@@ -230,7 +230,7 @@ pub mod record_task {
     use crate::task::Task;
     use crate::ticks::Ticks;
     use crate::trace_frame::FrameTime;
-    use crate::trace_writer::TraceWriter;
+    use crate::trace_stream::trace_writer::TraceWriter;
     use crate::wait_status::WaitStatus;
     use libc::{pid_t, siginfo_t};
     use std::cell::RefCell;
