@@ -31,8 +31,8 @@ impl ScopedFd {
 
     pub fn close(&mut self) {
         if self.fd >= 0 {
-            // @TODO rr swallows any error but we leave this for now.
-            close(self.fd).unwrap();
+            // We swallow any error on close
+            close(self.fd);
         }
 
         self.fd = -1;
