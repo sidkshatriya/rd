@@ -30,6 +30,12 @@ impl FileMonitor for MagicSaveDataMonitor {
     }
 }
 
+impl MagicSaveDataMonitor {
+    pub fn new() -> MagicSaveDataMonitor {
+        MagicSaveDataMonitor
+    }
+}
+
 fn notify_save_data_error(t: &ReplayTask, addr: RemotePtr<Void>, rec_buf: &[u8], rep_buf: &[u8]) {
     unimplemented!()
 }

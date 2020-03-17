@@ -1,5 +1,6 @@
 use crate::address_space::kernel_mapping::KernelMapping;
 use crate::address_space::memory_range::MemoryRange;
+use crate::emu_fs::EmuFileSharedPtr;
 use crate::event::Switchable;
 use crate::event::Switchable::{AllowSwitch, PreventSwitch};
 use crate::file_monitor::{FileMonitor, FileMonitorType, LazyOffset, Range};
@@ -16,6 +17,27 @@ pub struct MmappedFileMonitor {
     dead_: bool,
     device_: dev_t,
     inode_: ino_t,
+}
+
+impl MmappedFileMonitor {
+    pub fn new(t: &dyn Task, fd: i32) -> MmappedFileMonitor {
+        ed_assert!(t, !t.session().borrow().is_replaying());
+        let stat = t.stat_fd(fd);
+        MmappedFileMonitor {
+            dead_: false,
+            device_: stat.st_dev,
+            inode_: stat.st_ino,
+        }
+    }
+
+    pub fn new_from_emufile(t: &dyn Task, f: EmuFileSharedPtr) -> MmappedFileMonitor {
+        ed_assert!(t, !t.session().borrow().is_replaying());
+        MmappedFileMonitor {
+            dead_: false,
+            device_: f.borrow().device(),
+            inode_: f.borrow().inode(),
+        }
+    }
 }
 
 impl FileMonitor for MmappedFileMonitor {
