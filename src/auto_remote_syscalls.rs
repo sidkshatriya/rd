@@ -445,7 +445,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
                     &[
                         fd as usize,
                         (offset >> 32) as usize,
-                        offset.try_into().unwrap(),
+                        offset as usize,
                         addr.as_usize(),
                         whence as usize,
                     ],

@@ -49,6 +49,7 @@ macro_rules! rd_set_reg {
                 regs.$x86case = $val as i32;
             }
             X64(regs) => {
+                // Sign extension will happen automatically if $val is i32 for instance
                 regs.$x64case = $val as u64;
             }
         }
