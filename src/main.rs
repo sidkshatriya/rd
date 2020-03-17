@@ -10,19 +10,20 @@ extern crate raw_cpuid;
 extern crate static_assertions;
 
 #[macro_use]
+mod log;
+#[macro_use]
 mod arch;
 #[macro_use]
 mod kernel_abi;
+#[macro_use]
+mod auto_remote_syscalls;
+mod bindings;
 mod flags;
 mod kernel_metadata;
-#[macro_use]
-mod log;
-mod bindings;
 mod perf_counters;
 #[macro_use]
 mod registers;
 mod address_space;
-mod auto_remote_syscalls;
 mod core;
 mod emu_fs;
 mod event;

@@ -48,6 +48,144 @@ use std::ops::{Deref, DerefMut};
 use std::ptr::copy_nonoverlapping;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+macro_rules! rd_syscall {
+    ($slf:expr, $syscallno:expr) => {
+        $slf.syscall($syscallno, &[])
+    };
+    ($slf:expr, $syscallno:expr, $a0:expr) => {
+        $slf.syscall($syscallno, &[$a0 as usize])
+    };
+    ($slf:expr, $syscallno:expr, $a0:expr, $a1:expr) => {
+        $slf.syscall($syscallno, &[$a0 as usize, $a1 as usize])
+    };
+    ($slf:expr, $syscallno:expr, $a0:expr, $a1:expr, $a2:expr) => {
+        $slf.syscall($syscallno, &[$a0 as usize, $a1 as usize, $a2 as usize])
+    };
+    ($slf:expr, $syscallno:expr, $a0:expr, $a1:expr, $a2:expr, $a3:expr) => {
+        $slf.syscall(
+            $syscallno,
+            &[$a0 as usize, $a1 as usize, $a2 as usize, $a3 as usize],
+        )
+    };
+    ($slf:expr, $syscallno:expr, $a0:expr, $a1:expr, $a2:expr, $a3:expr, $a4:expr) => {
+        $slf.syscall(
+            $syscallno,
+            &[
+                $a0 as usize,
+                $a1 as usize,
+                $a2 as usize,
+                $a3 as usize,
+                $a4 as usize,
+            ],
+        )
+    };
+    ($slf:expr, $syscallno:expr, $a0:expr, $a1:expr, $a2:expr, $a3:expr, $a4:expr, $a5:expr) => {
+        $slf.syscall(
+            $syscallno,
+            &[
+                $a0 as usize,
+                $a1 as usize,
+                $a2 as usize,
+                $a3 as usize,
+                $a4 as usize,
+                $a5 as usize,
+            ],
+        )
+    };
+}
+
+macro_rules! rd_infallible_syscall {
+    ($slf:expr, $syscallno:expr) => {
+        $slf.infallible_syscall($syscallno, &[])
+    };
+    ($slf:expr, $syscallno:expr, $a0:expr) => {
+        $slf.infallible_syscall($syscallno, &[$a0 as usize])
+    };
+    ($slf:expr, $syscallno:expr, $a0:expr, $a1:expr) => {
+        $slf.infallible_syscall($syscallno, &[$a0 as usize, $a1 as usize])
+    };
+    ($slf:expr, $syscallno:expr, $a0:expr, $a1:expr, $a2:expr) => {
+        $slf.infallible_syscall($syscallno, &[$a0 as usize, $a1 as usize, $a2 as usize])
+    };
+    ($slf:expr, $syscallno:expr, $a0:expr, $a1:expr, $a2:expr, $a3:expr) => {
+        $slf.infallible_syscall(
+            $syscallno,
+            &[$a0 as usize, $a1 as usize, $a2 as usize, $a3 as usize],
+        )
+    };
+    ($slf:expr, $syscallno:expr, $a0:expr, $a1:expr, $a2:expr, $a3:expr, $a4:expr) => {
+        $slf.infallible_syscall(
+            $syscallno,
+            &[
+                $a0 as usize,
+                $a1 as usize,
+                $a2 as usize,
+                $a3 as usize,
+                $a4 as usize,
+            ],
+        )
+    };
+    ($slf:expr, $syscallno:expr, $a0:expr, $a1:expr, $a2:expr, $a3:expr, $a4:expr, $a5:expr) => {
+        $slf.infallible_syscall(
+            $syscallno,
+            &[
+                $a0 as usize,
+                $a1 as usize,
+                $a2 as usize,
+                $a3 as usize,
+                $a4 as usize,
+                $a5 as usize,
+            ],
+        )
+    };
+}
+
+macro_rules! rd_infallible_syscall_ptr {
+    ($slf:expr, $syscallno:expr) => {
+        $slf.infallible_syscall_ptr($syscallno, &[])
+    };
+    ($slf:expr, $syscallno:expr, $a0:expr) => {
+        $slf.infallible_syscall_ptr($syscallno, &[$a0 as usize])
+    };
+    ($slf:expr, $syscallno:expr, $a0:expr, $a1:expr) => {
+        $slf.infallible_syscall_ptr($syscallno, &[$a0 as usize, $a1 as usize])
+    };
+    ($slf:expr, $syscallno:expr, $a0:expr, $a1:expr, $a2:expr) => {
+        $slf.infallible_syscall_ptr($syscallno, &[$a0 as usize, $a1 as usize, $a2 as usize])
+    };
+    ($slf:expr, $syscallno:expr, $a0:expr, $a1:expr, $a2:expr, $a3:expr) => {
+        $slf.infallible_syscall_ptr(
+            $syscallno,
+            &[$a0 as usize, $a1 as usize, $a2 as usize, $a3 as usize],
+        )
+    };
+    ($slf:expr, $syscallno:expr, $a0:expr, $a1:expr, $a2:expr, $a3:expr, $a4:expr) => {
+        $slf.infallible_syscall_ptr(
+            $syscallno,
+            &[
+                $a0 as usize,
+                $a1 as usize,
+                $a2 as usize,
+                $a3 as usize,
+                $a4 as usize,
+            ],
+        )
+    };
+    ($slf:expr, $syscallno:expr, $a0:expr, $a1:expr, $a2:expr, $a3:expr, $a4:expr, $a5:expr) => {
+        $slf.infallible_syscall_ptr(
+            $syscallno,
+            &[
+                $a0 as usize,
+                $a1 as usize,
+                $a2 as usize,
+                $a3 as usize,
+                $a4 as usize,
+                $a5 as usize,
+            ],
+        )
+    };
+}
+
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub enum MemParamsEnabled {
     EnableMemoryParams,
@@ -330,9 +468,11 @@ impl<'a> AutoRemoteSyscalls<'a> {
         // Unmap our scratch region if required
         if self.scratch_mem_was_mapped {
             let mut remote = AutoRemoteSyscalls::new(some_t);
-            remote.infallible_syscall(
+            rd_infallible_syscall!(
+                remote,
                 syscall_number_for_munmap(remote.arch()),
-                &[self.fixed_sp.unwrap().as_usize() - 4096, 4096],
+                self.fixed_sp.unwrap().as_usize() - 4096,
+                4096
             );
         }
         if !self.replaced_bytes.is_empty() {
@@ -354,7 +494,9 @@ impl<'a> AutoRemoteSyscalls<'a> {
         some_t.set_status(self.restore_wait_status);
     }
 
-    /// Make `syscallno` with variadic `args` (limited to 6 on
+    /// @TODO Can eek bit more performance by specializing this method. Leave as is for now.
+    ///
+    /// Make `syscallno` with `args` (limited to 6 on
     /// x86).  Return the raw kernel return value.
     /// Returns -ESRCH if the process dies or has died.
     pub fn syscall(&mut self, syscallno: i32, args: &[usize]) -> isize {
@@ -367,12 +509,14 @@ impl<'a> AutoRemoteSyscalls<'a> {
         self.syscall_base(syscallno, &mut callregs)
     }
 
+    /// @TODO Can eek bit more performance by specializing this method. Leave as is for now.
     pub fn infallible_syscall(&mut self, syscallno: i32, args: &[usize]) -> isize {
         let ret = self.syscall(syscallno, args);
         self.check_syscall_result(ret, syscallno);
         ret
     }
 
+    /// @TODO Can eek bit more performance by specializing this method. Leave as is for now.
     pub fn infallible_syscall_ptr(&mut self, syscallno: i32, args: &[usize]) -> RemotePtr<Void> {
         (self.infallible_syscall(syscallno, args) as usize).into()
     }
@@ -440,21 +584,23 @@ impl<'a> AutoRemoteSyscalls<'a> {
                 let arch = mem.arch();
                 let addr = mem.get().unwrap();
                 // AutoRestoreMem DerefMut-s to AutoRemoteSyscalls
-                mem.infallible_syscall(
+                rd_infallible_syscall!(
+                    mem,
                     syscall_number_for__llseek(arch),
-                    &[
-                        fd as usize,
-                        (offset >> 32) as usize,
-                        offset as usize,
-                        addr.as_usize(),
-                        whence as usize,
-                    ],
+                    fd,
+                    (offset >> 32),
+                    offset,
+                    addr.as_usize(),
+                    whence
                 );
                 read_val_mem::<isize>(mem.remote.t, RemotePtr::cast(addr), None)
             }
-            SupportedArch::X64 => self.infallible_syscall(
+            SupportedArch::X64 => rd_infallible_syscall!(
+                self,
                 syscall_number_for_lseek(self.arch()),
-                &[fd as usize, offset as usize, whence as usize],
+                fd,
+                offset,
+                whence
             ),
         }
     }
@@ -775,18 +921,16 @@ impl<'a> AutoRemoteSyscalls<'a> {
             let mut child_path = AutoRestoreMem::push_cstr(self, path.as_str());
             let path_addr_val = (child_path.get().unwrap() + 1usize).as_usize();
             // skip leading '/' since we want the path to be relative to the root fd
-            child_shmem_fd = child_path
-                .infallible_syscall(
-                    syscall_number_for_openat(arch),
-                    &[
-                        RD_RESERVED_ROOT_DIR_FD as _,
-                        path_addr_val,
-                        (O_CREAT | O_EXCL | O_RDWR | O_CLOEXEC) as usize,
-                        0o600,
-                    ],
-                )
-                .try_into()
-                .unwrap();
+            child_shmem_fd = rd_infallible_syscall!(
+                child_path,
+                syscall_number_for_openat(arch),
+                RD_RESERVED_ROOT_DIR_FD,
+                path_addr_val,
+                (O_CREAT | O_EXCL | O_RDWR | O_CLOEXEC),
+                0o600
+            )
+            .try_into()
+            .unwrap();
         }
 
         // Remove the fs name so that we don't have to worry about cleaning
@@ -847,10 +991,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         );
 
         shmem_fd.close();
-        self.infallible_syscall(
-            syscall_number_for_close(self.arch()),
-            &[child_shmem_fd as _],
-        );
+        rd_infallible_syscall!(self, syscall_number_for_close(self.arch()), child_shmem_fd);
         km
     }
 

@@ -1642,9 +1642,11 @@ pub mod address_space {
                 if !t.session().borrow().is_recording() {
                     let mut remote = AutoRemoteSyscalls::new(t);
                     let arch = remote.arch();
-                    remote.infallible_syscall(
+                    rd_infallible_syscall!(
+                        remote,
                         syscall_number_for_munmap(arch),
-                        &[range.start().as_usize(), range.size()],
+                        range.start().as_usize(),
+                        range.size()
                     );
                 }
                 t.vm_mut().unmap(t, range.start(), range.size());
@@ -2165,7 +2167,7 @@ pub mod address_space {
                 let fstat: libc::stat = child_path.task().stat_fd(child_fd);
                 file_name = child_path.task().file_name_of_fd(child_fd);
 
-                child_path.infallible_syscall(syscall_number_for_close(arch), &[child_fd as _]);
+                rd_infallible_syscall!(child_path, syscall_number_for_close(arch), child_fd);
 
                 self.map(
                     child_path.task(),
@@ -2242,9 +2244,9 @@ pub mod address_space {
 
             if child_path.task().session().borrow().is_recording() {
                 // brk() will not have been called yet so the brk area is empty.
-                self.brk_start = (child_path.infallible_syscall(syscall_number_for_brk(arch), &[0])
-                    as usize)
-                    .into();
+                self.brk_start =
+                    (rd_infallible_syscall!(child_path, syscall_number_for_brk(arch), 0) as usize)
+                        .into();
                 self.brk_end = self.brk_start;
                 ed_assert!(child_path.task(), !self.brk_end.is_null());
             }

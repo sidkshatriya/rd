@@ -310,22 +310,24 @@ pub(super) fn safe_pwrite64(
     let mprotect_syscallno: i32 = syscall_number_for_mprotect(t.arch());
     let mut remote = AutoRemoteSyscalls::new(t);
     for m in &mappings_to_fix {
-        remote.infallible_syscall(
+        rd_infallible_syscall!(
+            remote,
             mprotect_syscallno,
-            &[
-                m.0.start().as_usize(),
-                m.0.size(),
-                (m.1 | ProtFlags::PROT_WRITE).bits() as _,
-            ],
+            m.0.start().as_usize(),
+            m.0.size(),
+            (m.1 | ProtFlags::PROT_WRITE).bits()
         );
     }
 
     let nwritten_result: Result<usize, ()> = pwrite_all_fallible(mem_fd, buf, addr.as_isize());
 
     for m in &mappings_to_fix {
-        remote.infallible_syscall(
+        rd_infallible_syscall!(
+            remote,
             mprotect_syscallno,
-            &[m.0.start().as_usize(), m.0.size(), m.1.bits() as _],
+            m.0.start().as_usize(),
+            m.0.size(),
+            m.1.bits()
         );
     }
 
