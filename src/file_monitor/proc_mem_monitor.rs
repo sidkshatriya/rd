@@ -1,7 +1,6 @@
 use crate::event::Switchable;
 use crate::file_monitor::{FileMonitor, FileMonitorType, LazyOffset, Range};
 use crate::remote_ptr::RemotePtr;
-use crate::task::record_task::record_task::RecordTask;
 use crate::task::Task;
 use crate::taskish_uid::TaskUid;
 use std::convert::TryInto;

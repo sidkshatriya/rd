@@ -7,7 +7,8 @@ use std::io;
 use std::io::stdout;
 use std::io::Write;
 
-pub type FrameTime = i64;
+/// @TODO This is i64 in rr
+pub type FrameTime = u64;
 
 /// We DONT want Copy
 #[derive(Clone)]
