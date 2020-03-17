@@ -863,7 +863,7 @@ pub mod record_task {
         pub fn record_remote_for<T>(addr: RemotePtr<T>) {
             unimplemented!()
         }
-        pub fn record_remote_range(range: MemoryRange) {
+        pub fn record_remote_range(&mut self, range: MemoryRange) {
             unimplemented!()
         }
         pub fn record_remote_range_fallible(&mut self, range: MemoryRange) -> Result<usize, ()> {
