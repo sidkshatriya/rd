@@ -26,6 +26,7 @@ pub enum LogLevel {
     LogDebug,
 }
 
+use crate::task::Task;
 pub use LogLevel::*;
 
 struct LogGlobals {
@@ -339,4 +340,8 @@ macro_rules! ed_assert {
             }
         }
     };
+}
+
+fn emergency_debug(t: &dyn Task) {
+    unimplemented!()
 }

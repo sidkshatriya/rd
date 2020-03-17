@@ -105,13 +105,26 @@ enum CpuMicroarch {
     AMDRyzen,
 }
 
+use crate::flags::Flags;
 use CpuMicroarch::*;
 
 /// Return the detected, known microarchitecture of this CPU, or don't
 /// return; i.e. never return UnknownCpu.
 #[allow(unreachable_code)]
 fn get_cpu_microarch() -> CpuMicroarch {
-    // @TODO forced micro arch from command line options.
+    let forced_uarch = Flags::get().forced_uarch.to_lowercase();
+    if !forced_uarch.is_empty() {
+        for pmu in &PMU_CONFIGS {
+            let name: String = pmu.name.to_lowercase();
+            if let Some(_) = name.find(&forced_uarch) {
+                log!(LogInfo, "Using forced uarch {}", pmu.name);
+                return pmu.uarch;
+            }
+        }
+
+        clean_fatal!("Forced uarch {} isn't known", Flags::get().forced_uarch);
+    }
+
     let cpuid = CpuId::new();
     let vendor_info_string = cpuid.get_vendor_info().unwrap().as_string().to_owned();
 
@@ -142,17 +155,17 @@ fn get_cpu_microarch() -> CpuMicroarch {
         0x30f00 => return AMDF15R30,
         0x00f10 => {
             if ext_family == 8 {
-                // @TODO Supress environment warnings.
-                write!(
-                    stderr(),
-                    "You have a Ryzen CPU. The Ryzen\n\
+                if !Flags::get().suppress_environment_warnings {
+                    write!(
+                        stderr(),
+                        "You have a Ryzen CPU. The Ryzen\n\
                      retired-conditional-branches hardware\n\
                      performance counter is not accurate enough; rr will\n\
                      be unreliable.\n\
                      See https://github.com/mozilla/rr/issues/2034.\n"
-                )
-                .unwrap();
-                // }
+                    )
+                    .unwrap();
+                }
                 return AMDRyzen;
             }
         }
@@ -574,8 +587,9 @@ fn start_counter(tid: Pid, group_fd: i32, attr: &mut perf_event_attr) -> (Scoped
 
             log!(LogWarn, "kernel does not support IN_TXCP");
             let cpuid = CpuId::new();
-            // @TODO. Check for supress environmental warnings.
-            if cpuid.get_extended_feature_info().unwrap().has_hle() {
+            if cpuid.get_extended_feature_info().unwrap().has_hle()
+                && !Flags::get().suppress_environment_warnings
+            {
                 write!(
                     stderr(),
                     "Your CPU supports Hardware Lock Elision but your kernel does\n\
@@ -672,8 +686,10 @@ fn check_working_counters() -> bool {
     log!(LogWarn, "only_one_counter={}", only_one_counter);
     let cpuid = CpuId::new();
 
-    // @TODO. Check for suppress environmental warnings.
-    if only_one_counter && cpuid.get_extended_feature_info().unwrap().has_hle() {
+    if only_one_counter
+        && cpuid.get_extended_feature_info().unwrap().has_hle()
+        && !Flags::get().suppress_environment_warnings
+    {
         write!(
             stderr(),
             "Your CPU supports Hardware Lock Elision but you only have one\n\
@@ -942,17 +958,18 @@ impl PerfCounters {
             let transaction_ticks = read_counter(&self.fd_ticks_in_transaction);
             if transaction_ticks > 0 {
                 log!(LogDebug, "{} IN_TX ticks detected", transaction_ticks);
-                // @TODO ignore if force things are enabled.
-                ed_assert!(
-                    t,
-                    false,
-                    "{} IN_TX ticks detected while HLE not supported due to KVM PMU\n\
+                if !Flags::get().force_things {
+                    ed_assert!(
+                        t,
+                        false,
+                        "{} IN_TX ticks detected while HLE not supported due to KVM PMU\n\
                      virtualization bug. See \
                      http://marc.info/?l=linux-kernel&m=148582794808419&w=2\n\
                      Aborting. Retry with -F to override, but it will probably\n\
                      fail.",
-                    transaction_ticks
-                );
+                        transaction_ticks
+                    );
+                }
             }
         }
 

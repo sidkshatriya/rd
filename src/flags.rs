@@ -41,6 +41,9 @@ pub struct Flags {
     pub mark_stdio: bool,
     /// Check that cached mmaps match /proc/maps after each event.
     pub check_cached_maps: bool,
+    /// Suppress warnings related to environmental features outside rr's
+    /// control.
+    pub suppress_environment_warnings: bool,
     /// Any warning or error that would be printed is treated as fatal
     pub fatal_errors_and_warnings: bool,
     /// Pretend CPUID faulting support doesn't exist
