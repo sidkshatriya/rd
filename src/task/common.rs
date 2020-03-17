@@ -130,7 +130,7 @@ pub(super) fn read_bytes_fallible<T: Task>(
         return Ok(0);
     }
 
-    match task.vm_ref().local_mapping(addr, buf.len()) {
+    match task.vm().local_mapping(addr, buf.len()) {
         Some(found) => {
             buf.copy_from_slice(found);
             return Ok(buf.len());
@@ -138,7 +138,7 @@ pub(super) fn read_bytes_fallible<T: Task>(
         None => (),
     }
 
-    if !task.vm_ref().mem_fd().is_open() {
+    if !task.vm().mem_fd().is_open() {
         return Ok(task.read_bytes_ptrace(addr, buf));
     }
 
@@ -147,7 +147,7 @@ pub(super) fn read_bytes_fallible<T: Task>(
         unsafe { *(__errno_location()) = 0 };
         let nread: isize = unsafe {
             pread64(
-                task.vm_ref().mem_fd().as_raw(),
+                task.vm().mem_fd().as_raw(),
                 buf.get_mut(all_read..).unwrap() as *mut _ as *mut c_void,
                 // How much more left to read
                 buf.len() - all_read,
@@ -281,7 +281,7 @@ pub(super) fn safe_pwrite64(
 ) -> Result<usize, ()> {
     let mut mappings_to_fix: Vec<(MemoryRangeKey, ProtFlags)> = Vec::new();
     let buf_size = buf.len();
-    for (k, m) in t.vm_ref().maps_containing_or_after(floor_page_size(addr)) {
+    for (k, m) in t.vm().maps_containing_or_after(floor_page_size(addr)) {
         if m.map.start() >= ceil_page_size(addr + buf_size) {
             break;
         }
@@ -298,10 +298,10 @@ pub(super) fn safe_pwrite64(
     }
 
     if mappings_to_fix.is_empty() {
-        return pwrite_all_fallible(t.vm_ref().mem_fd().unwrap(), buf, addr.as_isize());
+        return pwrite_all_fallible(t.vm().mem_fd().unwrap(), buf, addr.as_isize());
     }
 
-    let mem_fd = t.vm_ref().mem_fd().unwrap();
+    let mem_fd = t.vm().mem_fd().unwrap();
     let mprotect_syscallno: i32 = syscall_number_for_mprotect(t.arch());
     let mut remote = AutoRemoteSyscalls::new(t);
     for m in &mappings_to_fix {
@@ -344,12 +344,12 @@ pub(super) fn write_bytes_helper<T: Task>(
         return;
     }
 
-    if let Some(local) = task.vm_ref().local_mapping_mut(addr, buf_size) {
+    if let Some(local) = task.vm().local_mapping_mut(addr, buf_size) {
         local.copy_from_slice(buf);
         return;
     }
 
-    if !task.vm_ref().mem_fd().is_open() {
+    if !task.vm().mem_fd().is_open() {
         let nwritten = task.write_bytes_ptrace(addr, buf);
         if nwritten > 0 {
             task.vm_mut().notify_written(addr, nwritten, flags);

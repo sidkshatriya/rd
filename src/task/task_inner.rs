@@ -651,7 +651,7 @@ pub mod task_inner {
 
         /// Return the virtual memory mapping (address space) of this
         /// task.
-        pub fn vm_ref(&self) -> AddressSpaceRef {
+        pub fn vm(&self) -> AddressSpaceRef {
             self.as_.borrow()
         }
 

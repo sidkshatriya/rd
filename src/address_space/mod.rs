@@ -2931,7 +2931,7 @@ fn assert_segments_match(t: &dyn Task, m: &KernelMapping, km: &KernelMapping) {
         log!(
             LogError,
             "cached mmap:\n{}\n /proc/{}/maps:\n",
-            t.vm_ref().dump(),
+            t.vm().dump(),
             AddressSpace::dump_process_maps(t)
         );
         ed_assert!(t, false, "\nCached mapping {} should be {}; {}", m, km, err);

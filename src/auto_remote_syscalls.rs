@@ -9,8 +9,9 @@ use crate::kernel_abi::{
     has_mmap2_syscall, has_socketcall_syscall, is_clone_syscall, is_open_syscall,
     is_openat_syscall, is_rt_sigaction_syscall, is_sigaction_syscall, is_signal_syscall,
     syscall_number_for__llseek, syscall_number_for_close, syscall_number_for_lseek,
-    syscall_number_for_mmap, syscall_number_for_mmap2, syscall_number_for_munmap,
-    syscall_number_for_openat, syscall_number_for_sendmsg, syscall_number_for_socketcall,
+    syscall_number_for_mmap, syscall_number_for_mmap2, syscall_number_for_mremap,
+    syscall_number_for_munmap, syscall_number_for_openat, syscall_number_for_sendmsg,
+    syscall_number_for_socketcall,
 };
 use crate::kernel_abi::{syscall_instruction, SupportedArch};
 use crate::kernel_metadata::{errno_name, signal_name, syscall_name};
@@ -36,6 +37,7 @@ use libc::{
     pid_t, SYS_sendmsg, ESRCH, O_CLOEXEC, O_CREAT, O_EXCL, O_RDWR, PTRACE_EVENT_EXIT, SCM_RIGHTS,
     SIGTRAP, SOL_SOCKET,
 };
+use libc::{MREMAP_FIXED, MREMAP_MAYMOVE};
 use nix::sys::mman::MapFlags;
 use nix::sys::mman::ProtFlags;
 use nix::sys::stat::fstat;
@@ -46,6 +48,7 @@ use std::convert::TryInto;
 use std::mem::{size_of, size_of_val, transmute_copy, zeroed};
 use std::ops::{Deref, DerefMut};
 use std::ptr::copy_nonoverlapping;
+use std::slice;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 macro_rules! rd_syscall {
@@ -406,7 +409,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         }
 
         let last_stack_byte: RemotePtr<Void> = self.t.regs_ref().sp() - 1usize;
-        match self.t.vm_ref().mapping_of(last_stack_byte) {
+        match self.t.vm().mapping_of(last_stack_byte) {
             Some(m) => {
                 if is_usable_area(&m.map) && m.map.start() + 2048usize <= self.t.regs_ref().sp() {
                     // 'sp' is in a stack region and there's plenty of space there. No need
@@ -418,7 +421,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         }
 
         let mut found_stack: Option<MemoryRange> = None;
-        for (_, m) in self.t.vm_ref().maps() {
+        for (_, m) in self.t.vm().maps() {
             if is_usable_area(&m.map) {
                 // m.map Deref-s into a MemoryRange
                 found_stack = Some(*m.map);
@@ -816,7 +819,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
                 self.t.arch(),
             );
         } else {
-            syscall_ip = self.t.vm_ref().traced_syscall_ip();
+            syscall_ip = self.t.vm().traced_syscall_ip();
         }
         self.initial_regs.set_ip(syscall_ip);
 
@@ -995,9 +998,54 @@ impl<'a> AutoRemoteSyscalls<'a> {
         km
     }
 
-    /// As this stands, it looks to be a move as far as m is concerned.
-    pub fn make_private_shared(&self, m: Mapping) -> bool {
-        unimplemented!()
+    /// Replace a MAP_PRIVATE segment by one that is shared between rr and the
+    /// tracee. Returns true on success
+    pub fn make_private_shared(&mut self, m: &Mapping) -> bool {
+        if !(m.map.flags().contains(MapFlags::MAP_PRIVATE)) {
+            return false;
+        }
+
+        // Find a place to map the current segment to temporarily
+        let start = m.map.start();
+        let sz = m.map.size();
+        let free_mem = self.task().vm().find_free_memory(sz, None);
+        let arch = self.arch();
+        rd_infallible_syscall!(
+            self,
+            syscall_number_for_mremap(arch),
+            start.as_usize(),
+            sz,
+            sz,
+            MREMAP_MAYMOVE | MREMAP_FIXED,
+            free_mem.as_usize()
+        );
+        self.task()
+            .vm_mut()
+            .remap(self.task(), start, sz, free_mem, sz);
+
+        // AutoRemoteSyscalls may have gotten unlucky and picked the old stack
+        // segment as it's scratch space, reevaluate that choice
+        let mut remote2 = AutoRemoteSyscalls::new(self.task_mut());
+
+        let new_m = remote2.steal_mapping(m, None);
+
+        // And copy over the contents. Since we can't just call memcpy in the
+        // inferior, just copy directly from the remote private into the local
+        // reference of the shared mapping. We use the fallible read method to
+        // handle the case where the mapping is larger than the backing file, which
+        // would otherwise cause a short read.
+        let buf = unsafe { slice::from_raw_parts_mut(new_m.local_addr.unwrap() as *mut u8, sz) };
+        remote2.task_mut().read_bytes_fallible(free_mem, buf);
+
+        // Finally unmap the original segment
+        rd_infallible_syscall!(
+            remote2,
+            syscall_number_for_munmap(arch),
+            free_mem.as_usize(),
+            sz
+        );
+        remote2.task().vm_mut().unmap(remote2.task(), free_mem, sz);
+        return true;
     }
 
     /// Recreate an mmap region that is shared between rr and the tracee. The
@@ -1022,7 +1070,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
     /// new mapping.
     /// If None is provided for `monitored` it is assumed that there is no memory monitor.
     pub fn steal_mapping(
-        &self,
+        &mut self,
         m: &Mapping,
         monitored: Option<MonitoredSharedMemorySharedPtr>,
     ) -> &'a Mapping {
