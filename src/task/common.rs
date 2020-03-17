@@ -70,18 +70,16 @@ pub(super) fn open_mem_fd<T: Task>(task: &mut T) -> bool {
             let remote_addr = remote_path.get().unwrap();
             // AutoRestoreMem DerefMut-s to AutoRemoteSyscalls
             // skip leading '/' since we want the path to be relative to the root fd
-            remote_fd = remote_path
-                .syscall(
-                    syscall_number_for_openat(remote_arch),
-                    &[
-                        RD_RESERVED_ROOT_DIR_FD as usize,
-                        // Skip the leading '/' in the path as this is a relative path.
-                        (remote_addr + 1usize).into(),
-                        libc::O_RDWR as usize,
-                    ],
-                )
-                .try_into()
-                .unwrap();
+            remote_fd = rd_syscall!(
+                remote_path,
+                syscall_number_for_openat(remote_arch),
+                RD_RESERVED_ROOT_DIR_FD,
+                // Skip the leading '/' in the path as this is a relative path.
+                (remote_addr + 1usize).as_usize(),
+                libc::O_RDWR
+            )
+            .try_into()
+            .unwrap();
         } else {
             remote_fd = -ESRCH;
         }
@@ -97,10 +95,7 @@ pub(super) fn open_mem_fd<T: Task>(task: &mut T) -> bool {
         } else {
             fd = rd_arch_function!(remote, retrieve_fd_arch, arch, remote_fd);
             // Leak fd if the syscall fails due to the task being SIGKILLed unexpectedly
-            remote.syscall(
-                syscall_number_for_close(remote.arch()),
-                &[remote_fd as usize],
-            );
+            rd_syscall!(remote, syscall_number_for_close(remote.arch()), remote_fd);
         }
     }
     if !fd.is_open() {

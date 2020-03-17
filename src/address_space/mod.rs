@@ -2144,13 +2144,12 @@ pub mod address_space {
             let mut child_path = AutoRestoreMem::push_cstr(remote, path.as_str());
             let remote_path_addr = child_path.get().unwrap() + 1;
             // skip leading '/' since we want the path to be relative to the root fd
-            let child_fd_ret = child_path.syscall(
+            let child_fd_ret = rd_syscall!(
+                child_path,
                 syscall_number_for_openat(arch),
-                &[
-                    RD_RESERVED_ROOT_DIR_FD as _,
-                    remote_path_addr.as_usize(),
-                    O_RDONLY as _,
-                ],
+                RD_RESERVED_ROOT_DIR_FD,
+                remote_path_addr.as_usize(),
+                O_RDONLY
             );
 
             let child_fd = child_fd_ret.try_into().unwrap();

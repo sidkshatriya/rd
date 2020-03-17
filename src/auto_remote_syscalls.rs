@@ -494,7 +494,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         some_t.set_status(self.restore_wait_status);
     }
 
-    /// @TODO Can eek bit more performance by specializing this method. Leave as is for now.
+    /// @TODO Can get a bit more performance by specializing this method. Leave as is for now.
     ///
     /// Make `syscallno` with `args` (limited to 6 on
     /// x86).  Return the raw kernel return value.
@@ -509,14 +509,14 @@ impl<'a> AutoRemoteSyscalls<'a> {
         self.syscall_base(syscallno, &mut callregs)
     }
 
-    /// @TODO Can eek bit more performance by specializing this method. Leave as is for now.
+    /// @TODO Can get a bit more performance by specializing this method. Leave as is for now.
     pub fn infallible_syscall(&mut self, syscallno: i32, args: &[usize]) -> isize {
         let ret = self.syscall(syscallno, args);
         self.check_syscall_result(ret, syscallno);
         ret
     }
 
-    /// @TODO Can eek bit more performance by specializing this method. Leave as is for now.
+    /// @TODO Can get a bit more performance by specializing this method. Leave as is for now.
     pub fn infallible_syscall_ptr(&mut self, syscallno: i32, args: &[usize]) -> RemotePtr<Void> {
         (self.infallible_syscall(syscallno, args) as usize).into()
     }
@@ -537,28 +537,28 @@ impl<'a> AutoRemoteSyscalls<'a> {
         // our syscall-arg-index template parameter starts
         // with "1".
         let ret: RemotePtr<Void> = if has_mmap2_syscall(self.arch()) {
-            self.infallible_syscall_ptr(
+            let offset_pages_usize: usize = offset_pages.try_into().unwrap();
+            rd_infallible_syscall_ptr!(
+                self,
                 syscall_number_for_mmap2(self.arch()),
-                &[
-                    addr_hint.as_usize(),
-                    length,
-                    prot.bits() as _,
-                    flags.bits() as _,
-                    child_fd as _,
-                    offset_pages.try_into().unwrap(),
-                ],
+                addr_hint.as_usize(),
+                length,
+                prot.bits(),
+                flags.bits(),
+                child_fd,
+                offset_pages_usize
             )
         } else {
-            self.infallible_syscall_ptr(
+            let offset_usize: usize = (offset_pages * page_size() as u64).try_into().unwrap();
+            rd_infallible_syscall_ptr!(
+                self,
                 syscall_number_for_mmap(self.arch()),
-                &[
-                    addr_hint.as_usize(),
-                    length,
-                    prot.bits() as _,
-                    flags.bits() as _,
-                    child_fd as _,
-                    (offset_pages * page_size() as u64).try_into().unwrap(),
-                ],
+                addr_hint.as_usize(),
+                length,
+                prot.bits(),
+                flags.bits(),
+                child_fd,
+                offset_usize
             )
         };
 
@@ -1194,9 +1194,12 @@ fn child_sendmsg<Arch: Architecture>(
 
     let arch = remote_buf.arch();
     if sc_args.is_none() {
-        return remote_buf.syscall(
+        return rd_syscall!(
+            remote_buf,
             syscall_number_for_sendmsg(arch),
-            &[child_sock as usize, remote_msg.as_usize(), 0],
+            child_sock,
+            remote_msg.as_usize(),
+            0
         );
     }
 
@@ -1212,9 +1215,11 @@ fn child_sendmsg<Arch: Architecture>(
         return -ESRCH as isize;
     }
 
-    remote_buf.syscall(
+    rd_syscall!(
+        remote_buf,
         syscall_number_for_socketcall(arch),
-        &[SYS_sendmsg as _, sc_args.unwrap().as_usize()],
+        SYS_sendmsg,
+        sc_args.unwrap().as_usize()
     )
 }
 
