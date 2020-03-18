@@ -973,9 +973,13 @@ impl PerfCounters {
             }
         }
 
-        // @TODO the skid size changes depending on whether we are recording or not.
-        // Revisit once Task is fleshed out.
-        let adjusted_counting_period = self.counting_period + Self::recording_skid_size() as u64;
+        let skid_size = if t.session().borrow().is_recording() {
+            Self::recording_skid_size() as u64
+        } else {
+            Self::skid_size() as u64
+        };
+
+        let adjusted_counting_period = self.counting_period + skid_size;
         let mut interrupt_val = read_counter(&self.fd_ticks_interrupt);
         if !self.fd_ticks_measure.is_open() {
             if self.fd_minus_ticks_measure.is_open() {

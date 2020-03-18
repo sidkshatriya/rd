@@ -33,7 +33,7 @@ pub struct Flags {
     pub checksum: Checksum,
     pub dump_on: DumpOn,
     pub dump_at: DumpAt,
-    /// Force rr to do some things that it otherwise wouldn't, for
+    /// Force rd to do some things that it otherwise wouldn't, for
     /// example launching an emergency debugger when the output
     /// doesn't seem to be a tty.
     pub force_things: bool,
@@ -41,14 +41,14 @@ pub struct Flags {
     pub mark_stdio: bool,
     /// Check that cached mmaps match /proc/maps after each event.
     pub check_cached_maps: bool,
-    /// Suppress warnings related to environmental features outside rr's
+    /// Suppress warnings related to environmental features outside rd's
     /// control.
     pub suppress_environment_warnings: bool,
     /// Any warning or error that would be printed is treated as fatal
     pub fatal_errors_and_warnings: bool,
     /// Pretend CPUID faulting support doesn't exist
     pub disable_cpuid_faulting: bool,
-    /// Don't listen for PTRACE_EVENT_EXIT events, to test how rr handles
+    /// Don't listen for PTRACE_EVENT_EXIT events, to test how rd handles
     /// missing PTRACE_EVENT_EXITs.
     pub disable_ptrace_exit_events: bool,
     /// User override for architecture detection, e.g. when running under valgrind.

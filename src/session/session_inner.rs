@@ -27,7 +27,7 @@ pub struct BreakStatus {
 
 /// In general, multiple break reasons can apply simultaneously.
 impl BreakStatus {
-    pub fn new() {
+    pub fn new() -> BreakStatus {
         unimplemented!()
     }
 

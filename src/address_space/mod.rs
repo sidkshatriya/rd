@@ -2972,3 +2972,18 @@ pub extern "C" fn rd_syscall_addr() {
     // @TODO Need to add syscall here. Will this work given this is a method?
     unimplemented!()
 }
+
+const fn dr_watchpoint(n: i32) -> i32 {
+    return 1 << n;
+}
+
+fn watchpoint_triggered(debug_status: usize, regs: &[i8]) -> bool {
+    for reg in regs {
+        // @TODO Will these casts cause any problems?
+        let w = dr_watchpoint(*reg as i32) as usize;
+        if debug_status & w == w {
+            return true;
+        }
+    }
+    false
+}
