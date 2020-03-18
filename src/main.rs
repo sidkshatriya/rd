@@ -1,4 +1,4 @@
-#![allow(dead_code)]
+#![feature(asm)]
 
 #[macro_use]
 extern crate bitflags;

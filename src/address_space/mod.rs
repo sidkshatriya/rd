@@ -2965,12 +2965,28 @@ fn read_kernel_mapping(tid: pid_t, addr: RemotePtr<Void>) -> KernelMapping {
     unreachable!()
 }
 
-// Just a place that rd's AutoSyscall functionality can use as a syscall
-// instruction in rd's address space for use before we have exec'd.
+/// Just a place that rd's AutoSyscall functionality can use as a syscall
+/// instruction in rd's address space for use before we have exec'd.
 #[no_mangle]
+#[cfg(target_arch = "x86_64")]
 pub extern "C" fn rd_syscall_addr() {
-    // @TODO Need to add syscall here. Will this work given this is a method?
-    unimplemented!()
+    unsafe {
+        asm!("syscall" :::: "volatile");
+        asm!("nop" :::: "volatile");
+        asm!("nop" :::: "volatile");
+        asm!("nop" :::: "volatile");
+    }
+}
+
+#[no_mangle]
+#[cfg(target_arch = "x86")]
+pub extern "C" fn rd_syscall_addr() {
+    unsafe {
+        asm!("int $$0x80" :::: "volatile");
+        asm!("nop" :::: "volatile");
+        asm!("nop" :::: "volatile");
+        asm!("nop" :::: "volatile");
+    }
 }
 
 const fn dr_watchpoint(n: i32) -> i32 {

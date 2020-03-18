@@ -298,6 +298,8 @@ pub fn is_kernel_trap(si_code: i32) -> bool {
     si_code == TRAP_BRKPT as i32 || si_code == SI_KERNEL
 }
 
+/// Returns $TMPDIR or "/tmp". We call ensure_dir to make sure the directory
+/// exists and is writeable.
 pub fn tmp_dir() -> String {
     let mut dir = env::var("RD_TMPDIR");
     if dir.is_ok() {
@@ -327,6 +329,9 @@ pub fn tmp_dir() -> String {
     "/tmp".to_owned()
 }
 
+/// Create directory `str`, creating parent directories as needed.
+/// `dir_type` is printed in error messages. Fails if the resulting directory
+/// is not writeable.
 pub fn ensure_dir(dir: &str, dir_type: &str, mode: Mode) {
     unimplemented!()
 }
