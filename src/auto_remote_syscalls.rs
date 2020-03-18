@@ -1,4 +1,4 @@
-use crate::address_space::address_space::{AddressSpace, Mapping};
+use crate::address_space::address_space::{AddressSpace, AddressSpaceRef, Mapping};
 use crate::address_space::kernel_mapping::KernelMapping;
 use crate::address_space::memory_range::MemoryRange;
 use crate::address_space::{Enabled, Privileged, Traced};
@@ -42,6 +42,7 @@ use nix::sys::mman::MapFlags;
 use nix::sys::mman::ProtFlags;
 use nix::sys::stat::fstat;
 use nix::unistd::unlink;
+use nix::unistd::PathconfVar::PATH_MAX;
 use nix::NixPath;
 use std::cmp::max;
 use std::convert::TryInto;
@@ -617,6 +618,10 @@ impl<'a> AutoRemoteSyscalls<'a> {
         self.t
     }
 
+    pub fn vm(&self) -> AddressSpaceRef {
+        self.t.vm()
+    }
+
     /// A small helper to get at the Task's arch.
     pub fn arch(&self) -> SupportedArch {
         self.t.arch()
@@ -905,7 +910,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         let tracee_flags = maybe_tracee_flags.unwrap_or(MapFlags::empty());
 
         // Create the segment we'll share with the tracee.
-        let path: String = format!(
+        let mut path: String = format!(
             "{}{}{}-{}-{}",
             tmp_dir(),
             SessionInner::rd_mapping_prefix(),
@@ -913,6 +918,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
             self.task().real_tgid(),
             NONCE.fetch_add(1, Ordering::SeqCst)
         );
+        path.truncate(PATH_MAX as usize);
 
         // Let the child create the shmem block and then send the fd back to us.
         // This lets us avoid having to make the file world-writeable so that
@@ -1073,8 +1079,25 @@ impl<'a> AutoRemoteSyscalls<'a> {
         &mut self,
         m: &Mapping,
         monitored: Option<MonitoredSharedMemorySharedPtr>,
-    ) -> &'a Mapping {
-        unimplemented!()
+    ) -> Mapping {
+        // We will include the name of the full path of the original mapping in the
+        // name of the shared mapping, replacing slashes by dashes.
+        let mut name: String = m.map.fsname().replace("/", "-");
+        name.truncate(PATH_MAX as usize - 40);
+
+        // Now create the new mapping in its place
+        let start = m.map.start();
+        let sz = m.map.size();
+        let km = self.create_shared_mmap(
+            sz,
+            Some(start),
+            &name,
+            Some(m.map.prot()),
+            Some(m.map.flags() & (MapFlags::MAP_GROWSDOWN | MapFlags::MAP_STACK)),
+            monitored.clone(),
+        );
+
+        self.vm().mapping_of(km.start()).unwrap().clone()
     }
 }
 
