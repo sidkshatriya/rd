@@ -23,3 +23,7 @@ structopt = "0.3.11"
 [build-dependencies]
 bindgen = "0.53.2"
 capnpc = "0.12"
+
+[features]
+default = []
+verify_syscall_numbers = []

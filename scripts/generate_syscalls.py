@@ -147,12 +147,26 @@ def write_syscall_helper_functions(f):
         write_helpers(name)
 
 def write_check_syscall_numbers(f):
+    f.write("""use crate::arch::{Architecture, X86Arch, X64Arch};\n""")
+    f.write("""use crate::kernel_abi::common::preload_interface;\n""")
     for name, obj in syscalls.all():
-        # XXX hard-coded to x86 currently
-        if not obj.x86:
+        # @TODO hard-coded to x64 currently
+        # @TODO Note this is different from rr where it is hardcoded to x86
+        if not obj.x64:
             continue
-        f.write("""static_assert(X86Arch::%s == SYS_%s, "Incorrect syscall number for %s");\n"""
-                % (name, name, name))
+        if name.startswith("rdcall_"):
+            f.write("""const_assert_eq!(X64Arch::%s, preload_interface::SYS_%s as i32);\n"""
+                    % (name.upper(), name))
+        else:
+            f.write("""const_assert_eq!(X64Arch::%s, libc::SYS_%s as i32);\n"""
+                % (name.upper(), name))
+
+
+class SyscallGen(Enum):
+    DEFAULT = 1
+    CONST_ASSERTS = 2
+    TRAIT = 3
+    TRAIT_IMPL = 4
 
 
 class SyscallGen(Enum):
@@ -163,7 +177,7 @@ class SyscallGen(Enum):
 
 generators_for = {
     'AssemblyTemplates': lambda f: assembly_templates.generate(f),
-    'CheckSyscallNumbers': write_check_syscall_numbers,
+    'check_syscall_numbers_generated': write_check_syscall_numbers,
     'syscall_consts_x86_generated': lambda f: write_syscall_consts(f, 'x86', SyscallGen.DEFAULT),
     'syscall_consts_x64_generated': lambda f: write_syscall_consts(f, 'x64', SyscallGen.DEFAULT),
     'syscall_const_asserts_x86_generated': lambda f: write_syscall_consts(f, 'x86', SyscallGen.CONST_ASSERTS),

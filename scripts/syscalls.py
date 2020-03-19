@@ -1692,14 +1692,16 @@ fspick = UnsupportedSyscall(x86=433, x64=433)
 # restart_syscall is a little special.
 restart_syscall = RestartSyscall(x86=0, x64=219)
 
-rrcall_init_preload = IrregularEmulatedSyscall(x86=442, x64=442)
-rrcall_init_buffers = IrregularEmulatedSyscall(x86=443, x64=443)
-rrcall_notify_syscall_hook_exit = IrregularEmulatedSyscall(x86=444, x64=444)
-rrcall_notify_control_msg = IrregularEmulatedSyscall(x86=445, x64=445)
-rrcall_reload_auxv = IrregularEmulatedSyscall(x86=446, x64=446)
-rrcall_mprotect_record = IrregularEmulatedSyscall(x86=447, x64=447)
-rrcall_notify_stap_semaphore_added = IrregularEmulatedSyscall(x86=448, x64=448)
-rrcall_notify_stap_semaphore_removed = IrregularEmulatedSyscall(x86=449, x64=449)
+rdcall_init_preload = IrregularEmulatedSyscall(x86=442, x64=442)
+rdcall_init_buffers = IrregularEmulatedSyscall(x86=443, x64=443)
+rdcall_notify_syscall_hook_exit = IrregularEmulatedSyscall(x86=444, x64=444)
+rdcall_notify_control_msg = IrregularEmulatedSyscall(x86=445, x64=445)
+rdcall_reload_auxv = IrregularEmulatedSyscall(x86=446, x64=446)
+rdcall_mprotect_record = IrregularEmulatedSyscall(x86=447, x64=447)
+# Disable in rd for now. @TODO this is enabled in rr
+#rdcall_notify_stap_semaphore_added = IrregularEmulatedSyscall(x86=448, x64=448)
+#rdcall_notify_stap_semaphore_removed = IrregularEmulatedSyscall(x86=449, x64=449)
+# End disabled
 
 # These syscalls are also subsumed under socketcall on x86.
 socket = EmulatedSyscall(x86=359, x64=41)

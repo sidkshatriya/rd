@@ -40,6 +40,7 @@ mod property_table;
 mod rd;
 mod remote_code_ptr;
 mod remote_ptr;
+mod replay_syscall;
 mod scoped_fd;
 mod session;
 mod task;

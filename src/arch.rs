@@ -493,14 +493,12 @@ pub trait Architecture {
     const FSCONFIG: i32;
     const FSMOUNT: i32;
     const FSPICK: i32;
-    const RRCALL_INIT_PRELOAD: i32;
-    const RRCALL_INIT_BUFFERS: i32;
-    const RRCALL_NOTIFY_SYSCALL_HOOK_EXIT: i32;
-    const RRCALL_NOTIFY_CONTROL_MSG: i32;
-    const RRCALL_RELOAD_AUXV: i32;
-    const RRCALL_MPROTECT_RECORD: i32;
-    const RRCALL_NOTIFY_STAP_SEMAPHORE_ADDED: i32;
-    const RRCALL_NOTIFY_STAP_SEMAPHORE_REMOVED: i32;
+    const RDCALL_INIT_PRELOAD: i32;
+    const RDCALL_INIT_BUFFERS: i32;
+    const RDCALL_NOTIFY_SYSCALL_HOOK_EXIT: i32;
+    const RDCALL_NOTIFY_CONTROL_MSG: i32;
+    const RDCALL_RELOAD_AUXV: i32;
+    const RDCALL_MPROTECT_RECORD: i32;
     const VALID_SYSCALL_COUNT: i32;
     const INVALID_SYSCALL_COUNT: i32;
     // End list from generate_syscalls.py. See above.
@@ -979,15 +977,13 @@ impl Architecture for X86Arch {
     const FSCONFIG: i32 = 431;
     const FSMOUNT: i32 = 432;
     const FSPICK: i32 = 433;
-    const RRCALL_INIT_PRELOAD: i32 = 442;
-    const RRCALL_INIT_BUFFERS: i32 = 443;
-    const RRCALL_NOTIFY_SYSCALL_HOOK_EXIT: i32 = 444;
-    const RRCALL_NOTIFY_CONTROL_MSG: i32 = 445;
-    const RRCALL_RELOAD_AUXV: i32 = 446;
-    const RRCALL_MPROTECT_RECORD: i32 = 447;
-    const RRCALL_NOTIFY_STAP_SEMAPHORE_ADDED: i32 = 448;
-    const RRCALL_NOTIFY_STAP_SEMAPHORE_REMOVED: i32 = 449;
-    const VALID_SYSCALL_COUNT: i32 = 421;
+    const RDCALL_INIT_PRELOAD: i32 = 442;
+    const RDCALL_INIT_BUFFERS: i32 = 443;
+    const RDCALL_NOTIFY_SYSCALL_HOOK_EXIT: i32 = 444;
+    const RDCALL_NOTIFY_CONTROL_MSG: i32 = 445;
+    const RDCALL_RELOAD_AUXV: i32 = 446;
+    const RDCALL_MPROTECT_RECORD: i32 = 447;
+    const VALID_SYSCALL_COUNT: i32 = 419;
     const INVALID_SYSCALL_COUNT: i32 = 17;
     // End list from generate_syscalls.py. See above.
 
@@ -1490,15 +1486,13 @@ impl Architecture for X64Arch {
     const FSCONFIG: i32 = 431;
     const FSMOUNT: i32 = 432;
     const FSPICK: i32 = 433;
-    const RRCALL_INIT_PRELOAD: i32 = 442;
-    const RRCALL_INIT_BUFFERS: i32 = 443;
-    const RRCALL_NOTIFY_SYSCALL_HOOK_EXIT: i32 = 444;
-    const RRCALL_NOTIFY_CONTROL_MSG: i32 = 445;
-    const RRCALL_RELOAD_AUXV: i32 = 446;
-    const RRCALL_MPROTECT_RECORD: i32 = 447;
-    const RRCALL_NOTIFY_STAP_SEMAPHORE_ADDED: i32 = 448;
-    const RRCALL_NOTIFY_STAP_SEMAPHORE_REMOVED: i32 = 449;
-    const VALID_SYSCALL_COUNT: i32 = 352;
+    const RDCALL_INIT_PRELOAD: i32 = 442;
+    const RDCALL_INIT_BUFFERS: i32 = 443;
+    const RDCALL_NOTIFY_SYSCALL_HOOK_EXIT: i32 = 444;
+    const RDCALL_NOTIFY_CONTROL_MSG: i32 = 445;
+    const RDCALL_RELOAD_AUXV: i32 = 446;
+    const RDCALL_MPROTECT_RECORD: i32 = 447;
+    const VALID_SYSCALL_COUNT: i32 = 350;
     const INVALID_SYSCALL_COUNT: i32 = 86;
     // End list from generate_syscalls.py. See above.
 

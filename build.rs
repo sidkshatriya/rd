@@ -45,6 +45,7 @@ fn main() {
         .status()
         .unwrap();
     */
+
     Command::new("scripts/generate_syscalls.py")
         .arg(path.join("syscall_name_arch_x64_generated.rs"))
         .status()
@@ -60,7 +61,11 @@ fn main() {
         .status()
         .unwrap();
 
-    println!("cargo:rerun-if-changed=bindgen/signal_wrapper.h");
+    Command::new("scripts/generate_syscalls.py")
+        .arg(path.join("check_syscall_numbers_generated.rs"))
+        .status()
+        .unwrap();
+
     println!("cargo:rerun-if-changed=scripts/generate_syscalls.py");
 
     let signal_bindings = Builder::default()
