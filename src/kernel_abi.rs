@@ -40,15 +40,6 @@ macro_rules! rd_kernel_abi_arch_function {
     };
 }
 
-macro_rules! rd_kernel_abi_constant {
-    ($arch:expr, $constant:ident) => {
-        match $arch {
-            crate::kernel_abi::SupportedArch::X86 => crate::kernel_abi::x86::$constant,
-            crate::kernel_abi::SupportedArch::X64 => crate::kernel_abi::x64::$constant,
-        }
-    };
-}
-
 const INT80_INSN: [u8; 2] = [0xcd, 0x80];
 const SYSENTER_INSN: [u8; 2] = [0x0f, 0x34];
 const SYSCALL_INSN: [u8; 2] = [0x0f, 0x05];

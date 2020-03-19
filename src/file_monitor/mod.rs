@@ -99,8 +99,7 @@ impl<'b, 'a: 'b> LazyOffset<'b, 'a> {
 }
 
 fn is_implicit_offset_syscall_arch<Arch: Architecture>(syscallno: i32) -> bool {
-    syscallno == rd_kernel_abi_constant!(Arch::arch(), WRITEV)
-        || syscallno == rd_kernel_abi_constant!(Arch::arch(), WRITE)
+    syscallno == Arch::WRITEV || syscallno == Arch::WRITE
 }
 
 fn is_implict_offset_syscall(arch: SupportedArch, syscallno: i32) -> bool {
