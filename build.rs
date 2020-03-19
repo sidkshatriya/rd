@@ -19,6 +19,33 @@ fn main() {
         .unwrap();
 
     Command::new("scripts/generate_syscalls.py")
+        .arg(path.join("syscall_const_asserts_x86_generated.rs"))
+        .status()
+        .unwrap();
+
+    Command::new("scripts/generate_syscalls.py")
+        .arg(path.join("syscall_const_asserts_x64_generated.rs"))
+        .status()
+        .unwrap();
+
+    // These are typically not needed. Uncomment and use when necessary e.g. there are new syscalls
+    /*
+    Command::new("scripts/generate_syscalls.py")
+        .arg(path.join("syscall_consts_trait_generated.rs"))
+        .status()
+        .unwrap();
+
+    Command::new("scripts/generate_syscalls.py")
+        .arg(path.join("syscall_consts_trait_impl_x86_generated.rs"))
+        .status()
+        .unwrap();
+
+    Command::new("scripts/generate_syscalls.py")
+        .arg(path.join("syscall_consts_trait_impl_x64_generated.rs"))
+        .status()
+        .unwrap();
+    */
+    Command::new("scripts/generate_syscalls.py")
         .arg(path.join("syscall_name_arch_x64_generated.rs"))
         .status()
         .unwrap();
@@ -34,6 +61,7 @@ fn main() {
         .unwrap();
 
     println!("cargo:rerun-if-changed=bindgen/signal_wrapper.h");
+    println!("cargo:rerun-if-changed=scripts/generate_syscalls.py");
 
     let signal_bindings = Builder::default()
         .parse_callbacks(Box::new(CargoCallbacks))
