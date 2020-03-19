@@ -168,13 +168,6 @@ class SyscallGen(Enum):
     TRAIT = 3
     TRAIT_IMPL = 4
 
-
-class SyscallGen(Enum):
-    DEFAULT = 1
-    CONST_ASSERTS = 2
-    TRAIT = 3
-    TRAIT_IMPL = 4
-
 generators_for = {
     'AssemblyTemplates': lambda f: assembly_templates.generate(f),
     'check_syscall_numbers_generated': write_check_syscall_numbers,
