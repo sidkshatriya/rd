@@ -574,7 +574,7 @@ pub mod address_space {
         watchpoints: HashMap<MemoryRange, Watchpoint>,
         saved_watchpoints: Vec<HashMap<MemoryRange, Watchpoint>>,
         /// Tracee memory is read and written through this fd, which is
-        /// opened for the tracee's magic /proc/[tid]/mem device.  The
+        /// opened for the tracee's magic /proc/{tid}/mem device.  The
         /// advantage of this over ptrace is that we can access it even
         /// when the tracee isn't at a ptrace-stop.  It's also
         /// theoretically faster for large data transfers, which rd can
@@ -665,7 +665,7 @@ pub mod address_space {
             self.brk_end
         }
 
-        /// Dump a representation of `self` to a String similar to /proc/[tid]/maps.
+        /// Dump a representation of `self` to a String similar to /proc/{tid}/maps.
         pub fn dump(&self) -> String {
             let mut out = String::new();
             out += &format!("  (heap: {}-{})\n", self.brk_start, self.brk_end);

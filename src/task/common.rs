@@ -37,7 +37,7 @@ use std::slice;
 
 /// Forwarded method definition
 ///
-/// Open /proc/[tid]/mem fd for our AddressSpace, closing the old one
+/// Open /proc/{tid}/mem fd for our AddressSpace, closing the old one
 /// first. If necessary we force the tracee to open the file
 /// itself and smuggle the fd back to us.
 /// Returns false if the process no longer exists.

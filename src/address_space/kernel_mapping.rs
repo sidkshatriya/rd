@@ -201,7 +201,7 @@ impl KernelMapping {
     }
 
     /// Dump a representation of `self` to a string in a format
-    /// similar to the former part of /proc/[tid]/maps.
+    /// similar to the former part of /proc/{tid}/maps.
     fn str(&self) -> String {
         let map_shared = if self.flags_.contains(MapFlags::MAP_SHARED) {
             's'

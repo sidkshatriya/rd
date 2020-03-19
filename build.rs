@@ -67,6 +67,7 @@ fn main() {
         .unwrap();
 
     println!("cargo:rerun-if-changed=scripts/generate_syscalls.py");
+    println!("cargo:rerun-if-changed=scripts/syscalls.py");
 
     let signal_bindings = Builder::default()
         .parse_callbacks(Box::new(CargoCallbacks))

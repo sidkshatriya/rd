@@ -46,12 +46,11 @@ impl FileMonitor for StdioMonitor {
             return;
         }
         let rs = maybe_rs.unwrap();
-        let rt = l.t.as_replay_task().unwrap();
         if rs.flags().redirect_stdio && rs.visible_execution() {
             for r in ranges {
                 let mut buf: Vec<u8> = Vec::with_capacity(r.length);
                 buf.resize(r.length, 0);
-                let bytes = l.t.read_bytes_helper(r.data, &mut buf, None);
+                l.t.read_bytes_helper(r.data, &mut buf, None);
                 let result = write(self.original_fd, &buf);
                 if result.is_err() || result.unwrap() != buf.len() {
                     ed_assert!(l.t, false, "Couldn't write to {}", self.original_fd);

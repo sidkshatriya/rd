@@ -161,7 +161,7 @@ pub struct preload_globals {
     /// the preload library is initialized.
     pub pretend_num_cores: int,
     /// Set by rd.
-    /// If syscallbuf_fds_disabled[fd] is nonzero, then operations on that fd
+    /// If `syscallbuf_fds_disabled[fd]` is nonzero, then operations on that fd
     /// must be performed through traced syscalls, not the syscallbuf.
     /// The rd supervisor modifies this array directly to dynamically turn
     /// syscallbuf on and off for particular fds. fds outside the array range must
