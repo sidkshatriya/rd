@@ -1089,8 +1089,10 @@ impl<'a> AutoRemoteSyscalls<'a> {
         // We will include the name of the full path of the original mapping in the
         // name of the shared mapping, replacing slashes by dashes.
         let name_raw = m.map.fsname().as_bytes();
-        let name = String::from_utf8_lossy(&name_raw[0..min(PATH_MAX as usize, name_raw.len())])
-            .replace("/", "-");
+        // No sure why rr has deducted 40 from PATH_MAX, we do the same here too for now.
+        let name =
+            String::from_utf8_lossy(&name_raw[0..min(PATH_MAX as usize - 40, name_raw.len())])
+                .replace("/", "-");
 
         // Now create the new mapping in its place
         let start = m.map.start();
@@ -1254,10 +1256,7 @@ fn child_sendmsg<Arch: Architecture>(
         );
     }
     // Copy the fd into the cmsgbuf
-    cmsgbuf
-        .get_mut(cmsg_data_off..cmsg_data_off + size_of_val(&fd))
-        .unwrap()
-        .copy_from_slice(&fd.to_le_bytes());
+    cmsgbuf[cmsg_data_off..cmsg_data_off + size_of_val(&fd)].copy_from_slice(&fd.to_le_bytes());
 
     write_mem(
         remote_buf.task_mut(),
@@ -1324,9 +1323,7 @@ fn recvmsg_socket(sock: &ScopedFd) -> i32 {
     // @TODO review this transmute_copy
     let cmsghdr: libc::cmsghdr = unsafe { transmute_copy(&cmsgbuf) };
     debug_assert!(cmsghdr.cmsg_level == SOL_SOCKET && cmsghdr.cmsg_type == SCM_RIGHTS);
-    let idata = cmsgbuf
-        .get(cmsg_data_off..cmsg_data_off + size_of::<i32>())
-        .unwrap();
+    let idata = &cmsgbuf[cmsg_data_off..cmsg_data_off + size_of::<i32>()];
     let our_fd: i32 = i32::from_le_bytes(idata.try_into().unwrap());
     debug_assert!(our_fd >= 0);
     our_fd

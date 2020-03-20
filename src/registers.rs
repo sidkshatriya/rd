@@ -319,15 +319,11 @@ impl Registers {
             match rv.nbytes {
                 0 => None,
                 4 => {
-                    buf.get_mut(0..rv.nbytes)
-                        .unwrap()
-                        .copy_from_slice(&rv.u32_into_x86(self.x86()).to_le_bytes());
+                    buf[0..rv.nbytes].copy_from_slice(&rv.u32_into_x86(self.x86()).to_le_bytes());
                     Some(rv.nbytes)
                 }
                 8 => {
-                    buf.get_mut(0..rv.nbytes)
-                        .unwrap()
-                        .copy_from_slice(&rv.u64_into_x64(self.x64()).to_le_bytes());
+                    buf[0..rv.nbytes].copy_from_slice(&rv.u64_into_x64(self.x64()).to_le_bytes());
                     Some(rv.nbytes)
                 }
                 _ => {
@@ -355,11 +351,11 @@ impl Registers {
                 }
                 4 => {
                     let rv_ref = rv.mut_u32_ref_into_x86(&mut self.x86_mut());
-                    *rv_ref = u32::from_le_bytes(value.get(0..4).unwrap().try_into().unwrap());
+                    *rv_ref = u32::from_le_bytes(value[0..4].try_into().unwrap());
                 }
                 8 => {
                     let rv_ref = rv.mut_u64_ref_into_x64(&mut self.x64_mut());
-                    *rv_ref = u64::from_le_bytes(value.get(0..8).unwrap().try_into().unwrap());
+                    *rv_ref = u64::from_le_bytes(value[0..8].try_into().unwrap());
                 }
                 _ => {
                     debug_assert!(false, format!("Unknown register size: {}", rv.nbytes));

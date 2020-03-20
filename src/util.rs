@@ -357,7 +357,7 @@ pub fn pwrite_all_fallible(fd: i32, buf_initial: &[u8], offset: isize) -> Result
             return Err(());
         } else {
             // We know that ret > 0 by now so its safe to cast ret as usize in this block.
-            buf = buf.get(ret as usize..).unwrap();
+            buf = &buf[ret as usize..];
             written += ret as usize;
             cur_size -= ret as usize;
         }

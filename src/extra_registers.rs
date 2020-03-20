@@ -140,10 +140,7 @@ impl ExtraRegisters {
             return false;
         }
 
-        self.data_
-            .get_mut(0..XSAVE_HEADER_OFFSET)
-            .unwrap()
-            .copy_from_slice(data_from.get(0..XSAVE_HEADER_OFFSET).unwrap());
+        self.data_[0..XSAVE_HEADER_OFFSET].copy_from_slice(&data_from[0..XSAVE_HEADER_OFFSET]);
 
         unsafe {
             std::ptr::write_bytes(
@@ -181,9 +178,7 @@ impl ExtraRegisters {
             // Degenerate XSAVE format without an actual XSAVE header. Assume x87+XMM
             // are in use.
             let assume_features_used: u64 = 0x3;
-            self.data_
-                .get_mut(XSAVE_HEADER_OFFSET..XSAVE_HEADER_OFFSET + 8)
-                .unwrap()
+            self.data_[XSAVE_HEADER_OFFSET..XSAVE_HEADER_OFFSET + 8]
                 .copy_from_slice(&assume_features_used.to_le_bytes());
             return true;
         }
@@ -191,18 +186,12 @@ impl ExtraRegisters {
         let features: u64 = features_used(data_from, &layout);
         // OK, now both our native layout and the input layout are using the full
         // XSAVE header. Copy the header. Make sure to use our updated `features`.
-        self.data_
-            .get_mut(XSAVE_HEADER_OFFSET..XSAVE_HEADER_OFFSET + 8)
-            .unwrap()
+        self.data_[XSAVE_HEADER_OFFSET..XSAVE_HEADER_OFFSET + 8]
             .copy_from_slice(&features.to_le_bytes());
 
-        self.data_
-            .get_mut(XSAVE_HEADER_OFFSET + 8..XSAVE_HEADER_OFFSET + XSAVE_HEADER_SIZE)
-            .unwrap()
+        self.data_[XSAVE_HEADER_OFFSET + 8..XSAVE_HEADER_OFFSET + XSAVE_HEADER_SIZE]
             .copy_from_slice(
-                data_from
-                    .get(XSAVE_HEADER_OFFSET + 8..XSAVE_HEADER_OFFSET + XSAVE_HEADER_SIZE)
-                    .unwrap(),
+                &data_from[XSAVE_HEADER_OFFSET + 8..XSAVE_HEADER_OFFSET + XSAVE_HEADER_SIZE],
             );
 
         // Now copy each optional and present area into the right place in our struct
@@ -250,14 +239,8 @@ impl ExtraRegisters {
                 let feature_offset = feature.offset as usize;
                 let feature_size = feature.size as usize;
 
-                self.data_
-                    .get_mut(native_offset..native_offset + feature_size)
-                    .unwrap()
-                    .copy_from_slice(
-                        data_from
-                            .get(feature_offset..feature_offset + feature_size)
-                            .unwrap(),
-                    );
+                self.data_[native_offset..native_offset + feature_size]
+                    .copy_from_slice(&data_from[feature_offset..feature_offset + feature_size]);
             }
         }
 
@@ -296,9 +279,7 @@ impl ExtraRegisters {
         }
 
         let ret = u64::from_le_bytes(
-            self.data_
-                .get(XINUSE_OFFSET..XINUSE_OFFSET + 8)
-                .unwrap()
+            self.data_[XINUSE_OFFSET..XINUSE_OFFSET + 8]
                 .try_into()
                 .unwrap(),
         );
@@ -330,9 +311,7 @@ impl ExtraRegisters {
         } else {
             debug_assert!(reg_data.offset.unwrap() + reg_data.size <= self.data_.len());
             let off = reg_data.offset.unwrap();
-            buf.get_mut(0..reg_data.size)
-                .unwrap()
-                .copy_from_slice(self.data_.get(off..off + reg_data.size).unwrap());
+            buf[0..reg_data.size].copy_from_slice(&self.data_[off..off + reg_data.size]);
         }
 
         Some(reg_data.size)
@@ -368,10 +347,7 @@ impl ExtraRegisters {
                 let l = std::mem::size_of::<x64::user_fpregs_struct>();
                 let mut new_vec: Vec<u8> = Vec::with_capacity(l);
                 new_vec.resize(l, 0);
-                new_vec
-                    .get_mut(0..l)
-                    .unwrap()
-                    .copy_from_slice(self.data_.get(0..l).unwrap());
+                new_vec[0..l].copy_from_slice(&self.data_[0..l]);
                 return new_vec;
             }
         }
@@ -484,18 +460,13 @@ impl ExtraRegisters {
             // to indicate x87-in-use, at times unrelated to x87 actually being used.
             // Work around this by setting the bit unconditionally after exec.
             let mut xinuse = u64::from_le_bytes(
-                self.data_
-                    .get(XINUSE_OFFSET..XINUSE_OFFSET + 8)
-                    .unwrap()
+                self.data_[XINUSE_OFFSET..XINUSE_OFFSET + 8]
                     .try_into()
                     .unwrap(),
             );
 
             xinuse = xinuse | 1;
-            self.data_
-                .get_mut(XINUSE_OFFSET..XINUSE_OFFSET + 8)
-                .unwrap()
-                .copy_from_slice(&xinuse.to_le_bytes());
+            self.data_[XINUSE_OFFSET..XINUSE_OFFSET + 8].copy_from_slice(&xinuse.to_le_bytes());
         }
     }
 
@@ -519,8 +490,7 @@ impl ExtraRegisters {
 
 fn features_used(data: &[u8], layout: &XSaveLayout) -> u64 {
     let mut features: u64 = u64::from_le_bytes(
-        data.get(XSAVE_HEADER_OFFSET..XSAVE_HEADER_OFFSET + 8)
-            .unwrap()
+        data[XSAVE_HEADER_OFFSET..XSAVE_HEADER_OFFSET + 8]
             .try_into()
             .unwrap(),
     );
@@ -531,7 +501,7 @@ fn features_used(data: &[u8], layout: &XSaveLayout) -> u64 {
         let fl_offset = fl.offset as usize;
         let fl_size = fl.size as usize;
         if fl_offset + fl_size as usize <= layout.full_size
-            && all_zeros(data.get(fl_offset..fl_offset + fl_size).unwrap())
+            && all_zeros(&data[fl_offset..fl_offset + fl_size])
         {
             features = features & !pkru_bit
         }
@@ -683,8 +653,7 @@ fn xsave_features(data: &[u8]) -> u64 {
         0
     } else {
         let result: u64 = u64::from_le_bytes(
-            data.get(XSAVE_HEADER_OFFSET..XSAVE_HEADER_OFFSET + 8)
-                .unwrap()
+            data[XSAVE_HEADER_OFFSET..XSAVE_HEADER_OFFSET + 8]
                 .try_into()
                 .unwrap(),
         );

@@ -230,7 +230,7 @@ pub mod address_space {
         let instruction_size = instruction.len();
         let limit = vdso.len() - instruction.len();
         for i in 1..limit {
-            if vdso.get(i..i + instruction_size).unwrap() == instruction {
+            if vdso[i..i + instruction_size] == *instruction {
                 return Some(i);
             }
         }
