@@ -167,21 +167,21 @@ impl TraceWriter {
         unimplemented!()
     }
 
-    /// Create a trace where the tracess are bound to cpu |bind_to_cpu|. This
-    /// data is recorded in the trace. If |bind_to_cpu| is -1 then the tracees
+    /// Create a trace where the tracess are bound to cpu `bind_to_cpu`. This
+    /// data is recorded in the trace. If `bind_to_cpu` is -1 then the tracees
     /// were not bound.
     /// The trace name is determined by |file_name| and _RR_TRACE_DIR (if set)
     /// or by setting -o=<OUTPUT_TRACE_DIR>.
     pub fn new(
         file_name: &OsStr,
-        bind_to_cpu: usize,
+        bind_to_cpu: i32,
         output_trace_dir: &OsStr,
         ticks_semantics_: TicksSemantics,
     ) {
         unimplemented!()
     }
 
-    /// Called after the calling thread is actually bound to |bind_to_cpu|.
+    /// Called after the calling thread is actually bound to `bind_to_cpu`.
     pub fn setup_cpuid_records(
         has_cpuid_faulting: bool,
         disable_cpuid_features: &DisableCPUIDFeatures,

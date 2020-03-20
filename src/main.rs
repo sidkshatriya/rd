@@ -1,4 +1,6 @@
 #![feature(asm)]
+// @TODO To many results for "never used". Disable for now.
+#![allow(dead_code)]
 
 #[macro_use]
 extern crate bitflags;

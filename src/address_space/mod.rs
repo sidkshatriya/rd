@@ -707,7 +707,7 @@ pub mod address_space {
         }
 
         /// Return the path this address space was exec()'d with.
-        pub fn exe_image(&self) -> &OsString {
+        pub fn exe_image(&self) -> &OsStr {
             &self.exe
         }
 
