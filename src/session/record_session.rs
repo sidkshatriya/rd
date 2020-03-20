@@ -5,6 +5,27 @@ use crate::task::Task;
 use crate::trace::trace_stream::TraceStream;
 use std::ops::{Deref, DerefMut};
 
+#[derive(Clone, Eq, PartialEq)]
+pub struct DisableCPUIDFeatures {
+    /// in: EAX=0x01
+    features_ecx: u32,
+    features_edx: u32,
+    /// in: EAX=0x07 ECX=0
+    extended_features_ebx: u32,
+    extended_features_ecx: u32,
+    extended_features_edx: u32,
+    /// in: EAX=0x0D ECX=1
+    xsave_features_eax: u32,
+}
+
+impl DisableCPUIDFeatures {
+    // @TODO
+}
+
+pub struct TraceUuid {
+    bytes: [u8; 16],
+}
+
 pub struct RecordSession {
     session_inner: SessionInner,
 }
