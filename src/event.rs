@@ -3,6 +3,7 @@ use crate::kernel_abi::SupportedArch;
 use crate::registers::Registers;
 use crate::remote_ptr::RemotePtr;
 use libc::{dev_t, ino_t, siginfo_t};
+use std::ffi::OsString;
 use std::fmt::{Display, Formatter, Result};
 
 /// During recording, sometimes we need to ensure that an iteration of
@@ -170,7 +171,7 @@ pub enum SyscallState {
 
 #[derive(Clone)]
 pub struct OpenedFd {
-    pub path: String,
+    pub path: OsString,
     pub fd: i32,
     pub device: dev_t,
     pub inode: ino_t,

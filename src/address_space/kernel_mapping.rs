@@ -1,12 +1,13 @@
 use super::memory_range::MemoryRange;
 use crate::remote_ptr::RemotePtr;
 use crate::remote_ptr::Void;
-use crate::util::page_size;
+use crate::util::{find, page_size};
 use libc::{c_long, dev_t, ino_t, stat};
 use libc::{MAP_ANONYMOUS, MAP_GROWSDOWN, MAP_NORESERVE, MAP_PRIVATE, MAP_SHARED, MAP_STACK};
 use nix::sys::mman::MapFlags;
 use nix::sys::mman::ProtFlags;
 use nix::sys::stat::{major, minor};
+use std::ffi::{OsStr, OsString};
 use std::fmt::{Display, Formatter, Result};
 use std::mem::zeroed;
 use std::ops::{Deref, DerefMut};
@@ -18,7 +19,7 @@ pub struct KernelMapping {
     mr: MemoryRange,
     /// The kernel's name for the mapping, as per /proc/<pid>/maps. This must
     /// be exactly correct.
-    fsname_: String,
+    fsname_: OsString,
     /// Note that btrfs has weird behavior and /proc/.../maps can show a different
     /// device number to the device from stat()ing the file that was mapped.
     /// https://www.mail-archive.com/linux-btrfs@vger.kernel.org/msg57667.html
@@ -55,8 +56,7 @@ impl KernelMapping {
             prot_: ProtFlags::empty(),
             flags_: MapFlags::empty(),
             offset: 0,
-            // @TODO Is this OK?
-            fsname_: String::new(),
+            fsname_: OsString::from(""),
             mr: MemoryRange::new(),
         }
     }
@@ -64,7 +64,7 @@ impl KernelMapping {
     pub fn new_with_opts(
         start: RemotePtr<Void>,
         end: RemotePtr<Void>,
-        fsname: &str,
+        fsname: &OsStr,
         device: dev_t,
         inode: ino_t,
         prot: ProtFlags,
@@ -147,7 +147,7 @@ impl KernelMapping {
         )
     }
 
-    pub fn fsname(&self) -> &String {
+    pub fn fsname(&self) -> &OsStr {
         &self.fsname_
     }
     pub fn device(&self) -> dev_t {
@@ -179,7 +179,7 @@ impl KernelMapping {
     }
     pub fn is_stack(&self) -> bool {
         // Note the lack of ending `]` in match string
-        if let Some(loc) = self.fsname().find("[stack") {
+        if let Some(loc) = find(self.fsname(), b"[stack") {
             loc == 0
         } else {
             false
@@ -211,7 +211,7 @@ impl KernelMapping {
 
         // @TODO this needs to be checked.
         let s = format!(
-            "{:8x}-{:8x} {}{} {:08x} {:02x}:{:02x} {:<10} ",
+            "{:8x}-{:8x} {}{} {:08x} {:02x}:{:02x} {:<10} {:?}",
             self.start().as_usize(),
             self.end().as_usize(),
             self.prot_string(),
@@ -219,9 +219,10 @@ impl KernelMapping {
             self.offset,
             major(self.device()),
             minor(self.device()),
-            self.inode()
+            self.inode(),
+            self.fsname()
         );
-        s + &self.fsname()
+        s
     }
 
     fn prot_string(&self) -> String {

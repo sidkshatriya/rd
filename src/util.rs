@@ -8,7 +8,8 @@ use nix::unistd::{sysconf, AccessFlags};
 use raw_cpuid::CpuId;
 use std::convert::TryInto;
 use std::env;
-use std::ffi::c_void;
+use std::ffi::{c_void, OsStr, OsString};
+use std::os::unix::ffi::OsStrExt;
 
 pub const CPUID_GETVENDORSTRING: u32 = 0x0;
 pub const CPUID_GETFEATURES: u32 = 0x1;
@@ -300,7 +301,7 @@ pub fn is_kernel_trap(si_code: i32) -> bool {
 
 /// Returns $TMPDIR or "/tmp". We call ensure_dir to make sure the directory
 /// exists and is writeable.
-pub fn tmp_dir() -> String {
+pub fn tmp_dir() -> OsString {
     let mut dir = env::var("RD_TMPDIR");
     if dir.is_ok() {
         ensure_dir(
@@ -308,7 +309,7 @@ pub fn tmp_dir() -> String {
             "temporary file directory (RD_TMPDIR)",
             Mode::S_IRWXU,
         );
-        return dir.unwrap();
+        return OsString::from(&dir.unwrap());
     }
 
     dir = env::var("TMPDIR");
@@ -318,7 +319,7 @@ pub fn tmp_dir() -> String {
             "temporary file directory (TMPDIR)",
             Mode::S_IRWXU,
         );
-        return dir.unwrap();
+        return OsString::from(dir.unwrap());
     }
 
     // Don't try to create "/tmp", that probably won't work well.
@@ -326,7 +327,7 @@ pub fn tmp_dir() -> String {
         fatal!("Can't write to temporary file directory /tmp.");
     }
 
-    "/tmp".to_owned()
+    OsString::from("/tmp")
 }
 
 /// Create directory `str`, creating parent directories as needed.
@@ -375,4 +376,25 @@ lazy_static! {
 
 pub fn uses_invisible_guard_page() -> bool {
     !*IS_PAX_KERNEL
+}
+
+pub fn find(haystack: &OsStr, needle: &[u8]) -> Option<usize> {
+    let haystack_len = haystack.as_bytes().len();
+    let mut it = haystack.as_bytes().iter();
+    let mut i = 0;
+    loop {
+        if i + needle.len() > haystack_len {
+            return None;
+        }
+
+        let rest = it.as_slice();
+        if rest.starts_with(needle) {
+            return Some(i);
+        }
+        if let None = it.next() {
+            return None;
+        }
+        i += 1;
+    }
+    unreachable!()
 }

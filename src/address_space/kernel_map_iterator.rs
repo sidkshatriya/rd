@@ -7,8 +7,10 @@ use nix::sys::mman::MapFlags;
 use nix::sys::mman::ProtFlags;
 use nix::sys::stat::makedev;
 use nix::unistd::getpid;
+use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
+use std::os::unix::ffi::OsStrExt;
 
 pub struct KernelMapIterator {
     tid: pid_t,
@@ -19,8 +21,8 @@ impl Iterator for KernelMapIterator {
     type Item = KernelMapping;
 
     fn next(&mut self) -> Option<KernelMapping> {
-        let mut raw_line: String = String::new();
-        if let Ok(read_bytes) = self.buf_reader.read_line(&mut raw_line) {
+        let mut raw_line = Vec::new();
+        if let Ok(read_bytes) = self.buf_reader.read_until(b'\n', &mut raw_line) {
             if read_bytes == 0 {
                 return None;
             }
@@ -69,20 +71,15 @@ impl KernelMapIterator {
         }
     }
 
-    fn parse_rawline(raw_line: &str) -> KernelMapping {
-        let mut iter = raw_line.splitn(6, ' ');
-        let addr_range = iter.next().unwrap();
-        let perms_s = iter.next().unwrap();
-        let offset_s = iter.next().unwrap();
-        let device = iter.next().unwrap();
-        let inode_s = iter.next().unwrap();
-        // @TODO do we need to worry about right to left language filenames in /proc/{}/maps?
+    fn parse_rawline(raw_line: &[u8]) -> KernelMapping {
+        let mut iter = raw_line.splitn(6, |c| *c == b' ');
+        let addr_range = String::from_utf8_lossy(iter.next().unwrap());
+        let perms_s = String::from_utf8_lossy(iter.next().unwrap());
+        let offset_s = String::from_utf8_lossy(iter.next().unwrap());
+        let device = String::from_utf8_lossy(iter.next().unwrap());
+        let inode_s = String::from_utf8_lossy(iter.next().unwrap());
         // Strip leading ascii spaces and trailing newlines also
-        let filename_unescaped = iter
-            .next()
-            .unwrap()
-            .trim_start_matches(' ')
-            .trim_end_matches('\n');
+        let filename_unescaped = iter.next().unwrap();
 
         let mut addr_iter = addr_range.split('-');
         let addr_low_s = addr_iter.next().unwrap();
@@ -94,44 +91,66 @@ impl KernelMapIterator {
 
         let addr_low: RemotePtr<Void> = usize::from_str_radix(addr_low_s, 16).unwrap().into();
         let addr_high: RemotePtr<Void> = usize::from_str_radix(addr_high_s, 16).unwrap().into();
-        let offset: u64 = u64::from_str_radix(offset_s, 16).unwrap();
+        let offset: u64 = u64::from_str_radix(&offset_s, 16).unwrap();
         let dev_major: u32 = u32::from_str_radix(dev_major_s, 16).unwrap();
         let dev_minor: u32 = u32::from_str_radix(dev_minor_s, 16).unwrap();
         let inode: ino_t = inode_s.parse::<ino_t>().unwrap();
 
-        let mut filename = String::new();
-        let mut iter = filename_unescaped.chars();
+        let mut filename: Vec<u8> = Vec::new();
+        let mut iter = filename_unescaped.iter();
         while let Some(c) = iter.next() {
-            if c == '\\' {
-                let c1: Option<char> = iter.next();
-                let c2: Option<char> = iter.next();
-                let c3: Option<char> = iter.next();
+            if *c == b'\\' {
+                let c1: Option<&u8> = iter.next();
+                let c2: Option<&u8> = iter.next();
+                let c3: Option<&u8> = iter.next();
 
                 if c1.is_some()
-                    && c1.unwrap() == '0'
+                    && *c1.unwrap() == b'0'
                     && c2.is_some()
-                    && c2.unwrap() == '1'
+                    && *c2.unwrap() == b'1'
                     && c3.is_some()
-                    && c3.unwrap() == '2'
+                    && *c3.unwrap() == b'2'
                 {
-                    filename.push('\n');
+                    filename.push(b'\n');
                 } else {
-                    filename.push(c);
-                    c1.map_or((), |c| filename.push(c));
-                    c2.map_or((), |c| filename.push(c));
-                    c3.map_or((), |c| filename.push(c));
+                    filename.push(*c);
+                    c1.map_or((), |c| filename.push(*c));
+                    c2.map_or((), |c| filename.push(*c));
+                    c3.map_or((), |c| filename.push(*c));
                 }
             } else {
-                filename.push(c);
+                filename.push(*c);
             }
         }
 
-        let prot: ProtFlags = Self::get_prot(perms_s);
-        let map_flags: MapFlags = Self::get_map_flags(perms_s);
+        // Ignore leading spaces
+        let mut start_index = 0;
+        let mut it = filename.iter();
+        while let Some(c) = it.next() {
+            if *c == b' ' {
+                start_index += 1;
+            } else {
+                break;
+            }
+        }
+
+        // Ignore trailing carriage returns
+        let mut end_index = filename.len();
+        let mut it = filename.iter();
+        while let Some(c) = it.next_back() {
+            if *c == b'\n' {
+                end_index -= 1;
+            } else {
+                break;
+            }
+        }
+
+        let prot: ProtFlags = Self::get_prot(&perms_s);
+        let map_flags: MapFlags = Self::get_map_flags(&perms_s);
         KernelMapping::new_with_opts(
             addr_low,
             addr_high,
-            &filename,
+            OsStr::from_bytes(&filename[start_index..end_index]),
             makedev(dev_major as u64, dev_minor as u64),
             inode,
             prot,

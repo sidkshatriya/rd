@@ -44,10 +44,13 @@ use nix::sys::stat::fstat;
 use nix::unistd::unlink;
 use nix::unistd::PathconfVar::PATH_MAX;
 use nix::NixPath;
-use std::cmp::max;
+use std::cmp::{max, min};
 use std::convert::TryInto;
+use std::ffi::OsStr;
+use std::io::Write;
 use std::mem::{size_of, size_of_val, transmute_copy, zeroed};
 use std::ops::{Deref, DerefMut};
+use std::os::unix::ffi::OsStrExt;
 use std::ptr::copy_nonoverlapping;
 use std::slice;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -910,14 +913,17 @@ impl<'a> AutoRemoteSyscalls<'a> {
         let tracee_flags = maybe_tracee_flags.unwrap_or(MapFlags::empty());
 
         // Create the segment we'll share with the tracee.
-        let mut path: String = format!(
-            "{}{}{}-{}-{}",
+        let mut path: Vec<u8> = Vec::new();
+        write!(
+            path,
+            "{:?}{}{}-{}-{}",
             tmp_dir(),
             SessionInner::rd_mapping_prefix(),
             name,
             self.task().real_tgid(),
             NONCE.fetch_add(1, Ordering::SeqCst)
-        );
+        )
+        .unwrap();
         path.truncate(PATH_MAX as usize);
 
         // Let the child create the shmem block and then send the fd back to us.
@@ -927,7 +933,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         let child_shmem_fd: i32;
         {
             let arch = self.arch();
-            let mut child_path = AutoRestoreMem::push_cstr(self, path.as_str());
+            let mut child_path = AutoRestoreMem::push_cstr(self, path.as_slice());
             let path_addr_val = (child_path.get().unwrap() + 1usize).as_usize();
             // skip leading '/' since we want the path to be relative to the root fd
             child_shmem_fd = rd_infallible_syscall!(
@@ -946,11 +952,11 @@ impl<'a> AutoRemoteSyscalls<'a> {
         // up this segment in error conditions.
         //
         // rr swallows any potential error but we don't for now.
-        unlink(path.as_str()).unwrap();
+        unlink(path.as_slice()).unwrap();
 
         let mut shmem_fd: ScopedFd = self.retrieve_fd(child_shmem_fd);
         resize_shmem_segment(&shmem_fd, size);
-        log!(LogDebug, "created shmem segment {}", path);
+        log!(LogDebug, "created shmem segment {:?}", path);
 
         // Map the segment in ours and the tracee's address spaces.
         let mut flags = MapFlags::MAP_SHARED;
@@ -989,7 +995,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
             tracee_prot,
             flags | tracee_flags,
             0,
-            &path,
+            OsStr::from_bytes(&path),
             st.st_dev,
             st.st_ino,
             None,
@@ -1082,8 +1088,9 @@ impl<'a> AutoRemoteSyscalls<'a> {
     ) -> Mapping {
         // We will include the name of the full path of the original mapping in the
         // name of the shared mapping, replacing slashes by dashes.
-        let mut name: String = m.map.fsname().replace("/", "-");
-        name.truncate(PATH_MAX as usize - 40);
+        let name_raw = m.map.fsname().as_bytes();
+        let name = String::from_utf8_lossy(&name_raw[0..min(PATH_MAX as usize, name_raw.len())])
+            .replace("/", "-");
 
         // Now create the new mapping in its place
         let start = m.map.start();

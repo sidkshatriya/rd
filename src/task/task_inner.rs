@@ -100,6 +100,7 @@ pub mod task_inner {
     use std::cell::RefCell;
     use std::cmp::min;
     use std::convert::TryInto;
+    use std::ffi::{OsStr, OsString};
     use std::mem::size_of;
     use std::ptr::copy_nonoverlapping;
     use std::rc::Rc;
@@ -187,7 +188,7 @@ pub mod task_inner {
         /// The file descriptor table of this task.
         pub(in super::super) fds: FdTableSharedPtr,
         /// Task's OS name.
-        pub(in super::super) prname: String,
+        pub(in super::super) prname: OsString,
         /// Count of all ticks seen by this task since tracees became
         /// consistent and the task last wait()ed.
         pub(in super::super) ticks: Ticks,
@@ -258,7 +259,7 @@ pub mod task_inner {
         pub ticks: Ticks,
         pub regs: Registers,
         pub extra_regs: ExtraRegisters,
-        pub prname: String,
+        pub prname: OsString,
         pub thread_areas: Vec<user_desc>,
         pub syscallbuf_child: RemotePtr<syscallbuf_hdr>,
         pub syscallbuf_size: usize,
@@ -332,7 +333,7 @@ pub mod task_inner {
 
         /// Get the name of the file referenced by `fd` in the context of this
         /// task's fd table.
-        pub fn file_name_of_fd(&self, fd: i32) -> String {
+        pub fn file_name_of_fd(&self, fd: i32) -> OsString {
             unimplemented!()
         }
 
@@ -444,7 +445,7 @@ pub mod task_inner {
 
         /// Return the "task name"; i.e. what `prctl(PR_GET_NAME)` or
         /// /proc/tid/comm would say that the task's name is.
-        pub fn name(&self) -> &str {
+        pub fn name(&self) -> &OsStr {
             &self.prname
         }
 
@@ -621,7 +622,7 @@ pub mod task_inner {
         }
 
         /// Return the dir of the trace we're using.
-        pub fn trace_dir(&self) -> String {
+        pub fn trace_dir(&self) -> OsString {
             unimplemented!()
         }
 

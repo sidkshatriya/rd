@@ -44,7 +44,9 @@ use std::cell::RefCell;
 use std::cmp::min;
 use std::collections::HashMap;
 use std::convert::TryInto;
-use std::ffi::CString;
+use std::ffi::{CString, OsStr, OsString};
+use std::io::Write;
+use std::os::unix::ffi::OsStringExt;
 use std::rc::{Rc, Weak};
 
 pub type EmuFsSharedPtr = Rc<RefCell<EmuFs>>;
@@ -56,9 +58,8 @@ type FileMap = HashMap<FileId, Weak<RefCell<EmuFile>>>;
 
 /// We DONT want this to be either Copy or Clone.
 pub struct EmuFile {
-    // @TODO At some point we should probably use OSString here?
-    orig_path: String,
-    tmp_path: String,
+    orig_path: OsString,
+    tmp_path: OsString,
     file: ScopedFd,
     owner: EmuFsSharedWeakPtr,
     size_: u64,
@@ -79,8 +80,8 @@ impl EmuFile {
     fn new(
         owner: EmuFsSharedWeakPtr,
         fd: ScopedFd,
-        orig_path: &str,
-        real_path: &str,
+        orig_path: &OsStr,
+        real_path: &OsStr,
         device: dev_t,
         inode: ino_t,
         file_size: u64,
@@ -114,11 +115,11 @@ impl EmuFile {
 
     /// Return the path of the original file from recording, the
     /// one this is emulating.
-    pub fn emu_path(&self) -> &String {
+    pub fn emu_path(&self) -> &OsStr {
         &self.orig_path
     }
 
-    pub fn real_path(&self) -> &String {
+    pub fn real_path(&self) -> &OsStr {
         &self.tmp_path
     }
 
@@ -207,18 +208,18 @@ impl EmuFile {
     /// might exist concurrently in this tracer process.
     fn create(
         owner: EmuFsSharedWeakPtr,
-        orig_path: &str,
+        orig_path: &OsStr,
         orig_device: dev_t,
         orig_inode: ino_t,
         orig_file_size: u64,
     ) -> EmuFileSharedPtr {
-        let mut fd_and_name: Option<(ScopedFd, String)> =
+        let mut fd_and_name: Option<(ScopedFd, OsString)> =
             create_memfd_file(orig_path, orig_device, orig_inode);
         if fd_and_name.is_none() {
             fd_and_name = create_tmpfs_file(orig_path, orig_device, orig_inode);
             if fd_and_name.is_none() {
                 fatal!(
-                    "Failed to create shmem segment for {}:{} {}",
+                    "Failed to create shmem segment for {}:{} {:?}",
                     orig_device,
                     orig_inode,
                     orig_path
@@ -241,7 +242,7 @@ impl EmuFile {
 
         log!(
             LogDebug,
-            "created emulated file for {} as {}",
+            "created emulated file for {:?} as {:?}",
             orig_path,
             real_name
         );
@@ -350,8 +351,8 @@ impl EmuFs {
         let addr = self as *const _ as *const u8 as usize;
         log!(LogError, "EmuFs {:x} with {} files:", addr, self.size());
         for (_, v) in &self.files {
-            let emu_path = v.upgrade().unwrap().borrow().emu_path().clone();
-            log!(LogError, "  {}", emu_path);
+            let emu_path = v.upgrade().unwrap().borrow().emu_path().to_owned();
+            log!(LogError, "  {:?}", emu_path);
         }
     }
 
@@ -392,23 +393,29 @@ impl FileId {
 }
 
 fn create_memfd_file(
-    orig_path: &str,
+    orig_path: &OsStr,
     orig_device: dev_t,
     orig_inode: ino_t,
-) -> Option<(ScopedFd, String)> {
-    let mut name = format!(
-        "rr-emufs-{}-dev-{}-inode-{}-{}",
+) -> Option<(ScopedFd, OsString)> {
+    let mut name: Vec<u8> = Vec::new();
+    write!(
+        name,
+        "rr-emufs-{}-dev-{}-inode-{}-{:?}",
         getpid(),
         orig_device,
         orig_inode,
         orig_path
-    );
+    )
+    .unwrap();
     name.truncate(255);
 
     let cname = CString::new(name.clone()).unwrap();
     let result = memfd_create(&cname, MemFdCreateFlag::empty());
     if result.is_ok() {
-        Some((ScopedFd::from_raw(result.unwrap()), name))
+        Some((
+            ScopedFd::from_raw(result.unwrap()),
+            OsString::from_vec(name),
+        ))
     } else {
         None
     }
@@ -416,9 +423,9 @@ fn create_memfd_file(
 
 /// Used only when memfd_create is not available, i.e. Linux < 3.17
 fn create_tmpfs_file(
-    orig_path: &str,
+    orig_path: &OsStr,
     orig_device: dev_t,
     orig_inode: ino_t,
-) -> Option<(ScopedFd, String)> {
+) -> Option<(ScopedFd, OsString)> {
     unimplemented!()
 }

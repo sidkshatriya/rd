@@ -15,13 +15,16 @@ use crate::remote_ptr::RemotePtr;
 use crate::remote_ptr::Void;
 use crate::scoped_fd::ScopedFd;
 use crate::task::Task;
+use crate::util::find;
 use libc::{dev_t, pid_t};
 use nix::sys::mman::{MapFlags, ProtFlags};
 use nix::sys::stat::stat;
 use std::cmp::min;
 use std::collections::BTreeSet;
 use std::convert::TryInto;
+use std::ffi::{OsStr, OsString};
 use std::mem::size_of;
+use std::os::unix::ffi::OsStrExt;
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub enum BreakpointType {
@@ -215,6 +218,7 @@ pub mod address_space {
     use std::collections::hash_map::Iter as HashMapIter;
     use std::collections::HashSet;
     use std::collections::{BTreeMap, HashMap};
+    use std::ffi::{OsStr, OsString};
     use std::ops::Bound::{Included, Unbounded};
     use std::ops::Drop;
     use std::ops::{Deref, DerefMut};
@@ -540,7 +544,7 @@ pub mod address_space {
         breakpoints: BreakpointMap,
         /// Path of the real executable image this address space was
         /// exec()'d with.
-        exe: String,
+        exe: OsString,
         /// Pid of first task for this address space
         leader_tid_: pid_t,
         /// Serial number of first task for this address space
@@ -644,7 +648,7 @@ pub mod address_space {
                     prot,
                     MapFlags::MAP_ANONYMOUS | MapFlags::MAP_PRIVATE,
                     0,
-                    "[heap]",
+                    OsStr::new("[heap]"),
                     KernelMapping::NO_DEVICE,
                     KernelMapping::NO_INODE,
                     None,
@@ -703,7 +707,7 @@ pub mod address_space {
         }
 
         /// Return the path this address space was exec()'d with.
-        pub fn exe_image(&self) -> &String {
+        pub fn exe_image(&self) -> &OsString {
             &self.exe
         }
 
@@ -797,7 +801,7 @@ pub mod address_space {
             flags: MapFlags,
             // @TODO this is a i64 in rr
             offset_bytes: u64,
-            fsname: &str,
+            fsname: &OsStr,
             device: dev_t,
             inode: ino_t,
             mapped_file_stat: Option<libc::stat>,
@@ -1840,7 +1844,7 @@ pub mod address_space {
                     let anonymous_km = KernelMapping::new_with_opts(
                         mapping.map.start(),
                         mapping.map.end(),
-                        "",
+                        OsStr::new(""),
                         KernelMapping::NO_DEVICE,
                         KernelMapping::NO_INODE,
                         mapping.map.prot(),
@@ -1887,7 +1891,7 @@ pub mod address_space {
         ///
         /// Called after a successful execve to set up the new AddressSpace.
         /// Also called once for the initial spawn.
-        fn new_after_execve(t: &mut dyn Task, exe: &str, exec_count: u32) -> AddressSpace {
+        fn new_after_execve(t: &mut dyn Task, exe: &OsStr, exec_count: u32) -> AddressSpace {
             let patcher = if t.session().borrow().is_recording() {
                 Some(MonkeyPatcher::new())
             } else {
@@ -2137,11 +2141,11 @@ pub mod address_space {
             let prot = ProtFlags::PROT_EXEC | ProtFlags::PROT_READ;
             let mut flags = MapFlags::MAP_PRIVATE | MapFlags::MAP_FIXED;
 
-            let file_name: String;
+            let file_name: OsString;
             let arch = remote.arch();
 
             let path = find_rd_page_file(remote.task());
-            let mut child_path = AutoRestoreMem::push_cstr(remote, path.as_str());
+            let mut child_path = AutoRestoreMem::push_cstr(remote, path.as_os_str());
             let remote_path_addr = child_path.get().unwrap() + 1;
             // skip leading '/' since we want the path to be relative to the root fd
             let child_fd_ret = rd_syscall!(
@@ -2188,7 +2192,7 @@ pub mod address_space {
                 ed_assert!(
                     child_path.task(),
                     child_fd != -ENOENT,
-                    "rr_page file not found: {}",
+                    "rr_page file not found: {:?}",
                     path
                 );
                 ed_assert!(
@@ -2205,7 +2209,7 @@ pub mod address_space {
                     -1,
                     0,
                 );
-                let page = ScopedFd::open_path(path.as_str(), OFlag::O_RDONLY);
+                let page = ScopedFd::open_path(path.as_os_str(), OFlag::O_RDONLY);
                 ed_assert!(
                     child_path.task(),
                     page.is_open(),
@@ -2788,12 +2792,13 @@ fn normalized_file_names_equal(
     return strip_deleted(km1.fsname()) == strip_deleted(km2.fsname());
 }
 
-fn strip_deleted(s: &str) -> &str {
-    let maybe_loc = s.find(" (deleted)");
+fn strip_deleted(s: &OsStr) -> &OsStr {
+    let maybe_loc = find(s, b" (deleted)");
     match maybe_loc {
-        Some(loc) => &s[0..loc],
+        Some(loc) => OsStr::from_bytes(&s.as_bytes()[0..loc]),
         None => s,
-    }
+    };
+    s
 }
 
 fn remove_range(ranges: &mut BTreeSet<MemoryRange>, range: MemoryRange) {
@@ -2833,7 +2838,7 @@ fn range_for_watchpoint(addr: RemotePtr<Void>, num_bytes: usize) -> MemoryRange 
     MemoryRange::new_range(addr, min(num_bytes, max_len))
 }
 
-fn find_rd_page_file(t: &dyn Task) -> String {
+fn find_rd_page_file(t: &dyn Task) -> OsString {
     unimplemented!()
 }
 
@@ -2847,13 +2852,13 @@ fn thread_group_in_exec(t: &dyn Task) -> bool {
 }
 
 fn check_device(km: &KernelMapping) -> dev_t {
-    let maybe_first = km.fsname().chars().nth(0);
-    if maybe_first.is_some() && maybe_first.unwrap() != '/' {
+    let maybe_first = km.fsname().as_bytes().get(0);
+    if maybe_first.is_some() && *maybe_first.unwrap() != b'/' {
         return km.device();
     }
 
     // btrfs files can return the wrong device number in /proc/<pid>/maps
-    let ret = stat(km.fsname().as_str());
+    let ret = stat(km.fsname());
     match ret {
         Ok(st) => st.st_dev,
         Err(_) => km.device(),
@@ -2939,8 +2944,8 @@ fn assert_segments_match(t: &dyn Task, m: &KernelMapping, km: &KernelMapping) {
 }
 
 fn normalized_device_number(m: &KernelMapping) -> dev_t {
-    let maybe_first_char = m.fsname().chars().nth(0);
-    if maybe_first_char.is_some() && maybe_first_char.unwrap() != '/' {
+    let maybe_first_char = m.fsname().as_bytes().get(0);
+    if maybe_first_char.is_some() && *maybe_first_char.unwrap() != b'/' {
         return m.device();
     }
     // btrfs files can report the wrong device number in /proc/<pid>/maps, so
