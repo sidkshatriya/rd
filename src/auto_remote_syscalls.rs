@@ -32,7 +32,7 @@ use crate::task::task_inner::ResumeRequest::{ResumeSinglestep, ResumeSyscall};
 use crate::task::task_inner::TicksRequest::ResumeNoTicks;
 use crate::task::task_inner::WaitRequest::ResumeWait;
 use crate::task::Task;
-use crate::util::{is_kernel_trap, page_size, resize_shmem_segment, tmp_dir};
+use crate::util::{find, is_kernel_trap, page_size, resize_shmem_segment, tmp_dir};
 use crate::wait_status::WaitStatus;
 use core::ffi::c_void;
 use libc::{
@@ -1100,7 +1100,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         let km = self.create_shared_mmap(
             size,
             Some(m.map.start()),
-            extract_name(name),
+            extract_name(name).unwrap(),
             Some(m.map.prot()),
             None,
             monitored,
@@ -1385,6 +1385,47 @@ const fn reserve<T>() -> usize {
     align_size(size_of::<T>())
 }
 
-fn extract_name(name: &OsStr) -> &OsStr {
-    unimplemented!()
+/// Recover the name that was originally chosen by finding the part of the
+/// name between rd_mapping_prefix and the -%d-%d at the end.
+fn extract_name(name: &OsStr) -> Option<&OsStr> {
+    let mut name_it = name.as_bytes().iter().enumerate();
+
+    let mut hyphens_seen: usize = 0;
+    let mut pos_end: usize = 0;
+    while let Some((pos, c)) = name_it.next_back() {
+        if *c == b'-' {
+            hyphens_seen += 1;
+        } else if *c == b'/' {
+            debug_assert!(
+                false,
+                "Passed something to create_shared_mmap that\n\
+                                  wasn't a mapping shared between rd and the tracee?"
+            );
+        }
+
+        if hyphens_seen == 2 {
+            pos_end = pos;
+            break;
+        }
+    }
+
+    debug_assert_eq!(hyphens_seen, 2);
+    let needle = SessionInner::rd_mapping_prefix().as_bytes();
+    let prefix = find(name, needle);
+    match prefix {
+        None => debug_assert!(
+            false,
+            "Passed something to create_shared_mmap that\n\
+                                  wasn't a mapping shared between rd and the tracee?"
+        ),
+        Some(loc) => {
+            let pos_start = loc + needle.len();
+            // The extracted name needs to be at least 1 u8 long!
+            if pos_start < pos_end {
+                return Some(OsStr::from_bytes(&name.as_bytes()[pos_start..pos_end]));
+            }
+        }
+    }
+
+    None
 }
