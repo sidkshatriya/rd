@@ -3,7 +3,11 @@ use nix::fcntl::OFlag;
 use nix::sys::stat::Mode;
 use nix::unistd::close;
 use nix::NixPath;
+use std::cell::RefCell;
 use std::os::unix::io::RawFd;
+use std::rc::Rc;
+
+pub type ScopedFdSharedPtr = Rc<RefCell<ScopedFd>>;
 
 // We DON'T want this to be Copy or Clone because of the Drop.
 pub struct ScopedFd {
