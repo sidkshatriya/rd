@@ -54,6 +54,7 @@ use std::io::Write;
 use std::mem::{size_of, size_of_val, transmute_copy, zeroed};
 use std::ops::{Deref, DerefMut};
 use std::os::unix::ffi::OsStrExt;
+use std::os::unix::ffi::OsStringExt;
 use std::ptr::copy_nonoverlapping;
 use std::slice;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1135,11 +1136,15 @@ impl<'a> AutoRemoteSyscalls<'a> {
         // We will include the name of the full path of the original mapping in the
         // name of the shared mapping, replacing slashes by dashes.
         let name_raw = m.map.fsname().as_bytes();
+
+        // Truncate the string and replace all '/' with '-'
         // No sure why rr has deducted 40 from PATH_MAX, we do the same here too for now.
-        // @TODO is it OK to lose exact characters due to lossy conversion here?
-        let name =
-            String::from_utf8_lossy(&name_raw[0..min(PATH_MAX as usize - 40, name_raw.len())])
-                .replace("/", "-");
+        let mut name = Vec::from(&name_raw[0..min(PATH_MAX as usize - 40, name_raw.len())]);
+        name.iter_mut().map(|c| {
+            if *c == b'/' {
+                *c = b'-'
+            }
+        });
 
         // Now create the new mapping in its place
         let start = m.map.start();
@@ -1147,7 +1152,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         let km = self.create_shared_mmap(
             sz,
             Some(start),
-            OsStr::new(&name),
+            OsStr::from_bytes(&name),
             Some(m.map.prot()),
             Some(m.map.flags() & (MapFlags::MAP_GROWSDOWN | MapFlags::MAP_STACK)),
             monitored.clone(),
