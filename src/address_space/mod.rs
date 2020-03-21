@@ -624,7 +624,7 @@ pub mod address_space {
             remote.create_shared_mmap(
                 PRELOAD_THREAD_LOCALS_SIZE,
                 Some(Self::preload_thread_locals_start()),
-                "preload_thread_locals",
+                OsStr::new("preload_thread_locals"),
                 None,
                 None,
                 None,
@@ -1751,7 +1751,7 @@ pub mod address_space {
             remote.create_shared_mmap(
                 PRELOAD_THREAD_LOCALS_SIZE,
                 Some(Self::preload_thread_locals_start()),
-                "preload_thread_locals",
+                OsStr::new("preload_thread_locals"),
                 None,
                 None,
                 None,

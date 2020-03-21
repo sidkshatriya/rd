@@ -378,6 +378,7 @@ pub fn uses_invisible_guard_page() -> bool {
     !*IS_PAX_KERNEL
 }
 
+#[allow(unreachable_code)]
 pub fn find(haystack: &OsStr, needle: &[u8]) -> Option<usize> {
     let haystack_len = haystack.as_bytes().len();
     let mut it = haystack.as_bytes().iter();

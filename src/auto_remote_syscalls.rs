@@ -1,4 +1,6 @@
-use crate::address_space::address_space::{AddressSpace, AddressSpaceRef, Mapping};
+use crate::address_space::address_space::{
+    AddressSpace, AddressSpaceRef, AddressSpaceRefMut, Mapping,
+};
 use crate::address_space::kernel_mapping::KernelMapping;
 use crate::address_space::memory_range::MemoryRange;
 use crate::address_space::{Enabled, Privileged, Traced};
@@ -38,6 +40,7 @@ use libc::{
     SIGTRAP, SOL_SOCKET,
 };
 use libc::{MREMAP_FIXED, MREMAP_MAYMOVE};
+use nix::sys::mman::munmap;
 use nix::sys::mman::MapFlags;
 use nix::sys::mman::ProtFlags;
 use nix::sys::stat::fstat;
@@ -625,6 +628,10 @@ impl<'a> AutoRemoteSyscalls<'a> {
         self.t.vm()
     }
 
+    pub fn vm_mut(&self) -> AddressSpaceRefMut {
+        self.t.vm_mut()
+    }
+
     /// A small helper to get at the Task's arch.
     pub fn arch(&self) -> SupportedArch {
         self.t.arch()
@@ -902,7 +909,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         &mut self,
         size: usize,
         maybe_map_hint: Option<RemotePtr<Void>>,
-        name: &str,
+        name: &OsStr,
         maybe_tracee_prot: Option<ProtFlags>,
         maybe_tracee_flags: Option<MapFlags>,
         monitored: Option<MonitoredSharedMemorySharedPtr>,
@@ -914,12 +921,12 @@ impl<'a> AutoRemoteSyscalls<'a> {
 
         // Create the segment we'll share with the tracee.
         let mut path: Vec<u8> = Vec::new();
+        path.copy_from_slice(tmp_dir().as_bytes());
+        path.copy_from_slice(SessionInner::rd_mapping_prefix().as_bytes());
+        path.copy_from_slice(name.as_bytes());
         write!(
             path,
-            "{:?}{}{}-{}-{}",
-            tmp_dir(),
-            SessionInner::rd_mapping_prefix(),
-            name,
+            "-{}-{}",
             self.task().real_tgid(),
             NONCE.fetch_add(1, Ordering::SeqCst)
         )
@@ -960,6 +967,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
 
         // Map the segment in ours and the tracee's address spaces.
         let mut flags = MapFlags::MAP_SHARED;
+        // Here we map the shared memory segment into ours.
         let map_addr = unsafe {
             libc::mmap(
                 0 as *mut c_void,
@@ -976,6 +984,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         if maybe_map_hint.is_some() {
             flags |= MapFlags::MAP_FIXED;
         }
+        // Here we map the shared memory segment into the tracee.
         let child_map_addr = self.infallible_mmap_syscall(
             maybe_map_hint,
             size,
@@ -1062,19 +1071,56 @@ impl<'a> AutoRemoteSyscalls<'a> {
 
     /// Recreate an mmap region that is shared between rr and the tracee. The
     /// caller
-    /// is responsible for recreating the data in the new mmap, if `preserve` is
+    /// is responsible for recreating the data in the new mmap, *if* `preserve` is
     /// DiscardContents.
     /// OK to call this while 'm' references one of the mappings in remote's
     /// AddressSpace
     /// If None is provided for `preserve` then DiscardContents is assumed
     /// If None is provided for `monitored` it is assumed that there is no memory monitor.
     pub fn recreate_shared_mmap(
-        &self,
+        &mut self,
         m: &Mapping,
         option_preserve: Option<PreserveContents>,
         monitored: Option<MonitoredSharedMemorySharedPtr>,
-    ) -> &'a Mapping {
-        unimplemented!()
+    ) -> Mapping {
+        ed_assert!(self.task(), m.map.fsname().len() <= PATH_MAX as usize);
+        let flags = m.flags;
+        let size = m.map.size();
+        let name = m.map.fsname();
+        let maybe_preserved_data = if option_preserve.is_some()
+            && option_preserve.unwrap() == PreserveContents::PreserveContents
+            && m.local_addr.is_some()
+        {
+            Some(m.local_addr.unwrap())
+        } else {
+            None
+        };
+
+        let km = self.create_shared_mmap(
+            size,
+            Some(m.map.start()),
+            extract_name(name),
+            Some(m.map.prot()),
+            None,
+            monitored,
+        );
+
+        let new_addr = km.start();
+        *self.vm_mut().mapping_flags_of_mut(new_addr) = flags;
+        // m may be invalid now
+        // @TODO Hmm.. The pattern of passing a reference to a mapping might be flawed. See if this
+        // might need some fixing.
+        let new_map = self.vm().mapping_of(new_addr).unwrap().clone();
+        if maybe_preserved_data.is_some() {
+            let preserved_data = maybe_preserved_data.unwrap();
+            let new_map_local = new_map.local_addr.unwrap();
+            unsafe {
+                // @TODO This should be non-overlapping but think about this more to be sure.
+                copy_nonoverlapping(preserved_data, new_map_local, size);
+                munmap(preserved_data, size).unwrap();
+            }
+        }
+        new_map
     }
 
     /// Takes a mapping and replaces it by one that is shared between rr and
@@ -1090,6 +1136,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         // name of the shared mapping, replacing slashes by dashes.
         let name_raw = m.map.fsname().as_bytes();
         // No sure why rr has deducted 40 from PATH_MAX, we do the same here too for now.
+        // @TODO is it OK to lose exact characters due to lossy conversion here?
         let name =
             String::from_utf8_lossy(&name_raw[0..min(PATH_MAX as usize - 40, name_raw.len())])
                 .replace("/", "-");
@@ -1100,7 +1147,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         let km = self.create_shared_mmap(
             sz,
             Some(start),
-            &name,
+            OsStr::new(&name),
             Some(m.map.prot()),
             Some(m.map.flags() & (MapFlags::MAP_GROWSDOWN | MapFlags::MAP_STACK)),
             monitored.clone(),
@@ -1331,4 +1378,8 @@ fn recvmsg_socket(sock: &ScopedFd) -> i32 {
 
 const fn reserve<T>() -> usize {
     align_size(size_of::<T>())
+}
+
+fn extract_name(name: &OsStr) -> &OsStr {
+    unimplemented!()
 }

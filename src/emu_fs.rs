@@ -46,6 +46,7 @@ use std::collections::HashMap;
 use std::convert::TryInto;
 use std::ffi::{CString, OsStr, OsString};
 use std::io::Write;
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::ffi::OsStringExt;
 use std::rc::{Rc, Weak};
 
@@ -400,13 +401,13 @@ fn create_memfd_file(
     let mut name: Vec<u8> = Vec::new();
     write!(
         name,
-        "rr-emufs-{}-dev-{}-inode-{}-{:?}",
+        "rr-emufs-{}-dev-{}-inode-{}-",
         getpid(),
         orig_device,
-        orig_inode,
-        orig_path
+        orig_inode
     )
     .unwrap();
+    name.copy_from_slice(orig_path.as_bytes());
     name.truncate(255);
 
     let cname = CString::new(name.clone()).unwrap();
