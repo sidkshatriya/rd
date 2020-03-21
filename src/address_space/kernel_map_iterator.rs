@@ -96,8 +96,30 @@ impl KernelMapIterator {
         let dev_minor: u32 = u32::from_str_radix(dev_minor_s, 16).unwrap();
         let inode: ino_t = inode_s.parse::<ino_t>().unwrap();
 
+        // Ignore leading spaces
+        let mut start_index = 0;
+        let mut it = filename_unescaped.iter();
+        while let Some(c) = it.next() {
+            if *c == b' ' {
+                start_index += 1;
+            } else {
+                break;
+            }
+        }
+
+        // Ignore trailing carriage returns
+        let mut end_index = filename_unescaped.len();
+        let mut it = filename_unescaped.iter();
+        while let Some(c) = it.next_back() {
+            if *c == b'\n' {
+                end_index -= 1;
+            } else {
+                break;
+            }
+        }
+
         let mut filename: Vec<u8> = Vec::new();
-        let mut iter = filename_unescaped.iter();
+        let mut iter = filename_unescaped[start_index..end_index].iter();
         while let Some(c) = iter.next() {
             if *c == b'\\' {
                 let c1: Option<&u8> = iter.next();
@@ -123,34 +145,12 @@ impl KernelMapIterator {
             }
         }
 
-        // Ignore leading spaces
-        let mut start_index = 0;
-        let mut it = filename.iter();
-        while let Some(c) = it.next() {
-            if *c == b' ' {
-                start_index += 1;
-            } else {
-                break;
-            }
-        }
-
-        // Ignore trailing carriage returns
-        let mut end_index = filename.len();
-        let mut it = filename.iter();
-        while let Some(c) = it.next_back() {
-            if *c == b'\n' {
-                end_index -= 1;
-            } else {
-                break;
-            }
-        }
-
         let prot: ProtFlags = Self::get_prot(&perms_s);
         let map_flags: MapFlags = Self::get_map_flags(&perms_s);
         KernelMapping::new_with_opts(
             addr_low,
             addr_high,
-            OsStr::from_bytes(&filename[start_index..end_index]),
+            OsStr::from_bytes(&filename),
             makedev(dev_major as u64, dev_minor as u64),
             inode,
             prot,
