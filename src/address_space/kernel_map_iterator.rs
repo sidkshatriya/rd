@@ -118,6 +118,7 @@ impl KernelMapIterator {
             }
         }
 
+        // Convert b"\012" to b'\n'
         let mut filename: Vec<u8> = Vec::new();
         let mut iter = filename_unescaped[start_index..end_index].iter();
         while let Some(c) = iter.next() {

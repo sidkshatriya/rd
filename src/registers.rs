@@ -36,7 +36,8 @@ lazy_static! {
 macro_rules! rd_get_reg {
     ($slf:expr, $x86case:ident, $x64case:ident) => {
         match $slf {
-            X86(regs) => regs.$x86case as usize,
+            // We DONT want sign extension to happen here
+            X86(regs) => regs.$x86case as u32 as usize,
             X64(regs) => regs.$x64case as usize,
         }
     };
@@ -58,7 +59,11 @@ macro_rules! rd_set_reg {
 
 macro_rules! rd_get_reg_signed {
     ($slf:expr, $x86case:ident, $x64case:ident) => {
-        rd_get_reg!($slf, $x86case, $x64case) as isize
+        match $slf {
+            // We WANT sign extension to happen here
+            X86(regs) => regs.$x86case as isize,
+            X64(regs) => regs.$x64case as isize,
+        }
     };
 }
 
