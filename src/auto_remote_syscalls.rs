@@ -1056,7 +1056,15 @@ impl<'a> AutoRemoteSyscalls<'a> {
         // handle the case where the mapping is larger than the backing file, which
         // would otherwise cause a short read.
         let buf = unsafe { slice::from_raw_parts_mut(new_m.local_addr.unwrap() as *mut u8, sz) };
-        remote2.task_mut().read_bytes_fallible(free_mem, buf);
+
+        // @TODO Added a fatal!() here to deal with Err case.
+        // rr does not do this, however, it makes sense to do this because short reads (and zero
+        // length reads in some instances) DONT result in an error.
+        // So if an error was reported, its probably a good idea to fatal!() here.
+        let result = remote2.task_mut().read_bytes_fallible(free_mem, buf);
+        if result.is_err() {
+            fatal!("Error while reading fallibly");
+        }
 
         // Finally unmap the original segment
         rd_infallible_syscall!(
@@ -1139,11 +1147,13 @@ impl<'a> AutoRemoteSyscalls<'a> {
         // Truncate the string and replace all '/' with '-'
         // No sure why rr has deducted 40 from PATH_MAX, we do the same here too for now.
         let mut name = Vec::from(&name_raw[0..min(PATH_MAX as usize - 40, name_raw.len())]);
-        name.iter_mut().map(|c| {
-            if *c == b'/' {
-                *c = b'-'
-            }
-        });
+        name.iter_mut()
+            .map(|c| {
+                if *c == b'/' {
+                    *c = b'-'
+                }
+            })
+            .for_each(drop);
 
         // Now create the new mapping in its place
         let start = m.map.start();

@@ -1,13 +1,16 @@
 use crate::bindings::signal::{SI_KERNEL, TRAP_BRKPT};
 use crate::scoped_fd::ScopedFd;
 use libc::pwrite64;
-use nix::sys::stat::Mode;
+use libc::S_IFDIR;
+use nix::errno::errno;
+use nix::sys::stat::FileStat;
+use nix::sys::stat::{stat, Mode};
 use nix::unistd::SysconfVar::PAGE_SIZE;
-use nix::unistd::{access, ftruncate};
+use nix::unistd::{access, ftruncate, mkdir};
 use nix::unistd::{sysconf, AccessFlags};
 use raw_cpuid::CpuId;
 use std::convert::TryInto;
-use std::env;
+use std::env::var_os;
 use std::ffi::{c_void, OsStr, OsString};
 use std::os::unix::ffi::OsStrExt;
 
@@ -37,7 +40,8 @@ lazy_static! {
 }
 
 pub fn running_under_rd() -> bool {
-    env::var("RUNNING_UNDER_RD").is_ok()
+    let result = var_os("RUNNING_UNDER_RD");
+    result.is_some() && result.unwrap() != ""
 }
 
 #[derive(Copy, Clone)]
@@ -302,8 +306,8 @@ pub fn is_kernel_trap(si_code: i32) -> bool {
 /// Returns $TMPDIR or "/tmp". We call ensure_dir to make sure the directory
 /// exists and is writeable.
 pub fn tmp_dir() -> OsString {
-    let mut dir = env::var("RD_TMPDIR");
-    if dir.is_ok() {
+    let mut dir = var_os("RD_TMPDIR");
+    if dir.is_some() {
         ensure_dir(
             dir.as_ref().unwrap(),
             "temporary file directory (RD_TMPDIR)",
@@ -312,8 +316,8 @@ pub fn tmp_dir() -> OsString {
         return OsString::from(&dir.unwrap());
     }
 
-    dir = env::var("TMPDIR");
-    if dir.is_ok() {
+    dir = var_os("TMPDIR");
+    if dir.is_some() {
         ensure_dir(
             dir.as_ref().unwrap(),
             "temporary file directory (TMPDIR)",
@@ -333,8 +337,54 @@ pub fn tmp_dir() -> OsString {
 /// Create directory `str`, creating parent directories as needed.
 /// `dir_type` is printed in error messages. Fails if the resulting directory
 /// is not writeable.
-pub fn ensure_dir(dir: &str, dir_type: &str, mode: Mode) {
-    unimplemented!()
+pub fn ensure_dir(dir: &OsStr, dir_type: &str, mode: Mode) {
+    let mut d = dir.as_bytes();
+    // @TODO Better than doing this manually is there a method that will clean the dir up?
+    // There might be other things that need to be done like removing repeated slashes (`/`) etc.
+    //
+    // Remove any trailing slashes
+    while d.len() > 0 && d[d.len() - 1] == b'/' {
+        d = &d[0..d.len() - 1];
+    }
+
+    let st: FileStat = match stat(d) {
+        Err(_) => {
+            if errno() != libc::ENOENT {
+                fatal!("Error accessing {} `{:?}'", dir_type, dir);
+            }
+
+            let last_slash = d.iter().enumerate().rfind(|c| *c.1 == b'/');
+            match last_slash {
+                Some(pos) if pos.0 > 0 => {
+                    ensure_dir(OsStr::from_bytes(&d[0..pos.0]), dir_type, mode);
+                }
+                _ => {
+                    fatal!("Can't find directory `{:?}'", dir);
+                }
+            }
+
+            // Allow for a race condition where someone else creates the directory
+            if mkdir(d, mode).is_err() && errno() != libc::EEXIST {
+                fatal!("Can't create {} `{:?}'", dir_type, dir);
+            }
+
+            match stat(d) {
+                Err(_) => {
+                    fatal!("Can't stat {} `{:?}'", dir_type, dir);
+                    unreachable!()
+                }
+                Ok(st) => st,
+            }
+        }
+        Ok(st) => st,
+    };
+
+    if !(S_IFDIR & st.st_mode == S_IFDIR) {
+        fatal!("`{:?}' exists but isn't a directory.", dir);
+    }
+    if access(d, AccessFlags::W_OK).is_err() {
+        fatal!("Can't write to {} `{:?}'", dir_type, dir);
+    }
 }
 
 /// Like pwrite64(2) but we try to write all bytes by looping on short writes.

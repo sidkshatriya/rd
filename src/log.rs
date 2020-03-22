@@ -3,6 +3,7 @@ use backtrace::Backtrace;
 use nix::errno::errno;
 use std::collections::HashMap;
 use std::env;
+use std::env::var_os;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::{self, Write};
@@ -40,14 +41,14 @@ struct LogGlobals {
 
 lazy_static! {
     static ref LOG_GLOBALS: Mutex<LogGlobals> = {
-        let maybe_filename = env::var("RD_LOG_FILE");
-        let maybe_append_filename = env::var("RD_APPEND_LOG_FILE");
+        let maybe_filename = var_os("RD_LOG_FILE");
+        let maybe_append_filename = var_os("RD_APPEND_LOG_FILE");
         // @TODO Ok to simply add Sync + Send?
         let mut f: Box<dyn Write + Sync + Send>;
         // @TODO what about atexit flush log file??
-        if let Ok(filename) = maybe_filename {
+        if let Some(filename) = maybe_filename {
             f = Box::new(File::create(filename).unwrap());
-        } else if let Ok(append_filename) = maybe_append_filename {
+        } else if let Some(append_filename) = maybe_append_filename {
             f = Box::new(OpenOptions::new().append(true).create(true).open(append_filename).unwrap());
         } else {
             f = Box::new(io::stderr());

@@ -150,7 +150,7 @@ fn retrieve_offset_arch<Arch: Architecture>(
         };
 
         let mut buf = String::new();
-        let mut maybe_offset: Option<u64> = None;
+        let maybe_offset: Option<u64> = None;
         while let Ok(nread) = f.read_line(&mut buf) {
             if nread == 0 {
                 break;
