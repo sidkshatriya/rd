@@ -54,7 +54,6 @@ use std::io::Write;
 use std::mem::{size_of, size_of_val, transmute_copy, zeroed};
 use std::ops::{Deref, DerefMut};
 use std::os::unix::ffi::OsStrExt;
-use std::os::unix::ffi::OsStringExt;
 use std::ptr::copy_nonoverlapping;
 use std::slice;
 use std::sync::atomic::{AtomicUsize, Ordering};

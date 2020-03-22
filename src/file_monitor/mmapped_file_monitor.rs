@@ -101,7 +101,7 @@ impl FileMonitor for MmappedFileMonitor {
                 // We're discovering a mapping we care about
                 if self.dead_ {
                     self.dead_ = false;
-                    realized_offset = offset.retrieve(true);
+                    realized_offset = offset.retrieve(true).unwrap();
                 }
 
                 // stat matches.

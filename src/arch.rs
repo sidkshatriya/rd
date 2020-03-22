@@ -524,6 +524,9 @@ pub trait Architecture {
     #[allow(non_camel_case_types)]
     type sockaddr_un: Copy + 'static;
 
+    #[allow(non_camel_case_types)]
+    type unsigned_word: Copy + 'static;
+
     fn to_signed_long(val: usize) -> Self::signed_long;
     fn get_k_sa_handler(k: &Self::kernel_sigaction) -> RemotePtr<Void>;
     fn get_sa_flags(k: &Self::kernel_sigaction) -> usize;
@@ -994,6 +997,7 @@ impl Architecture for X86Arch {
     type cmsghdr = x86::cmsghdr;
     type siginfo_t = x86::siginfo_t;
     type sockaddr_un = x86::sockaddr_un;
+    type unsigned_word = x86::unsigned_word;
 
     fn to_signed_long(val: usize) -> Self::signed_long {
         val.try_into().unwrap()
@@ -1503,6 +1507,7 @@ impl Architecture for X64Arch {
     type cmsghdr = x64::cmsghdr;
     type siginfo_t = x64::siginfo_t;
     type sockaddr_un = x64::sockaddr_un;
+    type unsigned_word = x64::unsigned_word;
 
     fn to_signed_long(val: usize) -> Self::signed_long {
         val as Self::signed_long

@@ -6,6 +6,9 @@ use crate::remote_ptr::{RemotePtr, Void};
 use crate::task::record_task::record_task::RecordTask;
 use crate::task::Task;
 use std::cell::RefCell;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
+use std::mem::size_of;
 use std::rc::{Rc, Weak};
 
 pub mod magic_save_data_monitor;
@@ -64,9 +67,9 @@ impl<'b, 'a: 'b> LazyOffset<'b, 'a> {
     pub fn new(t: &'a mut dyn Task, regs: &'b Registers, syscallno: i32) -> LazyOffset<'b, 'a> {
         LazyOffset { t, regs, syscallno }
     }
-    /// @TODO In rr this returns an i64. We return a u64. Would stuff break?
-    /// Retrieved offset can be negative under what circumstances?
-    pub fn retrieve(&mut self, needed_for_replay: bool) -> u64 {
+    /// @TODO In rr this returns an i64. We return a Option<u64>.
+    /// Need to be careful with the logic here
+    pub fn retrieve(&mut self, needed_for_replay: bool) -> Option<u64> {
         let is_replay = self.t.session().borrow().is_replaying();
         let is_implicit_offset = is_implict_offset_syscall(self.t.arch(), self.syscallno);
         ed_assert!(self.t, needed_for_replay || !is_replay);
@@ -80,21 +83,20 @@ impl<'b, 'a: 'b> LazyOffset<'b, 'a> {
                 .current_trace_frame()
                 .event()
                 .syscall()
-                .write_offset
-                .unwrap();
+                .write_offset;
         }
         // @TODO This is an i64 in rr
-        let offset: u64 = retrieve_offset(self.t, self.syscallno, self.regs);
+        let maybe_offset = retrieve_offset(self.t, self.syscallno, self.regs);
         if needed_for_replay && is_implicit_offset {
             self.t
                 .as_record_task_mut()
                 .unwrap()
                 .ev_mut()
                 .syscall_mut()
-                .write_offset = Some(offset);
+                .write_offset = maybe_offset;
         }
 
-        offset
+        maybe_offset
     }
 }
 
@@ -110,12 +112,83 @@ fn retrieve_offset_arch<Arch: Architecture>(
     t: &mut dyn Task,
     syscallno: i32,
     regs: &Registers,
-) -> u64 {
-    unimplemented!()
+) -> Option<u64> {
+    // @TODO This is tricky. off_t is signed. Different from how rr does this.
+    // But a negative offset for these system calls does not make sense...
+    if syscallno == Arch::PWRITE64
+        || syscallno == Arch::PWRITEV
+        || syscallno == Arch::PREAD64
+        || syscallno == Arch::PREADV
+    {
+        let offset = if size_of::<Arch::unsigned_word>() == 4 {
+            regs.arg4() as i64 | ((regs.arg5_signed() as i64) << 32)
+        } else {
+            regs.arg4_signed() as i64
+        };
+
+        if offset < 0 {
+            None
+        } else {
+            Some(offset as u64)
+        }
+    } else if syscallno == Arch::WRITEV || syscallno == Arch::WRITE {
+        ed_assert!(
+            t,
+            t.session().borrow().is_recording(),
+            "Can only read a file descriptor's offset while recording"
+        );
+        let fd: i32 = regs.arg1_signed() as i32;
+        // Get the offset from /proc/*/fdinfo/*
+        let fdinfo_path = format!("/proc/{}/fdinfo/{}", t.tid, fd);
+        let result = File::open(&fdinfo_path);
+        let mut f = match result {
+            Err(_) => {
+                fatal!("Failed to open {}", fdinfo_path);
+                unreachable!()
+            }
+            Ok(file) => BufReader::new(file),
+        };
+
+        let mut buf = String::new();
+        let mut maybe_offset: Option<u64> = None;
+        while let Ok(nread) = f.read_line(&mut buf) {
+            if nread == 0 {
+                break;
+            }
+
+            let s = buf.trim();
+            let maybe_loc = s.find("pos:\t");
+            if maybe_loc.is_none() {
+                continue;
+            }
+            // 5 is length of str "pos:\t"
+            let loc = maybe_loc.unwrap() + 5;
+            // @TODO This is a tricky. Are we sure that a negative offset won't appear in
+            // /proc/{}/fdinfo/{} ?
+            let maybe_offset: Option<u64> =
+                Some(s.parse::<u64>().expect("Unable to parse file offset"));
+        }
+
+        if maybe_offset.is_none() {
+            fatal!("Failed to read position");
+        }
+
+        let offset = maybe_offset.unwrap();
+        // The pos we just read, was after the write completed. Luckily, we do
+        // know how many bytes were written.
+        // @TODO This is slightly different from the rr approach.
+        if offset < regs.syscall_result() as u64 {
+            None
+        } else {
+            Some(offset - regs.syscall_result() as u64)
+        }
+    } else {
+        ed_assert!(t, false, "Cannot retrieve offset for this system call");
+        None
+    }
 }
 
-/// @TODO This returns i64 in rr
-fn retrieve_offset(t: &mut dyn Task, syscallno: i32, regs: &Registers) -> u64 {
+fn retrieve_offset(t: &mut dyn Task, syscallno: i32, regs: &Registers) -> Option<u64> {
     let arch = t.arch();
     rd_arch_function_selfless!(retrieve_offset_arch, arch, t, syscallno, regs)
 }

@@ -37,7 +37,7 @@ impl FileMonitor for ProcMemMonitor {
             None => return,
             Some(target) => {
                 let record_task = target.as_record_task().unwrap();
-                let mut offset = lazy_offset.retrieve(false);
+                let mut offset = lazy_offset.retrieve(false).unwrap();
                 for r in ranges {
                     record_task.record_remote(
                         RemotePtr::new_from_val(offset.try_into().unwrap()),
