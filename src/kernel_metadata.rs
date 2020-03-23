@@ -251,7 +251,7 @@ pub fn errno_name(err: i32) -> String {
     }
 }
 
-fn is_sigreturn(syscallno: i32, arch: SupportedArch) -> bool {
+pub fn is_sigreturn(syscallno: i32, arch: SupportedArch) -> bool {
     kernel_abi::is_sigreturn_syscall(syscallno, arch)
         || kernel_abi::is_rt_sigreturn_syscall(syscallno, arch)
 }

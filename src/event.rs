@@ -1,11 +1,14 @@
+use crate::event::EventType::{EvDesched, EvSyscall, EvSyscallInterruption, EvSyscallbufFlush};
 use crate::kernel_abi::common::preload_interface::{mprotect_record, syscallbuf_record};
+use crate::kernel_abi::is_execve_syscall;
 use crate::kernel_abi::SupportedArch;
+use crate::kernel_metadata::is_sigreturn;
+use crate::kernel_metadata::syscall_name;
 use crate::registers::Registers;
 use crate::remote_ptr::RemotePtr;
 use libc::{dev_t, ino_t, siginfo_t};
 use std::ffi::OsString;
 use std::fmt::{Display, Formatter, Result};
-use crate::event::EventType::{EvDesched, EvSyscallbufFlush, EvSyscall, EvSyscallInterruption};
 
 /// During recording, sometimes we need to ensure that an iteration of
 /// RecordSession::record_step schedules the same task as in the previous
@@ -125,6 +128,20 @@ pub struct SignalEvent {
     pub disposition: SignalResolvedDisposition,
 }
 
+impl SignalEvent {
+    pub fn new(
+        siginfo: &siginfo_t,
+        deterministic: SignalDeterministic,
+        disposition: SignalResolvedDisposition,
+    ) -> SignalEvent {
+        SignalEvent {
+            siginfo: siginfo.clone(),
+            deterministic,
+            disposition,
+        }
+    }
+}
+
 /// Syscall events track syscalls through entry into the kernel,
 /// processing in the kernel, and exit from the kernel.
 ///
@@ -187,7 +204,8 @@ pub struct SyscallEvent {
     pub regs: Registers,
     /// If this is a descheduled buffered syscall, points at the
     /// record for that syscall.
-    pub desched_rec: RemotePtr<syscallbuf_record>,
+    /// @TODO this is slightly different from rr where nullptr is used to indicate no value
+    pub desched_rec: Option<RemotePtr<syscallbuf_record>>,
 
     /// Extra data for specific syscalls. Only used for exit events currently.
     /// This is a int64_t with -1 to indicate no offset in rr.
@@ -209,6 +227,37 @@ pub struct SyscallEvent {
     pub failed_during_preparation: bool,
     /// Syscall is being emulated via PTRACE_SYSEMU.
     pub in_sysemu: bool,
+}
+
+impl SyscallEvent {
+    pub fn new(syscallno: i32, arch: SupportedArch) -> SyscallEvent {
+        SyscallEvent {
+            arch_: arch,
+            regs: Default::default(),
+            desched_rec: None,
+            write_offset: None,
+            state: SyscallState::NoSyscall,
+            number: syscallno,
+            switchable: Switchable::PreventSwitch,
+            exec_fds_to_close: vec![],
+            is_restart: false,
+            failed_during_preparation: false,
+            in_sysemu: false,
+            opened: vec![],
+        }
+    }
+
+    pub fn syscall_name(&self) -> String {
+        syscall_name(self.number, self.arch())
+    }
+
+    pub fn arch(&self) -> SupportedArch {
+        self.arch_
+    }
+    /// Change the architecture for this event.
+    pub fn set_arch(&mut self, a: SupportedArch) {
+        self.arch_ = a;
+    }
 }
 
 #[derive(Clone)]
@@ -257,48 +306,55 @@ impl Event {
     pub fn new() -> Event {
         Event {
             event_type: EventType::EvUnassigned,
-            event_extra_data: Default::default()
+            event_extra_data: Default::default(),
         }
     }
 
     pub fn new_desched_event(ev: DeschedEvent) -> Event {
         Event {
             event_type: EvDesched,
-            event_extra_data: EventExtraData::DeschedEvent(ev)
+            event_extra_data: EventExtraData::DeschedEvent(ev),
         }
     }
 
     pub fn new_signal_event(type_: EventType, ev: SignalEvent) -> Event {
         Event {
             event_type: type_,
-            event_extra_data: EventExtraData::SignalEvent(ev)
+            event_extra_data: EventExtraData::SignalEvent(ev),
         }
     }
 
     pub fn new_syscallbuf_flush_event(ev: SyscallbufFlushEvent) -> Event {
         Event {
             event_type: EvSyscallbufFlush,
-            event_extra_data: EventExtraData::SyscallbufFlushEvent(ev)
+            event_extra_data: EventExtraData::SyscallbufFlushEvent(ev),
         }
     }
 
     pub fn new_syscall_event(ev: SyscallEvent) -> Event {
         Event {
             event_type: EvSyscall,
-            event_extra_data: EventExtraData::SyscallEvent(ev)
+            event_extra_data: EventExtraData::SyscallEvent(ev),
         }
     }
 
     pub fn new_syscall_interruption_event(ev: SyscallEvent) -> Event {
         Event {
             event_type: EvSyscallInterruption,
-            event_extra_data: EventExtraData::SyscallEvent(ev)
+            event_extra_data: EventExtraData::SyscallEvent(ev),
         }
     }
 
     pub fn is_syscall_event(&self) -> bool {
         match self.event_type {
             EventType::EvSyscall | EventType::EvSyscallInterruption => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_signal_event(&self) -> bool {
+        match self.event_type {
+            EventType::EvSignal | EventType::EvSignalHandler | EventType::EvSignalDelivery => true,
             _ => false,
         }
     }
@@ -312,6 +368,35 @@ impl Event {
             | EventType::EvSignal
             | EventType::EvSignalDelivery
             | EventType::EvSignalHandler => true,
+            _ => false,
+        }
+    }
+
+    pub fn record_extra_regs(&self) -> bool {
+        match self.event_type {
+            EventType::EvSyscall => {
+                let sys_ev = self.syscall();
+                // sigreturn/rt_sigreturn restores register state
+                sys_ev.state == SyscallState::ExitingSyscall
+                    && (is_sigreturn(sys_ev.number, sys_ev.arch())
+                        || is_execve_syscall(sys_ev.number, sys_ev.arch()))
+            }
+            EventType::EvSignalHandler => {
+                // entering a signal handler seems to clear FP/SSE regs,
+                // so record these effects.
+                true
+            }
+            _ => false,
+        }
+    }
+
+    pub fn has_ticks_slop(&self) -> bool {
+        match self.event_type {
+            EventType::EvSyscallbufAbortCommit
+            | EventType::EvSyscallbufFlush
+            | EventType::EvSyscallbufReset
+            | EventType::EvDesched
+            | EventType::EvGrowMap => true,
             _ => false,
         }
     }
@@ -332,5 +417,59 @@ impl Event {
 
     pub fn event_type(&self) -> EventType {
         self.event_type
+    }
+
+    pub fn desched_event(&self) -> &DeschedEvent {
+        match &self.event_extra_data {
+            EventExtraData::DeschedEvent(ev) => ev,
+            _ => panic!("Not a desched event"),
+        }
+    }
+
+    pub fn desched_event_mut(&mut self) -> &mut DeschedEvent {
+        match &mut self.event_extra_data {
+            EventExtraData::DeschedEvent(ev) => ev,
+            _ => panic!("Not a desched event"),
+        }
+    }
+
+    pub fn syscallbuf_flush_event(&self) -> &SyscallbufFlushEvent {
+        match &self.event_extra_data {
+            EventExtraData::SyscallbufFlushEvent(ev) => ev,
+            _ => panic!("Not a syscallbuf flush event"),
+        }
+    }
+
+    pub fn syscallbuf_flush_event_mut(&mut self) -> &mut SyscallbufFlushEvent {
+        match &mut self.event_extra_data {
+            EventExtraData::SyscallbufFlushEvent(ev) => ev,
+            _ => panic!("Not a syscallbuf flush event"),
+        }
+    }
+    pub fn signal_event(&self) -> &SignalEvent {
+        match &self.event_extra_data {
+            EventExtraData::SignalEvent(ev) => ev,
+            _ => panic!("Not a signal event"),
+        }
+    }
+
+    pub fn signal_event_mut(&mut self) -> &mut SignalEvent {
+        match &mut self.event_extra_data {
+            EventExtraData::SignalEvent(ev) => ev,
+            _ => panic!("Not a signal event"),
+        }
+    }
+    pub fn syscall_event(&self) -> &SyscallEvent {
+        match &self.event_extra_data {
+            EventExtraData::SyscallEvent(ev) => ev,
+            _ => panic!("Not a syscall event"),
+        }
+    }
+
+    pub fn syscall_event_mut(&mut self) -> &mut SyscallEvent {
+        match &mut self.event_extra_data {
+            EventExtraData::SyscallEvent(ev) => ev,
+            _ => panic!("Not a syscall event"),
+        }
     }
 }
