@@ -566,6 +566,9 @@ pub mod x64 {
 
         assert_eq_size!(kernel::sg_io_hdr, sg_io_hdr);
         assert_eq_align!(kernel::sg_io_hdr, sg_io_hdr);
+
+        assert_eq_size!(kernel::epoll_event, epoll_event);
+        assert_eq_align!(kernel::epoll_event, epoll_event);
     }
 }
 
@@ -952,5 +955,8 @@ pub mod x86 {
 
         assert_eq_size!(kernel::sg_io_hdr, sg_io_hdr);
         assert_eq_align!(kernel::sg_io_hdr, sg_io_hdr);
+
+        assert_eq_size!(kernel::epoll_event, epoll_event);
+        assert_eq_align!(kernel::epoll_event, epoll_event);
     }
 }

@@ -125,7 +125,35 @@ pub struct mmsghdr {
 }
 //RR_VERIFY_TYPE(mmsghdr);
 
-// @TODO struct epoll_event
+#[repr(C)]
+pub union epoll_data {
+    pub ptr_: ptr<u8>,
+    pub fd: i32,
+    pub data_u32: u32,
+    pub data_u64: u64,
+}
+
+/// @TODO The align check does not seem to work in x86.
+#[repr(C)]
+#[cfg(target_arch = "x86")]
+pub struct epoll_event {
+    pub events: u32,
+    pub data: epoll_data,
+}
+
+/// x86-64 is the only architecture to pack this structure, and it does
+/// so to make the x86 and x86-64 definitions identical.  So even if
+/// we're compiling on an x86-64 host that will support recording
+/// 32-bit and 64-bit programs, this is the correct way to declare
+/// epoll_event for both kinds of recordees.
+/// See <linux/eventpoll.h>.
+#[repr(C, packed)]
+#[cfg(target_arch = "x86_64")]
+pub struct epoll_event {
+    pub events: u32,
+    pub data: epoll_data,
+}
+//RR_VERIFY_TYPE(epoll_event);
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
