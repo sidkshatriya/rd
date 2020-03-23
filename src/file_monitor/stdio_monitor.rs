@@ -11,6 +11,16 @@ pub struct StdioMonitor {
     original_fd: i32,
 }
 
+impl StdioMonitor {
+    /// Create a StdioMonitor that monitors writes to rr's original_fd
+    /// (STDOUT_FILENO or STDERR_FILENO).
+    /// Note that it's possible for a tracee to have a StdioMonitor associated
+    /// with a different fd, thanks to dup() etc.
+    pub fn new(original_fd: i32) -> StdioMonitor {
+        StdioMonitor { original_fd }
+    }
+}
+
 impl FileMonitor for StdioMonitor {
     fn file_monitor_type(&self) -> FileMonitorType {
         FileMonitorType::Stdio
