@@ -5,6 +5,7 @@ use crate::remote_ptr::RemotePtr;
 use libc::{dev_t, ino_t, siginfo_t};
 use std::ffi::OsString;
 use std::fmt::{Display, Formatter, Result};
+use crate::event::EventType::{EvDesched, EvSyscallbufFlush, EvSyscall, EvSyscallInterruption};
 
 /// During recording, sometimes we need to ensure that an iteration of
 /// RecordSession::record_step schedules the same task as in the previous
@@ -210,12 +211,6 @@ pub struct SyscallEvent {
     pub in_sysemu: bool,
 }
 
-// @TODO
-struct SyscallInterruption;
-
-// @TODO
-// interrupted
-
 #[derive(Clone)]
 pub enum EventExtraData {
     NoExtraData,
@@ -258,6 +253,49 @@ impl Display for Event {
 }
 
 impl Event {
+    /// @TODO is this event needed? EvUnassigned does not seem to be used anywhere
+    pub fn new() -> Event {
+        Event {
+            event_type: EventType::EvUnassigned,
+            event_extra_data: Default::default()
+        }
+    }
+
+    pub fn new_desched_event(ev: DeschedEvent) -> Event {
+        Event {
+            event_type: EvDesched,
+            event_extra_data: EventExtraData::DeschedEvent(ev)
+        }
+    }
+
+    pub fn new_signal_event(type_: EventType, ev: SignalEvent) -> Event {
+        Event {
+            event_type: type_,
+            event_extra_data: EventExtraData::SignalEvent(ev)
+        }
+    }
+
+    pub fn new_syscallbuf_flush_event(ev: SyscallbufFlushEvent) -> Event {
+        Event {
+            event_type: EvSyscallbufFlush,
+            event_extra_data: EventExtraData::SyscallbufFlushEvent(ev)
+        }
+    }
+
+    pub fn new_syscall_event(ev: SyscallEvent) -> Event {
+        Event {
+            event_type: EvSyscall,
+            event_extra_data: EventExtraData::SyscallEvent(ev)
+        }
+    }
+
+    pub fn new_syscall_interruption_event(ev: SyscallEvent) -> Event {
+        Event {
+            event_type: EvSyscallInterruption,
+            event_extra_data: EventExtraData::SyscallEvent(ev)
+        }
+    }
+
     pub fn is_syscall_event(&self) -> bool {
         match self.event_type {
             EventType::EvSyscall | EventType::EvSyscallInterruption => true,
