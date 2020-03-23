@@ -1,13 +1,19 @@
-use crate::event::EventType::{EvDesched, EvSyscall, EvSyscallInterruption, EvSyscallbufFlush};
+use crate::event::EventType::{
+    EvDesched, EvExit, EvGrowMap, EvInstructionTrap, EvNoop, EvPatchSyscall, EvSched,
+    EvSeccompTrap, EvSentinel, EvSyscall, EvSyscallInterruption, EvSyscallbufAbortCommit,
+    EvSyscallbufFlush, EvSyscallbufReset, EvTraceTermination,
+};
 use crate::kernel_abi::common::preload_interface::{mprotect_record, syscallbuf_record};
 use crate::kernel_abi::is_execve_syscall;
 use crate::kernel_abi::SupportedArch;
-use crate::kernel_metadata::is_sigreturn;
 use crate::kernel_metadata::syscall_name;
+use crate::kernel_metadata::{is_sigreturn, signal_name};
+use crate::log::LogLevel::LogInfo;
 use crate::registers::Registers;
 use crate::remote_ptr::RemotePtr;
 use libc::{dev_t, ino_t, siginfo_t};
 use std::ffi::OsString;
+use std::fmt::Write;
 use std::fmt::{Display, Formatter, Result};
 
 /// During recording, sometimes we need to ensure that an iteration of
@@ -39,9 +45,10 @@ pub enum Switchable {
 /// and possibly ensure they are same as in rr.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum EventType {
+    // @TODO EvUnassigned could potentially be removed
     EvUnassigned,
     EvSentinel,
-    /// TODO: this is actually a pseudo-pseudosignal: it will never
+    /// NOTE/TODO: this is actually a pseudo-pseudosignal: it will never
     /// appear in a trace, but is only used to communicate between
     /// different parts of the recorder code that should be
     /// refactored to not have to do that.
@@ -74,14 +81,12 @@ pub enum EventType {
     /// Map memory pages due to a (future) memory access. This is associated
     /// with a mmap entry for the new pages.
     EvGrowMap,
-    /// Use .signal.
+    /// Use .signal_event.
     EvSignal,
     EvSignalDelivery,
     EvSignalHandler,
-    /// Use .syscall.
+    /// Use .syscall_event.
     EvSyscall,
-
-    EvLast,
 }
 
 /// Desched events track the fact that a tracee's desched-event
@@ -297,7 +302,7 @@ impl Default for Event {
 }
 impl Display for Event {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        unimplemented!()
+        write!(f, "{}", self.str())
     }
 }
 
@@ -401,10 +406,121 @@ impl Event {
         }
     }
 
+    /// Dump info about this to INFO log.
+    ///
+    /// Note: usually you want to use |LOG(info) << event;|.
+    pub fn log(&self) {
+        log!(LogInfo, "{}", self);
+    }
+
+    pub fn str(&self) -> String {
+        // @TODO The string representation of event type is a custom method type_name() in rr
+        // We use the debug representation for now. The subtle different apart from formatting is
+        // that EvSentinel would be printed as "(none)" in rr.
+        let mut ss = format!("{:?}", self.event_type());
+        match self.event_type {
+            EventType::EvSignal | EventType::EvSignalDelivery | EventType::EvSignalHandler => {
+                let deterministic =
+                    if self.signal_event().deterministic == SignalDeterministic::DeterministicSig {
+                        "det"
+                    } else {
+                        "async"
+                    };
+
+                write!(
+                    ss,
+                    ": {} ({})",
+                    signal_name(self.signal_event().siginfo.si_signo),
+                    deterministic
+                )
+                .unwrap_or(());
+            }
+            EventType::EvSyscall | EventType::EvSyscallInterruption => {
+                write!(
+                    ss,
+                    ": {}",
+                    syscall_name(
+                        self.syscall_event().number,
+                        self.syscall_event().regs.arch()
+                    )
+                )
+                .unwrap_or(());
+            }
+            _ => {
+                // No auxiliary information.
+            }
+        }
+        ss
+    }
+
+    /// Dynamically change the type of this.  Only a small number
+    /// of type changes are allowed.
+    pub fn transform(&mut self, new_type: EventType) {
+        match self.event_type {
+            EventType::EvSignal => {
+                debug_assert_eq!(EventType::EvSignalDelivery, new_type);
+            }
+            EventType::EvSignalDelivery => {
+                debug_assert_eq!(EventType::EvSignalHandler, new_type);
+            }
+            EventType::EvSyscall => {
+                debug_assert_eq!(EventType::EvSyscallInterruption, new_type);
+            }
+            EventType::EvSyscallInterruption => {
+                debug_assert_eq!(EventType::EvSyscall, new_type);
+            }
+            _ => fatal!("Can't transform immutable {} into {:?}", self, new_type),
+        }
+
+        self.event_type = new_type;
+    }
+
+    pub fn noop() -> Event {
+        Event::new_event(EvNoop)
+    }
+    pub fn trace_termination() -> Event {
+        Event::new_event(EvTraceTermination)
+    }
+    pub fn instruction_trap() -> Event {
+        Event::new_event(EvInstructionTrap)
+    }
+    pub fn patch_syscall() -> Event {
+        Event::new_event(EvPatchSyscall)
+    }
+    pub fn sched() -> Event {
+        Event::new_event(EvSched)
+    }
+    pub fn seccomp_trap() -> Event {
+        Event::new_event(EvSeccompTrap)
+    }
+    pub fn syscallbuf_abort_commit() -> Event {
+        Event::new_event(EvSyscallbufAbortCommit)
+    }
+    pub fn syscallbuf_reset() -> Event {
+        Event::new_event(EvSyscallbufReset)
+    }
+    pub fn grow_map() -> Event {
+        Event::new_event(EvGrowMap)
+    }
+    pub fn exit() -> Event {
+        Event::new_event(EvExit)
+    }
+    pub fn sentinel() -> Event {
+        Event::new_event(EvSentinel)
+    }
+
     pub fn syscall(&self) -> &SyscallEvent {
         match &self.event_extra_data {
             EventExtraData::SyscallEvent(s) => s,
             _ => panic!("Not a SyscallEvent"),
+        }
+    }
+
+    /// Note that this is NOT pub
+    fn new_event(event_type: EventType) -> Event {
+        Event {
+            event_type,
+            event_extra_data: EventExtraData::NoExtraData,
         }
     }
 
