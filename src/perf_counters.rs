@@ -21,10 +21,11 @@ use nix::poll::{poll, PollFd, PollFlags};
 use nix::unistd::Pid;
 use raw_cpuid::CpuId;
 use std::convert::TryInto;
+use std::ffi::c_void;
 use std::io::stderr;
 use std::io::Write;
-use std::mem::size_of_val;
 use std::mem::zeroed;
+use std::mem::{size_of, size_of_val};
 use std::os::unix::io::RawFd;
 
 lazy_static! {
@@ -200,8 +201,9 @@ fn check_for_bugs_and_extra() -> PmuBugsAndExtra {
     let has_kvm_in_txcp_bug;
     let only_one_counter;
 
-    if PMU_ATTRIBUTES.pmu_flags & PmuFlags::PMU_SKIP_INTEL_BUG_CHECK
-        == PmuFlags::PMU_SKIP_INTEL_BUG_CHECK
+    if PMU_ATTRIBUTES
+        .pmu_flags
+        .contains(PmuFlags::PMU_SKIP_INTEL_BUG_CHECK)
     {
         // Set some defaults since we're not checking the CPU.
         has_ioc_period_bug = false;
@@ -317,8 +319,8 @@ fn get_init_attributes() -> PmuAttributes {
     }
 
     let pmu = maybe_pmu.unwrap();
-    if !((pmu.flags & PmuFlags::PMU_TICKS_RCB == PmuFlags::PMU_TICKS_RCB)
-        || (pmu.flags & PmuFlags::PMU_TICKS_TAKEN_BRANCHES == PmuFlags::PMU_TICKS_TAKEN_BRANCHES))
+    if !(pmu.flags.contains(PmuFlags::PMU_TICKS_RCB)
+        || pmu.flags.contains(PmuFlags::PMU_TICKS_TAKEN_BRANCHES))
     {
         fatal!("Microarchitecture `{}' currently unsupported.", pmu.name);
     }
@@ -535,14 +537,15 @@ fn always_recreate_counters() -> bool {
 fn read_counter(fd: &ScopedFd) -> u64 {
     let mut val: u64 = 0;
     // @TODO what about checking for errno?
+    // (The debug_assert_eq!() does provide some error checking below though)
     let nread = unsafe {
         libc::read(
             fd.as_raw(),
-            &mut val as *mut u64 as *mut libc::c_void,
-            std::mem::size_of::<u64>(),
+            &mut val as *mut u64 as *mut c_void,
+            size_of::<u64>(),
         )
     };
-    debug_assert!(nread == size_of_val(&val).try_into().unwrap());
+    debug_assert_eq!(nread, size_of::<u64>() as isize);
     val
 }
 
@@ -927,8 +930,9 @@ impl PerfCounters {
 
     /// Return the number of ticks we need for an emulated branch.
     pub fn ticks_for_unconditional_indirect_branch(_task: &TaskInner) -> Ticks {
-        if PMU_ATTRIBUTES.pmu_flags & PmuFlags::PMU_TICKS_TAKEN_BRANCHES
-            == PmuFlags::PMU_TICKS_TAKEN_BRANCHES
+        if PMU_ATTRIBUTES
+            .pmu_flags
+            .contains(PmuFlags::PMU_TICKS_TAKEN_BRANCHES)
         {
             1
         } else {
@@ -938,8 +942,9 @@ impl PerfCounters {
 
     /// Return the number of ticks we need for a direct call.
     pub fn ticks_for_direct_call(_task: &TaskInner) -> Ticks {
-        if PMU_ATTRIBUTES.pmu_flags & PmuFlags::PMU_TICKS_TAKEN_BRANCHES
-            == PmuFlags::PMU_TICKS_TAKEN_BRANCHES
+        if PMU_ATTRIBUTES
+            .pmu_flags
+            .contains(PmuFlags::PMU_TICKS_TAKEN_BRANCHES)
         {
             1
         } else {
