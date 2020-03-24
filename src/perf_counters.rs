@@ -20,12 +20,11 @@ use nix::errno::errno;
 use nix::poll::{poll, PollFd, PollFlags};
 use nix::unistd::Pid;
 use raw_cpuid::CpuId;
-use std::convert::TryInto;
 use std::ffi::c_void;
 use std::io::stderr;
 use std::io::Write;
+use std::mem::size_of;
 use std::mem::zeroed;
-use std::mem::{size_of, size_of_val};
 use std::os::unix::io::RawFd;
 
 lazy_static! {
@@ -183,7 +182,7 @@ fn get_cpu_microarch() -> CpuMicroarch {
         clean_fatal!("Intel CPU type {:#x} unknown", cpu_type);
     }
 
-    UnknownCpu // not reached
+    unreachable!()
 }
 
 struct PmuBugsAndExtra {
@@ -1053,26 +1052,26 @@ impl PerfCounters {
     pub fn supports_ticks_semantics(ticks_semantics: TicksSemantics) -> bool {
         match ticks_semantics {
             TicksRetiredConditionalBranches => {
-                (PMU_ATTRIBUTES.pmu_flags & PmuFlags::PMU_TICKS_RCB) == PmuFlags::PMU_TICKS_RCB
+                PMU_ATTRIBUTES.pmu_flags.contains(PmuFlags::PMU_TICKS_RCB)
             }
-            TicksTakenBranches => {
-                (PMU_ATTRIBUTES.pmu_flags & PmuFlags::PMU_TICKS_TAKEN_BRANCHES)
-                    == PmuFlags::PMU_TICKS_TAKEN_BRANCHES
-            }
+            TicksTakenBranches => PMU_ATTRIBUTES
+                .pmu_flags
+                .contains(PmuFlags::PMU_TICKS_TAKEN_BRANCHES),
         }
     }
 
     pub fn default_ticks_semantics() -> TicksSemantics {
-        if PMU_ATTRIBUTES.pmu_flags & PmuFlags::PMU_TICKS_TAKEN_BRANCHES
-            == PmuFlags::PMU_TICKS_TAKEN_BRANCHES
+        if PMU_ATTRIBUTES
+            .pmu_flags
+            .contains(PmuFlags::PMU_TICKS_TAKEN_BRANCHES)
         {
             return TicksTakenBranches;
         }
-        if PMU_ATTRIBUTES.pmu_flags & PmuFlags::PMU_TICKS_RCB == PmuFlags::PMU_TICKS_RCB {
+        if PMU_ATTRIBUTES.pmu_flags.contains(PmuFlags::PMU_TICKS_RCB) {
             return TicksRetiredConditionalBranches;
         }
         fatal!("Unsupported architecture");
-        return TicksTakenBranches;
+        unreachable!()
     }
 
     /// When an interrupt is requested, at most this many ticks may elapse before
