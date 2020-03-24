@@ -39,30 +39,43 @@ struct LogGlobals {
     default_level: LogLevel,
 }
 
+/// @TODO Will this work in all situations?
+/// Is this what we want?
+extern "C" fn flush_log_buffer() {
+    let mut maybe_log_lock = LOG_GLOBALS.lock();
+    match &mut maybe_log_lock {
+        Ok(lock) => {
+            lock.log_file.flush();
+        }
+        // @TODO Do we want to perhaps panic here?
+        // Exit quietly for now
+        Err(_) => (),
+    };
+}
+
 lazy_static! {
     static ref LOG_GLOBALS: Mutex<LogGlobals> = {
         let maybe_filename = var_os("RD_LOG_FILE");
         let maybe_append_filename = var_os("RD_APPEND_LOG_FILE");
         // @TODO Ok to simply add Sync + Send?
         let mut f: Box<dyn Write + Sync + Send>;
-        // @TODO what about atexit flush log file??
         if let Some(filename) = maybe_filename {
-            f = Box::new(File::create(filename).unwrap());
+            f = Box::new(File::create(&filename).expect(&format!("Error. Could not create filename `{:?}' specified in environment variable RD_LOG_FILE", filename)));
         } else if let Some(append_filename) = maybe_append_filename {
-            f = Box::new(OpenOptions::new().append(true).create(true).open(append_filename).unwrap());
+            f = Box::new(OpenOptions::new().append(true).create(true).open(&append_filename).expect(&format!("Error. Could not append to filename `{:?}' specified in env variable RD_APPEND_LOG_FILE", append_filename)));
         } else {
             f = Box::new(io::stderr());
         }
 
         let maybe_buf_size = env::var("RD_LOG_BUFFER");
         if let Ok(buf_size) = maybe_buf_size {
-            // @TODO. Will panic -- nicer way for error?
-            let log_buffer_size = buf_size.parse::<usize>().unwrap();
-            // @TODO what about atexit flush f buffer?
+            let log_buffer_size = buf_size.parse::<usize>().expect(&format!("Error. Could not parse `{:?}' in environment var `RD_LOG_BUFFER' as a number", buf_size));
             f = Box::new(BufWriter::with_capacity(log_buffer_size, f));
         }
 
-        // @TODO. Incomplete.
+        let ret = unsafe {
+            libc::atexit(flush_log_buffer);
+        };
 
         Mutex::new(LogGlobals {
             level_map: HashMap::new(),
@@ -168,16 +181,21 @@ impl Drop for NewLineTerminatingOstream {
     fn drop(&mut self) {
         if self.enabled {
             self.write(b"\n").unwrap();
-            self.flush().unwrap();
+            // This flushes self.message *to* the log file
+            // (which could be stderr or a log file or a buffered writer that wraps stderr
+            //  or a buffered writer that wraps some log file).
+            // BUT, It does NOT flush the log file itself.
+            self.flush();
         }
     }
 }
 
 impl Write for NewLineTerminatingOstream {
+    /// Write the text stored in the `message` member to the log file.
     fn flush(&mut self) -> Result<()> {
         if self.message.len() > 0 && self.enabled {
             self.lock.log_file.write_all(&self.message)?;
-            self.lock.log_file.flush()?;
+            // We DONT flush the log file. This is handled automatically.
         }
         self.message.clear();
         Ok(())
@@ -188,7 +206,8 @@ impl Write for NewLineTerminatingOstream {
             self.message.extend_from_slice(buf);
         }
 
-        // Need to pretend these were written. Otherwise we get a `Err` value
+        // Need to pretend these were written even if buffer was not enabled.
+        // Otherwise we get a `Err` value
         // Custom { kind: WriteZero, error: "failed to write whole buffer" }
         Ok(buf.len())
     }

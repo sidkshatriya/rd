@@ -11,7 +11,7 @@ extern crate raw_cpuid;
 #[macro_use]
 extern crate static_assertions;
 
-use crate::address_space::kernel_map_iterator::KernelMapIterator;
+use crate::log::LogLevel::LogInfo;
 
 #[macro_use]
 mod log;
@@ -58,6 +58,5 @@ mod util;
 mod wait_status;
 
 fn main() {
-    println!("Hello, world!");
-    KernelMapIterator::test_output();
+    log!(LogInfo, "Hello, world!");
 }
