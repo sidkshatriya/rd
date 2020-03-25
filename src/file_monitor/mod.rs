@@ -225,7 +225,7 @@ pub trait FileMonitor {
     /// Return true if the ioctl should be fully emulated. If so the result
     /// is stored in the last parameter.
     /// Only called during recording.
-    fn emulate_ioctl(&self, t: &RecordTask, r: &mut u64) -> bool {
+    fn emulate_ioctl(&mut self, t: &RecordTask, r: &mut u64) -> bool {
         false
     }
 

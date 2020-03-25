@@ -27,7 +27,7 @@ pub const SYSCALLBUF_ENABLED_ENV_VAR: &'static str = "_RR_USE_SYSCALLBUF";
 /// Size of table mapping fd numbers to syscallbuf-disabled flag.
 /// Most Linux kernels limit fds to 1024 so it probably doesn't make sense
 /// to raise this value...
-pub const SYSCALLBUF_FDS_DISABLED_SIZE: u32 = 1024;
+pub const SYSCALLBUF_FDS_DISABLED_SIZE: i32 = 1024;
 
 pub const MPROTECT_RECORD_COUNT: u32 = 1000;
 

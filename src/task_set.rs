@@ -1,6 +1,6 @@
 use crate::task::*;
 use std::collections::HashSet;
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 
 #[derive(Clone)]
 pub struct TaskSet(HashSet<TaskPtr>);
@@ -28,5 +28,11 @@ impl Deref for TaskSet {
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl DerefMut for TaskSet {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }

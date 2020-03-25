@@ -178,7 +178,8 @@ pub mod task_inner {
         pub stopping_breakpoint_table: RemoteCodePtr,
         pub stopping_breakpoint_table_entry_size: i32,
 
-        pub preload_globals: RemotePtr<preload_globals>,
+        /// In rr null is used to denote no preload globals
+        pub preload_globals: Option<RemotePtr<preload_globals>>,
         pub thread_locals: ThreadLocals,
 
         /// These are private

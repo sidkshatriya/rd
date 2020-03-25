@@ -1,8 +1,13 @@
+use crate::event::Switchable;
 use crate::kernel_abi::SupportedArch;
+use crate::scheduler::Scheduler;
+use crate::seccomp_filter_rewriter::SeccompFilterRewriter;
 use crate::session::session_inner::session_inner::SessionInner;
 use crate::session::Session;
 use crate::task::Task;
+use crate::thread_group::ThreadGroupSharedPtr;
 use crate::trace::trace_stream::TraceStream;
+use crate::trace::trace_writer::TraceWriter;
 use std::ops::{Deref, DerefMut};
 
 #[derive(Clone, Eq, PartialEq)]
@@ -28,6 +33,29 @@ pub struct TraceUuid {
 
 pub struct RecordSession {
     session_inner: SessionInner,
+    trace_out: TraceWriter,
+    scheduler_: Scheduler,
+    initial_thread_group: ThreadGroupSharedPtr,
+    seccomp_filter_rewriter_: SeccompFilterRewriter,
+    // @TODO This is a pointer in rr
+    trace_id: TraceUuid,
+    disable_cpuid_features_: DisableCPUIDFeatures,
+    ignore_sig: i32,
+    continue_through_sig: i32,
+    last_task_switchable: Switchable,
+    syscall_buffer_size_: usize,
+    syscallbuf_desched_sig_: u8,
+    use_syscall_buffer_: bool,
+
+    use_file_cloning_: bool,
+    use_read_cloning_: bool,
+    /// When true, try to increase the probability of finding bugs.
+    enable_chaos_: bool,
+    asan_active_: bool,
+    /// When true, wait for all tracees to exit before finishing recording.
+    wait_for_all_: bool,
+
+    output_trace_dir: String,
 }
 
 impl RecordSession {
