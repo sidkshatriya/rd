@@ -45,7 +45,7 @@ extern "C" fn flush_log_buffer() {
     let mut maybe_log_lock = LOG_GLOBALS.lock();
     match &mut maybe_log_lock {
         Ok(lock) => {
-            lock.log_file.flush();
+            lock.log_file.flush().unwrap_or(());
         }
         // @TODO Do we want to perhaps panic here?
         // Exit quietly for now
@@ -185,7 +185,7 @@ impl Drop for NewLineTerminatingOstream {
             // (which could be stderr or a log file or a buffered writer that wraps stderr
             //  or a buffered writer that wraps some log file).
             // BUT, It does NOT flush the log file itself.
-            self.flush();
+            self.flush().unwrap_or(());
         }
     }
 }

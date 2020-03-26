@@ -97,7 +97,7 @@ impl FdTable {
         }
     }
     /// @TODO Do we want offset to be a move?
-    pub fn did_write(&self, t: &dyn Task, fd: i32, ranges: Vec<Range>, offset: &mut LazyOffset) {
+    pub fn did_write(&self, fd: i32, ranges: Vec<Range>, offset: &mut LazyOffset) {
         match self.fds.get(&fd) {
             Some(f) => f.borrow_mut().did_write(&ranges, offset),
             None => (),
@@ -230,6 +230,8 @@ impl FdTable {
 
     /// Close fds in list after an exec.
     pub fn close_after_exec(&mut self, t: &ReplayTask, fds_to_close: &[i32]) {
+        ed_assert!(t, self.has_task(t.weak_self_ptr()));
+
         for &fd in fds_to_close {
             self.did_close(fd)
         }

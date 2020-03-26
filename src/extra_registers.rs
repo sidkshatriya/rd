@@ -340,7 +340,7 @@ impl ExtraRegisters {
                 unsafe {
                     copy_nonoverlapping(&result as *const _ as *const u8, new_vec.as_mut_ptr(), l);
                 }
-                return new_vec;
+                new_vec
             }
             X64 => {
                 debug_assert!(self.data_.len() >= std::mem::size_of::<x64::user_fpregs_struct>());
@@ -348,7 +348,7 @@ impl ExtraRegisters {
                 let mut new_vec: Vec<u8> = Vec::with_capacity(l);
                 new_vec.resize(l, 0);
                 new_vec[0..l].copy_from_slice(&self.data_[0..l]);
-                return new_vec;
+                new_vec
             }
         }
     }
@@ -541,7 +541,7 @@ impl RegData {
     pub fn new(offset: usize, size: usize) -> RegData {
         RegData {
             offset: Some(offset),
-            size: size,
+            size,
             xsave_feature_bit: None,
         }
     }

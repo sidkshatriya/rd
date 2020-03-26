@@ -20,7 +20,7 @@ impl ScopedFd {
     }
 
     pub fn from_raw(fd: RawFd) -> Self {
-        ScopedFd { fd: fd }
+        ScopedFd { fd }
     }
 
     pub fn open_path<P: ?Sized + NixPath>(path: &P, oflag: OFlag) -> Self {

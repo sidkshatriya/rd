@@ -310,11 +310,7 @@ impl EmuFs {
 
     /// Return an emulated file representing the recorded shared mapping
     /// `recorded_km`.
-    pub fn get_or_create(
-        &mut self,
-        recorded_km: &KernelMapping,
-        owner: EmuFsSharedPtr,
-    ) -> EmuFileSharedPtr {
+    pub fn get_or_create(&mut self, recorded_km: &KernelMapping) -> EmuFileSharedPtr {
         let file_id = FileId::from_kernel_mapping(recorded_km);
         let maybe_file_weak_ptr = self.files.get(&file_id);
         let min_file_size: u64 = recorded_km.file_offset_bytes() + recorded_km.size() as u64;

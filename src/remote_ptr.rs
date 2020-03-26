@@ -196,8 +196,8 @@ mod tests {
         let a = RemotePtr::<u64>::new_from_val(8);
         let c = RemotePtr::<S>::new_from_val(0);
         let d = RemotePtr::<S>::new_from_val(16);
-        assert!(a == a);
-        assert!(a == a.clone());
+        assert_eq!(a, a);
+        assert_eq!(a, a.clone());
         assert!(c < d);
         assert!(d > c);
         assert!(c != d);
