@@ -291,7 +291,8 @@ impl<'a, 'b> AutoRestoreMem<'a, 'b> {
         remote: &'a mut AutoRemoteSyscalls<'b>,
         s: &P,
     ) -> AutoRestoreMem<'a, 'b> {
-        // rr assumes the AutoRemoteSyscalls construction always succeeds. We don't.
+        // rr assumes the AutoRestoreMem construction always succeeds. We don't.
+        // This could happen if a CStr could not be extracted successfully.
         s.with_nix_path(move |c| {
             Self::new(
                 remote,
