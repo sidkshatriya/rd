@@ -1,5 +1,6 @@
 use crate::kernel_abi;
 use crate::kernel_abi::SupportedArch;
+use nix::sys::mman::ProtFlags;
 
 pub fn syscall_name(syscall: i32, arch: SupportedArch) -> String {
     rd_kernel_abi_arch_function!(syscallname_arch, arch, syscall)
@@ -378,4 +379,38 @@ pub fn xsave_feature_string(xsave_features: u64) -> String {
     } else {
         ret
     }
+}
+
+/// In rr this is an operator<<()
+pub fn siginfo_str_repr(siginfo: &libc::siginfo_t) -> String {
+    let mut s: String = format!(
+        "{{signo:{},errno:{},code:{}",
+        signal_name(siginfo.si_signo),
+        errno_name(siginfo.si_errno),
+        sicode_name(siginfo.si_code, siginfo.si_signo)
+    );
+    match siginfo.si_signo {
+        libc::SIGILL | libc::SIGFPE | libc::SIGSEGV | libc::SIGBUS | libc::SIGTRAP => {
+            s += &format!(",addr:{:x}", unsafe { siginfo.si_addr() } as usize);
+        }
+        _ => (),
+    }
+    s += "}}";
+    s
+}
+
+pub fn shm_flags_to_mmap_prot(shm_flags: i32) -> ProtFlags {
+    let maybe_shm_write = if shm_flags & libc::SHM_RDONLY == libc::SHM_RDONLY {
+        ProtFlags::empty()
+    } else {
+        ProtFlags::PROT_WRITE
+    };
+
+    let maybe_shm_exec = if shm_flags & libc::SHM_EXEC == libc::SHM_EXEC {
+        ProtFlags::PROT_EXEC
+    } else {
+        ProtFlags::empty()
+    };
+
+    ProtFlags::PROT_READ | maybe_shm_exec | maybe_shm_write
 }

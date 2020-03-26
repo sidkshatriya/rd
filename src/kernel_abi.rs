@@ -5,6 +5,7 @@
 use crate::bindings::kernel;
 use crate::remote_ptr::RemotePtr;
 use std::convert::TryInto;
+use std::fmt::{Display, Formatter, LowerHex, Result};
 use std::marker::PhantomData;
 
 #[derive(Copy, Clone, PartialEq)]
@@ -71,12 +72,12 @@ pub struct aligned_u64 {
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
-pub struct Ptr<ValT: Copy + Clone, ReferentT> {
+pub struct Ptr<ValT: Copy, ReferentT> {
     val: ValT,
     referent: PhantomData<ReferentT>,
 }
 
-impl<ValT: Copy + Clone, ReferentT> Ptr<ValT, ReferentT> {
+impl<ValT: Copy, ReferentT> Ptr<ValT, ReferentT> {
     pub fn referent_size(&self) -> usize {
         std::mem::size_of::<ReferentT>()
     }
@@ -119,6 +120,12 @@ impl<ReferentT> Ptr<u64, ReferentT> {
             val: addr as u64,
             referent: PhantomData,
         }
+    }
+}
+
+impl<ValT: Copy + LowerHex, ReferenT> Display for Ptr<ValT, ReferenT> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        write!(f, "{:#x}", self.val)
     }
 }
 
