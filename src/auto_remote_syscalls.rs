@@ -291,9 +291,15 @@ impl<'a, 'b> AutoRestoreMem<'a, 'b> {
         remote: &'a mut AutoRemoteSyscalls<'b>,
         s: &P,
     ) -> AutoRestoreMem<'a, 'b> {
-        // rr assumes the construction always succeeds. We don't for now.
-        s.with_nix_path(move |c| Self::new(remote, Some(c.to_bytes_with_nul()), c.len()))
-            .unwrap()
+        // rr assumes the AutoRemoteSyscalls construction always succeeds. We don't.
+        s.with_nix_path(move |c| {
+            Self::new(
+                remote,
+                Some(c.to_bytes_with_nul()),
+                c.to_bytes_with_nul().len(),
+            )
+        })
+        .unwrap()
     }
 
     /// Get a pointer to the reserved memory.
