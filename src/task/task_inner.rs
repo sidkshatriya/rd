@@ -69,7 +69,7 @@ pub enum TicksRequest {
 pub mod task_inner {
     use super::*;
     use crate::address_space::address_space::{
-        AddressSpaceRef, AddressSpaceRefMut, AddressSpaceSharedPtr,
+        AddressSpace, AddressSpaceRef, AddressSpaceRefMut, AddressSpaceSharedPtr,
     };
     use crate::address_space::kernel_mapping::KernelMapping;
     use crate::address_space::WatchConfig;
@@ -655,6 +655,11 @@ pub mod task_inner {
         /// task.
         pub fn vm(&self) -> AddressSpaceRef {
             self.as_.borrow()
+        }
+
+        /// This is rarely needed. Please use vm() or vm_mut()
+        pub fn vm_as_ptr(&self) -> *const AddressSpace {
+            self.as_.as_ptr()
         }
 
         /// Return the virtual memory mapping (address space) of this

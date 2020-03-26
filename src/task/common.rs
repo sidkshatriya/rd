@@ -434,9 +434,8 @@ pub fn read_mem<D: Clone>(
 ///
 pub(super) fn syscallbuf_data_size<T: Task>(task: &mut T) -> usize {
     let addr: RemotePtr<u32> = RemotePtr::cast(task.syscallbuf_child);
-    // @TODO this calculation could be made more generic. Right now assumes that
-    // number of bytes in syscallbuf is stored in a u32 in the beginning of the syscallbuf_hdr
-    read_val_mem::<u32>(task, addr, None) as usize + size_of::<syscallbuf_hdr>()
+    read_val_mem::<u32>(task, addr + offset_of!(syscallbuf_hdr, num_rec_bytes), None) as usize
+        + size_of::<syscallbuf_hdr>()
 }
 
 /// Forwarded method definition

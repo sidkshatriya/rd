@@ -847,7 +847,7 @@ pub mod record_task {
         /// If 'addr' is null then no record is written.
         /// @TODO In the rr implementation ssize_t is being used instead of size_t
         /// for the record_* methods in many places. Why??
-        pub fn record_local(addr: RemotePtr<Void>, buf: &[u8]) {
+        pub fn record_local(&self, addr: RemotePtr<Void>, buf: &[u8]) {
             unimplemented!()
         }
         pub fn record_local_for<T>(addr: RemotePtr<T>, data: &T) {

@@ -1,13 +1,17 @@
+use crate::address_space::address_space::{AddressSpace, AddressSpaceRef};
 use crate::event::Switchable;
 use crate::file_monitor::{FileMonitorSharedPtr, LazyOffset, Range};
+use crate::kernel_abi::common::preload_interface::preload_globals;
 use crate::kernel_abi::common::preload_interface::SYSCALLBUF_FDS_DISABLED_SIZE;
 use crate::log::LogLevel::LogDebug;
+use crate::remote_ptr::RemotePtr;
 use crate::task::record_task::record_task::RecordTask;
 use crate::task::replay_task::ReplayTask;
 use crate::task::{Task, TaskPtr};
 use crate::task_set::TaskSet;
+use nix::sys::stat::lstat;
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ops::Deref;
 use std::rc::{Rc, Weak};
 
@@ -158,18 +162,19 @@ impl FdTable {
 
     /// Regenerate syscallbuf_fds_disabled in task `t`.
     /// Called during initialization of the preload library.
-    pub fn init_syscallbuf_fds_disabled(&self, t: &dyn Task) {
+    pub fn init_syscallbuf_fds_disabled(&self, t: &mut dyn Task) {
         if !t.session().borrow().is_recording() {
             return;
         }
 
-        let rt = t.as_record_task().unwrap();
+        let rt = t.as_record_task_mut().unwrap();
 
         ed_assert!(&rt, self.has_task(rt.weak_self_ptr()));
 
-        if rt.preload_globals.is_none() {
-            return;
-        }
+        let preload_globals = match rt.preload_globals {
+            None => return,
+            Some(pr) => pr,
+        };
 
         let mut disabled: [u8; SYSCALLBUF_FDS_DISABLED_SIZE as usize] =
             [0u8; SYSCALLBUF_FDS_DISABLED_SIZE as usize];
@@ -196,7 +201,10 @@ impl FdTable {
             }
         }
 
-        // @TODO
+        let addr: RemotePtr<u8> =
+            RemotePtr::cast(preload_globals) + offset_of!(preload_globals, syscallbuf_fds_disabled);
+        rt.write_bytes(addr, &disabled);
+        rt.record_local(addr, &disabled);
     }
 
     /// Get list of fds that have been closed after `t` has done an execve.
@@ -204,20 +212,99 @@ impl FdTable {
     /// scan /proc/<pid>/fd during recording and note any monitored fds that have
     /// been closed.
     /// This also updates our table to match reality.
-    pub fn fds_to_close_after_exec(&self, t: &RecordTask) -> Vec<i32> {
-        unimplemented!()
+    pub fn fds_to_close_after_exec(&mut self, t: &RecordTask) -> Vec<i32> {
+        ed_assert!(t, self.has_task(t.weak_self_ptr()));
+
+        let mut fds_to_close: Vec<i32> = Vec::new();
+        for &fd in self.fds.keys() {
+            if !is_fd_open(t, fd) {
+                fds_to_close.push(fd);
+            }
+        }
+        for &fd in &fds_to_close {
+            self.did_close(fd);
+        }
+
+        fds_to_close
     }
 
     /// Close fds in list after an exec.
-    pub fn close_after_exec(&self, t: &ReplayTask, fds_to_close: &Vec<i32>) {
-        unimplemented!()
+    pub fn close_after_exec(&mut self, t: &ReplayTask, fds_to_close: &[i32]) {
+        for &fd in fds_to_close {
+            self.did_close(fd)
+        }
     }
 
     fn new() -> FdTable {
-        unimplemented!()
+        FdTable {
+            tasks: Default::default(),
+            fds: Default::default(),
+            fd_count_beyond_limit: 0,
+        }
     }
 
-    fn update_syscallbuf_fds_disabled(&self, fd: i32) {
-        unimplemented!()
+    fn update_syscallbuf_fds_disabled(&self, mut fd: i32) {
+        debug_assert!(fd >= 0);
+        debug_assert!(self.task_set().len() > 0);
+
+        let mut vms_updated: HashSet<*const AddressSpace> = HashSet::new();
+        // It's possible for tasks with different VMs to share this fd table.
+        // But tasks with the same VM might have different fd tables...
+        for t in self.task_set() {
+            if !t
+                .upgrade()
+                .unwrap()
+                .borrow()
+                .session()
+                .borrow()
+                .is_recording()
+            {
+                return;
+            }
+
+            let t_shared_ptr = t.upgrade().unwrap();
+            let mut t_ref_task = t_shared_ptr.borrow_mut();
+            let rt: &mut RecordTask = t_ref_task.as_record_task_mut().unwrap();
+
+            let vm_addr = rt.vm_as_ptr();
+            if !vms_updated.contains(&vm_addr) {
+                continue;
+            }
+            vms_updated.insert(vm_addr);
+
+            if rt.preload_globals.is_some() {
+                if fd >= SYSCALLBUF_FDS_DISABLED_SIZE {
+                    fd = SYSCALLBUF_FDS_DISABLED_SIZE - 1;
+                }
+                let disable: u8 = if is_fd_monitored_in_any_task(rt.vm(), fd) {
+                    1
+                } else {
+                    0
+                };
+
+                let addr: RemotePtr<u8> = RemotePtr::cast(rt.preload_globals.unwrap())
+                    + offset_of!(preload_globals, syscallbuf_fds_disabled)
+                    + fd as usize;
+                rt.write_bytes(addr, &disable.to_le_bytes());
+                rt.record_local(addr, &disable.to_le_bytes());
+            }
+        }
     }
+}
+
+fn is_fd_open(t: &dyn Task, fd: i32) -> bool {
+    let path = format!("/proc/{}/fd/{}", t.tid, fd);
+    lstat(path.as_str()).is_ok()
+}
+
+fn is_fd_monitored_in_any_task(vm: AddressSpaceRef, fd: i32) -> bool {
+    for t in vm.task_set() {
+        let table = t.upgrade().unwrap().borrow().fd_table();
+        if table.borrow().is_monitoring(fd)
+            || (fd >= SYSCALLBUF_FDS_DISABLED_SIZE - 1 && table.borrow().count_beyond_limit() > 0)
+        {
+            return true;
+        }
+    }
+    false
 }

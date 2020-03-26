@@ -279,13 +279,12 @@ impl Registers {
             mismatch_behavior,
         );
         if let Some(t) = maybe_t {
-            // @TODO complete this.
             ed_assert!(
                 t,
                 !bail_error || match_,
                 "Fatal register mismatch (ticks/rec:{}/{})",
-                1,
-                1
+                t.tick_count(),
+                t.current_trace_frame().ticks(),
             );
         } else {
             debug_assert!(!bail_error || match_);
@@ -1246,10 +1245,7 @@ macro_rules! rv_arch {
             crate::gdb_register::$gdb_name,
             crate::registers::RegisterValue::new(
                 stringify!($name),
-                unsafe {
-                    &(*(std::ptr::null::<crate::kernel_abi::$arch::user_regs_struct>())).$name
-                        as *const _ as usize
-                },
+                offset_of!(crate::kernel_abi::$arch::user_regs_struct, $name),
                 nbytes,
             ),
         )
@@ -1261,10 +1257,7 @@ macro_rules! rv_arch {
             crate::gdb_register::$gdb_name,
             crate::registers::RegisterValue::new_with_mask(
                 stringify!($name),
-                unsafe {
-                    &(*(std::ptr::null::<crate::kernel_abi::$arch::user_regs_struct>())).$name
-                        as *const _ as usize
-                },
+                offset_of!(crate::kernel_abi::$arch::user_regs_struct, $name),
                 nbytes,
                 $comparison_mask,
             ),
@@ -1277,10 +1270,7 @@ macro_rules! rv_arch {
             crate::gdb_register::$gdb_name,
             crate::registers::RegisterValue::new_with_mask_with_size_override(
                 stringify!($name),
-                unsafe {
-                    &(*(std::ptr::null::<crate::kernel_abi::$arch::user_regs_struct>())).$name
-                        as *const _ as usize
-                },
+                offset_of!(crate::kernel_abi::$arch::user_regs_struct, $name),
                 nbytes,
                 $comparison_mask,
                 $size_override,

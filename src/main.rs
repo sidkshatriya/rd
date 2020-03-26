@@ -10,6 +10,8 @@ extern crate lazy_static;
 extern crate raw_cpuid;
 #[macro_use]
 extern crate static_assertions;
+#[macro_use]
+extern crate memoffset;
 
 use crate::log::LogLevel::LogInfo;
 

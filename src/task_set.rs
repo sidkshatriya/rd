@@ -36,3 +36,9 @@ impl DerefMut for TaskSet {
         &mut self.0
     }
 }
+
+impl Default for TaskSet {
+    fn default() -> Self {
+        TaskSet(Default::default())
+    }
+}
