@@ -1,16 +1,18 @@
-use crate::session::session_inner::session_inner::SessionInner;
-use crate::session::{SessionSharedPtr, SessionSharedWeakPtr};
+use crate::log::LogLevel::LogDebug;
+use crate::session::{Session, SessionSharedPtr, SessionSharedWeakPtr};
 use crate::task_set::TaskSet;
 use crate::taskish_uid::ThreadGroupUid;
 use crate::wait_status::WaitStatus;
 use libc::pid_t;
-use std::cell::RefCell;
+use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashSet;
 use std::ops::{Deref, DerefMut};
 use std::rc::{Rc, Weak};
 
 pub type ThreadGroupSharedPtr = Rc<RefCell<ThreadGroup>>;
 pub type ThreadGroupSharedWeakPtr = Weak<RefCell<ThreadGroup>>;
+pub type ThreadGroupRef<'a> = Ref<'a, ThreadGroup>;
+pub type ThreadGroupRefMut<'a> = RefMut<'a, ThreadGroup>;
 
 /// Tracks a group of tasks with an associated ID, set from the
 /// original "thread group leader", the child of `fork()` which became
@@ -52,6 +54,7 @@ pub struct ThreadGroup {
     children_: HashSet<ThreadGroupSharedWeakPtr>,
 
     serial: u32,
+    weak_self: ThreadGroupSharedWeakPtr,
 }
 
 impl Drop for ThreadGroup {
@@ -80,7 +83,7 @@ impl DerefMut for ThreadGroup {
 /// task must own a reference to this.
 impl ThreadGroup {
     pub fn new(
-        session: &SessionInner,
+        session: &dyn Session,
         parent: Option<&ThreadGroup>,
         tgid: pid_t,
         real_tgid: pid_t,
@@ -129,7 +132,7 @@ impl ThreadGroup {
     ///
     /// So why destabilization?  After (2), rd can't block on the
     /// task shutting down (`waitpid(tid)`), because the kernel
-    /// harvests the LWPs of the dying thread group in an unknown
+    /// harvests the LWPs (Light weight processes) of the dying thread group in an unknown
     /// order (which we shouldn't assume, even if we could guess
     /// it).  If rd blocks on the task harvest, it will (usually)
     /// deadlock.
@@ -153,21 +156,30 @@ impl ThreadGroup {
     /// Currently, instability is a one-way street; it's only used
     /// needed for death signals and exit_group().
     pub fn destabilize(&self) {
-        unimplemented!()
+        log!(LogDebug, "destabilizing thread group {}", self.tgid);
+        for t in self.task_set_iter() {
+            t.borrow_mut().unstable = true;
+            log!(LogDebug, "  destabilized task {}", t.borrow().tid);
+        }
     }
 
     pub fn session(&self) -> SessionSharedPtr {
         self.session_.upgrade().unwrap()
     }
 
-    pub fn parent(&self) -> Option<&ThreadGroup> {
-        unimplemented!()
+    pub fn parent(&self) -> Option<ThreadGroupSharedPtr> {
+        self.parent_.as_ref().map(|wp| wp.upgrade().unwrap())
     }
-    pub fn children(&self) -> HashSet<&ThreadGroup> {
-        unimplemented!()
+
+    pub fn children(&self) -> &HashSet<ThreadGroupSharedWeakPtr> {
+        &self.children_
     }
 
     pub fn tguid(&self) -> ThreadGroupUid {
-        unimplemented!()
+        ThreadGroupUid::new_with(self.tgid, self.serial)
+    }
+
+    pub fn self_ptr(&self) -> ThreadGroupSharedWeakPtr {
+        self.weak_self.clone()
     }
 }

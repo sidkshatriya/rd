@@ -122,18 +122,17 @@ impl FileMonitor for MmappedFileMonitor {
                                 .borrow_mut()
                                 .ensure_size(local_offset + r.length as u64);
                         } else {
-                            ed_assert!(offset.t, !v.task_set().is_empty());
+                            ed_assert!(offset.t, !v.task_hashset().is_empty());
                             // We will record multiple writes if the file is mapped multiple
                             // times. This is inefficient --- one is sufficient --- but not
                             // wrong.
                             // Make sure we use a task for this address space. `t` might have
                             // a different address space.
-                            for tt in v.task_set() {
+                            for t_rc in v.task_set_iter() {
                                 // If the task here has execed, we may not be able to record its
                                 // memory any longer, so loop through all tasks in this address
                                 // space in turn in case any *didn't* exec.
-                                let rt_rc = tt.upgrade().unwrap();
-                                let mut rt_ref = rt_rc.borrow_mut();
+                                let mut rt_ref = t_rc.borrow_mut();
                                 let result = rt_ref
                                     .as_record_task_mut()
                                     .unwrap()

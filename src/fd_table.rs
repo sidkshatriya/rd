@@ -182,16 +182,8 @@ impl FdTable {
         // It's possible that some tasks in this address space have a different
         // FdTable. We need to disable syscallbuf for an fd if any tasks for this
         // address space are monitoring the fd.
-        for vm_t in rt.vm().task_set() {
-            for &fd in vm_t
-                .upgrade()
-                .unwrap()
-                .borrow()
-                .fd_table()
-                .borrow()
-                .fds
-                .keys()
-            {
+        for vm_t in rt.vm().task_set_iter() {
+            for &fd in vm_t.borrow().fd_table().borrow().fds.keys() {
                 debug_assert!(fd >= 0);
                 let mut adjusted_fd = fd;
                 if fd >= SYSCALLBUF_FDS_DISABLED_SIZE {
@@ -247,25 +239,17 @@ impl FdTable {
 
     fn update_syscallbuf_fds_disabled(&self, mut fd: i32) {
         debug_assert!(fd >= 0);
-        debug_assert!(self.task_set().len() > 0);
+        debug_assert!(!self.task_hashset().is_empty());
 
         let mut vms_updated: HashSet<*const AddressSpace> = HashSet::new();
         // It's possible for tasks with different VMs to share this fd table.
         // But tasks with the same VM might have different fd tables...
-        for t in self.task_set() {
-            if !t
-                .upgrade()
-                .unwrap()
-                .borrow()
-                .session()
-                .borrow()
-                .is_recording()
-            {
+        for t in self.task_set_iter() {
+            if !t.borrow().session().borrow().is_recording() {
                 return;
             }
 
-            let t_shared_ptr = t.upgrade().unwrap();
-            let mut t_ref_task = t_shared_ptr.borrow_mut();
+            let mut t_ref_task = t.borrow_mut();
             let rt: &mut RecordTask = t_ref_task.as_record_task_mut().unwrap();
 
             let vm_addr = rt.vm_as_ptr();
@@ -300,8 +284,8 @@ fn is_fd_open(t: &dyn Task, fd: i32) -> bool {
 }
 
 fn is_fd_monitored_in_any_task(vm: AddressSpaceRef, fd: i32) -> bool {
-    for t in vm.task_set() {
-        let table = t.upgrade().unwrap().borrow().fd_table();
+    for t in vm.task_set_iter() {
+        let table = t.borrow().fd_table();
         if table.borrow().is_monitoring(fd)
             || (fd >= SYSCALLBUF_FDS_DISABLED_SIZE - 1 && table.borrow().count_beyond_limit() > 0)
         {

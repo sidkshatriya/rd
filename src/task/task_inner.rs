@@ -109,8 +109,17 @@ pub mod task_inner {
 
     type ThreadLocals = [u8; PRELOAD_THREAD_LOCALS_SIZE];
 
-    /// This struct should NOT impl the Task trait
+    /// NOTE: This struct should NOT impl the Task trait
     pub struct TaskInner {
+        /// True when any assumptions made about the status of this
+        /// process have been invalidated, and must be re-established
+        /// with a waitpid() call. Only applies to tasks which are dying, usually
+        /// due to a signal sent to the entire thread group.
+        pub unstable: bool,
+        /// exit(), or exit_group() with one task, has been called, so
+        /// the exit can be treated as stable. */
+        pub stable_exit: bool,
+
         /// Imagine that task A passes buffer `b` to the read()
         /// syscall.  Imagine that, after A is switched out for task B,
         /// task B then writes to `b`.  Then B is switched out for A.

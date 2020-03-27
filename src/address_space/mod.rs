@@ -1201,10 +1201,7 @@ pub mod address_space {
 
         /// Assumes any weak pointer can be upgraded but does not assume task_set is NOT empty.
         pub fn any_task_from_task_set(&self) -> Option<TaskSharedPtr> {
-            self.task_set()
-                .iter()
-                .next()
-                .map_or(None, |v| Some(v.upgrade().unwrap()))
+            self.task_set_iter().next()
         }
 
         /// Ensure a breakpoint of `type` is set at `addr`.
@@ -2318,8 +2315,8 @@ pub mod address_space {
 
             if regs.len() <= 0x7f {
                 let mut ok = true;
-                for t in self.task_set() {
-                    if !t.upgrade().unwrap().borrow_mut().set_debug_regs(&mut regs) {
+                for t in self.task_set_iter() {
+                    if !t.borrow_mut().set_debug_regs(&mut regs) {
                         ok = false;
                     }
                 }
@@ -2329,8 +2326,8 @@ pub mod address_space {
             }
 
             regs.clear();
-            for t2 in self.task_set() {
-                t2.upgrade().unwrap().borrow_mut().set_debug_regs(&mut regs);
+            for t2 in self.task_set_iter() {
+                t2.borrow_mut().set_debug_regs(&mut regs);
             }
             for (_, v) in &mut self.watchpoints {
                 v.debug_regs_for_exec_read.clear();
