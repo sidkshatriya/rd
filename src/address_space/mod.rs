@@ -199,11 +199,11 @@ pub mod address_space {
     use crate::task::record_task::record_task::RecordTask;
     use crate::task::task_inner::task_inner::WriteFlags;
     use crate::task::{Task, TaskSharedPtr};
-    use crate::task_set::TaskSet;
     use crate::taskish_uid::AddressSpaceUid;
     use crate::taskish_uid::TaskUid;
     use crate::trace::trace_frame::FrameTime;
     use crate::util::{ceil_page_size, floor_page_size, page_size, uses_invisible_guard_page};
+    use crate::weak_ptr_set::WeakPtrSet;
     use core::ffi::c_void;
     use libc::stat;
     use libc::{dev_t, ino_t, pid_t, EACCES, ENOENT, O_RDONLY};
@@ -539,7 +539,7 @@ pub mod address_space {
     /// of mapped pages, and the resources those mappings refer to.
     pub struct AddressSpace {
         /// The struct Deref-s and DerefMut-s to task_set.
-        task_set: TaskSet,
+        task_set: WeakPtrSet<Box<dyn Task>>,
         /// All breakpoints set in this VM.
         breakpoints: BreakpointMap,
         /// Path of the real executable image this address space was
@@ -696,14 +696,7 @@ pub mod address_space {
 
         pub fn arch(&self) -> SupportedArch {
             // Return the arch() of the first task in the address space
-            self.task_set
-                .iter()
-                .next()
-                .unwrap()
-                .upgrade()
-                .unwrap()
-                .borrow()
-                .arch()
+            self.task_set.iter().next().unwrap().borrow().arch()
         }
 
         /// Return the path this address space was exec()'d with.
@@ -1201,7 +1194,7 @@ pub mod address_space {
 
         /// Assumes any weak pointer can be upgraded but does not assume task_set is NOT empty.
         pub fn any_task_from_task_set(&self) -> Option<TaskSharedPtr> {
-            self.task_set_iter().next()
+            self.iter().next()
         }
 
         /// Ensure a breakpoint of `type` is set at `addr`.
@@ -1444,7 +1437,7 @@ pub mod address_space {
         /// Verify that this cached address space matches what the
         /// kernel thinks it should be.
         pub fn verify(&self, t: &dyn Task) {
-            ed_assert!(t, self.has_task(t.weak_self_ptr()));
+            ed_assert!(t, self.has(t.weak_self_ptr()));
 
             if thread_group_in_exec(t) {
                 return;
@@ -1916,7 +1909,7 @@ pub mod address_space {
                 privileged_traced_syscall_ip_: None,
                 saved_auxv_: Vec::new(),
                 // Is this what we want?
-                task_set: TaskSet::new(),
+                task_set: WeakPtrSet::new(),
                 // Is TaskUid::new() what we want?
                 thread_locals_tuid_: TaskUid::new(),
                 // These are set below. Are both OK??
@@ -1980,7 +1973,7 @@ pub mod address_space {
                 child_mem_fd: ScopedFd::new(),
                 dont_fork: BTreeSet::new(),
                 // Is this what we want?
-                task_set: TaskSet::new(),
+                task_set: WeakPtrSet::new(),
                 // Is TaskUid::new() what we want?
                 thread_locals_tuid_: TaskUid::new(),
                 saved_watchpoints: Vec::new(),
@@ -2315,7 +2308,7 @@ pub mod address_space {
 
             if regs.len() <= 0x7f {
                 let mut ok = true;
-                for t in self.task_set_iter() {
+                for t in self.iter() {
                     if !t.borrow_mut().set_debug_regs(&mut regs) {
                         ok = false;
                     }
@@ -2326,7 +2319,7 @@ pub mod address_space {
             }
 
             regs.clear();
-            for t2 in self.task_set_iter() {
+            for t2 in self.iter() {
                 t2.borrow_mut().set_debug_regs(&mut regs);
             }
             for (_, v) in &mut self.watchpoints {
@@ -2562,7 +2555,7 @@ pub mod address_space {
     }
 
     impl Deref for AddressSpace {
-        type Target = TaskSet;
+        type Target = WeakPtrSet<Box<dyn Task>>;
         fn deref(&self) -> &Self::Target {
             &self.task_set
         }

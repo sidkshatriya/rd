@@ -52,7 +52,6 @@ mod scoped_fd;
 mod seccomp_filter_rewriter;
 mod session;
 mod task;
-mod task_set;
 mod taskish_uid;
 mod thread_group;
 mod ticks;
@@ -60,6 +59,7 @@ mod trace;
 mod trace_capnp;
 mod util;
 mod wait_status;
+mod weak_ptr_set;
 
 fn main() {
     log!(LogInfo, "Hello, world!");

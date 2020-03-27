@@ -1,8 +1,9 @@
 use crate::log::LogLevel::LogDebug;
 use crate::session::{SessionSharedPtr, SessionSharedWeakPtr};
-use crate::task_set::TaskSet;
+use crate::task::Task;
 use crate::taskish_uid::ThreadGroupUid;
 use crate::wait_status::WaitStatus;
+use crate::weak_ptr_set::WeakPtrSet;
 use libc::pid_t;
 use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashSet;
@@ -23,7 +24,7 @@ pub type ThreadGroupRefMut<'a> = RefMut<'a, ThreadGroup>;
 pub struct ThreadGroup {
     /// These are the various tasks (dyn Task) that are part of the
     /// thread group.
-    tasks: TaskSet,
+    tasks: WeakPtrSet<Box<dyn Task>>,
     pub tgid: pid_t,
     pub real_tgid: pid_t,
     pub real_tgid_own_namespace: pid_t,
@@ -64,7 +65,7 @@ impl Drop for ThreadGroup {
 }
 
 impl Deref for ThreadGroup {
-    type Target = TaskSet;
+    type Target = WeakPtrSet<Box<dyn Task>>;
 
     fn deref(&self) -> &Self::Target {
         &self.tasks
@@ -105,7 +106,12 @@ impl ThreadGroup {
             children_: Default::default(),
             weak_self: Weak::new(),
         };
-        log!(LogDebug, "creating new thread group {} (real tgid:{})", tgid, real_tgid);
+        log!(
+            LogDebug,
+            "creating new thread group {} (real tgid:{})",
+            tgid,
+            real_tgid
+        );
 
         let tg_shared = Rc::new(RefCell::new(tg));
         let tg_weak = Rc::downgrade(&tg_shared);
@@ -115,7 +121,11 @@ impl ThreadGroup {
         //if parent.is_some() {
         //    parent.unwrap().upgrade().unwrap().borrow_mut().children_.insert(tg_weak.clone());
         //}
-        session.upgrade().unwrap().borrow_mut().on_create_tg(tg_weak);
+        session
+            .upgrade()
+            .unwrap()
+            .borrow_mut()
+            .on_create_tg(tg_weak);
         tg_shared
     }
 
@@ -183,7 +193,7 @@ impl ThreadGroup {
     /// needed for death signals and exit_group().
     pub fn destabilize(&self) {
         log!(LogDebug, "destabilizing thread group {}", self.tgid);
-        for t in self.task_set_iter() {
+        for t in self.iter() {
             t.borrow_mut().unstable = true;
             log!(LogDebug, "  destabilized task {}", t.borrow().tid);
         }

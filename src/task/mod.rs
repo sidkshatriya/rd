@@ -11,9 +11,7 @@ use crate::wait_status::WaitStatus;
 use libc::pid_t;
 use std::cell::RefCell;
 use std::ffi::CString;
-use std::hash::{Hash, Hasher};
 use std::io::Write;
-use std::ops::Deref;
 use std::ops::DerefMut;
 use std::rc::{Rc, Weak};
 
@@ -24,35 +22,6 @@ pub mod task_inner;
 
 pub type TaskSharedPtr = Rc<RefCell<Box<dyn Task>>>;
 pub type TaskSharedWeakPtr = Weak<RefCell<Box<dyn Task>>>;
-
-#[derive(Clone)]
-pub struct TaskPtr(pub TaskSharedWeakPtr);
-
-impl PartialEq for TaskPtr {
-    fn eq(&self, other: &Self) -> bool {
-        // If the addresses of the dyn Task ptrs are same then they are the same task.
-        self.0.upgrade().unwrap().as_ptr() as *const u8 as usize
-            == other.0.upgrade().unwrap().as_ptr() as *const u8 as usize
-    }
-}
-
-impl Eq for TaskPtr {}
-
-impl Hash for TaskPtr {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        let addr = self.0.upgrade().unwrap().as_ptr() as *const u8 as usize;
-        // The hash is the hash of the address of the task (dyn Task).
-        addr.hash(state);
-    }
-}
-
-impl Deref for TaskPtr {
-    type Target = TaskSharedWeakPtr;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
 
 pub trait Task: DerefMut<Target = TaskInner> {
     fn as_task_inner(&self) -> &TaskInner;

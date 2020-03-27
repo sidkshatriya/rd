@@ -7,8 +7,8 @@ use crate::log::LogLevel::LogDebug;
 use crate::remote_ptr::RemotePtr;
 use crate::task::record_task::record_task::RecordTask;
 use crate::task::replay_task::ReplayTask;
-use crate::task::{Task, TaskPtr};
-use crate::task_set::TaskSet;
+use crate::task::Task;
+use crate::weak_ptr_set::WeakPtrSet;
 use nix::sys::stat::lstat;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -20,14 +20,14 @@ pub type FdTableSharedWeakPtr = Weak<RefCell<FdTable>>;
 
 #[derive(Clone)]
 pub struct FdTable {
-    tasks: TaskSet,
+    tasks: WeakPtrSet<Box<dyn Task>>,
     fds: HashMap<i32, FileMonitorSharedPtr>,
     /// Number of elements of `fds` that are >= SYSCALLBUF_FDS_DISABLED_SIZE
     fd_count_beyond_limit: u32,
 }
 
 impl Deref for FdTable {
-    type Target = TaskSet;
+    type Target = WeakPtrSet<Box<dyn Task>>;
 
     fn deref(&self) -> &Self::Target {
         &self.tasks
@@ -129,23 +129,23 @@ impl FdTable {
     /// Method is called clone() in rr
     pub fn clone_into_task(&self, t: &mut dyn Task) -> FdTableSharedPtr {
         let mut file_mon = FdTable {
-            tasks: TaskSet::new(),
+            tasks: WeakPtrSet::new(),
             fds: self.fds.clone(),
             fd_count_beyond_limit: self.fd_count_beyond_limit,
         };
 
-        file_mon.tasks.insert(TaskPtr(t.weak_self_ptr()));
+        file_mon.tasks.insert(t.weak_self_ptr());
         Rc::new(RefCell::new(file_mon))
     }
 
     pub fn create(&self, t: &dyn Task) -> FdTableSharedPtr {
         let mut file_mon = FdTable {
-            tasks: TaskSet::new(),
+            tasks: WeakPtrSet::new(),
             fds: Default::default(),
             fd_count_beyond_limit: 0,
         };
 
-        file_mon.tasks.insert(TaskPtr(t.weak_self_ptr()));
+        file_mon.tasks.insert(t.weak_self_ptr());
         Rc::new(RefCell::new(file_mon))
     }
 
@@ -169,7 +169,7 @@ impl FdTable {
 
         let rt = t.as_record_task_mut().unwrap();
 
-        ed_assert!(&rt, self.has_task(rt.weak_self_ptr()));
+        ed_assert!(&rt, self.has(rt.weak_self_ptr()));
 
         let preload_globals = match rt.preload_globals {
             None => return,
@@ -182,7 +182,7 @@ impl FdTable {
         // It's possible that some tasks in this address space have a different
         // FdTable. We need to disable syscallbuf for an fd if any tasks for this
         // address space are monitoring the fd.
-        for vm_t in rt.vm().task_set_iter() {
+        for vm_t in rt.vm().iter() {
             for &fd in vm_t.borrow().fd_table().borrow().fds.keys() {
                 debug_assert!(fd >= 0);
                 let mut adjusted_fd = fd;
@@ -205,7 +205,7 @@ impl FdTable {
     /// been closed.
     /// This also updates our table to match reality.
     pub fn fds_to_close_after_exec(&mut self, t: &RecordTask) -> Vec<i32> {
-        ed_assert!(t, self.has_task(t.weak_self_ptr()));
+        ed_assert!(t, self.has(t.weak_self_ptr()));
 
         let mut fds_to_close: Vec<i32> = Vec::new();
         for &fd in self.fds.keys() {
@@ -222,7 +222,7 @@ impl FdTable {
 
     /// Close fds in list after an exec.
     pub fn close_after_exec(&mut self, t: &ReplayTask, fds_to_close: &[i32]) {
-        ed_assert!(t, self.has_task(t.weak_self_ptr()));
+        ed_assert!(t, self.has(t.weak_self_ptr()));
 
         for &fd in fds_to_close {
             self.did_close(fd)
@@ -239,12 +239,12 @@ impl FdTable {
 
     fn update_syscallbuf_fds_disabled(&self, mut fd: i32) {
         debug_assert!(fd >= 0);
-        debug_assert!(!self.task_hashset().is_empty());
+        debug_assert!(!self.inner_hashset().is_empty());
 
         let mut vms_updated: HashSet<*const AddressSpace> = HashSet::new();
         // It's possible for tasks with different VMs to share this fd table.
         // But tasks with the same VM might have different fd tables...
-        for t in self.task_set_iter() {
+        for t in self.iter() {
             if !t.borrow().session().borrow().is_recording() {
                 return;
             }
@@ -284,7 +284,7 @@ fn is_fd_open(t: &dyn Task, fd: i32) -> bool {
 }
 
 fn is_fd_monitored_in_any_task(vm: AddressSpaceRef, fd: i32) -> bool {
-    for t in vm.task_set_iter() {
+    for t in vm.iter() {
         let table = t.borrow().fd_table();
         if table.borrow().is_monitoring(fd)
             || (fd >= SYSCALLBUF_FDS_DISABLED_SIZE - 1 && table.borrow().count_beyond_limit() > 0)
