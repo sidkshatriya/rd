@@ -6,7 +6,6 @@ use crate::wait_status::WaitStatus;
 use crate::weak_ptr_set::WeakPtrSet;
 use libc::pid_t;
 use std::cell::{Ref, RefCell, RefMut};
-use std::collections::HashSet;
 use std::ops::{Deref, DerefMut};
 use std::rc::{Rc, Weak};
 
@@ -52,7 +51,7 @@ pub struct ThreadGroup {
     /// Different from rr where nullptr is used.
     parent_: Option<ThreadGroupSharedWeakPtr>,
 
-    children_: HashSet<ThreadGroupSharedWeakPtr>,
+    children_: WeakPtrSet<ThreadGroup>,
 
     serial: u32,
     weak_self: ThreadGroupSharedWeakPtr,
@@ -85,7 +84,7 @@ impl DerefMut for ThreadGroup {
 impl ThreadGroup {
     pub fn new(
         session: SessionSharedWeakPtr,
-        parent: Option<ThreadGroupSharedWeakPtr>,
+        maybe_parent: Option<ThreadGroupSharedWeakPtr>,
         tgid: pid_t,
         real_tgid: pid_t,
         real_tgid_own_namespace: pid_t,
@@ -99,7 +98,7 @@ impl ThreadGroup {
             execed: false,
             received_sigframe_sigsegv: false,
             session_: session.clone(),
-            parent_: parent,
+            parent_: maybe_parent,
             serial,
             tasks: Default::default(),
             exit_status: Default::default(),
@@ -117,10 +116,14 @@ impl ThreadGroup {
         let tg_weak = Rc::downgrade(&tg_shared);
         tg_shared.borrow_mut().weak_self = tg_weak.clone();
 
-        // @TODO
-        //if parent.is_some() {
-        //    parent.unwrap().upgrade().unwrap().borrow_mut().children_.insert(tg_weak.clone());
-        //}
+        if let Some(ref parent) = tg_shared.borrow().parent_ {
+            parent
+                .upgrade()
+                .unwrap()
+                .borrow_mut()
+                .children_
+                .insert(tg_weak.clone());
+        }
         session
             .upgrade()
             .unwrap()
@@ -207,7 +210,7 @@ impl ThreadGroup {
         self.parent_.as_ref().map(|wp| wp.upgrade().unwrap())
     }
 
-    pub fn children(&self) -> &HashSet<ThreadGroupSharedWeakPtr> {
+    pub fn children(&self) -> &WeakPtrSet<ThreadGroup> {
         &self.children_
     }
 

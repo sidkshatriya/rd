@@ -74,8 +74,9 @@ lazy_static! {
         }
 
         let ret = unsafe {
-            libc::atexit(flush_log_buffer);
+            libc::atexit(flush_log_buffer)
         };
+        assert_eq!(ret, 0);
 
         Mutex::new(LogGlobals {
             level_map: HashMap::new(),
