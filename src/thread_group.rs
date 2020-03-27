@@ -1,5 +1,5 @@
 use crate::log::LogLevel::LogDebug;
-use crate::session::{Session, SessionSharedPtr, SessionSharedWeakPtr};
+use crate::session::{SessionSharedPtr, SessionSharedWeakPtr};
 use crate::task_set::TaskSet;
 use crate::taskish_uid::ThreadGroupUid;
 use crate::wait_status::WaitStatus;
@@ -83,14 +83,40 @@ impl DerefMut for ThreadGroup {
 /// task must own a reference to this.
 impl ThreadGroup {
     pub fn new(
-        session: &dyn Session,
-        parent: Option<&ThreadGroup>,
+        session: SessionSharedWeakPtr,
+        parent: Option<ThreadGroupSharedWeakPtr>,
         tgid: pid_t,
         real_tgid: pid_t,
         real_tgid_own_namespace: pid_t,
         serial: u32,
-    ) -> ThreadGroup {
-        unimplemented!()
+    ) -> ThreadGroupSharedPtr {
+        let tg = ThreadGroup {
+            tgid,
+            real_tgid,
+            real_tgid_own_namespace,
+            dumpable: true,
+            execed: false,
+            received_sigframe_sigsegv: false,
+            session_: session.clone(),
+            parent_: parent,
+            serial,
+            tasks: Default::default(),
+            exit_status: Default::default(),
+            children_: Default::default(),
+            weak_self: Weak::new(),
+        };
+        log!(LogDebug, "creating new thread group {} (real tgid:{})", tgid, real_tgid);
+
+        let tg_shared = Rc::new(RefCell::new(tg));
+        let tg_weak = Rc::downgrade(&tg_shared);
+        tg_shared.borrow_mut().weak_self = tg_weak.clone();
+
+        // @TODO
+        //if parent.is_some() {
+        //    parent.unwrap().upgrade().unwrap().borrow_mut().children_.insert(tg_weak.clone());
+        //}
+        session.upgrade().unwrap().borrow_mut().on_create_tg(tg_weak);
+        tg_shared
     }
 
     /// Mark the members of this thread group as "unstable",

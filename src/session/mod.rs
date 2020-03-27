@@ -6,7 +6,7 @@ use crate::session::diversion_session::DiversionSession;
 use crate::session::record_session::RecordSession;
 use crate::session::replay_session::ReplaySession;
 use crate::session::session_inner::session_inner::{SessionInner, TaskMap};
-use crate::task::Task;
+use crate::task::{Task, TaskSharedWeakPtr};
 use crate::taskish_uid::{AddressSpaceUid, TaskUid, ThreadGroupUid};
 use crate::thread_group::{ThreadGroup, ThreadGroupSharedPtr};
 use crate::trace::trace_stream::TraceStream;

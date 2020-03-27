@@ -181,7 +181,7 @@ pub mod session_inner {
             unimplemented!()
         }
         /// NOTE: Method is simply called on_Session::on_create() in rr.
-        pub fn on_create_tg(&mut self, tg: &ThreadGroup) {
+        pub fn on_create_tg(&mut self, tg: ThreadGroupSharedWeakPtr) {
             unimplemented!()
         }
         /// NOTE: Method is simply called on_Session::on_destroy() in rr.
