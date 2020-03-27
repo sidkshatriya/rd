@@ -1,13 +1,61 @@
+use crate::address_space::address_space::AddressSpace;
+use crate::task::Task;
+use crate::thread_group::ThreadGroup;
 use libc::pid_t;
+use std::cmp::Ordering;
 use std::marker::PhantomData;
 use std::ops::Deref;
 
-#[derive(Copy, Clone, Eq, PartialEq, PartialOrd, Ord)]
+/// Need to manually derive Eq, PartialEq, Ord, PartialOrd due to quirks with PhantomData
 pub struct TaskishUid<T> {
     tid_: pid_t,
     serial_: u32,
     phantom_data: PhantomData<T>,
 }
+
+impl<T> Clone for TaskishUid<T> {
+    fn clone(&self) -> Self {
+        TaskishUid {
+            tid_: self.tid_,
+            serial_: self.serial_,
+            phantom_data: PhantomData,
+        }
+    }
+}
+
+impl<T> PartialEq for TaskishUid<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.tid_ == other.tid_ && self.serial_ == other.serial_
+    }
+}
+
+impl<T> Eq for TaskishUid<T> {}
+
+impl<T> Ord for TaskishUid<T> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        if self.tid_ < other.tid_ {
+            Ordering::Less
+        } else if self.tid_ == other.tid_ {
+            if self.serial_ < other.serial_ {
+                Ordering::Less
+            } else if self.serial_ == other.serial_ {
+                Ordering::Equal
+            } else {
+                Ordering::Greater
+            }
+        } else {
+            Ordering::Greater
+        }
+    }
+}
+
+impl<T> PartialOrd for TaskishUid<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<T> Copy for TaskishUid<T> {}
 
 /// An ID that's unique within a Session (but consistent across
 /// multiple ReplaySessions for the same trace), used by Tasks, ThreadGroups
@@ -39,17 +87,9 @@ impl<T> TaskishUid<T> {
     }
 }
 
-#[derive(Copy, Clone, PartialOrd, PartialEq, Eq, Ord)]
-pub struct AddressSpaceStandIn {
-    // this is empty
-}
-
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub struct AddressSpaceUid {
-    /// Note that this is a parameterized by placeholder type AddressSpaceStandIn instead of
-    /// AddressSpace to deal with Rust quirkiness with automatically deriving traits from structs
-    /// with PhantomData in them.
-    taskish: TaskishUid<AddressSpaceStandIn>,
+    taskish: TaskishUid<AddressSpace>,
     exec_count: u32,
 }
 
@@ -74,27 +114,15 @@ impl AddressSpaceUid {
 }
 
 impl Deref for AddressSpaceUid {
-    type Target = TaskishUid<AddressSpaceStandIn>;
+    type Target = TaskishUid<AddressSpace>;
 
     fn deref(&self) -> &Self::Target {
         &self.taskish
     }
 }
 
-#[derive(Copy, Clone, PartialOrd, PartialEq, Eq, Ord)]
-pub struct TaskStandIn {
-    // this is empty
-}
-
-#[derive(Copy, Clone, PartialOrd, PartialEq, Eq, Ord)]
-pub struct ThreadGroupStandIn {
-    // this is empty
-}
-
-/// Note the use of placeholder "...StandIn" types to deal with quirkiness in deriving traits from
-/// structs with PhantomData in them.
-pub type TaskUid = TaskishUid<TaskStandIn>;
-pub type ThreadGroupUid = TaskishUid<ThreadGroupStandIn>;
+pub type TaskUid = TaskishUid<Box<dyn Task>>;
+pub type ThreadGroupUid = TaskishUid<ThreadGroup>;
 
 #[cfg(test)]
 mod test {
