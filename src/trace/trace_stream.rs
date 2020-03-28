@@ -97,12 +97,12 @@ impl TraceStream {
 /// writing code together for easier coordination.
 pub struct TraceStream {
     /// Directory into which we're saving the trace files.
-    trace_dir: OsString,
+    pub(super) trace_dir: OsString,
     /// CPU core# that the tracees are bound to
-    bind_to_cpu: i32,
+    pub(super) bind_to_cpu: i32,
     /// Arbitrary notion of trace time, ticked on the recording of
     /// each event (trace frame).
-    global_time: FrameTime,
+    pub(super) global_time: FrameTime,
 }
 
 pub struct RawDataMetadata {

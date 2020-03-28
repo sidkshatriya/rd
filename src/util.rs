@@ -1,3 +1,4 @@
+use crate::address_space::kernel_mapping::KernelMapping;
 use crate::bindings::signal::{SI_KERNEL, TRAP_BRKPT};
 use crate::scoped_fd::ScopedFd;
 use libc::pwrite64;
@@ -458,4 +459,8 @@ pub fn monotonic_now_sec() -> f64 {
     let ret = unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut tp) };
     assert_eq!(ret, 0);
     tp.tv_sec as f64 + (tp.tv_nsec as f64 / 1e9)
+}
+
+pub fn should_copy_mmap_region(mapping: &KernelMapping, stat: &libc::stat) -> bool {
+    unimplemented!()
 }

@@ -20,11 +20,12 @@ use crate::trace::trace_stream::{
 use crate::trace::trace_task_event::TraceTaskEvent;
 use crate::trace_capnp::SignalDisposition as TraceSignalDisposition;
 use crate::trace_capnp::SyscallState as TraceSyscallState;
-use crate::trace_capnp::{frame, signal};
-use crate::util::{monotonic_now_sec, CPUIDRecord};
+use crate::trace_capnp::{frame, m_map, signal};
+use crate::util::{monotonic_now_sec, should_copy_mmap_region, CPUIDRecord};
 use capnp::private::layout::ListBuilder;
 use capnp::{message, primitive_list};
 use libc::{dev_t, ino_t, pid_t};
+use nix::sys::mman::{MapFlags, ProtFlags};
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::ffi::{OsStr, OsString};
@@ -231,7 +232,7 @@ impl TraceWriter {
                     syscall.set_state(to_trace_syscall_state(e.state));
                     syscall.set_failed_during_preparation(e.failed_during_preparation);
                     let mut data = syscall.init_extra();
-                    if e.write_offset.is_some() && e.write_offset.unwrap() >= 0 {
+                    if e.write_offset.is_some() {
                         // @TODO Offsets in rd are u64 and in rr i64
                         data.set_write_offset(e.write_offset.unwrap() as i64);
                     } else if e.exec_fds_to_close.len() > 0 {
@@ -240,7 +241,8 @@ impl TraceWriter {
                         for (i, fd) in e.exec_fds_to_close.iter().enumerate() {
                             primitive_list.set(i as u32, *fd);
                         }
-                        data.set_exec_fds_to_close(primitive_list.into_reader());
+                        data.set_exec_fds_to_close(primitive_list.into_reader())
+                            .unwrap();
                     } else if e.opened.len() > 0 {
                         let mut open = data.init_opened_fds(e.opened.len() as u32);
                         for i in 0..e.opened.len() {
@@ -259,18 +261,129 @@ impl TraceWriter {
     }
 
     /// Write mapped-region record to the trace.
-    /// If this returns `RecordInTrace`, then the data for the map should be
+    /// If this returns `RecordInTrace::RecordInTrace`, then the data for the map should be
     /// recorded in the trace raw-data.
     pub fn write_mapped_region(
-        &self,
-        t: RecordTask,
-        map: &KernelMapping,
+        &mut self,
+        t: &RecordTask,
+        km: &KernelMapping,
         stat: &libc::stat,
         extra_fds: &[TraceRemoteFd],
-        origin: Option<MappingOrigin>,
-        skip_monitoring_mapped_fd: Option<bool>,
+        maybe_origin: Option<MappingOrigin>,
+        maybe_skip_monitoring_mapped_fd: Option<bool>,
     ) -> RecordInTrace {
-        unimplemented!()
+        let skip_monitoring_mapped_fd = maybe_skip_monitoring_mapped_fd.unwrap_or(false);
+        let origin = maybe_origin.unwrap_or(MappingOrigin::SyscallMapping);
+
+        let mut map_msg = message::Builder::new_default();
+        let mut map = map_msg.init_root::<m_map::Builder>();
+        // @TODO global_time is a u64 in rd and i64 on rr
+        map.set_frame_time(self.global_time as i64);
+        map.set_start(km.start().as_usize() as u64);
+        map.set_end(km.end().as_usize() as u64);
+        map.set_fsname(km.fsname().as_bytes());
+        map.set_device(km.device());
+        map.set_inode(km.inode());
+        map.set_prot(km.prot().bits());
+        map.set_flags(km.flags().bits());
+        // @TODO file offset is a u64 in rr and i64 in rd
+        map.set_file_offset_bytes(km.file_offset_bytes() as i64);
+        map.set_stat_mode(stat.st_mode);
+        map.set_stat_uid(stat.st_uid);
+        map.set_stat_gid(stat.st_gid);
+        map.set_stat_size(stat.st_size);
+        map.set_stat_m_time(stat.st_mtime);
+        let mut fds = map.reborrow().init_extra_fds(extra_fds.len() as u32);
+        for (i, _) in extra_fds.iter().enumerate() {
+            let mut e = fds.reborrow().get(i as u32);
+            let r = &extra_fds[i];
+            e.set_tid(r.tid);
+            e.set_fd(r.fd);
+        }
+        map.set_skip_monitoring_mapped_fd(skip_monitoring_mapped_fd);
+        let mut src = map.get_source();
+        let mut backing_file_name = OsString::new();
+
+        if origin == MappingOrigin::RemapMapping
+            || origin == MappingOrigin::PatchMapping
+            || origin == MappingOrigin::RdBufferMapping
+        {
+            src.set_zero(());
+        } else if km.fsname().as_bytes().starts_with(b"/SYSV") {
+            src.set_trace(());
+        } else if origin == MappingOrigin::SyscallMapping
+            && (km.inode() == 0 || km.fsname() == "/dev/zero (deleted)")
+        {
+            src.set_zero(());
+        } else if !km.fsname().as_bytes().starts_with(b"/") {
+            src.set_trace(());
+        } else {
+            let file_name = try_make_process_file_name(t, km.fsname());
+            let assumed_immutable = self
+                .files_assumed_immutable
+                .get(&(stat.st_dev, stat.st_ino));
+
+            if assumed_immutable.is_some() {
+                src.init_file()
+                    .set_backing_file_name(assumed_immutable.unwrap().as_bytes());
+            } else if km.flags().contains(MapFlags::MAP_PRIVATE)
+                && self.try_clone_file(t, &file_name, &mut backing_file_name)
+            {
+                src.init_file()
+                    .set_backing_file_name(backing_file_name.as_bytes());
+            } else if should_copy_mmap_region(km, stat) {
+                // Make executable files accessible to debuggers by copying the whole
+                // thing into the trace directory. We don't get to compress the data and
+                // the entire file is copied, not just the used region, which is why we
+                // don't do this for all files.
+                // Don't bother trying to copy [vdso].
+                // Don't try to copy files that use shared mappings. We do not want to
+                // create a shared mapping of a file stored in the trace. This means
+                // debuggers can't find the file, but the Linux loader doesn't create
+                // shared mappings so situations where a shared-mapped executable contains
+                // usable debug info should be very rare at best...
+                if km.prot().contains(ProtFlags::PROT_EXEC)
+                    && self.copy_file(&file_name, &mut backing_file_name)
+                    && !km.flags().contains(MapFlags::MAP_SHARED)
+                {
+                    src.init_file()
+                        .set_backing_file_name(backing_file_name.as_bytes());
+                } else {
+                    src.set_trace(());
+                }
+            } else {
+                // should_copy_mmap_region's heuristics determined it was OK to just map
+                // the file here even if it's MAP_SHARED. So try cloning again to avoid
+                // the possibility of the file changing between recording and replay.
+                if !self.try_clone_file(t, &file_name, &mut backing_file_name) {
+                    // Try hardlinking file into the trace directory. This will avoid
+                    // replay failures if the original file is deleted or replaced (but not
+                    // if it is overwritten in-place). If try_hardlink_file fails it
+                    // just returns the original file name.
+                    // A relative backing_file_name is relative to the trace directory.
+                    if !self.try_hardlink_file(&file_name, &mut backing_file_name) {
+                        // Don't ever use `file_name` for the `backing_file_name` because it
+                        // contains the pid of a recorded process and will not work!
+                        backing_file_name = km.fsname().to_owned();
+                    }
+                    self.files_assumed_immutable
+                        .insert((stat.st_dev, stat.st_ino), backing_file_name.clone());
+                }
+                src.init_file()
+                    .set_backing_file_name(backing_file_name.as_bytes());
+            }
+        }
+
+        // @TODO incomplete.
+        unimplemented!();
+
+        self.mmap_count += 1;
+        // @TODO incomplete
+        if true {
+            RecordInTrace::RecordInTrace
+        } else {
+            RecordInTrace::DontRecordInTrace
+        }
     }
 
     pub fn write_mapped_region_to_alternative_stream(
@@ -340,13 +453,13 @@ impl TraceWriter {
         self.ticks_semantics_
     }
 
-    fn try_hardlink_file(&self, file_name: &OsStr, new_name: &OsStr) -> bool {
+    fn try_hardlink_file(&self, file_name: &OsStr, new_name: &mut OsString) -> bool {
         unimplemented!()
     }
-    fn try_clone_file(&self, t: &RecordTask, file_name: &OsStr, new_name: &OsStr) {
+    fn try_clone_file(&self, t: &RecordTask, file_name: &OsStr, new_name: &mut OsString) -> bool {
         unimplemented!()
     }
-    fn copy_file(&self, file_name: &OsStr, new_name: &OsStr) {
+    fn copy_file(&self, file_name: &OsStr, new_name: &mut OsString) -> bool {
         unimplemented!()
     }
 
@@ -391,4 +504,10 @@ fn to_trace_syscall_state(state: SyscallState) -> TraceSyscallState {
             unreachable!()
         }
     }
+}
+
+/// Given `file_name`, where `file_name` is relative to our root directory
+/// but is in the mount namespace of `t`, try to make it a file we can read.
+fn try_make_process_file_name(t: &RecordTask, file_name: &OsStr) -> OsString {
+    unimplemented!()
 }
