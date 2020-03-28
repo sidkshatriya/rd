@@ -1,7 +1,10 @@
 use crate::address_space::kernel_mapping::KernelMapping;
-use crate::event::{Event, EventType, SignalDeterministic, SignalResolvedDisposition};
+use crate::event::{
+    Event, EventType, SignalDeterministic, SignalResolvedDisposition, SyscallState,
+};
 use crate::extra_registers::ExtraRegisters;
 use crate::kernel_abi::common::preload_interface::mprotect_record;
+use crate::kernel_abi::syscall_number_for_restart_syscall;
 use crate::kernel_abi::RD_NATIVE_ARCH;
 use crate::perf_counters::TicksSemantics;
 use crate::registers::Registers;
@@ -16,15 +19,18 @@ use crate::trace::trace_stream::{
 };
 use crate::trace::trace_task_event::TraceTaskEvent;
 use crate::trace_capnp::SignalDisposition as TraceSignalDisposition;
+use crate::trace_capnp::SyscallState as TraceSyscallState;
 use crate::trace_capnp::{frame, signal};
 use crate::util::{monotonic_now_sec, CPUIDRecord};
-use capnp::message;
+use capnp::private::layout::ListBuilder;
+use capnp::{message, primitive_list};
 use libc::{dev_t, ino_t, pid_t};
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::ffi::{OsStr, OsString};
 use std::mem::size_of;
 use std::ops::{Deref, DerefMut};
+use std::os::unix::ffi::OsStrExt;
 use std::slice;
 
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -212,7 +218,40 @@ impl TraceWriter {
                     event.init_syscallbuf_flush().set_mprotect_records(data);
                 }
                 EventType::EvSyscall => {
-                    // @TODO
+                    let e = ev.syscall_event();
+                    let mut syscall = event.init_syscall();
+                    syscall.set_arch(to_trace_arch(e.arch()));
+                    let syscall_num = if e.is_restart {
+                        syscall_number_for_restart_syscall(t.arch())
+                    } else {
+                        e.number
+                    };
+
+                    syscall.set_number(syscall_num);
+                    syscall.set_state(to_trace_syscall_state(e.state));
+                    syscall.set_failed_during_preparation(e.failed_during_preparation);
+                    let mut data = syscall.init_extra();
+                    if e.write_offset.is_some() && e.write_offset.unwrap() >= 0 {
+                        // @TODO Offsets in rd are u64 and in rr i64
+                        data.set_write_offset(e.write_offset.unwrap() as i64);
+                    } else if e.exec_fds_to_close.len() > 0 {
+                        let lb = ListBuilder::new_default();
+                        let mut primitive_list = primitive_list::Builder::new(lb);
+                        for (i, fd) in e.exec_fds_to_close.iter().enumerate() {
+                            primitive_list.set(i as u32, *fd);
+                        }
+                        data.set_exec_fds_to_close(primitive_list.into_reader());
+                    } else if e.opened.len() > 0 {
+                        let mut open = data.init_opened_fds(e.opened.len() as u32);
+                        for i in 0..e.opened.len() {
+                            let mut o = open.reborrow().get(i as u32);
+                            let opened = &e.opened[i];
+                            o.set_fd(opened.fd);
+                            o.set_path(opened.path.as_bytes());
+                            o.set_device(opened.device);
+                            o.set_inode(opened.inode);
+                        }
+                    }
                 }
                 _ => fatal!("Event type not recordable"),
             }
@@ -339,5 +378,17 @@ fn to_trace_disposition(disposition: SignalResolvedDisposition) -> TraceSignalDi
         SignalResolvedDisposition::DispositionFatal => TraceSignalDisposition::Fatal,
         SignalResolvedDisposition::DispositionIgnored => TraceSignalDisposition::Ignored,
         SignalResolvedDisposition::DispositionUserHandler => TraceSignalDisposition::UserHandler,
+    }
+}
+
+fn to_trace_syscall_state(state: SyscallState) -> TraceSyscallState {
+    match state {
+        SyscallState::EnteringSyscallPtrace => TraceSyscallState::EnteringPtrace,
+        SyscallState::EnteringSyscall => TraceSyscallState::Entering,
+        SyscallState::ExitingSyscall => TraceSyscallState::Exiting,
+        _ => {
+            fatal!("Unknown syscall state");
+            unreachable!()
+        }
     }
 }
