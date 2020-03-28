@@ -12,6 +12,7 @@ use raw_cpuid::CpuId;
 use std::convert::TryInto;
 use std::env::var_os;
 use std::ffi::{c_void, OsStr, OsString};
+use std::mem::zeroed;
 use std::os::unix::ffi::OsStrExt;
 
 pub const CPUID_GETVENDORSTRING: u32 = 0x0;
@@ -448,4 +449,13 @@ pub fn find(haystack: &OsStr, needle: &[u8]) -> Option<usize> {
         i += 1;
     }
     unreachable!()
+}
+
+/// Get the current time from the preferred monotonic clock in units of
+/// seconds, relative to an unspecific point in the past.
+pub fn monotonic_now_sec() -> f64 {
+    let mut tp: libc::timespec = unsafe { zeroed() };
+    let ret = unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut tp) };
+    assert_eq!(ret, 0);
+    tp.tv_sec as f64 + (tp.tv_nsec as f64 / 1e9)
 }

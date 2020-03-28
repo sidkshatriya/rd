@@ -1,6 +1,8 @@
 use crate::address_space::kernel_mapping::KernelMapping;
-use crate::event::Event;
+use crate::event::{Event, EventType, SignalDeterministic, SignalResolvedDisposition};
 use crate::extra_registers::ExtraRegisters;
+use crate::kernel_abi::common::preload_interface::mprotect_record;
+use crate::kernel_abi::RD_NATIVE_ARCH;
 use crate::perf_counters::TicksSemantics;
 use crate::registers::Registers;
 use crate::remote_ptr::{RemotePtr, Void};
@@ -8,16 +10,22 @@ use crate::scoped_fd::ScopedFd;
 use crate::session::record_session::{DisableCPUIDFeatures, TraceUuid};
 use crate::task::record_task::record_task::RecordTask;
 use crate::trace::compressed_writer::CompressedWriter;
+use crate::trace::trace_stream::to_trace_arch;
 use crate::trace::trace_stream::{
     MappedData, RawDataMetadata, Substream, TraceRemoteFd, TraceStream, SUBSTREAM_COUNT,
 };
 use crate::trace::trace_task_event::TraceTaskEvent;
-use crate::util::CPUIDRecord;
+use crate::trace_capnp::SignalDisposition as TraceSignalDisposition;
+use crate::trace_capnp::{frame, signal};
+use crate::util::{monotonic_now_sec, CPUIDRecord};
+use capnp::message;
 use libc::{dev_t, ino_t, pid_t};
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::ffi::{OsStr, OsString};
+use std::mem::size_of;
 use std::ops::{Deref, DerefMut};
+use std::slice;
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub enum RecordInTrace {
@@ -116,13 +124,99 @@ impl TraceWriter {
     /// Recording a trace frame has the side effect of ticking
     /// the global time.
     pub fn write_frame(
-        &self,
+        &mut self,
         t: &RecordTask,
         ev: &Event,
-        registers: &Registers,
-        extra_registers: &ExtraRegisters,
+        maybe_registers: Option<&Registers>,
+        maybe_extra_registers: Option<&ExtraRegisters>,
     ) {
-        unimplemented!()
+        let mut frame_msg = message::Builder::new_default();
+        let mut frame = frame_msg.init_root::<frame::Builder>();
+        frame.set_tid(t.tid);
+        // @TODO In rr ticks are signed. In rd they are not.
+        frame.set_ticks(t.tick_count() as i64);
+        frame.set_monotonic_sec(monotonic_now_sec());
+
+        {
+            let mut mem_writes = frame.reborrow().init_mem_writes(self.raw_recs.len() as u32);
+            for (i, r) in self.raw_recs.iter().enumerate() {
+                let mut w = mem_writes.reborrow().get(i as u32);
+                w.set_tid(r.rec_tid);
+                w.set_addr(r.addr.as_usize() as u64);
+                w.set_size(r.size as u64);
+            }
+        }
+        self.raw_recs.clear();
+        frame.set_arch(to_trace_arch(t.arch()));
+        {
+            match maybe_registers {
+                Some(registers) => {
+                    let raw_regs = registers.get_ptrace_for_self_arch();
+                    frame.reborrow().init_registers().set_raw(raw_regs);
+                }
+                None => (),
+            }
+        }
+        {
+            match maybe_extra_registers {
+                Some(extra_registers) => {
+                    let raw_regs = extra_registers.data_bytes();
+                    frame.reborrow().init_extra_registers().set_raw(raw_regs);
+                }
+                None => (),
+            }
+        }
+
+        {
+            let mut event = frame.reborrow().init_event();
+            match ev.event_type() {
+                EventType::EvInstructionTrap => {
+                    event.set_instruction_trap(());
+                }
+                EventType::EvPatchSyscall => {
+                    event.set_patch_syscall(());
+                }
+                EventType::EvSyscallbufAbortCommit => {
+                    event.set_syscallbuf_abort_commit(());
+                }
+                EventType::EvSyscallbufReset => {
+                    event.set_syscallbuf_reset(());
+                }
+                EventType::EvSched => {
+                    event.set_sched(());
+                }
+                EventType::EvGrowMap => {
+                    event.set_grow_map(());
+                }
+                EventType::EvSignal => {
+                    to_trace_signal(event.init_signal(), ev);
+                }
+                EventType::EvSignalDelivery => {
+                    to_trace_signal(event.init_signal_delivery(), ev);
+                }
+                EventType::EvSignalHandler => {
+                    to_trace_signal(event.init_signal_handler(), ev);
+                }
+                EventType::EvExit => {
+                    event.set_exit(());
+                }
+                EventType::EvSyscallbufFlush => {
+                    let e = ev.syscallbuf_flush_event();
+                    let data = unsafe {
+                        slice::from_raw_parts::<u8>(
+                            e.mprotect_records.as_ptr() as *const u8,
+                            e.mprotect_records.len() * size_of::<mprotect_record>(),
+                        )
+                    };
+
+                    event.init_syscallbuf_flush().set_mprotect_records(data);
+                }
+                EventType::EvSyscall => {
+                    // @TODO
+                }
+                _ => fatal!("Event type not recordable"),
+            }
+        }
     }
 
     /// Write mapped-region record to the trace.
@@ -222,5 +316,28 @@ impl TraceWriter {
     }
     fn writer_mut(&mut self, s: Substream) -> &mut CompressedWriter {
         &mut self.writers[s as usize]
+    }
+}
+
+fn to_trace_signal(mut signal: signal::Builder, ev: &Event) {
+    let sig_ev = ev.signal_event();
+    signal.set_siginfo_arch(to_trace_arch(RD_NATIVE_ARCH));
+    let siginfo_data = unsafe {
+        slice::from_raw_parts::<u8>(
+            &sig_ev.siginfo as *const _ as *const u8,
+            size_of::<libc::siginfo_t>(),
+        )
+    };
+
+    signal.set_siginfo(siginfo_data);
+    signal.set_deterministic(sig_ev.deterministic == SignalDeterministic::DeterministicSig);
+    signal.set_disposition(to_trace_disposition(sig_ev.disposition));
+}
+
+fn to_trace_disposition(disposition: SignalResolvedDisposition) -> TraceSignalDisposition {
+    match disposition {
+        SignalResolvedDisposition::DispositionFatal => TraceSignalDisposition::Fatal,
+        SignalResolvedDisposition::DispositionIgnored => TraceSignalDisposition::Ignored,
+        SignalResolvedDisposition::DispositionUserHandler => TraceSignalDisposition::UserHandler,
     }
 }

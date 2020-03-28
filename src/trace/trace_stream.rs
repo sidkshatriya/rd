@@ -1,6 +1,8 @@
+use crate::kernel_abi::SupportedArch;
 use crate::remote_ptr::{RemotePtr, Void};
 use crate::taskish_uid::TaskUid;
 use crate::trace::trace_frame::FrameTime;
+use crate::trace_capnp::Arch;
 use libc::pid_t;
 use std::ffi::{OsStr, OsString};
 
@@ -124,4 +126,11 @@ pub struct MappedData {
     pub data_offset_bytes: usize,
     /// Original size of mapped file.
     pub file_size_bytes: usize,
+}
+
+pub(super) fn to_trace_arch(arch: SupportedArch) -> Arch {
+    match arch {
+        SupportedArch::X86 => Arch::X86,
+        SupportedArch::X64 => Arch::X8664,
+    }
 }
