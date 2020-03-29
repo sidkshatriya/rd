@@ -16,6 +16,7 @@ use crate::task::record_task::record_task::RecordTask;
 use crate::trace::compressed_writer::CompressedWriter;
 use crate::trace::compressed_writer_output_stream::CompressedWriterOutputStream;
 use crate::trace::trace_stream::to_trace_arch;
+use crate::trace::trace_stream::MappedDataSource;
 use crate::trace::trace_stream::{
     MappedData, RawDataMetadata, Substream, TraceRemoteFd, TraceStream, SUBSTREAM_COUNT,
 };
@@ -35,7 +36,6 @@ use nix::sys::mman::{MapFlags, ProtFlags};
 use nix::sys::stat::Mode;
 use nix::unistd::unlink;
 use std::collections::HashMap;
-use std::ffi::c_void;
 use std::ffi::{OsStr, OsString};
 use std::fs::hard_link;
 use std::io::Write;
@@ -408,20 +408,62 @@ impl TraceWriter {
     }
 
     pub fn write_mapped_region_to_alternative_stream(
-        mmaps: &CompressedWriter,
+        mmaps: &mut CompressedWriter,
         data: &MappedData,
         km: &KernelMapping,
         extra_fds: &[TraceRemoteFd],
         skip_monitoring_mapped_fd: bool,
     ) {
-        unimplemented!()
+        let mut map_msg = message::Builder::new_default();
+        {
+            let mut map = map_msg.init_root::<m_map::Builder>();
+            // @TODO global_time is a u64 in rd and i64 on rr
+            map.set_frame_time(data.time as i64);
+            map.set_start(km.start().as_usize() as u64);
+            map.set_end(km.end().as_usize() as u64);
+            map.set_fsname(km.fsname().as_bytes());
+            map.set_device(km.device());
+            map.set_inode(km.inode());
+            map.set_prot(km.prot().bits());
+            map.set_flags(km.flags().bits());
+            // @TODO file offset is a u64 in rr and i64 in rd
+            map.set_file_offset_bytes(km.file_offset_bytes() as i64);
+            map.set_stat_size(data.file_size_bytes as i64);
+            let mut fds = map.reborrow().init_extra_fds(extra_fds.len() as u32);
+            for (i, _) in extra_fds.iter().enumerate() {
+                let mut e = fds.reborrow().get(i as u32);
+                let r = &extra_fds[i];
+                e.set_tid(r.tid);
+                e.set_fd(r.fd);
+            }
+            map.set_skip_monitoring_mapped_fd(skip_monitoring_mapped_fd);
+            let mut src = map.get_source();
+            match data.source {
+                MappedDataSource::SourceFile => src
+                    .init_file()
+                    .set_backing_file_name(data.filename.as_bytes()),
+                MappedDataSource::SourceTrace => src.set_trace(()),
+                MappedDataSource::SourceZero => src.set_zero(()),
+            }
+        }
+
+        let mut stream = CompressedWriterOutputStream::new(mmaps);
+        if write_message(&mut stream, &map_msg).is_err() {
+            fatal!("Unable to write mmaps");
+        }
     }
 
     /// Write a raw-data record to the trace.
     /// 'addr' is the address in the tracee where the data came from/will be
     /// restored to.
-    pub fn write_raw(&self, tid: pid_t, data: *const c_void, len: usize, addr: RemotePtr<Void>) {
-        unimplemented!()
+    pub fn write_raw(&mut self, rec_tid: pid_t, d: &[u8], addr: RemotePtr<Void>) {
+        let data = self.writer_mut(Substream::RawData);
+        data.write(d);
+        self.raw_recs.push(RawDataMetadata {
+            addr,
+            rec_tid,
+            size: d.len(),
+        });
     }
 
     /// Write a task event (clone or exec record) to the trace.

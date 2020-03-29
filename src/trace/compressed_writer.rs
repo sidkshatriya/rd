@@ -1,3 +1,5 @@
+use std::io::{Result, Write};
+
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub enum Sync {
     DontSync,
@@ -29,3 +31,14 @@ pub struct BlockHeader {
 ///
 /// Each data block is compressed independently using zlib.
 pub struct CompressedWriter;
+
+/// @TODO Not sure if this is the correct abstraction that is to be used.
+impl Write for CompressedWriter {
+    fn write(&mut self, buf: &[u8]) -> Result<usize> {
+        unimplemented!()
+    }
+
+    fn flush(&mut self) -> Result<()> {
+        unimplemented!()
+    }
+}
