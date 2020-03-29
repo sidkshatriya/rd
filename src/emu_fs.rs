@@ -158,7 +158,7 @@ impl EmuFile {
             let mut ret: isize = unsafe {
                 pread64(
                     self.fd().as_raw(),
-                    &mut data as *mut _ as *mut c_void,
+                    data.as_mut_ptr().cast::<c_void>(),
                     amount,
                     offset as i64,
                 )

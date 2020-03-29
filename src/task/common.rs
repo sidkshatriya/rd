@@ -148,7 +148,10 @@ pub(super) fn read_bytes_fallible<T: Task>(
         let nread: isize = unsafe {
             pread64(
                 task.vm().mem_fd().as_raw(),
-                buf.get_mut(all_read..).unwrap() as *mut _ as *mut c_void,
+                buf.get_mut(all_read..)
+                    .unwrap()
+                    .as_mut_ptr()
+                    .cast::<c_void>(),
                 // How much more left to read
                 buf.len() - all_read,
                 // Where you're reading from in the tracee
