@@ -1,5 +1,6 @@
 pub mod compressed_reader;
 pub mod compressed_writer;
+pub mod compressed_writer_output_stream;
 pub mod trace_frame;
 pub mod trace_reader;
 pub mod trace_stream;

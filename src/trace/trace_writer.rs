@@ -6,6 +6,7 @@ use crate::extra_registers::ExtraRegisters;
 use crate::kernel_abi::common::preload_interface::mprotect_record;
 use crate::kernel_abi::syscall_number_for_restart_syscall;
 use crate::kernel_abi::RD_NATIVE_ARCH;
+use crate::kernel_supplement::BTRFS_IOC_CLONE_;
 use crate::perf_counters::TicksSemantics;
 use crate::registers::Registers;
 use crate::remote_ptr::{RemotePtr, Void};
@@ -13,25 +14,34 @@ use crate::scoped_fd::ScopedFd;
 use crate::session::record_session::{DisableCPUIDFeatures, TraceUuid};
 use crate::task::record_task::record_task::RecordTask;
 use crate::trace::compressed_writer::CompressedWriter;
+use crate::trace::compressed_writer_output_stream::CompressedWriterOutputStream;
 use crate::trace::trace_stream::to_trace_arch;
 use crate::trace::trace_stream::{
     MappedData, RawDataMetadata, Substream, TraceRemoteFd, TraceStream, SUBSTREAM_COUNT,
 };
 use crate::trace::trace_task_event::TraceTaskEvent;
+use crate::trace_capnp::m_map::source::Which::Trace;
 use crate::trace_capnp::SignalDisposition as TraceSignalDisposition;
 use crate::trace_capnp::SyscallState as TraceSyscallState;
 use crate::trace_capnp::{frame, m_map, signal};
 use crate::util::{monotonic_now_sec, should_copy_mmap_region, CPUIDRecord};
 use capnp::private::layout::ListBuilder;
+use capnp::serialize_packed::write_message;
 use capnp::{message, primitive_list};
+use libc::ioctl;
 use libc::{dev_t, ino_t, pid_t};
+use nix::fcntl::OFlag;
 use nix::sys::mman::{MapFlags, ProtFlags};
+use nix::sys::stat::Mode;
+use nix::unistd::unlink;
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::ffi::{OsStr, OsString};
+use std::io::Write;
 use std::mem::size_of;
 use std::ops::{Deref, DerefMut};
 use std::os::unix::ffi::OsStrExt;
+use std::path::Path;
 use std::slice;
 
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -276,114 +286,124 @@ impl TraceWriter {
         let origin = maybe_origin.unwrap_or(MappingOrigin::SyscallMapping);
 
         let mut map_msg = message::Builder::new_default();
-        let mut map = map_msg.init_root::<m_map::Builder>();
-        // @TODO global_time is a u64 in rd and i64 on rr
-        map.set_frame_time(self.global_time as i64);
-        map.set_start(km.start().as_usize() as u64);
-        map.set_end(km.end().as_usize() as u64);
-        map.set_fsname(km.fsname().as_bytes());
-        map.set_device(km.device());
-        map.set_inode(km.inode());
-        map.set_prot(km.prot().bits());
-        map.set_flags(km.flags().bits());
-        // @TODO file offset is a u64 in rr and i64 in rd
-        map.set_file_offset_bytes(km.file_offset_bytes() as i64);
-        map.set_stat_mode(stat.st_mode);
-        map.set_stat_uid(stat.st_uid);
-        map.set_stat_gid(stat.st_gid);
-        map.set_stat_size(stat.st_size);
-        map.set_stat_m_time(stat.st_mtime);
-        let mut fds = map.reborrow().init_extra_fds(extra_fds.len() as u32);
-        for (i, _) in extra_fds.iter().enumerate() {
-            let mut e = fds.reborrow().get(i as u32);
-            let r = &extra_fds[i];
-            e.set_tid(r.tid);
-            e.set_fd(r.fd);
-        }
-        map.set_skip_monitoring_mapped_fd(skip_monitoring_mapped_fd);
-        let mut src = map.get_source();
-        let mut backing_file_name = OsString::new();
-
-        if origin == MappingOrigin::RemapMapping
-            || origin == MappingOrigin::PatchMapping
-            || origin == MappingOrigin::RdBufferMapping
+        let record_in_trace: RecordInTrace;
         {
-            src.set_zero(());
-        } else if km.fsname().as_bytes().starts_with(b"/SYSV") {
-            src.set_trace(());
-        } else if origin == MappingOrigin::SyscallMapping
-            && (km.inode() == 0 || km.fsname() == "/dev/zero (deleted)")
-        {
-            src.set_zero(());
-        } else if !km.fsname().as_bytes().starts_with(b"/") {
-            src.set_trace(());
-        } else {
-            let file_name = try_make_process_file_name(t, km.fsname());
-            let assumed_immutable = self
-                .files_assumed_immutable
-                .get(&(stat.st_dev, stat.st_ino));
+            let mut map = map_msg.init_root::<m_map::Builder>();
+            // @TODO global_time is a u64 in rd and i64 on rr
+            map.set_frame_time(self.global_time as i64);
+            map.set_start(km.start().as_usize() as u64);
+            map.set_end(km.end().as_usize() as u64);
+            map.set_fsname(km.fsname().as_bytes());
+            map.set_device(km.device());
+            map.set_inode(km.inode());
+            map.set_prot(km.prot().bits());
+            map.set_flags(km.flags().bits());
+            // @TODO file offset is a u64 in rr and i64 in rd
+            map.set_file_offset_bytes(km.file_offset_bytes() as i64);
+            map.set_stat_mode(stat.st_mode);
+            map.set_stat_uid(stat.st_uid);
+            map.set_stat_gid(stat.st_gid);
+            map.set_stat_size(stat.st_size);
+            map.set_stat_m_time(stat.st_mtime);
+            let mut fds = map.reborrow().init_extra_fds(extra_fds.len() as u32);
+            for (i, _) in extra_fds.iter().enumerate() {
+                let mut e = fds.reborrow().get(i as u32);
+                let r = &extra_fds[i];
+                e.set_tid(r.tid);
+                e.set_fd(r.fd);
+            }
+            map.set_skip_monitoring_mapped_fd(skip_monitoring_mapped_fd);
+            let mut src = map.get_source();
+            let mut backing_file_name = OsString::new();
 
-            if assumed_immutable.is_some() {
-                src.init_file()
-                    .set_backing_file_name(assumed_immutable.unwrap().as_bytes());
-            } else if km.flags().contains(MapFlags::MAP_PRIVATE)
-                && self.try_clone_file(t, &file_name, &mut backing_file_name)
+            if origin == MappingOrigin::RemapMapping
+                || origin == MappingOrigin::PatchMapping
+                || origin == MappingOrigin::RdBufferMapping
             {
-                src.init_file()
-                    .set_backing_file_name(backing_file_name.as_bytes());
-            } else if should_copy_mmap_region(km, stat) {
-                // Make executable files accessible to debuggers by copying the whole
-                // thing into the trace directory. We don't get to compress the data and
-                // the entire file is copied, not just the used region, which is why we
-                // don't do this for all files.
-                // Don't bother trying to copy [vdso].
-                // Don't try to copy files that use shared mappings. We do not want to
-                // create a shared mapping of a file stored in the trace. This means
-                // debuggers can't find the file, but the Linux loader doesn't create
-                // shared mappings so situations where a shared-mapped executable contains
-                // usable debug info should be very rare at best...
-                if km.prot().contains(ProtFlags::PROT_EXEC)
-                    && self.copy_file(&file_name, &mut backing_file_name)
-                    && !km.flags().contains(MapFlags::MAP_SHARED)
-                {
-                    src.init_file()
-                        .set_backing_file_name(backing_file_name.as_bytes());
-                } else {
-                    src.set_trace(());
-                }
+                src.reborrow().set_zero(());
+            } else if km.fsname().as_bytes().starts_with(b"/SYSV") {
+                src.reborrow().set_trace(());
+            } else if origin == MappingOrigin::SyscallMapping
+                && (km.inode() == 0 || km.fsname() == "/dev/zero (deleted)")
+            {
+                src.reborrow().set_zero(());
+            } else if !km.fsname().as_bytes().starts_with(b"/") {
+                src.reborrow().set_trace(());
             } else {
-                // should_copy_mmap_region's heuristics determined it was OK to just map
-                // the file here even if it's MAP_SHARED. So try cloning again to avoid
-                // the possibility of the file changing between recording and replay.
-                if !self.try_clone_file(t, &file_name, &mut backing_file_name) {
-                    // Try hardlinking file into the trace directory. This will avoid
-                    // replay failures if the original file is deleted or replaced (but not
-                    // if it is overwritten in-place). If try_hardlink_file fails it
-                    // just returns the original file name.
-                    // A relative backing_file_name is relative to the trace directory.
-                    if !self.try_hardlink_file(&file_name, &mut backing_file_name) {
-                        // Don't ever use `file_name` for the `backing_file_name` because it
-                        // contains the pid of a recorded process and will not work!
-                        backing_file_name = km.fsname().to_owned();
+                let file_name = try_make_process_file_name(t, km.fsname());
+                let assumed_immutable = self
+                    .files_assumed_immutable
+                    .get(&(stat.st_dev, stat.st_ino));
+
+                if assumed_immutable.is_some() {
+                    src.reborrow()
+                        .init_file()
+                        .set_backing_file_name(assumed_immutable.unwrap().as_bytes());
+                } else if km.flags().contains(MapFlags::MAP_PRIVATE)
+                    && self.try_clone_file(t, &file_name, &mut backing_file_name)
+                {
+                    src.reborrow()
+                        .init_file()
+                        .set_backing_file_name(backing_file_name.as_bytes());
+                } else if should_copy_mmap_region(km, stat) {
+                    // Make executable files accessible to debuggers by copying the whole
+                    // thing into the trace directory. We don't get to compress the data and
+                    // the entire file is copied, not just the used region, which is why we
+                    // don't do this for all files.
+                    // Don't bother trying to copy [vdso].
+                    // Don't try to copy files that use shared mappings. We do not want to
+                    // create a shared mapping of a file stored in the trace. This means
+                    // debuggers can't find the file, but the Linux loader doesn't create
+                    // shared mappings so situations where a shared-mapped executable contains
+                    // usable debug info should be very rare at best...
+                    if km.prot().contains(ProtFlags::PROT_EXEC)
+                        && self.copy_file(&file_name, &mut backing_file_name)
+                        && !km.flags().contains(MapFlags::MAP_SHARED)
+                    {
+                        src.reborrow()
+                            .init_file()
+                            .set_backing_file_name(backing_file_name.as_bytes());
+                    } else {
+                        src.reborrow().set_trace(());
                     }
-                    self.files_assumed_immutable
-                        .insert((stat.st_dev, stat.st_ino), backing_file_name.clone());
+                } else {
+                    // should_copy_mmap_region's heuristics determined it was OK to just map
+                    // the file here even if it's MAP_SHARED. So try cloning again to avoid
+                    // the possibility of the file changing between recording and replay.
+                    if !self.try_clone_file(t, &file_name, &mut backing_file_name) {
+                        // Try hardlinking file into the trace directory. This will avoid
+                        // replay failures if the original file is deleted or replaced (but not
+                        // if it is overwritten in-place). If try_hardlink_file fails it
+                        // just returns the original file name.
+                        // A relative backing_file_name is relative to the trace directory.
+                        if !self.try_hardlink_file(&file_name, &mut backing_file_name) {
+                            // Don't ever use `file_name` for the `backing_file_name` because it
+                            // contains the pid of a recorded process and will not work!
+                            backing_file_name = km.fsname().to_owned();
+                        }
+                        self.files_assumed_immutable
+                            .insert((stat.st_dev, stat.st_ino), backing_file_name.clone());
+                    }
+                    src.reborrow()
+                        .init_file()
+                        .set_backing_file_name(backing_file_name.as_bytes());
                 }
-                src.init_file()
-                    .set_backing_file_name(backing_file_name.as_bytes());
+            }
+
+            record_in_trace = if let Trace(_) = src.which().unwrap() {
+                RecordInTrace::RecordInTrace
+            } else {
+                RecordInTrace::DontRecordInTrace
             }
         }
-
-        // @TODO incomplete.
-        unimplemented!();
+        let mmaps = self.writer_mut(Substream::Mmaps);
+        let mut stream = CompressedWriterOutputStream::new(mmaps);
+        if write_message(&mut stream, &map_msg).is_err() {
+            fatal!("Unable to write mmaps");
+        }
 
         self.mmap_count += 1;
-        // @TODO incomplete
-        if true {
-            RecordInTrace::RecordInTrace
-        } else {
-            RecordInTrace::DontRecordInTrace
-        }
+        record_in_trace
     }
 
     pub fn write_mapped_region_to_alternative_stream(
@@ -457,8 +477,46 @@ impl TraceWriter {
         unimplemented!()
     }
     fn try_clone_file(&self, t: &RecordTask, file_name: &OsStr, new_name: &mut OsString) -> bool {
-        unimplemented!()
+        if !t.session().borrow().as_record().unwrap().use_file_cloning() {
+            return false;
+        }
+
+        let base_file_name = Path::new(file_name).file_name().unwrap();
+        let mut path: Vec<u8> = Vec::new();
+        write!(path, "mmap_clone_{}_", self.mmap_count).unwrap();
+        path.copy_from_slice(base_file_name.as_bytes());
+
+        let src = ScopedFd::open_path(file_name, OFlag::O_RDONLY);
+        if !src.is_open() {
+            return false;
+        }
+        let mut dest_path = Vec::<u8>::new();
+        dest_path.copy_from_slice(self.dir().as_bytes());
+        write!(dest_path, "/").unwrap();
+        dest_path.copy_from_slice(&path);
+
+        let dest = ScopedFd::open_path_with_mode(
+            dest_path.as_slice(),
+            OFlag::O_WRONLY | OFlag::O_CREAT | OFlag::O_EXCL,
+            Mode::S_IRWXU,
+        );
+        if !dest.is_open() {
+            return false;
+        }
+
+        let ret = unsafe { ioctl(dest.as_raw(), BTRFS_IOC_CLONE_, src.as_raw()) };
+        if ret < 0 {
+            // maybe not on the same filesystem, or filesystem doesn't support clone?
+            // @TODO rr swallows an unlink error but we dont for now.
+            unlink(dest_path.as_slice()).unwrap();
+            return false;
+        }
+
+        new_name.clear();
+        new_name.push(OsStr::from_bytes(&path));
+        true
     }
+
     fn copy_file(&self, file_name: &OsStr, new_name: &mut OsString) -> bool {
         unimplemented!()
     }

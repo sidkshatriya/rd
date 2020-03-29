@@ -62,6 +62,9 @@ impl RecordSession {
     pub fn syscallbuf_desched_sig(&self) -> i32 {
         unimplemented!()
     }
+    pub fn use_file_cloning(&self) -> bool {
+        self.use_file_cloning_
+    }
 }
 
 impl Deref for RecordSession {

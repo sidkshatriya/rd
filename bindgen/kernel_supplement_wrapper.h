@@ -131,6 +131,9 @@ struct btrfs_ioctl_clone_range_args {
   _IOW(BTRFS_IOCTL_MAGIC, 13, struct btrfs_ioctl_clone_range_args)
 #endif
 
+// @TODO Added this manually for the constant to be picked up
+const unsigned long BTRFS_IOC_CLONE_ = BTRFS_IOC_CLONE;
+
 #ifndef USBDEVFS_GET_CAPABILITIES
 #define USBDEVFS_GET_CAPABILITIES _IOR('U', 26, __u32)
 #endif
