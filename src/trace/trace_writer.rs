@@ -24,7 +24,7 @@ use crate::trace_capnp::m_map::source::Which::Trace;
 use crate::trace_capnp::SignalDisposition as TraceSignalDisposition;
 use crate::trace_capnp::SyscallState as TraceSyscallState;
 use crate::trace_capnp::{frame, m_map, signal};
-use crate::util::{monotonic_now_sec, should_copy_mmap_region, CPUIDRecord};
+use crate::util::{copy_file, monotonic_now_sec, should_copy_mmap_region, CPUIDRecord};
 use capnp::private::layout::ListBuilder;
 use capnp::serialize_packed::write_message;
 use capnp::{message, primitive_list};
@@ -37,6 +37,7 @@ use nix::unistd::unlink;
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::ffi::{OsStr, OsString};
+use std::fs::hard_link;
 use std::io::Write;
 use std::mem::size_of;
 use std::ops::{Deref, DerefMut};
@@ -474,7 +475,24 @@ impl TraceWriter {
     }
 
     fn try_hardlink_file(&self, file_name: &OsStr, new_name: &mut OsString) -> bool {
-        unimplemented!()
+        let base_file_name = Path::new(file_name).file_name().unwrap();
+        let mut path: Vec<u8> = Vec::new();
+        write!(path, "mmap_hardlink_{}_", self.mmap_count).unwrap();
+        path.copy_from_slice(base_file_name.as_bytes());
+
+        let mut dest_path = Vec::<u8>::new();
+        dest_path.copy_from_slice(self.dir().as_bytes());
+        write!(dest_path, "/").unwrap();
+        dest_path.copy_from_slice(&path);
+
+        let ret = hard_link(file_name, OsStr::from_bytes(&dest_path));
+        if ret.is_err() {
+            return false;
+        }
+
+        new_name.clear();
+        new_name.push(OsStr::from_bytes(&path));
+        true
     }
     fn try_clone_file(&self, t: &RecordTask, file_name: &OsStr, new_name: &mut OsString) -> bool {
         if !t.session().borrow().as_record().unwrap().use_file_cloning() {
@@ -518,7 +536,32 @@ impl TraceWriter {
     }
 
     fn copy_file(&self, file_name: &OsStr, new_name: &mut OsString) -> bool {
-        unimplemented!()
+        let base_file_name = Path::new(file_name).file_name().unwrap();
+        let mut path: Vec<u8> = Vec::new();
+        write!(path, "mmap_clone_{}_", self.mmap_count).unwrap();
+        path.copy_from_slice(base_file_name.as_bytes());
+
+        let src = ScopedFd::open_path(file_name, OFlag::O_RDONLY);
+        if !src.is_open() {
+            return false;
+        }
+        let mut dest_path = Vec::<u8>::new();
+        dest_path.copy_from_slice(self.dir().as_bytes());
+        write!(dest_path, "/").unwrap();
+        dest_path.copy_from_slice(&path);
+
+        let dest = ScopedFd::open_path_with_mode(
+            dest_path.as_slice(),
+            OFlag::O_WRONLY | OFlag::O_CREAT | OFlag::O_EXCL,
+            Mode::S_IRWXU,
+        );
+        if !dest.is_open() {
+            return false;
+        }
+
+        new_name.clear();
+        new_name.push(OsStr::from_bytes(&path));
+        copy_file(dest.as_raw(), src.as_raw())
     }
 
     fn writer(&self, s: Substream) -> &CompressedWriter {

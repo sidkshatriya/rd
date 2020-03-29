@@ -464,3 +464,7 @@ pub fn monotonic_now_sec() -> f64 {
 pub fn should_copy_mmap_region(mapping: &KernelMapping, stat: &libc::stat) -> bool {
     unimplemented!()
 }
+
+pub fn copy_file(dest_fd: i32, src_fd: i32) -> bool {
+    unimplemented!()
+}
