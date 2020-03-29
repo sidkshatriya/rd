@@ -20,11 +20,11 @@ use crate::trace::trace_stream::MappedDataSource;
 use crate::trace::trace_stream::{
     MappedData, RawDataMetadata, Substream, TraceRemoteFd, TraceStream, SUBSTREAM_COUNT,
 };
-use crate::trace::trace_task_event::TraceTaskEvent;
+use crate::trace::trace_task_event::{TraceTaskEvent, TraceTaskEventType};
 use crate::trace_capnp::m_map::source::Which::Trace;
-use crate::trace_capnp::SignalDisposition as TraceSignalDisposition;
 use crate::trace_capnp::SyscallState as TraceSyscallState;
 use crate::trace_capnp::{frame, m_map, signal};
+use crate::trace_capnp::{task_event, SignalDisposition as TraceSignalDisposition};
 use crate::util::{copy_file, monotonic_now_sec, should_copy_mmap_region, CPUIDRecord};
 use capnp::private::layout::ListBuilder;
 use capnp::serialize_packed::write_message;
@@ -458,7 +458,7 @@ impl TraceWriter {
     /// restored to.
     pub fn write_raw(&mut self, rec_tid: pid_t, d: &[u8], addr: RemotePtr<Void>) {
         let data = self.writer_mut(Substream::RawData);
-        data.write(d);
+        data.write(d).unwrap();
         self.raw_recs.push(RawDataMetadata {
             addr,
             rec_tid,
@@ -467,8 +467,40 @@ impl TraceWriter {
     }
 
     /// Write a task event (clone or exec record) to the trace.
-    pub fn write_task_event(event: &TraceTaskEvent) {
-        unimplemented!()
+    pub fn write_task_event(&mut self, event: &TraceTaskEvent) {
+        let mut task_msg = message::Builder::new_default();
+        let mut task = task_msg.init_root::<task_event::Builder>();
+        // @TODO This is a u64 in rd and an i64 in rr
+        task.set_frame_time(self.global_time as i64);
+        task.set_tid(event.tid());
+
+        match event.event_type() {
+            TraceTaskEventType::Clone(e) => {
+                let mut clone = task.init_clone();
+                clone.set_parent_tid(e.parent_tid());
+                clone.set_own_ns_tid(e.own_ns_tid());
+                clone.set_flags(e.clone_flags());
+            }
+            TraceTaskEventType::Exec(e) => {
+                let mut exec = task.init_exec();
+                exec.set_file_name(e.file_name().as_bytes());
+                let event_cmd_line = e.cmd_line();
+                let mut cmd_line = exec.reborrow().init_cmd_line(event_cmd_line.len() as u32);
+                for i in 0..event_cmd_line.len() {
+                    cmd_line.set(i as u32, event_cmd_line[i].as_bytes());
+                }
+                exec.set_exe_base(e.exe_base().as_usize() as u64);
+            }
+            TraceTaskEventType::Exit(e) => {
+                task.init_exit().set_exit_status(e.exit_status().get());
+            }
+        }
+
+        let tasks = self.writer_mut(Substream::Tasks);
+        let mut stream = CompressedWriterOutputStream::new(tasks);
+        if write_message(&mut stream, &task_msg).is_err() {
+            fatal!("Unable to write tasks");
+        }
     }
 
     /// Return true iff all trace files are "good".
