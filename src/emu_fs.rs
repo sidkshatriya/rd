@@ -337,10 +337,7 @@ impl EmuFs {
     pub fn find(&self, device: dev_t, inode: ino_t) -> Option<EmuFileSharedPtr> {
         let file_id = FileId::new(device, inode);
         let maybe_file_weak_ptr = self.files.get(&file_id);
-        match maybe_file_weak_ptr {
-            Some(file_weak_ptr) => Some(file_weak_ptr.upgrade().unwrap()),
-            None => None,
-        }
+        maybe_file_weak_ptr.map(|file_weak_ptr| file_weak_ptr.upgrade().unwrap())
     }
 
     /// Dump information about this emufs to the "error" log.
