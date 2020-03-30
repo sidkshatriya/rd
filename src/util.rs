@@ -1,16 +1,20 @@
 use crate::address_space::kernel_mapping::KernelMapping;
 use crate::bindings::signal::{SI_KERNEL, TRAP_BRKPT};
+use crate::log::LogLevel::{LogDebug, LogWarn};
 use crate::scoped_fd::ScopedFd;
 use libc::pwrite64;
-use libc::S_IFDIR;
+use libc::{S_IFDIR, S_IFREG};
 use nix::errno::errno;
+use nix::sys::mman::{MapFlags, ProtFlags};
 use nix::sys::stat::FileStat;
 use nix::sys::stat::{stat, Mode};
+use nix::sys::statfs::{statfs, TMPFS_MAGIC};
 use nix::unistd::SysconfVar::PAGE_SIZE;
 use nix::unistd::{access, ftruncate, mkdir};
 use nix::unistd::{sysconf, AccessFlags};
 use raw_cpuid::CpuId;
 use std::convert::TryInto;
+use std::env;
 use std::env::var_os;
 use std::ffi::{c_void, OsStr, OsString};
 use std::mem::zeroed;
@@ -462,7 +466,157 @@ pub fn monotonic_now_sec() -> f64 {
 }
 
 pub fn should_copy_mmap_region(mapping: &KernelMapping, stat: &libc::stat) -> bool {
-    unimplemented!()
+    let v = env::var("RD_COPY_ALL_FILES");
+    if v.is_err() || v.unwrap().is_empty() {
+        return true;
+    }
+
+    let flags = mapping.flags();
+    let prot = mapping.prot();
+    let file_name = mapping.fsname();
+    let private_mapping = flags.contains(MapFlags::MAP_PRIVATE);
+
+    // TODO: handle mmap'd files that are unlinked during
+    // recording or otherwise not available.
+    if !has_fs_name(file_name) {
+        // This includes files inaccessible because the tracee is using a different
+        // mount namespace with its own mounts
+        log!(LogDebug, "  copying unlinked/inaccessible file");
+        return true;
+    }
+    if !(stat.st_mode & S_IFREG != S_IFREG) {
+        log!(LogDebug, "  copying non-regular-file");
+        return true;
+    }
+    if is_tmp_file(file_name) {
+        log!(LogDebug, "  copying file on tmpfs");
+        return true;
+    }
+    if file_name == "/etc/ld.so.cache" {
+        // This file changes on almost every system update so we should copy it.
+        log!(LogDebug, "  copying {:?}", file_name);
+        return true;
+    }
+    if private_mapping && prot.contains(ProtFlags::PROT_EXEC) {
+        // Be optimistic about private executable mappings
+        log!(
+            LogDebug,
+            "  (no copy for +x private mapping {:?})",
+            file_name
+        );
+        return false;
+    }
+    if private_mapping && (0o111 & stat.st_mode != 0) {
+        // A private mapping of an executable file usually
+        // indicates mapping data sections of object files.
+        // Since we're already assuming those change very
+        // infrequently, we can avoid copying the data
+        // sections too.
+        log!(
+            LogDebug,
+            "  (no copy for private mapping of +x {:?})",
+            file_name
+        );
+        return false;
+    }
+    let can_read_file = access(file_name, AccessFlags::R_OK).is_ok();
+    if !can_read_file {
+        // It's possible for a tracee to mmap a file it doesn't have permission
+        // to read, e.g. if a daemon opened the file and passed the fd over a
+        // socket. We should copy the data now because we won't be able to read
+        // it later. nscd does this.
+        return true;
+    }
+
+    // XXX: using "can the euid of the rd process write this
+    // file" as an approximation of whether the tracee can write
+    // the file.  If the tracee is messing around with
+    // set*[gu]id(), the real answer may be different.
+    let can_write_file = access(file_name, AccessFlags::W_OK).is_ok();
+
+    // Inside a user namespace, the real root user may be mapped to UID 65534.
+    if !can_write_file && (0 == stat.st_uid || 65534 == stat.st_uid) {
+        // We would like to DEBUG_ASSERT this, but on Ubuntu 13.10,
+        // the file /lib/i386-linux-gnu/libdl-2.17.so is
+        // writeable by root for unknown reasons.
+        // DEBUG_ASSERT(!(prot & PROT_WRITE));
+        //
+        // Mapping a file owned by root: we don't care if this
+        // was a PRIVATE or SHARED mapping, because unless the
+        // program is disastrously buggy or unlucky, the
+        // mapping is effectively PRIVATE.  Bad luck can come
+        // from this program running during a system update,
+        // or a user being added, which is probably less
+        // frequent than even system updates.
+        //
+        // XXX what about the fontconfig cache files? */
+        log!(LogDebug, "  (no copy for root-owned {:?})", file_name);
+        return false;
+    }
+    if private_mapping {
+        // Some programs (at least Firefox) have been observed
+        // to use cache files that are expected to be
+        // consistent and unchanged during the bulk of
+        // execution, but may be destroyed or mutated at
+        // shutdown in preparation for the next session.  We
+        // don't otherwise know what to do with private
+        // mappings, so err on the safe side.
+        //
+        // TODO: could get into dirty heuristics here like
+        // trying to match "cache" in the filename ... */
+        log!(
+            LogDebug,
+            "  copying private mapping of non-system -x {:?}",
+            file_name
+        );
+        return true;
+    }
+    if !(0o222 & stat.st_mode != 0) {
+        // We couldn't write the file because it's read only.
+        // But it's not a root-owned file (therefore not a
+        // system file), so it's likely that it could be
+        // temporary.  Copy it.
+        log!(LogDebug, "  copying read-only, non-system file");
+        return true;
+    }
+    if !can_write_file {
+        // mmap'ing another user's (non-system) files?  Highly
+        // irregular ...
+        let shared = if flags.contains(MapFlags::MAP_SHARED) {
+            ";SHARED"
+        } else {
+            ""
+        };
+
+        log!(
+            LogWarn,
+            "Scary mmap {:?} (prot: {:x} {}); uid:{}  mode:{}",
+            file_name,
+            prot,
+            shared,
+            stat.st_uid,
+            stat.st_mode
+        );
+    }
+
+    return true;
+}
+
+pub fn has_fs_name(path: &OsStr) -> bool {
+    stat(path).is_ok()
+}
+
+pub fn is_tmp_file(path: &OsStr) -> bool {
+    let v = env::var("RD_TRUST_TEMP_FILES");
+    if v.is_err() || v.unwrap().is_empty() {
+        return true;
+    }
+
+    // @TODO rr assumes the call always succeeds but we dont for now.
+    let sfs = statfs(path).unwrap();
+    // In observed configurations of Ubuntu 13.10, /tmp is
+    // a folder in the / fs, not a separate tmpfs.
+    TMPFS_MAGIC == sfs.filesystem_type() || path.as_bytes().starts_with(b"/tmp/")
 }
 
 pub fn copy_file(dest_fd: i32, src_fd: i32) -> bool {
