@@ -10,7 +10,7 @@ use nix::sys::stat::FileStat;
 use nix::sys::stat::{stat, Mode};
 use nix::sys::statfs::{statfs, TMPFS_MAGIC};
 use nix::unistd::SysconfVar::PAGE_SIZE;
-use nix::unistd::{access, ftruncate, mkdir};
+use nix::unistd::{access, ftruncate, mkdir, read, write};
 use nix::unistd::{sysconf, AccessFlags};
 use raw_cpuid::CpuId;
 use std::convert::TryInto;
@@ -562,8 +562,8 @@ pub fn should_copy_mmap_region(mapping: &KernelMapping, stat: &libc::stat) -> bo
         // don't otherwise know what to do with private
         // mappings, so err on the safe side.
         //
-        // TODO: could get into dirty heuristics here like
-        // trying to match "cache" in the filename ... */
+        // XXX: could get into dirty heuristics here like
+        // trying to match "cache" in the filename ...
         log!(
             LogDebug,
             "  copying private mapping of non-system -x {:?}",
@@ -620,5 +620,30 @@ pub fn is_tmp_file(path: &OsStr) -> bool {
 }
 
 pub fn copy_file(dest_fd: i32, src_fd: i32) -> bool {
-    unimplemented!()
+    let mut buf = [0u8; 32 * 1024];
+    loop {
+        let bytes_result = read(src_fd, &mut buf);
+        match bytes_result {
+            Err(_) => return false,
+            Ok(0) => break,
+            Ok(nread) => {
+                write_all(dest_fd, &buf[0..nread]);
+            }
+        }
+    }
+    true
+}
+
+pub fn write_all(fd: i32, mut buf: &[u8]) {
+    let mut size = buf.len();
+    while size > 0 {
+        let ret = write(fd, buf);
+        match ret {
+            Err(_) | Ok(0) => fatal!("Can't write {} bytes", size),
+            Ok(nwritten) => {
+                buf = &buf[nwritten..];
+                size -= nwritten;
+            }
+        }
+    }
 }
