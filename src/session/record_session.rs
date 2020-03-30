@@ -8,6 +8,7 @@ use crate::task::Task;
 use crate::thread_group::ThreadGroupSharedPtr;
 use crate::trace::trace_stream::TraceStream;
 use crate::trace::trace_writer::TraceWriter;
+use crate::util::{CPUIDData, CPUID_GETEXTENDEDFEATURES, CPUID_GETFEATURES, CPUID_GETXSAVE};
 use std::ops::{Deref, DerefMut};
 
 #[derive(Clone, Eq, PartialEq)]
@@ -23,8 +24,61 @@ pub struct DisableCPUIDFeatures {
     xsave_features_eax: u32,
 }
 
+const CPUID_RDRAND_FLAG: u32 = 1 << 30;
+const CPUID_RTM_FLAG: u32 = 1 << 11;
+const CPUID_RDSEED_FLAG: u32 = 1 << 18;
+const CPUID_XSAVEOPT_FLAG: u32 = 1 << 0;
+
+impl Default for DisableCPUIDFeatures {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DisableCPUIDFeatures {
-    // @TODO
+    pub fn new() -> DisableCPUIDFeatures {
+        DisableCPUIDFeatures {
+            features_ecx: 0,
+            features_edx: 0,
+            extended_features_ebx: 0,
+            extended_features_ecx: 0,
+            extended_features_edx: 0,
+            xsave_features_eax: 0,
+        }
+    }
+    pub fn any_features_disabled(&self) -> bool {
+        self.features_ecx != 0
+            || self.features_edx != 0
+            || self.extended_features_ebx != 0
+            || self.extended_features_ecx != 0
+            || self.extended_features_edx != 0
+            || self.xsave_features_eax != 0
+    }
+    pub fn amend_cpuid_data(&self, eax_in: u32, ecx_in: u32, cpuid_data: &mut CPUIDData) {
+        match eax_in {
+            CPUID_GETFEATURES => {
+                cpuid_data.ecx &= !(CPUID_RDRAND_FLAG | self.features_ecx);
+                cpuid_data.edx &= !self.features_edx;
+            }
+            CPUID_GETEXTENDEDFEATURES => {
+                if ecx_in == 0 {
+                    cpuid_data.ebx &=
+                        !(CPUID_RDSEED_FLAG | CPUID_RTM_FLAG | self.extended_features_ebx);
+                    cpuid_data.ecx &= !self.extended_features_ecx;
+                    cpuid_data.edx &= !self.extended_features_edx;
+                }
+            }
+            CPUID_GETXSAVE => {
+                if ecx_in == 1 {
+                    // Always disable XSAVEOPT because it's nondeterministic,
+                    // possibly depending on context switching behavior. Intel
+                    // recommends not using it from user space.
+                    cpuid_data.eax &= !(CPUID_XSAVEOPT_FLAG | self.xsave_features_eax);
+                }
+            }
+            _ => (),
+        }
+    }
 }
 
 pub struct TraceUuid {
