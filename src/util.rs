@@ -647,3 +647,7 @@ pub fn write_all(fd: i32, mut buf: &[u8]) {
         }
     }
 }
+
+pub fn all_cpuid_records() -> Vec<CPUIDRecord> {
+    gather_cpuid_records(std::u32::MAX)
+}

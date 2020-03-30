@@ -25,7 +25,9 @@ use crate::trace_capnp::m_map::source::Which::Trace;
 use crate::trace_capnp::SyscallState as TraceSyscallState;
 use crate::trace_capnp::{frame, m_map, signal};
 use crate::trace_capnp::{task_event, SignalDisposition as TraceSignalDisposition};
-use crate::util::{copy_file, monotonic_now_sec, should_copy_mmap_region, CPUIDRecord};
+use crate::util::{
+    all_cpuid_records, copy_file, monotonic_now_sec, should_copy_mmap_region, CPUIDRecord,
+};
 use capnp::private::layout::ListBuilder;
 use capnp::serialize_packed::write_message;
 use capnp::{message, primitive_list};
@@ -504,8 +506,13 @@ impl TraceWriter {
     }
 
     /// Return true iff all trace files are "good".
-    pub fn good() -> bool {
-        unimplemented!()
+    pub fn good(&self) -> bool {
+        for w in self.writers.iter() {
+            if !w.good() {
+                return false;
+            }
+        }
+        true
     }
 
     /// Create a trace where the tracess are bound to cpu `bind_to_cpu`. This
@@ -524,10 +531,22 @@ impl TraceWriter {
 
     /// Called after the calling thread is actually bound to `bind_to_cpu`.
     pub fn setup_cpuid_records(
+        &mut self,
         has_cpuid_faulting: bool,
         disable_cpuid_features: &DisableCPUIDFeatures,
     ) {
-        unimplemented!()
+        self.has_cpuid_faulting_ = has_cpuid_faulting;
+        // We are now bound to the selected CPU (if any), so collect CPUID records
+        // (which depend on the bound CPU number).
+        self.cpuid_records = all_cpuid_records();
+        // Modify the recorded cpuid data only if cpuid faulting is available. If it
+        // is not available, the tracee will see unmodified data and should also see
+        // that in handle_unrecorded_cpuid_fault (which is sourced from this data).
+        if has_cpuid_faulting {
+            for r in &mut self.cpuid_records {
+                disable_cpuid_features.amend_cpuid_data(r.eax_in, r.ecx_in, &mut r.out);
+            }
+        }
     }
 
     /// Call close() on all the relevant trace files.

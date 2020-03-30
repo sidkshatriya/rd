@@ -32,6 +32,12 @@ pub struct BlockHeader {
 /// Each data block is compressed independently using zlib.
 pub struct CompressedWriter;
 
+impl CompressedWriter {
+    pub fn good(&self) -> bool {
+        unimplemented!()
+    }
+}
+
 /// @TODO Not sure if this is the correct abstraction that is to be used.
 impl Write for CompressedWriter {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
