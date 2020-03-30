@@ -6,7 +6,9 @@ use crate::extra_registers::ExtraRegisters;
 use crate::kernel_abi::common::preload_interface::mprotect_record;
 use crate::kernel_abi::syscall_number_for_restart_syscall;
 use crate::kernel_abi::RD_NATIVE_ARCH;
-use crate::kernel_supplement::BTRFS_IOC_CLONE_;
+use crate::kernel_supplement::{
+    btrfs_ioctl_clone_range_args, BTRFS_IOC_CLONE_, BTRFS_IOC_CLONE_RANGE_,
+};
 use crate::perf_counters::TicksSemantics;
 use crate::registers::Registers;
 use crate::remote_ptr::{RemotePtr, Void};
@@ -15,10 +17,10 @@ use crate::session::record_session::{DisableCPUIDFeatures, TraceUuid};
 use crate::task::record_task::record_task::RecordTask;
 use crate::trace::compressed_writer::CompressedWriter;
 use crate::trace::compressed_writer_output_stream::CompressedWriterOutputStream;
-use crate::trace::trace_stream::to_trace_arch;
-use crate::trace::trace_stream::MappedDataSource;
+use crate::trace::trace_stream::{make_trace_dir, substream, MappedDataSource};
+use crate::trace::trace_stream::{to_trace_arch, TRACE_VERSION};
 use crate::trace::trace_stream::{
-    MappedData, RawDataMetadata, Substream, TraceRemoteFd, TraceStream, SUBSTREAM_COUNT,
+    MappedData, RawDataMetadata, Substream, TraceRemoteFd, TraceStream,
 };
 use crate::trace::trace_task_event::{TraceTaskEvent, TraceTaskEventType};
 use crate::trace_capnp::m_map::source::Which::Trace;
@@ -26,14 +28,17 @@ use crate::trace_capnp::SyscallState as TraceSyscallState;
 use crate::trace_capnp::{frame, m_map, signal};
 use crate::trace_capnp::{task_event, SignalDisposition as TraceSignalDisposition};
 use crate::util::{
-    all_cpuid_records, copy_file, monotonic_now_sec, should_copy_mmap_region, CPUIDRecord,
+    all_cpuid_records, copy_file, monotonic_now_sec, probably_not_interactive,
+    should_copy_mmap_region, write_all, CPUIDRecord,
 };
 use capnp::private::layout::ListBuilder;
 use capnp::serialize_packed::write_message;
 use capnp::{message, primitive_list};
 use libc::ioctl;
+use libc::STDOUT_FILENO;
 use libc::{dev_t, ino_t, pid_t};
-use nix::fcntl::OFlag;
+use nix::fcntl::FlockArg::LockExclusiveNonblock;
+use nix::fcntl::{flock, OFlag};
 use nix::sys::mman::{MapFlags, ProtFlags};
 use nix::sys::stat::Mode;
 use nix::unistd::unlink;
@@ -44,6 +49,7 @@ use std::io::Write;
 use std::mem::size_of;
 use std::ops::{Deref, DerefMut};
 use std::os::unix::ffi::OsStrExt;
+use std::os::unix::ffi::OsStringExt;
 use std::path::Path;
 use std::slice;
 
@@ -101,8 +107,10 @@ pub enum CloseStatus {
 /// that isn't a trace directory at all).
 pub struct TraceWriter {
     trace_stream: TraceStream,
-    /// @TODO Is a box necessary here?
-    writers: Box<[CompressedWriter; SUBSTREAM_COUNT]>,
+    /// @TODO This does not need to be be dynamic as the number of entries is known at
+    /// compile time. This could be a [CompressedWriter; SUBSTREAM_COUNT] or a Box of
+    /// the same.
+    writers: HashMap<Substream, CompressedWriter>,
     /// Files that have already been mapped without being copied to the trace,
     /// i.e. that we have already assumed to be immutable.
     /// We store the file name under which we assumed it to be immutable, since
@@ -507,7 +515,7 @@ impl TraceWriter {
 
     /// Return true iff all trace files are "good".
     pub fn good(&self) -> bool {
-        for w in self.writers.iter() {
+        for w in self.writers.values() {
             if !w.good() {
                 return false;
             }
@@ -525,8 +533,85 @@ impl TraceWriter {
         bind_to_cpu: i32,
         output_trace_dir: &OsStr,
         ticks_semantics_: TicksSemantics,
-    ) {
-        unimplemented!()
+    ) -> TraceWriter {
+        let mut tw = TraceWriter {
+            trace_stream: TraceStream::new(&make_trace_dir(file_name, output_trace_dir), 1),
+            ticks_semantics_,
+            mmap_count: 0,
+            has_cpuid_faulting_: false,
+            writers: Default::default(),
+            files_assumed_immutable: Default::default(),
+            raw_recs: vec![],
+            cpuid_records: vec![],
+            version_fd: ScopedFd::new(),
+            supports_file_data_cloning_: false,
+        };
+
+        tw.bind_to_cpu = bind_to_cpu;
+
+        for &s in Substream::iter() {
+            tw.writers.insert(
+                s,
+                CompressedWriter::new(tw.path(s), substream(s).block_size, substream(s).threads),
+            );
+        }
+
+        let ver_path = tw.incomplete_version_path();
+        tw.version_fd = ScopedFd::open_path_with_mode(
+            ver_path.as_os_str(),
+            OFlag::O_WRONLY | OFlag::O_CREAT | OFlag::O_EXCL,
+            Mode::S_IWUSR | Mode::S_IXUSR,
+        );
+        if !tw.version_fd.is_open() {
+            fatal!("Unable to create {:?}", ver_path);
+        }
+
+        // Take an exclusive lock and hold it until we rename the file at
+        // the end of recording and then close our file descriptor.
+        if flock(tw.version_fd.as_raw(), LockExclusiveNonblock).is_err() {
+            fatal!("Unable to lock {:?}", ver_path);
+        }
+        let buf = format!("{}\n", TRACE_VERSION);
+        write_all(tw.version_fd.as_raw(), buf.as_bytes());
+
+        // Test if file data cloning is supported
+        let mut version_clone_path_vec: Vec<u8> = tw.trace_dir.clone().into_vec();
+        version_clone_path_vec.extend_from_slice(b"/tmp_clone");
+        let version_clone_path = OsString::from_vec(version_clone_path_vec);
+        let version_clone_fd = ScopedFd::open_path_with_mode(
+            version_clone_path.as_os_str(),
+            OFlag::O_WRONLY | OFlag::O_CREAT,
+            Mode::S_IWUSR | Mode::S_IXUSR,
+        );
+        if !version_clone_fd.is_open() {
+            fatal!("Unable to create {:?}", version_clone_path);
+        }
+
+        let mut clone_args: btrfs_ioctl_clone_range_args = Default::default();
+        clone_args.src_fd = tw.version_fd.as_raw() as i64;
+        clone_args.src_offset = 0;
+        clone_args.src_length = buf.len() as u64;
+        clone_args.dest_offset = 0;
+        let ret = unsafe {
+            libc::ioctl(
+                version_clone_fd.as_raw(),
+                BTRFS_IOC_CLONE_RANGE_,
+                &clone_args,
+            )
+        };
+        if ret == 0 {
+            tw.supports_file_data_cloning_ = true;
+        }
+        // Swallow any error on unlinking
+        unlink(version_clone_path.as_os_str()).unwrap_or(());
+
+        if !probably_not_interactive(Some(STDOUT_FILENO)) {
+            println!(
+                "rr: Saving execution to trace directory `{:?}'.",
+                tw.trace_dir,
+            );
+        }
+        tw
     }
 
     /// Called after the calling thread is actually bound to `bind_to_cpu`.
@@ -658,10 +743,10 @@ impl TraceWriter {
     }
 
     fn writer(&self, s: Substream) -> &CompressedWriter {
-        &self.writers[s as usize]
+        self.writers.get(&s).unwrap()
     }
     fn writer_mut(&mut self, s: Substream) -> &mut CompressedWriter {
-        &mut self.writers[s as usize]
+        self.writers.get_mut(&s).unwrap()
     }
 }
 

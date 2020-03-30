@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::io::{Result, Write};
 
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -34,6 +35,9 @@ pub struct CompressedWriter;
 
 impl CompressedWriter {
     pub fn good(&self) -> bool {
+        unimplemented!()
+    }
+    pub fn new(filename: &OsStr, buffer_size: usize, num_threads: usize) -> CompressedWriter {
         unimplemented!()
     }
 }

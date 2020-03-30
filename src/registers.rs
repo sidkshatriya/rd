@@ -18,7 +18,6 @@ use std::fmt::Result;
 use std::io;
 use std::io::Write;
 use std::mem::size_of;
-use std::mem::zeroed;
 use std::num::Wrapping;
 use std::ptr::copy_nonoverlapping;
 
@@ -565,7 +564,7 @@ impl Registers {
     pub fn set_from_ptrace_for_arch(&mut self, arch: SupportedArch, data: &[u8]) {
         if arch == RD_NATIVE_ARCH {
             debug_assert_eq!(data.len(), size_of::<native_user_regs_struct>());
-            let mut n: native_user_regs_struct = unsafe { zeroed() };
+            let mut n: native_user_regs_struct = Default::default();
             unsafe {
                 copy_nonoverlapping(
                     data.as_ptr(),

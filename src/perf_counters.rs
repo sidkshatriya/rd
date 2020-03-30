@@ -24,7 +24,6 @@ use std::ffi::c_void;
 use std::io::stderr;
 use std::io::Write;
 use std::mem::size_of;
-use std::mem::zeroed;
 use std::os::unix::io::RawFd;
 
 lazy_static! {
@@ -286,7 +285,7 @@ fn supports_txp_and_has_kvm_in_txcp_bug() -> (bool, bool) {
 
 /// init_perf_event_attr() in rr.
 fn new_perf_event_attr(type_id: perf_type_id, config: u64) -> perf_event_attr {
-    let mut attr: perf_event_attr = unsafe { zeroed() };
+    let mut attr: perf_event_attr = Default::default();
     attr.type_ = type_id;
     attr.size = std::mem::size_of::<perf_event_attr>() as u32;
     attr.config = config;

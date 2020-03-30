@@ -5,9 +5,14 @@ use crate::trace::trace_frame::FrameTime;
 use crate::trace_capnp::Arch;
 use libc::pid_t;
 use std::ffi::{OsStr, OsString};
+use std::os::unix::ffi::OsStringExt;
+use std::slice::Iter;
+
+pub const TRACE_VERSION: u32 = 85;
 
 /// Update `substreams` and TRACE_VERSION when you update this list.
 #[repr(usize)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash)]
 pub enum Substream {
     /// Substream that stores events (trace frames).
     Events = 0,
@@ -19,7 +24,56 @@ pub enum Substream {
     Tasks = 3,
 }
 
+/// This needs to be kept in sync with the enum above
+pub const SUBSTREAMS: [Substream; SUBSTREAM_COUNT] = [
+    Substream::Events,
+    Substream::RawData,
+    Substream::Mmaps,
+    Substream::Tasks,
+];
+
+impl Substream {
+    pub fn iter() -> Iter<'static, Substream> {
+        SUBSTREAMS.iter()
+    }
+}
+
+pub(super) struct SubstreamData {
+    pub(super) name: &'static str,
+    pub(super) block_size: usize,
+    pub(super) threads: usize,
+}
+
 pub const SUBSTREAM_COUNT: usize = 4;
+
+pub(super) const SUBSTREAMS_DATA: [SubstreamData; SUBSTREAM_COUNT] = [
+    SubstreamData {
+        name: "events",
+        block_size: 1024 * 1024,
+        threads: 1,
+    },
+    SubstreamData {
+        name: "data",
+        block_size: 1024 * 1024,
+        // @TODO Hardcoded for now
+        threads: 8,
+    },
+    SubstreamData {
+        name: "mmaps",
+        block_size: 64 * 1024,
+        threads: 1,
+    },
+    SubstreamData {
+        name: "tasks",
+        block_size: 64 * 1024,
+        threads: 1,
+    },
+];
+
+pub(super) fn substream(s: Substream) -> &'static SubstreamData {
+    // @TODO This method is incomplete
+    &SUBSTREAMS_DATA[s as usize]
+}
 
 /// For REMAP_MAPPING maps, the memory contents are preserved so we don't
 /// need a source. We use SourceZero for that case and it's ignored.
@@ -60,31 +114,35 @@ impl TraceStream {
         unimplemented!()
     }
 
-    fn new(trace_dir: &OsStr, initial_time: FrameTime) -> TraceStream {
+    pub(super) fn new(trace_dir: &OsStr, initial_time: FrameTime) -> TraceStream {
         unimplemented!()
     }
 
     /// Return the path of the file for the given substream.
-    fn path(&self, s: Substream) -> &OsStr {
+    pub(super) fn path(&self, s: Substream) -> &OsStr {
         unimplemented!()
     }
 
     /// Return the path of "version" file, into which the current
     /// trace format version of rr is stored upon creation of the
     /// trace.
-    fn version_path(&self) -> &OsStr {
-        unimplemented!()
+    pub(super) fn version_path(&self) -> OsString {
+        let mut version_path: Vec<u8> = self.trace_dir.clone().into_vec();
+        version_path.copy_from_slice(b"/version");
+        OsString::from_vec(version_path)
     }
 
     /// While the trace is being built, the version file is stored under this name.
     /// When the trace is closed we rename it to the correct name. This lets us
     /// detect incomplete traces.
-    fn incomplete_version_path(&self) -> &OsStr {
-        unimplemented!()
+    pub(super) fn incomplete_version_path(&self) -> OsString {
+        let mut version_path: Vec<u8> = self.trace_dir.clone().into_vec();
+        version_path.copy_from_slice(b"/incomplete");
+        OsString::from_vec(version_path)
     }
 
     /// Increment the global time and return the incremented value.
-    fn tick_time(&mut self) {
+    pub(super) fn tick_time(&mut self) {
         self.global_time += 1
     }
 }
@@ -133,4 +191,8 @@ pub(super) fn to_trace_arch(arch: SupportedArch) -> Arch {
         SupportedArch::X86 => Arch::X86,
         SupportedArch::X64 => Arch::X8664,
     }
+}
+
+pub(super) fn make_trace_dir(exe_path: &OsStr, output_trace_dir: &OsStr) -> OsString {
+    unimplemented!()
 }

@@ -92,6 +92,7 @@ fn main() {
 
     let perf_event_bindings = Builder::default()
         .parse_callbacks(Box::new(CargoCallbacks))
+        .derive_default(true)
         .prepend_enum_name(false)
         // Workaround for "error[E0587]: type has conflicting packed and align representation hints"
         // We don't need these types so just omit them.
@@ -119,6 +120,7 @@ fn main() {
 
     let kernel_abi_bindings = Builder::default()
         .parse_callbacks(Box::new(CargoCallbacks))
+        .derive_default(true)
         .prepend_enum_name(false)
         .header("bindgen/kernel_wrapper.h")
         .generate()
@@ -141,6 +143,7 @@ fn main() {
 
     let kernel_supplement_bindings = Builder::default()
         .parse_callbacks(Box::new(CargoCallbacks))
+        .derive_default(true)
         .prepend_enum_name(false)
         .header("bindgen/kernel_supplement_wrapper.h")
         .generate()

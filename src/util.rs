@@ -3,6 +3,7 @@ use crate::bindings::signal::{SI_KERNEL, TRAP_BRKPT};
 use crate::log::LogLevel::{LogDebug, LogWarn};
 use crate::scoped_fd::ScopedFd;
 use libc::pwrite64;
+use libc::STDERR_FILENO;
 use libc::{S_IFDIR, S_IFREG};
 use nix::errno::errno;
 use nix::sys::mman::{MapFlags, ProtFlags};
@@ -10,7 +11,7 @@ use nix::sys::stat::FileStat;
 use nix::sys::stat::{stat, Mode};
 use nix::sys::statfs::{statfs, TMPFS_MAGIC};
 use nix::unistd::SysconfVar::PAGE_SIZE;
-use nix::unistd::{access, ftruncate, mkdir, read, write};
+use nix::unistd::{access, ftruncate, isatty, mkdir, read, write};
 use nix::unistd::{sysconf, AccessFlags};
 use raw_cpuid::CpuId;
 use std::convert::TryInto;
@@ -650,4 +651,19 @@ pub fn write_all(fd: i32, mut buf: &[u8]) {
 
 pub fn all_cpuid_records() -> Vec<CPUIDRecord> {
     gather_cpuid_records(std::u32::MAX)
+}
+
+pub fn probably_not_interactive(maybe_fd: Option<i32>) -> bool {
+    let fd = maybe_fd.unwrap_or(STDERR_FILENO);
+    // Eminently tunable heuristic, but this is guaranteed to be
+    // true during rr unit tests, where we care most about this
+    // check (to a first degree).  A failing test shouldn't
+    // hang.
+    match isatty(fd) {
+        Ok(res) => !res,
+        Err(_) => {
+            fatal!("Failure in calling isatty()");
+            unreachable!()
+        }
+    }
 }
