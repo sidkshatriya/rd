@@ -24,7 +24,7 @@ impl<T> Eq for WeakPtrWrap<T> {}
 
 impl<T> Hash for WeakPtrWrap<T> {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        let addr = self.0.upgrade().unwrap().as_ptr() as *const u8 as usize;
+        let addr = self.0.upgrade().unwrap().as_ptr().cast::<u8>() as usize;
         // The hash is the hash of the address of the Refcell.
         addr.hash(state);
     }

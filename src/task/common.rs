@@ -491,7 +491,7 @@ pub fn write_mem<D: 'static>(
 ) {
     debug_assert!(type_has_no_holes::<D>());
     let data_slice =
-        unsafe { slice::from_raw_parts(val.as_ptr() as *const u8, val.len() * size_of::<D>()) };
+        unsafe { slice::from_raw_parts(val.as_ptr().cast::<u8>(), val.len() * size_of::<D>()) };
     task.write_bytes_helper(
         RemotePtr::cast(child_addr),
         data_slice,

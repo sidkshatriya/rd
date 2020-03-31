@@ -169,7 +169,7 @@ impl EmuFile {
             // There could have been a short read
             // Note: The if condition above ensures ret > 0
             amount = ret as usize;
-            let mut data_ptr = data.as_ptr() as *const u8;
+            let mut data_ptr = data.as_ptr().cast::<u8>();
             while amount > 0 {
                 ret = unsafe {
                     pwrite64(

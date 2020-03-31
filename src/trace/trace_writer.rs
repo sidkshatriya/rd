@@ -243,7 +243,7 @@ impl TraceWriter {
                     let e = ev.syscallbuf_flush_event();
                     let data = unsafe {
                         slice::from_raw_parts::<u8>(
-                            e.mprotect_records.as_ptr() as *const u8,
+                            e.mprotect_records.as_ptr().cast::<u8>(),
                             e.mprotect_records.len() * size_of::<mprotect_record>(),
                         )
                     };
@@ -661,7 +661,7 @@ impl TraceWriter {
         header.set_has_cpuid_faulting(self.has_cpuid_faulting_);
         let cpuid_data = unsafe {
             slice::from_raw_parts::<u8>(
-                &self.cpuid_records.as_ptr() as *const _ as *const u8,
+                self.cpuid_records.as_ptr().cast::<u8>(),
                 self.cpuid_records.len() * size_of::<CPUIDRecord>(),
             )
         };
@@ -881,7 +881,7 @@ fn to_trace_ticks_semantics(semantics: TicksSemantics) -> TraceTicksSemantics {
     }
 }
 
-pub(super) fn to_trace_arch(arch: SupportedArch) -> TraceArch {
+fn to_trace_arch(arch: SupportedArch) -> TraceArch {
     match arch {
         SupportedArch::X86 => TraceArch::X86,
         SupportedArch::X64 => TraceArch::X8664,
