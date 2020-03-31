@@ -82,7 +82,16 @@ impl DisableCPUIDFeatures {
 }
 
 pub struct TraceUuid {
-    bytes: [u8; 16],
+    pub bytes: [u8; 16],
+}
+
+impl TraceUuid {
+    pub fn inner_bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+    pub fn new() -> TraceUuid {
+        unimplemented!()
+    }
 }
 
 pub struct RecordSession {

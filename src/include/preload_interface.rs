@@ -13,7 +13,7 @@ use crate::bindings::kernel::PAGE_SIZE;
 ///
 /// Version 0
 
-pub const SYSCALLBUF_PROTOCOL_VERSION: u32 = 0;
+pub const SYSCALLBUF_PROTOCOL_VERSION: u16 = 0;
 
 /// @TODO need to deal with the fact that the might be a \0 terminator.
 pub const SYSCALLBUF_LIB_FILENAME_BASE: &'static str = "librrpreload";

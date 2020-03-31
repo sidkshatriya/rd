@@ -3,13 +3,13 @@ use crate::event::{
     Event, EventType, SignalDeterministic, SignalResolvedDisposition, SyscallState,
 };
 use crate::extra_registers::ExtraRegisters;
-use crate::kernel_abi::common::preload_interface::mprotect_record;
+use crate::kernel_abi::common::preload_interface::{mprotect_record, SYSCALLBUF_PROTOCOL_VERSION};
 use crate::kernel_abi::syscall_number_for_restart_syscall;
 use crate::kernel_abi::RD_NATIVE_ARCH;
 use crate::kernel_supplement::{
     btrfs_ioctl_clone_range_args, BTRFS_IOC_CLONE_, BTRFS_IOC_CLONE_RANGE_,
 };
-use crate::perf_counters::TicksSemantics;
+use crate::perf_counters::{PerfCounters, TicksSemantics};
 use crate::registers::Registers;
 use crate::remote_ptr::{RemotePtr, Void};
 use crate::scoped_fd::ScopedFd;
@@ -26,10 +26,13 @@ use crate::trace::trace_task_event::{TraceTaskEvent, TraceTaskEventType};
 use crate::trace_capnp::m_map::source::Which::Trace;
 use crate::trace_capnp::SyscallState as TraceSyscallState;
 use crate::trace_capnp::{frame, m_map, signal};
-use crate::trace_capnp::{task_event, SignalDisposition as TraceSignalDisposition};
+use crate::trace_capnp::{
+    header, task_event, SignalDisposition as TraceSignalDisposition,
+    TicksSemantics as TraceTicksSemantics,
+};
 use crate::util::{
     all_cpuid_records, copy_file, monotonic_now_sec, probably_not_interactive,
-    should_copy_mmap_region, write_all, CPUIDRecord,
+    should_copy_mmap_region, write_all, xcr0, CPUIDRecord,
 };
 use capnp::private::layout::ListBuilder;
 use capnp::serialize_packed::write_message;
@@ -44,12 +47,15 @@ use nix::sys::stat::Mode;
 use nix::unistd::unlink;
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
-use std::fs::hard_link;
-use std::io::Write;
+use std::fs::File;
+use std::fs::{hard_link, rename};
+use std::io::{BufWriter, Write};
 use std::mem::size_of;
 use std::ops::{Deref, DerefMut};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::ffi::OsStringExt;
+use std::os::unix::io::FromRawFd;
+use std::os::unix::io::IntoRawFd;
 use std::path::Path;
 use std::slice;
 
@@ -638,8 +644,55 @@ impl TraceWriter {
     ///  Normally this will be called by the destructor. It's helpful to
     ///  call this before a crash that won't call the destructor, to ensure
     ///  buffered data is flushed.
-    pub fn close(&self, status: CloseStatus, uuid: &TraceUuid) {
-        unimplemented!()
+    /// If `uuid` is `None` then a uuid will be generated for you.
+    pub fn close(&mut self, status: CloseStatus, maybe_uuid: Option<TraceUuid>) {
+        for (_, w) in &mut self.writers {
+            w.close();
+        }
+
+        let mut header_msg = message::Builder::new_default();
+        let mut header = header_msg.init_root::<header::Builder>();
+        header.set_bind_to_cpu(self.bind_to_cpu);
+        header.set_has_cpuid_faulting(self.has_cpuid_faulting_);
+        let cpuid_data = unsafe {
+            slice::from_raw_parts::<u8>(
+                &self.cpuid_records.as_ptr() as *const _ as *const u8,
+                self.cpuid_records.len() * size_of::<CPUIDRecord>(),
+            )
+        };
+        header.set_cpuid_records(cpuid_data);
+        header.set_xcr0(xcr0());
+        header.set_ticks_semantics(to_trace_ticks_semantics(
+            PerfCounters::default_ticks_semantics(),
+        ));
+        header.set_syscallbuf_protocol_version(SYSCALLBUF_PROTOCOL_VERSION);
+        header.set_preload_thread_locals_recorded(true);
+        // Add a random UUID to the trace metadata. This lets tools identify a trace
+        // easily.
+        match maybe_uuid {
+            None => {
+                header.set_uuid(TraceUuid::new().inner_bytes());
+            }
+            Some(uuid) => {
+                header.set_uuid(uuid.inner_bytes());
+            }
+        }
+        header.set_ok(status == CloseStatus::CloseOk);
+        let mut f = unsafe { File::from_raw_fd(self.version_fd.as_raw()) };
+        let mut buf_writer = BufWriter::new(f);
+        if write_message(&mut buf_writer, &header_msg).is_err() {
+            fatal!("Unable to write {:?}", self.incomplete_version_path());
+        }
+        // We don't want the file to be auto closed so extract raw fd back.
+        // Implicit flush also happens.
+        buf_writer.into_inner().unwrap().into_raw_fd();
+
+        let incomplete_path = self.incomplete_version_path();
+        let path = self.version_path();
+        if rename(&incomplete_path, &path).is_err() {
+            fatal!("Unable to create version file {:?}", path);
+        }
+        self.version_fd.close();
     }
 
     /// We got far enough into recording that we should set this as the latest
@@ -789,4 +842,13 @@ fn to_trace_syscall_state(state: SyscallState) -> TraceSyscallState {
 /// but is in the mount namespace of `t`, try to make it a file we can read.
 fn try_make_process_file_name(t: &RecordTask, file_name: &OsStr) -> OsString {
     unimplemented!()
+}
+
+fn to_trace_ticks_semantics(semantics: TicksSemantics) -> TraceTicksSemantics {
+    match semantics {
+        TicksSemantics::TicksRetiredConditionalBranches => {
+            TraceTicksSemantics::RetiredConditionalBranches
+        }
+        TicksSemantics::TicksTakenBranches => TraceTicksSemantics::TakenBranches,
+    }
 }

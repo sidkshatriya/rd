@@ -667,3 +667,11 @@ pub fn probably_not_interactive(maybe_fd: Option<i32>) -> bool {
         }
     }
 }
+
+pub fn xcr0() -> u64 {
+    unimplemented!()
+}
+
+pub fn good_random(out: &mut [u8]) {
+    unimplemented!()
+}
