@@ -4,8 +4,8 @@ use crate::event::{
 };
 use crate::extra_registers::ExtraRegisters;
 use crate::kernel_abi::common::preload_interface::{mprotect_record, SYSCALLBUF_PROTOCOL_VERSION};
-use crate::kernel_abi::syscall_number_for_restart_syscall;
 use crate::kernel_abi::RD_NATIVE_ARCH;
+use crate::kernel_abi::{syscall_number_for_restart_syscall, SupportedArch};
 use crate::kernel_supplement::{
     btrfs_ioctl_clone_range_args, BTRFS_IOC_CLONE_, BTRFS_IOC_CLONE_RANGE_,
 };
@@ -17,13 +17,16 @@ use crate::session::record_session::{DisableCPUIDFeatures, TraceUuid};
 use crate::task::record_task::record_task::RecordTask;
 use crate::trace::compressed_writer::CompressedWriter;
 use crate::trace::compressed_writer_output_stream::CompressedWriterOutputStream;
-use crate::trace::trace_stream::{make_trace_dir, substream, MappedDataSource};
-use crate::trace::trace_stream::{to_trace_arch, TRACE_VERSION};
+use crate::trace::trace_stream::TRACE_VERSION;
+use crate::trace::trace_stream::{
+    latest_trace_symlink, make_trace_dir, substream, MappedDataSource,
+};
 use crate::trace::trace_stream::{
     MappedData, RawDataMetadata, Substream, TraceRemoteFd, TraceStream,
 };
 use crate::trace::trace_task_event::{TraceTaskEvent, TraceTaskEventType};
 use crate::trace_capnp::m_map::source::Which::Trace;
+use crate::trace_capnp::Arch as TraceArch;
 use crate::trace_capnp::SyscallState as TraceSyscallState;
 use crate::trace_capnp::{frame, m_map, signal};
 use crate::trace_capnp::{
@@ -40,6 +43,7 @@ use capnp::{message, primitive_list};
 use libc::ioctl;
 use libc::STDOUT_FILENO;
 use libc::{dev_t, ino_t, pid_t};
+use nix::errno::errno;
 use nix::fcntl::FlockArg::LockExclusiveNonblock;
 use nix::fcntl::{flock, OFlag};
 use nix::sys::mman::{MapFlags, ProtFlags};
@@ -54,6 +58,7 @@ use std::mem::size_of;
 use std::ops::{Deref, DerefMut};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::ffi::OsStringExt;
+use std::os::unix::fs::symlink;
 use std::os::unix::io::FromRawFd;
 use std::os::unix::io::IntoRawFd;
 use std::path::Path;
@@ -678,7 +683,7 @@ impl TraceWriter {
             }
         }
         header.set_ok(status == CloseStatus::CloseOk);
-        let mut f = unsafe { File::from_raw_fd(self.version_fd.as_raw()) };
+        let f = unsafe { File::from_raw_fd(self.version_fd.as_raw()) };
         let mut buf_writer = BufWriter::new(f);
         if write_message(&mut buf_writer, &header_msg).is_err() {
             fatal!("Unable to write {:?}", self.incomplete_version_path());
@@ -698,7 +703,30 @@ impl TraceWriter {
     /// We got far enough into recording that we should set this as the latest
     /// trace.
     pub fn make_latest_trace(&self) {
-        unimplemented!()
+        let link_name = latest_trace_symlink();
+        // Try to update the symlink to `self`.  We only try attempt
+        // to set the symlink once.  If the link is re-created after
+        // we `unlink()` it, then another rr process is racing with us
+        // and it "won".  The link is then valid and points at some
+        // very-recent trace, so that's good enough.
+        //
+        // @TODO rr swallows any error on unlink. We don't for now.
+        if unlink(link_name.as_os_str()).is_err() {
+            fatal!("Unable to unlink {:?}", link_name);
+        }
+
+        // Link only the trace name, not the full path, so moving a directory full
+        // of traces around doesn't break the latest-trace link.
+        let trace_name_path = Path::new(&self.trace_dir);
+        let trace_name = trace_name_path.file_name().unwrap();
+        let ret = symlink(trace_name, &link_name);
+        if ret.is_err() && errno() != libc::EEXIST {
+            fatal!(
+                "Failed to update symlink `{:?}' to `{:?}'.",
+                link_name,
+                trace_name
+            );
+        }
     }
 
     pub fn ticks_semantics(&self) -> TicksSemantics {
@@ -850,5 +878,12 @@ fn to_trace_ticks_semantics(semantics: TicksSemantics) -> TraceTicksSemantics {
             TraceTicksSemantics::RetiredConditionalBranches
         }
         TicksSemantics::TicksTakenBranches => TraceTicksSemantics::TakenBranches,
+    }
+}
+
+pub(super) fn to_trace_arch(arch: SupportedArch) -> TraceArch {
+    match arch {
+        SupportedArch::X86 => TraceArch::X86,
+        SupportedArch::X64 => TraceArch::X8664,
     }
 }

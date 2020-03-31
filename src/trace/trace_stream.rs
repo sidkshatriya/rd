@@ -1,8 +1,6 @@
-use crate::kernel_abi::SupportedArch;
 use crate::remote_ptr::{RemotePtr, Void};
 use crate::taskish_uid::TaskUid;
 use crate::trace::trace_frame::FrameTime;
-use crate::trace_capnp::Arch;
 use libc::pid_t;
 use std::ffi::{OsStr, OsString};
 use std::os::unix::ffi::OsStringExt;
@@ -186,13 +184,18 @@ pub struct MappedData {
     pub file_size_bytes: usize,
 }
 
-pub(super) fn to_trace_arch(arch: SupportedArch) -> Arch {
-    match arch {
-        SupportedArch::X86 => Arch::X86,
-        SupportedArch::X64 => Arch::X8664,
-    }
+pub(super) fn make_trace_dir(exe_path: &OsStr, output_trace_dir: &OsStr) -> OsString {
+    unimplemented!()
 }
 
-pub(super) fn make_trace_dir(exe_path: &OsStr, output_trace_dir: &OsStr) -> OsString {
+pub(super) fn default_rd_trace_dir() -> OsString {
+    unimplemented!()
+}
+
+pub(super) fn trace_save_dir() {
+    unimplemented!()
+}
+
+pub(super) fn latest_trace_symlink() -> OsString {
     unimplemented!()
 }
