@@ -54,7 +54,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
     fn on_create(&self, t: &dyn Task);
 
     /// NOTE: called Session::copy_state_to() in rr.
-    fn copy_state_to_session(&self, dest: &SessionInner, emu_fs: &EmuFs, dest_emu_fs: EmuFs) {
+    fn copy_state_to_session(&self, _dest: &SessionInner, _emu_fs: &EmuFs, _dest_emu_fs: EmuFs) {
         unimplemented!()
     }
 
@@ -68,13 +68,13 @@ pub trait Session: DerefMut<Target = SessionInner> {
     /// This method is simply called Session::clone in rr.
     fn clone_task(
         &mut self,
-        p: &dyn Task,
-        flags: i32,
-        stack: RemotePtr<Void>,
-        tls: RemotePtr<Void>,
-        cleartid_addr: RemotePtr<i32>,
-        new_tid: pid_t,
-        new_rec_tid: Option<pid_t>,
+        _p: &dyn Task,
+        _flags: i32,
+        _stack: RemotePtr<Void>,
+        _tls: RemotePtr<Void>,
+        _cleartid_addr: RemotePtr<i32>,
+        _new_tid: pid_t,
+        _new_rec_tid: Option<pid_t>,
     ) -> &dyn Task {
         unimplemented!()
     }
@@ -82,37 +82,37 @@ pub trait Session: DerefMut<Target = SessionInner> {
     /// Return the task created with `rec_tid`, or None if no such
     /// task exists.
     /// NOTE: Method is simply called Session::find task() in rr
-    fn find_task_from_rec_tid(&self, rec_tid: pid_t) -> Option<&dyn Task> {
+    fn find_task_from_rec_tid(&self, _rec_tid: pid_t) -> Option<&dyn Task> {
         unimplemented!()
     }
 
     /// NOTE: Method is simply called Session::find task() in rr
-    fn find_task_from_task_uid(&self, tuid: &TaskUid) -> Option<&dyn Task> {
+    fn find_task_from_task_uid(&self, _tuid: &TaskUid) -> Option<&dyn Task> {
         unimplemented!()
     }
 
     /// Return the thread group whose unique ID is `tguid`, or None if no such
     /// thread group exists.
     /// NOTE: Method is simply called Session::find thread_group() in rr
-    fn find_thread_group_from_tguid(&self, tguid: &ThreadGroupUid) -> Option<&ThreadGroup> {
+    fn find_thread_group_from_tguid(&self, _tguid: &ThreadGroupUid) -> Option<&ThreadGroup> {
         unimplemented!()
     }
 
     /// Find the thread group for a specific pid
     /// NOTE: Method is simply called Session::find thread_group() in rr
-    fn find_thread_group_from_pid(&self, pid: pid_t) -> Option<&ThreadGroup> {
+    fn find_thread_group_from_pid(&self, _pid: pid_t) -> Option<&ThreadGroup> {
         unimplemented!()
     }
 
     /// Return the AddressSpace whose unique ID is `vmuid`, or None if no such
     /// address space exists.
-    fn find_address_space(&self, vmuid: &AddressSpaceUid) -> Option<&AddressSpace> {
+    fn find_address_space(&self, _vmuid: &AddressSpaceUid) -> Option<&AddressSpace> {
         unimplemented!()
     }
 
     /// Return a copy of `tg` with the same mappings.
     /// NOTE: Called simply Session::clone() in rr
-    fn clone_tg(&mut self, t: &dyn Task, tg: ThreadGroupSharedPtr) -> ThreadGroupSharedPtr {
+    fn clone_tg(&mut self, _t: &dyn Task, _tg: ThreadGroupSharedPtr) -> ThreadGroupSharedPtr {
         unimplemented!()
     }
 

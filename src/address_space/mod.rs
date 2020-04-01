@@ -1276,7 +1276,7 @@ pub mod address_space {
         /// Restore any temporarily removed breakpoint at `addr`.
         pub fn restore_breakpoint_at(&self, addr: RemoteCodePtr) {
             match self.breakpoints.get(&addr) {
-                Some(bp) => {
+                Some(_bp) => {
                     let t = self.any_task_from_task_set().unwrap();
                     write_val_mem::<u8>(
                         t.borrow_mut().as_mut(),
@@ -1353,8 +1353,8 @@ pub mod address_space {
         /// @TODO debug_status param type
         pub fn notify_watchpoint_fired(
             &self,
-            debug_status: usize,
-            address_of_singlestep_start: RemoteCodePtr,
+            _debug_status: usize,
+            _address_of_singlestep_start: RemoteCodePtr,
         ) -> bool {
             unimplemented!()
         }
@@ -1367,7 +1367,7 @@ pub mod address_space {
 
         /// Return true if an EXEC watchpoint has fired at addr since the last
         /// consume_watchpoint_changes.
-        pub fn has_exec_watchpoint_fired(&self, addr: RemoteCodePtr) {
+        pub fn has_exec_watchpoint_fired(&self, _addr: RemoteCodePtr) {
             unimplemented!()
         }
 
@@ -1406,7 +1406,7 @@ pub mod address_space {
         /// Notification of madvise call.
         pub fn advise(
             &mut self,
-            t: &dyn Task,
+            _t: &dyn Task,
             addr: RemotePtr<Void>,
             num_bytes: usize,
             advice: MmapAdvise,
@@ -1492,7 +1492,7 @@ pub mod address_space {
             unimplemented!()
         }
 
-        pub fn at_preload_init(&self, t: &dyn Task) {
+        pub fn at_preload_init(&self, _t: &dyn Task) {
             unimplemented!()
         }
 
@@ -1552,7 +1552,7 @@ pub mod address_space {
             traced: Traced,
             privileged: Privileged,
             enabled: Enabled,
-            arch: SupportedArch,
+            _arch: SupportedArch,
         ) -> RemoteCodePtr {
             for (i, e) in ENTRY_POINTS.iter().enumerate() {
                 if e.traced == traced && e.privileged == privileged && e.enabled == enabled {
@@ -1656,7 +1656,7 @@ pub mod address_space {
         pub fn saved_auxv(&self) -> &[u8] {
             &self.saved_auxv_
         }
-        pub fn save_auxv(t: &dyn Task) {
+        pub fn save_auxv(_t: &dyn Task) {
             unimplemented!()
         }
 
@@ -1677,7 +1677,7 @@ pub mod address_space {
             8 * 1024 * 1024
         }
 
-        pub fn chaos_mode_find_free_memory(t: &RecordTask, len: usize) -> RemotePtr<Void> {
+        pub fn chaos_mode_find_free_memory(_t: &RecordTask, _len: usize) -> RemotePtr<Void> {
             unimplemented!()
         }
 
@@ -1767,7 +1767,7 @@ pub mod address_space {
         /// Call this when the memory at [addr,addr+len) was externally overwritten.
         /// This will attempt to update any breakpoints that may be set within the
         /// range (resetting them and storing the new value).
-        pub fn maybe_update_breakpoints(t: &dyn Task, addr: RemotePtr<u8>, len: usize) {
+        pub fn maybe_update_breakpoints(_t: &dyn Task, _addr: RemotePtr<u8>, _len: usize) {
             unimplemented!()
         }
 
@@ -2059,7 +2059,7 @@ pub mod address_space {
         }
 
         /// @TODO In rr `num_bytes` is signed. Why?
-        fn unmap_internal(&mut self, t: &dyn Task, addr: RemotePtr<Void>, num_bytes: usize) {
+        fn unmap_internal(&mut self, _t: &dyn Task, addr: RemotePtr<Void>, num_bytes: usize) {
             log!(LogDebug, "munmap({}, {}), ", addr, num_bytes);
 
             let unmapper = |slf: &mut Self, m_key: MemoryRangeKey, rem: MemoryRange| {
@@ -2257,14 +2257,14 @@ pub mod address_space {
             ));
         }
 
-        fn update_watchpoint_value(&self, watchpoint_range: &MemoryRange) {
+        fn update_watchpoint_value(&self, _watchpoint_range: &MemoryRange) {
             unimplemented!()
         }
 
-        fn update_watchpoint_values(&self, start: RemotePtr<Void>, end: RemotePtr<Void>) {
+        fn update_watchpoint_values(&self, _start: RemotePtr<Void>, _end: RemotePtr<Void>) {
             unimplemented!()
         }
-        fn get_watchpoints_internal(&self, filter: WatchPointFilter) -> Vec<WatchConfig> {
+        fn get_watchpoints_internal(&self, _filter: WatchPointFilter) -> Vec<WatchConfig> {
             unimplemented!()
         }
 
@@ -2539,7 +2539,7 @@ pub mod address_space {
         }
 
         /// Call this only during recording.
-        fn at_preload_init_arch<Arch>(&self, t: &dyn Task) {
+        fn at_preload_init_arch<Arch>(&self, _t: &dyn Task) {
             unimplemented!()
         }
 
@@ -2827,16 +2827,16 @@ fn range_for_watchpoint(addr: RemotePtr<Void>, num_bytes: usize) -> MemoryRange 
     MemoryRange::new_range(addr, min(num_bytes, max_len))
 }
 
-fn find_rd_page_file(t: &dyn Task) -> OsString {
+fn find_rd_page_file(_t: &dyn Task) -> OsString {
     unimplemented!()
 }
 
-fn read_all(t: &dyn Task, fd: &ScopedFd) -> Vec<u8> {
+fn read_all(_t: &dyn Task, _fd: &ScopedFd) -> Vec<u8> {
     unimplemented!()
 }
 
 /// Returns true if a task in t's task-group other than t is doing an exec.
-fn thread_group_in_exec(t: &dyn Task) -> bool {
+fn thread_group_in_exec(_t: &dyn Task) -> bool {
     unimplemented!()
 }
 

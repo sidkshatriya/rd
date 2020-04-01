@@ -139,9 +139,9 @@ pub mod session_inner {
         /// If `exec_count` is not specified it is assumed to be 0.
         pub fn create_vm(
             &mut self,
-            t: &dyn Task,
-            exe: Option<&str>,
-            exec_count: Option<u32>,
+            _t: &dyn Task,
+            _exe: Option<&str>,
+            _exec_count: Option<u32>,
         ) -> AddressSpaceSharedPtr {
             unimplemented!()
         }
@@ -152,14 +152,14 @@ pub mod session_inner {
         /// NOTE: Called simply Session::clone() in rr
         pub fn clone_vm(
             &mut self,
-            t: &dyn Task,
-            vm: AddressSpaceSharedPtr,
+            _t: &dyn Task,
+            _vm: AddressSpaceSharedPtr,
         ) -> AddressSpaceSharedPtr {
             unimplemented!()
         }
 
         /// Create the initial thread group.
-        pub fn create_initial_tg(&mut self, t: &dyn Task) -> ThreadGroupSharedPtr {
+        pub fn create_initial_tg(&mut self, _t: &dyn Task) -> ThreadGroupSharedPtr {
             unimplemented!()
         }
 
@@ -177,15 +177,15 @@ pub mod session_inner {
         /// Call these functions from the objects' destructors in order
         /// to notify this session that the objects are dying.
         /// NOTE: Method is simply called on_Session::on_destroy() in rr.
-        pub fn on_destroy_vm(&mut self, vm: &AddressSpace) {
+        pub fn on_destroy_vm(&mut self, _vm: &AddressSpace) {
             unimplemented!()
         }
         /// NOTE: Method is simply called on_Session::on_create() in rr.
-        pub fn on_create_tg(&mut self, tg: ThreadGroupSharedWeakPtr) {
+        pub fn on_create_tg(&mut self, _tg: ThreadGroupSharedWeakPtr) {
             unimplemented!()
         }
         /// NOTE: Method is simply called on_Session::on_destroy() in rr.
-        pub fn on_destroy_tg(&mut self, tg: &ThreadGroup) {
+        pub fn on_destroy_tg(&mut self, _tg: &ThreadGroup) {
             unimplemented!()
         }
 
@@ -258,10 +258,10 @@ pub mod session_inner {
             unimplemented!()
         }
 
-        fn diagnose_debugger_trap(&self, t: &dyn Task, run_command: RunCommand) -> BreakStatus {
+        fn diagnose_debugger_trap(&self, _t: &dyn Task, _run_command: RunCommand) -> BreakStatus {
             unimplemented!()
         }
-        fn check_for_watchpoint_changes(&self, t: &dyn Task, break_status: &BreakStatus) {
+        fn check_for_watchpoint_changes(&self, _t: &dyn Task, _break_status: &BreakStatus) {
             unimplemented!()
         }
 

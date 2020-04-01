@@ -54,7 +54,7 @@ impl FileMonitor for ProcMemMonitor {
 
     /// We need to PREVENT_SWITCH, since the timing of the write is otherwise
     /// unpredictable from our perspective.
-    fn will_write(&self, t: &dyn Task) -> Switchable {
+    fn will_write(&self, _t: &dyn Task) -> Switchable {
         Switchable::PreventSwitch
     }
 

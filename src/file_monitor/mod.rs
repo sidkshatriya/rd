@@ -151,6 +151,7 @@ fn retrieve_offset_arch<Arch: Architecture>(
 
         let mut buf = String::new();
         let maybe_offset: Option<u64> = None;
+        // @TODO do we need to use read_until() which will give a Vec<u8> instead?
         while let Ok(nread) = f.read_line(&mut buf) {
             if nread == 0 {
                 break;
@@ -165,8 +166,8 @@ fn retrieve_offset_arch<Arch: Architecture>(
             let loc = maybe_loc.unwrap() + 5;
             // @TODO This is a tricky. Are we sure that a negative offset won't appear in
             // /proc/{}/fdinfo/{} ?
-            let maybe_offset: Option<u64> =
-                Some(s.parse::<u64>().expect("Unable to parse file offset"));
+            maybe_offset: Option<u64> =
+                Some(s[loc..].parse::<u64>().expect("Unable to parse file offset"));
         }
 
         if maybe_offset.is_none() {
@@ -215,24 +216,24 @@ pub trait FileMonitor {
     /// on it is OK), this notification can return PREVENT_SWITCH to make the
     /// write a blocking write. This ensures that writes are performed in the order
     /// of will_write notifications.
-    fn will_write(&self, t: &dyn Task) -> Switchable {
+    fn will_write(&self, _t: &dyn Task) -> Switchable {
         Switchable::AllowSwitch
     }
 
     /// We don't have a task param like in rr as the task is included in `l`, the LazyOffset
-    fn did_write<'b, 'a: 'b>(&mut self, rv: &[Range], l: &mut LazyOffset<'b, 'a>) {}
+    fn did_write<'b, 'a: 'b>(&mut self, _rv: &[Range], _l: &mut LazyOffset<'b, 'a>) {}
 
     /// Return true if the ioctl should be fully emulated. If so the result
     /// is stored in the last parameter.
     /// Only called during recording.
-    fn emulate_ioctl(&mut self, t: &RecordTask, r: &mut u64) -> bool {
+    fn emulate_ioctl(&mut self, _t: &RecordTask, _r: &mut u64) -> bool {
         false
     }
 
     /// Return true if the fcntl should should be fully emulated. If so the
     /// result is stored in the last parameter.
     /// Only called during recording.
-    fn emulate_fcntl(&self, t: &RecordTask, r: &mut u64) -> bool {
+    fn emulate_fcntl(&self, _t: &RecordTask, _r: &mut u64) -> bool {
         false
     }
 
@@ -240,11 +241,11 @@ pub trait FileMonitor {
     /// result is stored in the last parameter. The emulation should write to the
     /// task's memory ranges.
     /// Only called during recording.
-    fn emulate_read(&self, t: &RecordTask, vr: &Vec<Range>, o: &LazyOffset, l: &mut u64) -> bool {
+    fn emulate_read(&self, _t: &RecordTask, _vr: &Vec<Range>, _o: &LazyOffset, _l: &mut u64) -> bool {
         false
     }
 
     /// Allows the FileMonitor to rewrite the output of a getdents/getdents64 call
     /// if desired.
-    fn filter_getdents(&self, t: &RecordTask) {}
+    fn filter_getdents(&self, _t: &RecordTask) {}
 }

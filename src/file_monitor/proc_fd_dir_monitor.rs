@@ -16,13 +16,13 @@ impl FileMonitor for ProcFdDirMonitor {
         FileMonitorType::ProcFd
     }
 
-    fn filter_getdents(&self, t: &RecordTask) {
+    fn filter_getdents(&self, _t: &RecordTask) {
         unimplemented!()
     }
 }
 
 impl ProcFdDirMonitor {
-    fn new(t: &dyn Task, pathname: &str) -> ProcFdDirMonitor {
+    fn new(_t: &dyn Task, _pathname: &str) -> ProcFdDirMonitor {
         unimplemented!()
     }
 }

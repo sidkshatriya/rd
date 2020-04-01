@@ -363,6 +363,6 @@ macro_rules! ed_assert {
     };
 }
 
-fn emergency_debug(t: &dyn Task) {
+fn emergency_debug(_t: &dyn Task) {
     unimplemented!()
 }

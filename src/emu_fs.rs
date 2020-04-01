@@ -417,9 +417,9 @@ fn create_memfd_file(
 
 /// Used only when memfd_create is not available, i.e. Linux < 3.17
 fn create_tmpfs_file(
-    orig_path: &OsStr,
-    orig_device: dev_t,
-    orig_inode: ino_t,
+    _orig_path: &OsStr,
+    _orig_device: dev_t,
+    _orig_inode: ino_t,
 ) -> Option<(ScopedFd, OsString)> {
     unimplemented!()
 }

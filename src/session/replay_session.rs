@@ -173,7 +173,7 @@ impl Drop for ReplaySession {
 }
 
 impl ReplaySession {
-    pub fn is_ignored_signal(sig: i32) -> bool {
+    pub fn is_ignored_signal(_sig: i32) -> bool {
         unimplemented!()
     }
 
@@ -205,19 +205,19 @@ impl Session for ReplaySession {
         unimplemented!()
     }
 
-    fn on_destroy(&self, t: &dyn Task) {
+    fn on_destroy(&self, _t: &dyn Task) {
         unimplemented!()
     }
 
-    fn new_task(&self, tid: i32, rec_tid: i32, serial: u32, a: SupportedArch) {
+    fn new_task(&self, _tid: i32, _rec_tid: i32, _serial: u32, _a: SupportedArch) {
         unimplemented!()
     }
 
-    fn cpu_binding(&self, trace: &TraceStream) -> Option<u32> {
+    fn cpu_binding(&self, _trace: &TraceStream) -> Option<u32> {
         unimplemented!()
     }
 
-    fn on_create(&self, t: &dyn Task) {
+    fn on_create(&self, _t: &dyn Task) {
         unimplemented!()
     }
 }

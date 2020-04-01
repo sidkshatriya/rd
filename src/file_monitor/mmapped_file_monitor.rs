@@ -45,7 +45,7 @@ impl FileMonitor for MmappedFileMonitor {
         FileMonitorType::Mmapped
     }
 
-    fn will_write(&self, t: &dyn Task) -> Switchable {
+    fn will_write(&self, _t: &dyn Task) -> Switchable {
         if self.dead_ {
             AllowSwitch
         } else {

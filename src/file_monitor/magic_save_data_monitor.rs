@@ -36,6 +36,6 @@ impl MagicSaveDataMonitor {
     }
 }
 
-fn notify_save_data_error(t: &ReplayTask, addr: RemotePtr<Void>, rec_buf: &[u8], rep_buf: &[u8]) {
+fn notify_save_data_error(_t: &ReplayTask, _addr: RemotePtr<Void>, _rec_buf: &[u8], _rep_buf: &[u8]) {
     unimplemented!()
 }

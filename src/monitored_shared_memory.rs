@@ -28,21 +28,21 @@ pub struct MonitoredSharedMemory {
 
 impl MonitoredSharedMemory {
     pub fn maybe_monitor(
-        t: &RecordTask,
-        filename: &str,
-        m: &address_space::Mapping,
-        tracee_fd: i32,
-        offset: usize,
+        _t: &RecordTask,
+        _filename: &str,
+        _m: &address_space::Mapping,
+        _tracee_fd: i32,
+        _offset: usize,
     ) {
         unimplemented!()
     }
 
-    pub fn check_all(t: &RecordTask) {
+    pub fn check_all(_t: &RecordTask) {
         unimplemented!()
     }
 
     /// This feature is currently unsupported
-    pub fn subrange(&self, start: usize, size: usize) -> MonitoredSharedMemorySharedPtr {
+    pub fn subrange(&self, _start: usize, _size: usize) -> MonitoredSharedMemorySharedPtr {
         assert!(
             false,
             "Subranges in monitored shared memory not supported yet!"
@@ -50,7 +50,7 @@ impl MonitoredSharedMemory {
         unimplemented!()
     }
 
-    fn check_for_changes(&self, t: &RecordTask, m: &address_space::Mapping) {
+    fn check_for_changes(&self, _t: &RecordTask, _m: &address_space::Mapping) {
         unimplemented!()
     }
 
