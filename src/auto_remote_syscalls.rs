@@ -1383,7 +1383,7 @@ fn recvmsg_socket(sock: &ScopedFd) -> i32 {
     msg.msg_iov = &mut msgdata as *mut libc::iovec;
     msg.msg_iovlen = 1;
 
-    if 0 > unsafe { libc::recvmsg(sock.as_raw(), &mut msg, 0) } {
+    if 0 > unsafe { libc::recvmsg(sock.as_raw(), &mut msg as *mut _, 0) } {
         fatal!("Failed to receive fd");
     }
 

@@ -18,9 +18,8 @@ use libc::F_SETFL;
 use libc::O_ASYNC;
 use nix::errno::errno;
 use nix::poll::{poll, PollFd, PollFlags};
-use nix::unistd::Pid;
+use nix::unistd::{read, Pid};
 use raw_cpuid::CpuId;
-use std::ffi::c_void;
 use std::io::stderr;
 use std::io::Write;
 use std::mem::size_of;
@@ -533,18 +532,16 @@ fn always_recreate_counters() -> bool {
 
 /// @TODO Return type is an i64 on rr.
 fn read_counter(fd: &ScopedFd) -> u64 {
-    let mut val: u64 = 0;
-    // @TODO what about checking for errno?
-    // (The debug_assert_eq!() does provide some error checking below though)
-    let nread = unsafe {
-        libc::read(
-            fd.as_raw(),
-            &mut val as *mut u64 as *mut c_void,
-            size_of::<u64>(),
-        )
-    };
-    debug_assert_eq!(nread, size_of::<u64>() as isize);
-    val
+    let mut buf = [0u8; size_of::<u64>()];
+    let result = read(fd.as_raw(), &mut buf);
+    match result {
+        Ok(nread) if nread == size_of::<u64>() => u64::from_le_bytes(buf),
+        // In rd we check the result for success unlike rr.
+        _ => {
+            fatal!("Could not read pert counter successfully");
+            unreachable!()
+        }
+    }
 }
 
 fn start_counter(tid: Pid, group_fd: i32, attr: &mut perf_event_attr) -> (ScopedFd, bool) {

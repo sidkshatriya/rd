@@ -1201,14 +1201,13 @@ pub mod address_space {
         pub fn add_breakpoint(&mut self, addr: RemoteCodePtr, type_: BreakpointType) -> bool {
             match self.breakpoints.get_mut(&addr) {
                 None => {
-                    let overwritten_data: u8 = 0;
+                    let mut overwritten_data = [0u8; 1];
                     // Grab a random task from the VM so we can use its
                     // read/write_mem() helpers.
                     let rc_t = self.any_task_from_task_set().unwrap();
-                    let read_result = rc_t.borrow_mut().read_bytes_fallible(
-                        addr.to_data_ptr::<u8>(),
-                        &mut overwritten_data.to_le_bytes(),
-                    );
+                    let read_result = rc_t
+                        .borrow_mut()
+                        .read_bytes_fallible(addr.to_data_ptr::<u8>(), &mut overwritten_data);
                     match read_result {
                         Ok(read) if read == size_of::<u8>() => (),
                         _ => return false,
@@ -1222,7 +1221,7 @@ pub mod address_space {
                         WriteFlags::IS_BREAKPOINT_RELATED,
                     );
 
-                    let bp = Breakpoint::new(overwritten_data);
+                    let bp = Breakpoint::new(overwritten_data[0]);
                     self.breakpoints.insert(addr, bp);
                 }
                 Some(bp) => {

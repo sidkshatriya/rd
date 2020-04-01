@@ -360,9 +360,9 @@ pub mod task_inner {
         /// This method is more generic in rr and is called get_ptrace_event_msg()
         /// However, since it is only used to extract pid_t we monomorphize it in rd.
         pub fn get_ptrace_eventmsg_pid(&self) -> pid_t {
-            let msg: usize = 0;
-            self.xptrace(libc::PTRACE_GETEVENTMSG, 0.into(), &mut msg.to_le_bytes());
-            msg.try_into().unwrap()
+            let mut msg = [0u8; size_of::<usize>()];
+            self.xptrace(libc::PTRACE_GETEVENTMSG, 0.into(), &mut msg);
+            usize::from_le_bytes(msg).try_into().unwrap()
         }
 
         /// Return the siginfo at the signal-stop of this.
@@ -889,11 +889,10 @@ pub mod task_inner {
                     );
                 }
 
-                self.fallible_ptrace(
-                    PTRACE_POKEDATA,
-                    start_word.into(),
-                    Some(&mut v.to_le_bytes()),
-                );
+                // v, an isize, is a Copy type
+                let mut v_buf = v.to_le_bytes();
+                self.fallible_ptrace(PTRACE_POKEDATA, start_word.into(), Some(&mut v_buf));
+                v = isize::from_le_bytes(v_buf);
                 nwritten += length;
             }
 
