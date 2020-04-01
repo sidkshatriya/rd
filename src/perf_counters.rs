@@ -661,6 +661,7 @@ fn check_working_counters() -> bool {
 
     // @TODO the perf stat command does not seem to be correct.
     if events < NUM_BRANCHES {
+        let config = PMU_ATTRIBUTES.ticks_attr.config;
         fatal!(
             "\nGot {} branch events, expected at least {}.\n\n\
              The hardware performance counter seems to not be working. Check\n\
@@ -673,7 +674,7 @@ fn check_working_counters() -> bool {
              this CPU.",
             events,
             NUM_BRANCHES,
-            PMU_ATTRIBUTES.ticks_attr.config
+            config
         );
     }
 

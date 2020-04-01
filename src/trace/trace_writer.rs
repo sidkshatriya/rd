@@ -283,7 +283,7 @@ impl TraceWriter {
                             o.set_fd(opened.fd);
                             o.set_path(opened.path.as_bytes());
                             o.set_device(opened.device);
-                            o.set_inode(opened.inode);
+                            o.set_inode(opened.inode.into());
                         }
                     }
                 }
@@ -317,7 +317,7 @@ impl TraceWriter {
             map.set_end(km.end().as_usize() as u64);
             map.set_fsname(km.fsname().as_bytes());
             map.set_device(km.device());
-            map.set_inode(km.inode());
+            map.set_inode(km.inode().into());
             map.set_prot(km.prot().bits());
             map.set_flags(km.flags().bits());
             // @TODO file offset is a u64 in rr and i64 in rd
@@ -325,8 +325,8 @@ impl TraceWriter {
             map.set_stat_mode(stat.st_mode);
             map.set_stat_uid(stat.st_uid);
             map.set_stat_gid(stat.st_gid);
-            map.set_stat_size(stat.st_size);
-            map.set_stat_m_time(stat.st_mtime);
+            map.set_stat_size(stat.st_size.into());
+            map.set_stat_m_time(stat.st_mtime.into());
             let mut fds = map.reborrow().init_extra_fds(extra_fds.len() as u32);
             for (i, _) in extra_fds.iter().enumerate() {
                 let mut e = fds.reborrow().get(i as u32);
@@ -444,7 +444,7 @@ impl TraceWriter {
             map.set_end(km.end().as_usize() as u64);
             map.set_fsname(km.fsname().as_bytes());
             map.set_device(km.device());
-            map.set_inode(km.inode());
+            map.set_inode(km.inode().into());
             map.set_prot(km.prot().bits());
             map.set_flags(km.flags().bits());
             // @TODO file offset is a u64 in rr and i64 in rd

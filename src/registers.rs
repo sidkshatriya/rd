@@ -445,7 +445,7 @@ impl Registers {
                     *ptrace_regs,
                 );
             },
-            X64(regs_x64) => {
+            X64(_regs_x64) => {
                 panic!("Not possible to have 64 bit tracee in 32 bit rd.");
             }
         }
@@ -481,7 +481,7 @@ impl Registers {
             X86(regs_x86) => unsafe {
                 std::mem::transmute::<x86::user_regs_struct, native_user_regs_struct>(*regs_x86)
             },
-            X64(regs_x64) => {
+            X64(_regs_x64) => {
                 panic!("Not possible to have 64 bit tracee in 32 bit rd.");
             }
         }
