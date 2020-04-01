@@ -37,7 +37,7 @@ impl CompressedWriter {
     pub fn good(&self) -> bool {
         unimplemented!()
     }
-    pub fn new(filename: &OsStr, buffer_size: usize, num_threads: usize) -> CompressedWriter {
+    pub fn new(_filename: &OsStr, _buffer_size: usize, _num_threads: usize) -> CompressedWriter {
         unimplemented!()
     }
     pub fn close(&mut self) {
@@ -47,7 +47,7 @@ impl CompressedWriter {
 
 /// @TODO Not sure if this is the correct abstraction that is to be used.
 impl Write for CompressedWriter {
-    fn write(&mut self, buf: &[u8]) -> Result<usize> {
+    fn write(&mut self, _buf: &[u8]) -> Result<usize> {
         unimplemented!()
     }
 

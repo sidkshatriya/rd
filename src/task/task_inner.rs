@@ -327,30 +327,30 @@ pub mod task_inner {
         }
 
         /// Stat `fd` in the context of this task's fd table.
-        pub fn stat_fd(&self, fd: i32) -> libc::stat {
+        pub fn stat_fd(&self, _fd: i32) -> libc::stat {
             unimplemented!()
         }
 
         /// Lstat `fd` in the context of this task's fd table.
-        pub fn lstat_fd(fd: i32) -> libc::stat {
+        pub fn lstat_fd(_fd: i32) -> libc::stat {
             unimplemented!()
         }
 
         /// Open `fd` in the context of this task's fd table.
-        pub fn open_fd(&self, fd: i32, flags: i32) -> ScopedFd {
+        pub fn open_fd(&self, _fd: i32, _flags: i32) -> ScopedFd {
             unimplemented!()
         }
 
         /// Get the name of the file referenced by `fd` in the context of this
         /// task's fd table.
-        pub fn file_name_of_fd(&self, fd: i32) -> OsString {
+        pub fn file_name_of_fd(&self, _fd: i32) -> OsString {
             unimplemented!()
         }
 
         /// Syscalls have side effects on registers (e.g. setting the flags register).
         /// Perform those side effects on `registers` to make it look like a syscall
         /// happened.
-        pub fn canonicalize_regs(&self, syscall_arch: SupportedArch) {
+        pub fn canonicalize_regs(&self, _syscall_arch: SupportedArch) {
             unimplemented!()
         }
 
@@ -365,7 +365,7 @@ pub mod task_inner {
             usize::from_le_bytes(msg).try_into().unwrap()
         }
 
-        /// Return the siginfo at the signal-stop of this.
+        /// Return the siginfo at the signal-stop of `self`.
         /// Not meaningful unless this is actually at a signal stop.
         pub fn get_siginfo(&self) -> siginfo_t {
             unimplemented!()
@@ -381,21 +381,21 @@ pub mod task_inner {
 
         pub fn unmap_buffers_for(
             &self,
-            remote: &AutoRemoteSyscalls,
-            t: &TaskInner,
-            saved_syscallbuf_child: RemotePtr<syscallbuf_hdr>,
+            _remote: &AutoRemoteSyscalls,
+            _t: &TaskInner,
+            _saved_syscallbuf_child: RemotePtr<syscallbuf_hdr>,
         ) {
             unimplemented!()
         }
 
-        pub fn close_buffers_for(&self, remote: &AutoRemoteSyscalls, t: &TaskInner) {
+        pub fn close_buffers_for(&self, _remote: &AutoRemoteSyscalls, _t: &TaskInner) {
             unimplemented!()
         }
 
         pub fn next_syscallbuf_record(&self) -> RemotePtr<syscallbuf_record> {
             unimplemented!()
         }
-        pub fn stored_record_size(&self, record: RemotePtr<syscallbuf_record>) -> usize {
+        pub fn stored_record_size(&self, _record: RemotePtr<syscallbuf_record>) -> usize {
             unimplemented!()
         }
 
@@ -405,7 +405,7 @@ pub mod task_inner {
         }
 
         /// Emulate a jump to a new IP, updating the ticks counter as appropriate.
-        pub fn emulate_jump(&self, ptr: RemoteCodePtr) {
+        pub fn emulate_jump(&self, _ptr: RemoteCodePtr) {
             unimplemented!()
         }
 
@@ -462,7 +462,7 @@ pub mod task_inner {
         /// Call this method when this task has just performed an `execve()`
         /// (so we're in the new address space), but before the system call has
         /// returned.
-        pub fn post_exec(&self, exe_file: &str) {
+        pub fn post_exec(&self, _exe_file: &str) {
             unimplemented!()
         }
 
@@ -479,7 +479,7 @@ pub mod task_inner {
 
         /// Read `N` bytes from `child_addr` into `buf`, or don't
         /// return.
-        pub fn read_bytes(&self, child_addr: RemotePtr<Void>, buf: &mut [u8]) {
+        pub fn read_bytes(&self, _child_addr: RemotePtr<Void>, _buf: &mut [u8]) {
             unimplemented!()
         }
 
@@ -511,7 +511,7 @@ pub mod task_inner {
         }
 
         /// Set the debug status (DR6 on x86).
-        pub fn set_debug_status(&self, status: usize) {
+        pub fn set_debug_status(&self, _status: usize) {
             unimplemented!()
         }
 
@@ -539,7 +539,7 @@ pub mod task_inner {
         }
 
         /// Set the tracee's extra registers to `regs`. */
-        pub fn set_extra_regs(&self, regs: &ExtraRegisters) {
+        pub fn set_extra_regs(&self, _regs: &ExtraRegisters) {
             unimplemented!()
         }
 
@@ -550,33 +550,33 @@ pub mod task_inner {
         /// is returned, the caller is guaranteed that no watchpoint
         /// has been enabled; either all of `regs` is enabled and true
         /// is returned, or none are and false is returned.
-        pub fn set_debug_regs(&self, regs: &DebugRegs) -> bool {
+        pub fn set_debug_regs(&self, _regs: &DebugRegs) -> bool {
             unimplemented!()
         }
 
         /// @TODO should this be a GdbRegister type?
-        pub fn get_debug_reg(&self, regno: usize) -> usize {
+        pub fn get_debug_reg(&self, _regno: usize) -> usize {
             unimplemented!()
         }
 
-        pub fn set_debug_reg(&self, regno: usize, value: usize) {
+        pub fn set_debug_reg(&self, _regno: usize, _value: usize) {
             unimplemented!()
         }
 
         /// Update the thread area to `addr`.
-        pub fn set_thread_area(&self, tls: RemotePtr<user_desc>) {
+        pub fn set_thread_area(&self, _tls: RemotePtr<user_desc>) {
             unimplemented!()
         }
 
         /// Set the thread area at index `idx` to desc and reflect this
         /// into the OS task. Returns 0 on success, errno otherwise.
-        pub fn emulate_set_thread_area(&self, idx: i32, desc: user_desc) {
+        pub fn emulate_set_thread_area(&self, _idx: i32, _desc: user_desc) {
             unimplemented!()
         }
 
         /// Get the thread area from the remote process.
         /// Returns 0 on success, errno otherwise.
-        pub fn emulate_get_thread_area(&self, idx: i32, desc: &mut user_desc) -> i32 {
+        pub fn emulate_get_thread_area(&self, _idx: i32, _desc: &mut user_desc) -> i32 {
             unimplemented!()
         }
 
@@ -648,7 +648,7 @@ pub mod task_inner {
         /// `prctl(PR_SET_NAME)` call to change the task name to the
         /// string pointed at in the tracee's address space by
         /// `child_addr`.
-        pub fn update_prname(&self, child_addr: RemotePtr<Void>) {
+        pub fn update_prname(&self, _child_addr: RemotePtr<Void>) {
             unimplemented!()
         }
 
@@ -698,8 +698,8 @@ pub mod task_inner {
         /// stopped at a PTRACE_EVENT_CLONE or PTRACE_EVENT_FORK.
         pub fn clone_syscall_is_complete(
             &self,
-            pid: &mut Option<pid_t>,
-            syscall_arch: SupportedArch,
+            _pid: &mut Option<pid_t>,
+            _syscall_arch: SupportedArch,
         ) -> bool {
             unimplemented!()
         }
@@ -711,7 +711,7 @@ pub mod task_inner {
 
         /// Lock or unlock the syscallbuf to prevent the preload library from using it.
         /// Only has an effect if the syscallbuf has been initialized.
-        pub fn set_syscallbuf_locked(&self, locked: bool) {
+        pub fn set_syscallbuf_locked(&self, _locked: bool) {
             unimplemented!()
         }
 
@@ -720,7 +720,7 @@ pub mod task_inner {
         /// we got ESRCH. This can happen any time during recording when the
         /// task gets a SIGKILL from outside.
         /// @TODO param data
-        pub fn ptrace_if_alive(&self, request: i32, addr: RemotePtr<Void>, data: &[u8]) -> bool {
+        pub fn ptrace_if_alive(&self, _request: i32, _addr: RemotePtr<Void>, _data: &[u8]) -> bool {
             unimplemented!()
         }
 
@@ -744,7 +744,7 @@ pub mod task_inner {
         pub fn setup_preload_thread_locals(&self) {
             unimplemented!()
         }
-        pub fn setup_preload_thread_locals_from_clone(&self, origin: &TaskInner) {
+        pub fn setup_preload_thread_locals_from_clone(&self, _origin: &TaskInner) {
             unimplemented!()
         }
         pub fn fetch_preload_thread_locals(&self) -> &ThreadLocals {
@@ -755,21 +755,21 @@ pub mod task_inner {
         }
 
         pub(in super::super) fn new(
-            session: &dyn Session,
-            tid: pid_t,
-            rec_tid: pid_t,
-            serial: u32,
-            a: SupportedArch,
+            _session: &dyn Session,
+            _tid: pid_t,
+            _rec_tid: pid_t,
+            _serial: u32,
+            _a: SupportedArch,
         ) {
             unimplemented!()
         }
 
-        pub(in super::super) fn on_syscall_exit_arch(&self, syscallno: i32, regs: &Registers) {
+        pub(in super::super) fn on_syscall_exit_arch(&self, _syscallno: i32, _regs: &Registers) {
             unimplemented!()
         }
 
         /// Helper function for init_buffers. */
-        pub(in super::super) fn init_buffers_arch(&self, map_hint: RemotePtr<Void>) {
+        pub(in super::super) fn init_buffers_arch(&self, _map_hint: RemotePtr<Void>) {
             unimplemented!()
         }
 
@@ -788,7 +788,7 @@ pub mod task_inner {
         /// Some task state must be copied into this by injecting and
         /// running syscalls in this task.  Other state is metadata
         /// that can simply be copied over in local memory.
-        pub(in super::super) fn copy_state(&self, stat: &CapturedState) {
+        pub(in super::super) fn copy_state(&self, _stat: &CapturedState) {
             unimplemented!()
         }
 
@@ -796,9 +796,9 @@ pub mod task_inner {
         /// the ptrace return value.
         pub(in super::super) fn fallible_ptrace(
             &self,
-            request: u32,
-            addr: RemotePtr<Void>,
-            data: Option<&mut [u8]>,
+            _request: u32,
+            _addr: RemotePtr<Void>,
+            _data: Option<&mut [u8]>,
         ) -> isize {
             unimplemented!()
         }
@@ -807,9 +807,9 @@ pub mod task_inner {
         /// All errors are treated as fatal.
         pub(in super::super) fn xptrace(
             &self,
-            request: u32,
-            addr: RemotePtr<Void>,
-            data: &mut [u8],
+            _request: u32,
+            _addr: RemotePtr<Void>,
+            _data: &mut [u8],
         ) {
             unimplemented!()
         }
@@ -903,8 +903,8 @@ pub mod task_inner {
         /// address-space using a temporary file. This may work around PaX issues.
         pub(in super::super) fn try_replace_pages(
             &self,
-            addr: RemotePtr<Void>,
-            buf: &[u8],
+            _addr: RemotePtr<Void>,
+            _buf: &[u8],
         ) -> bool {
             unimplemented!()
         }
@@ -916,8 +916,8 @@ pub mod task_inner {
         /// Initializes syscallbuf_child.
         pub(in super::super) fn init_syscall_buffer(
             &self,
-            remote: &AutoRemoteSyscalls,
-            map_hint: RemotePtr<Void>,
+            _remote: &AutoRemoteSyscalls,
+            _map_hint: RemotePtr<Void>,
         ) -> KernelMapping {
             unimplemented!()
         }
@@ -935,12 +935,12 @@ pub mod task_inner {
         /// in the process into which the copy of this task will be
         /// created.  `task_leader` will perform the actual OS calls to
         /// create the new child.
-        pub(in super::super) fn os_fork_into(&self, session: &dyn Session) -> &TaskInner {
+        pub(in super::super) fn os_fork_into(&self, _session: &dyn Session) -> &TaskInner {
             unimplemented!()
         }
         pub(in super::super) fn os_clone_into(
-            state: &CapturedState,
-            remote: &AutoRemoteSyscalls,
+            _state: &CapturedState,
+            _remote: &AutoRemoteSyscalls,
         ) -> *mut TaskInner {
             unimplemented!()
         }
@@ -959,16 +959,16 @@ pub mod task_inner {
         /// The new clone will be tracked in `session`.  The other
         /// arguments are as for `Task::clone()` above.
         pub(in super::super) fn os_clone(
-            reason: CloneReason,
-            session: &dyn Session,
-            remote: &AutoRemoteSyscalls,
-            rec_child_tid: pid_t,
-            new_serial: u32,
-            base_flags: u32,
-            stack: RemotePtr<Void>,
-            ptid: RemotePtr<i32>,
-            tls: RemotePtr<Void>,
-            ctid: RemotePtr<i32>,
+            _reason: CloneReason,
+            _session: &dyn Session,
+            _remote: &AutoRemoteSyscalls,
+            _rec_child_tid: pid_t,
+            _new_serial: u32,
+            _base_flags: u32,
+            _stack: RemotePtr<Void>,
+            _ptid: RemotePtr<i32>,
+            _tls: RemotePtr<Void>,
+            _ctid: RemotePtr<i32>,
         ) {
             unimplemented!()
         }
@@ -977,15 +977,15 @@ pub mod task_inner {
         /// (i.e. an exec does not occur before an exit), an error may be
         /// readable from the other end of the pipe whose write end is error_fd.
         pub(in super::super) fn spawn<'a>(
-            session: &'a dyn Session,
-            error_fd: &ScopedFd,
-            sock_fd_out: &ScopedFd,
-            tracee_socket_fd_number_out: &mut i32,
-            trace: &TraceStream,
-            exe_path: &str,
-            argv: &[&str],
-            envp: &[&str],
-            rec_tid: pid_t,
+            _session: &'a dyn Session,
+            _error_fd: &ScopedFd,
+            _sock_fd_out: &ScopedFd,
+            _tracee_socket_fd_number_out: &mut i32,
+            _trace: &TraceStream,
+            _exe_path: &str,
+            _argv: &[&str],
+            _envp: &[&str],
+            _rec_tid: pid_t,
         ) -> &'a TaskInner {
             unimplemented!()
         }

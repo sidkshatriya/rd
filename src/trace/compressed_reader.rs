@@ -38,7 +38,7 @@ impl Clone for CompressedReader {
 /// and reads data from it. Currently data is decompressed by the thread that
 /// calls read().
 impl CompressedReader {
-    pub fn new(filename: &OsStr) -> CompressedReader {
+    pub fn new(_filename: &OsStr) -> CompressedReader {
         unimplemented!()
     }
     pub fn good(&self) -> bool {
@@ -49,7 +49,7 @@ impl CompressedReader {
     }
     /// Returns true if successful. Otherwise there's an error and good()
     /// will be false.
-    pub fn read(&mut self, data: &mut [u8]) {
+    pub fn read(&mut self, _data: &mut [u8]) {
         unimplemented!()
     }
     /// Returns pointer/size of some buffered data. Does not change the state.
@@ -58,7 +58,7 @@ impl CompressedReader {
         unimplemented!()
     }
     /// Advances the read position by the given size.
-    pub fn skip(&mut self, size: usize) -> bool {
+    pub fn skip(&mut self, _size: usize) -> bool {
         unimplemented!()
     }
 

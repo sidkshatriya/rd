@@ -150,7 +150,7 @@ fn retrieve_offset_arch<Arch: Architecture>(
         };
 
         let mut buf = String::new();
-        let maybe_offset: Option<u64> = None;
+        let mut maybe_offset: Option<u64> = None;
         // @TODO do we need to use read_until() which will give a Vec<u8> instead?
         while let Ok(nread) = f.read_line(&mut buf) {
             if nread == 0 {
@@ -166,8 +166,11 @@ fn retrieve_offset_arch<Arch: Architecture>(
             let loc = maybe_loc.unwrap() + 5;
             // @TODO This is a tricky. Are we sure that a negative offset won't appear in
             // /proc/{}/fdinfo/{} ?
-            maybe_offset: Option<u64> =
-                Some(s[loc..].parse::<u64>().expect("Unable to parse file offset"));
+            maybe_offset = Some(
+                s[loc..]
+                    .parse::<u64>()
+                    .expect("Unable to parse file offset"),
+            );
         }
 
         if maybe_offset.is_none() {
@@ -241,7 +244,13 @@ pub trait FileMonitor {
     /// result is stored in the last parameter. The emulation should write to the
     /// task's memory ranges.
     /// Only called during recording.
-    fn emulate_read(&self, _t: &RecordTask, _vr: &Vec<Range>, _o: &LazyOffset, _l: &mut u64) -> bool {
+    fn emulate_read(
+        &self,
+        _t: &RecordTask,
+        _vr: &Vec<Range>,
+        _o: &LazyOffset,
+        _l: &mut u64,
+    ) -> bool {
         false
     }
 

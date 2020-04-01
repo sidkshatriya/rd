@@ -41,11 +41,11 @@ pub enum ReplayTaskIgnore {
 
 impl ReplayTask {
     pub fn new(
-        session: SessionSharedWeakPtr,
-        tid: pid_t,
-        rec_tid: pid_t,
-        serial: u32,
-        arch: SupportedArch,
+        _session: SessionSharedWeakPtr,
+        _tid: pid_t,
+        _rec_tid: pid_t,
+        _serial: u32,
+        _arch: SupportedArch,
     ) -> ReplayTask {
         unimplemented!()
     }
@@ -60,18 +60,18 @@ impl ReplayTask {
     /// the return value from the rrcall, which is also returned
     /// from this call.  |map_hint| suggests where to map the
     /// region; see |init_syscallbuf_buffer()|.
-    pub fn init_buffers(map_hint: RemotePtr<Void>) {
+    pub fn init_buffers(_map_hint: RemotePtr<Void>) {
         unimplemented!()
     }
 
     /// Call this method when the exec has completed.
-    pub fn post_exec_syscall(&self, replay_exe: &str) {
+    pub fn post_exec_syscall(&self, _replay_exe: &str) {
         unimplemented!()
     }
 
     /// Assert that the current register values match the values in the
     ///  current trace record.
-    pub fn validate_regs(&self, flags: ReplayTaskIgnore) {
+    pub fn validate_regs(&self, _flags: ReplayTaskIgnore) {
         unimplemented!()
     }
 
@@ -101,12 +101,12 @@ impl ReplayTask {
 
     /// Used when an execve changes the tid of a non-main-thread to the
     /// thread-group leader.
-    pub fn set_real_tid_and_update_serial(&mut self, tid: pid_t) {
+    pub fn set_real_tid_and_update_serial(&mut self, _tid: pid_t) {
         unimplemented!()
     }
 
     /// Note: This method is private
-    fn init_buffers_arch<Arch: Architecture>(map_hint: RemotePtr<Void>) {
+    fn init_buffers_arch<Arch: Architecture>(_map_hint: RemotePtr<Void>) {
         unimplemented!()
     }
 }
@@ -142,7 +142,7 @@ impl Task for ReplayTask {
         unimplemented!()
     }
 
-    fn on_syscall_exit(&self, syscallno: i32, arch: SupportedArch, regs: &Registers) {
+    fn on_syscall_exit(&self, _syscallno: i32, _arch: SupportedArch, _regs: &Registers) {
         unimplemented!()
     }
 
@@ -152,15 +152,15 @@ impl Task for ReplayTask {
 
     fn clone_task(
         &self,
-        reason: CloneReason,
-        flags: i32,
-        stack: RemotePtr<u8>,
-        tls: RemotePtr<u8>,
-        cleartid_addr: RemotePtr<i32>,
-        new_tid: i32,
-        new_rec_tid: i32,
-        new_serial: u32,
-        other_session: Option<&dyn Session>,
+        _reason: CloneReason,
+        _flags: i32,
+        _stack: RemotePtr<u8>,
+        _tls: RemotePtr<u8>,
+        _cleartid_addr: RemotePtr<i32>,
+        _new_tid: i32,
+        _new_rec_tid: i32,
+        _new_serial: u32,
+        _other_session: Option<&dyn Session>,
     ) -> &TaskInner {
         unimplemented!()
     }
@@ -169,24 +169,24 @@ impl Task for ReplayTask {
         unimplemented!()
     }
 
-    fn read_bytes_fallible(&mut self, addr: RemotePtr<u8>, buf: &mut [u8]) -> Result<usize, ()> {
+    fn read_bytes_fallible(&mut self, _addr: RemotePtr<u8>, _buf: &mut [u8]) -> Result<usize, ()> {
         unimplemented!()
     }
 
-    fn read_bytes_helper(&mut self, addr: RemotePtr<u8>, buf: &mut [u8], ok: Option<&mut bool>) {
+    fn read_bytes_helper(&mut self, _addr: RemotePtr<u8>, _buf: &mut [u8], _ok: Option<&mut bool>) {
         unimplemented!()
     }
 
-    fn read_c_str(&mut self, child_addr: RemotePtr<u8>) -> CString {
+    fn read_c_str(&mut self, _child_addr: RemotePtr<u8>) -> CString {
         unimplemented!()
     }
 
     fn write_bytes_helper(
         &mut self,
-        addr: RemotePtr<u8>,
-        buf: &[u8],
-        ok: Option<&mut bool>,
-        flags: WriteFlags,
+        _addr: RemotePtr<u8>,
+        _buf: &[u8],
+        _ok: Option<&mut bool>,
+        _flags: WriteFlags,
     ) {
         unimplemented!()
     }
@@ -195,7 +195,7 @@ impl Task for ReplayTask {
         unimplemented!()
     }
 
-    fn write_bytes(&mut self, child_addr: RemotePtr<u8>, buf: &[u8]) {
+    fn write_bytes(&mut self, _child_addr: RemotePtr<u8>, _buf: &[u8]) {
         unimplemented!()
     }
 }

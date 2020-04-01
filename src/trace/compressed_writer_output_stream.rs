@@ -4,13 +4,13 @@ use std::io::{Result, Write};
 pub struct CompressedWriterOutputStream;
 
 impl CompressedWriterOutputStream {
-    pub fn new(cw: &mut CompressedWriter) -> CompressedWriterOutputStream {
+    pub fn new(_cw: &mut CompressedWriter) -> CompressedWriterOutputStream {
         unimplemented!()
     }
 }
 
 impl Write for CompressedWriterOutputStream {
-    fn write(&mut self, buf: &[u8]) -> Result<usize> {
+    fn write(&mut self, _buf: &[u8]) -> Result<usize> {
         unimplemented!()
     }
 

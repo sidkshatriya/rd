@@ -104,7 +104,7 @@ impl TraceStream {
         self.global_time
     }
 
-    pub fn file_data_clone_file_name(&self, tuid: &TaskUid) -> OsString {
+    pub fn file_data_clone_file_name(&self, _tuid: &TaskUid) -> OsString {
         unimplemented!()
     }
 
@@ -112,12 +112,12 @@ impl TraceStream {
         unimplemented!()
     }
 
-    pub(super) fn new(trace_dir: &OsStr, initial_time: FrameTime) -> TraceStream {
+    pub(super) fn new(_trace_dir: &OsStr, _initial_time: FrameTime) -> TraceStream {
         unimplemented!()
     }
 
     /// Return the path of the file for the given substream.
-    pub(super) fn path(&self, s: Substream) -> &OsStr {
+    pub(super) fn path(&self, _s: Substream) -> &OsStr {
         unimplemented!()
     }
 
@@ -184,7 +184,7 @@ pub struct MappedData {
     pub file_size_bytes: usize,
 }
 
-pub(super) fn make_trace_dir(exe_path: &OsStr, output_trace_dir: &OsStr) -> OsString {
+pub(super) fn make_trace_dir(_exe_path: &OsStr, _output_trace_dir: &OsStr) -> OsString {
     unimplemented!()
 }
 

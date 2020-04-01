@@ -888,7 +888,11 @@ pub mod record_task {
 
         /// Simple helper that attempts to use the local mapping to record if one
         /// exists
-        pub fn record_remote_by_local_map(&self, _addr: RemotePtr<Void>, _num_bytes: usize) -> bool {
+        pub fn record_remote_by_local_map(
+            &self,
+            _addr: RemotePtr<Void>,
+            _num_bytes: usize,
+        ) -> bool {
             unimplemented!()
         }
 

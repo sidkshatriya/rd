@@ -88,12 +88,12 @@ impl TraceReader {
 
     pub fn read_mapped_region(
         &self,
-        data: Option<&mut MappedData>,
-        found: Option<&mut bool>,
-        validate: Option<ValidateSourceFile>,
-        time_constraint: Option<TimeConstraint>,
-        extra_fds: Option<&mut Vec<TraceRemoteFd>>,
-        skip_monitoring_mapped_fd: Option<&mut bool>,
+        _data: Option<&mut MappedData>,
+        _found: Option<&mut bool>,
+        _validate: Option<ValidateSourceFile>,
+        _time_constraint: Option<TimeConstraint>,
+        _extra_fds: Option<&mut Vec<TraceRemoteFd>>,
+        _skip_monitoring_mapped_fd: Option<&mut bool>,
     ) -> KernelMapping {
         unimplemented!()
     }
@@ -101,7 +101,7 @@ impl TraceReader {
     /// Read a task event (clone or exec record) from the trace.
     /// Returns a record of type NONE at the end of the trace.
     /// Sets `time` (if non-None) to the global time of the event.
-    pub fn read_task_event(&self, time: Option<&mut FrameTime>) -> TraceTaskEvent {
+    pub fn read_task_event(&self, _time: Option<&mut FrameTime>) -> TraceTaskEvent {
         unimplemented!()
     }
 
@@ -113,13 +113,13 @@ impl TraceReader {
 
     /// Reads the next raw data record for last-read frame. If there are no more
     /// raw data records for this frame, return false.
-    pub fn read_raw_data_for_frame(&self, d: &mut RawData) -> bool {
+    pub fn read_raw_data_for_frame(&self, _d: &mut RawData) -> bool {
         unimplemented!()
     }
 
     /// Like read_raw_data_for_frame, but doesn't actually read the data bytes.
     /// The array is resized but the data is not filled in.
-    pub fn read_raw_data_metadata_for_frame(&self, d: &mut RawDataMetadata) -> bool {
+    pub fn read_raw_data_metadata_for_frame(&self, _d: &mut RawDataMetadata) -> bool {
         unimplemented!()
     }
 
@@ -154,7 +154,7 @@ impl TraceReader {
 
     /// Open the trace in 'dir'. When 'dir' is the empty string, open the
     /// latest trace.
-    pub fn new(&self, dir: &OsStr) -> TraceReader {
+    pub fn new(&self, _dir: &OsStr) -> TraceReader {
         unimplemented!()
     }
 

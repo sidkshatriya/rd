@@ -672,6 +672,6 @@ pub fn xcr0() -> u64 {
     unimplemented!()
 }
 
-pub fn good_random(out: &mut [u8]) {
+pub fn good_random(_out: &mut [u8]) {
     unimplemented!()
 }

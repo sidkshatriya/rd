@@ -868,7 +868,7 @@ fn to_trace_syscall_state(state: SyscallState) -> TraceSyscallState {
 
 /// Given `file_name`, where `file_name` is relative to our root directory
 /// but is in the mount namespace of `t`, try to make it a file we can read.
-fn try_make_process_file_name(t: &RecordTask, file_name: &OsStr) -> OsString {
+fn try_make_process_file_name(_t: &RecordTask, _file_name: &OsStr) -> OsString {
     unimplemented!()
 }
 
