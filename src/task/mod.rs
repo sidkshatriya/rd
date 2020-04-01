@@ -45,10 +45,10 @@ pub trait Task: DerefMut<Target = TaskInner> {
     /// Hook called by `resume_execution`.
     fn will_resume_execution(
         &self,
-        resume_req: ResumeRequest,
-        wait_req: WaitRequest,
-        ticks_req: TicksRequest,
-        sig: i32,
+        _resume_req: ResumeRequest,
+        _wait_req: WaitRequest,
+        _ticks_req: TicksRequest,
+        _sig: i32,
     ) {
     }
 
@@ -86,16 +86,16 @@ pub trait Task: DerefMut<Target = TaskInner> {
     ) -> &TaskInner;
 
     /// Internal method called after the first wait() during a clone().
-    fn post_wait_clone(&self, t: &TaskInner, flags: i32) {}
+    fn post_wait_clone(&self, _t: &TaskInner, _flags: i32) {}
 
     /// Internal method called after the clone to fix up the new address space.
-    fn post_vm_clone(&self, reason: CloneReason, flags: i32, origin: &TaskInner) -> bool {
+    fn post_vm_clone(&self, _reason: CloneReason, _flags: i32, _origin: &TaskInner) -> bool {
         unimplemented!()
     }
 
     /// Dump attributes of this process, including pending events,
     /// to `out`, which defaults to LOG_FILE.
-    fn dump(&self, out: Option<&dyn Write>) {
+    fn dump(&self, _out: Option<&dyn Write>) {
         unimplemented!()
     }
 
@@ -109,10 +109,10 @@ pub trait Task: DerefMut<Target = TaskInner> {
     /// All tracee execution goes through here.
     fn resume_execution(
         &self,
-        how: ResumeRequest,
-        wait_how: WaitRequest,
-        tick_period: TicksRequest,
-        sig: Option<i32>,
+        _how: ResumeRequest,
+        _wait_how: WaitRequest,
+        _tick_period: TicksRequest,
+        _sig: Option<i32>,
     ) {
         unimplemented!()
     }
@@ -151,7 +151,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
     /// Force the wait status of this to `status`, as if
     /// `wait()/try_wait()` had returned it. Call this whenever a waitpid
     /// returned activity for this past.
-    fn did_waitpid(&self, status: WaitStatus) {
+    fn did_waitpid(&self, _status: WaitStatus) {
         unimplemented!()
     }
 
@@ -164,7 +164,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
     /// Block until the status of this changes. wait() expects the wait to end
     /// with the process in a stopped() state. If interrupt_after_elapsed > 0,
     /// interrupt the task after that many seconds have elapsed.
-    fn wait(&self, interrupt_after_elapsed: Option<f64>) {
+    fn wait(&self, _interrupt_after_elapsed: Option<f64>) {
         unimplemented!()
     }
 

@@ -436,7 +436,7 @@ pub mod record_task {
             None
         }
 
-        fn on_syscall_exit(&self, syscallno: i32, arch: SupportedArch, regs: &Registers) {
+        fn on_syscall_exit(&self, _syscallno: i32, _arch: SupportedArch, _regs: &Registers) {
             unimplemented!()
         }
 
@@ -446,15 +446,15 @@ pub mod record_task {
 
         fn clone_task(
             &self,
-            reason: CloneReason,
-            flags: i32,
-            stack: RemotePtr<u8>,
-            tls: RemotePtr<u8>,
-            cleartid_addr: RemotePtr<i32>,
-            new_tid: i32,
-            new_rec_tid: i32,
-            new_serial: u32,
-            other_session: Option<&dyn Session>,
+            _reason: CloneReason,
+            _flags: i32,
+            _stack: RemotePtr<u8>,
+            _tls: RemotePtr<u8>,
+            _cleartid_addr: RemotePtr<i32>,
+            _new_tid: i32,
+            _new_rec_tid: i32,
+            _new_serial: u32,
+            _other_session: Option<&dyn Session>,
         ) -> &TaskInner {
             unimplemented!()
         }
@@ -511,10 +511,10 @@ pub mod record_task {
         /// Every Task owned by a RecordSession is a RecordTask. Functionality that
         /// only applies during recording belongs here.
         pub fn new(
-            session: &RecordSession,
-            tid: pid_t,
-            serial: u32,
-            a: SupportedArch,
+            _session: &RecordSession,
+            _tid: pid_t,
+            _serial: u32,
+            _a: SupportedArch,
         ) -> RecordTask {
             unimplemented!()
         }
@@ -547,7 +547,7 @@ pub mod record_task {
         }
 
         /// Emulate 'tracer' ptracing this task.
-        pub fn set_emulated_ptracer(&self, tracer: &RecordTask) {
+        pub fn set_emulated_ptracer(&self, _tracer: &RecordTask) {
             unimplemented!()
         }
 
@@ -559,9 +559,9 @@ pub mod record_task {
         /// Returns true if the task is stopped-for-emulated-ptrace, false otherwise.
         pub fn emulate_ptrace_stop(
             &self,
-            status: WaitStatus,
-            siginfo: Option<&siginfo_t>,
-            si_code: Option<i32>,
+            _status: WaitStatus,
+            _siginfo: Option<&siginfo_t>,
+            _si_code: Option<i32>,
         ) -> bool {
             unimplemented!()
         }
@@ -578,7 +578,7 @@ pub mod record_task {
         /// Note that we can't set the correct siginfo when we send the signal, because
         /// it requires us to set information only the kernel has permission to set.
         /// Returns false if this signal should be deferred.
-        pub fn set_siginfo_for_synthetic_sigchld(&self, si: &siginfo_t) -> bool {
+        pub fn set_siginfo_for_synthetic_sigchld(&self, _si: &siginfo_t) -> bool {
             unimplemented!()
         }
 
@@ -602,36 +602,36 @@ pub mod record_task {
         /// When emulating a ptrace-continue with a signal number, extract the siginfo
         /// that was saved by `save_ptrace_signal_siginfo`. If no such siginfo was
         /// saved, make one up.
-        pub fn take_ptrace_signal_siginfo(&self, sig: i32) -> siginfo_t {
+        pub fn take_ptrace_signal_siginfo(&self, _sig: i32) -> siginfo_t {
             unimplemented!()
         }
 
         /// Returns true if this task is in a waitpid or similar that would return
         /// when t's status changes due to a ptrace event.
-        pub fn is_waiting_for_ptrace(&self, t: &RecordTask) -> bool {
+        pub fn is_waiting_for_ptrace(&self, _t: &RecordTask) -> bool {
             unimplemented!()
         }
 
         /// Returns true if this task is in a waitpid or similar that would return
         /// when t's status changes due to a regular event (exit).
-        pub fn is_waiting_for(&self, t: &RecordTask) -> bool {
+        pub fn is_waiting_for(&self, _t: &RecordTask) -> bool {
             unimplemented!()
         }
 
         /// Call this to force a group stop for this task with signal 'sig',
         /// notifying ptracer if necessary.
-        pub fn apply_group_stop(&self, sig: i32) {
+        pub fn apply_group_stop(&self, _sig: i32) {
             unimplemented!()
         }
 
         /// Call this after `sig` is delivered to this task.  Emulate
         /// sighandler updates induced by the signal delivery.
-        pub fn signal_delivered(&self, sig: i32) {
+        pub fn signal_delivered(&self, _sig: i32) {
             unimplemented!()
         }
 
         /// Return true if `sig` is pending but hasn't been reported to ptrace yet
-        pub fn is_signal_pending(&self, sig: i32) -> bool {
+        pub fn is_signal_pending(&self, _sig: i32) -> bool {
             unimplemented!()
         }
 
@@ -648,41 +648,41 @@ pub mod record_task {
         /// Return true if the disposition of `sig` in `table` isn't
         /// SIG_IGN or SIG_DFL, that is, if a user sighandler will be
         /// invoked when `sig` is received.
-        pub fn signal_has_user_handler(&self, sig: i32) -> bool {
+        pub fn signal_has_user_handler(&self, _sig: i32) -> bool {
             unimplemented!()
         }
 
         /// If signal_has_user_handler(sig) is true, return the address of the
         /// user handler, otherwise return null.
-        pub fn get_signal_user_handler(&self, sig: i32) -> RemoteCodePtr {
+        pub fn get_signal_user_handler(&self, _sig: i32) -> RemoteCodePtr {
             unimplemented!()
         }
 
         /// Return true if the signal handler for `sig` takes a &siginfo_t
         /// parameter.
-        pub fn signal_handler_takes_siginfo(&self, sig: i32) -> bool {
+        pub fn signal_handler_takes_siginfo(&self, _sig: i32) -> bool {
             unimplemented!()
         }
 
         /// Return `sig`'s current sigaction. Returned as raw bytes since the
         /// data is architecture-dependent.
-        pub fn signal_action(&self, sig: i32) -> &[u8] {
+        pub fn signal_action(&self, _sig: i32) -> &[u8] {
             unimplemented!()
         }
 
         /// Return true iff `sig` is blocked for this.
-        pub fn is_sig_blocked(&self, sig: i32) -> bool {
+        pub fn is_sig_blocked(&self, _sig: i32) -> bool {
             unimplemented!()
         }
 
         /// Return true iff `sig` is SIG_IGN, or it's SIG_DFL and the
         /// default disposition is "ignore".
-        pub fn is_sig_ignored(&self, sig: i32) -> bool {
+        pub fn is_sig_ignored(&self, _sig: i32) -> bool {
             unimplemented!()
         }
 
         /// Return the applications current disposition of `sig`.
-        pub fn sig_disposition(&self, sig: i32) -> SignalDisposition {
+        pub fn sig_disposition(&self, _sig: i32) -> SignalDisposition {
             unimplemented!()
         }
 
@@ -690,14 +690,14 @@ pub mod record_task {
         /// taking into account the default behavior.
         pub fn sig_resolved_disposition(
             &self,
-            sig: i32,
-            deterministic: SignalDeterministic,
+            _sig: i32,
+            _deterministic: SignalDeterministic,
         ) -> SignalResolvedDisposition {
             unimplemented!()
         }
 
         /// Set the siginfo for the signal-stop of this.
-        pub fn set_siginfo(&self, si: &siginfo_t) {
+        pub fn set_siginfo(&self, _si: &siginfo_t) {
             unimplemented!()
         }
 
@@ -707,7 +707,7 @@ pub mod record_task {
         }
 
         /// Reset the signal handler for this signal to the default.
-        pub fn did_set_sig_handler_default(&self, sig: i32) {
+        pub fn did_set_sig_handler_default(&self, _sig: i32) {
             unimplemented!()
         }
 
@@ -737,7 +737,7 @@ pub mod record_task {
         pub fn stash_sig(&self) {
             unimplemented!()
         }
-        pub fn stash_synthetic_sig(&self, si: &siginfo_t, deterministic: SignalDeterministic) {
+        pub fn stash_synthetic_sig(&self, _si: &siginfo_t, _deterministic: SignalDeterministic) {
             unimplemented!()
         }
         pub fn has_any_stashed_sig(&self) -> bool {
@@ -746,13 +746,13 @@ pub mod record_task {
         pub fn stashed_sig_not_synthetic_sigchld(&self) -> &siginfo_t {
             unimplemented!()
         }
-        pub fn has_stashed_sig(&self, sig: i32) -> bool {
+        pub fn has_stashed_sig(&self, _sig: i32) -> bool {
             unimplemented!()
         }
         pub fn peek_stashed_sig_to_deliver(&self) -> &StashedSignal {
             unimplemented!()
         }
-        pub fn pop_stash_sig(&self, stashed: &StashedSignal) {
+        pub fn pop_stash_sig(&self, _stashed: &StashedSignal) {
             unimplemented!()
         }
         pub fn stashed_signal_processed(&self) {
@@ -847,26 +847,26 @@ pub mod record_task {
         /// If 'addr' is null then no record is written.
         /// @TODO In the rr implementation ssize_t is being used instead of size_t
         /// for the record_* methods in many places. Why??
-        pub fn record_local(&self, addr: RemotePtr<Void>, buf: &[u8]) {
+        pub fn record_local(&self, _addr: RemotePtr<Void>, _buf: &[u8]) {
             unimplemented!()
         }
-        pub fn record_local_for<T>(addr: RemotePtr<T>, data: &T) {
+        pub fn record_local_for<T>(_addr: RemotePtr<T>, _data: &T) {
             unimplemented!()
         }
-        pub fn record_local_for_slice<T>(addr: RemotePtr<T>, buf: &[T]) {
+        pub fn record_local_for_slice<T>(_addr: RemotePtr<T>, _buf: &[T]) {
             unimplemented!()
         }
 
-        pub fn record_remote(&self, addr: RemotePtr<Void>, num_bytes: usize) {
+        pub fn record_remote(&self, _addr: RemotePtr<Void>, _num_bytes: usize) {
             unimplemented!()
         }
-        pub fn record_remote_for<T>(addr: RemotePtr<T>) {
+        pub fn record_remote_for<T>(_addr: RemotePtr<T>) {
             unimplemented!()
         }
-        pub fn record_remote_range(&mut self, range: MemoryRange) {
+        pub fn record_remote_range(&mut self, _range: MemoryRange) {
             unimplemented!()
         }
-        pub fn record_remote_range_fallible(&mut self, range: MemoryRange) -> Result<usize, ()> {
+        pub fn record_remote_range_fallible(&mut self, _range: MemoryRange) -> Result<usize, ()> {
             unimplemented!()
         }
 
@@ -874,31 +874,31 @@ pub mod record_task {
         /// contiguous mapped data starting at `addr`.
         pub fn record_remote_fallible(
             &mut self,
-            addr: RemotePtr<Void>,
-            num_bytes: usize,
+            _addr: RemotePtr<Void>,
+            _num_bytes: usize,
         ) -> Result<usize, ()> {
             unimplemented!()
         }
 
         /// Record as much as we can of the bytes in this range. Will record only
         /// contiguous mapped-writable data starting at `addr`.
-        pub fn record_remote_writable(&self, addr: RemotePtr<Void>, num_bytes: usize) {
+        pub fn record_remote_writable(&self, _addr: RemotePtr<Void>, _num_bytes: usize) {
             unimplemented!()
         }
 
         /// Simple helper that attempts to use the local mapping to record if one
         /// exists
-        pub fn record_remote_by_local_map(&self, addr: RemotePtr<Void>, num_bytes: usize) -> bool {
+        pub fn record_remote_by_local_map(&self, _addr: RemotePtr<Void>, _num_bytes: usize) -> bool {
             unimplemented!()
         }
 
         /// Save tracee data to the trace.  `addr` is the address in
         /// the address space of this task.
         /// If 'addr' is null then a zero-length record is written.
-        pub fn record_remote_even_if_null(&self, addr: RemotePtr<Void>, num_bytes: usize) {
+        pub fn record_remote_even_if_null(&self, _addr: RemotePtr<Void>, _num_bytes: usize) {
             unimplemented!()
         }
-        pub fn record_remote_even_if_null_for<T>(addr: RemotePtr<T>) {
+        pub fn record_remote_even_if_null_for<T>(_addr: RemotePtr<T>) {
             unimplemented!()
         }
 
@@ -906,10 +906,10 @@ pub mod record_task {
         /// event onto the top of the event stack.  The `pop_*()`
         /// helpers pop the event at top of the stack, which must be of
         /// the specified type.
-        pub fn push_event(&self, ev: &Event) {
+        pub fn push_event(&self, _ev: &Event) {
             unimplemented!()
         }
-        pub fn push_syscall_eventsyscallno(&self, no: i32) {
+        pub fn push_syscall_eventsyscallno(&self, _no: i32) {
             unimplemented!()
         }
         pub fn pop_eventexpected_type(&self) -> EventType {
@@ -978,15 +978,15 @@ pub mod record_task {
         }
         pub fn record_event(
             &self,
-            ev: &Event,
-            flush: Option<FlushSyscallbuf>,
-            reset: Option<AllowSyscallbufReset>,
-            registers: Option<&Registers>,
+            _ev: &Event,
+            _flush: Option<FlushSyscallbuf>,
+            _reset: Option<AllowSyscallbufReset>,
+            _registers: Option<&Registers>,
         ) {
             unimplemented!()
         }
 
-        pub fn is_fatal_signal(&self, sig: i32, deterministic: SignalDeterministic) -> bool {
+        pub fn is_fatal_signal(&self, _sig: i32, _deterministic: SignalDeterministic) -> bool {
             unimplemented!()
         }
 
@@ -1000,12 +1000,12 @@ pub mod record_task {
         /// which need not be the same as the current task's pid, due to CLONE_PARENT)
         /// created by this task. Called when this task has a PTRACE_CLONE_EVENT
         /// without CLONE_THREAD, or PTRACE_FORK_EVENT.
-        pub fn find_newborn_process(&self, child_parent: pid_t) -> pid_t {
+        pub fn find_newborn_process(&self, _child_parent: pid_t) -> pid_t {
             unimplemented!()
         }
 
         /// Do a tgkill to send a specific signal to this task.
-        pub fn tgkill(&self, sig: i32) {
+        pub fn tgkill(&self, _sig: i32) {
             unimplemented!()
         }
 
@@ -1033,21 +1033,21 @@ pub mod record_task {
             unimplemented!()
         }
 
-        pub fn set_termination_signal(&self, sig: i32) {
+        pub fn set_termination_signal(&self, _sig: i32) {
             unimplemented!()
         }
 
         /// When a signal triggers an emulated a ptrace-stop for this task,
         /// save the siginfo so a later emulated ptrace-continue with this signal
         /// number can use it.
-        pub fn save_ptrace_signal_siginfo(&self, si: &siginfo_t) {
+        pub fn save_ptrace_signal_siginfo(&self, _si: &siginfo_t) {
             unimplemented!()
         }
 
         /// Tasks normally can't change their tid. There is one very special situation
         /// where they can: when a non-main-thread does an execve, its tid changes
         /// to the tid of the thread-group leader.
-        pub fn set_tid_and_update_serial(&self, tid: pid_t, own_namespace_tid: pid_t) {
+        pub fn set_tid_and_update_serial(&self, _tid: pid_t, _own_namespace_tid: pid_t) {
             unimplemented!()
         }
 
@@ -1062,12 +1062,12 @@ pub mod record_task {
         }
 
         /// Unblock the signal for the process.
-        pub fn unblock_signal(&self, sig: i32) {
+        pub fn unblock_signal(&self, _sig: i32) {
             unimplemented!()
         }
 
         /// Set the signal handler to default for the process.
-        pub fn set_sig_handler_default(&self, sig: i32) {
+        pub fn set_sig_handler_default(&self, _sig: i32) {
             unimplemented!()
         }
 
@@ -1086,7 +1086,7 @@ pub mod record_task {
         /// WARNING: this implementation semi-busy-waits for the value
         /// change.  This must only be used in contexts where the futex
         /// will change "soon".
-        fn futex_wait(&self, futex: RemotePtr<i32>, val: i32, ok: Option<&mut bool>) {
+        fn futex_wait(&self, _futex: RemotePtr<i32>, _val: i32, _ok: Option<&mut bool>) {
             unimplemented!()
         }
 
@@ -1100,20 +1100,20 @@ pub mod record_task {
         }
 
         /// Call this when SYS_sigaction is finishing with `regs`.
-        fn update_sigaction(&self, regs: &Registers) {
+        fn update_sigaction(&self, _regs: &Registers) {
             unimplemented!()
         }
 
         /// Update the futex robust list head pointer to `list` (which
         /// is of size `len`).
-        fn set_robust_list(&self, list: RemotePtr<Void>, len: usize) {
+        fn set_robust_list(&self, _list: RemotePtr<Void>, _len: usize) {
             unimplemented!()
         }
 
         fn init_buffers_arch<Arch>(&self) {
             unimplemented!()
         }
-        fn on_syscall_exit_arch<Arch>(&self, syscallno: i32, regs: &Registers) {
+        fn on_syscall_exit_arch<Arch>(&self, _syscallno: i32, _regs: &Registers) {
             unimplemented!()
         }
 
@@ -1142,7 +1142,7 @@ pub mod record_task {
         }
 
         /// Update the clear-tid futex to `tid_addr`.
-        fn set_tid_addr(&self, tid_addr: RemotePtr<i32>) {
+        fn set_tid_addr(&self, _tid_addr: RemotePtr<i32>) {
             unimplemented!()
         }
     }
