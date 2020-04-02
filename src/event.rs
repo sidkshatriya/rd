@@ -95,7 +95,7 @@ pub enum EventType {
 /// unbounded amount of time).  After the syscall exits, rd advances
 /// the tracee to where the desched is "disarmed" by the tracee.
 #[derive(Clone)]
-pub struct DeschedEvent {
+pub struct DeschedEventData {
     /// Record of the syscall that was interrupted by a desched
     /// notification.  It's legal to reference this memory /while
     /// the desched is being processed only/, because `t` is in the
@@ -105,7 +105,7 @@ pub struct DeschedEvent {
 }
 
 #[derive(Clone)]
-pub struct SyscallbufFlushEvent {
+pub struct SyscallbufFlushEventData {
     pub mprotect_records: Vec<mprotect_record>,
 }
 
@@ -123,7 +123,7 @@ pub enum SignalResolvedDisposition {
 }
 
 #[derive(Clone)]
-pub struct SignalEvent {
+pub struct SignalEventData {
     /// Signal info
     pub siginfo: siginfo_t,
     /// True if this signal will be deterministically raised as the
@@ -133,13 +133,13 @@ pub struct SignalEvent {
     pub disposition: SignalResolvedDisposition,
 }
 
-impl SignalEvent {
+impl SignalEventData {
     pub fn new(
         siginfo: &siginfo_t,
         deterministic: SignalDeterministic,
         disposition: SignalResolvedDisposition,
-    ) -> SignalEvent {
-        SignalEvent {
+    ) -> SignalEventData {
+        SignalEventData {
             siginfo: siginfo.clone(),
             deterministic,
             disposition,
@@ -201,7 +201,7 @@ pub struct OpenedFd {
 }
 
 #[derive(Clone)]
-pub struct SyscallEvent {
+pub struct SyscallEventData {
     pub arch_: SupportedArch,
     /// The original (before scratch is set up) arguments to the
     /// syscall passed by the tracee.  These are used to detect
@@ -234,9 +234,9 @@ pub struct SyscallEvent {
     pub in_sysemu: bool,
 }
 
-impl SyscallEvent {
-    pub fn new(syscallno: i32, arch: SupportedArch) -> SyscallEvent {
-        SyscallEvent {
+impl SyscallEventData {
+    pub fn new(syscallno: i32, arch: SupportedArch) -> SyscallEventData {
+        SyscallEventData {
             arch_: arch,
             regs: Default::default(),
             desched_rec: None,
@@ -268,10 +268,10 @@ impl SyscallEvent {
 #[derive(Clone)]
 pub enum EventExtraData {
     NoExtraData,
-    DeschedEvent(DeschedEvent),
-    SignalEvent(SignalEvent),
-    SyscallEvent(SyscallEvent),
-    SyscallbufFlushEvent(SyscallbufFlushEvent),
+    DeschedEvent(DeschedEventData),
+    SignalEvent(SignalEventData),
+    SyscallEvent(SyscallEventData),
+    SyscallbufFlushEvent(SyscallbufFlushEventData),
 }
 
 #[derive(Clone)]
@@ -315,35 +315,35 @@ impl Event {
         }
     }
 
-    pub fn new_desched_event(ev: DeschedEvent) -> Event {
+    pub fn new_desched_event(ev: DeschedEventData) -> Event {
         Event {
             event_type: EvDesched,
             event_extra_data: EventExtraData::DeschedEvent(ev),
         }
     }
 
-    pub fn new_signal_event(type_: EventType, ev: SignalEvent) -> Event {
+    pub fn new_signal_event(type_: EventType, ev: SignalEventData) -> Event {
         Event {
             event_type: type_,
             event_extra_data: EventExtraData::SignalEvent(ev),
         }
     }
 
-    pub fn new_syscallbuf_flush_event(ev: SyscallbufFlushEvent) -> Event {
+    pub fn new_syscallbuf_flush_event(ev: SyscallbufFlushEventData) -> Event {
         Event {
             event_type: EvSyscallbufFlush,
             event_extra_data: EventExtraData::SyscallbufFlushEvent(ev),
         }
     }
 
-    pub fn new_syscall_event(ev: SyscallEvent) -> Event {
+    pub fn new_syscall_event(ev: SyscallEventData) -> Event {
         Event {
             event_type: EvSyscall,
             event_extra_data: EventExtraData::SyscallEvent(ev),
         }
     }
 
-    pub fn new_syscall_interruption_event(ev: SyscallEvent) -> Event {
+    pub fn new_syscall_interruption_event(ev: SyscallEventData) -> Event {
         Event {
             event_type: EvSyscallInterruption,
             event_extra_data: EventExtraData::SyscallEvent(ev),
@@ -509,7 +509,7 @@ impl Event {
         Event::new_event(EvSentinel)
     }
 
-    pub fn syscall(&self) -> &SyscallEvent {
+    pub fn syscall(&self) -> &SyscallEventData {
         match &self.event_extra_data {
             EventExtraData::SyscallEvent(s) => s,
             _ => panic!("Not a SyscallEvent"),
@@ -524,7 +524,7 @@ impl Event {
         }
     }
 
-    pub fn syscall_mut(&mut self) -> &mut SyscallEvent {
+    pub fn syscall_mut(&mut self) -> &mut SyscallEventData {
         match &mut self.event_extra_data {
             EventExtraData::SyscallEvent(s) => s,
             _ => panic!("Not a SyscallEvent"),
@@ -535,54 +535,54 @@ impl Event {
         self.event_type
     }
 
-    pub fn desched_event(&self) -> &DeschedEvent {
+    pub fn desched_event(&self) -> &DeschedEventData {
         match &self.event_extra_data {
             EventExtraData::DeschedEvent(ev) => ev,
             _ => panic!("Not a desched event"),
         }
     }
 
-    pub fn desched_event_mut(&mut self) -> &mut DeschedEvent {
+    pub fn desched_event_mut(&mut self) -> &mut DeschedEventData {
         match &mut self.event_extra_data {
             EventExtraData::DeschedEvent(ev) => ev,
             _ => panic!("Not a desched event"),
         }
     }
 
-    pub fn syscallbuf_flush_event(&self) -> &SyscallbufFlushEvent {
+    pub fn syscallbuf_flush_event(&self) -> &SyscallbufFlushEventData {
         match &self.event_extra_data {
             EventExtraData::SyscallbufFlushEvent(ev) => ev,
             _ => panic!("Not a syscallbuf flush event"),
         }
     }
 
-    pub fn syscallbuf_flush_event_mut(&mut self) -> &mut SyscallbufFlushEvent {
+    pub fn syscallbuf_flush_event_mut(&mut self) -> &mut SyscallbufFlushEventData {
         match &mut self.event_extra_data {
             EventExtraData::SyscallbufFlushEvent(ev) => ev,
             _ => panic!("Not a syscallbuf flush event"),
         }
     }
-    pub fn signal_event(&self) -> &SignalEvent {
+    pub fn signal_event(&self) -> &SignalEventData {
         match &self.event_extra_data {
             EventExtraData::SignalEvent(ev) => ev,
             _ => panic!("Not a signal event"),
         }
     }
 
-    pub fn signal_event_mut(&mut self) -> &mut SignalEvent {
+    pub fn signal_event_mut(&mut self) -> &mut SignalEventData {
         match &mut self.event_extra_data {
             EventExtraData::SignalEvent(ev) => ev,
             _ => panic!("Not a signal event"),
         }
     }
-    pub fn syscall_event(&self) -> &SyscallEvent {
+    pub fn syscall_event(&self) -> &SyscallEventData {
         match &self.event_extra_data {
             EventExtraData::SyscallEvent(ev) => ev,
             _ => panic!("Not a syscall event"),
         }
     }
 
-    pub fn syscall_event_mut(&mut self) -> &mut SyscallEvent {
+    pub fn syscall_event_mut(&mut self) -> &mut SyscallEventData {
         match &mut self.event_extra_data {
             EventExtraData::SyscallEvent(ev) => ev,
             _ => panic!("Not a syscall event"),

@@ -4,8 +4,8 @@ use crate::event::{
 };
 use crate::extra_registers::ExtraRegisters;
 use crate::kernel_abi::common::preload_interface::{mprotect_record, SYSCALLBUF_PROTOCOL_VERSION};
+use crate::kernel_abi::syscall_number_for_restart_syscall;
 use crate::kernel_abi::RD_NATIVE_ARCH;
-use crate::kernel_abi::{syscall_number_for_restart_syscall, SupportedArch};
 use crate::kernel_supplement::{
     btrfs_ioctl_clone_range_args, BTRFS_IOC_CLONE_, BTRFS_IOC_CLONE_RANGE_,
 };
@@ -18,10 +18,10 @@ use crate::session::record_session::{DisableCPUIDFeatures, TraceUuid};
 use crate::task::record_task::record_task::RecordTask;
 use crate::trace::compressed_writer::CompressedWriter;
 use crate::trace::compressed_writer_output_stream::CompressedWriterOutputStream;
-use crate::trace::trace_stream::TRACE_VERSION;
 use crate::trace::trace_stream::{
     latest_trace_symlink, make_trace_dir, substream, MappedDataSource,
 };
+use crate::trace::trace_stream::{to_trace_arch, TRACE_VERSION};
 use crate::trace::trace_stream::{
     MappedData, RawDataMetadata, Substream, TraceRemoteFd, TraceStream,
 };
@@ -608,7 +608,7 @@ impl TraceWriter {
             libc::ioctl(
                 version_clone_fd.as_raw(),
                 BTRFS_IOC_CLONE_RANGE_,
-                &clone_args,
+                &clone_args as *const _,
             )
         };
         if ret == 0 {
@@ -909,12 +909,5 @@ fn to_trace_ticks_semantics(semantics: TicksSemantics) -> TraceTicksSemantics {
             TraceTicksSemantics::RetiredConditionalBranches
         }
         TicksSemantics::TicksTakenBranches => TraceTicksSemantics::TakenBranches,
-    }
-}
-
-fn to_trace_arch(arch: SupportedArch) -> TraceArch {
-    match arch {
-        SupportedArch::X86 => TraceArch::X86,
-        SupportedArch::X64 => TraceArch::X8664,
     }
 }

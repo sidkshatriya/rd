@@ -1,16 +1,29 @@
 use crate::address_space::kernel_mapping::KernelMapping;
+use crate::event::SignalDeterministic::{DeterministicSig, NondeterministicSig};
+use crate::event::{Event, EventType, SignalEventData};
+use crate::event::{SignalResolvedDisposition, SyscallState};
+use crate::kernel_abi::{SupportedArch, RD_NATIVE_ARCH};
 use crate::perf_counters::TicksSemantics;
 use crate::remote_ptr::{RemotePtr, Void};
 use crate::session::record_session::TraceUuid;
 use crate::trace::compressed_reader::CompressedReader;
 use crate::trace::trace_frame::{FrameTime, TraceFrame};
 use crate::trace::trace_stream::{
-    MappedData, RawDataMetadata, Substream, TraceRemoteFd, TraceStream, SUBSTREAM_COUNT,
+    to_trace_arch, MappedData, RawDataMetadata, Substream, TraceRemoteFd, TraceStream,
+    SUBSTREAM_COUNT,
 };
 use crate::trace::trace_task_event::TraceTaskEvent;
+use crate::trace_capnp::m_map::source::Which::Trace;
+use crate::trace_capnp::Arch as TraceArch;
+use crate::trace_capnp::{
+    frame, header, m_map, signal, task_event, SignalDisposition as TraceSignalDisposition,
+    SyscallState as TraceSyscallState, TicksSemantics as TraceTicksSemantics,
+};
 use crate::util::CPUIDRecord;
 use libc::pid_t;
+use static_assertions::_core::intrinsics::copy_nonoverlapping;
 use std::ffi::OsStr;
+use std::mem::{size_of, zeroed};
 use std::ops::{Deref, DerefMut};
 
 /// Read the next mapped region descriptor and return it.
@@ -191,5 +204,75 @@ impl TraceReader {
     }
     fn reader_mut(&mut self, s: Substream) -> &mut CompressedReader {
         &mut self.readers[s as usize]
+    }
+}
+
+fn from_trace_arch(arch: TraceArch) -> SupportedArch {
+    match arch {
+        TraceArch::X86 => SupportedArch::X86,
+        TraceArch::X8664 => SupportedArch::X64,
+    }
+}
+
+fn from_trace_disposition(disposition: TraceSignalDisposition) -> SignalResolvedDisposition {
+    match disposition {
+        TraceSignalDisposition::Fatal => SignalResolvedDisposition::DispositionFatal,
+        TraceSignalDisposition::Ignored => SignalResolvedDisposition::DispositionIgnored,
+        TraceSignalDisposition::UserHandler => SignalResolvedDisposition::DispositionUserHandler,
+    }
+}
+
+fn from_trace_syscall_state(state: TraceSyscallState) -> SyscallState {
+    match state {
+        TraceSyscallState::EnteringPtrace => SyscallState::EnteringSyscallPtrace,
+        TraceSyscallState::Entering => SyscallState::EnteringSyscall,
+        TraceSyscallState::Exiting => SyscallState::ExitingSyscall,
+    }
+}
+
+fn from_trace_signal(event_type: EventType, signal: signal::Reader) -> Event {
+    let native: TraceArch = to_trace_arch(RD_NATIVE_ARCH);
+    match signal.get_siginfo_arch() {
+        Ok(arch) if arch == native => (),
+        _ => {
+            // XXX if we want to handle consumption of rr traces created on a different
+            // architecture rr build than we're running now, we should convert siginfo
+            // formats here.
+            fatal!("Could not obtain signal architecture or unsupported siginfo arch");
+        }
+    }
+    let siginfo_data = signal.get_siginfo().unwrap();
+    if siginfo_data.len() != size_of::<libc::siginfo_t>() {
+        fatal!("Bad siginfo");
+    }
+    let mut siginfo: libc::siginfo_t = unsafe { zeroed() };
+    unsafe {
+        copy_nonoverlapping(
+            siginfo_data.as_ptr(),
+            &mut siginfo as *mut _ as *mut u8,
+            size_of::<libc::siginfo_t>(),
+        );
+    }
+
+    let deterministic = if signal.get_deterministic() {
+        DeterministicSig
+    } else {
+        NondeterministicSig
+    };
+
+    let sig_event = SignalEventData::new(
+        &siginfo,
+        deterministic,
+        from_trace_disposition(signal.get_disposition().unwrap()),
+    );
+    Event::new_signal_event(event_type, sig_event)
+}
+
+fn from_trace_ticks_semantics(semantics: TraceTicksSemantics) -> TicksSemantics {
+    match semantics {
+        TraceTicksSemantics::RetiredConditionalBranches => {
+            TicksSemantics::TicksRetiredConditionalBranches
+        }
+        TraceTicksSemantics::TakenBranches => TicksSemantics::TicksTakenBranches,
     }
 }

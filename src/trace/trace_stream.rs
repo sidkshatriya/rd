@@ -1,6 +1,8 @@
+use crate::kernel_abi::SupportedArch;
 use crate::remote_ptr::{RemotePtr, Void};
 use crate::taskish_uid::TaskUid;
 use crate::trace::trace_frame::FrameTime;
+use crate::trace_capnp::Arch as TraceArch;
 use libc::pid_t;
 use std::ffi::{OsStr, OsString};
 use std::os::unix::ffi::OsStringExt;
@@ -198,4 +200,11 @@ pub(super) fn trace_save_dir() {
 
 pub(super) fn latest_trace_symlink() -> OsString {
     unimplemented!()
+}
+
+pub(super) fn to_trace_arch(arch: SupportedArch) -> TraceArch {
+    match arch {
+        SupportedArch::X86 => TraceArch::X86,
+        SupportedArch::X64 => TraceArch::X8664,
+    }
 }
