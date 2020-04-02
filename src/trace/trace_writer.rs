@@ -9,6 +9,7 @@ use crate::kernel_abi::{syscall_number_for_restart_syscall, SupportedArch};
 use crate::kernel_supplement::{
     btrfs_ioctl_clone_range_args, BTRFS_IOC_CLONE_, BTRFS_IOC_CLONE_RANGE_,
 };
+use crate::log::LogLevel::LogDebug;
 use crate::perf_counters::{PerfCounters, TicksSemantics};
 use crate::registers::Registers;
 use crate::remote_ptr::{RemotePtr, Void};
@@ -45,7 +46,7 @@ use libc::STDOUT_FILENO;
 use libc::{dev_t, ino_t, pid_t};
 use nix::errno::errno;
 use nix::fcntl::FlockArg::LockExclusiveNonblock;
-use nix::fcntl::{flock, OFlag};
+use nix::fcntl::{flock, readlink, OFlag};
 use nix::sys::mman::{MapFlags, ProtFlags};
 use nix::sys::stat::Mode;
 use nix::unistd::unlink;
@@ -868,8 +869,38 @@ fn to_trace_syscall_state(state: SyscallState) -> TraceSyscallState {
 
 /// Given `file_name`, where `file_name` is relative to our root directory
 /// but is in the mount namespace of `t`, try to make it a file we can read.
-fn try_make_process_file_name(_t: &RecordTask, _file_name: &OsStr) -> OsString {
-    unimplemented!()
+fn try_make_process_file_name(t: &RecordTask, file_name: &OsStr) -> OsString {
+    let proc_root = format!("/proc/{}/root", t.tid);
+    // /proc/<pid>/root has magical properties; not only is it a link, but
+    // it links to a view of the filesystem as the process sees it, taking into
+    // account the process mount namespace etc.
+    let maybe_ret = readlink(proc_root.as_bytes());
+    if maybe_ret.is_err() {
+        fatal!("Could not read link `{}'", proc_root);
+    }
+    let root = maybe_ret.unwrap();
+
+    if !file_name.as_bytes().starts_with(root.as_bytes()) {
+        log!(
+            LogDebug,
+            "File {:?} is outside known root {}",
+            file_name,
+            proc_root
+        );
+        return file_name.to_owned();
+    }
+
+    let mut process_file_name: Vec<u8> = Vec::from(proc_root.as_bytes());
+    let root_len = root.as_bytes().len();
+    // @TODO Not sure about the special case of root_len == 1.
+    // We probably should simply have the else case regardless
+    if root_len == 1 {
+        process_file_name.copy_from_slice(file_name.as_bytes());
+    } else {
+        process_file_name.copy_from_slice(&file_name.as_bytes()[root_len..])
+    }
+
+    OsString::from_vec(process_file_name)
 }
 
 fn to_trace_ticks_semantics(semantics: TicksSemantics) -> TraceTicksSemantics {

@@ -150,7 +150,7 @@ impl EmuFile {
             self.size_,
         );
 
-        let mut data: [u64; Self::BUF_LEN] = [0; Self::BUF_LEN];
+        let mut data = [0u64; Self::BUF_LEN];
         let mut offset: u64 = 0;
 
         while offset < self.size_ {
