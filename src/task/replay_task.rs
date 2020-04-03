@@ -50,10 +50,6 @@ impl ReplayTask {
         unimplemented!()
     }
 
-    pub fn trace_reader(&self) -> &TraceReader {
-        unimplemented!()
-    }
-
     /// Initialize tracee buffers in this, i.e., implement
     /// RRCALL_init_syscall_buffer.  This task must be at the point
     /// of *exit from* the rrcall.  Registers will be updated with

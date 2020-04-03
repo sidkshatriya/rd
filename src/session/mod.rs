@@ -34,6 +34,9 @@ pub trait Session: DerefMut<Target = SessionInner> {
     fn as_replay(&self) -> Option<&ReplaySession> {
         None
     }
+    fn as_replay_mut(&self) -> Option<&mut ReplaySession> {
+        None
+    }
     fn as_diversion(&self) -> Option<&DiversionSession> {
         None
     }

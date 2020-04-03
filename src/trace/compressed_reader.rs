@@ -14,9 +14,11 @@ pub struct CompressedReader {
     eof: bool,
     buffer: Vec<u8>,
     buffer_read_pos: usize,
+    // Note that the struct members for saving state are not here as we have a separate struct
+    // to handle that
+}
 
-    have_saved_state: bool,
-    have_saved_buffer: bool,
+pub struct CompressedReaderState {
     saved_fd_offset: u64,
     saved_buffer: Vec<u8>,
     saved_buffer_read_pos: usize,
@@ -69,16 +71,15 @@ impl CompressedReader {
         unimplemented!()
     }
 
-    /// Save the current position. Nested saves are not allowed.
-    pub fn save_state(&mut self) {
+    /// Get the current state of the CompressedReader.
+    /// Slightly different approach from rr which has `save_state()`
+    /// Note: Therefore `discard_state()` method in rr is not needed.
+    pub fn get_state(&mut self) -> CompressedReaderState {
         unimplemented!()
     }
-    /// Restore previously saved position.
-    pub fn restore_state(&mut self) {
-        unimplemented!()
-    }
-    /// Discard saved position
-    pub fn discard_state(&mut self) {
+    /// Restore previously obtained state.
+    /// Slightly different approach from rr -- you need to provide state to be restored.
+    pub fn restore_state(&mut self, state: CompressedReaderState) {
         unimplemented!()
     }
 

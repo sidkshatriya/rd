@@ -21,7 +21,13 @@ impl FileMonitor for MagicSaveDataMonitor {
                 bytes.resize(r.length, 0u8);
                 l.t.read_bytes_helper(r.data, &mut bytes, None);
                 let rep_task = l.t.as_replay_task().unwrap();
-                let rec = rep_task.trace_reader().read_raw_data();
+                let rec = rep_task
+                    .session()
+                    .borrow_mut()
+                    .as_replay_mut()
+                    .unwrap()
+                    .trace_reader_mut()
+                    .read_raw_data();
                 if rec.data != bytes {
                     notify_save_data_error(rep_task, rec.addr, &rec.data, &bytes);
                 }

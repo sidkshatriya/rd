@@ -180,6 +180,16 @@ impl ReplaySession {
     pub fn flags(&self) -> &Flags {
         &self.flags_
     }
+
+    pub fn trace_reader(&self) -> &TraceReader {
+        &self.trace_in
+    }
+    pub fn trace_reader_mut(&mut self) -> &mut TraceReader {
+        &mut self.trace_in
+    }
+    fn as_replay_mut(&mut self) -> Option<&mut ReplaySession> {
+        Some(self)
+    }
 }
 
 impl Deref for ReplaySession {

@@ -4,7 +4,7 @@ use capnp::message::ReaderSegments;
 pub struct CompressedReaderInputStream;
 
 impl CompressedReaderInputStream {
-    pub fn new(_reader: &CompressedReader) -> CompressedReaderInputStream {
+    pub fn new(_reader: &mut CompressedReader) -> CompressedReaderInputStream {
         unimplemented!()
     }
 }

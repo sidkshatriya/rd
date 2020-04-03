@@ -12,7 +12,7 @@ use crate::perf_counters::TicksSemantics;
 use crate::registers::Registers;
 use crate::remote_ptr::{RemotePtr, Void};
 use crate::session::record_session::TraceUuid;
-use crate::trace::compressed_reader::CompressedReader;
+use crate::trace::compressed_reader::{CompressedReader, CompressedReaderState};
 use crate::trace::compressed_reader_input_stream::CompressedReaderInputStream;
 use crate::trace::trace_frame::{FrameTime, TraceFrame};
 use crate::trace::trace_stream::{
@@ -109,7 +109,7 @@ impl TraceReader {
     /// the global time to match the time recorded in the trace
     /// frame.
     pub fn read_frame(&mut self) -> TraceFrame {
-        let events = self.reader(Substream::Events);
+        let events = self.reader_mut(Substream::Events);
         let stream = CompressedReaderInputStream::new(events);
         let frame_msg = message::Reader::new(stream, ReaderOptions::new());
         let frame: frame::Reader = frame_msg.get_root::<frame::Reader>().unwrap();
@@ -249,8 +249,8 @@ impl TraceReader {
     /// Read a task event (clone or exec record) from the trace.
     /// Returns a record of type NONE at the end of the trace.
     /// Sets `time` (if non-None) to the global time of the event.
-    pub fn read_task_event(&self, time: Option<&mut FrameTime>) -> Option<TraceTaskEvent> {
-        let tasks = self.reader(Substream::Tasks);
+    pub fn read_task_event(&mut self, time: Option<&mut FrameTime>) -> Option<TraceTaskEvent> {
+        let tasks = self.reader_mut(Substream::Tasks);
         if tasks.at_end() {
             return None;
         }
@@ -317,25 +317,51 @@ impl TraceReader {
 
     /// Read the next raw data record for this frame and return it. Aborts if
     /// there are no more raw data records for this frame.
-    pub fn read_raw_data(&self) -> RawData {
-        unimplemented!()
+    pub fn read_raw_data(&mut self) -> RawData {
+        if let Some(raw_data) = self.read_raw_data_for_frame() {
+            raw_data
+        } else {
+            fatal!("Expected raw data, found none");
+            unreachable!()
+        }
     }
 
-    /// Reads the next raw data record for last-read frame. If there are no more
-    /// raw data records for this frame, return false.
-    pub fn read_raw_data_for_frame(&self, _d: &mut RawData) -> bool {
-        unimplemented!()
+    /// Return the next raw data record for last-read frame. If there are no more
+    /// raw data records for this frame, return `None`.
+    pub fn read_raw_data_for_frame(&mut self) -> Option<RawData> {
+        if self.raw_recs.is_empty() {
+            return None;
+        }
+        let rec = self.raw_recs.pop().unwrap();
+        let mut d = RawData {
+            data: Vec::<u8>::new(),
+            addr: rec.addr,
+            rec_tid: rec.rec_tid,
+        };
+        d.data.resize(rec.size, 0);
+        self.reader_mut(Substream::RawData).read(&mut d.data);
+        Some(d)
     }
 
     /// Like read_raw_data_for_frame, but doesn't actually read the data bytes.
-    /// The array is resized but the data is not filled in.
-    pub fn read_raw_data_metadata_for_frame(&self, _d: &mut RawDataMetadata) -> bool {
-        unimplemented!()
+    /// Simply return the raw metadata or `None` if there are no records left.
+    pub fn read_raw_data_metadata_for_frame(&mut self) -> Option<RawDataMetadata> {
+        if self.raw_recs.is_empty() {
+            return None;
+        }
+        let d = self.raw_recs.pop().unwrap();
+        self.reader_mut(Substream::RawData).skip(d.size);
+        Some(d)
     }
 
     /// Return true iff all trace files are "good".
     pub fn good(&self) -> bool {
-        unimplemented!()
+        for w in self.readers.values() {
+            if !w.good() {
+                return false;
+            }
+        }
+        true
     }
 
     /// Return true if we're at the end of the trace file.
@@ -345,8 +371,24 @@ impl TraceReader {
 
     /// Return the next trace frame, without mutating any stream
     /// state.
-    pub fn peek_frame(&self) -> TraceFrame {
-        unimplemented!()
+    pub fn peek_frame(&mut self) -> Option<TraceFrame> {
+        if !self.at_end() {
+            let saved_time = self.global_time;
+            let state: CompressedReaderState;
+            {
+                let events = self.reader_mut(Substream::Events);
+                state = events.get_state();
+            }
+            let frame = self.read_frame();
+            {
+                let events = self.reader_mut(Substream::Events);
+                events.restore_state(state);
+            }
+            self.global_time = saved_time;
+            Some(frame)
+        } else {
+            return None;
+        }
     }
 
     /// Restore the state of this to what it was just after
