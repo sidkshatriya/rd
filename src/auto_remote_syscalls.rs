@@ -928,9 +928,9 @@ impl<'a> AutoRemoteSyscalls<'a> {
 
         // Create the segment we'll share with the tracee.
         let mut path: Vec<u8> = Vec::new();
-        path.copy_from_slice(tmp_dir().as_bytes());
-        path.copy_from_slice(SessionInner::rd_mapping_prefix().as_bytes());
-        path.copy_from_slice(name.as_bytes());
+        path.extend_from_slice(tmp_dir().as_bytes());
+        path.extend_from_slice(SessionInner::rd_mapping_prefix().as_bytes());
+        path.extend_from_slice(name.as_bytes());
         write!(
             path,
             "-{}-{}",

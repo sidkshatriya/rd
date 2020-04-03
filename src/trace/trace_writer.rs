@@ -738,12 +738,12 @@ impl TraceWriter {
         let base_file_name = Path::new(file_name).file_name().unwrap();
         let mut path: Vec<u8> = Vec::new();
         write!(path, "mmap_hardlink_{}_", self.mmap_count).unwrap();
-        path.copy_from_slice(base_file_name.as_bytes());
+        path.extend_from_slice(base_file_name.as_bytes());
 
         let mut dest_path = Vec::<u8>::new();
-        dest_path.copy_from_slice(self.dir().as_bytes());
+        dest_path.extend_from_slice(self.dir().as_bytes());
         write!(dest_path, "/").unwrap();
-        dest_path.copy_from_slice(&path);
+        dest_path.extend_from_slice(&path);
 
         let ret = hard_link(file_name, OsStr::from_bytes(&dest_path));
         if ret.is_err() {
@@ -762,16 +762,16 @@ impl TraceWriter {
         let base_file_name = Path::new(file_name).file_name().unwrap();
         let mut path: Vec<u8> = Vec::new();
         write!(path, "mmap_clone_{}_", self.mmap_count).unwrap();
-        path.copy_from_slice(base_file_name.as_bytes());
+        path.extend_from_slice(base_file_name.as_bytes());
 
         let src = ScopedFd::open_path(file_name, OFlag::O_RDONLY);
         if !src.is_open() {
             return false;
         }
         let mut dest_path = Vec::<u8>::new();
-        dest_path.copy_from_slice(self.dir().as_bytes());
+        dest_path.extend_from_slice(self.dir().as_bytes());
         write!(dest_path, "/").unwrap();
-        dest_path.copy_from_slice(&path);
+        dest_path.extend_from_slice(&path);
 
         let dest = ScopedFd::open_path_with_mode(
             dest_path.as_slice(),
@@ -799,16 +799,16 @@ impl TraceWriter {
         let base_file_name = Path::new(file_name).file_name().unwrap();
         let mut path: Vec<u8> = Vec::new();
         write!(path, "mmap_clone_{}_", self.mmap_count).unwrap();
-        path.copy_from_slice(base_file_name.as_bytes());
+        path.extend_from_slice(base_file_name.as_bytes());
 
         let src = ScopedFd::open_path(file_name, OFlag::O_RDONLY);
         if !src.is_open() {
             return false;
         }
         let mut dest_path = Vec::<u8>::new();
-        dest_path.copy_from_slice(self.dir().as_bytes());
+        dest_path.extend_from_slice(self.dir().as_bytes());
         write!(dest_path, "/").unwrap();
-        dest_path.copy_from_slice(&path);
+        dest_path.extend_from_slice(&path);
 
         let dest = ScopedFd::open_path_with_mode(
             dest_path.as_slice(),
@@ -895,9 +895,9 @@ fn try_make_process_file_name(t: &RecordTask, file_name: &OsStr) -> OsString {
     // @TODO Not sure about the special case of root_len == 1.
     // We probably should simply have the else case regardless
     if root_len == 1 {
-        process_file_name.copy_from_slice(file_name.as_bytes());
+        process_file_name.extend_from_slice(file_name.as_bytes());
     } else {
-        process_file_name.copy_from_slice(&file_name.as_bytes()[root_len..])
+        process_file_name.extend_from_slice(&file_name.as_bytes()[root_len..])
     }
 
     OsString::from_vec(process_file_name)

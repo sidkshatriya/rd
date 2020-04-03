@@ -400,7 +400,7 @@ fn create_memfd_file(
         orig_inode
     )
     .unwrap();
-    name.copy_from_slice(orig_path.as_bytes());
+    name.extend_from_slice(orig_path.as_bytes());
     name.truncate(255);
 
     let cname = CString::new(name.clone()).unwrap();

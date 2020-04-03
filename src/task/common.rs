@@ -132,7 +132,7 @@ pub(super) fn read_bytes_fallible<T: Task>(
 
     match task.vm().local_mapping(addr, buf.len()) {
         Some(found) => {
-            buf.copy_from_slice(found);
+            buf.copy_from_slice(&found[0..buf.len()]);
             return Ok(buf.len());
         }
         None => (),
@@ -348,7 +348,7 @@ pub(super) fn write_bytes_helper<T: Task>(
     }
 
     if let Some(local) = task.vm().local_mapping_mut(addr, buf_size) {
-        local.copy_from_slice(buf);
+        local[0..buf.len()].copy_from_slice(buf);
         return;
     }
 

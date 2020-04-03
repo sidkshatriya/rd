@@ -720,9 +720,7 @@ fn set_word(arch: SupportedArch, v: &mut [u8], r: GdbRegister, word: i32) {
     debug_assert!(d.offset.is_some() && d.offset.unwrap() + d.size <= v.len());
     debug_assert!(d.xsave_feature_bit.is_none());
     let d_offset = d.offset.unwrap();
-    v.get_mut(d_offset..d_offset + 4)
-        .unwrap()
-        .copy_from_slice(&word.to_le_bytes());
+    v[d_offset..d_offset + 4].copy_from_slice(&word.to_le_bytes());
 }
 
 fn write_regs(

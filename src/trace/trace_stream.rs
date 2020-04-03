@@ -128,7 +128,7 @@ impl TraceStream {
     /// trace.
     pub(super) fn version_path(&self) -> OsString {
         let mut version_path: Vec<u8> = self.trace_dir.clone().into_vec();
-        version_path.copy_from_slice(b"/version");
+        version_path.extend_from_slice(b"/version");
         OsString::from_vec(version_path)
     }
 
@@ -137,7 +137,7 @@ impl TraceStream {
     /// detect incomplete traces.
     pub(super) fn incomplete_version_path(&self) -> OsString {
         let mut version_path: Vec<u8> = self.trace_dir.clone().into_vec();
-        version_path.copy_from_slice(b"/incomplete");
+        version_path.extend_from_slice(b"/incomplete");
         OsString::from_vec(version_path)
     }
 
