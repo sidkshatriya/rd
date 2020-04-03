@@ -163,6 +163,7 @@ pub struct TraceStream {
     pub(super) global_time: FrameTime,
 }
 
+#[derive(Clone, Default)]
 pub struct RawDataMetadata {
     pub addr: RemotePtr<Void>,
     pub size: usize,

@@ -15,6 +15,15 @@ pub struct RemotePtr<T> {
     phantom: PhantomData<T>,
 }
 
+impl<T> Default for RemotePtr<T> {
+    fn default() -> Self {
+        RemotePtr {
+            ptr: 0,
+            phantom: PhantomData,
+        }
+    }
+}
+
 impl<T> RemotePtr<T> {
     pub fn new() -> RemotePtr<T> {
         RemotePtr {

@@ -1,16 +1,22 @@
 use crate::address_space::kernel_mapping::KernelMapping;
+use crate::event::EventExtraData::SyscallbufFlushEvent;
 use crate::event::SignalDeterministic::{DeterministicSig, NondeterministicSig};
-use crate::event::{Event, EventType, SignalEventData};
+use crate::event::{
+    Event, EventType, OpenedFd, SignalEventData, SyscallEventData, SyscallbufFlushEventData,
+};
 use crate::event::{SignalResolvedDisposition, SyscallState};
+use crate::extra_registers::{ExtraRegisters, Format};
+use crate::kernel_abi::common::preload_interface::mprotect_record;
 use crate::kernel_abi::{SupportedArch, RD_NATIVE_ARCH};
 use crate::perf_counters::TicksSemantics;
+use crate::registers::Registers;
 use crate::remote_ptr::{RemotePtr, Void};
 use crate::session::record_session::TraceUuid;
 use crate::trace::compressed_reader::CompressedReader;
+use crate::trace::compressed_reader_input_stream::CompressedReaderInputStream;
 use crate::trace::trace_frame::{FrameTime, TraceFrame};
 use crate::trace::trace_stream::{
     to_trace_arch, MappedData, RawDataMetadata, Substream, TraceRemoteFd, TraceStream,
-    SUBSTREAM_COUNT,
 };
 use crate::trace::trace_task_event::TraceTaskEvent;
 use crate::trace_capnp::m_map::source::Which::Trace;
@@ -19,12 +25,17 @@ use crate::trace_capnp::{
     frame, header, m_map, signal, task_event, SignalDisposition as TraceSignalDisposition,
     SyscallState as TraceSyscallState, TicksSemantics as TraceTicksSemantics,
 };
-use crate::util::CPUIDRecord;
+use crate::util::{xsave_layout_from_trace, CPUIDRecord};
+use capnp::message;
+use capnp::message::ReaderOptions;
 use libc::pid_t;
 use static_assertions::_core::intrinsics::copy_nonoverlapping;
-use std::ffi::OsStr;
+use std::collections::HashMap;
+use std::convert::TryInto;
+use std::ffi::{OsStr, OsString};
 use std::mem::{size_of, zeroed};
 use std::ops::{Deref, DerefMut};
+use std::os::unix::ffi::OsStrExt;
 
 /// Read the next mapped region descriptor and return it.
 /// Also returns where to get the mapped data in `data`, if it's not `None`.
@@ -55,7 +66,7 @@ pub struct RawData {
 pub struct TraceReader {
     trace_stream: TraceStream,
     xcr0_: u64,
-    readers: Box<[CompressedReader; SUBSTREAM_COUNT]>,
+    readers: HashMap<Substream, CompressedReader>,
     cpuid_records_: Vec<CPUIDRecord>,
     raw_recs: Vec<RawDataMetadata>,
     ticks_semantics_: TicksSemantics,
@@ -95,8 +106,130 @@ impl TraceReader {
     /// NB: reading a trace frame has the side effect of ticking
     /// the global time to match the time recorded in the trace
     /// frame.
-    pub fn read_frame(&self) -> TraceFrame {
-        unimplemented!()
+    pub fn read_frame(&mut self) -> TraceFrame {
+        let events = self.reader(Substream::Events);
+        let stream = CompressedReaderInputStream::new(events);
+        let frame_msg = message::Reader::new(stream, ReaderOptions::new());
+        let frame: frame::Reader = frame_msg.get_root::<frame::Reader>().unwrap();
+
+        self.tick_time();
+
+        let mem_writes = frame.get_mem_writes().unwrap();
+        self.raw_recs
+            .resize(mem_writes.len() as usize, Default::default());
+        let mut it = mem_writes.iter().enumerate();
+        while let Some((i, w)) = it.next_back() {
+            // Build list in reverse order so we can efficiently pull records from it
+            self.raw_recs[i] = RawDataMetadata {
+                addr: RemotePtr::new_from_val(w.get_addr().try_into().unwrap()),
+                size: w.get_size().try_into().unwrap(),
+                rec_tid: w.get_tid(),
+            };
+        }
+
+        let mut ret = TraceFrame::new();
+        ret.global_time = self.time();
+        ret.tid_ = i32_to_tid(frame.get_tid());
+        if frame.get_ticks() < 0 {
+            fatal!("Invalid ticks value");
+        }
+        ret.ticks_ = frame.get_ticks() as u64;
+        ret.monotonic_time_ = frame.get_monotonic_sec();
+        self.monotonic_time_ = ret.monotonic_time_;
+
+        let arch = from_trace_arch(frame.get_arch().unwrap());
+        ret.recorded_regs = Registers::new(arch);
+        let reg_data = frame.get_registers().unwrap().get_raw().unwrap();
+        if reg_data.len() > 0 {
+            ret.recorded_regs.set_from_ptrace_for_arch(arch, reg_data);
+        }
+        let extra_reg_data = frame.get_extra_registers().unwrap().get_raw().unwrap();
+        if extra_reg_data.len() > 0 {
+            let ok = ret.recorded_extra_regs.set_to_raw_data(
+                arch,
+                Format::XSave,
+                extra_reg_data,
+                xsave_layout_from_trace(self.cpuid_records()),
+            );
+            if !ok {
+                fatal!("Invalid XSAVE data in trace");
+            }
+        } else {
+            ret.recorded_extra_regs = ExtraRegisters::new(arch);
+        }
+
+        let event = frame.get_event();
+        let which = event.which().unwrap();
+        match which {
+            frame::event::InstructionTrap(()) => ret.ev = Event::instruction_trap(),
+            frame::event::PatchSyscall(()) => ret.ev = Event::patch_syscall(),
+            frame::event::SyscallbufAbortCommit(()) => ret.ev = Event::syscallbuf_abort_commit(),
+            frame::event::SyscallbufReset(()) => ret.ev = Event::syscallbuf_reset(),
+            frame::event::Sched(()) => ret.ev = Event::sched(),
+            frame::event::GrowMap(()) => ret.ev = Event::grow_map(),
+            frame::event::Signal(Ok(s)) => ret.ev = from_trace_signal(EventType::EvSignal, s),
+            frame::event::SignalDelivery(Ok(s)) => {
+                ret.ev = from_trace_signal(EventType::EvSignalDelivery, s)
+            }
+            frame::event::SignalHandler(Ok(s)) => {
+                ret.ev = from_trace_signal(EventType::EvSignalHandler, s)
+            }
+            frame::event::Exit(()) => ret.ev = Event::exit(),
+            frame::event::SyscallbufFlush(r) => {
+                ret.ev = Event::new_syscallbuf_flush_event(SyscallbufFlushEventData::new());
+                let mprotect_records = r.get_mprotect_records().unwrap();
+                let records = &mut ret.ev.syscallbuf_flush_event_mut().mprotect_records;
+                records.resize(
+                    mprotect_records.len() / size_of::<mprotect_record>(),
+                    Default::default(),
+                );
+                unsafe {
+                    copy_nonoverlapping(
+                        mprotect_records as *const _ as *const u8,
+                        records.as_mut_ptr() as *mut _ as *mut u8,
+                        records.len() * size_of::<mprotect_record>(),
+                    );
+                }
+            }
+            frame::event::Syscall(r) => {
+                ret.ev = Event::new_syscall_event(SyscallEventData::new(
+                    r.get_number(),
+                    from_trace_arch(r.get_arch().unwrap()),
+                ));
+                let syscall_ev = ret.ev.syscall_event_mut();
+                syscall_ev.state = from_trace_syscall_state(r.get_state().unwrap());
+                syscall_ev.failed_during_preparation = r.get_failed_during_preparation();
+                let data = r.get_extra();
+                match data.which().unwrap() {
+                    frame::event::syscall::extra::None(()) => (),
+                    frame::event::syscall::extra::WriteOffset(offset) => {
+                        if offset < 0 {
+                            fatal!("Write offset out of range");
+                        }
+                        syscall_ev.write_offset = Some(offset as u64);
+                    }
+                    frame::event::syscall::extra::ExecFdsToClose(Ok(fds_reader)) => {
+                        let fds: Vec<i32> = fds_reader.iter().collect();
+                        syscall_ev.exec_fds_to_close.extend_from_slice(&fds);
+                    }
+                    frame::event::syscall::extra::OpenedFds(Ok(rr)) => {
+                        for fd in rr.iter() {
+                            let opened_fd = OpenedFd {
+                                path: OsStr::from_bytes(fd.get_path().unwrap()).to_os_string(),
+                                fd: fd.get_fd(),
+                                device: fd.get_device(),
+                                inode: fd.get_inode(),
+                            };
+                            syscall_ev.opened.push(opened_fd);
+                        }
+                    }
+                    _ => fatal!("Unknown syscall type or error encountered in decode"),
+                }
+            }
+            _ => fatal!("Event type not supported or error encountered in decode"),
+        }
+
+        ret
     }
 
     pub fn read_mapped_region(
@@ -200,10 +333,10 @@ impl TraceReader {
     }
 
     fn reader(&self, s: Substream) -> &CompressedReader {
-        &self.readers[s as usize]
+        &self.readers.get(&s).unwrap()
     }
     fn reader_mut(&mut self, s: Substream) -> &mut CompressedReader {
-        &mut self.readers[s as usize]
+        self.readers.get_mut(&s).unwrap()
     }
 }
 
@@ -275,4 +408,11 @@ fn from_trace_ticks_semantics(semantics: TraceTicksSemantics) -> TicksSemantics 
         }
         TraceTicksSemantics::TakenBranches => TicksSemantics::TicksTakenBranches,
     }
+}
+
+fn i32_to_tid(tid: i32) -> pid_t {
+    if tid <= 0 {
+        fatal!("Invalid tid");
+    }
+    tid
 }

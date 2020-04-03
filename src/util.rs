@@ -104,6 +104,10 @@ fn cpuid_record(eax: u32, ecx: u32) -> CPUIDRecord {
     }
 }
 
+pub fn xsave_layout_from_trace(_records: &[CPUIDRecord]) -> XSaveLayout {
+    unimplemented!()
+}
+
 fn xsave_native_layout_init() -> XSaveLayout {
     let cpuid = CpuId::new();
     let maybe_extended_state_info = cpuid.get_extended_state_info();

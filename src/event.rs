@@ -109,6 +109,20 @@ pub struct SyscallbufFlushEventData {
     pub mprotect_records: Vec<mprotect_record>,
 }
 
+impl SyscallbufFlushEventData {
+    pub fn new() -> SyscallbufFlushEventData {
+        SyscallbufFlushEventData {
+            mprotect_records: vec![],
+        }
+    }
+}
+
+impl Default for SyscallbufFlushEventData {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub enum SignalDeterministic {
     NondeterministicSig = 0,
@@ -192,7 +206,7 @@ pub enum SyscallState {
     ExitingSyscall,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct OpenedFd {
     pub path: OsString,
     pub fd: i32,

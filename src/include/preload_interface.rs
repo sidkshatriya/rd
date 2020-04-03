@@ -123,7 +123,7 @@ pub struct syscall_patch_hook {
 ///
 /// We simplify things by making this arch-independent.
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Default)]
 pub struct mprotect_record {
     pub start: u64,
     pub size: u64,
