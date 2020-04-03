@@ -83,8 +83,8 @@ impl TraceTaskEventExit {
 }
 
 pub struct TraceTaskEvent {
-    type_: TraceTaskEventType,
-    tid_: pid_t,
+    pub(super) type_: TraceTaskEventType,
+    pub(super) tid_: pid_t,
 }
 
 impl TraceTaskEvent {

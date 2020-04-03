@@ -1,5 +1,4 @@
 use crate::address_space::kernel_mapping::KernelMapping;
-use crate::event::EventExtraData::SyscallbufFlushEvent;
 use crate::event::SignalDeterministic::{DeterministicSig, NondeterministicSig};
 use crate::event::{
     Event, EventType, OpenedFd, SignalEventData, SyscallEventData, SyscallbufFlushEventData,
@@ -8,6 +7,7 @@ use crate::event::{SignalResolvedDisposition, SyscallState};
 use crate::extra_registers::{ExtraRegisters, Format};
 use crate::kernel_abi::common::preload_interface::mprotect_record;
 use crate::kernel_abi::{SupportedArch, RD_NATIVE_ARCH};
+use crate::log::LogLevel::LogDebug;
 use crate::perf_counters::TicksSemantics;
 use crate::registers::Registers;
 use crate::remote_ptr::{RemotePtr, Void};
@@ -18,14 +18,16 @@ use crate::trace::trace_frame::{FrameTime, TraceFrame};
 use crate::trace::trace_stream::{
     to_trace_arch, MappedData, RawDataMetadata, Substream, TraceRemoteFd, TraceStream,
 };
-use crate::trace::trace_task_event::TraceTaskEvent;
-use crate::trace_capnp::m_map::source::Which::Trace;
+use crate::trace::trace_task_event::{
+    TraceTaskEvent, TraceTaskEventClone, TraceTaskEventExec, TraceTaskEventExit, TraceTaskEventType,
+};
 use crate::trace_capnp::Arch as TraceArch;
 use crate::trace_capnp::{
     frame, header, m_map, signal, task_event, SignalDisposition as TraceSignalDisposition,
     SyscallState as TraceSyscallState, TicksSemantics as TraceTicksSemantics,
 };
 use crate::util::{xsave_layout_from_trace, CPUIDRecord};
+use crate::wait_status::WaitStatus;
 use capnp::message;
 use capnp::message::ReaderOptions;
 use libc::pid_t;
@@ -247,8 +249,70 @@ impl TraceReader {
     /// Read a task event (clone or exec record) from the trace.
     /// Returns a record of type NONE at the end of the trace.
     /// Sets `time` (if non-None) to the global time of the event.
-    pub fn read_task_event(&self, _time: Option<&mut FrameTime>) -> TraceTaskEvent {
-        unimplemented!()
+    pub fn read_task_event(&self, time: Option<&mut FrameTime>) -> Option<TraceTaskEvent> {
+        let tasks = self.reader(Substream::Tasks);
+        if tasks.at_end() {
+            return None;
+        }
+
+        let stream = CompressedReaderInputStream::new(tasks);
+        let task_msg = message::Reader::new(stream, ReaderOptions::new());
+
+        let task: task_event::Reader = task_msg.get_root::<task_event::Reader>().unwrap();
+        let tid_ = i32_to_tid(task.get_tid());
+        match time {
+            Some(frame_time) => *frame_time = task.get_frame_time() as u64,
+            None => (),
+        }
+        let te: TraceTaskEvent;
+        match task.which().unwrap() {
+            task_event::Clone(r) => {
+                let clone_flags_ = r.get_flags();
+                let parent_tid_ = i32_to_tid(r.get_own_ns_tid());
+                let own_ns_tid_ = i32_to_tid(r.get_own_ns_tid());
+                log!(
+                    LogDebug,
+                    "Reading event for {}: parent={} tid={}",
+                    task.get_frame_time(),
+                    parent_tid_,
+                    tid_
+                );
+                te = TraceTaskEvent {
+                    type_: TraceTaskEventType::Clone(TraceTaskEventClone {
+                        parent_tid_,
+                        own_ns_tid_,
+                        clone_flags_,
+                    }),
+                    tid_,
+                }
+            }
+            task_event::Exec(r) => {
+                let file_name_ = r.get_file_name().unwrap();
+                let cmd_line_reader = r.get_cmd_line().unwrap();
+                let mut cmd_line_: Vec<OsString> = Vec::new();
+                for cmd in cmd_line_reader.iter() {
+                    cmd_line_.push(OsStr::from_bytes(cmd.unwrap()).to_os_string());
+                }
+                let exe_base_ = RemotePtr::new_from_val(r.get_exe_base().try_into().unwrap());
+                te = TraceTaskEvent {
+                    type_: TraceTaskEventType::Exec(TraceTaskEventExec {
+                        file_name_: OsStr::from_bytes(file_name_).to_os_string(),
+                        cmd_line_,
+                        exe_base_,
+                    }),
+                    tid_,
+                }
+            }
+            task_event::Exit(r) => {
+                let exit_status_ = WaitStatus::new(r.get_exit_status());
+                te = TraceTaskEvent {
+                    type_: TraceTaskEventType::Exit(TraceTaskEventExit { exit_status_ }),
+                    tid_,
+                }
+            }
+        }
+
+        Some(te)
     }
 
     /// Read the next raw data record for this frame and return it. Aborts if
