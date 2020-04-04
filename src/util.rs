@@ -21,6 +21,7 @@ use std::env::var_os;
 use std::ffi::{c_void, OsStr, OsString};
 use std::mem::zeroed;
 use std::os::unix::ffi::OsStrExt;
+use std::path::Path;
 
 pub const CPUID_GETVENDORSTRING: u32 = 0x0;
 pub const CPUID_GETFEATURES: u32 = 0x1;
@@ -697,4 +698,12 @@ pub fn dir_exists<P: ?Sized + NixPath>(dir: &P) -> bool {
     }
 
     stat(dir).is_ok()
+}
+
+pub fn real_path(path: &OsStr) -> OsString {
+    Path::new(&path)
+        .canonicalize()
+        .unwrap()
+        .as_os_str()
+        .to_os_string()
 }

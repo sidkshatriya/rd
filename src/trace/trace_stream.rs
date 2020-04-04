@@ -3,7 +3,7 @@ use crate::remote_ptr::{RemotePtr, Void};
 use crate::taskish_uid::TaskUid;
 use crate::trace::trace_frame::FrameTime;
 use crate::trace_capnp::Arch as TraceArch;
-use crate::util::{dir_exists, ensure_dir};
+use crate::util::{dir_exists, ensure_dir, real_path};
 use libc::pid_t;
 use nix::errno::errno;
 use nix::sys::stat::Mode;
@@ -115,16 +115,23 @@ impl TraceStream {
         self.global_time
     }
 
-    pub fn file_data_clone_file_name(&self, _tuid: &TaskUid) -> OsString {
-        unimplemented!()
+    pub fn file_data_clone_file_name(&self, tuid: &TaskUid) -> OsString {
+        let mut ss: Vec<u8> = Vec::from(self.trace_dir.as_bytes());
+        write!(ss, "/cloned_data_{}_{}", tuid.tid(), tuid.serial()).unwrap();
+        OsString::from_vec(ss)
     }
 
     pub fn mmaps_block_size() -> usize {
         substream(Substream::Mmaps).block_size
     }
 
-    pub(super) fn new(_trace_dir: &OsStr, _initial_time: FrameTime) -> TraceStream {
-        unimplemented!()
+    pub(super) fn new(trace_dir: &OsStr, initial_time: FrameTime) -> TraceStream {
+        TraceStream {
+            trace_dir: real_path(trace_dir),
+            // @TODO Is this what we want?
+            bind_to_cpu: 0,
+            global_time: initial_time,
+        }
     }
 
     /// Return the path of the file for the given substream.
