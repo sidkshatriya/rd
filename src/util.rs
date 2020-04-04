@@ -13,6 +13,7 @@ use nix::sys::statfs::{statfs, TMPFS_MAGIC};
 use nix::unistd::SysconfVar::PAGE_SIZE;
 use nix::unistd::{access, ftruncate, isatty, mkdir, read, write};
 use nix::unistd::{sysconf, AccessFlags};
+use nix::NixPath;
 use raw_cpuid::CpuId;
 use std::convert::TryInto;
 use std::env;
@@ -688,4 +689,12 @@ pub fn find_cpuid_record(records: &[CPUIDRecord], eax: u32, ecx: u32) -> Option<
     }
 
     None
+}
+
+pub fn dir_exists<P: ?Sized + NixPath>(dir: &P) -> bool {
+    if dir.is_empty() {
+        return false;
+    }
+
+    stat(dir).is_ok()
 }

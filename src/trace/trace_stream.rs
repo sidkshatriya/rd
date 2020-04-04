@@ -3,12 +3,17 @@ use crate::remote_ptr::{RemotePtr, Void};
 use crate::taskish_uid::TaskUid;
 use crate::trace::trace_frame::FrameTime;
 use crate::trace_capnp::Arch as TraceArch;
+use crate::util::dir_exists;
 use libc::pid_t;
+use std::env;
 use std::ffi::{OsStr, OsString};
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::ffi::OsStringExt;
 use std::slice::Iter;
 
 pub const TRACE_VERSION: u32 = 85;
+
+pub const SUBSTREAM_COUNT: usize = 4;
 
 /// Update `substreams` and TRACE_VERSION when you update this list.
 #[repr(usize)]
@@ -32,20 +37,7 @@ pub const SUBSTREAMS: [Substream; SUBSTREAM_COUNT] = [
     Substream::Tasks,
 ];
 
-impl Substream {
-    pub fn iter() -> Iter<'static, Substream> {
-        SUBSTREAMS.iter()
-    }
-}
-
-pub(super) struct SubstreamData {
-    pub(super) name: &'static str,
-    pub(super) block_size: usize,
-    pub(super) threads: usize,
-}
-
-pub const SUBSTREAM_COUNT: usize = 4;
-
+/// This needs to be kept in sync with the enum above
 pub(super) const SUBSTREAMS_DATA: [SubstreamData; SUBSTREAM_COUNT] = [
     SubstreamData {
         name: "events",
@@ -71,8 +63,20 @@ pub(super) const SUBSTREAMS_DATA: [SubstreamData; SUBSTREAM_COUNT] = [
 ];
 
 pub(super) fn substream(s: Substream) -> &'static SubstreamData {
-    // @TODO This method is incomplete
+    // @TODO This method still needs to be completed
     &SUBSTREAMS_DATA[s as usize]
+}
+
+impl Substream {
+    pub fn iter() -> Iter<'static, Substream> {
+        SUBSTREAMS.iter()
+    }
+}
+
+pub(super) struct SubstreamData {
+    pub(super) name: &'static str,
+    pub(super) block_size: usize,
+    pub(super) threads: usize,
 }
 
 /// For REMAP_MAPPING maps, the memory contents are preserved so we don't
@@ -111,7 +115,7 @@ impl TraceStream {
     }
 
     pub fn mmaps_block_size() -> usize {
-        unimplemented!()
+        substream(Substream::Mmaps).block_size
     }
 
     pub(super) fn new(_trace_dir: &OsStr, _initial_time: FrameTime) -> TraceStream {
@@ -119,8 +123,11 @@ impl TraceStream {
     }
 
     /// Return the path of the file for the given substream.
-    pub(super) fn path(&self, _s: Substream) -> &OsStr {
-        unimplemented!()
+    pub(super) fn path(&self, s: Substream) -> OsString {
+        let mut path_vec: Vec<u8> = Vec::from(self.trace_dir.as_bytes());
+        path_vec.extend_from_slice(b"/");
+        path_vec.extend_from_slice(substream(s).name.as_bytes());
+        OsString::from_vec(path_vec)
     }
 
     /// Return the path of "version" file, into which the current
@@ -189,16 +196,62 @@ pub(super) fn make_trace_dir(_exe_path: &OsStr, _output_trace_dir: &OsStr) -> Os
     unimplemented!()
 }
 
+/// @TODO Look at logic again carefully
 pub(super) fn default_rd_trace_dir() -> OsString {
-    unimplemented!()
+    let cached_dir: OsString;
+    let mut dot_dir: Vec<u8> = Vec::new();
+    let maybe_home = env::var_os("HOME");
+    let home: OsString;
+    match maybe_home {
+        Some(found_home) if !found_home.is_empty() => {
+            dot_dir.extend_from_slice(found_home.as_bytes());
+            dot_dir.extend_from_slice(b"/.rr");
+            home = found_home;
+        }
+        // @TODO This seems to be an implicit outcome of what we have in rr
+        _ => home = OsStr::from_bytes(b"").to_os_string(),
+    }
+
+    let mut xdg_dir: Vec<u8> = Vec::new();
+    let maybe_xdg_data_home = env::var_os("XDG_DATA_HOME");
+    match maybe_xdg_data_home {
+        Some(xdg_data_home) if !xdg_data_home.is_empty() => {
+            xdg_dir.extend_from_slice(xdg_data_home.as_bytes());
+            xdg_dir.extend_from_slice(b"/rr");
+        }
+        _ => {
+            xdg_dir.extend_from_slice(home.as_bytes());
+            xdg_dir.extend_from_slice(b"/.local/share/rr");
+        }
+    }
+
+    // If XDG dir does not exist but ~/.rr does, prefer ~/.rr for backwards
+    // compatibility.
+    if dir_exists(xdg_dir.as_slice()) {
+        cached_dir = OsString::from_vec(xdg_dir);
+    } else if dir_exists(dot_dir.as_slice()) {
+        cached_dir = OsString::from_vec(dot_dir);
+    } else if !xdg_dir.is_empty() {
+        cached_dir = OsString::from_vec(xdg_dir);
+    } else {
+        cached_dir = OsStr::from_bytes(b"/tmp/rr").to_os_string();
+    }
+
+    cached_dir
 }
 
-pub(super) fn trace_save_dir() {
-    unimplemented!()
+pub(super) fn trace_save_dir() -> OsString {
+    let maybe_output_dir = env::var_os("_RD_TRACE_DIR");
+    match maybe_output_dir {
+        Some(dir) if dir.as_bytes() != b"" => dir,
+        _ => default_rd_trace_dir(),
+    }
 }
 
 pub(super) fn latest_trace_symlink() -> OsString {
-    unimplemented!()
+    let mut sym: Vec<u8> = Vec::from(trace_save_dir().as_bytes());
+    sym.extend_from_slice(b"/latest-trace");
+    OsString::from_vec(sym)
 }
 
 pub(super) fn to_trace_arch(arch: SupportedArch) -> TraceArch {

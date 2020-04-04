@@ -563,7 +563,7 @@ impl TraceWriter {
         for &s in Substream::iter() {
             tw.writers.insert(
                 s,
-                CompressedWriter::new(tw.path(s), substream(s).block_size, substream(s).threads),
+                CompressedWriter::new(&tw.path(s), substream(s).block_size, substream(s).threads),
             );
         }
 
@@ -741,7 +741,7 @@ impl TraceWriter {
 
         let mut dest_path = Vec::<u8>::new();
         dest_path.extend_from_slice(self.dir().as_bytes());
-        write!(dest_path, "/").unwrap();
+        dest_path.extend_from_slice(b"/");
         dest_path.extend_from_slice(&path);
 
         let ret = hard_link(file_name, OsStr::from_bytes(&dest_path));
@@ -769,7 +769,7 @@ impl TraceWriter {
         }
         let mut dest_path = Vec::<u8>::new();
         dest_path.extend_from_slice(self.dir().as_bytes());
-        write!(dest_path, "/").unwrap();
+        dest_path.extend_from_slice(b"/");
         dest_path.extend_from_slice(&path);
 
         let dest = ScopedFd::open_path_with_mode(
@@ -806,7 +806,7 @@ impl TraceWriter {
         }
         let mut dest_path = Vec::<u8>::new();
         dest_path.extend_from_slice(self.dir().as_bytes());
-        write!(dest_path, "/").unwrap();
+        dest_path.extend_from_slice(b"/");
         dest_path.extend_from_slice(&path);
 
         let dest = ScopedFd::open_path_with_mode(
