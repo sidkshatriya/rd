@@ -277,7 +277,7 @@ impl<'a, 'b> AutoRestoreMem<'a, 'b> {
             addr: None,
             data: v,
             // We don't need an Option here because init will always add a value.
-            saved_sp: 0.into(),
+            saved_sp: 0usize.into(),
             len,
         };
         mem.map(|s| debug_assert_eq!(len, s.len()));

@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::convert::TryInto;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::Result;
@@ -129,6 +130,14 @@ impl<T> Eq for RemotePtr<T> {}
 impl<T> From<usize> for RemotePtr<T> {
     fn from(addr: usize) -> Self {
         RemotePtr::<T>::new_from_val(addr)
+    }
+}
+
+/// NOTE: This method can fail due to the try_into().
+/// However this should be OK in almost all cases.
+impl<T> From<u64> for RemotePtr<T> {
+    fn from(addr: u64) -> Self {
+        RemotePtr::<T>::new_from_val(addr.try_into().unwrap())
     }
 }
 

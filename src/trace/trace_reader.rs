@@ -7,7 +7,7 @@ use crate::event::{SignalResolvedDisposition, SyscallState};
 use crate::extra_registers::{ExtraRegisters, Format};
 use crate::kernel_abi::common::preload_interface::mprotect_record;
 use crate::kernel_abi::{SupportedArch, RD_NATIVE_ARCH};
-use crate::log::LogLevel::LogDebug;
+use crate::log::LogLevel::{LogDebug, LogError};
 use crate::perf_counters::TicksSemantics;
 use crate::registers::Registers;
 use crate::remote_ptr::{RemotePtr, Void};
@@ -15,6 +15,7 @@ use crate::session::record_session::TraceUuid;
 use crate::trace::compressed_reader::{CompressedReader, CompressedReaderState};
 use crate::trace::compressed_reader_input_stream::CompressedReaderInputStream;
 use crate::trace::trace_frame::{FrameTime, TraceFrame};
+use crate::trace::trace_stream::MappedDataSource::{SourceFile, SourceTrace, SourceZero};
 use crate::trace::trace_stream::{
     to_trace_arch, MappedData, RawDataMetadata, Substream, TraceRemoteFd, TraceStream,
 };
@@ -31,6 +32,9 @@ use crate::wait_status::WaitStatus;
 use capnp::message;
 use capnp::message::ReaderOptions;
 use libc::pid_t;
+use nix::sys::mman::{MapFlags, ProtFlags};
+use nix::sys::stat::stat;
+use nix::sys::stat::FileStat;
 use static_assertions::_core::intrinsics::copy_nonoverlapping;
 use std::collections::HashMap;
 use std::convert::TryInto;
@@ -234,22 +238,159 @@ impl TraceReader {
         ret
     }
 
+    /// @TODO `found` param as in rr seems to be unnecessary as we return an Option<KernelMapping>
     pub fn read_mapped_region(
-        &self,
-        _data: Option<&mut MappedData>,
-        _found: Option<&mut bool>,
-        _validate: Option<ValidateSourceFile>,
-        _time_constraint: Option<TimeConstraint>,
-        _extra_fds: Option<&mut Vec<TraceRemoteFd>>,
-        _skip_monitoring_mapped_fd: Option<&mut bool>,
-    ) -> KernelMapping {
-        unimplemented!()
+        &mut self,
+        maybe_data: Option<&mut MappedData>,
+        maybe_validate: Option<ValidateSourceFile>,
+        maybe_time_constraint: Option<TimeConstraint>,
+        maybe_extra_fds: Option<&mut Vec<TraceRemoteFd>>,
+        skip_monitoring_mapped_fd: Option<&mut bool>,
+    ) -> Option<KernelMapping> {
+        let time_constraint = maybe_time_constraint.unwrap_or(TimeConstraint::CurrentTimeOnly);
+        let saved_global_time = self.global_time;
+        let validate = maybe_validate.unwrap_or(ValidateSourceFile::Validate);
+        let mmaps = self.reader_mut(Substream::Mmaps);
+        if mmaps.at_end() {
+            return None;
+        }
+
+        let mut state: CompressedReaderState = Default::default();
+        if time_constraint == TimeConstraint::CurrentTimeOnly {
+            state = mmaps.get_state();
+        }
+
+        let stream = CompressedReaderInputStream::new(mmaps);
+        let map_msg = message::Reader::new(stream, ReaderOptions::new());
+
+        let map = map_msg.get_root::<m_map::Reader>().unwrap();
+        if time_constraint == TimeConstraint::CurrentTimeOnly {
+            if map.get_frame_time() as u64 != saved_global_time {
+                mmaps.restore_state(state);
+                return None;
+            }
+        }
+
+        if maybe_data.is_some() {
+            let data = maybe_data.unwrap();
+            if map.get_frame_time() < 0 {
+                fatal!("Invalid frameTime");
+            }
+            data.time = map.get_frame_time() as u64;
+            data.data_offset_bytes = 0;
+            if map.get_stat_size() < 0 {
+                fatal!("Invalid stat size");
+            }
+            data.file_size_bytes = map.get_stat_size() as usize;
+            if maybe_extra_fds.is_some() {
+                let extra_fds = maybe_extra_fds.unwrap();
+                if map.has_extra_fds() {
+                    let fds_reader = map.get_extra_fds().unwrap();
+                    for fd in fds_reader.iter() {
+                        extra_fds.push(TraceRemoteFd {
+                            tid: fd.get_tid(),
+                            fd: fd.get_fd(),
+                        });
+                    }
+                }
+            }
+
+            skip_monitoring_mapped_fd.map(|fd| *fd = map.get_skip_monitoring_mapped_fd());
+            let src = map.get_source();
+            match src.which().unwrap() {
+                m_map::source::Zero(()) => data.source = SourceZero,
+                m_map::source::Trace(()) => data.source = SourceTrace,
+                m_map::source::File(f) => {
+                    data.source = SourceFile;
+                    let backing_file_name_int = f.get_backing_file_name().unwrap();
+                    let is_clone = backing_file_name_int.starts_with(b"mmap_clone_");
+                    let is_copy = backing_file_name_int.starts_with(b"mmap_copy_");
+                    let mut backing_file_name_vec: Vec<u8> = Vec::new();
+                    if backing_file_name_int[0] != b'/' {
+                        backing_file_name_vec.extend_from_slice(self.dir().as_bytes());
+                        backing_file_name_vec.extend_from_slice(b"/");
+                        backing_file_name_vec.extend_from_slice(backing_file_name_int);
+                    } else {
+                        backing_file_name_vec.extend_from_slice(backing_file_name_int);
+                    }
+                    let backing_file_name = OsStr::from_bytes(&backing_file_name_vec);
+                    let uid = map.get_stat_uid();
+                    let gid = map.get_stat_gid();
+                    let mode = map.get_stat_mode();
+                    let mtime = map.get_stat_m_time();
+                    if map.get_stat_size() < 0 {
+                        fatal!("Invalid stat size");
+                    }
+                    let size = map.get_stat_size() as u64;
+                    let has_stat_buf = mode != 0 || uid != 0 || gid != 0 || mtime != 0;
+                    if !is_clone
+                        && !is_copy
+                        && validate == ValidateSourceFile::Validate
+                        && has_stat_buf
+                    {
+                        let maybe_file_stat = stat(backing_file_name_vec.as_slice());
+                        if maybe_file_stat.is_err() {
+                            fatal!(
+                                "Failed to stat {:?}: replay is impossible",
+                                backing_file_name
+                            );
+                        }
+                        let backing_stat: FileStat = maybe_file_stat.unwrap();
+                        if backing_stat.st_ino != map.get_inode()
+                            || backing_stat.st_mode != mode
+                            || backing_stat.st_uid != uid
+                            || backing_stat.st_gid != gid
+                            || backing_stat.st_size as u64 != size
+                            || backing_stat.st_mtime != mtime
+                        {
+                            log!(
+                                LogError,
+                                "Metadata of {:?} changed: replay divergence likely, but continuing anyway.\n\
+                                 inode: {}/{}; mode: {}/{}; uid: {}/{}; gid: {}/{}; size: {}/{}; mtime: {}/{}",
+                                OsStr::from_bytes(map.get_fsname().unwrap()),
+                                backing_stat.st_ino,
+                                map.get_inode(),
+                                backing_stat.st_mode,
+                                mode,
+                                backing_stat.st_uid,
+                                uid,
+                                backing_stat.st_gid,
+                                gid,
+                                backing_stat.st_size,
+                                size,
+                                backing_stat.st_mtime,
+                                mtime
+                            );
+                        }
+                    }
+                    data.filename = backing_file_name.to_os_string();
+                    let file_offset_bytes = map.get_file_offset_bytes();
+                    if file_offset_bytes < 0 {
+                        fatal!("Invalid file offset bytes");
+                    }
+                    data.data_offset_bytes = file_offset_bytes.try_into().unwrap();
+                }
+            }
+        }
+        Some(KernelMapping::new_with_opts(
+            map.get_start().into(),
+            map.get_end().into(),
+            OsStr::from_bytes(map.get_fsname().unwrap()),
+            map.get_device(),
+            map.get_inode(),
+            ProtFlags::from_bits(map.get_prot()).unwrap(),
+            MapFlags::from_bits(map.get_flags()).unwrap(),
+            map.get_file_offset_bytes() as u64,
+        ))
     }
 
     /// Read a task event (clone or exec record) from the trace.
     /// Returns a record of type NONE at the end of the trace.
     /// Sets `time` (if non-None) to the global time of the event.
-    pub fn read_task_event(&mut self, time: Option<&mut FrameTime>) -> Option<TraceTaskEvent> {
+    pub fn read_task_event(
+        &mut self,
+        maybe_time: Option<&mut FrameTime>,
+    ) -> Option<TraceTaskEvent> {
         let tasks = self.reader_mut(Substream::Tasks);
         if tasks.at_end() {
             return None;
@@ -260,10 +401,7 @@ impl TraceReader {
 
         let task: task_event::Reader = task_msg.get_root::<task_event::Reader>().unwrap();
         let tid_ = i32_to_tid(task.get_tid());
-        match time {
-            Some(frame_time) => *frame_time = task.get_frame_time() as u64,
-            None => (),
-        }
+        maybe_time.map(|frame_time| *frame_time = task.get_frame_time() as u64);
         let te: TraceTaskEvent;
         match task.which().unwrap() {
             task_event::Clone(r) => {
@@ -293,7 +431,7 @@ impl TraceReader {
                 for cmd in cmd_line_reader.iter() {
                     cmd_line_.push(OsStr::from_bytes(cmd.unwrap()).to_os_string());
                 }
-                let exe_base_ = RemotePtr::new_from_val(r.get_exe_base().try_into().unwrap());
+                let exe_base_ = r.get_exe_base().into();
                 te = TraceTaskEvent {
                     type_: TraceTaskEventType::Exec(TraceTaskEventExec {
                         file_name_: OsStr::from_bytes(file_name_).to_os_string(),
@@ -393,15 +531,26 @@ impl TraceReader {
 
     /// Restore the state of this to what it was just after
     /// `open()`.
-    pub fn rewind() {
-        unimplemented!()
+    pub fn rewind(&mut self) {
+        for w in self.readers.values_mut() {
+            w.rewind();
+        }
+        self.global_time = 0;
     }
 
     pub fn uncompressed_bytes(&self) -> u64 {
-        unimplemented!()
+        let mut total: u64 = 0;
+        for w in self.readers.values() {
+            total += w.uncompressed_bytes();
+        }
+        total
     }
     pub fn compressed_bytes(&self) -> u64 {
-        unimplemented!()
+        let mut total: u64 = 0;
+        for w in self.readers.values() {
+            total += w.compressed_bytes();
+        }
+        total
     }
 
     /// Open the trace in 'dir'. When 'dir' is the empty string, open the

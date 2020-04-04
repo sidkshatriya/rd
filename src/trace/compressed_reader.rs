@@ -24,6 +24,16 @@ pub struct CompressedReaderState {
     saved_buffer_read_pos: usize,
 }
 
+impl Default for CompressedReaderState {
+    fn default() -> Self {
+        CompressedReaderState {
+            saved_fd_offset: 0,
+            saved_buffer: vec![],
+            saved_buffer_read_pos: 0,
+        }
+    }
+}
+
 impl Drop for CompressedReader {
     fn drop(&mut self) {
         self.close()
@@ -74,12 +84,12 @@ impl CompressedReader {
     /// Get the current state of the CompressedReader.
     /// Slightly different approach from rr which has `save_state()`
     /// Note: Therefore `discard_state()` method in rr is not needed.
-    pub fn get_state(&mut self) -> CompressedReaderState {
+    pub fn get_state(&self) -> CompressedReaderState {
         unimplemented!()
     }
     /// Restore previously obtained state.
     /// Slightly different approach from rr -- you need to provide state to be restored.
-    pub fn restore_state(&mut self, state: CompressedReaderState) {
+    pub fn restore_state(&mut self, _state: CompressedReaderState) {
         unimplemented!()
     }
 

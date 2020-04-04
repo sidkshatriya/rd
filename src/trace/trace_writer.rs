@@ -27,7 +27,6 @@ use crate::trace::trace_stream::{
 };
 use crate::trace::trace_task_event::{TraceTaskEvent, TraceTaskEventType};
 use crate::trace_capnp::m_map::source::Which::Trace;
-use crate::trace_capnp::Arch as TraceArch;
 use crate::trace_capnp::SyscallState as TraceSyscallState;
 use crate::trace_capnp::{frame, m_map, signal};
 use crate::trace_capnp::{

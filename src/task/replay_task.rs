@@ -8,7 +8,6 @@ use crate::task::task_inner::task_inner::WriteFlags;
 use crate::task::task_inner::task_inner::{CloneReason, TaskInner};
 use crate::task::Task;
 use crate::trace::trace_frame::{FrameTime, TraceFrame};
-use crate::trace::trace_reader::TraceReader;
 use libc::pid_t;
 use std::ffi::CString;
 use std::ops::{Deref, DerefMut};

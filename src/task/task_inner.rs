@@ -361,7 +361,7 @@ pub mod task_inner {
         /// However, since it is only used to extract pid_t we monomorphize it in rd.
         pub fn get_ptrace_eventmsg_pid(&self) -> pid_t {
             let mut msg = [0u8; size_of::<usize>()];
-            self.xptrace_get_data(libc::PTRACE_GETEVENTMSG, 0.into(), &mut msg);
+            self.xptrace_get_data(libc::PTRACE_GETEVENTMSG, 0usize.into(), &mut msg);
             usize::from_le_bytes(msg).try_into().unwrap()
         }
 
