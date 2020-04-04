@@ -679,3 +679,13 @@ pub fn xcr0() -> u64 {
 pub fn good_random(_out: &mut [u8]) {
     unimplemented!()
 }
+
+pub fn find_cpuid_record(records: &[CPUIDRecord], eax: u32, ecx: u32) -> Option<&CPUIDRecord> {
+    for rec in records {
+        if rec.eax_in == eax && (rec.ecx_in == ecx || rec.ecx_in == std::u32::MAX) {
+            return Some(rec);
+        }
+    }
+
+    None
+}

@@ -24,10 +24,10 @@ use crate::trace::trace_task_event::{
 };
 use crate::trace_capnp::Arch as TraceArch;
 use crate::trace_capnp::{
-    frame, header, m_map, signal, task_event, SignalDisposition as TraceSignalDisposition,
+    frame, m_map, signal, task_event, SignalDisposition as TraceSignalDisposition,
     SyscallState as TraceSyscallState, TicksSemantics as TraceTicksSemantics,
 };
-use crate::util::{xsave_layout_from_trace, CPUIDRecord};
+use crate::util::{find_cpuid_record, xsave_layout_from_trace, CPUIDRecord, CPUID_GETXSAVE};
 use crate::wait_status::WaitStatus;
 use capnp::message;
 use capnp::message::ReaderOptions;
@@ -73,11 +73,12 @@ pub struct RawData {
 /// state as 'other', but for which mutations of this
 /// clone won't affect the state of 'other' (and vice versa).
 /// @TODO: Currently doing a derive Clone. In case the semantics are not exactly
-/// what we want we will need to implement Clone manually.
+/// what we want, we will need to implement Clone manually.
 #[derive(Clone)]
 pub struct TraceReader {
     trace_stream: TraceStream,
-    xcr0_: u64,
+    /// Slightly different from rr where a non-zero value means that this has been filled out
+    xcr0_: Option<u64>,
     readers: HashMap<Substream, CompressedReader>,
     cpuid_records_: Vec<CPUIDRecord>,
     raw_recs: Vec<RawDataMetadata>,
@@ -562,8 +563,22 @@ impl TraceReader {
     pub fn uses_cpuid_faulting(&self) -> bool {
         self.trace_uses_cpuid_faulting
     }
-    pub fn xcr0() -> u64 {
-        unimplemented!()
+    pub fn xcr0(&mut self) -> u64 {
+        if self.xcr0_.is_some() {
+            return self.xcr0_.unwrap();
+        }
+        // All valid XCR0 values have bit 0 (x87) == 1. So this is the default
+        // value for traces that didn't store XCR0. Assume that the OS enabled
+        // all CPU-supported XCR0 bits.
+        let maybe_record = find_cpuid_record(&self.cpuid_records_, CPUID_GETXSAVE, 0);
+        match maybe_record {
+            None => {
+                // No XSAVE support at all on the recording CPU??? Assume just
+                // x87/SSE enabled.
+                3
+            }
+            Some(record) => ((record.out.edx as u64) << 32) | record.out.eax as u64,
+        }
     }
 
     /// Prior to rr issue 2370, we did not emit mapping into the trace for the
