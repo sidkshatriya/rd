@@ -3,12 +3,17 @@ use crate::remote_ptr::{RemotePtr, Void};
 use crate::taskish_uid::TaskUid;
 use crate::trace::trace_frame::FrameTime;
 use crate::trace_capnp::Arch as TraceArch;
-use crate::util::dir_exists;
+use crate::util::{dir_exists, ensure_dir};
 use libc::pid_t;
+use nix::errno::errno;
+use nix::sys::stat::Mode;
+use nix::unistd::mkdir;
 use std::env;
 use std::ffi::{OsStr, OsString};
+use std::io::Write;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::ffi::OsStringExt;
+use std::path::Path;
 use std::slice::Iter;
 
 pub const TRACE_VERSION: u32 = 85;
@@ -192,8 +197,52 @@ pub struct MappedData {
     pub file_size_bytes: usize,
 }
 
-pub(super) fn make_trace_dir(_exe_path: &OsStr, _output_trace_dir: &OsStr) -> OsString {
-    unimplemented!()
+pub(super) fn make_trace_dir(exe_path: &OsStr, output_trace_dir: &OsStr) -> OsString {
+    if !output_trace_dir.is_empty() {
+        // save trace dir in given output trace dir with option -o
+        let ret = mkdir(output_trace_dir, Mode::S_IRWXU | Mode::S_IRWXG);
+        if ret.is_ok() {
+            return output_trace_dir.to_owned();
+        }
+        if libc::EEXIST == errno() {
+            // directory already exists
+            fatal!("Directory `{:?}' already exists.", output_trace_dir);
+        } else {
+            fatal!("Unable to create trace directory `{:?}'", output_trace_dir);
+        }
+
+        unreachable!()
+    } else {
+        // save trace dir set in _RD_TRACE_DIR or in the default trace dir
+        ensure_dir(
+            trace_save_dir().as_os_str(),
+            "trace directory",
+            Mode::S_IRWXU,
+        );
+
+        // Find a unique trace directory name.
+        let mut nonce = 0;
+        let mut ret;
+        let mut dir;
+        let mut ss: Vec<u8> = Vec::from(trace_save_dir().as_bytes());
+        ss.extend_from_slice(b"/");
+        ss.extend_from_slice(Path::new(exe_path).file_name().unwrap().as_bytes());
+        loop {
+            dir = Vec::from(ss.as_slice());
+            write!(dir, "-{}", nonce).unwrap();
+            nonce += 1;
+            ret = mkdir(dir.as_slice(), Mode::S_IRWXU | Mode::S_IRWXG);
+            if ret.is_ok() || libc::EEXIST != errno() {
+                break;
+            }
+        }
+
+        if ret.is_err() {
+            fatal!("Unable to create trace directory `{:?}'", dir);
+        }
+
+        OsString::from_vec(dir)
+    }
 }
 
 /// @TODO Look at logic again carefully
@@ -243,7 +292,7 @@ pub(super) fn default_rd_trace_dir() -> OsString {
 pub(super) fn trace_save_dir() -> OsString {
     let maybe_output_dir = env::var_os("_RD_TRACE_DIR");
     match maybe_output_dir {
-        Some(dir) if dir.as_bytes() != b"" => dir,
+        Some(dir) if !dir.is_empty() => dir,
         _ => default_rd_trace_dir(),
     }
 }
