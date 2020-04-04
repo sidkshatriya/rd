@@ -81,6 +81,7 @@ impl DisableCPUIDFeatures {
     }
 }
 
+#[derive(Clone)]
 pub struct TraceUuid {
     pub bytes: [u8; 16],
 }

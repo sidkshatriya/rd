@@ -69,6 +69,12 @@ pub struct RawData {
     pub rec_tid: pid_t,
 }
 
+/// Create a copy of this stream that has exactly the same
+/// state as 'other', but for which mutations of this
+/// clone won't affect the state of 'other' (and vice versa).
+/// @TODO: Currently doing a derive Clone. In case the semantics are not exactly
+/// what we want we will need to implement Clone manually.
+#[derive(Clone)]
 pub struct TraceReader {
     trace_stream: TraceStream,
     xcr0_: u64,
@@ -81,15 +87,6 @@ pub struct TraceReader {
     uuid_: TraceUuid,
     trace_uses_cpuid_faulting: bool,
     preload_thread_locals_recorded_: bool,
-}
-
-/// Create a copy of this stream that has exactly the same
-/// state as 'other', but for which mutations of this
-/// clone won't affect the state of 'other' (and vice versa).
-impl Clone for TraceReader {
-    fn clone(&self) -> Self {
-        unimplemented!()
-    }
 }
 
 impl Deref for TraceReader {

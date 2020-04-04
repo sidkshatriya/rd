@@ -4,6 +4,7 @@ use std::ffi::OsStr;
 /// CompressedReader opens an input file written by CompressedWriter
 /// and reads data from it. Currently data is decompressed by the thread that
 /// calls read().
+#[derive(Clone)]
 pub struct CompressedReader {
     /// Our fd might be the dup of another fd, so we can't rely on its current file position.
     /// Instead track the current position in fd_offset and use pread.
@@ -37,12 +38,6 @@ impl Default for CompressedReaderState {
 impl Drop for CompressedReader {
     fn drop(&mut self) {
         self.close()
-    }
-}
-
-impl Clone for CompressedReader {
-    fn clone(&self) -> Self {
-        unimplemented!()
     }
 }
 

@@ -150,9 +150,7 @@ impl TraceStream {
 /// TraceStream stores all the data common to both recording and
 /// replay.  TraceWriter deals with recording-specific logic, and
 /// TraceReader handles replay-specific details.
-///
-/// These classes are all in the same .h/.cc file to keep trace reading and
-/// writing code together for easier coordination.
+#[derive(Clone)]
 pub struct TraceStream {
     /// Directory into which we're saving the trace files.
     pub(super) trace_dir: OsString,
