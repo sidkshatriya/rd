@@ -59,12 +59,13 @@ pub fn running_under_rd() -> bool {
     result.is_some() && result.unwrap() != ""
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Default)]
 pub struct XSaveFeatureLayout {
     pub offset: u32,
     pub size: u32,
 }
 
+#[derive(Default)]
 pub struct XSaveLayout {
     pub full_size: usize,
     pub supported_feature_bits: u64,
@@ -112,8 +113,56 @@ fn cpuid_record(eax: u32, ecx: u32) -> CPUIDRecord {
     }
 }
 
-pub fn xsave_layout_from_trace(_records: &[CPUIDRecord]) -> XSaveLayout {
-    unimplemented!()
+pub fn xsave_layout_from_trace(records: &[CPUIDRecord]) -> XSaveLayout {
+    let mut layout: XSaveLayout = Default::default();
+
+    let mut record_index: usize = 0;
+    while record_index < records.len() {
+        if records[record_index].eax_in == CPUID_GETXSAVE {
+            break;
+        }
+        record_index += 1;
+    }
+
+    if record_index == records.len() {
+        // XSAVE not present
+        layout.full_size = 512;
+        // x87/XMM always supported
+        layout.supported_feature_bits = 0x3;
+        return layout;
+    }
+
+    let mut cpuid_data = records[record_index];
+    debug_assert_eq!(cpuid_data.ecx_in, 0);
+    layout.full_size = cpuid_data.out.ebx as usize;
+    layout.supported_feature_bits = cpuid_data.out.eax as u64 | ((cpuid_data.out.edx as u64) << 32);
+
+    for i in 2usize..64usize {
+        if layout.supported_feature_bits & (1u64 << i as u64) != 0 {
+            loop {
+                record_index += 1;
+                if record_index >= records.len() || records[record_index].eax_in != CPUID_GETXSAVE {
+                    fatal!("Missing CPUID record for feature {}", i);
+                }
+
+                if records[record_index].ecx_in == i as u32 {
+                    break;
+                }
+            }
+            cpuid_data = records[record_index];
+            while layout.feature_layouts.len() < i {
+                layout
+                    .feature_layouts
+                    .push(XSaveFeatureLayout { offset: 0, size: 0 });
+            }
+            layout.feature_layouts.push(XSaveFeatureLayout {
+                offset: cpuid_data.out.ebx,
+                size: cpuid_data.out.eax,
+            });
+        }
+    }
+
+    layout
 }
 
 fn xsave_native_layout_init() -> XSaveLayout {
