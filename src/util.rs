@@ -43,6 +43,11 @@ pub const CPUID_INTELBRANDSTRING: u32 = 0x80000002;
 pub const CPUID_INTELBRANDSTRINGMORE: u32 = 0x80000003;
 pub const CPUID_INTELBRANDSTRINGEND: u32 = 0x80000004;
 
+pub const OSXSAVE_FEATURE_FLAG: u32 = 1 << 27;
+pub const AVX_FEATURE_FLAG: u32 = 1 << 28;
+pub const HLE_FEATURE_FLAG: u32 = 1 << 4;
+pub const XSAVEC_FEATURE_FLAG: u32 = 1 << 1;
+
 lazy_static! {
     static ref XSAVE_NATIVE_LAYOUT: XSaveLayout = xsave_native_layout_init();
     static ref SYSTEM_PAGE_SIZE: usize = page_size_init();
@@ -299,6 +304,7 @@ pub fn resize_shmem_segment(fd: &ScopedFd, num_bytes: usize) {
     }
 }
 
+#[derive(Eq, PartialEq)]
 pub enum TrappedInstruction {
     None = 0,
     Rdtsc = 1,
@@ -674,8 +680,27 @@ pub fn probably_not_interactive(maybe_fd: Option<i32>) -> bool {
     }
 }
 
+pub fn xsave_enabled() -> bool {
+    let features = cpuid(CPUID_GETFEATURES, 0);
+    (features.ecx & OSXSAVE_FEATURE_FLAG) != 0
+}
+
 pub fn xcr0() -> u64 {
-    unimplemented!()
+    if !xsave_enabled() {
+        // Assume x87/SSE enabled.
+        return 3;
+    }
+    let eax: u32;
+    let edx: u32;
+    unsafe {
+        asm!("xgetbv"
+            : "={eax}"(eax), "={edx}"(edx)
+            : "{ecx}"(0)
+            :: "volatile"
+        );
+    }
+
+    ((edx as u64) << 32) | (eax as u64)
 }
 
 pub fn good_random(_out: &mut [u8]) {
