@@ -70,7 +70,7 @@ pub fn xsave_native_layout() -> &'static XSaveLayout {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Default)]
 pub struct CPUIDRecord {
     pub eax_in: u32,
     pub ecx_in: u32,
@@ -78,7 +78,7 @@ pub struct CPUIDRecord {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Default)]
 pub struct CPUIDData {
     pub eax: u32,
     pub ebx: u32,
@@ -701,6 +701,7 @@ pub fn dir_exists<P: ?Sized + NixPath>(dir: &P) -> bool {
 }
 
 pub fn real_path(path: &OsStr) -> OsString {
+    // @TODO does canonicalize do what realpath does exactly?
     Path::new(&path)
         .canonicalize()
         .unwrap()

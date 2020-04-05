@@ -93,6 +93,9 @@ impl TraceUuid {
     pub fn new() -> TraceUuid {
         unimplemented!()
     }
+    pub fn from_array(bytes: [u8; 16]) -> TraceUuid {
+        TraceUuid { bytes }
+    }
 }
 
 pub struct RecordSession {

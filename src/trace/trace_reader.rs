@@ -17,31 +17,44 @@ use crate::trace::compressed_reader_input_stream::CompressedReaderInputStream;
 use crate::trace::trace_frame::{FrameTime, TraceFrame};
 use crate::trace::trace_stream::MappedDataSource::{SourceFile, SourceTrace, SourceZero};
 use crate::trace::trace_stream::{
-    to_trace_arch, MappedData, RawDataMetadata, Substream, TraceRemoteFd, TraceStream,
+    latest_trace_symlink, to_trace_arch, trace_save_dir, MappedData, RawDataMetadata, Substream,
+    TraceRemoteFd, TraceStream, SUBSTREAMS, TRACE_VERSION,
 };
 use crate::trace::trace_task_event::{
     TraceTaskEvent, TraceTaskEventClone, TraceTaskEventExec, TraceTaskEventExit, TraceTaskEventType,
 };
-use crate::trace_capnp::Arch as TraceArch;
 use crate::trace_capnp::{
     frame, m_map, signal, task_event, SignalDisposition as TraceSignalDisposition,
     SyscallState as TraceSyscallState, TicksSemantics as TraceTicksSemantics,
 };
-use crate::util::{find_cpuid_record, xsave_layout_from_trace, CPUIDRecord, CPUID_GETXSAVE};
+use crate::trace_capnp::{header, Arch as TraceArch};
+use crate::util::{
+    dir_exists, find, find_cpuid_record, xsave_layout_from_trace, CPUIDRecord, CPUID_GETXSAVE,
+};
 use crate::wait_status::WaitStatus;
 use capnp::message;
 use capnp::message::ReaderOptions;
+use capnp::serialize_packed::read_message;
 use libc::pid_t;
+use nix::errno::errno;
 use nix::sys::mman::{MapFlags, ProtFlags};
 use nix::sys::stat::stat;
 use nix::sys::stat::FileStat;
+use nix::unistd::access;
+use nix::unistd::AccessFlags;
 use static_assertions::_core::intrinsics::copy_nonoverlapping;
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::ffi::{OsStr, OsString};
+use std::fs::File;
+use std::io::stderr;
+use std::io::Write;
+use std::io::{BufRead, BufReader};
 use std::mem::{size_of, zeroed};
 use std::ops::{Deref, DerefMut};
 use std::os::unix::ffi::OsStrExt;
+use std::os::unix::ffi::OsStringExt;
+use std::process::exit;
 
 /// Read the next mapped region descriptor and return it.
 /// Also returns where to get the mapped data in `data`, if it's not `None`.
@@ -77,8 +90,7 @@ pub struct RawData {
 #[derive(Clone)]
 pub struct TraceReader {
     trace_stream: TraceStream,
-    /// Slightly different from rr where a non-zero value means that this has been filled out
-    xcr0_: Option<u64>,
+    xcr0_: u64,
     readers: HashMap<Substream, CompressedReader>,
     cpuid_records_: Vec<CPUIDRecord>,
     raw_recs: Vec<RawDataMetadata>,
@@ -553,8 +565,140 @@ impl TraceReader {
 
     /// Open the trace in 'dir'. When 'dir' is the empty string, open the
     /// latest trace.
-    pub fn new(&self, _dir: &OsStr) -> TraceReader {
-        unimplemented!()
+    ///
+    /// @TODO We are writing to stderr() in this method in various places and then exit() with
+    /// an error code. This is different from other places where we simply use fatal!(). Need to
+    /// review this again.
+    pub fn new(&self, dir: &OsStr) -> TraceReader {
+        let mut trace_stream = TraceStream::new(&resolve_trace_name(dir), 1);
+
+        let mut readers: HashMap<Substream, CompressedReader> = HashMap::new();
+        for &s in SUBSTREAMS.iter() {
+            readers.insert(s, CompressedReader::new(&trace_stream.path(s)));
+        }
+
+        let path = trace_stream.version_path();
+        let version_file = File::open(&path);
+        if version_file.is_err() {
+            if errno() == libc::ENOENT {
+                let incomplete_path = trace_stream.incomplete_version_path();
+                if access(incomplete_path.as_os_str(), AccessFlags::F_OK).is_ok() {
+                    write!(
+                        stderr(),
+                        "\nrd: Trace file `{:?}' found.\n\
+                         rd recording terminated abnormally and the trace is incomplete.\n\n",
+                        incomplete_path
+                    )
+                    .unwrap();
+                } else {
+                    write!(
+                        stderr(),
+                        "\nrr: Trace file `{:?}' not found. There is no trace there.\n\n",
+                        path
+                    )
+                    .unwrap();
+                }
+            } else {
+                write!(stderr(), "\nrd: Trace file `{:?}' not readable.\n\n", path).unwrap();
+            }
+            // @TODO Check if logging flush etc. works as intended
+            // @TODO EX_DATAERR = 65
+            exit(65);
+        }
+        let mut version_str = String::new();
+        let mut buf_reader = BufReader::new(version_file.unwrap());
+        let res = buf_reader.read_line(&mut version_str);
+        if res.is_err() {
+            write!(
+                stderr(),
+                "Could not read from the version file `{:?}'",
+                path
+            )
+            .unwrap();
+            // @TODO Check if logging flush etc. works as intended
+            // @TODO EX_DATAERR = 65
+            exit(65);
+        }
+
+        let maybe_version = version_str.trim().parse::<u32>();
+        let version: u32;
+        match maybe_version {
+            Ok(ver) => version = ver,
+            Err(_) => {
+                fatal!("Could not successfully parse version file");
+                unreachable!()
+            }
+        }
+
+        if TRACE_VERSION != version {
+            write!(
+                stderr(),
+                "\nrd: error: Recorded trace `{:?}' has an incompatible version {}; expected\n\
+                 {}.  Did you record `{:?}' with an older version of rd?  If so,\n\
+                 you'll need to replay `{:?}' with that older version.  Otherwise,\n\
+                 your trace is likely corrupted.\n\n",
+                path,
+                version,
+                TRACE_VERSION,
+                path,
+                path
+            )
+            .unwrap();
+            // @TODO Check if logging flush etc. works as intended
+            // @TODO EX_DATAERR = 65
+            exit(65);
+        }
+
+        let res = read_message(&mut buf_reader, ReaderOptions::new());
+        if res.is_err() {
+            fatal!("Could not read version file {:?}", path);
+        }
+
+        let header_msg = res.unwrap();
+        let header = header_msg.get_root::<header::Reader>().unwrap();
+        trace_stream.bind_to_cpu = header.get_bind_to_cpu();
+        let trace_uses_cpuid_faulting = header.get_has_cpuid_faulting();
+        // @TODO Are we sure we an unwrap here?
+        let cpuid_records_bytes = header.get_cpuid_records().unwrap();
+        let len = cpuid_records_bytes.len() / size_of::<CPUIDRecord>();
+        if cpuid_records_bytes.len() != len * size_of::<CPUIDRecord>() {
+            fatal!("Invalid CPUID records length");
+        }
+        let mut cpuid_records_: Vec<CPUIDRecord> = Vec::with_capacity(len);
+        cpuid_records_.resize(len, Default::default());
+        unsafe {
+            copy_nonoverlapping(
+                cpuid_records_bytes.as_ptr(),
+                cpuid_records_.as_mut_ptr() as *mut u8,
+                len * size_of::<CPUIDRecord>(),
+            );
+        }
+        let xcr0_ = header.get_xcr0();
+        let preload_thread_locals_recorded_ = header.get_preload_thread_locals_recorded();
+        let ticks_semantics_ = from_trace_ticks_semantics(header.get_ticks_semantics().unwrap());
+        let uuid_from_trace = header.get_uuid().unwrap();
+        let mut uuid_ = TraceUuid::new();
+        if uuid_from_trace.len() != uuid_.bytes.len() {
+            fatal!("Invalid UUID length");
+        }
+        uuid_.bytes = uuid_from_trace.try_into().unwrap();
+
+        // Set the global time at 0, so that when we tick it for the first
+        // event, it matches the initial global time at recording, 1.
+        trace_stream.global_time = 0;
+        TraceReader {
+            trace_stream,
+            xcr0_,
+            readers,
+            cpuid_records_,
+            ticks_semantics_,
+            uuid_,
+            trace_uses_cpuid_faulting,
+            preload_thread_locals_recorded_,
+            // @TODO Is this what we want?
+            monotonic_time_: 0.0,
+            raw_recs: vec![],
+        }
     }
 
     pub fn cpuid_records(&self) -> &[CPUIDRecord] {
@@ -564,8 +708,8 @@ impl TraceReader {
         self.trace_uses_cpuid_faulting
     }
     pub fn xcr0(&mut self) -> u64 {
-        if self.xcr0_.is_some() {
-            return self.xcr0_.unwrap();
+        if self.xcr0_ != 0 {
+            return self.xcr0_;
         }
         // All valid XCR0 values have bit 0 (x87) == 1. So this is the default
         // value for traces that didn't store XCR0. Assume that the OS enabled
@@ -682,4 +826,27 @@ fn i32_to_tid(tid: i32) -> pid_t {
         fatal!("Invalid tid");
     }
     tid
+}
+
+fn resolve_trace_name(trace_name: &OsStr) -> OsString {
+    if trace_name.is_empty() {
+        return latest_trace_symlink();
+    }
+
+    // Single-component paths are looked up first in the current directory, next
+    // in the default trace dir.
+    if find(trace_name, b"/").is_none() {
+        if dir_exists(trace_name) {
+            return trace_name.to_os_string();
+        }
+
+        let mut resolved_trace_name: Vec<u8> = Vec::from(trace_save_dir().as_bytes());
+        resolved_trace_name.push(b'/');
+        resolved_trace_name.extend_from_slice(trace_name.as_bytes());
+        if dir_exists(resolved_trace_name.as_slice()) {
+            return OsString::from_vec(resolved_trace_name);
+        }
+    }
+
+    trace_name.to_os_string()
 }
