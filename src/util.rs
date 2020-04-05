@@ -14,6 +14,7 @@ use nix::unistd::SysconfVar::PAGE_SIZE;
 use nix::unistd::{access, ftruncate, isatty, mkdir, read, write};
 use nix::unistd::{sysconf, AccessFlags};
 use nix::NixPath;
+use rand::random;
 use raw_cpuid::CpuId;
 use std::convert::TryInto;
 use std::env;
@@ -703,8 +704,10 @@ pub fn xcr0() -> u64 {
     ((edx as u64) << 32) | (eax as u64)
 }
 
-pub fn good_random(_out: &mut [u8]) {
-    unimplemented!()
+pub fn good_random(out: &mut [u8]) {
+    for i in 0..out.len() {
+        out[i] = random::<u8>();
+    }
 }
 
 pub fn find_cpuid_record(records: &[CPUIDRecord], eax: u32, ecx: u32) -> Option<&CPUIDRecord> {
