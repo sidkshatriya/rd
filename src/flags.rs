@@ -1,4 +1,5 @@
 use crate::trace::trace_frame::FrameTime;
+use std::ffi::OsString;
 
 lazy_static! {
     static ref FLAGS: Flags = init_flags();
@@ -54,7 +55,7 @@ pub struct Flags {
     /// User override for architecture detection, e.g. when running under valgrind.
     pub forced_uarch: String,
     /// User override for the path to page files and other resources.
-    pub resource_path: String,
+    pub resource_path: OsString,
 }
 
 impl Flags {

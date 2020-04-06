@@ -1,5 +1,7 @@
+use crate::address_space::address_space::AddressSpace;
 use crate::address_space::kernel_mapping::KernelMapping;
 use crate::bindings::signal::{SI_KERNEL, TRAP_BRKPT};
+use crate::flags::Flags;
 use crate::log::LogLevel::{LogDebug, LogWarn};
 use crate::scoped_fd::ScopedFd;
 use libc::pwrite64;
@@ -22,6 +24,7 @@ use std::env::var_os;
 use std::ffi::{c_void, OsStr, OsString};
 use std::mem::zeroed;
 use std::os::unix::ffi::OsStrExt;
+use std::os::unix::ffi::OsStringExt;
 use std::path::Path;
 
 pub const CPUID_GETVENDORSTRING: u32 = 0x0;
@@ -785,4 +788,32 @@ pub fn real_path(path: &OsStr) -> OsString {
         .unwrap()
         .as_os_str()
         .to_os_string()
+}
+
+pub fn resource_path() -> &'static OsStr {
+    let resource_path: &'static OsStr = &Flags::get().resource_path;
+    if resource_path.is_empty() {
+        return RD_EXE_PATH.as_os_str();
+    }
+
+    resource_path
+}
+
+lazy_static! {
+    static ref RD_EXE_PATH: OsString = rd_exe_path_init();
+}
+
+fn rd_exe_path_init() -> OsString {
+    let mut exe_path = Vec::from(read_exe_dir().as_bytes());
+    exe_path.extend_from_slice(b"../");
+    OsString::from_vec(exe_path)
+}
+
+pub fn read_exe_dir() -> OsString {
+    // Get the mapping corresponding to the `read_exe_dir` method i.e. the method we're in!
+    let km: KernelMapping = AddressSpace::read_local_kernel_mapping(
+        read_exe_dir as *const fn() -> OsString as *const u8,
+    );
+    let exe_path = Path::new(km.fsname());
+    exe_path.parent().unwrap().as_os_str().to_os_string()
 }
