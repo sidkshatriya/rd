@@ -221,8 +221,8 @@ fn check_for_bugs_and_extra() -> PmuBugsAndExtra {
     // this can be set to pmu->flags & PMU_BENEFITS_FROM_USELESS_COUNTER,
     // instead.
     //
-    // We also disable this counter when running under rr. Even though it's the
-    // same event for the same task as the outer rr, the linux kernel does not
+    // We also disable this counter when running under rd. Even though it's the
+    // same event for the same task as the outer rd, the linux kernel does not
     // coalesce them and tries to schedule the new one on a general purpose PMC.
     // On CPUs with only 2 general PMCs (e.g. KNL), we'd run out.
     let activate_useless_counter = has_ioc_period_bug && !running_under_rd();
