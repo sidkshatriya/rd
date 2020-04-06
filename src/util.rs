@@ -6,7 +6,7 @@ use crate::flags::Flags;
 use crate::log::LogLevel::{LogDebug, LogWarn};
 use crate::remote_ptr::RemotePtr;
 use crate::scoped_fd::ScopedFd;
-use crate::task::common::read_val_mem;
+use crate::task::common::{read_mem, read_val_mem};
 use crate::task::Task;
 use libc::pwrite64;
 use libc::STDERR_FILENO;
@@ -26,10 +26,11 @@ use std::convert::TryInto;
 use std::env;
 use std::env::var_os;
 use std::ffi::{c_void, OsStr, OsString};
-use std::mem::zeroed;
+use std::mem::{size_of_val, zeroed};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::ffi::OsStringExt;
 use std::path::Path;
+use std::ptr::copy_nonoverlapping;
 
 pub const CPUID_GETVENDORSTRING: u32 = 0x0;
 pub const CPUID_GETFEATURES: u32 = 0x1;
@@ -834,4 +835,40 @@ fn env_ptr<Arch: Architecture>(t: &mut dyn Task) -> RemotePtr<Arch::unsigned_wor
     ed_assert!(t, null_ptr == 0u8.into());
     stack_ptr += 1;
     stack_ptr
+}
+
+pub fn read_auxv(t: &mut dyn Task) -> Vec<u8> {
+    rd_arch_function_selfless!(read_auxv_arch, t.arch(), t)
+}
+
+fn read_auxv_arch<Arch: Architecture>(t: &mut dyn Task) -> Vec<u8> {
+    let mut stack_ptr = env_ptr::<Arch>(t);
+
+    // Should now point to envp
+    let zero: Arch::unsigned_word = 0u8.into();
+    while zero != read_val_mem::<Arch::unsigned_word>(t, stack_ptr, None) {
+        stack_ptr += 1;
+    }
+    stack_ptr += 1;
+    // should now point to ELF Auxiliary Table
+
+    let mut result = Vec::<u8>::new();
+    loop {
+        let pair_vec = read_mem::<Arch::unsigned_word>(t, stack_ptr, 2, None);
+        stack_ptr += 2;
+        let pair = [pair_vec[0], pair_vec[1]];
+        let pair_size = size_of_val(&pair);
+        result.resize(result.len() + pair_size, 0u8.into());
+        unsafe {
+            copy_nonoverlapping(
+                pair.as_ptr() as *const u8,
+                result.as_mut_ptr().add(result.len() - pair_size),
+                pair_size,
+            );
+        }
+        if pair[0] == 0u8.into() {
+            break;
+        }
+    }
+    result
 }

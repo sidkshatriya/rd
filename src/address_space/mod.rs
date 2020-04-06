@@ -209,7 +209,9 @@ pub mod address_space {
     use crate::taskish_uid::AddressSpaceUid;
     use crate::taskish_uid::TaskUid;
     use crate::trace::trace_frame::FrameTime;
-    use crate::util::{ceil_page_size, floor_page_size, page_size, uses_invisible_guard_page};
+    use crate::util::{
+        ceil_page_size, floor_page_size, page_size, read_auxv, uses_invisible_guard_page,
+    };
     use crate::weak_ptr_set::WeakPtrSet;
     use core::ffi::c_void;
     use libc::stat;
@@ -1663,8 +1665,8 @@ pub mod address_space {
         pub fn saved_auxv(&self) -> &[u8] {
             &self.saved_auxv_
         }
-        pub fn save_auxv(_t: &dyn Task) {
-            unimplemented!()
+        pub fn save_auxv(&mut self, t: &mut dyn Task) {
+            self.saved_auxv_ = read_auxv(t);
         }
 
         /// Reads the /proc/<pid>/maps entry for a specific address. Does no caching.
