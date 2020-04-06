@@ -9,22 +9,25 @@ use crate::address_space::memory_range::MemoryRange;
 use crate::kernel_abi::common::preload_interface::{
     RD_PAGE_ADDR, RD_PAGE_SYSCALL_INSTRUCTION_END, RD_PAGE_SYSCALL_STUB_SIZE,
 };
+use crate::kernel_abi::SupportedArch;
 use crate::log::LogLevel::LogError;
 use crate::remote_code_ptr::RemoteCodePtr;
 use crate::remote_ptr::RemotePtr;
 use crate::remote_ptr::Void;
 use crate::scoped_fd::ScopedFd;
 use crate::task::Task;
-use crate::util::find;
+use crate::util::{find, resource_path};
 use libc::{dev_t, pid_t};
 use nix::sys::mman::{MapFlags, ProtFlags};
 use nix::sys::stat::stat;
+use nix::unistd::read;
 use std::cmp::min;
 use std::collections::BTreeSet;
 use std::convert::TryInto;
 use std::ffi::{OsStr, OsString};
 use std::mem::size_of;
 use std::os::unix::ffi::OsStrExt;
+use std::os::unix::ffi::OsStringExt;
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub enum BreakpointType {
@@ -2876,12 +2879,35 @@ fn range_for_watchpoint(addr: RemotePtr<Void>, num_bytes: usize) -> MemoryRange 
     MemoryRange::new_range(addr, min(num_bytes, max_len))
 }
 
-fn find_rd_page_file(_t: &dyn Task) -> OsString {
-    unimplemented!()
+fn find_rd_page_file(t: &dyn Task) -> OsString {
+    let mut path: Vec<u8> = Vec::from(resource_path().as_bytes());
+    path.extend_from_slice(b"share/rr/rr_page_");
+    match t.arch() {
+        SupportedArch::X86 => path.extend_from_slice(b"32"),
+        SupportedArch::X64 => path.extend_from_slice(b"64"),
+    }
+    if !t.session().borrow().is_recording() {
+        path.extend_from_slice(b"_replay");
+    }
+
+    OsString::from_vec(path)
 }
 
-fn read_all(_t: &dyn Task, _fd: &ScopedFd) -> Vec<u8> {
-    unimplemented!()
+fn read_all(t: &dyn Task, fd: &ScopedFd) -> Vec<u8> {
+    let mut buf = [0u8; 4096];
+    let mut result = Vec::<u8>::new();
+    loop {
+        let ret = read(fd.as_raw(), &mut buf);
+        match ret {
+            Ok(0) => {
+                return result;
+            }
+            Ok(nread) => {
+                result.extend_from_slice(&buf[0..nread]);
+            }
+            Err(_) => ed_assert!(t, false, "Error in performing read from file descriptor"),
+        }
+    }
 }
 
 /// Returns true if a task in t's task-group other than t is doing an exec.
