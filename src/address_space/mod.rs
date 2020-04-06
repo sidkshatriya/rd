@@ -6,10 +6,11 @@ use crate::address_space::address_space::{AddressSpace, Mapping};
 use crate::address_space::kernel_map_iterator::KernelMapIterator;
 use crate::address_space::kernel_mapping::KernelMapping;
 use crate::address_space::memory_range::MemoryRange;
+use crate::event::Event;
 use crate::kernel_abi::common::preload_interface::{
     RD_PAGE_ADDR, RD_PAGE_SYSCALL_INSTRUCTION_END, RD_PAGE_SYSCALL_STUB_SIZE,
 };
-use crate::kernel_abi::SupportedArch;
+use crate::kernel_abi::{is_execve_syscall, SupportedArch};
 use crate::log::LogLevel::LogError;
 use crate::remote_code_ptr::RemoteCodePtr;
 use crate::remote_ptr::RemotePtr;
@@ -183,7 +184,9 @@ pub mod address_space {
     use crate::arch::Architecture;
     use crate::auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem};
     use crate::emu_fs::EmuFileSharedPtr;
-    use crate::kernel_abi::common::preload_interface::{PRELOAD_THREAD_LOCALS_SIZE, RD_PAGE_ADDR};
+    use crate::kernel_abi::common::preload_interface::{
+        PRELOAD_THREAD_LOCALS_SIZE, RD_PAGE_ADDR, RD_PAGE_FF_BYTES,
+    };
     use crate::kernel_abi::{syscall_instruction, SupportedArch};
     use crate::kernel_abi::{
         syscall_number_for_brk, syscall_number_for_close, syscall_number_for_munmap,
@@ -1595,7 +1598,7 @@ pub mod address_space {
 
         /// Return a pointer to 8 bytes of 0xFF
         pub fn rd_page_ff_bytes() -> RemotePtr<u8> {
-            unimplemented!()
+            RD_PAGE_FF_BYTES.into()
         }
 
         /// Locate a syscall instruction in t's VDSO.
@@ -2911,8 +2914,26 @@ fn read_all(t: &dyn Task, fd: &ScopedFd) -> Vec<u8> {
 }
 
 /// Returns true if a task in t's task-group other than t is doing an exec.
-fn thread_group_in_exec(_t: &dyn Task) -> bool {
-    unimplemented!()
+fn thread_group_in_exec(t: &dyn Task) -> bool {
+    if !t.session().borrow().is_recording() {
+        return false;
+    }
+    for tt in t.thread_group().borrow().iter() {
+        let rf = tt.borrow();
+        // @TODO Is this comparison what we really want?
+        if rf.tuid() == t.tuid() {
+            continue;
+        }
+        let rt = rf.as_record_task().unwrap();
+        let ev: &Event = rt.ev();
+        if ev.is_syscall_event()
+            && is_execve_syscall(ev.syscall_event().number, ev.syscall_event().arch())
+        {
+            return true;
+        }
+    }
+
+    false
 }
 
 fn check_device(km: &KernelMapping) -> dev_t {

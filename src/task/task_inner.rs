@@ -618,17 +618,17 @@ pub mod task_inner {
             self.tg.clone()
         }
 
-        /// Return the id of this task's recorded thread group. */
+        /// Return the id of this task's recorded thread group.
         pub fn tgid(&self) -> pid_t {
             unimplemented!()
         }
-        /// Return id of real OS thread group. */
+        /// Return id of real OS thread group.
         pub fn real_tgid(&self) -> pid_t {
             unimplemented!()
         }
 
         pub fn tuid(&self) -> TaskUid {
-            unimplemented!()
+            TaskUid::new_with(self.rec_tid, self.serial)
         }
 
         /// Return the dir of the trace we're using.

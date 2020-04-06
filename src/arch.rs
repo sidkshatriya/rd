@@ -3,7 +3,9 @@ use crate::kernel_supplement::{CLD_STOPPED, CLD_TRAPPED};
 use crate::remote_ptr::{RemotePtr, Void};
 use crate::task::record_task::record_task::RecordTask;
 use crate::task::record_task::EmulatedStopType;
-use std::convert::TryInto;
+use std::convert::{TryFrom, TryInto};
+use std::num::TryFromIntError;
+use std::ops::Add;
 
 pub struct X86Arch;
 pub struct X64Arch;
@@ -507,7 +509,7 @@ pub trait Architecture {
     type kernel_sigaction: Default + Copy + 'static;
 
     #[allow(non_camel_case_types)]
-    type signed_long: Copy + From<i32> + 'static;
+    type signed_long: Copy + From<i32> + TryFrom<usize, Error = TryFromIntError> + 'static;
 
     #[allow(non_camel_case_types)]
     type iovec: Copy + Default + 'static;
@@ -525,12 +527,16 @@ pub trait Architecture {
     type sockaddr_un: Copy + 'static;
 
     #[allow(non_camel_case_types)]
-    type unsigned_word: Copy + 'static;
+    type unsigned_word: Copy
+        + Eq
+        + PartialEq
+        + Add<Self::unsigned_word, Output = Self::unsigned_word>
+        + From<u8>
+        + TryInto<usize, Error = TryFromIntError>;
 
     #[allow(non_camel_case_types)]
     type rdcall_init_preload_params: Copy + 'static;
 
-    fn to_signed_long(val: usize) -> Self::signed_long;
     fn get_k_sa_handler(k: &Self::kernel_sigaction) -> RemotePtr<Void>;
     fn get_sa_flags(k: &Self::kernel_sigaction) -> usize;
     fn arch() -> SupportedArch;
@@ -1003,10 +1009,6 @@ impl Architecture for X86Arch {
     type siginfo_t = x86::siginfo_t;
     type sockaddr_un = x86::sockaddr_un;
     type unsigned_word = x86::unsigned_word;
-
-    fn to_signed_long(val: usize) -> Self::signed_long {
-        val.try_into().unwrap()
-    }
 
     fn get_k_sa_handler(k: &Self::kernel_sigaction) -> RemotePtr<Void> {
         k.k_sa_handler.rptr()
@@ -1520,10 +1522,6 @@ impl Architecture for X64Arch {
     type sockaddr_un = x64::sockaddr_un;
     type unsigned_word = x64::unsigned_word;
     type rdcall_init_preload_params = x64::preload_interface::rdcall_init_preload_params;
-
-    fn to_signed_long(val: usize) -> Self::signed_long {
-        val as Self::signed_long
-    }
 
     fn get_k_sa_handler(k: &Self::kernel_sigaction) -> RemotePtr<Void> {
         k.k_sa_handler.rptr()

@@ -1,9 +1,13 @@
 use crate::address_space::address_space::AddressSpace;
 use crate::address_space::kernel_mapping::KernelMapping;
+use crate::arch::Architecture;
 use crate::bindings::signal::{SI_KERNEL, TRAP_BRKPT};
 use crate::flags::Flags;
 use crate::log::LogLevel::{LogDebug, LogWarn};
+use crate::remote_ptr::RemotePtr;
 use crate::scoped_fd::ScopedFd;
+use crate::task::common::read_val_mem;
+use crate::task::Task;
 use libc::pwrite64;
 use libc::STDERR_FILENO;
 use libc::{S_IFDIR, S_IFREG};
@@ -816,4 +820,18 @@ pub fn read_exe_dir() -> OsString {
     );
     let exe_path = Path::new(km.fsname());
     exe_path.parent().unwrap().as_os_str().to_os_string()
+}
+
+fn env_ptr<Arch: Architecture>(t: &mut dyn Task) -> RemotePtr<Arch::unsigned_word> {
+    let mut stack_ptr: RemotePtr<Arch::unsigned_word> = RemotePtr::cast(t.regs_ref().sp());
+
+    let argc = read_val_mem::<Arch::unsigned_word>(t, stack_ptr, None);
+    let delta: usize = (argc + 1u8.into()).try_into().unwrap();
+    stack_ptr += delta;
+
+    // Check final NULL in argv
+    let null_ptr = read_val_mem::<Arch::unsigned_word>(t, stack_ptr, None);
+    ed_assert!(t, null_ptr == 0u8.into());
+    stack_ptr += 1;
+    stack_ptr
 }

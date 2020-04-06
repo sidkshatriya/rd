@@ -1352,7 +1352,7 @@ fn child_sendmsg<Arch: Architecture>(
         remote_buf.task_mut(),
         sc_args.unwrap(),
         child_sock.into(),
-        Arch::to_signed_long(remote_msg.as_usize()),
+        remote_msg.as_usize().try_into().unwrap(),
         0i32.into(),
     );
 
