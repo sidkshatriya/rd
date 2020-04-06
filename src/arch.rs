@@ -527,6 +527,9 @@ pub trait Architecture {
     #[allow(non_camel_case_types)]
     type unsigned_word: Copy + 'static;
 
+    #[allow(non_camel_case_types)]
+    type rdcall_init_preload_params: Copy + 'static;
+
     fn to_signed_long(val: usize) -> Self::signed_long;
     fn get_k_sa_handler(k: &Self::kernel_sigaction) -> RemotePtr<Void>;
     fn get_sa_flags(k: &Self::kernel_sigaction) -> usize;
@@ -543,6 +546,8 @@ pub trait Architecture {
     fn set_csmsghdr(msg: &mut Self::cmsghdr, cmsg_len: usize, cmsg_level: i32, cmsg_type: i32);
 
     fn set_siginfo_for_waited_task(r: &RecordTask, si: &mut Self::siginfo_t);
+
+    fn rdcall_init_preload_params_syscallbuf_enabled(d: &Self::rdcall_init_preload_params) -> bool;
 }
 
 impl Architecture for X86Arch {
@@ -1053,6 +1058,12 @@ impl Architecture for X86Arch {
         si._sifields._sigchld.si_pid_ = r.tgid();
         si._sifields._sigchld.si_uid_ = r.getuid();
     }
+
+    type rdcall_init_preload_params = x86::preload_interface::rdcall_init_preload_params;
+
+    fn rdcall_init_preload_params_syscallbuf_enabled(d: &Self::rdcall_init_preload_params) -> bool {
+        d.syscallbuf_enabled != 0
+    }
 }
 
 impl Architecture for X64Arch {
@@ -1508,6 +1519,7 @@ impl Architecture for X64Arch {
     type siginfo_t = x64::siginfo_t;
     type sockaddr_un = x64::sockaddr_un;
     type unsigned_word = x64::unsigned_word;
+    type rdcall_init_preload_params = x64::preload_interface::rdcall_init_preload_params;
 
     fn to_signed_long(val: usize) -> Self::signed_long {
         val as Self::signed_long
@@ -1560,5 +1572,9 @@ impl Architecture for X64Arch {
         }
         si._sifields._sigchld.si_pid_ = r.tgid();
         si._sifields._sigchld.si_uid_ = r.getuid();
+    }
+
+    fn rdcall_init_preload_params_syscallbuf_enabled(d: &Self::rdcall_init_preload_params) -> bool {
+        d.syscallbuf_enabled != 0
     }
 }

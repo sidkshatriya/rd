@@ -485,8 +485,9 @@ pub fn pwrite_all_fallible(fd: i32, buf_initial: &[u8], offset: isize) -> Result
     Ok(written)
 }
 
+/// @TODO Hardcoded to false.
 pub fn check_for_pax_kernel() -> bool {
-    unimplemented!()
+    false
 }
 
 lazy_static! {

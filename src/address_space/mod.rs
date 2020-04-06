@@ -177,6 +177,7 @@ pub mod address_space {
     use crate::address_space::memory_range::{MemoryRange, MemoryRangeKey};
     use crate::address_space::BreakpointType::BkptNone;
     use crate::address_space::MappingFlags;
+    use crate::arch::Architecture;
     use crate::auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem};
     use crate::emu_fs::EmuFileSharedPtr;
     use crate::kernel_abi::common::preload_interface::{PRELOAD_THREAD_LOCALS_SIZE, RD_PAGE_ADDR};
@@ -1488,12 +1489,12 @@ pub mod address_space {
             self.child_mem_fd = fd;
         }
 
-        pub fn monkeypatcher(&self) -> &MonkeyPatcher {
-            unimplemented!()
+        pub fn monkeypatcher(&self) -> Option<&MonkeyPatcher> {
+            self.monkeypatch_state.as_ref()
         }
 
-        pub fn at_preload_init(&self, _t: &dyn Task) {
-            unimplemented!()
+        pub fn at_preload_init(&mut self, t: &mut dyn Task) {
+            rd_arch_function!(self, at_preload_init_arch, t.arch(), t)
         }
 
         /// The address of the syscall instruction from which traced syscalls made by
@@ -2539,8 +2540,56 @@ pub mod address_space {
         }
 
         /// Call this only during recording.
-        fn at_preload_init_arch<Arch>(&self, _t: &dyn Task) {
-            unimplemented!()
+        fn at_preload_init_arch<Arch: Architecture>(&mut self, t: &mut dyn Task) {
+            let addr = t.regs_ref().arg1();
+            let params = read_val_mem(
+                t,
+                RemotePtr::<Arch::rdcall_init_preload_params>::new_from_val(addr),
+                None,
+            );
+
+            let tracee_syscallbuf_enabled =
+                Arch::rdcall_init_preload_params_syscallbuf_enabled(&params);
+            let tracee_syscallbuf_status = if tracee_syscallbuf_enabled {
+                "enabled"
+            } else {
+                "disabled"
+            };
+
+            let tracer_syscallbuf_enabled = t
+                .session()
+                .borrow()
+                .as_record()
+                .unwrap()
+                .use_syscall_buffer();
+            let tracer_syscallbuf_status = if tracer_syscallbuf_enabled {
+                "enabled"
+            } else {
+                "disabled"
+            };
+
+            if t.session().borrow().is_recording() {
+                ed_assert!(
+                    t,
+                    tracee_syscallbuf_enabled == tracer_syscallbuf_enabled,
+                    "Tracee thinks syscallbuf is {}, but tracer thinks it is {}",
+                    tracee_syscallbuf_status,
+                    tracer_syscallbuf_status
+                );
+            }
+
+            if !tracee_syscallbuf_enabled {
+                return;
+            }
+
+            self.syscallbuf_enabled_ = true;
+
+            if t.session().borrow().is_recording() {
+                self.monkeypatch_state
+                    .as_ref()
+                    .unwrap()
+                    .patch_at_preload_init(t.as_record_task().unwrap());
+            }
         }
 
         /// Return the access bits above needed to watch `type`.

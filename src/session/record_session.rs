@@ -8,7 +8,9 @@ use crate::task::Task;
 use crate::thread_group::ThreadGroupSharedPtr;
 use crate::trace::trace_stream::TraceStream;
 use crate::trace::trace_writer::TraceWriter;
-use crate::util::{CPUIDData, CPUID_GETEXTENDEDFEATURES, CPUID_GETFEATURES, CPUID_GETXSAVE};
+use crate::util::{
+    good_random, CPUIDData, CPUID_GETEXTENDEDFEATURES, CPUID_GETFEATURES, CPUID_GETXSAVE,
+};
 use std::ops::{Deref, DerefMut};
 
 #[derive(Clone, Eq, PartialEq)]
@@ -91,8 +93,11 @@ impl TraceUuid {
         &self.bytes
     }
     pub fn new() -> TraceUuid {
-        unimplemented!()
+        let mut bytes = [0u8; 16];
+        good_random(&mut bytes);
+        TraceUuid { bytes }
     }
+
     pub fn from_array(bytes: [u8; 16]) -> TraceUuid {
         TraceUuid { bytes }
     }
@@ -131,6 +136,9 @@ impl RecordSession {
     }
     pub fn use_file_cloning(&self) -> bool {
         self.use_file_cloning_
+    }
+    pub fn use_syscall_buffer(&self) -> bool {
+        self.use_syscall_buffer_
     }
 }
 

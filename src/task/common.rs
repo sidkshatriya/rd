@@ -31,7 +31,7 @@ use nix::sys::mman::{MapFlags, ProtFlags};
 use std::convert::TryInto;
 use std::ffi::c_void;
 use std::ffi::{CStr, CString};
-use std::mem::size_of;
+use std::mem::{size_of, zeroed};
 use std::path::Path;
 use std::slice;
 
@@ -408,12 +408,8 @@ pub(super) fn write_bytes_helper<T: Task>(
 /// Read `val` from `child_addr`.
 /// If the data can't all be read, then if `ok` is non-null
 /// sets *ok to false, otherwise asserts.
-pub fn read_val_mem<D: Default>(
-    task: &mut dyn Task,
-    child_addr: RemotePtr<D>,
-    ok: Option<&mut bool>,
-) -> D {
-    let mut v: D = Default::default();
+pub fn read_val_mem<D>(task: &mut dyn Task, child_addr: RemotePtr<D>, ok: Option<&mut bool>) -> D {
+    let mut v: D = unsafe { zeroed() };
     let u8_slice =
         unsafe { slice::from_raw_parts_mut((&mut v) as *mut _ as *mut u8, size_of::<D>()) };
     task.read_bytes_helper(RemotePtr::cast(child_addr), u8_slice, ok);
@@ -423,14 +419,14 @@ pub fn read_val_mem<D: Default>(
 /// NOT Forwarded method definition
 ///
 /// Read `count` values from `child_addr`.
-pub fn read_mem<D: Clone + Default>(
+pub fn read_mem<D: Clone>(
     task: &mut dyn Task,
     child_addr: RemotePtr<D>,
     count: usize,
     ok: Option<&mut bool>,
 ) -> Vec<D> {
     let mut v: Vec<D> = Vec::with_capacity(count);
-    v.resize(count, Default::default());
+    v.resize(count, unsafe { zeroed() });
     let u8_slice =
         unsafe { slice::from_raw_parts_mut(v.as_mut_ptr() as *mut u8, count * size_of::<D>()) };
     task.read_bytes_helper(RemotePtr::cast(child_addr), u8_slice, ok);
