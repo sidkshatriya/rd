@@ -1789,8 +1789,23 @@ pub mod address_space {
         /// Call this when the memory at [addr,addr+len) was externally overwritten.
         /// This will attempt to update any breakpoints that may be set within the
         /// range (resetting them and storing the new value).
-        pub fn maybe_update_breakpoints(_t: &dyn Task, _addr: RemotePtr<u8>, _len: usize) {
-            unimplemented!()
+        pub fn maybe_update_breakpoints(
+            &mut self,
+            t: &mut dyn Task,
+            addr: RemotePtr<u8>,
+            len: usize,
+        ) {
+            for (k, v) in &mut self.breakpoints {
+                let bp_addr = k.to_data_ptr::<u8>();
+                if addr <= bp_addr && bp_addr < addr + len {
+                    // This breakpoint was overwritten. Note the new data and reset the
+                    // breakpoint.
+                    let mut ok = true;
+                    v.overwritten_data = read_val_mem::<u8>(t, bp_addr, Some(&mut ok));
+                    ed_assert!(t, ok);
+                    write_val_mem::<u8>(t, bp_addr, &Self::BREAKPOINT_INSN, None);
+                }
+            }
         }
 
         /// Call this to ensure that the mappings in `range` during replay has the same length
@@ -3181,14 +3196,16 @@ pub extern "C" fn rd_syscall_addr() {
     }
 }
 
-const fn dr_watchpoint(n: i32) -> i32 {
-    return 1 << n;
+/// DIFF NOTE: n is signed in rr
+const fn dr_watchpoint(n: u32) -> u32 {
+    return 1u32 << n;
 }
 
-fn watchpoint_triggered(debug_status: usize, regs: &[i8]) -> bool {
+/// DIFF NOTE: regs is an signed i.e. i8 array in rr
+fn watchpoint_triggered(debug_status: usize, regs: &[u8]) -> bool {
     for reg in regs {
         // @TODO Will these casts cause any problems?
-        let w = dr_watchpoint(*reg as i32) as usize;
+        let w = dr_watchpoint(*reg as u32) as usize;
         if debug_status & w == w {
             return true;
         }
