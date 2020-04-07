@@ -1362,13 +1362,47 @@ pub mod address_space {
         /// actually was (because in some configurations, e.g. VMWare
         /// hypervisor with 32-bit x86 guest, debug_status watchpoint bits
         /// are known to not be set on singlestep).
-        /// @TODO debug_status param type
         pub fn notify_watchpoint_fired(
-            &self,
-            _debug_status: usize,
-            _address_of_singlestep_start: RemoteCodePtr,
+            &mut self,
+            debug_status: usize,
+            address_of_singlestep_start: Option<RemoteCodePtr>,
         ) -> bool {
-            unimplemented!()
+            let mut triggered = false;
+            for (k, w) in &mut self.watchpoints {
+                // On Skylake/4.14.13-300.fc27.x86_64 at least, we have observed a
+                // situation where singlestepping through the instruction before a hardware
+                // execution watchpoint causes singlestep completion *and* also reports the
+                // hardware execution watchpoint being triggered. The latter is incorrect.
+                // This could be a HW issue or a kernel issue. Work around it by ignoring
+                // triggered watchpoints that aren't on the instruction we just tried to
+                // execute.
+                let watched_bits = w.watched_bits();
+                let read_triggered = watched_bits.contains(RwxBits::READ_BIT)
+                    && watchpoint_triggered(debug_status, &w.debug_regs_for_exec_read);
+                let exec_triggered = watched_bits.contains(RwxBits::EXEC_BIT)
+                    && (address_of_singlestep_start.is_none()
+                        || k.start() == address_of_singlestep_start.unwrap().to_data_ptr::<Void>())
+                    && watchpoint_triggered(debug_status, &w.debug_regs_for_exec_read);
+                if read_triggered || exec_triggered {
+                    w.changed = true;
+                    triggered = true;
+                }
+            }
+
+            let mut for_update_watchpoint: Vec<MemoryRange> = Vec::new();
+            for (range, w) in &self.watchpoints {
+                let watched_bits = w.watched_bits();
+                if watched_bits.contains(RwxBits::WRITE_BIT) {
+                    for_update_watchpoint.push(*range);
+                }
+            }
+
+            for range in &for_update_watchpoint {
+                if self.update_watchpoint_value(range, Some(true)) {
+                    triggered = true;
+                }
+            }
+            triggered
         }
 
         /// Return true if any watchpoint has fired. Will keep returning true until
