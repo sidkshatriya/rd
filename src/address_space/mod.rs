@@ -1313,7 +1313,7 @@ pub mod address_space {
                 let insert_result = self.watchpoints.insert(range, Watchpoint::new(num_bytes));
                 // Its a new key
                 debug_assert!(insert_result.is_none());
-                self.update_watchpoint_value(&range);
+                self.update_watchpoint_value(&range, None);
                 result = self.watchpoints.get_mut(&range);
             }
             result.unwrap().watch(Self::access_bits_of(type_));
@@ -1338,17 +1338,20 @@ pub mod address_space {
             self.watchpoints.clear();
             self.allocate_watchpoints();
         }
-        pub fn all_watchpoints(&self) -> Vec<WatchConfig> {
-            unimplemented!()
+        pub fn all_watchpoints(&mut self) -> Vec<WatchConfig> {
+            self.get_watchpoints_internal(WatchPointFilter::AllWatchpoints)
         }
 
         /// Save all watchpoint state onto a stack.
-        pub fn save_watchpoints() {
-            unimplemented!()
+        pub fn save_watchpoints(&mut self) {
+            // CHECK: Is clone what we really want?
+            self.saved_watchpoints.push(self.watchpoints.clone());
         }
         /// Pop all watchpoint state from the saved-state stack.
-        pub fn restore_watchpoints() -> bool {
-            unimplemented!()
+        pub fn restore_watchpoints(&mut self) -> bool {
+            debug_assert!(!self.saved_watchpoints.is_empty());
+            self.watchpoints = self.saved_watchpoints.pop().unwrap();
+            self.allocate_watchpoints()
         }
 
         /// Notify that at least one watchpoint was hit --- recheck them all.
@@ -1371,18 +1374,28 @@ pub mod address_space {
         /// Return true if any watchpoint has fired. Will keep returning true until
         /// consume_watchpoint_changes() is called.
         pub fn has_any_watchpoint_changes(&self) -> bool {
-            unimplemented!()
+            for v in self.watchpoints.values() {
+                if v.changed {
+                    return true;
+                }
+            }
+            false
         }
 
         /// Return true if an EXEC watchpoint has fired at addr since the last
         /// consume_watchpoint_changes.
-        pub fn has_exec_watchpoint_fired(&self, _addr: RemoteCodePtr) {
-            unimplemented!()
+        pub fn has_exec_watchpoint_fired(&self, addr: RemoteCodePtr) -> bool {
+            for (k, v) in &self.watchpoints {
+                if v.changed && v.exec_count > 0 && k.start() == addr.to_data_ptr::<Void>() {
+                    return true;
+                }
+            }
+            false
         }
 
         /// Return all changed watchpoints in `watches` and clear their changed flags.
-        pub fn consume_watchpoint_changes(&self) -> Vec<WatchConfig> {
-            unimplemented!()
+        pub fn consume_watchpoint_changes(&mut self) -> Vec<WatchConfig> {
+            self.get_watchpoints_internal(WatchPointFilter::ChangedWatchpoints)
         }
 
         pub fn set_shm_size(&mut self, addr: RemotePtr<Void>, bytes: usize) {
@@ -2266,15 +2279,102 @@ pub mod address_space {
             ));
         }
 
-        fn update_watchpoint_value(&self, _watchpoint_range: &MemoryRange) {
-            unimplemented!()
+        // DIFF NOTE: In rr this method takes 2 params but the second param is different.
+        // `maybe_mark_changed_if_changed` default value is false.
+        fn update_watchpoint_value(
+            &mut self,
+            watchpoint_range: &MemoryRange,
+            maybe_mark_changed_if_changed: Option<bool>,
+        ) -> bool {
+            let mut valid = true;
+            let mut value_bytes: Vec<u8>;
+            let changed: bool;
+            let mark_changed_if_changed = maybe_mark_changed_if_changed.unwrap_or(false);
+            {
+                let watchpoint_original = self.watchpoints.get(&watchpoint_range).unwrap();
+                value_bytes = watchpoint_original.value_bytes.clone();
+                let t = self.iter().next().unwrap();
+                for i in 0..value_bytes.len() {
+                    value_bytes[i] = 0xFF;
+                }
+                let mut addr: RemotePtr<Void> = watchpoint_range.start();
+                let mut num_bytes: usize = watchpoint_range.size();
+                let mut bytes_read: usize;
+                while num_bytes > 0 {
+                    let buf_pos = addr.as_usize() - watchpoint_range.start().as_usize();
+                    let bytes_read_res = t
+                        .borrow_mut()
+                        .read_bytes_fallible(addr, &mut value_bytes[buf_pos..buf_pos + num_bytes]);
+                    match bytes_read_res {
+                        Ok(0) | Err(_) => {
+                            valid = false;
+                            // advance to next page and try to read more. We want to know
+                            // when the valid part of a partially invalid watchpoint changes.
+                            bytes_read =
+                                min(num_bytes, (floor_page_size(addr) + page_size()) - addr);
+                        }
+                        Ok(nread) => bytes_read = nread,
+                    }
+                    addr += bytes_read;
+                    num_bytes -= bytes_read;
+                }
+
+                changed = valid != watchpoint_original.valid
+                    || unsafe {
+                        libc::memcmp(
+                            value_bytes.as_ptr().cast(),
+                            watchpoint_original.value_bytes.as_ptr().cast(),
+                            value_bytes.len(),
+                        )
+                    } != 0;
+            }
+            let mut watchpoint_original_mut = self.watchpoints.get_mut(watchpoint_range).unwrap();
+            watchpoint_original_mut.valid = valid;
+            watchpoint_original_mut.value_bytes = value_bytes;
+            if mark_changed_if_changed && changed {
+                watchpoint_original_mut.changed = true;
+            }
+
+            changed
         }
 
-        fn update_watchpoint_values(&self, _start: RemotePtr<Void>, _end: RemotePtr<Void>) {
-            unimplemented!()
+        fn update_watchpoint_values(&mut self, start: RemotePtr<Void>, end: RemotePtr<Void>) {
+            let r = MemoryRange::from_range(start, end);
+            let mut intersects: Vec<MemoryRange> = Vec::new();
+            for k in self.watchpoints.keys() {
+                if k.intersects(&r) {
+                    intersects.push(*k);
+                }
+            }
+            for mr in intersects {
+                self.update_watchpoint_value(&mr, Some(true));
+                // We do nothing to track kernel reads of read-write watchpoints...
+            }
         }
-        fn get_watchpoints_internal(&self, _filter: WatchPointFilter) -> Vec<WatchConfig> {
-            unimplemented!()
+        fn get_watchpoints_internal(&mut self, filter: WatchPointFilter) -> Vec<WatchConfig> {
+            let mut result: Vec<WatchConfig> = Vec::new();
+            for (r, v) in &mut self.watchpoints {
+                if filter == WatchPointFilter::ChangedWatchpoints {
+                    if !v.changed {
+                        continue;
+                    }
+                    v.changed = false;
+                }
+                let watching = v.watched_bits();
+                if watching.contains(RwxBits::EXEC_BIT) {
+                    result.push(WatchConfig::new(r.start(), r.size(), WatchType::WatchExec));
+                }
+                if watching.contains(RwxBits::READ_BIT) {
+                    result.push(WatchConfig::new(
+                        r.start(),
+                        r.size(),
+                        WatchType::WatchReadWrite,
+                    ));
+                } else if watching.contains(RwxBits::WRITE_BIT) {
+                    result.push(WatchConfig::new(r.start(), r.size(), WatchType::WatchWrite));
+                }
+            }
+            result
         }
 
         fn get_watch_configs(&mut self, will_set_task_state: WillSetTaskState) -> Vec<WatchConfig> {
@@ -2330,7 +2430,7 @@ pub mod address_space {
             for t2 in self.iter() {
                 t2.borrow_mut().set_debug_regs(&mut regs);
             }
-            for (_, v) in &mut self.watchpoints {
+            for v in self.watchpoints.values_mut() {
                 v.debug_regs_for_exec_read.clear();
             }
             return false;
