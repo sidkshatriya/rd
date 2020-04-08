@@ -425,12 +425,12 @@ impl ExtraRegisters {
     pub fn write_register_file_compact(&self, f: &mut dyn io::Write) -> io::Result<()> {
         match self.arch_ {
             X86 => {
-                write_regs(self, DREG_ST0, 0.into(), 8, "st", f)?;
+                write_regs(self, DREG_ST0, 0.try_into().unwrap(), 8, "st", f)?;
                 write!(f, " ")?;
                 write_regs(self, DREG_XMM0, DREG_YMM0H, 8, "ymm", f)?;
             }
             X64 => {
-                write_regs(self, DREG_64_ST0, 0.into(), 8, "st", f)?;
+                write_regs(self, DREG_64_ST0, 0.try_into().unwrap(), 8, "st", f)?;
                 write!(f, " ")?;
                 write_regs(self, DREG_64_XMM0, DREG_64_YMM0H, 16, "ymm", f)?;
             }
@@ -558,15 +558,16 @@ fn xsave_register_data(arch: SupportedArch, regno_param: GdbRegister) -> RegData
             // Convert regno to the equivalent 64-bit version since the XSAVE layout
             // is compatible
             if regno >= DREG_XMM0 && regno <= DREG_XMM7 {
-                regno = regno - DREG_XMM0 + DREG_64_XMM0;
+                regno = ((regno - DREG_XMM0).unwrap() + DREG_64_XMM0).unwrap();
             } else if regno >= DREG_YMM0H && regno <= DREG_YMM7H {
-                regno = regno - DREG_YMM0H + DREG_64_YMM0H;
+                regno = ((regno - DREG_YMM0H).unwrap() + DREG_64_YMM0H).unwrap();
             } else if regno < DREG_FIRST_FXSAVE_REG || regno > DREG_LAST_FXSAVE_REG {
                 return RegData::default();
             } else if regno == DREG_MXCSR {
                 regno = DREG_64_MXCSR;
             } else {
-                regno = regno - DREG_FIRST_FXSAVE_REG + DREG_64_FIRST_FXSAVE_REG;
+                regno =
+                    ((regno - DREG_FIRST_FXSAVE_REG).unwrap() + DREG_64_FIRST_FXSAVE_REG).unwrap();
             }
             ()
         }
@@ -622,7 +623,7 @@ fn xsave_register_data(arch: SupportedArch, regno_param: GdbRegister) -> RegData
     // config expects us to send back 4 bytes of data for
     // each.
     RegData::new(
-        FXSAVE_387_CTRL_OFFSETS[(regno - DREG_64_FCTRL).as_usize()],
+        FXSAVE_387_CTRL_OFFSETS[(regno - DREG_64_FCTRL).unwrap().as_usize()],
         4,
     )
 }
@@ -640,7 +641,7 @@ fn reg_in_range(
     if regno < low || regno > high {
         return false;
     }
-    out.offset = Some(offset_base + offset_stride * (regno - low).as_usize());
+    out.offset = Some(offset_base + offset_stride * (regno - low).unwrap().as_usize());
     out.size = size;
 
     true
@@ -734,8 +735,12 @@ fn write_regs(
     for i in 0..num_regs {
         let mut s = String::new();
         write!(s, "{}{}", name_base, i).unwrap();
-        let hip: GdbRegister = if hi == 0 { 0.into() } else { hi + i };
-        write_reg(r, low + i, hip, &s, f)?;
+        let hip: GdbRegister = if hi == 0 {
+            0.try_into().unwrap()
+        } else {
+            (hi + i).unwrap()
+        };
+        write_reg(r, (low + i).unwrap(), hip, &s, f)?;
         if i < num_regs - 1 {
             write!(f, " ")?;
         }

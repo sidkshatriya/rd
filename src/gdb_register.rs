@@ -3,8 +3,10 @@
 #![allow(non_snake_case)]
 
 use static_assertions::_core::cmp::Ordering;
+use std::convert::TryFrom;
 use std::fmt::{Display, Formatter, Result};
 use std::ops::{Add, Sub};
+use std::result;
 
 include!(concat!(
     env!("OUT_DIR"),
@@ -161,14 +163,14 @@ impl GdbRegister {
     }
 }
 
-/// IMPORTANT: Will fatally abort if an invalid Gdb register number was provided.
-impl From<u32> for GdbRegister {
-    fn from(regno: u32) -> Self {
+impl TryFrom<u32> for GdbRegister {
+    type Error = ();
+
+    fn try_from(regno: u32) -> result::Result<Self, Self::Error> {
         if regno < __DREG_NUM_LINUX_X86_64 {
-            Self(regno)
+            Ok(Self(regno))
         } else {
-            fatal!("Invalid Gdb register number: {}", regno);
-            unreachable!()
+            Err(())
         }
     }
 }
@@ -180,34 +182,34 @@ impl Into<usize> for GdbRegister {
 }
 
 impl Add<Self> for GdbRegister {
-    type Output = GdbRegister;
+    type Output = result::Result<GdbRegister, <GdbRegister as TryFrom<u32>>::Error>;
 
     fn add(self, rhs: Self) -> Self::Output {
-        GdbRegister::from(self.0 + rhs.0)
+        GdbRegister::try_from(self.0 + rhs.0)
     }
 }
 
 impl Sub<Self> for GdbRegister {
-    type Output = GdbRegister;
+    type Output = result::Result<GdbRegister, <GdbRegister as TryFrom<u32>>::Error>;
 
     fn sub(self, rhs: Self) -> Self::Output {
-        GdbRegister::from(self.0 - rhs.0)
+        GdbRegister::try_from(self.0 - rhs.0)
     }
 }
 
 impl Add<u32> for GdbRegister {
-    type Output = GdbRegister;
+    type Output = result::Result<GdbRegister, <GdbRegister as TryFrom<u32>>::Error>;
 
     fn add(self, rhs: u32) -> Self::Output {
-        GdbRegister::from(self.0 + rhs)
+        GdbRegister::try_from(self.0 + rhs)
     }
 }
 
 impl Sub<u32> for GdbRegister {
-    type Output = GdbRegister;
+    type Output = result::Result<GdbRegister, <GdbRegister as TryFrom<u32>>::Error>;
 
     fn sub(self, rhs: u32) -> Self::Output {
-        GdbRegister::from(self.0 - rhs)
+        GdbRegister::try_from(self.0 - rhs)
     }
 }
 
