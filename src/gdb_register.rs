@@ -148,8 +148,6 @@ pub const DREG_64_YMM12H: GdbRegister = GdbRegister(__DREG_64_YMM12H);
 pub const DREG_64_YMM13H: GdbRegister = GdbRegister(__DREG_64_YMM13H);
 pub const DREG_64_YMM14H: GdbRegister = GdbRegister(__DREG_64_YMM14H);
 pub const DREG_64_YMM15H: GdbRegister = GdbRegister(__DREG_64_YMM15H);
-pub const DREG_NUM_LINUX_X86_64: GdbRegister = GdbRegister(__DREG_NUM_LINUX_X86_64);
-pub const DREG_64_NUM_USER_REGS: GdbRegister = GdbRegister(__DREG_64_NUM_USER_REGS);
 
 impl Display for GdbRegister {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
