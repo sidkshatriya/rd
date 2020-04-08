@@ -1,8 +1,27 @@
+use bindgen::callbacks::{EnumVariantValue, ParseCallbacks};
 use bindgen::Builder;
 use bindgen::CargoCallbacks;
 use std::env;
 use std::path::PathBuf;
 use std::process::Command;
+
+#[derive(Debug)]
+struct CustomPrefixCallbacks;
+
+impl ParseCallbacks for CustomPrefixCallbacks {
+    fn enum_variant_name(
+        &self,
+        _enum_name: Option<&str>,
+        original_variant_name: &str,
+        _variant_value: EnumVariantValue,
+    ) -> Option<String> {
+        Some(String::from("__") + original_variant_name)
+    }
+
+    fn include_file(&self, filename: &str) {
+        CargoCallbacks::include_file(&CargoCallbacks, filename)
+    }
+}
 
 fn main() {
     let out_dir = env::var("OUT_DIR").unwrap();
@@ -131,7 +150,7 @@ fn main() {
         .unwrap();
 
     let gdb_register_bindings = Builder::default()
-        .parse_callbacks(Box::new(CargoCallbacks))
+        .parse_callbacks(Box::new(CustomPrefixCallbacks))
         .prepend_enum_name(false)
         .header("bindgen/gdb_register_wrapper.h")
         .generate()

@@ -28,8 +28,8 @@ enum TraceStyle {
 }
 
 lazy_static! {
-    static ref REGISTERS_X86: HashMap<u32, RegisterValue> = x86regs();
-    static ref REGISTERS_X64: HashMap<u32, RegisterValue> = x64regs();
+    static ref REGISTERS_X86: HashMap<GdbRegister, RegisterValue> = x86regs();
+    static ref REGISTERS_X64: HashMap<GdbRegister, RegisterValue> = x64regs();
 }
 
 macro_rules! rd_get_reg {
@@ -106,7 +106,7 @@ use Registers::*;
 /// Registers to contain registers for any architecture. So we store them
 /// in a union of Arch::user_regs_structs for each known Arch.
 impl Registers {
-    fn get_regs_info(&self) -> &'static HashMap<u32, RegisterValue> {
+    fn get_regs_info(&self) -> &'static HashMap<GdbRegister, RegisterValue> {
         match self {
             X86(_) => &*REGISTERS_X86,
             X64(_) => &*REGISTERS_X64,
@@ -121,8 +121,8 @@ impl Registers {
     }
     fn num_registers(&self) -> u32 {
         match self {
-            X86(_) => DREG_NUM_LINUX_I386,
-            X64(_) => DREG_NUM_LINUX_X86_64,
+            X86(_) => __DREG_NUM_LINUX_I386,
+            X64(_) => __DREG_NUM_LINUX_X86_64,
         }
     }
 
@@ -1303,7 +1303,7 @@ macro_rules! rv_x86_with_mask {
     };
 }
 
-fn x86regs() -> HashMap<u32, RegisterValue> {
+fn x86regs() -> HashMap<GdbRegister, RegisterValue> {
     let regs = [
         rv_x86!(DREG_EAX, eax),
         rv_x86!(DREG_ECX, ecx),
@@ -1330,7 +1330,7 @@ fn x86regs() -> HashMap<u32, RegisterValue> {
         rv_x86_with_mask!(DREG_ORIG_EAX, orig_eax, 0),
     ];
 
-    let mut map: HashMap<u32, RegisterValue> = HashMap::new();
+    let mut map: HashMap<GdbRegister, RegisterValue> = HashMap::new();
     for reg in regs.iter() {
         map.insert(reg.0, reg.1);
     }
@@ -1338,7 +1338,7 @@ fn x86regs() -> HashMap<u32, RegisterValue> {
     map
 }
 
-fn x64regs() -> HashMap<u32, RegisterValue> {
+fn x64regs() -> HashMap<GdbRegister, RegisterValue> {
     let regs = [
         rv_x64!(DREG_RAX, rax),
         rv_x64!(DREG_RCX, rcx),
@@ -1371,7 +1371,7 @@ fn x64regs() -> HashMap<u32, RegisterValue> {
         rv_x64!(DREG_GS_BASE, gs_base),
     ];
 
-    let mut map: HashMap<u32, RegisterValue> = HashMap::new();
+    let mut map: HashMap<GdbRegister, RegisterValue> = HashMap::new();
     for reg in regs.iter() {
         map.insert(reg.0, reg.1);
     }

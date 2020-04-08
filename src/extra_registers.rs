@@ -425,12 +425,12 @@ impl ExtraRegisters {
     pub fn write_register_file_compact(&self, f: &mut dyn io::Write) -> io::Result<()> {
         match self.arch_ {
             X86 => {
-                write_regs(self, DREG_ST0, 0, 8, "st", f)?;
+                write_regs(self, DREG_ST0, 0.into(), 8, "st", f)?;
                 write!(f, " ")?;
                 write_regs(self, DREG_XMM0, DREG_YMM0H, 8, "ymm", f)?;
             }
             X64 => {
-                write_regs(self, DREG_64_ST0, 0, 8, "st", f)?;
+                write_regs(self, DREG_64_ST0, 0.into(), 8, "st", f)?;
                 write!(f, " ")?;
                 write_regs(self, DREG_64_XMM0, DREG_64_YMM0H, 16, "ymm", f)?;
             }
@@ -622,7 +622,7 @@ fn xsave_register_data(arch: SupportedArch, regno_param: GdbRegister) -> RegData
     // config expects us to send back 4 bytes of data for
     // each.
     RegData::new(
-        FXSAVE_387_CTRL_OFFSETS[regno as usize - DREG_64_FCTRL as usize],
+        FXSAVE_387_CTRL_OFFSETS[(regno - DREG_64_FCTRL).as_usize()],
         4,
     )
 }
@@ -640,7 +640,7 @@ fn reg_in_range(
     if regno < low || regno > high {
         return false;
     }
-    out.offset = Some(offset_base + offset_stride * (regno as usize - low as usize));
+    out.offset = Some(offset_base + offset_stride * (regno - low).as_usize());
     out.size = size;
 
     true
@@ -734,7 +734,7 @@ fn write_regs(
     for i in 0..num_regs {
         let mut s = String::new();
         write!(s, "{}{}", name_base, i).unwrap();
-        let hip = if hi == 0 { 0 } else { hi + i };
+        let hip: GdbRegister = if hi == 0 { 0.into() } else { hi + i };
         write_reg(r, low + i, hip, &s, f)?;
         if i < num_regs - 1 {
             write!(f, " ")?;

@@ -1,8 +1,9 @@
-// enum from rr GdbRegister.h
+// enum from rr src/GdbRegister.h
+// DIFF NOTE: enum GdbRegister renamed to GdbRegisterNum in rd
 /**
  * This is the register numbering used by GDB.
  */
-enum GdbRegister {
+enum GdbRegisterNum {
   DREG_EAX,
   DREG_ECX,
   DREG_EDX,
