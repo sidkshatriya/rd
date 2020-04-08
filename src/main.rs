@@ -43,7 +43,6 @@ mod gdb_register;
 mod kernel_supplement;
 mod monitored_shared_memory;
 mod monkey_patcher;
-mod property_table;
 mod rd;
 mod remote_code_ptr;
 mod remote_ptr;

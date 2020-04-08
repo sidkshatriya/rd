@@ -195,7 +195,6 @@ pub mod address_space {
     use crate::log::LogLevel::LogDebug;
     use crate::monitored_shared_memory::MonitoredSharedMemorySharedPtr;
     use crate::monkey_patcher::MonkeyPatcher;
-    use crate::property_table::PropertyTable;
     use crate::rd::RD_RESERVED_ROOT_DIR_FD;
     use crate::registers::Registers;
     use crate::remote_code_ptr::RemoteCodePtr;
@@ -1769,10 +1768,6 @@ pub mod address_space {
             }
 
             current.map.end()
-        }
-
-        pub fn properties(&self) -> &PropertyTable {
-            unimplemented!()
         }
 
         /// The return value indicates whether we (re)created the preload_thread_locals

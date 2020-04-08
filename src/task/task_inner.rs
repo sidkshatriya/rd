@@ -81,7 +81,6 @@ pub mod task_inner {
     use crate::kernel_abi::common::preload_interface::{syscallbuf_hdr, syscallbuf_record};
     use crate::kernel_abi::SupportedArch;
     use crate::perf_counters::PerfCounters;
-    use crate::property_table::PropertyTable;
     use crate::registers::Registers;
     use crate::remote_code_ptr::RemoteCodePtr;
     use crate::remote_ptr::{RemotePtr, Void};
@@ -732,9 +731,6 @@ pub mod task_inner {
             unimplemented!()
         }
 
-        pub fn properties(&self) -> &PropertyTable {
-            unimplemented!()
-        }
         pub fn usable_scratch_size(&self) {
             unimplemented!()
         }
