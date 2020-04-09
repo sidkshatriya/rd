@@ -5,7 +5,7 @@ use std::ffi::{OsStr, OsString};
 
 #[derive(Clone)]
 pub enum TraceTaskEventType {
-    /// @TODO We DONT have a `None` variant here, unlike rr.
+    /// DIFF NOTE: We DONT have a `None` variant here, unlike rr.
     /// created by clone(2), fork(2), vfork(2) syscalls
     Clone(TraceTaskEventClone),
     Exec(TraceTaskEventExec),

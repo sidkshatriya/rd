@@ -368,7 +368,8 @@ pub mod record_task {
         pub own_namespace_rec_tid: pid_t,
         pub exit_code: i32,
         /// Signal delivered by the kernel when this task terminates
-        /// @TODO Note this is a bare int in rr. Also should this be a u32?
+        /// DIFF NOTE: We have an Option<> here which is different from rr.
+        /// Also should this be a u32?
         pub termination_signal: Option<i32>,
 
         /// Our value for PR_GET/SET_TSC (one of PR_TSC_ENABLED, PR_TSC_SIGSEGV).
@@ -845,7 +846,7 @@ pub mod record_task {
         /// and the `record_remote*()` variants read the data and then
         /// record it.
         /// If 'addr' is null then no record is written.
-        /// @TODO In the rr implementation ssize_t is being used instead of size_t
+        /// DIFF NOTE: @TODO In the rr implementation ssize_t is being used instead of size_t
         /// for the record_* methods in many places. Why??
         pub fn record_local(&self, _addr: RemotePtr<Void>, _buf: &[u8]) {
             unimplemented!()
@@ -1123,7 +1124,7 @@ pub mod record_task {
 
         /// Helper function for update_sigaction.
         fn update_sigaction_arch<Arch: Architecture>(&mut self, regs: &Registers) {
-            // @TODO in rr this is regs.args1_signed(). Why??
+            // DIFF NOTE: @TODO in rr this is regs.args1_signed(). Why??
             let sig = regs.arg1();
             let new_sigaction_addr = RemotePtr::<Arch::kernel_sigaction>::new_from_val(regs.arg2());
             if 0 == regs.syscall_result() && !new_sigaction_addr.is_null() {

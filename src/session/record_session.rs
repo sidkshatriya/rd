@@ -109,7 +109,7 @@ pub struct RecordSession {
     scheduler_: Scheduler,
     initial_thread_group: ThreadGroupSharedPtr,
     seccomp_filter_rewriter_: SeccompFilterRewriter,
-    // @TODO This is a pointer in rr
+    // DIFF NOTE: This is a unique_ptr in rr
     trace_id: TraceUuid,
     disable_cpuid_features_: DisableCPUIDFeatures,
     ignore_sig: i32,

@@ -7,7 +7,7 @@ use std::io;
 use std::io::stdout;
 use std::io::Write;
 
-/// @TODO This is i64 in rr
+/// DIFF NOTE: This is i64 in rr
 pub type FrameTime = u64;
 
 /// We DONT want Copy
