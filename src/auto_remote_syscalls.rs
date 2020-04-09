@@ -1064,7 +1064,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         // would otherwise cause a short read.
         let buf = unsafe { slice::from_raw_parts_mut(new_m.local_addr.unwrap() as *mut u8, sz) };
 
-        // @TODO Added a fatal!() here to deal with Err case.
+        // DIFF NOTE: Added a fatal!() here to deal with Err case.
         // rr does not do this, however, it makes sense to do this because short reads (and zero
         // length reads in some instances) DONT result in an error.
         // So if an error was reported, its probably a good idea to fatal!() here.

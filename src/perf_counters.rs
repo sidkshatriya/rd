@@ -207,7 +207,7 @@ fn check_for_bugs_and_extra() -> PmuBugsAndExtra {
         supports_txcp = false;
         has_kvm_in_txcp_bug = false;
         // @TODO is this a reasonable default? Should this be true?
-        // In rr, it seems that only_one_counter = false by default.
+        // In rr, it seems that only_one_counter = false by default as it is a global static bool.
         only_one_counter = false;
     } else {
         has_ioc_period_bug = system_has_ioc_period_bug();
@@ -678,10 +678,7 @@ fn check_working_counters() -> bool {
         );
     }
 
-    let mut only_one_counter = false;
-    if events2 == 0 {
-        only_one_counter = true;
-    }
+    let only_one_counter = events2 == 0;
     log!(LogWarn, "only_one_counter={}", only_one_counter);
     let cpuid = CpuId::new();
 

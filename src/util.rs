@@ -684,7 +684,7 @@ pub fn is_tmp_file(path: &OsStr) -> bool {
         return true;
     }
 
-    // @TODO rr assumes the call always succeeds but we dont for now.
+    // DIFF NOTE: rr assumes the call always succeeds but we dont for now.
     let sfs = statfs(path).unwrap();
     // In observed configurations of Ubuntu 13.10, /tmp is
     // a folder in the / fs, not a separate tmpfs.

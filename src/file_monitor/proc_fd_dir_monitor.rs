@@ -7,7 +7,7 @@ use crate::taskish_uid::TaskUid;
 /// for rr's private fds can be hidden when <pid> is a tracee.
 pub struct ProcFdDirMonitor {
     /// None if this does not refer to a tracee's proc fd
-    /// @TODO in rr this is a "0" instead of None.
+    /// DIFF NOTE: in rr this is a "0" instead of None.
     maybe_tuid: Option<TaskUid>,
 }
 

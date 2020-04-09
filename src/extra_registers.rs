@@ -520,7 +520,7 @@ fn all_zeros(data: &[u8]) -> bool {
     true
 }
 
-// @TODO this differs from the rr implementation a bit
+// DIFF NOTE: This differs from the rr implementation a bit
 // with usize instead of i32 and Options<usize> in some
 // places.
 struct RegData {
@@ -676,7 +676,6 @@ fn convert_fxsave_to_x86_fpregs(buf: &x86::user_fpxregs_struct) -> x86::user_fpr
         }
     }
 
-    // @TODO check this.
     result.cwd = (buf.cwd as u32 | 0xffff0000) as i32;
     result.swd = (buf.swd as u32 | 0xffff0000) as i32;
     // XXX Computing the correct twd is a pain. It probably doesn't matter to us
@@ -704,9 +703,9 @@ fn convert_x86_fpregs_to_fxsave(
         }
     }
 
-    // @TODO check this.
-    result.cwd = buf.cwd.try_into().unwrap();
-    result.swd = buf.swd.try_into().unwrap();
+    // Truncate the 16 most significant bits
+    result.cwd = buf.cwd as u16;
+    result.swd = buf.swd as u16;
     // XXX Computing the correct twd is a pain. It probably doesn't matter to us
     // in practice.
     result.fip = buf.fip;

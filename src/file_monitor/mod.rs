@@ -59,7 +59,8 @@ impl Range {
 pub struct LazyOffset<'b, 'a: 'b> {
     t: &'a mut dyn Task,
     regs: &'b Registers,
-    /// @TODO in rr this is an i64
+    /// DIFF NOTE: @TODO in rr this is an i64
+    /// Keeping it as an i32 to be consistent with elsewhere.
     syscallno: i32,
 }
 
@@ -67,7 +68,7 @@ impl<'b, 'a: 'b> LazyOffset<'b, 'a> {
     pub fn new(t: &'a mut dyn Task, regs: &'b Registers, syscallno: i32) -> LazyOffset<'b, 'a> {
         LazyOffset { t, regs, syscallno }
     }
-    /// @TODO In rr this returns an i64. We return a Option<u64>.
+    /// DIFF NOTE: In rr this returns an i64. We return a Option<u64>.
     /// Need to be careful with the logic here
     pub fn retrieve(&mut self, needed_for_replay: bool) -> Option<u64> {
         let is_replay = self.t.session().borrow().is_replaying();
@@ -85,7 +86,7 @@ impl<'b, 'a: 'b> LazyOffset<'b, 'a> {
                 .syscall()
                 .write_offset;
         }
-        // @TODO This is an i64 in rr
+        // DIFF NOTE: This is an i64 in rr
         let maybe_offset = retrieve_offset(self.t, self.syscallno, self.regs);
         if needed_for_replay && is_implicit_offset {
             self.t
@@ -113,7 +114,7 @@ fn retrieve_offset_arch<Arch: Architecture>(
     syscallno: i32,
     regs: &Registers,
 ) -> Option<u64> {
-    // @TODO This is tricky. off_t is signed. Different from how rr does this.
+    // DIFF NOTE: @TODO This is tricky. off_t is signed. Different from how rr does this.
     // But a negative offset for these system calls does not make sense...
     if syscallno == Arch::PWRITE64
         || syscallno == Arch::PWRITEV
@@ -152,6 +153,8 @@ fn retrieve_offset_arch<Arch: Architecture>(
         let mut buf = String::new();
         let mut maybe_offset: Option<u64> = None;
         // @TODO do we need to use read_until() which will give a Vec<u8> instead?
+        // But buf being a String should be OK for now. The characters in fdinfo should be ASCII
+        // anyways.
         while let Ok(nread) = f.read_line(&mut buf) {
             if nread == 0 {
                 break;
@@ -164,7 +167,7 @@ fn retrieve_offset_arch<Arch: Architecture>(
             }
             // 5 is length of str "pos:\t"
             let loc = maybe_loc.unwrap() + 5;
-            // @TODO This is a tricky. Are we sure that a negative offset won't appear in
+            // @TODO This is tricky. Are we sure that a negative offset won't appear in
             // /proc/{}/fdinfo/{} ?
             maybe_offset = Some(
                 s[loc..]
@@ -180,7 +183,7 @@ fn retrieve_offset_arch<Arch: Architecture>(
         let offset = maybe_offset.unwrap();
         // The pos we just read, was after the write completed. Luckily, we do
         // know how many bytes were written.
-        // @TODO This is slightly different from the rr approach.
+        // DIFF NOTE: This is slightly different from the rr approach.
         if offset < regs.syscall_result() as u64 {
             None
         } else {

@@ -47,9 +47,7 @@ extern "C" fn flush_log_buffer() {
         Ok(lock) => {
             lock.log_file.flush().unwrap_or(());
         }
-        // @TODO Do we want to perhaps panic here?
-        // Exit quietly for now
-        Err(_) => (),
+        Err(_) => panic!("Could not obtain lock on rd log. Can't flush log buffer"),
     };
 }
 
@@ -316,7 +314,7 @@ macro_rules! ed_assert {
         {
             use crate::task::task_inner::task_inner::TaskInner;
             // For type checking. Will use this param later though.
-            let _t : &TaskInner = $task;
+            let t : &TaskInner = $task;
             if !$cond {
                 {
                     use std::io::Write;
@@ -328,7 +326,7 @@ macro_rules! ed_assert {
                         module_path!(),
                         true
                     );
-                    // @TODO also add task details and trace time etc.
+                    write!(stream, "\n (task {} (rec: {}) at time {})", t.tid, t.rec_tid, t.trace_time()).unwrap();
                     write!(stream, "Assertion `{}' failed to hold. ", stringify!($cond)).unwrap();
                 }
                 // @TODO this should be replaced with starting an emergency debug session
@@ -340,7 +338,7 @@ macro_rules! ed_assert {
         {
             use crate::task::task_inner::task_inner::TaskInner;
             // For type checking. Will use this param later though.
-            let _t : &TaskInner = $task;
+            let t : &TaskInner = $task;
             if !$cond {
                 {
                     use std::io::Write;
@@ -352,7 +350,7 @@ macro_rules! ed_assert {
                         module_path!(),
                         true
                     );
-                    // @TODO also add task details and trace time etc.
+                    write!(stream, "\n (task {} (rec: {}) at time {})", t.tid, t.rec_tid, t.trace_time()).unwrap();
                     write!(stream, "Assertion `{}' failed to hold. ", stringify!($cond)).unwrap();
                     write!(stream, $($args)+).unwrap();
                 }

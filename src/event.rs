@@ -40,9 +40,6 @@ pub enum Switchable {
 /// being stored in traces to guide replay. Some events are only used during
 /// recording and are never actually stored in traces (and are thus irrelevant
 /// to replay).
-///
-/// @TODO If this is stored in trace then will need worry about values
-/// and possibly ensure they are same as in rr.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum EventType {
     // @TODO EvUnassigned could potentially be removed
@@ -223,7 +220,7 @@ pub struct SyscallEventData {
     pub regs: Registers,
     /// If this is a descheduled buffered syscall, points at the
     /// record for that syscall.
-    /// @TODO this is slightly different from rr where nullptr is used to indicate no value
+    /// DIFF NOTE: this is slightly different from rr where nullptr is used to indicate no value
     pub desched_rec: Option<RemotePtr<syscallbuf_record>>,
 
     /// Extra data for specific syscalls. Only used for exit events currently.
@@ -314,6 +311,7 @@ impl Default for Event {
         }
     }
 }
+
 impl Display for Event {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         write!(f, "{}", self.str())
@@ -321,14 +319,6 @@ impl Display for Event {
 }
 
 impl Event {
-    /// @TODO is this event needed? EvUnassigned does not seem to be used anywhere
-    pub fn new() -> Event {
-        Event {
-            event_type: EventType::EvUnassigned,
-            event_extra_data: Default::default(),
-        }
-    }
-
     pub fn new_desched_event(ev: DeschedEventData) -> Event {
         Event {
             event_type: EvDesched,

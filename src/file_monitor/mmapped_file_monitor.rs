@@ -67,8 +67,7 @@ impl FileMonitor for MmappedFileMonitor {
 
         // Dead until proven otherwise
         self.dead_ = true;
-        // @TODO This is signed in rr. We make this unsigned.
-        // Would this cause issues for us?
+        // DIFF NOTE: This is signed in rr. We make this unsigned.
         let mut realized_offset: u64 = 0;
 
         let is_replay = offset.t.session().borrow().is_replaying();

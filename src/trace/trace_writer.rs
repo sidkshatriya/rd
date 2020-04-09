@@ -172,7 +172,7 @@ impl TraceWriter {
         let mut frame_msg = message::Builder::new_default();
         let mut frame = frame_msg.init_root::<frame::Builder>();
         frame.set_tid(t.tid);
-        // @TODO In rr ticks are signed. In rd they are not.
+        // DIFF NOTE: In rr ticks are signed. In rd they are not.
         frame.set_ticks(t.tick_count() as i64);
         frame.set_monotonic_sec(monotonic_now_sec());
 
@@ -265,7 +265,7 @@ impl TraceWriter {
                     syscall.set_failed_during_preparation(e.failed_during_preparation);
                     let mut data = syscall.init_extra();
                     if e.write_offset.is_some() {
-                        // @TODO Offsets in rd are u64 and in rr i64
+                        // DIFF NOTE: Offsets in rd are u64 and i64 in rr
                         data.set_write_offset(e.write_offset.unwrap() as i64);
                     } else if e.exec_fds_to_close.len() > 0 {
                         let lb = ListBuilder::new_default();
@@ -311,7 +311,7 @@ impl TraceWriter {
         let record_in_trace: RecordInTrace;
         {
             let mut map = map_msg.init_root::<m_map::Builder>();
-            // @TODO global_time is a u64 in rd and i64 on rr
+            // DIFF NOTE: global_time is a u64 in rd and i64 on rr
             map.set_frame_time(self.global_time as i64);
             map.set_start(km.start().as_usize() as u64);
             map.set_end(km.end().as_usize() as u64);
@@ -320,7 +320,7 @@ impl TraceWriter {
             map.set_inode(km.inode().into());
             map.set_prot(km.prot().bits());
             map.set_flags(km.flags().bits());
-            // @TODO file offset is a u64 in rr and i64 in rd
+            // DIFF NOTE: file offset is a u64 in rr and i64 in rd
             map.set_file_offset_bytes(km.file_offset_bytes() as i64);
             map.set_stat_mode(stat.st_mode);
             map.set_stat_uid(stat.st_uid);
@@ -438,7 +438,7 @@ impl TraceWriter {
         let mut map_msg = message::Builder::new_default();
         {
             let mut map = map_msg.init_root::<m_map::Builder>();
-            // @TODO global_time is a u64 in rd and i64 on rr
+            // DIFF NOTE: global_time is a u64 in rd and i64 on rr
             map.set_frame_time(data.time as i64);
             map.set_start(km.start().as_usize() as u64);
             map.set_end(km.end().as_usize() as u64);
@@ -447,7 +447,7 @@ impl TraceWriter {
             map.set_inode(km.inode().into());
             map.set_prot(km.prot().bits());
             map.set_flags(km.flags().bits());
-            // @TODO file offset is a u64 in rr and i64 in rd
+            // DIFF NOTE: file offset is a u64 in rr and i64 in rd
             map.set_file_offset_bytes(km.file_offset_bytes() as i64);
             map.set_stat_size(data.file_size_bytes as i64);
             let mut fds = map.reborrow().init_extra_fds(extra_fds.len() as u32);
@@ -491,7 +491,7 @@ impl TraceWriter {
     pub fn write_task_event(&mut self, event: &TraceTaskEvent) {
         let mut task_msg = message::Builder::new_default();
         let mut task = task_msg.init_root::<task_event::Builder>();
-        // @TODO This is a u64 in rd and an i64 in rr
+        // DIFF NOTE: This is a u64 in rd and an i64 in rr
         task.set_frame_time(self.global_time as i64);
         task.set_tid(event.tid());
 
@@ -710,7 +710,7 @@ impl TraceWriter {
         // and it "won".  The link is then valid and points at some
         // very-recent trace, so that's good enough.
         //
-        // @TODO rr swallows any error on unlink. We don't for now.
+        // DIFF NOTE: rr swallows any error on unlink. We don't for now.
         if unlink(link_name.as_os_str()).is_err() {
             fatal!("Unable to unlink {:?}", link_name);
         }
@@ -784,7 +784,7 @@ impl TraceWriter {
         let ret = unsafe { ioctl(dest.as_raw(), BTRFS_IOC_CLONE_, src.as_raw()) };
         if ret < 0 {
             // maybe not on the same filesystem, or filesystem doesn't support clone?
-            // @TODO rr swallows an unlink error but we dont for now.
+            // DIFF NOTE: rr swallows an unlink error but we dont for now.
             unlink(dest_path.as_slice()).unwrap();
             return false;
         }

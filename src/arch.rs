@@ -1050,11 +1050,11 @@ impl Architecture for X86Arch {
         // XXX handle CLD_EXITED here
         if r.emulated_stop_type == EmulatedStopType::GroupStop {
             si.si_code = CLD_STOPPED as _;
-            // @TODO Is the unwrap fail safe?
+            // @TODO Is the unwrap approach what we want?
             si._sifields._sigchld.si_status_ = r.emulated_stop_code.stop_sig().unwrap();
         } else {
             si.si_code = CLD_TRAPPED as _;
-            // @TODO Is the unwrap fail safe?
+            // @TODO Is the unwrap approach what we want?
             si._sifields._sigchld.si_status_ = r.emulated_stop_code.ptrace_signal().unwrap();
         }
         si._sifields._sigchld.si_pid_ = r.tgid();
@@ -1561,11 +1561,11 @@ impl Architecture for X64Arch {
         // XXX handle CLD_EXITED here
         if r.emulated_stop_type == EmulatedStopType::GroupStop {
             si.si_code = CLD_STOPPED as _;
-            // @TODO Is the unwrap fail safe?
+            // @TODO Is the unwrap approach what we want?
             si._sifields._sigchld.si_status_ = r.emulated_stop_code.stop_sig().unwrap();
         } else {
             si.si_code = CLD_TRAPPED as _;
-            // @TODO Is the unwrap fail safe?
+            // @TODO Is the unwrap approach what we want?
             si._sifields._sigchld.si_status_ = r.emulated_stop_code.ptrace_signal().unwrap();
         }
         si._sifields._sigchld.si_pid_ = r.tgid();

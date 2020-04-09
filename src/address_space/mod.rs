@@ -800,7 +800,7 @@ pub mod address_space {
             num_bytes: usize,
             prot: ProtFlags,
             flags: MapFlags,
-            // @TODO this is a i64 in rr
+            // DIFF NOTE: This is an i64 in rr
             offset_bytes: u64,
             fsname: &OsStr,
             device: dev_t,
@@ -1135,7 +1135,7 @@ pub mod address_space {
 
             self.unmap_internal(t, old_addr, old_num_bytes);
 
-            // @TODO rr allows new_num_bytes to be 0. Is that correct?
+            // DIFF NOTE: @TODO rr allows new_num_bytes to be 0. Is that correct?
             // man mremap(2) seems to dissallow it.
             debug_assert!(new_num_bytes != 0);
             new_num_bytes = ceil_page_size(new_num_bytes);
@@ -1450,7 +1450,7 @@ pub mod address_space {
             log!(LogDebug, "munmap({}, {})", addr, num_bytes);
             let num_bytes = ceil_page_size(num_bytes);
 
-            // @TODO rr allows num_bytes to be 0 and simply returns
+            // DIFF NOTE: @TODO rr allows num_bytes to be 0 and simply returns
             debug_assert!(num_bytes > 0);
 
             remove_range(&mut self.dont_fork, MemoryRange::new_range(addr, num_bytes));
@@ -2124,7 +2124,7 @@ pub mod address_space {
             ed_assert!(t, found_stacks == 1);
         }
 
-        /// @TODO In rr `num_bytes` is signed. Why?
+        /// DIFF NOTE: @TODO In rr `num_bytes` is signed. Why?
         fn unmap_internal(&mut self, _t: &dyn Task, addr: RemotePtr<Void>, num_bytes: usize) {
             log!(LogDebug, "munmap({}, {}), ", addr, num_bytes);
 
@@ -2581,7 +2581,7 @@ pub mod address_space {
         fn for_each_in_range<F: FnMut(&mut Self, MemoryRangeKey, MemoryRange)>(
             &mut self,
             addr: RemotePtr<Void>,
-            // @TODO this is signed in rr.
+            // DIFF NOTE: This is signed in rr.
             num_bytes: usize,
             mut f: F,
             how: IterateHow,
