@@ -13,7 +13,6 @@ use crate::registers::Registers;
 use crate::remote_ptr::{RemotePtr, Void};
 use crate::session::record_session::TraceUuid;
 use crate::trace::compressed_reader::{CompressedReader, CompressedReaderState};
-use crate::trace::compressed_reader_input_stream::CompressedReaderInputStream;
 use crate::trace::trace_frame::{FrameTime, TraceFrame};
 use crate::trace::trace_stream::MappedDataSource::{SourceFile, SourceTrace, SourceZero};
 use crate::trace::trace_stream::{
@@ -32,7 +31,6 @@ use crate::util::{
     dir_exists, find, find_cpuid_record, xsave_layout_from_trace, CPUIDRecord, CPUID_GETXSAVE,
 };
 use crate::wait_status::WaitStatus;
-use capnp::message;
 use capnp::message::ReaderOptions;
 use capnp::serialize_packed::read_message;
 use libc::pid_t;
@@ -124,8 +122,8 @@ impl TraceReader {
     /// frame.
     pub fn read_frame(&mut self) -> TraceFrame {
         let events = self.reader_mut(Substream::Events);
-        let stream = CompressedReaderInputStream::new(events);
-        let frame_msg = message::Reader::new(stream, ReaderOptions::new());
+        let mut stream = BufReader::new(events);
+        let frame_msg = read_message(&mut stream, ReaderOptions::new()).unwrap();
         let frame: frame::Reader = frame_msg.get_root::<frame::Reader>().unwrap();
 
         self.tick_time();
@@ -270,128 +268,137 @@ impl TraceReader {
             state = mmaps.get_state();
         }
 
-        let stream = CompressedReaderInputStream::new(mmaps);
-        let map_msg = message::Reader::new(stream, ReaderOptions::new());
+        let mut restore = false;
+        {
+            let mut stream = BufReader::new(mmaps);
+            let map_msg = read_message(&mut stream, ReaderOptions::new()).unwrap();
 
-        let map = map_msg.get_root::<m_map::Reader>().unwrap();
-        if time_constraint == TimeConstraint::CurrentTimeOnly {
-            if map.get_frame_time() as u64 != saved_global_time {
-                mmaps.restore_state(state);
-                return None;
-            }
-        }
-
-        if maybe_data.is_some() {
-            let data = maybe_data.unwrap();
-            if map.get_frame_time() < 0 {
-                fatal!("Invalid frameTime");
-            }
-            data.time = map.get_frame_time() as u64;
-            data.data_offset_bytes = 0;
-            if map.get_stat_size() < 0 {
-                fatal!("Invalid stat size");
-            }
-            data.file_size_bytes = map.get_stat_size() as usize;
-            if maybe_extra_fds.is_some() {
-                let extra_fds = maybe_extra_fds.unwrap();
-                if map.has_extra_fds() {
-                    let fds_reader = map.get_extra_fds().unwrap();
-                    for fd in fds_reader.iter() {
-                        extra_fds.push(TraceRemoteFd {
-                            tid: fd.get_tid(),
-                            fd: fd.get_fd(),
-                        });
-                    }
+            let map = map_msg.get_root::<m_map::Reader>().unwrap();
+            if time_constraint == TimeConstraint::CurrentTimeOnly {
+                if map.get_frame_time() as u64 != saved_global_time {
+                    restore = true;
                 }
             }
 
-            skip_monitoring_mapped_fd.map(|fd| *fd = map.get_skip_monitoring_mapped_fd());
-            let src = map.get_source();
-            match src.which().unwrap() {
-                m_map::source::Zero(()) => data.source = SourceZero,
-                m_map::source::Trace(()) => data.source = SourceTrace,
-                m_map::source::File(f) => {
-                    data.source = SourceFile;
-                    let backing_file_name_int = f.get_backing_file_name().unwrap();
-                    let is_clone = backing_file_name_int.starts_with(b"mmap_clone_");
-                    let is_copy = backing_file_name_int.starts_with(b"mmap_copy_");
-                    let mut backing_file_name_vec: Vec<u8> = Vec::new();
-                    if backing_file_name_int[0] != b'/' {
-                        backing_file_name_vec.extend_from_slice(self.dir().as_bytes());
-                        backing_file_name_vec.extend_from_slice(b"/");
-                        backing_file_name_vec.extend_from_slice(backing_file_name_int);
-                    } else {
-                        backing_file_name_vec.extend_from_slice(backing_file_name_int);
+            if !restore {
+                if maybe_data.is_some() {
+                    let data = maybe_data.unwrap();
+                    if map.get_frame_time() < 0 {
+                        fatal!("Invalid frameTime");
                     }
-                    let backing_file_name = OsStr::from_bytes(&backing_file_name_vec);
-                    let uid = map.get_stat_uid();
-                    let gid = map.get_stat_gid();
-                    let mode = map.get_stat_mode();
-                    let mtime = map.get_stat_m_time();
+                    data.time = map.get_frame_time() as u64;
+                    data.data_offset_bytes = 0;
                     if map.get_stat_size() < 0 {
                         fatal!("Invalid stat size");
                     }
-                    let size = map.get_stat_size() as u64;
-                    let has_stat_buf = mode != 0 || uid != 0 || gid != 0 || mtime != 0;
-                    if !is_clone
-                        && !is_copy
-                        && validate == ValidateSourceFile::Validate
-                        && has_stat_buf
-                    {
-                        let maybe_file_stat = stat(backing_file_name_vec.as_slice());
-                        if maybe_file_stat.is_err() {
-                            fatal!(
-                                "Failed to stat {:?}: replay is impossible",
-                                backing_file_name
-                            );
+                    data.file_size_bytes = map.get_stat_size() as usize;
+                    if maybe_extra_fds.is_some() {
+                        let extra_fds = maybe_extra_fds.unwrap();
+                        if map.has_extra_fds() {
+                            let fds_reader = map.get_extra_fds().unwrap();
+                            for fd in fds_reader.iter() {
+                                extra_fds.push(TraceRemoteFd {
+                                    tid: fd.get_tid(),
+                                    fd: fd.get_fd(),
+                                });
+                            }
                         }
-                        let backing_stat: FileStat = maybe_file_stat.unwrap();
-                        if backing_stat.st_ino != map.get_inode()
-                            || backing_stat.st_mode != mode
-                            || backing_stat.st_uid != uid
-                            || backing_stat.st_gid != gid
-                            || backing_stat.st_size as u64 != size
-                            || backing_stat.st_mtime != mtime
-                        {
-                            log!(
-                                LogError,
-                                "Metadata of {:?} changed: replay divergence likely, but continuing anyway.\n\
+                    }
+
+                    skip_monitoring_mapped_fd.map(|fd| *fd = map.get_skip_monitoring_mapped_fd());
+                    let src = map.get_source();
+                    match src.which().unwrap() {
+                        m_map::source::Zero(()) => data.source = SourceZero,
+                        m_map::source::Trace(()) => data.source = SourceTrace,
+                        m_map::source::File(f) => {
+                            data.source = SourceFile;
+                            let backing_file_name_int = f.get_backing_file_name().unwrap();
+                            let is_clone = backing_file_name_int.starts_with(b"mmap_clone_");
+                            let is_copy = backing_file_name_int.starts_with(b"mmap_copy_");
+                            let mut backing_file_name_vec: Vec<u8> = Vec::new();
+                            if backing_file_name_int[0] != b'/' {
+                                backing_file_name_vec.extend_from_slice(self.dir().as_bytes());
+                                backing_file_name_vec.extend_from_slice(b"/");
+                                backing_file_name_vec.extend_from_slice(backing_file_name_int);
+                            } else {
+                                backing_file_name_vec.extend_from_slice(backing_file_name_int);
+                            }
+                            let backing_file_name = OsStr::from_bytes(&backing_file_name_vec);
+                            let uid = map.get_stat_uid();
+                            let gid = map.get_stat_gid();
+                            let mode = map.get_stat_mode();
+                            let mtime = map.get_stat_m_time();
+                            if map.get_stat_size() < 0 {
+                                fatal!("Invalid stat size");
+                            }
+                            let size = map.get_stat_size() as u64;
+                            let has_stat_buf = mode != 0 || uid != 0 || gid != 0 || mtime != 0;
+                            if !is_clone
+                                && !is_copy
+                                && validate == ValidateSourceFile::Validate
+                                && has_stat_buf
+                            {
+                                let maybe_file_stat = stat(backing_file_name_vec.as_slice());
+                                if maybe_file_stat.is_err() {
+                                    fatal!(
+                                        "Failed to stat {:?}: replay is impossible",
+                                        backing_file_name
+                                    );
+                                }
+                                let backing_stat: FileStat = maybe_file_stat.unwrap();
+                                if backing_stat.st_ino != map.get_inode()
+                                    || backing_stat.st_mode != mode
+                                    || backing_stat.st_uid != uid
+                                    || backing_stat.st_gid != gid
+                                    || backing_stat.st_size as u64 != size
+                                    || backing_stat.st_mtime != mtime
+                                {
+                                    log!(
+                                        LogError,
+                                        "Metadata of {:?} changed: replay divergence likely, but continuing anyway.\n\
                                  inode: {}/{}; mode: {}/{}; uid: {}/{}; gid: {}/{}; size: {}/{}; mtime: {}/{}",
-                                OsStr::from_bytes(map.get_fsname().unwrap()),
-                                backing_stat.st_ino,
-                                map.get_inode(),
-                                backing_stat.st_mode,
-                                mode,
-                                backing_stat.st_uid,
-                                uid,
-                                backing_stat.st_gid,
-                                gid,
-                                backing_stat.st_size,
-                                size,
-                                backing_stat.st_mtime,
-                                mtime
-                            );
+                                        OsStr::from_bytes(map.get_fsname().unwrap()),
+                                        backing_stat.st_ino,
+                                        map.get_inode(),
+                                        backing_stat.st_mode,
+                                        mode,
+                                        backing_stat.st_uid,
+                                        uid,
+                                        backing_stat.st_gid,
+                                        gid,
+                                        backing_stat.st_size,
+                                        size,
+                                        backing_stat.st_mtime,
+                                        mtime
+                                    );
+                                }
+                            }
+                            data.filename = backing_file_name.to_os_string();
+                            let file_offset_bytes = map.get_file_offset_bytes();
+                            if file_offset_bytes < 0 {
+                                fatal!("Invalid file offset bytes");
+                            }
+                            data.data_offset_bytes = file_offset_bytes.try_into().unwrap();
                         }
                     }
-                    data.filename = backing_file_name.to_os_string();
-                    let file_offset_bytes = map.get_file_offset_bytes();
-                    if file_offset_bytes < 0 {
-                        fatal!("Invalid file offset bytes");
-                    }
-                    data.data_offset_bytes = file_offset_bytes.try_into().unwrap();
                 }
+                return Some(KernelMapping::new_with_opts(
+                    map.get_start().into(),
+                    map.get_end().into(),
+                    OsStr::from_bytes(map.get_fsname().unwrap()),
+                    map.get_device(),
+                    map.get_inode(),
+                    ProtFlags::from_bits(map.get_prot()).unwrap(),
+                    MapFlags::from_bits(map.get_flags()).unwrap(),
+                    map.get_file_offset_bytes() as u64,
+                ));
             }
         }
-        Some(KernelMapping::new_with_opts(
-            map.get_start().into(),
-            map.get_end().into(),
-            OsStr::from_bytes(map.get_fsname().unwrap()),
-            map.get_device(),
-            map.get_inode(),
-            ProtFlags::from_bits(map.get_prot()).unwrap(),
-            MapFlags::from_bits(map.get_flags()).unwrap(),
-            map.get_file_offset_bytes() as u64,
-        ))
+
+        // This code triggers when `restore` is `true`
+        let mmaps_again = self.reader_mut(Substream::Mmaps);
+        mmaps_again.restore_state(state);
+        None
     }
 
     /// Read a task event (clone or exec record) from the trace.
@@ -406,8 +413,8 @@ impl TraceReader {
             return None;
         }
 
-        let stream = CompressedReaderInputStream::new(tasks);
-        let task_msg = message::Reader::new(stream, ReaderOptions::new());
+        let mut stream = BufReader::new(tasks);
+        let task_msg = read_message(&mut stream, ReaderOptions::new()).unwrap();
 
         let task: task_event::Reader = task_msg.get_root::<task_event::Reader>().unwrap();
         let tid_ = i32_to_tid(task.get_tid());

@@ -1,5 +1,6 @@
 use crate::scoped_fd::ScopedFdSharedPtr;
 use std::ffi::OsStr;
+use std::io::{Read, Result};
 
 /// CompressedReader opens an input file written by CompressedWriter
 /// and reads data from it. Currently data is decompressed by the thread that
@@ -17,6 +18,12 @@ pub struct CompressedReader {
     buffer_read_pos: usize,
     // Note that the struct members for saving state are not here as we have a separate struct
     // to handle that
+}
+
+impl Read for CompressedReader {
+    fn read(&mut self, _buf: &mut [u8]) -> Result<usize> {
+        unimplemented!()
+    }
 }
 
 pub struct CompressedReaderState {
