@@ -17,7 +17,6 @@ use crate::scoped_fd::ScopedFd;
 use crate::session::record_session::{DisableCPUIDFeatures, TraceUuid};
 use crate::task::record_task::record_task::RecordTask;
 use crate::trace::compressed_writer::CompressedWriter;
-use crate::trace::compressed_writer_output_stream::CompressedWriterOutputStream;
 use crate::trace::trace_stream::{
     latest_trace_symlink, make_trace_dir, substream, MappedDataSource,
 };
@@ -53,14 +52,13 @@ use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::fs::{hard_link, rename};
-use std::io::{BufWriter, Write};
+use std::io::Write;
 use std::mem::size_of;
 use std::ops::{Deref, DerefMut};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::ffi::OsStringExt;
 use std::os::unix::fs::symlink;
 use std::os::unix::io::FromRawFd;
-use std::os::unix::io::IntoRawFd;
 use std::path::Path;
 use std::slice;
 
@@ -419,8 +417,7 @@ impl TraceWriter {
             }
         }
         let mmaps = self.writer_mut(Substream::Mmaps);
-        let mut stream = CompressedWriterOutputStream::new(mmaps);
-        if write_message(&mut stream, &map_msg).is_err() {
+        if write_message(mmaps, &map_msg).is_err() {
             fatal!("Unable to write mmaps");
         }
 
@@ -468,8 +465,7 @@ impl TraceWriter {
             }
         }
 
-        let mut stream = CompressedWriterOutputStream::new(mmaps);
-        if write_message(&mut stream, &map_msg).is_err() {
+        if write_message(mmaps, &map_msg).is_err() {
             fatal!("Unable to write mmaps");
         }
     }
@@ -518,8 +514,7 @@ impl TraceWriter {
         }
 
         let tasks = self.writer_mut(Substream::Tasks);
-        let mut stream = CompressedWriterOutputStream::new(tasks);
-        if write_message(&mut stream, &task_msg).is_err() {
+        if write_message(tasks, &task_msg).is_err() {
             fatal!("Unable to write tasks");
         }
     }
@@ -683,14 +678,10 @@ impl TraceWriter {
             }
         }
         header.set_ok(status == CloseStatus::CloseOk);
-        let f = unsafe { File::from_raw_fd(self.version_fd.as_raw()) };
-        let mut buf_writer = BufWriter::new(f);
-        if write_message(&mut buf_writer, &header_msg).is_err() {
+        let mut f = unsafe { File::from_raw_fd(self.version_fd.as_raw()) };
+        if write_message(&mut f, &header_msg).is_err() {
             fatal!("Unable to write {:?}", self.incomplete_version_path());
         }
-        // We don't want the file to be auto closed so extract raw fd back.
-        // Implicit flush also happens.
-        buf_writer.into_inner().unwrap().into_raw_fd();
 
         let incomplete_path = self.incomplete_version_path();
         let path = self.version_path();

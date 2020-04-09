@@ -45,7 +45,6 @@ impl CompressedWriter {
     }
 }
 
-/// @TODO Not sure if this is the correct abstraction that is to be used.
 impl Write for CompressedWriter {
     fn write(&mut self, _buf: &[u8]) -> Result<usize> {
         unimplemented!()
