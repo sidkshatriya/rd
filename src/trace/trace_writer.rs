@@ -654,7 +654,7 @@ impl TraceWriter {
     /// If `uuid` is `None` then a uuid will be generated for you.
     pub fn close(&mut self, status: CloseStatus, maybe_uuid: Option<TraceUuid>) {
         for s in &SUBSTREAMS {
-            let w = self.writers.remove(s).unwrap();
+            let mut w = self.writers.remove(s).unwrap();
             w.close(None);
         }
 

@@ -2,6 +2,7 @@ use crate::scoped_fd::ScopedFd;
 use crate::util::write_all;
 use nix::fcntl::OFlag;
 use nix::sys::stat::Mode;
+use nix::unistd::fsync;
 use std::cmp::min;
 use std::convert::TryInto;
 use std::ffi::OsStr;
@@ -59,6 +60,12 @@ pub struct CompressedWriter {
     buffer: Vec<u8>,
 }
 
+impl Drop for CompressedWriter {
+    fn drop(&mut self) {
+        self.close(None);
+    }
+}
+
 pub struct CompressedWriterData {
     /// position in output stream that this thread is currently working on,
     ///  `None` if it's idle
@@ -69,8 +76,6 @@ pub struct CompressedWriterData {
     next_thread_end_pos: u64,
     closing: bool,
     write_error: bool,
-    /// DIFF NOTE: This bool is not present in rr
-    proceed: bool,
 }
 
 struct SharedBuf(*mut u8, usize);
@@ -79,7 +84,7 @@ unsafe impl Send for SharedBuf {}
 
 impl CompressedWriter {
     pub fn good(&self) -> bool {
-        unimplemented!()
+        self.error
     }
     pub fn new(filename: &OsStr, block_size: usize, num_threads: usize) -> CompressedWriter {
         let fd = ScopedFd::open_path_with_mode(
@@ -122,7 +127,6 @@ impl CompressedWriter {
                 next_thread_end_pos,
                 closing,
                 write_error,
-                proceed: false,
             })),
             cond_var: Arc::new(Condvar::new()),
             threads: Vec::new(),
@@ -140,7 +144,7 @@ impl CompressedWriter {
         // Hold the lock so threads don't inspect the 'threads' array
         // until we've finished initializing it.
         {
-            let mg = cw.mutex.lock().unwrap();
+            let _mg = cw.mutex.lock().unwrap();
             for i in 0..num_threads {
                 let mutex = cw.mutex.clone();
                 let cond_var = cw.cond_var.clone();
@@ -152,7 +156,6 @@ impl CompressedWriter {
                         .spawn(move || {
                             let mut g = mutex.lock().unwrap();
                             let thread_index = i;
-                            // let current = thread::current();
                             let buffer =
                                 unsafe { slice::from_raw_parts(shared_buffer.0, shared_buffer.1) };
                             let block_size = block_size;
@@ -222,10 +225,7 @@ impl CompressedWriter {
                                         if !other_thread_write_first {
                                             break;
                                         }
-                                        while !g.proceed {
-                                            g = cond_var.wait(g).unwrap();
-                                        }
-                                        g.proceed = false;
+                                        g = cond_var.wait(g).unwrap();
                                     }
 
                                     if !g.write_error {
@@ -242,7 +242,6 @@ impl CompressedWriter {
                                     // do a broadcast because we might need to unblock
                                     // the producer thread or a compressor thread waiting
                                     // for us to write.
-                                    g.proceed = true;
                                     cond_var.notify_one();
                                     continue;
                                 }
@@ -253,10 +252,7 @@ impl CompressedWriter {
                                     break;
                                 }
 
-                                while !g.proceed {
-                                    g = cond_var.wait(g).unwrap();
-                                }
-                                g.proceed = false;
+                                g = cond_var.wait(g).unwrap();
                             }
                         })
                         .unwrap(),
@@ -266,18 +262,110 @@ impl CompressedWriter {
 
         cw
     }
-    pub fn close(self, maybe_sync: Option<Sync>) {
+    pub fn close(&mut self, maybe_sync: Option<Sync>) {
+        if !self.fd.is_open() {
+            return;
+        }
+
         let sync = maybe_sync.unwrap_or(Sync::DontSync);
-        for handle in self.threads {
+
+        self.update_reservation(WaitFlag::NoWait);
+
+        let mut g = self.mutex.lock().unwrap();
+        g.closing = true;
+        self.cond_var.notify_all();
+        drop(g);
+
+        while let Some(handle) = self.threads.pop() {
             handle.join().unwrap();
         }
-        unimplemented!()
+
+        if sync == Sync::Sync {
+            if fsync(self.fd.as_raw()).is_err() {
+                self.error = true;
+            }
+        }
+
+        g = self.mutex.lock().unwrap();
+        if g.write_error {
+            self.error = true;
+        }
+
+        self.fd.close();
+    }
+
+    pub fn update_reservation(&mut self, wait_flag: WaitFlag) {
+        let mut g = self.mutex.lock().unwrap();
+
+        g.next_thread_end_pos = self.producer_reserved_write_pos;
+        self.producer_reserved_pos = self.producer_reserved_write_pos;
+        // Wake up threads that might be waiting to consume data.
+        self.cond_var.notify_all();
+
+        while !self.error {
+            if g.write_error {
+                self.error = true;
+                break;
+            }
+
+            let mut completed_pos: u64 = g.next_thread_pos;
+            for i in 0..g.thread_pos.len() {
+                match g.thread_pos[i] {
+                    Some(pos) => completed_pos = min(completed_pos, pos),
+                    None => (),
+                }
+            }
+
+            self.producer_reserved_upto_pos = completed_pos + self.buffer.len() as u64;
+            if self.producer_reserved_pos < self.producer_reserved_upto_pos
+                || wait_flag == WaitFlag::NoWait
+            {
+                break;
+            }
+
+            g = self.cond_var.wait(g).unwrap();
+        }
     }
 }
 
 impl Write for CompressedWriter {
-    fn write(&mut self, _buf: &[u8]) -> Result<usize> {
-        unimplemented!()
+    fn write(&mut self, data_to_write: &[u8]) -> Result<usize> {
+        let mut data = data_to_write;
+        let mut size = data.len();
+        while !self.error && size > 0 {
+            let reservation_size: usize =
+                (self.producer_reserved_upto_pos - self.producer_reserved_write_pos) as usize;
+            if reservation_size == 0 {
+                self.update_reservation(WaitFlag::Wait);
+                continue;
+            }
+            let buf_offset: usize =
+                (self.producer_reserved_write_pos % self.buffer.len() as u64) as usize;
+            let amount: usize = min(self.buffer.len() - buf_offset, min(reservation_size, size));
+            unsafe {
+                copy_nonoverlapping(
+                    data.as_ptr(),
+                    &mut self.buffer[buf_offset] as *mut u8,
+                    amount,
+                );
+            }
+            self.producer_reserved_write_pos += amount as u64;
+            data = &data[amount..];
+            size -= amount;
+        }
+
+        if !self.error
+            && self.producer_reserved_write_pos - self.producer_reserved_pos
+                >= (self.buffer.len() / 2) as u64
+        {
+            self.update_reservation(WaitFlag::NoWait);
+        }
+
+        // @TODO Deal with error case properly
+        if self.error {
+            panic!("Error");
+        }
+        Ok(data_to_write.len())
     }
 
     fn flush(&mut self) -> Result<()> {
