@@ -288,6 +288,13 @@ impl TraceWriter {
                 _ => fatal!("Event type not recordable"),
             }
         }
+
+        let events = self.writer_mut(Substream::Events);
+        if write_message(events, &frame_msg).is_err() {
+            fatal!("Unable to write events");
+        }
+
+        self.tick_time()
     }
 
     /// Write mapped-region record to the trace.
