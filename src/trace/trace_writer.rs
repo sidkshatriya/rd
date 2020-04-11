@@ -18,7 +18,7 @@ use crate::session::record_session::{DisableCPUIDFeatures, TraceUuid};
 use crate::task::record_task::record_task::RecordTask;
 use crate::trace::compressed_writer::CompressedWriter;
 use crate::trace::trace_stream::{
-    latest_trace_symlink, make_trace_dir, substream, MappedDataSource,
+    latest_trace_symlink, make_trace_dir, substream, MappedDataSource, SUBSTREAMS,
 };
 use crate::trace::trace_stream::{to_trace_arch, TRACE_VERSION};
 use crate::trace::trace_stream::{
@@ -653,8 +653,9 @@ impl TraceWriter {
     ///  buffered data is flushed.
     /// If `uuid` is `None` then a uuid will be generated for you.
     pub fn close(&mut self, status: CloseStatus, maybe_uuid: Option<TraceUuid>) {
-        for (_, w) in &mut self.writers {
-            w.close();
+        for s in &SUBSTREAMS {
+            let w = self.writers.remove(s).unwrap();
+            w.close(None);
         }
 
         let mut header_msg = message::Builder::new_default();
