@@ -573,7 +573,7 @@ impl TraceWriter {
         tw.version_fd = ScopedFd::open_path_with_mode(
             ver_path.as_os_str(),
             OFlag::O_WRONLY | OFlag::O_CREAT | OFlag::O_EXCL,
-            Mode::S_IWUSR | Mode::S_IXUSR,
+            Mode::S_IWUSR | Mode::S_IRUSR,
         );
         if !tw.version_fd.is_open() {
             fatal!("Unable to create {:?}", ver_path);
@@ -594,7 +594,7 @@ impl TraceWriter {
         let version_clone_fd = ScopedFd::open_path_with_mode(
             version_clone_path.as_os_str(),
             OFlag::O_WRONLY | OFlag::O_CREAT,
-            Mode::S_IWUSR | Mode::S_IXUSR,
+            Mode::S_IWUSR | Mode::S_IRUSR,
         );
         if !version_clone_fd.is_open() {
             fatal!("Unable to create {:?}", version_clone_path);
