@@ -94,6 +94,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf1de2fe8c75bc145a2f577add951f8134889b4795d47466a54a5c846d691693"
 
 [[package]]
+name = "brotli-sys"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4445dea95f4c2b41cde57cc9fee236ae4dbae88d8fcbdb4750fc1bb5d86aaecd"
+dependencies = [
+ "cc",
+ "libc",
+]
+
+[[package]]
 name = "capnp"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -409,6 +419,7 @@ dependencies = [
  "backtrace",
  "bindgen",
  "bitflags",
+ "brotli-sys",
  "capnp",
  "capnpc",
  "lazy_static",
