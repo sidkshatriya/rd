@@ -1,5 +1,10 @@
 use crate::scoped_fd::ScopedFd;
 use crate::util::write_all;
+use brotli_sys::{
+    BrotliEncoderCompressStream, BrotliEncoderCreateInstance, BrotliEncoderDestroyInstance,
+    BrotliEncoderSetParameter, BROTLI_OPERATION_FINISH, BROTLI_OPERATION_PROCESS,
+    BROTLI_PARAM_QUALITY,
+};
 use nix::fcntl::OFlag;
 use nix::sys::stat::Mode;
 use nix::unistd::fsync;
@@ -11,7 +16,7 @@ use std::mem::size_of;
 use std::ptr::copy_nonoverlapping;
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
-use std::{slice, thread};
+use std::{ptr, slice, thread};
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub enum Sync {
@@ -188,18 +193,20 @@ impl CompressedWriter {
 
                                     let offset_in_input_buf = g.thread_pos[thread_index].unwrap();
                                     drop(g);
-                                    let maybe_compressed_length: Option<u32> = do_compress(
-                                        buffer,
-                                        offset_in_input_buf,
-                                        header.uncompressed_length as usize,
-                                        &mut outputbuf[size_of::<BlockHeader>()..],
-                                    );
+                                    let compressed_length: usize = unsafe {
+                                        do_compress(
+                                            buffer,
+                                            offset_in_input_buf,
+                                            header.uncompressed_length as usize,
+                                            &mut outputbuf[size_of::<BlockHeader>()..],
+                                        )
+                                    };
                                     g = mutex.lock().unwrap();
 
-                                    if maybe_compressed_length.is_none() {
+                                    if 0 == compressed_length {
                                         g.write_error = true;
                                     } else {
-                                        header.compressed_length = maybe_compressed_length.unwrap()
+                                        header.compressed_length = compressed_length as u32;
                                     }
 
                                     unsafe {
@@ -372,11 +379,59 @@ impl Write for CompressedWriter {
     }
 }
 
-fn do_compress(
-    _input_buf: &[u8],
-    _offset_in_input_buf: u64,
-    _uncompressed_len: usize,
-    _output_buf: &mut [u8],
-) -> Option<u32> {
-    unimplemented!()
+/// See http://robert.ocallahan.org/2017/07/selecting-compression-algorithm-for-rr.html
+const RD_BROTLI_LEVEL: u32 = 5;
+
+unsafe fn do_compress(
+    shared_buf: &[u8],
+    mut stream_offset: u64,
+    mut uncompressed_len: usize,
+    output_buf: &mut [u8],
+) -> usize {
+    let state = BrotliEncoderCreateInstance(None, None, ptr::null_mut());
+    if state.is_null() {
+        fatal!("BrotliEncoderCreateInstance failed");
+    }
+
+    if 0 == BrotliEncoderSetParameter(state, BROTLI_PARAM_QUALITY, RD_BROTLI_LEVEL) {
+        fatal!("Brotli initialization failed");
+    }
+
+    let mut ret: usize = 0;
+    let mut output_buf_len: usize = output_buf.len();
+    let mut outp: *mut u8 = &raw mut output_buf[0];
+    while uncompressed_len > 0 {
+        let shared_buf_offset: usize = (stream_offset % shared_buf.len() as u64) as usize;
+        let mut amount: usize = min(uncompressed_len, shared_buf.len() - shared_buf_offset);
+        let mut inp = &raw const shared_buf[shared_buf_offset];
+        if 0 == BrotliEncoderCompressStream(
+            state,
+            BROTLI_OPERATION_PROCESS,
+            &mut amount,
+            &raw mut inp,
+            &mut output_buf_len,
+            &raw mut outp,
+            &raw mut ret,
+        ) {
+            fatal!("Brotli compression failed");
+        }
+        let consumed = inp as u64 - &raw const shared_buf[shared_buf_offset] as u64;
+        stream_offset += consumed;
+        uncompressed_len -= consumed as usize;
+    }
+    let mut zero: usize = 0;
+    if 0 == BrotliEncoderCompressStream(
+        state,
+        BROTLI_OPERATION_FINISH,
+        &raw mut zero,
+        ptr::null_mut(),
+        &mut output_buf_len,
+        &raw mut outp,
+        &raw mut ret,
+    ) {
+        fatal!("Brotli compression failed");
+    }
+
+    BrotliEncoderDestroyInstance(state);
+    ret
 }
