@@ -375,7 +375,8 @@ impl Write for CompressedWriter {
     }
 
     fn flush(&mut self) -> Result<()> {
-        unimplemented!()
+        // Since we're NOT buffered, this is a no-op.
+        Ok(())
     }
 }
 
