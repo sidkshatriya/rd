@@ -144,7 +144,9 @@ pub(super) fn read_bytes_fallible<T: Task>(
 
     let mut all_read = 0;
     while all_read < buf.len() {
-        unsafe { *(__errno_location()) = 0 };
+        unsafe {
+            *(__errno_location()) = 0
+        };
         let nread: isize = unsafe {
             pread64(
                 task.vm().mem_fd().as_raw(),
@@ -180,7 +182,9 @@ pub(super) fn read_bytes_fallible<T: Task>(
             if all_read > 0 {
                 // We did successfully read _some_ data, so return success and ignore
                 // any error.
-                unsafe { *(__errno_location()) = 0 };
+                unsafe {
+                    *(__errno_location()) = 0
+                };
                 return Ok(all_read);
             }
             return Err(());

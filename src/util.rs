@@ -16,6 +16,7 @@ use nix::sys::mman::{MapFlags, ProtFlags};
 use nix::sys::stat::FileStat;
 use nix::sys::stat::{stat, Mode};
 use nix::sys::statfs::{statfs, TMPFS_MAGIC};
+use nix::sys::uio::pread;
 use nix::unistd::SysconfVar::PAGE_SIZE;
 use nix::unistd::{access, ftruncate, isatty, mkdir, read, write};
 use nix::unistd::{sysconf, AccessFlags};
@@ -871,4 +872,22 @@ fn read_auxv_arch<Arch: Architecture>(t: &mut dyn Task) -> Vec<u8> {
         }
     }
     result
+}
+
+pub fn read_to_end(fd: &ScopedFd, mut offset: u64, mut buf: &mut [u8]) -> nix::Result<usize> {
+    let mut size = buf.len();
+    let mut ret = 0;
+    while size > 0 {
+        match pread(fd.as_raw(), buf, offset as i64) {
+            Err(e) => return Err(e),
+            Ok(0) => return Ok(ret),
+            Ok(nread) => {
+                offset += nread as u64;
+                ret += nread;
+                size -= nread;
+                buf = &mut buf[nread..];
+            }
+        }
+    }
+    Ok(ret)
 }

@@ -1,6 +1,18 @@
-use crate::scoped_fd::ScopedFdSharedPtr;
+use crate::scoped_fd::{ScopedFd, ScopedFdSharedPtr};
+use crate::trace::compressed_writer::BlockHeader;
+use crate::util::read_to_end;
+use brotli_sys::BrotliDecoderDecompress;
+use brotli_sys::BROTLI_DECODER_RESULT_SUCCESS;
+use nix::fcntl::OFlag;
+use nix::sys::uio::pread;
+use nix::unistd::{lseek, Whence};
+use std::cell::RefCell;
+use std::cmp::min;
 use std::ffi::OsStr;
 use std::io::{Read, Result};
+use std::mem::{size_of, transmute};
+use std::ptr::copy_nonoverlapping;
+use std::rc::Rc;
 
 /// CompressedReader opens an input file written by CompressedWriter
 /// and reads data from it. Currently data is decompressed by the thread that
@@ -21,8 +33,37 @@ pub struct CompressedReader {
 }
 
 impl Read for CompressedReader {
-    fn read(&mut self, _buf: &mut [u8]) -> Result<usize> {
-        unimplemented!()
+    fn read(&mut self, mut data: &mut [u8]) -> Result<usize> {
+        let mut size = data.len();
+        let orig_size = size;
+        while size > 0 {
+            // @TODO Deal with error by returning an Err(_)
+            if self.error {
+                unimplemented!()
+            }
+
+            if self.buffer_read_pos < self.buffer.len() {
+                let amount: usize = min(size, self.buffer.len() - self.buffer_read_pos);
+                unsafe {
+                    copy_nonoverlapping(
+                        &self.buffer[self.buffer_read_pos],
+                        data.as_mut_ptr(),
+                        amount,
+                    );
+                }
+                size -= amount;
+                data = &mut data[amount..];
+                self.buffer_read_pos += amount;
+                continue;
+            }
+
+            // @TODO Deal with error an Err(_)
+            if !self.refill_buffer() {
+                unimplemented!()
+            }
+        }
+
+        Ok(orig_size)
     }
 }
 
@@ -52,8 +93,37 @@ impl Drop for CompressedReader {
 /// and reads data from it. Currently data is decompressed by the thread that
 /// calls read().
 impl CompressedReader {
-    pub fn new(_filename: &OsStr) -> CompressedReader {
-        unimplemented!()
+    pub fn new(filename: &OsStr) -> CompressedReader {
+        let fd = ScopedFd::open_path(
+            filename,
+            OFlag::O_CLOEXEC | OFlag::O_RDONLY | OFlag::O_LARGEFILE,
+        );
+        let fd_offset: u64 = 0;
+        let error = !fd.is_open();
+        let eof: bool;
+        if error {
+            eof = false;
+        } else {
+            let ch: u8 = 0;
+            eof = match pread(fd.as_raw(), &mut ch.to_le_bytes(), fd_offset as i64) {
+                Ok(0) => true,
+                Ok(_) => false,
+                // DIFF NOTE: rr does not abort with a fatal error if pread was not successful.
+                Err(_) => {
+                    fatal!("Could not pread {:?}", filename);
+                    unreachable!()
+                }
+            }
+        }
+        let buffer_read_pos = 0;
+        CompressedReader {
+            fd_offset: 0,
+            fd: Rc::new(RefCell::new(fd)),
+            error,
+            eof,
+            buffer: Vec::new(),
+            buffer_read_pos,
+        }
     }
     pub fn good(&self) -> bool {
         return !self.error;
@@ -61,23 +131,38 @@ impl CompressedReader {
     pub fn at_end(&self) -> bool {
         self.eof && self.buffer_read_pos == self.buffer.len()
     }
-    /// Returns true if successful. Otherwise there's an error and good()
-    /// will be false.
-    pub fn read(&mut self, _data: &mut [u8]) {
-        unimplemented!()
-    }
+
     /// Returns pointer/size of some buffered data. Does not change the state.
     /// Returns zero size if at EOF.
     pub fn get_buffer(&self) -> (bool, &[u8]) {
         unimplemented!()
     }
     /// Advances the read position by the given size.
-    pub fn skip(&mut self, _size: usize) -> bool {
-        unimplemented!()
+    pub fn skip(&mut self, mut size: usize) -> bool {
+        while size > 0 {
+            if self.error {
+                return false;
+            }
+
+            if self.buffer_read_pos < self.buffer.len() {
+                let amount: usize = min(size, self.buffer.len() - self.buffer_read_pos);
+                size -= amount;
+                self.buffer_read_pos += amount;
+                continue;
+            }
+
+            if !self.refill_buffer() {
+                return false;
+            }
+        }
+        return true;
     }
 
     pub fn rewind(&mut self) {
-        unimplemented!()
+        self.fd_offset = 0;
+        self.buffer_read_pos = 0;
+        self.buffer.clear();
+        self.eof = false;
     }
     pub fn close(&mut self) {
         unimplemented!()
@@ -98,15 +183,92 @@ impl CompressedReader {
     /// Gathers stats on the file stream. These are independent of what's
     /// actually been read.
     pub fn uncompressed_bytes(&self) -> u64 {
-        unimplemented!()
+        let mut offset: u64 = 0;
+        let mut uncompressed_bytes: u64 = 0;
+        let mut header_arr = [0u8; size_of::<BlockHeader>()];
+        while read_all(&self.fd.borrow(), &mut header_arr, &mut offset) {
+            let header: BlockHeader = unsafe { transmute(header_arr.clone()) };
+            uncompressed_bytes += header.uncompressed_length as u64;
+            offset += header.compressed_length as u64;
+        }
+        uncompressed_bytes
     }
+
     pub fn compressed_bytes(&self) -> u64 {
-        unimplemented!()
+        lseek(self.fd.borrow().as_raw(), 0, Whence::SeekEnd).unwrap() as u64
     }
 
     fn refill_buffer(&mut self) -> bool {
-        unimplemented!()
+        let mut header_vec: Vec<u8> = Vec::with_capacity(size_of::<BlockHeader>());
+        header_vec.resize(size_of::<BlockHeader>(), 0u8);
+        if !read_all(&self.fd.borrow(), &mut header_vec, &mut self.fd_offset) {
+            self.error = true;
+            return false;
+        }
+
+        let mut header: BlockHeader = Default::default();
+        unsafe {
+            copy_nonoverlapping(
+                header_vec.as_ptr(),
+                &raw mut header as *mut u8,
+                size_of::<BlockHeader>(),
+            );
+        }
+
+        let mut compressed_buf: Vec<u8> = Vec::with_capacity(header.compressed_length as usize);
+        compressed_buf.resize(header.compressed_length as usize, 0);
+        if !read_all(&self.fd.borrow(), &mut compressed_buf, &mut self.fd_offset) {
+            self.error = true;
+            return false;
+        }
+
+        let ch: u8 = 0;
+        self.eof = match pread(
+            self.fd.borrow().as_raw(),
+            &mut ch.to_le_bytes(),
+            self.fd_offset as i64,
+        ) {
+            Ok(0) => true,
+            Ok(_) => false,
+            // @TODO DIFF NOTE: rr does not have a fatal! if pread was unsuccessful
+            Err(_) => {
+                fatal!("Error while doing pread");
+                unreachable!()
+            }
+        };
+
+        self.buffer.resize(header.uncompressed_length as usize, 0);
+        self.buffer_read_pos = 0;
+        if !do_decompress(compressed_buf.as_slice(), &mut self.buffer) {
+            self.error = true;
+            return false;
+        }
+
+        true
     }
 }
 
-// @TODO Some Compressed Reader stream related functionality
+pub fn read_all(fd: &ScopedFd, data: &mut [u8], offset: &mut u64) -> bool {
+    let ret = read_to_end(fd, *offset, data);
+    match ret {
+        Ok(nread) if nread == data.len() => {
+            *offset += nread as u64;
+            true
+        }
+        _ => false,
+    }
+}
+
+pub fn do_decompress(compressed: &[u8], uncompressed: &mut [u8]) -> bool {
+    let mut out_size = uncompressed.len();
+    let decompress_result = unsafe {
+        BrotliDecoderDecompress(
+            compressed.len(),
+            compressed.as_ptr(),
+            &raw mut out_size,
+            uncompressed.as_mut_ptr(),
+        )
+    };
+
+    decompress_result == BROTLI_DECODER_RESULT_SUCCESS && out_size == uncompressed.len()
+}

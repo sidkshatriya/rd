@@ -119,11 +119,7 @@ impl WaitStatus {
         }
 
         sig &= !0x80;
-        if sig != 0 {
-            Some(sig)
-        } else {
-            Some(SIGSTOP)
-        }
+        if sig != 0 { Some(sig) } else { Some(SIGSTOP) }
     }
 
     /// Stop signal if wait_type() == GROUP_STOP, otherwise None. A zero signal
@@ -138,11 +134,7 @@ impl WaitStatus {
 
         let mut sig: i32 = unsafe { WSTOPSIG(self.status) };
         sig &= !0x80;
-        if sig != 0 {
-            Some(sig)
-        } else {
-            Some(SIGSTOP)
-        }
+        if sig != 0 { Some(sig) } else { Some(SIGSTOP) }
     }
 
     pub fn is_syscall(&self) -> bool {

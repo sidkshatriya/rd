@@ -46,6 +46,7 @@ use std::convert::TryInto;
 use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::io::stderr;
+use std::io::Read;
 use std::io::Write;
 use std::io::{BufRead, BufReader};
 use std::mem::{size_of, zeroed};
@@ -494,7 +495,9 @@ impl TraceReader {
             rec_tid: rec.rec_tid,
         };
         d.data.resize(rec.size, 0);
-        self.reader_mut(Substream::RawData).read(&mut d.data);
+        self.reader_mut(Substream::RawData)
+            .read(&mut d.data)
+            .unwrap();
         Some(d)
     }
 
