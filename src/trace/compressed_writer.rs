@@ -11,7 +11,7 @@ use nix::unistd::fsync;
 use std::cmp::min;
 use std::convert::TryInto;
 use std::ffi::OsStr;
-use std::io::{Result, Write};
+use std::io::{Error, ErrorKind, Result, Write};
 use std::mem::size_of;
 use std::ptr::copy_nonoverlapping;
 use std::sync::{Arc, Condvar, Mutex};
@@ -367,9 +367,9 @@ impl Write for CompressedWriter {
             self.update_reservation(WaitFlag::NoWait);
         }
 
-        // @TODO Deal with error case properly
+        // @TODO Is this sufficient
         if self.error {
-            panic!("Error");
+            return Err(Error::new(ErrorKind::Other, "CompressedWriter error"));
         }
         Ok(data_to_write.len())
     }

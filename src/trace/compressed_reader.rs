@@ -9,7 +9,7 @@ use nix::unistd::{lseek, Whence};
 use std::cell::RefCell;
 use std::cmp::min;
 use std::ffi::OsStr;
-use std::io::{Read, Result};
+use std::io::{Error, ErrorKind, Read, Result};
 use std::mem::{size_of, transmute};
 use std::ptr::copy_nonoverlapping;
 use std::rc::Rc;
@@ -22,8 +22,7 @@ pub struct CompressedReader {
     /// Our fd might be the dup of another fd, so we can't rely on its current file position.
     /// Instead track the current position in fd_offset and use pread.
     fd_offset: u64,
-    /// @TODO Is a shared pointer what we really want?
-    fd: ScopedFdSharedPtr,
+    fd: Option<ScopedFdSharedPtr>,
     error: bool,
     eof: bool,
     buffer: Vec<u8>,
@@ -37,9 +36,9 @@ impl Read for CompressedReader {
         let mut size = data.len();
         let orig_size = size;
         while size > 0 {
-            // @TODO Deal with error by returning an Err(_)
+            // @TODO Is this sufficient?
             if self.error {
-                unimplemented!()
+                return Err(Error::new(ErrorKind::Other, "CompressedReader error"));
             }
 
             if self.buffer_read_pos < self.buffer.len() {
@@ -57,9 +56,12 @@ impl Read for CompressedReader {
                 continue;
             }
 
-            // @TODO Deal with error an Err(_)
+            // @TODO Is this sufficient?
             if !self.refill_buffer() {
-                unimplemented!()
+                return Err(Error::new(
+                    ErrorKind::Other,
+                    "CompressedReader refill_buffer() error",
+                ));
             }
         }
 
@@ -118,7 +120,7 @@ impl CompressedReader {
         let buffer_read_pos = 0;
         CompressedReader {
             fd_offset: 0,
-            fd: Rc::new(RefCell::new(fd)),
+            fd: Some(Rc::new(RefCell::new(fd))),
             error,
             eof,
             buffer: Vec::new(),
@@ -165,19 +167,28 @@ impl CompressedReader {
         self.eof = false;
     }
     pub fn close(&mut self) {
-        unimplemented!()
+        self.fd.take();
     }
 
     /// Get the current state of the CompressedReader.
     /// Slightly different approach from rr which has `save_state()`
     /// Note: Therefore `discard_state()` method in rr is not needed.
     pub fn get_state(&self) -> CompressedReaderState {
-        unimplemented!()
+        CompressedReaderState {
+            saved_fd_offset: self.fd_offset,
+            saved_buffer: self.buffer.clone(),
+            saved_buffer_read_pos: self.buffer_read_pos,
+        }
     }
     /// Restore previously obtained state.
     /// Slightly different approach from rr -- you need to provide state to be restored.
-    pub fn restore_state(&mut self, _state: CompressedReaderState) {
-        unimplemented!()
+    pub fn restore_state(&mut self, state: CompressedReaderState) {
+        if state.saved_fd_offset < self.fd_offset {
+            self.eof = false;
+        }
+        self.fd_offset = state.saved_fd_offset;
+        self.buffer = state.saved_buffer;
+        self.buffer_read_pos = state.saved_buffer_read_pos;
     }
 
     /// Gathers stats on the file stream. These are independent of what's
@@ -186,7 +197,11 @@ impl CompressedReader {
         let mut offset: u64 = 0;
         let mut uncompressed_bytes: u64 = 0;
         let mut header_arr = [0u8; size_of::<BlockHeader>()];
-        while read_all(&self.fd.borrow(), &mut header_arr, &mut offset) {
+        while read_all(
+            &self.fd.as_ref().unwrap().borrow(),
+            &mut header_arr,
+            &mut offset,
+        ) {
             let header: BlockHeader = unsafe { transmute(header_arr.clone()) };
             uncompressed_bytes += header.uncompressed_length as u64;
             offset += header.compressed_length as u64;
@@ -195,13 +210,22 @@ impl CompressedReader {
     }
 
     pub fn compressed_bytes(&self) -> u64 {
-        lseek(self.fd.borrow().as_raw(), 0, Whence::SeekEnd).unwrap() as u64
+        lseek(
+            self.fd.as_ref().unwrap().borrow().as_raw(),
+            0,
+            Whence::SeekEnd,
+        )
+        .unwrap() as u64
     }
 
     fn refill_buffer(&mut self) -> bool {
         let mut header_vec: Vec<u8> = Vec::with_capacity(size_of::<BlockHeader>());
         header_vec.resize(size_of::<BlockHeader>(), 0u8);
-        if !read_all(&self.fd.borrow(), &mut header_vec, &mut self.fd_offset) {
+        if !read_all(
+            &self.fd.as_ref().unwrap().borrow(),
+            &mut header_vec,
+            &mut self.fd_offset,
+        ) {
             self.error = true;
             return false;
         }
@@ -217,14 +241,18 @@ impl CompressedReader {
 
         let mut compressed_buf: Vec<u8> = Vec::with_capacity(header.compressed_length as usize);
         compressed_buf.resize(header.compressed_length as usize, 0);
-        if !read_all(&self.fd.borrow(), &mut compressed_buf, &mut self.fd_offset) {
+        if !read_all(
+            &self.fd.as_ref().unwrap().borrow(),
+            &mut compressed_buf,
+            &mut self.fd_offset,
+        ) {
             self.error = true;
             return false;
         }
 
         let ch: u8 = 0;
         self.eof = match pread(
-            self.fd.borrow().as_raw(),
+            self.fd.as_ref().unwrap().borrow().as_raw(),
             &mut ch.to_le_bytes(),
             self.fd_offset as i64,
         ) {
