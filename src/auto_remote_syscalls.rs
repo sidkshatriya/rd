@@ -1318,7 +1318,7 @@ fn child_sendmsg<Arch: Architecture>(
     // Copy the cmsghdr into the cmsgbuf
     unsafe {
         copy_nonoverlapping(
-            &cmsghdr as *const _ as *const u8,
+            &raw const cmsghdr as *const u8,
             cmsgbuf.as_mut_ptr(),
             size_of::<Arch::cmsghdr>(),
         );

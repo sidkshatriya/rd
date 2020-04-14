@@ -379,7 +379,7 @@ impl Registers {
                     X86(regs_x86) => {
                         unsafe {
                             copy_nonoverlapping(
-                                &value as *const _ as *const u8,
+                                &raw const value as *const u8,
                                 rv.mut_pointer_into_x86(regs_x86),
                                 rv.nbytes,
                             );
@@ -388,7 +388,7 @@ impl Registers {
                     X64(regs_x64) => {
                         unsafe {
                             copy_nonoverlapping(
-                                &value as *const _ as *const u8,
+                                &raw const value as *const u8,
                                 rv.mut_pointer_into_x64(regs_x64),
                                 rv.nbytes,
                             );

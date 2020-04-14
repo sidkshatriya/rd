@@ -861,7 +861,7 @@ pub mod task_inner {
                 }
                 unsafe {
                     copy_nonoverlapping(
-                        (&v as *const _ as *const u8).add(start - start_word),
+                        (&raw const v as *const u8).add(start - start_word),
                         buf.as_mut_ptr().add(nwritten),
                         length,
                     );

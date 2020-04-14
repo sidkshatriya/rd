@@ -609,7 +609,7 @@ impl TraceWriter {
             libc::ioctl(
                 version_clone_fd.as_raw(),
                 BTRFS_IOC_CLONE_RANGE_,
-                &clone_args as *const _,
+                &raw const clone_args,
             )
         };
         if ret == 0 {
@@ -835,7 +835,7 @@ fn to_trace_signal(mut signal: signal::Builder, ev: &Event) {
     signal.set_siginfo_arch(to_trace_arch(RD_NATIVE_ARCH));
     let siginfo_data = unsafe {
         slice::from_raw_parts::<u8>(
-            &sig_ev.siginfo as *const _ as *const u8,
+            &raw const sig_ev.siginfo as *const u8,
             size_of::<libc::siginfo_t>(),
         )
     };

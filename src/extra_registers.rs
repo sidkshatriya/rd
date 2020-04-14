@@ -338,7 +338,7 @@ impl ExtraRegisters {
                 // @TODO This could be made more efficient by avoiding resize and simply using set_len?
                 new_vec.resize(l, 0);
                 unsafe {
-                    copy_nonoverlapping(&result as *const _ as *const u8, new_vec.as_mut_ptr(), l);
+                    copy_nonoverlapping(&raw const result as *const u8, new_vec.as_mut_ptr(), l);
                 }
                 new_vec
             }
@@ -372,7 +372,7 @@ impl ExtraRegisters {
                 convert_x86_fpregs_to_fxsave(&user_fpregs_data_from, &mut result);
                 unsafe {
                     copy_nonoverlapping(
-                        &result as *const _ as *const u8,
+                        &raw const result as *const u8,
                         self.data_.as_mut_ptr(),
                         size_of::<x86::user_fpxregs_struct>(),
                     );

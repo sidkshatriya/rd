@@ -211,7 +211,7 @@ impl CompressedWriter {
 
                                     unsafe {
                                         copy_nonoverlapping(
-                                            &header as *const _ as *const u8,
+                                            &raw const header as *const u8,
                                             outputbuf.as_mut_ptr(),
                                             size_of::<BlockHeader>(),
                                         );

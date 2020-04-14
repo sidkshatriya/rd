@@ -29,7 +29,7 @@ pub fn check_type_has_no_holes<T>() -> bool {
     }
     v = return_dummy_value::<T>();
 
-    let s = unsafe { from_raw_parts(&v as *const _ as *const u8, size_of::<T>()) };
+    let s = unsafe { from_raw_parts(&raw const v as *const u8, size_of::<T>()) };
     memchr(2, s).is_none()
 }
 
