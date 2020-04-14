@@ -151,9 +151,9 @@ mod test {
     #[test]
     pub fn test_overlapping_and_iter() {
         let mut m: BTreeSet<MemoryRangeKey> = BTreeSet::new();
-        let k1 = MemoryRangeKey(MemoryRange::from_range(0.into(), 10.into()));
-        let k2 = MemoryRangeKey(MemoryRange::from_range(10.into(), 15.into()));
-        let k4 = MemoryRangeKey(MemoryRange::from_range(1.into(), 10.into()));
+        let k1 = MemoryRangeKey(MemoryRange::from_range(0usize.into(), 10usize.into()));
+        let k2 = MemoryRangeKey(MemoryRange::from_range(10usize.into(), 15usize.into()));
+        let k4 = MemoryRangeKey(MemoryRange::from_range(1usize.into(), 10usize.into()));
         m.insert(k1);
         m.insert(k2);
         let r0 = m.insert(k4);
@@ -163,14 +163,17 @@ mod test {
         let mut found = 0;
         let mut range = m.range((
             Unbounded,
-            Included(MemoryRangeKey(MemoryRange::from_range(9.into(), 11.into()))),
+            Included(MemoryRangeKey(MemoryRange::from_range(
+                9usize.into(),
+                11usize.into(),
+            ))),
         ));
 
         while range.next().is_some() {
             found = found + 1;
         }
         assert_eq!(found, 1);
-        let k3 = MemoryRangeKey(MemoryRange::from_range(3.into(), 11.into()));
+        let k3 = MemoryRangeKey(MemoryRange::from_range(3usize.into(), 11usize.into()));
         let r1 = m.remove(&k3);
         assert_eq!(r1, true);
         assert_eq!(m.len(), 1);
@@ -185,13 +188,13 @@ mod test {
     #[test]
     pub fn test_remove() {
         let mut m: BTreeSet<MemoryRangeKey> = BTreeSet::new();
-        let k1 = MemoryRangeKey(MemoryRange::from_range(0.into(), 10.into()));
-        let k2 = MemoryRangeKey(MemoryRange::from_range(10.into(), 15.into()));
+        let k1 = MemoryRangeKey(MemoryRange::from_range(0usize.into(), 10usize.into()));
+        let k2 = MemoryRangeKey(MemoryRange::from_range(10usize.into(), 15usize.into()));
         m.insert(k1);
         m.insert(k2);
         assert_eq!(m.len(), 2);
 
-        let k3 = MemoryRangeKey(MemoryRange::from_range(3.into(), 11.into()));
+        let k3 = MemoryRangeKey(MemoryRange::from_range(3usize.into(), 11usize.into()));
 
         let k1_prime = m.get(&k3).unwrap();
         assert_eq!(k1_prime.start(), k1.start());
@@ -206,8 +209,8 @@ mod test {
     #[test]
     pub fn test_map_iter() {
         let mut m: BTreeMap<MemoryRangeKey, usize> = BTreeMap::new();
-        let k1 = MemoryRangeKey(MemoryRange::from_range(0.into(), 10.into()));
-        let k2 = MemoryRangeKey(MemoryRange::from_range(10.into(), 15.into()));
+        let k1 = MemoryRangeKey(MemoryRange::from_range(0usize.into(), 10usize.into()));
+        let k2 = MemoryRangeKey(MemoryRange::from_range(10usize.into(), 15usize.into()));
         m.insert(k1, 1);
         m.insert(k2, 1);
         assert_eq!(m.len(), 2);
@@ -215,7 +218,10 @@ mod test {
         let mut found = 0;
         let mut range = m.range((
             Unbounded,
-            Included(MemoryRangeKey(MemoryRange::from_range(9.into(), 11.into()))),
+            Included(MemoryRangeKey(MemoryRange::from_range(
+                9usize.into(),
+                11usize.into(),
+            ))),
         ));
 
         while range.next().is_some() {

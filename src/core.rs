@@ -13,7 +13,6 @@ lazy_static! {
 pub fn return_dummy_value<T>() -> T {
     let mut v: T = unsafe { zeroed() };
     let buf: Vec<u8> = vec![1u8; size_of::<T>()];
-    // @TODO check with transmute_copy?
     unsafe {
         copy_nonoverlapping(buf.as_ptr(), &raw mut v as *mut u8, size_of::<T>());
     }
@@ -23,7 +22,6 @@ pub fn return_dummy_value<T>() -> T {
 pub fn check_type_has_no_holes<T>() -> bool {
     let mut v: T = unsafe { zeroed() };
     let buf: Vec<u8> = vec![2u8; size_of::<T>()];
-    // @TODO check with transmute_copy?
     unsafe {
         copy_nonoverlapping(buf.as_ptr(), &raw mut v as *mut u8, size_of::<T>());
     }
