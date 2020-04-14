@@ -906,7 +906,7 @@ pub mod task_inner {
                 unsafe {
                     copy_nonoverlapping(
                         buf.as_ptr().add(nwritten),
-                        (&mut v as *mut _ as *mut u8).add(start - start_word),
+                        (&raw mut v as *mut u8).add(start - start_word),
                         length,
                     );
                 }

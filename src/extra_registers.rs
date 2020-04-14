@@ -327,7 +327,7 @@ impl ExtraRegisters {
                 unsafe {
                     copy_nonoverlapping(
                         self.data_.as_ptr(),
-                        &mut regs as *mut _ as *mut u8,
+                        &raw mut regs as *mut u8,
                         size_of::<x86::user_fpxregs_struct>(),
                     );
                 }
@@ -364,7 +364,7 @@ impl ExtraRegisters {
                 unsafe {
                     copy_nonoverlapping(
                         data_from.as_ptr(),
-                        &mut user_fpregs_data_from as *mut _ as *mut u8,
+                        &raw mut user_fpregs_data_from as *mut u8,
                         size_of::<x86::user_fpregs_struct>(),
                     );
                 }
@@ -401,7 +401,7 @@ impl ExtraRegisters {
         unsafe {
             copy_nonoverlapping(
                 self.data_.as_ptr(),
-                &mut regs as *mut _ as *mut u8,
+                &raw mut regs as *mut u8,
                 size_of::<x86::user_fpxregs_struct>(),
             );
         }

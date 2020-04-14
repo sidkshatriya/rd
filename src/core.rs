@@ -15,7 +15,7 @@ pub fn return_dummy_value<T>() -> T {
     let buf: Vec<u8> = vec![1u8; size_of::<T>()];
     // @TODO check with transmute_copy?
     unsafe {
-        copy_nonoverlapping(buf.as_ptr(), &mut v as *mut _ as *mut u8, size_of::<T>());
+        copy_nonoverlapping(buf.as_ptr(), &raw mut v as *mut u8, size_of::<T>());
     }
     v
 }
@@ -25,7 +25,7 @@ pub fn check_type_has_no_holes<T>() -> bool {
     let buf: Vec<u8> = vec![2u8; size_of::<T>()];
     // @TODO check with transmute_copy?
     unsafe {
-        copy_nonoverlapping(buf.as_ptr(), &mut v as *mut _ as *mut u8, size_of::<T>());
+        copy_nonoverlapping(buf.as_ptr(), &raw mut v as *mut u8, size_of::<T>());
     }
     v = return_dummy_value::<T>();
 

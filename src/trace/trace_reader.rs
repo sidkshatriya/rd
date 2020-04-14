@@ -201,7 +201,7 @@ impl TraceReader {
                 unsafe {
                     copy_nonoverlapping(
                         mprotect_records as *const _ as *const u8,
-                        records.as_mut_ptr() as *mut _ as *mut u8,
+                        records.as_mut_ptr() as *mut u8,
                         records.len() * size_of::<mprotect_record>(),
                     );
                 }
@@ -803,7 +803,7 @@ fn from_trace_signal(event_type: EventType, signal: signal::Reader) -> Event {
     unsafe {
         copy_nonoverlapping(
             siginfo_data.as_ptr(),
-            &mut siginfo as *mut _ as *mut u8,
+            &raw mut siginfo as *mut u8,
             size_of::<libc::siginfo_t>(),
         );
     }
