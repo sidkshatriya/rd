@@ -143,6 +143,7 @@ pub struct RdOptions {
 #[derive(StructOpt, Debug)]
 pub enum RdSubCommand {
     // DIFF NOTE: Slightly different from rr which accepts file paths from stdin.
+    // Also called `build-id` from command line instead of `buildid`
     #[structopt(help = "Accepts paths to elf files, prints elf build ids on stdout.")]
     BuildId {
         #[structopt(parse(from_os_str))]

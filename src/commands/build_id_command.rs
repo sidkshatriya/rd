@@ -34,7 +34,9 @@ impl BuildIdCommand {
                 if maybe_sections.is_some() {
                     for maybe_note in maybe_sections.unwrap() {
                         match maybe_note {
-                            Ok(note) if note.n_type == note::NT_GNU_BUILD_ID => {
+                            Ok(note)
+                                if note.n_type == note::NT_GNU_BUILD_ID && note.name == "GNU" =>
+                            {
                                 return note.desc.to_vec();
                             }
                             _ => continue,
