@@ -29,6 +29,7 @@ mod perf_counters;
 #[macro_use]
 mod registers;
 mod address_space;
+mod commands;
 mod core;
 mod cpuid_bug_detector;
 mod emu_fs;
@@ -59,12 +60,15 @@ mod util;
 mod wait_status;
 mod weak_ptr_set;
 
+use crate::commands::build_id_command::BuildIdCommand;
+use crate::commands::RdCommand;
+use crate::log::LogLevel::LogInfo;
 use std::path::PathBuf;
 use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "rd", about = "The record and debug tool")]
-struct RdOptions {
+pub struct RdOptions {
     #[structopt(long, help = "disable use of CPUID faulting")]
     disable_cpuid_faulting: bool,
     #[structopt(
@@ -128,7 +132,7 @@ struct RdOptions {
         help = "dump memory at a syscall number or signal to the file `[trace_dir]/[tid].[time]_{rec,rep}'. \
         Here `_rec' is for dumps during recording, `_rep' for dumps during replay. Note: If you provide a \
         positive number it will be interpreted as a syscall number and if it is negative it is understood \
-        as a signal number. e.g -9"
+        as a signal number. e.g -9 for sigKILL"
     )]
     dump_on: Option<i32>,
     // @TODO -C --checksum
@@ -137,12 +141,13 @@ struct RdOptions {
 }
 
 #[derive(StructOpt, Debug)]
-enum RdSubCommand {
-    #[structopt(
-        help = "Accepts paths on stdin, prints elf build ids on stdout. Will terminate when either \
-        an empty line or an invalid path is provided."
-    )]
-    BuildId,
+pub enum RdSubCommand {
+    // DIFF NOTE: Slightly different from rr which accepts file paths from stdin.
+    #[structopt(help = "Accepts paths to elf files, prints elf build ids on stdout.")]
+    BuildId {
+        #[structopt(parse(from_os_str))]
+        elf_files: Vec<PathBuf>,
+    },
     #[structopt(
         help = "Print `rd record` command line options that will limit the tracee to CPU features \
         this machine supports. Useful for trace portability: run `rd cpufeatures` on the machine \
@@ -154,5 +159,11 @@ enum RdSubCommand {
 
 fn main() {
     let options = RdOptions::from_args();
+    match &options.cmd {
+        Some(RdSubCommand::BuildId { elf_files }) => BuildIdCommand::new(elf_files).run(),
+        _ => (),
+    }
+
     println!("{:?}", options);
+    log!(LogInfo, "Hello World!");
 }
