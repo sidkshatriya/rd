@@ -61,8 +61,10 @@ mod wait_status;
 mod weak_ptr_set;
 
 use crate::commands::build_id_command::BuildIdCommand;
+use crate::commands::dump_command::DumpCommand;
 use crate::commands::RdCommand;
 use std::io;
+use std::num::ParseIntError;
 use std::path::PathBuf;
 use structopt::StructOpt;
 
@@ -159,12 +161,51 @@ pub enum RdSubCommand {
         recording machine."
     )]
     CpuFeatures,
+    #[structopt(name = "dump", about = "@TODO", help = "@TODO")]
+    Dump {
+        #[structopt(short = "b", long, help = "dump syscallbuf events")]
+        syscallbuf: bool,
+        #[structopt(short = "e", long, help = "dump task events")]
+        task_events: bool,
+        #[structopt(short = "m", long, help = "dump recorded data metadata")]
+        recorded_metadata: bool,
+        #[structopt(short = "p", long, help = "dump mmap data")]
+        mmaps: bool,
+        #[structopt(
+            short = "r",
+            long = "raw",
+            help = "dump trace frames in a more easily machine-parseable \
+                    format instead of the default human-readable format"
+        )]
+        raw_dump: bool,
+        #[structopt(short = "s", long, help = "dump statistics about the trace")]
+        statistics: bool,
+        #[structopt(short = "t", long, help = "dump events only for the specified tid")]
+        tid: u32,
+        trace_dir: Option<PathBuf>,
+        #[structopt(parse(try_from_str = parse_range))]
+        event_spec: Option<(u32, Option<u32>)>,
+    },
+}
+
+fn parse_range(range_or_single: &str) -> Result<(u32, Option<u32>), ParseIntError> {
+    let args: Vec<&str> = range_or_single.splitn(2, '-').collect();
+    let low = args[0].parse::<u32>()?;
+    let mut high: Option<u32> = None;
+    if args.len() == 2 {
+        high = Some(args[1].parse::<u32>()?);
+    }
+    Ok((low, high))
 }
 
 fn main() -> io::Result<()> {
     let options = RdOptions::from_args();
     match &options.cmd {
         RdSubCommand::BuildId => return BuildIdCommand::new().run(),
+        RdSubCommand::Dump { .. } => {
+            DumpCommand::new().run()?;
+            println!("{:?}", options);
+        }
         _ => {
             println!("{:?}", options);
         }
