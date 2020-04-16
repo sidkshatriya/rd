@@ -1,6 +1,7 @@
+use std::io;
+
 pub mod build_id_command;
 
 pub trait RdCommand {
-    /// @TODO some sort of exit code??
-    fn run(&mut self);
+    fn run(&mut self) -> io::Result<()>;
 }

@@ -62,7 +62,7 @@ mod weak_ptr_set;
 
 use crate::commands::build_id_command::BuildIdCommand;
 use crate::commands::RdCommand;
-use crate::log::LogLevel::LogInfo;
+use std::io;
 use std::path::PathBuf;
 use structopt::StructOpt;
 
@@ -137,19 +137,22 @@ pub struct RdOptions {
     dump_on: Option<i32>,
     // @TODO -C --checksum
     #[structopt(subcommand)]
-    cmd: Option<RdSubCommand>,
+    cmd: RdSubCommand,
 }
 
 #[derive(StructOpt, Debug)]
 pub enum RdSubCommand {
-    // DIFF NOTE: Slightly different from rr which accepts file paths from stdin.
-    // Also called `build-id` from command line instead of `buildid`
-    #[structopt(help = "Accepts paths to elf files, prints elf build ids on stdout.")]
-    BuildId {
-        #[structopt(parse(from_os_str))]
-        elf_files: Vec<PathBuf>,
-    },
     #[structopt(
+        name = "buildid",
+        about = "Accepts paths to elf files from stdin, prints elf build ids on stdout.",
+        help = "Accepts paths on stdin, prints buildids on stdout. Will terminate when either an empty \
+                line or an invalid path is provided."
+    )]
+    BuildId,
+    #[structopt(
+        name = "cpufeatures",
+        about = "Print `rd record` command line options that will limit the tracee to CPU features \
+        this machine supports.",
         help = "Print `rd record` command line options that will limit the tracee to CPU features \
         this machine supports. Useful for trace portability: run `rd cpufeatures` on the machine \
         you plan to replay on, then add those command-line parameters to `rd record` on the \
@@ -158,13 +161,14 @@ pub enum RdSubCommand {
     CpuFeatures,
 }
 
-fn main() {
+fn main() -> io::Result<()> {
     let options = RdOptions::from_args();
     match &options.cmd {
-        Some(RdSubCommand::BuildId { elf_files }) => BuildIdCommand::new(elf_files).run(),
-        _ => (),
+        RdSubCommand::BuildId => return BuildIdCommand::new().run(),
+        _ => {
+            println!("{:?}", options);
+        }
     }
 
-    println!("{:?}", options);
-    log!(LogInfo, "Hello World!");
+    Ok(())
 }

@@ -1,33 +1,22 @@
 use crate::commands::RdCommand;
+use crate::log::LogLevel::LogError;
 use goblin::elf::{note, Elf};
+use std::ffi::OsStr;
 use std::fmt::Write;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::io::{stdin, BufRead, BufReader};
+use std::os::unix::ffi::OsStrExt;
+use std::path::Path;
+use std::{fs, io};
 
-pub struct BuildIdCommand {
-    elf_files: Vec<PathBuf>,
-}
+pub struct BuildIdCommand;
 
 impl BuildIdCommand {
-    pub fn new(elf_files: &[PathBuf]) -> BuildIdCommand {
-        BuildIdCommand {
-            elf_files: elf_files.to_owned(),
-        }
+    pub fn new() -> BuildIdCommand {
+        BuildIdCommand
     }
 
-    fn file_data(elf_file: &Path) -> Vec<u8> {
-        let result = fs::read(elf_file);
-        match result {
-            Ok(file_data) => file_data,
-            e => {
-                fatal!("Err in reading {:?}: {:?}", elf_file, e);
-                unimplemented!()
-            }
-        }
-    }
-
-    pub fn build_id(elf_file: &Path) -> Vec<u8> {
-        let data = Self::file_data(elf_file);
+    pub fn build_id(elf_file: &Path) -> io::Result<Vec<u8>> {
+        let data = fs::read(elf_file)?;
         match Elf::parse(&data) {
             Ok(elf_data) => {
                 let maybe_sections = elf_data.iter_note_sections(&data, None);
@@ -37,32 +26,63 @@ impl BuildIdCommand {
                             Ok(note)
                                 if note.n_type == note::NT_GNU_BUILD_ID && note.name == "GNU" =>
                             {
-                                return note.desc.to_vec();
+                                return Ok(note.desc.to_vec());
                             }
                             _ => continue,
                         }
                     }
                 }
-                fatal!("Could not find build id in {:?}", elf_file);
-                unreachable!();
+                // Even though there a build id could not be found, we return an empty
+                // Vec i.e. an empty build id -- this mimics the behavior in rr.
+                return Ok(Vec::new());
             }
-            e => {
-                fatal!("Error in elf parsing {:?}: {:?}", elf_file, e);
-                unimplemented!();
+            Err(_) => {
+                // Even though there was an error is parsing the elf file, we return an empty
+                // Vec -- this mimics the behavior in rr.
+                return Ok(Vec::new());
             }
         }
     }
 }
 
 impl RdCommand for BuildIdCommand {
-    fn run(&mut self) {
-        for elf_file in &self.elf_files {
-            let build_id = Self::build_id(elf_file);
-            let mut build_id_string = String::new();
-            for u in build_id {
-                write!(build_id_string, "{:02x}", u).unwrap();
+    fn run(&mut self) -> io::Result<()> {
+        let mut fd = BufReader::new(stdin());
+        let mut elf_file_vec = Vec::new();
+        loop {
+            match fd.read_until(b'\n', &mut elf_file_vec) {
+                Ok(0) => return Ok(()),
+                Ok(_) => {
+                    if elf_file_vec.ends_with(b"\n") {
+                        elf_file_vec.pop();
+                    }
+                    let elf_file = Path::new(OsStr::from_bytes(&elf_file_vec));
+                    let maybe_build_id = Self::build_id(elf_file);
+                    match maybe_build_id {
+                        Ok(build_id) => {
+                            let mut build_id_string = String::new();
+                            for u in build_id {
+                                write!(build_id_string, "{:02x}", u).unwrap();
+                            }
+                            println!("{}", build_id_string);
+                        }
+                        Err(e) => {
+                            log!(
+                                LogError,
+                                "Error while trying to read from {:?}: {:?}",
+                                elf_file,
+                                e
+                            );
+                            return Err(e);
+                        }
+                    }
+                    elf_file_vec.clear();
+                }
+                Err(e) => {
+                    log!(LogError, "Error while trying to read from stdin: {:?}", e);
+                    return Err(e);
+                }
             }
-            println!("{}", build_id_string);
         }
     }
 }
