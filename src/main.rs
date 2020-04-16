@@ -63,10 +63,11 @@ mod weak_ptr_set;
 use crate::commands::build_id_command::BuildIdCommand;
 use crate::commands::dump_command::DumpCommand;
 use crate::commands::RdCommand;
+use std::error::Error;
 use std::io;
 use std::num::ParseIntError;
 use std::path::PathBuf;
-use structopt::StructOpt;
+use structopt::{clap, StructOpt};
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "rd", about = "The record and debug tool")]
@@ -137,9 +138,46 @@ pub struct RdOptions {
         as a signal number. e.g -9 for sigKILL"
     )]
     dump_on: Option<i32>,
-    // @TODO -C --checksum
+    #[structopt(
+        short = "C",
+        long,
+        parse(try_from_str = parse_checksum),
+        help = "{on-syscalls,on-all-events}|FROM_TIME \
+                compute and store (during recording) or \
+                read and verify (during replay) checksums \
+                of each of a tracee's memory mappings either \
+                at the end of all syscalls (`on-syscalls'), \
+                at all events (`on-all-events'), or \
+                starting from a global timepoint FROM_TIME"
+    )]
+    checksum: Option<ChecksumSelection>,
     #[structopt(subcommand)]
     cmd: RdSubCommand,
+}
+
+/// @TODO Do we want to return some other sort of error?
+fn parse_checksum(checksum_s: &str) -> Result<ChecksumSelection, Box<dyn Error>> {
+    if checksum_s == "on-syscalls" {
+        Ok(ChecksumSelection::OnSyscalls)
+    } else if checksum_s == "on-all-events" {
+        Ok(ChecksumSelection::OnAllEvents)
+    } else if checksum_s.chars().all(|c| !c.is_ascii_digit()) {
+        Err(Box::new(clap::Error {
+            message: "Only `on-syscalls` or `on-all-events` or an unsigned integer is valid here"
+                .to_string(),
+            kind: clap::ErrorKind::InvalidValue,
+            info: None,
+        }))
+    } else {
+        Ok(ChecksumSelection::FromTime(checksum_s.parse::<u32>()?))
+    }
+}
+
+#[derive(Debug)]
+pub enum ChecksumSelection {
+    OnSyscalls,
+    OnAllEvents,
+    FromTime(u32),
 }
 
 #[derive(StructOpt, Debug)]
@@ -181,7 +219,7 @@ pub enum RdSubCommand {
         #[structopt(short = "s", long, help = "dump statistics about the trace")]
         statistics: bool,
         #[structopt(short = "t", long, help = "dump events only for the specified tid")]
-        tid: u32,
+        tid: Option<u32>,
         trace_dir: Option<PathBuf>,
         #[structopt(parse(try_from_str = parse_range))]
         event_spec: Option<(u32, Option<u32>)>,
