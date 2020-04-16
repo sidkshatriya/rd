@@ -155,7 +155,6 @@ pub struct RdOptions {
     cmd: RdSubCommand,
 }
 
-/// @TODO Do we want to return some other sort of error?
 fn parse_checksum(checksum_s: &str) -> Result<ChecksumSelection, Box<dyn Error>> {
     if checksum_s == "on-syscalls" {
         Ok(ChecksumSelection::OnSyscalls)
@@ -180,7 +179,7 @@ pub enum ChecksumSelection {
     FromTime(u32),
 }
 
-#[derive(StructOpt, Debug)]
+#[derive(StructOpt, Debug, Clone)]
 pub enum RdSubCommand {
     #[structopt(
         name = "buildid",
@@ -241,7 +240,7 @@ fn main() -> io::Result<()> {
     match &options.cmd {
         RdSubCommand::BuildId => return BuildIdCommand::new().run(),
         RdSubCommand::Dump { .. } => {
-            DumpCommand::new().run()?;
+            DumpCommand::new(&options).run()?;
             println!("{:?}", options);
         }
         _ => {

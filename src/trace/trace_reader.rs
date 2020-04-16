@@ -579,7 +579,7 @@ impl TraceReader {
     /// @TODO We are writing to stderr() in this method in various places and then exit() with
     /// an error code. This is different from other places where we simply use fatal!(). Need to
     /// review this again.
-    pub fn new(&self, dir: &OsStr) -> TraceReader {
+    pub fn new(dir: &OsStr) -> TraceReader {
         let mut trace_stream = TraceStream::new(&resolve_trace_name(dir), 1);
 
         let mut readers: HashMap<Substream, CompressedReader> = HashMap::new();
