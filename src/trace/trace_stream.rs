@@ -92,6 +92,12 @@ pub enum MappedDataSource {
     SourceZero,
 }
 
+impl Default for MappedDataSource {
+    fn default() -> Self {
+        MappedDataSource::SourceTrace
+    }
+}
+
 /// TraceStream stores all the data common to both recording and
 /// replay.  TraceWriter deals with recording-specific logic, and
 /// TraceReader handles replay-specific details.
@@ -193,6 +199,7 @@ pub struct TraceRemoteFd {
 }
 
 /// Where to obtain data for the mapped region.
+#[derive(Default)]
 pub struct MappedData {
     pub time: FrameTime,
     pub source: MappedDataSource,

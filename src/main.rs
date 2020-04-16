@@ -217,8 +217,12 @@ pub enum RdSubCommand {
         raw_dump: bool,
         #[structopt(short = "s", long, help = "dump statistics about the trace")]
         statistics: bool,
-        #[structopt(short = "t", long, help = "dump events only for the specified tid")]
-        tid: Option<u32>,
+        #[structopt(
+            short = "t",
+            long = "tid",
+            help = "dump events only for the specified tid"
+        )]
+        only_tid: Option<libc::pid_t>,
         trace_dir: Option<PathBuf>,
         #[structopt(parse(try_from_str = parse_range))]
         event_spec: Option<(u32, Option<u32>)>,
