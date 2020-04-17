@@ -203,6 +203,20 @@ pub enum SyscallState {
     ExitingSyscall,
 }
 
+impl Display for SyscallState {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        let disp = match self {
+            SyscallState::NoSyscall => "NO_SYSCALL",
+            SyscallState::EnteringSyscallPtrace => "ENTERING_SYSCALL_PTRACE",
+            SyscallState::EnteringSyscall => "ENTERING_SYSCALL",
+            SyscallState::ProcessingSyscall => "PROCESSING_SYSCALL",
+            SyscallState::ExitingSyscall => "EXITING_SYSCALL",
+        };
+
+        write!(f, "{}", disp)
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct OpenedFd {
     pub path: OsString,
@@ -318,6 +332,34 @@ impl Display for Event {
     }
 }
 
+impl Display for EventType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        let disp = match self {
+            EventType::EvUnassigned => "UNASSIGNED",
+            EventType::EvSentinel => "(none)",
+            EventType::EvNoop => "NOOP",
+            EventType::EvDesched => "DESCHED",
+            EventType::EvSeccompTrap => "SECCOMP_TRAP",
+            EventType::EvSyscallInterruption => "SYSCALL_INTERRUPTION",
+            EventType::EvTraceTermination => "TRACE_TERMINATION",
+            EventType::EvExit => "EXIT",
+            EventType::EvSched => "SCHED",
+            EventType::EvInstructionTrap => "INSTRUCTION_TRAP",
+            EventType::EvSyscallbufFlush => "SYSCALLBUF_FLUSH",
+            EventType::EvSyscallbufAbortCommit => "SYSCALLBUF_ABORT_COMMIT",
+            EventType::EvSyscallbufReset => "SYSCALLBUF_RESET",
+            EventType::EvPatchSyscall => "PATCH_SYSCALL",
+            EventType::EvGrowMap => "GROW_MAP",
+            EventType::EvSignal => "SIGNAL",
+            EventType::EvSignalDelivery => "SIGNAL_DELIVERY",
+            EventType::EvSignalHandler => "SIGNAL_HANDLER",
+            EventType::EvSyscall => "SYSCALL",
+        };
+
+        write!(f, "{}", disp)
+    }
+}
+
 impl Event {
     pub fn new_desched_event(ev: DeschedEventData) -> Event {
         Event {
@@ -418,10 +460,7 @@ impl Event {
     }
 
     pub fn str(&self) -> String {
-        // @TODO The string representation of event type is a custom method type_name() in rr
-        // We use the debug representation for now. The subtle different apart from formatting is
-        // that EvSentinel would be printed as "(none)" in rr.
-        let mut ss = format!("{:?}", self.event_type());
+        let mut ss = format!("{}", self.event_type());
         match self.event_type {
             EventType::EvSignal | EventType::EvSignalDelivery | EventType::EvSignalHandler => {
                 let deterministic =
