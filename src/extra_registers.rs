@@ -772,6 +772,7 @@ fn write_reg(
     let mut i = final_len as isize - 1;
     while i >= 0 {
         if !printed_digit && buf[i as usize] == 0 && i > 0 {
+            i -= 1;
             continue;
         }
         if printed_digit {
@@ -780,7 +781,7 @@ fn write_reg(
             write!(out, "{:x}", buf[i as usize]).unwrap();
         }
         printed_digit = true;
-        i = i - 1;
+        i -= 1;
     }
     write!(f, "{}:0x{}", name, out)
 }

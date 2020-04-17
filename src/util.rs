@@ -22,7 +22,6 @@ use nix::unistd::{access, ftruncate, isatty, mkdir, read, write};
 use nix::unistd::{sysconf, AccessFlags};
 use nix::NixPath;
 use rand::random;
-use raw_cpuid::CpuId;
 use std::convert::TryInto;
 use std::env::var_os;
 use std::ffi::{c_void, OsStr, OsString};
@@ -176,42 +175,7 @@ pub fn xsave_layout_from_trace(records: &[CPUIDRecord]) -> XSaveLayout {
 }
 
 fn xsave_native_layout_init() -> XSaveLayout {
-    let cpuid = CpuId::new();
-    let maybe_extended_state_info = cpuid.get_extended_state_info();
-    let mut layout: XSaveLayout;
-    if let Some(extended_state_info) = maybe_extended_state_info {
-        layout = XSaveLayout {
-            full_size: extended_state_info.xsave_area_size_enabled_features() as usize,
-            supported_feature_bits: 0,
-            feature_layouts: Vec::new(),
-        };
-        // The initial 2 items are always like this.
-        layout
-            .feature_layouts
-            .push(XSaveFeatureLayout { offset: 0, size: 0 });
-        layout
-            .feature_layouts
-            .push(XSaveFeatureLayout { offset: 0, size: 0 });
-        for info in extended_state_info.iter() {
-            // @TODO check this `is_in_xcr0` test again. Do we need it?
-            if info.is_in_xcr0() {
-                layout.supported_feature_bits = layout.supported_feature_bits | (1 << info.subleaf);
-                layout.feature_layouts.push(XSaveFeatureLayout {
-                    offset: info.offset(),
-                    size: info.size(),
-                });
-            }
-        }
-    } else {
-        // @TODO check this branch.
-        layout = XSaveLayout {
-            full_size: 512,
-            supported_feature_bits: 0x3,
-            feature_layouts: Vec::new(),
-        }
-    }
-
-    layout
+    xsave_layout_from_trace(&gather_cpuid_records(CPUID_GETXSAVE))
 }
 
 fn gather_cpuid_records(up_to: u32) -> Vec<CPUIDRecord> {

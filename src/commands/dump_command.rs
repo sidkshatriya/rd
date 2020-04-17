@@ -182,7 +182,7 @@ impl<'a> DumpCommand<'a> {
                 while process_raw_data && trace.read_raw_data_metadata_for_frame().is_some() {}
             }
         }
-        unimplemented!()
+        Ok(())
     }
 }
 
