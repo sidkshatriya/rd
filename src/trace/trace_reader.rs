@@ -122,8 +122,7 @@ impl TraceReader {
     /// the global time to match the time recorded in the trace
     /// frame.
     pub fn read_frame(&mut self) -> TraceFrame {
-        let events = self.reader_mut(Substream::Events);
-        let mut stream = BufReader::new(events);
+        let mut stream = self.reader_mut(Substream::Events);
         let frame_msg = read_message(&mut stream, ReaderOptions::new()).unwrap();
         let frame: frame::Reader = frame_msg.get_root::<frame::Reader>().unwrap();
 
@@ -271,8 +270,7 @@ impl TraceReader {
 
         let mut restore = false;
         {
-            let mut stream = BufReader::new(mmaps);
-            let map_msg = read_message(&mut stream, ReaderOptions::new()).unwrap();
+            let map_msg = read_message(mmaps, ReaderOptions::new()).unwrap();
 
             let map = map_msg.get_root::<m_map::Reader>().unwrap();
             if time_constraint == TimeConstraint::CurrentTimeOnly {
@@ -414,8 +412,7 @@ impl TraceReader {
             return None;
         }
 
-        let mut stream = BufReader::new(tasks);
-        let task_msg = read_message(&mut stream, ReaderOptions::new()).unwrap();
+        let task_msg = read_message(tasks, ReaderOptions::new()).unwrap();
 
         let task: task_event::Reader = task_msg.get_root::<task_event::Reader>().unwrap();
         let tid_ = i32_to_tid(task.get_tid());
@@ -508,18 +505,8 @@ impl TraceReader {
             return None;
         }
         let d = self.raw_recs.pop().unwrap();
-        self.reader_mut(Substream::RawData).skip(d.size);
+        self.reader_mut(Substream::RawData).skip(d.size).unwrap();
         Some(d)
-    }
-
-    /// Return true iff all trace files are "good".
-    pub fn good(&self) -> bool {
-        for w in self.readers.values() {
-            if !w.good() {
-                return false;
-            }
-        }
-        true
     }
 
     /// Return true if we're at the end of the trace file.
@@ -561,14 +548,14 @@ impl TraceReader {
     pub fn uncompressed_bytes(&self) -> u64 {
         let mut total: u64 = 0;
         for w in self.readers.values() {
-            total += w.uncompressed_bytes();
+            total += w.uncompressed_bytes().unwrap();
         }
         total
     }
     pub fn compressed_bytes(&self) -> u64 {
         let mut total: u64 = 0;
         for w in self.readers.values() {
-            total += w.compressed_bytes();
+            total += w.compressed_bytes().unwrap();
         }
         total
     }

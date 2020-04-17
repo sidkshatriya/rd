@@ -10,7 +10,7 @@ use crate::kernel_supplement::{
 use crate::log::LogLevel::{LogError, LogInfo, LogWarn};
 use crate::remote_code_ptr::RemoteCodePtr;
 use crate::remote_ptr::{RemotePtr, Void};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::convert::TryInto;
 use std::fmt::Display;
 use std::fmt::Formatter;
@@ -28,8 +28,8 @@ enum TraceStyle {
 }
 
 lazy_static! {
-    static ref REGISTERS_X86: HashMap<GdbRegister, RegisterValue> = x86regs();
-    static ref REGISTERS_X64: HashMap<GdbRegister, RegisterValue> = x64regs();
+    static ref REGISTERS_X86: BTreeMap<GdbRegister, RegisterValue> = x86regs();
+    static ref REGISTERS_X64: BTreeMap<GdbRegister, RegisterValue> = x64regs();
 }
 
 macro_rules! rd_get_reg {
@@ -106,7 +106,7 @@ use Registers::*;
 /// Registers to contain registers for any architecture. So we store them
 /// in a union of Arch::user_regs_structs for each known Arch.
 impl Registers {
-    fn get_regs_info(&self) -> &'static HashMap<GdbRegister, RegisterValue> {
+    fn get_regs_info(&self) -> &'static BTreeMap<GdbRegister, RegisterValue> {
         match self {
             X86(_) => &*REGISTERS_X86,
             X64(_) => &*REGISTERS_X64,
@@ -566,13 +566,9 @@ impl Registers {
             debug_assert_eq!(data.len(), size_of::<native_user_regs_struct>());
             let mut n: native_user_regs_struct = Default::default();
             unsafe {
-                copy_nonoverlapping(
-                    data.as_ptr(),
-                    &mut n as *mut native_user_regs_struct as *mut u8,
-                    data.len(),
-                );
-                self.set_from_ptrace(&n);
+                copy_nonoverlapping(data.as_ptr(), &raw mut n as *mut u8, data.len());
             }
+            self.set_from_ptrace(&n);
         } else {
             debug_assert!(arch == SupportedArch::X86 && RD_NATIVE_ARCH == SupportedArch::X64);
             debug_assert!(self.arch() == SupportedArch::X86);
@@ -941,14 +937,37 @@ impl Registers {
                 _ => "",
             };
 
-            match rv.nbytes {
-                4 => {
-                    self.write_single_register(f, name, rv.nbytes, rv.pointer_into_x86(self.x86()))?
-                }
-                8 => {
-                    self.write_single_register(f, name, rv.nbytes, rv.pointer_into_x64(self.x64()))?
-                }
-                _ => debug_assert!(false, "bad register size"),
+            match self {
+                X86(regs_struct) => match rv.nbytes {
+                    4 => self.write_single_register(
+                        f,
+                        name,
+                        rv.nbytes,
+                        rv.pointer_into_x86(regs_struct),
+                    )?,
+                    8 => self.write_single_register(
+                        f,
+                        name,
+                        rv.nbytes,
+                        rv.pointer_into_x86(regs_struct),
+                    )?,
+                    _ => debug_assert!(false, "bad register size"),
+                },
+                X64(regs_struct) => match rv.nbytes {
+                    4 => self.write_single_register(
+                        f,
+                        name,
+                        rv.nbytes,
+                        rv.pointer_into_x64(regs_struct),
+                    )?,
+                    8 => self.write_single_register(
+                        f,
+                        name,
+                        rv.nbytes,
+                        rv.pointer_into_x64(regs_struct),
+                    )?,
+                    _ => debug_assert!(false, "bad register size"),
+                },
             }
         }
 
@@ -963,21 +982,39 @@ impl Registers {
                 continue;
             }
 
-            match rv.nbytes {
-                4 => self.write_single_register(
-                    f,
-                    rv.name,
-                    rv.nbytes,
-                    rv.pointer_into_x86(self.x86()),
-                )?,
-                8 => self.write_single_register(
-                    f,
-                    rv.name,
-                    rv.nbytes,
-                    rv.pointer_into_x64(self.x64()),
-                )?,
-                _ => debug_assert!(false, "bad register size"),
+            match self {
+                X86(regs_struct) => match rv.nbytes {
+                    4 => self.write_single_register(
+                        f,
+                        rv.name,
+                        rv.nbytes,
+                        rv.pointer_into_x86(regs_struct),
+                    )?,
+                    8 => self.write_single_register(
+                        f,
+                        rv.name,
+                        rv.nbytes,
+                        rv.pointer_into_x86(regs_struct),
+                    )?,
+                    _ => debug_assert!(false, "bad register size"),
+                },
+                X64(regs_struct) => match rv.nbytes {
+                    4 => self.write_single_register(
+                        f,
+                        rv.name,
+                        rv.nbytes,
+                        rv.pointer_into_x64(regs_struct),
+                    )?,
+                    8 => self.write_single_register(
+                        f,
+                        rv.name,
+                        rv.nbytes,
+                        rv.pointer_into_x64(regs_struct),
+                    )?,
+                    _ => debug_assert!(false, "bad register size"),
+                },
             }
+
             write!(f, "\n")?;
         }
         write!(f, "\n")?;
@@ -1004,8 +1041,8 @@ impl Registers {
 
         unsafe {
             match nbytes {
-                4 => write!(f, "{:x}", *(register_ptr as *const u32)),
-                8 => write!(f, "{:x}", *(register_ptr as *const u64)),
+                4 => write!(f, "{:#x}", *(register_ptr as *const u32)),
+                8 => write!(f, "{:#x}", *(register_ptr as *const u64)),
                 _ => {
                     debug_assert!(false, "bad register size");
                     Ok(())
@@ -1303,7 +1340,7 @@ macro_rules! rv_x86_with_mask {
     };
 }
 
-fn x86regs() -> HashMap<GdbRegister, RegisterValue> {
+fn x86regs() -> BTreeMap<GdbRegister, RegisterValue> {
     let regs = [
         rv_x86!(DREG_EAX, eax),
         rv_x86!(DREG_ECX, ecx),
@@ -1330,7 +1367,7 @@ fn x86regs() -> HashMap<GdbRegister, RegisterValue> {
         rv_x86_with_mask!(DREG_ORIG_EAX, orig_eax, 0),
     ];
 
-    let mut map: HashMap<GdbRegister, RegisterValue> = HashMap::new();
+    let mut map: BTreeMap<GdbRegister, RegisterValue> = BTreeMap::new();
     for reg in regs.iter() {
         map.insert(reg.0, reg.1);
     }
@@ -1338,7 +1375,7 @@ fn x86regs() -> HashMap<GdbRegister, RegisterValue> {
     map
 }
 
-fn x64regs() -> HashMap<GdbRegister, RegisterValue> {
+fn x64regs() -> BTreeMap<GdbRegister, RegisterValue> {
     let regs = [
         rv_x64!(DREG_RAX, rax),
         rv_x64!(DREG_RCX, rcx),
@@ -1371,7 +1408,7 @@ fn x64regs() -> HashMap<GdbRegister, RegisterValue> {
         rv_x64!(DREG_GS_BASE, gs_base),
     ];
 
-    let mut map: HashMap<GdbRegister, RegisterValue> = HashMap::new();
+    let mut map: BTreeMap<GdbRegister, RegisterValue> = BTreeMap::new();
     for reg in regs.iter() {
         map.insert(reg.0, reg.1);
     }

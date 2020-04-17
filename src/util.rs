@@ -24,14 +24,15 @@ use nix::NixPath;
 use rand::random;
 use raw_cpuid::CpuId;
 use std::convert::TryInto;
-use std::env;
 use std::env::var_os;
 use std::ffi::{c_void, OsStr, OsString};
+use std::io::{Error, ErrorKind};
 use std::mem::{size_of_val, zeroed};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::ffi::OsStringExt;
 use std::path::Path;
 use std::ptr::copy_nonoverlapping;
+use std::{env, io};
 
 pub const CPUID_GETVENDORSTRING: u32 = 0x0;
 pub const CPUID_GETFEATURES: u32 = 0x1;
@@ -874,12 +875,13 @@ fn read_auxv_arch<Arch: Architecture>(t: &mut dyn Task) -> Vec<u8> {
     result
 }
 
-pub fn read_to_end(fd: &ScopedFd, mut offset: u64, mut buf: &mut [u8]) -> nix::Result<usize> {
+pub fn read_to_end(fd: &ScopedFd, mut offset: u64, mut buf: &mut [u8]) -> io::Result<usize> {
     let mut size = buf.len();
     let mut ret = 0;
     while size > 0 {
         match pread(fd.as_raw(), buf, offset as i64) {
-            Err(e) => return Err(e),
+            Err(e) => return Err(Error::new(ErrorKind::Other, e)),
+            // EOF
             Ok(0) => return Ok(ret),
             Ok(nread) => {
                 offset += nread as u64;

@@ -101,7 +101,7 @@ impl TraceFrame {
             // @TODO used :? as instead of implementing state_name() method.
             write!(out, "(state:{:?}) ", self.event().syscall().state)?;
         }
-        write!(out, "tid:{}, ticks:{}", self.tid(), self.ticks())?;
+        write!(out, "tid:{}, ticks:{}\n", self.tid(), self.ticks())?;
         if !self.event().record_regs() {
             return Ok(());
         }
