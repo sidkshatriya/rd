@@ -843,9 +843,7 @@ pub mod task_inner {
             // ptrace operates on the word size of the host, so we really do want
             // to use sizes of host types here.
             let word_size = size_of::<isize>();
-            unsafe {
-                *(__errno_location()) = 0
-            };
+            unsafe { *(__errno_location()) = 0 };
             // Only write aligned words. This ensures we can always read the last
             // byte before an unmapped region.
             let buf_size = buf.len();
@@ -884,9 +882,7 @@ pub mod task_inner {
             // ptrace operates on the word size of the host, so we really do want
             // to use sizes of host types here.
             let word_size = size_of::<isize>();
-            unsafe {
-                *(__errno_location()) = 0
-            };
+            unsafe { *(__errno_location()) = 0 };
             // Only write aligned words. This ensures we can always write the last
             // byte before an unmapped region.
             let buf_size = buf.len();

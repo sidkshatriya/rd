@@ -4,7 +4,7 @@ use crate::trace::trace_frame::FrameTime;
 use crate::trace::trace_reader::{TraceReader, ValidateSourceFile};
 use crate::trace::trace_stream;
 use crate::trace::trace_stream::MappedData;
-use crate::trace::trace_task_event::TraceTaskEvent;
+use crate::trace::trace_task_event::{TraceTaskEvent, TraceTaskEventType};
 use crate::{RdOptions, RdSubCommand};
 use std::collections::HashMap;
 use std::io;
@@ -56,6 +56,16 @@ impl<'a> DumpCommand<'a> {
 
     fn dump(&self, f: &mut dyn Write) -> io::Result<()> {
         let mut trace = TraceReader::new(self.trace_dir.as_os_str());
+
+        if self.raw_dump {
+            write!(
+                f,
+                "global_time tid reason ticks \
+            hw_interrupts page_faults instructions \
+            eax ebx ecx edx esi edi ebp orig_eax esp eip eflags\n"
+            )?;
+        }
+
         self.dump_events_matching(&mut trace, f)?;
 
         if self.statistics {
@@ -129,7 +139,9 @@ impl<'a> DumpCommand<'a> {
                     // @TODO
                 }
                 if self.dump_task_events {
-                    // @TODO
+                    task_events
+                        .get(&frame.time())
+                        .map(|task_event| dump_task_event(f, task_event));
                 }
 
                 loop {
@@ -190,4 +202,40 @@ impl<'a> RdCommand for DumpCommand<'a> {
     fn run(&mut self) -> io::Result<()> {
         self.dump(&mut stdout())
     }
+}
+
+fn dump_task_event(out: &mut dyn Write, event: &TraceTaskEvent) -> io::Result<()> {
+    match event.event_type() {
+        TraceTaskEventType::Clone(ev) => {
+            write!(
+                out,
+                "  TraceTaskEvent::CLONE tid={} parent={} clone_flags={:#x}\n",
+                event.tid(),
+                ev.parent_tid(),
+                ev.clone_flags()
+            )?;
+        }
+        TraceTaskEventType::Exec(ev) => {
+            let filename = format!("{:?}", ev.file_name());
+            // WORKAROUND: rr does not display the quotes which the Debug string representation will
+            // unfortunately have. So strip it.
+            let filename_trimmed = filename.trim_matches('"');
+            write!(
+                out,
+                "  TraceTaskEvent::EXEC tid={} file={}\n",
+                event.tid(),
+                filename_trimmed
+            )?;
+        }
+        TraceTaskEventType::Exit(ev) => {
+            write!(
+                out,
+                "  TraceTaskEvent::EXIT tid={} status={}\n",
+                event.tid(),
+                ev.exit_status().get(),
+            )?;
+        }
+    }
+
+    Ok(())
 }

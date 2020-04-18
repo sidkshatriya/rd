@@ -246,7 +246,7 @@ impl TraceReader {
         ret
     }
 
-    /// @TODO `found` param as in rr seems to be unnecessary as we return an Option<KernelMapping>
+    /// DIFF NOTE: `found` param as in rr seems to be unnecessary as we return an Option<KernelMapping>
     pub fn read_mapped_region(
         &mut self,
         maybe_data: Option<&mut MappedData>,
