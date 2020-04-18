@@ -86,6 +86,7 @@ pub(super) struct SubstreamData {
 
 /// For REMAP_MAPPING maps, the memory contents are preserved so we don't
 /// need a source. We use SourceZero for that case and it's ignored.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum MappedDataSource {
     SourceTrace,
     SourceFile,

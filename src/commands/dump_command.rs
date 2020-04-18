@@ -9,10 +9,12 @@ use crate::log::notifying_abort;
 use crate::trace::trace_frame::{FrameTime, TraceFrame};
 use crate::trace::trace_reader::{TraceReader, ValidateSourceFile};
 use crate::trace::trace_stream;
-use crate::trace::trace_stream::MappedData;
+use crate::trace::trace_stream::{MappedData, MappedDataSource};
 use crate::trace::trace_task_event::{TraceTaskEvent, TraceTaskEventType};
 use crate::{RdOptions, RdSubCommand};
+use nix::sys::mman::{MapFlags, ProtFlags};
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::io;
 use std::io::{stderr, stdout, Write};
 use std::mem::size_of;
@@ -168,7 +170,44 @@ impl<'a> DumpCommand<'a> {
 
                     let km = maybe_km.unwrap();
                     if self.dump_mmaps {
-                        // @TODO
+                        let mut prot_flags = Vec::<u8>::new();
+                        prot_flags.extend_from_slice(b"rwxp");
+                        if !km.prot().contains(ProtFlags::PROT_READ) {
+                            prot_flags[0] = b'-';
+                        }
+                        if !km.prot().contains(ProtFlags::PROT_WRITE) {
+                            prot_flags[1] = b'-';
+                        }
+                        if !km.prot().contains(ProtFlags::PROT_EXEC) {
+                            prot_flags[2] = b'-';
+                        }
+                        if km.flags().contains(MapFlags::MAP_SHARED) {
+                            prot_flags[3] = b's';
+                        }
+                        let mut fsname = km.fsname().to_os_string();
+                        if data.source == MappedDataSource::SourceZero {
+                            fsname = OsString::from("<ZERO>");
+                        }
+
+                        // DIFF NOTE: If length is 0 then rr outputs `nil` instead of `0x0`
+                        write!(
+                            f,
+                            "  {{ map_file:{:?}, addr:{:#x}, length:{:#x}, \
+                        prot_flags:\"{}\", file_offset:{:#x}, \
+                        device:{}, inode:{}, \
+                        data_file:{:?}, data_offset:{:#x}, \
+                        file_size:{:#x} }}\n",
+                            fsname,
+                            km.start().as_usize(),
+                            km.size(),
+                            unsafe { String::from_utf8_unchecked(prot_flags) },
+                            km.file_offset_bytes(),
+                            km.device(),
+                            km.inode(),
+                            data.filename,
+                            data.data_offset_bytes,
+                            data.file_size_bytes
+                        )?;
                     }
                 }
 
@@ -261,12 +300,7 @@ unsafe fn dump_syscallbuf_data(
     let mut bytes_remaining = (buf.data.len() - size_of::<syscallbuf_hdr>()) as u32;
     let flush_hdr_addr = buf.data.as_ptr() as *const syscallbuf_hdr;
     if (*flush_hdr_addr).num_rec_bytes > bytes_remaining {
-        write!(
-            stderr(),
-            "Malformed trace file (bad recorded-bytes count)",
-            (*flush_hdr_addr).num_rec_bytes,
-            bytes_remaining
-        )?;
+        write!(stderr(), "Malformed trace file (bad recorded-bytes count)")?;
         notifying_abort(backtrace::Backtrace::new());
     }
     bytes_remaining = (*flush_hdr_addr).num_rec_bytes;
