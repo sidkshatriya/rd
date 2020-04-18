@@ -275,3 +275,10 @@ pub enum syscallbuf_locked_why {
     /// semantics (e.g. for ptracees whose syscalls are being observed)
     SyscallbufLockedTracer = 0x2,
 }
+
+/// Return the amount of space that a record of `length` will occupy in
+/// the buffer if committed, including padding.
+pub fn stored_record_size(length: usize) -> usize {
+    // Round up to a whole number of 64-bit words.
+    (length + 7) & !7usize
+}

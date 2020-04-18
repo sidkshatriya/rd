@@ -1,6 +1,12 @@
 use crate::address_space::kernel_mapping::KernelMapping;
 use crate::commands::RdCommand;
-use crate::trace::trace_frame::FrameTime;
+use crate::event::EventType;
+use crate::kernel_abi::common::preload_interface::{
+    stored_record_size, syscallbuf_hdr, syscallbuf_record,
+};
+use crate::kernel_metadata::syscall_name;
+use crate::log::notifying_abort;
+use crate::trace::trace_frame::{FrameTime, TraceFrame};
 use crate::trace::trace_reader::{TraceReader, ValidateSourceFile};
 use crate::trace::trace_stream;
 use crate::trace::trace_stream::MappedData;
@@ -8,7 +14,8 @@ use crate::trace::trace_task_event::{TraceTaskEvent, TraceTaskEventType};
 use crate::{RdOptions, RdSubCommand};
 use std::collections::HashMap;
 use std::io;
-use std::io::{stdout, Write};
+use std::io::{stderr, stdout, Write};
+use std::mem::size_of;
 use std::path::PathBuf;
 
 pub struct DumpCommand<'a> {
@@ -136,7 +143,9 @@ impl<'a> DumpCommand<'a> {
                     frame.dump(Some(f))?;
                 }
                 if self.dump_syscallbuf {
-                    // @TODO
+                    unsafe {
+                        dump_syscallbuf_data(trace, f, &frame)?;
+                    }
                 }
                 if self.dump_task_events {
                     task_events
@@ -237,5 +246,48 @@ fn dump_task_event(out: &mut dyn Write, event: &TraceTaskEvent) -> io::Result<()
         }
     }
 
+    Ok(())
+}
+
+unsafe fn dump_syscallbuf_data(
+    trace: &mut TraceReader,
+    out: &mut dyn Write,
+    frame: &TraceFrame,
+) -> io::Result<()> {
+    if frame.event().event_type() != EventType::EvSyscallbufFlush {
+        return Ok(());
+    }
+    let buf = trace.read_raw_data();
+    let mut bytes_remaining = (buf.data.len() - size_of::<syscallbuf_hdr>()) as u32;
+    let flush_hdr_addr = buf.data.as_ptr() as *const syscallbuf_hdr;
+    if (*flush_hdr_addr).num_rec_bytes > bytes_remaining {
+        write!(
+            stderr(),
+            "Malformed trace file (bad recorded-bytes count)",
+            (*flush_hdr_addr).num_rec_bytes,
+            bytes_remaining
+        )?;
+        notifying_abort(backtrace::Backtrace::new());
+    }
+    bytes_remaining = (*flush_hdr_addr).num_rec_bytes;
+
+    let mut record_ptr = flush_hdr_addr.add(1) as *const u8;
+    let end_ptr = record_ptr.add(bytes_remaining as usize);
+    while record_ptr.lt(&end_ptr) {
+        let record = record_ptr as *const syscallbuf_record;
+        // Buffered syscalls always use the task arch
+        write!(
+            out,
+            "  {{ syscall:'{}', ret:{:#x}, size:{:#x} }}\n",
+            syscall_name((*record).syscallno as i32, frame.regs_ref().arch()),
+            (*record).ret,
+            (*record).size
+        )?;
+        if ((*record).size as usize) < size_of::<syscallbuf_record>() {
+            write!(stderr(), "Malformed trace file (bad record size)\n")?;
+            notifying_abort(backtrace::Backtrace::new());
+        }
+        record_ptr = record_ptr.add(stored_record_size((*record).size as usize));
+    }
     Ok(())
 }

@@ -129,16 +129,14 @@ impl TraceReader {
         self.tick_time();
 
         let mem_writes = frame.get_mem_writes().unwrap();
-        self.raw_recs
-            .resize(mem_writes.len() as usize, Default::default());
-        let mut it = mem_writes.iter().enumerate();
-        while let Some((i, w)) = it.next_back() {
-            // Build list in reverse order so we can efficiently pull records from it
-            self.raw_recs[i] = RawDataMetadata {
+        self.raw_recs = Vec::new();
+        let mut it = mem_writes.iter();
+        while let Some(w) = it.next() {
+            self.raw_recs.push(RawDataMetadata {
                 addr: RemotePtr::new_from_val(w.get_addr().try_into().unwrap()),
                 size: w.get_size().try_into().unwrap(),
                 rec_tid: w.get_tid(),
-            };
+            });
         }
 
         let mut ret = TraceFrame::new();
@@ -492,9 +490,11 @@ impl TraceReader {
             rec_tid: rec.rec_tid,
         };
         d.data.resize(rec.size, 0);
-        self.reader_mut(Substream::RawData)
+        let nread = self
+            .reader_mut(Substream::RawData)
             .read(&mut d.data)
             .unwrap();
+        debug_assert_eq!(nread, rec.size);
         Some(d)
     }
 
