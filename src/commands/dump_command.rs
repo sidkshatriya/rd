@@ -213,9 +213,10 @@ impl<'a> DumpCommand<'a> {
 
                 while let Some(data) = trace.read_raw_data_metadata_for_frame() {
                     if self.dump_recorded_data_metadata {
+                        // DIFF NOTE rr prints `(nil)` if addr is 0 or length is 0.
                         write!(
                             f,
-                            "  {{ tid:{}, addr:{}, length:{} }}\n",
+                            "  {{ tid:{}, addr:{:#x}, length:{:#x} }}\n",
                             data.rec_tid,
                             data.addr.as_usize(),
                             data.size

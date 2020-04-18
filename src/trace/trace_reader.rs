@@ -131,7 +131,7 @@ impl TraceReader {
         let mem_writes = frame.get_mem_writes().unwrap();
         self.raw_recs = Vec::new();
         let mut it = mem_writes.iter();
-        while let Some(w) = it.next() {
+        while let Some(w) = it.next_back() {
             self.raw_recs.push(RawDataMetadata {
                 addr: RemotePtr::new_from_val(w.get_addr().try_into().unwrap()),
                 size: w.get_size().try_into().unwrap(),
