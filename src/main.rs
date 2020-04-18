@@ -198,7 +198,11 @@ pub enum RdSubCommand {
         recording machine."
     )]
     CpuFeatures,
-    #[structopt(name = "dump", about = "@TODO", help = "@TODO")]
+    #[structopt(
+        name = "dump",
+        about = "Dump syscall buffer records from the recorded trace",
+        help = "@TODO"
+    )]
     Dump {
         #[structopt(short = "b", long, help = "dump syscallbuf events")]
         syscallbuf: bool,

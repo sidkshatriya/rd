@@ -130,6 +130,11 @@ impl CompressedReader {
                 size -= amount;
                 self.buffer_read_pos += amount;
                 continue;
+            } else if self.eof {
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "Unexpected EOF encountered while performing skip() on CompressedReader",
+                ));
             }
 
             self.refill_buffer()?;
@@ -211,7 +216,7 @@ impl CompressedReader {
         {
             return Err(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
-                "Unexpected EOF encountered while doing read_all() on header",
+                "Unexpected EOF encountered while doing read_all() on header in CompressedReader",
             ));
         }
 
@@ -235,7 +240,7 @@ impl CompressedReader {
         {
             return Err(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
-                "Unexpected EOF encountered while doing read_all() on compressed data",
+                "Unexpected EOF encountered while doing read_all() on compressed data in CompressedReader",
             ));
         }
 

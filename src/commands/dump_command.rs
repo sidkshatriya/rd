@@ -18,6 +18,7 @@ use std::ffi::OsString;
 use std::io;
 use std::io::{stderr, stdout, Write};
 use std::mem::size_of;
+use std::os::unix::ffi::OsStringExt;
 use std::path::PathBuf;
 
 pub struct DumpCommand<'a> {
@@ -193,14 +194,14 @@ impl<'a> DumpCommand<'a> {
                         write!(
                             f,
                             "  {{ map_file:{:?}, addr:{:#x}, length:{:#x}, \
-                        prot_flags:\"{}\", file_offset:{:#x}, \
+                        prot_flags:{:?}, file_offset:{:#x}, \
                         device:{}, inode:{}, \
                         data_file:{:?}, data_offset:{:#x}, \
                         file_size:{:#x} }}\n",
                             fsname,
                             km.start().as_usize(),
                             km.size(),
-                            unsafe { String::from_utf8_unchecked(prot_flags) },
+                            OsString::from_vec(prot_flags),
                             km.file_offset_bytes(),
                             km.device(),
                             km.inode(),
