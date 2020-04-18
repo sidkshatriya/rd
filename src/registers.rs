@@ -17,7 +17,7 @@ use std::fmt::Formatter;
 use std::fmt::Result;
 use std::io;
 use std::io::Write;
-use std::mem::size_of;
+use std::mem::{size_of, transmute_copy};
 use std::num::Wrapping;
 use std::ptr::copy_nonoverlapping;
 
@@ -898,7 +898,14 @@ impl Registers {
     }
 
     pub fn write_register_file_for_trace_raw(&self, f: &mut dyn Write) -> io::Result<()> {
-        let x86 = self.x86();
+        let x86 = match self {
+            X86(x86_regs) => *x86_regs,
+            // DIFF NOTE: Our internal representation in rd is not a union unlike rr hence we need
+            // to jump through some hoops here.
+            X64(x64_regs) => unsafe {
+                transmute_copy::<x64::user_regs_struct, x86::user_regs_struct>(x64_regs)
+            },
+        };
         write!(
             f,
             " {} {} {} {} {} {} {} {} {} {} {}",
