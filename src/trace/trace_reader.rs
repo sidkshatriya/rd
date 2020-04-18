@@ -421,7 +421,7 @@ impl TraceReader {
         match task.which().unwrap() {
             task_event::Clone(r) => {
                 let clone_flags_ = r.get_flags();
-                let parent_tid_ = i32_to_tid(r.get_own_ns_tid());
+                let parent_tid_ = i32_to_tid(r.get_parent_tid());
                 let own_ns_tid_ = i32_to_tid(r.get_own_ns_tid());
                 log!(
                     LogDebug,

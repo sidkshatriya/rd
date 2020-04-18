@@ -472,7 +472,7 @@ impl Event {
 
                 write!(
                     ss,
-                    ": {} ({})",
+                    ": {}({})",
                     signal_name(self.signal_event().siginfo.si_signo),
                     deterministic
                 )
