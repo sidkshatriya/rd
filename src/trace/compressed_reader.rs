@@ -32,13 +32,16 @@ pub struct CompressedReader {
 }
 
 impl Read for CompressedReader {
-    fn read(&mut self, data: &mut [u8]) -> io::Result<usize> {
+    fn read(&mut self, mut data: &mut [u8]) -> io::Result<usize> {
         let amount_requested = data.len();
-        loop {
+        let mut left_to_be_provided = amount_requested;
+        while left_to_be_provided > 0 {
             // We are in a position to provide _some_ data
             if self.buffer_read_pos < self.buffer.len() {
-                let amount_provided: usize =
-                    min(amount_requested, self.buffer.len() - self.buffer_read_pos);
+                let amount_provided: usize = min(
+                    left_to_be_provided,
+                    self.buffer.len() - self.buffer_read_pos,
+                );
                 unsafe {
                     copy_nonoverlapping(
                         &self.buffer[self.buffer_read_pos],
@@ -47,16 +50,19 @@ impl Read for CompressedReader {
                     );
                 }
                 self.buffer_read_pos += amount_provided;
-                return Ok(amount_provided);
+                left_to_be_provided -= amount_provided;
+                data = &mut data[amount_provided..];
+                continue;
             }
-            // We don't have any data available in the buffer and we've already reached eof
+            // We don't have any more data available in the buffer and we've already reached eof
             else if self.eof {
-                return Ok(0);
+                return Ok(amount_requested - left_to_be_provided);
             }
 
             // Otherwise try to refill the buffer and attempt to satisfy the read request again
             self.refill_buffer()?;
         }
+        Ok(amount_requested)
     }
 }
 

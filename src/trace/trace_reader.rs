@@ -494,7 +494,7 @@ impl TraceReader {
             .reader_mut(Substream::RawData)
             .read(&mut d.data)
             .unwrap();
-        debug_assert_eq!(nread, rec.size);
+        debug_assert_eq!(nread, d.data.len());
         Some(d)
     }
 
