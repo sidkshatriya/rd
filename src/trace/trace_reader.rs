@@ -566,8 +566,8 @@ impl TraceReader {
     /// @TODO We are writing to stderr() in this method in various places and then exit() with
     /// an error code. This is different from other places where we simply use fatal!(). Need to
     /// review this again.
-    pub fn new(dir: &OsStr) -> TraceReader {
-        let mut trace_stream = TraceStream::new(&resolve_trace_name(dir), 1);
+    pub fn new<T: AsRef<OsStr>>(maybe_dir: Option<T>) -> TraceReader {
+        let mut trace_stream = TraceStream::new(&resolve_trace_name(maybe_dir), 1);
 
         let mut readers: HashMap<Substream, CompressedReader> = HashMap::new();
         for &s in SUBSTREAMS.iter() {
@@ -825,11 +825,12 @@ fn i32_to_tid(tid: i32) -> pid_t {
     tid
 }
 
-fn resolve_trace_name(trace_name: &OsStr) -> OsString {
-    if trace_name.is_empty() {
+fn resolve_trace_name<T: AsRef<OsStr>>(maybe_trace_name: Option<T>) -> OsString {
+    if maybe_trace_name.is_none() {
         return latest_trace_symlink();
     }
 
+    let trace_name = maybe_trace_name.as_ref().unwrap().as_ref();
     // Single-component paths are looked up first in the current directory, next
     // in the default trace dir.
     if find(trace_name, b"/").is_none() {

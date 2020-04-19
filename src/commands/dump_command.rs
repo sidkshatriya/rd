@@ -30,7 +30,7 @@ pub struct DumpCommand<'a> {
     raw_dump: bool,
     statistics: bool,
     only_tid: Option<libc::pid_t>,
-    trace_dir: PathBuf,
+    trace_dir: Option<PathBuf>,
     event_spec: Option<(u32, Option<u32>)>,
 }
 
@@ -56,8 +56,7 @@ impl<'a> DumpCommand<'a> {
                 raw_dump,
                 statistics,
                 only_tid,
-                // @TODO What if the trace dir was not provided
-                trace_dir: trace_dir.unwrap(),
+                trace_dir,
                 event_spec,
             },
             _ => panic!("Unexpected RdSubCommand variant. Not a Dump variant!"),
@@ -65,7 +64,7 @@ impl<'a> DumpCommand<'a> {
     }
 
     fn dump(&self, f: &mut dyn Write) -> io::Result<()> {
-        let mut trace = TraceReader::new(self.trace_dir.as_os_str());
+        let mut trace = TraceReader::new(self.trace_dir.as_ref());
 
         if self.raw_dump {
             write!(
@@ -190,7 +189,7 @@ impl<'a> DumpCommand<'a> {
                             fsname = OsString::from("<ZERO>");
                         }
 
-                        // DIFF NOTE: If length is 0 then rr outputs `nil` instead of `0x0`
+                        // DIFF NOTE: If length is 0 then rr outputs `(nil)` instead of `0x0`
                         write!(
                             f,
                             "  {{ map_file:{:?}, addr:{:#x}, length:{:#x}, \
