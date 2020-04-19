@@ -67,12 +67,18 @@ use std::error::Error;
 use std::io;
 use std::num::ParseIntError;
 use std::path::PathBuf;
+use structopt::clap::AppSettings;
 use structopt::{clap, StructOpt};
 
 #[derive(Debug, StructOpt)]
-#[structopt(name = "rd", about = "The record and debug tool")]
+#[structopt(
+    name = "rd",
+    about = "The record and debug tool",
+    after_help = "Use RD_LOG to control logging; e.g. RD_LOG=all:warn,Task:debug"
+)]
+#[structopt(global_settings = &[AppSettings::AllowNegativeNumbers])]
 pub struct RdOptions {
-    #[structopt(long, help = "disable use of CPUID faulting")]
+    #[structopt(long, help = "disable use of CPUID faulting.")]
     disable_cpuid_faulting: bool,
     #[structopt(
         long = "disable-ptrace-exit_events",
@@ -111,7 +117,7 @@ pub struct RdOptions {
     #[structopt(
         short = "E",
         long,
-        help = "any warning or error that is printed is treated as fatal"
+        help = "any warning or error that is printed is treated as fatal."
     )]
     fatal_errors: bool,
     #[structopt(
@@ -124,10 +130,10 @@ pub struct RdOptions {
     #[structopt(
         short = "S",
         long,
-        help = "suppress warnings about issues in the environment that rd has no control over"
+        help = "suppress warnings about issues in the environment that rd has no control over."
     )]
     suppress_environment_warnings: bool,
-    #[structopt(short = "T", long, help = "dump memory at global time point <time>")]
+    #[structopt(short = "T", long, help = "dump memory at global time point <time>.")]
     dump_at: Option<u64>,
     #[structopt(
         short = "D",
@@ -135,20 +141,18 @@ pub struct RdOptions {
         help = "dump memory at a syscall number or signal to the file `[trace_dir]/[tid].[time]_{rec,rep}'. \
         Here `_rec' is for dumps during recording, `_rep' for dumps during replay. Note: If you provide a \
         positive number it will be interpreted as a syscall number and if it is negative it is understood \
-        as a signal number. e.g -9 for sigKILL"
+        as a signal number. e.g -9 for sigKILL."
     )]
     dump_on: Option<i32>,
     #[structopt(
         short = "C",
         long,
         parse(try_from_str = parse_checksum),
-        help = "{on-syscalls,on-all-events}|FROM_TIME \
-                compute and store (during recording) or \
-                read and verify (during replay) checksums \
-                of each of a tracee's memory mappings either \
-                at the end of all syscalls (`on-syscalls'), \
-                at all events (`on-all-events'), or \
-                starting from a global timepoint FROM_TIME"
+        help = "where <checksum> := on-syscalls | on-all-events | <from-time>\n\n\
+                compute and store (during recording) or read and verify (during replay) checksums \
+                of each of a tracee's memory mappings either at the end of all syscalls (`on-syscalls'), \
+                at all events (`on-all-events'), or starting from a global timepoint <from-time> \
+                (which is a positive integer)."
     )]
     checksum: Option<ChecksumSelection>,
     #[structopt(subcommand)]
@@ -245,6 +249,7 @@ fn parse_range(range_or_single: &str) -> Result<(u32, Option<u32>), ParseIntErro
 
 fn main() -> io::Result<()> {
     let options = RdOptions::from_args();
+
     match &options.cmd {
         RdSubCommand::BuildId => return BuildIdCommand::new().run(),
         RdSubCommand::Dump { .. } => {
