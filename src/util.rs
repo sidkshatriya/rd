@@ -756,7 +756,7 @@ pub fn real_path(path: &OsStr) -> OsString {
     // @TODO does canonicalize do what realpath does exactly?
     Path::new(&path)
         .canonicalize()
-        .unwrap()
+        .expect(&format!("Could not retrieve path {:?}", path))
         .as_os_str()
         .to_os_string()
 }
