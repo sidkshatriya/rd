@@ -672,6 +672,7 @@ pub fn copy_file(dest_fd: i32, src_fd: i32) -> bool {
     true
 }
 
+/// Fatally aborts if function cannot write everything in `buf` to the `fd`
 pub fn write_all(fd: i32, mut buf: &[u8]) {
     let mut size = buf.len();
     while size > 0 {
