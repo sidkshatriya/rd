@@ -1,5 +1,7 @@
 use crate::trace::trace_frame::FrameTime;
-use std::ffi::OsString;
+use crate::RdOptions;
+use std::path::PathBuf;
+use structopt::StructOpt;
 
 lazy_static! {
     static ref FLAGS: Flags = init_flags();
@@ -8,32 +10,26 @@ lazy_static! {
 /// When to generate or check memory checksums. One of CHECKSUM_NONE,
 /// CHECKSUM_SYSCALL or CHECKSUM_ALL, or a positive integer representing the
 /// event time at which to start checksumming.
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum Checksum {
-    ChecksumNone,
     ChecksumSyscall,
     ChecksumAll,
     ChecksumAt(FrameTime),
 }
 
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum DumpOn {
     DumpOnAll,
     DumpOnRdtsc,
-    DumpOnNone,
-}
-
-#[derive(Copy, Clone, Eq, PartialEq)]
-pub enum DumpAt {
-    DumpAtNone,
-    DumpAt(FrameTime),
+    DumpOnSignal(u32),
+    DumpOnSyscall(u32),
 }
 
 #[derive(Clone)]
 pub struct Flags {
-    pub checksum: Checksum,
-    pub dump_on: DumpOn,
-    pub dump_at: DumpAt,
+    pub checksum: Option<Checksum>,
+    pub dump_on: Option<DumpOn>,
+    pub dump_at: Option<u64>,
     /// Force rd to do some things that it otherwise wouldn't, for
     /// example launching an emergency debugger when the output
     /// doesn't seem to be a tty.
@@ -53,9 +49,9 @@ pub struct Flags {
     /// missing PTRACE_EVENT_EXITs.
     pub disable_ptrace_exit_events: bool,
     /// User override for architecture detection, e.g. when running under valgrind.
-    pub forced_uarch: String,
+    pub forced_uarch: Option<String>,
     /// User override for the path to page files and other resources.
-    pub resource_path: OsString,
+    pub resource_path: Option<PathBuf>,
 }
 
 impl Flags {
@@ -65,5 +61,20 @@ impl Flags {
 }
 
 pub fn init_flags() -> Flags {
-    unimplemented!()
+    let options = RdOptions::from_args();
+
+    Flags {
+        checksum: options.checksum,
+        dump_on: options.dump_on,
+        dump_at: options.dump_at,
+        force_things: options.force_things,
+        mark_stdio: options.mark_stdio,
+        check_cached_maps: options.check_cached_mmaps,
+        suppress_environment_warnings: options.suppress_environment_warnings,
+        fatal_errors_and_warnings: options.fatal_errors,
+        disable_cpuid_faulting: options.disable_cpuid_faulting,
+        disable_ptrace_exit_events: options.disable_ptrace_exit_events,
+        forced_uarch: options.microarch,
+        resource_path: options.resource_path,
+    }
 }

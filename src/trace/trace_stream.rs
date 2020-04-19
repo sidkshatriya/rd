@@ -150,7 +150,7 @@ impl TraceStream {
     }
 
     /// Return the path of "version" file, into which the current
-    /// trace format version of rr is stored upon creation of the
+    /// trace format version of rd is stored upon creation of the
     /// trace.
     pub(super) fn version_path(&self) -> OsString {
         let mut version_path: Vec<u8> = self.trace_dir.clone().into_vec();
@@ -269,7 +269,7 @@ pub(super) fn default_rd_trace_dir() -> OsString {
     match maybe_home {
         Some(found_home) if !found_home.is_empty() => {
             dot_dir.extend_from_slice(found_home.as_bytes());
-            dot_dir.extend_from_slice(b"/.rr");
+            dot_dir.extend_from_slice(b"/.rd");
             home = found_home;
         }
         // @TODO This seems to be an implicit outcome of what we have in rr
@@ -281,15 +281,15 @@ pub(super) fn default_rd_trace_dir() -> OsString {
     match maybe_xdg_data_home {
         Some(xdg_data_home) if !xdg_data_home.is_empty() => {
             xdg_dir.extend_from_slice(xdg_data_home.as_bytes());
-            xdg_dir.extend_from_slice(b"/rr");
+            xdg_dir.extend_from_slice(b"/rd");
         }
         _ => {
             xdg_dir.extend_from_slice(home.as_bytes());
-            xdg_dir.extend_from_slice(b"/.local/share/rr");
+            xdg_dir.extend_from_slice(b"/.local/share/rd");
         }
     }
 
-    // If XDG dir does not exist but ~/.rr does, prefer ~/.rr for backwards
+    // If XDG dir does not exist but ~/.rd does, prefer ~/.rd for backwards
     // compatibility.
     if dir_exists(xdg_dir.as_slice()) {
         cached_dir = OsString::from_vec(xdg_dir);
@@ -298,7 +298,7 @@ pub(super) fn default_rd_trace_dir() -> OsString {
     } else if !xdg_dir.is_empty() {
         cached_dir = OsString::from_vec(xdg_dir);
     } else {
-        cached_dir = OsStr::from_bytes(b"/tmp/rr").to_os_string();
+        cached_dir = OsStr::from_bytes(b"/tmp/rd").to_os_string();
     }
 
     cached_dir

@@ -63,6 +63,8 @@ mod weak_ptr_set;
 use crate::commands::build_id_command::BuildIdCommand;
 use crate::commands::dump_command::DumpCommand;
 use crate::commands::RdCommand;
+use crate::flags::{Checksum, DumpOn};
+use crate::trace::trace_frame::FrameTime;
 use std::error::Error;
 use std::io;
 use std::num::ParseIntError;
@@ -139,12 +141,10 @@ pub struct RdOptions {
     #[structopt(
         short = "D",
         long,
-        help = "dump memory at a syscall number or signal to the file `[trace_dir]/[tid].[time]_{rec,rep}'. \
-        Here `_rec' is for dumps during recording, `_rep' for dumps during replay. Note: If you provide a \
-        positive number it will be interpreted as a syscall number and if it is negative it is understood \
-        as a signal number. e.g -9 for sigKILL."
+        help = "where <dump_on> := ALL | RDTSC | <syscall-no> | -<signal number> \n\n@TODO more details",
+        parse(try_from_str = parse_dump_on)
     )]
-    dump_on: Option<i32>,
+    dump_on: Option<DumpOn>,
     #[structopt(
         short = "C",
         long,
@@ -153,18 +153,18 @@ pub struct RdOptions {
                 compute and store (during recording) or read and verify (during replay) checksums \
                 of each of a tracee's memory mappings either at the end of all syscalls (`on-syscalls'), \
                 at all events (`on-all-events'), or starting from a global timepoint <from-time> \
-                (which is a positive integer)."
+                (which is a positive integer).",
     )]
-    checksum: Option<ChecksumSelection>,
+    checksum: Option<Checksum>,
     #[structopt(subcommand)]
     cmd: RdSubCommand,
 }
 
-fn parse_checksum(checksum_s: &str) -> Result<ChecksumSelection, Box<dyn Error>> {
+fn parse_checksum(checksum_s: &str) -> Result<Checksum, Box<dyn Error>> {
     if checksum_s == "on-syscalls" {
-        Ok(ChecksumSelection::OnSyscalls)
+        Ok(Checksum::ChecksumSyscall)
     } else if checksum_s == "on-all-events" {
-        Ok(ChecksumSelection::OnAllEvents)
+        Ok(Checksum::ChecksumAll)
     } else if checksum_s.chars().all(|c| !c.is_ascii_digit()) {
         Err(Box::new(clap::Error {
             message: "Only `on-syscalls` or `on-all-events` or an unsigned integer is valid here"
@@ -173,15 +173,29 @@ fn parse_checksum(checksum_s: &str) -> Result<ChecksumSelection, Box<dyn Error>>
             info: None,
         }))
     } else {
-        Ok(ChecksumSelection::FromTime(checksum_s.parse::<u32>()?))
+        Ok(Checksum::ChecksumAt(checksum_s.parse::<FrameTime>()?))
     }
 }
 
-#[derive(Debug)]
-pub enum ChecksumSelection {
-    OnSyscalls,
-    OnAllEvents,
-    FromTime(u32),
+fn parse_dump_on(dump_on_s: &str) -> Result<DumpOn, Box<dyn Error>> {
+    if dump_on_s == "ALL" {
+        Ok(DumpOn::DumpOnAll)
+    } else if dump_on_s == "RDTSC" {
+        Ok(DumpOn::DumpOnRdtsc)
+    } else if dump_on_s.chars().all(|c| c.is_ascii_digit() || c == '-') {
+        let signal_or_syscall = dump_on_s.parse::<i32>()?;
+        if signal_or_syscall < 0 {
+            Ok(DumpOn::DumpOnSignal(-signal_or_syscall as u32))
+        } else {
+            Ok(DumpOn::DumpOnSyscall(signal_or_syscall as u32))
+        }
+    } else {
+        Err(Box::new(clap::Error {
+            message: "Only `ALL` or `RDTSC` or an integer value is valid here".to_string(),
+            kind: clap::ErrorKind::InvalidValue,
+            info: None,
+        }))
+    }
 }
 
 #[derive(StructOpt, Debug, Clone)]

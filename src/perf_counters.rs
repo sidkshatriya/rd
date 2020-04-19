@@ -110,17 +110,20 @@ use CpuMicroarch::*;
 /// return; i.e. never return UnknownCpu.
 #[allow(unreachable_code)]
 fn get_cpu_microarch() -> CpuMicroarch {
-    let forced_uarch = Flags::get().forced_uarch.to_lowercase();
-    if !forced_uarch.is_empty() {
+    let forced_uarch = Flags::get().forced_uarch.as_ref().map(|u| u.to_lowercase());
+    if forced_uarch.is_some() {
         for pmu in &PMU_CONFIGS {
             let name: String = pmu.name.to_lowercase();
-            if let Some(_) = name.find(&forced_uarch) {
+            if let Some(_) = name.find(forced_uarch.as_ref().unwrap()) {
                 log!(LogInfo, "Using forced uarch {}", pmu.name);
                 return pmu.uarch;
             }
         }
 
-        clean_fatal!("Forced uarch {} isn't known", Flags::get().forced_uarch);
+        clean_fatal!(
+            "Forced uarch {} isn't known",
+            Flags::get().forced_uarch.as_ref().unwrap()
+        );
     }
 
     let cpuid = CpuId::new();

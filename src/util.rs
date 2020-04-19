@@ -763,12 +763,12 @@ pub fn real_path(path: &OsStr) -> OsString {
 }
 
 pub fn resource_path() -> &'static OsStr {
-    let resource_path: &'static OsStr = &Flags::get().resource_path;
-    if resource_path.is_empty() {
+    let resource_path = Flags::get().resource_path.as_ref();
+    if resource_path.is_none() {
         return RD_EXE_PATH.as_os_str();
     }
 
-    resource_path
+    resource_path.unwrap().as_os_str()
 }
 
 lazy_static! {

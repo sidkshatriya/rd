@@ -558,6 +558,7 @@ pub mod task_inner {
             unimplemented!()
         }
 
+        /// @TODO should this be a GdbRegister type?
         pub fn set_debug_reg(&self, _regno: usize, _value: usize) {
             unimplemented!()
         }
