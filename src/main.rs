@@ -76,7 +76,8 @@ use structopt::{clap, StructOpt};
     about = "The record and debug tool",
     after_help = "Use RD_LOG to control logging; e.g. RD_LOG=all:warn,Task:debug"
 )]
-#[structopt(global_settings = &[AppSettings::AllowNegativeNumbers])]
+#[structopt(global_settings =
+&[AppSettings::AllowNegativeNumbers, AppSettings::UnifiedHelpMessage])]
 pub struct RdOptions {
     #[structopt(long, help = "disable use of CPUID faulting.")]
     disable_cpuid_faulting: bool,
