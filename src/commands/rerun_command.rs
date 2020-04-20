@@ -318,26 +318,26 @@ impl ReRerunCommand {
                     let value: u64 = t.regs_ref().ip().register_value() as u64;
                     match t.arch() {
                         SupportedArch::X86 => {
-                            self.write_value("rip", &value.to_le_bytes(), out)?;
+                            self.write_value("eip", &value.to_le_bytes(), out)?;
                         }
                         SupportedArch::X64 => {
-                            self.write_value("eip", &value.to_le_bytes(), out)?;
+                            self.write_value("rip", &value.to_le_bytes(), out)?;
                         }
                     }
                 }
                 TraceFieldKind::TraceFsbase => {
                     // @TODO will rr also give 0 for x86?
                     let value: u64 = match t.regs_ref() {
-                        Registers::X64(regs) => regs.fs_base,
                         Registers::X86(_) => 0,
+                        Registers::X64(regs) => regs.fs_base,
                     };
                     self.write_value("fsbase", &value.to_le_bytes(), out)?;
                 }
                 TraceFieldKind::TraceGsbase => {
                     // @TODO will rr also give 0 for x86?
                     let value: u64 = match t.regs_ref() {
-                        Registers::X64(regs) => regs.gs_base,
                         Registers::X86(_) => 0,
+                        Registers::X64(regs) => regs.gs_base,
                     };
                     self.write_value("gsbase", &value.to_le_bytes(), out)?;
                 }
@@ -346,10 +346,10 @@ impl ReRerunCommand {
                     let value: u64 = t.regs_ref().flags() as u64;
                     match t.arch() {
                         SupportedArch::X86 => {
-                            self.write_value("rflags", &value.to_le_bytes(), out)?;
+                            self.write_value("eflags", &value.to_le_bytes(), out)?;
                         }
                         SupportedArch::X64 => {
-                            self.write_value("eflags", &value.to_le_bytes(), out)?;
+                            self.write_value("rflags", &value.to_le_bytes(), out)?;
                         }
                     }
                 }
@@ -358,10 +358,10 @@ impl ReRerunCommand {
                     let value: u64 = t.regs_ref().original_syscallno() as u64;
                     match t.arch() {
                         SupportedArch::X86 => {
-                            self.write_value("orig_rax", &value.to_le_bytes(), out)?;
+                            self.write_value("orig_eax", &value.to_le_bytes(), out)?;
                         }
                         SupportedArch::X64 => {
-                            self.write_value("orig_eax", &value.to_le_bytes(), out)?;
+                            self.write_value("orig_rax", &value.to_le_bytes(), out)?;
                         }
                     }
                 }
