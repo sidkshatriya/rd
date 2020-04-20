@@ -1,5 +1,6 @@
 use crate::commands::RdCommand;
 use crate::event::{Event, EventType};
+use crate::gdb_register::{DREG_64_XMM0, DREG_64_YMM0H, DREG_XMM0, DREG_YMM0H};
 #[cfg(target_arch = "x86_64")]
 use crate::kernel_abi::x64;
 #[cfg(target_arch = "x86")]
@@ -9,6 +10,7 @@ use crate::registers::Registers;
 use crate::remote_code_ptr::RemoteCodePtr;
 use crate::task::Task;
 use crate::trace::trace_frame::FrameTime;
+use std::fmt::Write as fmtWrite;
 use std::io;
 use std::io::Write;
 use structopt::clap;
@@ -73,15 +75,16 @@ fn init_user_regs_fields() -> Vec<usize> {
 }
 
 fn seg_reg(regs: &Registers, index: u8) -> u64 {
+    // Note the `as u64` to make seg_reg() output length uniform between x86 and x86_64
     match index {
-        0 => regs.es(),
-        1 => regs.cs(),
-        2 => regs.ss(),
-        3 => regs.ds(),
-        4 => regs.fs(),
-        5 => regs.gs(),
+        0 => regs.es() as u64,
+        1 => regs.cs() as u64,
+        2 => regs.ss() as u64,
+        3 => regs.ds() as u64,
+        4 => regs.fs() as u64,
+        5 => regs.gs() as u64,
         _ => {
-            fatal!("Unknown seg reg {}", index);
+            fatal!("Unknown seg reg number: {}", index);
             unreachable!();
         }
     }
@@ -311,7 +314,8 @@ impl ReRerunCommand {
                     self.write_value("icount", &instruction_count.to_le_bytes(), out)?;
                 }
                 TraceFieldKind::TraceIp => {
-                    let value: usize = t.regs_ref().ip().register_value();
+                    // Note the `as u64` to make write_regs() output length uniform between x86 and x86_64
+                    let value: u64 = t.regs_ref().ip().register_value() as u64;
                     match t.arch() {
                         SupportedArch::X86 => {
                             self.write_value("rip", &value.to_le_bytes(), out)?;
@@ -322,15 +326,24 @@ impl ReRerunCommand {
                     }
                 }
                 TraceFieldKind::TraceFsbase => {
-                    let value: u64 = t.regs_ref().fs_base();
+                    // @TODO will rr also give 0 for x86?
+                    let value: u64 = match t.regs_ref() {
+                        Registers::X64(regs) => regs.fs_base,
+                        Registers::X86(_) => 0,
+                    };
                     self.write_value("fsbase", &value.to_le_bytes(), out)?;
                 }
                 TraceFieldKind::TraceGsbase => {
-                    let value: u64 = t.regs_ref().gs_base();
+                    // @TODO will rr also give 0 for x86?
+                    let value: u64 = match t.regs_ref() {
+                        Registers::X64(regs) => regs.gs_base,
+                        Registers::X86(_) => 0,
+                    };
                     self.write_value("gsbase", &value.to_le_bytes(), out)?;
                 }
                 TraceFieldKind::TraceFlags => {
-                    let value: usize = t.regs_ref().flags();
+                    // Note the `as u64` to make write_regs() output length uniform between x86 and x86_64
+                    let value: u64 = t.regs_ref().flags() as u64;
                     match t.arch() {
                         SupportedArch::X86 => {
                             self.write_value("rflags", &value.to_le_bytes(), out)?;
@@ -341,7 +354,7 @@ impl ReRerunCommand {
                     }
                 }
                 TraceFieldKind::TraceOrigAx => {
-                    // @TODO is the cast to u64 OK?
+                    // Note the `as u64` to make write_regs() output length uniform between x86 and x86_64
                     let value: u64 = t.regs_ref().original_syscallno() as u64;
                     match t.arch() {
                         SupportedArch::X86 => {
@@ -365,8 +378,62 @@ impl ReRerunCommand {
                     self.write_value("xinuse", &value.to_le_bytes(), out)?;
                 }
                 TraceFieldKind::TraceGpReg => unimplemented!(),
-                TraceFieldKind::TraceXmmReg => unimplemented!(),
-                TraceFieldKind::TraceYmmReg => unimplemented!(),
+                TraceFieldKind::TraceXmmReg => {
+                    let mut value = [0u8; 16];
+                    match t.arch() {
+                        SupportedArch::X86 => {
+                            if field.reg_num < 8 {
+                                t.extra_regs().read_register(
+                                    &mut value,
+                                    (DREG_XMM0 + field.reg_num as u32).unwrap(),
+                                );
+                            }
+                        }
+                        SupportedArch::X64 => {
+                            if field.reg_num < 16 {
+                                t.extra_regs().read_register(
+                                    &mut value,
+                                    (DREG_64_XMM0 + field.reg_num as u32).unwrap(),
+                                );
+                            }
+                        }
+                    }
+                    let mut name = String::new();
+                    write!(name, "xmm{}", field.reg_num).unwrap();
+                    self.write_value(&name, &value, out)?;
+                }
+                TraceFieldKind::TraceYmmReg => {
+                    let mut value = [0u8; 32];
+                    match t.arch() {
+                        SupportedArch::X86 => {
+                            if field.reg_num < 8 {
+                                t.extra_regs().read_register(
+                                    &mut value[0..16],
+                                    (DREG_XMM0 + field.reg_num as u32).unwrap(),
+                                );
+                                t.extra_regs().read_register(
+                                    &mut value[16..32],
+                                    (DREG_YMM0H + field.reg_num as u32).unwrap(),
+                                );
+                            }
+                        }
+                        SupportedArch::X64 => {
+                            if field.reg_num < 16 {
+                                t.extra_regs().read_register(
+                                    &mut value[0..16],
+                                    (DREG_64_XMM0 + field.reg_num as u32).unwrap(),
+                                );
+                                t.extra_regs().read_register(
+                                    &mut value[16..32],
+                                    (DREG_64_YMM0H + field.reg_num as u32).unwrap(),
+                                );
+                            }
+                        }
+                    }
+                    let mut name = String::new();
+                    write!(name, "ymm{}", field.reg_num).unwrap();
+                    self.write_value(&name, &value, out)?;
+                }
             }
             write!(out, "\n")?;
         }
