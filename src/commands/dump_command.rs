@@ -1,4 +1,5 @@
 use crate::address_space::kernel_mapping::KernelMapping;
+use crate::commands::rd_options::{RdOptions, RdSubCommand};
 use crate::commands::RdCommand;
 use crate::event::EventType;
 use crate::kernel_abi::common::preload_interface::{
@@ -11,7 +12,6 @@ use crate::trace::trace_reader::{TraceReader, ValidateSourceFile};
 use crate::trace::trace_stream;
 use crate::trace::trace_stream::{MappedData, MappedDataSource};
 use crate::trace::trace_task_event::{TraceTaskEvent, TraceTaskEventType};
-use crate::{RdOptions, RdSubCommand};
 use nix::sys::mman::{MapFlags, ProtFlags};
 use std::collections::HashMap;
 use std::ffi::OsString;
