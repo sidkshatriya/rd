@@ -31,7 +31,7 @@ pub struct DumpCommand<'a> {
     statistics: bool,
     only_tid: Option<libc::pid_t>,
     trace_dir: Option<PathBuf>,
-    event_spec: Option<(u32, Option<u32>)>,
+    event_spec: Option<(FrameTime, Option<FrameTime>)>,
 }
 
 impl<'a> DumpCommand<'a> {
@@ -105,10 +105,10 @@ impl<'a> DumpCommand<'a> {
     /// is, they should comprise disjoint and monotonically increasing
     /// event sets.  No attempt is made to enforce this or normalize specs.
     fn dump_events_matching(&self, trace: &mut TraceReader, f: &mut dyn Write) -> io::Result<()> {
-        let (start, end): (u64, u64) = match self.event_spec {
-            None => (0, std::u32::MAX as u64),
-            Some((s, None)) => (s as u64, s as u64),
-            Some((s, Some(e))) => (s as u64, e as u64),
+        let (start, end): (FrameTime, FrameTime) = match self.event_spec {
+            None => (0, FrameTime::MAX),
+            Some((s, None)) => (s, s),
+            Some((s, Some(e))) => (s, e),
         };
 
         let mut task_events: HashMap<FrameTime, TraceTaskEvent> = HashMap::new();

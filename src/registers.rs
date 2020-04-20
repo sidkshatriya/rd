@@ -878,23 +878,25 @@ impl Registers {
         x64.gs_base = gs_base;
     }
 
-    pub fn cs(&self) -> usize {
-        rd_get_reg!(self, xcs, cs)
+    /// @TODO To be consistent with rr we return a u64 here for the below methods
+    /// Should we not return a usize?
+    pub fn cs(&self) -> u64 {
+        rd_get_reg!(self, xcs, cs) as u64
     }
-    pub fn ss(&self) -> usize {
-        rd_get_reg!(self, xss, ss)
+    pub fn ss(&self) -> u64 {
+        rd_get_reg!(self, xss, ss) as u64
     }
-    pub fn ds(&self) -> usize {
-        rd_get_reg!(self, xds, ds)
+    pub fn ds(&self) -> u64 {
+        rd_get_reg!(self, xds, ds) as u64
     }
-    pub fn es(&self) -> usize {
-        rd_get_reg!(self, xes, es)
+    pub fn es(&self) -> u64 {
+        rd_get_reg!(self, xes, es) as u64
     }
-    pub fn fs(&self) -> usize {
-        rd_get_reg!(self, xfs, fs)
+    pub fn fs(&self) -> u64 {
+        rd_get_reg!(self, xfs, fs) as u64
     }
-    pub fn gs(&self) -> usize {
-        rd_get_reg!(self, xgs, gs)
+    pub fn gs(&self) -> u64 {
+        rd_get_reg!(self, xgs, gs) as u64
     }
 
     pub fn write_register_file_for_trace_raw(&self, f: &mut dyn Write) -> io::Result<()> {

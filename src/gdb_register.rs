@@ -15,7 +15,7 @@ include!(concat!(
 
 /// The inner u32 is deliberately NOT pub. We don't want others to manually construct arbitrary
 /// GdbRegister structs. They need to go through the provided interfaces.
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct GdbRegister(u32);
 
 pub const DREG_EAX: GdbRegister = GdbRegister(__DREG_EAX);

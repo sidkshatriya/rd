@@ -767,7 +767,7 @@ fn write_reg(
         }
     }
 
-    let mut out = String::new();
+    let mut out_str = String::new();
     let mut printed_digit = false;
     let mut i = final_len as isize - 1;
     while i >= 0 {
@@ -776,12 +776,12 @@ fn write_reg(
             continue;
         }
         if printed_digit {
-            write!(out, "{:02x}", buf[i as usize]).unwrap();
+            write!(out_str, "{:02x}", buf[i as usize]).unwrap();
         } else {
-            write!(out, "{:x}", buf[i as usize]).unwrap();
+            write!(out_str, "{:x}", buf[i as usize]).unwrap();
         }
         printed_digit = true;
         i -= 1;
     }
-    write!(f, "{}:0x{}", name, out)
+    write!(f, "{}:0x{}", name, out_str)
 }

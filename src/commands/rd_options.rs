@@ -1,3 +1,4 @@
+use crate::commands::rerun_command::TraceFields;
 use crate::flags::{Checksum, DumpOn};
 use crate::trace::trace_frame::FrameTime;
 use std::error::Error;
@@ -71,7 +72,7 @@ pub struct RdOptions {
     pub suppress_environment_warnings: bool,
 
     #[structopt(short = "T", long, help = "dump memory at global time point <time>.")]
-    pub dump_at: Option<u64>,
+    pub dump_at: Option<FrameTime>,
 
     #[structopt(
     short = "D",
@@ -103,12 +104,10 @@ fn parse_checksum(checksum_s: &str) -> Result<Checksum, Box<dyn Error>> {
     } else if checksum_s == "on-all-events" {
         Ok(Checksum::ChecksumAll)
     } else if checksum_s.chars().all(|c| !c.is_ascii_digit()) {
-        Err(Box::new(clap::Error {
-            message: "Only `on-syscalls` or `on-all-events` or an unsigned integer is valid here"
-                .to_string(),
-            kind: clap::ErrorKind::InvalidValue,
-            info: None,
-        }))
+        Err(Box::new(clap::Error::with_description(
+            "Only `on-syscalls` or `on-all-events` or an unsigned integer is valid here",
+            clap::ErrorKind::InvalidValue,
+        )))
     } else {
         Ok(Checksum::ChecksumAt(checksum_s.parse::<FrameTime>()?))
     }
@@ -127,11 +126,10 @@ fn parse_dump_on(dump_on_s: &str) -> Result<DumpOn, Box<dyn Error>> {
             Ok(DumpOn::DumpOnSyscall(signal_or_syscall as u32))
         }
     } else {
-        Err(Box::new(clap::Error {
-            message: "Only `ALL` or `RDTSC` or an integer value is valid here".to_string(),
-            kind: clap::ErrorKind::InvalidValue,
-            info: None,
-        }))
+        Err(Box::new(clap::Error::with_description(
+            "Only `ALL` or `RDTSC` or an integer value is valid here",
+            clap::ErrorKind::InvalidValue,
+        )))
     }
 }
 
@@ -192,7 +190,7 @@ pub enum RdSubCommand {
         /// event specs can be either an event number like `127`, or a range
         /// like `1000-5000`. By default, all events are dumped."
         #[structopt(parse(try_from_str = parse_range))]
-        event_spec: Option<(u32, Option<u32>)>,
+        event_spec: Option<(FrameTime, Option<FrameTime>)>,
     },
 
     /// 'rerun' is intended to be a more powerful form of `rd replay -a`. It does
@@ -202,10 +200,10 @@ pub enum RdSubCommand {
     #[structopt(name = "rerun")]
     ReRun {
         #[structopt(short = "s", long, help = "start tracing at <trace-start>")]
-        trace_start: Option<u64>,
+        trace_start: Option<FrameTime>,
 
         #[structopt(short = "e", long, help = "end tracing at <trace-end>")]
-        trace_end: Option<u64>,
+        trace_end: Option<FrameTime>,
 
         #[structopt(short = "r", long = "raw", help = "dump registers in raw format")]
         raw: bool,
@@ -229,17 +227,17 @@ pub enum RdSubCommand {
         ///  interrupted. A 'singlestep' includes events such as system-call-exit
         ///  where tracee state changes without any user-level instructions actually
         ///  being executed.
-        #[structopt(long = "singlestep")]
-        singlestep_regs: Option<Vec<String>>,
+        #[structopt(long = "singlestep", parse(try_from_str = crate::commands::rerun_command::parse_regs))]
+        singlestep_regs: Option<TraceFields>,
     },
 }
 
-fn parse_range(range_or_single: &str) -> Result<(u32, Option<u32>), ParseIntError> {
+fn parse_range(range_or_single: &str) -> Result<(FrameTime, Option<FrameTime>), ParseIntError> {
     let args: Vec<&str> = range_or_single.splitn(2, '-').collect();
-    let low = args[0].parse::<u32>()?;
-    let mut high: Option<u32> = None;
+    let low = args[0].parse::<FrameTime>()?;
+    let mut high: Option<FrameTime> = None;
     if args.len() == 2 {
-        high = Some(args[1].parse::<u32>()?);
+        high = Some(args[1].parse::<FrameTime>()?);
     }
     Ok((low, high))
 }
