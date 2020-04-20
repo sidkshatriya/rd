@@ -17,46 +17,44 @@ use structopt::{clap, StructOpt};
 pub struct RdOptions {
     #[structopt(long, help = "disable use of CPUID faulting.")]
     pub disable_cpuid_faulting: bool,
+
     #[structopt(
         long = "disable-ptrace-exit_events",
         help = "disable use of PTRACE_EVENT_EXIT"
     )]
     pub disable_ptrace_exit_events: bool,
-    #[structopt(
-        parse(from_os_str),
-        long,
-        help = "specify the paths that rd should use to find files such as rd_page_*.  These files \
-        should be located in `<resource-path>/bin`, `<resource-path>/lib[64]`, and `<resource-path>/share` \
-        as appropriate."
-    )]
+
+    /// specify the paths that rd should use to find files such as rd_page_*.  These files
+    /// should be located in `<resource-path>/bin`, `<resource-path>/lib[64]`, and
+    /// `<resource-path>/share` as appropriate.
+    #[structopt(parse(from_os_str), long)]
     pub resource_path: Option<PathBuf>,
-    #[structopt(
-        short = "A",
-        long,
-        help = "force rd to assume it's running on a CPU with microarch <microarch> even if runtime \
-        detection says otherwise. <microarch> should be a string like 'Ivy Bridge'. Note that rd \
-        will not work with Intel Merom or Penryn microarchitectures."
-    )]
+
+    /// force rd to assume it's running on a CPU with microarch <microarch> even if runtime
+    /// detection says otherwise. <microarch> should be a string like 'Ivy Bridge'. Note that rd
+    /// will not work with Intel Merom or Penryn microarchitectures.
+    #[structopt(short = "A", long)]
     pub microarch: Option<String>,
-    #[structopt(
-        short = "F",
-        long,
-        help = "force rd to do some things that don't seem like good ideas, for example launching \
-        an interactive emergency debugger if stderr isn't a tty."
-    )]
+
+    /// force rd to do some things that don't seem like good ideas, for example launching
+    /// an interactive emergency debugger if stderr isn't a tty.
+    #[structopt(short = "F", long)]
     pub force_things: bool,
+
     #[structopt(
         short = "K",
         long,
         help = "verify that cached task mmaps match /proc/maps."
     )]
     pub check_cached_mmaps: bool,
+
     #[structopt(
         short = "E",
         long,
         help = "any warning or error that is printed is treated as fatal."
     )]
     pub fatal_errors: bool,
+
     #[structopt(
         short = "M",
         long,
@@ -64,14 +62,17 @@ pub struct RdOptions {
         which the write occurs and <pid> is the pid of the process it occurs in."
     )]
     pub mark_stdio: bool,
+
     #[structopt(
         short = "S",
         long,
         help = "suppress warnings about issues in the environment that rd has no control over."
     )]
     pub suppress_environment_warnings: bool,
+
     #[structopt(short = "T", long, help = "dump memory at global time point <time>.")]
     pub dump_at: Option<u64>,
+
     #[structopt(
     short = "D",
     long,
@@ -79,6 +80,7 @@ pub struct RdOptions {
     parse(try_from_str = parse_dump_on)
     )]
     pub dump_on: Option<DumpOn>,
+
     #[structopt(
     short = "C",
     long,
@@ -90,6 +92,7 @@ pub struct RdOptions {
                 (which is a positive integer).",
     )]
     pub checksum: Option<Checksum>,
+
     #[structopt(subcommand)]
     pub cmd: RdSubCommand,
 }
@@ -141,6 +144,7 @@ pub enum RdSubCommand {
         about = "Accepts paths to elf files from stdin, prints elf build ids on stdout."
     )]
     BuildId,
+
     /// Print `rd record` command line options that will limit the tracee to CPU features
     /// this machine supports. Useful for trace portability: run `rd cpufeatures` on the machine
     /// you plan to replay on, then add those command-line parameters to `rd record` on the
@@ -151,49 +155,83 @@ pub enum RdSubCommand {
         this machine supports."
     )]
     CpuFeatures,
+
     /// dump data from the recorded trace
     #[structopt(name = "dump", about = "Dump data from the recorded trace")]
     Dump {
         #[structopt(short = "b", long, help = "dump syscallbuf events")]
         syscallbuf: bool,
+
         #[structopt(short = "e", long, help = "dump task events")]
         task_events: bool,
+
         #[structopt(short = "m", long, help = "dump recorded data metadata")]
         recorded_metadata: bool,
+
         #[structopt(short = "p", long, help = "dump mmap data")]
         mmaps: bool,
-        #[structopt(
-            short = "r",
-            long = "raw",
-            help = "dump trace frames in a more easily machine-parseable \
-                    format instead of the default human-readable format"
-        )]
+
+        /// dump trace frames in a more easily machine-parseable
+        /// format instead of the default human-readable format"
+        #[structopt(short = "r", long = "raw")]
         raw_dump: bool,
+
         #[structopt(short = "s", long, help = "dump statistics about the trace")]
         statistics: bool,
+
         #[structopt(
             short = "t",
             long = "tid",
             help = "dump events only for the specified tid"
         )]
         only_tid: Option<libc::pid_t>,
-        #[structopt(
-            help = "which directory is the trace data in? If omitted the latest trace is used"
-        )]
+
+        /// which directory is the trace data in? If omitted the latest trace is used
         trace_dir: Option<PathBuf>,
+
+        /// event specs can be either an event number like `127`, or a range
+        /// like `1000-5000`. By default, all events are dumped."
         #[structopt(parse(try_from_str = parse_range))]
-        #[structopt(
-            help = "event specs can be either an event number like `127`, or a range \
-                    like `1000-5000`. By default, all events are dumped."
-        )]
         event_spec: Option<(u32, Option<u32>)>,
     },
+
     /// 'rerun' is intended to be a more powerful form of `rd replay -a`. It does
     /// a replay without debugging support, but it provides options for tracing and
     /// dumping tracee state. Initially it supports singlestepping through a range
     /// of trace events, dumping selected register values after each step.
     #[structopt(name = "rerun")]
-    ReRun {},
+    ReRun {
+        #[structopt(short = "s", long, help = "start tracing at <trace-start>")]
+        trace_start: Option<u64>,
+
+        #[structopt(short = "e", long, help = "end tracing at <trace-end>")]
+        trace_end: Option<u64>,
+
+        #[structopt(short = "r", long = "raw", help = "dump registers in raw format")]
+        raw: bool,
+
+        /// allow replay to run on any CPU. Default is to run on the CPU stored in the trace.
+        /// Note that this may diverge from the recording in some cases.
+        #[structopt(short = "u", long)]
+        cpu_unbound: bool,
+
+        /// when starting tracing, push sentinel return address and jump to <function-addr>
+        /// to fake call
+        #[structopt(short = "f", long = "function")]
+        function_addr: Option<u64>,
+
+        /// <singlestep-regs> is a comma-separated sequence of `event`, `icount'`, `ip`, `flags`,
+        /// `gp_x16`, `xmm_x16`, `ymm_x16`. For the `x16` cases, we always output 16,
+        ///  values, the latter 8 of which are zero for x86-32. GP registers are in
+        ///  architectural order (AX,CX,DX,BX,SP,BP,SI,DI,R8-R15). All data is output
+        ///  in little-endian binary format; records are separated by \\n. String
+        ///  instruction repetitions are treated as a single instruction if not
+        ///  interrupted. A 'singlestep' includes events such as system-call-exit
+        ///  where tracee state changes without any user-level instructions actually
+        ///  being executed.
+        #[structopt(long = "singlestep")]
+        singlestep_regs: Option<Vec<String>>,
+    },
 }
 
 fn parse_range(range_or_single: &str) -> Result<(u32, Option<u32>), ParseIntError> {
