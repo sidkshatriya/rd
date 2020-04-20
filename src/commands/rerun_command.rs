@@ -4,8 +4,10 @@ use crate::event::{Event, EventType};
 use crate::kernel_abi::x64;
 #[cfg(target_arch = "x86")]
 use crate::kernel_abi::x86;
+use crate::kernel_abi::SupportedArch;
 use crate::registers::Registers;
 use crate::remote_code_ptr::RemoteCodePtr;
+use crate::task::Task;
 use crate::trace::trace_frame::FrameTime;
 use std::io;
 use std::io::Write;
@@ -102,21 +104,6 @@ fn write_hex(value: &[u8], out: &mut dyn Write) -> io::Result<()> {
     Ok(())
 }
 
-fn write_value(
-    name: &str,
-    value: &[u8],
-    flags: &ReRerunCommand,
-    out: &mut dyn Write,
-) -> io::Result<()> {
-    if flags.raw_dump {
-        out.write(value)?;
-    } else {
-        write!(out, "{}:0x", name)?;
-        write_hex(value, out)?;
-    }
-    Ok(())
-}
-
 fn find_gp_reg(reg: &str) -> Option<u8> {
     for i in 0u8..16 {
         if reg == GP_REG_NAMES[i as usize] || (i < 8 && reg == GP_REG_NAMES_32[i as usize]) {
@@ -153,7 +140,7 @@ fn ignore_singlestep_for_event(ev: Event) -> bool {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug)]
 enum TraceFieldKind {
     /// outputs 64-bit value
     TraceEventNumber,
@@ -181,7 +168,7 @@ enum TraceFieldKind {
     TraceYmmReg,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug)]
 struct TraceField {
     kind: TraceFieldKind,
     reg_num: u8,
@@ -285,4 +272,104 @@ pub(super) fn parse_regs(regs_s: &str) -> Result<TraceFields, clap::Error> {
     }
 
     Ok(TraceFields(registers))
+}
+
+impl ReRerunCommand {
+    fn write_value(&self, name: &str, value: &[u8], out: &mut dyn Write) -> io::Result<()> {
+        if self.raw_dump {
+            out.write(value)?;
+        } else {
+            write!(out, "{}:0x", name)?;
+            write_hex(value, out)?;
+        }
+        Ok(())
+    }
+
+    pub fn write_regs(
+        &self,
+        t: &dyn Task,
+        event: FrameTime,
+        instruction_count: u64,
+        out: &mut dyn Write,
+    ) -> io::Result<()> {
+        let mut got_gp_regs = false;
+        let mut first = true;
+
+        for field in &self.singlestep_trace {
+            if first {
+                first = false;
+            } else if !self.raw_dump {
+                write!(out, " ")?;
+            }
+
+            match field.kind {
+                TraceFieldKind::TraceEventNumber => {
+                    let value: u64 = event;
+                    self.write_value("event", &value.to_le_bytes(), out)?;
+                }
+                TraceFieldKind::TraceInstructionCount => {
+                    self.write_value("icount", &instruction_count.to_le_bytes(), out)?;
+                }
+                TraceFieldKind::TraceIp => {
+                    let value: usize = t.regs_ref().ip().register_value();
+                    match t.arch() {
+                        SupportedArch::X86 => {
+                            self.write_value("rip", &value.to_le_bytes(), out)?;
+                        }
+                        SupportedArch::X64 => {
+                            self.write_value("eip", &value.to_le_bytes(), out)?;
+                        }
+                    }
+                }
+                TraceFieldKind::TraceFsbase => {
+                    let value: u64 = t.regs_ref().fs_base();
+                    self.write_value("fsbase", &value.to_le_bytes(), out)?;
+                }
+                TraceFieldKind::TraceGsbase => {
+                    let value: u64 = t.regs_ref().gs_base();
+                    self.write_value("gsbase", &value.to_le_bytes(), out)?;
+                }
+                TraceFieldKind::TraceFlags => {
+                    let value: usize = t.regs_ref().flags();
+                    match t.arch() {
+                        SupportedArch::X86 => {
+                            self.write_value("rflags", &value.to_le_bytes(), out)?;
+                        }
+                        SupportedArch::X64 => {
+                            self.write_value("eflags", &value.to_le_bytes(), out)?;
+                        }
+                    }
+                }
+                TraceFieldKind::TraceOrigAx => {
+                    // @TODO is the cast to u64 OK?
+                    let value: u64 = t.regs_ref().original_syscallno() as u64;
+                    match t.arch() {
+                        SupportedArch::X86 => {
+                            self.write_value("orig_rax", &value.to_le_bytes(), out)?;
+                        }
+                        SupportedArch::X64 => {
+                            self.write_value("orig_eax", &value.to_le_bytes(), out)?;
+                        }
+                    }
+                }
+                TraceFieldKind::TraceSegReg => {
+                    let value: u64 = seg_reg(t.regs_ref(), field.reg_num);
+                    self.write_value(
+                        SEG_REG_NAMES[field.reg_num as usize],
+                        &value.to_le_bytes(),
+                        out,
+                    )?;
+                }
+                TraceFieldKind::TraceXinuse => {
+                    let value: u64 = t.extra_regs().read_xinuse().unwrap_or(0);
+                    self.write_value("xinuse", &value.to_le_bytes(), out)?;
+                }
+                TraceFieldKind::TraceGpReg => unimplemented!(),
+                TraceFieldKind::TraceXmmReg => unimplemented!(),
+                TraceFieldKind::TraceYmmReg => unimplemented!(),
+            }
+            write!(out, "\n")?;
+        }
+        Ok(())
+    }
 }
