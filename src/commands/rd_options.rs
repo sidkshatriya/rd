@@ -26,7 +26,7 @@ pub struct RdOptions {
         parse(from_os_str),
         long,
         help = "specify the paths that rd should use to find files such as rd_page_*.  These files \
-        should be located in <resource-path>/bin, <resource-path>/lib[64], and <resource-path>/share \
+        should be located in `<resource-path>/bin`, `<resource-path>/lib[64]`, and `<resource-path>/share` \
         as appropriate."
     )]
     pub resource_path: Option<PathBuf>,
@@ -75,7 +75,7 @@ pub struct RdOptions {
     #[structopt(
     short = "D",
     long,
-    help = "where <dump_on> := ALL | RDTSC | <syscall-no> | -<signal number> \n\n@TODO more details",
+    help = "where <dump_on> := `ALL` | `RDTSC` | <syscall-no> | -<signal number> \n\n@TODO more details",
     parse(try_from_str = parse_dump_on)
     )]
     pub dump_on: Option<DumpOn>,
@@ -134,28 +134,25 @@ fn parse_dump_on(dump_on_s: &str) -> Result<DumpOn, Box<dyn Error>> {
 
 #[derive(StructOpt, Debug, Clone)]
 pub enum RdSubCommand {
+    /// Accepts paths on stdin, prints buildids on stdout. Will terminate when either an empty
+    /// line or an invalid path is provided.
     #[structopt(
         name = "buildid",
-        about = "Accepts paths to elf files from stdin, prints elf build ids on stdout.",
-        help = "Accepts paths on stdin, prints buildids on stdout. Will terminate when either an empty \
-                line or an invalid path is provided."
+        about = "Accepts paths to elf files from stdin, prints elf build ids on stdout."
     )]
     BuildId,
+    /// Print `rd record` command line options that will limit the tracee to CPU features
+    /// this machine supports. Useful for trace portability: run `rd cpufeatures` on the machine
+    /// you plan to replay on, then add those command-line parameters to `rd record` on the
+    /// recording machine.
     #[structopt(
         name = "cpufeatures",
         about = "Print `rd record` command line options that will limit the tracee to CPU features \
-        this machine supports.",
-        help = "Print `rd record` command line options that will limit the tracee to CPU features \
-        this machine supports. Useful for trace portability: run `rd cpufeatures` on the machine \
-        you plan to replay on, then add those command-line parameters to `rd record` on the \
-        recording machine."
+        this machine supports."
     )]
     CpuFeatures,
-    #[structopt(
-        name = "dump",
-        about = "Dump syscall buffer records from the recorded trace",
-        help = "@TODO"
-    )]
+    /// dump data from the recorded trace
+    #[structopt(name = "dump", about = "Dump data from the recorded trace")]
     Dump {
         #[structopt(short = "b", long, help = "dump syscallbuf events")]
         syscallbuf: bool,
@@ -180,10 +177,23 @@ pub enum RdSubCommand {
             help = "dump events only for the specified tid"
         )]
         only_tid: Option<libc::pid_t>,
+        #[structopt(
+            help = "which directory is the trace data in? If omitted the latest trace is used"
+        )]
         trace_dir: Option<PathBuf>,
         #[structopt(parse(try_from_str = parse_range))]
+        #[structopt(
+            help = "event specs can be either an event number like `127`, or a range \
+                    like `1000-5000`. By default, all events are dumped."
+        )]
         event_spec: Option<(u32, Option<u32>)>,
     },
+    /// 'rerun' is intended to be a more powerful form of `rd replay -a`. It does
+    /// a replay without debugging support, but it provides options for tracing and
+    /// dumping tracee state. Initially it supports singlestepping through a range
+    /// of trace events, dumping selected register values after each step.
+    #[structopt(name = "rerun")]
+    ReRun {},
 }
 
 fn parse_range(range_or_single: &str) -> Result<(u32, Option<u32>), ParseIntError> {
