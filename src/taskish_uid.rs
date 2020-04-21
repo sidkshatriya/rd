@@ -3,14 +3,23 @@ use crate::task::Task;
 use crate::thread_group::ThreadGroup;
 use libc::pid_t;
 use std::cmp::Ordering;
+use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use std::ops::Deref;
 
-/// Need to manually derive Copy, Clone, Eq, PartialEq, Ord, PartialOrd due to quirks with PhantomData
+/// Need to manually derive Hash, Copy, Clone, Eq, PartialEq, Ord, PartialOrd due
+/// to quirks with PhantomData
 pub struct TaskishUid<T> {
     tid_: pid_t,
     serial_: u32,
     phantom_data: PhantomData<T>,
+}
+
+impl<T> Hash for TaskishUid<T> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.tid_.hash(state);
+        self.serial_.hash(state);
+    }
 }
 
 impl<T> Clone for TaskishUid<T> {
@@ -22,6 +31,8 @@ impl<T> Clone for TaskishUid<T> {
         }
     }
 }
+
+impl<T> Copy for TaskishUid<T> {}
 
 impl<T> PartialEq for TaskishUid<T> {
     fn eq(&self, other: &Self) -> bool {
@@ -54,8 +65,6 @@ impl<T> PartialOrd for TaskishUid<T> {
         Some(self.cmp(other))
     }
 }
-
-impl<T> Copy for TaskishUid<T> {}
 
 /// An ID that's unique within a Session (but consistent across
 /// multiple ReplaySessions for the same trace), used by Tasks, ThreadGroups

@@ -5,10 +5,10 @@ use crate::remote_ptr::{RemotePtr, Void};
 use crate::session::diversion_session::DiversionSession;
 use crate::session::record_session::RecordSession;
 use crate::session::replay_session::ReplaySession;
-use crate::session::session_inner::session_inner::{SessionInner, TaskMap};
+use crate::session::session_inner::session_inner::{SessionInner, TaskMap, ThreadGroupMap};
 use crate::task::Task;
 use crate::taskish_uid::{AddressSpaceUid, TaskUid, ThreadGroupUid};
-use crate::thread_group::{ThreadGroup, ThreadGroupSharedPtr};
+use crate::thread_group::ThreadGroupSharedPtr;
 use crate::trace::trace_stream::TraceStream;
 use libc::pid_t;
 use std::cell::{Ref, RefCell, RefMut};
@@ -27,7 +27,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
     fn as_session_inner(&self) -> &SessionInner;
     fn as_session_inner_mut(&mut self) -> &mut SessionInner;
 
-    fn on_destroy(&self, t: &dyn Task) {
+    fn on_destroy(&self, _t: &dyn Task) {
         unimplemented!()
     }
 
@@ -134,14 +134,26 @@ pub trait Session: DerefMut<Target = SessionInner> {
     /// Return the thread group whose unique ID is `tguid`, or None if no such
     /// thread group exists.
     /// NOTE: Method is simply called Session::find thread_group() in rr
-    fn find_thread_group_from_tguid(&self, _tguid: &ThreadGroupUid) -> Option<&ThreadGroup> {
-        unimplemented!()
+    fn find_thread_group_from_tguid(
+        &mut self,
+        tguid: ThreadGroupUid,
+    ) -> Option<ThreadGroupSharedPtr> {
+        self.finish_initializing();
+        self.thread_group_map()
+            .get(&tguid)
+            .map(|t| t.upgrade().unwrap())
     }
 
     /// Find the thread group for a specific pid
     /// NOTE: Method is simply called Session::find thread_group() in rr
-    fn find_thread_group_from_pid(&self, _pid: pid_t) -> Option<&ThreadGroup> {
-        unimplemented!()
+    fn find_thread_group_from_pid(&mut self, pid: pid_t) -> Option<ThreadGroupSharedPtr> {
+        self.finish_initializing();
+        for (tguid, tg) in self.thread_group_map() {
+            if tguid.tid() == pid {
+                return Some(tg.upgrade().unwrap());
+            }
+        }
+        None
     }
 
     /// Return the AddressSpace whose unique ID is `vmuid`, or None if no such
@@ -157,10 +169,14 @@ pub trait Session: DerefMut<Target = SessionInner> {
     }
 
     /// Return the set of Tasks being traced in this session.
-    /// @TODO shouldn't need for this to be mutable but it is due to finish_initializing()
+    /// Shouldn't need for this to be mutable but it is due to finish_initializing()
     fn tasks(&mut self) -> &TaskMap {
         self.finish_initializing();
         &self.as_session_inner().task_map
+    }
+
+    fn thread_group_map(&self) -> &ThreadGroupMap {
+        &self.as_session_inner().thread_group_map
     }
 
     /// Call `post_exec()` immediately after a tracee has successfully
