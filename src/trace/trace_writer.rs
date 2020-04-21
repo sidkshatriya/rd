@@ -543,7 +543,7 @@ impl TraceWriter {
     /// or by setting -o=<OUTPUT_TRACE_DIR>.
     pub fn new(
         file_name: &OsStr,
-        bind_to_cpu: i32,
+        bind_to_cpu: u32,
         output_trace_dir: &OsStr,
         ticks_semantics_: TicksSemantics,
     ) -> TraceWriter {
@@ -660,7 +660,8 @@ impl TraceWriter {
 
         let mut header_msg = message::Builder::new_default();
         let mut header = header_msg.init_root::<header::Builder>();
-        header.set_bind_to_cpu(self.bind_to_cpu);
+        // DIFF NOTE: In rd the bound cpu is unsigned. In rr it is signed.
+        header.set_bind_to_cpu(self.bind_to_cpu as i32);
         header.set_has_cpuid_faulting(self.has_cpuid_faulting_);
         let cpuid_data = unsafe {
             slice::from_raw_parts::<u8>(

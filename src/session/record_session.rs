@@ -6,7 +6,6 @@ use crate::session::session_inner::session_inner::SessionInner;
 use crate::session::Session;
 use crate::task::Task;
 use crate::thread_group::ThreadGroupSharedPtr;
-use crate::trace::trace_stream::TraceStream;
 use crate::trace::trace_writer::TraceWriter;
 use crate::util::{
     good_random, CPUIDData, CPUID_GETEXTENDEDFEATURES, CPUID_GETFEATURES, CPUID_GETXSAVE,
@@ -158,11 +157,11 @@ impl DerefMut for RecordSession {
 
 impl Session for RecordSession {
     fn as_session_inner(&self) -> &SessionInner {
-        unimplemented!()
+        &self.session_inner
     }
 
-    fn as_session_inner_mut(&self) -> &mut SessionInner {
-        unimplemented!()
+    fn as_session_inner_mut(&mut self) -> &mut SessionInner {
+        &mut self.session_inner
     }
 
     fn on_destroy(&self, _t: &dyn Task) {
@@ -170,10 +169,6 @@ impl Session for RecordSession {
     }
 
     fn new_task(&self, _tid: i32, _rec_tid: i32, _serial: u32, _a: SupportedArch) {
-        unimplemented!()
-    }
-
-    fn cpu_binding(&self, _trace: &TraceStream) -> Option<u32> {
         unimplemented!()
     }
 

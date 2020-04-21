@@ -25,7 +25,7 @@ pub type SessionSharedWeakPtr = Weak<RefCell<Box<dyn Session>>>;
 
 pub trait Session: DerefMut<Target = SessionInner> {
     fn as_session_inner(&self) -> &SessionInner;
-    fn as_session_inner_mut(&self) -> &mut SessionInner;
+    fn as_session_inner_mut(&mut self) -> &mut SessionInner;
 
     fn on_destroy(&self, t: &dyn Task);
     fn as_record(&self) -> Option<&RecordSession> {
@@ -53,7 +53,9 @@ pub trait Session: DerefMut<Target = SessionInner> {
     fn trace_stream(&self) -> Option<&TraceStream> {
         None
     }
-    fn cpu_binding(&self, trace: &TraceStream) -> Option<u32>;
+    fn cpu_binding(&self, trace: &TraceStream) -> Option<u32> {
+        Some(trace.bound_to_cpu())
+    }
     fn on_create(&self, t: &dyn Task);
 
     /// NOTE: called Session::copy_state_to() in rr.

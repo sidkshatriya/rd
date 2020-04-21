@@ -109,10 +109,10 @@ impl TraceStream {
         &self.trace_dir
     }
 
-    pub fn bound_to_cpu(&self) -> i32 {
+    pub fn bound_to_cpu(&self) -> u32 {
         self.bind_to_cpu
     }
-    pub fn set_bound_cpu(&mut self, bound: i32) {
+    pub fn set_bound_cpu(&mut self, bound: u32) {
         self.bind_to_cpu = bound;
     }
 
@@ -181,7 +181,7 @@ pub struct TraceStream {
     /// Directory into which we're saving the trace files.
     pub(super) trace_dir: OsString,
     /// CPU core# that the tracees are bound to
-    pub(super) bind_to_cpu: i32,
+    pub(super) bind_to_cpu: u32,
     /// Arbitrary notion of trace time, ticked on the recording of
     /// each event (trace frame).
     pub(super) global_time: FrameTime,

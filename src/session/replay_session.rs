@@ -208,11 +208,11 @@ impl DerefMut for ReplaySession {
 
 impl Session for ReplaySession {
     fn as_session_inner(&self) -> &SessionInner {
-        unimplemented!()
+        &self.session_inner
     }
 
-    fn as_session_inner_mut(&self) -> &mut SessionInner {
-        unimplemented!()
+    fn as_session_inner_mut(&mut self) -> &mut SessionInner {
+        &mut self.session_inner
     }
 
     fn on_destroy(&self, _t: &dyn Task) {
@@ -223,8 +223,11 @@ impl Session for ReplaySession {
         unimplemented!()
     }
 
-    fn cpu_binding(&self, _trace: &TraceStream) -> Option<u32> {
-        unimplemented!()
+    fn cpu_binding(&self, trace: &TraceStream) -> Option<u32> {
+        if self.flags_.cpu_unbound {
+            return None;
+        }
+        Session::cpu_binding(self, trace)
     }
 
     fn on_create(&self, _t: &dyn Task) {

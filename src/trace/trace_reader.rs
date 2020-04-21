@@ -653,7 +653,10 @@ impl TraceReader {
 
         let header_msg = res.unwrap();
         let header = header_msg.get_root::<header::Reader>().unwrap();
-        trace_stream.bind_to_cpu = header.get_bind_to_cpu();
+        let bind_to_cpu = header.get_bind_to_cpu();
+        debug_assert!(bind_to_cpu >= 0);
+        // DIFF NOTE: In rd the bound cpu is unsigned. In rr it is signed.
+        trace_stream.bind_to_cpu = bind_to_cpu as u32;
         let trace_uses_cpuid_faulting = header.get_has_cpuid_faulting();
         // @TODO Are we sure we an unwrap here?
         let cpuid_records_bytes = header.get_cpuid_records().unwrap();
