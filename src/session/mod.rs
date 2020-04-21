@@ -1,11 +1,13 @@
-use crate::address_space::address_space::AddressSpace;
+use crate::address_space::address_space::AddressSpaceSharedPtr;
 use crate::emu_fs::EmuFs;
 use crate::kernel_abi::SupportedArch;
 use crate::remote_ptr::{RemotePtr, Void};
 use crate::session::diversion_session::DiversionSession;
 use crate::session::record_session::RecordSession;
 use crate::session::replay_session::ReplaySession;
-use crate::session::session_inner::session_inner::{SessionInner, TaskMap, ThreadGroupMap};
+use crate::session::session_inner::session_inner::{
+    AddressSpaceMap, SessionInner, TaskMap, ThreadGroupMap,
+};
 use crate::task::Task;
 use crate::taskish_uid::{AddressSpaceUid, TaskUid, ThreadGroupUid};
 use crate::thread_group::ThreadGroupSharedPtr;
@@ -158,8 +160,9 @@ pub trait Session: DerefMut<Target = SessionInner> {
 
     /// Return the AddressSpace whose unique ID is `vmuid`, or None if no such
     /// address space exists.
-    fn find_address_space(&self, _vmuid: &AddressSpaceUid) -> Option<&AddressSpace> {
-        unimplemented!()
+    fn find_address_space(&mut self, vmuid: AddressSpaceUid) -> Option<AddressSpaceSharedPtr> {
+        self.finish_initializing();
+        self.vm_map().get(&vmuid).map(|a| a.upgrade().unwrap())
     }
 
     /// Return a copy of `tg` with the same mappings.
@@ -177,6 +180,10 @@ pub trait Session: DerefMut<Target = SessionInner> {
 
     fn thread_group_map(&self) -> &ThreadGroupMap {
         &self.as_session_inner().thread_group_map
+    }
+
+    fn vm_map(&self) -> &AddressSpaceMap {
+        &self.as_session_inner().vm_map
     }
 
     /// Call `post_exec()` immediately after a tracee has successfully

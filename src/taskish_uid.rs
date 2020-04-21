@@ -96,7 +96,7 @@ impl<T> TaskishUid<T> {
     }
 }
 
-#[derive(Clone, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Clone, Eq, Hash, PartialEq, Ord, PartialOrd)]
 pub struct AddressSpaceUid {
     taskish: TaskishUid<AddressSpace>,
     exec_count: u32,
