@@ -1,5 +1,4 @@
 use crate::emu_fs::{EmuFs, EmuFsSharedPtr};
-use crate::kernel_abi::SupportedArch;
 use crate::session::session_inner::session_inner::SessionInner;
 use crate::session::session_inner::{BreakStatus, RunCommand};
 use crate::session::Session;
@@ -97,13 +96,5 @@ impl Session for DiversionSession {
 
     fn as_diversion(&self) -> Option<&DiversionSession> {
         Some(self)
-    }
-
-    fn new_task(&self, tid: i32, rec_tid: i32, serial: u32, a: SupportedArch) {
-        unimplemented!()
-    }
-
-    fn on_create(&self, t: &dyn Task) {
-        unimplemented!()
     }
 }

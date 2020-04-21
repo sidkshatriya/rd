@@ -31,15 +31,25 @@ pub trait Session: DerefMut<Target = SessionInner> {
     fn as_record(&self) -> Option<&RecordSession> {
         None
     }
+    fn as_record_mut(&mut self) -> Option<&mut RecordSession> {
+        None
+    }
+
     fn as_replay(&self) -> Option<&ReplaySession> {
         None
     }
-    fn as_replay_mut(&self) -> Option<&mut ReplaySession> {
+    fn as_replay_mut(&mut self) -> Option<&mut ReplaySession> {
         None
     }
+
     fn as_diversion(&self) -> Option<&DiversionSession> {
         None
     }
+    fn as_diversion_mut(&mut self) -> Option<&DiversionSession> {
+        None
+    }
+
+    /// Avoid using this boolean methods. Use the `as_*` methods that return Option<> instead.
     fn is_recording(&self) -> bool {
         self.as_record().is_some()
     }
@@ -49,14 +59,28 @@ pub trait Session: DerefMut<Target = SessionInner> {
     fn is_diversion(&self) -> bool {
         self.as_diversion().is_some()
     }
-    fn new_task(&self, tid: pid_t, rec_tid: pid_t, serial: u32, a: SupportedArch);
+
+    /// @TODO Is the return type what we want?
+    fn new_task(
+        &self,
+        _tid: pid_t,
+        _rec_tid: pid_t,
+        _serial: u32,
+        _a: SupportedArch,
+    ) -> &mut dyn Task {
+        unimplemented!()
+    }
+
     fn trace_stream(&self) -> Option<&TraceStream> {
         None
     }
     fn cpu_binding(&self, trace: &TraceStream) -> Option<u32> {
         Some(trace.bound_to_cpu())
     }
-    fn on_create(&self, t: &dyn Task);
+
+    fn on_create(&self, _t: &dyn Task) {
+        unimplemented!()
+    }
 
     /// NOTE: called Session::copy_state_to() in rr.
     fn copy_state_to_session(&self, _dest: &SessionInner, _emu_fs: &EmuFs, _dest_emu_fs: EmuFs) {

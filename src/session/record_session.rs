@@ -168,7 +168,7 @@ impl Session for RecordSession {
         unimplemented!()
     }
 
-    fn new_task(&self, _tid: i32, _rec_tid: i32, _serial: u32, _a: SupportedArch) {
+    fn new_task(&self, _tid: i32, _rec_tid: i32, _serial: u32, _a: SupportedArch) -> &mut dyn Task {
         unimplemented!()
     }
 

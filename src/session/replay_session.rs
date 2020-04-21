@@ -1,20 +1,25 @@
 use crate::address_space::address_space::AddressSpaceSharedPtr;
 use crate::cpuid_bug_detector::CPUIDBugDetector;
-use crate::emu_fs::EmuFsSharedPtr;
+use crate::emu_fs::{EmuFs, EmuFsSharedPtr};
 use crate::fast_forward::FastForwardStatus;
 use crate::kernel_abi::SupportedArch;
 use crate::remote_code_ptr::RemoteCodePtr;
+use crate::session::diversion_session::DiversionSessionSharedPtr;
 use crate::session::replay_session::ReplayTraceStepType::TstepNone;
 use crate::session::session_inner::session_inner::SessionInner;
 use crate::session::session_inner::BreakStatus;
 use crate::session::Session;
 use crate::task::Task;
 use crate::ticks::Ticks;
-use crate::trace::trace_frame::TraceFrame;
+use crate::trace::trace_frame::{FrameTime, TraceFrame};
 use crate::trace::trace_reader::TraceReader;
 use crate::trace::trace_stream::TraceStream;
 use libc::siginfo_t;
+use std::cell::{Ref, RefCell, RefMut};
 use std::ops::{Deref, DerefMut};
+use std::sync::Arc;
+
+pub type ReplaySessionSharedPtr = Arc<RefCell<ReplaySession>>;
 
 /// ReplayFlushBufferedSyscallState is saved in Session and cloned with its
 /// Session, so it needs to be simple data, i.e. not holding pointers to
@@ -173,22 +178,67 @@ impl Drop for ReplaySession {
 }
 
 impl ReplaySession {
+    /// Return a semantic copy of all the state managed by this,
+    /// that is the entire tracee tree and the state it depends on.
+    /// Any mutations of the returned Session can't affect the
+    /// state of this, and vice versa.
+    ///
+    /// This operation is also called "checkpointing" the replay
+    /// session.
+    ///
+    /// The returned clone is only partially initialized. This uses less
+    /// system resources than a fully-initialized session, so if you're going
+    /// to keep a session around inactive, keep the clone and not the original
+    /// session. Partially initialized sessions automatically finish
+    /// initializing when necessary.
+    pub fn clone(&self) -> ReplaySessionSharedPtr {
+        unimplemented!()
+    }
+
+    /// Return true if we're in a state where it's OK to clone. For example,
+    /// we can't clone in some syscalls.
+    pub fn can_clone(&self) -> bool {
+        unimplemented!()
+    }
+
+    /// Like `clone()`, but return a session in "diversion" mode,
+    /// which allows free execution.
+    pub fn clone_diversion(&self) -> DiversionSessionSharedPtr {
+        unimplemented!()
+    }
+
+    pub fn emufs(&self) -> Ref<'_, EmuFs> {
+        self.emu_fs.borrow()
+    }
+
+    pub fn emufs_mut(&self) -> RefMut<'_, EmuFs> {
+        self.emu_fs.borrow_mut()
+    }
+
+    pub fn trace_reader(&self) -> &TraceReader {
+        &self.trace_in
+    }
+
+    pub fn trace_reader_mut(&mut self) -> &mut TraceReader {
+        &mut self.trace_in
+    }
+
+    /// The trace record that we are working on --- the next event
+    /// for replay to reach.
+    pub fn current_trace_frame(&self) -> &TraceFrame {
+        &self.trace_frame
+    }
+    /// Time of the current frame
+    pub fn current_frame_time(&self) -> FrameTime {
+        self.trace_frame.time()
+    }
+
     pub fn is_ignored_signal(_sig: i32) -> bool {
         unimplemented!()
     }
 
     pub fn flags(&self) -> &Flags {
         &self.flags_
-    }
-
-    pub fn trace_reader(&self) -> &TraceReader {
-        &self.trace_in
-    }
-    pub fn trace_reader_mut(&mut self) -> &mut TraceReader {
-        &mut self.trace_in
-    }
-    fn as_replay_mut(&mut self) -> Option<&mut ReplaySession> {
-        Some(self)
     }
 }
 
@@ -219,7 +269,15 @@ impl Session for ReplaySession {
         unimplemented!()
     }
 
-    fn new_task(&self, _tid: i32, _rec_tid: i32, _serial: u32, _a: SupportedArch) {
+    fn as_replay(&self) -> Option<&ReplaySession> {
+        Some(self)
+    }
+
+    fn as_replay_mut(&mut self) -> Option<&mut ReplaySession> {
+        Some(self)
+    }
+
+    fn new_task(&self, _tid: i32, _rec_tid: i32, _serial: u32, _a: SupportedArch) -> &mut dyn Task {
         unimplemented!()
     }
 
@@ -228,9 +286,5 @@ impl Session for ReplaySession {
             return None;
         }
         Session::cpu_binding(self, trace)
-    }
-
-    fn on_create(&self, _t: &dyn Task) {
-        unimplemented!()
     }
 }
