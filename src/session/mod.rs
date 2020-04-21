@@ -11,7 +11,7 @@ use crate::taskish_uid::{AddressSpaceUid, TaskUid, ThreadGroupUid};
 use crate::thread_group::{ThreadGroup, ThreadGroupSharedPtr};
 use crate::trace::trace_stream::TraceStream;
 use libc::pid_t;
-use std::cell::RefCell;
+use std::cell::{Ref, RefCell, RefMut};
 use std::ops::DerefMut;
 use std::rc::{Rc, Weak};
 
@@ -27,7 +27,10 @@ pub trait Session: DerefMut<Target = SessionInner> {
     fn as_session_inner(&self) -> &SessionInner;
     fn as_session_inner_mut(&mut self) -> &mut SessionInner;
 
-    fn on_destroy(&self, t: &dyn Task);
+    fn on_destroy(&self, t: &dyn Task) {
+        unimplemented!()
+    }
+
     fn as_record(&self) -> Option<&RecordSession> {
         None
     }
@@ -111,13 +114,21 @@ pub trait Session: DerefMut<Target = SessionInner> {
     /// Return the task created with `rec_tid`, or None if no such
     /// task exists.
     /// NOTE: Method is simply called Session::find task() in rr
-    fn find_task_from_rec_tid(&self, _rec_tid: pid_t) -> Option<&dyn Task> {
-        unimplemented!()
+    fn find_task_from_rec_tid(&mut self, rec_tid: pid_t) -> Option<Ref<'_, Box<dyn Task>>> {
+        self.finish_initializing();
+        self.tasks().get(&rec_tid).map(|t| t.borrow())
+    }
+    fn find_task_from_rec_tid_mut(&mut self, rec_tid: pid_t) -> Option<RefMut<'_, Box<dyn Task>>> {
+        self.finish_initializing();
+        self.tasks().get(&rec_tid).map(|t| t.borrow_mut())
     }
 
     /// NOTE: Method is simply called Session::find task() in rr
-    fn find_task_from_task_uid(&self, _tuid: &TaskUid) -> Option<&dyn Task> {
-        unimplemented!()
+    fn find_task_from_task_uid(&mut self, tuid: TaskUid) -> Option<Ref<'_, Box<dyn Task>>> {
+        self.find_task_from_rec_tid(tuid.tid())
+    }
+    fn find_task_from_task_uid_mut(&mut self, tuid: TaskUid) -> Option<RefMut<'_, Box<dyn Task>>> {
+        self.find_task_from_rec_tid_mut(tuid.tid())
     }
 
     /// Return the thread group whose unique ID is `tguid`, or None if no such

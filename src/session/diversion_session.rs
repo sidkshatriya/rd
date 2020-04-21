@@ -59,6 +59,7 @@ impl DiversionSession {
     }
     /// Try make progress in this diversion session. Run task t if possible.
     pub fn diversion_step(
+        &self,
         _t: &mut dyn Task,
         _command: Option<RunCommand>,
         _signal_to_deliver: Option<i32>,
@@ -88,10 +89,6 @@ impl Session for DiversionSession {
 
     fn as_session_inner_mut(&mut self) -> &mut SessionInner {
         &mut self.session_inner
-    }
-
-    fn on_destroy(&self, t: &dyn Task) {
-        unimplemented!()
     }
 
     fn as_diversion(&self) -> Option<&DiversionSession> {

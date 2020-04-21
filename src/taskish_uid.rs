@@ -6,7 +6,7 @@ use std::cmp::Ordering;
 use std::marker::PhantomData;
 use std::ops::Deref;
 
-/// Need to manually derive Eq, PartialEq, Ord, PartialOrd due to quirks with PhantomData
+/// Need to manually derive Copy, Clone, Eq, PartialEq, Ord, PartialOrd due to quirks with PhantomData
 pub struct TaskishUid<T> {
     tid_: pid_t,
     serial_: u32,

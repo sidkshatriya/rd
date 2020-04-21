@@ -265,10 +265,6 @@ impl Session for ReplaySession {
         &mut self.session_inner
     }
 
-    fn on_destroy(&self, _t: &dyn Task) {
-        unimplemented!()
-    }
-
     fn as_replay(&self) -> Option<&ReplaySession> {
         Some(self)
     }

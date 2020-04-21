@@ -8,11 +8,16 @@ use crate::kernel_abi::x86;
 use crate::kernel_abi::SupportedArch;
 use crate::registers::Registers;
 use crate::remote_code_ptr::RemoteCodePtr;
+use crate::remote_ptr::RemotePtr;
+use crate::session::replay_session::ReplaySession;
+use crate::session::session_inner::RunCommand;
+use crate::session::Session;
+use crate::task::common::write_val_mem;
 use crate::task::Task;
 use crate::trace::trace_frame::FrameTime;
 use std::fmt::Write as fmtWrite;
 use std::io;
-use std::io::Write;
+use std::io::{stdout, Write};
 use structopt::clap;
 
 impl RdCommand for ReRerunCommand {
@@ -21,7 +26,8 @@ impl RdCommand for ReRerunCommand {
     }
 }
 
-const SENTINEL_RET_ADDRESS: u64 = 9;
+// DIFF NOTE: This is a u64 in rr. We make it a usize as x86 has 4 byte pointers.
+const SENTINEL_RET_ADDRESS: usize = 9;
 
 const GP_REG_NAMES: [&'static str; 16] = [
     "rax", "rcx", "rdx", "rbx", "rsp", "rbp", "rsi", "rdi", "r8", "r9", "r10", "r11", "r12", "r13",
@@ -278,6 +284,49 @@ pub(super) fn parse_regs(regs_s: &str) -> Result<TraceFields, clap::Error> {
 }
 
 impl ReRerunCommand {
+    fn run_diversion_function(
+        &self,
+        replay: &ReplaySession,
+        task: &mut dyn Task,
+    ) -> io::Result<()> {
+        let diversion_session = replay.clone_diversion();
+        let mut diversion_ref = diversion_session.borrow_mut();
+        let mut t = diversion_ref
+            .find_task_from_task_uid_mut(task.tuid())
+            .unwrap();
+        let mut regs = t.regs_ref().clone();
+        // align stack
+        let sp = RemotePtr::<usize>::new_from_val((regs.sp().as_usize() & !0xf) - 1);
+        write_val_mem(t.as_mut(), sp, &SENTINEL_RET_ADDRESS, None);
+        regs.set_sp(RemotePtr::cast(sp));
+        regs.set_ip(self.function);
+        regs.set_di(0);
+        regs.set_si(0);
+        t.set_regs(&regs);
+        let cmd = if self.singlestep_trace.is_empty() {
+            RunCommand::RunContinue
+        } else {
+            RunCommand::RunSinglestep
+        };
+
+        loop {
+            let result = diversion_session
+                .borrow()
+                .diversion_step(t.as_mut(), Some(cmd), None);
+            self.write_regs(t.as_mut(), 0, 0, &mut stdout())?;
+            match result.break_status.signal {
+                Some(siginfo) => {
+                    if siginfo.si_signo == libc::SIGSEGV
+                        && unsafe { siginfo.si_addr() } as usize == SENTINEL_RET_ADDRESS
+                    {
+                        return Ok(());
+                    }
+                    ed_assert!(task, false, "Unexpected signal {:?}", siginfo);
+                }
+                None => (),
+            }
+        }
+    }
     fn write_value(&self, name: &str, value: &[u8], out: &mut dyn Write) -> io::Result<()> {
         if self.raw_dump {
             out.write(value)?;

@@ -34,7 +34,7 @@ impl ProcMemMonitor {
                     let tid = maybe_tid.unwrap();
                     let maybe_found = t
                         .session()
-                        .borrow()
+                        .borrow_mut()
                         .find_task_from_rec_tid(tid)
                         .map_or(None, |ft| Some(ft.tuid()));
                     return ProcMemMonitor {
@@ -67,9 +67,9 @@ impl FileMonitor for ProcMemMonitor {
         }
 
         let session_rc = lazy_offset.t.session();
-        let session_ref = session_rc.borrow();
+        let mut session_ref = session_rc.borrow_mut();
 
-        let maybe_target = session_ref.find_task_from_task_uid(&self.maybe_tuid.unwrap());
+        let maybe_target = session_ref.find_task_from_task_uid(self.maybe_tuid.unwrap());
 
         match maybe_target {
             None => return,

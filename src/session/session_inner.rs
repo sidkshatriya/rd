@@ -6,13 +6,15 @@ use libc::siginfo_t;
 pub struct BreakStatus {
     /// The triggering Task. This may be different from session->current_task()
     /// when replay switches to a new task when ReplaySession::replay_step() ends.
+    /// @TODO Do we want a raw pointer here??
     pub task: *mut TaskInner,
     /// List of watchpoints hit; any watchpoint hit causes a stop after the
     /// instruction that triggered the watchpoint has completed.
     pub watchpoints_hit: Vec<WatchConfig>,
-    /// When non-null, we stopped because a signal was delivered to `task`.
-    /// @TODO does this really need to be a Box?
-    pub signal: Box<siginfo_t>,
+    /// When non-`None`, we stopped because a signal was delivered to `task`.
+    /// DIFF NOTE: - @TODO: In rr this is a unique_ptr. Do we need to make this a Box?
+    ///            - In rr None is indicated by a null
+    pub signal: Option<siginfo_t>,
     /// True when we stopped because we hit a software breakpoint at `task`'s
     /// current ip().
     pub breakpoint_hit: bool,
