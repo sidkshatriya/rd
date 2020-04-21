@@ -230,7 +230,8 @@ impl TraceReader {
                                 path: OsStr::from_bytes(fd.get_path().unwrap()).to_os_string(),
                                 fd: fd.get_fd(),
                                 device: fd.get_device(),
-                                inode: fd.get_inode(),
+                                // On x86 ino_t is a u32 and on x86_64 ino_t is a u64
+                                inode: fd.get_inode().try_into().unwrap(),
                             };
                             syscall_ev.opened.push(opened_fd);
                         }
@@ -343,12 +344,14 @@ impl TraceReader {
                                     );
                                 }
                                 let backing_stat: FileStat = maybe_file_stat.unwrap();
-                                if backing_stat.st_ino != map.get_inode()
+                                // On x86 ino_t is a u32 and on x86_64 ino_t is a u64
+                                if backing_stat.st_ino != map.get_inode().try_into().unwrap()
                                     || backing_stat.st_mode != mode
                                     || backing_stat.st_uid != uid
                                     || backing_stat.st_gid != gid
                                     || backing_stat.st_size as u64 != size
-                                    || backing_stat.st_mtime != mtime
+                                    // On x86 mtime is an i32 and on x86_64 it is an i64
+                                    || backing_stat.st_mtime != mtime.try_into().unwrap()
                                 {
                                     log!(
                                         LogError,
@@ -384,7 +387,8 @@ impl TraceReader {
                     map.get_end().into(),
                     OsStr::from_bytes(map.get_fsname().unwrap()),
                     map.get_device(),
-                    map.get_inode(),
+                    // On x86 ino_t is a u32 and on x86_64 ino_t is a u64
+                    map.get_inode().try_into().unwrap(),
                     ProtFlags::from_bits(map.get_prot()).unwrap(),
                     MapFlags::from_bits(map.get_flags()).unwrap(),
                     map.get_file_offset_bytes() as u64,

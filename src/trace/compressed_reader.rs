@@ -8,6 +8,7 @@ use nix::sys::uio::pread;
 use nix::unistd::{lseek, Whence};
 use std::cell::RefCell;
 use std::cmp::min;
+use std::convert::TryInto;
 use std::ffi::OsStr;
 use std::io;
 use std::io::{BufRead, ErrorKind, Read};
@@ -97,14 +98,13 @@ impl CompressedReader {
             filename,
             OFlag::O_CLOEXEC | OFlag::O_RDONLY | OFlag::O_LARGEFILE,
         );
-        let fd_offset: u64 = 0;
         let error = !fd.is_open();
         let eof: bool;
         if error {
             eof = false;
         } else {
             let ch: u8 = 0;
-            eof = match pread(fd.as_raw(), &mut ch.to_le_bytes(), fd_offset as i64) {
+            eof = match pread(fd.as_raw(), &mut ch.to_le_bytes(), 0) {
                 Ok(0) => true,
                 Ok(_) => false,
                 // DIFF NOTE: rr does not abort with a fatal error if pread was not successful.
@@ -254,7 +254,8 @@ impl CompressedReader {
         self.eof = match pread(
             self.fd.as_ref().unwrap().borrow().as_raw(),
             &mut ch.to_le_bytes(),
-            self.fd_offset as i64,
+            // On x86 off_t is an i32 and on x86_64 off_t is an i64
+            self.fd_offset.try_into().unwrap(),
         ) {
             Ok(0) => true,
             Ok(_) => false,

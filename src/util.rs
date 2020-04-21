@@ -844,7 +844,8 @@ pub fn read_to_end(fd: &ScopedFd, mut offset: u64, mut buf: &mut [u8]) -> io::Re
     let mut size = buf.len();
     let mut ret = 0;
     while size > 0 {
-        match pread(fd.as_raw(), buf, offset as i64) {
+        // off_t is a i32 on x86 and i64 on x86_64
+        match pread(fd.as_raw(), buf, offset.try_into().unwrap()) {
             Err(e) => return Err(Error::new(ErrorKind::Other, e)),
             // EOF
             Ok(0) => return Ok(ret),
