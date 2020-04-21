@@ -225,7 +225,6 @@ pub mod record_task {
         open_mem_fd, read_bytes_fallible, read_bytes_helper, read_bytes_helper_for, read_c_str,
         syscallbuf_data_size, write_bytes, write_bytes_helper,
     };
-    use crate::task::replay_task::ReplayTask;
     use crate::task::task_inner::task_inner::{CloneReason, TaskInner, WriteFlags};
     use crate::task::Task;
     use crate::ticks::Ticks;
@@ -427,14 +426,6 @@ pub mod record_task {
 
         fn as_record_task_mut(&mut self) -> Option<&mut RecordTask> {
             Some(self)
-        }
-
-        fn as_replay_task(&self) -> Option<&ReplayTask> {
-            None
-        }
-
-        fn as_replay_task_mut(&mut self) -> Option<&mut ReplayTask> {
-            None
         }
 
         fn on_syscall_exit(&self, _syscallno: i32, _arch: SupportedArch, _regs: &Registers) {

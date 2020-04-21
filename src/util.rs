@@ -859,3 +859,7 @@ pub fn read_to_end(fd: &ScopedFd, mut offset: u64, mut buf: &mut [u8]) -> io::Re
     }
     Ok(ret)
 }
+
+pub fn raise_resource_limits() {
+    unimplemented!()
+}

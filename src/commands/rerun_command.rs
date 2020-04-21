@@ -6,15 +6,19 @@ use crate::kernel_abi::x64;
 #[cfg(target_arch = "x86")]
 use crate::kernel_abi::x86;
 use crate::kernel_abi::SupportedArch;
+use crate::log::LogLevel::{LogDebug, LogInfo};
 use crate::registers::Registers;
 use crate::remote_code_ptr::RemoteCodePtr;
 use crate::remote_ptr::RemotePtr;
-use crate::session::replay_session::ReplaySession;
+use crate::session::replay_session::{ReplaySession, ReplaySessionSharedPtr, ReplayStatus};
 use crate::session::session_inner::RunCommand;
-use crate::session::Session;
+use crate::session::{replay_session, Session};
 use crate::task::common::write_val_mem;
 use crate::task::Task;
+use crate::taskish_uid::TaskUid;
 use crate::trace::trace_frame::FrameTime;
+use crate::util::raise_resource_limits;
+use std::ffi::OsStr;
 use std::fmt::Write as fmtWrite;
 use std::io;
 use std::io::{stdout, Write};
@@ -131,7 +135,7 @@ fn find_seg_reg(reg: &str) -> Option<u8> {
     None
 }
 
-fn treat_event_completion_as_singlestep_complete(ev: Event) -> bool {
+fn treat_event_completion_as_singlestep_complete(ev: &Event) -> bool {
     match ev.event_type() {
         EventType::EvPatchSyscall | EventType::EvInstructionTrap | EventType::EvSyscall => true,
         _ => false,
@@ -141,7 +145,7 @@ fn treat_event_completion_as_singlestep_complete(ev: Event) -> bool {
 /// Return true if the final "event" state change doesn't really change any
 /// user-visible state and is therefore not to be considered a singlestep for
 /// our purposes.
-fn ignore_singlestep_for_event(ev: Event) -> bool {
+fn ignore_singlestep_for_event(ev: &Event) -> bool {
     match ev.event_type() {
         // These don't actually change user-visible state, so we skip them.
         EventType::EvSignal | EventType::EvSignalDelivery => true,
@@ -284,6 +288,131 @@ pub(super) fn parse_regs(regs_s: &str) -> Result<TraceFields, clap::Error> {
 }
 
 impl ReRerunCommand {
+    fn session_flags(&self) -> replay_session::Flags {
+        replay_session::Flags {
+            redirect_stdio: false,
+            share_private_mappings: false,
+            cpu_unbound: self.cpu_unbound,
+        }
+    }
+    fn rerun(&self, trace_dir: Option<&OsStr>) -> io::Result<i32> {
+        let replay_session: ReplaySessionSharedPtr =
+            ReplaySession::create(trace_dir, &self.session_flags());
+        let mut instruction_count_within_event: u64 = 0;
+        let mut done_first_step = false;
+
+        // Now that we've spawned the replay, raise our resource limits if possible.
+        raise_resource_limits();
+
+        while replay_session.borrow().trace_reader().time() < self.trace_end {
+            let mut cmd = RunCommand::RunContinue;
+
+            let before_time: FrameTime = replay_session.borrow().trace_reader().time();
+            let done_initial_exec = replay_session.borrow().done_initial_exec();
+            let old_task_tuid: Option<TaskUid>;
+            let old_ip: RemoteCodePtr;
+            {
+                let mut rs_mutb = replay_session.borrow_mut();
+                let old_task = rs_mutb.current_task_mut();
+                old_task_tuid = old_task.as_ref().map(|t| t.tuid());
+                old_ip = old_task.as_ref().map_or(0.into(), |t| t.ip());
+                if done_initial_exec && before_time >= self.trace_start {
+                    if !done_first_step {
+                        if !self.function.is_null() {
+                            self.run_diversion_function(
+                                &replay_session.borrow(),
+                                old_task.unwrap().as_mut(),
+                            )?;
+                            return Ok(0);
+                        }
+
+                        if !self.singlestep_trace.is_empty() {
+                            done_first_step = true;
+                            self.write_regs(
+                                old_task.unwrap().as_mut(),
+                                before_time - 1,
+                                instruction_count_within_event,
+                                &mut stdout(),
+                            )?;
+                        }
+                    }
+
+                    cmd = RunCommand::RunSinglestepFastForward;
+                }
+            }
+
+            let replayed_event = replay_session
+                .borrow()
+                .current_trace_frame()
+                .event()
+                .clone();
+
+            let result = replay_session.borrow_mut().replay_step(cmd);
+            if result.status == ReplayStatus::ReplayExited {
+                break;
+            }
+
+            let after_time: FrameTime = replay_session.borrow().trace_reader().time();
+            let singlestep_really_complete: bool;
+            if cmd != RunCommand::RunContinue {
+                {
+                    let mut rp_mutb = replay_session.borrow_mut();
+                    let old_task =
+                        old_task_tuid.map(|id| rp_mutb.find_task_from_task_uid_mut(id).unwrap());
+                    let after_ip: RemoteCodePtr = old_task.as_ref().map_or(0.into(), |t| t.ip());
+                    debug_assert!(after_time >= before_time && after_time <= before_time + 1);
+
+                    debug_assert!(result.status == ReplayStatus::ReplayContinue);
+                    debug_assert!(result.break_status.watchpoints_hit.is_empty());
+                    debug_assert!(!result.break_status.breakpoint_hit);
+                    debug_assert!(
+                        cmd == RunCommand::RunSinglestepFastForward
+                            || !result.break_status.singlestep_complete
+                    );
+
+                    // Treat singlesteps that partially executed a string instruction (that
+                    // was not interrupted) as not really singlestepping.
+                    singlestep_really_complete = result.break_status.singlestep_complete &&
+                        // ignore_singlestep_for_event only matters if we really completed the
+                        // event
+                        (!ignore_singlestep_for_event(&replayed_event) ||
+                            before_time == after_time) &&
+                        (!result.incomplete_fast_forward || old_ip != after_ip ||
+                            before_time < after_time);
+                    if !self.singlestep_trace.is_empty()
+                        && cmd == RunCommand::RunSinglestepFastForward
+                        && (singlestep_really_complete
+                            || (before_time < after_time
+                                && treat_event_completion_as_singlestep_complete(&replayed_event)))
+                    {
+                        self.write_regs(
+                            old_task.unwrap().as_mut(),
+                            before_time,
+                            instruction_count_within_event,
+                            &mut stdout(),
+                        )?;
+                    }
+                }
+
+                if singlestep_really_complete {
+                    instruction_count_within_event += 1;
+                }
+            }
+            if before_time < after_time {
+                log!(
+                    LogDebug,
+                    "Completed event {} instruction_count={}",
+                    before_time,
+                    instruction_count_within_event
+                );
+                instruction_count_within_event = 1;
+            }
+        }
+
+        log!(LogInfo, "Rerun successfully finished");
+        Ok(0)
+    }
+
     fn run_diversion_function(
         &self,
         replay: &ReplaySession,

@@ -27,11 +27,19 @@ pub trait Task: DerefMut<Target = TaskInner> {
     fn as_task_inner(&self) -> &TaskInner;
     fn as_task_inner_mut(&mut self) -> &mut TaskInner;
 
-    fn as_record_task(&self) -> Option<&RecordTask>;
-    fn as_record_task_mut(&mut self) -> Option<&mut RecordTask>;
+    fn as_record_task(&self) -> Option<&RecordTask> {
+        None
+    }
+    fn as_record_task_mut(&mut self) -> Option<&mut RecordTask> {
+        None
+    }
 
-    fn as_replay_task(&self) -> Option<&ReplayTask>;
-    fn as_replay_task_mut(&mut self) -> Option<&mut ReplayTask>;
+    fn as_replay_task(&self) -> Option<&ReplayTask> {
+        None
+    }
+    fn as_replay_task_mut(&mut self) -> Option<&mut ReplayTask> {
+        None
+    }
 
     /// Dump all pending events to the RecordTask INFO log.
     fn log_pending_events(&self) {}

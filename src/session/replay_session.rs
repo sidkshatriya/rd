@@ -7,7 +7,7 @@ use crate::remote_code_ptr::RemoteCodePtr;
 use crate::session::diversion_session::DiversionSessionSharedPtr;
 use crate::session::replay_session::ReplayTraceStepType::TstepNone;
 use crate::session::session_inner::session_inner::SessionInner;
-use crate::session::session_inner::BreakStatus;
+use crate::session::session_inner::{BreakStatus, RunCommand};
 use crate::session::Session;
 use crate::task::Task;
 use crate::ticks::Ticks;
@@ -16,6 +16,7 @@ use crate::trace::trace_reader::TraceReader;
 use crate::trace::trace_stream::TraceStream;
 use libc::siginfo_t;
 use std::cell::{Ref, RefCell, RefMut};
+use std::ffi::OsStr;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
@@ -81,13 +82,16 @@ pub enum ReplayTraceStep {
     Flush(ReplayFlushBufferedSyscallState),
 }
 
-#[derive(Copy, Clone)]
+#[derive(Eq, PartialEq, Copy, Clone)]
 pub enum ReplayStatus {
     /// Some execution was replayed. replay_step() can be called again.
     ReplayContinue,
     /// All tracees are dead. replay_step() should not be called again.
     ReplayExited,
 }
+
+/// @TODO
+pub struct StepConstraints;
 
 pub struct ReplayResult {
     pub status: ReplayStatus,
@@ -233,12 +237,55 @@ impl ReplaySession {
         self.trace_frame.time()
     }
 
+    /// The Task for the current trace record.
+    pub fn current_task(&mut self) -> Option<Ref<'_, Box<dyn Task>>> {
+        self.finish_initializing();
+        let found = self.find_task_from_rec_tid(self.trace_frame.tid());
+        found
+            .as_ref()
+            .map(|r| debug_assert!(r.as_replay_task().is_some()));
+        found
+    }
+
+    pub fn current_task_mut(&mut self) -> Option<RefMut<'_, Box<dyn Task>>> {
+        self.finish_initializing();
+        let mut found = self.find_task_from_rec_tid_mut(self.trace_frame.tid());
+        found
+            .as_mut()
+            .map(|r| debug_assert!(r.as_replay_task_mut().is_some()));
+        found
+    }
+
     pub fn is_ignored_signal(_sig: i32) -> bool {
         unimplemented!()
     }
 
     pub fn flags(&self) -> &Flags {
         &self.flags_
+    }
+    /// Create a replay session that will use the trace directory specified
+    /// by 'dir', or the latest trace if 'dir' is not supplied.
+    pub fn create(_dir: Option<&OsStr>, _flags: &Flags) -> ReplaySessionSharedPtr {
+        unimplemented!()
+    }
+
+    /// Take a single replay step.
+    /// Ensure we stop at event stop_at_time. If this is not specified,
+    /// optimizations may cause a replay_step to pass straight through
+    /// stop_at_time.
+    /// Outside of replay_step, no internal breakpoints will be set for any
+    /// task in this session.
+    /// Stop when the current event reaches stop_at_time (i.e. this event has
+    /// is the next event to be replayed).
+    /// If ticks_target is nonzero, stop before the current task's ticks
+    /// reaches ticks_target (but not too far before, unless we hit a breakpoint
+    /// or stop_at_time). Only useful for RUN_CONTINUE.
+    /// Always stops on a switch to a new task.
+    pub fn replay_step_with_constraints(&mut self, _constraints: &StepConstraints) -> ReplayResult {
+        unimplemented!()
+    }
+    pub fn replay_step(&mut self, _command: RunCommand) -> ReplayResult {
+        unimplemented!()
     }
 }
 

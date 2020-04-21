@@ -3,7 +3,6 @@ use crate::kernel_abi::SupportedArch;
 use crate::registers::Registers;
 use crate::remote_ptr::{RemotePtr, Void};
 use crate::session::{Session, SessionSharedWeakPtr};
-use crate::task::record_task::record_task::RecordTask;
 use crate::task::task_inner::task_inner::WriteFlags;
 use crate::task::task_inner::task_inner::{CloneReason, TaskInner};
 use crate::task::Task;
@@ -121,20 +120,12 @@ impl Task for ReplayTask {
         unimplemented!()
     }
 
-    fn as_record_task(&self) -> Option<&RecordTask> {
-        unimplemented!()
-    }
-
-    fn as_record_task_mut(&mut self) -> Option<&mut RecordTask> {
-        unimplemented!()
-    }
-
     fn as_replay_task(&self) -> Option<&ReplayTask> {
-        unimplemented!()
+        Some(self)
     }
 
     fn as_replay_task_mut(&mut self) -> Option<&mut ReplayTask> {
-        unimplemented!()
+        Some(self)
     }
 
     fn on_syscall_exit(&self, _syscallno: i32, _arch: SupportedArch, _regs: &Registers) {
