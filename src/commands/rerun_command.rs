@@ -1,3 +1,5 @@
+use crate::bindings::kernel::user_regs_struct as native_user_regs_struct;
+use crate::commands::rd_options::{RdOptions, RdSubCommand};
 use crate::commands::RdCommand;
 use crate::event::{Event, EventType};
 use crate::gdb_register::{DREG_64_XMM0, DREG_64_YMM0H, DREG_XMM0, DREG_YMM0H};
@@ -22,12 +24,20 @@ use std::ffi::OsStr;
 use std::fmt::Write as fmtWrite;
 use std::io;
 use std::io::{stdout, Write};
+use std::mem::size_of;
+use std::path::PathBuf;
 use structopt::clap;
 
-impl RdCommand for ReRerunCommand {
+impl RdCommand for ReRunCommand {
     fn run(&mut self) -> io::Result<()> {
         unimplemented!()
     }
+}
+
+#[repr(C)]
+union RegsData {
+    gp_regs: native_user_regs_struct,
+    regs_values: [usize; size_of::<native_user_regs_struct>() / size_of::<usize>()],
 }
 
 // DIFF NOTE: This is a u64 in rr. We make it a usize as x86 has 4 byte pointers.
@@ -190,16 +200,15 @@ struct TraceField {
 #[derive(Clone, Debug)]
 pub struct TraceFields(Vec<TraceField>);
 
-pub struct ReRerunCommand {
+pub struct ReRunCommand {
     trace_start: FrameTime,
     trace_end: FrameTime,
-    function: RemoteCodePtr,
+    function: Option<RemoteCodePtr>,
     singlestep_trace: Vec<TraceField>,
     raw_dump: bool,
     cpu_unbound: bool,
+    trace_dir: Option<PathBuf>,
 }
-
-impl ReRerunCommand {}
 
 pub(super) fn parse_regs(regs_s: &str) -> Result<TraceFields, clap::Error> {
     let reg_strs: Vec<&str> = regs_s.split(',').map(|r| r.trim()).collect();
@@ -287,7 +296,29 @@ pub(super) fn parse_regs(regs_s: &str) -> Result<TraceFields, clap::Error> {
     Ok(TraceFields(registers))
 }
 
-impl ReRerunCommand {
+impl ReRunCommand {
+    pub fn new(options: &RdOptions) -> ReRunCommand {
+        match options.cmd.clone() {
+            RdSubCommand::ReRun {
+                trace_start,
+                trace_end,
+                raw,
+                cpu_unbound,
+                function_addr,
+                singlestep_regs,
+                trace_dir,
+            } => ReRunCommand {
+                trace_start: trace_start.unwrap_or(FrameTime::MIN),
+                trace_end: trace_start.unwrap_or(FrameTime::MAX),
+                function: function_addr.map(|a| a.into()),
+                singlestep_trace: singlestep_regs.map_or(Vec::new(), |r| r.0),
+                raw_dump: raw,
+                cpu_unbound,
+                trace_dir,
+            },
+            _ => panic!("Unexpected RdSubCommand variant. Not a ReRun variant!"),
+        }
+    }
     fn session_flags(&self) -> replay_session::Flags {
         replay_session::Flags {
             redirect_stdio: false,
@@ -318,7 +349,7 @@ impl ReRerunCommand {
                 old_ip = old_task.as_ref().map_or(0.into(), |t| t.ip());
                 if done_initial_exec && before_time >= self.trace_start {
                     if !done_first_step {
-                        if !self.function.is_null() {
+                        if !self.function.is_some() {
                             self.run_diversion_function(
                                 &replay_session.borrow(),
                                 old_task.unwrap().as_mut(),
@@ -362,7 +393,7 @@ impl ReRerunCommand {
                     let after_ip: RemoteCodePtr = old_task.as_ref().map_or(0.into(), |t| t.ip());
                     debug_assert!(after_time >= before_time && after_time <= before_time + 1);
 
-                    debug_assert!(result.status == ReplayStatus::ReplayContinue);
+                    debug_assert_eq!(result.status, ReplayStatus::ReplayContinue);
                     debug_assert!(result.break_status.watchpoints_hit.is_empty());
                     debug_assert!(!result.break_status.breakpoint_hit);
                     debug_assert!(
@@ -428,7 +459,8 @@ impl ReRerunCommand {
         let sp = RemotePtr::<usize>::new_from_val((regs.sp().as_usize() & !0xf) - 1);
         write_val_mem(t.as_mut(), sp, &SENTINEL_RET_ADDRESS, None);
         regs.set_sp(RemotePtr::cast(sp));
-        regs.set_ip(self.function);
+        // If we've called this method then we assume that there is always an address in self.function
+        regs.set_ip(self.function.unwrap());
         regs.set_di(0);
         regs.set_si(0);
         t.set_regs(&regs);

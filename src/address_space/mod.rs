@@ -42,7 +42,7 @@ pub enum BreakpointType {
 
 /// NB: these random-looking enumeration values are chosen to
 /// match the numbers programmed into x86 debug registers.
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum WatchType {
     WatchExec = 0x00,
     WatchWrite = 0x01,
@@ -157,7 +157,7 @@ impl SyscallType {
 
 /// A distinct watchpoint, corresponding to the information needed to
 /// program a single x86 debug register.
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct WatchConfig {
     pub addr: RemotePtr<Void>,
     pub num_bytes: usize,

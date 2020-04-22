@@ -82,7 +82,7 @@ pub enum ReplayTraceStep {
     Flush(ReplayFlushBufferedSyscallState),
 }
 
-#[derive(Eq, PartialEq, Copy, Clone)]
+#[derive(Eq, Debug, PartialEq, Copy, Clone)]
 pub enum ReplayStatus {
     /// Some execution was replayed. replay_step() can be called again.
     ReplayContinue,
@@ -93,6 +93,7 @@ pub enum ReplayStatus {
 /// @TODO
 pub struct StepConstraints;
 
+#[derive(Debug)]
 pub struct ReplayResult {
     pub status: ReplayStatus,
     pub break_status: BreakStatus,

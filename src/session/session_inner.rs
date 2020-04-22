@@ -2,7 +2,7 @@ use crate::address_space::WatchConfig;
 use crate::task::task_inner::task_inner::TaskInner;
 use libc::siginfo_t;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct BreakStatus {
     /// The triggering Task. This may be different from session->current_task()
     /// when replay switches to a new task when ReplaySession::replay_step() ends.

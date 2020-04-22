@@ -63,6 +63,7 @@ mod weak_ptr_set;
 use crate::commands::build_id_command::BuildIdCommand;
 use crate::commands::dump_command::DumpCommand;
 use crate::commands::rd_options::{RdOptions, RdSubCommand};
+use crate::commands::rerun_command::ReRunCommand;
 use crate::commands::RdCommand;
 use std::io;
 use structopt::StructOpt;
@@ -74,6 +75,10 @@ fn main() -> io::Result<()> {
         RdSubCommand::BuildId => return BuildIdCommand::new().run(),
         RdSubCommand::Dump { .. } => {
             DumpCommand::new(&options).run()?;
+            println!("{:?}", options);
+        }
+        RdSubCommand::ReRun { .. } => {
+            ReRunCommand::new(&options).run()?;
             println!("{:?}", options);
         }
         _ => {
