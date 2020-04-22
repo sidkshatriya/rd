@@ -1,7 +1,9 @@
+use crate::assert_prerequisites;
 use crate::bindings::kernel::user_regs_struct as native_user_regs_struct;
 use crate::commands::rd_options::{RdOptions, RdSubCommand};
 use crate::commands::RdCommand;
 use crate::event::{Event, EventType};
+use crate::flags::Flags;
 use crate::gdb_register::{DREG_64_XMM0, DREG_64_YMM0H, DREG_XMM0, DREG_YMM0H};
 #[cfg(target_arch = "x86_64")]
 use crate::kernel_abi::x64;
@@ -19,17 +21,44 @@ use crate::task::common::write_val_mem;
 use crate::task::Task;
 use crate::taskish_uid::TaskUid;
 use crate::trace::trace_frame::FrameTime;
-use crate::util::raise_resource_limits;
+use crate::util::{raise_resource_limits, running_under_rd};
+use nix::unistd::{getpid, getppid};
 use std::fmt::Write as fmtWrite;
-use std::io::{stdout, Write};
+use std::io::{stderr, stdout, Write};
 use std::mem::size_of;
 use std::path::PathBuf;
 use std::{io, mem};
 use structopt::clap;
 
 impl RdCommand for ReRunCommand {
+    /// DIFF NOTE: In rr a result code e.g. 3 is returned. We simply return `Ok(())` in case there is
+    /// no error or a `Err(_)` if there is.
     fn run(&mut self) -> io::Result<()> {
-        unimplemented!()
+        assert_prerequisites(None);
+        if running_under_rd() {
+            if !Flags::get().suppress_environment_warnings {
+                write!(
+                    stderr(),
+                    "rd: rd pid {} running under parent {}. Good luck.\n",
+                    getpid(),
+                    getppid()
+                )?;
+            }
+            if self.trace_dir.is_none() {
+                write!(
+                    stderr(),
+                    "rd: No trace-dir supplied. You'll try to rerun the recording of this rd \
+                        and have a bad time. Bailing out.\n"
+                )?;
+                // DIFF NOTE: An error code of 3 is returned in rr. We return an `Err(_)`
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "No trace dir supplied",
+                ));
+            }
+        }
+
+        self.rerun()
     }
 }
 
@@ -325,7 +354,8 @@ impl ReRunCommand {
             cpu_unbound: self.cpu_unbound,
         }
     }
-    fn rerun(&self) -> io::Result<i32> {
+    // DIFF NOTE: In rr a result code e.g. 0 is return. We simply return Ok(()) if there is no error.
+    fn rerun(&self) -> io::Result<()> {
         let replay_session: ReplaySessionSharedPtr =
             ReplaySession::create(self.trace_dir.as_ref(), &self.session_flags());
         let mut instruction_count_within_event: u64 = 0;
@@ -353,7 +383,7 @@ impl ReRunCommand {
                                 &replay_session.borrow(),
                                 old_task.unwrap().as_mut(),
                             )?;
-                            return Ok(0);
+                            return Ok(());
                         }
 
                         if !self.singlestep_trace.is_empty() {
@@ -440,7 +470,7 @@ impl ReRunCommand {
         }
 
         log!(LogInfo, "Rerun successfully finished");
-        Ok(0)
+        Ok(())
     }
 
     fn run_diversion_function(

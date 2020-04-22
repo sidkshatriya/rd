@@ -65,8 +65,34 @@ use crate::commands::dump_command::DumpCommand;
 use crate::commands::rd_options::{RdOptions, RdSubCommand};
 use crate::commands::rerun_command::ReRunCommand;
 use crate::commands::RdCommand;
+use nix::sys::utsname::uname;
 use std::io;
 use structopt::StructOpt;
+
+pub fn assert_prerequisites(maybe_use_syscall_buffer: Option<bool>) {
+    let use_syscall_buffer = maybe_use_syscall_buffer.unwrap_or(false);
+    let unm = uname();
+    let release = unm.release();
+    let parts: Vec<&str> = release.split('.').collect();
+    if parts.len() < 2 {
+        fatal!("Could not parse kernel version string. Got: `{}`", release);
+    }
+
+    let maybe_major = parts[0].parse::<u32>();
+    let maybe_minor = parts[1].parse::<u32>();
+    if maybe_major.is_err() || maybe_minor.is_err() {
+        fatal!("Could not parse kernel version string. Got: `{}`", release);
+    }
+
+    let (major, minor) = (maybe_major.unwrap(), maybe_minor.unwrap());
+    if (major, minor) < (3, 4) {
+        fatal!("Kernel doesn't support necessary ptrace functionality; need 3.4.0 or better.");
+    }
+
+    if use_syscall_buffer && (major, minor) < (3, 5) {
+        fatal!("Your kernel does not support syscall filtering; please use the -n option while recording");
+    }
+}
 
 fn main() -> io::Result<()> {
     let options = RdOptions::from_args();

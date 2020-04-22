@@ -21,8 +21,7 @@ use std::mem::size_of;
 use std::os::unix::ffi::OsStringExt;
 use std::path::PathBuf;
 
-pub struct DumpCommand<'a> {
-    options: &'a RdOptions,
+pub struct DumpCommand {
     dump_syscallbuf: bool,
     dump_task_events: bool,
     dump_recorded_data_metadata: bool,
@@ -34,7 +33,7 @@ pub struct DumpCommand<'a> {
     event_spec: Option<(FrameTime, Option<FrameTime>)>,
 }
 
-impl<'a> DumpCommand<'a> {
+impl DumpCommand {
     pub fn new(options: &RdOptions) -> DumpCommand {
         match options.cmd.clone() {
             RdSubCommand::Dump {
@@ -48,7 +47,6 @@ impl<'a> DumpCommand<'a> {
                 trace_dir,
                 event_spec,
             } => DumpCommand {
-                options,
                 dump_syscallbuf: syscallbuf,
                 dump_task_events: task_events,
                 dump_recorded_data_metadata: recorded_metadata,
@@ -247,7 +245,7 @@ impl<'a> DumpCommand<'a> {
     }
 }
 
-impl<'a> RdCommand for DumpCommand<'a> {
+impl RdCommand for DumpCommand {
     fn run(&mut self) -> io::Result<()> {
         self.dump(&mut stdout())
     }
