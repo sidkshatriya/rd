@@ -25,7 +25,7 @@ use rand::random;
 use std::cmp::{max, min};
 use std::convert::TryInto;
 use std::env::var_os;
-use std::ffi::{c_void, OsStr, OsString};
+use std::ffi::{c_void, CString, OsStr, OsString};
 use std::io::{Error, ErrorKind};
 use std::mem::{size_of_val, zeroed};
 use std::os::unix::ffi::OsStrExt;
@@ -805,6 +805,25 @@ fn env_ptr<Arch: Architecture>(t: &mut dyn Task) -> RemotePtr<Arch::unsigned_wor
     ed_assert!(t, null_ptr == 0u8.into());
     stack_ptr += 1;
     stack_ptr
+}
+
+fn read_env_arch<Arch: Architecture>(t: &mut dyn Task) -> Vec<CString> {
+    let mut stack_ptr = env_ptr::<Arch>(t);
+    // Should now point to envp
+    let mut result: Vec<CString> = Vec::new();
+    loop {
+        let p = read_val_mem::<Arch::unsigned_word>(t, stack_ptr, None);
+        stack_ptr += 1;
+        if p == 0.into() {
+            break;
+        }
+        result.push(t.read_c_str(RemotePtr::new_from_val(p.try_into().unwrap())));
+    }
+    result
+}
+
+pub fn read_env(t: &mut dyn Task) -> Vec<CString> {
+    rd_arch_function_selfless!(read_env_arch, t.arch(), t)
 }
 
 pub fn read_auxv(t: &mut dyn Task) -> Vec<u8> {

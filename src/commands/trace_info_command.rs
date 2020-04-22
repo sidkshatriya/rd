@@ -1,8 +1,12 @@
 use crate::commands::rd_options::{RdOptions, RdSubCommand};
 use crate::commands::RdCommand;
 use crate::perf_counters::TicksSemantics;
+use crate::session::replay_session::{Flags, ReplaySession, ReplayStatus};
+use crate::session::session_inner::RunCommand;
 use crate::trace::trace_reader::TraceReader;
+use crate::util::read_env;
 use serde::Serialize;
+use std::ffi::CString;
 use std::io;
 use std::path::PathBuf;
 
@@ -28,7 +32,7 @@ struct TraceHeader {
     cpuid_faulting: bool,
     ticks_semantics: String,
     cpuid_records: Vec<[u32; 6]>,
-    environ: Vec<String>,
+    environ: Vec<CString>,
 }
 
 impl RdCommand for TraceInfoCommand {
@@ -51,6 +55,37 @@ impl RdCommand for TraceInfoCommand {
             ]);
         }
 
+        let flags = Flags {
+            redirect_stdio: false,
+            share_private_mappings: false,
+            cpu_unbound: true,
+        };
+        let replay_session = ReplaySession::create(self.trace_dir.as_ref(), &flags);
+
+        let environ: Vec<CString>;
+        loop {
+            let result = replay_session
+                .borrow_mut()
+                .replay_step(RunCommand::RunContinue);
+            if replay_session.borrow().done_initial_exec() {
+                environ = read_env(
+                    replay_session
+                        .borrow_mut()
+                        .current_task_mut()
+                        .unwrap()
+                        .as_mut(),
+                );
+                break;
+            }
+
+            if result.status == ReplayStatus::ReplayExited {
+                return Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    "Replay finished before initial exec!",
+                ));
+            }
+        }
+
         let header = TraceHeader {
             uuid: uuid_bytes,
             xcr0,
@@ -58,8 +93,7 @@ impl RdCommand for TraceInfoCommand {
             cpuid_faulting,
             ticks_semantics,
             cpuid_records,
-            // @TODO
-            environ: vec![],
+            environ,
         };
 
         let serialized = serde_json::to_string(&header).unwrap();

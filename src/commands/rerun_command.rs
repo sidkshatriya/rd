@@ -45,15 +45,11 @@ impl RdCommand for ReRunCommand {
                 )?;
             }
             if self.trace_dir.is_none() {
-                write!(
-                    stderr(),
-                    "rd: No trace-dir supplied. You'll try to rerun the recording of this rd \
-                        and have a bad time. Bailing out.\n"
-                )?;
                 // DIFF NOTE: An error code of 3 is returned in rr. We return an `Err(_)`
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
-                    "No trace dir supplied",
+                    "No trace-dir supplied. You'll try to rerun the recording of this rd \
+                        and have a bad time. Bailing out.",
                 ));
             }
         }

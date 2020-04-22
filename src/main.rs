@@ -114,6 +114,6 @@ fn main() -> io::Result<()> {
         _ => (),
     }
 
-    write!(stderr(), "{:?}\n", options);
+    write!(stderr(), "{:?}\n", options)?;
     Ok(())
 }
