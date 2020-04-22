@@ -266,7 +266,7 @@ impl ReplaySession {
     }
     /// Create a replay session that will use the trace directory specified
     /// by 'dir', or the latest trace if 'dir' is not supplied.
-    pub fn create(_dir: Option<&OsStr>, _flags: &Flags) -> ReplaySessionSharedPtr {
+    pub fn create<T: AsRef<OsStr>>(_dir: Option<&T>, _flags: &Flags) -> ReplaySessionSharedPtr {
         unimplemented!()
     }
 

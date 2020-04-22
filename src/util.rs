@@ -22,6 +22,7 @@ use nix::unistd::{access, ftruncate, isatty, mkdir, read, write};
 use nix::unistd::{sysconf, AccessFlags};
 use nix::NixPath;
 use rand::random;
+use std::cmp::{max, min};
 use std::convert::TryInto;
 use std::env::var_os;
 use std::ffi::{c_void, OsStr, OsString};
@@ -31,7 +32,8 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::ffi::OsStringExt;
 use std::path::Path;
 use std::ptr::copy_nonoverlapping;
-use std::{env, io};
+use std::sync::Mutex;
+use std::{env, io, mem};
 
 pub const CPUID_GETVENDORSTRING: u32 = 0x0;
 pub const CPUID_GETFEATURES: u32 = 0x1;
@@ -61,6 +63,7 @@ pub const XSAVEC_FEATURE_FLAG: u32 = 1 << 1;
 lazy_static! {
     static ref XSAVE_NATIVE_LAYOUT: XSaveLayout = xsave_native_layout_init();
     static ref SYSTEM_PAGE_SIZE: usize = page_size_init();
+    static ref SAVED_FD_LIMIT: Mutex<Option<libc::rlimit>> = Mutex::new(None);
 }
 
 pub fn running_under_rd() -> bool {
@@ -861,5 +864,40 @@ pub fn read_to_end(fd: &ScopedFd, mut offset: u64, mut buf: &mut [u8]) -> io::Re
 }
 
 pub fn raise_resource_limits() {
-    unimplemented!()
+    let mut initial_fd_limit: libc::rlimit = unsafe { mem::zeroed() };
+    if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &raw mut initial_fd_limit) } < 0 {
+        fatal!("Can't get RLIMIT_NOFILE");
+    }
+
+    // Save the fd limit just obtained
+    {
+        let mut data = SAVED_FD_LIMIT.lock().unwrap();
+        *data = Some(initial_fd_limit);
+    }
+
+    let mut new_limit = initial_fd_limit;
+
+    // Try raising fd limit to 65536
+    new_limit.rlim_cur = max(new_limit.rlim_cur, 65536);
+    if new_limit.rlim_max != libc::RLIM_INFINITY {
+        new_limit.rlim_cur = min(new_limit.rlim_cur, new_limit.rlim_max);
+    }
+    if new_limit.rlim_cur != initial_fd_limit.rlim_cur {
+        if unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &raw const new_limit) } < 0 {
+            log!(LogWarn, "Failed to raise file descriptor limit");
+        }
+    }
+}
+
+pub fn restore_initial_resource_limits() {
+    let initial_fd_limit: libc::rlimit;
+    // Obtain the fd limit saved earlier
+    {
+        let data = SAVED_FD_LIMIT.lock().unwrap();
+        initial_fd_limit = data.unwrap();
+    }
+
+    if unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &raw const initial_fd_limit) } < 0 {
+        log!(LogWarn, "Failed to reset file descriptor limit");
+    }
 }

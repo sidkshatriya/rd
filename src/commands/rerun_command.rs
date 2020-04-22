@@ -20,7 +20,6 @@ use crate::task::Task;
 use crate::taskish_uid::TaskUid;
 use crate::trace::trace_frame::FrameTime;
 use crate::util::raise_resource_limits;
-use std::ffi::OsStr;
 use std::fmt::Write as fmtWrite;
 use std::io::{stdout, Write};
 use std::mem::size_of;
@@ -326,9 +325,9 @@ impl ReRunCommand {
             cpu_unbound: self.cpu_unbound,
         }
     }
-    fn rerun(&self, trace_dir: Option<&OsStr>) -> io::Result<i32> {
+    fn rerun(&self) -> io::Result<i32> {
         let replay_session: ReplaySessionSharedPtr =
-            ReplaySession::create(trace_dir, &self.session_flags());
+            ReplaySession::create(self.trace_dir.as_ref(), &self.session_flags());
         let mut instruction_count_within_event: u64 = 0;
         let mut done_first_step = false;
 
