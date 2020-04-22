@@ -33,7 +33,7 @@ use crate::util::{
 use crate::wait_status::WaitStatus;
 use capnp::message::ReaderOptions;
 use capnp::serialize_packed::read_message;
-use libc::pid_t;
+use libc::{ino_t, pid_t, time_t};
 use nix::errno::errno;
 use nix::sys::mman::{MapFlags, ProtFlags};
 use nix::sys::stat::stat;
@@ -42,6 +42,7 @@ use nix::unistd::access;
 use nix::unistd::AccessFlags;
 use static_assertions::_core::intrinsics::copy_nonoverlapping;
 use std::collections::HashMap;
+use std::convert::TryFrom;
 use std::convert::TryInto;
 use std::ffi::{OsStr, OsString};
 use std::fs::File;
@@ -345,13 +346,13 @@ impl TraceReader {
                                 }
                                 let backing_stat: FileStat = maybe_file_stat.unwrap();
                                 // On x86 ino_t is a u32 and on x86_64 ino_t is a u64
-                                if backing_stat.st_ino != map.get_inode().try_into().unwrap()
+                                if backing_stat.st_ino != ino_t::try_from(map.get_inode()).unwrap()
                                     || backing_stat.st_mode != mode
                                     || backing_stat.st_uid != uid
                                     || backing_stat.st_gid != gid
                                     || backing_stat.st_size as u64 != size
                                     // On x86 mtime is an i32 and on x86_64 it is an i64
-                                    || backing_stat.st_mtime != mtime.try_into().unwrap()
+                                    || backing_stat.st_mtime != time_t::try_from(mtime).unwrap()
                                 {
                                     log!(
                                         LogError,

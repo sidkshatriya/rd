@@ -64,9 +64,12 @@ use crate::commands::build_id_command::BuildIdCommand;
 use crate::commands::dump_command::DumpCommand;
 use crate::commands::rd_options::{RdOptions, RdSubCommand};
 use crate::commands::rerun_command::ReRunCommand;
+use crate::commands::trace_info_command::TraceInfoCommand;
 use crate::commands::RdCommand;
 use nix::sys::utsname::uname;
 use std::io;
+use std::io::stderr;
+use std::io::Write;
 use structopt::StructOpt;
 
 pub fn assert_prerequisites(maybe_use_syscall_buffer: Option<bool>) {
@@ -101,16 +104,16 @@ fn main() -> io::Result<()> {
         RdSubCommand::BuildId => return BuildIdCommand::new().run(),
         RdSubCommand::Dump { .. } => {
             DumpCommand::new(&options).run()?;
-            println!("{:?}", options);
         }
         RdSubCommand::ReRun { .. } => {
             ReRunCommand::new(&options).run()?;
-            println!("{:?}", options);
         }
-        _ => {
-            println!("{:?}", options);
+        RdSubCommand::TraceInfo { .. } => {
+            TraceInfoCommand::new(&options).run()?;
         }
+        _ => (),
     }
 
+    write!(stderr(), "{:?}\n", options);
     Ok(())
 }

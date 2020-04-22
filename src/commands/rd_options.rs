@@ -137,25 +137,18 @@ fn parse_dump_on(dump_on_s: &str) -> Result<DumpOn, Box<dyn Error>> {
 pub enum RdSubCommand {
     /// Accepts paths on stdin, prints buildids on stdout. Will terminate when either an empty
     /// line or an invalid path is provided.
-    #[structopt(
-        name = "buildid",
-        about = "Accepts paths to elf files from stdin, prints elf build ids on stdout."
-    )]
+    #[structopt(name = "buildid")]
     BuildId,
 
     /// Print `rd record` command line options that will limit the tracee to CPU features
     /// this machine supports. Useful for trace portability: run `rd cpufeatures` on the machine
     /// you plan to replay on, then add those command-line parameters to `rd record` on the
     /// recording machine.
-    #[structopt(
-        name = "cpufeatures",
-        about = "Print `rd record` command line options that will limit the tracee to CPU features \
-        this machine supports."
-    )]
+    #[structopt(name = "cpufeatures")]
     CpuFeatures,
 
     /// dump data from the recorded trace
-    #[structopt(name = "dump", about = "Dump data from the recorded trace")]
+    #[structopt(name = "dump")]
     Dump {
         #[structopt(short = "b", long, help = "dump syscallbuf events")]
         syscallbuf: bool,
@@ -230,6 +223,12 @@ pub enum RdSubCommand {
         #[structopt(long = "singlestep", parse(try_from_str = crate::commands::rerun_command::parse_regs))]
         singlestep_regs: Option<TraceFields>,
 
+        /// which directory is the trace data in? If omitted the latest trace dir is used
+        trace_dir: Option<PathBuf>,
+    },
+    /// Dump trace header in JSON format.
+    #[structopt(name = "traceinfo")]
+    TraceInfo {
         /// which directory is the trace data in? If omitted the latest trace dir is used
         trace_dir: Option<PathBuf>,
     },
