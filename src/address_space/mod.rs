@@ -3208,10 +3208,10 @@ fn read_kernel_mapping(tid: pid_t, addr: RemotePtr<Void>) -> KernelMapping {
 #[cfg(target_arch = "x86_64")]
 pub extern "C" fn rd_syscall_addr() {
     unsafe {
-        asm!("syscall" :::: "volatile");
-        asm!("nop" :::: "volatile");
-        asm!("nop" :::: "volatile");
-        asm!("nop" :::: "volatile");
+        llvm_asm!("syscall" :::: "volatile");
+        llvm_asm!("nop" :::: "volatile");
+        llvm_asm!("nop" :::: "volatile");
+        llvm_asm!("nop" :::: "volatile");
     }
 }
 
@@ -3219,10 +3219,10 @@ pub extern "C" fn rd_syscall_addr() {
 #[cfg(target_arch = "x86")]
 pub extern "C" fn rd_syscall_addr() {
     unsafe {
-        asm!("int $$0x80" :::: "volatile");
-        asm!("nop" :::: "volatile");
-        asm!("nop" :::: "volatile");
-        asm!("nop" :::: "volatile");
+        llvm_asm!("int $$0x80" :::: "volatile");
+        llvm_asm!("nop" :::: "volatile");
+        llvm_asm!("nop" :::: "volatile");
+        llvm_asm!("nop" :::: "volatile");
     }
 }
 

@@ -1,4 +1,4 @@
-#![feature(asm)]
+#![feature(llvm_asm)]
 #![feature(raw_ref_op)]
 // @TODO To many results for "never used". Disable for now.
 #![allow(dead_code)]

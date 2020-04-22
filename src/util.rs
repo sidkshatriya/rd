@@ -722,7 +722,7 @@ pub fn xcr0() -> u64 {
     let eax: u32;
     let edx: u32;
     unsafe {
-        asm!("xgetbv"
+        llvm_asm!("xgetbv"
             : "={eax}"(eax), "={edx}"(edx)
             : "{ecx}"(0)
             :: "volatile"
