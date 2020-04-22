@@ -22,10 +22,10 @@ use crate::trace::trace_frame::FrameTime;
 use crate::util::raise_resource_limits;
 use std::ffi::OsStr;
 use std::fmt::Write as fmtWrite;
-use std::io;
 use std::io::{stdout, Write};
 use std::mem::size_of;
 use std::path::PathBuf;
+use std::{io, mem};
 use structopt::clap;
 
 impl RdCommand for ReRunCommand {
@@ -36,7 +36,7 @@ impl RdCommand for ReRunCommand {
 
 #[repr(C)]
 union RegsData {
-    gp_regs: native_user_regs_struct,
+    native: native_user_regs_struct,
     regs_values: [usize; size_of::<native_user_regs_struct>() / size_of::<usize>()],
 }
 
@@ -309,7 +309,7 @@ impl ReRunCommand {
                 trace_dir,
             } => ReRunCommand {
                 trace_start: trace_start.unwrap_or(FrameTime::MIN),
-                trace_end: trace_start.unwrap_or(FrameTime::MAX),
+                trace_end: trace_end.unwrap_or(FrameTime::MAX),
                 function: function_addr.map(|a| a.into()),
                 singlestep_trace: singlestep_regs.map_or(Vec::new(), |r| r.0),
                 raw_dump: raw,
@@ -506,6 +506,7 @@ impl ReRunCommand {
         out: &mut dyn Write,
     ) -> io::Result<()> {
         let mut got_gp_regs = false;
+        let mut gp_regs: RegsData = unsafe { mem::zeroed() };
         let mut first = true;
 
         for field in &self.singlestep_trace {
@@ -587,7 +588,33 @@ impl ReRunCommand {
                     let value: u64 = t.extra_regs().read_xinuse().unwrap_or(0);
                     self.write_value("xinuse", &value.to_le_bytes(), out)?;
                 }
-                TraceFieldKind::TraceGpReg => unimplemented!(),
+                // @TODO Will this work properly if rr is a x86 build?
+                TraceFieldKind::TraceGpReg => {
+                    if !got_gp_regs {
+                        gp_regs = RegsData {
+                            native: t.regs_ref().get_ptrace(),
+                        };
+                        got_gp_regs = true;
+                    }
+                    let mut value: u64 = if (field.reg_num as usize) < USER_REGS_FIELDS.len() {
+                        (unsafe {
+                            gp_regs.regs_values
+                                [USER_REGS_FIELDS[field.reg_num as usize] / size_of::<usize>()]
+                        }) as u64
+                    } else {
+                        0
+                    };
+                    if field.reg_num == 0 && t.arch() == SupportedArch::X86 {
+                        // EAX->RAX is sign-extended, so undo that.
+                        value = (value as u32) as u64;
+                    }
+                    let name = if t.arch() == SupportedArch::X86 && field.reg_num < 8 {
+                        GP_REG_NAMES_32[field.reg_num as usize]
+                    } else {
+                        GP_REG_NAMES[field.reg_num as usize]
+                    };
+                    self.write_value(name, &value.to_le_bytes(), out)?;
+                }
                 TraceFieldKind::TraceXmmReg => {
                     let mut value = [0u8; 16];
                     match t.arch() {
