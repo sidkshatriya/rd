@@ -533,7 +533,7 @@ fn always_recreate_counters() -> bool {
     PMU_BUGS_AND_EXTRA.has_ioc_period_bug || PMU_BUGS_AND_EXTRA.has_kvm_in_txcp_bug
 }
 
-/// @TODO Return type is an i64 on rr.
+/// DIFF NOTE: Return type is an i64 on rr.
 fn read_counter(fd: &ScopedFd) -> u64 {
     let mut buf = [0u8; size_of::<u64>()];
     let result = read(fd.as_raw(), &mut buf);
