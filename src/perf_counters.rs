@@ -40,7 +40,7 @@ const PERF_COUNT_RD: u32 = 0x72727272;
 
 /// This choice is fairly arbitrary; linux doesn't use SIGSTKFLT so we
 /// hope that tracees don't either.
-const TIME_SLICE_SIGNAL: i32 = libc::SIGSTKFLT;
+pub const TIME_SLICE_SIGNAL: i32 = libc::SIGSTKFLT;
 
 const IN_TX: u64 = 1 << 32;
 const IN_TXCP: u64 = 1 << 33;

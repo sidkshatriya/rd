@@ -3,6 +3,7 @@ use crate::cpuid_bug_detector::CPUIDBugDetector;
 use crate::emu_fs::{EmuFs, EmuFsSharedPtr};
 use crate::fast_forward::FastForwardStatus;
 use crate::kernel_abi::SupportedArch;
+use crate::perf_counters::TIME_SLICE_SIGNAL;
 use crate::remote_code_ptr::RemoteCodePtr;
 use crate::session::diversion_session::DiversionSessionSharedPtr;
 use crate::session::replay_session::ReplayTraceStepType::TstepNone;
@@ -257,8 +258,13 @@ impl ReplaySession {
         found
     }
 
-    pub fn is_ignored_signal(_sig: i32) -> bool {
-        unimplemented!()
+    pub fn is_ignored_signal(sig: i32) -> bool {
+        match sig {
+            // TIME_SLICE_SIGNALs can be queued but not delivered before we stop
+            // execution for some other reason. Ignore them.
+            TIME_SLICE_SIGNAL => true,
+            _ => return false,
+        }
     }
 
     pub fn flags(&self) -> &Flags {
