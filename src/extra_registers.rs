@@ -694,10 +694,9 @@ fn convert_x86_fpregs_to_fxsave(
 ) {
     for i in 0..8 {
         unsafe {
-            // @TODO check this. Is this correct?
             copy_nonoverlapping(
-                std::mem::transmute::<&[i32; 20], *const u8>(&buf.st_space).add(i * 10),
-                &mut result.st_space[i * 4] as *mut i32 as *mut u8,
+                (&raw const buf.st_space as *const u8).add(i * 10),
+                &raw mut result.st_space[i * 4] as *mut u8,
                 10,
             );
         }
