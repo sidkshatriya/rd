@@ -18,7 +18,7 @@ impl TraceInfoCommand {
     pub fn new(options: &RdOptions) -> TraceInfoCommand {
         match options.cmd.clone() {
             RdSubCommand::TraceInfo { trace_dir } => TraceInfoCommand { trace_dir },
-            _ => panic!("Unexpected RdSubCommand variant. Not a TraceInfo variant!"),
+            _ => panic!("Unexpected RdSubCommand variant. Not a `TraceInfo` variant!"),
         }
     }
 }

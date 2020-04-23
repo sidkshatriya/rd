@@ -11,6 +11,7 @@ use std::fmt::Result;
 
 pub const PTRACE_EVENT_STOP: i32 = _PTRACE_EVENT_STOP as i32;
 
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 /// Called simply `Type` in rr.
 pub enum WaitType {
     /// Task exited normally.
@@ -31,7 +32,7 @@ pub enum WaitType {
     PtraceEvent,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub struct WaitStatus {
     status: i32,
 }

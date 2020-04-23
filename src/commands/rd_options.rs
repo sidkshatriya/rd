@@ -86,7 +86,7 @@ pub struct RdOptions {
     short = "C",
     long,
     parse(try_from_str = parse_checksum),
-    help = "where <checksum> := on-syscalls | on-all-events | <from-time>\n\n\
+    help = "where <checksum> := `on-syscalls` | `on-all-events` | <from-time>\n\n\
                 compute and store (during recording) or read and verify (during replay) checksums \
                 of each of a tracee's memory mappings either at the end of all syscalls (`on-syscalls'), \
                 at all events (`on-all-events'), or starting from a global timepoint <from-time> \
@@ -229,6 +229,12 @@ pub enum RdSubCommand {
     /// Dump trace header in JSON format.
     #[structopt(name = "traceinfo")]
     TraceInfo {
+        /// which directory is the trace data in? If omitted the latest trace dir is used
+        trace_dir: Option<PathBuf>,
+    },
+    /// Dump information on the processes encountered during recording.
+    #[structopt(name = "ps")]
+    Ps {
         /// which directory is the trace data in? If omitted the latest trace dir is used
         trace_dir: Option<PathBuf>,
     },

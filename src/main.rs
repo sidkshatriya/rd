@@ -62,6 +62,7 @@ mod weak_ptr_set;
 
 use crate::commands::build_id_command::BuildIdCommand;
 use crate::commands::dump_command::DumpCommand;
+use crate::commands::ps_command::PsCommand;
 use crate::commands::rd_options::{RdOptions, RdSubCommand};
 use crate::commands::rerun_command::ReRunCommand;
 use crate::commands::trace_info_command::TraceInfoCommand;
@@ -110,6 +111,9 @@ fn main() -> io::Result<()> {
         }
         RdSubCommand::TraceInfo { .. } => {
             TraceInfoCommand::new(&options).run()?;
+        }
+        RdSubCommand::Ps { .. } => {
+            PsCommand::new(&options).run()?;
         }
         _ => (),
     }
