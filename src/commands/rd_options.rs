@@ -177,13 +177,13 @@ pub enum RdSubCommand {
         )]
         only_tid: Option<libc::pid_t>,
 
+        /// which directory is the trace data in? If omitted the latest trace dir is used
+        trace_dir: Option<PathBuf>,
+
         /// event specs can be either an event number like `127`, or a range
         /// like `1000-5000`. By default, all events are dumped."
         #[structopt(parse(try_from_str = parse_range))]
         event_spec: Option<(FrameTime, Option<FrameTime>)>,
-
-        /// which directory is the trace data in? If omitted the latest trace dir is used
-        trace_dir: Option<PathBuf>,
     },
 
     /// 'rerun' is intended to be a more powerful form of `rd replay -a`. It does
