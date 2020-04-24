@@ -4,7 +4,7 @@ use libc::pid_t;
 use std::ffi::{OsStr, OsString};
 
 #[derive(Clone)]
-pub enum TraceTaskEventType {
+pub enum TraceTaskEventVariant {
     /// DIFF NOTE: We DONT have a `None` variant here, unlike rr.
     ///
     /// Created by clone(2), fork(2), vfork(2) syscalls
@@ -13,22 +13,29 @@ pub enum TraceTaskEventType {
     Exit(TraceTaskEventExit),
 }
 
+#[derive(Copy, Clone, Eq, PartialEq)]
+pub enum TraceTaskEventType {
+    Clone,
+    Exec,
+    Exit,
+}
+
 impl TraceTaskEvent {
     pub fn clone_type(&self) -> &TraceTaskEventClone {
-        match &self.type_ {
-            TraceTaskEventType::Clone(v) => v,
+        match &self.variant {
+            TraceTaskEventVariant::Clone(v) => v,
             _ => panic!("Not a TraceTaskEventTypeClone"),
         }
     }
     pub fn exec_type(&self) -> &TraceTaskEventExec {
-        match &self.type_ {
-            TraceTaskEventType::Exec(v) => v,
+        match &self.variant {
+            TraceTaskEventVariant::Exec(v) => v,
             _ => panic!("Not a TraceTaskEventTypeExec"),
         }
     }
     pub fn exit_type(&self) -> &TraceTaskEventExit {
-        match &self.type_ {
-            TraceTaskEventType::Exit(v) => v,
+        match &self.variant {
+            TraceTaskEventVariant::Exit(v) => v,
             _ => panic!("Not a TraceTaskEventTypeExit"),
         }
     }
@@ -84,7 +91,7 @@ impl TraceTaskEventExit {
 }
 
 pub struct TraceTaskEvent {
-    pub(super) type_: TraceTaskEventType,
+    pub(super) variant: TraceTaskEventVariant,
     pub(super) tid_: pid_t,
 }
 
@@ -92,7 +99,14 @@ impl TraceTaskEvent {
     pub fn tid(&self) -> pid_t {
         self.tid_
     }
-    pub fn event_type(&self) -> &TraceTaskEventType {
-        &self.type_
+    pub fn event_variant(&self) -> &TraceTaskEventVariant {
+        &self.variant
+    }
+    pub fn event_type(&self) -> TraceTaskEventType {
+        match &self.variant {
+            TraceTaskEventVariant::Clone(_) => TraceTaskEventType::Clone,
+            TraceTaskEventVariant::Exit(_) => TraceTaskEventType::Exit,
+            TraceTaskEventVariant::Exec(_) => TraceTaskEventType::Exec,
+        }
     }
 }

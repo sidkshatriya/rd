@@ -8,13 +8,16 @@ use crate::address_space::kernel_mapping::KernelMapping;
 use crate::auto_remote_syscalls::AutoRemoteSyscalls;
 use crate::kernel_abi::{is_write_syscall, SupportedArch};
 use crate::kernel_metadata::syscall_name;
+use crate::log::LogLevel::LogDebug;
 use crate::session::replay_session::ReplaySession;
 use crate::task::replay_task::ReplayTask;
 use crate::task::task_inner::ResumeRequest;
 use crate::task::task_inner::TicksRequest;
 use crate::task::task_inner::WaitRequest;
 use crate::task::Task;
+use crate::trace::trace_frame::FrameTime;
 use crate::trace::trace_stream;
+use crate::trace::trace_task_event::{TraceTaskEvent, TraceTaskEventType};
 use crate::wait_status::WaitStatus;
 use libc::pid_t;
 use nix::sys::mman::{MapFlags, ProtFlags};
@@ -167,4 +170,51 @@ fn init_scratch_memory(t: &mut ReplayTask, km: &KernelMapping, data: &trace_stre
         );
     }
     t.setup_preload_thread_locals();
+}
+
+/// If scratch data was incidentally recorded for the current desched'd
+/// but write-only syscall, then do a no-op restore of that saved data
+/// to keep the trace in sync.
+///
+/// Syscalls like `write()` that may-block and are wrapped in the
+/// preload library can be desched'd.  When this happens, we save the
+/// syscall record's "extra data" as if it were normal scratch space,
+/// since it's used that way in effect.  But syscalls like `write()`
+/// that don't actually use scratch space don't ever try to restore
+/// saved scratch memory during replay.  So, this helper can be used
+/// for that class of syscalls.
+fn maybe_noop_restore_syscallbuf_scratch(t: &mut ReplayTask) {
+    if t.is_in_untraced_syscall() {
+        // Untraced syscalls always have t's arch
+        log!(
+            LogDebug,
+            "  noop-restoring scratch for write-only desched'd {}",
+            syscall_name(t.regs_ref().original_syscallno() as i32, t.arch())
+        );
+        t.set_data_from_trace();
+    }
+}
+
+fn read_task_trace_event(t: &ReplayTask, task_event_type: TraceTaskEventType) -> TraceTaskEvent {
+    let mut ttv: Option<TraceTaskEvent>;
+    let mut time: FrameTime = 0;
+    let shr_ptr = t.session();
+    let mut sess = shr_ptr.borrow_mut();
+    let tr = sess.as_replay_mut().unwrap().trace_reader_mut();
+    loop {
+        ttv = tr.read_task_event(Some(&mut time));
+        if ttv.is_none() {
+            ed_assert!(
+                t,
+                false,
+                "Unable to find TraceTaskEvent; trace is corrupt (did you kill -9 rd?)"
+            )
+        }
+
+        if time >= t.current_frame_time() || ttv.as_ref().unwrap().event_type() == task_event_type {
+            break;
+        }
+    }
+    ed_assert!(t, time == t.current_frame_time());
+    ttv.unwrap()
 }

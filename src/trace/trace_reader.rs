@@ -20,7 +20,8 @@ use crate::trace::trace_stream::{
     TraceRemoteFd, TraceStream, SUBSTREAMS, TRACE_VERSION,
 };
 use crate::trace::trace_task_event::{
-    TraceTaskEvent, TraceTaskEventClone, TraceTaskEventExec, TraceTaskEventExit, TraceTaskEventType,
+    TraceTaskEvent, TraceTaskEventClone, TraceTaskEventExec, TraceTaskEventExit,
+    TraceTaskEventVariant,
 };
 use crate::trace_capnp::{
     frame, m_map, signal, task_event, SignalDisposition as TraceSignalDisposition,
@@ -434,7 +435,7 @@ impl TraceReader {
                     tid_
                 );
                 te = TraceTaskEvent {
-                    type_: TraceTaskEventType::Clone(TraceTaskEventClone {
+                    variant: TraceTaskEventVariant::Clone(TraceTaskEventClone {
                         parent_tid_,
                         own_ns_tid_,
                         clone_flags_,
@@ -451,7 +452,7 @@ impl TraceReader {
                 }
                 let exe_base_ = r.get_exe_base().into();
                 te = TraceTaskEvent {
-                    type_: TraceTaskEventType::Exec(TraceTaskEventExec {
+                    variant: TraceTaskEventVariant::Exec(TraceTaskEventExec {
                         file_name_: OsStr::from_bytes(file_name_).to_os_string(),
                         cmd_line_,
                         exe_base_,
@@ -462,7 +463,7 @@ impl TraceReader {
             task_event::Exit(r) => {
                 let exit_status_ = WaitStatus::new(r.get_exit_status());
                 te = TraceTaskEvent {
-                    type_: TraceTaskEventType::Exit(TraceTaskEventExit { exit_status_ }),
+                    variant: TraceTaskEventVariant::Exit(TraceTaskEventExit { exit_status_ }),
                     tid_,
                 }
             }

@@ -1,7 +1,7 @@
 use crate::commands::rd_options::{RdOptions, RdSubCommand};
 use crate::commands::RdCommand;
 use crate::trace::trace_reader::TraceReader;
-use crate::trace::trace_task_event::{TraceTaskEvent, TraceTaskEventType};
+use crate::trace::trace_task_event::{TraceTaskEvent, TraceTaskEventVariant};
 use crate::wait_status::WaitType;
 use libc::pid_t;
 use std::collections::HashMap;
@@ -41,8 +41,8 @@ impl PsCommand {
             events.push(r);
         }
 
-        let not_exec = match events[0].event_type() {
-            TraceTaskEventType::Exec(_) => false,
+        let not_exec = match events[0].event_variant() {
+            TraceTaskEventVariant::Exec(_) => false,
             _ => true,
         };
         if events.is_empty() || not_exec {
@@ -67,8 +67,8 @@ impl PsCommand {
         for (i, e) in events.iter().enumerate() {
             update_tid_to_pid_map(&mut tid_to_pid, e);
 
-            match e.event_type() {
-                TraceTaskEventType::Clone(c)
+            match e.event_variant() {
+                TraceTaskEventVariant::Clone(c)
                     if (c.clone_flags() & libc::CLONE_THREAD != libc::CLONE_THREAD) =>
                 {
                     let pid = tid_to_pid[&e.tid()];
@@ -104,8 +104,8 @@ impl PsCommand {
 }
 
 fn update_tid_to_pid_map(tid_to_pid: &mut TidPidMap, e: &TraceTaskEvent) {
-    match e.event_type() {
-        TraceTaskEventType::Clone(c) => {
+    match e.event_variant() {
+        TraceTaskEventVariant::Clone(c) => {
             if c.clone_flags() & libc::CLONE_THREAD == libc::CLONE_THREAD {
                 // thread clone. Record thread's pid.
                 tid_to_pid.insert(e.tid(), c.parent_tid());
@@ -114,7 +114,7 @@ fn update_tid_to_pid_map(tid_to_pid: &mut TidPidMap, e: &TraceTaskEvent) {
                 tid_to_pid.insert(e.tid(), e.tid());
             }
         }
-        TraceTaskEventType::Exit(_) => {
+        TraceTaskEventVariant::Exit(_) => {
             tid_to_pid.remove(&e.tid());
         }
         _ => (),
@@ -124,8 +124,8 @@ fn update_tid_to_pid_map(tid_to_pid: &mut TidPidMap, e: &TraceTaskEvent) {
 fn find_exit_code(pid: pid_t, events: &[TraceTaskEvent], current_tid_to_pid: &TidPidMap) -> String {
     let mut tid_to_pid = current_tid_to_pid.clone();
     for e in events {
-        match e.event_type() {
-            TraceTaskEventType::Exit(ex)
+        match e.event_variant() {
+            TraceTaskEventVariant::Exit(ex)
                 if (tid_to_pid[&e.tid()] == pid && count_tids_for_pid(&tid_to_pid, pid) == 1) =>
             {
                 let status = ex.exit_status();
@@ -163,11 +163,11 @@ fn find_cmd_line(
 ) -> Option<usize> {
     let mut tid_to_pid = current_tid_to_pid.clone();
     for (i, e) in events.iter().skip(current_event).enumerate() {
-        match e.event_type() {
-            TraceTaskEventType::Exec(_) if tid_to_pid[&e.tid()] == pid => {
+        match e.event_variant() {
+            TraceTaskEventVariant::Exec(_) if tid_to_pid[&e.tid()] == pid => {
                 return Some(i + current_event)
             }
-            TraceTaskEventType::Exit(_)
+            TraceTaskEventVariant::Exit(_)
                 if (tid_to_pid[&e.tid()] == pid && count_tids_for_pid(&tid_to_pid, pid) == 1) =>
             {
                 return None

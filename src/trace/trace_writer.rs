@@ -24,7 +24,7 @@ use crate::trace::trace_stream::{to_trace_arch, TRACE_VERSION};
 use crate::trace::trace_stream::{
     MappedData, RawDataMetadata, Substream, TraceRemoteFd, TraceStream,
 };
-use crate::trace::trace_task_event::{TraceTaskEvent, TraceTaskEventType};
+use crate::trace::trace_task_event::{TraceTaskEvent, TraceTaskEventVariant};
 use crate::trace_capnp::m_map::source::Which::Trace;
 use crate::trace_capnp::SyscallState as TraceSyscallState;
 use crate::trace_capnp::{frame, m_map, signal};
@@ -498,14 +498,14 @@ impl TraceWriter {
         task.set_frame_time(self.global_time as i64);
         task.set_tid(event.tid());
 
-        match event.event_type() {
-            TraceTaskEventType::Clone(e) => {
+        match event.event_variant() {
+            TraceTaskEventVariant::Clone(e) => {
                 let mut clone = task.init_clone();
                 clone.set_parent_tid(e.parent_tid());
                 clone.set_own_ns_tid(e.own_ns_tid());
                 clone.set_flags(e.clone_flags());
             }
-            TraceTaskEventType::Exec(e) => {
+            TraceTaskEventVariant::Exec(e) => {
                 let mut exec = task.init_exec();
                 exec.set_file_name(e.file_name().as_bytes());
                 let event_cmd_line = e.cmd_line();
@@ -515,7 +515,7 @@ impl TraceWriter {
                 }
                 exec.set_exe_base(e.exe_base().as_usize() as u64);
             }
-            TraceTaskEventType::Exit(e) => {
+            TraceTaskEventVariant::Exit(e) => {
                 task.init_exit().set_exit_status(e.exit_status().get());
             }
         }

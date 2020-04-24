@@ -11,7 +11,7 @@ use crate::trace::trace_frame::{FrameTime, TraceFrame};
 use crate::trace::trace_reader::{TraceReader, ValidateSourceFile};
 use crate::trace::trace_stream;
 use crate::trace::trace_stream::{MappedData, MappedDataSource};
-use crate::trace::trace_task_event::{TraceTaskEvent, TraceTaskEventType};
+use crate::trace::trace_task_event::{TraceTaskEvent, TraceTaskEventVariant};
 use nix::sys::mman::{MapFlags, ProtFlags};
 use std::collections::HashMap;
 use std::ffi::OsString;
@@ -252,8 +252,8 @@ impl RdCommand for DumpCommand {
 }
 
 fn dump_task_event(out: &mut dyn Write, event: &TraceTaskEvent) -> io::Result<()> {
-    match event.event_type() {
-        TraceTaskEventType::Clone(ev) => {
+    match event.event_variant() {
+        TraceTaskEventVariant::Clone(ev) => {
             write!(
                 out,
                 "  TraceTaskEvent::CLONE tid={} parent={} clone_flags={:#x}\n",
@@ -262,7 +262,7 @@ fn dump_task_event(out: &mut dyn Write, event: &TraceTaskEvent) -> io::Result<()
                 ev.clone_flags()
             )?;
         }
-        TraceTaskEventType::Exec(ev) => {
+        TraceTaskEventVariant::Exec(ev) => {
             let filename = format!("{:?}", ev.file_name());
             // WORKAROUND: rr does not display the quotes which the Debug string representation will
             // unfortunately have. So strip it.
@@ -274,7 +274,7 @@ fn dump_task_event(out: &mut dyn Write, event: &TraceTaskEvent) -> io::Result<()
                 filename_trimmed
             )?;
         }
-        TraceTaskEventType::Exit(ev) => {
+        TraceTaskEventVariant::Exit(ev) => {
             write!(
                 out,
                 "  TraceTaskEvent::EXIT tid={} status={}\n",
