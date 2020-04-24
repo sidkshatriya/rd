@@ -4,7 +4,7 @@ include!(concat!(
     "/check_syscall_numbers_generated.rs"
 ));
 
-use crate::kernel_abi::SupportedArch;
+use crate::kernel_abi::{is_write_syscall, SupportedArch};
 use crate::kernel_metadata::syscall_name;
 use crate::session::replay_session::ReplaySession;
 use crate::task::replay_task::ReplayTask;
@@ -14,6 +14,9 @@ use crate::task::task_inner::WaitRequest;
 use crate::task::Task;
 use crate::wait_status::WaitStatus;
 use libc::pid_t;
+use std::cmp::min;
+use std::ffi::OsString;
+use std::os::unix::ffi::OsStringExt;
 
 /// Proceeds until the next system call, which is being executed.
 ///
@@ -83,16 +86,29 @@ fn __ptrace_cont(
 
     // check if we are synchronized with the trace -- should never fail
     let current_syscall = t.regs_ref().original_syscallno() as i32;
+    /// DIFF NOTE: Minor differences arising out of maybe_dump_written_string() behavior.
     ed_assert!(
         t,
         current_syscall == expect_syscallno || current_syscall == expect_syscallno2,
-        "Should be at {}, but instead at {}{}",
+        "Should be at {}, but instead at {} ({:?})",
         syscall_name(expect_syscallno, syscall_arch),
         syscall_name(current_syscall, syscall_arch),
         maybe_dump_written_string(t)
     );
 }
 
-fn maybe_dump_written_string(t: &ReplayTask) -> String {
-    unimplemented!()
+/// DIFF NOTE: In rd we're returning a `None` if this was not a write syscall
+fn maybe_dump_written_string(t: &mut ReplayTask) -> Option<OsString> {
+    if !is_write_syscall(t.regs_ref().original_syscallno() as i32, t.arch()) {
+        return None;
+    }
+    let len = min(1000, t.regs_ref().arg3());
+    let mut buf = Vec::<u8>::with_capacity(len);
+    buf.resize(len, 0u8);
+    // DIFF NOTE: Here we're actually expecting there to be no Err(_), hence the unwrap()
+    let nread = t
+        .read_bytes_fallible(t.regs_ref().arg2().into(), &mut buf)
+        .unwrap();
+    buf.truncate(nread);
+    Some(OsString::from_vec(buf))
 }

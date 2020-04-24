@@ -95,9 +95,10 @@ impl WaitStatus {
     /// Fatal signal if wait_type() == FATAL_SIGNAL, otherwise None.
     pub fn fatal_sig(&self) -> Option<i32> {
         unsafe {
+            let termsig = WTERMSIG(self.status);
             // Subtle. Makes sure Option<> is what we mean.
-            if WIFSIGNALED(self.status) && WTERMSIG(self.status) > 0 {
-                Some(WTERMSIG(self.status))
+            if WIFSIGNALED(self.status) && termsig > 0 {
+                Some(termsig)
             } else {
                 None
             }
@@ -124,8 +125,6 @@ impl WaitStatus {
             return None;
         }
 
-        // Remove any effect of bit 7 as we're using PTRACE_O_TRACESYSGOOD.
-        // Bits 0-6 are for signal number
         sig &= !0x80;
         if sig != 0 {
             Some(sig)
@@ -148,8 +147,6 @@ impl WaitStatus {
 
         let mut sig: i32 = unsafe { WSTOPSIG(self.status) };
 
-        // Remove any effect of bit 7 as we're using PTRACE_O_TRACESYSGOOD.
-        // Bits 0-6 are for signal number
         sig &= !0x80;
         if sig != 0 {
             Some(sig)

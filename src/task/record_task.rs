@@ -480,6 +480,7 @@ pub mod record_task {
             read_c_str(self, child_addr)
         }
 
+        /// Forwarded method
         fn write_bytes_helper(
             &mut self,
             addr: RemotePtr<u8>,
@@ -490,10 +491,12 @@ pub mod record_task {
             write_bytes_helper(self, addr, buf, ok, flags)
         }
 
+        /// Forwarded method
         fn syscallbuf_data_size(&mut self) -> usize {
             syscallbuf_data_size(self)
         }
 
+        /// Forwarded method
         fn write_bytes(&mut self, child_addr: RemotePtr<u8>, buf: &[u8]) {
             write_bytes(self, child_addr, buf);
         }

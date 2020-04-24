@@ -3,6 +3,10 @@ use crate::kernel_abi::SupportedArch;
 use crate::registers::Registers;
 use crate::remote_ptr::{RemotePtr, Void};
 use crate::session::{Session, SessionSharedWeakPtr};
+use crate::task::common::{
+    open_mem_fd, read_bytes_fallible, read_bytes_helper, read_c_str, syscallbuf_data_size,
+    write_bytes, write_bytes_helper,
+};
 use crate::task::task_inner::task_inner::WriteFlags;
 use crate::task::task_inner::task_inner::{CloneReason, TaskInner};
 use crate::task::Task;
@@ -151,37 +155,44 @@ impl Task for ReplayTask {
         unimplemented!()
     }
 
+    /// Forwarded method
     fn open_mem_fd(&mut self) -> bool {
-        unimplemented!()
+        open_mem_fd(self)
     }
 
-    fn read_bytes_fallible(&mut self, _addr: RemotePtr<u8>, _buf: &mut [u8]) -> Result<usize, ()> {
-        unimplemented!()
+    /// Forwarded method
+    fn read_bytes_fallible(&mut self, addr: RemotePtr<u8>, buf: &mut [u8]) -> Result<usize, ()> {
+        read_bytes_fallible(self, addr, buf)
     }
 
-    fn read_bytes_helper(&mut self, _addr: RemotePtr<u8>, _buf: &mut [u8], _ok: Option<&mut bool>) {
-        unimplemented!()
+    /// Forwarded method
+    fn read_bytes_helper(&mut self, addr: RemotePtr<Void>, buf: &mut [u8], ok: Option<&mut bool>) {
+        read_bytes_helper(self, addr, buf, ok)
     }
 
-    fn read_c_str(&mut self, _child_addr: RemotePtr<u8>) -> CString {
-        unimplemented!()
+    /// Forwarded method
+    fn read_c_str(&mut self, child_addr: RemotePtr<u8>) -> CString {
+        read_c_str(self, child_addr)
     }
 
+    /// Forwarded method
     fn write_bytes_helper(
         &mut self,
-        _addr: RemotePtr<u8>,
-        _buf: &[u8],
-        _ok: Option<&mut bool>,
-        _flags: WriteFlags,
+        addr: RemotePtr<u8>,
+        buf: &[u8],
+        ok: Option<&mut bool>,
+        flags: WriteFlags,
     ) {
-        unimplemented!()
+        write_bytes_helper(self, addr, buf, ok, flags)
     }
 
+    /// Forwarded method
     fn syscallbuf_data_size(&mut self) -> usize {
-        unimplemented!()
+        syscallbuf_data_size(self)
     }
 
-    fn write_bytes(&mut self, _child_addr: RemotePtr<u8>, _buf: &[u8]) {
-        unimplemented!()
+    /// Forwarded method
+    fn write_bytes(&mut self, child_addr: RemotePtr<u8>, buf: &[u8]) {
+        write_bytes(self, child_addr, buf);
     }
 }
