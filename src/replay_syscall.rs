@@ -4,6 +4,8 @@ include!(concat!(
     "/check_syscall_numbers_generated.rs"
 ));
 
+use crate::address_space::kernel_mapping::KernelMapping;
+use crate::auto_remote_syscalls::AutoRemoteSyscalls;
 use crate::kernel_abi::{is_write_syscall, SupportedArch};
 use crate::kernel_metadata::syscall_name;
 use crate::session::replay_session::ReplaySession;
@@ -12,10 +14,12 @@ use crate::task::task_inner::ResumeRequest;
 use crate::task::task_inner::TicksRequest;
 use crate::task::task_inner::WaitRequest;
 use crate::task::Task;
+use crate::trace::trace_stream;
 use crate::wait_status::WaitStatus;
 use libc::pid_t;
+use nix::sys::mman::{MapFlags, ProtFlags};
 use std::cmp::min;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::os::unix::ffi::OsStringExt;
 
 /// Proceeds until the next system call, which is being executed.
@@ -86,7 +90,7 @@ fn __ptrace_cont(
 
     // check if we are synchronized with the trace -- should never fail
     let current_syscall = t.regs_ref().original_syscallno() as i32;
-    /// DIFF NOTE: Minor differences arising out of maybe_dump_written_string() behavior.
+    // DIFF NOTE: Minor differences arising out of maybe_dump_written_string() behavior.
     ed_assert!(
         t,
         current_syscall == expect_syscallno || current_syscall == expect_syscallno2,
@@ -111,4 +115,56 @@ fn maybe_dump_written_string(t: &mut ReplayTask) -> Option<OsString> {
         .unwrap();
     buf.truncate(nread);
     Some(OsString::from_vec(buf))
+}
+
+fn init_scratch_memory(t: &mut ReplayTask, km: &KernelMapping, data: &trace_stream::MappedData) {
+    ed_assert!(t, data.source == trace_stream::MappedDataSource::SourceZero);
+
+    t.scratch_ptr = km.start();
+    t.scratch_size = km.size();
+    let sz = t.scratch_size;
+    let scratch_ptr = t.scratch_ptr;
+    // Make the scratch buffer read/write during replay so that
+    // preload's sys_read can use it to buffer cloned data.
+    ed_assert!(
+        t,
+        km.prot()
+            .contains(ProtFlags::PROT_READ | ProtFlags::PROT_WRITE)
+    );
+    ed_assert!(
+        t,
+        km.flags()
+            .contains(MapFlags::MAP_PRIVATE | MapFlags::MAP_ANONYMOUS)
+    );
+
+    {
+        {
+            let mut remote = AutoRemoteSyscalls::new(t);
+            remote.infallible_mmap_syscall(
+                Some(scratch_ptr),
+                sz,
+                km.prot(),
+                km.flags() | MapFlags::MAP_FIXED,
+                -1,
+                0,
+            );
+        }
+        t.vm_mut().map(
+            t,
+            t.scratch_ptr,
+            sz,
+            km.prot(),
+            km.flags(),
+            0,
+            OsStr::new(""),
+            KernelMapping::NO_DEVICE,
+            KernelMapping::NO_INODE,
+            None,
+            Some(&km),
+            None,
+            None,
+            None,
+        );
+    }
+    t.setup_preload_thread_locals();
 }

@@ -163,7 +163,9 @@ pub mod task_inner {
         /// The full size of the scratch buffer.
         /// The last page of the scratch buffer is used as an alternate stack
         /// for the syscallbuf code. So the usable size is less than this.
-        pub scratch_size: isize,
+        ///
+        /// DIFF NOTE: In rr this is a signed value i.e. isize
+        pub scratch_size: usize,
 
         /// The child's desched counter event fd number
         pub desched_fd_child: i32,
