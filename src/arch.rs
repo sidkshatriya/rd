@@ -1,4 +1,7 @@
-use crate::kernel_abi::{x64, x86, SupportedArch};
+use crate::kernel_abi::{
+    x64, x86, CloneParameterOrdering, CloneTLSType, MmapCallingSemantics, SelectCallingSemantics,
+    SupportedArch,
+};
 use crate::kernel_supplement::{CLD_STOPPED, CLD_TRAPPED};
 use crate::remote_ptr::{RemotePtr, Void};
 use crate::task::record_task::record_task::RecordTask;
@@ -61,6 +64,11 @@ const_assert_eq!(
     X86Arch::VALID_SYSCALL_COUNT + X86Arch::INVALID_SYSCALL_COUNT
 );
 pub trait Architecture {
+    const MMAP_SEMANTICS: MmapCallingSemantics;
+    const CLONE_TLS_TYPE: CloneTLSType;
+    const CLONE_PARAMETER_ORDERING: CloneParameterOrdering;
+    const SELECT_SEMANTICS: SelectCallingSemantics;
+
     // This list from the `syscall_consts_trait_generated` generator
     // See `generators_for` in generate_syscalls.py
     //
@@ -557,6 +565,11 @@ pub trait Architecture {
 }
 
 impl Architecture for X86Arch {
+    const MMAP_SEMANTICS: MmapCallingSemantics = x86::MMAP_SEMANTICS;
+    const CLONE_TLS_TYPE: CloneTLSType = x86::CLONE_TLS_TYPE;
+    const CLONE_PARAMETER_ORDERING: CloneParameterOrdering = x86::CLONE_PARAMETER_ORDERING;
+    const SELECT_SEMANTICS: SelectCallingSemantics = x86::SELECT_SEMANTICS;
+
     // This list from the `syscall_consts_trait_impl_x86_generated` generator
     // See `generators_for` in generate_syscalls.py
     //
@@ -1069,6 +1082,11 @@ impl Architecture for X86Arch {
 }
 
 impl Architecture for X64Arch {
+    const MMAP_SEMANTICS: MmapCallingSemantics = x64::MMAP_SEMANTICS;
+    const CLONE_TLS_TYPE: CloneTLSType = x64::CLONE_TLS_TYPE;
+    const CLONE_PARAMETER_ORDERING: CloneParameterOrdering = x64::CLONE_PARAMETER_ORDERING;
+    const SELECT_SEMANTICS: SelectCallingSemantics = x64::SELECT_SEMANTICS;
+
     // This list from the `syscall_consts_trait_impl_x64_generated` generator
     // See `generators_for` in generate_syscalls.py
     //

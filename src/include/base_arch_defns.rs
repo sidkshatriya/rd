@@ -425,27 +425,6 @@ pub struct seminfo {
 }
 //RR_VERIFY_TYPE(seminfo);
 
-/// The clone(2) syscall has four (!) different calling conventions,
-/// depending on what architecture it's being compiled for.  We describe
-/// the orderings for x86oids here.
-enum CloneParameterOrdering {
-    FlagsStackParentTLSChild,
-    FlagsStackParentChildTLS,
-}
-
-/// Despite the clone(2) manpage describing the clone syscall as taking a
-/// pointer to `struct user_desc*`, the actual kernel interface treats the
-/// TLS value as a opaque cookie, which architectures are then free to do
-/// whatever they like with.  See for instance the definition of TLS_VALUE
-/// in nptl/sysdeps/pthread/createthread.c in the glibc source.  We need to
-/// describe what the architecture uses so we can record things accurately.
-enum CloneTLSType {
-    /// `struct user_desc*`
-    UserDescPointer,
-    /// This is the default choice for TLS_VALUE in the glibc source.
-    PthreadStructurePointer,
-}
-
 // @TODO user_desc struct.
 //RR_VERIFY_TYPE(user_desc);
 
@@ -832,17 +811,6 @@ pub struct socketpair_args {
     pub sv: ptr<signed_int>, // int sv[2]
 }
 
-// All architectures have an mmap syscall, but it has architecture-specific
-// calling semantics. We describe those here, and specializations need to
-// indicate which semantics they use.
-enum MmapCallingSemantics {
-    /// x86-ish, packaged into mmap_args, below
-    StructArguments,
-    /// arguments passed in registers, the offset
-    /// is assumed to be in bytes, not in pages.
-    RegisterArguments,
-}
-
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
 pub struct mmap_args {
@@ -853,19 +821,6 @@ pub struct mmap_args {
     pub fd: signed_int,
     pub __pad: [u8; STD_PAD],
     pub offset: off_t,
-}
-
-// All architectures have a select syscall, but like mmap, there are two
-// different calling styles: one that packages the args into a structure,
-// and one that handles the args in registers.  (Architectures using the
-// first style, like the x86, sometimes support the register-args version
-// as a separate syscall.)
-//
-// (Yes, we'd like to call these StructArguments and RegisterArguments, but
-// that would conflict with MmapCallingSemantics, above.)
-enum SelectCallingSemantics {
-    SelectStructArguments,
-    SelectRegisterArguments,
 }
 
 #[repr(C)]
