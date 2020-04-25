@@ -3,7 +3,9 @@ use crate::address_space::kernel_mapping::KernelMapping;
 use crate::arch::Architecture;
 use crate::bindings::signal::{SI_KERNEL, TRAP_BRKPT};
 use crate::flags::Flags;
+use crate::kernel_abi::CloneParameterOrdering;
 use crate::log::LogLevel::{LogDebug, LogWarn};
+use crate::registers::Registers;
 use crate::remote_ptr::{RemotePtr, Void};
 use crate::scoped_fd::ScopedFd;
 use crate::task::common::{read_mem, read_val_mem};
@@ -12,7 +14,8 @@ use crate::task::Task;
 use libc::pwrite64;
 use libc::STDERR_FILENO;
 use libc::{
-    CLONE_CHILD_CLEARTID, CLONE_FILES, CLONE_SETTLS, CLONE_SIGHAND, CLONE_THREAD, CLONE_VM,
+    CLONE_CHILD_CLEARTID, CLONE_CHILD_SETTID, CLONE_FILES, CLONE_PARENT_SETTID, CLONE_SETTLS,
+    CLONE_SIGHAND, CLONE_THREAD, CLONE_VM,
 };
 use libc::{S_IFDIR, S_IFREG};
 use nix::errno::errno;
@@ -927,6 +930,7 @@ pub fn restore_initial_resource_limits() {
 
 #[derive(Default)]
 pub struct CloneParameters {
+    // @TODO stack is tricky. Could also be a bare RemotePtr instead of Option<>?
     pub stack: Option<RemotePtr<Void>>,
     pub ptid: Option<RemotePtr<i32>>,
     pub tls: Option<RemotePtr<Void>>,
@@ -934,8 +938,42 @@ pub struct CloneParameters {
 }
 
 /// Extract various clone(2) parameters out of the given Task's registers.
-pub fn extract_clone_parameters(_t: &dyn Task) -> CloneParameters {
-    unimplemented!()
+fn extract_clone_parameters_arch<Arch: Architecture>(regs: &Registers) -> CloneParameters {
+    let mut result = CloneParameters::default();
+    // @TODO Subtle issue here regarding stack. Assign `None` if stack pointer is 0.
+    result.stack = if regs.arg2() != 0 {
+        Some(RemotePtr::from(regs.arg2()))
+    } else {
+        None
+    };
+
+    result.ptid = Some(RemotePtr::from(regs.arg3()));
+    if Arch::CLONE_PARAMETER_ORDERING == CloneParameterOrdering::FlagsStackParentTLSChild {
+        result.tls = Some(RemotePtr::from(regs.arg4()));
+        result.ctid = Some(RemotePtr::from(regs.arg5()));
+    } else if Arch::CLONE_PARAMETER_ORDERING == CloneParameterOrdering::FlagsStackParentChildTLS {
+        result.tls = Some(RemotePtr::from(regs.arg5()));
+        result.ctid = Some(RemotePtr::from(regs.arg4()));
+    }
+    let flags: i32 = regs.arg1() as i32;
+    // If these flags aren't set, the corresponding clone parameters may be
+    // invalid pointers, so make sure they're ignored.
+    if !(flags & CLONE_PARENT_SETTID == CLONE_PARENT_SETTID) {
+        result.ptid = None;
+    }
+    if !(flags & (CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID)
+        == (CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID))
+    {
+        result.ctid = None;
+    }
+    if !(flags & CLONE_SETTLS == CLONE_SETTLS) {
+        result.tls = None;
+    }
+    result
+}
+
+pub fn extract_clone_parameters(t: &dyn Task) -> CloneParameters {
+    rd_arch_function_selfless!(extract_clone_parameters_arch, t.arch(), t.regs_ref())
 }
 
 /// Convert the flags passed to the clone() syscall, `flags_arg`, into
