@@ -1,15 +1,12 @@
-use crate::bindings::ptrace::PTRACE_EVENT_STOP as _PTRACE_EVENT_STOP;
+use crate::bindings::ptrace::{PTRACE_EVENT_STOP, PTRACE_O_TRACESYSGOOD};
 use crate::kernel_metadata::ptrace_event_name;
 use crate::kernel_metadata::signal_name;
 use crate::task::record_task::record_task::RecordTask;
-use libc::PTRACE_O_TRACESYSGOOD;
 use libc::{SIGSTOP, SIGTRAP};
 use libc::{WEXITSTATUS, WIFEXITED, WIFSIGNALED, WIFSTOPPED, WSTOPSIG, WTERMSIG};
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::Result;
-
-pub const PTRACE_EVENT_STOP: i32 = _PTRACE_EVENT_STOP as i32;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 /// Called simply `Type` in rr.
@@ -140,7 +137,8 @@ impl WaitStatus {
         unsafe {
             // (self.status >> 16) & 0xff == PTRACE_EVENT_STOP is the classic signature of a group
             // stop when PTRACE_SIEZE is used
-            if !WIFSTOPPED(self.status) || ((self.status >> 16) & 0xff != PTRACE_EVENT_STOP) {
+            if !WIFSTOPPED(self.status) || ((self.status >> 16) & 0xff != PTRACE_EVENT_STOP as i32)
+            {
                 return None;
             }
         }
@@ -168,8 +166,8 @@ impl WaitStatus {
     }
 
     /// ptrace event if wait_type() == PTRACE_EVENT, None otherwise.
-    pub fn ptrace_event(&self) -> Option<i32> {
-        let event: i32 = (self.status >> 16) & 0xff;
+    pub fn ptrace_event(&self) -> Option<u32> {
+        let event: u32 = ((self.status >> 16) & 0xff) as u32;
         // Subtle. Makes sure Option<> is what we mean.
         if event == PTRACE_EVENT_STOP || event == 0 {
             None
@@ -214,7 +212,7 @@ impl WaitStatus {
         debug_assert!(sig >= 1 && sig < 0x80);
         let mut code: i32 = (sig << 8) | 0x7f;
         if t.emulated_ptrace_seized {
-            code |= PTRACE_EVENT_STOP << 16;
+            code |= (PTRACE_EVENT_STOP as i32) << 16;
         }
 
         WaitStatus { status: code }

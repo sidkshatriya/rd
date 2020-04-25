@@ -6,6 +6,7 @@ use crate::address_space::memory_range::MemoryRange;
 use crate::address_space::{Enabled, Privileged, Traced};
 use crate::arch::Architecture;
 use crate::auto_remote_syscalls::MemParamsEnabled::{DisableMemoryParams, EnableMemoryParams};
+use crate::bindings::ptrace::PTRACE_EVENT_EXIT;
 use crate::kernel_abi::{
     has_mmap2_syscall, has_socketcall_syscall, is_clone_syscall, is_open_syscall,
     is_openat_syscall, is_rt_sigaction_syscall, is_sigaction_syscall, is_signal_syscall,
@@ -35,8 +36,7 @@ use crate::util::{find, is_kernel_trap, page_size, resize_shmem_segment, tmp_dir
 use crate::wait_status::WaitStatus;
 use core::ffi::c_void;
 use libc::{
-    pid_t, SYS_sendmsg, ESRCH, O_CLOEXEC, O_CREAT, O_EXCL, O_RDWR, PTRACE_EVENT_EXIT, SCM_RIGHTS,
-    SIGTRAP, SOL_SOCKET,
+    pid_t, SYS_sendmsg, ESRCH, O_CLOEXEC, O_CREAT, O_EXCL, O_RDWR, SCM_RIGHTS, SIGTRAP, SOL_SOCKET,
 };
 use libc::{MREMAP_FIXED, MREMAP_MAYMOVE};
 use nix::sys::mman::munmap;

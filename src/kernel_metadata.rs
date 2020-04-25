@@ -1,7 +1,7 @@
+use crate::bindings::ptrace::*;
 use crate::kernel_abi;
 use crate::kernel_abi::SupportedArch;
 use nix::sys::mman::ProtFlags;
-
 pub fn syscall_name(syscall: i32, arch: SupportedArch) -> String {
     rd_kernel_abi_arch_function!(syscallname_arch, arch, syscall)
 }
@@ -52,64 +52,61 @@ pub fn signal_name(sig: i32) -> String {
     }
 }
 
-pub fn ptrace_event_name(event: i32) -> String {
+pub fn ptrace_event_name(event: u32) -> String {
     match event {
-        libc::PTRACE_EVENT_FORK => "PTRACE_EVENT_FORK".into(),
-        libc::PTRACE_EVENT_VFORK => "PTRACE_EVENT_VFORK".into(),
-        libc::PTRACE_EVENT_CLONE => "PTRACE_EVENT_CLONE".into(),
-        libc::PTRACE_EVENT_EXEC => "PTRACE_EVENT_EXEC".into(),
-        libc::PTRACE_EVENT_VFORK_DONE => "PTRACE_EVENT_VFORK_DONE".into(),
-        libc::PTRACE_EVENT_EXIT => "PTRACE_EVENT_EXIT".into(),
+        PTRACE_EVENT_FORK => "PTRACE_EVENT_FORK".into(),
+        PTRACE_EVENT_VFORK => "PTRACE_EVENT_VFORK".into(),
+        PTRACE_EVENT_CLONE => "PTRACE_EVENT_CLONE".into(),
+        PTRACE_EVENT_EXEC => "PTRACE_EVENT_EXEC".into(),
+        PTRACE_EVENT_VFORK_DONE => "PTRACE_EVENT_VFORK_DONE".into(),
+        PTRACE_EVENT_EXIT => "PTRACE_EVENT_EXIT".into(),
         // @TODO.
         // XXX Ubuntu 12.04 defines a "PTRACE_EVENT_STOP", but that
         // has the same value as the newer EVENT_SECCOMP, so we'll
         // ignore STOP.
         // libc::PTRACE_EVENT_SECCOMP_OBSOLETE => "PTRACE_EVENT_SECCOMP_OBSOLETE".into(),
-        libc::PTRACE_EVENT_SECCOMP => "PTRACE_EVENT_SECCOMP".into(),
-        // @TODO.
-        // libc::PTRACE_EVENT_STOP  => "PTRACE_EVENT_STOP".into(),
+        PTRACE_EVENT_SECCOMP => "PTRACE_EVENT_SECCOMP".into(),
+        PTRACE_EVENT_STOP => "PTRACE_EVENT_STOP".into(),
         // Special-case this.
         // This case is common because we often pass ptrace_event_name(event) to
         // assertions when event is 0.
-        0 => "PTRACE_EVENT(0)".into(),
+        0u32 => "PTRACE_EVENT(0)".into(),
         _ => format!("PTRACE_EVENT({})", event),
     }
 }
 
 pub fn ptrace_req_name(request: u32) -> String {
     match request {
-        libc::PTRACE_TRACEME => "PTRACE_TRACEME".into(),
-        libc::PTRACE_PEEKTEXT => "PTRACE_PEEKTEXT".into(),
-        libc::PTRACE_PEEKDATA => "PTRACE_PEEKDATA".into(),
-        libc::PTRACE_PEEKUSER => "PTRACE_PEEKUSER".into(),
-        libc::PTRACE_POKETEXT => "PTRACE_POKETEXT".into(),
-        libc::PTRACE_POKEDATA => "PTRACE_POKEDATA".into(),
-        libc::PTRACE_POKEUSER => "PTRACE_POKEUSER".into(),
-        libc::PTRACE_CONT => "PTRACE_CONT".into(),
-        libc::PTRACE_KILL => "PTRACE_KILL".into(),
-        libc::PTRACE_SINGLESTEP => "PTRACE_SINGLESTEP".into(),
-        libc::PTRACE_GETREGS => "PTRACE_GETREGS".into(),
-        libc::PTRACE_SETREGS => "PTRACE_SETREGS".into(),
-        libc::PTRACE_GETFPREGS => "PTRACE_GETFPREGS".into(),
-        libc::PTRACE_SETFPREGS => "PTRACE_SETFPREGS".into(),
-        libc::PTRACE_ATTACH => "PTRACE_ATTACH".into(),
-        libc::PTRACE_DETACH => "PTRACE_DETACH".into(),
-        libc::PTRACE_GETFPXREGS => "PTRACE_GETFPXREGS".into(),
-        libc::PTRACE_SETFPXREGS => "PTRACE_SETFPXREGS".into(),
-        libc::PTRACE_SYSCALL => "PTRACE_SYSCALL".into(),
-        libc::PTRACE_SETOPTIONS => "PTRACE_SETOPTIONS".into(),
-        libc::PTRACE_GETEVENTMSG => "PTRACE_GETEVENTMSG".into(),
-        libc::PTRACE_GETSIGINFO => "PTRACE_GETSIGINFO".into(),
-        libc::PTRACE_SETSIGINFO => "PTRACE_SETSIGINFO".into(),
-        libc::PTRACE_GETREGSET => "PTRACE_GETREGSET".into(),
-        libc::PTRACE_SETREGSET => "PTRACE_SETREGSET".into(),
-        libc::PTRACE_SEIZE => "PTRACE_SEIZE".into(),
-        libc::PTRACE_INTERRUPT => "PTRACE_INTERRUPT".into(),
-        libc::PTRACE_LISTEN => "PTRACE_LISTEN".into(),
-        // @TODO.
-        // These aren't part of the official ptrace-request enum.
-        // libc::PTRACE_SYSEMU => "PTRACE_SYSEMU".into(),
-        // libc::PTRACE_SYSEMU_SINGLESTEP => "PTRACE_SYSEMU_SINGLESTEP".into(),
+        PTRACE_TRACEME => "PTRACE_TRACEME".into(),
+        PTRACE_PEEKTEXT => "PTRACE_PEEKTEXT".into(),
+        PTRACE_PEEKDATA => "PTRACE_PEEKDATA".into(),
+        PTRACE_PEEKUSER => "PTRACE_PEEKUSER".into(),
+        PTRACE_POKETEXT => "PTRACE_POKETEXT".into(),
+        PTRACE_POKEDATA => "PTRACE_POKEDATA".into(),
+        PTRACE_POKEUSER => "PTRACE_POKEUSER".into(),
+        PTRACE_CONT => "PTRACE_CONT".into(),
+        PTRACE_KILL => "PTRACE_KILL".into(),
+        PTRACE_SINGLESTEP => "PTRACE_SINGLESTEP".into(),
+        PTRACE_GETREGS => "PTRACE_GETREGS".into(),
+        PTRACE_SETREGS => "PTRACE_SETREGS".into(),
+        PTRACE_GETFPREGS => "PTRACE_GETFPREGS".into(),
+        PTRACE_SETFPREGS => "PTRACE_SETFPREGS".into(),
+        PTRACE_ATTACH => "PTRACE_ATTACH".into(),
+        PTRACE_DETACH => "PTRACE_DETACH".into(),
+        PTRACE_GETFPXREGS => "PTRACE_GETFPXREGS".into(),
+        PTRACE_SETFPXREGS => "PTRACE_SETFPXREGS".into(),
+        PTRACE_SYSCALL => "PTRACE_SYSCALL".into(),
+        PTRACE_SETOPTIONS => "PTRACE_SETOPTIONS".into(),
+        PTRACE_GETEVENTMSG => "PTRACE_GETEVENTMSG".into(),
+        PTRACE_GETSIGINFO => "PTRACE_GETSIGINFO".into(),
+        PTRACE_SETSIGINFO => "PTRACE_SETSIGINFO".into(),
+        PTRACE_GETREGSET => "PTRACE_GETREGSET".into(),
+        PTRACE_SETREGSET => "PTRACE_SETREGSET".into(),
+        PTRACE_SEIZE => "PTRACE_SEIZE".into(),
+        PTRACE_INTERRUPT => "PTRACE_INTERRUPT".into(),
+        PTRACE_LISTEN => "PTRACE_LISTEN".into(),
+        PTRACE_SYSEMU => "PTRACE_SYSEMU".into(),
+        PTRACE_SYSEMU_SINGLESTEP => "PTRACE_SYSEMU_SINGLESTEP".into(),
         _ => format!("PTRACE_REQUEST({})", request),
     }
 }

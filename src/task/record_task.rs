@@ -289,7 +289,7 @@ pub mod record_task {
         pub emulated_stop_code: WaitStatus,
         /// None while no ptracer is attached.
         /// Different from rr which uses 0.
-        pub emulated_ptrace_options: Option<i32>,
+        pub emulated_ptrace_options: Option<u32>,
         /// One of PTRACE_CONT, PTRACE_SYSCALL --- or None if the tracee has not been
         /// continued by its ptracer yet, or has no ptracer.
         /// Different from rr which uses 0 and a signed int.

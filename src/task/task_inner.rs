@@ -75,11 +75,18 @@ pub mod task_inner {
     use crate::address_space::WatchConfig;
     use crate::auto_remote_syscalls::AutoRemoteSyscalls;
     use crate::bindings::kernel::user_desc;
+    use crate::bindings::ptrace::{
+        PTRACE_EVENT_CLONE, PTRACE_EVENT_FORK, PTRACE_EVENT_VFORK, PTRACE_GETEVENTMSG,
+    };
+    use crate::bindings::ptrace::{PTRACE_PEEKDATA, PTRACE_POKEDATA};
     use crate::extra_registers::ExtraRegisters;
     use crate::fd_table::FdTableSharedPtr;
     use crate::kernel_abi::common::preload_interface::preload_globals;
     use crate::kernel_abi::common::preload_interface::{syscallbuf_hdr, syscallbuf_record};
     use crate::kernel_abi::SupportedArch;
+    use crate::kernel_metadata::errno_name;
+    use crate::kernel_metadata::ptrace_event_name;
+    use crate::kernel_metadata::syscall_name;
     use crate::perf_counters::PerfCounters;
     use crate::registers::Registers;
     use crate::remote_code_ptr::RemoteCodePtr;
@@ -93,12 +100,12 @@ pub mod task_inner {
     use crate::trace::trace_stream::TraceStream;
     use crate::util::TrappedInstruction;
     use crate::wait_status::WaitStatus;
-    use libc::{__errno_location, pid_t, siginfo_t, uid_t, PTRACE_PEEKDATA, PTRACE_POKEDATA};
+    use libc::{__errno_location, pid_t, siginfo_t, uid_t};
+    use libc::{EAGAIN, ENOMEM, ENOSYS};
     use nix::errno::errno;
     use nix::unistd::getuid;
     use std::cell::RefCell;
     use std::cmp::min;
-    use std::convert::TryInto;
     use std::ffi::{OsStr, OsString};
     use std::mem::size_of;
     use std::ptr::copy_nonoverlapping;
@@ -361,9 +368,13 @@ pub mod task_inner {
         /// This method is more generic in rr and is called get_ptrace_event_msg()
         /// However, since it is only used to extract pid_t we monomorphize it in rd.
         pub fn get_ptrace_eventmsg_pid(&self) -> pid_t {
-            let mut msg = [0u8; size_of::<usize>()];
-            self.xptrace_get_data(libc::PTRACE_GETEVENTMSG, 0usize.into(), &mut msg);
-            usize::from_le_bytes(msg).try_into().unwrap()
+            let pid: pid_t = 0;
+            self.xptrace_get_data(
+                PTRACE_GETEVENTMSG,
+                RemotePtr::from(0usize),
+                &mut pid.to_le_bytes(),
+            );
+            pid
         }
 
         /// Return the siginfo at the signal-stop of `self`.
@@ -601,7 +612,7 @@ pub mod task_inner {
         }
 
         /// Return the ptrace event as of the last call to `wait()/try_wait()`.
-        pub fn ptrace_event(&self) -> Option<i32> {
+        pub fn ptrace_event(&self) -> Option<u32> {
             self.wait_status.ptrace_event()
         }
 
@@ -700,10 +711,46 @@ pub mod task_inner {
         /// stopped at a PTRACE_EVENT_CLONE or PTRACE_EVENT_FORK.
         pub fn clone_syscall_is_complete(
             &self,
-            _pid: &mut Option<pid_t>,
-            _syscall_arch: SupportedArch,
+            pid: &mut Option<pid_t>,
+            syscall_arch: SupportedArch,
         ) -> bool {
-            unimplemented!()
+            let event = self.ptrace_event();
+            match event {
+                Some(pte)
+                    if pte == PTRACE_EVENT_CLONE
+                        || pte == PTRACE_EVENT_FORK
+                        || pte == PTRACE_EVENT_VFORK =>
+                {
+                    *pid = Some(self.get_ptrace_eventmsg_pid());
+                    return true;
+                }
+                Some(pte) => {
+                    ed_assert!(
+                        self,
+                        false,
+                        "Unexpected ptrace event {}",
+                        ptrace_event_name(pte)
+                    );
+                }
+                None => (),
+            }
+
+            // EAGAIN can happen here due to fork failing under load. The caller must
+            // handle this.
+            // XXX ENOSYS shouldn't happen here.
+            let result = self.regs_ref().syscall_result_signed();
+            ed_assert!(
+                self,
+                self.regs_ref().syscall_may_restart()
+                    || -ENOSYS as isize == result
+                    || -EAGAIN as isize == result
+                    || -ENOMEM as isize == result,
+                "Unexpected task status {} ({} syscall errno: {})",
+                self.status(),
+                syscall_name(self.regs_ref().original_syscallno() as i32, syscall_arch),
+                errno_name(-result as i32)
+            );
+            false
         }
 
         /// Calls open_mem_fd if this task's AddressSpace doesn't already have one.
@@ -856,7 +903,7 @@ pub mod task_inner {
                 let end_word: usize = start_word + word_size;
                 let length = min(end_word - start, buf_size - nwritten);
 
-                let v = self.fallible_ptrace(PTRACE_PEEKDATA, start_word.into(), None);
+                let v = self.fallible_ptrace(PTRACE_PEEKDATA, RemotePtr::from(start_word), None);
                 if errno() != 0 {
                     break;
                 }
@@ -897,7 +944,7 @@ pub mod task_inner {
 
                 let mut v: isize = 0;
                 if length < word_size {
-                    v = self.fallible_ptrace(PTRACE_PEEKDATA, start_word.into(), None);
+                    v = self.fallible_ptrace(PTRACE_PEEKDATA, RemotePtr::from(start_word), None);
                     if errno() != 0 {
                         break;
                     }
@@ -910,7 +957,11 @@ pub mod task_inner {
                     );
                 }
 
-                self.fallible_ptrace(PTRACE_POKEDATA, start_word.into(), Some(&v.to_le_bytes()));
+                self.fallible_ptrace(
+                    PTRACE_POKEDATA,
+                    RemotePtr::from(start_word),
+                    Some(&v.to_le_bytes()),
+                );
                 nwritten += length;
             }
 
