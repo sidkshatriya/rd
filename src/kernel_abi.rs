@@ -2,7 +2,6 @@
 #![allow(non_upper_case_globals)]
 #![allow(non_snake_case)]
 
-use crate::bindings::kernel;
 use crate::remote_ptr::RemotePtr;
 use std::convert::TryInto;
 use std::fmt::{Display, Formatter, LowerHex, Result};
@@ -129,42 +128,6 @@ impl<ValT: Copy + LowerHex, ReferenT> Display for Ptr<ValT, ReferenT> {
     }
 }
 
-///////////////////// stat64
-// @TODO this is packed struct in rr but this causes static assertion issues.
-#[cfg(target_arch = "x86_64")]
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-struct stat64_x86_64 {
-    st_dev: u64,
-    __pad1: u32,
-    __st_ino: u64,
-    st_mode: u32,
-    st_nlink: u64,
-    st_uid: u32,
-    st_gid: u32,
-    st_rdev: u64,
-    __pad2: u32,
-    st_size: u64,
-    st_blksize: i64,
-    st_blocks: i64,
-    st_atim: timespec<i64>,
-    st_mtim: timespec<i64>,
-    st_ctim: timespec<i64>,
-    st_ino: u64,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-struct timespec<SLongT: Copy + Clone> {
-    tv_sec: SLongT,
-    tv_nsec: SLongT,
-}
-
-#[cfg(target_arch = "x86_64")]
-assert_eq_align!(kernel::stat64, stat64_x86_64);
-#[cfg(target_arch = "x86_64")]
-assert_eq_size!(kernel::stat64, stat64_x86_64);
-
 pub mod common {
     pub type int16_t = i16;
     pub type int32_t = i32;
@@ -220,7 +183,6 @@ pub mod w64 {
 
 pub mod x64 {
     pub use super::w64::*;
-    use crate::bindings::kernel;
     pub const SIGINFO_PADDING: usize = 28;
 
     pub type ptr<T> = super::Ptr<u64, T>;
@@ -242,6 +204,26 @@ pub mod x64 {
     pub mod preload_interface {
         use super::*;
         include!("include/preload_interface_arch.rs");
+    }
+
+    #[repr(C)]
+    #[derive(Copy, Clone, Default)]
+    struct stat64 {
+        pub st_dev: dev_t,
+        pub st_ino: ino_t,
+        pub st_nlink: nlink_t,
+        pub st_mode: mode_t,
+        pub st_uid: uid_t,
+        pub st_gid: gid_t,
+        pub __pad0: int,
+        pub st_rdev: dev_t,
+        pub st_size: off_t,
+        pub st_blksize: blksize_t,
+        pub st_blocks: blkcnt_t,
+        pub st_atim: timespec,
+        pub st_mtim: timespec,
+        pub st_ctim: timespec,
+        pub __rd_unused: [syscall_slong_t; 3],
     }
 
     #[repr(C)]
@@ -332,6 +314,10 @@ pub mod x64 {
     #[cfg(target_arch = "x86_64")]
     mod assert {
         use super::*;
+        use crate::bindings::kernel;
+
+        assert_eq_align!(kernel::stat64, stat64);
+        assert_eq_size!(kernel::stat64, stat64);
 
         assert_eq_align!(kernel::user_fpregs_struct, user_fpregs_struct);
         assert_eq_size!(kernel::user_fpregs_struct, user_fpregs_struct);
@@ -603,8 +589,6 @@ pub mod w32 {
 
 pub mod x86 {
     pub use super::w32::*;
-    // This line should not be deleted
-    use crate::bindings::kernel;
 
     pub const SIGINFO_PADDING: usize = 29;
     pub type ptr<T> = super::Ptr<u32, T>;
@@ -626,6 +610,28 @@ pub mod x86 {
         use super::*;
         include!("include/preload_interface_arch.rs");
     }
+
+    /// @TODO Check this in x86
+    #[repr(C, packed)]
+    pub struct stat64 {
+        pub st_dev: dev_t,
+        pub __pad1: unsigned_int,
+        pub __st_ino: ino_t,
+        pub st_mode: mode_t,
+        pub st_nlink: nlink_t,
+        pub st_uid: uid_t,
+        pub st_gid: gid_t,
+        pub st_rdev: dev_t,
+        pub __pad2: unsigned_int,
+        pub st_size: off64_t,
+        pub st_blksize: blksize_t,
+        pub st_blocks: blkcnt64_t,
+        pub st_atim: timespec,
+        pub st_mtim: timespec,
+        pub st_ctim: timespec,
+        pub st_ino: ino64_t,
+    }
+
     #[repr(C)]
     #[derive(Copy, Clone, Default)]
     pub struct user_regs_struct {
@@ -719,6 +725,11 @@ pub mod x86 {
     #[cfg(target_arch = "x86")]
     mod assert {
         use super::*;
+        use crate::bindings::kernel;
+
+        assert_eq_align!(kernel::stat64, stat64);
+        assert_eq_size!(kernel::stat64, stat64);
+
         assert_eq_align!(kernel::user_fpregs_struct, user_fpregs_struct);
         assert_eq_size!(kernel::user_fpregs_struct, user_fpregs_struct);
 

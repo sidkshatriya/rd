@@ -133,14 +133,13 @@ pub union epoll_data {
     pub data_u64: u64,
 }
 
-/// @TODO The align check does not seem to work in x86.
-/// Temporarily comment this out
-//#[repr(C)]
-//#[cfg(target_arch = "x86")]
-//pub struct epoll_event {
-//    pub events: u32,
-//    pub data: epoll_data,
-//}
+/// @TODO Check this in x86
+#[repr(C)]
+#[cfg(target_arch = "x86")]
+pub struct epoll_event {
+    pub events: u32,
+    pub data: epoll_data,
+}
 
 /// x86-64 is the only architecture to pack this structure, and it does
 /// so to make the x86 and x86-64 definitions identical.  So even if
@@ -149,8 +148,7 @@ pub union epoll_data {
 /// epoll_event for both kinds of recordees.
 /// See <linux/eventpoll.h>.
 #[repr(C, packed)]
-// @TODO issues with epoll_event alignment. Temporarily comment the next line out.
-// #[cfg(target_arch = "x86_64")]
+#[cfg(target_arch = "x86_64")]
 pub struct epoll_event {
     pub events: u32,
     pub data: epoll_data,
