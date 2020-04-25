@@ -8,6 +8,7 @@ use crate::session::replay_session::ReplaySession;
 use crate::session::session_inner::session_inner::{
     AddressSpaceMap, SessionInner, TaskMap, ThreadGroupMap,
 };
+use crate::task::task_inner::CloneFlags;
 use crate::task::Task;
 use crate::taskish_uid::{AddressSpaceUid, TaskUid, ThreadGroupUid};
 use crate::thread_group::ThreadGroupSharedPtr;
@@ -103,7 +104,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
     fn clone_task(
         &mut self,
         _p: &dyn Task,
-        _flags: i32,
+        _flags: CloneFlags,
         _stack: Option<RemotePtr<Void>>,
         _tls: Option<RemotePtr<Void>>,
         _cleartid_addr: Option<RemotePtr<i32>>,

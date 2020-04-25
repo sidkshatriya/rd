@@ -6,6 +6,7 @@ use crate::task::record_task::record_task::RecordTask;
 use crate::task::replay_task::ReplayTask;
 use crate::task::task_inner::task_inner::TaskInner;
 use crate::task::task_inner::task_inner::{CloneReason, WriteFlags};
+use crate::task::task_inner::CloneFlags;
 use crate::task::task_inner::{ResumeRequest, TicksRequest, WaitRequest};
 use crate::wait_status::WaitStatus;
 use libc::pid_t;
@@ -83,7 +84,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
     fn clone_task(
         &self,
         reason: CloneReason,
-        flags: i32,
+        flags: CloneFlags,
         stack: Option<RemotePtr<Void>>,
         tls: Option<RemotePtr<Void>>,
         cleartid_addr: Option<RemotePtr<i32>>,

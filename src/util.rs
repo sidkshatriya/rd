@@ -7,9 +7,13 @@ use crate::log::LogLevel::{LogDebug, LogWarn};
 use crate::remote_ptr::{RemotePtr, Void};
 use crate::scoped_fd::ScopedFd;
 use crate::task::common::{read_mem, read_val_mem};
+use crate::task::task_inner::CloneFlags;
 use crate::task::Task;
 use libc::pwrite64;
 use libc::STDERR_FILENO;
+use libc::{
+    CLONE_CHILD_CLEARTID, CLONE_FILES, CLONE_SETTLS, CLONE_SIGHAND, CLONE_THREAD, CLONE_VM,
+};
 use libc::{S_IFDIR, S_IFREG};
 use nix::errno::errno;
 use nix::sys::mman::{MapFlags, ProtFlags};
@@ -936,6 +940,26 @@ pub fn extract_clone_parameters(_t: &dyn Task) -> CloneParameters {
 
 /// Convert the flags passed to the clone() syscall, `flags_arg`, into
 /// the format understood by Task::clone_task().
-pub fn clone_flags_to_task_flags(_flags_arg: i32) -> i32 {
-    unimplemented!()
+pub fn clone_flags_to_task_flags(flags_arg: i32) -> CloneFlags {
+    let mut flags = CloneFlags::empty();
+    // See struct CloneFlags for description of the flags.
+    if CLONE_CHILD_CLEARTID & flags_arg == CLONE_CHILD_CLEARTID {
+        flags |= CloneFlags::CLONE_CLEARTID
+    }
+    if CLONE_SETTLS & flags_arg == CLONE_SETTLS {
+        flags |= CloneFlags::CLONE_SET_TLS
+    }
+    if CLONE_SIGHAND & flags_arg == CLONE_SIGHAND {
+        flags |= CloneFlags::CLONE_SHARE_SIGHANDLERS
+    }
+    if CLONE_THREAD & flags_arg == CLONE_THREAD {
+        flags |= CloneFlags::CLONE_SHARE_THREAD_GROUP
+    }
+    if CLONE_VM & flags_arg == CLONE_VM {
+        flags |= CloneFlags::CLONE_SHARE_VM
+    }
+    if CLONE_FILES & flags_arg == CLONE_FILES {
+        flags |= CloneFlags::CLONE_SHARE_FILES
+    }
+    flags
 }

@@ -4,25 +4,25 @@ use crate::bindings::ptrace::{
 
 use crate::kernel_abi::common::preload_interface::PRELOAD_THREAD_LOCALS_SIZE;
 
-#[derive(Copy, Clone, Debug)]
-pub enum CloneFlags {
-    /// The child gets a semantic copy of all parent resources (and
+bitflags! {
+    /// CloneFlags::empty(): The child gets a semantic copy of all parent resources (and
     /// becomes a new thread group).  This is the semantics of the
     /// fork() syscall.
-    CloneShareNothing = 0,
-    /// Child will share the table of signal dispositions with its
-    /// parent.
-    CloneShareSighandlers = 1 << 0,
-    /// Child will join its parent's thread group.
-    CloneShareThreadGroup = 1 << 1,
-    /// Child will share its parent's address space.
-    CloneShareVm = 1 << 2,
-    /// Child will share its parent's file descriptor table.
-    CloneShareFiles = 1 << 3,
-    /// Kernel will clear and notify tid futex on task exit.
-    CloneCleartid = 1 << 4,
-    /// Set the thread area to what's specified by the `tls` arg.
-    CloneSetTls = 1 << 5,
+    pub struct CloneFlags : u32 {
+        /// Child will share the table of signal dispositions with its
+        /// parent.
+        const CLONE_SHARE_SIGHANDLERS = 1 << 0;
+        /// Child will join its parent's thread group.
+        const CLONE_SHARE_THREAD_GROUP = 1 << 1;
+        /// Child will share its parent's address space.
+        const CLONE_SHARE_VM = 1 << 2;
+        /// Child will share its parent's file descriptor table.
+        const CLONE_SHARE_FILES = 1 << 3;
+        /// Kernel will clear and notify tid futex on task exit.
+        const CLONE_CLEARTID = 1 << 4;
+        /// Set the thread area to what's specified by the `tls` arg.
+        const CLONE_SET_TLS = 1 << 5;
+    }
 }
 
 /// Enumeration of ways to resume execution.  See the ptrace manual for

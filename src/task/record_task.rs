@@ -5,6 +5,7 @@ use crate::kernel_abi::SupportedArch;
 use crate::kernel_supplement::{SA_RESETHAND, SA_SIGINFO, _NSIG};
 use crate::remote_code_ptr::RemoteCodePtr;
 use crate::remote_ptr::{RemotePtr, Void};
+use crate::task::task_inner::CloneFlags;
 use libc::EINVAL;
 use nix::errno::errno;
 use std::mem::size_of;
@@ -440,7 +441,7 @@ pub mod record_task {
         fn clone_task(
             &self,
             _reason: CloneReason,
-            _flags: i32,
+            _flags: CloneFlags,
             _stack: Option<RemotePtr<u8>>,
             _tls: Option<RemotePtr<u8>>,
             _cleartid_addr: Option<RemotePtr<i32>>,

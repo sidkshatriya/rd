@@ -9,6 +9,7 @@ use crate::task::common::{
 };
 use crate::task::task_inner::task_inner::WriteFlags;
 use crate::task::task_inner::task_inner::{CloneReason, TaskInner};
+use crate::task::task_inner::CloneFlags;
 use crate::task::Task;
 use crate::trace::trace_frame::{FrameTime, TraceFrame};
 use libc::pid_t;
@@ -145,7 +146,7 @@ impl Task for ReplayTask {
     fn clone_task(
         &self,
         _reason: CloneReason,
-        _flags: i32,
+        _flags: CloneFlags,
         _stack: Option<RemotePtr<Void>>,
         _tls: Option<RemotePtr<Void>>,
         _cleartid_addr: Option<RemotePtr<i32>>,
