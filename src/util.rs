@@ -4,7 +4,7 @@ use crate::arch::Architecture;
 use crate::bindings::signal::{SI_KERNEL, TRAP_BRKPT};
 use crate::flags::Flags;
 use crate::log::LogLevel::{LogDebug, LogWarn};
-use crate::remote_ptr::RemotePtr;
+use crate::remote_ptr::{RemotePtr, Void};
 use crate::scoped_fd::ScopedFd;
 use crate::task::common::{read_mem, read_val_mem};
 use crate::task::Task;
@@ -919,4 +919,23 @@ pub fn restore_initial_resource_limits() {
     if unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &raw const initial_fd_limit) } < 0 {
         log!(LogWarn, "Failed to reset file descriptor limit");
     }
+}
+
+#[derive(Default)]
+pub struct CloneParameters {
+    pub stack: Option<RemotePtr<Void>>,
+    pub ptid: Option<RemotePtr<i32>>,
+    pub tls: Option<RemotePtr<Void>>,
+    pub ctid: Option<RemotePtr<i32>>,
+}
+
+/// Extract various clone(2) parameters out of the given Task's registers.
+pub fn extract_clone_parameters(_t: &dyn Task) -> CloneParameters {
+    unimplemented!()
+}
+
+/// Convert the flags passed to the clone() syscall, `flags_arg`, into
+/// the format understood by Task::clone_task().
+pub fn clone_flags_to_task_flags(_flags_arg: i32) -> i32 {
+    unimplemented!()
 }

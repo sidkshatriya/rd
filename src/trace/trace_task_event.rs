@@ -21,19 +21,19 @@ pub enum TraceTaskEventType {
 }
 
 impl TraceTaskEvent {
-    pub fn clone_type(&self) -> &TraceTaskEventClone {
+    pub fn clone_variant(&self) -> &TraceTaskEventClone {
         match &self.variant {
             TraceTaskEventVariant::Clone(v) => v,
             _ => panic!("Not a TraceTaskEventTypeClone"),
         }
     }
-    pub fn exec_type(&self) -> &TraceTaskEventExec {
+    pub fn exec_variant(&self) -> &TraceTaskEventExec {
         match &self.variant {
             TraceTaskEventVariant::Exec(v) => v,
             _ => panic!("Not a TraceTaskEventTypeExec"),
         }
     }
-    pub fn exit_type(&self) -> &TraceTaskEventExit {
+    pub fn exit_variant(&self) -> &TraceTaskEventExit {
         match &self.variant {
             TraceTaskEventVariant::Exit(v) => v,
             _ => panic!("Not a TraceTaskEventTypeExit"),

@@ -181,7 +181,7 @@ fn find_cmd_line(
 
 fn write_exec_cmd_line(event: &TraceTaskEvent, out: &mut dyn Write) -> io::Result<()> {
     let mut first = true;
-    for word in event.exec_type().cmd_line() {
+    for word in event.exec_variant().cmd_line() {
         if !first {
             write!(out, " ")?;
         } else {

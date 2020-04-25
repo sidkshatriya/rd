@@ -104,12 +104,12 @@ pub trait Session: DerefMut<Target = SessionInner> {
         &mut self,
         _p: &dyn Task,
         _flags: i32,
-        _stack: RemotePtr<Void>,
-        _tls: RemotePtr<Void>,
-        _cleartid_addr: RemotePtr<i32>,
+        _stack: Option<RemotePtr<Void>>,
+        _tls: Option<RemotePtr<Void>>,
+        _cleartid_addr: Option<RemotePtr<i32>>,
         _new_tid: pid_t,
         _new_rec_tid: Option<pid_t>,
-    ) -> &dyn Task {
+    ) -> &mut dyn Task {
         unimplemented!()
     }
 

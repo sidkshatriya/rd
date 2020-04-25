@@ -5,9 +5,12 @@ include!(concat!(
 ));
 
 use crate::address_space::kernel_mapping::KernelMapping;
+use crate::address_space::MappingFlags;
+use crate::arch::Architecture;
 use crate::auto_remote_syscalls::AutoRemoteSyscalls;
-use crate::kernel_abi::{is_write_syscall, SupportedArch};
-use crate::kernel_metadata::syscall_name;
+use crate::auto_remote_syscalls::PreserveContents::PreserveContents;
+use crate::kernel_abi::{is_write_syscall, CloneTLSType, SupportedArch};
+use crate::kernel_metadata::{ptrace_event_name, syscall_name};
 use crate::log::LogLevel::LogDebug;
 use crate::session::replay_session::ReplaySession;
 use crate::task::replay_task::ReplayTask;
@@ -17,9 +20,15 @@ use crate::task::task_inner::WaitRequest;
 use crate::task::Task;
 use crate::trace::trace_frame::FrameTime;
 use crate::trace::trace_stream;
+use crate::trace::trace_stream::MappedData;
 use crate::trace::trace_task_event::{TraceTaskEvent, TraceTaskEventType};
+use crate::util::{clone_flags_to_task_flags, extract_clone_parameters, CloneParameters};
 use crate::wait_status::WaitStatus;
 use libc::pid_t;
+use libc::{
+    CLONE_CHILD_CLEARTID, CLONE_NEWCGROUP, CLONE_NEWIPC, CLONE_NEWNET, CLONE_NEWNS, CLONE_NEWPID,
+    CLONE_NEWUSER, CLONE_NEWUTS, CLONE_UNTRACED, CLONE_VFORK, CLONE_VM, ENOSYS,
+};
 use nix::sys::mman::{MapFlags, ProtFlags};
 use std::cmp::min;
 use std::ffi::{OsStr, OsString};
@@ -196,14 +205,14 @@ fn maybe_noop_restore_syscallbuf_scratch(t: &mut ReplayTask) {
 }
 
 fn read_task_trace_event(t: &ReplayTask, task_event_type: TraceTaskEventType) -> TraceTaskEvent {
-    let mut ttv: Option<TraceTaskEvent>;
+    let mut tte: Option<TraceTaskEvent>;
     let mut time: FrameTime = 0;
     let shr_ptr = t.session();
     let mut sess = shr_ptr.borrow_mut();
     let tr = sess.as_replay_mut().unwrap().trace_reader_mut();
     loop {
-        ttv = tr.read_task_event(Some(&mut time));
-        if ttv.is_none() {
+        tte = tr.read_task_event(Some(&mut time));
+        if tte.is_none() {
             ed_assert!(
                 t,
                 false,
@@ -211,10 +220,219 @@ fn read_task_trace_event(t: &ReplayTask, task_event_type: TraceTaskEventType) ->
             )
         }
 
-        if time >= t.current_frame_time() || ttv.as_ref().unwrap().event_type() == task_event_type {
+        if time >= t.current_frame_time() && tte.as_ref().unwrap().event_type() == task_event_type {
             break;
         }
     }
     ed_assert!(t, time == t.current_frame_time());
-    ttv.unwrap()
+    tte.unwrap()
+}
+
+fn prepare_clone<Arch: Architecture>(t: &mut ReplayTask) {
+    let trace_frame = t.current_trace_frame();
+    let trace_frame_regs = trace_frame.regs_ref().clone();
+    let syscall_event = trace_frame.event().syscall_event();
+    let syscall_event_arch = syscall_event.arch();
+
+    // We're being called with the syscall entry event, so we can't inspect the result
+    // of the syscall exit to see whether the clone succeeded (that event can happen
+    // much later, even after the spawned task has run).
+    if syscall_event.failed_during_preparation {
+        // creation failed, nothing special to do
+        return;
+    }
+
+    let mut r = t.regs_ref().clone();
+    let mut sys: i32 = r.original_syscallno() as i32;
+    let mut flags: i32 = 0;
+    if Arch::CLONE == sys {
+        // If we allow CLONE_UNTRACED then the child would escape from rr control
+        // and we can't allow that.
+        // Block CLONE_CHILD_CLEARTID because we'll emulate that ourselves.
+        // Block CLONE_VFORK for the reasons below.
+        // Block CLONE_NEW* from replay, any effects it had were dealt with during
+        // recording.
+        let disallowed_clone_flags = CLONE_UNTRACED
+            | CLONE_CHILD_CLEARTID
+            | CLONE_VFORK
+            | CLONE_NEWIPC
+            | CLONE_NEWNET
+            | CLONE_NEWNS
+            | CLONE_NEWPID
+            | CLONE_NEWUSER
+            | CLONE_NEWUTS
+            | CLONE_NEWCGROUP;
+        flags = r.arg1() as i32 & !disallowed_clone_flags;
+        r.set_arg1(flags as usize);
+    } else if Arch::VFORK == sys {
+        // We can't perform a real vfork, because the kernel won't let the vfork
+        // parent return from the syscall until the vfork child has execed or
+        // exited, and it is an invariant of replay that tasks are not in the kernel
+        // except when we need them to execute a specific syscall on rr's behalf.
+        // So instead we do a regular fork but use the CLONE_VM flag to share
+        // address spaces between the parent and child. That's just like a vfork
+        // except the parent is immediately runnable. This is no problem for replay
+        // since we follow the recorded schedule in which the vfork parent did not
+        // run until the vfork child exited.
+        sys = Arch::CLONE;
+        flags = CLONE_VM;
+        r.set_arg1(flags as usize);
+        r.set_arg2(0);
+    }
+    r.set_syscallno(sys as isize);
+    r.set_ip(r.ip().decrement_by_syscall_insn_length(r.arch()));
+    t.set_regs(&r);
+    let entry_regs = r.clone();
+
+    // Run; we will be interrupted by PTRACE_EVENT_CLONE/FORK/VFORK.
+    __ptrace_cont(
+        t,
+        ResumeRequest::ResumeCont,
+        Arch::arch(),
+        sys as i32,
+        None,
+        None,
+    );
+
+    let mut new_tid: Option<pid_t> = None;
+    while !t.clone_syscall_is_complete(&mut new_tid, Arch::arch()) {
+        // clone() calls sometimes fail with -EAGAIN due to load issues or
+        // whatever. We need to retry the system call until it succeeds. Reset
+        // state to try the syscall again.
+        ed_assert!(
+            t,
+            t.regs_ref().syscall_result_signed() == -libc::EAGAIN as isize
+        );
+        t.set_regs(&entry_regs);
+        __ptrace_cont(
+            t,
+            ResumeRequest::ResumeCont,
+            Arch::arch(),
+            sys as i32,
+            None,
+            None,
+        );
+    }
+
+    // Get out of the syscall
+    __ptrace_cont(
+        t,
+        ResumeRequest::ResumeSyscall,
+        Arch::arch(),
+        sys as i32,
+        None,
+        None,
+    );
+
+    ed_assert!(
+        t,
+        t.ptrace_event().is_none(),
+        "Unexpected ptrace event while waiting for syscall exit; got {}",
+        ptrace_event_name(t.ptrace_event().unwrap())
+    );
+
+    r = t.regs_ref().clone();
+    // Restore the saved flags, to hide the fact that we may have
+    // masked out CLONE_UNTRACED/CLONE_CHILD_CLEARTID or changed from vfork to
+    // clone.
+    r.set_arg1(trace_frame_regs.arg1());
+    r.set_arg2(trace_frame_regs.arg2());
+    // Pretend we're still in the system call
+    r.set_syscall_result(-ENOSYS as usize);
+    r.set_original_syscallno(trace_frame_regs.original_syscallno());
+    t.set_regs(&r);
+    t.canonicalize_regs(syscall_event_arch);
+
+    // Dig the recorded tid out out of the trace. The tid value returned in
+    // the recorded registers could be in a different pid namespace from rr's,
+    // so we can't use it directly.
+    let tte = read_task_trace_event(t, TraceTaskEventType::Clone);
+    ed_assert!(
+        t,
+        tte.clone_variant().parent_tid() == t.rec_tid,
+        "Expected tid {}, got {}",
+        t.rec_tid,
+        tte.clone_variant().parent_tid()
+    );
+    let rec_tid = tte.tid();
+
+    let mut params: CloneParameters = Default::default();
+    if Arch::CLONE as isize == t.regs_ref().original_syscallno() {
+        params = extract_clone_parameters(t);
+    }
+    let shr_ptr = t.session();
+    let mut sess = shr_ptr.borrow_mut();
+    let new_task: &mut ReplayTask = sess
+        .clone_task(
+            t,
+            clone_flags_to_task_flags(flags),
+            params.stack,
+            params.tls,
+            params.ctid,
+            new_tid.unwrap(),
+            Some(rec_tid),
+        )
+        .as_replay_task_mut()
+        .unwrap();
+
+    if Arch::CLONE as isize == t.regs_ref().original_syscallno() {
+        // FIXME: what if registers are non-null and contain an invalid address?
+        t.set_data_from_trace();
+
+        if Arch::CLONE_TLS_TYPE == CloneTLSType::UserDescPointer {
+            t.set_data_from_trace();
+            new_task.set_data_from_trace();
+        } else {
+            debug_assert!(Arch::CLONE_TLS_TYPE == CloneTLSType::PthreadStructurePointer);
+        }
+        new_task.set_data_from_trace();
+        new_task.set_data_from_trace();
+    }
+
+    // Fix registers in new task
+    let mut new_r = new_task.regs_ref().clone();
+    new_r.set_original_syscallno(trace_frame_regs.original_syscallno());
+    new_r.set_arg1(trace_frame_regs.arg1());
+    new_r.set_arg2(trace_frame_regs.arg2());
+    new_task.set_regs(&new_r);
+    new_task.canonicalize_regs(new_task.arch());
+
+    if Arch::CLONE as isize != t.regs_ref().original_syscallno()
+        || !(CLONE_VM as usize & r.arg1() == CLONE_VM as usize)
+    {
+        // It's hard to imagine a scenario in which it would
+        // be useful to inherit breakpoints (along with their
+        // refcounts) across a non-VM-sharing clone, but for
+        // now we never want to do this.
+        new_task.vm_mut().remove_all_breakpoints();
+        new_task.vm_mut().remove_all_watchpoints();
+
+        let mut remote = AutoRemoteSyscalls::new(new_task);
+        for (_k, m) in t.vm().maps() {
+            // Recreate any tracee-shared mappings
+            if m.local_addr.is_some()
+                && !m
+                    .flags
+                    .contains(MappingFlags::IS_THREAD_LOCALS | MappingFlags::IS_SYSCALLBUF)
+            {
+                remote.recreate_shared_mmap(m, Some(PreserveContents), None);
+            }
+        }
+    }
+
+    let mut data: MappedData = Default::default();
+    let km: KernelMapping;
+    {
+        let shr_ptr = t.session();
+        let mut sess = shr_ptr.borrow_mut();
+        let replay_session = sess.as_replay_mut().unwrap();
+        km = replay_session
+            .trace_reader_mut()
+            .read_mapped_region(Some(&mut data), None, None, None, None)
+            .unwrap();
+    }
+
+    init_scratch_memory(new_task, &km, &data);
+
+    new_task.vm_mut().after_clone();
 }

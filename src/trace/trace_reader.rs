@@ -405,7 +405,7 @@ impl TraceReader {
     }
 
     /// Read a task event (clone or exec record) from the trace.
-    /// Returns a record of type NONE at the end of the trace.
+    /// Returns `None` at the end of the trace.
     /// Sets `time` (if non-None) to the global time of the event.
     pub fn read_task_event(
         &mut self,

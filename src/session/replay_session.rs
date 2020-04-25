@@ -197,7 +197,7 @@ impl ReplaySession {
     /// to keep a session around inactive, keep the clone and not the original
     /// session. Partially initialized sessions automatically finish
     /// initializing when necessary.
-    pub fn clone(&self) -> ReplaySessionSharedPtr {
+    pub fn clone_replay(&self) -> ReplaySessionSharedPtr {
         unimplemented!()
     }
 

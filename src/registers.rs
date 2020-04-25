@@ -663,7 +663,7 @@ impl Registers {
         rd_get_reg_signed!(self, orig_eax, orig_rax)
     }
 
-    pub fn set_original_syscallno(&mut self, syscallno: usize) {
+    pub fn set_original_syscallno(&mut self, syscallno: isize) {
         rd_set_reg!(self, orig_eax, orig_rax, syscallno);
     }
 

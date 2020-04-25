@@ -140,13 +140,15 @@ impl Task for ReplayTask {
         unimplemented!()
     }
 
+    /// Forwarded method
+    /// @TODO Forwarded method as this would be a non-overridden implementation
     fn clone_task(
         &self,
         _reason: CloneReason,
         _flags: i32,
-        _stack: RemotePtr<u8>,
-        _tls: RemotePtr<u8>,
-        _cleartid_addr: RemotePtr<i32>,
+        _stack: Option<RemotePtr<Void>>,
+        _tls: Option<RemotePtr<Void>>,
+        _cleartid_addr: Option<RemotePtr<i32>>,
         _new_tid: i32,
         _new_rec_tid: i32,
         _new_serial: u32,

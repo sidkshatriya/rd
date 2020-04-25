@@ -1083,8 +1083,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         return true;
     }
 
-    /// Recreate an mmap region that is shared between rr and the tracee. The
-    /// caller
+    /// Recreate an mmap region that is shared between rr and the tracee. The caller
     /// is responsible for recreating the data in the new mmap, *if* `preserve` is
     /// DiscardContents.
     /// OK to call this while 'm' references one of the mappings in remote's
