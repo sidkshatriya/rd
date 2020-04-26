@@ -15,8 +15,8 @@ pub struct MemoryRange {
 impl MemoryRange {
     pub fn new() -> MemoryRange {
         MemoryRange {
-            start_: RemotePtr::new(),
-            end_: RemotePtr::new(),
+            start_: RemotePtr::null(),
+            end_: RemotePtr::null(),
         }
     }
 

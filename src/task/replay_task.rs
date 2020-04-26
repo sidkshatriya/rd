@@ -6,7 +6,7 @@ use crate::remote_ptr::{RemotePtr, Void};
 use crate::session::{Session, SessionSharedWeakPtr};
 use crate::task::common::{
     next_syscallbuf_record, open_mem_fd, read_bytes_fallible, read_bytes_helper, read_c_str,
-    syscallbuf_data_size, write_bytes, write_bytes_helper,
+    stored_record_size, syscallbuf_data_size, write_bytes, write_bytes_helper,
 };
 use crate::task::task_inner::task_inner::WriteFlags;
 use crate::task::task_inner::task_inner::{CloneReason, TaskInner};
@@ -119,8 +119,8 @@ impl DerefMut for ReplayTask {
 
 impl Task for ReplayTask {
     // Forwarded method
-    fn stored_record_size(&self, record: RemotePtr<syscallbuf_record>) -> u32 {
-        stored_record_size(self, record: RemotePtr<syscallbuf_record>)
+    fn stored_record_size(&mut self, record: RemotePtr<syscallbuf_record>) -> u32 {
+        stored_record_size(self, record)
     }
 
     /// Forwarded method

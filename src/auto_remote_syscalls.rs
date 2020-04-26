@@ -548,7 +548,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         child_fd: i32,
         offset_pages: u64,
     ) -> RemotePtr<Void> {
-        let addr_hint = maybe_addr_hint.unwrap_or(RemotePtr::new());
+        let addr_hint = maybe_addr_hint.unwrap_or(RemotePtr::null());
         // The first syscall argument is called "arg 1", so
         // our syscall-arg-index template parameter starts
         // with "1".

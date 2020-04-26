@@ -29,7 +29,7 @@ pub enum WaitType {
     PtraceEvent,
 }
 
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct WaitStatus {
     status: i32,
 }
@@ -229,10 +229,10 @@ impl WaitStatus {
         WaitStatus { status: code }
     }
 
-    pub fn for_ptrace_event(ptrace_event: i32) -> WaitStatus {
+    pub fn for_ptrace_event(ptrace_event: u32) -> WaitStatus {
         debug_assert!(ptrace_event >= 1 && ptrace_event < 0x100);
         WaitStatus {
-            status: (ptrace_event << 16) | (SIGTRAP << 8) | 0x7f,
+            status: ((ptrace_event as i32) << 16) | (SIGTRAP << 8) | 0x7f,
         }
     }
 

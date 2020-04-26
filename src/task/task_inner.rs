@@ -82,7 +82,7 @@ pub mod task_inner {
     use crate::extra_registers::ExtraRegisters;
     use crate::fd_table::FdTableSharedPtr;
     use crate::kernel_abi::common::preload_interface::preload_globals;
-    use crate::kernel_abi::common::preload_interface::{syscallbuf_hdr, syscallbuf_record};
+    use crate::kernel_abi::common::preload_interface::syscallbuf_hdr;
     use crate::kernel_abi::SupportedArch;
     use crate::kernel_metadata::ptrace_event_name;
     use crate::kernel_metadata::syscall_name;
@@ -111,10 +111,27 @@ pub mod task_inner {
     use std::cmp::min;
     use std::ffi::{OsStr, OsString};
     use std::mem::size_of;
-    use std::ptr::{copy_nonoverlapping, null};
+    use std::ptr::copy_nonoverlapping;
     use std::rc::Rc;
 
     pub struct TrapReason;
+
+    #[derive(Debug)]
+    pub enum PtraceData<'a> {
+        WriteInto(&'a mut [u8]),
+        ReadFrom(&'a [u8]),
+        None,
+    }
+
+    impl<'a> PtraceData<'a> {
+        fn get_addr(&self) -> usize {
+            match self {
+                PtraceData::WriteInto(s) => s.as_ptr() as usize,
+                PtraceData::ReadFrom(s) => s.as_ptr() as usize,
+                PtraceData::None => 0usize,
+            }
+        }
+    }
 
     type ThreadLocals = [u8; PRELOAD_THREAD_LOCALS_SIZE];
 
@@ -263,6 +280,10 @@ pub mod task_inner {
         /// True when a PTRACE_EXIT_EVENT has been observed in the wait_status
         /// for this task.
         pub(in super::super) seen_ptrace_exit_event: bool,
+        /// A counter for the number of stops for which the stop may have been caused
+        /// by PTRACE_INTERRUPT. See description in do_waitpid
+        pub(in super::super) expecting_ptrace_interrupt_stop: u32,
+
         /// Important. Weak dyn Task pointer to self.
         pub(in super::super) weak_self_task: TaskSharedWeakPtr,
     }
@@ -448,10 +469,10 @@ pub mod task_inner {
         /// However, since it is only used to extract pid_t we monomorphize it in rd.
         pub fn get_ptrace_eventmsg_pid(&self) -> pid_t {
             let pid: pid_t = 0;
-            self.xptrace_get_data(
+            self.xptrace(
                 PTRACE_GETEVENTMSG,
                 RemotePtr::from(0usize),
-                &mut pid.to_le_bytes(),
+                PtraceData::WriteInto(&mut pid.to_le_bytes()),
             );
             pid
         }
@@ -840,8 +861,12 @@ pub mod task_inner {
         /// Errors other than ESRCH are treated as fatal. Returns false if
         /// we got ESRCH. This can happen any time during recording when the
         /// task gets a SIGKILL from outside.
-        /// @TODO param data
-        pub fn ptrace_if_alive(&self, _request: i32, _addr: RemotePtr<Void>, _data: &[u8]) -> bool {
+        pub fn ptrace_if_alive(
+            &self,
+            _request: u32,
+            _addr: RemotePtr<Void>,
+            _data: PtraceData,
+        ) -> bool {
             unimplemented!()
         }
 
@@ -916,22 +941,10 @@ pub mod task_inner {
             &self,
             request: u32,
             addr: RemotePtr<Void>,
-            data: Option<&[u8]>,
+            data: PtraceData,
         ) -> isize {
-            let data_param = data.map_or(null(), |d| d.as_ptr());
-            let res = unsafe { ptrace(request, self.tid, addr, data_param) };
+            let res = unsafe { ptrace(request, self.tid, addr, data.get_addr()) };
             res as isize
-        }
-
-        /// NOTE: This is an additional variant of `fallible_ptrace` that allows data to be written
-        /// into `data`.
-        pub(in super::super) fn fallible_ptrace_get_data(
-            &self,
-            request: u32,
-            addr: RemotePtr<Void>,
-            data: &mut [u8],
-        ) -> isize {
-            (unsafe { ptrace(request, self.tid, addr, data.as_ptr()) }) as isize
         }
 
         /// Like `fallible_ptrace()` but completely infallible.
@@ -940,42 +953,21 @@ pub mod task_inner {
             &self,
             request: u32,
             addr: RemotePtr<Void>,
-            data: Option<&[u8]>,
+            data: PtraceData,
         ) {
             unsafe { *(__errno_location()) = 0 };
+            // @TODO Slightly inelegant and possibly not so performant?
+            let data_repr = format!("{:?}", data);
             self.fallible_ptrace(request, addr, data);
             let errno = errno();
             ed_assert!(
                 self,
                 errno == 0,
-                "ptrace({}, {}, addr={}, data={:?}) failed with errno: {}",
+                "ptrace({}, {}, addr={}, data={}) failed with errno: {}",
                 ptrace_req_name(request),
                 self.tid,
                 addr,
-                data,
-                errno
-            );
-        }
-
-        /// NOTE: This is an additional variant of `fallible_ptrace` that allows data to be written
-        /// into `data`.
-        pub(in super::super) fn xptrace_get_data(
-            &self,
-            request: u32,
-            addr: RemotePtr<Void>,
-            data: &mut [u8],
-        ) {
-            unsafe { *(__errno_location()) = 0 };
-            self.fallible_ptrace_get_data(request, addr, data);
-            let errno = errno();
-            ed_assert!(
-                self,
-                errno == 0,
-                "ptrace({}, {}, addr={}, data={:?}) failed with errno: {}",
-                ptrace_req_name(request),
-                self.tid,
-                addr,
-                data,
+                data_repr,
                 errno
             );
         }
@@ -1001,7 +993,11 @@ pub mod task_inner {
                 let end_word: usize = start_word + word_size;
                 let length = min(end_word - start, buf_size - nwritten);
 
-                let v = self.fallible_ptrace(PTRACE_PEEKDATA, RemotePtr::from(start_word), None);
+                let v = self.fallible_ptrace(
+                    PTRACE_PEEKDATA,
+                    RemotePtr::from(start_word),
+                    PtraceData::None,
+                );
                 if errno() != 0 {
                     break;
                 }
@@ -1042,7 +1038,11 @@ pub mod task_inner {
 
                 let mut v: isize = 0;
                 if length < word_size {
-                    v = self.fallible_ptrace(PTRACE_PEEKDATA, RemotePtr::from(start_word), None);
+                    v = self.fallible_ptrace(
+                        PTRACE_PEEKDATA,
+                        RemotePtr::from(start_word),
+                        PtraceData::None,
+                    );
                     if errno() != 0 {
                         break;
                     }
@@ -1058,7 +1058,7 @@ pub mod task_inner {
                 self.fallible_ptrace(
                     PTRACE_POKEDATA,
                     RemotePtr::from(start_word),
-                    Some(&v.to_le_bytes()),
+                    PtraceData::ReadFrom(&v.to_le_bytes()),
                 );
                 nwritten += length;
             }

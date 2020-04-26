@@ -26,7 +26,7 @@ impl<T> Default for RemotePtr<T> {
 }
 
 impl<T> RemotePtr<T> {
-    pub fn new() -> RemotePtr<T> {
+    pub fn null() -> RemotePtr<T> {
         RemotePtr {
             ptr: 0,
             phantom: PhantomData,
@@ -185,13 +185,13 @@ mod tests {
 
     #[test]
     fn new_test() {
-        let a = RemotePtr::<u64>::new();
+        let a = RemotePtr::<u64>::null();
         assert_eq!(0, a.as_usize());
     }
 
     #[test]
     fn add_test() {
-        let a = RemotePtr::<u64>::new();
+        let a = RemotePtr::<u64>::null();
         let b = a + 1 as usize;
         assert_eq!(8, b.as_usize());
     }
@@ -199,7 +199,7 @@ mod tests {
     #[test]
     fn add_test_with_custom_struct() {
         struct S(u64, u64);
-        let a = RemotePtr::<S>::new();
+        let a = RemotePtr::<S>::null();
         let b = a + 1 as usize;
         assert_eq!(16, b.as_usize());
     }
@@ -207,13 +207,13 @@ mod tests {
     #[test]
     fn referent_size_custom_struct() {
         struct S(u64, u64);
-        let a = RemotePtr::<S>::new();
+        let a = RemotePtr::<S>::null();
         assert_eq!(16, a.referent_size());
     }
 
     #[test]
     fn add_sub_test() {
-        let a = RemotePtr::<u64>::new();
+        let a = RemotePtr::<u64>::null();
         let b = a + 1 as usize;
         let c = b - 1 as usize;
         assert_eq!(0, c.as_usize());

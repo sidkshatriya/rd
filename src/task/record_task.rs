@@ -156,7 +156,7 @@ impl Default for Sighandler {
             resethand: false,
             takes_siginfo: false,
             sa: Vec::new(),
-            k_sa_handler: RemotePtr::new(),
+            k_sa_handler: RemotePtr::null(),
         }
     }
 }
@@ -415,8 +415,8 @@ pub mod record_task {
 
     impl Task for RecordTask {
         // Forwarded method
-        fn stored_record_size(&self, record: RemotePtr<syscallbuf_record>) -> u32 {
-            stored_record_size(self, record: RemotePtr<syscallbuf_record>)
+        fn stored_record_size(&mut self, record: RemotePtr<syscallbuf_record>) -> u32 {
+            stored_record_size(self, record)
         }
 
         /// Forwarded method

@@ -1,6 +1,7 @@
 use crate::address_space::address_space::AddressSpace;
 use crate::address_space::kernel_mapping::KernelMapping;
 use crate::arch::Architecture;
+use crate::bindings::kernel::timeval;
 use crate::bindings::signal::{SI_KERNEL, TRAP_BRKPT};
 use crate::flags::Flags;
 use crate::kernel_abi::CloneParameterOrdering;
@@ -13,11 +14,11 @@ use crate::task::task_inner::CloneFlags;
 use crate::task::Task;
 use libc::pwrite64;
 use libc::STDERR_FILENO;
+use libc::{pid_t, S_IFDIR, S_IFREG};
 use libc::{
     CLONE_CHILD_CLEARTID, CLONE_CHILD_SETTID, CLONE_FILES, CLONE_PARENT_SETTID, CLONE_SETTLS,
     CLONE_SIGHAND, CLONE_THREAD, CLONE_VM,
 };
-use libc::{S_IFDIR, S_IFREG};
 use nix::errno::errno;
 use nix::sys::mman::{MapFlags, ProtFlags};
 use nix::sys::stat::FileStat;
@@ -35,6 +36,7 @@ use std::env::var_os;
 use std::ffi::{c_void, CString, OsStr, OsString};
 use std::io::{Error, ErrorKind};
 use std::mem::{size_of_val, zeroed};
+use std::os::raw::c_long;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::ffi::OsStringExt;
 use std::path::Path;
@@ -1000,4 +1002,14 @@ pub fn clone_flags_to_task_flags(flags_arg: i32) -> CloneFlags {
         flags |= CloneFlags::CLONE_SHARE_FILES
     }
     flags
+}
+
+pub fn to_timeval(t: f64) -> timeval {
+    let tv_sec: c_long = t.floor() as c_long;
+    let tv_usec: c_long = ((t - tv_sec as f64) * 1000000.0).floor() as c_long;
+    timeval { tv_sec, tv_usec }
+}
+
+pub fn is_zombie_process(_pid: pid_t) -> bool {
+    unimplemented!()
 }

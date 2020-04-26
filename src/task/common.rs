@@ -12,20 +12,25 @@
 
 use crate::address_space::memory_range::MemoryRangeKey;
 use crate::auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem};
+use crate::bindings::kernel::{itimerval, setitimer};
+use crate::bindings::ptrace::{PTRACE_EVENT_EXIT, PTRACE_INTERRUPT};
 use crate::core::type_has_no_holes;
 use crate::kernel_abi::common::preload_interface;
 use crate::kernel_abi::common::preload_interface::{syscallbuf_hdr, syscallbuf_record};
 use crate::kernel_abi::{
     syscall_number_for_close, syscall_number_for_mprotect, syscall_number_for_openat,
 };
-use crate::log::LogLevel::{LogInfo, LogWarn};
+use crate::log::LogLevel::{LogDebug, LogInfo, LogWarn};
 use crate::rd::RD_RESERVED_ROOT_DIR_FD;
 use crate::remote_ptr::{RemotePtr, Void};
 use crate::scoped_fd::ScopedFd;
-use crate::task::task_inner::task_inner::WriteFlags;
+use crate::task::task_inner::task_inner::{PtraceData, WriteFlags};
 use crate::task::Task;
-use crate::util::{ceil_page_size, floor_page_size, pwrite_all_fallible};
-use libc::{__errno_location, pread64, EPERM, ESRCH};
+use crate::util::{
+    ceil_page_size, floor_page_size, is_zombie_process, pwrite_all_fallible, to_timeval,
+};
+use crate::wait_status::WaitStatus;
+use libc::{__errno_location, pid_t, pread64, waitpid, EPERM, ESRCH, ITIMER_REAL};
 use nix::errno::errno;
 use nix::fcntl::OFlag;
 use nix::sys::mman::{MapFlags, ProtFlags};
@@ -34,7 +39,7 @@ use std::ffi::c_void;
 use std::ffi::{CStr, CString};
 use std::mem::{size_of, zeroed};
 use std::path::Path;
-use std::slice;
+use std::{ptr, slice};
 
 /// Forwarded method definition
 ///
@@ -525,4 +530,128 @@ pub fn write_mem<D: 'static>(
         ok,
         WriteFlags::empty(),
     );
+}
+
+pub(super) fn wait<T: Task>(task: &mut T, interrupt_after_elapsed: f64) {
+    debug_assert!(interrupt_after_elapsed >= 0.0);
+    log!(LogDebug, "going into blocking waitpid({}) ...", task.tid);
+    ed_assert!(task, !task.unstable, "Don't wait for unstable tasks");
+    ed_assert!(
+        task,
+        task.session().borrow().is_recording() || interrupt_after_elapsed == 0.0
+    );
+
+    if task.wait_unexpected_exit() {
+        return;
+    }
+
+    let mut status: WaitStatus;
+    let mut sent_wait_interrupt = false;
+    let mut ret: pid_t;
+    loop {
+        if interrupt_after_elapsed > 0.0 {
+            let mut timer: itimerval = unsafe { zeroed() };
+            timer.it_value = to_timeval(interrupt_after_elapsed);
+            unsafe {
+                setitimer(ITIMER_REAL as u32, &timer, ptr::null_mut());
+            }
+        }
+        let mut raw_status: i32 = 0;
+        ret = unsafe { waitpid(task.tid, &mut raw_status, libc::__WALL) };
+        status = WaitStatus::new(raw_status);
+        if interrupt_after_elapsed > 0.0 {
+            let timer: itimerval = unsafe { zeroed() };
+            unsafe { setitimer(ITIMER_REAL as u32, &timer, ptr::null_mut()) };
+        }
+        if ret >= 0 || errno() != libc::EINTR {
+            // waitpid was not interrupted by the alarm.
+            break;
+        }
+
+        if is_zombie_process(task.real_tgid()) {
+            // The process is dead. We must stop waiting on it now
+            // or we might never make progress.
+            // XXX it's not clear why the waitpid() syscall
+            // doesn't return immediately in this case, but in
+            // some cases it doesn't return normally at all!
+
+            // Fake a PTRACE_EVENT_EXIT for this task.
+            log!(
+                LogWarn,
+                "Synthesizing PTRACE_EVENT_EXIT for zombie process {}",
+                task.tid
+            );
+            status = WaitStatus::for_ptrace_event(PTRACE_EVENT_EXIT);
+            ret = task.tid;
+            // XXX could this leave unreaped zombies lying around?
+            break;
+        }
+
+        if !sent_wait_interrupt && (interrupt_after_elapsed > 0.0) {
+            task.ptrace_if_alive(PTRACE_INTERRUPT, RemotePtr::null(), PtraceData::None);
+            sent_wait_interrupt = true;
+            task.expecting_ptrace_interrupt_stop = 2;
+        }
+    }
+
+    if ret >= 0 && status.exit_code().is_some() {
+        // Unexpected non-stopping exit code returned in wait_status.
+        // This shouldn't happen; a PTRACE_EXIT_EVENT for this task
+        // should be observed first, and then we would kill the task
+        // before wait()ing again, so we'd only see the exit
+        // code in detach_and_reap. But somehow we see it here in
+        // grandchild_threads and async_kill_with_threads tests (and
+        // maybe others), when a PTRACE_EXIT_EVENT has not been sent.
+        // Verify that we have not actually seen a PTRACE_EXIT_EVENT.
+        ed_assert!(
+            task,
+            !task.seen_ptrace_exit_event,
+            "A PTRACE_EXIT_EVENT was observed for this task, but somehow forgotten"
+        );
+
+        // Turn this into a PTRACE_EXIT_EVENT.
+        log!(
+            LogWarn,
+            "Synthesizing PTRACE_EVENT_EXIT for process {} exited with {}",
+            task.tid,
+            status.exit_code().unwrap()
+        );
+        status = WaitStatus::for_ptrace_event(PTRACE_EVENT_EXIT);
+    }
+
+    log!(
+        LogDebug,
+        "  waitpid({}) returns {}; status {}",
+        task.tid,
+        ret,
+        status
+    );
+    ed_assert!(
+        task,
+        task.tid == ret,
+        "waitpid({}) failed with {}",
+        task.tid,
+        ret
+    );
+
+    if sent_wait_interrupt {
+        log!(LogWarn, "Forced to PTRACE_INTERRUPT tracee");
+        if !is_signal_triggered_by_ptrace_interrupt(status.group_stop_sig()) {
+            log!(
+                LogWarn,
+                "  PTRACE_INTERRUPT raced with another event {:?}",
+                status
+            );
+        }
+    }
+    task.did_waitpid(status);
+}
+
+fn is_signal_triggered_by_ptrace_interrupt(group_stop_sig: Option<i32>) -> bool {
+    group_stop_sig.map_or(false, |sig| match sig {
+        // We sometimes see SIGSTOP at interrupts, though the
+        // docs don't mention that.
+        libc::SIGTRAP | libc::SIGSTOP => true,
+        _ => false,
+    })
 }

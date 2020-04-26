@@ -947,7 +947,7 @@ pub mod address_space {
         }
 
         pub fn maps(&self) -> Maps {
-            Maps::new(self, RemotePtr::new())
+            Maps::new(self, RemotePtr::null())
         }
         pub fn maps_starting_at(&self, start: RemotePtr<Void>) -> Maps {
             Maps::new(self, start)
@@ -1746,7 +1746,7 @@ pub mod address_space {
             required_space: usize,
             maybe_after: Option<RemotePtr<Void>>,
         ) -> RemotePtr<Void> {
-            let after = maybe_after.unwrap_or(RemotePtr::new());
+            let after = maybe_after.unwrap_or(RemotePtr::null());
             let mut iter = self.maps_starting_at(after).into_iter();
             // This has to succeed otherwise we panic!
             let mut current = iter.next().unwrap().1;
