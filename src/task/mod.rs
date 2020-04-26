@@ -26,6 +26,8 @@ pub type TaskSharedPtr = Rc<RefCell<Box<dyn Task>>>;
 pub type TaskSharedWeakPtr = Weak<RefCell<Box<dyn Task>>>;
 
 pub trait Task: DerefMut<Target = TaskInner> {
+    fn stored_record_size(&self, record: RemotePtr<syscallbuf_record>) -> u32;
+
     fn next_syscallbuf_record(&mut self) -> RemotePtr<syscallbuf_record>;
 
     fn as_task_inner(&self) -> &TaskInner;

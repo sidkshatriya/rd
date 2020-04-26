@@ -13,6 +13,7 @@
 use crate::address_space::memory_range::MemoryRangeKey;
 use crate::auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem};
 use crate::core::type_has_no_holes;
+use crate::kernel_abi::common::preload_interface;
 use crate::kernel_abi::common::preload_interface::{syscallbuf_hdr, syscallbuf_record};
 use crate::kernel_abi::{
     syscall_number_for_close, syscall_number_for_mprotect, syscall_number_for_openat,
@@ -455,10 +456,24 @@ pub fn next_syscallbuf_record<T: Task>(task: &mut T) -> RemotePtr<syscallbuf_rec
     let num_rec_bytes_addr =
         RemotePtr::<u8>::cast(task.syscallbuf_child) + offset_of!(syscallbuf_hdr, num_rec_bytes);
 
-    // @TODO: Here we have used our knowledge that num_rec_bytes is a u32.
+    // @TODO: Here we have used our knowledge that `num_rec_bytes` is a u32.
     // There does not seem to be a generic way to get that information -- explore more later.
     let num_rec_bytes = read_val_mem(task, RemotePtr::<u32>::cast(num_rec_bytes_addr), None);
     RemotePtr::cast(addr + num_rec_bytes)
+}
+
+/// Forwarded method definition
+///
+pub fn stored_record_size<T: Task>(task: &mut T, record: RemotePtr<syscallbuf_record>) -> u32 {
+    let size_field_addr = RemotePtr::<u8>::cast(record) + offset_of!(syscallbuf_record, size);
+
+    // @TODO: Here we have used our knowledge that `size` is a u32.
+    // There does not seem to be a generic way to get that information -- explore more later.
+    preload_interface::stored_record_size(read_val_mem(
+        task,
+        RemotePtr::<u32>::cast(size_field_addr),
+        None,
+    ))
 }
 
 /// NOT Forwarded method definition

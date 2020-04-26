@@ -483,10 +483,6 @@ pub mod task_inner {
             unimplemented!()
         }
 
-        pub fn stored_record_size(&self, _record: RemotePtr<syscallbuf_record>) -> usize {
-            unimplemented!()
-        }
-
         /// Return the current $ip of this.
         pub fn ip(&self) -> RemoteCodePtr {
             self.registers.ip()

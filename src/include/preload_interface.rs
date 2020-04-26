@@ -278,7 +278,7 @@ pub enum syscallbuf_locked_why {
 
 /// Return the amount of space that a record of `length` will occupy in
 /// the buffer if committed, including padding.
-pub fn stored_record_size(length: usize) -> usize {
+pub fn stored_record_size(length: u32) -> u32 {
     // Round up to a whole number of 64-bit words.
-    (length + 7) & !7usize
+    (length + 7) & !7u32
 }

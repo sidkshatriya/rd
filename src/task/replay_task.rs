@@ -118,6 +118,11 @@ impl DerefMut for ReplayTask {
 }
 
 impl Task for ReplayTask {
+    // Forwarded method
+    fn stored_record_size(&self, record: RemotePtr<syscallbuf_record>) -> u32 {
+        stored_record_size(self, record: RemotePtr<syscallbuf_record>)
+    }
+
     /// Forwarded method
     fn next_syscallbuf_record(&mut self) -> RemotePtr<syscallbuf_record> {
         next_syscallbuf_record(self)

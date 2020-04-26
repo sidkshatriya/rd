@@ -224,7 +224,8 @@ pub mod record_task {
     use crate::session::Session;
     use crate::task::common::{
         next_syscallbuf_record, open_mem_fd, read_bytes_fallible, read_bytes_helper,
-        read_bytes_helper_for, read_c_str, syscallbuf_data_size, write_bytes, write_bytes_helper,
+        read_bytes_helper_for, read_c_str, stored_record_size, syscallbuf_data_size, write_bytes,
+        write_bytes_helper,
     };
     use crate::task::task_inner::task_inner::{CloneReason, TaskInner, WriteFlags};
     use crate::task::Task;
@@ -413,6 +414,11 @@ pub mod record_task {
     }
 
     impl Task for RecordTask {
+        // Forwarded method
+        fn stored_record_size(&self, record: RemotePtr<syscallbuf_record>) -> u32 {
+            stored_record_size(self, record: RemotePtr<syscallbuf_record>)
+        }
+
         /// Forwarded method
         fn next_syscallbuf_record(&mut self) -> RemotePtr<syscallbuf_record> {
             next_syscallbuf_record(self)

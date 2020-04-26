@@ -320,7 +320,7 @@ unsafe fn dump_syscallbuf_data(
             write!(stderr(), "Malformed trace file (bad record size)\n")?;
             notifying_abort(backtrace::Backtrace::new());
         }
-        record_ptr = record_ptr.add(stored_record_size((*record).size as usize));
+        record_ptr = record_ptr.add(stored_record_size((*record).size) as usize);
     }
     Ok(())
 }
