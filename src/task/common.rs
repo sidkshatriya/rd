@@ -450,7 +450,7 @@ pub(super) fn write_bytes<T: Task>(task: &mut T, child_addr: RemotePtr<Void>, bu
 
 /// Forwarded method definition
 ///
-pub fn next_syscallbuf_record<T: Task>(task: &mut T) -> RemotePtr<syscallbuf_record> {
+pub(super) fn next_syscallbuf_record<T: Task>(task: &mut T) -> RemotePtr<syscallbuf_record> {
     // Next syscallbuf record is size_of the syscallbuf header + number of bytes in buffer
     let addr = RemotePtr::<u8>::cast(task.syscallbuf_child + 1usize);
     let num_rec_bytes_addr =
@@ -464,7 +464,10 @@ pub fn next_syscallbuf_record<T: Task>(task: &mut T) -> RemotePtr<syscallbuf_rec
 
 /// Forwarded method definition
 ///
-pub fn stored_record_size<T: Task>(task: &mut T, record: RemotePtr<syscallbuf_record>) -> u32 {
+pub(super) fn stored_record_size<T: Task>(
+    task: &mut T,
+    record: RemotePtr<syscallbuf_record>,
+) -> u32 {
     let size_field_addr = RemotePtr::<u8>::cast(record) + offset_of!(syscallbuf_record, size);
 
     // @TODO: Here we have used our knowledge that `size` is a u32.
