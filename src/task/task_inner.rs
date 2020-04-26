@@ -358,8 +358,74 @@ pub mod task_inner {
         /// Syscalls have side effects on registers (e.g. setting the flags register).
         /// Perform those side effects on `registers` to make it look like a syscall
         /// happened.
-        pub fn canonicalize_regs(&self, _syscall_arch: SupportedArch) {
-            unimplemented!()
+        pub fn canonicalize_regs(&mut self, syscall_arch: SupportedArch) {
+            ed_assert!(self, self.is_stopped);
+
+            match self.registers.arch() {
+                SupportedArch::X64 => {
+                    match syscall_arch {
+                        SupportedArch::X86 => {
+                            // The int $0x80 compatibility handling clears r8-r11
+                            // (see arch/x86/entry/entry_64_compat.S). The sysenter compatibility
+                            // handling also clears r12-r15. However, to actually make such a syscall,
+                            // the user process would have to switch itself into compatibility mode,
+                            // which, though possible, does not appear to actually be done by any
+                            // real application (contrary to int $0x80, which is accessible from 64bit
+                            // mode as well).
+                            self.registers.set_r8(0x0);
+                            self.registers.set_r9(0x0);
+                            self.registers.set_r10(0x0);
+                            self.registers.set_r11(0x0);
+                        }
+                        SupportedArch::X64 => {
+                            // x86-64 'syscall' instruction copies RFLAGS to R11 on syscall entry.
+                            // If we single-stepped into the syscall instruction, the TF flag will be
+                            // set in R11. We don't want the value in R11 to depend on whether we
+                            // were single-stepping during record or replay, possibly causing
+                            // divergence.
+                            // This doesn't matter when exiting a sigreturn syscall, since it
+                            // restores the original flags.
+                            // For untraced syscalls, the untraced-syscall entry point code (see
+                            // write_rd_page) does this itself.
+                            // We tried just clearing %r11, but that caused hangs in
+                            // Ubuntu/Debian kernels.
+                            // Making this match the flags makes this operation idempotent, which is
+                            // helpful.
+                            self.registers.set_r11(0x246);
+                            // x86-64 'syscall' instruction copies return address to RCX on syscall
+                            // entry. rd-related kernel activity normally sets RCX to -1 at some point
+                            // during syscall execution, but apparently in some (unknown) situations
+                            // probably involving untraced syscalls, that doesn't happen. To avoid
+                            // potential issues, forcibly replace RCX with -1 always.
+                            // This doesn't matter (and we should not do this) when exiting a
+                            // sigreturn syscall, since it will restore the original RCX and we don't
+                            // want to clobber that.
+                            // For untraced syscalls, the untraced-syscall entry point code (see
+                            // write_rd_page) does this itself.
+                            self.registers.set_cx(-1isize as usize);
+                        }
+                    };
+                    // On kernel 3.13.0-68-generic #111-Ubuntu SMP we have observed a failed
+                    // execve() clearing all flags during recording. During replay we emulate
+                    // the exec so this wouldn't happen. Just reset all flags so everything's
+                    // consistent.
+                    // 0x246 is ZF+PF+IF+reserved, the result clearing a register using
+                    // "xor reg, reg".
+                    self.registers.set_flags(0x246);
+                }
+                SupportedArch::X86 => {
+                    // The x86 SYSENTER handling in Linux modifies EBP and EFLAGS on entry.
+                    // EBP is the potential sixth syscall parameter, stored on the user stack.
+                    // The EFLAGS changes are described here:
+                    // http://linux-kernel.2935.n7.nabble.com/ia32-sysenter-target-does-not-preserve-EFLAGS-td1074164.html
+                    // In a VMWare guest, the modifications to EFLAGS appear to be
+                    // nondeterministic. Cover that up by setting EFLAGS to reasonable values
+                    // now.
+                    self.registers.set_flags(0x246);
+                }
+            }
+
+            self.registers_dirty = true;
         }
 
         /// Return the ptrace message pid associated with the current ptrace
@@ -379,8 +445,8 @@ pub mod task_inner {
 
         /// Return the siginfo at the signal-stop of `self`.
         /// Not meaningful unless this is actually at a signal stop.
-        pub fn get_siginfo(&self) -> siginfo_t {
-            unimplemented!()
+        pub fn get_siginfo(&self) -> &siginfo_t {
+            &self.pending_siginfo
         }
 
         /// Destroy in the tracee task the scratch buffer and syscallbuf (if

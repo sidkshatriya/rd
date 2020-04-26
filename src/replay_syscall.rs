@@ -391,11 +391,12 @@ fn prepare_clone<Arch: Architecture>(t: &mut ReplayTask) {
 
     // Fix registers in new task
     let mut new_r = new_task.regs_ref().clone();
+    let new_task_arch = new_r.arch();
     new_r.set_original_syscallno(trace_frame_regs.original_syscallno());
     new_r.set_arg1(trace_frame_regs.arg1());
     new_r.set_arg2(trace_frame_regs.arg2());
     new_task.set_regs(&new_r);
-    new_task.canonicalize_regs(new_task.arch());
+    new_task.canonicalize_regs(new_task_arch);
 
     if Arch::CLONE as isize != t.regs_ref().original_syscallno()
         || !(CLONE_VM as usize & r.arg1() == CLONE_VM as usize)
