@@ -78,12 +78,32 @@ impl<T> Add<usize> for RemotePtr<T> {
     }
 }
 
+impl<T> Add<u32> for RemotePtr<T> {
+    type Output = Self;
+
+    fn add(self, delta: u32) -> Self::Output {
+        // Will automatically deal with underflow in debug mode.
+        let result: usize = self.as_usize() + (delta as usize) * std::mem::size_of::<T>();
+        Self::new_from_val(result)
+    }
+}
+
 impl<T> Sub<usize> for RemotePtr<T> {
     type Output = Self;
 
     fn sub(self, delta: usize) -> Self::Output {
         // Will automatically deal with underflow in debug mode.
         let result: usize = self.as_usize() - delta * std::mem::size_of::<T>();
+        Self::new_from_val(result)
+    }
+}
+
+impl<T> Sub<u32> for RemotePtr<T> {
+    type Output = Self;
+
+    fn sub(self, delta: u32) -> Self::Output {
+        // Will automatically deal with underflow in debug mode.
+        let result: usize = self.as_usize() - (delta as usize) * std::mem::size_of::<T>();
         Self::new_from_val(result)
     }
 }

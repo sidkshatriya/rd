@@ -1,11 +1,12 @@
 use crate::arch::Architecture;
+use crate::kernel_abi::common::preload_interface::syscallbuf_record;
 use crate::kernel_abi::SupportedArch;
 use crate::registers::Registers;
 use crate::remote_ptr::{RemotePtr, Void};
 use crate::session::{Session, SessionSharedWeakPtr};
 use crate::task::common::{
-    open_mem_fd, read_bytes_fallible, read_bytes_helper, read_c_str, syscallbuf_data_size,
-    write_bytes, write_bytes_helper,
+    next_syscallbuf_record, open_mem_fd, read_bytes_fallible, read_bytes_helper, read_c_str,
+    syscallbuf_data_size, write_bytes, write_bytes_helper,
 };
 use crate::task::task_inner::task_inner::WriteFlags;
 use crate::task::task_inner::task_inner::{CloneReason, TaskInner};
@@ -117,6 +118,11 @@ impl DerefMut for ReplayTask {
 }
 
 impl Task for ReplayTask {
+    /// Forwarded method
+    fn next_syscallbuf_record(&mut self) -> RemotePtr<syscallbuf_record> {
+        next_syscallbuf_record(self)
+    }
+
     fn as_task_inner(&self) -> &TaskInner {
         unimplemented!()
     }

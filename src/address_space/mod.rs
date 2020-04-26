@@ -2202,7 +2202,7 @@ pub mod address_space {
 
             let path = find_rd_page_file(remote.task());
             let mut child_path = AutoRestoreMem::push_cstr(remote, path.as_os_str());
-            let remote_path_addr = child_path.get().unwrap() + 1;
+            let remote_path_addr = child_path.get().unwrap() + 1usize;
             // skip leading '/' since we want the path to be relative to the root fd
             let child_fd_ret = rd_syscall!(
                 child_path,

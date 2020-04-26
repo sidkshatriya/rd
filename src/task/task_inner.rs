@@ -483,9 +483,6 @@ pub mod task_inner {
             unimplemented!()
         }
 
-        pub fn next_syscallbuf_record(&self) -> RemotePtr<syscallbuf_record> {
-            unimplemented!()
-        }
         pub fn stored_record_size(&self, _record: RemotePtr<syscallbuf_record>) -> usize {
             unimplemented!()
         }
