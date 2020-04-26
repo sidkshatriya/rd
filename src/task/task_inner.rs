@@ -76,7 +76,7 @@ pub mod task_inner {
     use crate::auto_remote_syscalls::AutoRemoteSyscalls;
     use crate::bindings::kernel::user_desc;
     use crate::bindings::ptrace::{
-        PTRACE_EVENT_CLONE, PTRACE_EVENT_FORK, PTRACE_EVENT_VFORK, PTRACE_GETEVENTMSG,
+        ptrace, PTRACE_EVENT_CLONE, PTRACE_EVENT_FORK, PTRACE_EVENT_VFORK, PTRACE_GETEVENTMSG,
     };
     use crate::bindings::ptrace::{PTRACE_PEEKDATA, PTRACE_POKEDATA};
     use crate::extra_registers::ExtraRegisters;
@@ -84,9 +84,9 @@ pub mod task_inner {
     use crate::kernel_abi::common::preload_interface::preload_globals;
     use crate::kernel_abi::common::preload_interface::{syscallbuf_hdr, syscallbuf_record};
     use crate::kernel_abi::SupportedArch;
-    use crate::kernel_metadata::errno_name;
     use crate::kernel_metadata::ptrace_event_name;
     use crate::kernel_metadata::syscall_name;
+    use crate::kernel_metadata::{errno_name, ptrace_req_name};
     use crate::perf_counters::PerfCounters;
     use crate::registers::Registers;
     use crate::remote_code_ptr::RemoteCodePtr;
@@ -111,7 +111,7 @@ pub mod task_inner {
     use std::cmp::min;
     use std::ffi::{OsStr, OsString};
     use std::mem::size_of;
-    use std::ptr::copy_nonoverlapping;
+    use std::ptr::{copy_nonoverlapping, null};
     use std::rc::Rc;
 
     pub struct TrapReason;
@@ -921,44 +921,70 @@ pub mod task_inner {
         /// the ptrace return value.
         pub(in super::super) fn fallible_ptrace(
             &self,
-            _request: u32,
-            _addr: RemotePtr<Void>,
-            _data: Option<&[u8]>,
+            request: u32,
+            addr: RemotePtr<Void>,
+            data: Option<&[u8]>,
         ) -> isize {
-            unimplemented!()
+            let data_param = data.map_or(null(), |d| d.as_ptr());
+            let res = unsafe { ptrace(request, self.tid, addr, data_param) };
+            res as isize
         }
 
         /// NOTE: This is an additional variant of `fallible_ptrace` that allows data to be written
         /// into `data`.
         pub(in super::super) fn fallible_ptrace_get_data(
             &self,
-            _request: u32,
-            _addr: RemotePtr<Void>,
-            _data: &mut [u8],
+            request: u32,
+            addr: RemotePtr<Void>,
+            data: &mut [u8],
         ) -> isize {
-            unimplemented!()
+            (unsafe { ptrace(request, self.tid, addr, data.as_ptr()) }) as isize
         }
 
         /// Like `fallible_ptrace()` but completely infallible.
         /// All errors are treated as fatal.
         pub(in super::super) fn xptrace(
             &self,
-            _request: u32,
-            _addr: RemotePtr<Void>,
-            _data: Option<&[u8]>,
+            request: u32,
+            addr: RemotePtr<Void>,
+            data: Option<&[u8]>,
         ) {
-            unimplemented!()
+            unsafe { *(__errno_location()) = 0 };
+            self.fallible_ptrace(request, addr, data);
+            let errno = errno();
+            ed_assert!(
+                self,
+                errno == 0,
+                "ptrace({}, {}, addr={}, data={:?}) failed with errno: {}",
+                ptrace_req_name(request),
+                self.tid,
+                addr,
+                data,
+                errno
+            );
         }
 
         /// NOTE: This is an additional variant of `fallible_ptrace` that allows data to be written
         /// into `data`.
         pub(in super::super) fn xptrace_get_data(
             &self,
-            _request: u32,
-            _addr: RemotePtr<Void>,
-            _data: &mut [u8],
+            request: u32,
+            addr: RemotePtr<Void>,
+            data: &mut [u8],
         ) {
-            unimplemented!()
+            unsafe { *(__errno_location()) = 0 };
+            self.fallible_ptrace_get_data(request, addr, data);
+            let errno = errno();
+            ed_assert!(
+                self,
+                errno == 0,
+                "ptrace({}, {}, addr={}, data={:?}) failed with errno: {}",
+                ptrace_req_name(request),
+                self.tid,
+                addr,
+                data,
+                errno
+            );
         }
 
         /// Read tracee memory using PTRACE_PEEKDATA calls. Slow, only use
