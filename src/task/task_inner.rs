@@ -103,6 +103,9 @@ pub mod task_inner {
     use libc::{__errno_location, pid_t, siginfo_t, uid_t};
     use libc::{EAGAIN, ENOMEM, ENOSYS};
     use nix::errno::errno;
+    use nix::fcntl::{readlink, OFlag};
+    use nix::sys::stat::FileStat;
+    use nix::sys::stat::{lstat, stat};
     use nix::unistd::getuid;
     use std::cell::RefCell;
     use std::cmp::min;
@@ -321,10 +324,10 @@ pub mod task_inner {
 
         /// Called after the first exec in a session, when the session first
         /// enters a consistent state. Prior to that, the task state
-        /// can vary based on how rr set up the child process. We have to flush
+        /// can vary based on how rd set up the child process. We have to flush
         /// out any state that might have been affected by that.
-        pub fn flush_inconsistent_state(&self) {
-            unimplemented!()
+        pub fn flush_inconsistent_state(&mut self) {
+            self.ticks = 0;
         }
 
         /// Return total number of ticks ever executed by this task.
@@ -335,24 +338,34 @@ pub mod task_inner {
         }
 
         /// Stat `fd` in the context of this task's fd table.
-        pub fn stat_fd(&self, _fd: i32) -> libc::stat {
-            unimplemented!()
+        pub fn stat_fd(&self, fd: i32) -> FileStat {
+            let path = format!("/proc/{}/fd/{}", self.tid, fd);
+            let res = stat(path.as_str());
+            ed_assert!(self, res.is_ok());
+            res.unwrap()
         }
 
         /// Lstat `fd` in the context of this task's fd table.
-        pub fn lstat_fd(_fd: i32) -> libc::stat {
-            unimplemented!()
+        pub fn lstat_fd(&self, fd: i32) -> FileStat {
+            let path = format!("/proc/{}/fd/{}", self.tid, fd);
+            let res = lstat(path.as_str());
+            ed_assert!(self, res.is_ok());
+            res.unwrap()
         }
 
         /// Open `fd` in the context of this task's fd table.
-        pub fn open_fd(&self, _fd: i32, _flags: i32) -> ScopedFd {
-            unimplemented!()
+        pub fn open_fd(&self, fd: i32, flags: OFlag) -> ScopedFd {
+            let path = format!("/proc/{}/fd/{}", self.tid, fd);
+            ScopedFd::open_path(path.as_str(), flags)
         }
 
         /// Get the name of the file referenced by `fd` in the context of this
         /// task's fd table.
-        pub fn file_name_of_fd(&self, _fd: i32) -> OsString {
-            unimplemented!()
+        pub fn file_name_of_fd(&self, fd: i32) -> OsString {
+            let path = format!("/proc/{}/fd/{}", self.tid, fd);
+            let res = readlink(path.as_str());
+            // DIFF NOTE: rr returns an empty string if the file name could not be obtained.
+            res.unwrap()
         }
 
         /// Syscalls have side effects on registers (e.g. setting the flags register).
