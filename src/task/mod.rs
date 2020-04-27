@@ -1,20 +1,26 @@
+use crate::bindings::kernel::{itimerval, setitimer, ITIMER_REAL};
+use crate::bindings::ptrace::{PTRACE_EVENT_EXIT, PTRACE_INTERRUPT};
 use crate::kernel_abi::common::preload_interface::syscallbuf_record;
 use crate::kernel_abi::SupportedArch;
+use crate::log::LogLevel::{LogDebug, LogWarn};
 use crate::registers::Registers;
 use crate::remote_ptr::{RemotePtr, Void};
 use crate::session::Session;
 use crate::task::record_task::record_task::RecordTask;
 use crate::task::replay_task::ReplayTask;
-use crate::task::task_inner::task_inner::TaskInner;
 use crate::task::task_inner::task_inner::{CloneReason, WriteFlags};
+use crate::task::task_inner::task_inner::{PtraceData, TaskInner};
 use crate::task::task_inner::CloneFlags;
 use crate::task::task_inner::{ResumeRequest, TicksRequest, WaitRequest};
+use crate::util::{is_zombie_process, to_timeval};
 use crate::wait_status::WaitStatus;
-use libc::pid_t;
+use libc::{pid_t, waitpid};
+use nix::errno::errno;
 use std::cell::RefCell;
 use std::ffi::CString;
 use std::io::Write;
 use std::ops::DerefMut;
+use std::ptr;
 use std::rc::{Rc, Weak};
 
 pub mod common;
@@ -178,8 +184,120 @@ pub trait Task: DerefMut<Target = TaskInner> {
     /// Block until the status of this changes. wait() expects the wait to end
     /// with the process in a stopped() state. If interrupt_after_elapsed > 0,
     /// interrupt the task after that many seconds have elapsed.
-    fn wait(&self, _interrupt_after_elapsed: Option<f64>) {
-        unimplemented!()
+    fn wait(&mut self, maybe_interrupt_after_elapsed: Option<f64>) {
+        let interrupt_after_elapsed = maybe_interrupt_after_elapsed.unwrap_or(0.0);
+        debug_assert!(interrupt_after_elapsed >= 0.0);
+        log!(LogDebug, "going into blocking waitpid({}) ...", self.tid);
+        ed_assert!(self, !self.unstable, "Don't wait for unstable tasks");
+        ed_assert!(
+            self,
+            self.session().borrow().is_recording() || interrupt_after_elapsed == 0.0
+        );
+
+        if self.wait_unexpected_exit() {
+            return;
+        }
+
+        let mut status: WaitStatus;
+        let mut sent_wait_interrupt = false;
+        let mut ret: pid_t;
+        loop {
+            if interrupt_after_elapsed > 0.0 {
+                let mut timer: itimerval = Default::default();
+                timer.it_value = to_timeval(interrupt_after_elapsed);
+                unsafe {
+                    setitimer(ITIMER_REAL as u32, &timer, ptr::null_mut());
+                }
+            }
+            let mut raw_status: i32 = 0;
+            ret = unsafe { waitpid(self.tid, &mut raw_status, libc::__WALL) };
+            status = WaitStatus::new(raw_status);
+            if interrupt_after_elapsed > 0.0 {
+                let timer: itimerval = Default::default();
+                unsafe { setitimer(ITIMER_REAL as u32, &timer, ptr::null_mut()) };
+            }
+            if ret >= 0 || errno() != libc::EINTR {
+                // waitpid was not interrupted by the alarm.
+                break;
+            }
+
+            if is_zombie_process(self.real_tgid()) {
+                // The process is dead. We must stop waiting on it now
+                // or we might never make progress.
+                // XXX it's not clear why the waitpid() syscall
+                // doesn't return immediately in this case, but in
+                // some cases it doesn't return normally at all!
+
+                // Fake a PTRACE_EVENT_EXIT for this task.
+                log!(
+                    LogWarn,
+                    "Synthesizing PTRACE_EVENT_EXIT for zombie process {}",
+                    self.tid
+                );
+                status = WaitStatus::for_ptrace_event(PTRACE_EVENT_EXIT);
+                ret = self.tid;
+                // XXX could this leave unreaped zombies lying around?
+                break;
+            }
+
+            if !sent_wait_interrupt && (interrupt_after_elapsed > 0.0) {
+                self.ptrace_if_alive(PTRACE_INTERRUPT, RemotePtr::null(), PtraceData::None);
+                sent_wait_interrupt = true;
+                self.expecting_ptrace_interrupt_stop = 2;
+            }
+        }
+
+        if ret >= 0 && status.exit_code().is_some() {
+            // Unexpected non-stopping exit code returned in wait_status.
+            // This shouldn't happen; a PTRACE_EXIT_EVENT for this task
+            // should be observed first, and then we would kill the task
+            // before wait()ing again, so we'd only see the exit
+            // code in detach_and_reap. But somehow we see it here in
+            // grandchild_threads and async_kill_with_threads tests (and
+            // maybe others), when a PTRACE_EXIT_EVENT has not been sent.
+            // Verify that we have not actually seen a PTRACE_EXIT_EVENT.
+            ed_assert!(
+                self,
+                !self.seen_ptrace_exit_event,
+                "A PTRACE_EXIT_EVENT was observed for this task, but somehow forgotten"
+            );
+
+            // Turn this into a PTRACE_EXIT_EVENT.
+            log!(
+                LogWarn,
+                "Synthesizing PTRACE_EVENT_EXIT for process {} exited with {}",
+                self.tid,
+                status.exit_code().unwrap()
+            );
+            status = WaitStatus::for_ptrace_event(PTRACE_EVENT_EXIT);
+        }
+
+        log!(
+            LogDebug,
+            "  waitpid({}) returns {}; status {}",
+            self.tid,
+            ret,
+            status
+        );
+        ed_assert!(
+            self,
+            self.tid == ret,
+            "waitpid({}) failed with {}",
+            self.tid,
+            ret
+        );
+
+        if sent_wait_interrupt {
+            log!(LogWarn, "Forced to PTRACE_INTERRUPT tracee");
+            if !is_signal_triggered_by_ptrace_interrupt(status.group_stop_sig()) {
+                log!(
+                    LogWarn,
+                    "  PTRACE_INTERRUPT raced with another event {:?}",
+                    status
+                );
+            }
+        }
+        self.did_waitpid(status);
     }
 
     /// Return true if an unexpected exit was already detected for this task and
@@ -214,4 +332,13 @@ pub trait Task: DerefMut<Target = TaskInner> {
 
     /// Forwarded method signature
     fn write_bytes(&mut self, child_addr: RemotePtr<Void>, buf: &[u8]);
+}
+
+fn is_signal_triggered_by_ptrace_interrupt(group_stop_sig: Option<i32>) -> bool {
+    group_stop_sig.map_or(false, |sig| match sig {
+        // We sometimes see SIGSTOP at interrupts, though the
+        // docs don't mention that.
+        libc::SIGTRAP | libc::SIGSTOP => true,
+        _ => false,
+    })
 }
