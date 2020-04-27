@@ -35,14 +35,14 @@ use std::convert::TryInto;
 use std::env::var_os;
 use std::ffi::{c_void, CString, OsStr, OsString};
 use std::io::{Error, ErrorKind};
-use std::mem::{size_of_val, zeroed};
+use std::mem::{size_of, size_of_val, zeroed};
 use std::os::raw::c_long;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::ffi::OsStringExt;
 use std::path::Path;
 use std::ptr::copy_nonoverlapping;
 use std::sync::Mutex;
-use std::{env, io, mem};
+use std::{env, io, mem, slice};
 
 pub const CPUID_GETVENDORSTRING: u32 = 0x0;
 pub const CPUID_GETFEATURES: u32 = 0x1;
@@ -1012,4 +1012,12 @@ pub fn to_timeval(t: f64) -> timeval {
 
 pub fn is_zombie_process(_pid: pid_t) -> bool {
     unimplemented!()
+}
+
+pub fn u8_raw_slice<D: Sized>(data: &D) -> *const [u8] {
+    unsafe { slice::from_raw_parts(data as *const D as *const u8, size_of::<D>()) }
+}
+
+pub fn u8_raw_slice_mut<D: Sized>(data: &mut D) -> *mut [u8] {
+    unsafe { slice::from_raw_parts_mut(data as *mut D as *mut u8, size_of::<D>()) }
 }

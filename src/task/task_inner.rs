@@ -87,6 +87,7 @@ pub mod task_inner {
     use crate::kernel_metadata::ptrace_event_name;
     use crate::kernel_metadata::syscall_name;
     use crate::kernel_metadata::{errno_name, ptrace_req_name};
+    use crate::log::LogLevel::LogDebug;
     use crate::perf_counters::PerfCounters;
     use crate::registers::Registers;
     use crate::remote_code_ptr::RemoteCodePtr;
@@ -98,7 +99,7 @@ pub mod task_inner {
     use crate::thread_group::{ThreadGroup, ThreadGroupSharedPtr};
     use crate::ticks::Ticks;
     use crate::trace::trace_stream::TraceStream;
-    use crate::util::TrappedInstruction;
+    use crate::util::{u8_raw_slice, u8_raw_slice_mut, TrappedInstruction};
     use crate::wait_status::WaitStatus;
     use libc::{__errno_location, pid_t, siginfo_t, uid_t};
     use libc::{EAGAIN, ENOMEM, ENOSYS};
@@ -111,6 +112,7 @@ pub mod task_inner {
     use std::cmp::min;
     use std::ffi::{OsStr, OsString};
     use std::mem::size_of;
+    use std::ptr;
     use std::ptr::copy_nonoverlapping;
     use std::rc::Rc;
 
@@ -118,17 +120,25 @@ pub mod task_inner {
 
     #[derive(Copy, Clone, Debug)]
     pub enum PtraceData {
-        WriteInto(*mut u8),
-        ReadFrom(*const u8),
+        WriteInto(*mut [u8]),
+        ReadFrom(*const [u8]),
         None,
     }
 
     impl PtraceData {
-        fn get_addr(self) -> usize {
+        fn get_addr(self) -> *const u8 {
             match self {
-                PtraceData::WriteInto(s) => s as usize,
-                PtraceData::ReadFrom(s) => s as usize,
-                PtraceData::None => 0usize,
+                // @TODO Check this works as intended.
+                PtraceData::WriteInto(s) => s.cast(),
+                PtraceData::ReadFrom(s) => s.cast(),
+                PtraceData::None => ptr::null(),
+            }
+        }
+        pub fn get_data_slice(&self) -> &[u8] {
+            match self {
+                PtraceData::WriteInto(s) => unsafe { s.as_ref() }.unwrap(),
+                PtraceData::ReadFrom(s) => unsafe { s.as_ref() }.unwrap(),
+                PtraceData::None => &[],
             }
         }
     }
@@ -472,7 +482,7 @@ pub mod task_inner {
             self.xptrace(
                 PTRACE_GETEVENTMSG,
                 RemotePtr::from(0usize),
-                PtraceData::WriteInto(&raw mut pid as *mut u8),
+                PtraceData::WriteInto(u8_raw_slice_mut(&mut pid)),
             );
             pid
         }
@@ -863,11 +873,27 @@ pub mod task_inner {
         /// task gets a SIGKILL from outside.
         pub fn ptrace_if_alive(
             &self,
-            _request: u32,
-            _addr: RemotePtr<Void>,
-            _data: PtraceData,
+            request: u32,
+            addr: RemotePtr<Void>,
+            data: PtraceData,
         ) -> bool {
-            unimplemented!()
+            unsafe { *__errno_location() = 0 };
+            self.fallible_ptrace(request, addr, data);
+            if errno() == libc::ESRCH {
+                log!(LogDebug, "ptrace_if_alive tid {} was not alive", self.tid);
+                return false;
+            }
+            ed_assert!(
+                self,
+                errno() == 0,
+                "ptrace({}, {}, addr={}, data={:?}) failed with errno: {}",
+                ptrace_req_name(request),
+                self.tid,
+                addr,
+                data.get_data_slice(),
+                errno()
+            );
+            return true;
         }
 
         pub fn is_dying(&self) -> bool {
@@ -965,7 +991,7 @@ pub mod task_inner {
                 ptrace_req_name(request),
                 self.tid,
                 addr,
-                data,
+                data.get_data_slice(),
                 errno
             );
         }
@@ -1056,7 +1082,7 @@ pub mod task_inner {
                 self.fallible_ptrace(
                     PTRACE_POKEDATA,
                     RemotePtr::from(start_word),
-                    PtraceData::ReadFrom(&raw const v as *mut u8),
+                    PtraceData::ReadFrom(u8_raw_slice(&v)),
                 );
                 nwritten += length;
             }
