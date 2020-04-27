@@ -444,6 +444,10 @@ pub mod record_task {
             unimplemented!()
         }
 
+        fn did_wait(&mut self) {
+            unimplemented!()
+        }
+
         fn at_preload_init(&self) {
             unimplemented!()
         }

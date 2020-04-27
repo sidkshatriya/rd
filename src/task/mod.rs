@@ -73,7 +73,9 @@ pub trait Task: DerefMut<Target = TaskInner> {
     }
 
     /// Hook called by `did_waitpid`.
-    fn did_wait(&self) {}
+    fn did_wait(&mut self) {
+        // Do nothing. However, for example, RecordTask::did_wait() overrides this.
+    }
 
     /// Return the pid of the task in its own pid namespace.
     /// Only RecordTasks actually change pid namespaces.

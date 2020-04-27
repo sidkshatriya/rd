@@ -116,18 +116,18 @@ pub mod task_inner {
 
     pub struct TrapReason;
 
-    #[derive(Debug)]
-    pub enum PtraceData<'a> {
-        WriteInto(&'a mut [u8]),
-        ReadFrom(&'a [u8]),
+    #[derive(Copy, Clone, Debug)]
+    pub enum PtraceData {
+        WriteInto(*mut u8),
+        ReadFrom(*const u8),
         None,
     }
 
-    impl<'a> PtraceData<'a> {
-        fn get_addr(&self) -> usize {
+    impl PtraceData {
+        fn get_addr(self) -> usize {
             match self {
-                PtraceData::WriteInto(s) => s.as_ptr() as usize,
-                PtraceData::ReadFrom(s) => s.as_ptr() as usize,
+                PtraceData::WriteInto(s) => s as usize,
+                PtraceData::ReadFrom(s) => s as usize,
                 PtraceData::None => 0usize,
             }
         }
@@ -468,11 +468,11 @@ pub mod task_inner {
         /// This method is more generic in rr and is called get_ptrace_event_msg()
         /// However, since it is only used to extract pid_t we monomorphize it in rd.
         pub fn get_ptrace_eventmsg_pid(&self) -> pid_t {
-            let pid: pid_t = 0;
+            let mut pid: pid_t = 0;
             self.xptrace(
                 PTRACE_GETEVENTMSG,
                 RemotePtr::from(0usize),
-                PtraceData::WriteInto(&mut pid.to_le_bytes()),
+                PtraceData::WriteInto(&raw mut pid as *mut u8),
             );
             pid
         }
@@ -956,18 +956,16 @@ pub mod task_inner {
             data: PtraceData,
         ) {
             unsafe { *(__errno_location()) = 0 };
-            // @TODO Slightly inelegant and possibly not so performant?
-            let data_repr = format!("{:?}", data);
             self.fallible_ptrace(request, addr, data);
             let errno = errno();
             ed_assert!(
                 self,
                 errno == 0,
-                "ptrace({}, {}, addr={}, data={}) failed with errno: {}",
+                "ptrace({}, {}, addr={}, data={:?}) failed with errno: {}",
                 ptrace_req_name(request),
                 self.tid,
                 addr,
-                data_repr,
+                data,
                 errno
             );
         }
@@ -1058,7 +1056,7 @@ pub mod task_inner {
                 self.fallible_ptrace(
                     PTRACE_POKEDATA,
                     RemotePtr::from(start_word),
-                    PtraceData::ReadFrom(&v.to_le_bytes()),
+                    PtraceData::ReadFrom(&raw const v as *mut u8),
                 );
                 nwritten += length;
             }
