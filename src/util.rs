@@ -1073,6 +1073,31 @@ pub fn trapped_instruction_len(insn: TrappedInstruction) -> usize {
 }
 
 // XXX this probably needs to be extended to decode ignored prefixes
-pub fn trapped_instruction_at<T: Task>(_t: &mut T, _ip: RemoteCodePtr) -> TrappedInstruction {
-    unimplemented!()
+pub fn trapped_instruction_at<T: Task>(t: &mut T, ip: RemoteCodePtr) -> TrappedInstruction {
+    let mut insn: [u8; RDTSCP_INSN.len()] = Default::default();
+    let ret = t.read_bytes_fallible(ip.to_data_ptr::<u8>(), &mut insn);
+    if ret.is_err() {
+        return TrappedInstruction::None;
+    }
+
+    let len = ret.unwrap();
+    if len >= RDTSC_INSN.len() && insn[0..RDTSC_INSN.len()] == RDTSC_INSN {
+        return TrappedInstruction::Rdtsc;
+    }
+    if len >= RDTSCP_INSN.len() && insn[0..RDTSCP_INSN.len()] == RDTSCP_INSN {
+        return TrappedInstruction::Rdtscp;
+    }
+    if len >= CPUID_INSN.len() && insn[0..CPUID_INSN.len()] == CPUID_INSN {
+        return TrappedInstruction::CpuId;
+    }
+    if len >= INT3_INSN.len() && insn[0..INT3_INSN.len()] == INT3_INSN {
+        return TrappedInstruction::Int3;
+    }
+    if len >= PUSHF_INSN.len() && insn[0..PUSHF_INSN.len()] == PUSHF_INSN {
+        return TrappedInstruction::Pushf;
+    }
+    if len >= PUSHF16_INSN.len() && insn[0..PUSHF16_INSN.len()] == PUSHF16_INSN {
+        return TrappedInstruction::Pushf16;
+    }
+    TrappedInstruction::None
 }
