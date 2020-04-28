@@ -1,16 +1,15 @@
 use crate::kernel_metadata::errno_name;
 use backtrace::Backtrace;
 use nix::errno::errno;
-use std::collections::HashMap;
-use std::env;
-use std::env::var_os;
-use std::fs::File;
-use std::fs::OpenOptions;
-use std::io::{self, Write};
-use std::io::{BufWriter, Result};
-use std::path::Path;
-use std::sync::Mutex;
-use std::sync::MutexGuard;
+use std::{
+    collections::HashMap,
+    env,
+    env::var_os,
+    fs::{File, OpenOptions},
+    io::{self, BufWriter, Result, Write},
+    path::Path,
+    sync::{Mutex, MutexGuard},
+};
 
 #[derive(Clone)]
 struct LogModule {

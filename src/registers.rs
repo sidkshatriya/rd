@@ -1,25 +1,22 @@
-use crate::bindings::kernel::user_regs_struct as native_user_regs_struct;
-use crate::gdb_register::*;
-use crate::kernel_abi::x64;
-use crate::kernel_abi::x86;
-use crate::kernel_abi::SupportedArch;
-use crate::kernel_abi::RD_NATIVE_ARCH;
-use crate::kernel_supplement::{
-    ERESTARTNOHAND, ERESTARTNOINTR, ERESTARTSYS, ERESTART_RESTARTBLOCK,
+use crate::{
+    bindings::kernel::user_regs_struct as native_user_regs_struct,
+    gdb_register::*,
+    kernel_abi::{x64, x86, SupportedArch, RD_NATIVE_ARCH},
+    kernel_supplement::{ERESTARTNOHAND, ERESTARTNOINTR, ERESTARTSYS, ERESTART_RESTARTBLOCK},
+    log::LogLevel::{LogError, LogInfo, LogWarn},
+    remote_code_ptr::RemoteCodePtr,
+    remote_ptr::{RemotePtr, Void},
 };
-use crate::log::LogLevel::{LogError, LogInfo, LogWarn};
-use crate::remote_code_ptr::RemoteCodePtr;
-use crate::remote_ptr::{RemotePtr, Void};
-use std::collections::BTreeMap;
-use std::convert::TryInto;
-use std::fmt::Display;
-use std::fmt::Formatter;
-use std::fmt::Result;
-use std::io;
-use std::io::Write;
-use std::mem::{size_of, transmute_copy};
-use std::num::Wrapping;
-use std::ptr::copy_nonoverlapping;
+use std::{
+    collections::BTreeMap,
+    convert::TryInto,
+    fmt::{Display, Formatter, Result},
+    io,
+    io::Write,
+    mem::{size_of, transmute_copy},
+    num::Wrapping,
+    ptr::copy_nonoverlapping,
+};
 
 #[derive(Copy, Clone, PartialEq)]
 enum TraceStyle {

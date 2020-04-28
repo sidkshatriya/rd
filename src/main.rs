@@ -60,17 +60,20 @@ mod util;
 mod wait_status;
 mod weak_ptr_set;
 
-use crate::commands::build_id_command::BuildIdCommand;
-use crate::commands::dump_command::DumpCommand;
-use crate::commands::ps_command::PsCommand;
-use crate::commands::rd_options::{RdOptions, RdSubCommand};
-use crate::commands::rerun_command::ReRunCommand;
-use crate::commands::trace_info_command::TraceInfoCommand;
-use crate::commands::RdCommand;
+use crate::commands::{
+    build_id_command::BuildIdCommand,
+    dump_command::DumpCommand,
+    ps_command::PsCommand,
+    rd_options::{RdOptions, RdSubCommand},
+    rerun_command::ReRunCommand,
+    trace_info_command::TraceInfoCommand,
+    RdCommand,
+};
 use nix::sys::utsname::uname;
-use std::io;
-use std::io::stderr;
-use std::io::Write;
+use std::{
+    io,
+    io::{stderr, Write},
+};
 use structopt::StructOpt;
 
 pub fn assert_prerequisites(maybe_use_syscall_buffer: Option<bool>) {

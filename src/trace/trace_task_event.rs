@@ -1,5 +1,7 @@
-use crate::remote_ptr::{RemotePtr, Void};
-use crate::wait_status::WaitStatus;
+use crate::{
+    remote_ptr::{RemotePtr, Void},
+    wait_status::WaitStatus,
+};
 use libc::pid_t;
 use std::ffi::{OsStr, OsString};
 

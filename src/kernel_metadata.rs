@@ -1,7 +1,8 @@
-use crate::bindings::ptrace::*;
-use crate::bindings::signal::siginfo_t;
-use crate::kernel_abi;
-use crate::kernel_abi::SupportedArch;
+use crate::{
+    bindings::{ptrace::*, signal::siginfo_t},
+    kernel_abi,
+    kernel_abi::SupportedArch,
+};
 use nix::sys::mman::ProtFlags;
 
 pub fn syscall_name(syscall: i32, arch: SupportedArch) -> String {

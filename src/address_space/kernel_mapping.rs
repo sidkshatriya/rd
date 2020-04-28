@@ -1,16 +1,30 @@
 use super::memory_range::MemoryRange;
-use crate::remote_ptr::RemotePtr;
-use crate::remote_ptr::Void;
-use crate::util::{find, page_size};
-use libc::{c_long, dev_t, ino_t, stat};
-use libc::{MAP_ANONYMOUS, MAP_GROWSDOWN, MAP_NORESERVE, MAP_PRIVATE, MAP_SHARED, MAP_STACK};
-use nix::sys::mman::MapFlags;
-use nix::sys::mman::ProtFlags;
-use nix::sys::stat::{major, minor};
-use std::ffi::{OsStr, OsString};
-use std::fmt::{Display, Formatter, Result};
-use std::mem::zeroed;
-use std::ops::{Deref, DerefMut};
+use crate::{
+    remote_ptr::{RemotePtr, Void},
+    util::{find, page_size},
+};
+use libc::{
+    c_long,
+    dev_t,
+    ino_t,
+    stat,
+    MAP_ANONYMOUS,
+    MAP_GROWSDOWN,
+    MAP_NORESERVE,
+    MAP_PRIVATE,
+    MAP_SHARED,
+    MAP_STACK,
+};
+use nix::sys::{
+    mman::{MapFlags, ProtFlags},
+    stat::{major, minor},
+};
+use std::{
+    ffi::{OsStr, OsString},
+    fmt::{Display, Formatter, Result},
+    mem::zeroed,
+    ops::{Deref, DerefMut},
+};
 
 /// Clone trait is manually derived. See below.
 /// This type cannot be Copy as fsname_, a String, is not Copy.

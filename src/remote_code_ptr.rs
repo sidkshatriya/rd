@@ -1,11 +1,11 @@
-use crate::kernel_abi::syscall_instruction_length;
-use crate::kernel_abi::SupportedArch;
-use crate::remote_ptr::RemotePtr;
-use std::fmt::Display;
-use std::fmt::Formatter;
-use std::fmt::Result;
-use std::ops::Add;
-use std::ops::Sub;
+use crate::{
+    kernel_abi::{syscall_instruction_length, SupportedArch},
+    remote_ptr::RemotePtr,
+};
+use std::{
+    fmt::{Display, Formatter, Result},
+    ops::{Add, Sub},
+};
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct RemoteCodePtr {

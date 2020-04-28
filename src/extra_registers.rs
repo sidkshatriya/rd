@@ -1,17 +1,12 @@
-use crate::gdb_register::*;
-use crate::kernel_abi::x86;
-use crate::kernel_abi::SupportedArch;
-use crate::kernel_abi::SupportedArch::*;
-use crate::kernel_abi::{x64, RD_NATIVE_ARCH};
-use crate::kernel_metadata::xsave_feature_string;
-use crate::log::LogLevel::LogError;
-use crate::task::task_inner::task_inner::TaskInner;
-use crate::util::{xsave_native_layout, XSaveFeatureLayout, XSaveLayout};
-use std::convert::TryInto;
-use std::fmt::Write;
-use std::io;
-use std::mem::size_of;
-use std::ptr::copy_nonoverlapping;
+use crate::{
+    gdb_register::*,
+    kernel_abi::{x64, x86, SupportedArch, SupportedArch::*, RD_NATIVE_ARCH},
+    kernel_metadata::xsave_feature_string,
+    log::LogLevel::LogError,
+    task::task_inner::task_inner::TaskInner,
+    util::{xsave_native_layout, XSaveFeatureLayout, XSaveLayout},
+};
+use std::{convert::TryInto, fmt::Write, io, mem::size_of, ptr::copy_nonoverlapping};
 
 const AVX_FEATURE_BIT: usize = 2;
 

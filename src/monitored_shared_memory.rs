@@ -14,10 +14,11 @@
 //! that if the tracee is woken up by some IPC mechanism (or after sched_yield),
 //! it will get a chance to see updated memory values.
 
-use crate::address_space::address_space;
-use crate::task::record_task::record_task::RecordTask;
-use std::cell::RefCell;
-use std::rc::{Rc, Weak};
+use crate::{address_space::address_space, task::record_task::record_task::RecordTask};
+use std::{
+    cell::RefCell,
+    rc::{Rc, Weak},
+};
 
 pub type MonitoredSharedMemorySharedPtr = Rc<RefCell<MonitoredSharedMemory>>;
 pub type MonitoredSharedMemorySharedWeakPtr = Weak<RefCell<MonitoredSharedMemory>>;

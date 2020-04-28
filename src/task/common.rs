@@ -10,46 +10,71 @@
 //!     &mut dyn Task as their first parameter. It would have been confusing to include them
 //!     in task_inner.rs
 
-use crate::address_space::memory_range::MemoryRangeKey;
-use crate::address_space::BreakpointType;
-use crate::auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem};
-use crate::bindings::kernel::user_regs_struct as native_user_regs_struct;
-use crate::bindings::ptrace::{PTRACE_EVENT_EXIT, PTRACE_GETREGS, PTRACE_GETSIGINFO};
-use crate::bindings::signal::POLL_IN;
-use crate::core::type_has_no_holes;
-use crate::kernel_abi::common::preload_interface;
-use crate::kernel_abi::common::preload_interface::{syscallbuf_hdr, syscallbuf_record};
-use crate::kernel_abi::{
-    syscall_number_for_close, syscall_number_for_mprotect, syscall_number_for_openat, SupportedArch,
+use crate::{
+    address_space::{memory_range::MemoryRangeKey, BreakpointType},
+    auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem},
+    bindings::{
+        kernel::user_regs_struct as native_user_regs_struct,
+        ptrace::{PTRACE_EVENT_EXIT, PTRACE_GETREGS, PTRACE_GETSIGINFO},
+        signal::POLL_IN,
+    },
+    core::type_has_no_holes,
+    kernel_abi::{
+        common::{
+            preload_interface,
+            preload_interface::{syscallbuf_hdr, syscallbuf_record},
+        },
+        syscall_number_for_close,
+        syscall_number_for_mprotect,
+        syscall_number_for_openat,
+        SupportedArch,
+    },
+    kernel_metadata::{ptrace_req_name, signal_name},
+    log::LogLevel::{LogDebug, LogInfo, LogWarn},
+    perf_counters::TIME_SLICE_SIGNAL,
+    rd::RD_RESERVED_ROOT_DIR_FD,
+    registers::{Registers, X86_TF_FLAG},
+    remote_code_ptr::RemoteCodePtr,
+    remote_ptr::{RemotePtr, Void},
+    scoped_fd::ScopedFd,
+    task::{
+        is_signal_triggered_by_ptrace_interrupt,
+        is_singlestep_resume,
+        task_inner::{
+            task_inner::{PtraceData, WriteFlags},
+            ResumeRequest,
+            TicksRequest,
+            WaitRequest,
+            MAX_TICKS_REQUEST,
+        },
+        Task,
+    },
+    ticks::Ticks,
+    util::{
+        ceil_page_size,
+        floor_page_size,
+        pwrite_all_fallible,
+        trapped_instruction_at,
+        trapped_instruction_len,
+        u8_raw_slice,
+        u8_raw_slice_mut,
+        TrappedInstruction,
+    },
+    wait_status::WaitStatus,
 };
-use crate::kernel_metadata::{ptrace_req_name, signal_name};
-use crate::log::LogLevel::{LogDebug, LogInfo, LogWarn};
-use crate::perf_counters::TIME_SLICE_SIGNAL;
-use crate::rd::RD_RESERVED_ROOT_DIR_FD;
-use crate::registers::{Registers, X86_TF_FLAG};
-use crate::remote_code_ptr::RemoteCodePtr;
-use crate::remote_ptr::{RemotePtr, Void};
-use crate::scoped_fd::ScopedFd;
-use crate::task::task_inner::task_inner::{PtraceData, WriteFlags};
-use crate::task::task_inner::MAX_TICKS_REQUEST;
-use crate::task::task_inner::{ResumeRequest, TicksRequest, WaitRequest};
-use crate::task::{is_signal_triggered_by_ptrace_interrupt, is_singlestep_resume, Task};
-use crate::ticks::Ticks;
-use crate::util::{
-    ceil_page_size, floor_page_size, pwrite_all_fallible, trapped_instruction_at,
-    trapped_instruction_len, u8_raw_slice, u8_raw_slice_mut, TrappedInstruction,
-};
-use crate::wait_status::WaitStatus;
 use libc::{__errno_location, pid_t, pread64, waitpid, EPERM, ESRCH, SIGKILL, WNOHANG, __WALL};
-use nix::errno::errno;
-use nix::fcntl::OFlag;
-use nix::sys::mman::{MapFlags, ProtFlags};
-use std::convert::TryInto;
-use std::ffi::c_void;
-use std::ffi::{CStr, CString};
-use std::mem::{size_of, zeroed};
-use std::path::Path;
-use std::slice;
+use nix::{
+    errno::errno,
+    fcntl::OFlag,
+    sys::mman::{MapFlags, ProtFlags},
+};
+use std::{
+    convert::TryInto,
+    ffi::{c_void, CStr, CString},
+    mem::{size_of, zeroed},
+    path::Path,
+    slice,
+};
 
 /// Forwarded method definition
 ///

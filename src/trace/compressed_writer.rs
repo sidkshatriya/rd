@@ -1,22 +1,27 @@
-use crate::scoped_fd::ScopedFd;
-use crate::util::write_all;
+use crate::{scoped_fd::ScopedFd, util::write_all};
 use brotli_sys::{
-    BrotliEncoderCompressStream, BrotliEncoderCreateInstance, BrotliEncoderDestroyInstance,
-    BrotliEncoderSetParameter, BROTLI_OPERATION_FINISH, BROTLI_OPERATION_PROCESS,
+    BrotliEncoderCompressStream,
+    BrotliEncoderCreateInstance,
+    BrotliEncoderDestroyInstance,
+    BrotliEncoderSetParameter,
+    BROTLI_OPERATION_FINISH,
+    BROTLI_OPERATION_PROCESS,
     BROTLI_PARAM_QUALITY,
 };
-use nix::fcntl::OFlag;
-use nix::sys::stat::Mode;
-use nix::unistd::fsync;
-use std::cmp::min;
-use std::convert::TryInto;
-use std::ffi::OsStr;
-use std::io::{Error, ErrorKind, Result, Write};
-use std::mem::size_of;
-use std::ptr::copy_nonoverlapping;
-use std::sync::{Arc, Condvar, Mutex};
-use std::thread::JoinHandle;
-use std::{ptr, slice, thread};
+use nix::{fcntl::OFlag, sys::stat::Mode, unistd::fsync};
+use std::{
+    cmp::min,
+    convert::TryInto,
+    ffi::OsStr,
+    io::{Error, ErrorKind, Result, Write},
+    mem::size_of,
+    ptr,
+    ptr::copy_nonoverlapping,
+    slice,
+    sync::{Arc, Condvar, Mutex},
+    thread,
+    thread::JoinHandle,
+};
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub enum Sync {

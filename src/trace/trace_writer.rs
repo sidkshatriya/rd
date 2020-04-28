@@ -1,67 +1,92 @@
-use crate::address_space::kernel_mapping::KernelMapping;
-use crate::bindings::signal::siginfo_t;
-use crate::event::{
-    Event, EventType, SignalDeterministic, SignalResolvedDisposition, SyscallState,
+use crate::{
+    address_space::kernel_mapping::KernelMapping,
+    bindings::signal::siginfo_t,
+    event::{Event, EventType, SignalDeterministic, SignalResolvedDisposition, SyscallState},
+    extra_registers::ExtraRegisters,
+    kernel_abi::{
+        common::preload_interface::{mprotect_record, SYSCALLBUF_PROTOCOL_VERSION},
+        syscall_number_for_restart_syscall,
+        RD_NATIVE_ARCH,
+    },
+    kernel_supplement::{btrfs_ioctl_clone_range_args, BTRFS_IOC_CLONE_, BTRFS_IOC_CLONE_RANGE_},
+    log::LogLevel::LogDebug,
+    perf_counters::{PerfCounters, TicksSemantics},
+    registers::Registers,
+    remote_ptr::{RemotePtr, Void},
+    scoped_fd::ScopedFd,
+    session::record_session::{DisableCPUIDFeatures, TraceUuid},
+    task::record_task::record_task::RecordTask,
+    trace::{
+        compressed_writer::CompressedWriter,
+        trace_stream::{
+            latest_trace_symlink,
+            make_trace_dir,
+            substream,
+            to_trace_arch,
+            MappedData,
+            MappedDataSource,
+            RawDataMetadata,
+            Substream,
+            TraceRemoteFd,
+            TraceStream,
+            SUBSTREAMS,
+            TRACE_VERSION,
+        },
+        trace_task_event::{TraceTaskEvent, TraceTaskEventVariant},
+    },
+    trace_capnp::{
+        frame,
+        header,
+        m_map,
+        m_map::source::Which::Trace,
+        signal,
+        task_event,
+        SignalDisposition as TraceSignalDisposition,
+        SyscallState as TraceSyscallState,
+        TicksSemantics as TraceTicksSemantics,
+    },
+    util::{
+        all_cpuid_records,
+        copy_file,
+        monotonic_now_sec,
+        probably_not_interactive,
+        should_copy_mmap_region,
+        write_all,
+        xcr0,
+        CPUIDRecord,
+    },
 };
-use crate::extra_registers::ExtraRegisters;
-use crate::kernel_abi::common::preload_interface::{mprotect_record, SYSCALLBUF_PROTOCOL_VERSION};
-use crate::kernel_abi::syscall_number_for_restart_syscall;
-use crate::kernel_abi::RD_NATIVE_ARCH;
-use crate::kernel_supplement::{
-    btrfs_ioctl_clone_range_args, BTRFS_IOC_CLONE_, BTRFS_IOC_CLONE_RANGE_,
+use capnp::{
+    message,
+    primitive_list,
+    private::layout::ListBuilder,
+    serialize_packed::write_message,
 };
-use crate::log::LogLevel::LogDebug;
-use crate::perf_counters::{PerfCounters, TicksSemantics};
-use crate::registers::Registers;
-use crate::remote_ptr::{RemotePtr, Void};
-use crate::scoped_fd::ScopedFd;
-use crate::session::record_session::{DisableCPUIDFeatures, TraceUuid};
-use crate::task::record_task::record_task::RecordTask;
-use crate::trace::compressed_writer::CompressedWriter;
-use crate::trace::trace_stream::{
-    latest_trace_symlink, make_trace_dir, substream, MappedDataSource, SUBSTREAMS,
+use libc::{dev_t, ino_t, ioctl, pid_t, STDOUT_FILENO};
+use nix::{
+    errno::errno,
+    fcntl::{flock, readlink, FlockArg::LockExclusiveNonblock, OFlag},
+    sys::{
+        mman::{MapFlags, ProtFlags},
+        stat::Mode,
+    },
+    unistd::unlink,
 };
-use crate::trace::trace_stream::{to_trace_arch, TRACE_VERSION};
-use crate::trace::trace_stream::{
-    MappedData, RawDataMetadata, Substream, TraceRemoteFd, TraceStream,
+use std::{
+    collections::HashMap,
+    ffi::{OsStr, OsString},
+    fs::{hard_link, rename, File},
+    io::Write,
+    mem::size_of,
+    ops::{Deref, DerefMut},
+    os::unix::{
+        ffi::{OsStrExt, OsStringExt},
+        fs::symlink,
+        io::FromRawFd,
+    },
+    path::Path,
+    slice,
 };
-use crate::trace::trace_task_event::{TraceTaskEvent, TraceTaskEventVariant};
-use crate::trace_capnp::m_map::source::Which::Trace;
-use crate::trace_capnp::SyscallState as TraceSyscallState;
-use crate::trace_capnp::{frame, m_map, signal};
-use crate::trace_capnp::{
-    header, task_event, SignalDisposition as TraceSignalDisposition,
-    TicksSemantics as TraceTicksSemantics,
-};
-use crate::util::{
-    all_cpuid_records, copy_file, monotonic_now_sec, probably_not_interactive,
-    should_copy_mmap_region, write_all, xcr0, CPUIDRecord,
-};
-use capnp::private::layout::ListBuilder;
-use capnp::serialize_packed::write_message;
-use capnp::{message, primitive_list};
-use libc::ioctl;
-use libc::STDOUT_FILENO;
-use libc::{dev_t, ino_t, pid_t};
-use nix::errno::errno;
-use nix::fcntl::FlockArg::LockExclusiveNonblock;
-use nix::fcntl::{flock, readlink, OFlag};
-use nix::sys::mman::{MapFlags, ProtFlags};
-use nix::sys::stat::Mode;
-use nix::unistd::unlink;
-use std::collections::HashMap;
-use std::ffi::{OsStr, OsString};
-use std::fs::File;
-use std::fs::{hard_link, rename};
-use std::io::Write;
-use std::mem::size_of;
-use std::ops::{Deref, DerefMut};
-use std::os::unix::ffi::OsStrExt;
-use std::os::unix::ffi::OsStringExt;
-use std::os::unix::fs::symlink;
-use std::os::unix::io::FromRawFd;
-use std::path::Path;
-use std::slice;
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub enum RecordInTrace {

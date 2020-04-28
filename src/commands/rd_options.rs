@@ -1,11 +1,10 @@
-use crate::commands::rerun_command::TraceFields;
-use crate::flags::{Checksum, DumpOn};
-use crate::trace::trace_frame::FrameTime;
-use std::error::Error;
-use std::num::ParseIntError;
-use std::path::PathBuf;
-use structopt::clap::AppSettings;
-use structopt::{clap, StructOpt};
+use crate::{
+    commands::rerun_command::TraceFields,
+    flags::{Checksum, DumpOn},
+    trace::trace_frame::FrameTime,
+};
+use std::{error::Error, num::ParseIntError, path::PathBuf};
+use structopt::{clap, clap::AppSettings, StructOpt};
 
 #[derive(Debug, StructOpt)]
 #[structopt(

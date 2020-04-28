@@ -1,27 +1,37 @@
-use crate::bindings::kernel::{itimerval, setitimer, ITIMER_REAL};
-use crate::bindings::ptrace::{PTRACE_EVENT_EXIT, PTRACE_INTERRUPT};
-use crate::kernel_abi::common::preload_interface::syscallbuf_record;
-use crate::kernel_abi::SupportedArch;
-use crate::log::LogLevel::{LogDebug, LogWarn};
-use crate::registers::Registers;
-use crate::remote_ptr::{RemotePtr, Void};
-use crate::session::Session;
-use crate::task::record_task::record_task::RecordTask;
-use crate::task::replay_task::ReplayTask;
-use crate::task::task_inner::task_inner::{CloneReason, WriteFlags};
-use crate::task::task_inner::task_inner::{PtraceData, TaskInner};
-use crate::task::task_inner::CloneFlags;
-use crate::task::task_inner::{ResumeRequest, TicksRequest, WaitRequest};
-use crate::util::{is_zombie_process, to_timeval};
-use crate::wait_status::WaitStatus;
+use crate::{
+    bindings::{
+        kernel::{itimerval, setitimer, ITIMER_REAL},
+        ptrace::{PTRACE_EVENT_EXIT, PTRACE_INTERRUPT},
+    },
+    kernel_abi::{common::preload_interface::syscallbuf_record, SupportedArch},
+    log::LogLevel::{LogDebug, LogWarn},
+    registers::Registers,
+    remote_ptr::{RemotePtr, Void},
+    session::Session,
+    task::{
+        record_task::record_task::RecordTask,
+        replay_task::ReplayTask,
+        task_inner::{
+            task_inner::{CloneReason, PtraceData, TaskInner, WriteFlags},
+            CloneFlags,
+            ResumeRequest,
+            TicksRequest,
+            WaitRequest,
+        },
+    },
+    util::{is_zombie_process, to_timeval},
+    wait_status::WaitStatus,
+};
 use libc::{pid_t, waitpid};
 use nix::errno::errno;
-use std::cell::RefCell;
-use std::ffi::CString;
-use std::io::Write;
-use std::ops::DerefMut;
-use std::ptr;
-use std::rc::{Rc, Weak};
+use std::{
+    cell::RefCell,
+    ffi::CString,
+    io::Write,
+    ops::DerefMut,
+    ptr,
+    rc::{Rc, Weak},
+};
 
 pub mod common;
 pub mod record_task;

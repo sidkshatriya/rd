@@ -1,11 +1,11 @@
-use crate::address_space::address_space::AddressSpace;
-use crate::task::Task;
-use crate::thread_group::ThreadGroup;
+use crate::{address_space::address_space::AddressSpace, task::Task, thread_group::ThreadGroup};
 use libc::pid_t;
-use std::cmp::Ordering;
-use std::hash::{Hash, Hasher};
-use std::marker::PhantomData;
-use std::ops::Deref;
+use std::{
+    cmp::Ordering,
+    hash::{Hash, Hasher},
+    marker::PhantomData,
+    ops::Deref,
+};
 
 /// Need to manually derive Hash, Copy, Clone, Eq, PartialEq, Ord, PartialOrd due
 /// to quirks with PhantomData

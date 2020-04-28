@@ -1,11 +1,10 @@
-use nix::fcntl::open;
-use nix::fcntl::OFlag;
-use nix::sys::stat::Mode;
-use nix::unistd::close;
-use nix::NixPath;
-use std::cell::RefCell;
-use std::os::unix::io::RawFd;
-use std::rc::Rc;
+use nix::{
+    fcntl::{open, OFlag},
+    sys::stat::Mode,
+    unistd::close,
+    NixPath,
+};
+use std::{cell::RefCell, os::unix::io::RawFd, rc::Rc};
 
 pub type ScopedFdSharedPtr = Rc<RefCell<ScopedFd>>;
 

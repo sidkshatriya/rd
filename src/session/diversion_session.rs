@@ -1,11 +1,16 @@
-use crate::emu_fs::{EmuFs, EmuFsSharedPtr};
-use crate::session::session_inner::session_inner::SessionInner;
-use crate::session::session_inner::{BreakStatus, RunCommand};
-use crate::session::Session;
-use crate::task::Task;
-use std::cell::{Ref, RefCell, RefMut};
-use std::ops::{Deref, DerefMut};
-use std::sync::Arc;
+use crate::{
+    emu_fs::{EmuFs, EmuFsSharedPtr},
+    session::{
+        session_inner::{session_inner::SessionInner, BreakStatus, RunCommand},
+        Session,
+    },
+    task::Task,
+};
+use std::{
+    cell::{Ref, RefCell, RefMut},
+    ops::{Deref, DerefMut},
+    sync::Arc,
+};
 
 /// A DiversionSession lets you run task(s) forward without replay.
 /// Clone a ReplaySession to a DiversionSession to execute some arbitrary

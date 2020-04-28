@@ -1,7 +1,8 @@
-use crate::file_monitor::{FileMonitor, FileMonitorType};
-use crate::task::record_task::record_task::RecordTask;
-use crate::task::Task;
-use crate::taskish_uid::TaskUid;
+use crate::{
+    file_monitor::{FileMonitor, FileMonitorType},
+    task::{record_task::record_task::RecordTask, Task},
+    taskish_uid::TaskUid,
+};
 
 /// A FileMonitor to intercept enumerations of /proc/<pid>/fd so that entries
 /// for rr's private fds can be hidden when <pid> is a tracee.

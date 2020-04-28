@@ -1,61 +1,94 @@
-use crate::address_space::address_space::{
-    AddressSpace, AddressSpaceRef, AddressSpaceRefMut, Mapping,
+use crate::{
+    address_space::{
+        address_space::{AddressSpace, AddressSpaceRef, AddressSpaceRefMut, Mapping},
+        kernel_mapping::KernelMapping,
+        memory_range::MemoryRange,
+        Enabled,
+        Privileged,
+        Traced,
+    },
+    arch::Architecture,
+    auto_remote_syscalls::MemParamsEnabled::{DisableMemoryParams, EnableMemoryParams},
+    bindings::ptrace::PTRACE_EVENT_EXIT,
+    kernel_abi::{
+        has_mmap2_syscall,
+        has_socketcall_syscall,
+        is_clone_syscall,
+        is_open_syscall,
+        is_openat_syscall,
+        is_rt_sigaction_syscall,
+        is_sigaction_syscall,
+        is_signal_syscall,
+        syscall_instruction,
+        syscall_number_for__llseek,
+        syscall_number_for_close,
+        syscall_number_for_lseek,
+        syscall_number_for_mmap,
+        syscall_number_for_mmap2,
+        syscall_number_for_mremap,
+        syscall_number_for_munmap,
+        syscall_number_for_openat,
+        syscall_number_for_sendmsg,
+        syscall_number_for_socketcall,
+        SupportedArch,
+    },
+    kernel_metadata::{errno_name, signal_name, syscall_name},
+    log::LogLevel::LogDebug,
+    monitored_shared_memory::MonitoredSharedMemorySharedPtr,
+    rd::RD_RESERVED_ROOT_DIR_FD,
+    registers::Registers,
+    remote_code_ptr::RemoteCodePtr,
+    remote_ptr::{RemotePtr, Void},
+    scoped_fd::ScopedFd,
+    session::{replay_session::ReplaySession, session_inner::session_inner::SessionInner},
+    task::{
+        common::{read_mem, read_val_mem, write_mem, write_val_mem},
+        task_inner::{
+            task_inner::WriteFlags,
+            ResumeRequest::{ResumeSinglestep, ResumeSyscall},
+            TicksRequest::ResumeNoTicks,
+            WaitRequest::ResumeWait,
+        },
+        Task,
+    },
+    util::{find, is_kernel_trap, page_size, resize_shmem_segment, tmp_dir},
+    wait_status::WaitStatus,
 };
-use crate::address_space::kernel_mapping::KernelMapping;
-use crate::address_space::memory_range::MemoryRange;
-use crate::address_space::{Enabled, Privileged, Traced};
-use crate::arch::Architecture;
-use crate::auto_remote_syscalls::MemParamsEnabled::{DisableMemoryParams, EnableMemoryParams};
-use crate::bindings::ptrace::PTRACE_EVENT_EXIT;
-use crate::kernel_abi::{
-    has_mmap2_syscall, has_socketcall_syscall, is_clone_syscall, is_open_syscall,
-    is_openat_syscall, is_rt_sigaction_syscall, is_sigaction_syscall, is_signal_syscall,
-    syscall_number_for__llseek, syscall_number_for_close, syscall_number_for_lseek,
-    syscall_number_for_mmap, syscall_number_for_mmap2, syscall_number_for_mremap,
-    syscall_number_for_munmap, syscall_number_for_openat, syscall_number_for_sendmsg,
-    syscall_number_for_socketcall,
-};
-use crate::kernel_abi::{syscall_instruction, SupportedArch};
-use crate::kernel_metadata::{errno_name, signal_name, syscall_name};
-use crate::log::LogLevel::LogDebug;
-use crate::monitored_shared_memory::MonitoredSharedMemorySharedPtr;
-use crate::rd::RD_RESERVED_ROOT_DIR_FD;
-use crate::registers::Registers;
-use crate::remote_code_ptr::RemoteCodePtr;
-use crate::remote_ptr::{RemotePtr, Void};
-use crate::scoped_fd::ScopedFd;
-use crate::session::replay_session::ReplaySession;
-use crate::session::session_inner::session_inner::SessionInner;
-use crate::task::common::{read_mem, read_val_mem, write_mem, write_val_mem};
-use crate::task::task_inner::task_inner::WriteFlags;
-use crate::task::task_inner::ResumeRequest::{ResumeSinglestep, ResumeSyscall};
-use crate::task::task_inner::TicksRequest::ResumeNoTicks;
-use crate::task::task_inner::WaitRequest::ResumeWait;
-use crate::task::Task;
-use crate::util::{find, is_kernel_trap, page_size, resize_shmem_segment, tmp_dir};
-use crate::wait_status::WaitStatus;
 use core::ffi::c_void;
 use libc::{
-    pid_t, SYS_sendmsg, ESRCH, O_CLOEXEC, O_CREAT, O_EXCL, O_RDWR, SCM_RIGHTS, SIGTRAP, SOL_SOCKET,
+    pid_t,
+    SYS_sendmsg,
+    ESRCH,
+    MREMAP_FIXED,
+    MREMAP_MAYMOVE,
+    O_CLOEXEC,
+    O_CREAT,
+    O_EXCL,
+    O_RDWR,
+    SCM_RIGHTS,
+    SIGTRAP,
+    SOL_SOCKET,
 };
-use libc::{MREMAP_FIXED, MREMAP_MAYMOVE};
-use nix::sys::mman::munmap;
-use nix::sys::mman::MapFlags;
-use nix::sys::mman::ProtFlags;
-use nix::sys::stat::fstat;
-use nix::unistd::unlink;
-use nix::unistd::PathconfVar::PATH_MAX;
-use nix::NixPath;
-use std::cmp::{max, min};
-use std::convert::TryInto;
-use std::ffi::OsStr;
-use std::io::Write;
-use std::mem::{size_of, size_of_val, zeroed};
-use std::ops::{Deref, DerefMut};
-use std::os::unix::ffi::OsStrExt;
-use std::ptr::copy_nonoverlapping;
-use std::slice;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use nix::{
+    sys::{
+        mman::{munmap, MapFlags, ProtFlags},
+        stat::fstat,
+    },
+    unistd::{unlink, PathconfVar::PATH_MAX},
+    NixPath,
+};
+use std::{
+    cmp::{max, min},
+    convert::TryInto,
+    ffi::OsStr,
+    io::Write,
+    mem::{size_of, size_of_val, zeroed},
+    ops::{Deref, DerefMut},
+    os::unix::ffi::OsStrExt,
+    ptr::copy_nonoverlapping,
+    slice,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 macro_rules! rd_syscall {
     ($slf:expr, $syscallno:expr) => {

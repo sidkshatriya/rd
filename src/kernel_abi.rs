@@ -3,9 +3,11 @@
 #![allow(non_snake_case)]
 
 use crate::remote_ptr::RemotePtr;
-use std::convert::TryInto;
-use std::fmt::{Display, Formatter, LowerHex, Result};
-use std::marker::PhantomData;
+use std::{
+    convert::TryInto,
+    fmt::{Display, Formatter, LowerHex, Result},
+    marker::PhantomData,
+};
 
 #[derive(Copy, Clone, PartialEq)]
 pub enum SupportedArch {
@@ -233,7 +235,10 @@ pub mod w64 {
 pub mod x64 {
     pub use super::w64::*;
     use crate::kernel_abi::{
-        CloneParameterOrdering, CloneTLSType, MmapCallingSemantics, SelectCallingSemantics,
+        CloneParameterOrdering,
+        CloneTLSType,
+        MmapCallingSemantics,
+        SelectCallingSemantics,
     };
 
     pub const SIGINFO_PADDING: usize = 28;
@@ -650,7 +655,10 @@ pub mod w32 {
 pub mod x86 {
     pub use super::w32::*;
     use crate::kernel_abi::{
-        CloneParameterOrdering, CloneTLSType, MmapCallingSemantics, SelectCallingSemantics,
+        CloneParameterOrdering,
+        CloneTLSType,
+        MmapCallingSemantics,
+        SelectCallingSemantics,
     };
 
     pub const SIGINFO_PADDING: usize = 29;

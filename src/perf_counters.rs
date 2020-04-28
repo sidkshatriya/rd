@@ -1,29 +1,37 @@
-use crate::bindings::fcntl::{f_owner_ex, F_OWNER_TID, F_SETOWN_EX, F_SETSIG};
-use crate::bindings::perf_event::perf_event_attr;
-use crate::bindings::perf_event::perf_type_id;
-use crate::bindings::perf_event::{PERF_COUNT_HW_CPU_CYCLES, PERF_TYPE_HARDWARE, PERF_TYPE_RAW};
-use crate::bindings::perf_event::{
-    PERF_EVENT_IOC_DISABLE, PERF_EVENT_IOC_ENABLE, PERF_EVENT_IOC_PERIOD, PERF_EVENT_IOC_RESET,
+use crate::{
+    bindings::{
+        fcntl::{f_owner_ex, F_OWNER_TID, F_SETOWN_EX, F_SETSIG},
+        perf_event::{
+            perf_event_attr,
+            perf_type_id,
+            PERF_COUNT_HW_CPU_CYCLES,
+            PERF_EVENT_IOC_DISABLE,
+            PERF_EVENT_IOC_ENABLE,
+            PERF_EVENT_IOC_PERIOD,
+            PERF_EVENT_IOC_RESET,
+            PERF_TYPE_HARDWARE,
+            PERF_TYPE_RAW,
+        },
+    },
+    kernel_metadata::signal_name,
+    log::*,
+    scoped_fd::ScopedFd,
+    task::task_inner::task_inner::TaskInner,
+    ticks::Ticks,
+    util::*,
 };
-use crate::kernel_metadata::signal_name;
-use crate::log::*;
-use crate::scoped_fd::ScopedFd;
-use crate::task::task_inner::task_inner::TaskInner;
-use crate::ticks::Ticks;
-use crate::util::*;
-use libc::c_ulong;
-use libc::fcntl;
-use libc::ioctl;
-use libc::F_SETFL;
-use libc::O_ASYNC;
-use nix::errno::errno;
-use nix::poll::{poll, PollFd, PollFlags};
-use nix::unistd::{read, Pid};
+use libc::{c_ulong, fcntl, ioctl, F_SETFL, O_ASYNC};
+use nix::{
+    errno::errno,
+    poll::{poll, PollFd, PollFlags},
+    unistd::{read, Pid},
+};
 use raw_cpuid::CpuId;
-use std::io::stderr;
-use std::io::Write;
-use std::mem::size_of;
-use std::os::unix::io::RawFd;
+use std::{
+    io::{stderr, Write},
+    mem::size_of,
+    os::unix::io::RawFd,
+};
 
 lazy_static! {
     static ref PMU_BUGS_AND_EXTRA: PmuBugsAndExtra = check_for_bugs_and_extra();

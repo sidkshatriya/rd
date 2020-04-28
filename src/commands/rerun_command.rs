@@ -1,33 +1,42 @@
-use crate::assert_prerequisites;
-use crate::bindings::kernel::user_regs_struct as native_user_regs_struct;
-use crate::commands::rd_options::{RdOptions, RdSubCommand};
-use crate::commands::RdCommand;
-use crate::event::{Event, EventType};
-use crate::flags::Flags;
-use crate::gdb_register::{DREG_64_XMM0, DREG_64_YMM0H, DREG_XMM0, DREG_YMM0H};
 #[cfg(target_arch = "x86_64")]
 use crate::kernel_abi::x64;
 #[cfg(target_arch = "x86")]
 use crate::kernel_abi::x86;
-use crate::kernel_abi::SupportedArch;
-use crate::log::LogLevel::{LogDebug, LogInfo};
-use crate::registers::Registers;
-use crate::remote_code_ptr::RemoteCodePtr;
-use crate::remote_ptr::RemotePtr;
-use crate::session::replay_session::{ReplaySession, ReplaySessionSharedPtr, ReplayStatus};
-use crate::session::session_inner::RunCommand;
-use crate::session::{replay_session, Session};
-use crate::task::common::write_val_mem;
-use crate::task::Task;
-use crate::taskish_uid::TaskUid;
-use crate::trace::trace_frame::FrameTime;
-use crate::util::{raise_resource_limits, running_under_rd};
+use crate::{
+    assert_prerequisites,
+    bindings::kernel::user_regs_struct as native_user_regs_struct,
+    commands::{
+        rd_options::{RdOptions, RdSubCommand},
+        RdCommand,
+    },
+    event::{Event, EventType},
+    flags::Flags,
+    gdb_register::{DREG_64_XMM0, DREG_64_YMM0H, DREG_XMM0, DREG_YMM0H},
+    kernel_abi::SupportedArch,
+    log::LogLevel::{LogDebug, LogInfo},
+    registers::Registers,
+    remote_code_ptr::RemoteCodePtr,
+    remote_ptr::RemotePtr,
+    session::{
+        replay_session,
+        replay_session::{ReplaySession, ReplaySessionSharedPtr, ReplayStatus},
+        session_inner::RunCommand,
+        Session,
+    },
+    task::{common::write_val_mem, Task},
+    taskish_uid::TaskUid,
+    trace::trace_frame::FrameTime,
+    util::{raise_resource_limits, running_under_rd},
+};
 use nix::unistd::{getpid, getppid};
-use std::fmt::Write as fmtWrite;
-use std::io::{stderr, stdout, Write};
-use std::mem::size_of;
-use std::path::PathBuf;
-use std::{io, mem};
+use std::{
+    fmt::Write as fmtWrite,
+    io,
+    io::{stderr, stdout, Write},
+    mem,
+    mem::size_of,
+    path::PathBuf,
+};
 use structopt::clap;
 
 impl RdCommand for ReRunCommand {

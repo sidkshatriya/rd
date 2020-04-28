@@ -1,6 +1,8 @@
-use crate::address_space::WatchConfig;
-use crate::bindings::signal::siginfo_t;
-use crate::task::task_inner::task_inner::TaskInner;
+use crate::{
+    address_space::WatchConfig,
+    bindings::signal::siginfo_t,
+    task::task_inner::task_inner::TaskInner,
+};
 
 #[derive(Clone, Debug)]
 pub struct BreakStatus {
@@ -67,24 +69,24 @@ pub fn is_singlestep(command: RunCommand) -> bool {
 }
 
 pub mod session_inner {
-    use super::BreakStatus;
-    use super::RunCommand;
-    use crate::address_space::address_space::{
-        AddressSpace, AddressSpaceSharedPtr, AddressSpaceSharedWeakPtr,
+    use super::{BreakStatus, RunCommand};
+    use crate::{
+        address_space::address_space::{
+            AddressSpace,
+            AddressSpaceSharedPtr,
+            AddressSpaceSharedWeakPtr,
+        },
+        perf_counters::TicksSemantics,
+        remote_ptr::{RemotePtr, Void},
+        scoped_fd::ScopedFd,
+        session::SessionSharedWeakPtr,
+        task::{task_inner::task_inner::CapturedState, Task, TaskSharedPtr, TaskSharedWeakPtr},
+        taskish_uid::{AddressSpaceUid, ThreadGroupUid},
+        thread_group::{ThreadGroup, ThreadGroupSharedPtr, ThreadGroupSharedWeakPtr},
+        ticks::Ticks,
     };
-    use crate::perf_counters::TicksSemantics;
-    use crate::remote_ptr::{RemotePtr, Void};
-    use crate::scoped_fd::ScopedFd;
-    use crate::session::SessionSharedWeakPtr;
-    use crate::task::task_inner::task_inner::CapturedState;
-    use crate::task::{Task, TaskSharedPtr, TaskSharedWeakPtr};
-    use crate::taskish_uid::{AddressSpaceUid, ThreadGroupUid};
-    use crate::thread_group::{ThreadGroup, ThreadGroupSharedPtr, ThreadGroupSharedWeakPtr};
-    use crate::ticks::Ticks;
     use libc::pid_t;
-    use std::cell::RefCell;
-    use std::collections::HashMap;
-    use std::rc::Rc;
+    use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
     /// AddressSpaces and ThreadGroups are indexed by their first task's TaskUid
     /// (effectively), so that if the first task dies and its tid is recycled,

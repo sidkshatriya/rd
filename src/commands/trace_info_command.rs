@@ -1,14 +1,18 @@
-use crate::commands::rd_options::{RdOptions, RdSubCommand};
-use crate::commands::RdCommand;
-use crate::perf_counters::TicksSemantics;
-use crate::session::replay_session::{Flags, ReplaySession, ReplayStatus};
-use crate::session::session_inner::RunCommand;
-use crate::trace::trace_reader::TraceReader;
-use crate::util::read_env;
+use crate::{
+    commands::{
+        rd_options::{RdOptions, RdSubCommand},
+        RdCommand,
+    },
+    perf_counters::TicksSemantics,
+    session::{
+        replay_session::{Flags, ReplaySession, ReplayStatus},
+        session_inner::RunCommand,
+    },
+    trace::trace_reader::TraceReader,
+    util::read_env,
+};
 use serde::Serialize;
-use std::ffi::CString;
-use std::io;
-use std::path::PathBuf;
+use std::{ffi::CString, io, path::PathBuf};
 
 pub struct TraceInfoCommand {
     trace_dir: Option<PathBuf>,

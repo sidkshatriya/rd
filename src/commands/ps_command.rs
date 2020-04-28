@@ -1,14 +1,22 @@
-use crate::commands::rd_options::{RdOptions, RdSubCommand};
-use crate::commands::RdCommand;
-use crate::trace::trace_reader::TraceReader;
-use crate::trace::trace_task_event::{TraceTaskEvent, TraceTaskEventVariant};
-use crate::wait_status::WaitType;
+use crate::{
+    commands::{
+        rd_options::{RdOptions, RdSubCommand},
+        RdCommand,
+    },
+    trace::{
+        trace_reader::TraceReader,
+        trace_task_event::{TraceTaskEvent, TraceTaskEventVariant},
+    },
+    wait_status::WaitType,
+};
 use libc::pid_t;
-use std::collections::HashMap;
-use std::fmt::Write as fmtWrite;
-use std::io;
-use std::io::{stdout, Write};
-use std::path::PathBuf;
+use std::{
+    collections::HashMap,
+    fmt::Write as fmtWrite,
+    io,
+    io::{stdout, Write},
+    path::PathBuf,
+};
 
 pub struct PsCommand {
     trace_dir: Option<PathBuf>,

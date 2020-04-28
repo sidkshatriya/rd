@@ -2,33 +2,46 @@ pub mod kernel_map_iterator;
 pub mod kernel_mapping;
 pub mod memory_range;
 
-use crate::address_space::address_space::{AddressSpace, Mapping};
-use crate::address_space::kernel_map_iterator::KernelMapIterator;
-use crate::address_space::kernel_mapping::KernelMapping;
-use crate::address_space::memory_range::MemoryRange;
-use crate::event::Event;
-use crate::kernel_abi::common::preload_interface::{
-    RD_PAGE_ADDR, RD_PAGE_SYSCALL_INSTRUCTION_END, RD_PAGE_SYSCALL_STUB_SIZE,
+use crate::{
+    address_space::{
+        address_space::{AddressSpace, Mapping},
+        kernel_map_iterator::KernelMapIterator,
+        kernel_mapping::KernelMapping,
+        memory_range::MemoryRange,
+    },
+    event::Event,
+    kernel_abi::{
+        common::preload_interface::{
+            RD_PAGE_ADDR,
+            RD_PAGE_SYSCALL_INSTRUCTION_END,
+            RD_PAGE_SYSCALL_STUB_SIZE,
+        },
+        is_execve_syscall,
+        SupportedArch,
+    },
+    log::LogLevel::LogError,
+    remote_code_ptr::RemoteCodePtr,
+    remote_ptr::{RemotePtr, Void},
+    scoped_fd::ScopedFd,
+    task::Task,
+    util::{find, resource_path},
 };
-use crate::kernel_abi::{is_execve_syscall, SupportedArch};
-use crate::log::LogLevel::LogError;
-use crate::remote_code_ptr::RemoteCodePtr;
-use crate::remote_ptr::RemotePtr;
-use crate::remote_ptr::Void;
-use crate::scoped_fd::ScopedFd;
-use crate::task::Task;
-use crate::util::{find, resource_path};
 use libc::{dev_t, pid_t};
-use nix::sys::mman::{MapFlags, ProtFlags};
-use nix::sys::stat::stat;
-use nix::unistd::read;
-use std::cmp::min;
-use std::collections::BTreeSet;
-use std::convert::TryInto;
-use std::ffi::{OsStr, OsString};
-use std::mem::size_of;
-use std::os::unix::ffi::OsStrExt;
-use std::os::unix::ffi::OsStringExt;
+use nix::{
+    sys::{
+        mman::{MapFlags, ProtFlags},
+        stat::stat,
+    },
+    unistd::read,
+};
+use std::{
+    cmp::min,
+    collections::BTreeSet,
+    convert::TryInto,
+    ffi::{OsStr, OsString},
+    mem::size_of,
+    os::unix::ffi::{OsStrExt, OsStringExt},
+};
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub enum BreakpointType {
@@ -176,62 +189,78 @@ impl WatchConfig {
 
 pub mod address_space {
     use super::*;
-    use crate::address_space::kernel_map_iterator::KernelMapIterator;
-    use crate::address_space::kernel_mapping::KernelMapping;
-    use crate::address_space::memory_range::{MemoryRange, MemoryRangeKey};
-    use crate::address_space::BreakpointType::BkptNone;
-    use crate::address_space::MappingFlags;
-    use crate::arch::Architecture;
-    use crate::auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem};
-    use crate::emu_fs::EmuFileSharedPtr;
-    use crate::kernel_abi::common::preload_interface::{
-        PRELOAD_THREAD_LOCALS_SIZE, RD_PAGE_ADDR, RD_PAGE_FF_BYTES,
+    use crate::{
+        address_space::{
+            kernel_map_iterator::KernelMapIterator,
+            kernel_mapping::KernelMapping,
+            memory_range::{MemoryRange, MemoryRangeKey},
+            BreakpointType::BkptNone,
+            MappingFlags,
+        },
+        arch::Architecture,
+        auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem},
+        emu_fs::EmuFileSharedPtr,
+        kernel_abi::{
+            common::preload_interface::{
+                PRELOAD_THREAD_LOCALS_SIZE,
+                RD_PAGE_ADDR,
+                RD_PAGE_FF_BYTES,
+            },
+            syscall_instruction,
+            syscall_number_for_brk,
+            syscall_number_for_close,
+            syscall_number_for_munmap,
+            syscall_number_for_openat,
+            SupportedArch,
+        },
+        log::LogLevel::LogDebug,
+        monitored_shared_memory::MonitoredSharedMemorySharedPtr,
+        monkey_patcher::MonkeyPatcher,
+        rd::RD_RESERVED_ROOT_DIR_FD,
+        registers::Registers,
+        remote_code_ptr::RemoteCodePtr,
+        remote_ptr::RemotePtr,
+        scoped_fd::ScopedFd,
+        session::{SessionSharedPtr, SessionSharedWeakPtr},
+        task::{
+            common::{read_mem, read_val_mem, write_val_mem, write_val_mem_with_flags},
+            record_task::record_task::RecordTask,
+            task_inner::task_inner::WriteFlags,
+            Task,
+            TaskSharedPtr,
+        },
+        taskish_uid::{AddressSpaceUid, TaskUid},
+        trace::trace_frame::FrameTime,
+        util::{ceil_page_size, floor_page_size, page_size, read_auxv, uses_invisible_guard_page},
+        weak_ptr_set::WeakPtrSet,
     };
-    use crate::kernel_abi::{syscall_instruction, SupportedArch};
-    use crate::kernel_abi::{
-        syscall_number_for_brk, syscall_number_for_close, syscall_number_for_munmap,
-        syscall_number_for_openat,
-    };
-    use crate::log::LogLevel::LogDebug;
-    use crate::monitored_shared_memory::MonitoredSharedMemorySharedPtr;
-    use crate::monkey_patcher::MonkeyPatcher;
-    use crate::rd::RD_RESERVED_ROOT_DIR_FD;
-    use crate::registers::Registers;
-    use crate::remote_code_ptr::RemoteCodePtr;
-    use crate::remote_ptr::RemotePtr;
-    use crate::scoped_fd::ScopedFd;
-    use crate::session::{SessionSharedPtr, SessionSharedWeakPtr};
-    use crate::task::common::{read_mem, read_val_mem, write_val_mem, write_val_mem_with_flags};
-    use crate::task::record_task::record_task::RecordTask;
-    use crate::task::task_inner::task_inner::WriteFlags;
-    use crate::task::{Task, TaskSharedPtr};
-    use crate::taskish_uid::AddressSpaceUid;
-    use crate::taskish_uid::TaskUid;
-    use crate::trace::trace_frame::FrameTime;
-    use crate::util::{
-        ceil_page_size, floor_page_size, page_size, read_auxv, uses_invisible_guard_page,
-    };
-    use crate::weak_ptr_set::WeakPtrSet;
     use core::ffi::c_void;
-    use libc::stat;
-    use libc::{dev_t, ino_t, pid_t, EACCES, ENOENT, O_RDONLY};
-    use libc::{PROT_GROWSDOWN, PROT_GROWSUP};
-    use nix::fcntl::OFlag;
-    use nix::sys::mman::munmap;
-    use nix::sys::mman::MmapAdvise;
-    use nix::unistd::getpid;
-    use std::cell::{Ref, RefCell, RefMut};
-    use std::cmp::{max, min};
-    use std::collections::btree_map::{Range, RangeMut};
-    use std::collections::hash_map::Iter as HashMapIter;
-    use std::collections::HashSet;
-    use std::collections::{BTreeMap, HashMap};
-    use std::ffi::{OsStr, OsString};
-    use std::ops::Bound::{Included, Unbounded};
-    use std::ops::Drop;
-    use std::ops::{Deref, DerefMut};
-    use std::rc::{Rc, Weak};
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use libc::{dev_t, ino_t, pid_t, stat, EACCES, ENOENT, O_RDONLY, PROT_GROWSDOWN, PROT_GROWSUP};
+    use nix::{
+        fcntl::OFlag,
+        sys::mman::{munmap, MmapAdvise},
+        unistd::getpid,
+    };
+    use std::{
+        cell::{Ref, RefCell, RefMut},
+        cmp::{max, min},
+        collections::{
+            btree_map::{Range, RangeMut},
+            hash_map::Iter as HashMapIter,
+            BTreeMap,
+            HashMap,
+            HashSet,
+        },
+        ffi::{OsStr, OsString},
+        ops::{
+            Bound::{Included, Unbounded},
+            Deref,
+            DerefMut,
+            Drop,
+        },
+        rc::{Rc, Weak},
+        sync::atomic::{AtomicUsize, Ordering},
+    };
 
     fn find_offset_of_syscall_instruction_in(arch: SupportedArch, vdso: &[u8]) -> Option<usize> {
         let instruction = syscall_instruction(arch);

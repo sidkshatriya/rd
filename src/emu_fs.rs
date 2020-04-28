@@ -31,24 +31,27 @@
 //! disjoint.  And F_0 being GC'd at that point is the important
 //! assumption mentioned above.
 
-use crate::address_space::kernel_mapping::KernelMapping;
-use crate::log::{LogDebug, LogError};
-use crate::scoped_fd::ScopedFd;
-use crate::util::resize_shmem_segment;
-use libc::{c_void, pread64, pwrite64};
-use libc::{dev_t, ino_t};
-use nix::sys::memfd::memfd_create;
-use nix::sys::memfd::MemFdCreateFlag;
-use nix::unistd::getpid;
-use std::cell::RefCell;
-use std::cmp::min;
-use std::collections::HashMap;
-use std::convert::TryInto;
-use std::ffi::{CString, OsStr, OsString};
-use std::io::Write;
-use std::os::unix::ffi::OsStrExt;
-use std::os::unix::ffi::OsStringExt;
-use std::rc::{Rc, Weak};
+use crate::{
+    address_space::kernel_mapping::KernelMapping,
+    log::{LogDebug, LogError},
+    scoped_fd::ScopedFd,
+    util::resize_shmem_segment,
+};
+use libc::{c_void, dev_t, ino_t, pread64, pwrite64};
+use nix::{
+    sys::memfd::{memfd_create, MemFdCreateFlag},
+    unistd::getpid,
+};
+use std::{
+    cell::RefCell,
+    cmp::min,
+    collections::HashMap,
+    convert::TryInto,
+    ffi::{CString, OsStr, OsString},
+    io::Write,
+    os::unix::ffi::{OsStrExt, OsStringExt},
+    rc::{Rc, Weak},
+};
 
 pub type EmuFsSharedPtr = Rc<RefCell<EmuFs>>;
 pub type EmuFileSharedPtr = Rc<RefCell<EmuFile>>;

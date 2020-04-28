@@ -1,15 +1,14 @@
-use crate::arch::Architecture;
-use crate::arch::NativeArch;
-use crate::kernel_abi::syscall_number_for_rt_sigaction;
-use crate::kernel_abi::SupportedArch;
-use crate::kernel_supplement::{SA_RESETHAND, SA_SIGINFO, _NSIG};
-use crate::remote_code_ptr::RemoteCodePtr;
-use crate::remote_ptr::{RemotePtr, Void};
-use crate::task::task_inner::CloneFlags;
+use crate::{
+    arch::{Architecture, NativeArch},
+    kernel_abi::{syscall_number_for_rt_sigaction, SupportedArch},
+    kernel_supplement::{SA_RESETHAND, SA_SIGINFO, _NSIG},
+    remote_code_ptr::RemoteCodePtr,
+    remote_ptr::{RemotePtr, Void},
+    task::task_inner::CloneFlags,
+};
 use libc::EINVAL;
 use nix::errno::errno;
-use std::mem::size_of;
-use std::ptr::copy_nonoverlapping;
+use std::{mem::size_of, ptr::copy_nonoverlapping};
 
 #[derive(Clone)]
 pub struct Sighandlers {
@@ -211,36 +210,52 @@ pub enum SignalDisposition {
 
 pub mod record_task {
     use super::*;
-    use crate::address_space::memory_range::MemoryRange;
-    use crate::bindings::signal::siginfo_t;
-    use crate::event::{Event, EventType, SignalDeterministic, SignalResolvedDisposition};
-    use crate::kernel_abi::common::preload_interface::syscallbuf_record;
-    use crate::kernel_abi::SupportedArch;
-    use crate::kernel_supplement::sig_set_t;
-    use crate::registers::Registers;
-    use crate::remote_code_ptr::RemoteCodePtr;
-    use crate::remote_ptr::{RemotePtr, Void};
-    use crate::scoped_fd::ScopedFd;
-    use crate::session::record_session::RecordSession;
-    use crate::session::Session;
-    use crate::task::common::{
-        did_waitpid, next_syscallbuf_record, open_mem_fd, read_bytes_fallible, read_bytes_helper,
-        read_bytes_helper_for, read_c_str, resume_execution, stored_record_size,
-        syscallbuf_data_size, write_bytes, write_bytes_helper,
+    use crate::{
+        address_space::memory_range::MemoryRange,
+        bindings::signal::siginfo_t,
+        event::{Event, EventType, SignalDeterministic, SignalResolvedDisposition},
+        kernel_abi::{common::preload_interface::syscallbuf_record, SupportedArch},
+        kernel_supplement::sig_set_t,
+        registers::Registers,
+        remote_code_ptr::RemoteCodePtr,
+        remote_ptr::{RemotePtr, Void},
+        scoped_fd::ScopedFd,
+        session::{record_session::RecordSession, Session},
+        task::{
+            common::{
+                did_waitpid,
+                next_syscallbuf_record,
+                open_mem_fd,
+                read_bytes_fallible,
+                read_bytes_helper,
+                read_bytes_helper_for,
+                read_c_str,
+                resume_execution,
+                stored_record_size,
+                syscallbuf_data_size,
+                write_bytes,
+                write_bytes_helper,
+            },
+            task_inner::{
+                task_inner::{CloneReason, TaskInner, WriteFlags},
+                ResumeRequest,
+                TicksRequest,
+                WaitRequest,
+            },
+            Task,
+        },
+        ticks::Ticks,
+        trace::{trace_frame::FrameTime, trace_writer::TraceWriter},
+        wait_status::WaitStatus,
     };
-    use crate::task::task_inner::task_inner::{CloneReason, TaskInner, WriteFlags};
-    use crate::task::task_inner::{ResumeRequest, TicksRequest, WaitRequest};
-    use crate::task::Task;
-    use crate::ticks::Ticks;
-    use crate::trace::trace_frame::FrameTime;
-    use crate::trace::trace_writer::TraceWriter;
-    use crate::wait_status::WaitStatus;
     use libc::pid_t;
-    use std::cell::RefCell;
-    use std::collections::{HashSet, VecDeque};
-    use std::ffi::CString;
-    use std::ops::{Deref, DerefMut};
-    use std::rc::Rc;
+    use std::{
+        cell::RefCell,
+        collections::{HashSet, VecDeque},
+        ffi::CString,
+        ops::{Deref, DerefMut},
+        rc::Rc,
+    };
 
     pub struct StashedSignal {
         siginfo: siginfo_t,

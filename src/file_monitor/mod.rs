@@ -1,15 +1,18 @@
-use crate::arch::Architecture;
-use crate::event::Switchable;
-use crate::kernel_abi::SupportedArch;
-use crate::registers::Registers;
-use crate::remote_ptr::{RemotePtr, Void};
-use crate::task::record_task::record_task::RecordTask;
-use crate::task::Task;
-use std::cell::RefCell;
-use std::fs::File;
-use std::io::{BufRead, BufReader};
-use std::mem::size_of;
-use std::rc::{Rc, Weak};
+use crate::{
+    arch::Architecture,
+    event::Switchable,
+    kernel_abi::SupportedArch,
+    registers::Registers,
+    remote_ptr::{RemotePtr, Void},
+    task::{record_task::record_task::RecordTask, Task},
+};
+use std::{
+    cell::RefCell,
+    fs::File,
+    io::{BufRead, BufReader},
+    mem::size_of,
+    rc::{Rc, Weak},
+};
 
 pub mod magic_save_data_monitor;
 pub mod mmapped_file_monitor;

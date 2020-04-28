@@ -1,11 +1,10 @@
-use std::cmp::Ordering;
-use std::convert::TryInto;
-use std::fmt::Display;
-use std::fmt::Formatter;
-use std::fmt::Result;
-use std::marker::PhantomData;
-use std::ops::Sub;
-use std::ops::{Add, AddAssign, SubAssign};
+use std::{
+    cmp::Ordering,
+    convert::TryInto,
+    fmt::{Display, Formatter, Result},
+    marker::PhantomData,
+    ops::{Add, AddAssign, Sub, SubAssign},
+};
 
 /// Useful alias.
 pub type Void = u8;

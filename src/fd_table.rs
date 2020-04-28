@@ -1,19 +1,20 @@
-use crate::address_space::address_space::{AddressSpace, AddressSpaceRef};
-use crate::event::Switchable;
-use crate::file_monitor::{FileMonitorSharedPtr, LazyOffset, Range};
-use crate::kernel_abi::common::preload_interface::preload_globals;
-use crate::kernel_abi::common::preload_interface::SYSCALLBUF_FDS_DISABLED_SIZE;
-use crate::log::LogLevel::LogDebug;
-use crate::remote_ptr::RemotePtr;
-use crate::task::record_task::record_task::RecordTask;
-use crate::task::replay_task::ReplayTask;
-use crate::task::Task;
-use crate::weak_ptr_set::WeakPtrSet;
+use crate::{
+    address_space::address_space::{AddressSpace, AddressSpaceRef},
+    event::Switchable,
+    file_monitor::{FileMonitorSharedPtr, LazyOffset, Range},
+    kernel_abi::common::preload_interface::{preload_globals, SYSCALLBUF_FDS_DISABLED_SIZE},
+    log::LogLevel::LogDebug,
+    remote_ptr::RemotePtr,
+    task::{record_task::record_task::RecordTask, replay_task::ReplayTask, Task},
+    weak_ptr_set::WeakPtrSet,
+};
 use nix::sys::stat::lstat;
-use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
-use std::ops::Deref;
-use std::rc::{Rc, Weak};
+use std::{
+    cell::RefCell,
+    collections::{HashMap, HashSet},
+    ops::Deref,
+    rc::{Rc, Weak},
+};
 
 pub type FdTableSharedPtr = Rc<RefCell<FdTable>>;
 pub type FdTableSharedWeakPtr = Weak<RefCell<FdTable>>;

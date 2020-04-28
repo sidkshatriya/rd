@@ -1,14 +1,22 @@
-use crate::kernel_abi::{
-    x64, x86, CloneParameterOrdering, CloneTLSType, MmapCallingSemantics, SelectCallingSemantics,
-    SupportedArch,
+use crate::{
+    kernel_abi::{
+        x64,
+        x86,
+        CloneParameterOrdering,
+        CloneTLSType,
+        MmapCallingSemantics,
+        SelectCallingSemantics,
+        SupportedArch,
+    },
+    kernel_supplement::{CLD_STOPPED, CLD_TRAPPED},
+    remote_ptr::{RemotePtr, Void},
+    task::record_task::{record_task::RecordTask, EmulatedStopType},
 };
-use crate::kernel_supplement::{CLD_STOPPED, CLD_TRAPPED};
-use crate::remote_ptr::{RemotePtr, Void};
-use crate::task::record_task::record_task::RecordTask;
-use crate::task::record_task::EmulatedStopType;
-use std::convert::{TryFrom, TryInto};
-use std::num::TryFromIntError;
-use std::ops::Add;
+use std::{
+    convert::{TryFrom, TryInto},
+    num::TryFromIntError,
+    ops::Add,
+};
 
 pub struct X86Arch;
 pub struct X64Arch;

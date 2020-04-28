@@ -1,25 +1,35 @@
-use crate::address_space::kernel_mapping::KernelMapping;
-use crate::commands::rd_options::{RdOptions, RdSubCommand};
-use crate::commands::RdCommand;
-use crate::event::EventType;
-use crate::kernel_abi::common::preload_interface::{
-    stored_record_size, syscallbuf_hdr, syscallbuf_record,
+use crate::{
+    address_space::kernel_mapping::KernelMapping,
+    commands::{
+        rd_options::{RdOptions, RdSubCommand},
+        RdCommand,
+    },
+    event::EventType,
+    kernel_abi::common::preload_interface::{
+        stored_record_size,
+        syscallbuf_hdr,
+        syscallbuf_record,
+    },
+    kernel_metadata::syscall_name,
+    log::notifying_abort,
+    trace::{
+        trace_frame::{FrameTime, TraceFrame},
+        trace_reader::{TraceReader, ValidateSourceFile},
+        trace_stream,
+        trace_stream::{MappedData, MappedDataSource},
+        trace_task_event::{TraceTaskEvent, TraceTaskEventVariant},
+    },
 };
-use crate::kernel_metadata::syscall_name;
-use crate::log::notifying_abort;
-use crate::trace::trace_frame::{FrameTime, TraceFrame};
-use crate::trace::trace_reader::{TraceReader, ValidateSourceFile};
-use crate::trace::trace_stream;
-use crate::trace::trace_stream::{MappedData, MappedDataSource};
-use crate::trace::trace_task_event::{TraceTaskEvent, TraceTaskEventVariant};
 use nix::sys::mman::{MapFlags, ProtFlags};
-use std::collections::HashMap;
-use std::ffi::OsString;
-use std::io;
-use std::io::{stderr, stdout, Write};
-use std::mem::size_of;
-use std::os::unix::ffi::OsStringExt;
-use std::path::PathBuf;
+use std::{
+    collections::HashMap,
+    ffi::OsString,
+    io,
+    io::{stderr, stdout, Write},
+    mem::size_of,
+    os::unix::ffi::OsStringExt,
+    path::PathBuf,
+};
 
 pub struct DumpCommand {
     dump_syscallbuf: bool,

@@ -1,16 +1,22 @@
-use crate::address_space::kernel_mapping::KernelMapping;
-use crate::address_space::thread_group_in_exec;
-use crate::remote_ptr::{RemotePtr, Void};
-use crate::task::Task;
+use crate::{
+    address_space::{kernel_mapping::KernelMapping, thread_group_in_exec},
+    remote_ptr::{RemotePtr, Void},
+    task::Task,
+};
 use libc::{ino_t, pid_t};
-use nix::sys::mman::MapFlags;
-use nix::sys::mman::ProtFlags;
-use nix::sys::stat::makedev;
-use nix::unistd::getpid;
-use std::ffi::OsStr;
-use std::fs::File;
-use std::io::{BufRead, BufReader};
-use std::os::unix::ffi::OsStrExt;
+use nix::{
+    sys::{
+        mman::{MapFlags, ProtFlags},
+        stat::makedev,
+    },
+    unistd::getpid,
+};
+use std::{
+    ffi::OsStr,
+    fs::File,
+    io::{BufRead, BufReader},
+    os::unix::ffi::OsStrExt,
+};
 
 pub struct KernelMapIterator {
     tid: pid_t,

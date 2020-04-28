@@ -1,11 +1,14 @@
-use crate::event::Event;
-use crate::extra_registers::{ExtraRegisters, Format};
-use crate::registers::Registers;
-use crate::ticks::Ticks;
+use crate::{
+    event::Event,
+    extra_registers::{ExtraRegisters, Format},
+    registers::Registers,
+    ticks::Ticks,
+};
 use libc::pid_t;
-use std::io;
-use std::io::stdout;
-use std::io::Write;
+use std::{
+    io,
+    io::{stdout, Write},
+};
 
 /// DIFF NOTE: This is i64 in rr
 pub type FrameTime = u64;

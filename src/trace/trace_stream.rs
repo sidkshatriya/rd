@@ -1,20 +1,21 @@
-use crate::kernel_abi::SupportedArch;
-use crate::remote_ptr::{RemotePtr, Void};
-use crate::taskish_uid::TaskUid;
-use crate::trace::trace_frame::FrameTime;
-use crate::trace_capnp::Arch as TraceArch;
-use crate::util::{dir_exists, ensure_dir, real_path};
+use crate::{
+    kernel_abi::SupportedArch,
+    remote_ptr::{RemotePtr, Void},
+    taskish_uid::TaskUid,
+    trace::trace_frame::FrameTime,
+    trace_capnp::Arch as TraceArch,
+    util::{dir_exists, ensure_dir, real_path},
+};
 use libc::pid_t;
-use nix::errno::errno;
-use nix::sys::stat::Mode;
-use nix::unistd::mkdir;
-use std::env;
-use std::ffi::{OsStr, OsString};
-use std::io::Write;
-use std::os::unix::ffi::OsStrExt;
-use std::os::unix::ffi::OsStringExt;
-use std::path::Path;
-use std::slice::Iter;
+use nix::{errno::errno, sys::stat::Mode, unistd::mkdir};
+use std::{
+    env,
+    ffi::{OsStr, OsString},
+    io::Write,
+    os::unix::ffi::{OsStrExt, OsStringExt},
+    path::Path,
+    slice::Iter,
+};
 
 pub const TRACE_VERSION: u32 = 85;
 

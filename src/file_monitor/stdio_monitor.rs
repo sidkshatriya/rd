@@ -1,7 +1,9 @@
-use crate::event::Switchable;
-use crate::file_monitor::{FileMonitor, FileMonitorType, LazyOffset, Range};
-use crate::flags::Flags;
-use crate::task::Task;
+use crate::{
+    event::Switchable,
+    file_monitor::{FileMonitor, FileMonitorType, LazyOffset, Range},
+    flags::Flags,
+    task::Task,
+};
 use nix::unistd::write;
 
 /// A FileMonitor to track writes to rr's stdout/stderr fds.

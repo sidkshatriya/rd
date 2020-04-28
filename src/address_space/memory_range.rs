@@ -1,9 +1,10 @@
-use crate::remote_ptr::RemotePtr;
-use crate::remote_ptr::Void;
+use crate::remote_ptr::{RemotePtr, Void};
 use core::cmp::Ordering;
-use std::cmp::{max, min};
-use std::fmt::{Display, Formatter, Result};
-use std::ops::{Deref, DerefMut};
+use std::{
+    cmp::{max, min},
+    fmt::{Display, Formatter, Result},
+    ops::{Deref, DerefMut},
+};
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct MemoryRange {
@@ -145,8 +146,10 @@ impl From<MemoryRange> for MemoryRangeKey {
 #[cfg(test)]
 mod test {
     use crate::address_space::memory_range::{MemoryRange, MemoryRangeKey};
-    use std::collections::{BTreeMap, BTreeSet};
-    use std::ops::Bound::{Included, Unbounded};
+    use std::{
+        collections::{BTreeMap, BTreeSet},
+        ops::Bound::{Included, Unbounded},
+    };
 
     #[test]
     pub fn test_overlapping_and_iter() {

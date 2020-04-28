@@ -1,23 +1,40 @@
-use crate::arch::Architecture;
-use crate::kernel_abi::common::preload_interface::syscallbuf_record;
-use crate::kernel_abi::SupportedArch;
-use crate::registers::Registers;
-use crate::remote_ptr::{RemotePtr, Void};
-use crate::session::{Session, SessionSharedWeakPtr};
-use crate::task::common::{
-    did_waitpid, next_syscallbuf_record, open_mem_fd, read_bytes_fallible, read_bytes_helper,
-    read_c_str, resume_execution, stored_record_size, syscallbuf_data_size, write_bytes,
-    write_bytes_helper,
+use crate::{
+    arch::Architecture,
+    kernel_abi::{common::preload_interface::syscallbuf_record, SupportedArch},
+    registers::Registers,
+    remote_ptr::{RemotePtr, Void},
+    session::{Session, SessionSharedWeakPtr},
+    task::{
+        common::{
+            did_waitpid,
+            next_syscallbuf_record,
+            open_mem_fd,
+            read_bytes_fallible,
+            read_bytes_helper,
+            read_c_str,
+            resume_execution,
+            stored_record_size,
+            syscallbuf_data_size,
+            write_bytes,
+            write_bytes_helper,
+        },
+        task_inner::{
+            task_inner::{CloneReason, TaskInner, WriteFlags},
+            CloneFlags,
+            ResumeRequest,
+            TicksRequest,
+            WaitRequest,
+        },
+        Task,
+    },
+    trace::trace_frame::{FrameTime, TraceFrame},
+    wait_status::WaitStatus,
 };
-use crate::task::task_inner::task_inner::WriteFlags;
-use crate::task::task_inner::task_inner::{CloneReason, TaskInner};
-use crate::task::task_inner::{CloneFlags, ResumeRequest, TicksRequest, WaitRequest};
-use crate::task::Task;
-use crate::trace::trace_frame::{FrameTime, TraceFrame};
-use crate::wait_status::WaitStatus;
 use libc::pid_t;
-use std::ffi::CString;
-use std::ops::{Deref, DerefMut};
+use std::{
+    ffi::CString,
+    ops::{Deref, DerefMut},
+};
 
 pub struct ReplayTask {
     pub task_inner: TaskInner,

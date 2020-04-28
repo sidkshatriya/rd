@@ -4,35 +4,49 @@ include!(concat!(
     "/check_syscall_numbers_generated.rs"
 ));
 
-use crate::address_space::kernel_mapping::KernelMapping;
-use crate::address_space::MappingFlags;
-use crate::arch::Architecture;
-use crate::auto_remote_syscalls::AutoRemoteSyscalls;
-use crate::auto_remote_syscalls::PreserveContents::PreserveContents;
-use crate::kernel_abi::{is_write_syscall, CloneTLSType, SupportedArch};
-use crate::kernel_metadata::{ptrace_event_name, syscall_name};
-use crate::log::LogLevel::LogDebug;
-use crate::session::replay_session::ReplaySession;
-use crate::task::replay_task::ReplayTask;
-use crate::task::task_inner::ResumeRequest;
-use crate::task::task_inner::TicksRequest;
-use crate::task::task_inner::WaitRequest;
-use crate::task::Task;
-use crate::trace::trace_frame::FrameTime;
-use crate::trace::trace_stream;
-use crate::trace::trace_stream::MappedData;
-use crate::trace::trace_task_event::{TraceTaskEvent, TraceTaskEventType};
-use crate::util::{clone_flags_to_task_flags, extract_clone_parameters, CloneParameters};
-use crate::wait_status::WaitStatus;
-use libc::pid_t;
+use crate::{
+    address_space::{kernel_mapping::KernelMapping, MappingFlags},
+    arch::Architecture,
+    auto_remote_syscalls::{AutoRemoteSyscalls, PreserveContents::PreserveContents},
+    kernel_abi::{is_write_syscall, CloneTLSType, SupportedArch},
+    kernel_metadata::{ptrace_event_name, syscall_name},
+    log::LogLevel::LogDebug,
+    session::replay_session::ReplaySession,
+    task::{
+        replay_task::ReplayTask,
+        task_inner::{ResumeRequest, TicksRequest, WaitRequest},
+        Task,
+    },
+    trace::{
+        trace_frame::FrameTime,
+        trace_stream,
+        trace_stream::MappedData,
+        trace_task_event::{TraceTaskEvent, TraceTaskEventType},
+    },
+    util::{clone_flags_to_task_flags, extract_clone_parameters, CloneParameters},
+    wait_status::WaitStatus,
+};
 use libc::{
-    CLONE_CHILD_CLEARTID, CLONE_NEWCGROUP, CLONE_NEWIPC, CLONE_NEWNET, CLONE_NEWNS, CLONE_NEWPID,
-    CLONE_NEWUSER, CLONE_NEWUTS, CLONE_UNTRACED, CLONE_VFORK, CLONE_VM, ENOSYS,
+    pid_t,
+    CLONE_CHILD_CLEARTID,
+    CLONE_NEWCGROUP,
+    CLONE_NEWIPC,
+    CLONE_NEWNET,
+    CLONE_NEWNS,
+    CLONE_NEWPID,
+    CLONE_NEWUSER,
+    CLONE_NEWUTS,
+    CLONE_UNTRACED,
+    CLONE_VFORK,
+    CLONE_VM,
+    ENOSYS,
 };
 use nix::sys::mman::{MapFlags, ProtFlags};
-use std::cmp::min;
-use std::ffi::{OsStr, OsString};
-use std::os::unix::ffi::OsStringExt;
+use std::{
+    cmp::min,
+    ffi::{OsStr, OsString},
+    os::unix::ffi::OsStringExt,
+};
 
 /// Proceeds until the next system call, which is being executed.
 ///

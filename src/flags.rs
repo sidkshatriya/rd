@@ -1,5 +1,4 @@
-use crate::commands::rd_options::RdOptions;
-use crate::trace::trace_frame::FrameTime;
+use crate::{commands::rd_options::RdOptions, trace::trace_frame::FrameTime};
 use std::path::PathBuf;
 use structopt::StructOpt;
 

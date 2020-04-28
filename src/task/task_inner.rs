@@ -1,5 +1,9 @@
 use crate::bindings::ptrace::{
-    PTRACE_CONT, PTRACE_SINGLESTEP, PTRACE_SYSCALL, PTRACE_SYSEMU, PTRACE_SYSEMU_SINGLESTEP,
+    PTRACE_CONT,
+    PTRACE_SINGLESTEP,
+    PTRACE_SYSCALL,
+    PTRACE_SYSEMU,
+    PTRACE_SYSEMU_SINGLESTEP,
 };
 
 use crate::kernel_abi::common::preload_interface::PRELOAD_THREAD_LOCALS_SIZE;
@@ -71,54 +75,69 @@ pub const MAX_TICKS_REQUEST: u64 = 2000000000;
 
 pub mod task_inner {
     use super::*;
-    use crate::address_space::address_space::{
-        AddressSpace, AddressSpaceRef, AddressSpaceRefMut, AddressSpaceSharedPtr,
+    use crate::{
+        address_space::{
+            address_space::{
+                AddressSpace,
+                AddressSpaceRef,
+                AddressSpaceRefMut,
+                AddressSpaceSharedPtr,
+            },
+            kernel_mapping::KernelMapping,
+            WatchConfig,
+        },
+        auto_remote_syscalls::AutoRemoteSyscalls,
+        bindings::{
+            kernel::user_desc,
+            ptrace::{
+                ptrace,
+                PTRACE_EVENT_CLONE,
+                PTRACE_EVENT_FORK,
+                PTRACE_EVENT_VFORK,
+                PTRACE_GETEVENTMSG,
+                PTRACE_PEEKDATA,
+                PTRACE_POKEDATA,
+            },
+            signal::siginfo_t,
+        },
+        extra_registers::ExtraRegisters,
+        fd_table::FdTableSharedPtr,
+        kernel_abi::{
+            common::preload_interface::{preload_globals, syscallbuf_hdr},
+            SupportedArch,
+        },
+        kernel_metadata::{errno_name, ptrace_event_name, ptrace_req_name, syscall_name},
+        log::LogLevel::LogDebug,
+        perf_counters::PerfCounters,
+        registers::Registers,
+        remote_code_ptr::RemoteCodePtr,
+        remote_ptr::{RemotePtr, Void},
+        scoped_fd::ScopedFd,
+        session::{Session, SessionSharedPtr, SessionSharedWeakPtr},
+        task::TaskSharedWeakPtr,
+        taskish_uid::TaskUid,
+        thread_group::{ThreadGroup, ThreadGroupSharedPtr},
+        ticks::Ticks,
+        trace::trace_stream::TraceStream,
+        util::{u8_raw_slice, u8_raw_slice_mut, TrappedInstruction},
+        wait_status::WaitStatus,
     };
-    use crate::address_space::kernel_mapping::KernelMapping;
-    use crate::address_space::WatchConfig;
-    use crate::auto_remote_syscalls::AutoRemoteSyscalls;
-    use crate::bindings::kernel::user_desc;
-    use crate::bindings::ptrace::{
-        ptrace, PTRACE_EVENT_CLONE, PTRACE_EVENT_FORK, PTRACE_EVENT_VFORK, PTRACE_GETEVENTMSG,
+    use libc::{__errno_location, pid_t, uid_t, EAGAIN, ENOMEM, ENOSYS};
+    use nix::{
+        errno::errno,
+        fcntl::{readlink, OFlag},
+        sys::stat::{lstat, stat, FileStat},
+        unistd::getuid,
     };
-    use crate::bindings::ptrace::{PTRACE_PEEKDATA, PTRACE_POKEDATA};
-    use crate::bindings::signal::siginfo_t;
-    use crate::extra_registers::ExtraRegisters;
-    use crate::fd_table::FdTableSharedPtr;
-    use crate::kernel_abi::common::preload_interface::preload_globals;
-    use crate::kernel_abi::common::preload_interface::syscallbuf_hdr;
-    use crate::kernel_abi::SupportedArch;
-    use crate::kernel_metadata::ptrace_event_name;
-    use crate::kernel_metadata::syscall_name;
-    use crate::kernel_metadata::{errno_name, ptrace_req_name};
-    use crate::log::LogLevel::LogDebug;
-    use crate::perf_counters::PerfCounters;
-    use crate::registers::Registers;
-    use crate::remote_code_ptr::RemoteCodePtr;
-    use crate::remote_ptr::{RemotePtr, Void};
-    use crate::scoped_fd::ScopedFd;
-    use crate::session::{Session, SessionSharedPtr, SessionSharedWeakPtr};
-    use crate::task::TaskSharedWeakPtr;
-    use crate::taskish_uid::TaskUid;
-    use crate::thread_group::{ThreadGroup, ThreadGroupSharedPtr};
-    use crate::ticks::Ticks;
-    use crate::trace::trace_stream::TraceStream;
-    use crate::util::{u8_raw_slice, u8_raw_slice_mut, TrappedInstruction};
-    use crate::wait_status::WaitStatus;
-    use libc::{__errno_location, pid_t, uid_t};
-    use libc::{EAGAIN, ENOMEM, ENOSYS};
-    use nix::errno::errno;
-    use nix::fcntl::{readlink, OFlag};
-    use nix::sys::stat::FileStat;
-    use nix::sys::stat::{lstat, stat};
-    use nix::unistd::getuid;
-    use std::cell::RefCell;
-    use std::cmp::min;
-    use std::ffi::{OsStr, OsString};
-    use std::mem::size_of;
-    use std::ptr;
-    use std::ptr::copy_nonoverlapping;
-    use std::rc::Rc;
+    use std::{
+        cell::RefCell,
+        cmp::min,
+        ffi::{OsStr, OsString},
+        mem::size_of,
+        ptr,
+        ptr::copy_nonoverlapping,
+        rc::Rc,
+    };
 
     pub struct TrapReason;
 

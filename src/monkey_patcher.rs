@@ -1,5 +1,4 @@
-use crate::arch::Architecture;
-use crate::task::record_task::record_task::RecordTask;
+use crate::{arch::Architecture, task::record_task::record_task::RecordTask};
 
 #[derive(Clone)]
 pub struct MonkeyPatcher {}

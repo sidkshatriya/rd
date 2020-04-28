@@ -1,9 +1,10 @@
-use std::cell::RefCell;
-use std::collections::hash_set::Iter;
-use std::collections::HashSet;
-use std::hash::{Hash, Hasher};
-use std::ops::Deref;
-use std::rc::{Rc, Weak};
+use std::{
+    cell::RefCell,
+    collections::{hash_set::Iter, HashSet},
+    hash::{Hash, Hasher},
+    ops::Deref,
+    rc::{Rc, Weak},
+};
 
 pub struct WeakPtrWrap<T>(pub Weak<RefCell<T>>);
 

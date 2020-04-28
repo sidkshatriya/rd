@@ -1,62 +1,91 @@
-use crate::address_space::kernel_mapping::KernelMapping;
-use crate::bindings::signal::siginfo_t;
-use crate::event::SignalDeterministic::{DeterministicSig, NondeterministicSig};
-use crate::event::{
-    Event, EventType, OpenedFd, SignalEventData, SyscallEventData, SyscallbufFlushEventData,
+use crate::{
+    address_space::kernel_mapping::KernelMapping,
+    bindings::signal::siginfo_t,
+    event::{
+        Event,
+        EventType,
+        OpenedFd,
+        SignalDeterministic::{DeterministicSig, NondeterministicSig},
+        SignalEventData,
+        SignalResolvedDisposition,
+        SyscallEventData,
+        SyscallState,
+        SyscallbufFlushEventData,
+    },
+    extra_registers::{ExtraRegisters, Format},
+    kernel_abi::{common::preload_interface::mprotect_record, SupportedArch, RD_NATIVE_ARCH},
+    log::LogLevel::{LogDebug, LogError},
+    perf_counters::TicksSemantics,
+    registers::Registers,
+    remote_ptr::{RemotePtr, Void},
+    session::record_session::TraceUuid,
+    trace::{
+        compressed_reader::{CompressedReader, CompressedReaderState},
+        trace_frame::{FrameTime, TraceFrame},
+        trace_stream::{
+            latest_trace_symlink,
+            to_trace_arch,
+            trace_save_dir,
+            MappedData,
+            MappedDataSource::{SourceFile, SourceTrace, SourceZero},
+            RawDataMetadata,
+            Substream,
+            TraceRemoteFd,
+            TraceStream,
+            SUBSTREAMS,
+            TRACE_VERSION,
+        },
+        trace_task_event::{
+            TraceTaskEvent,
+            TraceTaskEventClone,
+            TraceTaskEventExec,
+            TraceTaskEventExit,
+            TraceTaskEventVariant,
+        },
+    },
+    trace_capnp::{
+        frame,
+        header,
+        m_map,
+        signal,
+        task_event,
+        Arch as TraceArch,
+        SignalDisposition as TraceSignalDisposition,
+        SyscallState as TraceSyscallState,
+        TicksSemantics as TraceTicksSemantics,
+    },
+    util::{
+        dir_exists,
+        find,
+        find_cpuid_record,
+        xsave_layout_from_trace,
+        CPUIDRecord,
+        CPUID_GETXSAVE,
+    },
+    wait_status::WaitStatus,
 };
-use crate::event::{SignalResolvedDisposition, SyscallState};
-use crate::extra_registers::{ExtraRegisters, Format};
-use crate::kernel_abi::common::preload_interface::mprotect_record;
-use crate::kernel_abi::{SupportedArch, RD_NATIVE_ARCH};
-use crate::log::LogLevel::{LogDebug, LogError};
-use crate::perf_counters::TicksSemantics;
-use crate::registers::Registers;
-use crate::remote_ptr::{RemotePtr, Void};
-use crate::session::record_session::TraceUuid;
-use crate::trace::compressed_reader::{CompressedReader, CompressedReaderState};
-use crate::trace::trace_frame::{FrameTime, TraceFrame};
-use crate::trace::trace_stream::MappedDataSource::{SourceFile, SourceTrace, SourceZero};
-use crate::trace::trace_stream::{
-    latest_trace_symlink, to_trace_arch, trace_save_dir, MappedData, RawDataMetadata, Substream,
-    TraceRemoteFd, TraceStream, SUBSTREAMS, TRACE_VERSION,
-};
-use crate::trace::trace_task_event::{
-    TraceTaskEvent, TraceTaskEventClone, TraceTaskEventExec, TraceTaskEventExit,
-    TraceTaskEventVariant,
-};
-use crate::trace_capnp::{
-    frame, m_map, signal, task_event, SignalDisposition as TraceSignalDisposition,
-    SyscallState as TraceSyscallState, TicksSemantics as TraceTicksSemantics,
-};
-use crate::trace_capnp::{header, Arch as TraceArch};
-use crate::util::{
-    dir_exists, find, find_cpuid_record, xsave_layout_from_trace, CPUIDRecord, CPUID_GETXSAVE,
-};
-use crate::wait_status::WaitStatus;
-use capnp::message::ReaderOptions;
-use capnp::serialize_packed::read_message;
+use capnp::{message::ReaderOptions, serialize_packed::read_message};
 use libc::{ino_t, pid_t, time_t};
-use nix::errno::errno;
-use nix::sys::mman::{MapFlags, ProtFlags};
-use nix::sys::stat::stat;
-use nix::sys::stat::FileStat;
-use nix::unistd::access;
-use nix::unistd::AccessFlags;
+use nix::{
+    errno::errno,
+    sys::{
+        mman::{MapFlags, ProtFlags},
+        stat::{stat, FileStat},
+    },
+    unistd::{access, AccessFlags},
+};
 use static_assertions::_core::intrinsics::copy_nonoverlapping;
-use std::collections::HashMap;
-use std::convert::TryFrom;
-use std::convert::TryInto;
-use std::ffi::{OsStr, OsString};
-use std::fs::File;
-use std::io::stderr;
-use std::io::Read;
-use std::io::Write;
-use std::io::{BufRead, BufReader};
-use std::mem::{size_of, zeroed};
-use std::ops::{Deref, DerefMut};
-use std::os::unix::ffi::OsStrExt;
-use std::os::unix::ffi::OsStringExt;
-use std::process::exit;
+use std::{
+    collections::HashMap,
+    convert::{TryFrom, TryInto},
+    ffi::{OsStr, OsString},
+    fs::File,
+    io::{stderr, BufRead, BufReader, Read, Write},
+    mem::{size_of, zeroed},
+    ops::{Deref, DerefMut},
+    os::unix::ffi::{OsStrExt, OsStringExt},
+    process::exit,
+};
 
 /// Read the next mapped region descriptor and return it.
 /// Also returns where to get the mapped data in `data`, if it's not `None`.

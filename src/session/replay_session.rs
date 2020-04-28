@@ -1,25 +1,32 @@
-use crate::address_space::address_space::AddressSpaceSharedPtr;
-use crate::bindings::signal::siginfo_t;
-use crate::cpuid_bug_detector::CPUIDBugDetector;
-use crate::emu_fs::{EmuFs, EmuFsSharedPtr};
-use crate::fast_forward::FastForwardStatus;
-use crate::kernel_abi::SupportedArch;
-use crate::perf_counters::TIME_SLICE_SIGNAL;
-use crate::remote_code_ptr::RemoteCodePtr;
-use crate::session::diversion_session::DiversionSessionSharedPtr;
-use crate::session::replay_session::ReplayTraceStepType::TstepNone;
-use crate::session::session_inner::session_inner::SessionInner;
-use crate::session::session_inner::{BreakStatus, RunCommand};
-use crate::session::Session;
-use crate::task::Task;
-use crate::ticks::Ticks;
-use crate::trace::trace_frame::{FrameTime, TraceFrame};
-use crate::trace::trace_reader::TraceReader;
-use crate::trace::trace_stream::TraceStream;
-use std::cell::{Ref, RefCell, RefMut};
-use std::ffi::OsStr;
-use std::ops::{Deref, DerefMut};
-use std::sync::Arc;
+use crate::{
+    address_space::address_space::AddressSpaceSharedPtr,
+    bindings::signal::siginfo_t,
+    cpuid_bug_detector::CPUIDBugDetector,
+    emu_fs::{EmuFs, EmuFsSharedPtr},
+    fast_forward::FastForwardStatus,
+    kernel_abi::SupportedArch,
+    perf_counters::TIME_SLICE_SIGNAL,
+    remote_code_ptr::RemoteCodePtr,
+    session::{
+        diversion_session::DiversionSessionSharedPtr,
+        replay_session::ReplayTraceStepType::TstepNone,
+        session_inner::{session_inner::SessionInner, BreakStatus, RunCommand},
+        Session,
+    },
+    task::Task,
+    ticks::Ticks,
+    trace::{
+        trace_frame::{FrameTime, TraceFrame},
+        trace_reader::TraceReader,
+        trace_stream::TraceStream,
+    },
+};
+use std::{
+    cell::{Ref, RefCell, RefMut},
+    ffi::OsStr,
+    ops::{Deref, DerefMut},
+    sync::Arc,
+};
 
 pub type ReplaySessionSharedPtr = Arc<RefCell<ReplaySession>>;
 

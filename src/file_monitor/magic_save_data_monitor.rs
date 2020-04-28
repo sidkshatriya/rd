@@ -1,7 +1,14 @@
-use crate::file_monitor::FileMonitorType::MagicSaveData;
-use crate::file_monitor::{FileMonitor, FileMonitorType, LazyOffset, Range};
-use crate::remote_ptr::{RemotePtr, Void};
-use crate::task::replay_task::ReplayTask;
+use crate::{
+    file_monitor::{
+        FileMonitor,
+        FileMonitorType,
+        FileMonitorType::MagicSaveData,
+        LazyOffset,
+        Range,
+    },
+    remote_ptr::{RemotePtr, Void},
+    task::replay_task::ReplayTask,
+};
 
 /// A FileMonitor to track writes to RR_MAGIC_SAVE_DATA_FD.
 pub struct MagicSaveDataMonitor;

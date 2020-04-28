@@ -1,13 +1,17 @@
-use crate::log::LogLevel::LogDebug;
-use crate::session::{SessionSharedPtr, SessionSharedWeakPtr};
-use crate::task::Task;
-use crate::taskish_uid::ThreadGroupUid;
-use crate::wait_status::WaitStatus;
-use crate::weak_ptr_set::WeakPtrSet;
+use crate::{
+    log::LogLevel::LogDebug,
+    session::{SessionSharedPtr, SessionSharedWeakPtr},
+    task::Task,
+    taskish_uid::ThreadGroupUid,
+    wait_status::WaitStatus,
+    weak_ptr_set::WeakPtrSet,
+};
 use libc::pid_t;
-use std::cell::{Ref, RefCell, RefMut};
-use std::ops::{Deref, DerefMut};
-use std::rc::{Rc, Weak};
+use std::{
+    cell::{Ref, RefCell, RefMut},
+    ops::{Deref, DerefMut},
+    rc::{Rc, Weak},
+};
 
 pub type ThreadGroupSharedPtr = Rc<RefCell<ThreadGroup>>;
 pub type ThreadGroupSharedWeakPtr = Weak<RefCell<ThreadGroup>>;

@@ -1,49 +1,79 @@
-use crate::address_space::address_space::AddressSpace;
-use crate::address_space::kernel_mapping::KernelMapping;
-use crate::arch::Architecture;
-use crate::bindings::kernel::timeval;
-use crate::bindings::signal::{SI_KERNEL, TRAP_BRKPT};
-use crate::flags::Flags;
-use crate::kernel_abi::CloneParameterOrdering;
-use crate::log::LogLevel::{LogDebug, LogWarn};
-use crate::registers::Registers;
-use crate::remote_code_ptr::RemoteCodePtr;
-use crate::remote_ptr::{RemotePtr, Void};
-use crate::scoped_fd::ScopedFd;
-use crate::task::common::{read_mem, read_val_mem};
-use crate::task::task_inner::CloneFlags;
-use crate::task::Task;
-use libc::pwrite64;
-use libc::STDERR_FILENO;
-use libc::{pid_t, S_IFDIR, S_IFREG};
-use libc::{
-    CLONE_CHILD_CLEARTID, CLONE_CHILD_SETTID, CLONE_FILES, CLONE_PARENT_SETTID, CLONE_SETTLS,
-    CLONE_SIGHAND, CLONE_THREAD, CLONE_VM,
+use crate::{
+    address_space::{address_space::AddressSpace, kernel_mapping::KernelMapping},
+    arch::Architecture,
+    bindings::{
+        kernel::timeval,
+        signal::{SI_KERNEL, TRAP_BRKPT},
+    },
+    flags::Flags,
+    kernel_abi::CloneParameterOrdering,
+    log::LogLevel::{LogDebug, LogWarn},
+    registers::Registers,
+    remote_code_ptr::RemoteCodePtr,
+    remote_ptr::{RemotePtr, Void},
+    scoped_fd::ScopedFd,
+    task::{
+        common::{read_mem, read_val_mem},
+        task_inner::CloneFlags,
+        Task,
+    },
 };
-use nix::errno::errno;
-use nix::sys::mman::{MapFlags, ProtFlags};
-use nix::sys::stat::FileStat;
-use nix::sys::stat::{stat, Mode};
-use nix::sys::statfs::{statfs, TMPFS_MAGIC};
-use nix::sys::uio::pread;
-use nix::unistd::SysconfVar::PAGE_SIZE;
-use nix::unistd::{access, ftruncate, isatty, mkdir, read, write};
-use nix::unistd::{sysconf, AccessFlags};
-use nix::NixPath;
+use libc::{
+    pid_t,
+    pwrite64,
+    CLONE_CHILD_CLEARTID,
+    CLONE_CHILD_SETTID,
+    CLONE_FILES,
+    CLONE_PARENT_SETTID,
+    CLONE_SETTLS,
+    CLONE_SIGHAND,
+    CLONE_THREAD,
+    CLONE_VM,
+    STDERR_FILENO,
+    S_IFDIR,
+    S_IFREG,
+};
+use nix::{
+    errno::errno,
+    sys::{
+        mman::{MapFlags, ProtFlags},
+        stat::{stat, FileStat, Mode},
+        statfs::{statfs, TMPFS_MAGIC},
+        uio::pread,
+    },
+    unistd::{
+        access,
+        ftruncate,
+        isatty,
+        mkdir,
+        read,
+        sysconf,
+        write,
+        AccessFlags,
+        SysconfVar::PAGE_SIZE,
+    },
+    NixPath,
+};
 use rand::random;
-use std::cmp::{max, min};
-use std::convert::TryInto;
-use std::env::var_os;
-use std::ffi::{c_void, CString, OsStr, OsString};
-use std::io::{Error, ErrorKind};
-use std::mem::{size_of, size_of_val, zeroed};
-use std::os::raw::c_long;
-use std::os::unix::ffi::OsStrExt;
-use std::os::unix::ffi::OsStringExt;
-use std::path::Path;
-use std::ptr::copy_nonoverlapping;
-use std::sync::Mutex;
-use std::{env, io, mem, slice};
+use std::{
+    cmp::{max, min},
+    convert::TryInto,
+    env,
+    env::var_os,
+    ffi::{c_void, CString, OsStr, OsString},
+    io,
+    io::{Error, ErrorKind},
+    mem,
+    mem::{size_of, size_of_val, zeroed},
+    os::{
+        raw::c_long,
+        unix::ffi::{OsStrExt, OsStringExt},
+    },
+    path::Path,
+    ptr::copy_nonoverlapping,
+    slice,
+    sync::Mutex,
+};
 
 const RDTSC_INSN: [u8; 2] = [0x0f, 0x31];
 const RDTSCP_INSN: [u8; 3] = [0x0f, 0x01, 0xf9];

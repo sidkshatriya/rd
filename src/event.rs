@@ -1,21 +1,37 @@
-use crate::bindings::signal::siginfo_t;
-use crate::event::EventType::{
-    EvDesched, EvExit, EvGrowMap, EvInstructionTrap, EvNoop, EvPatchSyscall, EvSched,
-    EvSeccompTrap, EvSentinel, EvSyscall, EvSyscallInterruption, EvSyscallbufAbortCommit,
-    EvSyscallbufFlush, EvSyscallbufReset, EvTraceTermination,
+use crate::{
+    bindings::signal::siginfo_t,
+    event::EventType::{
+        EvDesched,
+        EvExit,
+        EvGrowMap,
+        EvInstructionTrap,
+        EvNoop,
+        EvPatchSyscall,
+        EvSched,
+        EvSeccompTrap,
+        EvSentinel,
+        EvSyscall,
+        EvSyscallInterruption,
+        EvSyscallbufAbortCommit,
+        EvSyscallbufFlush,
+        EvSyscallbufReset,
+        EvTraceTermination,
+    },
+    kernel_abi::{
+        common::preload_interface::{mprotect_record, syscallbuf_record},
+        is_execve_syscall,
+        SupportedArch,
+    },
+    kernel_metadata::{is_sigreturn, signal_name, syscall_name},
+    log::LogLevel::LogInfo,
+    registers::Registers,
+    remote_ptr::RemotePtr,
 };
-use crate::kernel_abi::common::preload_interface::{mprotect_record, syscallbuf_record};
-use crate::kernel_abi::is_execve_syscall;
-use crate::kernel_abi::SupportedArch;
-use crate::kernel_metadata::syscall_name;
-use crate::kernel_metadata::{is_sigreturn, signal_name};
-use crate::log::LogLevel::LogInfo;
-use crate::registers::Registers;
-use crate::remote_ptr::RemotePtr;
 use libc::{dev_t, ino_t};
-use std::ffi::OsString;
-use std::fmt::Write;
-use std::fmt::{Display, Formatter, Result};
+use std::{
+    ffi::OsString,
+    fmt::{Display, Formatter, Result, Write},
+};
 
 /// During recording, sometimes we need to ensure that an iteration of
 /// RecordSession::record_step schedules the same task as in the previous

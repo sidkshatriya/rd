@@ -1,12 +1,14 @@
-use crate::commands::RdCommand;
-use crate::log::LogLevel::LogError;
+use crate::{commands::RdCommand, log::LogLevel::LogError};
 use goblin::elf::{note, Elf};
-use std::ffi::OsStr;
-use std::fmt::Write;
-use std::io::{stdin, BufRead, BufReader};
-use std::os::unix::ffi::OsStrExt;
-use std::path::Path;
-use std::{fs, io};
+use std::{
+    ffi::OsStr,
+    fmt::Write,
+    fs,
+    io,
+    io::{stdin, BufRead, BufReader},
+    os::unix::ffi::OsStrExt,
+    path::Path,
+};
 
 pub struct BuildIdCommand;
 

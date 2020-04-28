@@ -1,20 +1,25 @@
-use crate::scoped_fd::{ScopedFd, ScopedFdSharedPtr};
-use crate::trace::compressed_writer::BlockHeader;
-use crate::util::read_to_end;
-use brotli_sys::BrotliDecoderDecompress;
-use brotli_sys::BROTLI_DECODER_RESULT_SUCCESS;
-use nix::fcntl::OFlag;
-use nix::sys::uio::pread;
-use nix::unistd::{lseek, Whence};
-use std::cell::RefCell;
-use std::cmp::min;
-use std::convert::TryInto;
-use std::ffi::OsStr;
-use std::io;
-use std::io::{BufRead, ErrorKind, Read};
-use std::mem::{size_of, transmute};
-use std::ptr::copy_nonoverlapping;
-use std::rc::Rc;
+use crate::{
+    scoped_fd::{ScopedFd, ScopedFdSharedPtr},
+    trace::compressed_writer::BlockHeader,
+    util::read_to_end,
+};
+use brotli_sys::{BrotliDecoderDecompress, BROTLI_DECODER_RESULT_SUCCESS};
+use nix::{
+    fcntl::OFlag,
+    sys::uio::pread,
+    unistd::{lseek, Whence},
+};
+use std::{
+    cell::RefCell,
+    cmp::min,
+    convert::TryInto,
+    ffi::OsStr,
+    io,
+    io::{BufRead, ErrorKind, Read},
+    mem::{size_of, transmute},
+    ptr::copy_nonoverlapping,
+    rc::Rc,
+};
 
 /// CompressedReader opens an input file written by CompressedWriter
 /// and reads data from it. Currently data is decompressed by the thread that

@@ -1,11 +1,14 @@
-use crate::address_space::kernel_mapping::KernelMapping;
-use crate::address_space::memory_range::MemoryRange;
-use crate::emu_fs::EmuFileSharedPtr;
-use crate::event::Switchable;
-use crate::event::Switchable::{AllowSwitch, PreventSwitch};
-use crate::file_monitor::{FileMonitor, FileMonitorType, LazyOffset, Range};
-use crate::log::LogLevel::LogWarn;
-use crate::task::Task;
+use crate::{
+    address_space::{kernel_mapping::KernelMapping, memory_range::MemoryRange},
+    emu_fs::EmuFileSharedPtr,
+    event::{
+        Switchable,
+        Switchable::{AllowSwitch, PreventSwitch},
+    },
+    file_monitor::{FileMonitor, FileMonitorType, LazyOffset, Range},
+    log::LogLevel::LogWarn,
+    task::Task,
+};
 use libc::{dev_t, ino_t};
 use nix::sys::mman::MapFlags;
 use std::convert::TryInto;

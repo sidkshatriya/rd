@@ -1,12 +1,10 @@
-use crate::bindings::ptrace::{PTRACE_EVENT_STOP, PTRACE_O_TRACESYSGOOD};
-use crate::kernel_metadata::ptrace_event_name;
-use crate::kernel_metadata::signal_name;
-use crate::task::record_task::record_task::RecordTask;
-use libc::{SIGSTOP, SIGTRAP};
-use libc::{WEXITSTATUS, WIFEXITED, WIFSIGNALED, WIFSTOPPED, WSTOPSIG, WTERMSIG};
-use std::fmt::Display;
-use std::fmt::Formatter;
-use std::fmt::Result;
+use crate::{
+    bindings::ptrace::{PTRACE_EVENT_STOP, PTRACE_O_TRACESYSGOOD},
+    kernel_metadata::{ptrace_event_name, signal_name},
+    task::record_task::record_task::RecordTask,
+};
+use libc::{SIGSTOP, SIGTRAP, WEXITSTATUS, WIFEXITED, WIFSIGNALED, WIFSTOPPED, WSTOPSIG, WTERMSIG};
+use std::fmt::{Display, Formatter, Result};
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 /// Called simply `Type` in rr.

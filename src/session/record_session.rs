@@ -1,14 +1,13 @@
-use crate::event::Switchable;
-use crate::kernel_abi::SupportedArch;
-use crate::scheduler::Scheduler;
-use crate::seccomp_filter_rewriter::SeccompFilterRewriter;
-use crate::session::session_inner::session_inner::SessionInner;
-use crate::session::Session;
-use crate::task::Task;
-use crate::thread_group::ThreadGroupSharedPtr;
-use crate::trace::trace_writer::TraceWriter;
-use crate::util::{
-    good_random, CPUIDData, CPUID_GETEXTENDEDFEATURES, CPUID_GETFEATURES, CPUID_GETXSAVE,
+use crate::{
+    event::Switchable,
+    kernel_abi::SupportedArch,
+    scheduler::Scheduler,
+    seccomp_filter_rewriter::SeccompFilterRewriter,
+    session::{session_inner::session_inner::SessionInner, Session},
+    task::Task,
+    thread_group::ThreadGroupSharedPtr,
+    trace::trace_writer::TraceWriter,
+    util::{good_random, CPUIDData, CPUID_GETEXTENDEDFEATURES, CPUID_GETFEATURES, CPUID_GETXSAVE},
 };
 use std::ops::{Deref, DerefMut};
 

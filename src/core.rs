@@ -1,10 +1,12 @@
 use memchr::memchr;
-use std::any::TypeId;
-use std::collections::HashMap;
-use std::mem::{size_of, zeroed};
-use std::ptr::copy_nonoverlapping;
-use std::slice::from_raw_parts;
-use std::sync::Mutex;
+use std::{
+    any::TypeId,
+    collections::HashMap,
+    mem::{size_of, zeroed},
+    ptr::copy_nonoverlapping,
+    slice::from_raw_parts,
+    sync::Mutex,
+};
 
 lazy_static! {
     static ref CHECK_TYPE_FOR_HOLES: Mutex<HashMap<TypeId, bool>> = Mutex::new(HashMap::new());

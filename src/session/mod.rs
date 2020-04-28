@@ -1,22 +1,25 @@
-use crate::address_space::address_space::AddressSpaceSharedPtr;
-use crate::emu_fs::EmuFs;
-use crate::kernel_abi::SupportedArch;
-use crate::remote_ptr::{RemotePtr, Void};
-use crate::session::diversion_session::DiversionSession;
-use crate::session::record_session::RecordSession;
-use crate::session::replay_session::ReplaySession;
-use crate::session::session_inner::session_inner::{
-    AddressSpaceMap, SessionInner, TaskMap, ThreadGroupMap,
+use crate::{
+    address_space::address_space::AddressSpaceSharedPtr,
+    emu_fs::EmuFs,
+    kernel_abi::SupportedArch,
+    remote_ptr::{RemotePtr, Void},
+    session::{
+        diversion_session::DiversionSession,
+        record_session::RecordSession,
+        replay_session::ReplaySession,
+        session_inner::session_inner::{AddressSpaceMap, SessionInner, TaskMap, ThreadGroupMap},
+    },
+    task::{task_inner::CloneFlags, Task},
+    taskish_uid::{AddressSpaceUid, TaskUid, ThreadGroupUid},
+    thread_group::ThreadGroupSharedPtr,
+    trace::trace_stream::TraceStream,
 };
-use crate::task::task_inner::CloneFlags;
-use crate::task::Task;
-use crate::taskish_uid::{AddressSpaceUid, TaskUid, ThreadGroupUid};
-use crate::thread_group::ThreadGroupSharedPtr;
-use crate::trace::trace_stream::TraceStream;
 use libc::pid_t;
-use std::cell::{Ref, RefCell, RefMut};
-use std::ops::DerefMut;
-use std::rc::{Rc, Weak};
+use std::{
+    cell::{Ref, RefCell, RefMut},
+    ops::DerefMut,
+    rc::{Rc, Weak},
+};
 
 pub mod diversion_session;
 pub mod record_session;

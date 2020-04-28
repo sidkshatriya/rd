@@ -3,10 +3,12 @@
 #![allow(non_snake_case)]
 
 use static_assertions::_core::cmp::Ordering;
-use std::convert::TryFrom;
-use std::fmt::{Display, Formatter, Result};
-use std::ops::{Add, Sub};
-use std::result;
+use std::{
+    convert::TryFrom,
+    fmt::{Display, Formatter, Result},
+    ops::{Add, Sub},
+    result,
+};
 
 include!(concat!(
     env!("OUT_DIR"),

@@ -1,9 +1,9 @@
-use bindgen::callbacks::{EnumVariantValue, ParseCallbacks};
-use bindgen::Builder;
-use bindgen::CargoCallbacks;
-use std::env;
-use std::path::PathBuf;
-use std::process::Command;
+use bindgen::{
+    callbacks::{EnumVariantValue, ParseCallbacks},
+    Builder,
+    CargoCallbacks,
+};
+use std::{env, path::PathBuf, process::Command};
 
 #[derive(Debug)]
 struct CustomPrefixCallbacks;
