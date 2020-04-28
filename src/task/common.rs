@@ -22,6 +22,7 @@ use crate::kernel_abi::common::preload_interface::{syscallbuf_hdr, syscallbuf_re
 use crate::kernel_abi::{
     syscall_number_for_close, syscall_number_for_mprotect, syscall_number_for_openat, SupportedArch,
 };
+use crate::kernel_metadata::{ptrace_req_name, signal_name};
 use crate::log::LogLevel::{LogDebug, LogInfo, LogWarn};
 use crate::perf_counters::TIME_SLICE_SIGNAL;
 use crate::rd::RD_RESERVED_ROOT_DIR_FD;
@@ -30,14 +31,16 @@ use crate::remote_code_ptr::RemoteCodePtr;
 use crate::remote_ptr::{RemotePtr, Void};
 use crate::scoped_fd::ScopedFd;
 use crate::task::task_inner::task_inner::{PtraceData, WriteFlags};
-use crate::task::{is_signal_triggered_by_ptrace_interrupt, Task};
+use crate::task::task_inner::MAX_TICKS_REQUEST;
+use crate::task::task_inner::{ResumeRequest, TicksRequest, WaitRequest};
+use crate::task::{is_signal_triggered_by_ptrace_interrupt, is_singlestep_resume, Task};
 use crate::ticks::Ticks;
 use crate::util::{
-    ceil_page_size, floor_page_size, pwrite_all_fallible, trapped_instruction_len,
-    u8_raw_slice_mut, TrappedInstruction,
+    ceil_page_size, floor_page_size, pwrite_all_fallible, trapped_instruction_at,
+    trapped_instruction_len, u8_raw_slice, u8_raw_slice_mut, TrappedInstruction,
 };
 use crate::wait_status::WaitStatus;
-use libc::{__errno_location, pread64, EPERM, ESRCH};
+use libc::{__errno_location, pid_t, pread64, waitpid, EPERM, ESRCH, SIGKILL, WNOHANG, __WALL};
 use nix::errno::errno;
 use nix::fcntl::OFlag;
 use nix::sys::mman::{MapFlags, ProtFlags};
@@ -756,4 +759,142 @@ fn is_long_mode_segment(segment: u32) -> bool {
 /// value is hardcoded, but could depend on the CPU architecture in the future.
 fn single_step_coalesce_cutoff() -> usize {
     return 16;
+}
+
+/// Forwarded Method
+///
+/// Resume execution `how`, deliverying `sig` if nonzero.
+/// After resuming, `wait_how`. In replay, reset hpcs and
+/// request a tick period of tick_period. The default value
+/// of tick_period is 0, which means effectively infinite.
+/// If interrupt_after_elapsed is nonzero, we interrupt the task
+/// after that many seconds have elapsed.
+///
+/// All tracee execution goes through here.
+pub(super) fn resume_execution<T: Task>(
+    task: &mut T,
+    how: ResumeRequest,
+    wait_how: WaitRequest,
+    tick_period: TicksRequest,
+    maybe_sig: Option<i32>,
+) {
+    task.will_resume_execution(how, wait_how, tick_period, maybe_sig);
+    match tick_period {
+        TicksRequest::ResumeNoTicks => (),
+        TicksRequest::ResumeUnlimitedTicks => {
+            task.hpc.reset(0);
+            task.activate_preload_thread_locals();
+        }
+        TicksRequest::ResumeWithTicksRequest(tr) => {
+            // DIFF NOTE: rr ensures that that ticks requested is at least 1 through a max
+            // We assert for it.
+            ed_assert!(task, tr >= 1 && tr <= MAX_TICKS_REQUEST);
+            task.hpc.reset(tr);
+            task.activate_preload_thread_locals();
+        }
+    }
+    let sig_string = match maybe_sig {
+        Some(sig) => format!(", signal: {}", signal_name(sig)),
+        None => String::new(),
+    };
+
+    log!(
+        LogDebug,
+        "resuming execution of tid: {} with: {}{} tick_period: {:?}",
+        task.tid,
+        ptrace_req_name(how as u32),
+        sig_string,
+        tick_period
+    );
+    task.address_of_last_execution_resume = task.ip();
+    task.how_last_execution_resumed = how;
+    task.set_debug_status(0);
+
+    if is_singlestep_resume(how) {
+        task.work_around_knl_string_singlestep_bug();
+        task.singlestepping_instruction = trapped_instruction_at(task, task.ip());
+        if task.singlestepping_instruction == TrappedInstruction::CpuId {
+            // In KVM virtual machines (and maybe others), singlestepping over CPUID
+            // executes the following instruction as well. Work around that.
+            let local_did_set_breakpoint_after_cpuid = task.vm_mut().add_breakpoint(
+                task.ip() + trapped_instruction_len(task.singlestepping_instruction),
+                BreakpointType::BkptInternal,
+            );
+            task.did_set_breakpoint_after_cpuid = local_did_set_breakpoint_after_cpuid;
+        }
+    }
+
+    task.flush_regs();
+
+    let mut wait_ret: pid_t = 0;
+    if task.session().borrow().is_recording() {
+        // There's a nasty race where a stopped task gets woken up by a SIGKILL
+        // and advances to the PTRACE_EXIT_EVENT ptrace-stop just before we
+        // send a PTRACE_CONT. Our PTRACE_CONT will cause it to continue and exit,
+        // which means we don't get a chance to clean up robust futexes etc.
+        // Avoid that by doing a waitpid() here to see if it has exited.
+        // This doesn't fully close the race since in theory we could be preempted
+        // between the waitpid and the ptrace_if_alive, giving another task
+        // a chance to SIGKILL our tracee and advance it to the PTRACE_EXIT_EVENT,
+        // or just letting the tracee be scheduled to process its pending SIGKILL.
+        //
+        let mut raw_status: i32 = 0;
+        // tid is already stopped but like it was described above, the task may have gotten
+        // woken up by a SIGKILL -- in that case we can try waiting on it with a WNOHANG.
+        wait_ret = unsafe { waitpid(task.tid, &mut raw_status, WNOHANG | __WALL) };
+        ed_assert!(
+            task,
+            0 <= wait_ret,
+            "waitpid({}, NOHANG) failed with: {}",
+            task.tid,
+            wait_ret
+        );
+        let status = WaitStatus::new(raw_status);
+        if wait_ret == task.tid {
+            // In some (but not all) cases where the child was killed with SIGKILL,
+            // we don't get PTRACE_EVENT_EXIT before it just exits.
+            ed_assert!(
+                task,
+                status.ptrace_event().unwrap_or(0) == PTRACE_EVENT_EXIT
+                    || status.fatal_sig().unwrap_or(0) == SIGKILL,
+                "got {:?}",
+                status
+            );
+        } else {
+            // 0 here means that no pids have changed state (WNOHANG)
+            ed_assert!(
+                task,
+                0 == wait_ret,
+                "waitpid({}, NOHANG) failed with: {}",
+                task.tid,
+                wait_ret
+            );
+        }
+    }
+    // @TODO DIFF NOTE: Its more accurate to check if `wait_ret == task.tid` instead of
+    // saying wait_ret > 0 but we leave it be for now to be consistent with rr.
+    if wait_ret > 0 {
+        log!(LogDebug, "Task: {} exited unexpectedly", task.tid);
+        // wait() will see this and report the ptrace-exit event.
+        task.detected_unexpected_exit = true;
+    } else {
+        match maybe_sig {
+            None => {
+                task.ptrace_if_alive(how as u32, RemotePtr::null(), PtraceData::None);
+            }
+            Some(sig) => {
+                task.ptrace_if_alive(
+                    how as u32,
+                    RemotePtr::null(),
+                    PtraceData::ReadFrom(u8_raw_slice(&sig)),
+                );
+            }
+        }
+    }
+
+    task.is_stopped = false;
+    task.extra_registers_known = false;
+    if WaitRequest::ResumeWait == wait_how {
+        task.wait(None);
+    }
 }

@@ -32,6 +32,14 @@ pub type TaskSharedPtr = Rc<RefCell<Box<dyn Task>>>;
 pub type TaskSharedWeakPtr = Weak<RefCell<Box<dyn Task>>>;
 
 pub trait Task: DerefMut<Target = TaskInner> {
+    fn resume_execution(
+        &mut self,
+        how: ResumeRequest,
+        wait_how: WaitRequest,
+        tick_period: TicksRequest,
+        maybe_sig: Option<i32>,
+    );
+
     fn stored_record_size(&mut self, record: RemotePtr<syscallbuf_record>) -> u32;
 
     fn did_waitpid(&mut self, status: WaitStatus);
@@ -70,7 +78,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
         _resume_req: ResumeRequest,
         _wait_req: WaitRequest,
         _ticks_req: TicksRequest,
-        _sig: i32,
+        _sig: Option<i32>,
     ) {
     }
 
@@ -120,24 +128,6 @@ pub trait Task: DerefMut<Target = TaskInner> {
     /// Dump attributes of this process, including pending events,
     /// to `out`, which defaults to LOG_FILE.
     fn dump(&self, _out: Option<&dyn Write>) {
-        unimplemented!()
-    }
-
-    /// Resume execution `how`, deliverying `sig` if nonzero.
-    /// After resuming, `wait_how`. In replay, reset hpcs and
-    /// request a tick period of tick_period. The default value
-    /// of tick_period is 0, which means effectively infinite.
-    /// If interrupt_after_elapsed is nonzero, we interrupt the task
-    /// after that many seconds have elapsed.
-    ///
-    /// All tracee execution goes through here.
-    fn resume_execution(
-        &self,
-        _how: ResumeRequest,
-        _wait_how: WaitRequest,
-        _tick_period: TicksRequest,
-        _sig: Option<i32>,
-    ) {
         unimplemented!()
     }
 
@@ -338,4 +328,8 @@ fn is_signal_triggered_by_ptrace_interrupt(group_stop_sig: Option<i32>) -> bool 
         libc::SIGTRAP | libc::SIGSTOP => true,
         _ => false,
     })
+}
+
+fn is_singlestep_resume(request: ResumeRequest) -> bool {
+    request == ResumeRequest::ResumeSinglestep || request == ResumeRequest::ResumeSysemuSinglestep
 }

@@ -7,6 +7,7 @@ use crate::flags::Flags;
 use crate::kernel_abi::CloneParameterOrdering;
 use crate::log::LogLevel::{LogDebug, LogWarn};
 use crate::registers::Registers;
+use crate::remote_code_ptr::RemoteCodePtr;
 use crate::remote_ptr::{RemotePtr, Void};
 use crate::scoped_fd::ScopedFd;
 use crate::task::common::{read_mem, read_val_mem};
@@ -1039,4 +1040,9 @@ pub fn trapped_instruction_len(insn: TrappedInstruction) -> usize {
         TrappedInstruction::Pushf16 => size_of_val(&PUSHF16_INSN),
         TrappedInstruction::None => 0,
     }
+}
+
+// XXX this probably needs to be extended to decode ignored prefixes
+pub fn trapped_instruction_at<T: Task>(_t: &mut T, _ip: RemoteCodePtr) -> TrappedInstruction {
+    unimplemented!()
 }

@@ -33,7 +33,7 @@ bitflags! {
 /// for these resume requests to ensure callers don't confuse their
 /// arguments.
 #[repr(u32)]
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum ResumeRequest {
     ResumeCont = PTRACE_CONT,
     ResumeSinglestep = PTRACE_SINGLESTEP,
@@ -42,7 +42,7 @@ pub enum ResumeRequest {
     ResumeSysemuSinglestep = PTRACE_SYSEMU_SINGLESTEP,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub enum WaitRequest {
     /// After resuming, blocking-waitpid() until tracee status
     /// changes.
@@ -51,20 +51,23 @@ pub enum WaitRequest {
     ResumeNonblocking,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum TicksRequest {
     /// We don't expect to see any ticks (though we seem to on the odd buggy
     /// system...). Using this is a small performance optimization because we don't
     /// have to stop and restart the performance counters. This may also avoid
     /// bugs on some systems that report performance counter advances while
     /// in the kernel...
-    ResumeNoTicks = -2,
-    ResumeUnlimitedTicks = -1,
-    /// Positive values are a request for an interrupt
-    /// after that number of ticks
-    /// Don't request more than this!
-    MaxTicksRequest = 2000000000,
+    ResumeNoTicks,
+    ResumeUnlimitedTicks,
+    /// Dont request more than MAX_TICKS_REQUEST and less than 1!
+    ResumeWithTicksRequest(u64),
 }
+
+/// Positive values are a request for an interrupt
+/// after that number of ticks
+/// Don't request more than this!
+pub const MAX_TICKS_REQUEST: u64 = 2000000000;
 
 pub mod task_inner {
     use super::*;
@@ -1184,7 +1187,7 @@ pub mod task_inner {
             unimplemented!()
         }
 
-        pub(in super::super) fn work_around_knl_string_singlestep_bug() -> bool {
+        pub(in super::super) fn work_around_knl_string_singlestep_bug(&mut self) -> bool {
             unimplemented!()
         }
 
