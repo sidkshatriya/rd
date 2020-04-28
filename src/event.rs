@@ -1,3 +1,4 @@
+use crate::bindings::signal::siginfo_t;
 use crate::event::EventType::{
     EvDesched, EvExit, EvGrowMap, EvInstructionTrap, EvNoop, EvPatchSyscall, EvSched,
     EvSeccompTrap, EvSentinel, EvSyscall, EvSyscallInterruption, EvSyscallbufAbortCommit,
@@ -11,7 +12,7 @@ use crate::kernel_metadata::{is_sigreturn, signal_name};
 use crate::log::LogLevel::LogInfo;
 use crate::registers::Registers;
 use crate::remote_ptr::RemotePtr;
-use libc::{dev_t, ino_t, siginfo_t};
+use libc::{dev_t, ino_t};
 use std::ffi::OsString;
 use std::fmt::Write;
 use std::fmt::{Display, Formatter, Result};

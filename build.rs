@@ -91,6 +91,7 @@ fn main() {
     let signal_bindings = Builder::default()
         .parse_callbacks(Box::new(CargoCallbacks))
         .header("bindgen/signal_wrapper.h")
+        .derive_default(true)
         .generate()
         .unwrap();
 

@@ -109,3 +109,9 @@ pub struct Scheduler {
 enum TickHowMany {
     DefaultMaxTicks = 500000,
 }
+
+impl Scheduler {
+    pub fn expire_timeslice(&mut self) {
+        self.current_timeslice_end_ = 0;
+    }
+}

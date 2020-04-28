@@ -1,4 +1,5 @@
 use crate::address_space::kernel_mapping::KernelMapping;
+use crate::bindings::signal::siginfo_t;
 use crate::event::SignalDeterministic::{DeterministicSig, NondeterministicSig};
 use crate::event::{
     Event, EventType, OpenedFd, SignalEventData, SyscallEventData, SyscallbufFlushEventData,
@@ -792,15 +793,15 @@ fn from_trace_signal(event_type: EventType, signal: signal::Reader) -> Event {
         }
     }
     let siginfo_data = signal.get_siginfo().unwrap();
-    if siginfo_data.len() != size_of::<libc::siginfo_t>() {
+    if siginfo_data.len() != size_of::<siginfo_t>() {
         fatal!("Bad siginfo");
     }
-    let mut siginfo: libc::siginfo_t = unsafe { zeroed() };
+    let mut siginfo: siginfo_t = unsafe { zeroed() };
     unsafe {
         copy_nonoverlapping(
             siginfo_data.as_ptr(),
             &raw mut siginfo as *mut u8,
-            size_of::<libc::siginfo_t>(),
+            size_of::<siginfo_t>(),
         );
     }
 

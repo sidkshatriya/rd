@@ -44,6 +44,13 @@ use std::ptr::copy_nonoverlapping;
 use std::sync::Mutex;
 use std::{env, io, mem, slice};
 
+const RDTSC_INSN: [u8; 2] = [0x0f, 0x31];
+const RDTSCP_INSN: [u8; 3] = [0x0f, 0x01, 0xf9];
+const CPUID_INSN: [u8; 2] = [0x0f, 0xa2];
+const INT3_INSN: [u8; 1] = [0xcc];
+const PUSHF_INSN: [u8; 1] = [0x9c];
+const PUSHF16_INSN: [u8; 2] = [0x66, 0x9c];
+
 pub const CPUID_GETVENDORSTRING: u32 = 0x0;
 pub const CPUID_GETFEATURES: u32 = 0x1;
 pub const CPUID_GETTLB: u32 = 0x2;
@@ -340,7 +347,7 @@ pub fn resize_shmem_segment(fd: &ScopedFd, num_bytes: usize) {
     }
 }
 
-#[derive(Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub enum TrappedInstruction {
     None = 0,
     Rdtsc = 1,
@@ -1020,4 +1027,16 @@ pub fn u8_raw_slice<D: Sized>(data: &D) -> *const [u8] {
 
 pub fn u8_raw_slice_mut<D: Sized>(data: &mut D) -> *mut [u8] {
     unsafe { slice::from_raw_parts_mut(data as *mut D as *mut u8, size_of::<D>()) }
+}
+
+pub fn trapped_instruction_len(insn: TrappedInstruction) -> usize {
+    match insn {
+        TrappedInstruction::Rdtsc => size_of_val(&RDTSC_INSN),
+        TrappedInstruction::Rdtscp => size_of_val(&RDTSCP_INSN),
+        TrappedInstruction::CpuId => size_of_val(&CPUID_INSN),
+        TrappedInstruction::Int3 => size_of_val(&INT3_INSN),
+        TrappedInstruction::Pushf => size_of_val(&PUSHF_INSN),
+        TrappedInstruction::Pushf16 => size_of_val(&PUSHF16_INSN),
+        TrappedInstruction::None => 0,
+    }
 }

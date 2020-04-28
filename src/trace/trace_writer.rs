@@ -1,4 +1,5 @@
 use crate::address_space::kernel_mapping::KernelMapping;
+use crate::bindings::signal::siginfo_t;
 use crate::event::{
     Event, EventType, SignalDeterministic, SignalResolvedDisposition, SyscallState,
 };
@@ -837,7 +838,7 @@ fn to_trace_signal(mut signal: signal::Builder, ev: &Event) {
     let siginfo_data = unsafe {
         slice::from_raw_parts::<u8>(
             &raw const sig_ev.siginfo as *const u8,
-            size_of::<libc::siginfo_t>(),
+            size_of::<siginfo_t>(),
         )
     };
 

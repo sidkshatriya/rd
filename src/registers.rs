@@ -73,12 +73,12 @@ pub enum MismatchBehavior {
     BailOnMismatch = 3,
 }
 
-const X86_RESERVED_FLAG: usize = 1 << 1;
-const X86_TF_FLAG: usize = 1 << 8;
-const X86_IF_FLAG: usize = 1 << 9;
-const X86_DF_FLAG: usize = 1 << 10;
-const X86_RF_FLAG: usize = 1 << 16;
-const X86_ID_FLAG: usize = 1 << 21;
+pub const X86_RESERVED_FLAG: usize = 1 << 1;
+pub const X86_TF_FLAG: usize = 1 << 8;
+pub const X86_IF_FLAG: usize = 1 << 9;
+pub const X86_DF_FLAG: usize = 1 << 10;
+pub const X86_RF_FLAG: usize = 1 << 16;
+pub const X86_ID_FLAG: usize = 1 << 21;
 
 #[derive(Copy, Clone)]
 pub enum Registers {

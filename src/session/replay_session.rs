@@ -1,4 +1,5 @@
 use crate::address_space::address_space::AddressSpaceSharedPtr;
+use crate::bindings::signal::siginfo_t;
 use crate::cpuid_bug_detector::CPUIDBugDetector;
 use crate::emu_fs::{EmuFs, EmuFsSharedPtr};
 use crate::fast_forward::FastForwardStatus;
@@ -15,7 +16,6 @@ use crate::ticks::Ticks;
 use crate::trace::trace_frame::{FrameTime, TraceFrame};
 use crate::trace::trace_reader::TraceReader;
 use crate::trace::trace_stream::TraceStream;
-use libc::siginfo_t;
 use std::cell::{Ref, RefCell, RefMut};
 use std::ffi::OsStr;
 use std::ops::{Deref, DerefMut};

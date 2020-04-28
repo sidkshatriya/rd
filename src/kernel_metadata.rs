@@ -1,7 +1,9 @@
 use crate::bindings::ptrace::*;
+use crate::bindings::signal::siginfo_t;
 use crate::kernel_abi;
 use crate::kernel_abi::SupportedArch;
 use nix::sys::mman::ProtFlags;
+
 pub fn syscall_name(syscall: i32, arch: SupportedArch) -> String {
     rd_kernel_abi_arch_function!(syscallname_arch, arch, syscall)
 }
@@ -379,7 +381,7 @@ pub fn xsave_feature_string(xsave_features: u64) -> String {
 }
 
 /// In rr this is an operator<<()
-pub fn siginfo_str_repr(siginfo: &libc::siginfo_t) -> String {
+pub fn siginfo_str_repr(siginfo: &siginfo_t) -> String {
     let mut s: String = format!(
         "{{signo:{},errno:{},code:{}",
         signal_name(siginfo.si_signo),
@@ -388,7 +390,8 @@ pub fn siginfo_str_repr(siginfo: &libc::siginfo_t) -> String {
     );
     match siginfo.si_signo {
         libc::SIGILL | libc::SIGFPE | libc::SIGSEGV | libc::SIGBUS | libc::SIGTRAP => {
-            s += &format!(",addr:{:x}", unsafe { siginfo.si_addr() } as usize);
+            s += &format!(",addr:{:x}", unsafe { siginfo._sifields._sigfault.si_addr }
+                as usize);
         }
         _ => (),
     }

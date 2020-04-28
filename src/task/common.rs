@@ -11,20 +11,32 @@
 //!     in task_inner.rs
 
 use crate::address_space::memory_range::MemoryRangeKey;
+use crate::address_space::BreakpointType;
 use crate::auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem};
+use crate::bindings::kernel::user_regs_struct as native_user_regs_struct;
+use crate::bindings::ptrace::{PTRACE_EVENT_EXIT, PTRACE_GETREGS, PTRACE_GETSIGINFO};
+use crate::bindings::signal::POLL_IN;
 use crate::core::type_has_no_holes;
 use crate::kernel_abi::common::preload_interface;
 use crate::kernel_abi::common::preload_interface::{syscallbuf_hdr, syscallbuf_record};
 use crate::kernel_abi::{
-    syscall_number_for_close, syscall_number_for_mprotect, syscall_number_for_openat,
+    syscall_number_for_close, syscall_number_for_mprotect, syscall_number_for_openat, SupportedArch,
 };
-use crate::log::LogLevel::{LogInfo, LogWarn};
+use crate::log::LogLevel::{LogDebug, LogInfo, LogWarn};
+use crate::perf_counters::TIME_SLICE_SIGNAL;
 use crate::rd::RD_RESERVED_ROOT_DIR_FD;
+use crate::registers::{Registers, X86_TF_FLAG};
+use crate::remote_code_ptr::RemoteCodePtr;
 use crate::remote_ptr::{RemotePtr, Void};
 use crate::scoped_fd::ScopedFd;
-use crate::task::task_inner::task_inner::WriteFlags;
-use crate::task::Task;
-use crate::util::{ceil_page_size, floor_page_size, pwrite_all_fallible};
+use crate::task::task_inner::task_inner::{PtraceData, WriteFlags};
+use crate::task::{is_signal_triggered_by_ptrace_interrupt, Task};
+use crate::ticks::Ticks;
+use crate::util::{
+    ceil_page_size, floor_page_size, pwrite_all_fallible, trapped_instruction_len,
+    u8_raw_slice_mut, TrappedInstruction,
+};
+use crate::wait_status::WaitStatus;
 use libc::{__errno_location, pread64, EPERM, ESRCH};
 use nix::errno::errno;
 use nix::fcntl::OFlag;
@@ -525,4 +537,223 @@ pub fn write_mem<D: 'static>(
         ok,
         WriteFlags::empty(),
     );
+}
+
+/// Forwarded method
+///
+/// Force the wait status of this to `status`, as if
+/// `wait()/try_wait()` had returned it. Call this whenever a waitpid
+/// returned activity for this past.
+pub(super) fn did_waitpid<T: Task>(task: &mut T, mut status: WaitStatus) {
+    // After PTRACE_INTERRUPT, any next two stops may be a group stop caused by
+    // that PTRACE_INTERRUPT (or neither may be). This is because PTRACE_INTERRUPT
+    // generally lets other stops win (and thus doesn't inject it's own stop), but
+    // if the other stop was already done processing, even we didn't see it yet,
+    // the stop will still be queued, so we could see the other stop and then the
+    // PTRACE_INTERRUPT group stop.
+    // When we issue PTRACE_INTERRUPT, we this set this counter to 2, and here
+    // we decrement it on every stop such that while this counter is positive,
+    // any group-stop could be one induced by PTRACE_INTERRUPT
+    let mut siginfo_overriden = false;
+    if task.expecting_ptrace_interrupt_stop > 0 {
+        task.expecting_ptrace_interrupt_stop -= 1;
+        if is_signal_triggered_by_ptrace_interrupt(status.group_stop_sig()) {
+            // Assume this was PTRACE_INTERRUPT and thus treat this as
+            // TIME_SLICE_SIGNAL instead.
+            if task.session().borrow().is_recording() {
+                // Force this timeslice to end
+                task.session()
+                    .borrow_mut()
+                    .as_record_mut()
+                    .unwrap()
+                    .scheduler_mut()
+                    .expire_timeslice();
+            }
+            status = WaitStatus::for_stop_sig(TIME_SLICE_SIGNAL);
+            task.pending_siginfo = Default::default();
+            task.pending_siginfo.si_signo = TIME_SLICE_SIGNAL;
+            task.pending_siginfo._sifields._sigpoll.si_fd = task.hpc.ticks_interrupt_fd();
+            task.pending_siginfo.si_code = POLL_IN as i32;
+            siginfo_overriden = true;
+            task.expecting_ptrace_interrupt_stop = 0;
+        }
+    }
+
+    if !siginfo_overriden && status.stop_sig().is_some() {
+        let mut local_pending_siginfo = Default::default();
+        if !task.ptrace_if_alive(
+            PTRACE_GETSIGINFO,
+            RemotePtr::null(),
+            PtraceData::WriteInto(u8_raw_slice_mut(&mut local_pending_siginfo)),
+        ) {
+            log!(LogDebug, "Unexpected process death for {}", task.tid);
+            status = WaitStatus::for_ptrace_event(PTRACE_EVENT_EXIT);
+        }
+        task.pending_siginfo = local_pending_siginfo;
+    }
+
+    let original_syscallno = task.registers.original_syscallno();
+    log!(LogDebug, "  (refreshing register cache)");
+    // An unstable exit can cause a task to exit without us having run it, in
+    // which case we might have pending register changes for it that are now
+    // irrelevant. In that case we just throw away our register changes and use
+    // whatever the kernel now has.
+    if status.ptrace_event().unwrap_or(0) != PTRACE_EVENT_EXIT {
+        ed_assert!(
+            task,
+            !task.registers_dirty,
+            "Registers shouldn't already be dirty"
+        );
+    }
+    // If the task was not stopped, we don't need to read the registers.
+    // In fact if we didn't start the thread, we may not have flushed dirty
+    // registers but still received a PTRACE_EVENT_EXIT, in which case the
+    // task's register values are not what they should be.
+    if !task.is_stopped {
+        let mut ptrace_regs: native_user_regs_struct = Default::default();
+        if task.ptrace_if_alive(
+            PTRACE_GETREGS,
+            RemotePtr::null(),
+            PtraceData::WriteInto(u8_raw_slice_mut(&mut ptrace_regs)),
+        ) {
+            task.registers.set_from_ptrace(&ptrace_regs);
+            // @TODO rr does an if-defined here. However that may not be neccessary as there are
+            // only 2 architectures that likely to be supported by this code-base in the future
+            //
+            // Check the architecture of the task by looking at the
+            // cs segment register and checking if that segment is a long mode segment
+            // (Linux always uses GDT entries for this, which are globally the same).
+            let a: SupportedArch = if is_long_mode_segment(task.registers.cs() as u32) {
+                SupportedArch::X64
+            } else {
+                SupportedArch::X86
+            };
+            if a != task.registers.arch() {
+                task.registers = Registers::new(a);
+                task.registers.set_from_ptrace(&ptrace_regs);
+            }
+        } else {
+            log!(LogDebug, "Unexpected process death for {}", task.tid);
+            status = WaitStatus::for_ptrace_event(PTRACE_EVENT_EXIT);
+        }
+    }
+
+    task.is_stopped = true;
+    task.wait_status = status;
+    let more_ticks: Ticks = task.hpc.read_ticks(task);
+    // We stop counting here because there may be things we want to do to the
+    // tracee that would otherwise generate ticks.
+    task.hpc.stop_counting();
+    task.session()
+        .borrow_mut()
+        .accumulate_ticks_processed(more_ticks);
+    task.ticks += more_ticks;
+
+    if status.ptrace_event().unwrap_or(0) == PTRACE_EVENT_EXIT {
+        task.seen_ptrace_exit_event = true;
+    } else {
+        if task.registers.singlestep_flag() {
+            task.registers.clear_singlestep_flag();
+            task.registers_dirty = true;
+        }
+
+        if task.last_resume_orig_cx != 0 {
+            let new_cx: usize = task.registers.cx();
+            // Un-fudge registers, if we fudged them to work around the KNL hardware quirk
+            let cutoff: usize = single_step_coalesce_cutoff();
+            ed_assert!(task, new_cx == cutoff - 1 || new_cx == cutoff);
+            let local_last_resume_orig_cx = task.last_resume_orig_cx;
+            task.registers
+                .set_cx(local_last_resume_orig_cx - cutoff + new_cx);
+            task.registers_dirty = true;
+        }
+        task.last_resume_orig_cx = 0;
+
+        if task.did_set_breakpoint_after_cpuid {
+            let bkpt_addr: RemoteCodePtr = task.address_of_last_execution_resume
+                + trapped_instruction_len(task.singlestepping_instruction);
+            if task.ip() == bkpt_addr.increment_by_bkpt_insn_length(task.arch()) {
+                let mut r = task.regs_ref().clone();
+                r.set_ip(bkpt_addr);
+                task.set_regs(&r);
+            }
+            task.vm_mut()
+                .remove_breakpoint(bkpt_addr, BreakpointType::BkptInternal);
+            task.did_set_breakpoint_after_cpuid = false;
+        }
+        if (task.singlestepping_instruction == TrappedInstruction::Pushf
+            || task.singlestepping_instruction == TrappedInstruction::Pushf16)
+            && task.ip()
+                == task.address_of_last_execution_resume
+                    + trapped_instruction_len(task.singlestepping_instruction)
+        {
+            // We singlestepped through a pushf. Clear TF bit on stack.
+            let sp: RemotePtr<u16> = RemotePtr::cast(task.regs_ref().sp());
+            // If this address is invalid then we should have segfaulted instead of
+            // retiring the instruction!
+            let val: u16 = read_val_mem(task, sp, None);
+            let write_val = val & !(X86_TF_FLAG as u16);
+            write_val_mem(task, sp, &write_val, None);
+        }
+        task.singlestepping_instruction = TrappedInstruction::None;
+
+        // We might have singlestepped at the resumption address and just exited
+        // the kernel without executing the breakpoint at that address.
+        // The kernel usually (always?) singlesteps an extra instruction when
+        // we do this with PTRACE_SYSEMU_SINGLESTEP, but rd's ptrace emulation
+        // doesn't and it's kind of a kernel bug.
+        if task
+            .as_
+            .borrow()
+            .get_breakpoint_type_at_addr(task.address_of_last_execution_resume)
+            != BreakpointType::BkptNone
+            && task.stop_sig().unwrap_or(0) == libc::SIGTRAP
+            && task.ptrace_event().is_none()
+            && task.ip()
+                == task
+                    .address_of_last_execution_resume
+                    .increment_by_bkpt_insn_length(task.arch())
+        {
+            ed_assert!(task, more_ticks == 0);
+            // When we resume execution and immediately hit a breakpoint, the original
+            // syscall number can be reset to -1. Undo that, so that the register
+            // state matches the state we'd be in if we hadn't resumed. ReplayTimeline
+            // depends on resume-at-a-breakpoint being a noop.
+            task.registers.set_original_syscallno(original_syscallno);
+            task.registers_dirty = true;
+        }
+
+        // If we're in the rd page,  we may have just returned from an untraced
+        // syscall there and while in the rd page registers need to be consistent
+        // between record and replay. During replay most untraced syscalls are
+        // replaced with "xor eax,eax" (right after a "movq -1, %rcx") so
+        // rcx is always -1, but during recording it sometimes isn't after we've
+        // done a real syscall.
+        if task.is_in_rd_page() {
+            let arch = task.arch();
+            // N.B.: Cross architecture syscalls don't go through the rd page, so we
+            // know what the architecture is.
+            task.canonicalize_regs(arch);
+        }
+    }
+
+    task.did_wait();
+}
+
+const AR_L: u32 = 1 << 21;
+
+/// Helper method
+fn is_long_mode_segment(segment: u32) -> bool {
+    let ar: u32;
+    unsafe { llvm_asm!("lar $1, $0" : "=r"(ar) : "r"(segment)) };
+    ar & AR_L == AR_L
+}
+
+/// Helper method
+///
+/// The value of rcx above which the CPU doesn't properly handle singlestep for
+/// string instructions. Right now, since only once CPU has this quirk, this
+/// value is hardcoded, but could depend on the CPU architecture in the future.
+fn single_step_coalesce_cutoff() -> usize {
+    return 16;
 }

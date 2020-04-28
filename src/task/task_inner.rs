@@ -79,6 +79,7 @@ pub mod task_inner {
         ptrace, PTRACE_EVENT_CLONE, PTRACE_EVENT_FORK, PTRACE_EVENT_VFORK, PTRACE_GETEVENTMSG,
     };
     use crate::bindings::ptrace::{PTRACE_PEEKDATA, PTRACE_POKEDATA};
+    use crate::bindings::signal::siginfo_t;
     use crate::extra_registers::ExtraRegisters;
     use crate::fd_table::FdTableSharedPtr;
     use crate::kernel_abi::common::preload_interface::preload_globals;
@@ -101,7 +102,7 @@ pub mod task_inner {
     use crate::trace::trace_stream::TraceStream;
     use crate::util::{u8_raw_slice, u8_raw_slice_mut, TrappedInstruction};
     use crate::wait_status::WaitStatus;
-    use libc::{__errno_location, pid_t, siginfo_t, uid_t};
+    use libc::{__errno_location, pid_t, uid_t};
     use libc::{EAGAIN, ENOMEM, ENOSYS};
     use nix::errno::errno;
     use nix::fcntl::{readlink, OFlag};
@@ -248,7 +249,8 @@ pub mod task_inner {
         /// In certain circumstances, due to hardware bugs, we need to fudge the
         /// cx register. If so, we record the orginal value here. See comments in
         /// Task.cc
-        pub(in super::super) last_resume_orig_cx: u64,
+        /// DIFF NOTE: In rr this is a u64. We use usize. @TODO Will this cause any issues?
+        pub(in super::super) last_resume_orig_cx: usize,
         /// The instruction type we're singlestepping through.
         pub(in super::super) singlestepping_instruction: TrappedInstruction,
         /// True if we set a breakpoint after a singlestepped CPUID instruction.
@@ -552,7 +554,8 @@ pub mod task_inner {
         }
 
         pub fn is_in_rd_page(&self) -> bool {
-            unimplemented!()
+            let p = self.ip().to_data_ptr::<Void>();
+            AddressSpace::rd_page_start() <= p && p < AddressSpace::rd_page_end()
         }
 
         /// Return true if `ptrace_event()` is the trace event

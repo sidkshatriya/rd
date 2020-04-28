@@ -212,6 +212,7 @@ pub enum SignalDisposition {
 pub mod record_task {
     use super::*;
     use crate::address_space::memory_range::MemoryRange;
+    use crate::bindings::signal::siginfo_t;
     use crate::event::{Event, EventType, SignalDeterministic, SignalResolvedDisposition};
     use crate::kernel_abi::common::preload_interface::syscallbuf_record;
     use crate::kernel_abi::SupportedArch;
@@ -223,7 +224,7 @@ pub mod record_task {
     use crate::session::record_session::RecordSession;
     use crate::session::Session;
     use crate::task::common::{
-        next_syscallbuf_record, open_mem_fd, read_bytes_fallible, read_bytes_helper,
+        did_waitpid, next_syscallbuf_record, open_mem_fd, read_bytes_fallible, read_bytes_helper,
         read_bytes_helper_for, read_c_str, stored_record_size, syscallbuf_data_size, write_bytes,
         write_bytes_helper,
     };
@@ -233,7 +234,7 @@ pub mod record_task {
     use crate::trace::trace_frame::FrameTime;
     use crate::trace::trace_writer::TraceWriter;
     use crate::wait_status::WaitStatus;
-    use libc::{pid_t, siginfo_t};
+    use libc::pid_t;
     use std::cell::RefCell;
     use std::collections::{HashSet, VecDeque};
     use std::ffi::CString;
@@ -414,9 +415,14 @@ pub mod record_task {
     }
 
     impl Task for RecordTask {
-        // Forwarded method
+        /// Forwarded method
         fn stored_record_size(&mut self, record: RemotePtr<syscallbuf_record>) -> u32 {
             stored_record_size(self, record)
+        }
+
+        /// Forwarded method
+        fn did_waitpid(&mut self, status: WaitStatus) {
+            did_waitpid(self, status)
         }
 
         /// Forwarded method

@@ -503,7 +503,8 @@ impl ReRunCommand {
             match result.break_status.signal {
                 Some(siginfo) => {
                     if siginfo.si_signo == libc::SIGSEGV
-                        && unsafe { siginfo.si_addr() } as usize == SENTINEL_RET_ADDRESS
+                        && unsafe { siginfo._sifields._sigfault.si_addr } as usize
+                            == SENTINEL_RET_ADDRESS
                     {
                         return Ok(());
                     }

@@ -34,6 +34,8 @@ pub type TaskSharedWeakPtr = Weak<RefCell<Box<dyn Task>>>;
 pub trait Task: DerefMut<Target = TaskInner> {
     fn stored_record_size(&mut self, record: RemotePtr<syscallbuf_record>) -> u32;
 
+    fn did_waitpid(&mut self, status: WaitStatus);
+
     fn next_syscallbuf_record(&mut self) -> RemotePtr<syscallbuf_record>;
 
     fn as_task_inner(&self) -> &TaskInner;
@@ -167,13 +169,6 @@ pub trait Task: DerefMut<Target = TaskInner> {
     /// state to reenter the syscall just as it was called the first time.
     /// Returns false if we see the process exit instead.
     fn exit_syscall_and_prepare_restart(&self) -> bool {
-        unimplemented!()
-    }
-
-    /// Force the wait status of this to `status`, as if
-    /// `wait()/try_wait()` had returned it. Call this whenever a waitpid
-    /// returned activity for this past.
-    fn did_waitpid(&self, _status: WaitStatus) {
         unimplemented!()
     }
 

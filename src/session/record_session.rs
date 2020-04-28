@@ -130,6 +130,13 @@ pub struct RecordSession {
 }
 
 impl RecordSession {
+    pub fn scheduler(&self) -> &Scheduler {
+        &self.scheduler_
+    }
+    pub fn scheduler_mut(&mut self) -> &mut Scheduler {
+        &mut self.scheduler_
+    }
+
     pub fn syscallbuf_desched_sig(&self) -> i32 {
         unimplemented!()
     }

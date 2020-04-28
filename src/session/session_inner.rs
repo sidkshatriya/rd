@@ -1,6 +1,6 @@
 use crate::address_space::WatchConfig;
+use crate::bindings::signal::siginfo_t;
 use crate::task::task_inner::task_inner::TaskInner;
-use libc::siginfo_t;
 
 #[derive(Clone, Debug)]
 pub struct BreakStatus {
