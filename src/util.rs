@@ -152,7 +152,7 @@ pub struct CPUIDData {
     pub edx: u32,
 }
 
-fn cpuid(code: u32, subrequest: u32) -> CPUIDData {
+pub fn cpuid(code: u32, subrequest: u32) -> CPUIDData {
     let temp: raw_cpuid::CpuIdResult = cpuid!(code, subrequest);
     // We could have just used the raw_cpuid::CpuIdResult struct but
     // we avoid that just to be in full control of our data structures.

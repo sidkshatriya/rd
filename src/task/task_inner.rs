@@ -1198,10 +1198,6 @@ pub mod task_inner {
             unimplemented!()
         }
 
-        pub(in super::super) fn work_around_knl_string_singlestep_bug(&mut self) -> bool {
-            unimplemented!()
-        }
-
         pub(in super::super) fn preload_thread_locals(&self) -> &mut u8 {
             unimplemented!()
         }
