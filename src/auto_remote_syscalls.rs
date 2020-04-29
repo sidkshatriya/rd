@@ -1223,7 +1223,7 @@ fn is_usable_area(km: &KernelMapping) -> bool {
 
 fn ignore_signal(t: &dyn Task) -> bool {
     let sig: MaybeStopSignal = t.maybe_stop_sig();
-    if !sig.is_stop_signal() {
+    if !sig.is_some() {
         return false;
     }
 

@@ -20,9 +20,9 @@ use crate::{
         },
     },
     util::{is_zombie_process, to_timeval},
-    wait_status::WaitStatus,
+    wait_status::{MaybeStopSignal, WaitStatus},
 };
-use libc::{pid_t, waitpid};
+use libc::{pid_t, waitpid, SIGSTOP, SIGTRAP};
 use nix::errno::errno;
 use std::{
     cell::RefCell,
@@ -286,7 +286,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
 
         if sent_wait_interrupt {
             log!(LogWarn, "Forced to PTRACE_INTERRUPT tracee");
-            if !is_signal_triggered_by_ptrace_interrupt(status.group_stop_sig()) {
+            if !is_signal_triggered_by_ptrace_interrupt(status.maybe_group_stop_sig()) {
                 log!(
                     LogWarn,
                     "  PTRACE_INTERRUPT raced with another event {:?}",
@@ -331,13 +331,10 @@ pub trait Task: DerefMut<Target = TaskInner> {
     fn write_bytes(&mut self, child_addr: RemotePtr<Void>, buf: &[u8]);
 }
 
-fn is_signal_triggered_by_ptrace_interrupt(group_stop_sig: Option<i32>) -> bool {
-    group_stop_sig.map_or(false, |sig| match sig {
-        // We sometimes see SIGSTOP at interrupts, though the
-        // docs don't mention that.
-        libc::SIGTRAP | libc::SIGSTOP => true,
-        _ => false,
-    })
+fn is_signal_triggered_by_ptrace_interrupt(group_stop_sig: MaybeStopSignal) -> bool {
+    // We sometimes see SIGSTOP at interrupts, though the
+    // docs don't mention that.
+    group_stop_sig == SIGTRAP || group_stop_sig == SIGSTOP
 }
 
 fn is_singlestep_resume(request: ResumeRequest) -> bool {

@@ -599,7 +599,7 @@ pub(super) fn did_waitpid<T: Task>(task: &mut T, mut status: WaitStatus) {
     let mut siginfo_overriden = false;
     if task.expecting_ptrace_interrupt_stop > 0 {
         task.expecting_ptrace_interrupt_stop -= 1;
-        if is_signal_triggered_by_ptrace_interrupt(status.group_stop_sig()) {
+        if is_signal_triggered_by_ptrace_interrupt(status.maybe_group_stop_sig()) {
             // Assume this was PTRACE_INTERRUPT and thus treat this as
             // TIME_SLICE_SIGNAL instead.
             if task.session().borrow().is_recording() {
@@ -621,7 +621,7 @@ pub(super) fn did_waitpid<T: Task>(task: &mut T, mut status: WaitStatus) {
         }
     }
 
-    if !siginfo_overriden && status.maybe_stop_sig().is_stop_signal() {
+    if !siginfo_overriden && status.maybe_stop_sig().is_some() {
         let mut local_pending_siginfo = Default::default();
         if !task.ptrace_if_alive(
             PTRACE_GETSIGINFO,

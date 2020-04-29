@@ -57,11 +57,11 @@ impl WaitStatus {
             return WaitType::FatalSignal;
         }
 
-        if self.maybe_stop_sig().is_stop_signal() {
+        if self.maybe_stop_sig().is_some() {
             return WaitType::SignalStop;
         }
 
-        if let Some(_group_stop_sig) = self.group_stop_sig() {
+        if self.maybe_group_stop_sig().is_some() {
             return WaitType::GroupStop;
         }
 
@@ -113,7 +113,7 @@ impl WaitStatus {
             // or a group stop (which is nothing but a ptrace event where
             // ((self.status >> 16) & 0xff == PTRACE_EVENT_STOP if PTRACE_SIEZE is used)
             if !WIFSTOPPED(self.status) || ((self.status >> 16) & 0xff != 0) {
-                return MaybeStopSignal::new_not_stop_signal();
+                return MaybeStopSignal::none();
             }
         }
 
@@ -121,23 +121,27 @@ impl WaitStatus {
 
         if sig == (SIGTRAP | 0x80) {
             // Its a syscall-enter or syscall-exit stop as we're using PTRACE_O_TRACESYSGOOD
-            return MaybeStopSignal::new_not_stop_signal();
+            return MaybeStopSignal::none();
         }
 
         sig &= !0x80;
-        MaybeStopSignal::new(sig)
+        if sig != 0 {
+            MaybeStopSignal::new(sig)
+        } else {
+            MaybeStopSignal::new(SIGSTOP)
+        }
     }
 
     /// Group stop signal if wait_type() == GROUP_STOP, otherwise None. A zero signal
     /// (rare but observed via PTRACE_INTERRUPT) is converted to SIGSTOP.
     /// This method is called group_stop() in the rr codebase.
-    pub fn group_stop_sig(&self) -> Option<i32> {
+    pub fn maybe_group_stop_sig(&self) -> MaybeStopSignal {
         unsafe {
             // (self.status >> 16) & 0xff == PTRACE_EVENT_STOP is the classic signature of a group
             // stop when PTRACE_SIEZE is used
             if !WIFSTOPPED(self.status) || ((self.status >> 16) & 0xff != PTRACE_EVENT_STOP as i32)
             {
-                return None;
+                return MaybeStopSignal::none();
             }
         }
 
@@ -145,9 +149,9 @@ impl WaitStatus {
 
         sig &= !0x80;
         if sig != 0 {
-            Some(sig)
+            MaybeStopSignal::new(sig)
         } else {
-            Some(SIGSTOP)
+            MaybeStopSignal::new(SIGSTOP)
         }
     }
 
@@ -252,7 +256,7 @@ impl Display for WaitStatus {
             WaitType::GroupStop => write!(
                 f,
                 " (GROUP-STOP-{})",
-                signal_name(self.group_stop_sig().unwrap())
+                signal_name(self.maybe_group_stop_sig().unwrap())
             ),
             WaitType::SyscallStop => write!(f, " (SYSCALL)"),
             WaitType::PtraceEvent => write!(
@@ -335,11 +339,14 @@ impl MaybeStopSignal {
         }
     }
 
-    pub fn is_stop_signal(&self) -> bool {
+    pub fn is_some(&self) -> bool {
         self.0.is_some()
     }
+    pub fn is_none(&self) -> bool {
+        self.0.is_none()
+    }
 
-    pub fn new_not_stop_signal() -> MaybeStopSignal {
+    pub fn none() -> MaybeStopSignal {
         MaybeStopSignal(None)
     }
 
@@ -362,8 +369,8 @@ impl PartialEq<i32> for MaybeStopSignal {
 
 impl Display for MaybeStopSignal {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        if !self.is_stop_signal() {
-            f.write_str("- Not a stop signal -")
+        if !self.is_some() {
+            f.write_str("- Not a signal -")
         } else {
             f.write_str(&signal_name(self.unwrap()))
         }
