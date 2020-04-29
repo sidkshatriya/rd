@@ -1222,18 +1222,18 @@ fn is_usable_area(km: &KernelMapping) -> bool {
 }
 
 fn ignore_signal(t: &dyn Task) -> bool {
-    let sig: MaybeStopSignal = t.maybe_stop_sig();
-    if !sig.is_some() {
+    let maybe_sig: MaybeStopSignal = t.maybe_stop_sig();
+    if !maybe_sig.is_sig() {
         return false;
     }
 
     if t.session().borrow().is_replaying() {
-        if ReplaySession::is_ignored_signal(sig.unwrap()) {
+        if ReplaySession::is_ignored_signal(maybe_sig.sig()) {
             return true;
         }
     } else if t.session().borrow().is_recording() {
         let rt = t.as_record_task().unwrap();
-        if sig.unwrap()
+        if maybe_sig.sig()
             != rt
                 .session()
                 .borrow()
@@ -1245,7 +1245,12 @@ fn ignore_signal(t: &dyn Task) -> bool {
         }
         return true;
     }
-    ed_assert!(t, false, "Unexpected signal {}", signal_name(sig.unwrap()));
+    ed_assert!(
+        t,
+        false,
+        "Unexpected signal {}",
+        signal_name(maybe_sig.sig())
+    );
     false
 }
 

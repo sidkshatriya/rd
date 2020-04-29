@@ -621,7 +621,7 @@ pub(super) fn did_waitpid<T: Task>(task: &mut T, mut status: WaitStatus) {
         }
     }
 
-    if !siginfo_overriden && status.maybe_stop_sig().is_some() {
+    if !siginfo_overriden && status.maybe_stop_sig().is_sig() {
         let mut local_pending_siginfo = Default::default();
         if !task.ptrace_if_alive(
             PTRACE_GETSIGINFO,

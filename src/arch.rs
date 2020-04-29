@@ -1072,7 +1072,7 @@ impl Architecture for X86Arch {
         if r.emulated_stop_type == EmulatedStopType::GroupStop {
             si.si_code = CLD_STOPPED as _;
             // @TODO Is the unwrap approach what we want?
-            si._sifields._sigchld.si_status_ = r.emulated_stop_code.maybe_stop_sig().unwrap();
+            si._sifields._sigchld.si_status_ = r.emulated_stop_code.maybe_stop_sig().sig();
         } else {
             si.si_code = CLD_TRAPPED as _;
             // @TODO Is the unwrap approach what we want?
@@ -1588,7 +1588,7 @@ impl Architecture for X64Arch {
         if r.emulated_stop_type == EmulatedStopType::GroupStop {
             si.si_code = CLD_STOPPED as _;
             // @TODO Is the unwrap approach what we want?
-            si._sifields._sigchld.si_status_ = r.emulated_stop_code.maybe_stop_sig().unwrap();
+            si._sifields._sigchld.si_status_ = r.emulated_stop_code.maybe_stop_sig().sig();
         } else {
             si.si_code = CLD_TRAPPED as _;
             // @TODO Is the unwrap approach what we want?

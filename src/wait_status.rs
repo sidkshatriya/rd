@@ -57,11 +57,11 @@ impl WaitStatus {
             return WaitType::FatalSignal;
         }
 
-        if self.maybe_stop_sig().is_some() {
+        if self.maybe_stop_sig().is_sig() {
             return WaitType::SignalStop;
         }
 
-        if self.maybe_group_stop_sig().is_some() {
+        if self.maybe_group_stop_sig().is_sig() {
             return WaitType::GroupStop;
         }
 
@@ -251,12 +251,12 @@ impl Display for WaitStatus {
                 write!(f, " (FATAL-{})", signal_name(self.fatal_sig().unwrap()))
             }
             WaitType::SignalStop => {
-                write!(f, " (STOP-{})", signal_name(self.maybe_stop_sig().unwrap()))
+                write!(f, " (STOP-{})", signal_name(self.maybe_stop_sig().sig()))
             }
             WaitType::GroupStop => write!(
                 f,
                 " (GROUP-STOP-{})",
-                signal_name(self.maybe_group_stop_sig().unwrap())
+                signal_name(self.maybe_group_stop_sig().sig())
             ),
             WaitType::SyscallStop => write!(f, " (SYSCALL)"),
             WaitType::PtraceEvent => write!(
@@ -325,13 +325,14 @@ impl Display for MaybePtraceEvent {
 pub struct MaybeStopSignal(Option<NonZeroU8>);
 
 impl MaybeStopSignal {
-    pub fn unwrap(&self) -> i32 {
+    pub fn sig(&self) -> i32 {
         match self.0 {
             None => panic!("Cannot unwrap"),
             Some(non_zero) => non_zero.get() as i32,
         }
     }
 
+    // Avoid using this method. Use sig()
     pub fn get_raw_repr(&self) -> i32 {
         match self.0 {
             None => 0,
@@ -339,10 +340,10 @@ impl MaybeStopSignal {
         }
     }
 
-    pub fn is_some(&self) -> bool {
+    pub fn is_sig(&self) -> bool {
         self.0.is_some()
     }
-    pub fn is_none(&self) -> bool {
+    pub fn is_not_sig(&self) -> bool {
         self.0.is_none()
     }
 
@@ -350,13 +351,13 @@ impl MaybeStopSignal {
         MaybeStopSignal(None)
     }
 
-    /// Ensure that val > 1 and val <= 0x80 otherwise you will get `MaybeStopSignal(None)`
-    pub fn new(val: i32) -> MaybeStopSignal {
-        if val <= 0 || val >= 0x80 {
+    /// Ensure that sig >= 1 and sig < 0x80 otherwise you will get `MaybeStopSignal(None)`
+    pub fn new(sig: i32) -> MaybeStopSignal {
+        if sig < 1 || sig >= 0x80 {
             MaybeStopSignal(None)
         } else {
             // We've already checked so no point checking again.
-            MaybeStopSignal(Some(unsafe { NonZeroU8::new_unchecked(val as u8) }))
+            MaybeStopSignal(Some(unsafe { NonZeroU8::new_unchecked(sig as u8) }))
         }
     }
 }
@@ -369,10 +370,10 @@ impl PartialEq<i32> for MaybeStopSignal {
 
 impl Display for MaybeStopSignal {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        if !self.is_some() {
+        if !self.is_sig() {
             f.write_str("- Not a signal -")
         } else {
-            f.write_str(&signal_name(self.unwrap()))
+            f.write_str(&signal_name(self.sig()))
         }
     }
 }
