@@ -9,7 +9,7 @@ use crate::{
     arch::Architecture,
     auto_remote_syscalls::{AutoRemoteSyscalls, PreserveContents::PreserveContents},
     kernel_abi::{is_write_syscall, CloneTLSType, SupportedArch},
-    kernel_metadata::{ptrace_event_name, syscall_name},
+    kernel_metadata::syscall_name,
     log::LogLevel::LogDebug,
     session::replay_session::ReplaySession,
     task::{
@@ -340,9 +340,9 @@ fn prepare_clone<Arch: Architecture>(t: &mut ReplayTask) {
 
     ed_assert!(
         t,
-        t.ptrace_event().is_none(),
+        t.maybe_ptrace_event().is_ptrace_event(),
         "Unexpected ptrace event while waiting for syscall exit; got {}",
-        ptrace_event_name(t.ptrace_event().unwrap())
+        t.maybe_ptrace_event()
     );
 
     r = t.regs_ref().clone();

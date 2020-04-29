@@ -4,7 +4,11 @@ use crate::{
     task::record_task::record_task::RecordTask,
 };
 use libc::{SIGSTOP, SIGTRAP, WEXITSTATUS, WIFEXITED, WIFSIGNALED, WIFSTOPPED, WSTOPSIG, WTERMSIG};
-use std::fmt::{Display, Formatter, Result};
+use std::{
+    fmt,
+    fmt::{Display, Formatter, Result},
+    num::NonZeroU8,
+};
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 /// Called simply `Type` in rr.
@@ -65,7 +69,7 @@ impl WaitStatus {
             return WaitType::SyscallStop;
         }
 
-        if let Some(_ptrace_event) = self.ptrace_event() {
+        if self.maybe_ptrace_event().is_ptrace_event() {
             return WaitType::PtraceEvent;
         }
 
@@ -154,7 +158,7 @@ impl WaitStatus {
     pub fn is_syscall(&self) -> bool {
         unsafe {
             // Eliminate some obvious im-possibilities.
-            if self.ptrace_event().is_some() || !WIFSTOPPED(self.status) {
+            if self.maybe_ptrace_event().is_ptrace_event() || !WIFSTOPPED(self.status) {
                 return false;
             }
 
@@ -164,13 +168,12 @@ impl WaitStatus {
     }
 
     /// ptrace event if wait_type() == PTRACE_EVENT, None otherwise.
-    pub fn ptrace_event(&self) -> Option<u32> {
+    pub fn maybe_ptrace_event(&self) -> MaybePtraceEvent {
         let event: u32 = ((self.status >> 16) & 0xff) as u32;
-        // Subtle. Makes sure Option<> is what we mean.
         if event == PTRACE_EVENT_STOP || event == 0 {
-            None
+            MaybePtraceEvent::new_not_ptrace_event()
         } else {
-            Some(event)
+            MaybePtraceEvent::new(event)
         }
     }
 
@@ -254,9 +257,57 @@ impl Display for WaitStatus {
                 signal_name(self.group_stop_sig().unwrap())
             ),
             WaitType::SyscallStop => write!(f, " (SYSCALL)"),
-            WaitType::PtraceEvent => {
-                write!(f, " ({})", ptrace_event_name(self.ptrace_event().unwrap()))
-            }
+            WaitType::PtraceEvent => write!(
+                f,
+                " ({})",
+                ptrace_event_name(self.maybe_ptrace_event().get_raw_repr())
+            ),
+        }
+    }
+}
+
+#[derive(Copy, Clone, Eq, PartialEq)]
+pub struct MaybePtraceEvent(Option<NonZeroU8>);
+
+impl MaybePtraceEvent {
+    fn get_raw_repr(&self) -> u32 {
+        match self.0 {
+            None => 0,
+            Some(non_zero) => non_zero.get() as u32,
+        }
+    }
+
+    pub fn is_ptrace_event(&self) -> bool {
+        self.0.is_some()
+    }
+
+    pub fn new_not_ptrace_event() -> MaybePtraceEvent {
+        MaybePtraceEvent(None)
+    }
+
+    /// Ensure that val != 0 and val <= 0xff otherwise you will get `MaybePtraceEvent(None)`
+    pub fn new(val: u32) -> MaybePtraceEvent {
+        if val == 0 || val > 0xff {
+            MaybePtraceEvent(None)
+        } else {
+            // We've already checked so no point checking again.
+            MaybePtraceEvent(Some(unsafe { NonZeroU8::new_unchecked(val as u8) }))
+        }
+    }
+}
+
+impl PartialEq<u32> for MaybePtraceEvent {
+    fn eq(&self, other: &u32) -> bool {
+        self.0.map_or(false, |op| op.get() as u32 == *other)
+    }
+}
+
+impl Display for MaybePtraceEvent {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        if !self.is_ptrace_event() {
+            f.write_str("- Not a ptrace event -")
+        } else {
+            f.write_str(&ptrace_event_name(self.get_raw_repr()))
         }
     }
 }

@@ -626,7 +626,7 @@ pub(super) fn did_waitpid<T: Task>(task: &mut T, mut status: WaitStatus) {
     // which case we might have pending register changes for it that are now
     // irrelevant. In that case we just throw away our register changes and use
     // whatever the kernel now has.
-    if status.ptrace_event().unwrap_or(0) != PTRACE_EVENT_EXIT {
+    if status.maybe_ptrace_event() != PTRACE_EVENT_EXIT {
         ed_assert!(
             task,
             !task.registers_dirty,
@@ -677,7 +677,7 @@ pub(super) fn did_waitpid<T: Task>(task: &mut T, mut status: WaitStatus) {
         .accumulate_ticks_processed(more_ticks);
     task.ticks += more_ticks;
 
-    if status.ptrace_event().unwrap_or(0) == PTRACE_EVENT_EXIT {
+    if status.maybe_ptrace_event() == PTRACE_EVENT_EXIT {
         task.seen_ptrace_exit_event = true;
     } else {
         if task.registers.singlestep_flag() {
@@ -736,7 +736,7 @@ pub(super) fn did_waitpid<T: Task>(task: &mut T, mut status: WaitStatus) {
             .get_breakpoint_type_at_addr(task.address_of_last_execution_resume)
             != BreakpointType::BkptNone
             && task.stop_sig().unwrap_or(0) == libc::SIGTRAP
-            && task.ptrace_event().is_none()
+            && !task.maybe_ptrace_event().is_ptrace_event()
             && task.ip()
                 == task
                     .address_of_last_execution_resume
@@ -880,7 +880,7 @@ pub(super) fn resume_execution<T: Task>(
             // we don't get PTRACE_EVENT_EXIT before it just exits.
             ed_assert!(
                 task,
-                status.ptrace_event().unwrap_or(0) == PTRACE_EVENT_EXIT
+                status.maybe_ptrace_event() == PTRACE_EVENT_EXIT
                     || status.fatal_sig().unwrap_or(0) == SIGKILL,
                 "got {:?}",
                 status

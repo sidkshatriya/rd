@@ -1062,12 +1062,12 @@ pub fn u8_raw_slice_mut<D: Sized>(data: &mut D) -> *mut [u8] {
 
 pub fn trapped_instruction_len(insn: TrappedInstruction) -> usize {
     match insn {
-        TrappedInstruction::Rdtsc => size_of_val(&RDTSC_INSN),
-        TrappedInstruction::Rdtscp => size_of_val(&RDTSCP_INSN),
-        TrappedInstruction::CpuId => size_of_val(&CPUID_INSN),
-        TrappedInstruction::Int3 => size_of_val(&INT3_INSN),
-        TrappedInstruction::Pushf => size_of_val(&PUSHF_INSN),
-        TrappedInstruction::Pushf16 => size_of_val(&PUSHF16_INSN),
+        TrappedInstruction::Rdtsc => RDTSC_INSN.len(),
+        TrappedInstruction::Rdtscp => RDTSCP_INSN.len(),
+        TrappedInstruction::CpuId => CPUID_INSN.len(),
+        TrappedInstruction::Int3 => INT3_INSN.len(),
+        TrappedInstruction::Pushf => PUSHF_INSN.len(),
+        TrappedInstruction::Pushf16 => PUSHF16_INSN.len(),
         TrappedInstruction::None => 0,
     }
 }

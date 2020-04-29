@@ -783,7 +783,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         }
         loop {
             // If the syscall caused the task to exit, just stop now with that status.
-            if self.t.ptrace_event() == Some(PTRACE_EVENT_EXIT) {
+            if self.t.maybe_ptrace_event() == PTRACE_EVENT_EXIT {
                 self.restore_wait_status = self.t.status();
                 break;
             }

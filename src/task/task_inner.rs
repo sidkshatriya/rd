@@ -106,7 +106,7 @@ pub mod task_inner {
             common::preload_interface::{preload_globals, syscallbuf_hdr},
             SupportedArch,
         },
-        kernel_metadata::{errno_name, ptrace_event_name, ptrace_req_name, syscall_name},
+        kernel_metadata::{errno_name, ptrace_req_name, syscall_name},
         log::LogLevel::LogDebug,
         perf_counters::PerfCounters,
         registers::Registers,
@@ -120,7 +120,7 @@ pub mod task_inner {
         ticks::Ticks,
         trace::trace_stream::TraceStream,
         util::{u8_raw_slice, u8_raw_slice_mut, TrappedInstruction},
-        wait_status::WaitStatus,
+        wait_status::{MaybePtraceEvent, WaitStatus},
     };
     use libc::{__errno_location, pid_t, uid_t, EAGAIN, ENOMEM, ENOSYS};
     use nix::{
@@ -740,8 +740,8 @@ pub mod task_inner {
         }
 
         /// Return the ptrace event as of the last call to `wait()/try_wait()`.
-        pub fn ptrace_event(&self) -> Option<u32> {
-            self.wait_status.ptrace_event()
+        pub fn maybe_ptrace_event(&self) -> MaybePtraceEvent {
+            self.wait_status.maybe_ptrace_event()
         }
 
         /// Return the signal that's pending for this as of the last
@@ -842,25 +842,17 @@ pub mod task_inner {
             pid: &mut Option<pid_t>,
             syscall_arch: SupportedArch,
         ) -> bool {
-            let event = self.ptrace_event();
-            match event {
-                Some(pte)
-                    if pte == PTRACE_EVENT_CLONE
-                        || pte == PTRACE_EVENT_FORK
-                        || pte == PTRACE_EVENT_VFORK =>
+            let event = self.maybe_ptrace_event();
+            if event.is_ptrace_event() {
+                if event == PTRACE_EVENT_CLONE
+                    || event == PTRACE_EVENT_FORK
+                    || event == PTRACE_EVENT_VFORK
                 {
                     *pid = Some(self.get_ptrace_eventmsg_pid());
                     return true;
+                } else {
+                    ed_assert!(self, false, "Unexpected ptrace event: {}", event);
                 }
-                Some(pte) => {
-                    ed_assert!(
-                        self,
-                        false,
-                        "Unexpected ptrace event {}",
-                        ptrace_event_name(pte)
-                    );
-                }
-                None => (),
             }
 
             // EAGAIN can happen here due to fork failing under load. The caller must
