@@ -52,7 +52,7 @@ use crate::{
         Task,
     },
     util::{find, is_kernel_trap, page_size, resize_shmem_segment, tmp_dir},
-    wait_status::WaitStatus,
+    wait_status::{MaybeStopSignal, WaitStatus},
 };
 use core::ffi::c_void;
 use libc::{
@@ -788,7 +788,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
                 break;
             }
             if self.t.status().is_syscall()
-                || (self.t.stop_sig() == Some(SIGTRAP)
+                || (self.t.maybe_stop_sig() == SIGTRAP
                     && is_kernel_trap(self.t.get_siginfo().si_code))
             {
                 // If we got a SIGTRAP then we assume that's our singlestep and we're
@@ -1222,8 +1222,8 @@ fn is_usable_area(km: &KernelMapping) -> bool {
 }
 
 fn ignore_signal(t: &dyn Task) -> bool {
-    let sig = t.stop_sig();
-    if sig.is_none() {
+    let sig: MaybeStopSignal = t.maybe_stop_sig();
+    if !sig.is_stop_signal() {
         return false;
     }
 

@@ -62,7 +62,18 @@ use crate::{
     },
     wait_status::WaitStatus,
 };
-use libc::{__errno_location, pid_t, pread64, waitpid, EPERM, ESRCH, SIGKILL, WNOHANG, __WALL};
+use libc::{
+    __errno_location,
+    pid_t,
+    pread64,
+    waitpid,
+    EPERM,
+    ESRCH,
+    SIGKILL,
+    SIGTRAP,
+    WNOHANG,
+    __WALL,
+};
 use nix::{
     errno::errno,
     fcntl::OFlag,
@@ -607,7 +618,7 @@ pub(super) fn did_waitpid<T: Task>(task: &mut T, mut status: WaitStatus) {
         }
     }
 
-    if !siginfo_overriden && status.stop_sig().is_some() {
+    if !siginfo_overriden && status.maybe_stop_sig().is_stop_signal() {
         let mut local_pending_siginfo = Default::default();
         if !task.ptrace_if_alive(
             PTRACE_GETSIGINFO,
@@ -735,7 +746,7 @@ pub(super) fn did_waitpid<T: Task>(task: &mut T, mut status: WaitStatus) {
             .borrow()
             .get_breakpoint_type_at_addr(task.address_of_last_execution_resume)
             != BreakpointType::BkptNone
-            && task.stop_sig().unwrap_or(0) == libc::SIGTRAP
+            && task.maybe_stop_sig() == SIGTRAP
             && !task.maybe_ptrace_event().is_ptrace_event()
             && task.ip()
                 == task

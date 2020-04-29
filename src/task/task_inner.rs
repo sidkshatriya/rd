@@ -120,7 +120,7 @@ pub mod task_inner {
         ticks::Ticks,
         trace::trace_stream::TraceStream,
         util::{u8_raw_slice, u8_raw_slice_mut, TrappedInstruction},
-        wait_status::{MaybePtraceEvent, WaitStatus},
+        wait_status::{MaybePtraceEvent, MaybeStopSignal, WaitStatus},
     };
     use libc::{__errno_location, pid_t, uid_t, EAGAIN, ENOMEM, ENOSYS};
     use nix::{
@@ -746,8 +746,8 @@ pub mod task_inner {
 
         /// Return the signal that's pending for this as of the last
         /// call to `wait()/try_wait()`.  Return of `None` means "no signal".
-        pub fn stop_sig(&self) -> Option<i32> {
-            self.wait_status.stop_sig()
+        pub fn maybe_stop_sig(&self) -> MaybeStopSignal {
+            self.wait_status.maybe_stop_sig()
         }
 
         pub fn clear_wait_status(&mut self) {

@@ -57,7 +57,7 @@ impl WaitStatus {
             return WaitType::FatalSignal;
         }
 
-        if let Some(_stop_sig) = self.stop_sig() {
+        if self.maybe_stop_sig().is_stop_signal() {
             return WaitType::SignalStop;
         }
 
@@ -107,13 +107,13 @@ impl WaitStatus {
     /// What was the stopping signal?
     /// Stop signal if wait_type() == STOP_SIGNAL, otherwise None. A zero signal
     /// (rare but observed via PTRACE_INTERRUPT) is converted to SIGSTOP.
-    pub fn stop_sig(&self) -> Option<i32> {
+    pub fn maybe_stop_sig(&self) -> MaybeStopSignal {
         unsafe {
             // Here the ((self.status >> 16) & 0xff != 0) is checking if its not some ptrace event
             // or a group stop (which is nothing but a ptrace event where
             // ((self.status >> 16) & 0xff == PTRACE_EVENT_STOP if PTRACE_SIEZE is used)
             if !WIFSTOPPED(self.status) || ((self.status >> 16) & 0xff != 0) {
-                return None;
+                return MaybeStopSignal::new_not_stop_signal();
             }
         }
 
@@ -121,15 +121,11 @@ impl WaitStatus {
 
         if sig == (SIGTRAP | 0x80) {
             // Its a syscall-enter or syscall-exit stop as we're using PTRACE_O_TRACESYSGOOD
-            return None;
+            return MaybeStopSignal::new_not_stop_signal();
         }
 
         sig &= !0x80;
-        if sig != 0 {
-            Some(sig)
-        } else {
-            Some(SIGSTOP)
-        }
+        MaybeStopSignal::new(sig)
     }
 
     /// Group stop signal if wait_type() == GROUP_STOP, otherwise None. A zero signal
@@ -250,7 +246,9 @@ impl Display for WaitStatus {
             WaitType::FatalSignal => {
                 write!(f, " (FATAL-{})", signal_name(self.fatal_sig().unwrap()))
             }
-            WaitType::SignalStop => write!(f, " (STOP-{})", signal_name(self.stop_sig().unwrap())),
+            WaitType::SignalStop => {
+                write!(f, " (STOP-{})", signal_name(self.maybe_stop_sig().unwrap()))
+            }
             WaitType::GroupStop => write!(
                 f,
                 " (GROUP-STOP-{})",
@@ -260,7 +258,7 @@ impl Display for WaitStatus {
             WaitType::PtraceEvent => write!(
                 f,
                 " ({})",
-                ptrace_event_name(self.maybe_ptrace_event().get_raw_repr())
+                ptrace_event_name(self.maybe_ptrace_event().unwrap())
             ),
         }
     }
@@ -270,7 +268,14 @@ impl Display for WaitStatus {
 pub struct MaybePtraceEvent(Option<NonZeroU8>);
 
 impl MaybePtraceEvent {
-    fn get_raw_repr(&self) -> u32 {
+    pub fn unwrap(&self) -> u32 {
+        match self.0 {
+            None => panic!("Cannot unwrap"),
+            Some(non_zero) => non_zero.get() as u32,
+        }
+    }
+
+    pub fn get_raw_repr(&self) -> u32 {
         match self.0 {
             None => 0,
             Some(non_zero) => non_zero.get() as u32,
@@ -307,7 +312,60 @@ impl Display for MaybePtraceEvent {
         if !self.is_ptrace_event() {
             f.write_str("- Not a ptrace event -")
         } else {
-            f.write_str(&ptrace_event_name(self.get_raw_repr()))
+            f.write_str(&ptrace_event_name(self.unwrap()))
+        }
+    }
+}
+
+#[derive(Copy, Clone, Eq, PartialEq)]
+pub struct MaybeStopSignal(Option<NonZeroU8>);
+
+impl MaybeStopSignal {
+    pub fn unwrap(&self) -> i32 {
+        match self.0 {
+            None => panic!("Cannot unwrap"),
+            Some(non_zero) => non_zero.get() as i32,
+        }
+    }
+
+    pub fn get_raw_repr(&self) -> i32 {
+        match self.0 {
+            None => 0,
+            Some(non_zero) => non_zero.get() as i32,
+        }
+    }
+
+    pub fn is_stop_signal(&self) -> bool {
+        self.0.is_some()
+    }
+
+    pub fn new_not_stop_signal() -> MaybeStopSignal {
+        MaybeStopSignal(None)
+    }
+
+    /// Ensure that val > 1 and val <= 0x80 otherwise you will get `MaybeStopSignal(None)`
+    pub fn new(val: i32) -> MaybeStopSignal {
+        if val <= 0 || val >= 0x80 {
+            MaybeStopSignal(None)
+        } else {
+            // We've already checked so no point checking again.
+            MaybeStopSignal(Some(unsafe { NonZeroU8::new_unchecked(val as u8) }))
+        }
+    }
+}
+
+impl PartialEq<i32> for MaybeStopSignal {
+    fn eq(&self, other: &i32) -> bool {
+        self.0.map_or(false, |op| op.get() as i32 == *other)
+    }
+}
+
+impl Display for MaybeStopSignal {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        if !self.is_stop_signal() {
+            f.write_str("- Not a stop signal -")
+        } else {
+            f.write_str(&signal_name(self.unwrap()))
         }
     }
 }

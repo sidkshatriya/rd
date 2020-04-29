@@ -93,8 +93,8 @@ fn __ptrace_cont(
 
         // DIFF NOTE: @TODO The `if` statement logic may create a slight divergence from rr.
         // May need to think about this more deeply and make sure this will work like rr.
-        if t.status().stop_sig().is_some()
-            && ReplaySession::is_ignored_signal(t.status().stop_sig().unwrap())
+        if t.status().maybe_stop_sig().is_stop_signal()
+            && ReplaySession::is_ignored_signal(t.status().maybe_stop_sig().unwrap())
         {
             t.resume_execution(
                 resume_how,
@@ -109,9 +109,9 @@ fn __ptrace_cont(
 
     ed_assert!(
         t,
-        t.stop_sig().is_none(),
-        "Expected no pending signal, but got {}",
-        t.stop_sig().unwrap()
+        !t.maybe_stop_sig().is_stop_signal(),
+        "Expected no pending signal, but got: {}",
+        t.maybe_stop_sig().unwrap()
     );
 
     // check if we are synchronized with the trace -- should never fail
