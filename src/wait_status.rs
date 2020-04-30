@@ -80,10 +80,10 @@ impl WaitStatus {
 
     /// What was the exit code of the process?
     /// Exit code if wait_type() == EXIT, otherwise None.
-    pub fn exit_code(&self) -> Option<i32> {
+    pub fn exit_code(&self) -> Option<u32> {
         unsafe {
             if WIFEXITED(self.status) {
-                Some(WEXITSTATUS(self.status))
+                Some(WEXITSTATUS(self.status) as u32)
             } else {
                 None
             }
