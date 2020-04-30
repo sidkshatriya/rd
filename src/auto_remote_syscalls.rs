@@ -1228,12 +1228,12 @@ fn ignore_signal(t: &dyn Task) -> bool {
     }
 
     if t.session().borrow().is_replaying() {
-        if ReplaySession::is_ignored_signal(maybe_sig.sig()) {
+        if ReplaySession::is_ignored_signal(maybe_sig.unwrap_sig()) {
             return true;
         }
     } else if t.session().borrow().is_recording() {
         let rt = t.as_record_task().unwrap();
-        if maybe_sig.sig()
+        if maybe_sig.unwrap_sig()
             != rt
                 .session()
                 .borrow()
@@ -1249,7 +1249,7 @@ fn ignore_signal(t: &dyn Task) -> bool {
         t,
         false,
         "Unexpected signal {}",
-        signal_name(maybe_sig.sig())
+        signal_name(maybe_sig.unwrap_sig())
     );
     false
 }

@@ -113,7 +113,7 @@ impl WaitStatus {
             // or a group stop (which is nothing but a ptrace event where
             // ((self.status >> 16) & 0xff == PTRACE_EVENT_STOP if PTRACE_SIEZE is used)
             if !WIFSTOPPED(self.status) || ((self.status >> 16) & 0xff != 0) {
-                return MaybeStopSignal::none();
+                return MaybeStopSignal::new_none();
             }
         }
 
@@ -121,14 +121,14 @@ impl WaitStatus {
 
         if sig == (SIGTRAP | 0x80) {
             // Its a syscall-enter or syscall-exit stop as we're using PTRACE_O_TRACESYSGOOD
-            return MaybeStopSignal::none();
+            return MaybeStopSignal::new_none();
         }
 
         sig &= !0x80;
         if sig != 0 {
-            MaybeStopSignal::new(sig)
+            MaybeStopSignal::new_sig(sig)
         } else {
-            MaybeStopSignal::new(SIGSTOP)
+            MaybeStopSignal::new_sig(SIGSTOP)
         }
     }
 
@@ -141,7 +141,7 @@ impl WaitStatus {
             // stop when PTRACE_SIEZE is used
             if !WIFSTOPPED(self.status) || ((self.status >> 16) & 0xff != PTRACE_EVENT_STOP as i32)
             {
-                return MaybeStopSignal::none();
+                return MaybeStopSignal::new_none();
             }
         }
 
@@ -149,9 +149,9 @@ impl WaitStatus {
 
         sig &= !0x80;
         if sig != 0 {
-            MaybeStopSignal::new(sig)
+            MaybeStopSignal::new_sig(sig)
         } else {
-            MaybeStopSignal::new(SIGSTOP)
+            MaybeStopSignal::new_sig(SIGSTOP)
         }
     }
 
@@ -171,9 +171,9 @@ impl WaitStatus {
     pub fn maybe_ptrace_event(&self) -> MaybePtraceEvent {
         let event: u32 = ((self.status >> 16) & 0xff) as u32;
         if event == PTRACE_EVENT_STOP || event == 0 {
-            MaybePtraceEvent::new_not_ptrace_event()
+            MaybePtraceEvent::new_none()
         } else {
-            MaybePtraceEvent::new(event)
+            MaybePtraceEvent::new_event(event)
         }
     }
 
@@ -250,19 +250,21 @@ impl Display for WaitStatus {
             WaitType::FatalSignal => {
                 write!(f, " (FATAL-{})", signal_name(self.fatal_sig().unwrap()))
             }
-            WaitType::SignalStop => {
-                write!(f, " (STOP-{})", signal_name(self.maybe_stop_sig().sig()))
-            }
+            WaitType::SignalStop => write!(
+                f,
+                " (STOP-{})",
+                signal_name(self.maybe_stop_sig().unwrap_sig())
+            ),
             WaitType::GroupStop => write!(
                 f,
                 " (GROUP-STOP-{})",
-                signal_name(self.maybe_group_stop_sig().sig())
+                signal_name(self.maybe_group_stop_sig().unwrap_sig())
             ),
             WaitType::SyscallStop => write!(f, " (SYSCALL)"),
             WaitType::PtraceEvent => write!(
                 f,
                 " ({})",
-                ptrace_event_name(self.maybe_ptrace_event().unwrap())
+                ptrace_event_name(self.maybe_ptrace_event().unwrap_event())
             ),
         }
     }
@@ -272,7 +274,7 @@ impl Display for WaitStatus {
 pub struct MaybePtraceEvent(Option<NonZeroU8>);
 
 impl MaybePtraceEvent {
-    pub fn unwrap(&self) -> u32 {
+    pub fn unwrap_event(&self) -> u32 {
         match self.0 {
             None => panic!("Cannot unwrap"),
             Some(non_zero) => non_zero.get() as u32,
@@ -290,12 +292,12 @@ impl MaybePtraceEvent {
         self.0.is_some()
     }
 
-    pub fn new_not_ptrace_event() -> MaybePtraceEvent {
+    pub fn new_none() -> MaybePtraceEvent {
         MaybePtraceEvent(None)
     }
 
     /// Ensure that val != 0 and val <= 0xff otherwise you will get `MaybePtraceEvent(None)`
-    pub fn new(val: u32) -> MaybePtraceEvent {
+    pub fn new_event(val: u32) -> MaybePtraceEvent {
         if val == 0 || val > 0xff {
             MaybePtraceEvent(None)
         } else {
@@ -316,7 +318,7 @@ impl Display for MaybePtraceEvent {
         if !self.is_ptrace_event() {
             f.write_str("- Not a ptrace event -")
         } else {
-            f.write_str(&ptrace_event_name(self.unwrap()))
+            f.write_str(&ptrace_event_name(self.unwrap_event()))
         }
     }
 }
@@ -325,7 +327,7 @@ impl Display for MaybePtraceEvent {
 pub struct MaybeStopSignal(Option<NonZeroU8>);
 
 impl MaybeStopSignal {
-    pub fn sig(&self) -> i32 {
+    pub fn unwrap_sig(&self) -> i32 {
         match self.0 {
             None => panic!("Cannot unwrap"),
             Some(non_zero) => non_zero.get() as i32,
@@ -347,12 +349,12 @@ impl MaybeStopSignal {
         self.0.is_none()
     }
 
-    pub fn none() -> MaybeStopSignal {
+    pub fn new_none() -> MaybeStopSignal {
         MaybeStopSignal(None)
     }
 
     /// Ensure that sig >= 1 and sig < 0x80 otherwise you will get `MaybeStopSignal(None)`
-    pub fn new(sig: i32) -> MaybeStopSignal {
+    pub fn new_sig(sig: i32) -> MaybeStopSignal {
         if sig < 1 || sig >= 0x80 {
             MaybeStopSignal(None)
         } else {
@@ -373,7 +375,7 @@ impl Display for MaybeStopSignal {
         if !self.is_sig() {
             f.write_str("- Not a signal -")
         } else {
-            f.write_str(&signal_name(self.sig()))
+            f.write_str(&signal_name(self.unwrap_sig()))
         }
     }
 }
