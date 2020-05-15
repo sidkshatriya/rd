@@ -109,6 +109,7 @@ pub mod task_inner {
         kernel_metadata::{errno_name, ptrace_req_name, syscall_name},
         log::LogLevel::LogDebug,
         perf_counters::PerfCounters,
+        rd::RD_RESERVED_SOCKET_FD,
         registers::Registers,
         remote_code_ptr::RemoteCodePtr,
         remote_ptr::{RemotePtr, Void},
@@ -122,11 +123,14 @@ pub mod task_inner {
         util::{u8_raw_slice, u8_raw_slice_mut, TrappedInstruction},
         wait_status::{MaybePtraceEvent, MaybeStopSignal, WaitStatus},
     };
-    use libc::{__errno_location, pid_t, uid_t, EAGAIN, ENOMEM, ENOSYS};
+    use libc::{__errno_location, pid_t, uid_t, EAGAIN, EBADF, ENOMEM, ENOSYS};
     use nix::{
         errno::errno,
-        fcntl::{readlink, OFlag},
-        sys::stat::{lstat, stat, FileStat},
+        fcntl::{fcntl, readlink, FcntlArg, OFlag},
+        sys::{
+            socket::{socketpair, AddressFamily, SockFlag, SockType},
+            stat::{lstat, stat, FileStat},
+        },
         unistd::getuid,
     };
     use std::{
@@ -1189,15 +1193,47 @@ pub mod task_inner {
         /// DIFF NOTE: rr takes an explicit `trace` param. Since trace is available from the
         /// session we avoid it.
         pub fn spawn<'a>(
-            _session: &'a mut dyn Session,
-            _error_fd: &ScopedFd,
-            _sock_fd_out: Rc<RefCell<ScopedFd>>,
-            _tracee_socket_fd_number_out: &mut i32,
-            _exe_path: &OsStr,
-            _argv: &[OsString],
-            _envp: &[OsString],
-            _rec_tid: pid_t,
+            session: &'a mut dyn Session,
+            error_fd: &ScopedFd,
+            sock_fd_out: Rc<RefCell<ScopedFd>>,
+            tracee_socket_fd_number_out: &mut i32,
+            exe_path: &OsStr,
+            argv: &[OsString],
+            envp: &[OsString],
+            rec_tid: pid_t,
         ) -> Box<dyn Task> {
+            debug_assert!(session.tasks().len() == 0);
+
+            let ret = socketpair(
+                AddressFamily::Unix,
+                SockType::Stream,
+                None,
+                SockFlag::SOCK_CLOEXEC,
+            );
+            let sock: ScopedFd;
+            match ret {
+                Result::Err(_) => fatal!("socketpair() failed"),
+                Result::Ok((fd0, fd1)) => {
+                    *sock_fd_out.borrow_mut() = ScopedFd::from_raw(fd0);
+                    let sock = ScopedFd::from_raw(fd1);
+                }
+            }
+
+            // Find a usable FD number to dup to in the child. RR_RESERVED_SOCKET_FD
+            // might already be used by an outer rr.
+            let mut fd_number: i32 = RD_RESERVED_SOCKET_FD;
+            // We assume no other thread is mucking with this part of the fd address space.
+            loop {
+                let ret = fcntl(fd_number, FcntlArg::F_GETFD);
+                if ret.is_err() {
+                    if errno() != EBADF {
+                        fatal!("Error checking fd");
+                    }
+                    break;
+                }
+                fd_number += 1;
+            }
+
             unimplemented!()
         }
 

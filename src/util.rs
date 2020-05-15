@@ -61,8 +61,9 @@ use std::{
     env,
     env::var_os,
     ffi::{c_void, CString, OsStr, OsString},
+    fs::File,
     io,
-    io::{Error, ErrorKind},
+    io::{BufRead, BufReader, Error, ErrorKind, Read},
     mem,
     mem::{size_of, size_of_val, zeroed},
     os::{
@@ -1100,4 +1101,183 @@ pub fn trapped_instruction_at<T: Task>(t: &mut T, ip: RemoteCodePtr) -> TrappedI
         return TrappedInstruction::Pushf16;
     }
     TrappedInstruction::None
+}
+
+pub enum BindCPU {
+    /// `BindCpu` means binding to a randomly chosen CPU.
+    BindCpu,
+    /// `UnboundCpu` means not binding to a particular CPU.
+    UnboundCpu,
+    /// A non-negative value means binding to the specific CPU number.
+    BindToCpu(u32),
+}
+
+/// Pick a CPU at random to bind to, unless --cpu-unbound has been given,
+/// in which case we return -1.
+pub fn choose_cpu(bind_cpu: BindCPU) -> Option<u32> {
+    match bind_cpu {
+        BindCPU::UnboundCpu => None,
+        // Pin tracee tasks to a random logical CPU, both in
+        // recording and replay.  Tracees can see which HW
+        // thread they're running on by asking CPUID, and we
+        // don't have a way to emulate it yet.  So if a tracee
+        // happens to be scheduled on a different core in
+        // recording than replay, it can diverge.  (And
+        // indeed, has been observed to diverge in practice,
+        // in glibc.)
+        //
+        // Note that we will pin both the tracee processes *and*
+        // the tracer process.  This ends up being a tidy
+        // performance win in certain circumstances,
+        // presumably due to cheaper context switching and/or
+        // better interaction with CPU frequency scaling.
+        BindCPU::BindToCpu(num) => Some(num),
+        BindCPU::BindCpu => {
+            let maybe_cpu = get_random_cpu_cgroup();
+            match maybe_cpu {
+                Ok(cpu) => Some(cpu),
+                Err(_) => Some(random::<u32>() % get_num_cpus()),
+            }
+        }
+    }
+}
+
+pub fn get_num_cpus() -> u32 {
+    unimplemented!()
+}
+
+enum CpuParseState {
+    StartOrRangeStart,
+    RangeEnd,
+}
+
+/// Read and parse the available CPU list then select a random CPU from the list.
+pub fn get_random_cpu_cgroup() -> io::Result<u32> {
+    let self_cpuset_file = File::open("/proc/self/cpuset")?;
+    let mut self_cpuset = BufReader::new(self_cpuset_file);
+    let mut cpuset_path: Vec<u8> = Vec::new();
+    match self_cpuset.read_until(b'\n', &mut cpuset_path) {
+        Err(e) => return Err(e),
+        Ok(0) => {
+            return Err(Error::new(
+                ErrorKind::UnexpectedEof,
+                "Unexpected EOF encountered while reading /proc/self/cpuset",
+            ))
+        }
+        Ok(read_bytes) => {
+            if cpuset_path[read_bytes - 1] == b'\n' {
+                cpuset_path.truncate(read_bytes - 1);
+            }
+        }
+    }
+
+    drop(self_cpuset);
+    if cpuset_path.is_empty() {
+        return Err(Error::new(
+            ErrorKind::Other,
+            "File /proc/self/cpuset looks empty. Not able to get relevant information from it.",
+        ));
+    }
+
+    let mut cpuset_sys_path = Vec::<u8>::new();
+    cpuset_sys_path.extend_from_slice(b"/sys/fs/cgroup/cpuset");
+    cpuset_sys_path.extend_from_slice(&cpuset_path);
+    cpuset_sys_path.extend_from_slice(b"/cpuset.cpus");
+    let cpuset_file = File::open(OsString::from_vec(cpuset_sys_path))?;
+    let cpuset = BufReader::new(cpuset_file);
+
+    let mut cpus: Vec<u32> = Vec::new();
+    let mut parse_state = CpuParseState::StartOrRangeStart;
+    let mut buf_start = String::new();
+    let mut buf_end: String = String::new();
+    let mut cpu_start: u32 = 0;
+    let mut it = cpuset.bytes();
+    loop {
+        let maybe_res = it.next();
+        match parse_state {
+            CpuParseState::StartOrRangeStart => match maybe_res {
+                Some(res) => {
+                    let c = res?;
+                    if c.is_ascii_digit() {
+                        buf_start.push(char::from(c))
+                    } else if c == b'-' {
+                        parse_state = CpuParseState::RangeEnd;
+                        match buf_start.parse::<u32>() {
+                            Ok(num) => cpu_start = num,
+                            Err(e) => return Err(Error::new(ErrorKind::Other, e)),
+                        }
+                        buf_start.clear();
+                        buf_end.clear();
+                    } else if c == b'\n' || c == b',' {
+                        match buf_start.parse::<u32>() {
+                            Ok(cpu) => cpus.push(cpu),
+                            Err(e) => return Err(Error::new(ErrorKind::Other, e)),
+                        }
+                    } else {
+                        return Err(Error::new(
+                            ErrorKind::Other,
+                            format!("Unexpected char `{}`", char::from(c)),
+                        ));
+                    }
+                }
+                None => {
+                    if buf_start.is_empty() {
+                        break;
+                    }
+                    match buf_start.parse::<u32>() {
+                        Ok(cpu) => {
+                            cpus.push(cpu);
+                            break;
+                        }
+                        Err(e) => return Err(Error::new(ErrorKind::Other, e)),
+                    }
+                }
+            },
+            CpuParseState::RangeEnd => match maybe_res {
+                Some(res) => {
+                    let c = res?;
+                    if c.is_ascii_digit() {
+                        buf_end.push(char::from(c))
+                    } else if c == b'-' {
+                        return Err(Error::new(ErrorKind::Other, "Unexpected char `-`"));
+                    } else if c == b'\n' || c == b',' {
+                        let cpu_end: u32;
+                        parse_state = CpuParseState::StartOrRangeStart;
+                        match buf_end.parse::<u32>() {
+                            Ok(num) => cpu_end = num,
+                            Err(e) => return Err(Error::new(ErrorKind::Other, e)),
+                        }
+                        debug_assert!(cpu_start <= cpu_end);
+                        for cpu in cpu_start..(cpu_end + 1) {
+                            cpus.push(cpu);
+                        }
+                        buf_start.clear();
+                        buf_end.clear();
+                    } else {
+                        return Err(Error::new(
+                            ErrorKind::Other,
+                            format!("Unexpected char `{}`", char::from(c)),
+                        ));
+                    }
+                }
+                None => {
+                    if buf_end.is_empty() {
+                        break;
+                    }
+                    match buf_end.parse::<u32>() {
+                        Ok(cpu_end) => {
+                            debug_assert!(cpu_start <= cpu_end);
+                            for cpu in cpu_start..(cpu_end + 1) {
+                                cpus.push(cpu);
+                            }
+                            break;
+                        }
+                        Err(e) => return Err(Error::new(ErrorKind::Other, e)),
+                    }
+                }
+            },
+        };
+    }
+
+    Ok(cpus[random::<usize>() % cpus.len()])
 }
