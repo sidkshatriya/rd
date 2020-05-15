@@ -7,13 +7,14 @@ use crate::{
     kernel_abi::SupportedArch,
     perf_counters::TIME_SLICE_SIGNAL,
     remote_code_ptr::RemoteCodePtr,
+    scoped_fd::ScopedFd,
     session::{
         diversion_session::DiversionSessionSharedPtr,
         replay_session::ReplayTraceStepType::TstepNone,
         session_inner::{session_inner::SessionInner, BreakStatus, RunCommand},
         Session,
     },
-    task::Task,
+    task::{task_inner::task_inner::TaskInner, Task},
     ticks::Ticks,
     trace::{
         trace_frame::{FrameTime, TraceFrame},
@@ -23,12 +24,12 @@ use crate::{
 };
 use std::{
     cell::{Ref, RefCell, RefMut},
-    ffi::OsStr,
+    ffi::{OsStr, OsString},
     ops::{Deref, DerefMut},
-    sync::Arc,
+    rc::Rc,
 };
 
-pub type ReplaySessionSharedPtr = Arc<RefCell<ReplaySession>>;
+pub type ReplaySessionSharedPtr = Rc<RefCell<ReplaySession>>;
 
 /// ReplayFlushBufferedSyscallState is saved in Session and cloned with its
 /// Session, so it needs to be simple data, i.e. not holding pointers to
@@ -270,17 +271,49 @@ impl ReplaySession {
             // TIME_SLICE_SIGNALs can be queued but not delivered before we stop
             // execution for some other reason. Ignore them.
             TIME_SLICE_SIGNAL => true,
-            _ => return false,
+            _ => false,
         }
     }
 
     pub fn flags(&self) -> &Flags {
         &self.flags_
     }
+
+    fn new<T: AsRef<OsStr>>(_dir: Option<&T>, _flags: &Flags) -> ReplaySession {
+        unimplemented!()
+    }
+
     /// Create a replay session that will use the trace directory specified
     /// by 'dir', or the latest trace if 'dir' is not supplied.
-    pub fn create<T: AsRef<OsStr>>(_dir: Option<&T>, _flags: &Flags) -> ReplaySessionSharedPtr {
-        unimplemented!()
+    pub fn create<T: AsRef<OsStr>>(dir: Option<&T>, flags: &Flags) -> ReplaySessionSharedPtr {
+        let mut session: ReplaySession = ReplaySession::new(dir, flags);
+
+        // It doesn't really matter what we use for argv/env here, since
+        // replay_syscall's process_execve is going to follow the recording and
+        // ignore the parameters.
+        let exe_path: OsString = OsString::new();
+        let argv: Vec<OsString> = Vec::new();
+        let env: Vec<OsString> = Vec::new();
+
+        let error_fd: ScopedFd = session.create_spawn_task_error_pipe();
+        let mut tracee_socket_fd_number: i32 = -1;
+        let sock_fd_out = session.tracee_socket_fd();
+        let tid = session.trace_reader_mut().peek_frame().unwrap().tid();
+
+        let t = TaskInner::spawn(
+            &mut session,
+            &error_fd,
+            sock_fd_out,
+            &mut tracee_socket_fd_number,
+            &exe_path,
+            &argv,
+            &env,
+            tid,
+        );
+        session.tracee_socket_fd_number = tracee_socket_fd_number;
+        session.on_create(t);
+
+        Rc::new(RefCell::new(session))
     }
 
     /// Take a single replay step.

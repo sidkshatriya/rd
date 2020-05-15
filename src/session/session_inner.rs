@@ -254,24 +254,32 @@ pub mod session_inner {
             self.ticks_semantics_
         }
 
-        fn new() {
+        pub(in super::super) fn new() {
             unimplemented!()
         }
 
-        fn create_spawn_task_error_pipe(&mut self) -> ScopedFd {
+        pub(in super::super) fn create_spawn_task_error_pipe(&mut self) -> ScopedFd {
             unimplemented!()
         }
 
-        fn diagnose_debugger_trap(&self, _t: &dyn Task, _run_command: RunCommand) -> BreakStatus {
+        pub(in super::super) fn diagnose_debugger_trap(
+            &self,
+            _t: &dyn Task,
+            _run_command: RunCommand,
+        ) -> BreakStatus {
             unimplemented!()
         }
-        fn check_for_watchpoint_changes(&self, _t: &dyn Task, _break_status: &BreakStatus) {
+        pub(in super::super) fn check_for_watchpoint_changes(
+            &self,
+            _t: &dyn Task,
+            _break_status: &BreakStatus,
+        ) {
             unimplemented!()
         }
 
         /// XXX Move CloneCompletion/CaptureState etc to ReplayTask/ReplaySession
 
-        fn assert_fully_initialized(&self) {
+        pub(in super::super) fn assert_fully_initialized(&self) {
             unimplemented!()
         }
     }

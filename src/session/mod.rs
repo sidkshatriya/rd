@@ -87,7 +87,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
         Some(trace.bound_to_cpu())
     }
 
-    fn on_create(&self, _t: &dyn Task) {
+    fn on_create(&mut self, _t: Box<dyn Task>) {
         unimplemented!()
     }
 

@@ -114,7 +114,7 @@ pub mod task_inner {
         remote_ptr::{RemotePtr, Void},
         scoped_fd::ScopedFd,
         session::{Session, SessionSharedPtr, SessionSharedWeakPtr},
-        task::TaskSharedWeakPtr,
+        task::{Task, TaskSharedWeakPtr},
         taskish_uid::TaskUid,
         thread_group::{ThreadGroup, ThreadGroupSharedPtr},
         ticks::Ticks,
@@ -1184,17 +1184,20 @@ pub mod task_inner {
         /// Fork and exec the initial task. If something goes wrong later
         /// (i.e. an exec does not occur before an exit), an error may be
         /// readable from the other end of the pipe whose write end is error_fd.
-        pub(in super::super) fn spawn<'a>(
-            _session: &'a dyn Session,
+        ///
+        /// @TODO: This is a protected method in rr. Temporarily make this a pub.
+        /// DIFF NOTE: rr takes an explicit `trace` param. Since trace is available from the
+        /// session we avoid it.
+        pub fn spawn<'a>(
+            _session: &'a mut dyn Session,
             _error_fd: &ScopedFd,
-            _sock_fd_out: &ScopedFd,
+            _sock_fd_out: Rc<RefCell<ScopedFd>>,
             _tracee_socket_fd_number_out: &mut i32,
-            _trace: &TraceStream,
-            _exe_path: &str,
-            _argv: &[&str],
-            _envp: &[&str],
+            _exe_path: &OsStr,
+            _argv: &[OsString],
+            _envp: &[OsString],
             _rec_tid: pid_t,
-        ) -> &'a TaskInner {
+        ) -> Box<dyn Task> {
             unimplemented!()
         }
 
