@@ -24,6 +24,7 @@ use std::{
     fmt::{Display, Formatter, Result},
     mem::zeroed,
     ops::{Deref, DerefMut},
+    os::unix::ffi::OsStrExt,
 };
 
 /// Clone trait is manually derived. See below.
@@ -193,7 +194,7 @@ impl KernelMapping {
     }
     pub fn is_stack(&self) -> bool {
         // Note the lack of ending `]` in match string
-        if let Some(loc) = find(self.fsname(), b"[stack") {
+        if let Some(loc) = find(self.fsname().as_bytes(), b"[stack") {
             loc == 0
         } else {
             false

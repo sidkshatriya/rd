@@ -1462,7 +1462,7 @@ fn extract_name(name: &OsStr) -> Option<&OsStr> {
 
     debug_assert_eq!(hyphens_seen, 2);
     let needle = SessionInner::rd_mapping_prefix().as_bytes();
-    let prefix = find(name, needle);
+    let prefix = find(name.as_bytes(), needle);
     match prefix {
         None => debug_assert!(
             false,

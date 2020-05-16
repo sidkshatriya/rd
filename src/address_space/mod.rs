@@ -3013,7 +3013,7 @@ fn normalized_file_names_equal(
 }
 
 fn strip_deleted(s: &OsStr) -> &OsStr {
-    let maybe_loc = find(s, b" (deleted)");
+    let maybe_loc = find(s.as_bytes(), b" (deleted)");
     match maybe_loc {
         Some(loc) => OsStr::from_bytes(&s.as_bytes()[0..loc]),
         None => s,

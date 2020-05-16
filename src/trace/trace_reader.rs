@@ -872,7 +872,7 @@ fn resolve_trace_name<T: AsRef<OsStr>>(maybe_trace_name: Option<&T>) -> OsString
     let trace_name = maybe_trace_name.unwrap().as_ref();
     // Single-component paths are looked up first in the current directory, next
     // in the default trace dir.
-    if find(trace_name, b"/").is_none() {
+    if find(trace_name.as_bytes(), b"/").is_none() {
         if dir_exists(trace_name) {
             return trace_name.to_os_string();
         }

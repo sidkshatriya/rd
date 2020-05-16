@@ -32,6 +32,7 @@ use libc::{
     STDERR_FILENO,
     S_IFDIR,
     S_IFREG,
+    _SC_NPROCESSORS_ONLN,
 };
 use nix::{
     errno::errno,
@@ -524,9 +525,9 @@ pub fn uses_invisible_guard_page() -> bool {
 }
 
 #[allow(unreachable_code)]
-pub fn find(haystack: &OsStr, needle: &[u8]) -> Option<usize> {
-    let haystack_len = haystack.as_bytes().len();
-    let mut it = haystack.as_bytes().iter();
+pub fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    let haystack_len = haystack.len();
+    let mut it = haystack.iter();
     let mut i = 0;
     loop {
         if i + needle.len() > haystack_len {
@@ -1136,14 +1137,27 @@ pub fn choose_cpu(bind_cpu: BindCPU) -> Option<u32> {
             let maybe_cpu = get_random_cpu_cgroup();
             match maybe_cpu {
                 Ok(cpu) => Some(cpu),
-                Err(_) => Some(random::<u32>() % get_num_cpus()),
+                Err(e) => {
+                    log!(
+                        LogWarn,
+                        "While trying to get a random cpu number from `cpuset.cpus`, got error: `{}`.\
+                         Continuing using a simpler approach.",
+                        e
+                    );
+                    Some(random::<u32>() % get_num_cpus())
+                }
             }
         }
     }
 }
 
 pub fn get_num_cpus() -> u32 {
-    unimplemented!()
+    let res = unsafe { libc::sysconf(_SC_NPROCESSORS_ONLN) };
+    if res > 0 {
+        res.try_into().unwrap()
+    } else {
+        1
+    }
 }
 
 enum CpuParseState {
@@ -1280,4 +1294,45 @@ pub fn get_random_cpu_cgroup() -> io::Result<u32> {
     }
 
     Ok(cpus[random::<usize>() % cpus.len()])
+}
+
+/// If you are specifying multiple strings to match, they must all appear one after another
+/// in `/proc/{}/status`. This is like the behavior in rr.
+/// See below: The matches are cycled in the outer loop. This approach should be revisited later.
+pub fn read_proc_status_fields(tid: pid_t, matches_in: &[&[u8]]) -> io::Result<Vec<OsString>> {
+    let f = File::open(format!("/proc/{}/status", tid))?;
+    let mut buf = BufReader::new(f);
+    // Add `:`
+    let mut matches = Vec::<Vec<u8>>::new();
+    for &m in matches_in {
+        let mut mat = Vec::from(m);
+        mat.push(b':');
+        matches.push(mat);
+    }
+
+    let mut result = Vec::<OsString>::new();
+    for m in &matches {
+        loop {
+            let mut line = Vec::<u8>::new();
+            match buf.read_until(b'\n', &mut line) {
+                Ok(0) => break,
+                Ok(nread) => match find(&line[0..nread - 1], m) {
+                    Some(loc) => {
+                        let mut needle = &line[(loc + m.len())..(nread - 1)];
+                        for &c in needle {
+                            if c == b' ' || c == b'\t' {
+                                needle = &needle[1..];
+                            }
+                        }
+                        result.push(OsString::from_vec(needle.to_owned()));
+                        break;
+                    }
+                    None => continue,
+                },
+                Err(e) => return Err(e),
+            }
+        }
+    }
+
+    Ok(result)
 }
