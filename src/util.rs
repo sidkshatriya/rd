@@ -7,6 +7,7 @@ use crate::{
     },
     flags::Flags,
     kernel_abi::CloneParameterOrdering,
+    kernel_supplement::ARCH_SET_CPUID,
     log::LogLevel::{LogDebug, LogWarn},
     registers::Registers,
     remote_code_ptr::RemoteCodePtr,
@@ -18,9 +19,19 @@ use crate::{
         Task,
     },
 };
+#[cfg(target_arch = "x86")]
+use libc::{REG_EAX, REG_EIP};
+
+#[cfg(target_arch = "x86_64")]
+use libc::{REG_RAX, REG_RIP};
+
 use libc::{
     pid_t,
     pwrite64,
+    siginfo_t,
+    syscall,
+    ucontext_t,
+    SYS_arch_prctl,
     CLONE_CHILD_CLEARTID,
     CLONE_CHILD_SETTID,
     CLONE_FILES,
@@ -40,6 +51,7 @@ use nix::{
     sched::{sched_setaffinity, CpuSet},
     sys::{
         mman::{MapFlags, ProtFlags},
+        signal::{sigaction, SaFlags, SigAction, SigHandler, SigSet, Signal},
         stat::{stat, FileStat, Mode},
         statfs::{statfs, TMPFS_MAGIC},
         uio::pread,
@@ -113,6 +125,7 @@ pub const HLE_FEATURE_FLAG: u32 = 1 << 4;
 pub const XSAVEC_FEATURE_FLAG: u32 = 1 << 1;
 
 lazy_static! {
+    static ref CPUID_FAULTING_WORKS: bool = cpuid_faulting_works_init();
     static ref XSAVE_NATIVE_LAYOUT: XSaveLayout = xsave_native_layout_init();
     static ref SYSTEM_PAGE_SIZE: usize = page_size_init();
     static ref SAVED_FD_LIMIT: Mutex<Option<libc::rlimit>> = Mutex::new(None);
@@ -1369,4 +1382,60 @@ pub fn to_cstr_array(ar: &[CString]) -> Vec<&CStr> {
         res.push(a.as_c_str());
     }
     res
+}
+
+const SEGV_HANDLER_MAGIC: u32 = 0x98765432;
+
+#[cfg(target_arch = "x86")]
+extern "C" fn cpuid_segv_handler(_sig: i32, _siginfo: *mut siginfo_t, ctx: *mut c_void) {
+    let ctx = user as *mut ucontext_t;
+    unsafe {
+        (*ctx).uc_mcontext.gregs[REG_EIP as usize] += 2;
+        (*ctx).uc_mcontext.gregs[REG_EAX as usize] = SEGV_HANDLER_MAGIC.into();
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+extern "C" fn cpuid_segv_handler(_sig: i32, _siginfo: *mut siginfo_t, user: *mut c_void) {
+    let ctx = user as *mut ucontext_t;
+    unsafe {
+        (*ctx).uc_mcontext.gregs[REG_RIP as usize] += 2;
+        (*ctx).uc_mcontext.gregs[REG_RAX as usize] = SEGV_HANDLER_MAGIC.into();
+    }
+}
+
+fn cpuid_faulting_works_init() -> bool {
+    let mut cpuid_faulting_ok = false;
+    // Test to see if CPUID faulting works.
+    if unsafe { syscall(SYS_arch_prctl, ARCH_SET_CPUID, 0) } != 0 {
+        log!(LogDebug, "CPUID faulting not supported by kernel/hardware");
+        return false;
+    }
+
+    // Some versions of Xen seem to set the feature bit but the feature doesn't
+    // actually work, so we need to test it.
+    let sa = SigAction::new(
+        SigHandler::SigAction(cpuid_segv_handler),
+        SaFlags::SA_SIGINFO,
+        SigSet::empty(),
+    );
+    let old_sa = unsafe { sigaction(Signal::SIGSEGV, &sa) }.unwrap();
+
+    let data: CPUIDData = cpuid(CPUID_GETVENDORSTRING, 0);
+    if data.eax == SEGV_HANDLER_MAGIC {
+        log!(LogDebug, "CPUID faulting works");
+        cpuid_faulting_ok = true;
+    } else {
+        log!(LogDebug, "CPUID faulting advertised but does not work");
+    }
+
+    unsafe { sigaction(Signal::SIGSEGV, &old_sa) }.unwrap();
+    if unsafe { syscall(SYS_arch_prctl, ARCH_SET_CPUID, 1) } < 0 {
+        fatal!("Can't restore ARCH_SET_CPUID");
+    }
+    cpuid_faulting_ok
+}
+
+pub fn cpuid_faulting_works() -> bool {
+    *CPUID_FAULTING_WORKS
 }

@@ -1228,7 +1228,7 @@ pub mod task_inner {
                 None,
                 SockFlag::SOCK_CLOEXEC,
             );
-            let sock = ScopedFd::new();
+            let sock: ScopedFd;
             match ret {
                 Result::Err(_) => {
                     fatal!("socketpair() failed");
@@ -1236,7 +1236,7 @@ pub mod task_inner {
                 }
                 Result::Ok((fd0, fd1)) => {
                     *sock_fd_out.borrow_mut() = ScopedFd::from_raw(fd0);
-                    let sock = ScopedFd::from_raw(fd1);
+                    sock = ScopedFd::from_raw(fd1);
                 }
             }
 
@@ -1330,14 +1330,14 @@ pub mod task_inner {
     }
 
     fn run_initial_child(
-        session: &mut dyn Session,
-        error_fd: &ScopedFd,
-        sock_fd: &ScopedFd,
-        sock_fd_number: i32,
-        exe_path_cstr: &CStr,
-        argv_array: &[&CStr],
-        envp_array: &[&CStr],
-        seccomp_prog: &sock_fprog,
+        _session: &mut dyn Session,
+        _error_fd: &ScopedFd,
+        _sock_fd: &ScopedFd,
+        _sock_fd_number: i32,
+        _exe_path_cstr: &CStr,
+        _argv_array: &[&CStr],
+        _envp_array: &[&CStr],
+        _seccomp_prog: &sock_fprog,
     ) {
         unimplemented!()
     }
