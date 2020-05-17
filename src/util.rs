@@ -64,7 +64,7 @@ use std::{
     convert::TryInto,
     env,
     env::var_os,
-    ffi::{c_void, CString, OsStr, OsString},
+    ffi::{c_void, CStr, CString, OsStr, OsString},
     fs::File,
     io,
     io::{BufRead, BufReader, Error, ErrorKind, Read},
@@ -1353,4 +1353,20 @@ pub fn set_cpu_affinity(cpu: u32) -> bool {
         fatal!("Couldn't bind to CPU `{}`", cpu);
     }
     true
+}
+
+pub fn to_cstring_array(ar: &[OsString]) -> Vec<CString> {
+    let mut res = Vec::<CString>::new();
+    for a in ar {
+        res.push(CString::new(a.as_bytes()).unwrap());
+    }
+    res
+}
+
+pub fn to_cstr_array(ar: &[CString]) -> Vec<&CStr> {
+    let mut res = Vec::<&CStr>::new();
+    for a in ar {
+        res.push(a.as_c_str());
+    }
+    res
 }

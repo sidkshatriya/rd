@@ -88,7 +88,7 @@ pub mod task_inner {
         },
         auto_remote_syscalls::AutoRemoteSyscalls,
         bindings::{
-            kernel::user_desc,
+            kernel::{sock_filter, sock_fprog, user_desc},
             ptrace::{
                 ptrace,
                 PTRACE_EVENT_CLONE,
@@ -128,6 +128,8 @@ pub mod task_inner {
         util::{
             choose_cpu,
             set_cpu_affinity,
+            to_cstr_array,
+            to_cstring_array,
             u8_raw_slice,
             u8_raw_slice_mut,
             BindCPU,
@@ -135,7 +137,7 @@ pub mod task_inner {
         },
         wait_status::{MaybePtraceEvent, MaybeStopSignal, WaitStatus},
     };
-    use libc::{__errno_location, pid_t, uid_t, EAGAIN, EBADF, ENOMEM, ENOSYS};
+    use libc::{__errno_location, fork, pid_t, uid_t, EAGAIN, EBADF, ENOMEM, ENOSYS};
     use nix::{
         errno::errno,
         fcntl::{fcntl, readlink, FcntlArg, OFlag},
@@ -145,11 +147,15 @@ pub mod task_inner {
         },
         unistd::getuid,
     };
+
+    use crate::seccomp_bpf::SeccompFilter;
+    use core::mem;
     use std::{
         cell::RefCell,
         cmp::min,
-        ffi::{OsStr, OsString},
+        ffi::{CStr, CString, OsStr, OsString},
         mem::size_of,
+        os::unix::ffi::OsStrExt,
         ptr,
         ptr::copy_nonoverlapping,
         rc::Rc,
@@ -1222,9 +1228,12 @@ pub mod task_inner {
                 None,
                 SockFlag::SOCK_CLOEXEC,
             );
-            let sock: ScopedFd;
+            let sock = ScopedFd::new();
             match ret {
-                Result::Err(_) => fatal!("socketpair() failed"),
+                Result::Err(_) => {
+                    fatal!("socketpair() failed");
+                    unreachable!()
+                }
                 Result::Ok((fd0, fd1)) => {
                     *sock_fd_out.borrow_mut() = ScopedFd::from_raw(fd0);
                     let sock = ScopedFd::from_raw(fd1);
@@ -1277,11 +1286,63 @@ pub mod task_inner {
                         }
                     }
                 });
+
+            let mut tid: pid_t;
+            // After fork() in a multithreaded program, the child can safely call only
+            // async-signal-safe functions, and malloc is not one of them (breaks e.g.
+            // with tcmalloc).
+            // Doing the allocations before the fork duplicates the allocations, but
+            // prevents errors.
+            let argv_array = to_cstring_array(argv);
+            let envp_array = to_cstring_array(envp);
+            let filter: SeccompFilter<sock_filter> = create_seccomp_filter();
+            // @TODO This needs to be filled in.
+            let prog: sock_fprog = unsafe { mem::zeroed() };
+            loop {
+                tid = unsafe { fork() };
+                // fork() can fail with EAGAIN due to temporary load issues. In such
+                // cases, retry the fork().
+                if tid >= 0 || errno() != EAGAIN {
+                    break;
+                }
+            }
+
+            if 0 == tid {
+                run_initial_child(
+                    session,
+                    error_fd,
+                    &sock,
+                    fd_number,
+                    &CString::new(exe_path.as_bytes()).unwrap(),
+                    &to_cstr_array(&argv_array),
+                    &to_cstr_array(&envp_array),
+                    &prog,
+                );
+                // run_initial_child never returns
+            }
+
             unimplemented!();
         }
 
         pub(in super::super) fn preload_thread_locals(&self) -> &mut u8 {
             unimplemented!()
         }
+    }
+
+    fn run_initial_child(
+        session: &mut dyn Session,
+        error_fd: &ScopedFd,
+        sock_fd: &ScopedFd,
+        sock_fd_number: i32,
+        exe_path_cstr: &CStr,
+        argv_array: &[&CStr],
+        envp_array: &[&CStr],
+        seccomp_prog: &sock_fprog,
+    ) {
+        unimplemented!()
+    }
+
+    fn create_seccomp_filter() -> SeccompFilter<sock_filter> {
+        unimplemented!()
     }
 }

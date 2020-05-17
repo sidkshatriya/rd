@@ -48,6 +48,7 @@ mod remote_ptr;
 mod replay_syscall;
 mod scheduler;
 mod scoped_fd;
+mod seccomp_bpf;
 mod seccomp_filter_rewriter;
 mod session;
 mod task;
