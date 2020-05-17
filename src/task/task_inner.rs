@@ -107,20 +107,32 @@ pub mod task_inner {
             SupportedArch,
         },
         kernel_metadata::{errno_name, ptrace_req_name, syscall_name},
-        log::LogLevel::LogDebug,
+        log::LogLevel::{LogDebug, LogWarn},
         perf_counters::PerfCounters,
         rd::RD_RESERVED_SOCKET_FD,
         registers::Registers,
         remote_code_ptr::RemoteCodePtr,
         remote_ptr::{RemotePtr, Void},
         scoped_fd::ScopedFd,
-        session::{Session, SessionSharedPtr, SessionSharedWeakPtr},
+        session::{
+            session_inner::session_inner::SessionInner,
+            Session,
+            SessionSharedPtr,
+            SessionSharedWeakPtr,
+        },
         task::{Task, TaskSharedWeakPtr},
         taskish_uid::TaskUid,
         thread_group::{ThreadGroup, ThreadGroupSharedPtr},
         ticks::Ticks,
         trace::trace_stream::TraceStream,
-        util::{u8_raw_slice, u8_raw_slice_mut, TrappedInstruction},
+        util::{
+            choose_cpu,
+            set_cpu_affinity,
+            u8_raw_slice,
+            u8_raw_slice_mut,
+            BindCPU,
+            TrappedInstruction,
+        },
         wait_status::{MaybePtraceEvent, MaybeStopSignal, WaitStatus},
     };
     use libc::{__errno_location, pid_t, uid_t, EAGAIN, EBADF, ENOMEM, ENOSYS};
@@ -1234,7 +1246,38 @@ pub mod task_inner {
                 fd_number += 1;
             }
 
-            unimplemented!()
+            *tracee_socket_fd_number_out = fd_number;
+
+            let trace = session.trace_stream().unwrap();
+            let maybe_cpu_index = session.cpu_binding(trace);
+            let is_recording = session.is_recording();
+            maybe_cpu_index.map(|mut cpu_index| {
+                    // Set CPU affinity now, after we've created any helper threads
+                    // (so they aren't affected), but before we create any
+                    // tracees (so they are all affected).
+                    // Note that we're binding rr itself to the same CPU as the
+                    // tracees, since this seems to help performance.
+                    if !set_cpu_affinity(cpu_index) {
+                        if SessionInner::has_cpuid_faulting() && !is_recording {
+                            cpu_index = choose_cpu(BindCPU::RandomCPU).unwrap();
+                            if !set_cpu_affinity(cpu_index) {
+                                fatal!("Can't bind to requested CPU {} even after we re-selected it", cpu_index)
+                            }
+                            // DIFF NOTE: The logic is slightly different in rr.
+                            if cpu_index != maybe_cpu_index.unwrap() {
+                                log!(LogWarn,
+                                     "Bound to CPU {} instead of selected {} because the latter is not available;\n\
+                                Hoping tracee doesn't use LSL instruction!", cpu_index, maybe_cpu_index.unwrap());
+                            }
+
+                            let trace_mut = session.trace_stream_mut().unwrap();
+                            trace_mut.set_bound_cpu(Some(cpu_index));
+                        } else {
+                            fatal!("Can't bind to requested CPU {}, and CPUID faulting not available", cpu_index)
+                        }
+                    }
+                });
+            unimplemented!();
         }
 
         pub(in super::super) fn preload_thread_locals(&self) -> &mut u8 {

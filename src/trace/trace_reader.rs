@@ -691,8 +691,16 @@ impl TraceReader {
         let header = header_msg.get_root::<header::Reader>().unwrap();
         let bind_to_cpu = header.get_bind_to_cpu();
         debug_assert!(bind_to_cpu >= 0);
-        // DIFF NOTE: In rd the bound cpu is unsigned. In rr it is signed.
-        trace_stream.bind_to_cpu = bind_to_cpu as u32;
+        // DIFF NOTE: In rd the bound cpu is Option<u32>.
+        // In rr it is signed with -1 denoting unbound.
+        trace_stream.bind_to_cpu = if bind_to_cpu == -1 {
+            None
+        } else if bind_to_cpu >= 0 {
+            Some(bind_to_cpu as u32)
+        } else {
+            fatal!("Unexpected value of `{}` for bound cpu", bind_to_cpu);
+            unreachable!()
+        };
         let trace_uses_cpuid_faulting = header.get_has_cpuid_faulting();
         // @TODO Are we sure we an unwrap here?
         let cpuid_records_bytes = header.get_cpuid_records().unwrap();

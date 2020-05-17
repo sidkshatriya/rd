@@ -12,7 +12,7 @@ use crate::{
     util::read_env,
 };
 use serde::Serialize;
-use std::{ffi::CString, io, path::PathBuf};
+use std::{convert::TryInto, ffi::CString, io, path::PathBuf};
 
 pub struct TraceInfoCommand {
     trace_dir: Option<PathBuf>,
@@ -32,7 +32,7 @@ impl TraceInfoCommand {
 struct TraceHeader {
     uuid: [u8; 16],
     xcr0: u64,
-    bind_to_cpu: u32,
+    bind_to_cpu: i32,
     cpuid_faulting: bool,
     ticks_semantics: String,
     cpuid_records: Vec<[u32; 6]>,
@@ -93,7 +93,7 @@ impl RdCommand for TraceInfoCommand {
         let header = TraceHeader {
             uuid: uuid_bytes,
             xcr0,
-            bind_to_cpu,
+            bind_to_cpu: bind_to_cpu.map_or(-1, |c| c.try_into().unwrap()),
             cpuid_faulting,
             ticks_semantics,
             cpuid_records,

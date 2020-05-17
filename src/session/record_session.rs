@@ -6,7 +6,7 @@ use crate::{
     session::{session_inner::session_inner::SessionInner, Session},
     task::Task,
     thread_group::ThreadGroupSharedPtr,
-    trace::trace_writer::TraceWriter,
+    trace::{trace_stream::TraceStream, trace_writer::TraceWriter},
     util::{good_random, CPUIDData, CPUID_GETEXTENDEDFEATURES, CPUID_GETFEATURES, CPUID_GETXSAVE},
 };
 use std::ops::{Deref, DerefMut};
@@ -144,6 +144,12 @@ impl RecordSession {
     }
     pub fn use_syscall_buffer(&self) -> bool {
         self.use_syscall_buffer_
+    }
+    pub fn trace_stream(&self) -> Option<&TraceStream> {
+        Some(&self.trace_out)
+    }
+    pub fn trace_stream_mut(&mut self) -> Option<&mut TraceStream> {
+        Some(&mut self.trace_out)
     }
 }
 

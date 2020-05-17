@@ -377,4 +377,11 @@ impl Session for ReplaySession {
         }
         Session::cpu_binding(self, trace)
     }
+
+    fn trace_stream(&self) -> Option<&TraceStream> {
+        Some(&self.trace_in)
+    }
+    fn trace_stream_mut(&mut self) -> Option<&mut TraceStream> {
+        Some(&mut self.trace_in)
+    }
 }

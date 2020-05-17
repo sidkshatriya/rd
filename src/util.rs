@@ -29,6 +29,7 @@ use libc::{
     CLONE_SIGHAND,
     CLONE_THREAD,
     CLONE_VM,
+    EINVAL,
     STDERR_FILENO,
     S_IFDIR,
     S_IFREG,
@@ -36,6 +37,7 @@ use libc::{
 };
 use nix::{
     errno::errno,
+    sched::{sched_setaffinity, CpuSet},
     sys::{
         mman::{MapFlags, ProtFlags},
         stat::{stat, FileStat, Mode},
@@ -51,6 +53,7 @@ use nix::{
         sysconf,
         write,
         AccessFlags,
+        Pid,
         SysconfVar::PAGE_SIZE,
     },
     NixPath,
@@ -1050,8 +1053,10 @@ pub fn to_timeval(t: f64) -> timeval {
     timeval { tv_sec, tv_usec }
 }
 
-pub fn is_zombie_process(_pid: pid_t) -> bool {
-    unimplemented!()
+pub fn is_zombie_process(pid: pid_t) -> bool {
+    // If there was an error in reading /proc/{}/status then we assume that `pid` is a Zombie
+    let state = read_proc_status_fields(pid, &[b"State"]).unwrap_or(Vec::new());
+    return state.is_empty() || state[0].is_empty() || state[0].as_bytes()[0] == b'Z';
 }
 
 pub fn u8_raw_slice<D: Sized>(data: &D) -> *const [u8] {
@@ -1105,19 +1110,19 @@ pub fn trapped_instruction_at<T: Task>(t: &mut T, ip: RemoteCodePtr) -> TrappedI
 }
 
 pub enum BindCPU {
-    /// `BindCpu` means binding to a randomly chosen CPU.
-    BindCpu,
+    /// `RandomCPU` means binding to a randomly chosen CPU.
+    RandomCPU,
     /// `UnboundCpu` means not binding to a particular CPU.
-    UnboundCpu,
+    UnboundCPU,
     /// A non-negative value means binding to the specific CPU number.
-    BindToCpu(u32),
+    BindToCPU(u32),
 }
 
 /// Pick a CPU at random to bind to, unless --cpu-unbound has been given,
 /// in which case we return -1.
 pub fn choose_cpu(bind_cpu: BindCPU) -> Option<u32> {
     match bind_cpu {
-        BindCPU::UnboundCpu => None,
+        BindCPU::UnboundCPU => None,
         // Pin tracee tasks to a random logical CPU, both in
         // recording and replay.  Tracees can see which HW
         // thread they're running on by asking CPUID, and we
@@ -1132,8 +1137,8 @@ pub fn choose_cpu(bind_cpu: BindCPU) -> Option<u32> {
         // performance win in certain circumstances,
         // presumably due to cheaper context switching and/or
         // better interaction with CPU frequency scaling.
-        BindCPU::BindToCpu(num) => Some(num),
-        BindCPU::BindCpu => {
+        BindCPU::BindToCPU(num) => Some(num),
+        BindCPU::RandomCPU => {
             let maybe_cpu = get_random_cpu_cgroup();
             match maybe_cpu {
                 Ok(cpu) => Some(cpu),
@@ -1299,12 +1304,12 @@ pub fn get_random_cpu_cgroup() -> io::Result<u32> {
 /// If you are specifying multiple strings to match, they must all appear one after another
 /// in `/proc/{}/status`. This is like the behavior in rr.
 /// See below: The matches are cycled in the outer loop. This approach should be revisited later.
-pub fn read_proc_status_fields(tid: pid_t, matches_in: &[&[u8]]) -> io::Result<Vec<OsString>> {
+pub fn read_proc_status_fields(tid: pid_t, matches_for: &[&[u8]]) -> io::Result<Vec<OsString>> {
     let f = File::open(format!("/proc/{}/status", tid))?;
     let mut buf = BufReader::new(f);
     // Add `:`
     let mut matches = Vec::<Vec<u8>>::new();
-    for &m in matches_in {
+    for &m in matches_for {
         let mut mat = Vec::from(m);
         mat.push(b':');
         matches.push(mat);
@@ -1335,4 +1340,17 @@ pub fn read_proc_status_fields(tid: pid_t, matches_in: &[&[u8]]) -> io::Result<V
     }
 
     Ok(result)
+}
+
+// Returns true if we succeeded, false if we failed because the
+// requested CPU does not exist/is not available.
+pub fn set_cpu_affinity(cpu: u32) -> bool {
+    let mask = CpuSet::new();
+    if sched_setaffinity(Pid::from_raw(0), &mask).is_err() {
+        if errno() == EINVAL {
+            return false;
+        }
+        fatal!("Couldn't bind to CPU `{}`", cpu);
+    }
+    true
 }

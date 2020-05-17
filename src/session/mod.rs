@@ -83,8 +83,11 @@ pub trait Session: DerefMut<Target = SessionInner> {
     fn trace_stream(&self) -> Option<&TraceStream> {
         None
     }
+    fn trace_stream_mut(&mut self) -> Option<&mut TraceStream> {
+        None
+    }
     fn cpu_binding(&self, trace: &TraceStream) -> Option<u32> {
-        Some(trace.bound_to_cpu())
+        trace.bound_to_cpu()
     }
 
     fn on_create(&mut self, _t: Box<dyn Task>) {
