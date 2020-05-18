@@ -86,7 +86,7 @@ pub mod session_inner {
         ticks::Ticks,
     };
     use libc::pid_t;
-    use std::{cell::RefCell, collections::HashMap, rc::Rc};
+    use std::{cell::RefCell, collections::HashMap, ffi::OsString, rc::Rc};
 
     /// AddressSpaces and ThreadGroups are indexed by their first task's TaskUid
     /// (effectively), so that if the first task dies and its tid is recycled,
@@ -227,7 +227,7 @@ pub mod session_inner {
             self.statistics_
         }
 
-        pub fn read_spawned_task_error(&self) -> String {
+        pub fn read_spawned_task_error(&self) -> OsString {
             unimplemented!()
         }
 

@@ -95,8 +95,17 @@ pub mod task_inner {
                 PTRACE_EVENT_FORK,
                 PTRACE_EVENT_VFORK,
                 PTRACE_GETEVENTMSG,
+                PTRACE_O_EXITKILL,
+                PTRACE_O_TRACECLONE,
+                PTRACE_O_TRACEEXEC,
+                PTRACE_O_TRACEEXIT,
+                PTRACE_O_TRACEFORK,
+                PTRACE_O_TRACESECCOMP,
+                PTRACE_O_TRACESYSGOOD,
+                PTRACE_O_TRACEVFORK,
                 PTRACE_PEEKDATA,
                 PTRACE_POKEDATA,
+                PTRACE_SEIZE,
             },
             signal::siginfo_t,
         },
@@ -137,7 +146,18 @@ pub mod task_inner {
         },
         wait_status::{MaybePtraceEvent, MaybeStopSignal, WaitStatus},
     };
-    use libc::{__errno_location, fork, pid_t, uid_t, EAGAIN, EBADF, ENOMEM, ENOSYS};
+    use libc::{
+        __errno_location,
+        fork,
+        pid_t,
+        uid_t,
+        EAGAIN,
+        EBADF,
+        EINVAL,
+        ENOMEM,
+        ENOSYS,
+        EPERM,
+    };
     use nix::{
         errno::errno,
         fcntl::{fcntl, readlink, FcntlArg, OFlag},
@@ -148,8 +168,12 @@ pub mod task_inner {
         unistd::getuid,
     };
 
-    use crate::seccomp_bpf::SeccompFilter;
+    use crate::{flags::Flags, seccomp_bpf::SeccompFilter};
     use core::mem;
+    use nix::{
+        sys::signal::{kill, Signal},
+        unistd::Pid,
+    };
     use std::{
         cell::RefCell,
         cmp::min,
@@ -1321,6 +1345,47 @@ pub mod task_inner {
                 // run_initial_child never returns
             }
 
+            if 0 > tid {
+                fatal!("Failed to fork");
+            }
+
+            // Sync with the child process.
+            // We minimize the code we run between fork()ing and PTRACE_SEIZE, because
+            // any abnormal exit of the rr process will leave the child paused and
+            // parented by the init process, i.e. effectively leaked. After PTRACE_SEIZE
+            // with PTRACE_O_EXITKILL, the tracee will die if rr dies.
+            let mut options = PTRACE_O_TRACESYSGOOD | PTRACE_O_TRACEFORK | PTRACE_O_TRACECLONE;
+            if !Flags::get().disable_ptrace_exit_events {
+                options |= PTRACE_O_TRACEEXIT;
+            }
+            if session.is_recording() {
+                options |= PTRACE_O_TRACEVFORK | PTRACE_O_TRACESECCOMP | PTRACE_O_TRACEEXEC;
+            }
+
+            let mut res = unsafe { ptrace(PTRACE_SEIZE, tid, 0, options | PTRACE_O_EXITKILL) };
+            if res < 0 && errno() == EINVAL {
+                // PTRACE_O_EXITKILL was added in kernel 3.8, and we only need
+                // it for more robust cleanup, so tolerate not having it.
+                res = unsafe { ptrace(PTRACE_SEIZE, tid, 0, options) };
+            }
+            if res != 0 {
+                // Note that although the tracee may have died due to some fatal error,
+                // we haven't reaped its exit code so there's no danger of killing
+                // (or PTRACE_SEIZEing) the wrong process.
+                let tmp_errno = errno();
+                // @TODO: Might want to do a proper unwrap after the kill invocation?
+                kill(Pid::from_raw(tid), Signal::SIGKILL).unwrap_or(());
+                unsafe { *__errno_location() = tmp_errno };
+
+                let mut hint = String::new();
+                if errno() == EPERM {
+                    hint = format!(
+                        "; child probably died before reaching SIGSTOP\nChild's message: {:?}",
+                        session.read_spawned_task_error()
+                    );
+                }
+                fatal!("PTRACE_SEIZE failed for tid `{}`{}", tid, hint);
+            }
             unimplemented!();
         }
 
@@ -1345,4 +1410,8 @@ pub mod task_inner {
     fn create_seccomp_filter() -> SeccompFilter<sock_filter> {
         unimplemented!()
     }
+
+    // This function doesn't really need to do anything. The signal will cause
+    // waitpid to return EINTR and that's all we need.
+    fn handle_alarm_signal(sig: i32) {}
 }
