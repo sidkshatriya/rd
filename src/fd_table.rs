@@ -5,8 +5,9 @@ use crate::{
     kernel_abi::common::preload_interface::{preload_globals, SYSCALLBUF_FDS_DISABLED_SIZE},
     log::LogLevel::LogDebug,
     remote_ptr::RemotePtr,
+    session::Session,
     task::{record_task::record_task::RecordTask, replay_task::ReplayTask, Task},
-    weak_ptr_set::WeakPtrSet,
+    taskish_uid::TaskUid,
 };
 use nix::sys::stat::lstat;
 use std::{
@@ -21,14 +22,14 @@ pub type FdTableSharedWeakPtr = Weak<RefCell<FdTable>>;
 
 #[derive(Clone)]
 pub struct FdTable {
-    tasks: WeakPtrSet<Box<dyn Task>>,
+    tasks: HashSet<TaskUid>,
     fds: HashMap<i32, FileMonitorSharedPtr>,
     /// Number of elements of `fds` that are >= SYSCALLBUF_FDS_DISABLED_SIZE
     fd_count_beyond_limit: u32,
 }
 
 impl Deref for FdTable {
-    type Target = WeakPtrSet<Box<dyn Task>>;
+    type Target = HashSet<TaskUid>;
 
     fn deref(&self) -> &Self::Target {
         &self.tasks
@@ -37,7 +38,13 @@ impl Deref for FdTable {
 
 /// We DO NOT want Copy or Clone traits
 impl FdTable {
-    pub fn add_monitor(&mut self, t: &dyn Task, fd: i32, monitor: FileMonitorSharedPtr) {
+    pub fn add_monitor(
+        &mut self,
+        session: &mut dyn Session,
+        t: &dyn Task,
+        fd: i32,
+        monitor: FileMonitorSharedPtr,
+    ) {
         // In the future we could support multiple monitors on an fd, but we don't
         // need to yet.
         ed_assert!(
@@ -52,7 +59,7 @@ impl FdTable {
         }
 
         self.fds.insert(fd, monitor);
-        self.update_syscallbuf_fds_disabled(fd);
+        self.update_syscallbuf_fds_disabled(session, fd);
     }
     pub fn emulate_ioctl(&self, fd: i32, t: &RecordTask, result: &mut u64) -> bool {
         match self.fds.get(&fd) {
@@ -104,7 +111,7 @@ impl FdTable {
             None => (),
         }
     }
-    pub fn did_dup(&mut self, from: i32, to: i32) {
+    pub fn did_dup(&mut self, session: &mut dyn Session, from: i32, to: i32) {
         if self.fds.contains_key(&from) {
             if to >= SYSCALLBUF_FDS_DISABLED_SIZE && !self.fds.contains_key(&to) {
                 self.fd_count_beyond_limit += 1;
@@ -116,37 +123,37 @@ impl FdTable {
             }
             self.fds.remove(&to);
         }
-        self.update_syscallbuf_fds_disabled(to);
+        self.update_syscallbuf_fds_disabled(session, to);
     }
-    pub fn did_close(&mut self, fd: i32) {
+    pub fn did_close(&mut self, session: &mut dyn Session, fd: i32) {
         log!(LogDebug, "Close fd {}", fd);
         if fd >= SYSCALLBUF_FDS_DISABLED_SIZE && self.fds.contains_key(&fd) {
             self.fd_count_beyond_limit -= 1;
         }
         self.fds.remove(&fd);
-        self.update_syscallbuf_fds_disabled(fd);
+        self.update_syscallbuf_fds_disabled(session, fd);
     }
 
     /// Method is called clone() in rr
-    pub fn clone_into_task(&self, t: &mut dyn Task) -> FdTableSharedPtr {
+    pub fn clone_into_task(&self, t: TaskUid) -> FdTableSharedPtr {
         let mut file_mon = FdTable {
-            tasks: WeakPtrSet::new(),
+            tasks: HashSet::new(),
             fds: self.fds.clone(),
             fd_count_beyond_limit: self.fd_count_beyond_limit,
         };
 
-        file_mon.tasks.insert(t.weak_self_ptr());
+        file_mon.tasks.insert(t);
         Rc::new(RefCell::new(file_mon))
     }
 
-    pub fn create(&self, t: &dyn Task) -> FdTableSharedPtr {
+    pub fn create(t: TaskUid) -> FdTableSharedPtr {
         let mut file_mon = FdTable {
-            tasks: WeakPtrSet::new(),
+            tasks: HashSet::new(),
             fds: Default::default(),
             fd_count_beyond_limit: 0,
         };
 
-        file_mon.tasks.insert(t.weak_self_ptr());
+        file_mon.tasks.insert(t);
         Rc::new(RefCell::new(file_mon))
     }
 
@@ -170,7 +177,7 @@ impl FdTable {
 
         let rt = t.as_record_task_mut().unwrap();
 
-        ed_assert!(&rt, self.has(rt.weak_self_ptr()));
+        ed_assert!(rt, self.contains(&rt.tuid()));
 
         let preload_globals = match rt.preload_globals {
             None => return,
@@ -205,8 +212,12 @@ impl FdTable {
     /// scan /proc/<pid>/fd during recording and note any monitored fds that have
     /// been closed.
     /// This also updates our table to match reality.
-    pub fn fds_to_close_after_exec(&mut self, t: &RecordTask) -> Vec<i32> {
-        ed_assert!(t, self.has(t.weak_self_ptr()));
+    pub fn fds_to_close_after_exec(
+        &mut self,
+        session: &mut dyn Session,
+        t: &RecordTask,
+    ) -> Vec<i32> {
+        ed_assert!(t, self.contains(&t.tuid()));
 
         let mut fds_to_close: Vec<i32> = Vec::new();
         for &fd in self.fds.keys() {
@@ -215,18 +226,23 @@ impl FdTable {
             }
         }
         for &fd in &fds_to_close {
-            self.did_close(fd);
+            self.did_close(session, fd);
         }
 
         fds_to_close
     }
 
     /// Close fds in list after an exec.
-    pub fn close_after_exec(&mut self, t: &ReplayTask, fds_to_close: &[i32]) {
-        ed_assert!(t, self.has(t.weak_self_ptr()));
+    pub fn close_after_exec(
+        &mut self,
+        session: &mut dyn Session,
+        t: &ReplayTask,
+        fds_to_close: &[i32],
+    ) {
+        ed_assert!(t, self.contains(&t.tuid()));
 
         for &fd in fds_to_close {
-            self.did_close(fd)
+            self.did_close(session, fd)
         }
     }
 
@@ -238,20 +254,21 @@ impl FdTable {
         }
     }
 
-    fn update_syscallbuf_fds_disabled(&self, mut fd: i32) {
+    fn update_syscallbuf_fds_disabled(&self, session: &mut dyn Session, mut fd: i32) {
         debug_assert!(fd >= 0);
-        debug_assert!(!self.inner_hashset().is_empty());
+        debug_assert!(!self.tasks.is_empty());
 
         let mut vms_updated: HashSet<*const AddressSpace> = HashSet::new();
+        // Assuming that session recording status is the same as the recording status of any
+        // of the tasks
+        if !session.is_recording() {
+            return;
+        }
         // It's possible for tasks with different VMs to share this fd table.
         // But tasks with the same VM might have different fd tables...
-        for t in self.iter() {
-            if !t.borrow().session().borrow().is_recording() {
-                return;
-            }
-
-            let mut t_ref_task = t.borrow_mut();
-            let rt: &mut RecordTask = t_ref_task.as_record_task_mut().unwrap();
+        for tuid in self.iter() {
+            let t = session.find_task_from_task_uid_mut(*tuid).unwrap();
+            let rt: &mut RecordTask = t.as_record_task_mut().unwrap();
 
             let vm_addr = rt.vm_as_ptr();
             if !vms_updated.contains(&vm_addr) {

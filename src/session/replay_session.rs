@@ -9,12 +9,13 @@ use crate::{
     remote_code_ptr::RemoteCodePtr,
     scoped_fd::ScopedFd,
     session::{
-        diversion_session::DiversionSessionSharedPtr,
+        diversion_session::DiversionSession,
         replay_session::ReplayTraceStepType::TstepNone,
         session_inner::{session_inner::SessionInner, BreakStatus, RunCommand},
         Session,
     },
     task::{task_inner::task_inner::TaskInner, Task},
+    taskish_uid::TaskUid,
     ticks::Ticks,
     trace::{
         trace_frame::{FrameTime, TraceFrame},
@@ -217,7 +218,7 @@ impl ReplaySession {
 
     /// Like `clone()`, but return a session in "diversion" mode,
     /// which allows free execution.
-    pub fn clone_diversion(&self) -> DiversionSessionSharedPtr {
+    pub fn clone_diversion(&self) -> DiversionSession {
         unimplemented!()
     }
 
@@ -248,7 +249,7 @@ impl ReplaySession {
     }
 
     /// The Task for the current trace record.
-    pub fn current_task(&mut self) -> Option<Ref<'_, Box<dyn Task>>> {
+    pub fn current_task(&mut self) -> Option<&dyn Task> {
         self.finish_initializing();
         let found = self.find_task_from_rec_tid(self.trace_frame.tid());
         found
@@ -257,12 +258,12 @@ impl ReplaySession {
         found
     }
 
-    pub fn current_task_mut(&mut self) -> Option<RefMut<'_, Box<dyn Task>>> {
+    pub fn current_task_mut(&mut self) -> Option<&mut dyn Task> {
         self.finish_initializing();
-        let mut found = self.find_task_from_rec_tid_mut(self.trace_frame.tid());
+        let found = self.find_task_from_rec_tid_mut(self.trace_frame.tid());
         found
-            .as_mut()
-            .map(|r| debug_assert!(r.as_replay_task_mut().is_some()));
+            .as_ref()
+            .map(|r| debug_assert!(r.as_replay_task().is_some()));
         found
     }
 
@@ -285,7 +286,7 @@ impl ReplaySession {
 
     /// Create a replay session that will use the trace directory specified
     /// by 'dir', or the latest trace if 'dir' is not supplied.
-    pub fn create<T: AsRef<OsStr>>(dir: Option<&T>, flags: &Flags) -> ReplaySessionSharedPtr {
+    pub fn create<T: AsRef<OsStr>>(dir: Option<&T>, flags: &Flags) -> ReplaySession {
         let mut session: ReplaySession = ReplaySession::new(dir, flags);
 
         // It doesn't really matter what we use for argv/env here, since
@@ -312,8 +313,7 @@ impl ReplaySession {
         );
         session.tracee_socket_fd_number = tracee_socket_fd_number;
         session.on_create(t);
-
-        Rc::new(RefCell::new(session))
+        session
     }
 
     /// Take a single replay step.
@@ -367,7 +367,7 @@ impl Session for ReplaySession {
         Some(self)
     }
 
-    fn new_task(&self, _tid: i32, _rec_tid: i32, _serial: u32, _a: SupportedArch) -> &mut dyn Task {
+    fn new_task(&mut self, _tid: i32, _rec_tid: i32, _serial: u32, _a: SupportedArch) -> TaskUid {
         unimplemented!()
     }
 
