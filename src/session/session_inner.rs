@@ -80,8 +80,8 @@ pub mod session_inner {
         remote_ptr::{RemotePtr, Void},
         scoped_fd::ScopedFd,
         session::SessionSharedWeakPtr,
-        task::{task_inner::task_inner::CapturedState, Task, TaskSharedWeakPtr},
-        taskish_uid::{AddressSpaceUid, TaskUid, ThreadGroupUid},
+        task::{task_inner::task_inner::CapturedState, Task, TaskSharedPtr, TaskSharedWeakPtr},
+        taskish_uid::{AddressSpaceUid, ThreadGroupUid},
         thread_group::{ThreadGroup, ThreadGroupSharedPtr, ThreadGroupSharedWeakPtr},
         ticks::Ticks,
     };
@@ -93,7 +93,7 @@ pub mod session_inner {
     /// we don't get confused. TaskMap is indexed by tid since there can never be
     /// two Tasks with the same tid at the same time.
     pub type AddressSpaceMap = HashMap<AddressSpaceUid, AddressSpaceSharedWeakPtr>;
-    pub type TaskMap = HashMap<pid_t, Box<dyn Task>>;
+    pub type TaskMap = HashMap<pid_t, TaskSharedPtr>;
     pub type ThreadGroupMap = HashMap<ThreadGroupUid, ThreadGroupSharedWeakPtr>;
 
     #[derive(Copy, Clone)]
@@ -143,7 +143,7 @@ pub mod session_inner {
         /// If `exec_count` is not specified it is assumed to be 0.
         pub fn create_vm(
             &mut self,
-            _t: TaskUid,
+            _t: &dyn Task,
             _exe: Option<&str>,
             _exec_count: Option<u32>,
         ) -> AddressSpaceSharedPtr {
@@ -163,7 +163,7 @@ pub mod session_inner {
         }
 
         /// Create the initial thread group.
-        pub fn create_initial_tg(&self, _t: TaskUid) -> ThreadGroupSharedPtr {
+        pub fn create_initial_tg(&mut self, _t: &dyn Task) -> ThreadGroupSharedPtr {
             unimplemented!()
         }
 

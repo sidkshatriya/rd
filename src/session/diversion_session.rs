@@ -4,7 +4,7 @@ use crate::{
         session_inner::{session_inner::SessionInner, BreakStatus, RunCommand},
         Session,
     },
-    taskish_uid::TaskUid,
+    task::Task,
 };
 use std::{
     cell::{Ref, RefCell, RefMut},
@@ -65,7 +65,7 @@ impl DiversionSession {
     /// Try make progress in this diversion session. Run task t if possible.
     pub fn diversion_step(
         &self,
-        _t: TaskUid,
+        _t: &mut dyn Task,
         _command: Option<RunCommand>,
         _signal_to_deliver: Option<i32>,
     ) -> DiversionResult {

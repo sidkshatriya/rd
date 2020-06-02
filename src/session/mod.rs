@@ -16,7 +16,7 @@ use crate::{
 };
 use libc::pid_t;
 use std::{
-    cell::RefCell,
+    cell::{Ref, RefCell, RefMut},
     ops::DerefMut,
     rc::{Rc, Weak},
 };
@@ -58,7 +58,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
         None
     }
 
-    /// Avoid using these boolean methods. Use the `as_*` methods that return Option<> instead.
+    /// Avoid using this boolean methods. Use the `as_*` methods that return Option<> instead.
     fn is_recording(&self) -> bool {
         self.as_record().is_some()
     }
@@ -71,12 +71,12 @@ pub trait Session: DerefMut<Target = SessionInner> {
 
     /// @TODO Is the return type what we want?
     fn new_task(
-        &mut self,
+        &self,
         _tid: pid_t,
         _rec_tid: pid_t,
         _serial: u32,
         _a: SupportedArch,
-    ) -> TaskUid {
+    ) -> &mut dyn Task {
         unimplemented!()
     }
 
@@ -123,26 +123,20 @@ pub trait Session: DerefMut<Target = SessionInner> {
     /// Return the task created with `rec_tid`, or None if no such
     /// task exists.
     /// NOTE: Method is simply called Session::find task() in rr
-    fn find_task_from_rec_tid(&mut self, rec_tid: pid_t) -> Option<&dyn Task> {
+    fn find_task_from_rec_tid(&mut self, rec_tid: pid_t) -> Option<Ref<'_, Box<dyn Task>>> {
         self.finish_initializing();
-        match self.tasks().get(&rec_tid) {
-            None => None,
-            Some(res) => Some(res.as_ref()),
-        }
+        self.tasks().get(&rec_tid).map(|t| t.borrow())
     }
-    fn find_task_from_rec_tid_mut(&mut self, rec_tid: pid_t) -> Option<&mut dyn Task> {
+    fn find_task_from_rec_tid_mut(&mut self, rec_tid: pid_t) -> Option<RefMut<'_, Box<dyn Task>>> {
         self.finish_initializing();
-        match self.tasks_mut().get_mut(&rec_tid) {
-            None => None,
-            Some(res) => Some(res.as_mut()),
-        }
+        self.tasks().get(&rec_tid).map(|t| t.borrow_mut())
     }
 
     /// NOTE: Method is simply called Session::find task() in rr
-    fn find_task_from_task_uid(&mut self, tuid: TaskUid) -> Option<&dyn Task> {
+    fn find_task_from_task_uid(&mut self, tuid: TaskUid) -> Option<Ref<'_, Box<dyn Task>>> {
         self.find_task_from_rec_tid(tuid.tid())
     }
-    fn find_task_from_task_uid_mut(&mut self, tuid: TaskUid) -> Option<&mut dyn Task> {
+    fn find_task_from_task_uid_mut(&mut self, tuid: TaskUid) -> Option<RefMut<'_, Box<dyn Task>>> {
         self.find_task_from_rec_tid_mut(tuid.tid())
     }
 
@@ -189,12 +183,6 @@ pub trait Session: DerefMut<Target = SessionInner> {
     fn tasks(&mut self) -> &TaskMap {
         self.finish_initializing();
         &self.as_session_inner().task_map
-    }
-
-    /// Return the set of Tasks being traced in this session.
-    fn tasks_mut(&mut self) -> &mut TaskMap {
-        self.finish_initializing();
-        &mut self.as_session_inner_mut().task_map
     }
 
     fn thread_group_map(&self) -> &ThreadGroupMap {

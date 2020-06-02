@@ -168,12 +168,7 @@ pub mod task_inner {
         unistd::getuid,
     };
 
-    use crate::{
-        fd_table::FdTable,
-        flags::Flags,
-        kernel_abi::RD_NATIVE_ARCH,
-        seccomp_bpf::SeccompFilter,
-    };
+    use crate::{flags::Flags, seccomp_bpf::SeccompFilter};
     use core::mem;
     use nix::{
         sys::signal::{kill, Signal},
@@ -1308,7 +1303,8 @@ pub mod task_inner {
                                 Hoping tracee doesn't use LSL instruction!", cpu_index, maybe_cpu_index.unwrap());
                             }
 
-                            session.trace_stream_mut().unwrap().set_bound_cpu(Some(cpu_index));
+                            let trace_mut = session.trace_stream_mut().unwrap();
+                            trace_mut.set_bound_cpu(Some(cpu_index));
                         } else {
                             fatal!("Can't bind to requested CPU {}, and CPUID faulting not available", cpu_index)
                         }
@@ -1390,13 +1386,6 @@ pub mod task_inner {
                 }
                 fatal!("PTRACE_SEIZE failed for tid `{}`{}", tid, hint);
             }
-
-            let next_task_serial = session.next_task_serial();
-            let t = session.new_task(tid, rec_tid, next_task_serial, RD_NATIVE_ARCH);
-            let tg_shr_ptr = session.create_initial_tg(t);
-            let addr_space_shr_ptr = session.create_vm(t, None, None);
-            let fd_shr_ptr = FdTable::create(t);
-            // @TODO Add these shr_ptr to their respective member variables.
             unimplemented!();
         }
 
@@ -1424,5 +1413,5 @@ pub mod task_inner {
 
     // This function doesn't really need to do anything. The signal will cause
     // waitpid to return EINTR and that's all we need.
-    fn handle_alarm_signal(_sig: i32) {}
+    fn handle_alarm_signal(sig: i32) {}
 }
