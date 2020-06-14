@@ -982,7 +982,7 @@ impl PerfCounters {
             }
         }
 
-        let skid_size = if t.session().borrow().is_recording() {
+        let skid_size = if t.session().is_recording() {
             Self::recording_skid_size() as u64
         } else {
             Self::skid_size() as u64

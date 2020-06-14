@@ -781,7 +781,7 @@ impl TraceWriter {
         true
     }
     fn try_clone_file(&self, t: &RecordTask, file_name: &OsStr, new_name: &mut OsString) -> bool {
-        if !t.session().borrow().as_record().unwrap().use_file_cloning() {
+        if !t.session().as_record().unwrap().use_file_cloning() {
             return false;
         }
 

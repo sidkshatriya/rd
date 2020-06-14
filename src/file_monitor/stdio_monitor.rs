@@ -38,7 +38,7 @@ impl FileMonitor for StdioMonitor {
     /// "[rr <pid> <global-time>]".  This allows users to more easily correlate
     /// stdio with trace event numbers.
     fn will_write(&self, t: &dyn Task) -> Switchable {
-        if Flags::get().mark_stdio && t.session().borrow().visible_execution() {
+        if Flags::get().mark_stdio && t.session().visible_execution() {
             let prefix = format!("[rr {} {}]", t.tgid(), t.trace_time());
             let result = write(self.original_fd, prefix.as_bytes());
             if result.is_err() || result.unwrap() != prefix.len() {
@@ -52,8 +52,8 @@ impl FileMonitor for StdioMonitor {
     /// During replay, echo writes to stdout/stderr.
     fn did_write<'b, 'a: 'b>(&mut self, ranges: &[Range], l: &mut LazyOffset<'b, 'a>) {
         let session_rc = l.t.session();
-        let session_ref = session_rc.borrow();
-        let maybe_rs = session_ref.as_replay();
+
+        let maybe_rs = session_rc.as_replay();
         if maybe_rs.is_none() {
             return;
         }

@@ -24,7 +24,7 @@ pub struct MmappedFileMonitor {
 
 impl MmappedFileMonitor {
     pub fn new(t: &dyn Task, fd: i32) -> MmappedFileMonitor {
-        ed_assert!(t, !t.session().borrow().is_replaying());
+        ed_assert!(t, !t.session().is_replaying());
         let stat = t.stat_fd(fd);
         MmappedFileMonitor {
             dead_: false,
@@ -34,7 +34,7 @@ impl MmappedFileMonitor {
     }
 
     pub fn new_from_emufile(t: &dyn Task, f: EmuFileSharedPtr) -> MmappedFileMonitor {
-        ed_assert!(t, !t.session().borrow().is_replaying());
+        ed_assert!(t, !t.session().is_replaying());
         MmappedFileMonitor {
             dead_: false,
             device_: f.borrow().device(),
@@ -73,8 +73,8 @@ impl FileMonitor for MmappedFileMonitor {
         // DIFF NOTE: This is signed in rr. We make this unsigned.
         let mut realized_offset: u64 = 0;
 
-        let is_replay = offset.t.session().borrow().is_replaying();
-        for v in offset.t.session().borrow().vms() {
+        let is_replay = offset.t.session().is_replaying();
+        for v in offset.t.session().vms() {
             for (_, m) in v.maps() {
                 let km: &KernelMapping = &m.map;
 

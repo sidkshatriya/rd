@@ -16,7 +16,7 @@ use crate::{
 };
 use libc::pid_t;
 use std::{
-    cell::{Ref, RefCell, RefMut},
+    cell::{Ref, RefMut},
     ops::DerefMut,
     rc::{Rc, Weak},
 };
@@ -26,8 +26,11 @@ pub mod record_session;
 pub mod replay_session;
 pub mod session_inner;
 
-pub type SessionSharedPtr = Rc<RefCell<Box<dyn Session>>>;
-pub type SessionSharedWeakPtr = Weak<RefCell<Box<dyn Session>>>;
+/// Note that this is NOT Rc<RefCell<Box<dyn Session>>>
+/// Session will be shared.
+/// Individual parts of the session can be wrapped in RefCell<> as required
+pub type SessionSharedPtr = Rc<Box<dyn Session>>;
+pub type SessionSharedWeakPtr = Weak<Box<dyn Session>>;
 
 pub trait Session: DerefMut<Target = SessionInner> {
     fn as_session_inner(&self) -> &SessionInner;
@@ -40,14 +43,11 @@ pub trait Session: DerefMut<Target = SessionInner> {
     fn as_record(&self) -> Option<&RecordSession> {
         None
     }
-    fn as_record_mut(&mut self) -> Option<&mut RecordSession> {
+    fn as_record_mut(&self) -> Option<&mut RecordSession> {
         None
     }
 
     fn as_replay(&self) -> Option<&ReplaySession> {
-        None
-    }
-    fn as_replay_mut(&mut self) -> Option<&mut ReplaySession> {
         None
     }
 
@@ -80,10 +80,10 @@ pub trait Session: DerefMut<Target = SessionInner> {
         unimplemented!()
     }
 
-    fn trace_stream(&self) -> Option<&TraceStream> {
+    fn trace_stream(&self) -> Option<Ref<'_, TraceStream>> {
         None
     }
-    fn trace_stream_mut(&mut self) -> Option<&mut TraceStream> {
+    fn trace_stream_mut(&self) -> Option<RefMut<'_, TraceStream>> {
         None
     }
     fn cpu_binding(&self, trace: &TraceStream) -> Option<u32> {
@@ -101,14 +101,14 @@ pub trait Session: DerefMut<Target = SessionInner> {
 
     /// Call this before doing anything that requires access to the full set
     /// of tasks (i.e., almost anything!).
-    fn finish_initializing(&mut self) {
+    fn finish_initializing(&self) {
         unimplemented!()
     }
 
     /// See Task::clone().
     /// This method is simply called Session::clone in rr.
     fn clone_task(
-        &mut self,
+        &self,
         _p: &dyn Task,
         _flags: CloneFlags,
         _stack: Option<RemotePtr<Void>>,
@@ -123,20 +123,20 @@ pub trait Session: DerefMut<Target = SessionInner> {
     /// Return the task created with `rec_tid`, or None if no such
     /// task exists.
     /// NOTE: Method is simply called Session::find task() in rr
-    fn find_task_from_rec_tid(&mut self, rec_tid: pid_t) -> Option<Ref<'_, Box<dyn Task>>> {
+    fn find_task_from_rec_tid(&self, rec_tid: pid_t) -> Option<Ref<'_, Box<dyn Task>>> {
         self.finish_initializing();
         self.tasks().get(&rec_tid).map(|t| t.borrow())
     }
-    fn find_task_from_rec_tid_mut(&mut self, rec_tid: pid_t) -> Option<RefMut<'_, Box<dyn Task>>> {
+    fn find_task_from_rec_tid_mut(&self, rec_tid: pid_t) -> Option<RefMut<'_, Box<dyn Task>>> {
         self.finish_initializing();
         self.tasks().get(&rec_tid).map(|t| t.borrow_mut())
     }
 
     /// NOTE: Method is simply called Session::find task() in rr
-    fn find_task_from_task_uid(&mut self, tuid: TaskUid) -> Option<Ref<'_, Box<dyn Task>>> {
+    fn find_task_from_task_uid(&self, tuid: TaskUid) -> Option<Ref<'_, Box<dyn Task>>> {
         self.find_task_from_rec_tid(tuid.tid())
     }
-    fn find_task_from_task_uid_mut(&mut self, tuid: TaskUid) -> Option<RefMut<'_, Box<dyn Task>>> {
+    fn find_task_from_task_uid_mut(&self, tuid: TaskUid) -> Option<RefMut<'_, Box<dyn Task>>> {
         self.find_task_from_rec_tid_mut(tuid.tid())
     }
 
@@ -180,7 +180,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
 
     /// Return the set of Tasks being traced in this session.
     /// Shouldn't need for this to be mutable but it is due to finish_initializing()
-    fn tasks(&mut self) -> &TaskMap {
+    fn tasks(&self) -> &TaskMap {
         self.finish_initializing();
         &self.as_session_inner().task_map
     }

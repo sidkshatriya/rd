@@ -602,10 +602,9 @@ pub(super) fn did_waitpid<T: Task>(task: &mut T, mut status: WaitStatus) {
         if is_signal_triggered_by_ptrace_interrupt(status.maybe_group_stop_sig()) {
             // Assume this was PTRACE_INTERRUPT and thus treat this as
             // TIME_SLICE_SIGNAL instead.
-            if task.session().borrow().is_recording() {
+            if task.session().is_recording() {
                 // Force this timeslice to end
                 task.session()
-                    .borrow_mut()
                     .as_record_mut()
                     .unwrap()
                     .scheduler_mut()
@@ -686,9 +685,7 @@ pub(super) fn did_waitpid<T: Task>(task: &mut T, mut status: WaitStatus) {
     // We stop counting here because there may be things we want to do to the
     // tracee that would otherwise generate ticks.
     task.hpc.stop_counting();
-    task.session()
-        .borrow_mut()
-        .accumulate_ticks_processed(more_ticks);
+    task.session().accumulate_ticks_processed(more_ticks);
     task.ticks += more_ticks;
 
     if status.maybe_ptrace_event() == PTRACE_EVENT_EXIT {
@@ -866,7 +863,7 @@ pub(super) fn resume_execution<T: Task>(
     task.flush_regs();
 
     let mut wait_ret: pid_t = 0;
-    if task.session().borrow().is_recording() {
+    if task.session().is_recording() {
         // There's a nasty race where a stopped task gets woken up by a SIGKILL
         // and advances to the PTRACE_EXIT_EVENT ptrace-stop just before we
         // send a PTRACE_CONT. Our PTRACE_CONT will cause it to continue and exit,

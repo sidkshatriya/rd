@@ -128,11 +128,7 @@ impl ThreadGroup {
                 .children_
                 .insert(tg_weak.clone());
         }
-        session
-            .upgrade()
-            .unwrap()
-            .borrow_mut()
-            .on_create_tg(tg_weak);
+        session.upgrade().unwrap().on_create_tg(tg_weak);
         tg_shared
     }
 

@@ -20,18 +20,17 @@ impl FileMonitor for MagicSaveDataMonitor {
 
     fn did_write<'b, 'a: 'b>(&mut self, rv: &[Range], l: &mut LazyOffset<'b, 'a>) {
         for r in rv {
-            if l.t.session().borrow().is_recording() {
+            if l.t.session().is_recording() {
                 let rec_task = l.t.as_record_task().unwrap();
                 rec_task.record_remote(r.data, r.length);
-            } else if l.t.session().borrow().is_replaying() {
+            } else if l.t.session().is_replaying() {
                 let mut bytes: Vec<u8> = Vec::with_capacity(r.length);
                 bytes.resize(r.length, 0u8);
                 l.t.read_bytes_helper(r.data, &mut bytes, None);
                 let rep_task = l.t.as_replay_task().unwrap();
                 let rec = rep_task
                     .session()
-                    .borrow_mut()
-                    .as_replay_mut()
+                    .as_replay()
                     .unwrap()
                     .trace_reader_mut()
                     .read_raw_data();

@@ -185,7 +185,7 @@ pub mod session_inner {
             unimplemented!()
         }
         /// NOTE: Method is simply called on_Session::on_create() in rr.
-        pub fn on_create_tg(&mut self, _tg: ThreadGroupSharedWeakPtr) {
+        pub fn on_create_tg(&self, _tg: ThreadGroupSharedWeakPtr) {
             unimplemented!()
         }
         /// NOTE: Method is simply called on_Session::on_destroy() in rr.
@@ -214,17 +214,17 @@ pub mod session_inner {
         pub fn set_visible_execution(&mut self, visible: bool) {
             self.visible_execution_ = visible
         }
-        pub fn accumulate_bytes_written(&mut self, bytes_written: u64) {
-            self.statistics_.bytes_written += bytes_written
+        pub fn accumulate_bytes_written(&self, bytes_written: u64) {
+            self.statistics_.borrow_mut().bytes_written += bytes_written
         }
-        pub fn accumulate_syscall_performed(&mut self) {
-            self.statistics_.syscalls_performed += 1
+        pub fn accumulate_syscall_performed(&self) {
+            self.statistics_.borrow_mut().syscalls_performed += 1
         }
-        pub fn accumulate_ticks_processed(&mut self, ticks: Ticks) {
-            self.statistics_.ticks_processed += ticks;
+        pub fn accumulate_ticks_processed(&self, ticks: Ticks) {
+            self.statistics_.borrow_mut().ticks_processed += ticks;
         }
         pub fn statistics(&self) -> Statistics {
-            self.statistics_
+            *self.statistics_.borrow_mut()
         }
 
         pub fn read_spawned_task_error(&self) -> OsString {
@@ -326,7 +326,7 @@ pub mod session_inner {
         /// @TODO is a Box required here?
         pub(in super::super) clone_completion: Option<Box<CloneCompletion>>,
 
-        pub(in super::super) statistics_: Statistics,
+        pub(in super::super) statistics_: RefCell<Statistics>,
 
         pub(in super::super) tracee_socket: Rc<RefCell<ScopedFd>>,
         pub(in super::super) tracee_socket_fd_number: i32,

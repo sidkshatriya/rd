@@ -1224,9 +1224,7 @@ pub mod address_space {
             if !(flags.contains(WriteFlags::IS_BREAKPOINT_RELATED)) {
                 self.update_watchpoint_values(addr, addr + num_bytes);
             }
-            self.session()
-                .borrow_mut()
-                .accumulate_bytes_written(num_bytes as u64);
+            self.session().accumulate_bytes_written(num_bytes as u64);
         }
 
         /// Assumes any weak pointer can be upgraded but does not assume task_set is NOT empty.
@@ -1716,7 +1714,7 @@ pub mod address_space {
             for range in &self.dont_fork {
                 // During recording we execute MADV_DONTFORK so the forked child will
                 // have had its dontfork areas unmapped by the kernel already
-                if !t.session().borrow().is_recording() {
+                if !t.session().is_recording() {
                     let mut remote = AutoRemoteSyscalls::new(t);
                     let arch = remote.arch();
                     rd_infallible_syscall!(
@@ -1977,7 +1975,7 @@ pub mod address_space {
         /// Called after a successful execve to set up the new AddressSpace.
         /// Also called once for the initial spawn.
         fn new_after_execve(t: &mut dyn Task, exe: &OsStr, exec_count: u32) -> AddressSpace {
-            let patcher = if t.session().borrow().is_recording() {
+            let patcher = if t.session().is_recording() {
                 Some(MonkeyPatcher::new())
             } else {
                 None
@@ -2017,7 +2015,7 @@ pub mod address_space {
 
             // TODO: this is a workaround of
             // https://github.com/mozilla/rr/issues/1113 .
-            if addr_space.session().borrow().done_initial_exec() {
+            if addr_space.session().done_initial_exec() {
                 addr_space.populate_address_space(t);
                 debug_assert!(!addr_space.vdso_start_addr.is_null());
             } else {
@@ -2080,7 +2078,7 @@ pub mod address_space {
                 m.local_addr = None;
             }
 
-            if addr_space.session().as_ptr() != o.session().as_ptr() {
+            if !Rc::ptr_eq(&addr_space.session(), &o.session()) {
                 // Cloning into a new session means we're checkpointing.
                 addr_space.first_run_event_ = o.first_run_event_;
             }
@@ -2330,7 +2328,7 @@ pub mod address_space {
             }
             *self.mapping_flags_of_mut(Self::rd_page_start()) = MappingFlags::IS_RD_PAGE;
 
-            if child_path.task().session().borrow().is_recording() {
+            if child_path.task().session().is_recording() {
                 // brk() will not have been called yet so the brk area is empty.
                 self.brk_start =
                     (rd_infallible_syscall!(child_path, syscall_number_for_brk(arch), 0) as usize)
@@ -2738,19 +2736,14 @@ pub mod address_space {
                 "disabled"
             };
 
-            let tracer_syscallbuf_enabled = t
-                .session()
-                .borrow()
-                .as_record()
-                .unwrap()
-                .use_syscall_buffer();
+            let tracer_syscallbuf_enabled = t.session().as_record().unwrap().use_syscall_buffer();
             let tracer_syscallbuf_status = if tracer_syscallbuf_enabled {
                 "enabled"
             } else {
                 "disabled"
             };
 
-            if t.session().borrow().is_recording() {
+            if t.session().is_recording() {
                 ed_assert!(
                     t,
                     tracee_syscallbuf_enabled == tracer_syscallbuf_enabled,
@@ -2766,7 +2759,7 @@ pub mod address_space {
 
             self.syscallbuf_enabled_ = true;
 
-            if t.session().borrow().is_recording() {
+            if t.session().is_recording() {
                 self.monkeypatch_state
                     .as_ref()
                     .unwrap()
@@ -3065,7 +3058,7 @@ fn find_rd_page_file(t: &dyn Task) -> OsString {
         SupportedArch::X86 => path.extend_from_slice(b"32"),
         SupportedArch::X64 => path.extend_from_slice(b"64"),
     }
-    if !t.session().borrow().is_recording() {
+    if !t.session().is_recording() {
         path.extend_from_slice(b"_replay");
     }
 
@@ -3091,7 +3084,7 @@ fn read_all(t: &dyn Task, fd: &ScopedFd) -> Vec<u8> {
 
 /// Returns true if a task in t's task-group other than t is doing an exec.
 fn thread_group_in_exec(t: &dyn Task) -> bool {
-    if !t.session().borrow().is_recording() {
+    if !t.session().is_recording() {
         return false;
     }
     for tt in t.thread_group().borrow().iter() {

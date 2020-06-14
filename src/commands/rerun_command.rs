@@ -421,7 +421,7 @@ impl ReRunCommand {
             let singlestep_really_complete: bool;
             if cmd != RunCommand::RunContinue {
                 {
-                    let mut rp_mutb = replay_session.borrow_mut();
+                    let rp_mutb = replay_session.borrow_mut();
                     let old_task =
                         old_task_tuid.map(|id| rp_mutb.find_task_from_task_uid_mut(id).unwrap());
                     let after_ip: RemoteCodePtr = old_task.as_ref().map_or(0.into(), |t| t.ip());
@@ -484,7 +484,7 @@ impl ReRunCommand {
         task: &mut dyn Task,
     ) -> io::Result<()> {
         let diversion_session = replay.clone_diversion();
-        let mut diversion_ref = diversion_session.borrow_mut();
+        let diversion_ref = diversion_session.borrow_mut();
         let mut t = diversion_ref
             .find_task_from_task_uid_mut(task.tuid())
             .unwrap();

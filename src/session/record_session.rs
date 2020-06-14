@@ -9,7 +9,10 @@ use crate::{
     trace::{trace_stream::TraceStream, trace_writer::TraceWriter},
     util::{good_random, CPUIDData, CPUID_GETEXTENDEDFEATURES, CPUID_GETFEATURES, CPUID_GETXSAVE},
 };
-use std::ops::{Deref, DerefMut};
+use std::{
+    cell::{Ref, RefCell, RefMut},
+    ops::{Deref, DerefMut},
+};
 
 #[derive(Clone, Eq, PartialEq)]
 pub struct DisableCPUIDFeatures {
@@ -104,7 +107,7 @@ impl TraceUuid {
 pub struct RecordSession {
     session_inner: SessionInner,
     trace_out: TraceWriter,
-    scheduler_: Scheduler,
+    scheduler_: RefCell<Scheduler>,
     initial_thread_group: ThreadGroupSharedPtr,
     seccomp_filter_rewriter_: SeccompFilterRewriter,
     // DIFF NOTE: This is a unique_ptr in rr
@@ -129,11 +132,11 @@ pub struct RecordSession {
 }
 
 impl RecordSession {
-    pub fn scheduler(&self) -> &Scheduler {
-        &self.scheduler_
+    pub fn scheduler(&self) -> Ref<'_, Scheduler> {
+        self.scheduler_.borrow()
     }
-    pub fn scheduler_mut(&mut self) -> &mut Scheduler {
-        &mut self.scheduler_
+    pub fn scheduler_mut(&self) -> RefMut<'_, Scheduler> {
+        self.scheduler_.borrow_mut()
     }
 
     pub fn syscallbuf_desched_sig(&self) -> i32 {

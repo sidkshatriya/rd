@@ -74,7 +74,7 @@ impl<'b, 'a: 'b> LazyOffset<'b, 'a> {
     /// DIFF NOTE: In rr this returns an i64. We return a Option<u64>.
     /// Need to be careful with the logic here
     pub fn retrieve(&mut self, needed_for_replay: bool) -> Option<u64> {
-        let is_replay = self.t.session().borrow().is_replaying();
+        let is_replay = self.t.session().is_replaying();
         let is_implicit_offset = is_implict_offset_syscall(self.t.arch(), self.syscallno);
         ed_assert!(self.t, needed_for_replay || !is_replay);
         // There is no way we can figure out this information now, so retrieve it
@@ -138,7 +138,7 @@ fn retrieve_offset_arch<Arch: Architecture>(
     } else if syscallno == Arch::WRITEV || syscallno == Arch::WRITE {
         ed_assert!(
             t,
-            t.session().borrow().is_recording(),
+            t.session().is_recording(),
             "Can only read a file descriptor's offset while recording"
         );
         let fd: i32 = regs.arg1_signed() as i32;

@@ -161,7 +161,7 @@ impl ReplayStepKey {
 pub struct ReplaySession {
     session_inner: SessionInner,
     emu_fs: EmuFsSharedPtr,
-    trace_in: TraceReader,
+    trace_in: RefCell<TraceReader>,
     trace_frame: TraceFrame,
     current_step: ReplayTraceStep,
     ticks_at_start_of_event: Ticks,
@@ -229,12 +229,12 @@ impl ReplaySession {
         self.emu_fs.borrow_mut()
     }
 
-    pub fn trace_reader(&self) -> &TraceReader {
-        &self.trace_in
+    pub fn trace_reader(&self) -> Ref<'_, TraceReader> {
+        self.trace_in.borrow()
     }
 
-    pub fn trace_reader_mut(&mut self) -> &mut TraceReader {
-        &mut self.trace_in
+    pub fn trace_reader_mut(&self) -> RefMut<'_, TraceReader> {
+        self.trace_in.borrow_mut()
     }
 
     /// The trace record that we are working on --- the next event
@@ -363,10 +363,6 @@ impl Session for ReplaySession {
         Some(self)
     }
 
-    fn as_replay_mut(&mut self) -> Option<&mut ReplaySession> {
-        Some(self)
-    }
-
     fn new_task(&self, _tid: i32, _rec_tid: i32, _serial: u32, _a: SupportedArch) -> &mut dyn Task {
         unimplemented!()
     }
@@ -378,10 +374,12 @@ impl Session for ReplaySession {
         Session::cpu_binding(self, trace)
     }
 
-    fn trace_stream(&self) -> Option<&TraceStream> {
-        Some(&self.trace_in)
+    fn trace_stream(&self) -> Option<Ref<'_, TraceStream>> {
+        let r = self.trace_in.borrow();
+        Some(Ref::map(r, |t| t.deref()))
     }
-    fn trace_stream_mut(&mut self) -> Option<&mut TraceStream> {
-        Some(&mut self.trace_in)
+    fn trace_stream_mut(&self) -> Option<RefMut<'_, TraceStream>> {
+        let r = self.trace_in.borrow_mut();
+        Some(RefMut::map(r, |t| t.deref_mut()))
     }
 }

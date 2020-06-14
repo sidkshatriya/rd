@@ -450,7 +450,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
     ///  If t's stack pointer doesn't look valid, temporarily adjust it to
     ///  the top of *some* stack area.
     pub fn maybe_fix_stack_pointer(&mut self) {
-        if !self.t.session().borrow().done_initial_exec() {
+        if !self.t.session().done_initial_exec() {
             return;
         }
 
@@ -705,7 +705,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
             ));
         }
 
-        let child_sock = remote_buf.task().session().borrow().tracee_fd_number();
+        let child_sock = remote_buf.task().session().tracee_fd_number();
         let child_syscall_result: isize =
             child_sendmsg(&mut remote_buf, maybe_sc_args, sc_args_end, child_sock, fd);
         if child_syscall_result == -ESRCH as isize {
@@ -719,14 +719,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
             errno_name((-child_syscall_result).try_into().unwrap())
         );
 
-        let our_fd: i32 = recvmsg_socket(
-            &remote_buf
-                .task()
-                .session()
-                .borrow()
-                .tracee_socket_fd()
-                .borrow(),
-        );
+        let our_fd: i32 = recvmsg_socket(&remote_buf.task().session().tracee_socket_fd().borrow());
         ScopedFd::from_raw(our_fd)
     }
 
@@ -1227,20 +1220,13 @@ fn ignore_signal(t: &dyn Task) -> bool {
         return false;
     }
 
-    if t.session().borrow().is_replaying() {
+    if t.session().is_replaying() {
         if ReplaySession::is_ignored_signal(maybe_sig.unwrap_sig()) {
             return true;
         }
-    } else if t.session().borrow().is_recording() {
+    } else if t.session().is_recording() {
         let rt = t.as_record_task().unwrap();
-        if maybe_sig.unwrap_sig()
-            != rt
-                .session()
-                .borrow()
-                .as_record()
-                .unwrap()
-                .syscallbuf_desched_sig()
-        {
+        if maybe_sig.unwrap_sig() != rt.session().as_record().unwrap().syscallbuf_desched_sig() {
             rt.stash_sig();
         }
         return true;

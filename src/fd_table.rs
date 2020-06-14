@@ -164,7 +164,7 @@ impl FdTable {
     /// Regenerate syscallbuf_fds_disabled in task `t`.
     /// Called during initialization of the preload library.
     pub fn init_syscallbuf_fds_disabled(&self, t: &mut dyn Task) {
-        if !t.session().borrow().is_recording() {
+        if !t.session().is_recording() {
             return;
         }
 
@@ -246,7 +246,7 @@ impl FdTable {
         // It's possible for tasks with different VMs to share this fd table.
         // But tasks with the same VM might have different fd tables...
         for t in self.iter() {
-            if !t.borrow().session().borrow().is_recording() {
+            if !t.borrow().session().is_recording() {
                 return;
             }
 

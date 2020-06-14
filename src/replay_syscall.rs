@@ -222,8 +222,8 @@ fn read_task_trace_event(t: &ReplayTask, task_event_type: TraceTaskEventType) ->
     let mut tte: Option<TraceTaskEvent>;
     let mut time: FrameTime = 0;
     let shr_ptr = t.session();
-    let mut sess = shr_ptr.borrow_mut();
-    let tr = sess.as_replay_mut().unwrap().trace_reader_mut();
+
+    let mut tr = shr_ptr.as_replay().unwrap().trace_reader_mut();
     loop {
         tte = tr.read_task_event(Some(&mut time));
         if tte.is_none() {
@@ -375,8 +375,8 @@ fn prepare_clone<Arch: Architecture>(t: &mut ReplayTask) {
         params = extract_clone_parameters(t);
     }
     let shr_ptr = t.session();
-    let mut sess = shr_ptr.borrow_mut();
-    let new_task: &mut ReplayTask = sess
+
+    let new_task: &mut ReplayTask = shr_ptr
         .clone_task(
             t,
             clone_flags_to_task_flags(flags),
@@ -439,8 +439,8 @@ fn prepare_clone<Arch: Architecture>(t: &mut ReplayTask) {
     let km: KernelMapping;
     {
         let shr_ptr = t.session();
-        let mut sess = shr_ptr.borrow_mut();
-        let replay_session = sess.as_replay_mut().unwrap();
+
+        let replay_session = shr_ptr.as_replay().unwrap();
         km = replay_session
             .trace_reader_mut()
             .read_mapped_region(Some(&mut data), None, None, None, None)

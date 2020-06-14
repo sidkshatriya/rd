@@ -1282,7 +1282,7 @@ pub mod task_inner {
             *tracee_socket_fd_number_out = fd_number;
 
             let trace = session.trace_stream().unwrap();
-            let maybe_cpu_index = session.cpu_binding(trace);
+            let maybe_cpu_index = session.cpu_binding(&trace);
             let is_recording = session.is_recording();
             maybe_cpu_index.map(|mut cpu_index| {
                     // Set CPU affinity now, after we've created any helper threads
@@ -1303,7 +1303,7 @@ pub mod task_inner {
                                 Hoping tracee doesn't use LSL instruction!", cpu_index, maybe_cpu_index.unwrap());
                             }
 
-                            let trace_mut = session.trace_stream_mut().unwrap();
+                            let mut trace_mut = session.trace_stream_mut().unwrap();
                             trace_mut.set_bound_cpu(Some(cpu_index));
                         } else {
                             fatal!("Can't bind to requested CPU {}, and CPUID faulting not available", cpu_index)
@@ -1395,7 +1395,7 @@ pub mod task_inner {
     }
 
     fn run_initial_child(
-        _session: &mut dyn Session,
+        _session: &dyn Session,
         _error_fd: &ScopedFd,
         _sock_fd: &ScopedFd,
         _sock_fd_number: i32,

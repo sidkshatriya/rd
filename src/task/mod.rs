@@ -188,7 +188,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
         ed_assert!(self, !self.unstable, "Don't wait for unstable tasks");
         ed_assert!(
             self,
-            self.session().borrow().is_recording() || interrupt_after_elapsed == 0.0
+            self.session().is_recording() || interrupt_after_elapsed == 0.0
         );
 
         if self.wait_unexpected_exit() {
