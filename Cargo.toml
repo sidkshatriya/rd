@@ -1,3 +1,5 @@
+cargo-features = ["named-profiles"]
+
 [package]
 name = "rd"
 version = "0.0.0"
@@ -32,3 +34,7 @@ capnpc = "0.12"
 [features]
 default = []
 verify_syscall_numbers = []
+
+[profile.release-lto]
+inherits = "release"
+lto = true
