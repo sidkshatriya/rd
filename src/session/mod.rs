@@ -69,14 +69,13 @@ pub trait Session: DerefMut<Target = SessionInner> {
         self.as_diversion().is_some()
     }
 
-    /// @TODO Is the return type what we want?
     fn new_task(
         &self,
         _tid: pid_t,
         _rec_tid: pid_t,
         _serial: u32,
         _a: SupportedArch,
-    ) -> &mut dyn Task {
+    ) -> Box<dyn Task> {
         unimplemented!()
     }
 

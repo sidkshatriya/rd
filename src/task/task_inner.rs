@@ -157,6 +157,8 @@ pub mod task_inner {
         ENOMEM,
         ENOSYS,
         EPERM,
+        STDERR_FILENO,
+        STDOUT_FILENO,
     };
     use nix::{
         errno::errno,
@@ -168,7 +170,18 @@ pub mod task_inner {
         unistd::getuid,
     };
 
-    use crate::{flags::Flags, seccomp_bpf::SeccompFilter};
+    use crate::{
+        fd_table::FdTable,
+        file_monitor::{
+            magic_save_data_monitor::MagicSaveDataMonitor,
+            preserve_file_monitor::PreserveFileMonitor,
+            stdio_monitor::StdioMonitor,
+        },
+        flags::Flags,
+        kernel_abi::RD_NATIVE_ARCH,
+        rd::{RD_MAGIC_SAVE_DATA_FD, RD_RESERVED_ROOT_DIR_FD},
+        seccomp_bpf::SeccompFilter,
+    };
     use core::mem;
     use nix::{
         sys::signal::{kill, Signal},
@@ -1281,8 +1294,11 @@ pub mod task_inner {
 
             *tracee_socket_fd_number_out = fd_number;
 
-            let trace = session.trace_stream().unwrap();
-            let maybe_cpu_index = session.cpu_binding(&trace);
+            let maybe_cpu_index: Option<u32>;
+            {
+                let trace = session.trace_stream().unwrap();
+                maybe_cpu_index = session.cpu_binding(&trace);
+            }
             let is_recording = session.is_recording();
             maybe_cpu_index.map(|mut cpu_index| {
                     // Set CPU affinity now, after we've created any helper threads
@@ -1386,6 +1402,22 @@ pub mod task_inner {
                 }
                 fatal!("PTRACE_SEIZE failed for tid `{}`{}", tid, hint);
             }
+            let next_t_serial = session.next_task_serial();
+            let t = session.new_task(tid, rec_tid, next_t_serial, RD_NATIVE_ARCH);
+            let wrapped_t = Rc::new(RefCell::new(t));
+            // Set the weak self pointer of the task
+            wrapped_t.borrow_mut().weak_self_task = Rc::downgrade(&wrapped_t);
+
+            let tg = session.create_initial_tg(wrapped_t.clone());
+            wrapped_t.borrow_mut().tg = tg;
+            let as_ = session.create_vm(wrapped_t.clone(), None, None);
+            wrapped_t.borrow_mut().as_ = as_;
+            wrapped_t.borrow_mut().fds = FdTable::create(wrapped_t.borrow().as_ref());
+            {
+                let ref_task = wrapped_t.borrow();
+                let fds: FdTableSharedPtr = ref_task.fds.clone();
+                setup_fd_table(ref_task.as_ref(), &mut fds.borrow_mut(), fd_number);
+            }
             unimplemented!();
         }
 
@@ -1414,4 +1446,24 @@ pub mod task_inner {
     // This function doesn't really need to do anything. The signal will cause
     // waitpid to return EINTR and that's all we need.
     fn handle_alarm_signal(sig: i32) {}
+
+    fn setup_fd_table(t: &dyn Task, fds: &mut FdTable, tracee_socket_fd_number: i32) {
+        fds.add_monitor(t, STDOUT_FILENO, Box::new(StdioMonitor::new(STDOUT_FILENO)));
+        fds.add_monitor(t, STDERR_FILENO, Box::new(StdioMonitor::new(STDERR_FILENO)));
+        fds.add_monitor(
+            t,
+            RD_MAGIC_SAVE_DATA_FD,
+            Box::new(MagicSaveDataMonitor::new()),
+        );
+        fds.add_monitor(
+            t,
+            RD_RESERVED_ROOT_DIR_FD,
+            Box::new(PreserveFileMonitor::new()),
+        );
+        fds.add_monitor(
+            t,
+            tracee_socket_fd_number,
+            Box::new(PreserveFileMonitor::new()),
+        );
+    }
 }

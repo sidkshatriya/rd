@@ -1,7 +1,7 @@
 use crate::{
     address_space::address_space::{AddressSpace, AddressSpaceRef},
     event::Switchable,
-    file_monitor::{FileMonitorSharedPtr, LazyOffset, Range},
+    file_monitor::{FileMonitor, FileMonitorSharedPtr, LazyOffset, Range},
     kernel_abi::common::preload_interface::{preload_globals, SYSCALLBUF_FDS_DISABLED_SIZE},
     log::LogLevel::LogDebug,
     remote_ptr::RemotePtr,
@@ -37,7 +37,7 @@ impl Deref for FdTable {
 
 /// We DO NOT want Copy or Clone traits
 impl FdTable {
-    pub fn add_monitor(&mut self, t: &dyn Task, fd: i32, monitor: FileMonitorSharedPtr) {
+    pub fn add_monitor(&mut self, t: &dyn Task, fd: i32, monitor: Box<dyn FileMonitor>) {
         // In the future we could support multiple monitors on an fd, but we don't
         // need to yet.
         ed_assert!(
@@ -51,7 +51,7 @@ impl FdTable {
             self.fd_count_beyond_limit += 1;
         }
 
-        self.fds.insert(fd, monitor);
+        self.fds.insert(fd, Rc::new(RefCell::new(monitor)));
         self.update_syscallbuf_fds_disabled(fd);
     }
     pub fn emulate_ioctl(&self, fd: i32, t: &RecordTask, result: &mut u64) -> bool {
@@ -139,7 +139,7 @@ impl FdTable {
         Rc::new(RefCell::new(file_mon))
     }
 
-    pub fn create(&self, t: &dyn Task) -> FdTableSharedPtr {
+    pub fn create(t: &dyn Task) -> FdTableSharedPtr {
         let mut file_mon = FdTable {
             tasks: WeakPtrSet::new(),
             fds: Default::default(),

@@ -363,7 +363,7 @@ impl Session for ReplaySession {
         Some(self)
     }
 
-    fn new_task(&self, _tid: i32, _rec_tid: i32, _serial: u32, _a: SupportedArch) -> &mut dyn Task {
+    fn new_task(&self, _tid: i32, _rec_tid: i32, _serial: u32, _a: SupportedArch) -> Box<dyn Task> {
         unimplemented!()
     }
 

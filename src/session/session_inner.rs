@@ -143,7 +143,7 @@ pub mod session_inner {
         /// If `exec_count` is not specified it is assumed to be 0.
         pub fn create_vm(
             &mut self,
-            _t: &dyn Task,
+            _t: TaskSharedPtr,
             _exe: Option<&str>,
             _exec_count: Option<u32>,
         ) -> AddressSpaceSharedPtr {
@@ -163,8 +163,17 @@ pub mod session_inner {
         }
 
         /// Create the initial thread group.
-        pub fn create_initial_tg(&mut self, _t: &dyn Task) -> ThreadGroupSharedPtr {
-            unimplemented!()
+        pub fn create_initial_tg(&mut self, t: TaskSharedPtr) -> ThreadGroupSharedPtr {
+            let tg = ThreadGroup::new(
+                self.weak_self_session.clone(),
+                None,
+                t.borrow().rec_tid,
+                t.borrow().tid,
+                t.borrow().tid,
+                t.borrow().tuid().serial(),
+            );
+            tg.borrow_mut().insert(Rc::downgrade(&t));
+            tg
         }
 
         pub fn next_task_serial(&mut self) -> u32 {
