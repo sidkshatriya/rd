@@ -9,7 +9,7 @@ use crate::{
         replay_session::ReplaySession,
         session_inner::session_inner::{AddressSpaceMap, SessionInner, TaskMap, ThreadGroupMap},
     },
-    task::{task_inner::CloneFlags, Task},
+    task::{task_inner::CloneFlags, Task, TaskSharedPtr},
     taskish_uid::{AddressSpaceUid, TaskUid, ThreadGroupUid},
     thread_group::ThreadGroupSharedPtr,
     trace::trace_stream::TraceStream,
@@ -89,7 +89,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
         trace.bound_to_cpu()
     }
 
-    fn on_create(&mut self, _t: Box<dyn Task>) {
+    fn on_create(&mut self, _t: TaskSharedPtr) {
         unimplemented!()
     }
 

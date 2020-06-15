@@ -4,7 +4,7 @@ use crate::{
     scheduler::Scheduler,
     seccomp_filter_rewriter::SeccompFilterRewriter,
     session::{session_inner::session_inner::SessionInner, Session},
-    task::Task,
+    task::{Task, TaskSharedPtr},
     thread_group::ThreadGroupSharedPtr,
     trace::{trace_stream::TraceStream, trace_writer::TraceWriter},
     util::{good_random, CPUIDData, CPUID_GETEXTENDEDFEATURES, CPUID_GETFEATURES, CPUID_GETXSAVE},
@@ -187,7 +187,7 @@ impl Session for RecordSession {
         unimplemented!()
     }
 
-    fn on_create(&mut self, _t: Box<dyn Task>) {
+    fn on_create(&mut self, _t: TaskSharedPtr) {
         unimplemented!()
     }
 }

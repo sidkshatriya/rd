@@ -92,6 +92,7 @@ pub mod task_inner {
             ptrace::{
                 ptrace,
                 PTRACE_EVENT_CLONE,
+                PTRACE_EVENT_EXIT,
                 PTRACE_EVENT_FORK,
                 PTRACE_EVENT_VFORK,
                 PTRACE_GETEVENTMSG,
@@ -157,6 +158,7 @@ pub mod task_inner {
         ENOMEM,
         ENOSYS,
         EPERM,
+        SIGSTOP,
         STDERR_FILENO,
         STDOUT_FILENO,
     };
@@ -181,10 +183,11 @@ pub mod task_inner {
         kernel_abi::RD_NATIVE_ARCH,
         rd::{RD_MAGIC_SAVE_DATA_FD, RD_RESERVED_ROOT_DIR_FD},
         seccomp_bpf::SeccompFilter,
+        task::TaskSharedPtr,
     };
     use core::mem;
     use nix::{
-        sys::signal::{kill, Signal},
+        sys::signal::{kill, sigaction, SaFlags, SigAction, SigHandler, SigSet, Signal},
         unistd::Pid,
     };
     use std::{
@@ -192,7 +195,7 @@ pub mod task_inner {
         cmp::min,
         ffi::{CStr, CString, OsStr, OsString},
         mem::size_of,
-        os::unix::ffi::OsStrExt,
+        os::{raw::c_int, unix::ffi::OsStrExt},
         ptr,
         ptr::copy_nonoverlapping,
         rc::Rc,
@@ -1256,7 +1259,7 @@ pub mod task_inner {
             argv: &[OsString],
             envp: &[OsString],
             rec_tid: pid_t,
-        ) -> Box<dyn Task> {
+        ) -> TaskSharedPtr {
             debug_assert!(session.tasks().len() == 0);
 
             let ret = socketpair(
@@ -1418,7 +1421,41 @@ pub mod task_inner {
                 let fds: FdTableSharedPtr = ref_task.fds.clone();
                 setup_fd_table(ref_task.as_ref(), &mut fds.borrow_mut(), fd_number);
             }
-            unimplemented!();
+
+            // Install signal handler here, so that when creating the first RecordTask
+            // it sees the exact same signal state in the parent as will be in the child.
+            let sa = SigAction::new(
+                SigHandler::Handler(handle_alarm_signal),
+                SaFlags::empty(), // No SA_RESTART, so waitpid() will be interrupted
+                SigSet::empty(),
+            );
+            unsafe { sigaction(Signal::SIGALRM, &sa) }.unwrap();
+
+            {
+                let mut t = wrapped_t.borrow_mut();
+                t.wait(None);
+                if t.maybe_ptrace_event() == PTRACE_EVENT_EXIT {
+                    fatal!(
+                        "Tracee died before reaching SIGSTOP\nChild's message: {:?}",
+                        session.read_spawned_task_error()
+                    );
+                }
+                // SIGSTOP can be reported as a signal-stop or group-stop depending on
+                // whether PTRACE_SEIZE happened before or after it was delivered.
+                if t.status().maybe_stop_sig() != SIGSTOP
+                    && t.status().maybe_group_stop_sig() != SIGSTOP
+                {
+                    fatal!(
+                        "Unexpected stop {}\n Child's message: {:?}",
+                        t.status(),
+                        session.read_spawned_task_error()
+                    );
+                }
+
+                t.clear_wait_status();
+                t.open_mem_fd();
+            }
+            wrapped_t
         }
 
         pub(in super::super) fn preload_thread_locals(&self) -> &mut u8 {
@@ -1445,7 +1482,7 @@ pub mod task_inner {
 
     // This function doesn't really need to do anything. The signal will cause
     // waitpid to return EINTR and that's all we need.
-    fn handle_alarm_signal(sig: i32) {}
+    extern "C" fn handle_alarm_signal(_sig: c_int) {}
 
     fn setup_fd_table(t: &dyn Task, fds: &mut FdTable, tracee_socket_fd_number: i32) {
         fds.add_monitor(t, STDOUT_FILENO, Box::new(StdioMonitor::new(STDOUT_FILENO)));
