@@ -74,9 +74,10 @@ impl RdCommand for TraceInfoCommand {
             if replay_session.borrow().done_initial_exec() {
                 environ = read_env(
                     replay_session
-                        .borrow_mut()
-                        .current_task_mut()
+                        .borrow()
+                        .current_task()
                         .unwrap()
+                        .borrow_mut()
                         .as_mut(),
                 );
                 break;

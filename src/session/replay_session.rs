@@ -14,7 +14,7 @@ use crate::{
         session_inner::{session_inner::SessionInner, BreakStatus, RunCommand},
         Session,
     },
-    task::{task_inner::task_inner::TaskInner, Task},
+    task::{task_inner::task_inner::TaskInner, Task, TaskSharedPtr},
     ticks::Ticks,
     trace::{
         trace_frame::{FrameTime, TraceFrame},
@@ -248,21 +248,12 @@ impl ReplaySession {
     }
 
     /// The Task for the current trace record.
-    pub fn current_task(&mut self) -> Option<Ref<'_, Box<dyn Task>>> {
+    pub fn current_task(&self) -> Option<TaskSharedPtr> {
         self.finish_initializing();
         let found = self.find_task_from_rec_tid(self.trace_frame.tid());
         found
             .as_ref()
-            .map(|r| debug_assert!(r.as_replay_task().is_some()));
-        found
-    }
-
-    pub fn current_task_mut(&mut self) -> Option<RefMut<'_, Box<dyn Task>>> {
-        self.finish_initializing();
-        let mut found = self.find_task_from_rec_tid_mut(self.trace_frame.tid());
-        found
-            .as_mut()
-            .map(|r| debug_assert!(r.as_replay_task_mut().is_some()));
+            .map(|r| debug_assert!(r.borrow().as_replay_task().is_some()));
         found
     }
 

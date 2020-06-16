@@ -2,7 +2,7 @@ use crate::{
     address_space::{
         address_space::{AddressSpace, AddressSpaceRef, AddressSpaceRefMut, Mapping},
         kernel_mapping::KernelMapping,
-        memory_range::MemoryRange,
+        memory_range::{MemoryRange, MemoryRangeKey},
         Enabled,
         Privileged,
         Traced,
@@ -968,7 +968,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         // Let the child create the shmem block and then send the fd back to us.
         // This lets us avoid having to make the file world-writeable so that
         // the child can read it when it's in a different user namespace (which
-        // would be a security hole, letting other users abuse rr users).
+        // would be a security hole, letting other users abuse rd users).
         let child_shmem_fd: i32;
         {
             let arch = self.arch();
@@ -1109,57 +1109,64 @@ impl<'a> AutoRemoteSyscalls<'a> {
         return true;
     }
 
-    /// Recreate an mmap region that is shared between rr and the tracee. The caller
+    /// Recreate an mmap region that is shared between rd and the tracee. The caller
     /// is responsible for recreating the data in the new mmap, *if* `preserve` is
     /// DiscardContents.
     /// OK to call this while 'm' references one of the mappings in remote's
     /// AddressSpace
     /// If None is provided for `preserve` then DiscardContents is assumed
     /// If None is provided for `monitored` it is assumed that there is no memory monitor.
+    /// DIFF NOTE: Returns the start addr to the new created mmap instead of reference to Mapping
+    /// Note that this is not necessarily the same as `k.start()` as mappings could have
+    /// been coalesced.
     pub fn recreate_shared_mmap(
         &mut self,
-        m: &Mapping,
+        k: MemoryRangeKey,
         option_preserve: Option<PreserveContents>,
         monitored: Option<MonitoredSharedMemorySharedPtr>,
-    ) -> Mapping {
-        ed_assert!(self.task(), m.map.fsname().len() <= PATH_MAX as usize);
-        let flags = m.flags;
-        let size = m.map.size();
-        let name = m.map.fsname();
+    ) -> RemotePtr<Void> {
+        let (map, flags, local_addr) = self
+            .vm()
+            .mapping_of(k.start())
+            .map(|mapping| (mapping.map.clone(), mapping.flags, mapping.local_addr))
+            .unwrap();
+        ed_assert!(self.task(), map.fsname().len() <= PATH_MAX as usize);
+        let flags = flags;
+        let size = map.size();
+        let name = map.fsname();
         let maybe_preserved_data = if option_preserve.is_some()
             && option_preserve.unwrap() == PreserveContents::PreserveContents
-            && m.local_addr.is_some()
+            && local_addr.is_some()
         {
-            Some(m.local_addr.unwrap())
+            Some(local_addr.unwrap())
         } else {
             None
         };
 
         let km = self.create_shared_mmap(
             size,
-            Some(m.map.start()),
+            Some(map.start()),
             extract_name(name).unwrap(),
-            Some(m.map.prot()),
+            Some(map.prot()),
             None,
             monitored,
         );
 
         let new_addr = km.start();
         *self.vm_mut().mapping_flags_of_mut(new_addr) = flags;
-        // m may be invalid now
-        // @TODO Hmm.. The pattern of passing a reference to a mapping might be flawed. See if this
-        // might need some fixing.
-        let new_map = self.vm().mapping_of(new_addr).unwrap().clone();
+        // DIFF NOTE: Logic slightly different from rr. We are only returning start of recreated
+        // mapping.
+        let new_map_local_addr = self.vm().mapping_of(new_addr).unwrap().local_addr;
         if maybe_preserved_data.is_some() {
             let preserved_data = maybe_preserved_data.unwrap();
-            let new_map_local = new_map.local_addr.unwrap();
+            let new_map_local = new_map_local_addr.unwrap();
             unsafe {
                 // @TODO This should be non-overlapping but think about this more to be sure.
                 copy_nonoverlapping(preserved_data, new_map_local, size);
                 munmap(preserved_data, size).unwrap();
             }
         }
-        new_map
+        new_addr
     }
 
     /// Takes a mapping and replaces it by one that is shared between rr and

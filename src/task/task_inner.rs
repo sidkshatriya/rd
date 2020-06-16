@@ -1208,12 +1208,6 @@ pub mod task_inner {
         pub(in super::super) fn os_fork_into(&self, _session: &dyn Session) -> &TaskInner {
             unimplemented!()
         }
-        pub(in super::super) fn os_clone_into(
-            _state: &CapturedState,
-            _remote: &AutoRemoteSyscalls,
-        ) -> *mut TaskInner {
-            unimplemented!()
-        }
 
         /// Return the TraceStream that we're using, if in recording or replay.
         /// Returns null if we're not in record or replay.

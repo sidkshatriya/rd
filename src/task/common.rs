@@ -9,6 +9,7 @@
 //!     the self.func_name() style. They are included in this file because they take &dyn Task or
 //!     &mut dyn Task as their first parameter. It would have been confusing to include them
 //!     in task_inner.rs
+//! (c) Some misc methods that did not fit elsewhere...
 
 use crate::{
     address_space::{memory_range::MemoryRangeKey, BreakpointType},
@@ -42,13 +43,14 @@ use crate::{
         is_signal_triggered_by_ptrace_interrupt,
         is_singlestep_resume,
         task_inner::{
-            task_inner::{PtraceData, WriteFlags},
+            task_inner::{CapturedState, PtraceData, WriteFlags},
             ResumeRequest,
             TicksRequest,
             WaitRequest,
             MAX_TICKS_REQUEST,
         },
         Task,
+        TaskSharedPtr,
     },
     ticks::Ticks,
     util::{
@@ -971,4 +973,8 @@ fn cpu_has_knl_string_singlestep_bug_init() -> bool {
 
 fn cpu_has_knl_string_singlestep_bug() -> bool {
     *CPU_HAS_KNL_STRING_SINGLESTEP_BUG_INIT
+}
+
+pub fn os_clone_into(_state: &CapturedState, _remote: &mut AutoRemoteSyscalls) -> TaskSharedPtr {
+    unimplemented!()
 }

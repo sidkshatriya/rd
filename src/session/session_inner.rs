@@ -327,7 +327,7 @@ pub mod session_inner {
         pub(in super::super) weak_self_session: SessionSharedWeakPtr,
         /// All these members are NOT pub
         pub(in super::super) vm_map: AddressSpaceMap,
-        pub(in super::super) task_map: TaskMap,
+        pub(in super::super) task_map: RefCell<TaskMap>,
         pub(in super::super) thread_group_map: ThreadGroupMap,
 
         /// If non-None, data required to finish initializing the tasks of this

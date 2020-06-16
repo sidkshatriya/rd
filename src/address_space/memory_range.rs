@@ -103,6 +103,8 @@ impl Ord for MemoryRangeKey {
             } else if self.0.start_ > other.0.start_ {
                 Ordering::Greater
             } else {
+                // @TODO This needs to be checked. Tricky. For single points?
+                // What about putting a panic here??
                 Ordering::Equal
             }
         } else {
@@ -114,6 +116,8 @@ impl Ord for MemoryRangeKey {
 impl PartialEq for MemoryRangeKey {
     fn eq(&self, other: &Self) -> bool {
         if !self.0.intersects(&other.0) {
+            // @TODO This needs to be checked. Tricky. For single points?
+            // What about putting a panic here??
             self.0.start_ == other.0.start_
         } else {
             true
@@ -164,6 +168,10 @@ mod test {
         assert_eq!(r0, false);
 
         let mut found = 0;
+        // Will find all MemoryRangeKeys that are less than or equal to [9, 11).
+        // However if there is more than 1 item that is considered equal then it will return the smallest one.
+        // In this case it returns [0, 10).
+        // Ranges are assumed to be non-overlapping in the BTree so this behavior should be OK.
         let mut range = m.range((
             Unbounded,
             Included(MemoryRangeKey(MemoryRange::from_range(

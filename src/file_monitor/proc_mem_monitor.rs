@@ -39,7 +39,7 @@ impl ProcMemMonitor {
                     let maybe_found = t
                         .session()
                         .find_task_from_rec_tid(tid)
-                        .map_or(None, |ft| Some(ft.tuid()));
+                        .map_or(None, |ft| Some(ft.borrow().tuid()));
                     return ProcMemMonitor {
                         maybe_tuid: maybe_found,
                     };
@@ -76,7 +76,8 @@ impl FileMonitor for ProcMemMonitor {
         match maybe_target {
             None => return,
             Some(target) => {
-                let record_task = target.as_record_task().unwrap();
+                let t = target.borrow_mut();
+                let record_task = t.as_record_task().unwrap();
                 let mut offset = lazy_offset.retrieve(false).unwrap();
                 for r in ranges {
                     record_task.record_remote(

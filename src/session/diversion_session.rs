@@ -9,7 +9,7 @@ use crate::{
 use std::{
     cell::{Ref, RefCell, RefMut},
     ops::{Deref, DerefMut},
-    sync::Arc,
+    rc::Rc,
 };
 
 /// A DiversionSession lets you run task(s) forward without replay.
@@ -50,7 +50,7 @@ pub struct DiversionResult {
     pub break_status: BreakStatus,
 }
 
-pub type DiversionSessionSharedPtr = Arc<RefCell<DiversionSession>>;
+pub type DiversionSessionSharedPtr = Rc<RefCell<DiversionSession>>;
 
 impl DiversionSession {
     pub fn emufs(&self) -> Ref<'_, EmuFs> {

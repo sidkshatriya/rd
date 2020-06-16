@@ -1,5 +1,6 @@
 use crate::{
-    address_space::address_space::AddressSpaceSharedPtr,
+    address_space::{address_space::AddressSpaceSharedPtr, MappingFlags},
+    auto_remote_syscalls::AutoRemoteSyscalls,
     emu_fs::EmuFs,
     kernel_abi::SupportedArch,
     remote_ptr::{RemotePtr, Void},
@@ -9,7 +10,12 @@ use crate::{
         replay_session::ReplaySession,
         session_inner::session_inner::{AddressSpaceMap, SessionInner, TaskMap, ThreadGroupMap},
     },
-    task::{task_inner::CloneFlags, Task, TaskSharedPtr},
+    task::{
+        common,
+        task_inner::{task_inner::WriteFlags, CloneFlags},
+        Task,
+        TaskSharedPtr,
+    },
     taskish_uid::{AddressSpaceUid, TaskUid, ThreadGroupUid},
     thread_group::ThreadGroupSharedPtr,
     trace::trace_stream::TraceStream,
@@ -89,8 +95,9 @@ pub trait Session: DerefMut<Target = SessionInner> {
         trace.bound_to_cpu()
     }
 
-    fn on_create(&mut self, _t: TaskSharedPtr) {
-        unimplemented!()
+    fn on_create(&self, t: TaskSharedPtr) {
+        let rec_tid = t.borrow().rec_tid;
+        self.task_map.borrow_mut().insert(rec_tid, t);
     }
 
     /// NOTE: called Session::copy_state_to() in rr.
@@ -101,7 +108,50 @@ pub trait Session: DerefMut<Target = SessionInner> {
     /// Call this before doing anything that requires access to the full set
     /// of tasks (i.e., almost anything!).
     fn finish_initializing(&self) {
-        unimplemented!()
+        if self.clone_completion.is_none() {
+            return;
+        }
+
+        let cc = self.clone_completion.as_ref().unwrap();
+        for tgleader in &cc.address_spaces {
+            let rc = tgleader.clone_leader.upgrade().unwrap();
+            let mut leader = rc.borrow_mut();
+            {
+                let mut found_syscall_buf = None;
+                let mut remote = AutoRemoteSyscalls::new(leader.as_mut());
+                for (&mk, m) in remote.vm().maps() {
+                    if m.flags.contains(MappingFlags::IS_SYSCALLBUF) {
+                        // DIFF NOTE: The whole reason why this approach is a bit different from rr because its
+                        // its tougher to iterate and modify a map at the same time in rust vs c++.
+                        found_syscall_buf = Some(mk);
+                        // DIFF NOTE: We are assuming only a single syscall buffer in the memory maps.
+                        break;
+                    }
+                }
+
+                match found_syscall_buf {
+                    Some(k) => {
+                        // Creating this mapping was delayed in capture_state for performance
+                        remote.recreate_shared_mmap(k, None, None);
+                    }
+                    None => (),
+                }
+            }
+
+            for (rptr, captured_mem) in &tgleader.captured_memory {
+                leader.write_bytes_helper(*rptr, captured_mem, None, WriteFlags::empty());
+            }
+
+            {
+                let mut remote2 = AutoRemoteSyscalls::new(leader.as_mut());
+                for tgmember in &tgleader.member_states {
+                    let t_clone = common::os_clone_into(tgmember, &mut remote2);
+                    self.on_create(t_clone);
+                }
+            }
+
+            unimplemented!();
+        }
     }
 
     /// See Task::clone().
@@ -122,21 +172,16 @@ pub trait Session: DerefMut<Target = SessionInner> {
     /// Return the task created with `rec_tid`, or None if no such
     /// task exists.
     /// NOTE: Method is simply called Session::find task() in rr
-    fn find_task_from_rec_tid(&self, rec_tid: pid_t) -> Option<Ref<'_, Box<dyn Task>>> {
+    fn find_task_from_rec_tid(&self, rec_tid: pid_t) -> Option<TaskSharedPtr> {
         self.finish_initializing();
-        self.tasks().get(&rec_tid).map(|t| t.borrow())
-    }
-    fn find_task_from_rec_tid_mut(&self, rec_tid: pid_t) -> Option<RefMut<'_, Box<dyn Task>>> {
-        self.finish_initializing();
-        self.tasks().get(&rec_tid).map(|t| t.borrow_mut())
+        self.tasks()
+            .get(&rec_tid)
+            .map_or(None, |shr_ptr| Some(shr_ptr.clone()))
     }
 
     /// NOTE: Method is simply called Session::find task() in rr
-    fn find_task_from_task_uid(&self, tuid: TaskUid) -> Option<Ref<'_, Box<dyn Task>>> {
+    fn find_task_from_task_uid(&self, tuid: TaskUid) -> Option<TaskSharedPtr> {
         self.find_task_from_rec_tid(tuid.tid())
-    }
-    fn find_task_from_task_uid_mut(&self, tuid: TaskUid) -> Option<RefMut<'_, Box<dyn Task>>> {
-        self.find_task_from_rec_tid_mut(tuid.tid())
     }
 
     /// Return the thread group whose unique ID is `tguid`, or None if no such
@@ -178,10 +223,9 @@ pub trait Session: DerefMut<Target = SessionInner> {
     }
 
     /// Return the set of Tasks being traced in this session.
-    /// Shouldn't need for this to be mutable but it is due to finish_initializing()
-    fn tasks(&self) -> &TaskMap {
+    fn tasks(&self) -> Ref<'_, TaskMap> {
         self.finish_initializing();
-        &self.as_session_inner().task_map
+        self.as_session_inner().task_map.borrow()
     }
 
     fn thread_group_map(&self) -> &ThreadGroupMap {

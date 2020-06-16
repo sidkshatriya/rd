@@ -187,7 +187,7 @@ impl Session for RecordSession {
         unimplemented!()
     }
 
-    fn on_create(&mut self, _t: TaskSharedPtr) {
+    fn on_create(&self, _t: TaskSharedPtr) {
         unimplemented!()
     }
 }

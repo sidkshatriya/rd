@@ -423,14 +423,14 @@ fn prepare_clone<Arch: Architecture>(t: &mut ReplayTask) {
         new_task.vm_mut().remove_all_watchpoints();
 
         let mut remote = AutoRemoteSyscalls::new(new_task);
-        for (_k, m) in t.vm().maps() {
+        for (&k, m) in t.vm().maps() {
             // Recreate any tracee-shared mappings
             if m.local_addr.is_some()
                 && !m
                     .flags
                     .contains(MappingFlags::IS_THREAD_LOCALS | MappingFlags::IS_SYSCALLBUF)
             {
-                remote.recreate_shared_mmap(m, Some(PreserveContents), None);
+                remote.recreate_shared_mmap(k, Some(PreserveContents), None);
             }
         }
     }

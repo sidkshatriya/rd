@@ -377,16 +377,16 @@ impl ReRunCommand {
             let old_task_tuid: Option<TaskUid>;
             let old_ip: RemoteCodePtr;
             {
-                let mut rs_mutb = replay_session.borrow_mut();
-                let old_task = rs_mutb.current_task_mut();
-                old_task_tuid = old_task.as_ref().map(|t| t.tuid());
-                old_ip = old_task.as_ref().map_or(0.into(), |t| t.ip());
+                let rs_mutb = replay_session.borrow_mut();
+                let old_task = rs_mutb.current_task();
+                old_task_tuid = old_task.as_ref().map(|t| t.borrow().tuid());
+                old_ip = old_task.as_ref().map_or(0.into(), |t| t.borrow().ip());
                 if done_initial_exec && before_time >= self.trace_start {
                     if !done_first_step {
                         if !self.function.is_some() {
                             self.run_diversion_function(
                                 &replay_session.borrow(),
-                                old_task.unwrap().as_mut(),
+                                old_task.unwrap().borrow_mut().as_mut(),
                             )?;
                             return Ok(());
                         }
@@ -394,7 +394,7 @@ impl ReRunCommand {
                         if !self.singlestep_trace.is_empty() {
                             done_first_step = true;
                             self.write_regs(
-                                old_task.unwrap().as_mut(),
+                                old_task.unwrap().borrow_mut().as_mut(),
                                 before_time - 1,
                                 instruction_count_within_event,
                                 &mut stdout(),
@@ -423,8 +423,9 @@ impl ReRunCommand {
                 {
                     let rp_mutb = replay_session.borrow_mut();
                     let old_task =
-                        old_task_tuid.map(|id| rp_mutb.find_task_from_task_uid_mut(id).unwrap());
-                    let after_ip: RemoteCodePtr = old_task.as_ref().map_or(0.into(), |t| t.ip());
+                        old_task_tuid.map(|id| rp_mutb.find_task_from_task_uid(id).unwrap());
+                    let after_ip: RemoteCodePtr =
+                        old_task.as_ref().map_or(0.into(), |t| t.borrow().ip());
                     debug_assert!(after_time >= before_time && after_time <= before_time + 1);
 
                     debug_assert_eq!(result.status, ReplayStatus::ReplayContinue);
@@ -451,7 +452,7 @@ impl ReRunCommand {
                                 && treat_event_completion_as_singlestep_complete(&replayed_event)))
                     {
                         self.write_regs(
-                            old_task.unwrap().as_mut(),
+                            old_task.unwrap().borrow_mut().as_mut(),
                             before_time,
                             instruction_count_within_event,
                             &mut stdout(),
@@ -485,19 +486,17 @@ impl ReRunCommand {
     ) -> io::Result<()> {
         let diversion_session = replay.clone_diversion();
         let diversion_ref = diversion_session.borrow_mut();
-        let mut t = diversion_ref
-            .find_task_from_task_uid_mut(task.tuid())
-            .unwrap();
-        let mut regs = t.regs_ref().clone();
-        // align stack
+        let t = diversion_ref.find_task_from_task_uid(task.tuid()).unwrap();
+        let mut regs = t.borrow().regs_ref().clone();
+        // align stack;
         let sp = RemotePtr::<usize>::new_from_val((regs.sp().as_usize() & !0xf) - 1);
-        write_val_mem(t.as_mut(), sp, &SENTINEL_RET_ADDRESS, None);
+        write_val_mem(t.borrow_mut().as_mut(), sp, &SENTINEL_RET_ADDRESS, None);
         regs.set_sp(RemotePtr::cast(sp));
         // If we've called this method then we assume that there is always an address in self.function
         regs.set_ip(self.function.unwrap());
         regs.set_di(0);
         regs.set_si(0);
-        t.set_regs(&regs);
+        t.borrow_mut().set_regs(&regs);
         let cmd = if self.singlestep_trace.is_empty() {
             RunCommand::RunContinue
         } else {
@@ -505,10 +504,11 @@ impl ReRunCommand {
         };
 
         loop {
-            let result = diversion_session
-                .borrow()
-                .diversion_step(t.as_mut(), Some(cmd), None);
-            self.write_regs(t.as_mut(), 0, 0, &mut stdout())?;
+            let result =
+                diversion_session
+                    .borrow()
+                    .diversion_step(t.borrow_mut().as_mut(), Some(cmd), None);
+            self.write_regs(t.borrow_mut().as_mut(), 0, 0, &mut stdout())?;
             match result.break_status.signal {
                 Some(siginfo) => {
                     if siginfo.si_signo == libc::SIGSEGV
