@@ -1,15 +1,11 @@
-use crate::{
-    address_space::WatchConfig,
-    bindings::signal::siginfo_t,
-    task::task_inner::task_inner::TaskInner,
-};
+use crate::{address_space::WatchConfig, bindings::signal::siginfo_t, task::TaskSharedWeakPtr};
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct BreakStatus {
     /// The triggering Task. This may be different from session->current_task()
     /// when replay switches to a new task when ReplaySession::replay_step() ends.
-    /// @TODO Do we want a raw pointer here??
-    pub task: *mut TaskInner,
+    /// @TODO Do we want a weak pointer here??
+    pub task: TaskSharedWeakPtr,
     /// List of watchpoints hit; any watchpoint hit causes a stop after the
     /// instruction that triggered the watchpoint has completed.
     pub watchpoints_hit: Vec<WatchConfig>,
@@ -204,16 +200,6 @@ pub mod session_inner {
 
         /// Return the set of AddressSpaces being tracked in this session.
         pub fn vms(&self) -> Vec<&AddressSpace> {
-            unimplemented!()
-        }
-
-        pub fn is_recording(&self) -> bool {
-            unimplemented!()
-        }
-        pub fn is_replaying(&self) -> bool {
-            unimplemented!()
-        }
-        pub fn is_diversion(&self) -> bool {
             unimplemented!()
         }
 

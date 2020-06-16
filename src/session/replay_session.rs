@@ -102,7 +102,6 @@ pub enum ReplayStatus {
 /// @TODO
 pub struct StepConstraints;
 
-#[derive(Debug)]
 pub struct ReplayResult {
     pub status: ReplayStatus,
     pub break_status: BreakStatus,
