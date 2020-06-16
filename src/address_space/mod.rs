@@ -1974,7 +1974,8 @@ pub mod address_space {
         ///
         /// Called after a successful execve to set up the new AddressSpace.
         /// Also called once for the initial spawn.
-        fn new_after_execve(t: &mut dyn Task, exe: &OsStr, exec_count: u32) -> AddressSpace {
+        /// @TODO VISIBILITY made this a pub. Private in rr. Need to figure out better solution.
+        pub fn new_after_execve(t: &mut dyn Task, exe: &OsStr, exec_count: u32) -> AddressSpace {
             let patcher = if t.session().is_recording() {
                 Some(MonkeyPatcher::new())
             } else {

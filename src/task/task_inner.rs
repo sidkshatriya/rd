@@ -416,7 +416,7 @@ pub mod task_inner {
     }
 
     #[derive(Copy, Clone, Debug)]
-    /// @TODO originally this was NOT pub. Adjust?
+    /// @TODO VISIBILITY originally this was NOT pub. Adjust?
     pub enum CloneReason {
         /// Cloning a task in the same session due to tracee fork()/vfork()/clone()
         TraceeClone,
@@ -1036,7 +1036,7 @@ pub mod task_inner {
         /// Some task state must be copied into this by injecting and
         /// running syscalls in this task.  Other state is metadata
         /// that can simply be copied over in local memory.
-        /// @TODO Temporarily made this pub instead of in super::super because
+        /// @TODO VISIBILITY Temporarily made this pub instead of in super::super because
         /// Session needs access to this. Need to evolve a cleaner solution.
         pub fn copy_state(&mut self, _stat: &CapturedState) {
             unimplemented!()
@@ -1243,7 +1243,7 @@ pub mod task_inner {
         /// (i.e. an exec does not occur before an exit), an error may be
         /// readable from the other end of the pipe whose write end is error_fd.
         ///
-        /// @TODO: This is a protected method in rr. Temporarily make this a pub.
+        /// @TODO VISIBILITY: This is a protected method in rr. Temporarily make this a pub.
         /// DIFF NOTE: rr takes an explicit `trace` param. Since trace is available from the
         /// session we avoid it.
         pub fn spawn<'a>(

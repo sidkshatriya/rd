@@ -82,7 +82,12 @@ pub mod session_inner {
         ticks::Ticks,
     };
     use libc::pid_t;
-    use std::{cell::RefCell, collections::HashMap, ffi::OsString, rc::Rc};
+    use std::{
+        cell::RefCell,
+        collections::HashMap,
+        ffi::{OsStr, OsString},
+        rc::Rc,
+    };
 
     /// AddressSpaces and ThreadGroups are indexed by their first task's TaskUid
     /// (effectively), so that if the first task dies and its tid is recycled,
@@ -139,11 +144,19 @@ pub mod session_inner {
         /// If `exec_count` is not specified it is assumed to be 0.
         pub fn create_vm(
             &mut self,
-            _t: TaskSharedPtr,
-            _exe: Option<&str>,
-            _exec_count: Option<u32>,
+            t: TaskSharedPtr,
+            maybe_exe: Option<&OsStr>,
+            maybe_exec_count: Option<u32>,
         ) -> AddressSpaceSharedPtr {
-            unimplemented!()
+            let exe = maybe_exe.unwrap_or(OsStr::new(""));
+            let exec_count = maybe_exec_count.unwrap_or(0);
+            self.assert_fully_initialized();
+            let mut as_ = AddressSpace::new_after_execve(t.borrow_mut().as_mut(), exe, exec_count);
+            as_.insert(Rc::downgrade(&t));
+            let as_uid = as_.uid();
+            let shr_ptr = Rc::new(RefCell::new(as_));
+            self.vm_map.insert(as_uid, Rc::downgrade(&shr_ptr));
+            shr_ptr
         }
 
         /// Return a copy of `vm` with the same mappings.  If any

@@ -93,7 +93,7 @@ impl Sighandlers {
 /// Stores the table of signal dispositions and metadata for an
 /// arbitrary set of tasks.  Each of those tasks must own one one of
 /// the `refcount`s while they still refer to this.
-/// @TODO forced to pub this struct even though rr does not.
+/// @TODO VISIBILITY forced to pub this struct even though rr does not.
 pub struct Sighandler {
     /// @TODO are all these pub(self) useful? Should they be there?
     pub(self) k_sa_handler: RemotePtr<Void>,
