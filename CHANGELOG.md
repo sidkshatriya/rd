@@ -1,3 +1,3 @@
-_Will contain summary of important changes_
+## Summary of important changes
 
-_Nothing here yet_
+* _Nothing here yet_
