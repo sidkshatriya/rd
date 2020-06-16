@@ -1036,7 +1036,9 @@ pub mod task_inner {
         /// Some task state must be copied into this by injecting and
         /// running syscalls in this task.  Other state is metadata
         /// that can simply be copied over in local memory.
-        pub(in super::super) fn copy_state(&self, _stat: &CapturedState) {
+        /// @TODO Temporarily made this pub instead of in super::super because
+        /// Session needs access to this. Need to evolve a cleaner solution.
+        pub fn copy_state(&mut self, _stat: &CapturedState) {
             unimplemented!()
         }
 

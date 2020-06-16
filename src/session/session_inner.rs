@@ -333,7 +333,7 @@ pub mod session_inner {
         /// If non-None, data required to finish initializing the tasks of this
         /// session.
         /// @TODO is a Box required here?
-        pub(in super::super) clone_completion: Option<Box<CloneCompletion>>,
+        pub(in super::super) clone_completion: RefCell<Option<Box<CloneCompletion>>>,
 
         pub(in super::super) statistics_: RefCell<Statistics>,
 

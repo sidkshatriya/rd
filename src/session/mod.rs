@@ -108,11 +108,13 @@ pub trait Session: DerefMut<Target = SessionInner> {
     /// Call this before doing anything that requires access to the full set
     /// of tasks (i.e., almost anything!).
     fn finish_initializing(&self) {
-        if self.clone_completion.is_none() {
+        if self.clone_completion.borrow().is_none() {
             return;
         }
 
-        let cc = self.clone_completion.as_ref().unwrap();
+        // DIFF NOTE: We're setting clone completion to None here instead of at the end of the
+        // method.
+        let cc = self.clone_completion.replace(None).unwrap();
         for tgleader in &cc.address_spaces {
             let rc = tgleader.clone_leader.upgrade().unwrap();
             let mut leader = rc.borrow_mut();
@@ -150,8 +152,14 @@ pub trait Session: DerefMut<Target = SessionInner> {
                 }
             }
 
-            unimplemented!();
+            tgleader
+                .clone_leader
+                .upgrade()
+                .unwrap()
+                .borrow_mut()
+                .copy_state(&tgleader.clone_leader_state);
         }
+        // Don't need to set clone completion to `None`. Its already been done!
     }
 
     /// See Task::clone().
