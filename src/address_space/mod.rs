@@ -731,6 +731,10 @@ pub mod address_space {
             self.session_.upgrade().unwrap()
         }
 
+        pub fn session_weak(&self) -> &SessionSharedWeakPtr {
+            &self.session_
+        }
+
         pub fn arch(&self) -> SupportedArch {
             // Return the arch() of the first task in the address space
             self.task_set.iter().next().unwrap().borrow().arch()
@@ -2036,7 +2040,8 @@ pub mod address_space {
         /// Called when an AddressSpace is cloned due to a fork() or a Session
         /// clone. After this, and the task is properly set up, post_vm_clone will
         /// be called.
-        fn new_after_fork_or_session_clone(
+        /// @TODO VISIBILITY Made this pub. Private in rr. Revisit.
+        pub fn new_after_fork_or_session_clone(
             session: SessionSharedWeakPtr,
             o: &AddressSpace,
             leader_tid: pid_t,

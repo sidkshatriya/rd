@@ -165,10 +165,43 @@ pub mod session_inner {
         /// NOTE: Called simply Session::clone() in rr
         pub fn clone_vm(
             &mut self,
-            _t: &dyn Task,
-            _vm: AddressSpaceSharedPtr,
+            t: &dyn Task,
+            vm: AddressSpaceSharedPtr,
         ) -> AddressSpaceSharedPtr {
-            unimplemented!()
+            self.assert_fully_initialized();
+            // If vm already belongs to our session this is a fork, otherwise it's
+            // a session-clone
+            let as_: AddressSpace;
+            if self.weak_self_session.ptr_eq(vm.borrow().session_weak()) {
+                as_ = AddressSpace::new_after_fork_or_session_clone(
+                    self.weak_self_session.clone(),
+                    &vm.borrow(),
+                    t.rec_tid,
+                    t.tuid().serial(),
+                    0,
+                );
+            } else {
+                let vm_uid_tid: i32;
+                let vm_uid_serial: u32;
+                let vm_uid_exec_count: u32;
+                {
+                    let vmb = vm.borrow().uid();
+                    vm_uid_tid = vmb.tid();
+                    vm_uid_serial = vmb.serial();
+                    vm_uid_exec_count = vmb.exec_count();
+                }
+                as_ = AddressSpace::new_after_fork_or_session_clone(
+                    self.weak_self_session.clone(),
+                    &vm.borrow(),
+                    vm_uid_tid,
+                    vm_uid_serial,
+                    vm_uid_exec_count,
+                );
+            }
+            let as_uid = as_.uid();
+            let shr_ptr = Rc::new(RefCell::new(as_));
+            self.vm_map.insert(as_uid, Rc::downgrade(&shr_ptr));
+            shr_ptr
         }
 
         /// Create the initial thread group.

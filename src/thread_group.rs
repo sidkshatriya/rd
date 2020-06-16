@@ -206,6 +206,10 @@ impl ThreadGroup {
         self.session_.upgrade().unwrap()
     }
 
+    pub fn session_weak(&self) -> &SessionSharedWeakPtr {
+        &self.session_
+    }
+
     pub fn parent(&self) -> Option<ThreadGroupSharedPtr> {
         self.parent_.as_ref().map(|wp| wp.upgrade().unwrap())
     }
