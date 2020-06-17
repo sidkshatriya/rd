@@ -83,7 +83,7 @@ pub enum Registers {
     X86(x86::user_regs_struct),
 }
 
-use crate::task::replay_task::ReplayTask;
+use crate::session::task::replay_task::ReplayTask;
 use Registers::*;
 
 /// A Registers object contains values for all general-purpose registers.

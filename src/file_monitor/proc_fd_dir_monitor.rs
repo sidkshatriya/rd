@@ -1,6 +1,6 @@
 use crate::{
     file_monitor::{FileMonitor, FileMonitorType},
-    task::{record_task::record_task::RecordTask, Task},
+    session::task::{record_task::record_task::RecordTask, Task},
     taskish_uid::TaskUid,
 };
 

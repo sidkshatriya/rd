@@ -1,4 +1,4 @@
-use crate::task::Task;
+use crate::session::task::Task;
 
 pub struct FastForwardStatus;
 

@@ -26,7 +26,7 @@ pub enum LogLevel {
     LogDebug,
 }
 
-use crate::task::Task;
+use crate::session::task::Task;
 pub use LogLevel::*;
 
 struct LogGlobals {
@@ -311,7 +311,7 @@ fn dump_rd_stack(bt: Backtrace) {
 macro_rules! ed_assert {
     ($task:expr, $cond:expr) => {
         {
-            use crate::task::task_inner::task_inner::TaskInner;
+            use crate::session::task::task_inner::task_inner::TaskInner;
             // For type checking. Will use this param later though.
             let t : &TaskInner = $task;
             if !$cond {
@@ -335,7 +335,7 @@ macro_rules! ed_assert {
     };
     ($task:expr, $cond:expr, $($args:tt)+) => {
         {
-            use crate::task::task_inner::task_inner::TaskInner;
+            use crate::session::task::task_inner::task_inner::TaskInner;
             // For type checking. Will use this param later though.
             let t : &TaskInner = $task;
             if !$cond {

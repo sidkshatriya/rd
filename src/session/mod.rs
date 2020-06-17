@@ -9,12 +9,12 @@ use crate::{
         record_session::RecordSession,
         replay_session::ReplaySession,
         session_inner::session_inner::{AddressSpaceMap, SessionInner, TaskMap, ThreadGroupMap},
-    },
-    task::{
-        common,
-        task_inner::{task_inner::WriteFlags, CloneFlags},
-        Task,
-        TaskSharedPtr,
+        task::{
+            common,
+            task_inner::{task_inner::WriteFlags, CloneFlags},
+            Task,
+            TaskSharedPtr,
+        },
     },
     taskish_uid::{AddressSpaceUid, TaskUid, ThreadGroupUid},
     thread_group::ThreadGroupSharedPtr,
@@ -31,6 +31,7 @@ pub mod diversion_session;
 pub mod record_session;
 pub mod replay_session;
 pub mod session_inner;
+pub mod task;
 
 /// Note that this is NOT Rc<RefCell<Box<dyn Session>>>
 /// Session will be shared.
@@ -240,8 +241,8 @@ pub trait Session: DerefMut<Target = SessionInner> {
         &self.as_session_inner().thread_group_map
     }
 
-    fn vm_map(&self) -> &AddressSpaceMap {
-        &self.as_session_inner().vm_map
+    fn vm_map(&self) -> Ref<'_, AddressSpaceMap> {
+        self.as_session_inner().vm_map.borrow()
     }
 
     /// Call `post_exec()` immediately after a tracee has successfully

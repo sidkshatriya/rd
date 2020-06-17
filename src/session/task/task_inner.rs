@@ -126,11 +126,11 @@ pub mod task_inner {
         scoped_fd::ScopedFd,
         session::{
             session_inner::session_inner::SessionInner,
+            task::{Task, TaskSharedWeakPtr},
             Session,
             SessionSharedPtr,
             SessionSharedWeakPtr,
         },
-        task::{Task, TaskSharedWeakPtr},
         taskish_uid::TaskUid,
         thread_group::{ThreadGroup, ThreadGroupSharedPtr},
         ticks::Ticks,
@@ -183,7 +183,7 @@ pub mod task_inner {
         kernel_abi::RD_NATIVE_ARCH,
         rd::{RD_MAGIC_SAVE_DATA_FD, RD_RESERVED_ROOT_DIR_FD},
         seccomp_bpf::SeccompFilter,
-        task::TaskSharedPtr,
+        session::task::TaskSharedPtr,
     };
     use core::mem;
     use nix::{

@@ -35,7 +35,7 @@
 //! The main parameter to the scheduler is |max_ticks|, which controls the
 //! length of each timeslice.
 
-use crate::{task::record_task::record_task::RecordTask, ticks::Ticks};
+use crate::{session::task::record_task::record_task::RecordTask, ticks::Ticks};
 use libc::cpu_set_t;
 use std::{
     cell::RefCell,

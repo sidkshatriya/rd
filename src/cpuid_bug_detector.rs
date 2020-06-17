@@ -1,4 +1,4 @@
-use crate::task::replay_task::ReplayTask;
+use crate::session::task::replay_task::ReplayTask;
 
 /// Helper to detect when the "CPUID can cause rcbs to be lost" bug is present.
 /// See http://robert.ocallahan.org/2014/09/vmware-cpuid-conditional-branch.html

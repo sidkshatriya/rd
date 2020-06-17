@@ -5,7 +5,7 @@ use crate::{
     kernel_abi::common::preload_interface::{preload_globals, SYSCALLBUF_FDS_DISABLED_SIZE},
     log::LogLevel::LogDebug,
     remote_ptr::RemotePtr,
-    task::{record_task::record_task::RecordTask, replay_task::ReplayTask, Task},
+    session::task::{record_task::record_task::RecordTask, replay_task::ReplayTask, Task},
     weak_ptr_set::WeakPtrSet,
 };
 use nix::sys::stat::lstat;

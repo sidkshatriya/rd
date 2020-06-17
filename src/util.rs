@@ -13,7 +13,7 @@ use crate::{
     remote_code_ptr::RemoteCodePtr,
     remote_ptr::{RemotePtr, Void},
     scoped_fd::ScopedFd,
-    task::{
+    session::task::{
         common::{read_mem, read_val_mem},
         task_inner::CloneFlags,
         Task,

@@ -4,7 +4,7 @@ use crate::{
     kernel_supplement::{SA_RESETHAND, SA_SIGINFO, _NSIG},
     remote_code_ptr::RemoteCodePtr,
     remote_ptr::{RemotePtr, Void},
-    task::task_inner::CloneFlags,
+    session::task::task_inner::CloneFlags,
 };
 use libc::EINVAL;
 use nix::errno::errno;
@@ -220,29 +220,32 @@ pub mod record_task {
         remote_code_ptr::RemoteCodePtr,
         remote_ptr::{RemotePtr, Void},
         scoped_fd::ScopedFd,
-        session::{record_session::RecordSession, Session},
-        task::{
-            common::{
-                did_waitpid,
-                next_syscallbuf_record,
-                open_mem_fd,
-                read_bytes_fallible,
-                read_bytes_helper,
-                read_bytes_helper_for,
-                read_c_str,
-                resume_execution,
-                stored_record_size,
-                syscallbuf_data_size,
-                write_bytes,
-                write_bytes_helper,
+        session::{
+            record_session::RecordSession,
+            task::{
+                common::{
+                    did_waitpid,
+                    next_syscallbuf_record,
+                    open_mem_fd,
+                    read_bytes_fallible,
+                    read_bytes_helper,
+                    read_bytes_helper_for,
+                    read_c_str,
+                    resume_execution,
+                    stored_record_size,
+                    syscallbuf_data_size,
+                    write_bytes,
+                    write_bytes_helper,
+                },
+                task_inner::{
+                    task_inner::{CloneReason, TaskInner, WriteFlags},
+                    ResumeRequest,
+                    TicksRequest,
+                    WaitRequest,
+                },
+                Task,
             },
-            task_inner::{
-                task_inner::{CloneReason, TaskInner, WriteFlags},
-                ResumeRequest,
-                TicksRequest,
-                WaitRequest,
-            },
-            Task,
+            Session,
         },
         ticks::Ticks,
         trace::{trace_frame::FrameTime, trace_writer::TraceWriter},

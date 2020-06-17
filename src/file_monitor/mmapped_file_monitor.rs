@@ -7,7 +7,7 @@ use crate::{
     },
     file_monitor::{FileMonitor, FileMonitorType, LazyOffset, Range},
     log::LogLevel::LogWarn,
-    task::Task,
+    session::task::Task,
 };
 use libc::{dev_t, ino_t};
 use nix::sys::mman::MapFlags;

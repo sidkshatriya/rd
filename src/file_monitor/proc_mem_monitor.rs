@@ -2,7 +2,7 @@ use crate::{
     event::Switchable,
     file_monitor::{FileMonitor, FileMonitorType, LazyOffset, Range},
     remote_ptr::RemotePtr,
-    task::Task,
+    session::task::Task,
     taskish_uid::TaskUid,
 };
 use libc::pid_t;

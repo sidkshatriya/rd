@@ -14,8 +14,10 @@ use crate::{
     registers::Registers,
     remote_ptr::{RemotePtr, Void},
     scoped_fd::ScopedFd,
-    session::record_session::{DisableCPUIDFeatures, TraceUuid},
-    task::record_task::record_task::RecordTask,
+    session::{
+        record_session::{DisableCPUIDFeatures, TraceUuid},
+        task::record_task::record_task::RecordTask,
+    },
     trace::{
         compressed_writer::CompressedWriter,
         trace_stream::{

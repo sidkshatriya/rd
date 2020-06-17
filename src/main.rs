@@ -51,7 +51,6 @@ mod scoped_fd;
 mod seccomp_bpf;
 mod seccomp_filter_rewriter;
 mod session;
-mod task;
 mod taskish_uid;
 mod thread_group;
 mod ticks;

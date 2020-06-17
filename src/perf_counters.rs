@@ -16,7 +16,7 @@ use crate::{
     kernel_metadata::signal_name,
     log::*,
     scoped_fd::ScopedFd,
-    task::task_inner::task_inner::TaskInner,
+    session::task::task_inner::task_inner::TaskInner,
     ticks::Ticks,
     util::*,
 };

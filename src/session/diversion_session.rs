@@ -2,9 +2,9 @@ use crate::{
     emu_fs::{EmuFs, EmuFsSharedPtr},
     session::{
         session_inner::{session_inner::SessionInner, BreakStatus, RunCommand},
+        task::Task,
         Session,
     },
-    task::Task,
 };
 use std::{
     cell::{Ref, RefCell, RefMut},

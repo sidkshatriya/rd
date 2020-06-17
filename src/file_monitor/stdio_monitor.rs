@@ -2,7 +2,7 @@ use crate::{
     event::Switchable,
     file_monitor::{FileMonitor, FileMonitorType, LazyOffset, Range},
     flags::Flags,
-    task::Task,
+    session::task::Task,
 };
 use nix::unistd::write;
 

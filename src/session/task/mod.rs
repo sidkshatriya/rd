@@ -7,17 +7,19 @@ use crate::{
     log::LogLevel::{LogDebug, LogWarn},
     registers::Registers,
     remote_ptr::{RemotePtr, Void},
-    session::Session,
-    task::{
-        record_task::record_task::RecordTask,
-        replay_task::ReplayTask,
-        task_inner::{
-            task_inner::{CloneReason, PtraceData, TaskInner, WriteFlags},
-            CloneFlags,
-            ResumeRequest,
-            TicksRequest,
-            WaitRequest,
+    session::{
+        task::{
+            record_task::record_task::RecordTask,
+            replay_task::ReplayTask,
+            task_inner::{
+                task_inner::{CloneReason, PtraceData, TaskInner, WriteFlags},
+                CloneFlags,
+                ResumeRequest,
+                TicksRequest,
+                WaitRequest,
+            },
         },
+        Session,
     },
     util::{is_zombie_process, to_timeval},
     wait_status::{MaybeStopSignal, WaitStatus},

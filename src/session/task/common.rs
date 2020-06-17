@@ -39,7 +39,7 @@ use crate::{
     remote_code_ptr::RemoteCodePtr,
     remote_ptr::{RemotePtr, Void},
     scoped_fd::ScopedFd,
-    task::{
+    session::task::{
         is_signal_triggered_by_ptrace_interrupt,
         is_singlestep_resume,
         task_inner::{

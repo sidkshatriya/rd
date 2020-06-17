@@ -23,7 +23,7 @@ use crate::{
     remote_code_ptr::RemoteCodePtr,
     remote_ptr::{RemotePtr, Void},
     scoped_fd::ScopedFd,
-    task::Task,
+    session::task::Task,
     util::{find, resource_path},
 };
 use libc::{dev_t, pid_t};
@@ -221,13 +221,16 @@ pub mod address_space {
         remote_code_ptr::RemoteCodePtr,
         remote_ptr::RemotePtr,
         scoped_fd::ScopedFd,
-        session::{SessionSharedPtr, SessionSharedWeakPtr},
-        task::{
-            common::{read_mem, read_val_mem, write_val_mem, write_val_mem_with_flags},
-            record_task::record_task::RecordTask,
-            task_inner::task_inner::WriteFlags,
-            Task,
-            TaskSharedPtr,
+        session::{
+            task::{
+                common::{read_mem, read_val_mem, write_val_mem, write_val_mem_with_flags},
+                record_task::record_task::RecordTask,
+                task_inner::task_inner::WriteFlags,
+                Task,
+                TaskSharedPtr,
+            },
+            SessionSharedPtr,
+            SessionSharedWeakPtr,
         },
         taskish_uid::{AddressSpaceUid, TaskUid},
         trace::trace_frame::FrameTime,

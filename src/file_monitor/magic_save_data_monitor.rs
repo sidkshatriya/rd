@@ -7,7 +7,7 @@ use crate::{
         Range,
     },
     remote_ptr::{RemotePtr, Void},
-    task::replay_task::ReplayTask,
+    session::task::replay_task::ReplayTask,
 };
 
 /// A FileMonitor to track writes to RR_MAGIC_SAVE_DATA_FD.

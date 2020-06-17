@@ -4,7 +4,7 @@ use crate::{
     kernel_abi::SupportedArch,
     registers::Registers,
     remote_ptr::{RemotePtr, Void},
-    task::{record_task::record_task::RecordTask, Task},
+    session::task::{record_task::record_task::RecordTask, Task},
 };
 use std::{
     cell::RefCell,

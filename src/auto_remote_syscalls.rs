@@ -40,16 +40,19 @@ use crate::{
     remote_code_ptr::RemoteCodePtr,
     remote_ptr::{RemotePtr, Void},
     scoped_fd::ScopedFd,
-    session::{replay_session::ReplaySession, session_inner::session_inner::SessionInner},
-    task::{
-        common::{read_mem, read_val_mem, write_mem, write_val_mem},
-        task_inner::{
-            task_inner::WriteFlags,
-            ResumeRequest::{ResumeSinglestep, ResumeSyscall},
-            TicksRequest::ResumeNoTicks,
-            WaitRequest::ResumeWait,
+    session::{
+        replay_session::ReplaySession,
+        session_inner::session_inner::SessionInner,
+        task::{
+            common::{read_mem, read_val_mem, write_mem, write_val_mem},
+            task_inner::{
+                task_inner::WriteFlags,
+                ResumeRequest::{ResumeSinglestep, ResumeSyscall},
+                TicksRequest::ResumeNoTicks,
+                WaitRequest::ResumeWait,
+            },
+            Task,
         },
-        Task,
     },
     util::{find, is_kernel_trap, page_size, resize_shmem_segment, tmp_dir},
     wait_status::{MaybeStopSignal, WaitStatus},

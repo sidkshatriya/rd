@@ -1,7 +1,7 @@
 use crate::{
     address_space::{kernel_mapping::KernelMapping, thread_group_in_exec},
     remote_ptr::{RemotePtr, Void},
-    task::Task,
+    session::task::Task,
 };
 use libc::{ino_t, pid_t};
 use nix::{

@@ -1,4 +1,8 @@
-use crate::{address_space::WatchConfig, bindings::signal::siginfo_t, task::TaskSharedWeakPtr};
+use crate::{
+    address_space::WatchConfig,
+    bindings::signal::siginfo_t,
+    session::task::TaskSharedWeakPtr,
+};
 
 #[derive(Clone)]
 pub struct BreakStatus {
@@ -75,8 +79,10 @@ pub mod session_inner {
         perf_counters::TicksSemantics,
         remote_ptr::{RemotePtr, Void},
         scoped_fd::ScopedFd,
-        session::SessionSharedWeakPtr,
-        task::{task_inner::task_inner::CapturedState, Task, TaskSharedPtr, TaskSharedWeakPtr},
+        session::{
+            task::{task_inner::task_inner::CapturedState, Task, TaskSharedPtr, TaskSharedWeakPtr},
+            SessionSharedWeakPtr,
+        },
         taskish_uid::{AddressSpaceUid, ThreadGroupUid},
         thread_group::{ThreadGroup, ThreadGroupSharedPtr, ThreadGroupSharedWeakPtr},
         ticks::Ticks,

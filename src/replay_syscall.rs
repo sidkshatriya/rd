@@ -11,11 +11,13 @@ use crate::{
     kernel_abi::{is_write_syscall, CloneTLSType, SupportedArch},
     kernel_metadata::syscall_name,
     log::LogLevel::LogDebug,
-    session::replay_session::ReplaySession,
-    task::{
-        replay_task::ReplayTask,
-        task_inner::{ResumeRequest, TicksRequest, WaitRequest},
-        Task,
+    session::{
+        replay_session::ReplaySession,
+        task::{
+            replay_task::ReplayTask,
+            task_inner::{ResumeRequest, TicksRequest, WaitRequest},
+            Task,
+        },
     },
     trace::{
         trace_frame::FrameTime,

@@ -1,7 +1,6 @@
 use crate::{
     log::LogLevel::LogDebug,
-    session::{SessionSharedPtr, SessionSharedWeakPtr},
-    task::Task,
+    session::{task::Task, SessionSharedPtr, SessionSharedWeakPtr},
     taskish_uid::ThreadGroupUid,
     wait_status::WaitStatus,
     weak_ptr_set::WeakPtrSet,

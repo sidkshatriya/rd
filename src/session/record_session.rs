@@ -3,8 +3,11 @@ use crate::{
     kernel_abi::SupportedArch,
     scheduler::Scheduler,
     seccomp_filter_rewriter::SeccompFilterRewriter,
-    session::{session_inner::session_inner::SessionInner, Session},
-    task::{Task, TaskSharedPtr},
+    session::{
+        session_inner::session_inner::SessionInner,
+        task::{Task, TaskSharedPtr},
+        Session,
+    },
     thread_group::ThreadGroupSharedPtr,
     trace::{trace_stream::TraceStream, trace_writer::TraceWriter},
     util::{good_random, CPUIDData, CPUID_GETEXTENDEDFEATURES, CPUID_GETFEATURES, CPUID_GETXSAVE},

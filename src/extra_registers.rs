@@ -3,7 +3,7 @@ use crate::{
     kernel_abi::{x64, x86, SupportedArch, SupportedArch::*, RD_NATIVE_ARCH},
     kernel_metadata::xsave_feature_string,
     log::LogLevel::LogError,
-    task::task_inner::task_inner::TaskInner,
+    session::task::task_inner::task_inner::TaskInner,
     util::{xsave_native_layout, XSaveFeatureLayout, XSaveLayout},
 };
 use std::{convert::TryInto, fmt::Write, io, mem::size_of, ptr::copy_nonoverlapping};
