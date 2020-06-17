@@ -76,21 +76,31 @@ pub mod session_inner {
             AddressSpaceSharedPtr,
             AddressSpaceSharedWeakPtr,
         },
+        bindings::ptrace::PTRACE_DETACH,
+        kernel_abi::syscall_number_for_exit,
+        log::LogLevel::LogDebug,
         perf_counters::TicksSemantics,
         remote_ptr::{RemotePtr, Void},
         scoped_fd::ScopedFd,
         session::{
-            task::{task_inner::task_inner::CapturedState, Task, TaskSharedPtr, TaskSharedWeakPtr},
+            task::{
+                task_inner::task_inner::{CapturedState, PtraceData},
+                Task,
+                TaskSharedPtr,
+                TaskSharedWeakPtr,
+            },
             SessionSharedWeakPtr,
         },
         taskish_uid::{AddressSpaceUid, ThreadGroupUid},
         thread_group::{ThreadGroup, ThreadGroupSharedPtr, ThreadGroupSharedWeakPtr},
         ticks::Ticks,
+        util::is_zombie_process,
     };
-    use libc::pid_t;
+    use libc::{pid_t, ESRCH};
+    use nix::errno::errno;
     use std::{
         cell::{Cell, RefCell},
-        collections::HashMap,
+        collections::{BTreeMap, HashMap},
         ffi::{OsStr, OsString},
         rc::Rc,
     };
@@ -100,7 +110,7 @@ pub mod session_inner {
     /// we don't get confused. TaskMap is indexed by tid since there can never be
     /// two Tasks with the same tid at the same time.
     pub type AddressSpaceMap = HashMap<AddressSpaceUid, AddressSpaceSharedWeakPtr>;
-    pub type TaskMap = HashMap<pid_t, TaskSharedPtr>;
+    pub type TaskMap = BTreeMap<pid_t, TaskSharedPtr>;
     pub type ThreadGroupMap = HashMap<ThreadGroupUid, ThreadGroupSharedWeakPtr>;
 
     #[derive(Copy, Clone)]
@@ -243,6 +253,67 @@ pub mod session_inner {
         /// `tasks().size()` will be zero and all the OS tasks will be
         /// gone when this returns, or this won't return.
         pub fn kill_all_tasks(&mut self) {
+            for (_, t) in self.task_map.borrow().iter() {
+                if !t.borrow().is_stopped {
+                    // During recording we might be aborting the recording, in which case
+                    // one or more tasks might not be stopped. We haven't got any really
+                    // good options here so we'll just skip detaching and try killing
+                    // it with SIGKILL below. rr will usually exit immediately after this
+                    // so the likelihood that we'll leak a zombie task isn't too bad.
+                    continue;
+                }
+
+                // Prepare to forcibly kill this task by detaching it first. To ensure
+                // the task doesn't continue executing, we first set its ip() to an
+                // invalid value. We need to do this for all tasks in the Session before
+                // kill() is guaranteed to work properly. SIGKILL on ptrace-attached tasks
+                // seems to not work very well, and after sending SIGKILL we can't seem to
+                // reliably detach.
+                log!(LogDebug, "safely detaching from {} ...", t.borrow().tid);
+                // Detaching from the process lets it continue. We don't want a replaying
+                // process to perform syscalls or do anything else observable before we
+                // get around to SIGKILLing it. So we move its ip() to an address
+                // which will cause it to do an exit() syscall if it runs at all.
+                // We used to set this to an invalid address, but that causes a SIGSEGV
+                // to be raised which can cause core dumps after we detach from ptrace.
+                // Making the process undumpable with PR_SET_DUMPABLE turned out not to
+                // be practical because that has a side effect of triggering various
+                // security measures blocking inspection of the process (PTRACE_ATTACH,
+                // access to /proc/<pid>/fd).
+                // Disabling dumps via setrlimit(RLIMIT_CORE, 0) doesn't stop dumps
+                // if /proc/sys/kernel/core_pattern is set to pipe the core to a process
+                // (e.g. to systemd-coredump).
+                // We also tried setting ip() to an address that does an infinite loop,
+                // but that leaves a runaway process if something happens to kill rd
+                // after detaching but before we get a chance to SIGKILL the tracee.
+                let mut r = t.borrow().regs_ref().clone();
+                r.set_ip(t.borrow().vm().privileged_traced_syscall_ip().unwrap());
+                r.set_syscallno(syscall_number_for_exit(r.arch()) as isize);
+                r.set_arg1(0);
+                t.borrow_mut().set_regs(&r);
+                t.borrow_mut().flush_regs();
+                let mut result: isize;
+                loop {
+                    // We have observed this failing with an ESRCH when the thread clearly
+                    // still exists and is ptraced. Retrying the PTRACE_DETACH seems to
+                    // work around it.
+                    result = t.borrow().fallible_ptrace(
+                        PTRACE_DETACH,
+                        RemotePtr::null(),
+                        PtraceData::None,
+                    );
+                    ed_assert!(&t.borrow(), result >= 0 || errno() == ESRCH);
+                    // But we it might get ESRCH because it really doesn't exist.
+                    if errno() == ESRCH && is_zombie_process(t.borrow().tid) {
+                        break;
+                    }
+
+                    if result >= 0 {
+                        break;
+                    }
+                }
+            }
+
             unimplemented!()
         }
 

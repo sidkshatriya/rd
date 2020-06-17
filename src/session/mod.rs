@@ -222,6 +222,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
     /// address space exists.
     fn find_address_space(&mut self, vmuid: AddressSpaceUid) -> Option<AddressSpaceSharedPtr> {
         self.finish_initializing();
+        // If the weak ptr was found, we _must_ be able to upgrade it!;
         self.vm_map().get(&vmuid).map(|a| a.upgrade().unwrap())
     }
 
@@ -237,12 +238,21 @@ pub trait Session: DerefMut<Target = SessionInner> {
         self.as_session_inner().task_map.borrow()
     }
 
+    fn tasks_mut(&self) -> RefMut<'_, TaskMap> {
+        self.finish_initializing();
+        self.as_session_inner().task_map.borrow_mut()
+    }
+
     fn thread_group_map(&self) -> &ThreadGroupMap {
         &self.as_session_inner().thread_group_map
     }
 
     fn vm_map(&self) -> Ref<'_, AddressSpaceMap> {
         self.as_session_inner().vm_map.borrow()
+    }
+
+    fn vm_map_mut(&self) -> RefMut<'_, AddressSpaceMap> {
+        self.as_session_inner().vm_map.borrow_mut()
     }
 
     /// Call `post_exec()` immediately after a tracee has successfully

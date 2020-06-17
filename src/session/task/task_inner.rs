@@ -317,71 +317,71 @@ pub mod task_inner {
         /// These are private
         serial: u32,
         /// The address space of this task.
-        pub(in super::super) as_: AddressSpaceSharedPtr,
+        pub(in super::super::super) as_: AddressSpaceSharedPtr,
         /// The file descriptor table of this task.
-        pub(in super::super) fds: FdTableSharedPtr,
+        pub(in super::super::super) fds: FdTableSharedPtr,
         /// Task's OS name.
-        pub(in super::super) prname: OsString,
+        pub(in super::super::super) prname: OsString,
         /// Count of all ticks seen by this task since tracees became
         /// consistent and the task last wait()ed.
-        pub(in super::super) ticks: Ticks,
+        pub(in super::super::super) ticks: Ticks,
         /// When `is_stopped`, these are our child registers.
-        pub(in super::super) registers: Registers,
+        pub(in super::super::super) registers: Registers,
         /// Where we last resumed execution
-        pub(in super::super) address_of_last_execution_resume: RemoteCodePtr,
-        pub(in super::super) how_last_execution_resumed: ResumeRequest,
+        pub(in super::super::super) address_of_last_execution_resume: RemoteCodePtr,
+        pub(in super::super::super) how_last_execution_resumed: ResumeRequest,
         /// In certain circumstances, due to hardware bugs, we need to fudge the
         /// cx register. If so, we record the orginal value here. See comments in
         /// Task.cc
         /// DIFF NOTE: In rr this is a u64. We use usize. @TODO Will this cause any issues?
-        pub(in super::super) last_resume_orig_cx: usize,
+        pub(in super::super::super) last_resume_orig_cx: usize,
         /// The instruction type we're singlestepping through.
-        pub(in super::super) singlestepping_instruction: TrappedInstruction,
+        pub(in super::super::super) singlestepping_instruction: TrappedInstruction,
         /// True if we set a breakpoint after a singlestepped CPUID instruction.
         /// We need this in addition to `singlestepping_instruction` because that
         /// might be CPUID but we failed to set the breakpoint.
-        pub(in super::super) did_set_breakpoint_after_cpuid: bool,
+        pub(in super::super::super) did_set_breakpoint_after_cpuid: bool,
         /// True when we know via waitpid() that the task is stopped and we haven't
         /// resumed it.
-        pub(in super::super) is_stopped: bool,
+        pub(in super::super::super) is_stopped: bool,
         /// True when the seccomp filter has been enabled via prctl(). This happens
         /// in the first system call issued by the initial tracee (after it returns
         /// from kill(SIGSTOP) to synchronize with the tracer).
-        pub(in super::super) seccomp_bpf_enabled: bool,
+        pub(in super::super::super) seccomp_bpf_enabled: bool,
         /// True when we consumed a PTRACE_EVENT_EXIT that was about to race with
         /// a resume_execution, that was issued while stopped (i.e. SIGKILL).
-        pub(in super::super) detected_unexpected_exit: bool,
+        pub(in super::super::super) detected_unexpected_exit: bool,
         /// True when 'registers' has changes that haven't been flushed back to the
         /// task yet.
-        pub(in super::super) registers_dirty: bool,
+        pub(in super::super::super) registers_dirty: bool,
         /// When `extra_registers_known`, we have saved our extra registers.
-        pub(in super::super) extra_registers: ExtraRegisters,
-        pub(in super::super) extra_registers_known: bool,
+        pub(in super::super::super) extra_registers: ExtraRegisters,
+        pub(in super::super::super) extra_registers_known: bool,
         /// A weak pointer to the  session we're part of.
-        pub(in super::super) session_: SessionSharedWeakPtr,
+        pub(in super::super::super) session_: SessionSharedWeakPtr,
         /// The thread group this belongs to.
-        pub(in super::super) tg: ThreadGroupSharedPtr,
+        pub(in super::super::super) tg: ThreadGroupSharedPtr,
         /// Entries set by `set_thread_area()` or the `tls` argument to `clone()`
         /// (when that's a user_desc). May be more than one due to different
         /// entry_numbers.
-        pub(in super::super) thread_areas_: Vec<user_desc>,
+        pub(in super::super::super) thread_areas_: Vec<user_desc>,
         /// The `stack` argument passed to `clone()`, which for
         /// "threads" is the top of the user-allocated stack.
-        pub(in super::super) top_of_stack: RemotePtr<Void>,
+        pub(in super::super::super) top_of_stack: RemotePtr<Void>,
         /// The most recent status of this task as returned by
         /// waitpid().
-        pub(in super::super) wait_status: WaitStatus,
+        pub(in super::super::super) wait_status: WaitStatus,
         /// The most recent siginfo (captured when wait_status shows pending_sig())
-        pub(in super::super) pending_siginfo: siginfo_t,
+        pub(in super::super::super) pending_siginfo: siginfo_t,
         /// True when a PTRACE_EXIT_EVENT has been observed in the wait_status
         /// for this task.
-        pub(in super::super) seen_ptrace_exit_event: bool,
+        pub(in super::super::super) seen_ptrace_exit_event: bool,
         /// A counter for the number of stops for which the stop may have been caused
         /// by PTRACE_INTERRUPT. See description in do_waitpid
-        pub(in super::super) expecting_ptrace_interrupt_stop: u32,
+        pub(in super::super::super) expecting_ptrace_interrupt_stop: u32,
 
         /// Important. Weak dyn Task pointer to self.
-        pub(in super::super) weak_self_task: TaskSharedWeakPtr,
+        pub(in super::super::super) weak_self_task: TaskSharedWeakPtr,
     }
 
     pub type DebugRegs = Vec<WatchConfig>;
@@ -736,7 +736,7 @@ pub mod task_inner {
         }
 
         /// Ensure registers are flushed back to the underlying task.
-        pub fn flush_regs(&self) {
+        pub fn flush_regs(&mut self) {
             unimplemented!()
         }
 
@@ -1002,7 +1002,7 @@ pub mod task_inner {
             unimplemented!()
         }
 
-        pub(in super::super) fn new(
+        pub(in super::super::super) fn new(
             _session: &dyn Session,
             _tid: pid_t,
             _rec_tid: pid_t,
@@ -1012,18 +1012,22 @@ pub mod task_inner {
             unimplemented!()
         }
 
-        pub(in super::super) fn on_syscall_exit_arch(&self, _syscallno: i32, _regs: &Registers) {
+        pub(in super::super::super) fn on_syscall_exit_arch(
+            &self,
+            _syscallno: i32,
+            _regs: &Registers,
+        ) {
             unimplemented!()
         }
 
         /// Helper function for init_buffers. */
-        pub(in super::super) fn init_buffers_arch(&self, _map_hint: RemotePtr<Void>) {
+        pub(in super::super::super) fn init_buffers_arch(&self, _map_hint: RemotePtr<Void>) {
             unimplemented!()
         }
 
         /// Grab state from this task into a structure that we can use to
         /// initialize a new task via os_clone_into/os_fork_into and copy_state.
-        pub(in super::super) fn capture_state(&self) -> CapturedState {
+        pub(in super::super::super) fn capture_state(&self) -> CapturedState {
             unimplemented!()
         }
 
@@ -1044,7 +1048,7 @@ pub mod task_inner {
 
         /// Make the ptrace `request` with `addr` and `data`, return
         /// the ptrace return value.
-        pub(in super::super) fn fallible_ptrace(
+        pub(in super::super::super) fn fallible_ptrace(
             &self,
             request: u32,
             addr: RemotePtr<Void>,
@@ -1056,7 +1060,7 @@ pub mod task_inner {
 
         /// Like `fallible_ptrace()` but completely infallible.
         /// All errors are treated as fatal.
-        pub(in super::super) fn xptrace(
+        pub(in super::super::super) fn xptrace(
             &self,
             request: u32,
             addr: RemotePtr<Void>,
@@ -1079,7 +1083,7 @@ pub mod task_inner {
 
         /// Read tracee memory using PTRACE_PEEKDATA calls. Slow, only use
         /// as fallback. Returns number of bytes actually read.
-        pub(in super::super) fn read_bytes_ptrace(
+        pub(in super::super::super) fn read_bytes_ptrace(
             &self,
             addr: RemotePtr<Void>,
             buf: &mut [u8],
@@ -1122,7 +1126,7 @@ pub mod task_inner {
 
         /// Write tracee memory using PTRACE_POKEDATA calls. Slow, only use
         /// as fallback. Returns number of bytes actually written.
-        pub(in super::super) fn write_bytes_ptrace(
+        pub(in super::super::super) fn write_bytes_ptrace(
             &self,
             addr: RemotePtr<Void>,
             buf: &[u8],
@@ -1173,7 +1177,7 @@ pub mod task_inner {
 
         /// Try writing 'buf' to 'addr' by replacing pages in the tracee
         /// address-space using a temporary file. This may work around PaX issues.
-        pub(in super::super) fn try_replace_pages(
+        pub(in super::super::super) fn try_replace_pages(
             &self,
             _addr: RemotePtr<Void>,
             _buf: &[u8],
@@ -1186,7 +1190,7 @@ pub mod task_inner {
         /// to be mapped --- and this is asserted --- or nullptr if
         /// there are no expectations.
         /// Initializes syscallbuf_child.
-        pub(in super::super) fn init_syscall_buffer(
+        pub(in super::super::super) fn init_syscall_buffer(
             &self,
             _remote: &AutoRemoteSyscalls,
             _map_hint: RemotePtr<Void>,
@@ -1207,13 +1211,13 @@ pub mod task_inner {
         /// in the process into which the copy of this task will be
         /// created.  `task_leader` will perform the actual OS calls to
         /// create the new child.
-        pub(in super::super) fn os_fork_into(&self, _session: &dyn Session) -> &TaskInner {
+        pub(in super::super::super) fn os_fork_into(&self, _session: &dyn Session) -> &TaskInner {
             unimplemented!()
         }
 
         /// Return the TraceStream that we're using, if in recording or replay.
         /// Returns null if we're not in record or replay.
-        pub(in super::super) fn trace_stream(&self) -> &TraceStream {
+        pub(in super::super::super) fn trace_stream(&self) -> &TraceStream {
             unimplemented!()
         }
 
@@ -1224,7 +1228,7 @@ pub mod task_inner {
         ///
         /// The new clone will be tracked in `session`.  The other
         /// arguments are as for `Task::clone()` above.
-        pub(in super::super) fn os_clone(
+        pub(in super::super::super) fn os_clone(
             _reason: CloneReason,
             _session: &dyn Session,
             _remote: &AutoRemoteSyscalls,
@@ -1454,7 +1458,7 @@ pub mod task_inner {
             wrapped_t
         }
 
-        pub(in super::super) fn preload_thread_locals(&self) -> &mut u8 {
+        pub(in super::super::super) fn preload_thread_locals(&self) -> &mut u8 {
             unimplemented!()
         }
     }
