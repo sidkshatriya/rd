@@ -187,7 +187,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
         let interrupt_after_elapsed = maybe_interrupt_after_elapsed.unwrap_or(0.0);
         debug_assert!(interrupt_after_elapsed >= 0.0);
         log!(LogDebug, "going into blocking waitpid({}) ...", self.tid);
-        ed_assert!(self, !self.unstable, "Don't wait for unstable tasks");
+        ed_assert!(self, !self.unstable.get(), "Don't wait for unstable tasks");
         ed_assert!(
             self,
             self.session().is_recording() || interrupt_after_elapsed == 0.0

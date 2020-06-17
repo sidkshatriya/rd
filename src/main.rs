@@ -1,3 +1,4 @@
+#![feature(map_first_last)]
 #![feature(llvm_asm)]
 #![feature(raw_ref_op)]
 // @TODO To many results for "never used". Disable for now.

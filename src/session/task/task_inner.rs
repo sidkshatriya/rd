@@ -132,7 +132,7 @@ pub mod task_inner {
             SessionSharedWeakPtr,
         },
         taskish_uid::TaskUid,
-        thread_group::{ThreadGroup, ThreadGroupSharedPtr},
+        thread_group::ThreadGroupSharedPtr,
         ticks::Ticks,
         trace::trace_stream::TraceStream,
         util::{
@@ -191,7 +191,7 @@ pub mod task_inner {
         unistd::Pid,
     };
     use std::{
-        cell::RefCell,
+        cell::{Cell, RefCell},
         cmp::min,
         ffi::{CStr, CString, OsStr, OsString},
         mem::size_of,
@@ -236,7 +236,7 @@ pub mod task_inner {
         /// process have been invalidated, and must be re-established
         /// with a waitpid() call. Only applies to tasks which are dying, usually
         /// due to a signal sent to the entire thread group.
-        pub unstable: bool,
+        pub unstable: Cell<bool>,
         /// exit(), or exit_group() with one task, has been called, so
         /// the exit can be treated as stable. */
         pub stable_exit: bool,
@@ -381,7 +381,7 @@ pub mod task_inner {
         pub(in super::super::super) expecting_ptrace_interrupt_stop: u32,
 
         /// Important. Weak dyn Task pointer to self.
-        pub(in super::super::super) weak_self_task: TaskSharedWeakPtr,
+        pub(in super::super::super) weak_self: TaskSharedWeakPtr,
     }
 
     pub type DebugRegs = Vec<WatchConfig>;
@@ -429,7 +429,7 @@ pub mod task_inner {
 
     impl TaskInner {
         pub fn weak_self_ptr(&self) -> TaskSharedWeakPtr {
-            self.weak_self_task.clone()
+            self.weak_self.clone()
         }
 
         /// We hide the destructor and require clients to call this instead. This
@@ -817,17 +817,17 @@ pub mod task_inner {
         }
 
         /// Return the thread group this belongs to.
-        pub fn thread_group(&self) -> Rc<RefCell<ThreadGroup>> {
-            self.tg.clone()
+        pub fn thread_group(&self) -> &ThreadGroupSharedPtr {
+            &self.tg
         }
 
         /// Return the id of this task's recorded thread group.
         pub fn tgid(&self) -> pid_t {
-            unimplemented!()
+            self.tg.borrow().tgid
         }
         /// Return id of real OS thread group.
         pub fn real_tgid(&self) -> pid_t {
-            unimplemented!()
+            self.tg.borrow().real_tgid
         }
 
         pub fn tuid(&self) -> TaskUid {
@@ -1406,7 +1406,7 @@ pub mod task_inner {
             let t = session.new_task(tid, rec_tid, next_t_serial, RD_NATIVE_ARCH);
             let wrapped_t = Rc::new(RefCell::new(t));
             // Set the weak self pointer of the task
-            wrapped_t.borrow_mut().weak_self_task = Rc::downgrade(&wrapped_t);
+            wrapped_t.borrow_mut().weak_self = Rc::downgrade(&wrapped_t);
 
             let tg = session.create_initial_tg(wrapped_t.clone());
             wrapped_t.borrow_mut().tg = tg;

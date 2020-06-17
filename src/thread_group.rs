@@ -196,7 +196,7 @@ impl ThreadGroup {
     pub fn destabilize(&self) {
         log!(LogDebug, "destabilizing thread group {}", self.tgid);
         for t in self.iter() {
-            t.borrow_mut().unstable = true;
+            t.borrow().unstable.set(true);
             log!(LogDebug, "  destabilized task {}", t.borrow().tid);
         }
     }

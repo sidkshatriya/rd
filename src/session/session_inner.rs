@@ -95,7 +95,7 @@ pub mod session_inner {
         ticks::Ticks,
         util::is_zombie_process,
     };
-    use libc::{pid_t, ESRCH};
+    use libc::{pid_t, syscall, SYS_tgkill, ESRCH, SIGKILL};
     use nix::errno::errno;
     use std::{
         cell::{Cell, RefCell},
@@ -185,9 +185,9 @@ pub mod session_inner {
             // If vm already belongs to our session this is a fork, otherwise it's
             // a session-clone
             let as_: AddressSpace;
-            if self.weak_self_session.ptr_eq(vm.borrow().session_weak()) {
+            if self.weak_self.ptr_eq(vm.borrow().session_weak()) {
                 as_ = AddressSpace::new_after_fork_or_session_clone(
-                    self.weak_self_session.clone(),
+                    self.weak_self.clone(),
                     &vm.borrow(),
                     t.rec_tid,
                     t.tuid().serial(),
@@ -204,7 +204,7 @@ pub mod session_inner {
                     vm_uid_exec_count = vmb.exec_count();
                 }
                 as_ = AddressSpace::new_after_fork_or_session_clone(
-                    self.weak_self_session.clone(),
+                    self.weak_self.clone(),
                     &vm.borrow(),
                     vm_uid_tid,
                     vm_uid_serial,
@@ -231,14 +231,7 @@ pub mod session_inner {
                 tuid_serial = tb.tuid().serial();
             }
 
-            let tg = ThreadGroup::new(
-                self.weak_self_session.clone(),
-                None,
-                rec_tid,
-                tid,
-                tid,
-                tuid_serial,
-            );
+            let tg = ThreadGroup::new(self.weak_self.clone(), None, rec_tid, tid, tid, tuid_serial);
             tg.borrow_mut().insert(Rc::downgrade(&t));
             tg
         }
@@ -312,8 +305,30 @@ pub mod session_inner {
                     }
                 }
             }
+            while !self.task_map.borrow().is_empty() {
+                let (_, t) = self.task_map.borrow_mut().pop_last().unwrap();
+                if !t.borrow().unstable.get() {
+                    // Destroy the OS task backing this by sending it SIGKILL and
+                    // ensuring it was delivered.  After |kill()|, the only
+                    // meaningful thing that can be done with this task is to
+                    // delete it.
+                    log!(LogDebug, "sending SIGKILL to {} ...", t.borrow().tid);
+                    // If we haven't already done a stable exit via syscall,
+                    // kill the task and note that the entire thread group is unstable.
+                    // The task may already have exited due to the preparation above,
+                    // so we might accidentally shoot down the wrong task :-(, but we
+                    // have to do this because the task might be in a state where it's not
+                    // going to run and exit by itself.
+                    // Linux doesn't seem to give us a reliable way to detach and kill
+                    // the tracee without races.
+                    unsafe {
+                        syscall(SYS_tgkill, t.borrow().real_tgid(), t.borrow().tid, SIGKILL);
+                    }
+                    t.borrow().thread_group().borrow().destabilize();
+                }
 
-            unimplemented!()
+                t.borrow().destroy();
+            }
         }
 
         /// Call these functions from the objects' destructors in order
@@ -443,7 +458,7 @@ pub mod session_inner {
     /// This struct should NOT impl the Session trait
     pub struct SessionInner {
         /// Weak dyn Session pointer to self
-        pub(in super::super) weak_self_session: SessionSharedWeakPtr,
+        pub(in super::super) weak_self: SessionSharedWeakPtr,
         /// All these members are NOT pub
         pub(in super::super) vm_map: RefCell<AddressSpaceMap>,
         pub(in super::super) task_map: RefCell<TaskMap>,
