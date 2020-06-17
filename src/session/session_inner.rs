@@ -96,11 +96,16 @@ pub mod session_inner {
         util::is_zombie_process,
     };
     use libc::{pid_t, syscall, SYS_tgkill, ESRCH, SIGKILL};
-    use nix::errno::errno;
+    use nix::{
+        errno::errno,
+        fcntl::OFlag,
+        unistd::{pipe2, read},
+    };
     use std::{
         cell::{Cell, RefCell},
         collections::{BTreeMap, HashMap},
         ffi::{OsStr, OsString},
+        os::unix::ffi::OsStringExt,
         rc::Rc,
     };
 
@@ -244,7 +249,7 @@ pub mod session_inner {
 
         /// `tasks().size()` will be zero and all the OS tasks will be
         /// gone when this returns, or this won't return.
-        pub fn kill_all_tasks(&mut self) {
+        pub fn kill_all_tasks(&self) {
             for (_, t) in self.task_map.borrow().iter() {
                 if !t.borrow().is_stopped {
                     // During recording we might be aborting the recording, in which case
@@ -367,11 +372,19 @@ pub mod session_inner {
             self.statistics_.borrow_mut().ticks_processed += ticks;
         }
         pub fn statistics(&self) -> Statistics {
-            *self.statistics_.borrow_mut()
+            *self.statistics_.borrow()
         }
 
         pub fn read_spawned_task_error(&self) -> OsString {
-            unimplemented!()
+            let mut buf: Vec<u8> = vec![0; 1000];
+            let res = read(self.spawned_task_error_fd_.as_raw(), &mut buf);
+            match res {
+                Ok(nread) => {
+                    buf.truncate(nread);
+                    OsString::from_vec(buf)
+                }
+                Err(_) => OsString::new(),
+            }
         }
 
         pub fn syscall_seccomp_ordering(&self) -> PtraceSyscallBeforeSeccomp {
@@ -402,7 +415,17 @@ pub mod session_inner {
         }
 
         pub(in super::super) fn create_spawn_task_error_pipe(&mut self) -> ScopedFd {
-            unimplemented!()
+            let res = pipe2(OFlag::O_CLOEXEC);
+            match res {
+                Ok((fd0, fd1)) => {
+                    self.spawned_task_error_fd_ = ScopedFd::from_raw(fd0);
+                    ScopedFd::from_raw(fd1)
+                }
+                Err(e) => {
+                    fatal!("Unsuccessful call to pipe2: {}", e);
+                    unreachable!()
+                }
+            }
         }
 
         pub(in super::super) fn diagnose_debugger_trap(
@@ -423,7 +446,10 @@ pub mod session_inner {
         /// XXX Move CloneCompletion/CaptureState etc to ReplayTask/ReplaySession
 
         pub(in super::super) fn assert_fully_initialized(&self) {
-            unimplemented!()
+            debug_assert!(
+                self.clone_completion.borrow().is_none(),
+                "Session not fully initialized"
+            );
         }
     }
 
