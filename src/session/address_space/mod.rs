@@ -1983,8 +1983,11 @@ pub mod address_space {
         ///
         /// Called after a successful execve to set up the new AddressSpace.
         /// Also called once for the initial spawn.
-        /// @TODO VISIBILITY made this a pub. Private in rr. Need to figure out better solution.
-        pub fn new_after_execve(t: &mut dyn Task, exe: &OsStr, exec_count: u32) -> AddressSpace {
+        pub(in super::super) fn new_after_execve(
+            t: &mut dyn Task,
+            exe: &OsStr,
+            exec_count: u32,
+        ) -> AddressSpace {
             let patcher = if t.session().is_recording() {
                 Some(MonkeyPatcher::new())
             } else {
@@ -2045,8 +2048,7 @@ pub mod address_space {
         /// Called when an AddressSpace is cloned due to a fork() or a Session
         /// clone. After this, and the task is properly set up, post_vm_clone will
         /// be called.
-        /// @TODO VISIBILITY Made this pub. Private in rr. Revisit.
-        pub fn new_after_fork_or_session_clone(
+        pub(in super::super) fn new_after_fork_or_session_clone(
             session: SessionSharedWeakPtr,
             o: &AddressSpace,
             leader_tid: pid_t,
