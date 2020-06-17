@@ -83,7 +83,7 @@ pub mod session_inner {
     };
     use libc::pid_t;
     use std::{
-        cell::RefCell,
+        cell::{Cell, RefCell},
         collections::HashMap,
         ffi::{OsStr, OsString},
         rc::Rc,
@@ -143,7 +143,7 @@ pub mod session_inner {
         /// If `exe` is not specified it is assumed to be an empty string.
         /// If `exec_count` is not specified it is assumed to be 0.
         pub fn create_vm(
-            &mut self,
+            &self,
             t: TaskSharedPtr,
             maybe_exe: Option<&OsStr>,
             maybe_exec_count: Option<u32>,
@@ -155,7 +155,9 @@ pub mod session_inner {
             as_.insert(Rc::downgrade(&t));
             let as_uid = as_.uid();
             let shr_ptr = Rc::new(RefCell::new(as_));
-            self.vm_map.insert(as_uid, Rc::downgrade(&shr_ptr));
+            self.vm_map
+                .borrow_mut()
+                .insert(as_uid, Rc::downgrade(&shr_ptr));
             shr_ptr
         }
 
@@ -163,11 +165,7 @@ pub mod session_inner {
         /// mapping is changed, only the `clone()`d copy is updated,
         /// not its origin (i.e. copy-on-write semantics).
         /// NOTE: Called simply Session::clone() in rr
-        pub fn clone_vm(
-            &mut self,
-            t: &dyn Task,
-            vm: AddressSpaceSharedPtr,
-        ) -> AddressSpaceSharedPtr {
+        pub fn clone_vm(&self, t: &dyn Task, vm: AddressSpaceSharedPtr) -> AddressSpaceSharedPtr {
             self.assert_fully_initialized();
             // If vm already belongs to our session this is a fork, otherwise it's
             // a session-clone
@@ -200,27 +198,40 @@ pub mod session_inner {
             }
             let as_uid = as_.uid();
             let shr_ptr = Rc::new(RefCell::new(as_));
-            self.vm_map.insert(as_uid, Rc::downgrade(&shr_ptr));
+            self.vm_map
+                .borrow_mut()
+                .insert(as_uid, Rc::downgrade(&shr_ptr));
             shr_ptr
         }
 
         /// Create the initial thread group.
-        pub fn create_initial_tg(&mut self, t: TaskSharedPtr) -> ThreadGroupSharedPtr {
+        pub fn create_initial_tg(&self, t: TaskSharedPtr) -> ThreadGroupSharedPtr {
+            let rec_tid: i32;
+            let tid: i32;
+            let tuid_serial: u32;
+            {
+                let tb = t.borrow();
+                rec_tid = tb.rec_tid;
+                tid = tb.tid;
+                tuid_serial = tb.tuid().serial();
+            }
+
             let tg = ThreadGroup::new(
                 self.weak_self_session.clone(),
                 None,
-                t.borrow().rec_tid,
-                t.borrow().tid,
-                t.borrow().tid,
-                t.borrow().tuid().serial(),
+                rec_tid,
+                tid,
+                tid,
+                tuid_serial,
             );
             tg.borrow_mut().insert(Rc::downgrade(&t));
             tg
         }
 
-        pub fn next_task_serial(&mut self) -> u32 {
-            self.next_task_serial_ += 1;
-            self.next_task_serial_
+        pub fn next_task_serial(&self) -> u32 {
+            let val = self.next_task_serial_.get();
+            self.next_task_serial_.set(val + 1);
+            val
         }
 
         /// `tasks().size()` will be zero and all the OS tasks will be
@@ -358,7 +369,7 @@ pub mod session_inner {
         /// Weak dyn Session pointer to self
         pub(in super::super) weak_self_session: SessionSharedWeakPtr,
         /// All these members are NOT pub
-        pub(in super::super) vm_map: AddressSpaceMap,
+        pub(in super::super) vm_map: RefCell<AddressSpaceMap>,
         pub(in super::super) task_map: RefCell<TaskMap>,
         pub(in super::super) thread_group_map: ThreadGroupMap,
 
@@ -371,7 +382,7 @@ pub mod session_inner {
 
         pub(in super::super) tracee_socket: Rc<RefCell<ScopedFd>>,
         pub(in super::super) tracee_socket_fd_number: i32,
-        pub(in super::super) next_task_serial_: u32,
+        pub(in super::super) next_task_serial_: Cell<u32>,
         pub(in super::super) spawned_task_error_fd_: ScopedFd,
 
         pub(in super::super) syscall_seccomp_ordering_: PtraceSyscallBeforeSeccomp,
