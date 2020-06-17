@@ -28,7 +28,6 @@ mod kernel_metadata;
 mod perf_counters;
 #[macro_use]
 mod registers;
-mod address_space;
 mod commands;
 mod core;
 mod cpuid_bug_detector;

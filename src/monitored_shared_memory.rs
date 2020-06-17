@@ -14,7 +14,7 @@
 //! that if the tracee is woken up by some IPC mechanism (or after sched_yield),
 //! it will get a chance to see updated memory values.
 
-use crate::{address_space::address_space, session::task::record_task::record_task::RecordTask};
+use crate::session::{address_space::address_space, task::record_task::record_task::RecordTask};
 use std::{
     cell::RefCell,
     rc::{Rc, Weak},

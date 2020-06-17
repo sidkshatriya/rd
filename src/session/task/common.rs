@@ -12,7 +12,6 @@
 //! (c) Some misc methods that did not fit elsewhere...
 
 use crate::{
-    address_space::{memory_range::MemoryRangeKey, BreakpointType},
     auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem},
     bindings::{
         kernel::user_regs_struct as native_user_regs_struct,
@@ -39,18 +38,21 @@ use crate::{
     remote_code_ptr::RemoteCodePtr,
     remote_ptr::{RemotePtr, Void},
     scoped_fd::ScopedFd,
-    session::task::{
-        is_signal_triggered_by_ptrace_interrupt,
-        is_singlestep_resume,
-        task_inner::{
-            task_inner::{CapturedState, PtraceData, WriteFlags},
-            ResumeRequest,
-            TicksRequest,
-            WaitRequest,
-            MAX_TICKS_REQUEST,
+    session::{
+        address_space::{memory_range::MemoryRangeKey, BreakpointType},
+        task::{
+            is_signal_triggered_by_ptrace_interrupt,
+            is_singlestep_resume,
+            task_inner::{
+                task_inner::{CapturedState, PtraceData, WriteFlags},
+                ResumeRequest,
+                TicksRequest,
+                WaitRequest,
+                MAX_TICKS_REQUEST,
+            },
+            Task,
+            TaskSharedPtr,
         },
-        Task,
-        TaskSharedPtr,
     },
     ticks::Ticks,
     util::{

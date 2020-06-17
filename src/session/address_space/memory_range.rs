@@ -149,7 +149,7 @@ impl From<MemoryRange> for MemoryRangeKey {
 
 #[cfg(test)]
 mod test {
-    use crate::address_space::memory_range::{MemoryRange, MemoryRangeKey};
+    use crate::session::address_space::memory_range::{MemoryRange, MemoryRangeKey};
     use std::{
         collections::{BTreeMap, BTreeSet},
         ops::Bound::{Included, Unbounded},

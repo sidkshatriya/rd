@@ -1,5 +1,4 @@
 use crate::{
-    address_space::kernel_mapping::KernelMapping,
     commands::{
         rd_options::{RdOptions, RdSubCommand},
         RdCommand,
@@ -12,6 +11,7 @@ use crate::{
     },
     kernel_metadata::syscall_name,
     log::notifying_abort,
+    session::address_space::kernel_mapping::KernelMapping,
     trace::{
         trace_frame::{FrameTime, TraceFrame},
         trace_reader::{TraceReader, ValidateSourceFile},

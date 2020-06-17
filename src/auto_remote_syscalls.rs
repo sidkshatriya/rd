@@ -1,12 +1,4 @@
 use crate::{
-    address_space::{
-        address_space::{AddressSpace, AddressSpaceRef, AddressSpaceRefMut, Mapping},
-        kernel_mapping::KernelMapping,
-        memory_range::{MemoryRange, MemoryRangeKey},
-        Enabled,
-        Privileged,
-        Traced,
-    },
     arch::Architecture,
     auto_remote_syscalls::MemParamsEnabled::{DisableMemoryParams, EnableMemoryParams},
     bindings::ptrace::PTRACE_EVENT_EXIT,
@@ -41,6 +33,14 @@ use crate::{
     remote_ptr::{RemotePtr, Void},
     scoped_fd::ScopedFd,
     session::{
+        address_space::{
+            address_space::{AddressSpace, AddressSpaceRef, AddressSpaceRefMut, Mapping},
+            kernel_mapping::KernelMapping,
+            memory_range::{MemoryRange, MemoryRangeKey},
+            Enabled,
+            Privileged,
+            Traced,
+        },
         replay_session::ReplaySession,
         session_inner::session_inner::SessionInner,
         task::{

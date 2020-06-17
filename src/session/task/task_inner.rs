@@ -76,16 +76,6 @@ pub const MAX_TICKS_REQUEST: u64 = 2000000000;
 pub mod task_inner {
     use super::*;
     use crate::{
-        address_space::{
-            address_space::{
-                AddressSpace,
-                AddressSpaceRef,
-                AddressSpaceRefMut,
-                AddressSpaceSharedPtr,
-            },
-            kernel_mapping::KernelMapping,
-            WatchConfig,
-        },
         auto_remote_syscalls::AutoRemoteSyscalls,
         bindings::{
             kernel::{sock_filter, sock_fprog, user_desc},
@@ -125,6 +115,16 @@ pub mod task_inner {
         remote_ptr::{RemotePtr, Void},
         scoped_fd::ScopedFd,
         session::{
+            address_space::{
+                address_space::{
+                    AddressSpace,
+                    AddressSpaceRef,
+                    AddressSpaceRefMut,
+                    AddressSpaceSharedPtr,
+                },
+                kernel_mapping::KernelMapping,
+                WatchConfig,
+            },
             session_inner::session_inner::SessionInner,
             task::{Task, TaskSharedWeakPtr},
             Session,
@@ -1040,9 +1040,7 @@ pub mod task_inner {
         /// Some task state must be copied into this by injecting and
         /// running syscalls in this task.  Other state is metadata
         /// that can simply be copied over in local memory.
-        /// @TODO VISIBILITY Temporarily made this pub instead of in super::super because
-        /// Session needs access to this. Need to evolve a cleaner solution.
-        pub fn copy_state(&mut self, _stat: &CapturedState) {
+        pub(in super::super::super) fn copy_state(&mut self, _stat: &CapturedState) {
             unimplemented!()
         }
 
@@ -1247,10 +1245,9 @@ pub mod task_inner {
         /// (i.e. an exec does not occur before an exit), an error may be
         /// readable from the other end of the pipe whose write end is error_fd.
         ///
-        /// @TODO VISIBILITY: This is a protected method in rr. Temporarily make this a pub.
         /// DIFF NOTE: rr takes an explicit `trace` param. Since trace is available from the
         /// session we avoid it.
-        pub fn spawn<'a>(
+        pub(in super::super::super) fn spawn<'a>(
             session: &'a mut dyn Session,
             error_fd: &ScopedFd,
             sock_fd_out: Rc<RefCell<ScopedFd>>,

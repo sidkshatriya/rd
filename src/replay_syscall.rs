@@ -5,13 +5,13 @@ include!(concat!(
 ));
 
 use crate::{
-    address_space::{kernel_mapping::KernelMapping, MappingFlags},
     arch::Architecture,
     auto_remote_syscalls::{AutoRemoteSyscalls, PreserveContents::PreserveContents},
     kernel_abi::{is_write_syscall, CloneTLSType, SupportedArch},
     kernel_metadata::syscall_name,
     log::LogLevel::LogDebug,
     session::{
+        address_space::{kernel_mapping::KernelMapping, MappingFlags},
         replay_session::ReplaySession,
         task::{
             replay_task::ReplayTask,

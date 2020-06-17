@@ -1,6 +1,5 @@
 use crate::{
-    address_space::address_space::AddressSpace,
-    session::task::Task,
+    session::{address_space::address_space::AddressSpace, task::Task},
     thread_group::ThreadGroup,
 };
 use libc::pid_t;

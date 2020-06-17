@@ -1,5 +1,4 @@
 use crate::{
-    address_space::kernel_mapping::KernelMapping,
     bindings::signal::siginfo_t,
     event::{Event, EventType, SignalDeterministic, SignalResolvedDisposition, SyscallState},
     extra_registers::ExtraRegisters,
@@ -15,6 +14,7 @@ use crate::{
     remote_ptr::{RemotePtr, Void},
     scoped_fd::ScopedFd,
     session::{
+        address_space::kernel_mapping::KernelMapping,
         record_session::{DisableCPUIDFeatures, TraceUuid},
         task::record_task::record_task::RecordTask,
     },

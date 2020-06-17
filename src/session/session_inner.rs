@@ -1,7 +1,6 @@
 use crate::{
-    address_space::WatchConfig,
     bindings::signal::siginfo_t,
-    session::task::TaskSharedWeakPtr,
+    session::{address_space::WatchConfig, task::TaskSharedWeakPtr},
 };
 
 #[derive(Clone)]
@@ -71,11 +70,6 @@ pub fn is_singlestep(command: RunCommand) -> bool {
 pub mod session_inner {
     use super::{BreakStatus, RunCommand};
     use crate::{
-        address_space::address_space::{
-            AddressSpace,
-            AddressSpaceSharedPtr,
-            AddressSpaceSharedWeakPtr,
-        },
         bindings::ptrace::PTRACE_DETACH,
         kernel_abi::syscall_number_for_exit,
         log::LogLevel::LogDebug,
@@ -83,6 +77,11 @@ pub mod session_inner {
         remote_ptr::{RemotePtr, Void},
         scoped_fd::ScopedFd,
         session::{
+            address_space::address_space::{
+                AddressSpace,
+                AddressSpaceSharedPtr,
+                AddressSpaceSharedWeakPtr,
+            },
             task::{
                 task_inner::task_inner::{CapturedState, PtraceData},
                 Task,

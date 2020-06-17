@@ -1,10 +1,10 @@
 use crate::{
-    address_space::{address_space::AddressSpaceSharedPtr, MappingFlags},
     auto_remote_syscalls::AutoRemoteSyscalls,
     emu_fs::EmuFs,
     kernel_abi::SupportedArch,
     remote_ptr::{RemotePtr, Void},
     session::{
+        address_space::{address_space::AddressSpaceSharedPtr, MappingFlags},
         diversion_session::DiversionSession,
         record_session::RecordSession,
         replay_session::ReplaySession,
@@ -27,6 +27,7 @@ use std::{
     rc::{Rc, Weak},
 };
 
+pub mod address_space;
 pub mod diversion_session;
 pub mod record_session;
 pub mod replay_session;

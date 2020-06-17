@@ -1,5 +1,4 @@
 use crate::{
-    address_space::{address_space::AddressSpace, kernel_mapping::KernelMapping},
     arch::Architecture,
     bindings::{
         kernel::timeval,
@@ -13,10 +12,13 @@ use crate::{
     remote_code_ptr::RemoteCodePtr,
     remote_ptr::{RemotePtr, Void},
     scoped_fd::ScopedFd,
-    session::task::{
-        common::{read_mem, read_val_mem},
-        task_inner::CloneFlags,
-        Task,
+    session::{
+        address_space::{address_space::AddressSpace, kernel_mapping::KernelMapping},
+        task::{
+            common::{read_mem, read_val_mem},
+            task_inner::CloneFlags,
+            Task,
+        },
     },
 };
 #[cfg(target_arch = "x86")]

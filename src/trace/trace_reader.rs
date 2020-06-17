@@ -1,5 +1,4 @@
 use crate::{
-    address_space::kernel_mapping::KernelMapping,
     bindings::signal::siginfo_t,
     event::{
         Event,
@@ -18,7 +17,7 @@ use crate::{
     perf_counters::TicksSemantics,
     registers::Registers,
     remote_ptr::{RemotePtr, Void},
-    session::record_session::TraceUuid,
+    session::{address_space::kernel_mapping::KernelMapping, record_session::TraceUuid},
     trace::{
         compressed_reader::{CompressedReader, CompressedReaderState},
         trace_frame::{FrameTime, TraceFrame},

@@ -1,5 +1,4 @@
 use crate::{
-    address_space::address_space::AddressSpaceSharedPtr,
     bindings::signal::siginfo_t,
     cpuid_bug_detector::CPUIDBugDetector,
     emu_fs::{EmuFs, EmuFsSharedPtr},
@@ -9,6 +8,7 @@ use crate::{
     remote_code_ptr::RemoteCodePtr,
     scoped_fd::ScopedFd,
     session::{
+        address_space::address_space::AddressSpaceSharedPtr,
         diversion_session::DiversionSessionSharedPtr,
         replay_session::ReplayTraceStepType::TstepNone,
         session_inner::{session_inner::SessionInner, BreakStatus, RunCommand},

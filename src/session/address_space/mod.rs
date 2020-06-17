@@ -3,12 +3,6 @@ pub mod kernel_mapping;
 pub mod memory_range;
 
 use crate::{
-    address_space::{
-        address_space::{AddressSpace, Mapping},
-        kernel_map_iterator::KernelMapIterator,
-        kernel_mapping::KernelMapping,
-        memory_range::MemoryRange,
-    },
     event::Event,
     kernel_abi::{
         common::preload_interface::{
@@ -23,7 +17,15 @@ use crate::{
     remote_code_ptr::RemoteCodePtr,
     remote_ptr::{RemotePtr, Void},
     scoped_fd::ScopedFd,
-    session::task::Task,
+    session::{
+        address_space::{
+            address_space::{AddressSpace, Mapping},
+            kernel_map_iterator::KernelMapIterator,
+            kernel_mapping::KernelMapping,
+            memory_range::MemoryRange,
+        },
+        task::Task,
+    },
     util::{find, resource_path},
 };
 use libc::{dev_t, pid_t};
@@ -190,13 +192,6 @@ impl WatchConfig {
 pub mod address_space {
     use super::*;
     use crate::{
-        address_space::{
-            kernel_map_iterator::KernelMapIterator,
-            kernel_mapping::KernelMapping,
-            memory_range::{MemoryRange, MemoryRangeKey},
-            BreakpointType::BkptNone,
-            MappingFlags,
-        },
         arch::Architecture,
         auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem},
         emu_fs::EmuFileSharedPtr,
@@ -222,6 +217,13 @@ pub mod address_space {
         remote_ptr::RemotePtr,
         scoped_fd::ScopedFd,
         session::{
+            address_space::{
+                kernel_map_iterator::KernelMapIterator,
+                kernel_mapping::KernelMapping,
+                memory_range::{MemoryRange, MemoryRangeKey},
+                BreakpointType::BkptNone,
+                MappingFlags,
+            },
             task::{
                 common::{read_mem, read_val_mem, write_val_mem, write_val_mem_with_flags},
                 record_task::record_task::RecordTask,

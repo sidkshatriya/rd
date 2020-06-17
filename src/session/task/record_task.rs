@@ -211,7 +211,6 @@ pub enum SignalDisposition {
 pub mod record_task {
     use super::*;
     use crate::{
-        address_space::memory_range::MemoryRange,
         bindings::signal::siginfo_t,
         event::{Event, EventType, SignalDeterministic, SignalResolvedDisposition},
         kernel_abi::{common::preload_interface::syscallbuf_record, SupportedArch},
@@ -221,6 +220,7 @@ pub mod record_task {
         remote_ptr::{RemotePtr, Void},
         scoped_fd::ScopedFd,
         session::{
+            address_space::memory_range::MemoryRange,
             record_session::RecordSession,
             task::{
                 common::{

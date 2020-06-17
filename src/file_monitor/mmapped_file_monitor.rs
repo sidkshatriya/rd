@@ -1,5 +1,4 @@
 use crate::{
-    address_space::{kernel_mapping::KernelMapping, memory_range::MemoryRange},
     emu_fs::EmuFileSharedPtr,
     event::{
         Switchable,
@@ -7,7 +6,10 @@ use crate::{
     },
     file_monitor::{FileMonitor, FileMonitorType, LazyOffset, Range},
     log::LogLevel::LogWarn,
-    session::task::Task,
+    session::{
+        address_space::{kernel_mapping::KernelMapping, memory_range::MemoryRange},
+        task::Task,
+    },
 };
 use libc::{dev_t, ino_t};
 use nix::sys::mman::MapFlags;

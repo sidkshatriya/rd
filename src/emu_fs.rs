@@ -32,9 +32,9 @@
 //! assumption mentioned above.
 
 use crate::{
-    address_space::kernel_mapping::KernelMapping,
     log::{LogDebug, LogError},
     scoped_fd::ScopedFd,
+    session::address_space::kernel_mapping::KernelMapping,
     util::resize_shmem_segment,
 };
 use libc::{c_void, dev_t, ino_t, pread64, pwrite64};
