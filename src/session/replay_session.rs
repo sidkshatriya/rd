@@ -4,6 +4,7 @@ use crate::{
     emu_fs::{EmuFs, EmuFsSharedPtr},
     event::Event,
     fast_forward::FastForwardStatus,
+    flags::Flags as ProgramFlags,
     kernel_abi::SupportedArch,
     perf_counters::{PerfCounters, TIME_SLICE_SIGNAL},
     remote_code_ptr::RemoteCodePtr,
@@ -22,11 +23,24 @@ use crate::{
         trace_reader::TraceReader,
         trace_stream::TraceStream,
     },
-    util::cpuid_compatible,
+    util::{
+        cpuid,
+        cpuid_compatible,
+        find_cpuid_record,
+        xcr0,
+        xsave_enabled,
+        CPUIDData,
+        CPUID_GETFEATURES,
+        CPUID_GETXSAVE,
+        OSXSAVE_FEATURE_FLAG,
+        XSAVEC_FEATURE_FLAG,
+    },
 };
 use std::{
     cell::{Ref, RefCell, RefMut},
     ffi::{OsStr, OsString},
+    io,
+    io::Write,
     ops::{Deref, DerefMut},
     rc::Rc,
 };
@@ -440,6 +454,81 @@ impl Session for ReplaySession {
     }
 }
 
-fn check_xsave_compatibility(_trace_in: &TraceReader) {
-    unimplemented!()
+fn tracee_xsave_enabled(trace_in: &TraceReader) -> bool {
+    let maybe_record = find_cpuid_record(trace_in.cpuid_records(), CPUID_GETFEATURES, 0);
+    maybe_record.unwrap().out.ecx & OSXSAVE_FEATURE_FLAG != 0
+}
+
+fn check_xsave_compatibility(trace_in: &TraceReader) {
+    if !tracee_xsave_enabled(trace_in) {
+        // Tracee couldn't use XSAVE so everything should be fine.
+        // If it didn't detect absence of XSAVE and actually executed an XSAVE
+        // and got a fault then replay will probably diverge :-(
+        return;
+    }
+    if !xsave_enabled() {
+        // Replaying on a super old CPU that doesn't even support XSAVE!
+        if !ProgramFlags::get().suppress_environment_warnings {
+            write!(
+                io::stderr(),
+                "rr: Tracees had XSAVE but XSAVE is not available\n\
+                            now; Replay will probably fail because glibc dynamic loader\n\
+                            uses XSAVE\n\n"
+            )
+            .unwrap();
+        }
+        return;
+    }
+
+    let tracee_xcr0: u64 = trace_in.xcr0();
+    let our_xcr0: u64 = xcr0();
+    let maybe_record = find_cpuid_record(trace_in.cpuid_records(), CPUID_GETXSAVE, 1);
+    let tracee_xsavec: bool =
+        maybe_record.is_some() && (maybe_record.unwrap().out.eax & XSAVEC_FEATURE_FLAG != 0);
+    let data: CPUIDData = cpuid(CPUID_GETXSAVE, 1);
+    let our_xsavec: bool = (data.eax & XSAVEC_FEATURE_FLAG) != 0;
+    if tracee_xsavec && !our_xsavec && !ProgramFlags::get().suppress_environment_warnings {
+        write!(
+            io::stderr(),
+            "rr: Tracees had XSAVEC but XSAVEC is not available\n\
+                         now; Replay will probably fail because glibc dynamic loader\n\
+                         uses XSAVEC\n\n"
+        )
+        .unwrap();
+    }
+
+    if tracee_xcr0 != our_xcr0 {
+        if !ProgramFlags::get().suppress_environment_warnings {
+            // If the tracee used XSAVE instructions which write different components
+            // to XSAVE instructions executed on our CPU, or examines XCR0 directly,
+            // This will cause divergence. The dynamic linker examines XCR0 so this
+            // is nearly guaranteed.
+            write!(io::stderr(), "Trace XCR0 value {:x} != our XCR0 value {:x};\n\
+                            Replay will probably fail because glibc dynamic loader examines XCR0\n\n",
+                   tracee_xcr0, our_xcr0).unwrap();
+        }
+    }
+
+    let check_alignment: bool = tracee_xsavec && our_xsavec;
+    // Check that sizes and offsets of supported XSAVE areas area all identical.
+    // An Intel employee promised this on a mailing list...
+    // https://lists.xen.org/archives/html/xen-devel/2013-09/msg00484.html
+    for feature in 2u32..=63 {
+        if (tracee_xcr0 & our_xcr0 & (1u64 << feature as u64)) == 0 {
+            continue;
+        }
+        let maybe_record = find_cpuid_record(trace_in.cpuid_records(), CPUID_GETXSAVE, feature);
+        let data = cpuid(CPUID_GETXSAVE, feature);
+        if maybe_record.is_none()
+            || maybe_record.unwrap().out.eax != data.eax
+            || maybe_record.unwrap().out.ebx != data.ebx
+            || (check_alignment && (maybe_record.unwrap().out.ecx & 2u32) != (data.ecx & 2u32))
+        {
+            clean_fatal!(
+                "XSAVE offset/size/alignment differs for feature {};\n\
+                    H. Peter Anvin said this would never happen!",
+                feature
+            );
+        }
+    }
 }

@@ -750,7 +750,7 @@ impl TraceReader {
     pub fn uses_cpuid_faulting(&self) -> bool {
         self.trace_uses_cpuid_faulting
     }
-    pub fn xcr0(&mut self) -> u64 {
+    pub fn xcr0(&self) -> u64 {
         if self.xcr0_ != 0 {
             return self.xcr0_;
         }

@@ -41,7 +41,7 @@ struct TraceHeader {
 
 impl RdCommand for TraceInfoCommand {
     fn run(&mut self) -> io::Result<()> {
-        let mut trace = TraceReader::new(self.trace_dir.as_ref());
+        let trace = TraceReader::new(self.trace_dir.as_ref());
 
         let uuid_bytes = trace.uuid().bytes;
         let xcr0 = trace.xcr0();
