@@ -450,7 +450,7 @@ impl Session for ReplaySession {
         if self.flags_.cpu_unbound {
             return None;
         }
-        Session::cpu_binding(self, trace)
+        trace.bound_to_cpu()
     }
 }
 

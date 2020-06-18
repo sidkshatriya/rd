@@ -1360,7 +1360,8 @@ pub fn read_proc_status_fields(tid: pid_t, matches_for: &[&[u8]]) -> io::Result<
 // Returns true if we succeeded, false if we failed because the
 // requested CPU does not exist/is not available.
 pub fn set_cpu_affinity(cpu: u32) -> bool {
-    let mask = CpuSet::new();
+    let mut mask = CpuSet::new();
+    mask.set(cpu as usize).unwrap();
     if sched_setaffinity(Pid::from_raw(0), &mask).is_err() {
         if errno() == EINVAL {
             return false;
