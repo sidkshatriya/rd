@@ -2,9 +2,10 @@ use crate::{
     bindings::signal::siginfo_t,
     cpuid_bug_detector::CPUIDBugDetector,
     emu_fs::{EmuFs, EmuFsSharedPtr},
+    event::Event,
     fast_forward::FastForwardStatus,
     kernel_abi::SupportedArch,
-    perf_counters::TIME_SLICE_SIGNAL,
+    perf_counters::{PerfCounters, TIME_SLICE_SIGNAL},
     remote_code_ptr::RemoteCodePtr,
     scoped_fd::ScopedFd,
     session::{
@@ -21,6 +22,7 @@ use crate::{
         trace_reader::TraceReader,
         trace_stream::TraceStream,
     },
+    util::cpuid_compatible,
 };
 use std::{
     cell::{Ref, RefCell, RefMut},
@@ -162,7 +164,9 @@ pub struct ReplaySession {
     emu_fs: EmuFsSharedPtr,
     trace_in: RefCell<TraceReader>,
     trace_frame: TraceFrame,
-    current_step: ReplayTraceStep,
+    // DIFF NOTE: Slightly different from rr.
+    // Made into an option to reflect TSTEP_NONE
+    current_step: Option<ReplayTraceStep>,
     ticks_at_start_of_event: Ticks,
     cpuid_bug_detector: CPUIDBugDetector,
     last_siginfo_: siginfo_t,
@@ -173,11 +177,13 @@ pub struct ReplaySession {
     /// all other recorded events in the timeline during the 'record' phase.
     trace_start_time: f64,
     /// Note that this is NOT a weak pointer!!
-    syscall_bp_vm: AddressSpaceSharedPtr,
+    /// DIFF NOTE: Made into an Option<>
+    syscall_bp_vm: Option<AddressSpaceSharedPtr>,
+    // @TODO Set to the 0 address on init. More principled solution?!
     syscall_bp_addr: RemoteCodePtr,
 }
 
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct Flags {
     pub redirect_stdio: bool,
     pub share_private_mappings: bool,
@@ -269,13 +275,73 @@ impl ReplaySession {
         &self.flags_
     }
 
-    fn new<T: AsRef<OsStr>>(_dir: Option<&T>, _flags: &Flags) -> ReplaySession {
-        unimplemented!()
+    fn new<T: AsRef<OsStr>>(dir: Option<&T>, flags: Flags) -> ReplaySession {
+        let mut rs = ReplaySession {
+            emu_fs: EmuFs::create(),
+            trace_in: RefCell::new(TraceReader::new(dir)),
+            trace_frame: Default::default(),
+            current_step: Default::default(),
+            ticks_at_start_of_event: 0,
+            flags_: flags,
+            last_siginfo_: Default::default(),
+            trace_start_time: 0.0,
+            session_inner: Default::default(),
+            cpuid_bug_detector: Default::default(),
+            fast_forward_status: Default::default(),
+            syscall_bp_vm: Default::default(),
+            syscall_bp_addr: Default::default(),
+        };
+
+        // @TODO Important!! Need to set the weak self pointer for Session.
+
+        let semantics = rs.trace_in.borrow().ticks_semantics();
+        rs.ticks_semantics_ = semantics;
+        rs.advance_to_next_trace_frame();
+        rs.trace_start_time = rs.trace_frame.monotonic_time();
+
+        if rs.trace_in.borrow().uses_cpuid_faulting() && !SessionInner::has_cpuid_faulting() {
+            clean_fatal!(
+                "Trace was recorded with CPUID faulting enabled, but this\n\
+                          system does not support CPUID faulting."
+            );
+        }
+        if !SessionInner::has_cpuid_faulting()
+            && !cpuid_compatible(rs.trace_in.borrow().cpuid_records())
+        {
+            clean_fatal!(
+                "Trace was recorded on a machine with different CPUID values\n\
+                          and CPUID faulting is not enabled; replay will not work."
+            );
+        }
+        if !PerfCounters::supports_ticks_semantics(rs.ticks_semantics_) {
+            clean_fatal!(
+                "Trace was recorded on a machine that defines ticks differently\n\
+                          to this machine; replay will not work."
+            );
+        }
+
+        check_xsave_compatibility(&rs.trace_in.borrow());
+        rs
+    }
+
+    fn advance_to_next_trace_frame(&mut self) {
+        if self.trace_in.borrow().at_end() {
+            self.trace_frame = TraceFrame::new_with(
+                self.trace_frame.time(),
+                0,
+                Event::trace_termination(),
+                self.trace_frame.ticks(),
+                self.trace_frame.monotonic_time(),
+            );
+            return;
+        }
+
+        self.trace_frame = self.trace_in.borrow_mut().read_frame();
     }
 
     /// Create a replay session that will use the trace directory specified
     /// by 'dir', or the latest trace if 'dir' is not supplied.
-    pub fn create<T: AsRef<OsStr>>(dir: Option<&T>, flags: &Flags) -> ReplaySessionSharedPtr {
+    pub fn create<T: AsRef<OsStr>>(dir: Option<&T>, flags: Flags) -> ReplaySessionSharedPtr {
         let mut session: ReplaySession = ReplaySession::new(dir, flags);
 
         // It doesn't really matter what we use for argv/env here, since
@@ -357,19 +423,23 @@ impl Session for ReplaySession {
         unimplemented!()
     }
 
+    fn trace_stream(&self) -> Option<Ref<'_, TraceStream>> {
+        let r = self.trace_in.borrow();
+        Some(Ref::map(r, |t| t.deref()))
+    }
+
+    fn trace_stream_mut(&self) -> Option<RefMut<'_, TraceStream>> {
+        let r = self.trace_in.borrow_mut();
+        Some(RefMut::map(r, |t| t.deref_mut()))
+    }
     fn cpu_binding(&self, trace: &TraceStream) -> Option<u32> {
         if self.flags_.cpu_unbound {
             return None;
         }
         Session::cpu_binding(self, trace)
     }
+}
 
-    fn trace_stream(&self) -> Option<Ref<'_, TraceStream>> {
-        let r = self.trace_in.borrow();
-        Some(Ref::map(r, |t| t.deref()))
-    }
-    fn trace_stream_mut(&self) -> Option<RefMut<'_, TraceStream>> {
-        let r = self.trace_in.borrow_mut();
-        Some(RefMut::map(r, |t| t.deref_mut()))
-    }
+fn check_xsave_compatibility(_trace_in: &TraceReader) {
+    unimplemented!()
 }

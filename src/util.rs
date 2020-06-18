@@ -1441,3 +1441,22 @@ fn cpuid_faulting_works_init() -> bool {
 pub fn cpuid_faulting_works() -> bool {
     *CPUID_FAULTING_WORKS
 }
+
+pub fn cpuid_compatible(trace_records: &[CPUIDRecord]) -> bool {
+    // We could compare all CPUID records but that might be fragile (it's hard to
+    // be sure the values don't change in ways applications don't care about).
+    // Let's just check the microarch for now.
+    let cpuid_data = cpuid(CPUID_GETFEATURES, 0);
+    let cpu_type: u32 = cpuid_data.eax & 0xF0FF0;
+    let maybe_trace_cpuid_data = find_cpuid_record(trace_records, CPUID_GETFEATURES, 0);
+    match maybe_trace_cpuid_data {
+        None => {
+            fatal!("GETFEATURES missing???");
+            unreachable!()
+        }
+        Some(trace_cpuid_data) => {
+            let trace_cpu_type: u32 = trace_cpuid_data.out.eax & 0xF0FF0;
+            cpu_type == trace_cpu_type
+        }
+    }
+}

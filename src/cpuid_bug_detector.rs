@@ -13,6 +13,12 @@ use crate::session::task::replay_task::ReplayTask;
 /// user is not a running buggy VMWare guest.
 pub struct CPUIDBugDetector;
 
+impl Default for CPUIDBugDetector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CPUIDBugDetector {
     pub fn new() -> CPUIDBugDetector {
         CPUIDBugDetector

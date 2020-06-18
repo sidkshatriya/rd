@@ -28,6 +28,12 @@ pub struct TraceFrame {
     pub(super) recorded_extra_regs: ExtraRegisters,
 }
 
+impl Default for TraceFrame {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TraceFrame {
     pub fn new_with(
         global_time: FrameTime,

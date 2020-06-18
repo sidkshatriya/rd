@@ -71,9 +71,10 @@ pub mod session_inner {
     use super::{BreakStatus, RunCommand};
     use crate::{
         bindings::ptrace::PTRACE_DETACH,
+        flags::Flags,
         kernel_abi::syscall_number_for_exit,
         log::LogLevel::LogDebug,
-        perf_counters::TicksSemantics,
+        perf_counters::{PerfCounters, TicksSemantics},
         remote_ptr::{RemotePtr, Void},
         scoped_fd::ScopedFd,
         session::{
@@ -93,7 +94,7 @@ pub mod session_inner {
         taskish_uid::{AddressSpaceUid, ThreadGroupUid},
         thread_group::{ThreadGroup, ThreadGroupSharedPtr, ThreadGroupSharedWeakPtr},
         ticks::Ticks,
-        util::is_zombie_process,
+        util::{cpuid_faulting_works, is_zombie_process},
     };
     use libc::{pid_t, syscall, SYS_tgkill, ESRCH, SIGKILL};
     use nix::{
@@ -122,6 +123,12 @@ pub mod session_inner {
         PtraceSyscallBeforeSeccomp,
         SeccompBeforePtraceSyscall,
         PtraceSyscallBeforeSeccompUnknown,
+    }
+
+    impl Default for PtraceSyscallBeforeSeccomp {
+        fn default() -> Self {
+            PtraceSyscallBeforeSeccomp::PtraceSyscallBeforeSeccompUnknown
+        }
     }
 
     /// struct is NOT pub
@@ -392,7 +399,7 @@ pub mod session_inner {
         }
 
         pub fn has_cpuid_faulting() -> bool {
-            unimplemented!()
+            !Flags::get().disable_cpuid_faulting && cpuid_faulting_works()
         }
         pub fn rd_mapping_prefix() -> &'static str {
             "/rd-shared-"
@@ -410,8 +417,26 @@ pub mod session_inner {
             self.ticks_semantics_
         }
 
-        pub(in super::super) fn new() {
-            unimplemented!()
+        pub(in super::super) fn new() -> SessionInner {
+            let s = SessionInner {
+                weak_self: Default::default(),
+                vm_map: Default::default(),
+                task_map: Default::default(),
+                thread_group_map: Default::default(),
+                clone_completion: Default::default(),
+                statistics_: Default::default(),
+                tracee_socket: Default::default(),
+                // @TODO More principled approach!?
+                tracee_socket_fd_number: -1,
+                next_task_serial_: Default::default(),
+                spawned_task_error_fd_: Default::default(),
+                syscall_seccomp_ordering_: Default::default(),
+                ticks_semantics_: PerfCounters::default_ticks_semantics(),
+                done_initial_exec_: false,
+                visible_execution_: true,
+            };
+            log!(LogDebug, "Session @TODO unique identifier created");
+            s
         }
 
         pub(in super::super) fn create_spawn_task_error_pipe(&mut self) -> ScopedFd {
@@ -466,9 +491,19 @@ pub mod session_inner {
         pub syscalls_performed: u32,
     }
 
+    impl Default for Statistics {
+        fn default() -> Self {
+            Statistics::new()
+        }
+    }
+
     impl Statistics {
         pub fn new() -> Statistics {
-            unimplemented!()
+            Statistics {
+                bytes_written: 0,
+                ticks_processed: 0,
+                syscalls_performed: 0,
+            }
         }
     }
 
@@ -498,8 +533,10 @@ pub mod session_inner {
         pub(in super::super) statistics_: RefCell<Statistics>,
 
         pub(in super::super) tracee_socket: Rc<RefCell<ScopedFd>>,
+        // @TODO Should this be an Option<>?
         pub(in super::super) tracee_socket_fd_number: i32,
         pub(in super::super) next_task_serial_: Cell<u32>,
+        // @TODO Should this be an Option?
         pub(in super::super) spawned_task_error_fd_: ScopedFd,
 
         pub(in super::super) syscall_seccomp_ordering_: PtraceSyscallBeforeSeccomp,
@@ -512,5 +549,11 @@ pub mod session_inner {
 
         /// True while the execution of this session is visible to users.
         pub(in super::super) visible_execution_: bool,
+    }
+
+    impl Default for SessionInner {
+        fn default() -> Self {
+            Self::new()
+        }
     }
 }

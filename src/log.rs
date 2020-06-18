@@ -286,7 +286,7 @@ macro_rules! clean_fatal {
     ($($args:tt)+) => {
         use std::io::Write;
         use std::io::stderr;
-        crate::log::write_prefix(&mut stderr(), LogFatal, file!(), line!(), module_path!());
+        crate::log::write_prefix(&mut stderr(), crate::log::LogLevel::LogFatal, file!(), line!(), module_path!());
         write!(stderr(), $($args)+).unwrap();
         write!(stderr(), "\n").unwrap();
         std::process::exit(1);

@@ -13,6 +13,12 @@ pub struct ScopedFd {
     fd: RawFd,
 }
 
+impl Default for ScopedFd {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ScopedFd {
     pub fn new() -> Self {
         ScopedFd { fd: -1 }

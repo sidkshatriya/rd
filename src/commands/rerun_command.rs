@@ -362,7 +362,7 @@ impl ReRunCommand {
     // DIFF NOTE: In rr a result code e.g. 0 is return. We simply return Ok(()) if there is no error.
     fn rerun(&self) -> io::Result<()> {
         let replay_session: ReplaySessionSharedPtr =
-            ReplaySession::create(self.trace_dir.as_ref(), &self.session_flags());
+            ReplaySession::create(self.trace_dir.as_ref(), self.session_flags());
         let mut instruction_count_within_event: u64 = 0;
         let mut done_first_step = false;
 

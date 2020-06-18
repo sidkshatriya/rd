@@ -64,7 +64,7 @@ impl RdCommand for TraceInfoCommand {
             share_private_mappings: false,
             cpu_unbound: true,
         };
-        let replay_session = ReplaySession::create(self.trace_dir.as_ref(), &flags);
+        let replay_session = ReplaySession::create(self.trace_dir.as_ref(), flags);
 
         let environ: Vec<CString>;
         loop {

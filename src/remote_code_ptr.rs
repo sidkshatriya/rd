@@ -12,6 +12,12 @@ pub struct RemoteCodePtr {
     ptr: usize,
 }
 
+impl Default for RemoteCodePtr {
+    fn default() -> Self {
+        RemoteCodePtr::new()
+    }
+}
+
 impl RemoteCodePtr {
     pub fn new() -> RemoteCodePtr {
         RemoteCodePtr { ptr: 0 }
