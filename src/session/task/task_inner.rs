@@ -149,6 +149,7 @@ pub mod task_inner {
     };
     use libc::{
         __errno_location,
+        _exit,
         fork,
         pid_t,
         uid_t,
@@ -158,6 +159,8 @@ pub mod task_inner {
         ENOMEM,
         ENOSYS,
         EPERM,
+        PR_SET_SECCOMP,
+        SECCOMP_MODE_FILTER,
         SIGSTOP,
         STDERR_FILENO,
         STDOUT_FILENO,
@@ -170,6 +173,7 @@ pub mod task_inner {
             stat::{lstat, stat, FileStat, Mode},
         },
         unistd::getuid,
+        Error,
     };
 
     use crate::{
@@ -188,19 +192,31 @@ pub mod task_inner {
 
     use crate::{
         bindings::kernel::CAP_SYS_ADMIN,
-        util::{has_effective_caps, restore_initial_resource_limits, running_under_rd},
+        cpuid_bug_detector::CPUIDBugDetector,
+        util::{has_effective_caps, restore_initial_resource_limits, running_under_rd, write_all},
     };
-    use libc::{prctl, PR_SET_NO_NEW_PRIVS, PR_SET_PDEATHSIG, PR_SET_TSC, PR_TSC_SIGSEGV, SIGKILL};
+    use libc::{
+        prctl,
+        syscall,
+        SYS_write,
+        PR_SET_NO_NEW_PRIVS,
+        PR_SET_PDEATHSIG,
+        PR_SET_TSC,
+        PR_TSC_SIGSEGV,
+        SIGKILL,
+    };
     use nix::{
+        errno::Errno,
         fcntl::open,
         sys::signal::{kill, sigaction, signal, SaFlags, SigAction, SigHandler, SigSet, Signal},
-        unistd::{dup2, setsid, Pid},
+        unistd::{dup2, execve, getpid, setsid, Pid},
     };
+    use rand::random;
     use std::{
         cell::{Cell, RefCell},
         cmp::min,
         ffi::{CStr, CString, OsStr, OsString},
-        mem::size_of,
+        mem::{size_of, size_of_val},
         os::{raw::c_int, unix::ffi::OsStrExt},
         ptr,
         ptr::copy_nonoverlapping,
@@ -1477,7 +1493,53 @@ pub mod task_inner {
         envp_array: &[&CStr],
         seccomp_prog: &sock_fprog,
     ) {
-        unimplemented!()
+        let pid = getpid();
+
+        set_up_process(session, error_fd, sock_fd, sock_fd_number);
+        // The preceding code must run before sending SIGSTOP here,
+        // since after SIGSTOP replay emulates almost all syscalls, but
+        // we need the above syscalls to run "for real".
+
+        // Signal to tracer that we're configured.
+        kill(pid, Signal::SIGSTOP).unwrap_or(());
+
+        // This code must run after rr has taken ptrace control.
+        set_up_seccomp_filter(seccomp_prog, error_fd);
+
+        // We do a small amount of dummy work here to retire
+        // some branches in order to ensure that the ticks value is
+        // non-zero.  The tracer can then check the ticks value
+        // at the first ptrace-trap to see if it seems to be
+        // working.
+        let start = random::<u32>() % 5;
+        let num_its = start + 5;
+        let mut sum: u32 = 0;
+        for i in start..num_its {
+            sum = sum + i;
+        }
+        unsafe { syscall(SYS_write, -1, &sum, size_of_val(&sum)) };
+
+        CPUIDBugDetector::run_detection_code();
+
+        match execve(exe_path_cstr, argv_array, envp_array) {
+            Err(Error::Sys(Errno::ENOENT)) => {
+                spawned_child_fatal_error(
+                    error_fd,
+                    &format!(
+                        "execve failed: '{:?}' (or interpreter) not found",
+                        exe_path_cstr
+                    ),
+                );
+            }
+            _ => {
+                spawned_child_fatal_error(
+                    error_fd,
+                    &format!("execve of '{:?}' failed", exe_path_cstr),
+                );
+            }
+        }
+
+        // Never returns!
     }
 
     fn create_seccomp_filter() -> SeccompFilter {
@@ -1617,7 +1679,27 @@ pub mod task_inner {
         }
     }
 
-    fn spawned_child_fatal_error(_err_fd: &ScopedFd, _msg: &str) {
-        unimplemented!()
+    fn spawned_child_fatal_error(err_fd: &ScopedFd, msg: &str) {
+        write_all(err_fd.as_raw(), msg.as_bytes());
+        let errno_name = format!(" ({}) ", errno_name(errno()));
+        write_all(err_fd.as_raw(), errno_name.as_bytes());
+        unsafe { _exit(1) };
+    }
+
+    /// This is called (and must be called) in the tracee after rr has taken
+    /// ptrace control. Otherwise, once we've installed the seccomp filter,
+    /// things go wrong because we have no ptracer and the seccomp filter demands
+    /// one.
+    fn set_up_seccomp_filter(prog: &sock_fprog, err_fd: &ScopedFd) {
+        // Note: the filter is installed only for record. This call
+        // will be emulated (not passed to the kernel) in the replay. */
+        if 0 > unsafe { prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, prog as *const _, 0, 0) } {
+            spawned_child_fatal_error(
+                err_fd,
+                "prctl(SECCOMP) failed, SECCOMP_FILTER is not available: your\n\
+kernel is too old.",
+            );
+        }
+        // anything that happens from this point on gets filtered!
     }
 }

@@ -60,14 +60,17 @@ mod util;
 mod wait_status;
 mod weak_ptr_set;
 
-use crate::commands::{
-    build_id_command::BuildIdCommand,
-    dump_command::DumpCommand,
-    ps_command::PsCommand,
-    rd_options::{RdOptions, RdSubCommand},
-    rerun_command::ReRunCommand,
-    trace_info_command::TraceInfoCommand,
-    RdCommand,
+use crate::{
+    commands::{
+        build_id_command::BuildIdCommand,
+        dump_command::DumpCommand,
+        ps_command::PsCommand,
+        rd_options::{RdOptions, RdSubCommand},
+        rerun_command::ReRunCommand,
+        trace_info_command::TraceInfoCommand,
+        RdCommand,
+    },
+    util::raise_resource_limits,
 };
 use nix::sys::utsname::uname;
 use std::{
@@ -102,6 +105,7 @@ pub fn assert_prerequisites(maybe_use_syscall_buffer: Option<bool>) {
 }
 
 fn main() -> io::Result<()> {
+    raise_resource_limits();
     let options = RdOptions::from_args();
 
     match &options.cmd {
