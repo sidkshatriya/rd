@@ -78,7 +78,7 @@ pub mod task_inner {
     use crate::{
         auto_remote_syscalls::AutoRemoteSyscalls,
         bindings::{
-            kernel::{sock_filter, sock_fprog, user_desc},
+            kernel::{sock_fprog, user_desc},
             ptrace::{
                 ptrace,
                 PTRACE_EVENT_CLONE,
@@ -183,9 +183,9 @@ pub mod task_inner {
         kernel_abi::RD_NATIVE_ARCH,
         rd::{RD_MAGIC_SAVE_DATA_FD, RD_RESERVED_ROOT_DIR_FD},
         seccomp_bpf::SeccompFilter,
-        session::task::TaskSharedPtr,
+        session::{address_space::Traced, task::TaskSharedPtr},
     };
-    use core::mem;
+
     use nix::{
         sys::signal::{kill, sigaction, SaFlags, SigAction, SigHandler, SigSet, Signal},
         unistd::Pid,
@@ -1335,9 +1335,10 @@ pub mod task_inner {
             // prevents errors.
             let argv_array = to_cstring_array(argv);
             let envp_array = to_cstring_array(envp);
-            let filter: SeccompFilter<sock_filter> = create_seccomp_filter();
-            // @TODO This needs to be filled in.
-            let prog: sock_fprog = unsafe { mem::zeroed() };
+            let mut filter: SeccompFilter = create_seccomp_filter();
+            let mut prog: sock_fprog = Default::default();
+            prog.len = filter.filters.len() as u16;
+            prog.filter = filter.filters.as_mut_ptr();
             loop {
                 tid = unsafe { fork() };
                 // fork() can fail with EAGAIN due to temporary load issues. In such
@@ -1473,8 +1474,17 @@ pub mod task_inner {
         unimplemented!()
     }
 
-    fn create_seccomp_filter() -> SeccompFilter<sock_filter> {
-        unimplemented!()
+    fn create_seccomp_filter() -> SeccompFilter {
+        let mut f = SeccompFilter::new();
+        for e in AddressSpace::rd_page_syscalls() {
+            if e.traced == Traced::Untraced {
+                let ip =
+                    AddressSpace::rd_page_syscall_exit_point(e.traced, e.privileged, e.enabled);
+                f.allow_syscalls_from_callsite(ip);
+            }
+        }
+        f.trace();
+        f
     }
 
     // This function doesn't really need to do anything. The signal will cause

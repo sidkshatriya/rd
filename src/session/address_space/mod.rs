@@ -155,9 +155,9 @@ const ENTRY_POINTS: [SyscallType; 8] = [
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub struct SyscallType {
-    traced: Traced,
-    privileged: Privileged,
-    enabled: Enabled,
+    pub traced: Traced,
+    pub privileged: Privileged,
+    pub enabled: Enabled,
 }
 
 impl SyscallType {

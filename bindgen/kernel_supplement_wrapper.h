@@ -1,5 +1,5 @@
 #define _GNU_SOURCE
-// This file contains the content rr's kernel_supplement.h header file with namespace rr removed.
+// This file contains the content of rr's kernel_supplement.h header file with namespace rr removed.
 //
 // Other changes:
 // - A static_assert is commented out below
