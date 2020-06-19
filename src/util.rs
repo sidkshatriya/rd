@@ -1461,3 +1461,7 @@ pub fn cpuid_compatible(trace_records: &[CPUIDRecord]) -> bool {
         }
     }
 }
+
+pub fn has_effective_caps(_caps: u64) -> bool {
+    unimplemented!()
+}

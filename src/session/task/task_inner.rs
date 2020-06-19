@@ -167,7 +167,7 @@ pub mod task_inner {
         fcntl::{fcntl, readlink, FcntlArg, OFlag},
         sys::{
             socket::{socketpair, AddressFamily, SockFlag, SockType},
-            stat::{lstat, stat, FileStat},
+            stat::{lstat, stat, FileStat, Mode},
         },
         unistd::getuid,
     };
@@ -186,9 +186,15 @@ pub mod task_inner {
         session::{address_space::Traced, task::TaskSharedPtr},
     };
 
+    use crate::{
+        bindings::kernel::CAP_SYS_ADMIN,
+        util::{has_effective_caps, restore_initial_resource_limits, running_under_rd},
+    };
+    use libc::{prctl, PR_SET_NO_NEW_PRIVS, PR_SET_PDEATHSIG, PR_SET_TSC, PR_TSC_SIGSEGV, SIGKILL};
     use nix::{
-        sys::signal::{kill, sigaction, SaFlags, SigAction, SigHandler, SigSet, Signal},
-        unistd::Pid,
+        fcntl::open,
+        sys::signal::{kill, sigaction, signal, SaFlags, SigAction, SigHandler, SigSet, Signal},
+        unistd::{dup2, setsid, Pid},
     };
     use std::{
         cell::{Cell, RefCell},
@@ -1462,14 +1468,14 @@ pub mod task_inner {
     }
 
     fn run_initial_child(
-        _session: &dyn Session,
-        _error_fd: &ScopedFd,
-        _sock_fd: &ScopedFd,
-        _sock_fd_number: i32,
-        _exe_path_cstr: &CStr,
-        _argv_array: &[&CStr],
-        _envp_array: &[&CStr],
-        _seccomp_prog: &sock_fprog,
+        session: &dyn Session,
+        error_fd: &ScopedFd,
+        sock_fd: &ScopedFd,
+        sock_fd_number: i32,
+        exe_path_cstr: &CStr,
+        argv_array: &[&CStr],
+        envp_array: &[&CStr],
+        seccomp_prog: &sock_fprog,
     ) {
         unimplemented!()
     }
@@ -1509,5 +1515,109 @@ pub mod task_inner {
             tracee_socket_fd_number,
             Box::new(PreserveFileMonitor::new()),
         );
+    }
+
+    /// Prepare this process and its ancestors for recording/replay by
+    /// preventing direct access to sources of nondeterminism, and ensuring
+    /// that rr bugs don't adversely affect the underlying system.
+    fn set_up_process(
+        session: &dyn Session,
+        err_fd: &ScopedFd,
+        sock_fd: &ScopedFd,
+        sock_fd_number: i32,
+    ) {
+        // TODO tracees can probably undo some of the setup below
+        // ...
+        restore_initial_resource_limits();
+
+        // CLOEXEC so that the original fd here will be closed by the exec that's
+        // about to happen.
+        let maybe_fd_magic = open(
+            "/dev/null",
+            OFlag::O_WRONLY | OFlag::O_CLOEXEC,
+            Mode::empty(),
+        );
+        if maybe_fd_magic.is_err() {
+            spawned_child_fatal_error(err_fd, "error opening /dev/null");
+        }
+        let fd_magic = maybe_fd_magic.unwrap();
+        let maybe_dup_magic = dup2(fd_magic, RD_MAGIC_SAVE_DATA_FD);
+        if maybe_dup_magic.is_err() || RD_MAGIC_SAVE_DATA_FD != maybe_dup_magic.unwrap() {
+            spawned_child_fatal_error(err_fd, "error duping to RD_MAGIC_SAVE_DATA_FD");
+        }
+
+        // If we're running under rr then don't try to set up RD_RESERVED_ROOT_DIR_FD;
+        // it should already be correct (unless someone chrooted in between,
+        // which would be crazy ... though we could fix it by dynamically
+        // assigning RR_RESERVED_ROOT_DIR_FD.)
+        if !running_under_rd() {
+            // CLOEXEC so that the original fd here will be closed by the exec that's
+            // about to happen.
+            let maybe_fd_root = open(
+                "/",
+                OFlag::O_PATH | OFlag::O_DIRECTORY | OFlag::O_CLOEXEC,
+                Mode::empty(),
+            );
+            if maybe_fd_root.is_err() {
+                spawned_child_fatal_error(err_fd, "error opening root directory");
+            }
+            let maybe_dup_reserved = dup2(maybe_fd_root.unwrap(), RD_RESERVED_ROOT_DIR_FD);
+            if maybe_dup_reserved.is_err() || RD_RESERVED_ROOT_DIR_FD != maybe_dup_reserved.unwrap()
+            {
+                spawned_child_fatal_error(err_fd, "error duping to RD_RESERVED_ROOT_DIR_FD");
+            }
+        }
+
+        let maybe_dup_sock_fd = dup2(sock_fd.as_raw(), sock_fd_number);
+        if maybe_dup_sock_fd.is_err() || sock_fd_number != maybe_dup_sock_fd.unwrap() {
+            spawned_child_fatal_error(err_fd, "error duping to RD_RESERVED_SOCKET_FD");
+        }
+
+        if session.is_replaying() {
+            // This task and all its descendants should silently reap any terminating
+            // children.
+            if unsafe { signal(Signal::SIGCHLD, SigHandler::SigIgn) }.is_err() {
+                spawned_child_fatal_error(err_fd, "error doing signal()");
+            }
+
+            // If the rd process dies, prevent runaway tracee processes
+            // from dragging down the underlying system.
+            //
+            // TODO: this isn't inherited across fork().
+            if 0 > unsafe { prctl(PR_SET_PDEATHSIG, SIGKILL) } {
+                spawned_child_fatal_error(err_fd, "Couldn't set parent-death signal");
+            }
+
+            // Put the replaying processes into their own session. This will stop
+            // signals being sent to these processes by the terminal --- in particular
+            // SIGTSTP/SIGINT/SIGWINCH.
+            // NOTE: In rr too, the return result of this is not checked. Ignore failure.
+            setsid().unwrap_or(Pid::from_raw(0));
+        }
+
+        // Trap to the rd process if a 'rdtsc' instruction is issued.
+        // That allows rd to record the tsc and replay it
+        // deterministically.
+        if 0 > unsafe { prctl(PR_SET_TSC, PR_TSC_SIGSEGV, 0, 0, 0) } {
+            spawned_child_fatal_error(err_fd, "error setting up prctl");
+        }
+
+        // If we're in setuid_sudo mode, we have CAP_SYS_ADMIN, so we don't need to
+        // set NO_NEW_PRIVS here in order to install the seccomp filter later. In,
+        // emulate any potentially privileged, operations, so we might as well set
+        // no_new_privs
+        if !session.is_recording() || !has_effective_caps(1 << CAP_SYS_ADMIN) {
+            if 0 > unsafe { prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) } {
+                spawned_child_fatal_error(
+                    err_fd,
+                    "prctl(NO_NEW_PRIVS) failed, SECCOMP_FILTER is not available: your\n\
+           kernel is too old. Use `record -n` to disable the filter.",
+                );
+            }
+        }
+    }
+
+    fn spawned_child_fatal_error(_err_fd: &ScopedFd, _msg: &str) {
+        unimplemented!()
     }
 }
