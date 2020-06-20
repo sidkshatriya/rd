@@ -427,8 +427,8 @@ pub mod session_inner {
                 statistics_: Default::default(),
                 tracee_socket: Default::default(),
                 // @TODO More principled approach!?
-                tracee_socket_fd_number: -1,
-                next_task_serial_: Default::default(),
+                tracee_socket_fd_number: 0,
+                next_task_serial_: Cell::new(1),
                 spawned_task_error_fd_: Default::default(),
                 syscall_seccomp_ordering_: Default::default(),
                 ticks_semantics_: PerfCounters::default_ticks_semantics(),

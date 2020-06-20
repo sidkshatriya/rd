@@ -1270,7 +1270,7 @@ pub mod task_inner {
         /// DIFF NOTE: rr takes an explicit `trace` param. Since trace is available from the
         /// session we avoid it.
         pub(in super::super::super) fn spawn<'a>(
-            session: &'a mut dyn Session,
+            session: &'a dyn Session,
             error_fd: &ScopedFd,
             sock_fd_out: Rc<RefCell<ScopedFd>>,
             tracee_socket_fd_number_out: &mut i32,

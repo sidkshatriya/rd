@@ -64,22 +64,14 @@ impl RdCommand for TraceInfoCommand {
             share_private_mappings: false,
             cpu_unbound: true,
         };
-        let replay_session = ReplaySession::create(self.trace_dir.as_ref(), flags);
+        let session = ReplaySession::create(self.trace_dir.as_ref(), flags);
+        let replay_session = session.as_replay().unwrap();
 
         let environ: Vec<CString>;
         loop {
-            let result = replay_session
-                .borrow_mut()
-                .replay_step(RunCommand::RunContinue);
-            if replay_session.borrow().done_initial_exec() {
-                environ = read_env(
-                    replay_session
-                        .borrow()
-                        .current_task()
-                        .unwrap()
-                        .borrow_mut()
-                        .as_mut(),
-                );
+            let result = replay_session.replay_step(RunCommand::RunContinue);
+            if replay_session.done_initial_exec() {
+                environ = read_env(replay_session.current_task().unwrap().borrow_mut().as_mut());
                 break;
             }
 

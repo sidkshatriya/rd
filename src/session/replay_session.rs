@@ -16,6 +16,7 @@ use crate::{
         session_inner::{session_inner::SessionInner, BreakStatus, RunCommand},
         task::{task_inner::task_inner::TaskInner, Task, TaskSharedPtr},
         Session,
+        SessionSharedPtr,
     },
     ticks::Ticks,
     trace::{
@@ -355,7 +356,7 @@ impl ReplaySession {
 
     /// Create a replay session that will use the trace directory specified
     /// by 'dir', or the latest trace if 'dir' is not supplied.
-    pub fn create<T: AsRef<OsStr>>(dir: Option<&T>, flags: Flags) -> ReplaySessionSharedPtr {
+    pub fn create<T: AsRef<OsStr>>(dir: Option<&T>, flags: Flags) -> SessionSharedPtr {
         let mut session: ReplaySession = ReplaySession::new(dir, flags);
 
         // It doesn't really matter what we use for argv/env here, since
@@ -370,8 +371,13 @@ impl ReplaySession {
         let sock_fd_out = session.tracee_socket_fd();
         let tid = session.trace_reader_mut().peek_frame().unwrap().tid();
 
+        let mut rc: SessionSharedPtr = Rc::new(Box::new(session));
+        let weak_self = Rc::downgrade(&rc);
+        // We never change the weak_self pointer so its a good idea to use
+        // a bit of unsafe here.
+        unsafe { Rc::get_mut_unchecked(&mut rc) }.weak_self = weak_self;
         let t = TaskInner::spawn(
-            &mut session,
+            (*rc).as_ref(),
             &error_fd,
             sock_fd_out,
             &mut tracee_socket_fd_number,
@@ -380,10 +386,12 @@ impl ReplaySession {
             &env,
             tid,
         );
-        session.tracee_socket_fd_number = tracee_socket_fd_number;
-        session.on_create(t);
+        // We never change the tracee_socket_fd_number so its a good idea
+        // to use a bit of unsafe here.
+        unsafe { Rc::get_mut_unchecked(&mut rc) }.tracee_socket_fd_number = tracee_socket_fd_number;
+        rc.on_create(t);
 
-        Rc::new(RefCell::new(session))
+        rc
     }
 
     /// Take a single replay step.
@@ -401,7 +409,7 @@ impl ReplaySession {
     pub fn replay_step_with_constraints(&mut self, _constraints: &StepConstraints) -> ReplayResult {
         unimplemented!()
     }
-    pub fn replay_step(&mut self, _command: RunCommand) -> ReplayResult {
+    pub fn replay_step(&self, _command: RunCommand) -> ReplayResult {
         unimplemented!()
     }
 }
@@ -472,7 +480,7 @@ fn check_xsave_compatibility(trace_in: &TraceReader) {
             write!(
                 io::stderr(),
                 "rr: Tracees had XSAVE but XSAVE is not available\n\
-                            now; Replay will probably fail because glibc dynamic loader\n\
+                now; Replay will probably fail because glibc dynamic loader\n\
                             uses XSAVE\n\n"
             )
             .unwrap();
@@ -491,7 +499,7 @@ fn check_xsave_compatibility(trace_in: &TraceReader) {
         write!(
             io::stderr(),
             "rr: Tracees had XSAVEC but XSAVEC is not available\n\
-                         now; Replay will probably fail because glibc dynamic loader\n\
+            now; Replay will probably fail because glibc dynamic loader\n\
                          uses XSAVEC\n\n"
         )
         .unwrap();
@@ -505,7 +513,7 @@ fn check_xsave_compatibility(trace_in: &TraceReader) {
             // is nearly guaranteed.
             write!(io::stderr(), "Trace XCR0 value {:x} != our XCR0 value {:x};\n\
                             Replay will probably fail because glibc dynamic loader examines XCR0\n\n",
-                   tracee_xcr0, our_xcr0).unwrap();
+                            tracee_xcr0, our_xcr0).unwrap();
         }
     }
 

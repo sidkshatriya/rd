@@ -19,10 +19,11 @@ use crate::{
     remote_ptr::RemotePtr,
     session::{
         replay_session,
-        replay_session::{ReplaySession, ReplaySessionSharedPtr, ReplayStatus},
+        replay_session::{ReplaySession, ReplayStatus},
         session_inner::RunCommand,
         task::{common::write_val_mem, Task},
         Session,
+        SessionSharedPtr,
     },
     taskish_uid::TaskUid,
     trace::trace_frame::FrameTime,
@@ -361,31 +362,31 @@ impl ReRunCommand {
     }
     // DIFF NOTE: In rr a result code e.g. 0 is return. We simply return Ok(()) if there is no error.
     fn rerun(&self) -> io::Result<()> {
-        let replay_session: ReplaySessionSharedPtr =
+        let session: SessionSharedPtr =
             ReplaySession::create(self.trace_dir.as_ref(), self.session_flags());
+        let replay_session = session.as_replay().unwrap();
         let mut instruction_count_within_event: u64 = 0;
         let mut done_first_step = false;
 
         // Now that we've spawned the replay, raise our resource limits if possible.
         raise_resource_limits();
 
-        while replay_session.borrow().trace_reader().time() < self.trace_end {
+        while replay_session.trace_reader().time() < self.trace_end {
             let mut cmd = RunCommand::RunContinue;
 
-            let before_time: FrameTime = replay_session.borrow().trace_reader().time();
-            let done_initial_exec = replay_session.borrow().done_initial_exec();
+            let before_time: FrameTime = replay_session.trace_reader().time();
+            let done_initial_exec = replay_session.done_initial_exec();
             let old_task_tuid: Option<TaskUid>;
             let old_ip: RemoteCodePtr;
             {
-                let rs_mutb = replay_session.borrow_mut();
-                let old_task = rs_mutb.current_task();
+                let old_task = replay_session.current_task();
                 old_task_tuid = old_task.as_ref().map(|t| t.borrow().tuid());
                 old_ip = old_task.as_ref().map_or(0.into(), |t| t.borrow().ip());
                 if done_initial_exec && before_time >= self.trace_start {
                     if !done_first_step {
                         if !self.function.is_some() {
                             self.run_diversion_function(
-                                &replay_session.borrow(),
+                                replay_session,
                                 old_task.unwrap().borrow_mut().as_mut(),
                             )?;
                             return Ok(());
@@ -406,24 +407,19 @@ impl ReRunCommand {
                 }
             }
 
-            let replayed_event = replay_session
-                .borrow()
-                .current_trace_frame()
-                .event()
-                .clone();
+            let replayed_event = replay_session.current_trace_frame().event().clone();
 
-            let result = replay_session.borrow_mut().replay_step(cmd);
+            let result = replay_session.replay_step(cmd);
             if result.status == ReplayStatus::ReplayExited {
                 break;
             }
 
-            let after_time: FrameTime = replay_session.borrow().trace_reader().time();
+            let after_time: FrameTime = replay_session.trace_reader().time();
             let singlestep_really_complete: bool;
             if cmd != RunCommand::RunContinue {
                 {
-                    let rp_mutb = replay_session.borrow_mut();
                     let old_task =
-                        old_task_tuid.map(|id| rp_mutb.find_task_from_task_uid(id).unwrap());
+                        old_task_tuid.map(|id| replay_session.find_task_from_task_uid(id).unwrap());
                     let after_ip: RemoteCodePtr =
                         old_task.as_ref().map_or(0.into(), |t| t.borrow().ip());
                     debug_assert!(after_time >= before_time && after_time <= before_time + 1);
