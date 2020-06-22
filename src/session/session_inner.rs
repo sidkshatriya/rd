@@ -349,9 +349,11 @@ pub mod session_inner {
         pub fn on_destroy_vm(&mut self, _vm: &AddressSpace) {
             unimplemented!()
         }
-        /// NOTE: Method is simply called on_Session::on_create() in rr.
-        pub fn on_create_tg(&self, _tg: ThreadGroupSharedWeakPtr) {
-            unimplemented!()
+        /// NOTE: Method is simply called Session::on_create() in rr.
+        pub fn on_create_tg(&self, tg: &ThreadGroupSharedPtr) {
+            self.thread_group_map
+                .borrow_mut()
+                .insert(tg.borrow().tguid(), Rc::downgrade(tg));
         }
         /// NOTE: Method is simply called on_Session::on_destroy() in rr.
         pub fn on_destroy_tg(&mut self, _tg: &ThreadGroup) {
@@ -523,7 +525,7 @@ pub mod session_inner {
         /// All these members are NOT pub
         pub(in super::super) vm_map: RefCell<AddressSpaceMap>,
         pub(in super::super) task_map: RefCell<TaskMap>,
-        pub(in super::super) thread_group_map: ThreadGroupMap,
+        pub(in super::super) thread_group_map: RefCell<ThreadGroupMap>,
 
         /// If non-None, data required to finish initializing the tasks of this
         /// session.

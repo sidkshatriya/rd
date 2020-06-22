@@ -1494,7 +1494,8 @@ pub mod task_inner {
             wrapped_t.borrow_mut().tg = Some(tg);
             let addr_space = session.create_vm(wrapped_t.clone(), None, None);
             wrapped_t.borrow_mut().as_ = Some(addr_space);
-            wrapped_t.borrow_mut().fds = Some(FdTable::create(wrapped_t.borrow().as_ref()));
+            let weak_t_ptr = wrapped_t.borrow().weak_self.clone();
+            wrapped_t.borrow_mut().fds = Some(FdTable::create(weak_t_ptr));
             {
                 let ref_task = wrapped_t.borrow();
                 let fds: FdTableSharedPtr = ref_task.fds.as_ref().unwrap().clone();

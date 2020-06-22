@@ -81,7 +81,7 @@ lazy_static! {
             logging_stream: String::new(),
             // Possibly buffered
             log_file: f,
-            default_level: LogError,
+            default_level: LogInfo,
         })
     };
 }

@@ -211,7 +211,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
     /// NOTE: Method is simply called Session::find thread_group() in rr
     fn find_thread_group_from_pid(&mut self, pid: pid_t) -> Option<ThreadGroupSharedPtr> {
         self.finish_initializing();
-        for (tguid, tg) in self.thread_group_map() {
+        for (tguid, tg) in self.thread_group_map().iter() {
             if tguid.tid() == pid {
                 return Some(tg.upgrade().unwrap());
             }
@@ -244,8 +244,12 @@ pub trait Session: DerefMut<Target = SessionInner> {
         self.as_session_inner().task_map.borrow_mut()
     }
 
-    fn thread_group_map(&self) -> &ThreadGroupMap {
-        &self.as_session_inner().thread_group_map
+    fn thread_group_map(&self) -> Ref<'_, ThreadGroupMap> {
+        self.as_session_inner().thread_group_map.borrow()
+    }
+
+    fn thread_group_map_mut(&self) -> RefMut<'_, ThreadGroupMap> {
+        self.as_session_inner().thread_group_map.borrow_mut()
     }
 
     fn vm_map(&self) -> Ref<'_, AddressSpaceMap> {

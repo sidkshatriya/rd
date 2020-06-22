@@ -556,7 +556,9 @@ impl<'a> AutoRemoteSyscalls<'a> {
         let mut callregs = self.initial_regs;
         debug_assert!(args.len() <= 6);
         for (i, arg) in args.iter().enumerate() {
-            callregs.set_arg(i, *arg);
+            // Syscall argument are indexed from 1 onwards and not 0.
+            // e.g. arg 1, arg 2, arg 3 etc.
+            callregs.set_arg(i + 1, *arg);
         }
         self.syscall_base(syscallno, &mut callregs)
     }

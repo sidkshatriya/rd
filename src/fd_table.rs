@@ -6,7 +6,12 @@ use crate::{
     remote_ptr::RemotePtr,
     session::{
         address_space::address_space::AddressSpace,
-        task::{record_task::record_task::RecordTask, replay_task::ReplayTask, Task},
+        task::{
+            record_task::record_task::RecordTask,
+            replay_task::ReplayTask,
+            Task,
+            TaskSharedWeakPtr,
+        },
     },
     weak_ptr_set::WeakPtrSet,
 };
@@ -143,14 +148,14 @@ impl FdTable {
         Rc::new(RefCell::new(file_mon))
     }
 
-    pub fn create(t: &dyn Task) -> FdTableSharedPtr {
+    pub fn create(wt: TaskSharedWeakPtr) -> FdTableSharedPtr {
         let mut file_mon = FdTable {
             tasks: WeakPtrSet::new(),
             fds: Default::default(),
             fd_count_beyond_limit: 0,
         };
 
-        file_mon.tasks.insert(t.weak_self_ptr());
+        file_mon.tasks.insert(wt);
         Rc::new(RefCell::new(file_mon))
     }
 

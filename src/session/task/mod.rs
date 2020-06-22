@@ -301,8 +301,17 @@ pub trait Task: DerefMut<Target = TaskInner> {
 
     /// Return true if an unexpected exit was already detected for this task and
     /// it is ready to be reported.
-    fn wait_unexpected_exit(&self) -> bool {
-        unimplemented!()
+    fn wait_unexpected_exit(&mut self) -> bool {
+        if self.detected_unexpected_exit {
+            log!(
+                LogDebug,
+                "Unexpected (SIGKILL) exit was detected; reporting it now"
+            );
+            self.did_waitpid(WaitStatus::for_ptrace_event(PTRACE_EVENT_EXIT));
+            self.detected_unexpected_exit = false;
+            return true;
+        }
+        false
     }
 
     /// Forwarded method signature
