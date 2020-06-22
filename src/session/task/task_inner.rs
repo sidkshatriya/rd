@@ -97,6 +97,7 @@ pub mod task_inner {
                 PTRACE_PEEKDATA,
                 PTRACE_POKEDATA,
                 PTRACE_SEIZE,
+                PTRACE_SETREGS,
             },
             signal::siginfo_t,
         },
@@ -769,7 +770,15 @@ pub mod task_inner {
 
         /// Ensure registers are flushed back to the underlying task.
         pub fn flush_regs(&mut self) {
-            unimplemented!()
+            if self.registers_dirty {
+                ed_assert!(self, self.is_stopped);
+                let ptrace_regs = self.registers.get_ptrace();
+                self.ptrace_if_alive(
+                    PTRACE_SETREGS,
+                    0usize.into(),
+                    PtraceData::ReadFrom(u8_raw_slice(&ptrace_regs)),
+                );
+            }
         }
 
         /// Set the tracee's extra registers to `regs`. */
