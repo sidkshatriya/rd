@@ -196,9 +196,9 @@ pub mod session_inner {
             self.assert_fully_initialized();
             // If vm already belongs to our session this is a fork, otherwise it's
             // a session-clone
-            let as_: AddressSpace;
+            let addr_space: AddressSpace;
             if self.weak_self.ptr_eq(vm.borrow().session_weak()) {
-                as_ = AddressSpace::new_after_fork_or_session_clone(
+                addr_space = AddressSpace::new_after_fork_or_session_clone(
                     self.weak_self.clone(),
                     &vm.borrow(),
                     t.rec_tid,
@@ -215,7 +215,7 @@ pub mod session_inner {
                     vm_uid_serial = vmb.serial();
                     vm_uid_exec_count = vmb.exec_count();
                 }
-                as_ = AddressSpace::new_after_fork_or_session_clone(
+                addr_space = AddressSpace::new_after_fork_or_session_clone(
                     self.weak_self.clone(),
                     &vm.borrow(),
                     vm_uid_tid,
@@ -223,8 +223,8 @@ pub mod session_inner {
                     vm_uid_exec_count,
                 );
             }
-            let as_uid = as_.uid();
-            let shr_ptr = Rc::new(RefCell::new(as_));
+            let as_uid = addr_space.uid();
+            let shr_ptr = Rc::new(RefCell::new(addr_space));
             self.vm_map
                 .borrow_mut()
                 .insert(as_uid, Rc::downgrade(&shr_ptr));
@@ -336,7 +336,7 @@ pub mod session_inner {
                     unsafe {
                         syscall(SYS_tgkill, t.borrow().real_tgid(), t.borrow().tid, SIGKILL);
                     }
-                    t.borrow().thread_group().borrow().destabilize();
+                    t.borrow().thread_group().destabilize();
                 }
 
                 t.borrow().destroy();

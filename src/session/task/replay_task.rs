@@ -28,7 +28,6 @@ use crate::{
             Task,
         },
         Session,
-        SessionSharedWeakPtr,
     },
     trace::trace_frame::{FrameTime, TraceFrame},
     wait_status::WaitStatus,
@@ -67,13 +66,15 @@ pub enum ReplayTaskIgnore {
 
 impl ReplayTask {
     pub fn new(
-        _session: SessionSharedWeakPtr,
-        _tid: pid_t,
-        _rec_tid: pid_t,
-        _serial: u32,
-        _arch: SupportedArch,
+        session: &dyn Session,
+        tid: pid_t,
+        rec_tid: pid_t,
+        serial: u32,
+        arch: SupportedArch,
     ) -> ReplayTask {
-        unimplemented!()
+        ReplayTask {
+            task_inner: TaskInner::new(session, tid, rec_tid, serial, arch),
+        }
     }
 
     /// Initialize tracee buffers in this, i.e., implement

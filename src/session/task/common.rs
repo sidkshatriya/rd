@@ -102,7 +102,7 @@ use std::{
 /// Returns false if the process no longer exists.
 pub(super) fn open_mem_fd<T: Task>(task: &mut T) -> bool {
     // Use ptrace to read/write during open_mem_fd
-    task.as_.borrow_mut().set_mem_fd(ScopedFd::new());
+    task.vm_mut().set_mem_fd(ScopedFd::new());
 
     if !task.is_stopped {
         log!(
@@ -165,11 +165,7 @@ pub(super) fn open_mem_fd<T: Task>(task: &mut T) -> bool {
         );
         return false;
     }
-    remote
-        .task()
-        .as_
-        .borrow_mut()
-        .set_mem_fd(fd.try_into().unwrap());
+    remote.task().vm_mut().set_mem_fd(fd.try_into().unwrap());
     true
 }
 
@@ -746,8 +742,7 @@ pub(super) fn did_waitpid<T: Task>(task: &mut T, mut status: WaitStatus) {
         // we do this with PTRACE_SYSEMU_SINGLESTEP, but rd's ptrace emulation
         // doesn't and it's kind of a kernel bug.
         if task
-            .as_
-            .borrow()
+            .vm()
             .get_breakpoint_type_at_addr(task.address_of_last_execution_resume)
             != BreakpointType::BkptNone
             && task.maybe_stop_sig() == SIGTRAP

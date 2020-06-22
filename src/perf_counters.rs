@@ -20,11 +20,11 @@ use crate::{
     ticks::Ticks,
     util::*,
 };
-use libc::{c_ulong, fcntl, ioctl, F_SETFL, O_ASYNC};
+use libc::{c_ulong, fcntl, ioctl, pid_t, F_SETFL, O_ASYNC};
 use nix::{
     errno::errno,
     poll::{poll, PollFd, PollFlags},
-    unistd::{read, Pid},
+    unistd::read,
 };
 use raw_cpuid::CpuId;
 use std::{
@@ -252,7 +252,7 @@ fn system_has_ioc_period_bug() -> bool {
     let mut attr: perf_event_attr = PMU_ATTRIBUTES.ticks_attr;
     attr.__bindgen_anon_1.sample_period = 0xffffffff;
     attr.set_exclude_kernel(1);
-    let (bug_fd, _) = start_counter(Pid::from_raw(0), -1, &mut attr);
+    let (bug_fd, _) = start_counter(0, -1, &mut attr);
 
     let new_period: u64 = 1;
     if perf_ioctl(&bug_fd, PERF_EVENT_IOC_PERIOD, &new_period as *const u64) != 0 {
@@ -273,7 +273,7 @@ fn supports_txp_and_has_kvm_in_txcp_bug() -> (bool, bool) {
     let mut attr: perf_event_attr = PMU_ATTRIBUTES.ticks_attr;
     attr.config = attr.config | IN_TXCP;
     attr.__bindgen_anon_1.sample_period = 0;
-    let (fd, disabled_txcp) = start_counter(Pid::from_raw(0), -1, &mut attr);
+    let (fd, disabled_txcp) = start_counter(0, -1, &mut attr);
     if fd.is_open() && !disabled_txcp {
         perf_ioctl_null(&fd, PERF_EVENT_IOC_DISABLE);
         perf_ioctl_null(&fd, PERF_EVENT_IOC_ENABLE);
@@ -555,7 +555,7 @@ fn read_counter(fd: &ScopedFd) -> u64 {
     }
 }
 
-fn start_counter(tid: Pid, group_fd: i32, attr: &mut perf_event_attr) -> (ScopedFd, bool) {
+fn start_counter(tid: pid_t, group_fd: i32, attr: &mut perf_event_attr) -> (ScopedFd, bool) {
     let mut disabled_txcp = false;
 
     attr.set_pinned(0);
@@ -567,7 +567,7 @@ fn start_counter(tid: Pid, group_fd: i32, attr: &mut perf_event_attr) -> (Scoped
         libc::syscall(
             libc::SYS_perf_event_open,
             attr as *mut perf_event_attr,
-            tid.as_raw(),
+            tid,
             -1,
             group_fd,
             0,
@@ -585,7 +585,7 @@ fn start_counter(tid: Pid, group_fd: i32, attr: &mut perf_event_attr) -> (Scoped
             libc::syscall(
                 libc::SYS_perf_event_open,
                 &mut tmp_attr,
-                tid.as_raw(),
+                tid,
                 -1,
                 group_fd,
                 0,
@@ -664,8 +664,8 @@ fn check_working_counters() -> bool {
     // @TODO check
     attr2.__bindgen_anon_1.sample_period = 0;
 
-    let (fd, _) = start_counter(Pid::from_raw(0), -1, &mut attr);
-    let (fd2, _) = start_counter(Pid::from_raw(0), -1, &mut attr2);
+    let (fd, _) = start_counter(0, -1, &mut attr);
+    let (fd2, _) = start_counter(0, -1, &mut attr2);
     do_branches();
     let events = read_counter(&fd);
     let events2 = read_counter(&fd2);
@@ -713,7 +713,7 @@ fn check_working_counters() -> bool {
 pub struct PerfCounters {
     // Only valid while 'counting' is true
     counting_period: Ticks,
-    tid: Pid,
+    tid: pid_t,
     // We use separate fds for counting ticks and for generating interrupts. The
     // former ignores ticks in aborted transactions, and does not support
     // sample_period; the latter does not ignore ticks in aborted transactions,
@@ -741,7 +741,7 @@ fn make_counter_async(fd: &ScopedFd, signal: i32) {
 }
 
 impl PerfCounters {
-    pub fn new(tid: Pid, ticks_semantics: TicksSemantics) -> Self {
+    pub fn new(tid: pid_t, ticks_semantics: TicksSemantics) -> Self {
         PerfCounters {
             tid,
             ticks_semantics,
@@ -756,7 +756,7 @@ impl PerfCounters {
         }
     }
 
-    pub fn set_tid(&mut self, tid: Pid) {
+    pub fn set_tid(&mut self, tid: pid_t) {
         self.stop();
         self.tid = tid;
     }
@@ -828,7 +828,7 @@ impl PerfCounters {
 
             let own = f_owner_ex {
                 type_: F_OWNER_TID,
-                pid: self.tid.as_raw(),
+                pid: self.tid,
             };
             if unsafe {
                 fcntl(

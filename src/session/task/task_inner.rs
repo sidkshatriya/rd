@@ -193,6 +193,8 @@ pub mod task_inner {
     use crate::{
         bindings::kernel::CAP_SYS_ADMIN,
         cpuid_bug_detector::CPUIDBugDetector,
+        fd_table::{FdTableRef, FdTableRefMut},
+        thread_group::{ThreadGroupRef, ThreadGroupRefMut},
         util::{has_effective_caps, restore_initial_resource_limits, running_under_rd, write_all},
     };
     use libc::{
@@ -220,7 +222,7 @@ pub mod task_inner {
         os::{raw::c_int, unix::ffi::OsStrExt},
         ptr,
         ptr::copy_nonoverlapping,
-        rc::Rc,
+        rc::{Rc, Weak},
     };
 
     pub struct TrapReason;
@@ -312,8 +314,10 @@ pub mod task_inner {
         pub scratch_size: usize,
 
         /// The child's desched counter event fd number
+        /// @TODO Make this into an option??
         pub desched_fd_child: i32,
         /// The child's cloned_file_data_fd
+        /// @TODO Make this into an option??
         pub cloned_file_data_fd_child: i32,
 
         pub hpc: PerfCounters,
@@ -339,9 +343,9 @@ pub mod task_inner {
         /// These are private
         serial: u32,
         /// The address space of this task.
-        pub(in super::super::super) as_: AddressSpaceSharedPtr,
+        pub(in super::super::super) as_: Option<AddressSpaceSharedPtr>,
         /// The file descriptor table of this task.
-        pub(in super::super::super) fds: FdTableSharedPtr,
+        pub(in super::super::super) fds: Option<FdTableSharedPtr>,
         /// Task's OS name.
         pub(in super::super::super) prname: OsString,
         /// Count of all ticks seen by this task since tracees became
@@ -382,7 +386,7 @@ pub mod task_inner {
         /// A weak pointer to the  session we're part of.
         pub(in super::super::super) session_: SessionSharedWeakPtr,
         /// The thread group this belongs to.
-        pub(in super::super::super) tg: ThreadGroupSharedPtr,
+        pub(in super::super::super) tg: Option<ThreadGroupSharedPtr>,
         /// Entries set by `set_thread_area()` or the `tls` argument to `clone()`
         /// (when that's a user_desc). May be more than one due to different
         /// entry_numbers.
@@ -839,17 +843,22 @@ pub mod task_inner {
         }
 
         /// Return the thread group this belongs to.
-        pub fn thread_group(&self) -> &ThreadGroupSharedPtr {
-            &self.tg
+        pub fn thread_group(&self) -> ThreadGroupRef {
+            self.tg.as_ref().unwrap().borrow()
+        }
+
+        /// Return the thread group this belongs to.
+        pub fn thread_group_mut(&self) -> ThreadGroupRefMut {
+            self.tg.as_ref().unwrap().borrow_mut()
         }
 
         /// Return the id of this task's recorded thread group.
         pub fn tgid(&self) -> pid_t {
-            self.tg.borrow().tgid
+            self.thread_group().tgid
         }
-        /// Return id of real OS thread group.
+        /// Return id of real OS thread group.|
         pub fn real_tgid(&self) -> pid_t {
-            self.tg.borrow().real_tgid
+            self.thread_group().real_tgid
         }
 
         pub fn tuid(&self) -> TaskUid {
@@ -888,23 +897,27 @@ pub mod task_inner {
         /// Return the virtual memory mapping (address space) of this
         /// task.
         pub fn vm(&self) -> AddressSpaceRef {
-            self.as_.borrow()
+            self.as_.as_ref().unwrap().borrow()
         }
 
         /// This is rarely needed. Please use vm() or vm_mut()
         pub fn vm_as_ptr(&self) -> *const AddressSpace {
-            self.as_.as_ptr()
+            self.as_.as_ref().unwrap().as_ptr()
         }
 
         /// Return the virtual memory mapping (address space) of this
         /// task.
         /// Note that we DONT need &mut self here
         pub fn vm_mut(&self) -> AddressSpaceRefMut {
-            self.as_.borrow_mut()
+            self.as_.as_ref().unwrap().borrow_mut()
         }
 
-        pub fn fd_table(&self) -> FdTableSharedPtr {
-            unimplemented!()
+        pub fn fd_table(&self) -> FdTableRef {
+            self.fds.as_ref().unwrap().borrow()
+        }
+
+        pub fn fd_table_mut(&self) -> FdTableRefMut {
+            self.fds.as_ref().unwrap().borrow_mut()
         }
 
         /// Currently we don't allow recording across uid changes, so we can
@@ -1025,13 +1038,59 @@ pub mod task_inner {
         }
 
         pub(in super::super::super) fn new(
-            _session: &dyn Session,
-            _tid: pid_t,
-            _rec_tid: pid_t,
-            _serial: u32,
-            _a: SupportedArch,
-        ) {
-            unimplemented!()
+            session: &dyn Session,
+            tid: pid_t,
+            rec_tid: pid_t,
+            serial: u32,
+            a: SupportedArch,
+        ) -> TaskInner {
+            let adjusted_rec_tid = if rec_tid > 0 { rec_tid } else { tid };
+            TaskInner {
+                unstable: Cell::new(false),
+                stable_exit: false,
+                scratch_ptr: Default::default(),
+                scratch_size: 0,
+                // This will be initialized when the syscall buffer is
+                desched_fd_child: -1,
+                // This will be initialized when the syscall buffer is
+                cloned_file_data_fd_child: -1,
+                hpc: PerfCounters::new(tid, session.ticks_semantics()),
+                tid,
+                rec_tid: adjusted_rec_tid,
+                syscallbuf_size: 0,
+                stopping_breakpoint_table_entry_size: 0,
+                serial,
+                prname: "???".into(),
+                ticks: 0,
+                registers: Registers::new(a),
+                how_last_execution_resumed: ResumeRequest::ResumeCont,
+                last_resume_orig_cx: 0,
+                did_set_breakpoint_after_cpuid: false,
+                is_stopped: false,
+                seccomp_bpf_enabled: false,
+                detected_unexpected_exit: false,
+                registers_dirty: false,
+                extra_registers: ExtraRegisters::new(a),
+                extra_registers_known: false,
+                session_: session.weak_self.clone(),
+                top_of_stack: Default::default(),
+                seen_ptrace_exit_event: false,
+                thread_locals: array_init::array_init(|_| 0),
+                expecting_ptrace_interrupt_stop: 0,
+                // DIFF NOTE: These are not explicitly set in rr
+                syscallbuf_child: Default::default(),
+                preload_globals: None,
+                as_: Default::default(),
+                fds: Default::default(),
+                address_of_last_execution_resume: Default::default(),
+                singlestepping_instruction: TrappedInstruction::None,
+                tg: Default::default(),
+                thread_areas_: vec![],
+                wait_status: Default::default(),
+                pending_siginfo: Default::default(),
+                weak_self: Weak::new(),
+                stopping_breakpoint_table: Default::default(),
+            }
         }
 
         pub(in super::super::super) fn on_syscall_exit_arch(
@@ -1432,13 +1491,13 @@ pub mod task_inner {
             wrapped_t.borrow_mut().weak_self = Rc::downgrade(&wrapped_t);
 
             let tg = session.create_initial_tg(wrapped_t.clone());
-            wrapped_t.borrow_mut().tg = tg;
-            let as_ = session.create_vm(wrapped_t.clone(), None, None);
-            wrapped_t.borrow_mut().as_ = as_;
-            wrapped_t.borrow_mut().fds = FdTable::create(wrapped_t.borrow().as_ref());
+            wrapped_t.borrow_mut().tg = Some(tg);
+            let addr_space = session.create_vm(wrapped_t.clone(), None, None);
+            wrapped_t.borrow_mut().as_ = Some(addr_space);
+            wrapped_t.borrow_mut().fds = Some(FdTable::create(wrapped_t.borrow().as_ref()));
             {
                 let ref_task = wrapped_t.borrow();
-                let fds: FdTableSharedPtr = ref_task.fds.clone();
+                let fds: FdTableSharedPtr = ref_task.fds.as_ref().unwrap().clone();
                 setup_fd_table(ref_task.as_ref(), &mut fds.borrow_mut(), fd_number);
             }
 

@@ -5,19 +5,21 @@ use crate::{
     log::LogLevel::LogDebug,
     remote_ptr::RemotePtr,
     session::{
-        address_space::address_space::{AddressSpace, AddressSpaceRef},
+        address_space::address_space::AddressSpace,
         task::{record_task::record_task::RecordTask, replay_task::ReplayTask, Task},
     },
     weak_ptr_set::WeakPtrSet,
 };
 use nix::sys::stat::lstat;
 use std::{
-    cell::RefCell,
+    cell::{Ref, RefCell, RefMut},
     collections::{HashMap, HashSet},
     ops::Deref,
     rc::{Rc, Weak},
 };
 
+pub type FdTableRef<'a> = Ref<'a, FdTable>;
+pub type FdTableRefMut<'a> = RefMut<'a, FdTable>;
 pub type FdTableSharedPtr = Rc<RefCell<FdTable>>;
 pub type FdTableSharedWeakPtr = Weak<RefCell<FdTable>>;
 
@@ -186,7 +188,7 @@ impl FdTable {
         // FdTable. We need to disable syscallbuf for an fd if any tasks for this
         // address space are monitoring the fd.
         for vm_t in rt.vm().iter() {
-            for &fd in vm_t.borrow().fd_table().borrow().fds.keys() {
+            for &fd in vm_t.borrow().fd_table().fds.keys() {
                 debug_assert!(fd >= 0);
                 let mut adjusted_fd = fd;
                 if fd >= SYSCALLBUF_FDS_DISABLED_SIZE {
@@ -265,7 +267,7 @@ impl FdTable {
                 if fd >= SYSCALLBUF_FDS_DISABLED_SIZE {
                     fd = SYSCALLBUF_FDS_DISABLED_SIZE - 1;
                 }
-                let disable: u8 = if is_fd_monitored_in_any_task(rt.vm(), fd) {
+                let disable: u8 = if is_fd_monitored_in_any_task(&rt.vm(), fd) {
                     1
                 } else {
                     0
@@ -286,11 +288,11 @@ fn is_fd_open(t: &dyn Task, fd: i32) -> bool {
     lstat(path.as_str()).is_ok()
 }
 
-fn is_fd_monitored_in_any_task(vm: AddressSpaceRef, fd: i32) -> bool {
-    for t in vm.iter() {
-        let table = t.borrow().fd_table();
-        if table.borrow().is_monitoring(fd)
-            || (fd >= SYSCALLBUF_FDS_DISABLED_SIZE - 1 && table.borrow().count_beyond_limit() > 0)
+fn is_fd_monitored_in_any_task(vm: &AddressSpace, fd: i32) -> bool {
+    for rc in vm.iter() {
+        let t = rc.borrow();
+        if t.fd_table().is_monitoring(fd)
+            || (fd >= SYSCALLBUF_FDS_DISABLED_SIZE - 1 && t.fd_table().count_beyond_limit() > 0)
         {
             return true;
         }

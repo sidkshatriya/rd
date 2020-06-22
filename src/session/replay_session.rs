@@ -14,7 +14,7 @@ use crate::{
         diversion_session::DiversionSessionSharedPtr,
         replay_session::ReplayTraceStepType::TstepNone,
         session_inner::{session_inner::SessionInner, BreakStatus, RunCommand},
-        task::{task_inner::task_inner::TaskInner, Task, TaskSharedPtr},
+        task::{replay_task::ReplayTask, task_inner::task_inner::TaskInner, Task, TaskSharedPtr},
         Session,
         SessionSharedPtr,
     },
@@ -441,8 +441,9 @@ impl Session for ReplaySession {
         Some(self)
     }
 
-    fn new_task(&self, _tid: i32, _rec_tid: i32, _serial: u32, _a: SupportedArch) -> Box<dyn Task> {
-        unimplemented!()
+    fn new_task(&self, tid: i32, rec_tid: i32, serial: u32, a: SupportedArch) -> Box<dyn Task> {
+        let t = ReplayTask::new(self, tid, rec_tid, serial, a);
+        Box::new(t)
     }
 
     fn trace_stream(&self) -> Option<Ref<'_, TraceStream>> {
