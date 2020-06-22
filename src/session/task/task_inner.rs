@@ -191,7 +191,10 @@ pub mod task_inner {
     };
 
     use crate::{
-        bindings::kernel::CAP_SYS_ADMIN,
+        bindings::{
+            kernel::{user, CAP_SYS_ADMIN},
+            ptrace::PTRACE_POKEUSER,
+        },
         cpuid_bug_detector::CPUIDBugDetector,
         fd_table::{FdTableRef, FdTableRefMut},
         thread_group::{ThreadGroupRef, ThreadGroupRefMut},
@@ -208,7 +211,7 @@ pub mod task_inner {
         SIGKILL,
     };
     use nix::{
-        errno::Errno,
+        errno::{Errno, Errno::ESRCH},
         fcntl::open,
         sys::signal::{kill, sigaction, signal, SaFlags, SigAction, SigHandler, SigSet, Signal},
         unistd::{dup2, execve, getpid, setsid, Pid},
@@ -224,6 +227,9 @@ pub mod task_inner {
         ptr::copy_nonoverlapping,
         rc::{Rc, Weak},
     };
+
+    const NUM_X86_DEBUG_REGS: usize = 8;
+    const NUM_X86_WATCHPOINTS: usize = 4;
 
     pub struct TrapReason;
 
@@ -739,8 +745,8 @@ pub mod task_inner {
         }
 
         /// Set the debug status (DR6 on x86).
-        pub fn set_debug_status(&self, _status: usize) {
-            unimplemented!()
+        pub fn set_debug_status(&self, status: usize) {
+            self.set_debug_reg(6, status);
         }
 
         /// Determine why a SIGTRAP occurred. Uses debug_status() but doesn't
@@ -788,8 +794,15 @@ pub mod task_inner {
         }
 
         /// @TODO should this be a GdbRegister type?
-        pub fn set_debug_reg(&self, _regno: usize, _value: usize) {
-            unimplemented!()
+        pub fn set_debug_reg(&self, regno: usize, value: usize) -> bool {
+            unsafe { Errno::clear() };
+            let data = [value];
+            self.fallible_ptrace(
+                PTRACE_POKEUSER,
+                dr_user_word_offset(regno).into(),
+                PtraceData::ReadFrom(&data as *const [usize] as *const [u8]),
+            );
+            return errno() == 0 || Errno::last() == ESRCH;
         }
 
         /// Update the thread area to `addr`.
@@ -1764,5 +1777,10 @@ kernel is too old.",
             );
         }
         // anything that happens from this point on gets filtered!
+    }
+
+    fn dr_user_word_offset(i: usize) -> usize {
+        debug_assert!(i < NUM_X86_DEBUG_REGS);
+        offset_of!(user, u_debugreg) + size_of::<usize>() * i
     }
 }
