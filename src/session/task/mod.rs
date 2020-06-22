@@ -8,6 +8,8 @@ use crate::{
     registers::Registers,
     remote_ptr::{RemotePtr, Void},
     session::{
+        replay_session::ReplaySession,
+        session_inner::session_inner::PtraceSyscallBeforeSeccomp,
         task::{
             record_task::record_task::RecordTask,
             replay_task::ReplayTask,
@@ -146,8 +148,57 @@ pub trait Task: DerefMut<Target = TaskInner> {
     /// We're currently in user-space with registers set up to perform a system
     /// call. Continue into the kernel and stop where we can modify the syscall
     /// state.
-    fn enter_syscall(&self) {
-        unimplemented!()
+    fn enter_syscall(&mut self) {
+        let mut need_ptrace_syscall_event = !self.seccomp_bpf_enabled
+            || self.session().syscall_seccomp_ordering()
+                == PtraceSyscallBeforeSeccomp::SeccompBeforePtraceSyscall;
+        let mut need_seccomp_event = self.seccomp_bpf_enabled;
+        while need_ptrace_syscall_event || need_seccomp_event {
+            let resume_how = if need_ptrace_syscall_event {
+                ResumeRequest::ResumeSyscall
+            } else {
+                ResumeRequest::ResumeCont
+            };
+
+            self.resume_execution(
+                resume_how,
+                WaitRequest::ResumeWait,
+                TicksRequest::ResumeNoTicks,
+                None,
+            );
+            if self.is_ptrace_seccomp_event() {
+                ed_assert!(self, need_seccomp_event);
+                need_seccomp_event = false;
+                continue;
+            }
+            ed_assert!(self, self.maybe_ptrace_event().is_ptrace_event());
+            if self.session().is_recording() && self.maybe_group_stop_sig().is_sig() {
+                self.as_record_task().unwrap().stash_group_stop();
+                continue;
+            }
+
+            if self.maybe_stop_sig().is_not_sig() {
+                ed_assert!(self, need_ptrace_syscall_event);
+                need_ptrace_syscall_event = false;
+                continue;
+            }
+            if ReplaySession::is_ignored_signal(self.maybe_stop_sig().unwrap_sig())
+                && self.session().is_replaying()
+            {
+                continue;
+            }
+            ed_assert!(
+                self,
+                self.session().is_recording(),
+                " got unexpected signal {}",
+                self.maybe_stop_sig(),
+            );
+            if self.maybe_stop_sig() == self.session().as_record().unwrap().syscallbuf_desched_sig()
+            {
+                continue;
+            }
+            self.as_record_task().unwrap().stash_sig();
+        }
     }
 
     /// We have observed entry to a syscall (either by PTRACE_EVENT_SECCOMP or

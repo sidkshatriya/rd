@@ -370,6 +370,12 @@ impl PartialEq<i32> for MaybeStopSignal {
     }
 }
 
+impl PartialEq<u8> for MaybeStopSignal {
+    fn eq(&self, other: &u8) -> bool {
+        self.0.map_or(false, |op| op.get() == *other)
+    }
+}
+
 impl Display for MaybeStopSignal {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         if !self.is_sig() {

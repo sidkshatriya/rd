@@ -118,7 +118,7 @@ pub mod session_inner {
     pub type TaskMap = BTreeMap<pid_t, TaskSharedPtr>;
     pub type ThreadGroupMap = HashMap<ThreadGroupUid, ThreadGroupSharedWeakPtr>;
 
-    #[derive(Copy, Clone)]
+    #[derive(Copy, Clone, Eq, PartialEq)]
     pub enum PtraceSyscallBeforeSeccomp {
         PtraceSyscallBeforeSeccomp,
         SeccompBeforePtraceSyscall,

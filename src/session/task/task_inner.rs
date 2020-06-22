@@ -832,10 +832,13 @@ pub mod task_inner {
             self.wait_status.maybe_ptrace_event()
         }
 
-        /// Return the signal that's pending for this as of the last
-        /// call to `wait()/try_wait()`.  Return of `None` means "no signal".
+        /// Return the signal that's pending for this as of the last call to `wait()/try_wait()`.
         pub fn maybe_stop_sig(&self) -> MaybeStopSignal {
             self.wait_status.maybe_stop_sig()
+        }
+
+        pub fn maybe_group_stop_sig(&self) -> MaybeStopSignal {
+            self.wait_status.maybe_group_stop_sig()
         }
 
         pub fn clear_wait_status(&mut self) {

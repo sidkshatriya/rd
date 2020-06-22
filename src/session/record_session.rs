@@ -142,9 +142,10 @@ impl RecordSession {
         self.scheduler_.borrow_mut()
     }
 
-    pub fn syscallbuf_desched_sig(&self) -> i32 {
-        unimplemented!()
+    pub fn syscallbuf_desched_sig(&self) -> u8 {
+        self.syscallbuf_desched_sig_
     }
+
     pub fn use_file_cloning(&self) -> bool {
         self.use_file_cloning_
     }
