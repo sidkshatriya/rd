@@ -60,7 +60,12 @@
 
 #ifndef PTRACE_O_TRACESECCOMP
 #define PTRACE_O_TRACESECCOMP 0x00000080
+*/
+// @TODO Manually uncommented this for now
+// Need to look at this again in greater detail
 #define PTRACE_EVENT_SECCOMP_OBSOLETE 8 // ubuntu 12.04
+
+/*
 #define PTRACE_EVENT_SECCOMP 7          // ubuntu 12.10 and future kernels
 #endif
 

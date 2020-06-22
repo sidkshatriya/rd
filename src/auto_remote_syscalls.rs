@@ -45,6 +45,7 @@ use crate::{
         session_inner::session_inner::SessionInner,
         task::{
             common::{read_mem, read_val_mem, write_mem, write_val_mem},
+            record_task::SignalDisposition,
             task_inner::{
                 task_inner::WriteFlags,
                 ResumeRequest::{ResumeSinglestep, ResumeSyscall},
@@ -54,7 +55,7 @@ use crate::{
             Task,
         },
     },
-    util::{find, is_kernel_trap, page_size, resize_shmem_segment, tmp_dir},
+    util::{find, is_kernel_trap, page_size, resize_shmem_segment, running_under_rd, tmp_dir},
     wait_status::{MaybeStopSignal, WaitStatus},
 };
 use core::ffi::c_void;
@@ -430,7 +431,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         t: &mut dyn Task,
         enable_mem_params: MemParamsEnabled,
     ) -> AutoRemoteSyscalls {
-        AutoRemoteSyscalls {
+        let mut remote = AutoRemoteSyscalls {
             initial_regs: t.regs_ref().clone(),
             initial_ip: t.ip(),
             initial_sp: t.regs_ref().sp(),
@@ -442,7 +443,27 @@ impl<'a> AutoRemoteSyscalls<'a> {
             use_singlestep_path: false,
             enable_mem_params_: enable_mem_params,
             t,
-        }
+        };
+        // We support two paths for syscalls:
+        // -- a fast path using a privileged untraced syscall and PTRACE_SINGLESTEP.
+        // This only requires a single task-wait.
+        // -- a slower path using a privileged traced syscall and PTRACE_SYSCALL/
+        // PTRACE_CONT via Task::enter_syscall(). This requires 2 or 3 task-waits
+        // depending on whether the seccomp event fires before the syscall-entry
+        // event.
+        // Use the slow path when running under rr, because the rr recording us
+        // needs to see and trace these tracee syscalls, and if they're untraced by
+        // us they're also untraced by the outer rr.
+        // Use the slow path if SIGTRAP is blocked or ignored because otherwise
+        // the PTRACE_SINGLESTEP will cause the kernel to unblock it.
+        let is_sigtrap_default_and_unblocked = is_sigtrap_default_and_unblocked(remote.task_mut());
+        let enable_singlestep_path =
+            remote.vm().has_rd_page() && !running_under_rd() && is_sigtrap_default_and_unblocked;
+        remote.setup_path(enable_singlestep_path);
+        if enable_mem_params == MemParamsEnabled::EnableMemoryParams {
+            remote.maybe_fix_stack_pointer();
+        };
+        remote
     }
 
     /// You mostly want to use this convenience method.
@@ -1480,4 +1501,12 @@ fn extract_name(name: &OsStr) -> Option<&OsStr> {
     }
 
     None
+}
+
+fn is_sigtrap_default_and_unblocked(t: &dyn Task) -> bool {
+    if !t.session().is_recording() {
+        return true;
+    }
+    let rt = t.as_record_task().unwrap();
+    rt.sig_disposition(SIGTRAP) == SignalDisposition::SignalDefault && !rt.is_sig_blocked(SIGTRAP)
 }

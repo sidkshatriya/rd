@@ -2,6 +2,7 @@ use crate::{
     bindings::{ptrace::*, signal::siginfo_t},
     kernel_abi,
     kernel_abi::SupportedArch,
+    kernel_supplement::PTRACE_EVENT_SECCOMP_OBSOLETE,
 };
 use nix::sys::mman::ProtFlags;
 
@@ -67,7 +68,7 @@ pub fn ptrace_event_name(event: u32) -> String {
         // XXX Ubuntu 12.04 defines a "PTRACE_EVENT_STOP", but that
         // has the same value as the newer EVENT_SECCOMP, so we'll
         // ignore STOP.
-        // libc::PTRACE_EVENT_SECCOMP_OBSOLETE => "PTRACE_EVENT_SECCOMP_OBSOLETE".into(),
+        PTRACE_EVENT_SECCOMP_OBSOLETE => "PTRACE_EVENT_SECCOMP_OBSOLETE".into(),
         PTRACE_EVENT_SECCOMP => "PTRACE_EVENT_SECCOMP".into(),
         PTRACE_EVENT_STOP => "PTRACE_EVENT_STOP".into(),
         // Special-case this.
