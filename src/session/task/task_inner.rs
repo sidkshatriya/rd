@@ -1042,7 +1042,7 @@ pub mod task_inner {
         }
 
         pub fn is_dying(&self) -> bool {
-            unimplemented!()
+            self.seen_ptrace_exit_event || self.detected_unexpected_exit
         }
 
         pub fn last_execution_resume(&self) -> RemoteCodePtr {
