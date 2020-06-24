@@ -40,7 +40,7 @@ use crate::{
     },
 };
 use std::{
-    cell::{Ref, RefCell, RefMut},
+    cell::{Cell, Ref, RefCell, RefMut},
     ffi::{OsStr, OsString},
     io,
     io::Write,
@@ -221,17 +221,17 @@ pub struct ReplaySession {
     session_inner: SessionInner,
     emu_fs: EmuFsSharedPtr,
     trace_in: RefCell<TraceReader>,
-    trace_frame: TraceFrame,
+    trace_frame: RefCell<TraceFrame>,
     current_step: ReplayTraceStep,
     ticks_at_start_of_event: Ticks,
     cpuid_bug_detector: CPUIDBugDetector,
     last_siginfo_: siginfo_t,
     flags_: Flags,
-    fast_forward_status: FastForwardStatus,
+    fast_forward_status: Cell<FastForwardStatus>,
     /// The clock_gettime(CLOCK_MONOTONIC) timestamp of the first trace event, used
     /// during 'replay' to calculate the elapsed time between the first event and
     /// all other recorded events in the timeline during the 'record' phase.
-    trace_start_time: f64,
+    trace_start_time: Cell<f64>,
     /// Note that this is NOT a weak pointer!!
     /// DIFF NOTE: Made into an Option<>
     syscall_bp_vm: Option<AddressSpaceSharedPtr>,
@@ -300,18 +300,18 @@ impl ReplaySession {
 
     /// The trace record that we are working on --- the next event
     /// for replay to reach.
-    pub fn current_trace_frame(&self) -> &TraceFrame {
-        &self.trace_frame
+    pub fn current_trace_frame(&self) -> Ref<'_, TraceFrame> {
+        self.trace_frame.borrow()
     }
     /// Time of the current frame
     pub fn current_frame_time(&self) -> FrameTime {
-        self.trace_frame.time()
+        self.trace_frame.borrow().time()
     }
 
     /// The Task for the current trace record.
     pub fn current_task(&self) -> Option<TaskSharedPtr> {
         self.finish_initializing();
-        let found = self.find_task_from_rec_tid(self.trace_frame.tid());
+        let found = self.find_task_from_rec_tid(self.current_trace_frame().tid());
         found
             .as_ref()
             .map(|r| debug_assert!(r.borrow().as_replay_task().is_some()));
@@ -340,7 +340,7 @@ impl ReplaySession {
             ticks_at_start_of_event: 0,
             flags_: flags,
             last_siginfo_: Default::default(),
-            trace_start_time: 0.0,
+            trace_start_time: Default::default(),
             session_inner: Default::default(),
             cpuid_bug_detector: Default::default(),
             fast_forward_status: Default::default(),
@@ -353,7 +353,8 @@ impl ReplaySession {
         let semantics = rs.trace_in.borrow().ticks_semantics();
         rs.ticks_semantics_ = semantics;
         rs.advance_to_next_trace_frame();
-        rs.trace_start_time = rs.trace_frame.monotonic_time();
+        rs.trace_start_time
+            .set(rs.current_trace_frame().monotonic_time());
 
         if rs.trace_in.borrow().uses_cpuid_faulting() && !SessionInner::has_cpuid_faulting() {
             clean_fatal!(
@@ -380,19 +381,19 @@ impl ReplaySession {
         rs
     }
 
-    fn advance_to_next_trace_frame(&mut self) {
+    fn advance_to_next_trace_frame(&self) {
         if self.trace_in.borrow().at_end() {
-            self.trace_frame = TraceFrame::new_with(
-                self.trace_frame.time(),
+            *self.trace_frame.borrow_mut() = TraceFrame::new_with(
+                self.current_frame_time(),
                 0,
                 Event::trace_termination(),
-                self.trace_frame.ticks(),
-                self.trace_frame.monotonic_time(),
+                self.current_trace_frame().ticks(),
+                self.current_trace_frame().monotonic_time(),
             );
             return;
         }
 
-        self.trace_frame = self.trace_in.borrow_mut().read_frame();
+        *self.trace_frame.borrow_mut() = self.trace_in.borrow_mut().read_frame();
     }
 
     /// Create a replay session that will use the trace directory specified
@@ -447,12 +448,12 @@ impl ReplaySession {
     /// reaches ticks_target (but not too far before, unless we hit a breakpoint
     /// or stop_at_time). Only useful for RUN_CONTINUE.
     /// Always stops on a switch to a new task.
-    pub fn replay_step_with_constraints(&mut self, constraints: &StepConstraints) -> ReplayResult {
+    pub fn replay_step_with_constraints(&self, constraints: StepConstraints) -> ReplayResult {
         self.finish_initializing();
         let mut result = ReplayResult::new(ReplayStatus::ReplayContinue);
         let maybe_rc_t = self.current_task();
 
-        if self.trace_frame.event().event_type() == EventType::EvTraceTermination {
+        if self.current_trace_frame().event().event_type() == EventType::EvTraceTermination {
             result.status = ReplayStatus::ReplayExited;
             return result;
         }
@@ -471,14 +472,14 @@ impl ReplaySession {
             return result;
         }
         let rc_t = maybe_rc_t.unwrap();
-        self.fast_forward_status = FastForwardStatus::new();
+        self.fast_forward_status.set(FastForwardStatus::new());
         // Now we know |t| hasn't died, so save it in break_status.
         result.break_status.task = rc_t.borrow().weak_self.clone();
         let mut dt = rc_t.borrow_mut();
         let t = dt.as_replay_task_mut().unwrap();
         // Advance towards fulfilling |current_step|.
-        if self.try_one_trace_step(t, constraints) == Completion::Incomplete {
-            if EventType::EvTraceTermination == self.trace_frame.event().event_type() {
+        if self.try_one_trace_step(t, &constraints) == Completion::Incomplete {
+            if EventType::EvTraceTermination == self.current_trace_frame().event().event_type() {
                 // An irregular trace step had to read the
                 // next trace frame, and that frame was an
                 // early-termination marker.  Otherwise we
@@ -501,9 +502,9 @@ impl ReplaySession {
                 !result.break_status.singlestep_complete || constraints.is_singlestep()
             );
 
-            self.check_approaching_ticks_target(t, constraints, &mut result.break_status);
-            result.did_fast_forward = self.fast_forward_status.did_fast_forward;
-            result.incomplete_fast_forward = self.fast_forward_status.incomplete_fast_forward;
+            self.check_approaching_ticks_target(t, &constraints, &mut result.break_status);
+            result.did_fast_forward = self.fast_forward_status.get().did_fast_forward;
+            result.incomplete_fast_forward = self.fast_forward_status.get().incomplete_fast_forward;
             return result;
         }
         unimplemented!();
@@ -512,8 +513,8 @@ impl ReplaySession {
         unimplemented!()
     }
 
-    pub fn replay_step(&self, _command: RunCommand) -> ReplayResult {
-        unimplemented!()
+    pub fn replay_step(&self, command: RunCommand) -> ReplayResult {
+        self.replay_step_with_constraints(StepConstraints::new(command))
     }
 
     fn try_one_trace_step(
