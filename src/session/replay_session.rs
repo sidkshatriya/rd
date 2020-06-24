@@ -2,20 +2,29 @@ use crate::{
     bindings::signal::siginfo_t,
     cpuid_bug_detector::CPUIDBugDetector,
     emu_fs::{EmuFs, EmuFsSharedPtr},
-    event::{Event, EventType},
+    event::{Event, EventType, SignalDeterministic, SignalEventData, SyscallState},
     fast_forward::FastForwardStatus,
     flags::Flags as ProgramFlags,
-    kernel_abi::SupportedArch,
+    kernel_abi::{common::preload_interface::syscallbuf_hdr, SupportedArch},
+    log::LogLevel::LogDebug,
     perf_counters::{PerfCounters, TIME_SLICE_SIGNAL},
     registers::Registers,
     remote_code_ptr::RemoteCodePtr,
+    remote_ptr::RemotePtr,
+    replay_syscall::{rep_prepare_run_to_syscall, rep_process_syscall},
     scoped_fd::ScopedFd,
     session::{
         address_space::address_space::AddressSpaceSharedPtr,
         diversion_session::DiversionSessionSharedPtr,
         replay_session::ReplayTraceStepType::TstepNone,
         session_inner::{session_inner::SessionInner, BreakStatus, RunCommand},
-        task::{replay_task::ReplayTask, task_inner::task_inner::TaskInner, Task, TaskSharedPtr},
+        task::{
+            common::write_val_mem,
+            replay_task::ReplayTask,
+            task_inner::task_inner::TaskInner,
+            Task,
+            TaskSharedPtr,
+        },
         Session,
         SessionSharedPtr,
     },
@@ -39,6 +48,7 @@ use crate::{
         XSAVEC_FEATURE_FLAG,
     },
 };
+use libc::{SIGBUS, SIGSEGV};
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
     ffi::{OsStr, OsString},
@@ -53,6 +63,7 @@ pub type ReplaySessionSharedPtr = Rc<RefCell<ReplaySession>>;
 /// ReplayFlushBufferedSyscallState is saved in Session and cloned with its
 /// Session, so it needs to be simple data, i.e. not holding pointers to
 /// per-Session data.
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub struct ReplayFlushBufferedSyscallState {
     /// An internal breakpoint is set at this address
     pub stop_breakpoint_addr: usize,
@@ -95,6 +106,8 @@ impl Default for ReplayTraceStepType {
         ReplayTraceStepType::TstepNone
     }
 }
+
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub struct ReplayTraceStepSyscall {
     /// The architecture of the syscall
     pub arch: SupportedArch,
@@ -102,6 +115,7 @@ pub struct ReplayTraceStepSyscall {
     pub number: i32,
 }
 
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub struct ReplayTraceStepTarget {
     pub ticks: Ticks,
     pub signo: i32,
@@ -109,23 +123,51 @@ pub struct ReplayTraceStepTarget {
 
 /// rep_trace_step is saved in Session and cloned with its Session, so it needs
 /// to be simple data, i.e. not holding pointers to per-Session data.
-pub enum ReplayTraceStepUnion {
+#[derive(Copy, Clone, Eq, PartialEq)]
+pub enum ReplayTraceStepData {
     None,
     Syscall(ReplayTraceStepSyscall),
     Target(ReplayTraceStepTarget),
     Flush(ReplayFlushBufferedSyscallState),
 }
 
-impl Default for ReplayTraceStepUnion {
+impl Default for ReplayTraceStepData {
     fn default() -> Self {
-        ReplayTraceStepUnion::None
+        ReplayTraceStepData::None
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Copy, Clone, Eq, PartialEq)]
 pub struct ReplayTraceStep {
     pub action: ReplayTraceStepType,
-    pub data: ReplayTraceStepUnion,
+    pub data: ReplayTraceStepData,
+}
+
+impl ReplayTraceStep {
+    pub fn syscall(&self) -> ReplayTraceStepSyscall {
+        match self.data {
+            ReplayTraceStepData::Syscall(s) => s,
+            _ => {
+                panic!("Unexpected variant. Not a ReplayTraceStepData::Syscall");
+            }
+        }
+    }
+    pub fn target(&self) -> ReplayTraceStepTarget {
+        match self.data {
+            ReplayTraceStepData::Target(t) => t,
+            _ => {
+                panic!("Unexpected variant. Not a ReplayTraceStepData::Target");
+            }
+        }
+    }
+    pub fn flush(&self) -> ReplayFlushBufferedSyscallState {
+        match self.data {
+            ReplayTraceStepData::Flush(f) => f,
+            _ => {
+                panic!("Unexpected variant. Not a ReplayTraceStepData::Flush");
+            }
+        }
+    }
 }
 
 #[derive(Eq, Debug, PartialEq, Copy, Clone)]
@@ -222,10 +264,10 @@ pub struct ReplaySession {
     emu_fs: EmuFsSharedPtr,
     trace_in: RefCell<TraceReader>,
     trace_frame: RefCell<TraceFrame>,
-    current_step: ReplayTraceStep,
+    current_step: Cell<ReplayTraceStep>,
     ticks_at_start_of_event: Ticks,
     cpuid_bug_detector: CPUIDBugDetector,
-    last_siginfo_: siginfo_t,
+    last_siginfo_: Cell<siginfo_t>,
     flags_: Flags,
     fast_forward_status: Cell<FastForwardStatus>,
     /// The clock_gettime(CLOCK_MONOTONIC) timestamp of the first trace event, used
@@ -459,13 +501,13 @@ impl ReplaySession {
         }
         // If we restored from a checkpoint, the steps might have been
         // computed already in which case step.action will not be TSTEP_NONE.
-        if self.current_step.action == ReplayTraceStepType::TstepNone {
+        if self.current_step.get().action == ReplayTraceStepType::TstepNone {
             let rc_t = self.setup_replay_one_trace_frame(maybe_rc_t);
-            if self.current_step.action == ReplayTraceStepType::TstepNone {
+            if self.current_step.get().action == ReplayTraceStepType::TstepNone {
                 // Already at the destination event.
                 self.advance_to_next_trace_frame();
             }
-            if self.current_step.action == ReplayTraceStepType::TstepNone {
+            if self.current_step.get().action == ReplayTraceStepType::TstepNone {
                 result.break_status.task = rc_t.borrow().weak_self.clone();
                 result.break_status.task_exit = true;
             }
@@ -509,7 +551,186 @@ impl ReplaySession {
         }
         unimplemented!();
     }
-    fn setup_replay_one_trace_frame(&self, _maybe_t: Option<TaskSharedPtr>) -> TaskSharedPtr {
+
+    /// Set up rep_trace_step state in t's Session to start replaying towards
+    /// the event given by the session's current_trace_frame --- but only if
+    /// it's not already set up.
+    /// Return true if we should continue replaying, false if the debugger
+    /// requested a restart. If this returns false, t's Session state was not
+    /// modified.
+    fn setup_replay_one_trace_frame(&self, maybe_t: Option<TaskSharedPtr>) -> TaskSharedPtr {
+        let trace_frame = self.current_trace_frame();
+        let ev = trace_frame.event();
+
+        let t_shr_ptr = match maybe_t {
+            None => self.revive_task_for_exec(),
+            Some(ts) => ts,
+        };
+        let mut dyn_t = t_shr_ptr.borrow_mut();
+        let t = dyn_t.as_replay_task_mut().unwrap();
+
+        log!(
+            LogDebug,
+            "[event {}] {}: replaying {}; state {}",
+            self.current_frame_time(),
+            t_shr_ptr.borrow().rec_tid,
+            ev,
+            if ev.is_syscall_event() {
+                format!("{}", ev.syscall_event().state)
+            } else {
+                " (none)".to_owned()
+            }
+        );
+
+        if !t_shr_ptr.borrow().syscallbuf_child.is_null() {
+            unimplemented!()
+        }
+
+        // Ask the trace-interpretation code what to do next in order
+        // to retire the current frame.
+        let mut current_step = Default::default();
+        match ev.event_type() {
+            EventType::EvExit => {
+                current_step = ReplayTraceStep {
+                    action: ReplayTraceStepType::TstepExitTask,
+                    data: Default::default(),
+                }
+            }
+            EventType::EvSyscallbufAbortCommit => {
+                let child_addr = RemotePtr::<u8>::cast(t.syscallbuf_child)
+                    + offset_of!(syscallbuf_hdr, abort_commit);
+                write_val_mem(t, child_addr, &1u8, None);
+                t.apply_all_data_records_from_trace();
+                current_step = ReplayTraceStep {
+                    action: ReplayTraceStepType::TstepRetire,
+                    data: Default::default(),
+                }
+            }
+            EventType::EvSyscallbufFlush => {
+                current_step = ReplayTraceStep {
+                    action: ReplayTraceStepType::TstepFlushSyscallbuf,
+                    data: Default::default(),
+                };
+
+                self.prepare_syscallbuf_records(t);
+            }
+            EventType::EvSyscallbufReset => {
+                // Reset syscallbuf_hdr->num_rec_bytes and zero out the recorded data.
+                // Zeroing out the data is important because we only save and restore
+                // the recorded data area when making checkpoints. We want the checkpoint
+                // to have the same syscallbuf contents as its original, i.e. zero outside
+                // the recorded data area. This is important because stray reads such
+                // as those performed by return_addresses should be consistent.
+                t.reset_syscallbuf();
+                current_step = ReplayTraceStep {
+                    action: ReplayTraceStepType::TstepRetire,
+                    data: Default::default(),
+                };
+            }
+            EventType::EvPatchSyscall => {
+                current_step = ReplayTraceStep {
+                    action: ReplayTraceStepType::TstepPatchSyscall,
+                    data: Default::default(),
+                };
+            }
+            EventType::EvSched => {
+                current_step = ReplayTraceStep {
+                    action: ReplayTraceStepType::TstepProgramAsyncSignalInterrupt,
+                    data: ReplayTraceStepData::Target(ReplayTraceStepTarget {
+                        ticks: trace_frame.ticks(),
+                        signo: 0,
+                    }),
+                };
+            }
+            EventType::EvInstructionTrap => {
+                current_step = ReplayTraceStep {
+                    action: ReplayTraceStepType::TstepDeterministicSignal,
+                    data: ReplayTraceStepData::Target(ReplayTraceStepTarget {
+                        // @TODO this is actually -1. Need to fix data type.
+                        ticks: 0,
+                        signo: SIGSEGV,
+                    }),
+                };
+                // See @TODO
+                unimplemented!();
+            }
+            EventType::EvGrowMap => {
+                process_grow_map(t);
+                current_step = ReplayTraceStep {
+                    action: ReplayTraceStepType::TstepRetire,
+                    data: Default::default(),
+                }
+            }
+            EventType::EvSignal => {
+                self.last_siginfo_.set(ev.signal_event().siginfo.clone());
+                if treat_signal_event_as_deterministic(ev.signal_event()) {
+                    current_step = ReplayTraceStep {
+                        action: ReplayTraceStepType::TstepDeterministicSignal,
+                        data: ReplayTraceStepData::Target(ReplayTraceStepTarget {
+                            // @TODO this is actually -1. Need to fix data type.
+                            ticks: 0,
+                            signo: ev.signal_event().siginfo.si_signo,
+                        }),
+                    };
+                    // See @TODO
+                    unimplemented!();
+                } else {
+                    current_step = ReplayTraceStep {
+                        action: ReplayTraceStepType::TstepProgramAsyncSignalInterrupt,
+                        data: ReplayTraceStepData::Target(ReplayTraceStepTarget {
+                            ticks: trace_frame.ticks(),
+                            signo: ev.signal_event().siginfo.si_signo,
+                        }),
+                    };
+                }
+            }
+            EventType::EvSignalDelivery | EventType::EvSignalHandler => {
+                current_step = ReplayTraceStep {
+                    action: ReplayTraceStepType::TstepDeliverSignal,
+                    data: ReplayTraceStepData::Target(ReplayTraceStepTarget {
+                        ticks: 0,
+                        signo: ev.signal_event().siginfo.si_signo,
+                    }),
+                };
+            }
+            EventType::EvSyscall => {
+                if ev.syscall_event().state == SyscallState::EnteringSyscall
+                    || ev.syscall_event().state == SyscallState::EnteringSyscallPtrace
+                {
+                    rep_prepare_run_to_syscall(t, &current_step);
+                } else {
+                    rep_process_syscall(t, &current_step);
+                    if current_step.action == ReplayTraceStepType::TstepRetire {
+                        t.on_syscall_exit(
+                            current_step.syscall().number,
+                            current_step.syscall().arch,
+                            trace_frame.regs_ref(),
+                        );
+                    }
+                }
+            }
+            EventType::EvUnassigned
+            | EventType::EvSentinel
+            | EventType::EvNoop
+            | EventType::EvDesched
+            | EventType::EvSeccompTrap
+            | EventType::EvSyscallInterruption
+            | EventType::EvTraceTermination => {
+                fatal!("Unexpected event {}", ev);
+                unreachable!()
+            }
+        }
+
+        self.current_step.set(current_step);
+        drop(dyn_t);
+        t_shr_ptr
+    }
+
+    fn prepare_syscallbuf_records(&self, _t: &ReplayTask) {
+        unimplemented!()
+    }
+
+    fn revive_task_for_exec(&self) -> TaskSharedPtr {
         unimplemented!()
     }
 
@@ -665,4 +886,12 @@ fn check_xsave_compatibility(trace_in: &TraceReader) {
             );
         }
     }
+}
+
+fn process_grow_map(_t: &ReplayTask) {
+    unimplemented!()
+}
+
+fn treat_signal_event_as_deterministic(ev: &SignalEventData) -> bool {
+    ev.deterministic == SignalDeterministic::DeterministicSig && ev.siginfo.si_signo != SIGBUS
 }

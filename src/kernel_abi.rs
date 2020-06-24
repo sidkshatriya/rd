@@ -9,7 +9,7 @@ use std::{
     marker::PhantomData,
 };
 
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub enum SupportedArch {
     X86,
     X64,

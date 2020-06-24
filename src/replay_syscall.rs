@@ -12,7 +12,7 @@ use crate::{
     log::LogLevel::LogDebug,
     session::{
         address_space::{kernel_mapping::KernelMapping, MappingFlags},
-        replay_session::ReplaySession,
+        replay_session::{ReplaySession, ReplayTraceStep},
         task::{
             replay_task::ReplayTask,
             task_inner::{ResumeRequest, TicksRequest, WaitRequest},
@@ -452,4 +452,12 @@ fn prepare_clone<Arch: Architecture>(t: &mut ReplayTask) {
     init_scratch_memory(new_task, &km, &data);
 
     new_task.vm_mut().after_clone();
+}
+
+pub fn rep_prepare_run_to_syscall(_t: &ReplayTask, _step: &ReplayTraceStep) {
+    unimplemented!()
+}
+
+pub fn rep_process_syscall(_t: &ReplayTask, _step: &ReplayTraceStep) {
+    unimplemented!()
 }
