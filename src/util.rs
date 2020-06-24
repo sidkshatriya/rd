@@ -138,6 +138,12 @@ pub fn running_under_rd() -> bool {
     result.is_some() && result.unwrap() != ""
 }
 
+#[derive(Copy, Clone, Eq, PartialEq)]
+pub enum Completion {
+    Complete,
+    Incomplete,
+}
+
 #[derive(Copy, Clone, Default)]
 pub struct XSaveFeatureLayout {
     pub offset: u32,

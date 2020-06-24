@@ -2,11 +2,12 @@ use crate::{
     bindings::signal::siginfo_t,
     cpuid_bug_detector::CPUIDBugDetector,
     emu_fs::{EmuFs, EmuFsSharedPtr},
-    event::Event,
+    event::{Event, EventType},
     fast_forward::FastForwardStatus,
     flags::Flags as ProgramFlags,
     kernel_abi::SupportedArch,
     perf_counters::{PerfCounters, TIME_SLICE_SIGNAL},
+    registers::Registers,
     remote_code_ptr::RemoteCodePtr,
     scoped_fd::ScopedFd,
     session::{
@@ -31,6 +32,7 @@ use crate::{
         xcr0,
         xsave_enabled,
         CPUIDData,
+        Completion,
         CPUID_GETFEATURES,
         CPUID_GETXSAVE,
         OSXSAVE_FEATURE_FLAG,
@@ -88,6 +90,11 @@ pub enum ReplayTraceStepType {
     TstepRetire,
 }
 
+impl Default for ReplayTraceStepType {
+    fn default() -> Self {
+        ReplayTraceStepType::TstepNone
+    }
+}
 pub struct ReplayTraceStepSyscall {
     /// The architecture of the syscall
     pub arch: SupportedArch,
@@ -102,10 +109,23 @@ pub struct ReplayTraceStepTarget {
 
 /// rep_trace_step is saved in Session and cloned with its Session, so it needs
 /// to be simple data, i.e. not holding pointers to per-Session data.
-pub enum ReplayTraceStep {
+pub enum ReplayTraceStepUnion {
+    None,
     Syscall(ReplayTraceStepSyscall),
     Target(ReplayTraceStepTarget),
     Flush(ReplayFlushBufferedSyscallState),
+}
+
+impl Default for ReplayTraceStepUnion {
+    fn default() -> Self {
+        ReplayTraceStepUnion::None
+    }
+}
+
+#[derive(Default)]
+pub struct ReplayTraceStep {
+    pub action: ReplayTraceStepType,
+    pub data: ReplayTraceStepUnion,
 }
 
 #[derive(Eq, Debug, PartialEq, Copy, Clone)]
@@ -116,9 +136,32 @@ pub enum ReplayStatus {
     ReplayExited,
 }
 
-/// @TODO
-pub struct StepConstraints;
+pub struct StepConstraints {
+    pub command: RunCommand,
+    pub stop_at_time: FrameTime,
+    pub ticks_target: Ticks,
+    // When the RunCommand is RUN_SINGLESTEP_FAST_FORWARD, stop if the next
+    // singlestep would enter one of the register states in this list.
+    // RUN_SINGLESTEP_FAST_FORWARD will always singlestep at least once
+    // regardless.
+    // @TODO In rr this is a pointer to the registers
+    pub stop_before_states: Vec<Registers>,
+}
 
+impl StepConstraints {
+    pub fn is_singlestep(&self) -> bool {
+        self.command == RunCommand::RunSinglestep
+            || self.command == RunCommand::RunSinglestepFastForward
+    }
+    pub fn new(command: RunCommand) -> StepConstraints {
+        StepConstraints {
+            command,
+            stop_at_time: Default::default(),
+            ticks_target: Default::default(),
+            stop_before_states: Vec::new(),
+        }
+    }
+}
 pub struct ReplayResult {
     pub status: ReplayStatus,
     pub break_status: BreakStatus,
@@ -179,9 +222,7 @@ pub struct ReplaySession {
     emu_fs: EmuFsSharedPtr,
     trace_in: RefCell<TraceReader>,
     trace_frame: TraceFrame,
-    // DIFF NOTE: Slightly different from rr.
-    // Made into an option to reflect TSTEP_NONE
-    current_step: Option<ReplayTraceStep>,
+    current_step: ReplayTraceStep,
     ticks_at_start_of_event: Ticks,
     cpuid_bug_detector: CPUIDBugDetector,
     last_siginfo_: siginfo_t,
@@ -406,11 +447,94 @@ impl ReplaySession {
     /// reaches ticks_target (but not too far before, unless we hit a breakpoint
     /// or stop_at_time). Only useful for RUN_CONTINUE.
     /// Always stops on a switch to a new task.
-    pub fn replay_step_with_constraints(&mut self, _constraints: &StepConstraints) -> ReplayResult {
+    pub fn replay_step_with_constraints(&mut self, constraints: &StepConstraints) -> ReplayResult {
+        self.finish_initializing();
+        let mut result = ReplayResult::new(ReplayStatus::ReplayContinue);
+        let maybe_rc_t = self.current_task();
+
+        if self.trace_frame.event().event_type() == EventType::EvTraceTermination {
+            result.status = ReplayStatus::ReplayExited;
+            return result;
+        }
+        // If we restored from a checkpoint, the steps might have been
+        // computed already in which case step.action will not be TSTEP_NONE.
+        if self.current_step.action == ReplayTraceStepType::TstepNone {
+            let rc_t = self.setup_replay_one_trace_frame(maybe_rc_t);
+            if self.current_step.action == ReplayTraceStepType::TstepNone {
+                // Already at the destination event.
+                self.advance_to_next_trace_frame();
+            }
+            if self.current_step.action == ReplayTraceStepType::TstepNone {
+                result.break_status.task = rc_t.borrow().weak_self.clone();
+                result.break_status.task_exit = true;
+            }
+            return result;
+        }
+        let rc_t = maybe_rc_t.unwrap();
+        self.fast_forward_status = FastForwardStatus::new();
+        // Now we know |t| hasn't died, so save it in break_status.
+        result.break_status.task = rc_t.borrow().weak_self.clone();
+        let mut dt = rc_t.borrow_mut();
+        let t = dt.as_replay_task_mut().unwrap();
+        // Advance towards fulfilling |current_step|.
+        if self.try_one_trace_step(t, constraints) == Completion::Incomplete {
+            if EventType::EvTraceTermination == self.trace_frame.event().event_type() {
+                // An irregular trace step had to read the
+                // next trace frame, and that frame was an
+                // early-termination marker.  Otherwise we
+                // would have seen the marker above.
+                result.status = ReplayStatus::ReplayExited;
+                return result;
+            }
+
+            // We got INCOMPLETE because there was some kind of debugger trap or
+            // we got close to ticks_target.
+            result.break_status = self.diagnose_debugger_trap(t, constraints.command);
+            ed_assert!(
+                t,
+                result.break_status.signal.is_none(),
+                "Expected either SIGTRAP at $ip {} or USER breakpoint just after it",
+                t.ip()
+            );
+            ed_assert!(
+                t,
+                !result.break_status.singlestep_complete || constraints.is_singlestep()
+            );
+
+            self.check_approaching_ticks_target(t, constraints, &mut result.break_status);
+            result.did_fast_forward = self.fast_forward_status.did_fast_forward;
+            result.incomplete_fast_forward = self.fast_forward_status.incomplete_fast_forward;
+            return result;
+        }
+        unimplemented!();
+    }
+    fn setup_replay_one_trace_frame(&self, _maybe_t: Option<TaskSharedPtr>) -> TaskSharedPtr {
         unimplemented!()
     }
+
     pub fn replay_step(&self, _command: RunCommand) -> ReplayResult {
         unimplemented!()
+    }
+
+    fn try_one_trace_step(
+        &self,
+        _t: &mut ReplayTask,
+        _step_constraints: &StepConstraints,
+    ) -> Completion {
+        unimplemented!()
+    }
+    fn check_approaching_ticks_target(
+        &self,
+        t: &ReplayTask,
+        constraints: &StepConstraints,
+        break_status: &mut BreakStatus,
+    ) {
+        if constraints.ticks_target > 0 {
+            let ticks_left = constraints.ticks_target - t.tick_count();
+            if ticks_left <= PerfCounters::skid_size() {
+                break_status.approaching_ticks_target = true;
+            }
+        }
     }
 }
 

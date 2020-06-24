@@ -43,7 +43,7 @@ const HAS_XEN_PMI_BUG: bool = false;
 // end hardcode.
 
 const NUM_BRANCHES: u64 = 500;
-const RD_SKID_MAX: u32 = 1000;
+const RD_SKID_MAX: Ticks = 1000;
 const PERF_COUNT_RD: u32 = 0x72727272;
 
 /// This choice is fairly arbitrary; linux doesn't use SIGSTKFLT so we
@@ -308,7 +308,7 @@ fn new_perf_event_attr(type_id: perf_type_id, config: u64) -> perf_event_attr {
 
 struct PmuAttributes {
     pmu_flags: PmuFlags,
-    skid_size: u32,
+    skid_size: Ticks,
     ticks_attr: perf_event_attr,
     hw_interrupts_attr: Option<perf_event_attr>,
     cycles_attr: Option<perf_event_attr>,
@@ -531,7 +531,7 @@ struct PmuConfig {
     rcb_cntr_event: u32,
     minus_ticks_cntr_event: u32,
     hw_intr_cntr_event: u32,
-    skid_size: u32,
+    skid_size: Ticks,
     flags: PmuFlags,
 }
 
@@ -1081,14 +1081,14 @@ impl PerfCounters {
 
     /// When an interrupt is requested, at most this many ticks may elapse before
     /// the interrupt is delivered.
-    pub fn skid_size() -> u32 {
+    pub fn skid_size() -> Ticks {
         PMU_ATTRIBUTES.skid_size
     }
 
     /// Use a separate skid_size for recording since we seem to see more skid
     /// in practice during recording, in particular during the
     /// async_signal_syscalls tests
-    pub fn recording_skid_size() -> u32 {
+    pub fn recording_skid_size() -> Ticks {
         Self::skid_size() * 5
     }
 }

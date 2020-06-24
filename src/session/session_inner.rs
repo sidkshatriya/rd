@@ -1,7 +1,5 @@
-use crate::{
-    bindings::signal::siginfo_t,
-    session::{address_space::WatchConfig, task::TaskSharedWeakPtr},
-};
+use crate::session::{address_space::WatchConfig, task::TaskSharedWeakPtr};
+use libc::siginfo_t;
 
 #[derive(Clone)]
 pub struct BreakStatus {
@@ -13,9 +11,7 @@ pub struct BreakStatus {
     /// instruction that triggered the watchpoint has completed.
     pub watchpoints_hit: Vec<WatchConfig>,
     /// When non-`None`, we stopped because a signal was delivered to `task`.
-    /// DIFF NOTE: - @TODO: In rr this is a unique_ptr. Do we need to make this a Box?
-    ///            - In rr None is indicated by a null
-    pub signal: Option<siginfo_t>,
+    pub signal: Option<Box<siginfo_t>>,
     /// True when we stopped because we hit a software breakpoint at `task`'s
     /// current ip().
     pub breakpoint_hit: bool,
