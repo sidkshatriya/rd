@@ -62,7 +62,9 @@ pub enum TicksRequest {
     /// have to stop and restart the performance counters. This may also avoid
     /// bugs on some systems that report performance counter advances while
     /// in the kernel...
+    /// Corresponds to value -2 in the rr enum
     ResumeNoTicks,
+    /// Corresponds to value -1 in the rr enum
     ResumeUnlimitedTicks,
     /// Dont request more than MAX_TICKS_REQUEST and less than 1!
     ResumeWithTicksRequest(u64),

@@ -3,17 +3,31 @@ include!(concat!(
     env!("OUT_DIR"),
     "/check_syscall_numbers_generated.rs"
 ));
-
 use crate::{
     arch::Architecture,
     auto_remote_syscalls::{AutoRemoteSyscalls, PreserveContents::PreserveContents},
-    kernel_abi::{is_write_syscall, CloneTLSType, SupportedArch},
+    kernel_abi::{
+        common::preload_interface::syscallbuf_hdr,
+        is_rdcall_notify_syscall_hook_exit_syscall,
+        is_restart_syscall_syscall,
+        is_write_syscall,
+        CloneTLSType,
+        SupportedArch,
+    },
     kernel_metadata::syscall_name,
     log::LogLevel::LogDebug,
+    remote_ptr::RemotePtr,
     session::{
         address_space::{kernel_mapping::KernelMapping, MappingFlags},
-        replay_session::{ReplaySession, ReplayTraceStep},
+        replay_session::{
+            ReplaySession,
+            ReplayTraceStep,
+            ReplayTraceStepData,
+            ReplayTraceStepSyscall,
+            ReplayTraceStepType,
+        },
         task::{
+            common::write_val_mem,
             replay_task::ReplayTask,
             task_inner::{ResumeRequest, TicksRequest, WaitRequest},
             Task,
@@ -257,6 +271,7 @@ fn prepare_clone<Arch: Architecture>(t: &mut ReplayTask) {
         // creation failed, nothing special to do
         return;
     }
+    drop(trace_frame);
 
     let mut r = t.regs_ref().clone();
     let mut sys: i32 = r.original_syscallno() as i32;
@@ -454,8 +469,50 @@ fn prepare_clone<Arch: Architecture>(t: &mut ReplayTask) {
     new_task.vm_mut().after_clone();
 }
 
-pub fn rep_prepare_run_to_syscall(_t: &ReplayTask, _step: &ReplayTraceStep) {
-    unimplemented!()
+/// DIFF NOTE: This simply returns a ReplayTraceStep instead of modifying one.
+pub fn rep_prepare_run_to_syscall(t: &mut ReplayTask) -> ReplayTraceStep {
+    let step: ReplayTraceStep;
+    let sys_num = t.current_trace_frame().event().syscall_event().number;
+    let sys_arch = t.current_trace_frame().event().syscall_event().arch();
+    let sys_name = t
+        .current_trace_frame()
+        .event()
+        .syscall_event()
+        .syscall_name();
+    log!(LogDebug, "processing {} (entry)", sys_name);
+
+    if is_restart_syscall_syscall(sys_num, sys_arch) {
+        ed_assert!(t, t.tick_count() == t.current_trace_frame().ticks());
+        let regs = t.current_trace_frame().regs_ref().clone();
+        t.set_regs(&regs);
+        t.apply_all_data_records_from_trace();
+        step = ReplayTraceStep {
+            action: ReplayTraceStepType::TstepRetire,
+            data: Default::default(),
+        };
+        return step;
+    }
+
+    step = ReplayTraceStep {
+        action: ReplayTraceStepType::TstepEnterSyscall,
+        data: ReplayTraceStepData::Syscall(ReplayTraceStepSyscall {
+            // @TODO Check again: is this what we want for arch?
+            arch: sys_arch,
+            number: sys_num,
+        }),
+    };
+
+    // Don't let a negative incoming syscall number be treated as a real
+    // system call that we assigned a negative number because it doesn't
+    // exist in this architecture.
+    if is_rdcall_notify_syscall_hook_exit_syscall(sys_num, sys_arch) {
+        ed_assert!(t, !t.syscallbuf_child.is_null());
+        let child_addr = RemotePtr::<u8>::cast(t.syscallbuf_child)
+            + offset_of!(syscallbuf_hdr, notify_on_syscall_hook_exit);
+        write_val_mem(t, child_addr, &1u8, None);
+    }
+
+    step
 }
 
 pub fn rep_process_syscall(_t: &ReplayTask, _step: &ReplayTraceStep) {

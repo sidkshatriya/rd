@@ -117,7 +117,10 @@ pub struct ReplayTraceStepSyscall {
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub struct ReplayTraceStepTarget {
-    pub ticks: Ticks,
+    /// DIFF NOTE: In rr a `-1` value is used to indicate "not applicable" if understood correctly
+    /// Use `None` instead in rd.
+    /// @TODO Or should this be an enum TicksRequest ??
+    pub ticks: Option<Ticks>,
     pub signo: i32,
 }
 
@@ -573,7 +576,7 @@ impl ReplaySession {
             LogDebug,
             "[event {}] {}: replaying {}; state {}",
             self.current_frame_time(),
-            t_shr_ptr.borrow().rec_tid,
+            t.rec_tid,
             ev,
             if ev.is_syscall_event() {
                 format!("{}", ev.syscall_event().state)
@@ -582,7 +585,7 @@ impl ReplaySession {
             }
         );
 
-        if !t_shr_ptr.borrow().syscallbuf_child.is_null() {
+        if !t.syscallbuf_child.is_null() {
             unimplemented!()
         }
 
@@ -637,7 +640,7 @@ impl ReplaySession {
                 current_step = ReplayTraceStep {
                     action: ReplayTraceStepType::TstepProgramAsyncSignalInterrupt,
                     data: ReplayTraceStepData::Target(ReplayTraceStepTarget {
-                        ticks: trace_frame.ticks(),
+                        ticks: Some(trace_frame.ticks()),
                         signo: 0,
                     }),
                 };
@@ -646,13 +649,10 @@ impl ReplaySession {
                 current_step = ReplayTraceStep {
                     action: ReplayTraceStepType::TstepDeterministicSignal,
                     data: ReplayTraceStepData::Target(ReplayTraceStepTarget {
-                        // @TODO this is actually -1. Need to fix data type.
-                        ticks: 0,
+                        ticks: None,
                         signo: SIGSEGV,
                     }),
                 };
-                // See @TODO
-                unimplemented!();
             }
             EventType::EvGrowMap => {
                 process_grow_map(t);
@@ -667,18 +667,15 @@ impl ReplaySession {
                     current_step = ReplayTraceStep {
                         action: ReplayTraceStepType::TstepDeterministicSignal,
                         data: ReplayTraceStepData::Target(ReplayTraceStepTarget {
-                            // @TODO this is actually -1. Need to fix data type.
-                            ticks: 0,
+                            ticks: None,
                             signo: ev.signal_event().siginfo.si_signo,
                         }),
                     };
-                    // See @TODO
-                    unimplemented!();
                 } else {
                     current_step = ReplayTraceStep {
                         action: ReplayTraceStepType::TstepProgramAsyncSignalInterrupt,
                         data: ReplayTraceStepData::Target(ReplayTraceStepTarget {
-                            ticks: trace_frame.ticks(),
+                            ticks: Some(trace_frame.ticks()),
                             signo: ev.signal_event().siginfo.si_signo,
                         }),
                     };
@@ -688,7 +685,7 @@ impl ReplaySession {
                 current_step = ReplayTraceStep {
                     action: ReplayTraceStepType::TstepDeliverSignal,
                     data: ReplayTraceStepData::Target(ReplayTraceStepTarget {
-                        ticks: 0,
+                        ticks: Some(0),
                         signo: ev.signal_event().siginfo.si_signo,
                     }),
                 };
@@ -697,7 +694,7 @@ impl ReplaySession {
                 if ev.syscall_event().state == SyscallState::EnteringSyscall
                     || ev.syscall_event().state == SyscallState::EnteringSyscallPtrace
                 {
-                    rep_prepare_run_to_syscall(t, &current_step);
+                    current_step = rep_prepare_run_to_syscall(t);
                 } else {
                     rep_process_syscall(t, &current_step);
                     if current_step.action == ReplayTraceStepType::TstepRetire {

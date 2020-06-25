@@ -38,6 +38,10 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
+use crate::session::SessionSharedPtr;
+use owning_ref::OwningHandle;
+use std::cell::Ref;
+
 pub struct ReplayTask {
     pub task_inner: TaskInner,
 }
@@ -98,8 +102,13 @@ impl ReplayTask {
         unimplemented!()
     }
 
-    pub fn current_trace_frame(&self) -> &TraceFrame {
-        unimplemented!()
+    pub fn current_trace_frame(&self) -> OwningHandle<SessionSharedPtr, Ref<'_, TraceFrame>> {
+        let sess = self.session();
+        // @TODO remove this unsafety by implementing ToHandle??
+        let owning_handle = OwningHandle::new_with_fn(sess, |o| {
+            unsafe { (*o).as_replay() }.unwrap().current_trace_frame()
+        });
+        owning_handle
     }
 
     pub fn current_frame_time(&self) -> FrameTime {
