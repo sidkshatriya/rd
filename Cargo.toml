@@ -20,6 +20,7 @@ libc = "0.2"
 memchr = "2.3.3"
 memoffset = "0.5.4"
 nix = "0.17"
+owning_ref = "0.4.1"
 rand = "0.7"
 raw-cpuid = "7.0.3"
 serde = { version = "1.0", features = ["derive"] }
