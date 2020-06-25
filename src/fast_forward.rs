@@ -2,11 +2,23 @@ use crate::{
     registers::Registers,
     session::task::{task_inner::ResumeRequest, Task},
 };
+use std::ops::BitOr;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct FastForwardStatus {
     pub did_fast_forward: bool,
     pub incomplete_fast_forward: bool,
+}
+
+impl BitOr for FastForwardStatus {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        Self {
+            did_fast_forward: self.did_fast_forward | rhs.did_fast_forward,
+            incomplete_fast_forward: self.incomplete_fast_forward | rhs.incomplete_fast_forward,
+        }
+    }
 }
 
 impl Default for FastForwardStatus {
@@ -49,10 +61,11 @@ pub fn at_x86_string_instruction<T: Task>(_t: &mut T) -> bool {
 ///
 /// Returns true if we did a fast-forward, false if we just did one regular
 /// singlestep.
+/// DIFF NOTE: @TODO? In rr we're getting pointers to registers. Here we're getting a register copy
 pub fn fast_forward_through_instruction(
     _t: &dyn Task,
     _how: ResumeRequest,
-    _states: &[&Registers],
+    _states: &[Registers],
 ) -> FastForwardStatus {
     unimplemented!()
 }

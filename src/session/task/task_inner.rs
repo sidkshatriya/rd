@@ -70,6 +70,12 @@ pub enum TicksRequest {
     ResumeWithTicksRequest(u64),
 }
 
+impl Default for TicksRequest {
+    fn default() -> Self {
+        Self::ResumeNoTicks
+    }
+}
+
 /// Positive values are a request for an interrupt
 /// after that number of ticks
 /// Don't request more than this!
@@ -410,6 +416,7 @@ pub mod task_inner {
         /// waitpid().
         pub(in super::super::super) wait_status: WaitStatus,
         /// The most recent siginfo (captured when wait_status shows pending_sig())
+        /// @TODO Should this be an Option??
         pub(in super::super::super) pending_siginfo: siginfo_t,
         /// True when a PTRACE_EXIT_EVENT has been observed in the wait_status
         /// for this task.
@@ -613,6 +620,7 @@ pub mod task_inner {
 
         /// Return the siginfo at the signal-stop of `self`.
         /// Not meaningful unless this is actually at a signal stop.
+        /// @TODO Should this be an Option
         pub fn get_siginfo(&self) -> &siginfo_t {
             &self.pending_siginfo
         }

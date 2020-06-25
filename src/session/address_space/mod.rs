@@ -1660,24 +1660,24 @@ pub mod address_space {
             &ENTRY_POINTS
         }
 
-        pub fn rd_page_syscall_from_exit_point(ip: RemoteCodePtr) -> SyscallType {
+        pub fn rd_page_syscall_from_exit_point(ip: RemoteCodePtr) -> Option<SyscallType> {
             for i in 0..ENTRY_POINTS.len() {
                 if exit_ip_from_index(i) == ip {
-                    return ENTRY_POINTS[i];
+                    return Some(ENTRY_POINTS[i]);
                 }
             }
 
-            unreachable!()
+            None
         }
 
-        pub fn rd_page_syscall_from_entry_point(ip: RemoteCodePtr) -> SyscallType {
+        pub fn rd_page_syscall_from_entry_point(ip: RemoteCodePtr) -> Option<SyscallType> {
             for i in 0..ENTRY_POINTS.len() {
                 if entry_ip_from_index(i) == ip {
-                    return ENTRY_POINTS[i];
+                    return Some(ENTRY_POINTS[i]);
                 }
             }
 
-            unreachable!()
+            None
         }
 
         /// Return a pointer to 8 bytes of 0xFF

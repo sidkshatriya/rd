@@ -1,12 +1,13 @@
 use crate::{
-    bindings::signal::siginfo_t,
+    bindings::{ptrace::PTRACE_EVENT_SECCOMP, signal::siginfo_t},
     cpuid_bug_detector::CPUIDBugDetector,
     emu_fs::{EmuFs, EmuFsSharedPtr},
     event::{Event, EventType, SignalDeterministic, SignalEventData, SyscallState},
-    fast_forward::FastForwardStatus,
+    fast_forward::{fast_forward_through_instruction, FastForwardStatus},
     flags::Flags as ProgramFlags,
     kernel_abi::{common::preload_interface::syscallbuf_hdr, SupportedArch},
     log::LogLevel::LogDebug,
+    perf_counters,
     perf_counters::{PerfCounters, TIME_SLICE_SIGNAL},
     registers::Registers,
     remote_code_ptr::RemoteCodePtr,
@@ -14,14 +15,29 @@ use crate::{
     replay_syscall::{rep_prepare_run_to_syscall, rep_process_syscall},
     scoped_fd::ScopedFd,
     session::{
-        address_space::address_space::AddressSpaceSharedPtr,
+        address_space::{
+            address_space::{AddressSpace, AddressSpaceSharedPtr},
+            Enabled,
+            Traced,
+        },
         diversion_session::DiversionSessionSharedPtr,
         replay_session::ReplayTraceStepType::TstepNone,
-        session_inner::{session_inner::SessionInner, BreakStatus, RunCommand},
+        session_inner::{
+            session_inner::{
+                PtraceSyscallBeforeSeccomp::{
+                    PtraceSyscallBeforeSeccomp,
+                    PtraceSyscallBeforeSeccompUnknown,
+                    SeccompBeforePtraceSyscall,
+                },
+                SessionInner,
+            },
+            BreakStatus,
+            RunCommand,
+        },
         task::{
             common::write_val_mem,
             replay_task::ReplayTask,
-            task_inner::{task_inner::TaskInner, ResumeRequest, TicksRequest},
+            task_inner::{task_inner::TaskInner, ResumeRequest, TicksRequest, WaitRequest},
             Task,
             TaskSharedPtr,
         },
@@ -48,7 +64,7 @@ use crate::{
         XSAVEC_FEATURE_FLAG,
     },
 };
-use libc::{SIGBUS, SIGSEGV};
+use libc::{SIGBUS, SIGSEGV, SIGTRAP};
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
     ffi::{OsStr, OsString},
@@ -190,7 +206,8 @@ pub struct StepConstraints {
     // singlestep would enter one of the register states in this list.
     // RUN_SINGLESTEP_FAST_FORWARD will always singlestep at least once
     // regardless.
-    // @TODO In rr this is a pointer to the registers
+    // DIFF NOTE: @TODO? In rr this is a pointer to the registers i.e. in Rust it would be
+    // Vec<&Registers>
     pub stop_before_states: Vec<Registers>,
 }
 
@@ -739,8 +756,100 @@ impl ReplaySession {
     fn emulate_signal_delivery(&self, _oldtask: &ReplayTask, _sig: i32) -> Completion {
         unimplemented!();
     }
-    fn cont_syscall_boundary(&self, _t: &ReplayTask, _constraints: &StepConstraints) -> Completion {
-        unimplemented!();
+    // Continue until reaching either the "entry" of an emulated syscall,
+    // or the entry or exit of an executed syscall.  |emu| is nonzero when
+    // we're emulating the syscall.  Return COMPLETE when the next syscall
+    // boundary is reached, or INCOMPLETE if advancing to the boundary was
+    // interrupted by an unknown trap.
+    // When |syscall_trace_frame| is non-null, we continue to the syscall by
+    // setting a breakpoint instead of running until we execute a system
+    // call instruction. In that case we will not actually enter the kernel.
+    fn cont_syscall_boundary(
+        &self,
+        t: &mut ReplayTask,
+        constraints: &StepConstraints,
+    ) -> Completion {
+        let mut ticks_request: TicksRequest = Default::default();
+        if !compute_ticks_request(t, constraints, &mut ticks_request) {
+            return Completion::Incomplete;
+        }
+
+        if constraints.command == RunCommand::RunSinglestepFastForward {
+            // ignore ticks_period. We can't add more than one tick during a
+            // fast_forward so it doesn't matter.
+            self.fast_forward_status.set(
+                self.fast_forward_status.get()
+                    | fast_forward_through_instruction(
+                        t,
+                        ResumeRequest::ResumeSysemuSinglestep,
+                        &constraints.stop_before_states,
+                    ),
+            );
+        } else {
+            let resume_how = if constraints.is_singlestep() {
+                ResumeRequest::ResumeSysemuSinglestep
+            } else {
+                ResumeRequest::ResumeSysemu
+            };
+            t.resume_execution(resume_how, WaitRequest::ResumeWait, ticks_request, None);
+        }
+
+        match t.maybe_stop_sig().get_raw_repr() {
+            perf_counters::TIME_SLICE_SIGNAL => {
+                // This would normally be triggered by constraints.ticks_target but it's
+                // also possible to get stray signals here.
+                return Completion::Incomplete;
+            }
+            SIGSEGV => {
+                if self.handle_unrecorded_cpuid_fault(t, constraints) {
+                    return Completion::Incomplete;
+                }
+            }
+            SIGTRAP => {
+                return Completion::Incomplete;
+            }
+            _ => (),
+        }
+        if t.maybe_stop_sig().is_sig() {
+            ed_assert!(
+                t,
+                false,
+                "Replay got unrecorded signal {:?}",
+                t.get_siginfo()
+            );
+        }
+        if t.seccomp_bpf_enabled
+            && self.syscall_seccomp_ordering_.get() == PtraceSyscallBeforeSeccompUnknown
+        {
+            ed_assert!(t, !constraints.is_singlestep());
+            if t.maybe_ptrace_event() == PTRACE_EVENT_SECCOMP {
+                self.syscall_seccomp_ordering_
+                    .set(SeccompBeforePtraceSyscall);
+            } else {
+                self.syscall_seccomp_ordering_
+                    .set(PtraceSyscallBeforeSeccomp);
+            }
+            // Eat the following event, either a seccomp or syscall notification
+            t.resume_execution(
+                ResumeRequest::ResumeSysemu,
+                WaitRequest::ResumeWait,
+                ticks_request,
+                None,
+            );
+        }
+
+        let type_ = AddressSpace::rd_page_syscall_from_exit_point(t.ip());
+        if type_.is_some()
+            && type_.unwrap().traced == Traced::Untraced
+            && type_.unwrap().enabled == Enabled::ReplayOnly
+        {
+            // Actually perform it. We can hit these when replaying through syscallbuf
+            // code that was interrupted.
+            perform_interrupted_syscall(t);
+            return Completion::Incomplete;
+        }
+
+        Completion::Complete
     }
     fn enter_syscall(&self, _t: &ReplayTask, _constraints: &StepConstraints) -> Completion {
         unimplemented!();
@@ -997,4 +1106,50 @@ fn process_grow_map(_t: &ReplayTask) {
 
 fn treat_signal_event_as_deterministic(ev: &SignalEventData) -> bool {
     ev.deterministic == SignalDeterministic::DeterministicSig && ev.siginfo.si_signo != SIGBUS
+}
+
+fn perform_interrupted_syscall(_t: &mut ReplayTask) {
+    unimplemented!()
+}
+
+/// Why a skid region?  Interrupts generated by perf counters don't
+/// fire at exactly the programmed point (as of 2013 kernel/HW);
+/// there's a variable slack region, which is technically unbounded.
+/// This means that an interrupt programmed for retired branch k might
+/// fire at |k + 50|, for example.  To counteract the slack, we program
+/// interrupts just short of our target, by the |SKID_SIZE| region
+/// below, and then more slowly advance to the real target.
+///
+/// How was this magic number determined?  Trial and error: we want it
+/// to be as small as possible for efficiency, but not so small that
+/// overshoots are observed.  If all other possible causes of overshoot
+/// have been ruled out, like memory divergence, then you'll know that
+/// this magic number needs to be increased if the following symptom is
+/// observed during replay.  Running with DEBUGLOG enabled (see above),
+/// a sequence of log messages like the following will appear
+///
+/// 1. programming interrupt for [target - SKID_SIZE] ticks
+/// 2. Error: Replay diverged.  Dumping register comparison.
+/// 3. Error: [list of divergent registers; arbitrary]
+/// 4. Error: overshot target ticks=[target] by [i]
+///
+/// The key is that no other replayer log messages occur between (1)
+/// and (2).  This spew means that the replayer programmed an interrupt
+/// for ticks=[target-SKID_SIZE], but the tracee was actually interrupted
+/// at ticks=[target+i].  And that in turn means that the kernel/HW
+/// skidded too far past the programmed target for rr to handle it.
+///
+/// If that occurs, the SKID_SIZE needs to be increased by at least
+/// [i].
+///
+/// NB: there are probably deeper reasons for the target slack that
+/// could perhaps let it be deduced instead of arrived at empirically;
+/// perhaps pipeline depth and things of that nature are involved.  But
+/// those reasons if they exit are currently not understood.
+fn compute_ticks_request(
+    _t: &mut ReplayTask,
+    _constraints: &StepConstraints,
+    _ticks_request: &mut TicksRequest,
+) -> bool {
+    unimplemented!()
 }

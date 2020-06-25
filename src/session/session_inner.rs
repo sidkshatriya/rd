@@ -400,7 +400,7 @@ pub mod session_inner {
         }
 
         pub fn syscall_seccomp_ordering(&self) -> PtraceSyscallBeforeSeccomp {
-            self.syscall_seccomp_ordering_
+            self.syscall_seccomp_ordering_.get()
         }
 
         pub fn has_cpuid_faulting() -> bool {
@@ -544,7 +544,7 @@ pub mod session_inner {
         // @TODO Should this be an Option?
         pub(in super::super) spawned_task_error_fd_: ScopedFd,
 
-        pub(in super::super) syscall_seccomp_ordering_: PtraceSyscallBeforeSeccomp,
+        pub(in super::super) syscall_seccomp_ordering_: Cell<PtraceSyscallBeforeSeccomp>,
 
         pub(in super::super) ticks_semantics_: TicksSemantics,
 

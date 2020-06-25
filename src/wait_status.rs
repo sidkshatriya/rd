@@ -334,7 +334,7 @@ impl MaybeStopSignal {
         }
     }
 
-    // Avoid using this method. Use sig()
+    // Avoid using this method. Use `unwrap_sig()`
     pub fn get_raw_repr(&self) -> i32 {
         match self.0 {
             None => 0,
