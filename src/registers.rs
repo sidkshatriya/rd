@@ -226,9 +226,16 @@ impl Registers {
                 }
                 X64(regs1_x64) => {
                     let regs2_x64 = regs2.x64();
-                    debug_assert!(rv.nbytes == 8);
-                    val1 = rv.u64_into_x64(&regs1_x64);
-                    val2 = rv.u64_into_x64(&regs2_x64);
+                    if rv.nbytes == 8 {
+                        val1 = rv.u64_into_x64(&regs1_x64);
+                        val2 = rv.u64_into_x64(&regs2_x64);
+                    } else if rv.nbytes == 4 {
+                        val1 = rv.u32_into_x64(&regs1_x64) as u64;
+                        val2 = rv.u32_into_x64(&regs2_x64) as u64;
+                    } else {
+                        fatal!("Unexpected register size: {}", rv.nbytes);
+                        unreachable!();
+                    }
                 }
             }
 
@@ -349,8 +356,12 @@ impl Registers {
                     }
                     log!(LogWarn, "Unhandled register name {}", regno);
                 }
-                4 => {
+                4 if self.arch() == SupportedArch::X86 => {
                     let rv_ref = rv.mut_u32_ref_into_x86(&mut self.x86_mut());
+                    *rv_ref = u32::from_le_bytes(value[0..4].try_into().unwrap());
+                }
+                4 if self.arch() == SupportedArch::X64 => {
+                    let rv_ref = rv.mut_u32_ref_into_x64(&mut self.x64_mut());
                     *rv_ref = u32::from_le_bytes(value[0..4].try_into().unwrap());
                 }
                 8 => {
@@ -1260,6 +1271,14 @@ impl RegisterValue {
         }
     }
 
+    pub fn u32_into_x64(&self, regs: &x64::user_regs_struct) -> u32 {
+        unsafe {
+            *((self.pointer_into_x64(regs) as *const u32)
+                .as_ref()
+                .unwrap())
+        }
+    }
+
     pub fn mut_u32_ref_into_x86(&self, regs: &mut x86::user_regs_struct) -> &mut u32 {
         unsafe {
             (self.mut_pointer_into_x86(regs) as *mut u32)
@@ -1271,6 +1290,13 @@ impl RegisterValue {
     pub fn mut_u64_ref_into_x64(&self, regs: &mut x64::user_regs_struct) -> &mut u64 {
         unsafe {
             (self.mut_pointer_into_x64(regs) as *mut u64)
+                .as_mut()
+                .unwrap()
+        }
+    }
+    pub fn mut_u32_ref_into_x64(&self, regs: &mut x64::user_regs_struct) -> &mut u32 {
+        unsafe {
+            (self.mut_pointer_into_x64(regs) as *mut u32)
                 .as_mut()
                 .unwrap()
         }
