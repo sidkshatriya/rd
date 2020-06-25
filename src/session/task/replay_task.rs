@@ -68,6 +68,12 @@ pub enum ReplayTaskIgnore {
     IgnoreEsi = 0x01,
 }
 
+impl Default for ReplayTaskIgnore {
+    fn default() -> Self {
+        Self::IgnoreNone
+    }
+}
+
 impl ReplayTask {
     pub fn new(
         session: &dyn Session,

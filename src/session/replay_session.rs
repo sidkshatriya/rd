@@ -17,6 +17,7 @@ use crate::{
     session::{
         address_space::{
             address_space::{AddressSpace, AddressSpaceSharedPtr},
+            BreakpointType,
             Enabled,
             Traced,
         },
@@ -64,7 +65,7 @@ use crate::{
         XSAVEC_FEATURE_FLAG,
     },
 };
-use libc::{SIGBUS, SIGSEGV, SIGTRAP};
+use libc::{ENOSYS, SIGBUS, SIGSEGV, SIGTRAP};
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
     ffi::{OsStr, OsString},
@@ -297,9 +298,9 @@ pub struct ReplaySession {
     trace_start_time: Cell<f64>,
     /// Note that this is NOT a weak pointer!!
     /// DIFF NOTE: Made into an Option<>
-    syscall_bp_vm: Option<AddressSpaceSharedPtr>,
+    syscall_bp_vm: RefCell<Option<AddressSpaceSharedPtr>>,
     // @TODO Set to the 0 address on init. More principled solution?!
-    syscall_bp_addr: RemoteCodePtr,
+    syscall_bp_addr: Cell<RemoteCodePtr>,
 }
 
 #[derive(Copy, Clone)]
@@ -851,9 +852,93 @@ impl ReplaySession {
 
         Completion::Complete
     }
-    fn enter_syscall(&self, _t: &ReplayTask, _constraints: &StepConstraints) -> Completion {
-        unimplemented!();
+
+    /// Advance to the next syscall entry (or virtual entry) according to
+    /// |step|.  Return COMPLETE if successful, or INCOMPLETE if an unhandled trap
+    /// occurred.
+    fn enter_syscall(&self, t: &mut ReplayTask, constraints: &StepConstraints) -> Completion {
+        if t.regs_ref().matches(self.current_trace_frame().regs_ref())
+            && t.tick_count() == self.current_trace_frame().ticks()
+        {
+            // We already entered the syscall via an ENTERING_SYSCALL_PTRACE
+            ed_assert!(
+                t,
+                self.current_trace_frame().event().syscall_event().state
+                    == SyscallState::EnteringSyscall
+            );
+        } else {
+            // By default we get the null address
+            let mut syscall_instruction = RemoteCodePtr::new();
+
+            if self.done_initial_exec() {
+                syscall_instruction = self
+                    .current_trace_frame()
+                    .regs_ref()
+                    .ip()
+                    .decrement_by_syscall_insn_length(t.arch());
+                // If the breakpoint already exists, it must have been from a previous
+                // invocation of this function for the same event (once the event
+                // completes, the breakpoint is cleared).
+                debug_assert!(
+                    self.syscall_bp_vm.borrow().is_none()
+                        || Rc::ptr_eq(
+                            self.syscall_bp_vm.borrow().as_ref().unwrap(),
+                            t.as_.as_ref().unwrap()
+                        ) && syscall_instruction == self.syscall_bp_addr.get()
+                            && t.vm().get_breakpoint_type_at_addr(syscall_instruction)
+                                != BreakpointType::BkptNone
+                );
+
+                // Skip this optimization if we can't set the breakpoint, or if it's
+                // in writeable or shared memory, since in those cases it could be
+                // overwritten by the tracee. It could even be dynamically generated and
+                // not generated yet.
+                if self.syscall_bp_vm.borrow().is_none()
+                    && t.vm()
+                        .is_breakpoint_in_private_read_only_memory(syscall_instruction)
+                    && t.vm_mut()
+                        .add_breakpoint(syscall_instruction, BreakpointType::BkptInternal)
+                {
+                    *self.syscall_bp_vm.borrow_mut() = Some(t.as_.as_ref().unwrap().clone());
+                    self.syscall_bp_addr.set(syscall_instruction);
+                }
+            }
+            if self.cont_syscall_boundary(t, constraints) == Completion::Incomplete {
+                let reached_target: bool = self.syscall_bp_vm.borrow().is_some()
+                    && t.maybe_stop_sig() == SIGTRAP
+                    && t.ip().decrement_by_bkpt_insn_length(t.arch()) == syscall_instruction
+                    && t.vm().get_breakpoint_type_at_addr(syscall_instruction)
+                        == BreakpointType::BkptInternal;
+                if reached_target {
+                    // Emulate syscall state change
+                    let mut r: Registers = t.regs_ref().clone();
+                    r.set_ip(syscall_instruction.increment_by_syscall_insn_length(t.arch()));
+                    r.set_original_syscallno(r.syscallno());
+                    r.set_syscall_result_signed(-ENOSYS as isize);
+                    t.set_regs(&r);
+                    t.canonicalize_regs(self.current_trace_frame().event().syscall_event().arch());
+                    t.validate_regs(Default::default());
+                    self.clear_syscall_bp();
+                } else {
+                    return Completion::Incomplete;
+                }
+            } else {
+                // If we use the breakpoint optimization, we must get a SIGTRAP before
+                // reaching a syscall, so cont_syscall_boundary must return Completion::Incomplete.
+                ed_assert!(t, self.syscall_bp_vm.borrow().is_none());
+                t.canonicalize_regs(self.current_trace_frame().event().syscall_event().arch());
+                t.validate_regs(Default::default());
+                t.finish_emulated_syscall();
+            }
+        }
+
+        if self.current_trace_frame().event().syscall_event().state == SyscallState::EnteringSyscall
+        {
+            rep_after_enter_syscall(t);
+        }
+        Completion::Complete
     }
+
     fn exit_syscall(&self, _t: &ReplayTask) -> Completion {
         unimplemented!();
     }
@@ -969,6 +1054,10 @@ impl ReplaySession {
                 break_status.approaching_ticks_target = true;
             }
         }
+    }
+
+    fn clear_syscall_bp(&self) {
+        unimplemented!()
     }
 }
 
@@ -1151,5 +1240,10 @@ fn compute_ticks_request(
     _constraints: &StepConstraints,
     _ticks_request: &mut TicksRequest,
 ) -> bool {
+    unimplemented!()
+}
+
+/// Call this when |t| has just entered a syscall.
+pub fn rep_after_enter_syscall(_t: &ReplayTask) {
     unimplemented!()
 }

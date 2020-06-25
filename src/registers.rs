@@ -601,6 +601,12 @@ impl Registers {
         rd_set_reg!(self, eax, rax, syscall_result);
     }
 
+    /// DIFF NOTE: This method does not exist in rr.
+    /// @TODO Check this.
+    pub fn set_syscall_result_signed(&mut self, syscall_result: isize) {
+        rd_set_reg!(self, eax, rax, syscall_result);
+    }
+
     pub fn set_syscall_result_from_remote_ptr<T>(&mut self, syscall_result: RemotePtr<T>) {
         rd_set_reg!(self, eax, rax, syscall_result.as_usize());
     }
