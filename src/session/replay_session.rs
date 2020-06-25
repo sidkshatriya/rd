@@ -21,7 +21,7 @@ use crate::{
         task::{
             common::write_val_mem,
             replay_task::ReplayTask,
-            task_inner::task_inner::TaskInner,
+            task_inner::{task_inner::TaskInner, ResumeRequest, TicksRequest},
             Task,
             TaskSharedPtr,
         },
@@ -63,14 +63,14 @@ pub type ReplaySessionSharedPtr = Rc<RefCell<ReplaySession>>;
 /// ReplayFlushBufferedSyscallState is saved in Session and cloned with its
 /// Session, so it needs to be simple data, i.e. not holding pointers to
 /// per-Session data.
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct ReplayFlushBufferedSyscallState {
     /// An internal breakpoint is set at this address
     pub stop_breakpoint_addr: usize,
 }
 
 /// Describes the next step to be taken in order to replay a trace frame.
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 #[repr(i32)]
 pub enum ReplayTraceStepType {
     TstepNone,
@@ -107,7 +107,7 @@ impl Default for ReplayTraceStepType {
     }
 }
 
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct ReplayTraceStepSyscall {
     /// The architecture of the syscall
     pub arch: SupportedArch,
@@ -115,7 +115,7 @@ pub struct ReplayTraceStepSyscall {
     pub number: i32,
 }
 
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct ReplayTraceStepTarget {
     /// DIFF NOTE: In rr a `-1` value is used to indicate "not applicable" if understood correctly
     /// Use `None` instead in rd.
@@ -126,7 +126,7 @@ pub struct ReplayTraceStepTarget {
 
 /// rep_trace_step is saved in Session and cloned with its Session, so it needs
 /// to be simple data, i.e. not holding pointers to per-Session data.
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum ReplayTraceStepData {
     None,
     Syscall(ReplayTraceStepSyscall),
@@ -140,7 +140,7 @@ impl Default for ReplayTraceStepData {
     }
 }
 
-#[derive(Default, Copy, Clone, Eq, PartialEq)]
+#[derive(Default, Copy, Clone, Eq, PartialEq, Debug)]
 pub struct ReplayTraceStep {
     pub action: ReplayTraceStepType,
     pub data: ReplayTraceStepData,
@@ -181,6 +181,7 @@ pub enum ReplayStatus {
     ReplayExited,
 }
 
+#[derive(Clone)]
 pub struct StepConstraints {
     pub command: RunCommand,
     pub stop_at_time: FrameTime,
@@ -735,12 +736,117 @@ impl ReplaySession {
         self.replay_step_with_constraints(StepConstraints::new(command))
     }
 
-    fn try_one_trace_step(
+    fn emulate_signal_delivery(&self, _oldtask: &ReplayTask, _sig: i32) -> Completion {
+        unimplemented!();
+    }
+    fn cont_syscall_boundary(&self, _t: &ReplayTask, _constraints: &StepConstraints) -> Completion {
+        unimplemented!();
+    }
+    fn enter_syscall(&self, _t: &ReplayTask, _constraints: &StepConstraints) -> Completion {
+        unimplemented!();
+    }
+    fn exit_syscall(&self, _t: &ReplayTask) -> Completion {
+        unimplemented!();
+    }
+    fn exit_task(&self, _t: &ReplayTask) -> Completion {
+        unimplemented!();
+    }
+    fn handle_unrecorded_cpuid_fault(
         &self,
-        _t: &mut ReplayTask,
-        _step_constraints: &StepConstraints,
+        _t: &ReplayTask,
+        _constraints: &StepConstraints,
+    ) -> bool {
+        unimplemented!();
+    }
+    fn check_ticks_consistency(&self, _t: &ReplayTask, _ev: &Event) {
+        unimplemented!();
+    }
+    fn check_pending_sig(&self, _t: &ReplayTask) {
+        unimplemented!();
+    }
+    fn continue_or_step(
+        &self,
+        _t: &ReplayTask,
+        _constraints: &StepConstraints,
+        _tick_request: TicksRequest,
+        _resume_request: Option<ResumeRequest>,
     ) -> Completion {
-        unimplemented!()
+        unimplemented!();
+    }
+    fn advance_to_ticks_target(
+        &self,
+        _t: &ReplayTask,
+        _constraints: &StepConstraints,
+    ) -> Completion {
+        unimplemented!();
+    }
+    fn emulate_deterministic_signal(
+        &self,
+        _t: &ReplayTask,
+        _sig: i32,
+        _constraints: &StepConstraints,
+    ) -> Completion {
+        unimplemented!();
+    }
+    fn emulate_async_signal(
+        &self,
+        _t: &ReplayTask,
+        _constraints: &StepConstraints,
+        _ticks: Ticks,
+    ) -> Completion {
+        unimplemented!();
+    }
+    fn flush_syscallbuf(&self, _t: &ReplayTask, _constraints: &StepConstraints) -> Completion {
+        unimplemented!();
+    }
+    fn patch_next_syscall(&self, _t: &ReplayTask, _constraints: &StepConstraints) -> Completion {
+        unimplemented!();
+    }
+
+    /// Try to execute |step|, adjusting for |req| if needed.  Return Complete if
+    /// |step| was made, or Incomplete if there was a trap or |step| needs
+    /// more work.
+    fn try_one_trace_step(&self, t: &mut ReplayTask, constraints: &StepConstraints) -> Completion {
+        if constraints.ticks_target > 0
+            && !self.trace_frame.borrow().event().has_ticks_slop()
+            && t.current_trace_frame().ticks() > constraints.ticks_target
+        {
+            // Instead of doing this step, just advance to the ticks_target, since
+            // that happens before this event completes.
+            // Unfortunately we can't do this for TSTEP_FLUSH_SYSCALLBUF
+            // because its tick count can't be trusted.
+            // cont_syscall_boundary handles the ticks constraint for those cases.
+            return self.advance_to_ticks_target(t, &constraints);
+        }
+
+        match self.current_step.get().action {
+            ReplayTraceStepType::TstepRetire => Completion::Complete,
+            ReplayTraceStepType::TstepEnterSyscall => self.enter_syscall(t, &constraints),
+            ReplayTraceStepType::TstepExitSyscall => self.exit_syscall(t),
+            ReplayTraceStepType::TstepDeterministicSignal => self.emulate_deterministic_signal(
+                t,
+                self.current_step.get().target().signo,
+                &constraints,
+            ),
+            ReplayTraceStepType::TstepProgramAsyncSignalInterrupt => {
+                // @TODO Ok to have an unwrap here?
+                self.emulate_async_signal(
+                    t,
+                    &constraints,
+                    self.current_step.get().target().ticks.unwrap(),
+                )
+            }
+            ReplayTraceStepType::TstepDeliverSignal => {
+                self.emulate_signal_delivery(t, self.current_step.get().target().signo)
+            }
+            ReplayTraceStepType::TstepFlushSyscallbuf => self.flush_syscallbuf(t, &constraints),
+            ReplayTraceStepType::TstepPatchSyscall => self.patch_next_syscall(t, &constraints),
+            ReplayTraceStepType::TstepExitTask => self.exit_task(t),
+            _ => {
+                fatal!("Unhandled step type: {:?}", self.current_step.get().action);
+                unreachable!();
+            }
+        }
     }
     fn check_approaching_ticks_target(
         &self,
