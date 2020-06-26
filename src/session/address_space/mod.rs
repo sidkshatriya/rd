@@ -2036,7 +2036,6 @@ pub mod address_space {
                 // (for open_mem_fd) before the first exec. We rely on the fact that we
                 // haven't execed yet, so the address space layout is the same.
                 addr_space.traced_syscall_ip_ =
-                    // @TODO check this
                     RemoteCodePtr::from_val(rd_syscall_addr as *const fn() as usize);
             }
 
@@ -2242,8 +2241,8 @@ pub mod address_space {
 
             let path = find_rd_page_file(remote.task());
             let mut child_path = AutoRestoreMem::push_cstr(remote, path.as_os_str());
-            let remote_path_addr = child_path.get().unwrap() + 1usize;
             // skip leading '/' since we want the path to be relative to the root fd
+            let remote_path_addr = child_path.get().unwrap() + 1usize;
             let child_fd_ret = rd_syscall!(
                 child_path,
                 syscall_number_for_openat(arch),

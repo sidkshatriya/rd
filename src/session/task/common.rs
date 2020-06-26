@@ -127,6 +127,7 @@ pub(super) fn open_mem_fd<T: Task>(task: &mut T) -> bool {
         if remote_path.get().is_some() {
             let remote_arch = remote_path.arch();
             let remote_addr = remote_path.get().unwrap();
+
             // AutoRestoreMem DerefMut-s to AutoRemoteSyscalls
             // skip leading '/' since we want the path to be relative to the root fd
             remote_fd = rd_syscall!(

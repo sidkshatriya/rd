@@ -286,10 +286,9 @@ impl<'a, 'b> Drop for AutoRestoreMem<'a, 'b> {
                 WriteFlags::empty(),
             );
         }
-        self.remote.task_mut().regs_mut().set_sp(new_sp);
-        // Make a copy
-        let new_regs = *self.remote.task().regs_ref();
-        self.remote.task_mut().set_regs(&new_regs);
+        self.remote.initial_regs_mut().set_sp(new_sp);
+        let initial_regs = self.remote.initial_regs_ref().clone();
+        self.remote.task_mut().set_regs(&initial_regs);
     }
 }
 
@@ -357,10 +356,9 @@ impl<'a, 'b> AutoRestoreMem<'a, 'b> {
         let new_sp = self.remote.task().regs_ref().sp() - self.len;
         self.remote.initial_regs_mut().set_sp(new_sp);
 
-        // Copy regs
-        let remote_regs = *self.remote.task().regs_ref();
-        self.remote.task_mut().set_regs(&remote_regs);
-        self.addr = Some(remote_regs.sp());
+        let initial_regs = self.remote.initial_regs_ref().clone();
+        self.remote.task_mut().set_regs(&initial_regs);
+        self.addr = Some(self.remote.initial_regs_ref().sp());
 
         let mut ok = true;
         self.remote
@@ -999,8 +997,8 @@ impl<'a> AutoRemoteSyscalls<'a> {
         {
             let arch = self.arch();
             let mut child_path = AutoRestoreMem::push_cstr(self, path.as_slice());
-            let path_addr_val = (child_path.get().unwrap() + 1usize).as_usize();
             // skip leading '/' since we want the path to be relative to the root fd
+            let path_addr_val = (child_path.get().unwrap() + 1usize).as_usize();
             child_shmem_fd = rd_infallible_syscall!(
                 child_path,
                 syscall_number_for_openat(arch),

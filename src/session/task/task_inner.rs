@@ -250,6 +250,7 @@ pub mod task_inner {
     pub enum PtraceData {
         WriteInto(*mut [u8]),
         ReadFrom(*const [u8]),
+        ReadWord(usize),
         None,
     }
 
@@ -259,14 +260,16 @@ pub mod task_inner {
                 // @TODO Check this works as intended.
                 PtraceData::WriteInto(s) => s.cast(),
                 PtraceData::ReadFrom(s) => s.cast(),
+                PtraceData::ReadWord(w) => w as *const u8,
                 PtraceData::None => ptr::null(),
             }
         }
-        pub fn get_data_slice(&self) -> &[u8] {
-            match self {
-                PtraceData::WriteInto(s) => unsafe { s.as_ref() }.unwrap(),
-                PtraceData::ReadFrom(s) => unsafe { s.as_ref() }.unwrap(),
-                PtraceData::None => &[],
+        pub fn get_data_slice(&self) -> Vec<u8> {
+            match *self {
+                PtraceData::WriteInto(s) => unsafe { s.as_ref() }.unwrap().to_vec(),
+                PtraceData::ReadFrom(s) => unsafe { s.as_ref() }.unwrap().to_vec(),
+                PtraceData::ReadWord(w) => w.to_le_bytes().into(),
+                PtraceData::None => Vec::new(),
             }
         }
     }
@@ -821,11 +824,10 @@ pub mod task_inner {
         /// @TODO should this be a GdbRegister type?
         pub fn set_debug_reg(&self, regno: usize, value: usize) -> bool {
             unsafe { Errno::clear() };
-            let data = [value];
             self.fallible_ptrace(
                 PTRACE_POKEUSER,
                 dr_user_word_offset(regno).into(),
-                PtraceData::ReadFrom(&data as *const [usize] as *const [u8]),
+                PtraceData::ReadWord(value),
             );
             return errno() == 0 || Errno::last() == ESRCH;
         }
@@ -1177,7 +1179,6 @@ pub mod task_inner {
         ) -> isize {
             let res =
                 unsafe { ptrace(request, self.tid, addr.as_usize(), data.get_addr()) } as isize;
-            //log!(LogDebug, "ptrace returned: {}", res);
             res
         }
 
@@ -1290,7 +1291,7 @@ pub mod task_inner {
                 self.fallible_ptrace(
                     PTRACE_POKEDATA,
                     RemotePtr::from(start_word),
-                    PtraceData::ReadFrom(u8_raw_slice(&v)),
+                    PtraceData::ReadWord(v as usize),
                 );
                 nwritten += length;
             }
