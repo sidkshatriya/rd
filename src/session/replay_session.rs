@@ -1,3 +1,4 @@
+use super::task::task_inner::MAX_TICKS_REQUEST;
 use crate::{
     bindings::{ptrace::PTRACE_EVENT_SECCOMP, signal::siginfo_t},
     cpuid_bug_detector::CPUIDBugDetector,
@@ -1236,11 +1237,29 @@ fn perform_interrupted_syscall(_t: &mut ReplayTask) {
 /// perhaps pipeline depth and things of that nature are involved.  But
 /// those reasons if they exit are currently not understood.
 fn compute_ticks_request(
-    _t: &mut ReplayTask,
-    _constraints: &StepConstraints,
-    _ticks_request: &mut TicksRequest,
+    t: &mut ReplayTask,
+    constraints: &StepConstraints,
+    ticks_request: &mut TicksRequest,
 ) -> bool {
-    unimplemented!()
+    *ticks_request = TicksRequest::ResumeUnlimitedTicks;
+    if constraints.ticks_target > 0 {
+        let ticks_period = constraints.ticks_target as i64
+            - PerfCounters::skid_size() as i64
+            - t.tick_count() as i64;
+        if ticks_period <= 0 {
+            // Behave as if we actually executed something. Callers assume we did.
+            t.clear_wait_status();
+            return false;
+        }
+        if ticks_period > MAX_TICKS_REQUEST as i64 {
+            // Avoid overflow. The execution will stop early but we'll treat that
+            // just like a stray TIME_SLICE_SIGNAL and continue as needed.
+            *ticks_request = TicksRequest::ResumeWithTicksRequest(MAX_TICKS_REQUEST);
+        } else {
+            *ticks_request = TicksRequest::ResumeWithTicksRequest(ticks_period as u64);
+        }
+    }
+    true
 }
 
 /// Call this when |t| has just entered a syscall.

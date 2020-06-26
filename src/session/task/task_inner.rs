@@ -72,7 +72,8 @@ pub enum TicksRequest {
 
 impl Default for TicksRequest {
     fn default() -> Self {
-        Self::ResumeNoTicks
+        // @TODO do we want this as our default??
+        Self::ResumeUnlimitedTicks
     }
 }
 
@@ -1176,7 +1177,7 @@ pub mod task_inner {
         ) -> isize {
             let res =
                 unsafe { ptrace(request, self.tid, addr.as_usize(), data.get_addr()) } as isize;
-            log!(LogDebug, "ptrace returned: {}", res);
+            //log!(LogDebug, "ptrace returned: {}", res);
             res
         }
 

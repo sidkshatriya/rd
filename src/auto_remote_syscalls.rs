@@ -854,7 +854,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
             log!(
                 LogDebug,
                 "done, result={}",
-                self.t.regs_ref().syscall_result()
+                self.t.regs_ref().syscall_result_signed()
             );
             self.t.regs_ref().syscall_result_signed()
         }
