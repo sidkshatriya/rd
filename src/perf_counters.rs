@@ -38,6 +38,18 @@ lazy_static! {
     static ref PMU_ATTRIBUTES: PmuAttributes = get_init_attributes();
 }
 
+pub fn init_pmu() {
+    // PMU_BUGS_AND_EXTRA/PMU_ATTRIBUTES are static ref and get initialized lazily
+    // Here as a side effect they get initialized by storing in a boolean.
+    // @TODO this needs to be set in a boolean explicitly. Otherwise there is a mutex locking issue
+    let only_one_counter = PMU_BUGS_AND_EXTRA.only_one_counter;
+    log!(
+        LogDebug,
+        "Initialized PMU Successfully (only_one_counter={}).",
+        only_one_counter
+    );
+}
+
 // @TODO for now we just hardcode this.
 const HAS_XEN_PMI_BUG: bool = false;
 // end hardcode.
@@ -780,12 +792,17 @@ impl PerfCounters {
             log!(LogDebug, "Recreating counters with period {}", ticks_period);
 
             let mut attr = PMU_ATTRIBUTES.ticks_attr;
-            let mut minus_attr = PMU_ATTRIBUTES.minus_ticks_attr.unwrap();
+            // Note that perf_event_attr struct implements the `Copy` trait.
+            let maybe_minus_attr = PMU_ATTRIBUTES.minus_ticks_attr;
             attr.__bindgen_anon_1.sample_period = ticks_period;
             self.fd_ticks_interrupt = start_counter(self.tid, -1, &mut attr).0;
-            if minus_attr.config != 0 {
-                self.fd_minus_ticks_measure =
-                    start_counter(self.tid, self.fd_ticks_interrupt.as_raw(), &mut minus_attr).0;
+            if maybe_minus_attr.is_some() {
+                let mut minus_attr = maybe_minus_attr.unwrap();
+                if minus_attr.config != 0 {
+                    self.fd_minus_ticks_measure =
+                        start_counter(self.tid, self.fd_ticks_interrupt.as_raw(), &mut minus_attr)
+                            .0;
+                }
             }
 
             if !PMU_BUGS_AND_EXTRA.only_one_counter && PMU_BUGS_AND_EXTRA.supports_txcp {

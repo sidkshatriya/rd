@@ -71,6 +71,7 @@ use crate::{
         trace_info_command::TraceInfoCommand,
         RdCommand,
     },
+    perf_counters::init_pmu,
     util::raise_resource_limits,
 };
 use nix::sys::utsname::uname;
@@ -109,6 +110,7 @@ fn main() -> io::Result<()> {
     raise_resource_limits();
     let options = RdOptions::from_args();
 
+    init_pmu();
     match &options.cmd {
         RdSubCommand::BuildId => return BuildIdCommand::new().run(),
         RdSubCommand::Dump { .. } => {
