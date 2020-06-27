@@ -39,7 +39,12 @@ use crate::{
         task::{
             common::write_val_mem,
             replay_task::ReplayTask,
-            task_inner::{task_inner::TaskInner, ResumeRequest, TicksRequest, WaitRequest},
+            task_inner::{
+                task_inner::{SaveTraceeFdNumber, TaskInner},
+                ResumeRequest,
+                TicksRequest,
+                WaitRequest,
+            },
             Task,
             TaskSharedPtr,
         },
@@ -474,7 +479,6 @@ impl ReplaySession {
         let env: Vec<OsString> = Vec::new();
 
         let error_fd: ScopedFd = session.create_spawn_task_error_pipe();
-        let mut tracee_socket_fd_number: i32 = -1;
         let sock_fd_out = session.tracee_socket_fd();
         let tid = session.trace_reader_mut().peek_frame().unwrap().tid();
 
@@ -487,15 +491,13 @@ impl ReplaySession {
             (*rc).as_ref(),
             &error_fd,
             sock_fd_out,
-            &mut tracee_socket_fd_number,
+            SaveTraceeFdNumber::SaveToSession,
             &exe_path,
             &argv,
             &env,
             tid,
         );
-        // We never change the tracee_socket_fd_number so its a good idea
-        // to use a bit of unsafe here.
-        unsafe { Rc::get_mut_unchecked(&mut rc) }.tracee_socket_fd_number = tracee_socket_fd_number;
+
         rc.on_create(t);
 
         rc

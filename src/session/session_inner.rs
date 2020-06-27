@@ -415,7 +415,7 @@ pub mod session_inner {
             self.tracee_socket.clone()
         }
         pub fn tracee_fd_number(&self) -> i32 {
-            self.tracee_socket_fd_number
+            self.tracee_socket_fd_number.get()
         }
 
         pub fn ticks_semantics(&self) -> TicksSemantics {
@@ -431,8 +431,7 @@ pub mod session_inner {
                 clone_completion: Default::default(),
                 statistics_: Default::default(),
                 tracee_socket: Default::default(),
-                // @TODO More principled approach!?
-                tracee_socket_fd_number: 0,
+                tracee_socket_fd_number: Cell::new(-1),
                 next_task_serial_: Cell::new(1),
                 spawned_task_error_fd_: Default::default(),
                 syscall_seccomp_ordering_: Default::default(),
@@ -538,8 +537,7 @@ pub mod session_inner {
         pub(in super::super) statistics_: RefCell<Statistics>,
 
         pub(in super::super) tracee_socket: Rc<RefCell<ScopedFd>>,
-        // @TODO Should this be an Option<>?
-        pub(in super::super) tracee_socket_fd_number: i32,
+        pub(in super::super) tracee_socket_fd_number: Cell<i32>,
         pub(in super::super) next_task_serial_: Cell<u32>,
         // @TODO Should this be an Option?
         pub(in super::super) spawned_task_error_fd_: ScopedFd,

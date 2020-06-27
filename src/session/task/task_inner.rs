@@ -476,6 +476,11 @@ pub mod task_inner {
         SessionCloneNonleader,
     }
 
+    pub enum SaveTraceeFdNumber<'a> {
+        SaveToSession,
+        SaveFdTo(&'a mut i32),
+    }
+
     impl TaskInner {
         pub fn weak_self_ptr(&self) -> TaskSharedWeakPtr {
             self.weak_self.clone()
@@ -1373,11 +1378,11 @@ pub mod task_inner {
         ///
         /// DIFF NOTE: rr takes an explicit `trace` param. Since trace is available from the
         /// session we avoid it.
-        pub(in super::super::super) fn spawn<'a>(
+        pub(in super::super::super) fn spawn<'a, 'b>(
             session: &'a dyn Session,
             error_fd: &ScopedFd,
             sock_fd_out: Rc<RefCell<ScopedFd>>,
-            tracee_socket_fd_number_out: &mut i32,
+            tracee_socket_fd_number: SaveTraceeFdNumber<'b>,
             exe_path: &OsStr,
             argv: &[OsString],
             envp: &[OsString],
@@ -1418,7 +1423,10 @@ pub mod task_inner {
                 fd_number += 1;
             }
 
-            *tracee_socket_fd_number_out = fd_number;
+            match tracee_socket_fd_number {
+                SaveTraceeFdNumber::SaveToSession => session.tracee_socket_fd_number.set(fd_number),
+                SaveTraceeFdNumber::SaveFdTo(v) => *v = fd_number,
+            }
 
             let maybe_cpu_index: Option<u32>;
             {
