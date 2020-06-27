@@ -6,7 +6,11 @@ use crate::bindings::ptrace::{
     PTRACE_SYSEMU_SINGLESTEP,
 };
 
-use crate::kernel_abi::common::preload_interface::PRELOAD_THREAD_LOCALS_SIZE;
+use crate::{
+    kernel_abi::common::preload_interface::PRELOAD_THREAD_LOCALS_SIZE,
+    session::address_space::{address_space::AddressSpace, MappingFlags},
+};
+use std::{ffi::c_void, ptr::NonNull};
 
 bitflags! {
     /// CloneFlags::empty(): The child gets a semantic copy of all parent resources (and
@@ -1819,5 +1823,20 @@ kernel is too old.",
     fn dr_user_word_offset(i: usize) -> usize {
         debug_assert!(i < NUM_X86_DEBUG_REGS);
         offset_of!(user, u_debugreg) + size_of::<usize>() * i
+    }
+}
+
+fn preload_thread_locals_local_addr(as_: &AddressSpace) -> Option<NonNull<c_void>> {
+    // There might have been a mapping there, but not the one we expect (i.e.
+    // the one shared with us for thread locals). In that case we behave as
+    // if the mapping didn't exist at all.
+    let maybe_mapping = as_.mapping_of(AddressSpace::preload_thread_locals_start());
+
+    match maybe_mapping {
+        Some(mapping) if mapping.flags.contains(MappingFlags::IS_THREAD_LOCALS) => {
+            debug_assert!(mapping.local_addr.is_some());
+            mapping.local_addr
+        }
+        _ => None,
     }
 }
