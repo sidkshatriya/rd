@@ -1195,7 +1195,7 @@ pub mod task_inner {
             addr: RemotePtr<Void>,
             data: PtraceData,
         ) {
-            unsafe { *(__errno_location()) = 0 };
+            unsafe { Errno::clear() };
             self.fallible_ptrace(request, addr, data);
             let errno = errno();
             ed_assert!(
@@ -1264,7 +1264,7 @@ pub mod task_inner {
             // ptrace operates on the word size of the host, so we really do want
             // to use sizes of host types here.
             let word_size = size_of::<isize>();
-            unsafe { *(__errno_location()) = 0 };
+            unsafe { Errno::clear() };
             // Only write aligned words. This ensures we can always write the last
             // byte before an unmapped region.
             let buf_size = buf.len();
