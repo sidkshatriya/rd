@@ -373,6 +373,11 @@ impl ReplaySession {
     pub fn current_trace_frame(&self) -> Ref<'_, TraceFrame> {
         self.trace_frame.borrow()
     }
+    /// The trace record that we are working on --- the next event
+    /// for replay to reach.
+    pub fn current_trace_frame_mut(&self) -> RefMut<'_, TraceFrame> {
+        self.trace_frame.borrow_mut()
+    }
     /// Time of the current frame
     pub fn current_frame_time(&self) -> FrameTime {
         self.trace_frame.borrow().time()

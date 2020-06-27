@@ -86,6 +86,9 @@ impl TraceFrame {
     pub fn regs_ref(&self) -> &Registers {
         &self.recorded_regs
     }
+    pub fn regs_mut(&mut self) -> &mut Registers {
+        &mut self.recorded_regs
+    }
     pub fn extra_regs_ref(&self) -> &ExtraRegisters {
         &self.recorded_extra_regs
     }

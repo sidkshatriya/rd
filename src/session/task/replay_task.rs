@@ -38,9 +38,9 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use crate::session::SessionSharedPtr;
+use crate::{log::LogLevel::LogWarn, registers::MismatchBehavior, session::SessionSharedPtr};
 use owning_ref::OwningHandle;
-use std::cell::Ref;
+use std::cell::{Ref, RefMut};
 
 pub struct ReplayTask {
     pub task_inner: TaskInner,
@@ -104,8 +104,38 @@ impl ReplayTask {
 
     /// Assert that the current register values match the values in the
     ///  current trace record.
-    pub fn validate_regs(&self, _flags: ReplayTaskIgnore) {
-        unimplemented!()
+    pub fn validate_regs(&self, flags: ReplayTaskIgnore) {
+        // don't validate anything before execve is done as the actual
+        // *process did not start prior to this point
+        if !self.session().done_initial_exec() {
+            return;
+        }
+
+        let mut trace_frame = self.current_trace_frame_mut();
+        let rec_regs = trace_frame.regs_mut();
+
+        if flags == ReplayTaskIgnore::IgnoreEsi {
+            if self.regs_ref().arg4() != rec_regs.arg4() {
+                log!(
+                    LogWarn,
+                    "Probably saw kernel bug mutating $esi across pread/write64\n\
+                call: recorded:{:x}; replaying:{:x}.  Fudging registers.",
+                    rec_regs.arg4(),
+                    self.regs_ref().arg4()
+                );
+                rec_regs.set_arg4(self.regs_ref().arg4());
+            }
+        }
+
+        // TODO: add perf counter validations (hw int, page faults, insts)
+        Registers::compare_register_files(
+            Some(self),
+            "replaying",
+            self.regs_ref(),
+            "recorded",
+            rec_regs,
+            MismatchBehavior::BailOnMismatch,
+        );
     }
 
     pub fn current_trace_frame(&self) -> OwningHandle<SessionSharedPtr, Ref<'_, TraceFrame>> {
@@ -113,6 +143,19 @@ impl ReplayTask {
         // @TODO remove this unsafety by implementing ToHandle??
         let owning_handle = OwningHandle::new_with_fn(sess, |o| {
             unsafe { (*o).as_replay() }.unwrap().current_trace_frame()
+        });
+        owning_handle
+    }
+
+    pub fn current_trace_frame_mut(
+        &self,
+    ) -> OwningHandle<SessionSharedPtr, RefMut<'_, TraceFrame>> {
+        let sess = self.session();
+        // @TODO remove this unsafety by implementing ToHandle??
+        let owning_handle = OwningHandle::new_with_fn(sess, |o| {
+            unsafe { (*o).as_replay() }
+                .unwrap()
+                .current_trace_frame_mut()
         });
         owning_handle
     }
