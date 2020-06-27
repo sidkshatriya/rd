@@ -1361,7 +1361,12 @@ fn child_sendmsg<Arch: Architecture>(
     let mut ok = true;
     let mut msg = Arch::msghdr::default();
     Arch::set_msghdr(&mut msg, remote_cmsgbuf, cmsgbuf_size, remote_msgdata, 1);
-    write_val_mem(remote_buf.remote.t, remote_msg, &msg, Some(&mut ok));
+    write_val_mem(remote_buf.task_mut(), remote_msg, &msg, Some(&mut ok));
+
+    let mut msgdata = Arch::iovec::default();
+    // iov_base: doesn't matter much, we ignore the data
+    Arch::set_iovec(&mut msgdata, RemotePtr::cast(remote_msg), 1);
+    write_val_mem(remote_buf.task_mut(), remote_msgdata, &msgdata, Some(&mut ok));
 
     let cmsg_data_off = rd_kernel_abi_arch_function!(cmsg_data_offset, Arch::arch());
     let mut cmsghdr = Arch::cmsghdr::default();
