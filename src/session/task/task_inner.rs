@@ -747,6 +747,7 @@ pub mod task_inner {
 
         /// Return the current regs of this.
         pub fn regs_ref(&self) -> &Registers {
+            ed_assert!(self, self.is_stopped);
             &self.registers
         }
 

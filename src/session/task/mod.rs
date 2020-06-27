@@ -214,8 +214,22 @@ pub trait Task: DerefMut<Target = TaskInner> {
     /// `cont_sysemu()` or `cont_sysemu_singlestep()`, but that's
     /// not checked.  If so, step over the system call instruction
     /// to "exit" the emulated syscall.
-    fn finish_emulated_syscall(&self) {
-        unimplemented!()
+    fn finish_emulated_syscall(&mut self) {
+        // XXX verify that this can't be interrupted by a breakpoint trap
+        let r = self.regs_ref().clone();
+
+        // Passing `TicksRequest::ResumeNoTicks` here is not only a small performance optimization,
+        // but also avoids counting an event if the instruction immediately following
+        // a syscall instruction is a conditional branch.
+        self.resume_execution(
+            ResumeRequest::ResumeSyscall,
+            WaitRequest::ResumeWait,
+            TicksRequest::ResumeNoTicks,
+            None,
+        );
+
+        self.set_regs(&r);
+        self.wait_status = Default::default();
     }
 
     /// Assuming we've just entered a syscall, exit that syscall and reset
