@@ -13,7 +13,7 @@ use crate::{
     registers::Registers,
     remote_code_ptr::RemoteCodePtr,
     remote_ptr::RemotePtr,
-    replay_syscall::{rep_prepare_run_to_syscall, rep_process_syscall},
+    replay_syscall::{rep_after_enter_syscall, rep_prepare_run_to_syscall, rep_process_syscall},
     scoped_fd::ScopedFd,
     session::{
         address_space::{
@@ -1265,9 +1265,4 @@ fn compute_ticks_request(
         }
     }
     true
-}
-
-/// Call this when |t| has just entered a syscall.
-pub fn rep_after_enter_syscall(_t: &ReplayTask) {
-    unimplemented!()
 }

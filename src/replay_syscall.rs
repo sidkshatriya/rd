@@ -60,6 +60,7 @@ use libc::{
 use nix::sys::mman::{MapFlags, ProtFlags};
 use std::{
     cmp::min,
+    convert::TryInto,
     ffi::{OsStr, OsString},
     os::unix::ffi::OsStringExt,
 };
@@ -517,4 +518,52 @@ pub fn rep_prepare_run_to_syscall(t: &mut ReplayTask) -> ReplayTraceStep {
 
 pub fn rep_process_syscall(_t: &ReplayTask, _step: &ReplayTraceStep) {
     unimplemented!()
+}
+
+fn non_negative_syscall(sys: isize) -> isize {
+    if sys < 0 {
+        isize::MAX
+    } else {
+        sys
+    }
+}
+
+/// Call this when |t| has just entered a syscall.
+pub fn rep_after_enter_syscall(t: &mut ReplayTask) {
+    rd_arch_function_selfless!(rep_after_enter_syscall_arch, t.arch(), t)
+}
+
+fn rep_after_enter_syscall_arch<Arch: Architecture>(t: &mut ReplayTask) {
+    let sys: i32 = non_negative_syscall(t.regs_ref().original_syscallno())
+        .try_into()
+        .unwrap();
+
+    if sys == Arch::WRITE || sys == Arch::WRITEV {
+        let fd: i32 = t.regs_ref().arg1_signed().try_into().unwrap();
+        t.fd_table().will_write(t, fd);
+    }
+
+    if sys == Arch::CLONE || sys == Arch::VFORK || sys == Arch::FORK {
+        // Create the new task now. It needs to exist before clone/fork/vfork
+        // returns so that a ptracer can touch it during PTRACE_EVENT handling.
+        unimplemented!()
+    }
+
+    if sys == Arch::PTRACE {
+        unimplemented!()
+    }
+
+    if sys == Arch::EXIT {
+        // Destroy buffers now to match when we destroyed them during recording.
+        // It's possible for another mapping to be created overlapping our
+        // buffers before this task truly exits, and we don't want to trash
+        // that mapping by destroying our buffers then.
+        t.destroy_buffers();
+    }
+
+    if sys == Arch::EXIT_GROUP {
+        unimplemented!()
+    }
+
+    t.apply_all_data_records_from_trace();
 }
