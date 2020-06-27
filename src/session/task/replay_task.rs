@@ -38,7 +38,12 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use crate::{log::LogLevel::LogWarn, registers::MismatchBehavior, session::SessionSharedPtr};
+use crate::{
+    log::LogLevel::LogWarn,
+    registers::MismatchBehavior,
+    session::SessionSharedPtr,
+    trace::trace_reader::TraceReader,
+};
 use owning_ref::OwningHandle;
 use std::cell::{Ref, RefMut};
 
@@ -169,9 +174,35 @@ impl ReplayTask {
         unimplemented!()
     }
 
+    pub fn trace_reader(&self) -> OwningHandle<SessionSharedPtr, Ref<'_, TraceReader>> {
+        let sess = self.session();
+        // @TODO remove this unsafety by implementing ToHandle??
+        let owning_handle = OwningHandle::new_with_fn(sess, |o| {
+            unsafe { (*o).as_replay() }.unwrap().trace_reader()
+        });
+        owning_handle
+    }
+
+    pub fn trace_reader_mut(&self) -> OwningHandle<SessionSharedPtr, RefMut<'_, TraceReader>> {
+        let sess = self.session();
+        // @TODO remove this unsafety by implementing ToHandle??
+        let owning_handle = OwningHandle::new_with_fn(sess, |o| {
+            unsafe { (*o).as_replay() }.unwrap().trace_reader_mut()
+        });
+        owning_handle
+    }
+
     /// Restore all remaining chunks of saved data for the current trace frame.
     pub fn apply_all_data_records_from_trace(&mut self) {
-        unimplemented!()
+        while let Some(buf) = self.trace_reader_mut().read_raw_data_for_frame() {
+            if !buf.addr.is_null() && buf.data.len() > 0 {
+                let t = self.session().find_task_from_rec_tid(buf.rec_tid).unwrap();
+                t.borrow_mut()
+                    .write_bytes_helper(buf.addr, &buf.data, None, WriteFlags::empty());
+                // @TODO Call to maybe_update_breakpoints
+                unimplemented!()
+            }
+        }
     }
 
     /// Set the syscall-return-value register of this to what was
