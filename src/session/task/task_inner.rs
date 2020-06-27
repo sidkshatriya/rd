@@ -1087,7 +1087,26 @@ pub mod task_inner {
             unimplemented!()
         }
         pub fn activate_preload_thread_locals(&self) {
-            unimplemented!()
+            // Switch thread-locals to the new task.
+            if self.tuid() != self.vm().thread_locals_tuid() {
+                let local_addr = preload_thread_locals_local_addr(&self.vm());
+                if local_addr.is_some() {
+                    let maybe_t = self
+                        .session()
+                        .find_task_from_task_uid(self.vm().thread_locals_tuid());
+                    if maybe_t.is_some() {
+                        maybe_t.unwrap().borrow().fetch_preload_thread_locals();
+                    }
+                    unsafe {
+                        copy_nonoverlapping(
+                            &self.thread_locals as *const u8,
+                            local_addr.unwrap().as_ptr().cast::<u8>(),
+                            PRELOAD_THREAD_LOCALS_SIZE,
+                        );
+                    }
+                    self.vm_mut().set_thread_locals_tuid(self.tuid());
+                }
+            }
         }
 
         pub(in super::super::super) fn new(
