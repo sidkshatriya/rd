@@ -89,7 +89,7 @@ use std::{
     mem::{size_of, size_of_val, zeroed},
     ops::{Deref, DerefMut},
     os::unix::ffi::OsStrExt,
-    ptr::copy_nonoverlapping,
+    ptr::{copy_nonoverlapping, NonNull},
     slice,
     sync::atomic::{AtomicUsize, Ordering},
 };
@@ -1066,7 +1066,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
             None,
             None,
             None,
-            Some(map_addr),
+            Some(NonNull::new(map_addr).unwrap()),
             monitored,
         );
 
@@ -1111,7 +1111,8 @@ impl<'a> AutoRemoteSyscalls<'a> {
         // reference of the shared mapping. We use the fallible read method to
         // handle the case where the mapping is larger than the backing file, which
         // would otherwise cause a short read.
-        let buf = unsafe { slice::from_raw_parts_mut(new_m.local_addr.unwrap() as *mut u8, sz) };
+        let buf =
+            unsafe { slice::from_raw_parts_mut(new_m.local_addr.unwrap().as_ptr() as *mut u8, sz) };
 
         // DIFF NOTE: Added a fatal!() here to deal with Err case.
         // rr does not do this, however, it makes sense to do this because short reads (and zero
@@ -1186,8 +1187,8 @@ impl<'a> AutoRemoteSyscalls<'a> {
             let new_map_local = new_map_local_addr.unwrap();
             unsafe {
                 // @TODO This should be non-overlapping but think about this more to be sure.
-                copy_nonoverlapping(preserved_data, new_map_local, size);
-                munmap(preserved_data, size).unwrap();
+                copy_nonoverlapping(preserved_data.as_ptr(), new_map_local.as_ptr(), size);
+                munmap(preserved_data.as_ptr(), size).unwrap();
             }
         }
         new_addr

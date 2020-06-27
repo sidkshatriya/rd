@@ -263,6 +263,7 @@ pub mod address_space {
             DerefMut,
             Drop,
         },
+        ptr::NonNull,
         rc::{Rc, Weak},
         sync::atomic::{AtomicUsize, Ordering},
     };
@@ -296,7 +297,7 @@ pub mod address_space {
         /// mapping's permissions in the tracee. Also note that it is the caller's
         /// responsibility to keep this alive at least as long as this mapping is
         /// present in the address space.
-        pub local_addr: Option<*mut c_void>,
+        pub local_addr: Option<NonNull<c_void>>,
         /// Multiple Mapping-s might point to the same MonitoredSharedMemory object.
         pub monitored_shared_memory: Option<MonitoredSharedMemorySharedPtr>,
         /// Flags indicate mappings that require special handling. Adjacent mappings
@@ -310,7 +311,7 @@ pub mod address_space {
             recorded_map: KernelMapping,
             emu_file: Option<EmuFileSharedPtr>,
             mapped_file_stat: Option<stat>,
-            local_addr: Option<*mut c_void>,
+            local_addr: Option<NonNull<c_void>>,
             monitored: Option<MonitoredSharedMemorySharedPtr>,
         ) -> Mapping {
             Mapping {
@@ -846,7 +847,7 @@ pub mod address_space {
             mapped_file_stat: Option<libc::stat>,
             record_map: Option<&KernelMapping>,
             emu_file: Option<EmuFileSharedPtr>,
-            local_addr: Option<*mut c_void>,
+            local_addr: Option<NonNull<c_void>>,
             monitored: Option<MonitoredSharedMemorySharedPtr>,
         ) -> KernelMapping {
             log!(
@@ -931,7 +932,7 @@ pub mod address_space {
         }
 
         /// Detach local mapping and return it.
-        pub fn detach_local_mapping(&mut self, addr: RemotePtr<Void>) -> Option<*mut c_void> {
+        pub fn detach_local_mapping(&mut self, addr: RemotePtr<Void>) -> Option<NonNull<c_void>> {
             match self.mapping_of_mut(addr) {
                 Some(found_mapping) if found_mapping.local_addr.is_some() => {
                     found_mapping.local_addr.take()
@@ -961,7 +962,7 @@ pub mod address_space {
                     let offset = addr - found_map.map.start();
                     let data = unsafe {
                         std::slice::from_raw_parts_mut::<u8>(
-                            found_local_addr.cast::<u8>().add(offset),
+                            found_local_addr.as_ptr().cast::<u8>().add(offset),
                             size,
                         )
                     };
@@ -1059,9 +1060,9 @@ pub mod address_space {
 
                 let new_prot =
                     prot & (ProtFlags::PROT_READ | ProtFlags::PROT_WRITE | ProtFlags::PROT_EXEC);
-                let new_local_addr = m
-                    .local_addr
-                    .map(|addr| unsafe { addr.add(new_start - m.map.start()) });
+                let new_local_addr = m.local_addr.map(|addr| unsafe {
+                    NonNull::new(addr.as_ptr().add(new_start - m.map.start())).unwrap()
+                });
 
                 let new_monitored = m.monitored_shared_memory.clone().map(|r| {
                     r.borrow()
@@ -1086,9 +1087,9 @@ pub mod address_space {
                 // region, remap the overflow region with previous
                 // prot.
                 if rem.end() < m.map.end() {
-                    let new_local = m
-                        .local_addr
-                        .map(|addr| unsafe { addr.add(rem.end() - m.map.start()) });
+                    let new_local = m.local_addr.map(|addr| unsafe {
+                        NonNull::new(addr.as_ptr().add(rem.end() - m.map.start())).unwrap()
+                    });
 
                     let new_monitored = m.monitored_shared_memory.clone().map(|r| {
                         r.borrow()
@@ -2194,9 +2195,9 @@ pub mod address_space {
                 // If the last segment we unmap overflows the unmap
                 // region, remap the overflow region.
                 if rem.end() < m.map.end() {
-                    let new_local = m
-                        .local_addr
-                        .map(|addr| unsafe { addr.add(rem.end() - m.map.start()) });
+                    let new_local = m.local_addr.map(|addr| unsafe {
+                        NonNull::new(addr.as_ptr().add(rem.end() - m.map.start())).unwrap()
+                    });
 
                     let new_monitored = m.monitored_shared_memory.clone().map(|r| {
                         r.borrow()
@@ -2217,7 +2218,10 @@ pub mod address_space {
                 if m.local_addr.is_some() {
                     if unsafe {
                         munmap(
-                            m.local_addr.unwrap().add(rem.start() - m.map.start()),
+                            m.local_addr
+                                .unwrap()
+                                .as_ptr()
+                                .add(rem.start() - m.map.start()),
                             rem.size(),
                         )
                     }
@@ -2690,7 +2694,7 @@ pub mod address_space {
             recorded_km: KernelMapping,
             emu_file: Option<EmuFileSharedPtr>,
             mapped_file_stat: Option<libc::stat>,
-            local_addr: Option<*mut c_void>,
+            local_addr: Option<NonNull<c_void>>,
             monitored: Option<MonitoredSharedMemorySharedPtr>,
         ) {
             log!(LogDebug, "  mapping {}", km);
@@ -2807,7 +2811,7 @@ pub mod address_space {
             for (_, m) in &self.mem {
                 match m.local_addr {
                     Some(local) => {
-                        if unsafe { munmap(local, m.map.size()) }.is_err() {
+                        if unsafe { munmap(local.as_ptr(), m.map.size()) }.is_err() {
                             fatal!("Can't munmap");
                         }
                     }
@@ -2931,7 +2935,9 @@ fn assert_coalesceable(t: &dyn Task, lower: &Mapping, higher: &Mapping) {
     ed_assert!(t, emu_file_comparison);
     let local_addr_comparison = match lower.local_addr {
         Some(lower_local) => match higher.local_addr {
-            Some(higher_local) => lower_local as usize + lower.map.size() == higher_local as usize,
+            Some(higher_local) => {
+                lower_local.as_ptr() as usize + lower.map.size() == higher_local.as_ptr() as usize
+            }
             None => false,
         },
         None => higher.local_addr.is_none(),

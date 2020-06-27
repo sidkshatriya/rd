@@ -257,7 +257,7 @@ pub mod record_task {
         collections::{HashSet, VecDeque},
         ffi::CString,
         ops::{Deref, DerefMut},
-        rc::Rc,
+        rc::{Rc, Weak},
     };
 
     pub struct StashedSignal {
@@ -280,6 +280,9 @@ pub mod record_task {
         DontResetSyscallbuf,
     }
 
+    pub type RecordTaskSharedWeakPtr = Weak<RefCell<RecordTask>>;
+    pub type RecordTaskSharedPtr = Rc<RefCell<RecordTask>>;
+
     pub struct RecordTask {
         pub task_inner: TaskInner,
         pub ticks_at_last_recorded_syscall_exit: Ticks,
@@ -300,8 +303,8 @@ pub mod record_task {
         /// ptrace emulation state
 
         /// Task for which we're emulating ptrace of this task, or null
-        pub emulated_ptracer: Option<*mut RecordTask>,
-        pub emulated_ptrace_tracees: HashSet<*mut RecordTask>,
+        pub emulated_ptracer: Option<RecordTaskSharedWeakPtr>,
+        pub emulated_ptrace_tracees: HashSet<RecordTaskSharedWeakPtr>,
         pub emulated_ptrace_event_msg: usize,
         /// Saved emulated-ptrace signals
         pub saved_ptrace_siginfos: Vec<siginfo_t>,

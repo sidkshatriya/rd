@@ -417,7 +417,7 @@ impl ReplaySession {
             syscall_bp_vm: Default::default(),
             syscall_bp_addr: Default::default(),
         };
-        
+
         let semantics = rs.trace_in.borrow().ticks_semantics();
         rs.ticks_semantics_ = semantics;
         rs.advance_to_next_trace_frame();
