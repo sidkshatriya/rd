@@ -1,5 +1,4 @@
 use crate::{
-    bindings::signal::siginfo_t,
     event::{
         Event,
         EventType,
@@ -64,7 +63,7 @@ use crate::{
     wait_status::WaitStatus,
 };
 use capnp::{message::ReaderOptions, serialize_packed::read_message};
-use libc::{ino_t, pid_t, time_t};
+use libc::{ino_t, pid_t, siginfo_t, time_t};
 use nix::{
     errno::errno,
     sys::{

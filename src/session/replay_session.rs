@@ -1,6 +1,6 @@
 use super::task::task_inner::MAX_TICKS_REQUEST;
 use crate::{
-    bindings::{ptrace::PTRACE_EVENT_SECCOMP, signal::siginfo_t},
+    bindings::ptrace::PTRACE_EVENT_SECCOMP,
     cpuid_bug_detector::CPUIDBugDetector,
     emu_fs::{EmuFs, EmuFsSharedPtr},
     event::{Event, EventType, SignalDeterministic, SignalEventData, SyscallState},
@@ -71,7 +71,7 @@ use crate::{
         XSAVEC_FEATURE_FLAG,
     },
 };
-use libc::{ENOSYS, SIGBUS, SIGSEGV, SIGTRAP};
+use libc::{siginfo_t, ENOSYS, SIGBUS, SIGSEGV, SIGTRAP};
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
     ffi::{OsStr, OsString},
@@ -295,7 +295,7 @@ pub struct ReplaySession {
     current_step: Cell<ReplayTraceStep>,
     ticks_at_start_of_event: Ticks,
     cpuid_bug_detector: CPUIDBugDetector,
-    last_siginfo_: Cell<siginfo_t>,
+    last_siginfo_: Cell<Option<siginfo_t>>,
     flags_: Flags,
     fast_forward_status: Cell<FastForwardStatus>,
     /// The clock_gettime(CLOCK_MONOTONIC) timestamp of the first trace event, used
@@ -521,7 +521,7 @@ impl ReplaySession {
     pub fn replay_step_with_constraints(&self, constraints: StepConstraints) -> ReplayResult {
         self.finish_initializing();
         let mut result = ReplayResult::new(ReplayStatus::ReplayContinue);
-        let maybe_rc_t = self.current_task();
+        let mut maybe_rc_t = self.current_task();
 
         if self.current_trace_frame().event().event_type() == EventType::EvTraceTermination {
             result.status = ReplayStatus::ReplayExited;
@@ -536,47 +536,126 @@ impl ReplaySession {
                 self.advance_to_next_trace_frame();
             }
             if self.current_step.get().action == ReplayTraceStepType::TstepNone {
-                result.break_status.task = rc_t.borrow().weak_self.clone();
+                result.break_status.task = Some(rc_t.borrow().weak_self.clone());
                 result.break_status.task_exit = true;
             }
             return result;
         }
-        let rc_t = maybe_rc_t.unwrap();
-        self.fast_forward_status.set(FastForwardStatus::new());
-        // Now we know |t| hasn't died, so save it in break_status.
-        result.break_status.task = rc_t.borrow().weak_self.clone();
-        let mut dt = rc_t.borrow_mut();
-        let t = dt.as_replay_task_mut().unwrap();
-        // Advance towards fulfilling |current_step|.
-        if self.try_one_trace_step(t, &constraints) == Completion::Incomplete {
-            if EventType::EvTraceTermination == self.current_trace_frame().event().event_type() {
-                // An irregular trace step had to read the
-                // next trace frame, and that frame was an
-                // early-termination marker.  Otherwise we
-                // would have seen the marker above.
-                result.status = ReplayStatus::ReplayExited;
+        {
+            let rc_t = maybe_rc_t.as_ref().unwrap().clone();
+            self.fast_forward_status.set(FastForwardStatus::new());
+            // Now we know |t| hasn't died, so save it in break_status.
+            result.break_status.task = Some(rc_t.borrow().weak_self.clone());
+            let mut dt = rc_t.borrow_mut();
+            let t = dt.as_replay_task_mut().unwrap();
+            // Advance towards fulfilling |current_step|.
+            if self.try_one_trace_step(t, &constraints) == Completion::Incomplete {
+                if EventType::EvTraceTermination == self.current_trace_frame().event().event_type()
+                {
+                    // An irregular trace step had to read the
+                    // next trace frame, and that frame was an
+                    // early-termination marker.  Otherwise we
+                    // would have seen the marker above.
+                    result.status = ReplayStatus::ReplayExited;
+                    return result;
+                }
+
+                // We got INCOMPLETE because there was some kind of debugger trap or
+                // we got close to ticks_target.
+                result.break_status = self.diagnose_debugger_trap(t, constraints.command);
+                ed_assert!(
+                    t,
+                    result.break_status.signal.is_none(),
+                    "Expected either SIGTRAP at $ip {} or USER breakpoint just after it",
+                    t.ip()
+                );
+                ed_assert!(
+                    t,
+                    !result.break_status.singlestep_complete || constraints.is_singlestep()
+                );
+
+                self.check_approaching_ticks_target(t, &constraints, &mut result.break_status);
+                result.did_fast_forward = self.fast_forward_status.get().did_fast_forward;
+                result.incomplete_fast_forward =
+                    self.fast_forward_status.get().incomplete_fast_forward;
                 return result;
             }
 
-            // We got INCOMPLETE because there was some kind of debugger trap or
-            // we got close to ticks_target.
-            result.break_status = self.diagnose_debugger_trap(t, constraints.command);
-            ed_assert!(
-                t,
-                result.break_status.signal.is_none(),
-                "Expected either SIGTRAP at $ip {} or USER breakpoint just after it",
-                t.ip()
-            );
-            ed_assert!(
-                t,
-                !result.break_status.singlestep_complete || constraints.is_singlestep()
-            );
-
-            self.check_approaching_ticks_target(t, &constraints, &mut result.break_status);
             result.did_fast_forward = self.fast_forward_status.get().did_fast_forward;
             result.incomplete_fast_forward = self.fast_forward_status.get().incomplete_fast_forward;
-            return result;
+            match self.current_step.get().action {
+                ReplayTraceStepType::TstepDeterministicSignal
+                | ReplayTraceStepType::TstepProgramAsyncSignalInterrupt => {
+                    if self.current_step.get().target().signo != 0 {
+                        if self.current_trace_frame().event().event_type()
+                            != EventType::EvInstructionTrap
+                        {
+                            ed_assert!(
+                                t,
+                                self.current_step.get().target().signo
+                                    == self.last_siginfo_.get().unwrap().si_signo
+                            );
+                            result.break_status.signal =
+                                Some(Box::new(self.last_siginfo_.get().unwrap()));
+                        }
+                        if constraints.is_singlestep() {
+                            result.break_status.singlestep_complete = true;
+                        }
+                    }
+                }
+                ReplayTraceStepType::TstepDeliverSignal => {
+                    // When we deliver a terminating signal, do not let the singlestep
+                    // complete; proceed on to report our synthetic SIGKILL or task death.
+                    if constraints.is_singlestep()
+                        && !(self.current_trace_frame().event().event_type()
+                            == EventType::EvSignalDelivery
+                            && is_fatal_default_action(self.current_step.get().target().signo))
+                    {
+                        result.break_status.singlestep_complete = true;
+                    }
+                }
+                ReplayTraceStepType::TstepExitTask => {
+                    result.break_status.task = None;
+                    maybe_rc_t = None;
+                    debug_assert!(!result.break_status.any_break());
+                }
+                ReplayTraceStepType::TstepEnterSyscall => {
+                    self.cpuid_bug_detector
+                        .notify_reached_syscall_during_replay(t);
+                }
+                ReplayTraceStepType::TstepExitSyscall => {
+                    if constraints.is_singlestep() {
+                        result.break_status.singlestep_complete = true;
+                    }
+                }
+                _ => (),
+            }
         }
+        if maybe_rc_t.is_some() {
+            let rc_t = maybe_rc_t.unwrap();
+
+            let mut dt = rc_t.borrow_mut();
+            let t = dt.as_replay_task_mut().unwrap();
+
+            let frame = self.current_trace_frame();
+            let ev = frame.event();
+            if self.done_initial_exec()
+                && ev.is_syscall_event()
+                && ProgramFlags::get().check_cached_mmaps
+            {
+                t.vm().verify(t);
+            }
+
+            if has_deterministic_ticks(ev, self.current_step.get()) {
+                self.check_ticks_consistency(t, ev);
+            }
+
+            debug_memory(t);
+
+            self.check_for_watchpoint_changes(t, &result.break_status);
+            self.check_approaching_ticks_target(t, &constraints, &mut result.break_status);
+        }
+
         unimplemented!();
     }
 
@@ -687,7 +766,7 @@ impl ReplaySession {
                 }
             }
             EventType::EvSignal => {
-                self.last_siginfo_.set(ev.signal_event().siginfo.clone());
+                self.last_siginfo_.set(Some(ev.signal_event().siginfo));
                 if treat_signal_event_as_deterministic(ev.signal_event()) {
                     current_step = ReplayTraceStep {
                         action: ReplayTraceStepType::TstepDeterministicSignal,
@@ -1265,4 +1344,26 @@ fn compute_ticks_request(
         }
     }
     true
+}
+
+fn is_fatal_default_action(_sig: i32) -> bool {
+    unimplemented!()
+}
+
+/// Return true if replaying |ev| by running |step| should result in
+/// the target task having the same ticks value as it did during
+/// recording.
+fn has_deterministic_ticks(ev: &Event, step: ReplayTraceStep) -> bool {
+    if ev.has_ticks_slop() {
+        return false;
+    }
+    // We won't necessarily reach the same ticks when replaying an
+    // async signal, due to debugger interrupts and other
+    // implementation details.  This is checked in |advance_to()|
+    // anyway.
+    ReplayTraceStepType::TstepProgramAsyncSignalInterrupt != step.action
+}
+
+fn debug_memory(_t: &ReplayTask) {
+    unimplemented!()
 }

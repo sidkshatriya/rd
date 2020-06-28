@@ -5,7 +5,7 @@ use libc::siginfo_t;
 pub struct BreakStatus {
     /// The triggering Task. This may be different from session->current_task()
     /// when replay switches to a new task when ReplaySession::replay_step() ends.
-    pub task: TaskSharedWeakPtr,
+    pub task: Option<TaskSharedWeakPtr>,
     /// List of watchpoints hit; any watchpoint hit causes a stop after the
     /// instruction that triggered the watchpoint has completed.
     pub watchpoints_hit: Vec<WatchConfig>,
@@ -39,16 +39,16 @@ impl BreakStatus {
 
     /// True when we stopped because we hit a software or hardware breakpoint at
     /// `task`'s current ip().
-    pub fn hardware_or_software_breakpoint_hit() -> bool {
+    pub fn hardware_or_software_breakpoint_hit(&self) -> bool {
         unimplemented!()
     }
 
     /// Returns just the data watchpoints hit.
-    pub fn data_watchpoints_hit() -> Vec<WatchConfig> {
+    pub fn data_watchpoints_hit(&self) -> Vec<WatchConfig> {
         unimplemented!()
     }
 
-    pub fn any_break() -> bool {
+    pub fn any_break(&self) -> bool {
         unimplemented!()
     }
 }

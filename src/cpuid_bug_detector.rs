@@ -31,7 +31,7 @@ impl CPUIDBugDetector {
     }
 
     /// Call this when task t enters a traced syscall during replay.
-    pub fn notify_reached_syscall_during_replay(_t: &ReplayTask) {
+    pub fn notify_reached_syscall_during_replay(&self, _t: &ReplayTask) {
         // Do nothing currently
     }
 }

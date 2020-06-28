@@ -36,7 +36,7 @@ pub struct Flags {
     /// Mark the trace global time along with tracee writes to stdio.
     pub mark_stdio: bool,
     /// Check that cached mmaps match /proc/maps after each event.
-    pub check_cached_maps: bool,
+    pub check_cached_mmaps: bool,
     /// Suppress warnings related to environmental features outside rd's
     /// control.
     pub suppress_environment_warnings: bool,
@@ -68,7 +68,7 @@ pub fn init_flags() -> Flags {
         dump_at: options.dump_at,
         force_things: options.force_things,
         mark_stdio: options.mark_stdio,
-        check_cached_maps: options.check_cached_mmaps,
+        check_cached_mmaps: options.check_cached_mmaps,
         suppress_environment_warnings: options.suppress_environment_warnings,
         fatal_errors_and_warnings: options.fatal_errors,
         disable_cpuid_faulting: options.disable_cpuid_faulting,
