@@ -4,7 +4,8 @@ use crate::{
         kernel::timeval,
         signal::{SI_KERNEL, TRAP_BRKPT},
     },
-    flags::Flags,
+    event::{Event, EventType},
+    flags::{DumpOn, Flags},
     kernel_abi::CloneParameterOrdering,
     kernel_supplement::ARCH_SET_CPUID,
     log::LogLevel::{LogDebug, LogWarn},
@@ -20,6 +21,7 @@ use crate::{
             Task,
         },
     },
+    trace::trace_frame::FrameTime,
 };
 #[cfg(target_arch = "x86")]
 use libc::{REG_EAX, REG_EIP};
@@ -1470,4 +1472,17 @@ pub fn cpuid_compatible(trace_records: &[CPUIDRecord]) -> bool {
 
 pub fn has_effective_caps(_caps: u64) -> bool {
     unimplemented!()
+}
+
+pub fn should_dump_memory(event: &Event, time: FrameTime) -> bool {
+    let flags = Flags::get();
+
+    flags.dump_on == Some(DumpOn::DumpOnAll)
+        || (event.is_syscall_event()
+            && Some(DumpOn::DumpOnSyscall(event.syscall_event().number)) == flags.dump_on)
+        || (event.is_signal_event()
+            && Some(DumpOn::DumpOnSignal(event.signal_event().siginfo.si_signo)) == flags.dump_on)
+        || (flags.dump_on == Some(DumpOn::DumpOnRdtsc)
+            && event.event_type() == EventType::EvInstructionTrap)
+        || flags.dump_at == Some(time)
 }

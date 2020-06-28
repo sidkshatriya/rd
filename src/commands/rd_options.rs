@@ -120,9 +120,9 @@ fn parse_dump_on(dump_on_s: &str) -> Result<DumpOn, Box<dyn Error>> {
     } else if dump_on_s.chars().all(|c| c.is_ascii_digit() || c == '-') {
         let signal_or_syscall = dump_on_s.parse::<i32>()?;
         if signal_or_syscall < 0 {
-            Ok(DumpOn::DumpOnSignal(-signal_or_syscall as u32))
+            Ok(DumpOn::DumpOnSignal(-signal_or_syscall))
         } else {
-            Ok(DumpOn::DumpOnSyscall(signal_or_syscall as u32))
+            Ok(DumpOn::DumpOnSyscall(signal_or_syscall))
         }
     } else {
         Err(Box::new(clap::Error::with_description(

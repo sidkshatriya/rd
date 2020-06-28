@@ -20,8 +20,8 @@ pub enum Checksum {
 pub enum DumpOn {
     DumpOnAll,
     DumpOnRdtsc,
-    DumpOnSignal(u32),
-    DumpOnSyscall(u32),
+    DumpOnSignal(i32),
+    DumpOnSyscall(i32),
 }
 
 #[derive(Clone)]

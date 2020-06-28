@@ -61,6 +61,7 @@ use crate::{
         cpuid,
         cpuid_compatible,
         find_cpuid_record,
+        should_dump_memory,
         xcr0,
         xsave_enabled,
         CPUIDData,
@@ -1037,8 +1038,22 @@ impl ReplaySession {
     ) -> bool {
         unimplemented!();
     }
-    fn check_ticks_consistency(&self, _t: &ReplayTask, _ev: &Event) {
-        unimplemented!();
+    fn check_ticks_consistency(&self, t: &ReplayTask, ev: &Event) {
+        if !self.done_initial_exec() {
+            return;
+        }
+
+        let ticks_now = t.tick_count();
+        let trace_ticks = self.current_trace_frame().ticks();
+
+        ed_assert!(
+            t,
+            ticks_now == trace_ticks,
+            "ticks mismatch for '{}'; expected {}, got {}",
+            ev,
+            trace_ticks,
+            ticks_now
+        );
     }
     fn check_pending_sig(&self, _t: &ReplayTask) {
         unimplemented!();
@@ -1364,6 +1379,9 @@ fn has_deterministic_ticks(ev: &Event, step: ReplayTraceStep) -> bool {
     ReplayTraceStepType::TstepProgramAsyncSignalInterrupt != step.action
 }
 
-fn debug_memory(_t: &ReplayTask) {
-    unimplemented!()
+fn debug_memory(t: &ReplayTask) {
+    let current_time = t.current_frame_time();
+    if should_dump_memory(t.current_trace_frame().event(), current_time) {
+        unimplemented!()
+    }
 }

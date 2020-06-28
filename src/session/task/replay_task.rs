@@ -166,7 +166,7 @@ impl ReplayTask {
     }
 
     pub fn current_frame_time(&self) -> FrameTime {
-        unimplemented!()
+        self.current_trace_frame().time()
     }
 
     /// Restore the next chunk of saved data from the trace to this.
