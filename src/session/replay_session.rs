@@ -294,7 +294,7 @@ pub struct ReplaySession {
     trace_in: RefCell<TraceReader>,
     trace_frame: RefCell<TraceFrame>,
     current_step: Cell<ReplayTraceStep>,
-    ticks_at_start_of_event: Ticks,
+    ticks_at_start_of_event: Cell<Ticks>,
     cpuid_bug_detector: CPUIDBugDetector,
     last_siginfo_: Cell<Option<siginfo_t>>,
     flags_: Flags,
@@ -413,7 +413,7 @@ impl ReplaySession {
             trace_in: RefCell::new(TraceReader::new(dir)),
             trace_frame: Default::default(),
             current_step: Default::default(),
-            ticks_at_start_of_event: 0,
+            ticks_at_start_of_event: Default::default(),
             flags_: flags,
             last_siginfo_: Default::default(),
             trace_start_time: Default::default(),
@@ -657,7 +657,25 @@ impl ReplaySession {
             self.check_approaching_ticks_target(t, &constraints, &mut result.break_status);
         }
 
-        unimplemented!();
+        self.advance_to_next_trace_frame();
+        // Record that this step completed successfully.
+        self.current_step.set(Default::default());
+        let maybe_next_task = self.current_task();
+        match maybe_next_task {
+            None => (),
+            Some(next_task_shr_ptr) => {
+                let next_task_t = next_task_shr_ptr.borrow_mut();
+                let next_task = next_task_t.as_replay_task().unwrap();
+                if next_task.vm().first_run_event() == 0 && self.done_initial_exec() {
+                    next_task
+                        .vm_mut()
+                        .set_first_run_event(self.current_frame_time());
+                }
+                self.ticks_at_start_of_event.set(next_task.tick_count());
+            }
+        }
+
+        result
     }
 
     /// Set up rep_trace_step state in t's Session to start replaying towards
