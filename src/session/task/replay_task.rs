@@ -209,7 +209,13 @@ impl ReplayTask {
     /// Set the syscall-return-value register of this to what was
     /// saved in the current trace frame.
     pub fn set_return_value_from_trace(&mut self) {
-        unimplemented!()
+        let mut r = self.regs_ref().clone();
+        r.set_syscall_result(self.current_trace_frame().regs_ref().syscall_result());
+        // In some cases (e.g. syscalls forced to return an error by tracee
+        // seccomp filters) we need to emulate a change to the original_syscallno
+        // (to -1 in that case).
+        r.set_original_syscallno(self.current_trace_frame().regs_ref().original_syscallno());
+        self.set_regs(&r);
     }
 
     /// Used when an execve changes the tid of a non-main-thread to the
