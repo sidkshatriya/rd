@@ -129,9 +129,7 @@ pub(super) fn open_mem_fd<T: Task>(task: &mut T) -> bool {
                 // Skip the leading '/' in the path as this is a relative path.
                 (remote_addr + 1usize).as_usize(),
                 libc::O_RDWR
-            )
-            .try_into()
-            .unwrap();
+            ) as i32;
         } else {
             remote_fd = -ESRCH;
         }

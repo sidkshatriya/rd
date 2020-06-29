@@ -706,7 +706,7 @@ fn rep_after_enter_syscall_arch<Arch: Architecture>(t: &mut ReplayTask) {
     let sys: i32 = non_negative_syscall(t.regs_ref().original_syscallno().try_into().unwrap());
 
     if sys == Arch::WRITE || sys == Arch::WRITEV {
-        let fd: i32 = t.regs_ref().arg1_signed().try_into().unwrap();
+        let fd: i32 = t.regs_ref().arg1_signed() as i32;
         t.fd_table().will_write(t, fd);
     }
 

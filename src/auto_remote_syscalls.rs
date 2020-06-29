@@ -1006,9 +1006,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
                 path_addr_val,
                 (O_CREAT | O_EXCL | O_RDWR | O_CLOEXEC),
                 0o600
-            )
-            .try_into()
-            .unwrap();
+            ) as i32;
         }
 
         // Remove the fs name so that we don't have to worry about cleaning
