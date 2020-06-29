@@ -179,6 +179,14 @@ impl ReplayTraceStep {
             }
         }
     }
+    pub fn syscall_mut(&mut self) -> &mut ReplayTraceStepSyscall {
+        match &mut self.data {
+            ReplayTraceStepData::Syscall(s) => s,
+            _ => {
+                panic!("Unexpected variant. Not a ReplayTraceStepData::Syscall");
+            }
+        }
+    }
     pub fn target(&self) -> ReplayTraceStepTarget {
         match self.data {
             ReplayTraceStepData::Target(t) => t,
@@ -187,8 +195,24 @@ impl ReplayTraceStep {
             }
         }
     }
+    pub fn target_mut(&mut self) -> &mut ReplayTraceStepTarget {
+        match &mut self.data {
+            ReplayTraceStepData::Target(t) => t,
+            _ => {
+                panic!("Unexpected variant. Not a ReplayTraceStepData::Target");
+            }
+        }
+    }
     pub fn flush(&self) -> ReplayFlushBufferedSyscallState {
         match self.data {
+            ReplayTraceStepData::Flush(f) => f,
+            _ => {
+                panic!("Unexpected variant. Not a ReplayTraceStepData::Flush");
+            }
+        }
+    }
+    pub fn flush_mut(&mut self) -> &mut ReplayFlushBufferedSyscallState {
+        match &mut self.data {
             ReplayTraceStepData::Flush(f) => f,
             _ => {
                 panic!("Unexpected variant. Not a ReplayTraceStepData::Flush");
@@ -714,7 +738,7 @@ impl ReplaySession {
 
         // Ask the trace-interpretation code what to do next in order
         // to retire the current frame.
-        let mut current_step = Default::default();
+        let current_step;
         match ev.event_type() {
             EventType::EvExit => {
                 current_step = ReplayTraceStep {
@@ -819,7 +843,7 @@ impl ReplaySession {
                 {
                     current_step = rep_prepare_run_to_syscall(t);
                 } else {
-                    rep_process_syscall(t, &current_step);
+                    current_step = rep_process_syscall(t);
                     if current_step.action == ReplayTraceStepType::TstepRetire {
                         t.on_syscall_exit(
                             current_step.syscall().number,

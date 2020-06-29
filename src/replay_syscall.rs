@@ -14,9 +14,11 @@ use crate::{
         CloneTLSType,
         SupportedArch,
     },
-    kernel_metadata::syscall_name,
+    kernel_metadata::{is_sigreturn, syscall_name},
     log::LogLevel::LogDebug,
+    registers::{with_converted_registers, Registers},
     remote_ptr::RemotePtr,
+    seccomp_filter_rewriter::SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO,
     session::{
         address_space::{kernel_mapping::KernelMapping, MappingFlags},
         replay_session::{
@@ -516,13 +518,180 @@ pub fn rep_prepare_run_to_syscall(t: &mut ReplayTask) -> ReplayTraceStep {
     step
 }
 
-pub fn rep_process_syscall(_t: &ReplayTask, _step: &ReplayTraceStep) {
-    unimplemented!()
+pub fn rep_process_syscall(t: &mut ReplayTask) -> ReplayTraceStep {
+    let arch: SupportedArch;
+    let trace_regs: Registers;
+    {
+        let trace_frame = t.current_trace_frame();
+        arch = trace_frame.event().syscall_event().arch();
+        trace_regs = trace_frame.regs_ref().clone()
+    }
+    with_converted_registers(&trace_regs, arch, |converted_regs| {
+        rd_arch_function_selfless!(rep_process_syscall_arch, arch, t, converted_regs)
+    })
 }
 
-fn non_negative_syscall(sys: isize) -> isize {
+fn rep_process_syscall_arch<Arch: Architecture>(
+    t: &mut ReplayTask,
+    trace_regs: &Registers,
+) -> ReplayTraceStep {
+    let mut sys = t.current_trace_frame().event().syscall_event().number;
+
+    log!(
+        LogDebug,
+        "processing {} (exit)",
+        syscall_name(sys, Arch::arch())
+    );
+    let mut step = ReplayTraceStep {
+        action: ReplayTraceStepType::TstepRetire,
+        data: ReplayTraceStepData::Syscall(ReplayTraceStepSyscall {
+            arch: Arch::arch(),
+            // To be filled in
+            number: 0,
+        }),
+    };
+    // sigreturns are never restartable, and the value of the
+    // syscall-result register after a sigreturn is not actually the
+    // syscall result.
+    if trace_regs.syscall_may_restart() && !is_sigreturn(sys, Arch::arch()) {
+        // During recording, when a sys exits with a
+        // restart "error", the kernel sometimes restarts the
+        // tracee by resetting its $ip to the syscall entry
+        // point, but other times restarts the syscall without
+        // changing the $ip.
+        t.apply_all_data_records_from_trace();
+        t.set_return_value_from_trace();
+        step.action = ReplayTraceStepType::TstepRetire;
+        log!(
+            LogDebug,
+            "  {} interrupted by {} at {}, may restart",
+            syscall_name(sys, Arch::arch()),
+            trace_regs.syscall_result(),
+            trace_regs.ip()
+        );
+        return step;
+    }
+
+    if sys == Arch::RESTART_SYSCALL {
+        sys = t.regs_ref().original_syscallno().try_into().unwrap();
+    }
+
+    step.syscall_mut().number = sys;
+    step.action = ReplayTraceStepType::TstepExitSyscall;
+    if trace_regs.original_syscallno() == SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO {
+        // rd vetoed this syscall. Don't do any post-processing. Do set registers
+        // to match any registers rr modified to fool the signal handler.
+        t.set_regs(&trace_regs);
+        return step;
+    }
+
+    let nsys: i32 = non_negative_syscall(sys);
+    if trace_regs.syscall_failed() {
+        if nsys != Arch::MADVISE
+            && nsys != Arch::MPROTECT
+            && nsys != Arch::SIGRETURN
+            && nsys != Arch::RT_SIGRETURN
+        {
+            return step;
+        }
+    }
+
+    // Manual implementations of irregular syscalls that need to do more during
+    // replay than just modify register and memory state.
+    // Don't let a negative incoming syscall number be treated as a real
+    // system call that we assigned a negative number because it doesn't
+    // exist in this architecture.
+    // All invalid/unsupported syscalls get the default emulation treatment.
+    if nsys == Arch::EXECVE {
+        unimplemented!();
+    }
+
+    if nsys == Arch::BRK {
+        unimplemented!();
+    }
+
+    if nsys == Arch::MMAP {
+        unimplemented!();
+    }
+
+    if nsys == Arch::MMAP2 {
+        unimplemented!();
+    }
+    if nsys == Arch::SHMAT {
+        unimplemented!();
+    }
+    if nsys == Arch::SHMDT {
+        unimplemented!();
+    }
+    if nsys == Arch::MREMAP {
+        unimplemented!();
+    }
+    if nsys == Arch::MADVISE {
+        unimplemented!();
+    }
+    if nsys == Arch::MADVISE || nsys == Arch::ARCH_PRCTL {
+        unimplemented!();
+    }
+    if nsys == Arch::MADVISE
+        || nsys == Arch::ARCH_PRCTL
+        || nsys == Arch::MUNMAP
+        || nsys == Arch::MPROTECT
+        || nsys == Arch::MODIFY_LDT
+        || nsys == Arch::SET_THREAD_AREA
+    {
+        unimplemented!();
+    }
+    if nsys == Arch::IPC {
+        unimplemented!()
+    }
+    if nsys == Arch::SIGRETURN || nsys == Arch::RT_SIGRETURN {
+        unimplemented!();
+    }
+    if nsys == Arch::PERF_EVENT_OPEN {
+        unimplemented!();
+    }
+    if nsys == Arch::PERF_EVENT_OPEN
+        || nsys == Arch::RECVMSG
+        || nsys == Arch::RECVMMSG
+        || nsys == Arch::SOCKETCALL
+        || nsys == Arch::RDCALL_NOTIFY_CONTROL_MSG
+    {
+        unimplemented!();
+    }
+    if nsys == Arch::OPENAT {
+        unimplemented!();
+    }
+    if nsys == Arch::OPEN {
+        unimplemented!();
+    }
+
+    if nsys == Arch::WRITE || nsys == Arch::WRITEV {
+        unimplemented!();
+    }
+    if nsys == Arch::PROCESS_VM_WRITEV {
+        unimplemented!()
+    }
+
+    if nsys == Arch::READ {
+        unimplemented!();
+    }
+
+    if nsys == Arch::RDCALL_INIT_BUFFERS {
+        unimplemented!();
+    }
+    if nsys == Arch::RDCALL_INIT_PRELOAD {
+        unimplemented!();
+    }
+
+    if nsys == Arch::RDCALL_RELOAD_AUXV {
+        unimplemented!();
+    }
+    step
+}
+
+fn non_negative_syscall(sys: i32) -> i32 {
     if sys < 0 {
-        isize::MAX
+        i32::MAX
     } else {
         sys
     }
@@ -534,9 +703,7 @@ pub fn rep_after_enter_syscall(t: &mut ReplayTask) {
 }
 
 fn rep_after_enter_syscall_arch<Arch: Architecture>(t: &mut ReplayTask) {
-    let sys: i32 = non_negative_syscall(t.regs_ref().original_syscallno())
-        .try_into()
-        .unwrap();
+    let sys: i32 = non_negative_syscall(t.regs_ref().original_syscallno().try_into().unwrap());
 
     if sys == Arch::WRITE || sys == Arch::WRITEV {
         let fd: i32 = t.regs_ref().arg1_signed().try_into().unwrap();

@@ -1484,10 +1484,10 @@ fn maybe_log_reg_mismatch(
     }
 }
 
-pub fn with_converted_registers<Ret, F: Fn(&Registers) -> Ret>(
+pub fn with_converted_registers<Ret, F: FnMut(&Registers) -> Ret>(
     regs: &Registers,
     arch: SupportedArch,
-    f: F,
+    mut f: F,
 ) -> Ret {
     if regs.arch() != arch {
         let mut converted_regs = Registers::new(arch);
