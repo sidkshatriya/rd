@@ -1166,14 +1166,6 @@ pub mod task_inner {
             }
         }
 
-        pub(in super::super::super) fn on_syscall_exit_arch(
-            &self,
-            _syscallno: i32,
-            _regs: &Registers,
-        ) {
-            unimplemented!()
-        }
-
         /// Helper function for init_buffers. */
         pub(in super::super::super) fn init_buffers_arch(&self, _map_hint: RemotePtr<Void>) {
             unimplemented!()

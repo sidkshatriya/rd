@@ -38,9 +38,10 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
+use super::common::on_syscall_exit_arch;
 use crate::{
     log::LogLevel::LogWarn,
-    registers::MismatchBehavior,
+    registers::{with_converted_registers, MismatchBehavior},
     session::SessionSharedPtr,
     trace::trace_reader::TraceReader,
 };
@@ -272,8 +273,14 @@ impl Task for ReplayTask {
         Some(self)
     }
 
-    fn on_syscall_exit(&self, _syscallno: i32, _arch: SupportedArch, _regs: &Registers) {
-        unimplemented!()
+    /// Call this hook just before exiting a syscall.  Often Task
+    /// attributes need to be updated based on the finishing syscall.
+    /// Use 'regs' instead of this->regs() because some registers may not be
+    /// set properly in the task yet.
+    fn on_syscall_exit(&self, syscallno: i32, arch: SupportedArch, regs: &Registers) {
+        with_converted_registers(regs, arch, |regs| {
+            rd_arch_function_selfless!(on_syscall_exit_arch, arch, self, syscallno, regs);
+        })
     }
 
     fn at_preload_init(&self) {
