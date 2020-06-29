@@ -1,5 +1,6 @@
-use super::task::task_inner::MAX_TICKS_REQUEST;
+use super::task::{replay_task::ReplayTaskIgnore, task_inner::MAX_TICKS_REQUEST};
 use crate::{
+    arch::{Architecture, X86Arch},
     bindings::ptrace::PTRACE_EVENT_SECCOMP,
     cpuid_bug_detector::CPUIDBugDetector,
     emu_fs::{EmuFs, EmuFsSharedPtr},
@@ -1066,9 +1067,24 @@ impl ReplaySession {
         }
         Completion::Complete
     }
+    fn exit_syscall(&self, t: &mut ReplayTask) -> Completion {
+        let arch = self.current_step.get().syscall().arch;
+        let sys = self.current_step.get().syscall().number;
+        t.on_syscall_exit(sys, arch, self.current_trace_frame().regs_ref());
 
-    fn exit_syscall(&self, _t: &ReplayTask) -> Completion {
-        unimplemented!();
+        t.apply_all_data_records_from_trace();
+        t.set_return_value_from_trace();
+
+        let mut flags = ReplayTaskIgnore::IgnoreNone;
+        if t.arch() == SupportedArch::X86
+            && (<X86Arch as Architecture>::PWRITE64 == sys
+                || <X86Arch as Architecture>::PREAD64 == sys)
+        {
+            flags = ReplayTaskIgnore::IgnoreEsi;
+        }
+        t.validate_regs(flags);
+
+        Completion::Complete
     }
     fn exit_task(&self, _t: &ReplayTask) -> Completion {
         unimplemented!();
