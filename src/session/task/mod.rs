@@ -1,12 +1,18 @@
 use crate::{
+    arch::Architecture,
     bindings::{
         kernel::{itimerval, setitimer, ITIMER_REAL},
         ptrace::{PTRACE_EVENT_EXIT, PTRACE_INTERRUPT},
     },
-    kernel_abi::{common::preload_interface::syscallbuf_record, SupportedArch},
+    kernel_abi::{
+        common::preload_interface::syscallbuf_record,
+        is_mprotect_syscall,
+        SupportedArch,
+    },
     log::LogLevel::{LogDebug, LogWarn},
     registers::Registers,
     remote_ptr::{RemotePtr, Void},
+    seccomp_filter_rewriter::SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO,
     session::{
         replay_session::ReplaySession,
         session_inner::session_inner::PtraceSyscallBeforeSeccomp,
@@ -415,4 +421,78 @@ fn is_signal_triggered_by_ptrace_interrupt(group_stop_sig: MaybeStopSignal) -> b
 
 fn is_singlestep_resume(request: ResumeRequest) -> bool {
     request == ResumeRequest::ResumeSinglestep || request == ResumeRequest::ResumeSysemuSinglestep
+}
+
+fn on_syscall_exit_arch<Arch: Architecture>(t: &dyn Task, sys: i32, regs: &Registers) {
+    t.session().accumulate_syscall_performed();
+
+    if regs.original_syscallno() == SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO {
+        return;
+    }
+
+    // mprotect can change the protection status of some mapped regions before
+    // failing.
+    // SYS_rdcall_mprotect_record always fails with ENOSYS, though we want to
+    // note its usage here.
+    if regs.syscall_failed()
+        && !is_mprotect_syscall(sys, regs.arch())
+        && sys != Arch::RDCALL_MPROTECT_RECORD
+    {
+        return;
+    }
+
+    if sys == Arch::BRK || sys == Arch::MMAP || sys == Arch::MMAP2 || sys == Arch::MREMAP {
+        unimplemented!()
+    }
+
+    if sys == Arch::RDCALL_MPROTECT_RECORD {
+        unimplemented!()
+    }
+
+    if sys == Arch::MPROTECT {
+        unimplemented!()
+    }
+    if sys == Arch::MUNMAP {
+        unimplemented!()
+    }
+    if sys == Arch::SHMDT {
+        unimplemented!()
+    }
+    if sys == Arch::MADVISE {
+        unimplemented!()
+    }
+    if sys == Arch::IPC {
+        unimplemented!()
+    }
+
+    if sys == Arch::SET_THREAD_AREA {
+        unimplemented!()
+    }
+    if sys == Arch::PRCTL {
+        unimplemented!()
+    }
+    if sys == Arch::DUP {
+        unimplemented!()
+    }
+    if sys == Arch::FCNTL64 {
+        unimplemented!()
+    }
+    if sys == Arch::CLOSE {
+        unimplemented!()
+    }
+    if sys == Arch::UNSHARE {
+        unimplemented!()
+    }
+
+    if sys == Arch::PWRITE64 || sys == Arch::WRITE {
+        unimplemented!()
+    }
+
+    if sys == Arch::PWRITEV {
+        unimplemented!()
+    }
+
+    if sys == Arch::PTRACE {
+        unimplemented!()
+    }
 }
