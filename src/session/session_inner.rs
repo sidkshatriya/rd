@@ -466,10 +466,11 @@ pub mod session_inner {
         }
         pub(in super::super) fn check_for_watchpoint_changes(
             &self,
-            _t: &dyn Task,
-            _break_status: &BreakStatus,
+            t: &dyn Task,
+            break_status: &mut BreakStatus,
         ) {
-            unimplemented!()
+            self.assert_fully_initialized();
+            break_status.watchpoints_hit = t.vm_mut().consume_watchpoint_changes();
         }
 
         /// XXX Move CloneCompletion/CaptureState etc to ReplayTask/ReplaySession

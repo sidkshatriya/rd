@@ -678,7 +678,7 @@ impl ReplaySession {
 
             debug_memory(t);
 
-            self.check_for_watchpoint_changes(t, &result.break_status);
+            self.check_for_watchpoint_changes(t, &mut result.break_status);
             self.check_approaching_ticks_target(t, &constraints, &mut result.break_status);
         }
 
