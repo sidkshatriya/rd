@@ -34,7 +34,7 @@ use crate::{
 };
 use libc::pid_t;
 use std::{
-    ffi::CString,
+    ffi::{CString, OsStr},
     ops::{Deref, DerefMut},
 };
 
@@ -103,9 +103,27 @@ impl ReplayTask {
         unimplemented!()
     }
 
+    /// DIFF NOTE: Simply called ReplayTask::post_exec_syscall(...) in rr
+    /// Not to be confused with post_exec_syscall() in rr which does not take any arguments
     /// Call this method when the exec has completed.
-    pub fn post_exec_syscall_with_replay_exe(&self, _replay_exe: &str) {
-        unimplemented!()
+    pub fn post_exec_syscall_for_replay_exe(&mut self, replay_exe: &OsStr) {
+        self.post_exec_for_exe(replay_exe);
+
+        // Perform post-exec-syscall tasks now (e.g. opening mem_fd) before we
+        // switch registers. This lets us perform AutoRemoteSyscalls using the
+        // regular stack instead of having to search the address space for usable
+        // pages (which is error prone, e.g. if we happen to find the scratch space
+        // allocated by an rr recorder under which we're running).
+        post_exec_syscall(self);
+
+        // Delay setting the replay_regs until here so the original registers
+        // are set while we populate AddressSpace. We need that for the kernel
+        // to identify the original stack region correctly.
+        let r = self.current_trace_frame().regs_ref().clone();
+        self.set_regs(&r);
+        let extra_registers = self.current_trace_frame().extra_regs_ref().clone();
+        ed_assert!(self, !extra_registers.is_empty());
+        self.set_extra_regs(&extra_registers);
     }
 
     /// Assert that the current register values match the values in the

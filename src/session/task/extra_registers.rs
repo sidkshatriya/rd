@@ -78,9 +78,9 @@ pub enum Format {
 
 #[derive(Clone)]
 pub struct ExtraRegisters {
-    format_: Format,
-    arch_: SupportedArch,
-    data_: Vec<u8>,
+    pub(super) format_: Format,
+    pub(super) arch_: SupportedArch,
+    pub(super) data_: Vec<u8>,
 }
 
 impl Default for ExtraRegisters {
@@ -263,7 +263,7 @@ impl ExtraRegisters {
         self.data_.as_slice()
     }
 
-    pub fn empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.data_.len() == 0
     }
 
@@ -290,7 +290,7 @@ impl ExtraRegisters {
 
         let reg_data = xsave_register_data(self.arch_, regno);
         // @TODO check this. rr returns size even if offset is bad.
-        if reg_data.offset.is_none() || self.empty() {
+        if reg_data.offset.is_none() || self.is_empty() {
             return None;
         }
 

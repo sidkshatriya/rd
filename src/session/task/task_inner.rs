@@ -115,7 +115,6 @@ pub mod task_inner {
             },
             signal::siginfo_t,
         },
-        extra_registers::ExtraRegisters,
         fd_table::FdTableSharedPtr,
         kernel_abi::{
             common::preload_interface::{preload_globals, syscallbuf_hdr},
@@ -142,7 +141,11 @@ pub mod task_inner {
                 WatchConfig,
             },
             session_inner::session_inner::SessionInner,
-            task::{Task, TaskSharedWeakPtr},
+            task::{
+                extra_registers::{ExtraRegisters, Format},
+                Task,
+                TaskSharedWeakPtr,
+            },
             Session,
             SessionSharedPtr,
             SessionSharedWeakPtr,
@@ -206,18 +209,35 @@ pub mod task_inner {
         session::{address_space::Traced, task::TaskSharedPtr},
     };
 
+    #[cfg(target_arch = "x86")]
+    use crate::bindings::ptrace::PTRACE_SETFPXREGS;
+    #[cfg(target_arch = "x86")]
+    use crate::kernel_abi::x86;
+
+    #[cfg(target_arch = "x86_64")]
+    use crate::bindings::ptrace::PTRACE_SETFPREGS;
+    #[cfg(target_arch = "x86_64")]
+    use crate::kernel_abi::x64;
+
     use crate::{
         bindings::{
-            kernel::{user, CAP_SYS_ADMIN},
-            ptrace::PTRACE_POKEUSER,
+            kernel::{user, CAP_SYS_ADMIN, NT_X86_XSTATE},
+            ptrace::{PTRACE_POKEUSER, PTRACE_SETREGSET},
         },
         cpuid_bug_detector::CPUIDBugDetector,
         fd_table::{FdTableRef, FdTableRefMut},
         thread_group::{ThreadGroupRef, ThreadGroupRefMut},
         trace::trace_frame::FrameTime,
-        util::{has_effective_caps, restore_initial_resource_limits, running_under_rd, write_all},
+        util::{
+            has_effective_caps,
+            restore_initial_resource_limits,
+            running_under_rd,
+            write_all,
+            xsave_area_size,
+        },
     };
     use libc::{
+        iovec,
         prctl,
         syscall,
         SYS_write,
@@ -244,7 +264,6 @@ pub mod task_inner {
         ptr::copy_nonoverlapping,
         rc::{Rc, Weak},
     };
-
     const NUM_X86_DEBUG_REGS: usize = 8;
     const NUM_X86_WATCHPOINTS: usize = 4;
 
@@ -803,9 +822,70 @@ pub mod task_inner {
             }
         }
 
-        /// Set the tracee's extra registers to `regs`. */
-        pub fn set_extra_regs(&self, _regs: &ExtraRegisters) {
-            unimplemented!()
+        /// Set the tracee's extra registers to `regs`.
+        pub fn set_extra_regs(&mut self, regs: &ExtraRegisters) {
+            ed_assert!(self, !regs.is_empty(), "Trying to set empty ExtraRegisters");
+            ed_assert!(
+                self,
+                regs.arch() == self.arch(),
+                "Trying to set wrong arch ExtraRegisters"
+            );
+            self.extra_registers = regs.clone();
+            self.extra_registers_known = true;
+
+            match self.extra_registers.format() {
+                Format::XSave => {
+                    if xsave_area_size() > 512 {
+                        let vec = iovec {
+                            iov_base: self.extra_registers.data_.as_mut_ptr().cast(),
+                            iov_len: self.extra_registers.data_.len(),
+                        };
+
+                        let d = PtraceData::ReadFrom(u8_raw_slice(&vec));
+                        self.ptrace_if_alive(
+                            PTRACE_SETREGSET,
+                            RemotePtr::new_from_val(NT_X86_XSTATE as usize),
+                            d,
+                        );
+                    } else {
+                        #[cfg(target_arch = "x86")]
+                        {
+                            ed_assert!(
+                                self,
+                                self.extra_registers.data_.len()
+                                    == size_of::<x86::user_fpxregs_struct>()
+                            );
+                            self.ptrace_if_alive(
+                                PTRACE_SETFPXREGS,
+                                RemotePtr::null(),
+                                PtraceData::ReadFrom(
+                                    self.extra_registers.data_.as_slice() as *const _
+                                ),
+                            );
+                        }
+
+                        #[cfg(target_arch = "x86_64")]
+                        {
+                            ed_assert!(
+                                self,
+                                self.extra_registers.data_.len()
+                                    == size_of::<x64::user_fpregs_struct>()
+                            );
+                            self.ptrace_if_alive(
+                                PTRACE_SETFPREGS,
+                                RemotePtr::null(),
+                                PtraceData::ReadFrom(
+                                    self.extra_registers.data_.as_slice() as *const _
+                                ),
+                            );
+                        }
+                    }
+                }
+                Format::None => {
+                    ed_assert!(self, false, "Unexpected ExtraRegisters format");
+                    unreachable!();
+                }
+            }
         }
 
         /// Program the debug registers to the vector of watchpoint

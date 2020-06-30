@@ -1,7 +1,8 @@
+use crate::session::task::extra_registers::ExtraRegisters;
+
 use crate::{
     bindings::signal::siginfo_t,
     event::{Event, EventType, SignalDeterministic, SignalResolvedDisposition, SyscallState},
-    extra_registers::ExtraRegisters,
     kernel_abi::{
         common::preload_interface::{mprotect_record, SYSCALLBUF_PROTOCOL_VERSION},
         syscall_number_for_restart_syscall,

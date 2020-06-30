@@ -35,7 +35,6 @@ mod core;
 mod cpuid_bug_detector;
 mod emu_fs;
 mod event;
-mod extra_registers;
 mod fast_forward;
 mod fd_table;
 mod file_monitor;

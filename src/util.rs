@@ -135,6 +135,11 @@ lazy_static! {
     static ref SAVED_FD_LIMIT: Mutex<Option<libc::rlimit>> = Mutex::new(None);
 }
 
+// 0 means XSAVE not detected
+pub fn xsave_area_size() -> usize {
+    xsave_native_layout().full_size
+}
+
 pub fn running_under_rd() -> bool {
     let result = var_os("RUNNING_UNDER_RD");
     result.is_some() && result.unwrap() != ""

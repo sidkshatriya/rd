@@ -30,7 +30,7 @@ use libc::{pid_t, waitpid, SIGSTOP, SIGTRAP};
 use nix::errno::errno;
 use std::{
     cell::RefCell,
-    ffi::{CString, OsString},
+    ffi::{CString, OsStr, OsString},
     io::Write,
     ops::DerefMut,
     os::unix::ffi::OsStringExt,
@@ -39,6 +39,7 @@ use std::{
 };
 
 pub mod common;
+pub mod extra_registers;
 pub mod record_task;
 pub mod replay_task;
 pub mod task_inner;
@@ -49,6 +50,13 @@ pub type TaskSharedWeakPtr = Weak<RefCell<Box<dyn Task>>>;
 pub trait Task: DerefMut<Target = TaskInner> {
     /// Forwarded method signature
     fn post_exec_syscall(&mut self);
+
+    /// DIFF NOTE: Simply called post_exec(...) in rr
+    /// Not to be confused with another post_exec() in rr that does not
+    /// take any arguments
+    fn post_exec_for_exe(&self, _exe: &OsStr) {
+        unimplemented!()
+    }
 
     fn resume_execution(
         &mut self,
