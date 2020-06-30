@@ -36,7 +36,7 @@ use crate::{
     log::LogLevel::{LogDebug, LogInfo, LogWarn},
     perf_counters::TIME_SLICE_SIGNAL,
     rd::RD_RESERVED_ROOT_DIR_FD,
-    registers::{Registers, X86_TF_FLAG},
+    registers::{with_converted_registers, Registers, X86_TF_FLAG},
     remote_code_ptr::RemoteCodePtr,
     remote_ptr::{RemotePtr, Void},
     scoped_fd::ScopedFd,
@@ -967,7 +967,7 @@ pub fn os_clone_into(_state: &CapturedState, _remote: &mut AutoRemoteSyscalls) -
     unimplemented!()
 }
 
-pub fn on_syscall_exit_arch<Arch: Architecture>(t: &dyn Task, sys: i32, regs: &Registers) {
+fn on_syscall_exit_arch<Arch: Architecture>(t: &dyn Task, sys: i32, regs: &Registers) {
     t.session().accumulate_syscall_performed();
 
     if regs.original_syscallno() == SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO {
@@ -1039,4 +1039,16 @@ pub fn on_syscall_exit_arch<Arch: Architecture>(t: &dyn Task, sys: i32, regs: &R
     if sys == Arch::PTRACE {
         unimplemented!()
     }
+}
+
+// Forwarded method definition
+//
+/// Call this hook just before exiting a syscall.  Often Task
+/// attributes need to be updated based on the finishing syscall.
+/// Use 'regs' instead of this->regs() because some registers may not be
+/// set properly in the task yet.
+pub(super) fn on_syscall_exit(t: &dyn Task, syscallno: i32, arch: SupportedArch, regs: &Registers) {
+    with_converted_registers(regs, arch, |regs| {
+        rd_arch_function_selfless!(on_syscall_exit_arch, arch, t, syscallno, regs);
+    })
 }
