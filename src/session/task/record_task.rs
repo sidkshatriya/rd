@@ -479,7 +479,7 @@ pub mod record_task {
             Some(self)
         }
 
-        fn on_syscall_exit(&self, _syscallno: i32, _arch: SupportedArch, _regs: &Registers) {
+        fn on_syscall_exit(&mut self, _syscallno: i32, _arch: SupportedArch, _regs: &Registers) {
             unimplemented!()
         }
 

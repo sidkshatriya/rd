@@ -30,9 +30,10 @@ use libc::{pid_t, waitpid, SIGSTOP, SIGTRAP};
 use nix::errno::errno;
 use std::{
     cell::RefCell,
-    ffi::CString,
+    ffi::{CString, OsString},
     io::Write,
     ops::DerefMut,
+    os::unix::ffi::OsStringExt,
     ptr,
     rc::{Rc, Weak},
 };
@@ -84,7 +85,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
     /// attributes need to be updated based on the finishing syscall.
     /// Use 'regs' instead of this->regs() because some registers may not be
     /// set properly in the task yet.
-    fn on_syscall_exit(&self, syscallno: i32, arch: SupportedArch, regs: &Registers);
+    fn on_syscall_exit(&mut self, syscallno: i32, arch: SupportedArch, regs: &Registers);
 
     /// Hook called by `resume_execution`.
     fn will_resume_execution(
@@ -405,6 +406,19 @@ pub trait Task: DerefMut<Target = TaskInner> {
 
     /// Forwarded method signature
     fn write_bytes(&mut self, child_addr: RemotePtr<Void>, buf: &[u8]);
+
+    /// Call this after the tracee successfully makes a
+    /// `prctl(PR_SET_NAME)` call to change the task name to the
+    /// string pointed at in the tracee's address space by
+    /// `child_addr`.
+    fn update_prname(&mut self, child_addr: RemotePtr<Void>) {
+        let mut buf = vec![0u8; 16];
+        let res = self.read_bytes_fallible(child_addr, &mut buf);
+        ed_assert!(self, res.is_ok());
+        let bytes_read = res.unwrap();
+        ed_assert!(self, bytes_read > 0);
+        self.prname = OsString::from_vec(buf);
+    }
 }
 
 fn is_signal_triggered_by_ptrace_interrupt(group_stop_sig: MaybeStopSignal) -> bool {

@@ -932,14 +932,6 @@ pub mod task_inner {
             trace.time()
         }
 
-        /// Call this after the tracee successfully makes a
-        /// `prctl(PR_SET_NAME)` call to change the task name to the
-        /// string pointed at in the tracee's address space by
-        /// `child_addr`.
-        pub fn update_prname(&self, _child_addr: RemotePtr<Void>) {
-            unimplemented!()
-        }
-
         /// Call this to reset syscallbuf_hdr->num_rec_bytes and zero out the data
         /// recorded in the syscall buffer. This makes for more deterministic behavior
         /// especially during replay, where during checkpointing we only save and

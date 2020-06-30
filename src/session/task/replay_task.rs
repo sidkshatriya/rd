@@ -279,7 +279,7 @@ impl Task for ReplayTask {
         Some(self)
     }
 
-    fn on_syscall_exit(&self, syscallno: i32, arch: SupportedArch, regs: &Registers) {
+    fn on_syscall_exit(&mut self, syscallno: i32, arch: SupportedArch, regs: &Registers) {
         on_syscall_exit(self, syscallno, arch, regs)
     }
 

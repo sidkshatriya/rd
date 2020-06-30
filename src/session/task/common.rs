@@ -72,7 +72,20 @@ use crate::{
     },
     wait_status::WaitStatus,
 };
-use libc::{pid_t, pread64, waitpid, EPERM, ESRCH, SIGKILL, SIGTRAP, WNOHANG, __WALL};
+use libc::{
+    pid_t,
+    pread64,
+    waitpid,
+    EPERM,
+    ESRCH,
+    PR_SET_NAME,
+    PR_SET_SECCOMP,
+    SECCOMP_MODE_FILTER,
+    SIGKILL,
+    SIGTRAP,
+    WNOHANG,
+    __WALL,
+};
 use nix::{
     errno::{errno, Errno},
     fcntl::OFlag,
@@ -967,7 +980,7 @@ pub fn os_clone_into(_state: &CapturedState, _remote: &mut AutoRemoteSyscalls) -
     unimplemented!()
 }
 
-fn on_syscall_exit_arch<Arch: Architecture>(t: &dyn Task, sys: i32, regs: &Registers) {
+fn on_syscall_exit_arch<Arch: Architecture>(t: &mut dyn Task, sys: i32, regs: &Registers) {
     t.session().accumulate_syscall_performed();
 
     if regs.original_syscallno() == SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO {
@@ -1013,7 +1026,21 @@ fn on_syscall_exit_arch<Arch: Architecture>(t: &dyn Task, sys: i32, regs: &Regis
         unimplemented!()
     }
     if sys == Arch::PRCTL {
-        unimplemented!()
+        match t.regs_ref().arg1_signed() as i32 {
+            PR_SET_SECCOMP => {
+                if t.regs_ref().arg2() == SECCOMP_MODE_FILTER as usize && t.session().is_recording()
+                {
+                    t.seccomp_bpf_enabled = true;
+                }
+            }
+
+            PR_SET_NAME => {
+                t.update_prname(t.regs_ref().arg2().into());
+            }
+
+            _ => (),
+        }
+        return;
     }
     if sys == Arch::DUP {
         unimplemented!()
@@ -1041,13 +1068,18 @@ fn on_syscall_exit_arch<Arch: Architecture>(t: &dyn Task, sys: i32, regs: &Regis
     }
 }
 
-// Forwarded method definition
-//
+/// Forwarded method definition
+///
 /// Call this hook just before exiting a syscall.  Often Task
 /// attributes need to be updated based on the finishing syscall.
 /// Use 'regs' instead of this->regs() because some registers may not be
 /// set properly in the task yet.
-pub(super) fn on_syscall_exit(t: &dyn Task, syscallno: i32, arch: SupportedArch, regs: &Registers) {
+pub(super) fn on_syscall_exit(
+    t: &mut dyn Task,
+    syscallno: i32,
+    arch: SupportedArch,
+    regs: &Registers,
+) {
     with_converted_registers(regs, arch, |regs| {
         rd_arch_function_selfless!(on_syscall_exit_arch, arch, t, syscallno, regs);
     })
