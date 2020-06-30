@@ -721,13 +721,6 @@ pub mod task_inner {
             &self.prname
         }
 
-        /// Call this method when this task has just performed an `execve()`
-        /// (so we're in the new address space), but before the system call has
-        /// returned.
-        pub fn post_exec(&self, _exe_file: &str) {
-            unimplemented!()
-        }
-
         /// Call this method when this task has exited a successful execve() syscall.
         /// At this point it is safe to make remote syscalls.
         pub fn post_exec_syscall(&self) {
@@ -956,6 +949,12 @@ pub mod task_inner {
         /// Note that we DONT need &mut self here
         pub fn vm_mut(&self) -> AddressSpaceRefMut {
             self.as_.as_ref().unwrap().borrow_mut()
+        }
+
+        /// Useful for tricky situations when we need to pass a reference to task to
+        /// the AddressSpace methods for instance
+        pub fn vm_shr_ptr(&self) -> AddressSpaceSharedPtr {
+            self.as_.as_ref().unwrap().clone()
         }
 
         pub fn fd_table(&self) -> FdTableRef {

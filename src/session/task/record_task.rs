@@ -227,6 +227,7 @@ pub mod record_task {
                     did_waitpid,
                     next_syscallbuf_record,
                     open_mem_fd,
+                    post_exec_syscall,
                     read_bytes_fallible,
                     read_bytes_helper,
                     read_bytes_helper_for,
@@ -555,6 +556,10 @@ pub mod record_task {
         /// Forwarded method
         fn write_bytes(&mut self, child_addr: RemotePtr<u8>, buf: &[u8]) {
             write_bytes(self, child_addr, buf);
+        }
+        // Forwarded method
+        fn post_exec_syscall(&mut self) {
+            post_exec_syscall(self)
         }
     }
 

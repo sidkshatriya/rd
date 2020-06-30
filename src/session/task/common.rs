@@ -27,12 +27,14 @@ use crate::{
             preload_interface::{syscallbuf_hdr, syscallbuf_record},
         },
         is_mprotect_syscall,
+        syscall_number_for_arch_prctl,
         syscall_number_for_close,
         syscall_number_for_mprotect,
         syscall_number_for_openat,
         SupportedArch,
     },
     kernel_metadata::{ptrace_req_name, signal_name},
+    kernel_supplement::ARCH_SET_CPUID,
     log::LogLevel::{LogDebug, LogInfo, LogWarn},
     perf_counters::TIME_SLICE_SIGNAL,
     rd::RD_RESERVED_ROOT_DIR_FD,
@@ -43,6 +45,7 @@ use crate::{
     seccomp_filter_rewriter::SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO,
     session::{
         address_space::{memory_range::MemoryRangeKey, BreakpointType},
+        session_inner::session_inner::SessionInner,
         task::{
             is_signal_triggered_by_ptrace_interrupt,
             is_singlestep_resume,
@@ -1083,4 +1086,22 @@ pub(super) fn on_syscall_exit(
     with_converted_registers(regs, arch, |regs| {
         rd_arch_function_selfless!(on_syscall_exit_arch, arch, t, syscallno, regs);
     })
+}
+
+/// Call this method when this task has exited a successful execve() syscall.
+/// At this point it is safe to make remote syscalls.
+pub(super) fn post_exec_syscall(t: &mut dyn Task) {
+    let arch = t.arch();
+    t.canonicalize_regs(arch);
+    t.vm_shr_ptr().borrow_mut().post_exec_syscall(t);
+
+    if SessionInner::has_cpuid_faulting() {
+        let mut remote = AutoRemoteSyscalls::new(t);
+        rd_infallible_syscall!(
+            remote,
+            syscall_number_for_arch_prctl(arch),
+            ARCH_SET_CPUID,
+            0
+        );
+    }
 }

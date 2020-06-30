@@ -38,7 +38,7 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use super::common::on_syscall_exit;
+use super::common::{on_syscall_exit, post_exec_syscall};
 use crate::{
     log::LogLevel::LogWarn,
     registers::MismatchBehavior,
@@ -104,7 +104,7 @@ impl ReplayTask {
     }
 
     /// Call this method when the exec has completed.
-    pub fn post_exec_syscall(&self, _replay_exe: &str) {
+    pub fn post_exec_syscall_with_replay_exe(&self, _replay_exe: &str) {
         unimplemented!()
     }
 
@@ -343,5 +343,9 @@ impl Task for ReplayTask {
     /// Forwarded method
     fn write_bytes(&mut self, child_addr: RemotePtr<u8>, buf: &[u8]) {
         write_bytes(self, child_addr, buf);
+    }
+    /// Forwarded method
+    fn post_exec_syscall(&mut self) {
+        post_exec_syscall(self)
     }
 }
