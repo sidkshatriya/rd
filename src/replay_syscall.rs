@@ -5,12 +5,20 @@ include!(concat!(
 ));
 use crate::{
     arch::Architecture,
-    auto_remote_syscalls::{AutoRemoteSyscalls, PreserveContents::PreserveContents},
+    auto_remote_syscalls::{
+        AutoRemoteSyscalls,
+        AutoRestoreMem,
+        MemParamsEnabled,
+        PreserveContents::PreserveContents,
+    },
     kernel_abi::{
-        common::preload_interface::syscallbuf_hdr,
+        common::preload_interface::{syscallbuf_hdr, SYS_rdcall_reload_auxv},
         is_rdcall_notify_syscall_hook_exit_syscall,
         is_restart_syscall_syscall,
         is_write_syscall,
+        syscall_number_for_execve,
+        syscall_number_for_munmap,
+        syscall_number_for_prctl,
         CloneTLSType,
         SupportedArch,
     },
@@ -20,7 +28,12 @@ use crate::{
     remote_ptr::RemotePtr,
     seccomp_filter_rewriter::SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO,
     session::{
-        address_space::{kernel_mapping::KernelMapping, MappingFlags},
+        address_space::{
+            address_space::AddressSpace,
+            kernel_mapping::KernelMapping,
+            memory_range::MemoryRangeKey,
+            MappingFlags,
+        },
         replay_session::{
             ReplaySession,
             ReplayTraceStep,
@@ -29,23 +42,25 @@ use crate::{
             ReplayTraceStepType,
         },
         task::{
-            common::write_val_mem,
+            common::{read_mem, write_mem, write_val_mem},
             replay_task::ReplayTask,
-            task_inner::{ResumeRequest, TicksRequest, WaitRequest},
+            task_inner::{task_inner::WriteFlags, ResumeRequest, TicksRequest, WaitRequest},
             Task,
         },
     },
     trace::{
-        trace_frame::FrameTime,
+        trace_frame::{FrameTime, TraceFrame},
         trace_stream,
         trace_stream::MappedData,
         trace_task_event::{TraceTaskEvent, TraceTaskEventType},
     },
-    util::{clone_flags_to_task_flags, extract_clone_parameters, CloneParameters},
+    util::{clone_flags_to_task_flags, extract_clone_parameters, floor_page_size, CloneParameters},
     wait_status::WaitStatus,
 };
 use libc::{
+    __errno_location,
     pid_t,
+    syscall,
     CLONE_CHILD_CLEARTID,
     CLONE_NEWCGROUP,
     CLONE_NEWIPC,
@@ -57,14 +72,21 @@ use libc::{
     CLONE_UNTRACED,
     CLONE_VFORK,
     CLONE_VM,
+    ENOENT,
     ENOSYS,
+    PR_SET_NAME,
 };
-use nix::sys::mman::{MapFlags, ProtFlags};
+use nix::{
+    errno::errno,
+    sys::mman::{MapFlags, ProtFlags},
+    unistd::{access, AccessFlags},
+};
 use std::{
     cmp::min,
     convert::TryInto,
-    ffi::{OsStr, OsString},
-    os::unix::ffi::OsStringExt,
+    ffi::{CString, OsStr, OsString},
+    mem::size_of,
+    os::unix::ffi::{OsStrExt, OsStringExt},
 };
 
 /// Proceeds until the next system call, which is being executed.
@@ -542,14 +564,6 @@ fn rep_process_syscall_arch<Arch: Architecture>(
         "processing {} (exit)",
         syscall_name(sys, Arch::arch())
     );
-    let mut step = ReplayTraceStep {
-        action: ReplayTraceStepType::TstepRetire,
-        data: ReplayTraceStepData::Syscall(ReplayTraceStepSyscall {
-            arch: Arch::arch(),
-            // To be filled in
-            number: 0,
-        }),
-    };
     // sigreturns are never restartable, and the value of the
     // syscall-result register after a sigreturn is not actually the
     // syscall result.
@@ -561,7 +575,6 @@ fn rep_process_syscall_arch<Arch: Architecture>(
         // changing the $ip.
         t.apply_all_data_records_from_trace();
         t.set_return_value_from_trace();
-        step.action = ReplayTraceStepType::TstepRetire;
         log!(
             LogDebug,
             "  {} interrupted by {} at {}, may restart",
@@ -569,18 +582,26 @@ fn rep_process_syscall_arch<Arch: Architecture>(
             trace_regs.syscall_result(),
             trace_regs.ip()
         );
-        return step;
+        return ReplayTraceStep {
+            action: ReplayTraceStepType::TstepRetire,
+            data: Default::default(),
+        };
     }
 
     if sys == Arch::RESTART_SYSCALL {
         sys = t.regs_ref().original_syscallno().try_into().unwrap();
     }
 
-    step.syscall_mut().number = sys;
-    step.action = ReplayTraceStepType::TstepExitSyscall;
+    let step = ReplayTraceStep {
+        action: ReplayTraceStepType::TstepExitSyscall,
+        data: ReplayTraceStepData::Syscall(ReplayTraceStepSyscall {
+            arch: Arch::arch(),
+            number: sys,
+        }),
+    };
     if trace_regs.original_syscallno() == SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO {
         // rd vetoed this syscall. Don't do any post-processing. Do set registers
-        // to match any registers rr modified to fool the signal handler.
+        // to match any registers rd modified to fool the signal handler.
         t.set_regs(&trace_regs);
         return step;
     }
@@ -733,4 +754,286 @@ fn rep_after_enter_syscall_arch<Arch: Architecture>(t: &mut ReplayTask) {
     }
 
     t.apply_all_data_records_from_trace();
+}
+
+pub fn process_execve(t: &mut ReplayTask, trace_frame: &TraceFrame) -> ReplayTraceStep {
+    let step = ReplayTraceStep {
+        action: ReplayTraceStepType::TstepRetire,
+        data: Default::default(),
+    };
+
+    // First, exec a stub program
+    let stub_filename: CString = find_exec_stub(trace_frame.regs_ref().arch());
+
+    // Setup memory and registers for the execve call. We may not have to save
+    // the old values since they're going to be wiped out by execve. We can
+    // determine this by checking if this address space has any tasks with a
+    // different tgid.
+    let mut maybe_memory_task = None;
+    for task in t.vm().iter_except(t.weak_self_ptr()) {
+        if task.borrow().tgid() != t.tgid() {
+            maybe_memory_task = Some(task);
+            break;
+        }
+    }
+
+    // Old data if required
+    let mut saved_data: Vec<u8> = Vec::new();
+
+    // Set up everything
+    let mut regs = t.regs_ref().clone();
+    regs.set_ip(t.vm().traced_syscall_ip());
+    let remote_mem: RemotePtr<u8> = floor_page_size(regs.sp());
+
+    // Determine how much memory we'll need
+    let filename_size: usize = stub_filename.to_bytes_with_nul().len();
+    let total_size: usize = size_of::<usize>() + filename_size;
+    if maybe_memory_task.is_some() {
+        saved_data = read_mem(t, RemotePtr::<u8>::cast(remote_mem), total_size, None);
+    }
+
+    // We write a zero word in the host size, not t's size, but that's OK,
+    // since the host size must be bigger than t's size.
+    // We pass no argv or envp, so exec params 2 and 3 just point to the NULL
+    // word.
+    write_val_mem(t, RemotePtr::<usize>::cast(remote_mem), &0usize, None);
+    regs.set_arg2_from_remote_ptr(remote_mem);
+    regs.set_arg3_from_remote_ptr(remote_mem);
+    let filename_addr: RemotePtr<u8> = remote_mem + size_of::<usize>();
+    t.write_bytes_helper(
+        filename_addr,
+        stub_filename.to_bytes_with_nul(),
+        None,
+        WriteFlags::empty(),
+    );
+    regs.set_arg1_from_remote_ptr(filename_addr);
+    // The original_syscallno is execve in the old architecture. The kernel does
+    // not update the original_syscallno when the architecture changes across
+    // an exec.
+    // We're using the dedicated traced-syscall IP so its arch is t's arch.
+    let expect_syscallno: i32 = syscall_number_for_execve(t.arch());
+    regs.set_syscallno(expect_syscallno as isize);
+    t.set_regs(&regs);
+
+    log!(LogDebug, "Beginning execve");
+    // Enter our execve syscall.
+    __ptrace_cont(
+        t,
+        ResumeRequest::ResumeSyscall,
+        t.arch(),
+        expect_syscallno,
+        None,
+        None,
+    );
+    ed_assert!(
+        t,
+        t.maybe_stop_sig().is_not_sig(),
+        "Stub exec failed on entry"
+    );
+    // Complete the syscall. The tid of the task will be the thread-group-leader
+    // tid, no matter what tid it was before.
+    let tgid: pid_t = t.thread_group().real_tgid;
+    __ptrace_cont(
+        t,
+        ResumeRequest::ResumeSyscall,
+        t.arch(),
+        expect_syscallno,
+        Some(syscall_number_for_execve(trace_frame.regs_ref().arch())),
+        if tgid == t.tid { None } else { Some(tgid) },
+    );
+    if t.regs_ref().syscall_result() != 0 {
+        // @TODO check this. Is this what we want -- especially the cast to i32?
+        unsafe { *__errno_location() = -(t.regs_ref().syscall_result() as i32) };
+        if access(stub_filename.as_c_str(), AccessFlags::F_OK).is_err()
+            && errno() == ENOENT
+            && trace_frame.regs_ref().arch() == SupportedArch::X86
+        {
+            fatal!("Cannot find exec stub {:?} to replay this 32-bit process; you probably built rr with disable32bit", stub_filename);
+        }
+        ed_assert!(t, false, "Exec of stub {:?} failed", stub_filename);
+    }
+
+    // Restore any memory if required. We need to do this through memory_task,
+    // since the new task is now on the new address space. Do it now because
+    // later we may try to unmap this task's syscallbuf.
+    if maybe_memory_task.is_some() {
+        write_mem(
+            maybe_memory_task.as_ref().unwrap().borrow_mut().as_mut(),
+            RemotePtr::cast::<u8>(remote_mem),
+            saved_data.as_slice(),
+            None,
+        );
+    }
+
+    let mut kms: Vec<KernelMapping> = Vec::new();
+    let mut datas: Vec<trace_stream::MappedData> = Vec::new();
+
+    let maybe_exec = read_task_trace_event(t, TraceTaskEventType::Exec);
+    let tte = maybe_exec.exec_variant();
+
+    // Find the text mapping of the main executable. This is complicated by the
+    // fact that the kernel also loads the dynamic linker (if the main
+    // executable specifies an interpreter).
+    let mut exe_km_option1: Option<usize> = None;
+    loop {
+        let mut data: trace_stream::MappedData = Default::default();
+        let maybe_km: Option<KernelMapping> =
+            t.trace_reader_mut()
+                .read_mapped_region(Some(&mut data), None, None, None, None);
+        if maybe_km.is_none() {
+            break;
+        }
+        let km = maybe_km.unwrap();
+        if km.start() == AddressSpace::rd_page_start()
+            || km.start() == AddressSpace::preload_thread_locals_start()
+        {
+            // Skip rd-page mapping record, that gets mapped automatically
+            continue;
+        }
+
+        if !tte.exe_base().is_null() {
+            // We recorded the executable's start address so we can just use that
+            if tte.exe_base() == km.start() {
+                exe_km_option1 = Some(kms.len());
+            }
+        } else {
+            // To disambiguate, we use the following criterion: The dynamic linker
+            // (if it exists) is a different file (identified via fsname) that has
+            // an executable segment that contains the ip. To compute this, we find
+            // (up to) two kms that have different fsnames but do each have an
+            // executable segment, as well as the km that contains the ip. This is
+            // slightly complicated, but should handle the case where either file has
+            // more than one executable segment.
+            unimplemented!()
+        }
+        kms.push(km);
+        datas.push(data);
+    }
+
+    ed_assert!(t, exe_km_option1.is_some(), "No executable mapping?");
+
+    let exe_km = exe_km_option1.unwrap();
+    // DIFF NOTE: @TODO Omit a code snippet relating to exe_km_option2
+    // This is because we assume that the trace format is a newer one and
+    // always contains the exe_base
+
+    ed_assert!(t, kms[0].is_stack(), "Can't find stack");
+
+    // The exe name we pass in here will be passed to gdb. Pass the backing file
+    // name if there is one, otherwise pass the original file name (which means
+    // we declined to copy it to the trace file during recording for whatever
+    // reason).
+    let exe_name: &OsStr = if datas[exe_km].filename.is_empty() {
+        kms[exe_km].fsname()
+    } else {
+        &datas[exe_km].filename
+    };
+    t.post_exec_syscall_for_replay_exe(exe_name);
+
+    t.fd_table_mut().close_after_exec(
+        t,
+        &t.current_trace_frame()
+            .event()
+            .syscall_event()
+            .exec_fds_to_close,
+    );
+
+    {
+        let arch = t.arch();
+
+        // Now fix up the address space. First unmap all the mappings other than
+        // our rd page.
+        let mut unmaps: Vec<MemoryRangeKey> = Vec::new();
+        for (&k, m) in t.vm().maps() {
+            // Do not attempt to unmap [vsyscall] --- it doesn't work.
+            if m.map.start() != AddressSpace::rd_page_start()
+                && m.map.start() != AddressSpace::preload_thread_locals_start()
+                && !m.map.is_vsyscall()
+            {
+                unmaps.push(k);
+            }
+        }
+        // Tell AutoRemoteSyscalls that we don't need memory parameters. This will
+        // stop it from having trouble if our current stack pointer (the value
+        // from the replay) isn't in the [stack] mapping created for our stub.
+        let mut remote =
+            AutoRemoteSyscalls::new_with_mem_params(t, MemParamsEnabled::DisableMemoryParams);
+        for m in unmaps {
+            rd_infallible_syscall!(
+                remote,
+                syscall_number_for_munmap(arch),
+                m.start().as_usize(),
+                m.size()
+            );
+            remote
+                .task()
+                .vm_shr_ptr()
+                .borrow_mut()
+                .unmap(remote.task_mut(), m.start(), m.size());
+        }
+        // We will have unmapped the stack memory that |remote| would have used for
+        // memory parameters. Fortunately process_mapped_region below doesn't
+        // need any memory parameters for its remote syscalls.
+
+        // Process the [stack] mapping.
+        restore_mapped_region(&mut remote, &kms[0], &datas[0]);
+    }
+
+    let recorded_exe_name: &OsStr = kms[exe_km].fsname();
+
+    {
+        let arch = t.arch();
+        // Now that [stack] is mapped, reinitialize AutoRemoteSyscalls with
+        // memory parameters enabled.
+        let mut remote = AutoRemoteSyscalls::new(t);
+
+        // Now map in all the mappings that we recorded from the real exec.
+        for i in 1..kms.len() {
+            restore_mapped_region(&mut remote, &kms[i], &datas[i]);
+        }
+
+        let mut name: Vec<u8> = Vec::new();
+        name.extend_from_slice(b"rd:");
+        let pos = recorded_exe_name
+            .as_bytes()
+            .iter()
+            .rposition(|&c| c == b'/')
+            .unwrap_or(0);
+        name.extend_from_slice(&recorded_exe_name.as_bytes()[pos..]);
+        name.extend_from_slice(b"\0");
+        let mut mem = AutoRestoreMem::new(&mut remote, Some(&name), name.len());
+        let addr = mem.get().unwrap();
+        rd_infallible_syscall!(
+            mem,
+            syscall_number_for_prctl(arch),
+            PR_SET_NAME,
+            addr.as_usize()
+        );
+    }
+
+    init_scratch_memory(t, kms.last().unwrap(), datas.last().unwrap());
+
+    // Apply final data records --- fixing up the last page in each data segment
+    // for zeroing applied by the kernel, and applying monkeypatches.
+    t.apply_all_data_records_from_trace();
+
+    // Now it's safe to save the auxv data
+    t.vm_shr_ptr().borrow_mut().save_auxv(t);
+
+    // Notify outer rd if there is one
+    unsafe { syscall(SYS_rdcall_reload_auxv as i64, t.tid) };
+
+    step
+}
+
+fn restore_mapped_region(
+    _remote: &mut AutoRemoteSyscalls,
+    _km: &KernelMapping,
+    _data: &trace_stream::MappedData,
+) {
+    unimplemented!()
+}
+
+fn find_exec_stub(_arch: SupportedArch) -> CString {
+    unimplemented!()
 }

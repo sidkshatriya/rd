@@ -28,7 +28,7 @@ use std::{
 };
 
 /// Clone trait is manually derived. See below.
-/// This type cannot be Copy as fsname_, a String, is not Copy.
+/// This type cannot be Copy as fsname_, an OsString, is not Copy.
 #[derive(Debug)]
 pub struct KernelMapping {
     mr: MemoryRange,

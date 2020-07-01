@@ -57,6 +57,12 @@ impl<T> WeakPtrSet<T> {
     pub fn iter(&self) -> SetIterator<T> {
         self.into_iter()
     }
+    pub fn iter_except(&self, tw: Weak<RefCell<T>>) -> ExceptSetIterator<T> {
+        ExceptSetIterator {
+            hash_set_iterator: self.0.iter(),
+            except: tw,
+        }
+    }
     pub fn insert(&mut self, t: Weak<RefCell<T>>) -> bool {
         self.0.insert(WeakPtrWrap(t))
     }
@@ -83,6 +89,11 @@ pub struct SetIterator<'a, T> {
     hash_set_iterator: Iter<'a, WeakPtrWrap<T>>,
 }
 
+pub struct ExceptSetIterator<'a, T> {
+    hash_set_iterator: Iter<'a, WeakPtrWrap<T>>,
+    except: Weak<RefCell<T>>,
+}
+
 impl<T> Iterator for SetIterator<'_, T> {
     type Item = Rc<RefCell<T>>;
 
@@ -91,6 +102,20 @@ impl<T> Iterator for SetIterator<'_, T> {
     }
 }
 
+impl<T> Iterator for ExceptSetIterator<'_, T> {
+    type Item = Rc<RefCell<T>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some(WeakPtrWrap(it)) = self.hash_set_iterator.next() {
+            if it.ptr_eq(&self.except) {
+                continue;
+            } else {
+                return Some(it.upgrade().unwrap());
+            }
+        }
+        None
+    }
+}
 impl<T> Default for WeakPtrSet<T> {
     fn default() -> Self {
         WeakPtrSet(Default::default())
