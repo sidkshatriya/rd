@@ -21,6 +21,7 @@ use crate::{
         syscall_number_for_prctl,
         CloneTLSType,
         SupportedArch,
+        RD_NATIVE_ARCH,
     },
     kernel_metadata::{is_sigreturn, syscall_name},
     log::LogLevel::LogDebug,
@@ -49,12 +50,18 @@ use crate::{
         },
     },
     trace::{
-        trace_frame::{FrameTime, TraceFrame},
+        trace_frame::FrameTime,
         trace_stream,
         trace_stream::MappedData,
         trace_task_event::{TraceTaskEvent, TraceTaskEventType},
     },
-    util::{clone_flags_to_task_flags, extract_clone_parameters, floor_page_size, CloneParameters},
+    util::{
+        clone_flags_to_task_flags,
+        extract_clone_parameters,
+        floor_page_size,
+        resource_path,
+        CloneParameters,
+    },
     wait_status::WaitStatus,
 };
 use libc::{
@@ -624,7 +631,7 @@ fn rep_process_syscall_arch<Arch: Architecture>(
     // exist in this architecture.
     // All invalid/unsupported syscalls get the default emulation treatment.
     if nsys == Arch::EXECVE {
-        unimplemented!();
+        return process_execve(t);
     }
 
     if nsys == Arch::BRK {
@@ -756,14 +763,16 @@ fn rep_after_enter_syscall_arch<Arch: Architecture>(t: &mut ReplayTask) {
     t.apply_all_data_records_from_trace();
 }
 
-pub fn process_execve(t: &mut ReplayTask, trace_frame: &TraceFrame) -> ReplayTraceStep {
+// DIFF NOTE: This does not take an extra param `trace_frame` as it can be
+// obtained from `t` itself
+pub fn process_execve(t: &mut ReplayTask) -> ReplayTraceStep {
     let step = ReplayTraceStep {
         action: ReplayTraceStepType::TstepRetire,
         data: Default::default(),
     };
-
+    let frame_arch = t.current_trace_frame().regs_ref().arch();
     // First, exec a stub program
-    let stub_filename: CString = find_exec_stub(trace_frame.regs_ref().arch());
+    let stub_filename: CString = find_exec_stub(frame_arch);
 
     // Setup memory and registers for the execve call. We may not have to save
     // the old values since they're going to be wiped out by execve. We can
@@ -838,7 +847,7 @@ pub fn process_execve(t: &mut ReplayTask, trace_frame: &TraceFrame) -> ReplayTra
         ResumeRequest::ResumeSyscall,
         t.arch(),
         expect_syscallno,
-        Some(syscall_number_for_execve(trace_frame.regs_ref().arch())),
+        Some(syscall_number_for_execve(frame_arch)),
         if tgid == t.tid { None } else { Some(tgid) },
     );
     if t.regs_ref().syscall_result() != 0 {
@@ -846,7 +855,7 @@ pub fn process_execve(t: &mut ReplayTask, trace_frame: &TraceFrame) -> ReplayTra
         unsafe { *__errno_location() = -(t.regs_ref().syscall_result() as i32) };
         if access(stub_filename.as_c_str(), AccessFlags::F_OK).is_err()
             && errno() == ENOENT
-            && trace_frame.regs_ref().arch() == SupportedArch::X86
+            && frame_arch == SupportedArch::X86
         {
             fatal!("Cannot find exec stub {:?} to replay this 32-bit process; you probably built rr with disable32bit", stub_filename);
         }
@@ -1034,6 +1043,14 @@ fn restore_mapped_region(
     unimplemented!()
 }
 
-fn find_exec_stub(_arch: SupportedArch) -> CString {
-    unimplemented!()
+fn find_exec_stub(arch: SupportedArch) -> CString {
+    let mut exe_path: Vec<u8> = Vec::new();
+    exe_path.extend_from_slice(resource_path().as_bytes());
+    exe_path.extend_from_slice(b"bin/");
+    if arch == SupportedArch::X86 && RD_NATIVE_ARCH == SupportedArch::X64 {
+        exe_path.extend_from_slice(b"rr_exec_stub_32");
+    } else {
+        exe_path.extend_from_slice(b"rr_exec_stub");
+    }
+    CString::new(exe_path).unwrap()
 }

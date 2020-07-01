@@ -870,7 +870,10 @@ pub fn read_exe_dir() -> OsString {
         read_exe_dir as *const fn() -> OsString as *const u8,
     );
     let exe_path = Path::new(km.fsname());
-    exe_path.parent().unwrap().as_os_str().to_os_string()
+    let mut final_exe_path = Vec::<u8>::new();
+    final_exe_path.extend_from_slice(exe_path.parent().unwrap().as_os_str().as_bytes());
+    final_exe_path.extend_from_slice(b"/");
+    OsString::from_vec(final_exe_path)
 }
 
 fn env_ptr<Arch: Architecture>(t: &mut dyn Task) -> RemotePtr<Arch::unsigned_word> {
