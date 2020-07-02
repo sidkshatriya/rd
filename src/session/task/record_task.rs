@@ -227,6 +227,7 @@ pub mod record_task {
                     did_waitpid,
                     next_syscallbuf_record,
                     open_mem_fd,
+                    post_exec_for_exe,
                     post_exec_syscall,
                     read_bytes_fallible,
                     read_bytes_helper,
@@ -256,7 +257,7 @@ pub mod record_task {
     use std::{
         cell::RefCell,
         collections::{HashSet, VecDeque},
-        ffi::CString,
+        ffi::{CString, OsStr},
         ops::{Deref, DerefMut},
         rc::{Rc, Weak},
     };
@@ -438,6 +439,11 @@ pub mod record_task {
     }
 
     impl Task for RecordTask {
+        /// Forwarded method
+        fn post_exec_for_exe(&mut self, exe_file: &OsStr) {
+            post_exec_for_exe(self, exe_file)
+        }
+
         /// Forwarded method
         fn resume_execution(
             &mut self,

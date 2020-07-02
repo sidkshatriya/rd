@@ -11,6 +11,7 @@
 //!     in task_inner.rs
 //! (c) Some misc methods that did not fit elsewhere...
 
+use super::task_inner::task_inner::TaskInner;
 use crate::{
     arch::Architecture,
     auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem},
@@ -58,6 +59,7 @@ use crate::{
             },
             Task,
             TaskSharedPtr,
+            PRELOAD_THREAD_LOCALS_SIZE,
         },
     },
     ticks::Ticks,
@@ -96,7 +98,7 @@ use nix::{
 };
 use std::{
     convert::TryInto,
-    ffi::{c_void, CStr, CString},
+    ffi::{c_void, CStr, CString, OsStr, OsString},
     mem::{size_of, zeroed},
     path::Path,
     slice,
@@ -1104,4 +1106,88 @@ pub(super) fn post_exec_syscall(t: &mut dyn Task) {
             0
         );
     }
+}
+
+/// Forwarded Method
+///
+/// DIFF NOTE: Simply called post_exec(...) in rr
+/// Not to be confused with another post_exec() in rr that does not
+/// take any arguments
+pub(super) fn post_exec_for_exe(t: &mut dyn Task, exe_file: &OsStr) {
+    let mut stopped_task_in_address_space = None;
+    let mut other_task_in_address_space = false;
+    for task in t.vm().iter_except(t.weak_self_ptr()) {
+        other_task_in_address_space = true;
+        if task.borrow().is_stopped {
+            stopped_task_in_address_space = Some(task);
+            // @TODO What about breaking out of the loop here?
+            // It would be a small optimization
+        }
+    }
+    match stopped_task_in_address_space {
+        Some(stopped_task) => {
+            let mut t = stopped_task.borrow_mut();
+            let syscallbuf_child = t.syscallbuf_child;
+            let syscallbuf_size = t.syscallbuf_size;
+            let scratch_ptr = t.scratch_ptr;
+            let scratch_size = t.scratch_size;
+            let mut remote = AutoRemoteSyscalls::new(t.as_mut());
+            TaskInner::unmap_buffers_for(
+                &mut remote,
+                syscallbuf_child,
+                syscallbuf_size,
+                scratch_ptr,
+                scratch_size,
+            );
+        }
+        None => {
+            if other_task_in_address_space {
+                // We should clean up our syscallbuf/scratch but that's too hard since we
+                // have no stopped task to use for that :-(.
+                // (We can't clean up those buffers *before* the exec completes, because it
+                // might fail in which case we shouldn't have cleaned them up.)
+                // Just let the buffers leak. The AddressSpace will clean up our local
+                // shared buffer when it's destroyed.
+                log!(
+                    LogWarn,
+                    "Intentionally leaking syscallbuf after exec for task {}",
+                    t.tid
+                );
+            }
+        }
+    }
+    t.session().post_exec();
+
+    t.vm_mut().erase(t.weak_self_ptr());
+    t.fd_table_mut().erase(t.weak_self_ptr());
+
+    t.extra_registers = None;
+    let mut e = t.extra_regs_ref().clone();
+    e.reset();
+    t.set_extra_regs(&e);
+
+    t.syscallbuf_child = RemotePtr::null();
+    t.syscallbuf_size = 0;
+    t.scratch_ptr = RemotePtr::null();
+    t.cloned_file_data_fd_child = -1;
+    t.stopping_breakpoint_table = RemoteCodePtr::null();
+    t.stopping_breakpoint_table_entry_size = 0;
+    t.preload_globals = None;
+    t.thread_group_mut().execed = true;
+    t.thread_areas_.clear();
+    t.thread_locals = [0u8; PRELOAD_THREAD_LOCALS_SIZE];
+    let exec_count = t.vm().uid().exec_count() + 1;
+    t.as_ = Some(t.session().create_vm(
+        t.weak_self_ptr().upgrade().unwrap(),
+        Some(exe_file),
+        Some(exec_count),
+    ));
+    // It's barely-documented, but Linux unshares the fd table on exec
+    t.fds = Some(t.fd_table_shr_ptr().borrow().clone_into_task(t));
+    let prname = prname_from_exe_image(t.vm().exe_image());
+    t.prname = prname;
+}
+
+fn prname_from_exe_image(exe_image: &OsStr) -> OsString {
+    unimplemented!()
 }

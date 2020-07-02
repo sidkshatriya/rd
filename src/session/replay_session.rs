@@ -996,8 +996,7 @@ impl ReplaySession {
                     == SyscallState::EnteringSyscall
             );
         } else {
-            // By default we get the null address
-            let mut syscall_instruction = RemoteCodePtr::new();
+            let mut syscall_instruction = RemoteCodePtr::null();
 
             if self.done_initial_exec() {
                 syscall_instruction = self

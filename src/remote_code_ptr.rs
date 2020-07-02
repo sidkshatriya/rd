@@ -14,12 +14,12 @@ pub struct RemoteCodePtr {
 
 impl Default for RemoteCodePtr {
     fn default() -> Self {
-        RemoteCodePtr::new()
+        RemoteCodePtr::null()
     }
 }
 
 impl RemoteCodePtr {
-    pub fn new() -> RemoteCodePtr {
+    pub fn null() -> RemoteCodePtr {
         RemoteCodePtr { ptr: 0 }
     }
 

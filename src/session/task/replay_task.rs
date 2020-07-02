@@ -38,7 +38,7 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use super::common::{on_syscall_exit, post_exec_syscall};
+use super::common::{on_syscall_exit, post_exec_for_exe, post_exec_syscall};
 use crate::{
     log::LogLevel::LogWarn,
     registers::MismatchBehavior,
@@ -255,6 +255,11 @@ impl DerefMut for ReplayTask {
 }
 
 impl Task for ReplayTask {
+    /// Forwarded method
+    fn post_exec_for_exe(&mut self, exe_file: &OsStr) {
+        post_exec_for_exe(self, exe_file)
+    }
+
     /// Forwarded method
     fn resume_execution(
         &mut self,

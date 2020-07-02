@@ -667,7 +667,6 @@ pub mod task_inner {
 
         // DIFF NOTE: Param list different from rr version
         pub fn unmap_buffers_for(
-            &self,
             _remote: &mut AutoRemoteSyscalls,
             _saved_syscallbuf_child: RemotePtr<syscallbuf_hdr>,
             _syscallbuf_size: usize,
@@ -839,7 +838,7 @@ pub mod task_inner {
             self.extra_registers.as_ref().unwrap()
         }
 
-        /// Return the current arch of this. This can change due to exec(). */
+        /// Return the current arch of this. This can change due to exec().
         pub fn arch(&self) -> SupportedArch {
             self.registers.arch()
         }
@@ -1104,6 +1103,11 @@ pub mod task_inner {
             self.fds.as_ref().unwrap().borrow_mut()
         }
 
+        /// Useful for tricky situations when we need to pass a reference to task to
+        /// the FdTable methods for instance
+        pub fn fd_table_shr_ptr(&self) -> FdTableSharedPtr {
+            self.fds.as_ref().unwrap().clone()
+        }
         /// Currently we don't allow recording across uid changes, so we can
         /// just return rd's uid.
         pub fn getuid(&self) -> uid_t {

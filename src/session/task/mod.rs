@@ -1,5 +1,4 @@
 use crate::{
-    auto_remote_syscalls::AutoRemoteSyscalls,
     bindings::{
         kernel::{itimerval, setitimer, ITIMER_REAL},
         ptrace::{PTRACE_EVENT_EXIT, PTRACE_INTERRUPT},
@@ -39,6 +38,7 @@ use std::{
     rc::{Rc, Weak},
 };
 
+use crate::kernel_abi::common::preload_interface::PRELOAD_THREAD_LOCALS_SIZE;
 pub mod common;
 pub mod extra_registers;
 pub mod record_task;
@@ -52,59 +52,8 @@ pub trait Task: DerefMut<Target = TaskInner> {
     /// Forwarded method signature
     fn post_exec_syscall(&mut self);
 
-    /// DIFF NOTE: Simply called post_exec(...) in rr
-    /// Not to be confused with another post_exec() in rr that does not
-    /// take any arguments
-    fn post_exec_for_exe(&mut self, exe: &OsStr) {
-        let mut stopped_task_in_address_space = None;
-        let mut other_task_in_address_space = false;
-        for task in self.vm().iter_except(self.weak_self_ptr()) {
-            other_task_in_address_space = true;
-            if task.borrow().is_stopped {
-                stopped_task_in_address_space = Some(task);
-                // @TODO What about breaking out of the loop here?
-                // It would be a small optimization
-            }
-        }
-        match stopped_task_in_address_space {
-            Some(stopped_task) => {
-                let mut t = stopped_task.borrow_mut();
-                let mut remote = AutoRemoteSyscalls::new(t.as_mut());
-                self.unmap_buffers_for(
-                    &mut remote,
-                    self.syscallbuf_child,
-                    self.syscallbuf_size,
-                    self.scratch_ptr,
-                    self.scratch_size,
-                );
-            }
-            None => {
-                if other_task_in_address_space {
-                    // We should clean up our syscallbuf/scratch but that's too hard since we
-                    // have no stopped task to use for that :-(.
-                    // (We can't clean up those buffers *before* the exec completes, because it
-                    // might fail in which case we shouldn't have cleaned them up.)
-                    // Just let the buffers leak. The AddressSpace will clean up our local
-                    // shared buffer when it's destroyed.
-                    log!(
-                        LogWarn,
-                        "Intentionally leaking syscallbuf after exec for task {}",
-                        self.tid
-                    );
-                }
-            }
-        }
-        self.session().post_exec();
-
-        self.vm_mut().erase(self.weak_self_ptr());
-        self.fd_table_mut().erase(self.weak_self_ptr());
-
-        self.extra_registers = None;
-        let mut e = self.extra_regs_ref().clone();
-        e.reset();
-        self.set_extra_regs(&e);
-        unimplemented!();
-    }
+    /// Forwarded method signature
+    fn post_exec_for_exe(&mut self, exe_file: &OsStr);
 
     fn resume_execution(
         &mut self,
