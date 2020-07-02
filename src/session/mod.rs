@@ -270,7 +270,20 @@ pub trait Session: DerefMut<Target = SessionInner> {
     /// replay| will be different than it was for `rr record`.
     /// After the first exec, we're running tracee code, and
     /// everything must be the same.
-    fn post_exec(&self) {
-        unimplemented!()
+    ///
+    /// DIFF NOTE: Unlike rr this takes in param `t`. Makes things simpler.
+    fn post_exec(&self, t: &mut dyn Task) {
+        // We just saw a successful exec(), so from now on we know
+        // that the address space layout for the replay tasks will
+        // (should!) be the same as for the recorded tasks.  So we can
+        // start validating registers at events. */
+        self.assert_fully_initialized();
+        if self.done_initial_exec() {
+            return;
+        }
+        self.done_initial_exec_.set(true);
+        debug_assert!(self.tasks().len() == 1);
+        t.flush_inconsistent_state();
+        self.spawned_task_error_fd_.borrow_mut().close();
     }
 }

@@ -163,7 +163,7 @@ pub mod session_inner {
         /// Before then, tracee state can be inconsistent; from the exec exit-event
         /// onwards, the tracee state much be consistent.
         pub fn done_initial_exec(&self) -> bool {
-            self.done_initial_exec_
+            self.done_initial_exec_.get()
         }
 
         /// Create and return a new address space that's constructed
@@ -174,15 +174,15 @@ pub mod session_inner {
         /// If `exec_count` is not specified it is assumed to be 0.
         pub fn create_vm(
             &self,
-            t: TaskSharedPtr,
+            t: &mut dyn Task,
             maybe_exe: Option<&OsStr>,
             maybe_exec_count: Option<u32>,
         ) -> AddressSpaceSharedPtr {
             let exe = maybe_exe.unwrap_or(OsStr::new(""));
             let exec_count = maybe_exec_count.unwrap_or(0);
             self.assert_fully_initialized();
-            let mut as_ = AddressSpace::new_after_execve(t.borrow_mut().as_mut(), exe, exec_count);
-            as_.insert(Rc::downgrade(&t));
+            let mut as_ = AddressSpace::new_after_execve(t, exe, exec_count);
+            as_.insert(t.weak_self_ptr());
             let as_uid = as_.uid();
             let shr_ptr = Rc::new(RefCell::new(as_));
             self.vm_map
@@ -389,7 +389,7 @@ pub mod session_inner {
 
         pub fn read_spawned_task_error(&self) -> OsString {
             let mut buf: Vec<u8> = vec![0; 1000];
-            let res = read(self.spawned_task_error_fd_.as_raw(), &mut buf);
+            let res = read(self.spawned_task_error_fd_.borrow().as_raw(), &mut buf);
             match res {
                 Ok(nread) => {
                     buf.truncate(nread);
@@ -436,7 +436,7 @@ pub mod session_inner {
                 spawned_task_error_fd_: Default::default(),
                 syscall_seccomp_ordering_: Default::default(),
                 ticks_semantics_: PerfCounters::default_ticks_semantics(),
-                done_initial_exec_: false,
+                done_initial_exec_: Default::default(),
                 visible_execution_: true,
             };
             log!(LogDebug, "Session @TODO unique identifier created");
@@ -447,7 +447,7 @@ pub mod session_inner {
             let res = pipe2(OFlag::O_CLOEXEC);
             match res {
                 Ok((fd0, fd1)) => {
-                    self.spawned_task_error_fd_ = ScopedFd::from_raw(fd0);
+                    *self.spawned_task_error_fd_.borrow_mut() = ScopedFd::from_raw(fd0);
                     ScopedFd::from_raw(fd1)
                 }
                 Err(e) => {
@@ -541,7 +541,7 @@ pub mod session_inner {
         pub(in super::super) tracee_socket_fd_number: Cell<i32>,
         pub(in super::super) next_task_serial_: Cell<u32>,
         // @TODO Should this be an Option?
-        pub(in super::super) spawned_task_error_fd_: ScopedFd,
+        pub(in super::super) spawned_task_error_fd_: RefCell<ScopedFd>,
 
         pub(in super::super) syscall_seccomp_ordering_: Cell<PtraceSyscallBeforeSeccomp>,
 
@@ -549,7 +549,7 @@ pub mod session_inner {
 
         /// True if we've done an exec so tracees are now in a state that will be
         /// consistent across record and replay.
-        pub(in super::super) done_initial_exec_: bool,
+        pub(in super::super) done_initial_exec_: Cell<bool>,
 
         /// True while the execution of this session is visible to users.
         pub(in super::super) visible_execution_: bool,

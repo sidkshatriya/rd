@@ -1156,7 +1156,7 @@ pub(super) fn post_exec_for_exe(t: &mut dyn Task, exe_file: &OsStr) {
             }
         }
     }
-    t.session().post_exec();
+    t.session().post_exec(t);
 
     t.vm_mut().erase(t.weak_self_ptr());
     t.fd_table_mut().erase(t.weak_self_ptr());
@@ -1177,11 +1177,7 @@ pub(super) fn post_exec_for_exe(t: &mut dyn Task, exe_file: &OsStr) {
     t.thread_areas_.clear();
     t.thread_locals = [0u8; PRELOAD_THREAD_LOCALS_SIZE];
     let exec_count = t.vm().uid().exec_count() + 1;
-    t.as_ = Some(t.session().create_vm(
-        t.weak_self_ptr().upgrade().unwrap(),
-        Some(exe_file),
-        Some(exec_count),
-    ));
+    t.as_ = Some(t.session().create_vm(t, Some(exe_file), Some(exec_count)));
     // It's barely-documented, but Linux unshares the fd table on exec
     t.fds = Some(t.fd_table_shr_ptr().borrow().clone_into_task(t));
     let prname = prname_from_exe_image(t.vm().exe_image());

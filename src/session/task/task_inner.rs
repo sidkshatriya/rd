@@ -1694,7 +1694,7 @@ pub mod task_inner {
 
             let tg = session.create_initial_tg(wrapped_t.clone());
             wrapped_t.borrow_mut().tg = Some(tg);
-            let addr_space = session.create_vm(wrapped_t.clone(), None, None);
+            let addr_space = session.create_vm(wrapped_t.borrow_mut().as_mut(), None, None);
             wrapped_t.borrow_mut().as_ = Some(addr_space);
             let weak_t_ptr = wrapped_t.borrow().weak_self.clone();
             wrapped_t.borrow_mut().fds = Some(FdTable::create(weak_t_ptr));
