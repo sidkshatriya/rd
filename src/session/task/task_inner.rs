@@ -210,19 +210,19 @@ pub mod task_inner {
     };
 
     #[cfg(target_arch = "x86")]
-    use crate::bindings::ptrace::PTRACE_SETFPXREGS;
+    use crate::bindings::ptrace::{PTRACE_GETFPXREGS, PTRACE_SETFPXREGS};
     #[cfg(target_arch = "x86")]
     use crate::kernel_abi::x86;
 
     #[cfg(target_arch = "x86_64")]
-    use crate::bindings::ptrace::PTRACE_SETFPREGS;
+    use crate::bindings::ptrace::{PTRACE_GETFPREGS, PTRACE_SETFPREGS};
     #[cfg(target_arch = "x86_64")]
     use crate::kernel_abi::x64;
 
     use crate::{
         bindings::{
             kernel::{user, CAP_SYS_ADMIN, NT_X86_XSTATE},
-            ptrace::{PTRACE_POKEUSER, PTRACE_SETREGSET},
+            ptrace::{PTRACE_GETREGSET, PTRACE_POKEUSER, PTRACE_SETREGSET},
         },
         cpuid_bug_detector::CPUIDBugDetector,
         fd_table::{FdTableRef, FdTableRefMut},
@@ -425,9 +425,9 @@ pub mod task_inner {
         /// True when 'registers' has changes that haven't been flushed back to the
         /// task yet.
         pub(in super::super::super) registers_dirty: bool,
-        /// When `extra_registers_known`, we have saved our extra registers.
-        pub(in super::super::super) extra_registers: ExtraRegisters,
-        pub(in super::super::super) extra_registers_known: bool,
+        /// DIFF NOTE: This is an option in rd. In rr there is `extra_registers_known`
+        /// which we don't need.
+        pub(in super::super::super) extra_registers: Option<ExtraRegisters>,
         /// A weak pointer to the  session we're part of.
         pub(in super::super::super) session_: SessionSharedWeakPtr,
         /// The thread group this belongs to.
@@ -665,11 +665,14 @@ pub mod task_inner {
             unimplemented!()
         }
 
+        // DIFF NOTE: Param list different from rr version
         pub fn unmap_buffers_for(
             &self,
-            _remote: &AutoRemoteSyscalls,
-            _t: &TaskInner,
+            _remote: &mut AutoRemoteSyscalls,
             _saved_syscallbuf_child: RemotePtr<syscallbuf_hdr>,
+            _syscallbuf_size: usize,
+            _scratch_ptr: RemotePtr<Void>,
+            _scratch_size: usize,
         ) {
             unimplemented!()
         }
@@ -768,9 +771,72 @@ pub mod task_inner {
             &mut self.registers
         }
 
+        /// DIFF NOTE: simply `extra_regs()` in rr
         /// Return the extra registers of this.
-        pub fn extra_regs(&self) -> &ExtraRegisters {
-            &self.extra_registers
+        pub fn extra_regs_ref(&mut self) -> &ExtraRegisters {
+            if self.extra_registers.is_none() {
+                let arch_ = self.registers.arch();
+                let format_ = Format::XSave;
+                let mut data_ = Vec::<u8>::new();
+                let er: ExtraRegisters;
+                if xsave_area_size() > 512 {
+                    log!(LogDebug, "  (refreshing extra-register cache using XSAVE)");
+
+                    data_.resize(xsave_area_size(), 0u8);
+                    let mut vec = iovec {
+                        iov_base: data_.as_mut_ptr().cast(),
+                        iov_len: data_.len(),
+                    };
+                    self.xptrace(
+                        PTRACE_GETREGSET,
+                        RemotePtr::new_from_val(NT_X86_XSTATE as usize),
+                        PtraceData::WriteInto(u8_raw_slice_mut(&mut vec)),
+                    );
+                    data_.resize(vec.iov_len, 0u8);
+
+                    er = ExtraRegisters {
+                        data_,
+                        format_,
+                        arch_,
+                    };
+                    // The kernel may return less than the full XSTATE
+                    er.validate(self);
+                } else {
+                    #[cfg(target_arch = "x86")]
+                    {
+                        log!(
+                            LogDebug,
+                            "  (refreshing extra-register cache using FPXREGS)"
+                        );
+                        data_.resize(size_of::<x86::user_fpxregs_struct>(), 0u8);
+                        self.xptrace(
+                            PTRACE_GETFPXREGS,
+                            0.into(),
+                            PtraceData::WriteInto(data_.as_mut_slice()),
+                        );
+                    }
+                    #[cfg(target_arch = "x86_64")]
+                    {
+                        // x86-64 that doesn't support XSAVE; apparently Xeon E5620 (Westmere)
+                        // is in this class.
+                        log!(LogDebug, "  (refreshing extra-register cache using FPREGS)");
+                        data_.resize(size_of::<x64::user_fpregs_struct>(), 0u8);
+                        self.xptrace(
+                            PTRACE_GETFPREGS,
+                            0usize.into(),
+                            PtraceData::WriteInto(data_.as_mut_slice()),
+                        );
+                    }
+                    er = ExtraRegisters {
+                        data_,
+                        format_,
+                        arch_,
+                    };
+                }
+                self.extra_registers = Some(er);
+            }
+
+            self.extra_registers.as_ref().unwrap()
         }
 
         /// Return the current arch of this. This can change due to exec(). */
@@ -830,15 +896,13 @@ pub mod task_inner {
                 regs.arch() == self.arch(),
                 "Trying to set wrong arch ExtraRegisters"
             );
-            self.extra_registers = regs.clone();
-            self.extra_registers_known = true;
-
-            match self.extra_registers.format() {
+            let mut er = regs.clone();
+            match er.format() {
                 Format::XSave => {
                     if xsave_area_size() > 512 {
                         let vec = iovec {
-                            iov_base: self.extra_registers.data_.as_mut_ptr().cast(),
-                            iov_len: self.extra_registers.data_.len(),
+                            iov_base: er.data_.as_mut_ptr().cast(),
+                            iov_len: er.data_.len(),
                         };
 
                         let d = PtraceData::ReadFrom(u8_raw_slice(&vec));
@@ -852,15 +916,12 @@ pub mod task_inner {
                         {
                             ed_assert!(
                                 self,
-                                self.extra_registers.data_.len()
-                                    == size_of::<x86::user_fpxregs_struct>()
+                                er.data_.len() == size_of::<x86::user_fpxregs_struct>()
                             );
                             self.ptrace_if_alive(
                                 PTRACE_SETFPXREGS,
                                 RemotePtr::null(),
-                                PtraceData::ReadFrom(
-                                    self.extra_registers.data_.as_slice() as *const _
-                                ),
+                                PtraceData::ReadFrom(er.data_.as_slice() as *const _),
                             );
                         }
 
@@ -868,15 +929,12 @@ pub mod task_inner {
                         {
                             ed_assert!(
                                 self,
-                                self.extra_registers.data_.len()
-                                    == size_of::<x64::user_fpregs_struct>()
+                                er.data_.len() == size_of::<x64::user_fpregs_struct>()
                             );
                             self.ptrace_if_alive(
                                 PTRACE_SETFPREGS,
                                 RemotePtr::null(),
-                                PtraceData::ReadFrom(
-                                    self.extra_registers.data_.as_slice() as *const _
-                                ),
+                                PtraceData::ReadFrom(er.data_.as_slice() as *const _),
                             );
                         }
                     }
@@ -886,6 +944,7 @@ pub mod task_inner {
                     unreachable!();
                 }
             }
+            self.extra_registers = Some(er);
         }
 
         /// Program the debug registers to the vector of watchpoint
@@ -1214,8 +1273,7 @@ pub mod task_inner {
                 seccomp_bpf_enabled: false,
                 detected_unexpected_exit: false,
                 registers_dirty: false,
-                extra_registers: ExtraRegisters::new(a),
-                extra_registers_known: false,
+                extra_registers: None,
                 session_: session.weak_self.clone(),
                 top_of_stack: Default::default(),
                 seen_ptrace_exit_event: false,

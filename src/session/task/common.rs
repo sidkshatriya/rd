@@ -935,7 +935,7 @@ pub(super) fn resume_execution<T: Task>(
     }
 
     task.is_stopped = false;
-    task.extra_registers_known = false;
+    task.extra_registers = None;
     if WaitRequest::ResumeWait == wait_how {
         task.wait(None);
     }

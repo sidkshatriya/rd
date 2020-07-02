@@ -530,7 +530,7 @@ impl ReRunCommand {
 
     pub fn write_regs(
         &self,
-        t: &dyn Task,
+        t: &mut dyn Task,
         event: FrameTime,
         instruction_count: u64,
         out: &mut dyn Write,
@@ -615,7 +615,7 @@ impl ReRunCommand {
                     )?;
                 }
                 TraceFieldKind::TraceXinuse => {
-                    let value: u64 = t.extra_regs().read_xinuse().unwrap_or(0);
+                    let value: u64 = t.extra_regs_ref().read_xinuse().unwrap_or(0);
                     self.write_value("xinuse", &value.to_le_bytes(), out)?;
                 }
                 // @TODO Will this work properly if rr is a x86 build?
@@ -650,7 +650,7 @@ impl ReRunCommand {
                     match t.arch() {
                         SupportedArch::X86 => {
                             if field.reg_num < 8 {
-                                t.extra_regs().read_register(
+                                t.extra_regs_ref().read_register(
                                     &mut value,
                                     (DREG_XMM0 + field.reg_num as u32).unwrap(),
                                 );
@@ -658,7 +658,7 @@ impl ReRunCommand {
                         }
                         SupportedArch::X64 => {
                             if field.reg_num < 16 {
-                                t.extra_regs().read_register(
+                                t.extra_regs_ref().read_register(
                                     &mut value,
                                     (DREG_64_XMM0 + field.reg_num as u32).unwrap(),
                                 );
@@ -674,11 +674,11 @@ impl ReRunCommand {
                     match t.arch() {
                         SupportedArch::X86 => {
                             if field.reg_num < 8 {
-                                t.extra_regs().read_register(
+                                t.extra_regs_ref().read_register(
                                     &mut value[0..16],
                                     (DREG_XMM0 + field.reg_num as u32).unwrap(),
                                 );
-                                t.extra_regs().read_register(
+                                t.extra_regs_ref().read_register(
                                     &mut value[16..32],
                                     (DREG_YMM0H + field.reg_num as u32).unwrap(),
                                 );
@@ -686,11 +686,11 @@ impl ReRunCommand {
                         }
                         SupportedArch::X64 => {
                             if field.reg_num < 16 {
-                                t.extra_regs().read_register(
+                                t.extra_regs_ref().read_register(
                                     &mut value[0..16],
                                     (DREG_64_XMM0 + field.reg_num as u32).unwrap(),
                                 );
-                                t.extra_regs().read_register(
+                                t.extra_regs_ref().read_register(
                                     &mut value[16..32],
                                     (DREG_64_YMM0H + field.reg_num as u32).unwrap(),
                                 );

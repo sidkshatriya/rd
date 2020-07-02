@@ -270,7 +270,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
     /// replay| will be different than it was for `rr record`.
     /// After the first exec, we're running tracee code, and
     /// everything must be the same.
-    fn post_exec(&mut self) {
+    fn post_exec(&self) {
         unimplemented!()
     }
 }

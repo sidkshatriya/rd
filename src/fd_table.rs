@@ -19,7 +19,7 @@ use nix::sys::stat::lstat;
 use std::{
     cell::{Ref, RefCell, RefMut},
     collections::{HashMap, HashSet},
-    ops::Deref,
+    ops::{Deref, DerefMut},
     rc::{Rc, Weak},
 };
 
@@ -41,6 +41,12 @@ impl Deref for FdTable {
 
     fn deref(&self) -> &Self::Target {
         &self.tasks
+    }
+}
+
+impl DerefMut for FdTable {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.tasks
     }
 }
 

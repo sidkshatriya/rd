@@ -16,8 +16,10 @@ impl<T> Clone for WeakPtrWrap<T> {
 
 impl<T> PartialEq for WeakPtrWrap<T> {
     fn eq(&self, other: &Self) -> bool {
-        // If the addresses of the Refcell are same then they are equal.
-        Rc::ptr_eq(&self.0.upgrade().unwrap(), &other.0.upgrade().unwrap())
+        // We could upgrade the weak pointer and then check for ptr equality
+        // However that will be slower and its uncertain if that
+        // gives us more "correctness"
+        self.0.ptr_eq(&other.0)
     }
 }
 
@@ -25,7 +27,10 @@ impl<T> Eq for WeakPtrWrap<T> {}
 
 impl<T> Hash for WeakPtrWrap<T> {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        let addr = self.0.upgrade().unwrap().as_ptr().cast::<u8>() as usize;
+        // We could upgrade the weak pointer and then take numeric address
+        // However that will be slower and its uncertain if that gives
+        // us more "correctness".
+        let addr = self.0.as_ptr().cast::<u8>() as usize;
         // The hash is the hash of the address of the Refcell.
         addr.hash(state);
     }
