@@ -453,7 +453,7 @@ pub fn tmp_dir() -> OsString {
     }
 
     // Don't try to create "/tmp", that probably won't work well.
-    if access("/tmp", AccessFlags::W_OK).is_ok() {
+    if access("/tmp", AccessFlags::W_OK).is_err() {
         fatal!("Can't write to temporary file directory /tmp.");
     }
 

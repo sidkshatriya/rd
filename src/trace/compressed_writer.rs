@@ -110,9 +110,7 @@ impl CompressedWriter {
         buffer.resize(block_size * (num_threads + 2), 0);
 
         let mut thread_pos: Vec<Option<u64>> = Vec::with_capacity(num_threads);
-        for i in 0..num_threads {
-            thread_pos[i] = None;
-        }
+        thread_pos.resize(num_threads, None);
 
         let next_thread_pos: u64 = 0;
         let next_thread_end_pos: u64 = 0;

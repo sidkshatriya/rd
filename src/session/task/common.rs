@@ -321,6 +321,7 @@ pub(super) fn read_c_str<T: Task>(task: &mut T, child_addr: RemotePtr<u8>) -> CS
         let end_of_page: RemotePtr<Void> = ceil_page_size(p.as_usize() + 1).into();
         let nbytes: usize = end_of_page - p;
         let mut buf = Vec::<u8>::with_capacity(nbytes);
+        buf.resize(nbytes, 0);
         task.read_bytes_helper(p, &mut buf, None);
         for i in 0..nbytes {
             if 0 == buf[i] {
