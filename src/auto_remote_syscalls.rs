@@ -69,6 +69,7 @@ use libc::{
     O_CREAT,
     O_EXCL,
     O_RDWR,
+    PATH_MAX,
     SCM_RIGHTS,
     SIGTRAP,
     SOL_SOCKET,
@@ -78,7 +79,7 @@ use nix::{
         mman::{munmap, MapFlags, ProtFlags},
         stat::fstat,
     },
-    unistd::{unlink, PathconfVar::PATH_MAX},
+    unistd::unlink,
     NixPath,
 };
 use std::{
@@ -1013,7 +1014,11 @@ impl<'a> AutoRemoteSyscalls<'a> {
 
         let mut shmem_fd: ScopedFd = self.retrieve_fd(child_shmem_fd);
         resize_shmem_segment(&shmem_fd, size);
-        log!(LogDebug, "created shmem segment {:?}", path);
+        log!(
+            LogDebug,
+            "created shmem segment {:?}",
+            OsStr::from_bytes(&path)
+        );
 
         // Map the segment in ours and the tracee's address spaces.
         let mut flags = MapFlags::MAP_SHARED;
