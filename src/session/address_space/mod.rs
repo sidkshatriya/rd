@@ -246,8 +246,9 @@ pub mod address_space {
         sys::mman::{munmap, MmapAdvise},
         unistd::getpid,
     };
+
     use std::{
-        cell::{Ref, RefCell, RefMut},
+        cell::{Cell, Ref, RefCell, RefMut},
         cmp::{max, min},
         collections::{
             btree_map::{Range, RangeMut},
@@ -259,8 +260,6 @@ pub mod address_space {
         ffi::{OsStr, OsString},
         ops::{
             Bound::{Included, Unbounded},
-            Deref,
-            DerefMut,
             Drop,
         },
         ptr::NonNull,
@@ -328,65 +327,74 @@ pub mod address_space {
 
     pub type MemoryMap = BTreeMap<MemoryRangeKey, Mapping>;
 
-    pub type AddressSpaceSharedPtr = Rc<RefCell<AddressSpace>>;
-    pub type AddressSpaceSharedWeakPtr = Weak<RefCell<AddressSpace>>;
-    pub type AddressSpaceRef<'a> = Ref<'a, AddressSpace>;
-    pub type AddressSpaceRefMut<'a> = RefMut<'a, AddressSpace>;
+    pub type AddressSpaceSharedPtr = Rc<AddressSpace>;
+    pub type AddressSpaceSharedWeakPtr = Weak<AddressSpace>;
 
     pub struct Maps<'a> {
-        outer: &'a AddressSpace,
+        memory_map: Ref<'a, MemoryMap>,
         range: MemoryRange,
     }
 
     impl<'a> Maps<'a> {
-        pub fn new(outer: &'a AddressSpace, start: RemotePtr<Void>) -> Maps {
+        pub fn new(outer: &'a AddressSpace, start: RemotePtr<Void>) -> Maps<'a> {
             Maps {
-                outer,
+                memory_map: outer.mem.borrow(),
                 range: MemoryRange::from_range(start, start),
             }
         }
 
-        pub fn new_from_range(outer: &'a AddressSpace, range: MemoryRange) -> Maps {
-            Maps { outer, range }
+        pub fn new_from_range(outer: &'a AddressSpace, range: MemoryRange) -> Maps<'a> {
+            Maps {
+                memory_map: outer.mem.borrow(),
+                range,
+            }
+        }
+
+        pub fn into_mem(self) -> Ref<'a, MemoryMap> {
+            self.memory_map
         }
     }
 
-    impl<'a> IntoIterator for Maps<'a> {
-        type Item = (&'a MemoryRangeKey, &'a Mapping);
-        type IntoIter = Range<'a, MemoryRangeKey, Mapping>;
+    impl<'a, 'b> IntoIterator for &'b Maps<'a> {
+        type Item = (&'b MemoryRangeKey, &'b Mapping);
+        type IntoIter = Range<'b, MemoryRangeKey, Mapping>;
 
         fn into_iter(self) -> Self::IntoIter {
-            self.outer
-                .mem
+            self.memory_map
                 .range((Included(MemoryRangeKey(self.range)), Unbounded))
         }
     }
 
     pub struct MapsMut<'a> {
-        outer: &'a mut AddressSpace,
+        memory_map: RefMut<'a, MemoryMap>,
         range: MemoryRange,
     }
 
     impl<'a> MapsMut<'a> {
-        pub fn new(outer: &'a mut AddressSpace, start: RemotePtr<Void>) -> MapsMut {
+        pub fn new(outer: &'a mut AddressSpace, start: RemotePtr<Void>) -> MapsMut<'a> {
             MapsMut {
-                outer,
+                memory_map: outer.mem.borrow_mut(),
                 range: MemoryRange::from_range(start, start),
             }
         }
 
-        pub fn new_from_range(outer: &'a mut AddressSpace, range: MemoryRange) -> MapsMut {
-            MapsMut { outer, range }
+        pub fn new_from_range(outer: &'a AddressSpace, range: MemoryRange) -> MapsMut<'a> {
+            MapsMut {
+                memory_map: outer.mem.borrow_mut(),
+                range,
+            }
+        }
+        pub fn into_mem(self) -> RefMut<'a, MemoryMap> {
+            self.memory_map
         }
     }
 
-    impl<'a> IntoIterator for MapsMut<'a> {
-        type Item = (&'a MemoryRangeKey, &'a mut Mapping);
-        type IntoIter = RangeMut<'a, MemoryRangeKey, Mapping>;
+    impl<'a, 'b> IntoIterator for &'b mut MapsMut<'a> {
+        type Item = (&'b MemoryRangeKey, &'b mut Mapping);
+        type IntoIter = RangeMut<'b, MemoryRangeKey, Mapping>;
 
         fn into_iter(self) -> Self::IntoIter {
-            self.outer
-                .mem
+            self.memory_map
                 .range_mut((Included(MemoryRangeKey(self.range)), Unbounded))
         }
     }
@@ -582,9 +590,9 @@ pub mod address_space {
     /// of mapped pages, and the resources those mappings refer to.
     pub struct AddressSpace {
         /// The struct Deref-s and DerefMut-s to task_set.
-        task_set: WeakPtrSet<Box<dyn Task>>,
+        task_set: RefCell<WeakPtrSet<Box<dyn Task>>>,
         /// All breakpoints set in this VM.
-        breakpoints: BreakpointMap,
+        breakpoints: RefCell<BreakpointMap>,
         /// Path of the real executable image this address space was
         /// exec()'d with.
         exe: OsString,
@@ -594,32 +602,32 @@ pub mod address_space {
         leader_serial: u32,
         exec_count: u32,
         /// Only valid during recording
-        brk_start: RemotePtr<Void>,
+        brk_start: Cell<RemotePtr<Void>>,
         /// Current brk. Not necessarily page-aligned.
-        brk_end: RemotePtr<Void>,
+        brk_end: Cell<RemotePtr<Void>>,
         /// All segments mapped into this address space.
-        mem: MemoryMap,
+        mem: RefCell<MemoryMap>,
         /// Sizes of SYSV shm segments, by address. We use this to determine the size
         /// of memory regions unmapped via shmdt().
-        shm_sizes: HashMap<RemotePtr<Void>, usize>,
-        monitored_mem: HashSet<RemotePtr<Void>>,
+        shm_sizes: RefCell<HashMap<RemotePtr<Void>, usize>>,
+        monitored_mem: RefCell<HashSet<RemotePtr<Void>>>,
         /// madvise DONTFORK regions
-        dont_fork: BTreeSet<MemoryRange>,
+        dont_fork: RefCell<BTreeSet<MemoryRange>>,
         /// The session that created this.  We save a ref to it so that
         /// we can notify it when we die.
         /// `session_` in rr.
         session_: SessionSharedWeakPtr,
         /// tid of the task whose thread-locals are in preload_thread_locals
-        thread_locals_tuid_: TaskUid,
+        thread_locals_tuid_: Cell<TaskUid>,
         /// First mapped byte of the vdso.
-        vdso_start_addr: RemotePtr<Void>,
+        vdso_start_addr: Cell<RemotePtr<Void>>,
         /// The monkeypatcher that's handling this address space.
         monkeypatch_state: Option<MonkeyPatcher>,
         /// The watchpoints set for tasks in this VM.  Watchpoints are
         /// programmed per Task, but we track them per address space on
         /// behalf of debuggers that assume that model.
-        watchpoints: HashMap<MemoryRange, Watchpoint>,
-        saved_watchpoints: Vec<HashMap<MemoryRange, Watchpoint>>,
+        watchpoints: RefCell<HashMap<MemoryRange, Watchpoint>>,
+        saved_watchpoints: RefCell<Vec<HashMap<MemoryRange, Watchpoint>>>,
         /// Tracee memory is read and written through this fd, which is
         /// opened for the tracee's magic /proc/{tid}/mem device.  The
         /// advantage of this over ptrace is that we can access it even
@@ -629,32 +637,39 @@ pub mod address_space {
         ///
         /// Users of child_mem_fd should fall back to ptrace-based memory
         /// access when child_mem_fd is not open.
-        child_mem_fd: ScopedFd,
-        traced_syscall_ip_: RemoteCodePtr,
-        privileged_traced_syscall_ip_: Option<RemoteCodePtr>,
-        syscallbuf_enabled_: bool,
+        child_mem_fd: RefCell<ScopedFd>,
+        traced_syscall_ip_: Cell<RemoteCodePtr>,
+        privileged_traced_syscall_ip_: Cell<Option<RemoteCodePtr>>,
+        syscallbuf_enabled_: Cell<bool>,
 
-        saved_auxv_: Vec<u8>,
+        saved_auxv_: RefCell<Vec<u8>>,
 
         /// The time of the first event that ran code for a task in this address space.
         /// 0 if no such event has occurred.
         /// @TODO should this be an Option?
-        first_run_event_: FrameTime,
+        first_run_event_: Cell<FrameTime>,
     }
 
     impl AddressSpace {
+        pub fn task_set(&self) -> Ref<WeakPtrSet<Box<dyn Task>>> {
+            self.task_set.borrow()
+        }
+        pub fn task_set_mut(&self) -> RefMut<WeakPtrSet<Box<dyn Task>>> {
+            self.task_set.borrow_mut()
+        }
         /// Call this after a new task has been cloned within this
         /// address space.
-        pub fn after_clone(&mut self) {
+        pub fn after_clone(&self) {
             self.allocate_watchpoints();
         }
 
         /// Call this after a successful execve syscall has completed. At this point
         /// it is safe to perform remote syscalls.
-        pub fn post_exec_syscall(&mut self, t: &mut dyn Task) {
+        pub fn post_exec_syscall(&self, t: &mut dyn Task) {
             // First locate a syscall instruction we can use for remote syscalls.
-            self.traced_syscall_ip_ = self.find_syscall_instruction(t);
-            self.privileged_traced_syscall_ip_ = None;
+            self.traced_syscall_ip_
+                .set(self.find_syscall_instruction(t));
+            self.privileged_traced_syscall_ip_.set(None);
             // Now remote syscalls work, we can open_mem_fd.
             t.open_mem_fd();
 
@@ -672,16 +687,16 @@ pub mod address_space {
                 None,
                 None,
             );
-            let flags = self.mapping_flags_of_mut(Self::preload_thread_locals_start());
+            let mut flags = self.mapping_flags_of_mut(Self::preload_thread_locals_start());
             *flags = *flags | MappingFlags::IS_THREAD_LOCALS;
         }
 
         /// Change the program data break of this address space to
         /// `addr`. Only called during recording!
-        pub fn brk(&mut self, t: &dyn Task, addr: RemotePtr<Void>, prot: ProtFlags) {
+        pub fn brk(&self, t: &dyn Task, addr: RemotePtr<Void>, prot: ProtFlags) {
             log!(LogDebug, "brk({})", addr);
 
-            let old_brk: RemotePtr<Void> = ceil_page_size(self.brk_end);
+            let old_brk: RemotePtr<Void> = ceil_page_size(self.brk_end.get());
             let new_brk: RemotePtr<Void> = ceil_page_size(addr);
             if old_brk < new_brk {
                 self.map(
@@ -703,20 +718,24 @@ pub mod address_space {
             } else {
                 self.unmap(t, new_brk, old_brk - new_brk);
             }
-            self.brk_end = addr;
+            self.brk_end.set(addr);
         }
 
         /// This can only be called during recording.
         pub fn current_brk(&self) -> RemotePtr<Void> {
-            debug_assert!(!self.brk_end.is_null());
-            self.brk_end
+            debug_assert!(!self.brk_end.get().is_null());
+            self.brk_end.get()
         }
 
         /// Dump a representation of `self` to a String similar to /proc/{tid}/maps.
         pub fn dump(&self) -> String {
             let mut out = String::new();
-            out += &format!("  (heap: {}-{})\n", self.brk_start, self.brk_end);
-            for (_, m) in &self.mem {
+            out += &format!(
+                "  (heap: {}-{})\n",
+                self.brk_start.get(),
+                self.brk_end.get()
+            );
+            for (_, m) in self.mem.borrow().iter() {
                 let km = &m.map;
                 out += &format!("{}{}\n", km, stringify_flags(m.flags));
             }
@@ -743,7 +762,13 @@ pub mod address_space {
 
         pub fn arch(&self) -> SupportedArch {
             // Return the arch() of the first task in the address space
-            self.task_set.iter().next().unwrap().borrow().arch()
+            self.task_set
+                .borrow()
+                .iter()
+                .next()
+                .unwrap()
+                .borrow()
+                .arch()
         }
 
         /// Return the path this address space was exec()'d with.
@@ -764,6 +789,7 @@ pub mod address_space {
         /// `addr`.
         pub fn get_breakpoint_type_at_addr(&self, addr: RemoteCodePtr) -> BreakpointType {
             self.breakpoints
+                .borrow()
                 .get(&addr)
                 .map_or(BkptNone, |bp| bp.bp_type())
         }
@@ -775,7 +801,7 @@ pub mod address_space {
         pub fn is_breakpoint_in_private_read_only_memory(&self, addr: RemoteCodePtr) -> bool {
             // @TODO Its unclear why we need to iterate instead of just using
             // AddressSpace::mapping_of() to check breakpoint prot() and flags().
-            for (_, m) in self.maps_containing_or_after(addr.to_data_ptr::<Void>()) {
+            for (_, m) in &self.maps_containing_or_after(addr.to_data_ptr::<Void>()) {
                 if m.map.start()
                     >= addr
                         .increment_by_bkpt_insn_length(self.arch())
@@ -809,7 +835,7 @@ pub mod address_space {
             dest: &mut [u8],
             addr: RemotePtr<u8>,
         ) {
-            for (k, v) in &self.breakpoints {
+            for (k, v) in self.breakpoints.borrow().iter() {
                 let bkpt_location = k.to_data_ptr::<u8>();
                 let start = max(addr, bkpt_location);
                 let end = min(addr + dest.len(), bkpt_location + v.data_length());
@@ -833,7 +859,7 @@ pub mod address_space {
         /// or null if it's not shared with the tracee. AddressSpace takes ownership
         /// of the shared memory and is responsible for unmapping it.
         pub fn map(
-            &mut self,
+            &self,
             t: &dyn Task,
             addr: RemotePtr<Void>,
             num_bytes: usize,
@@ -874,7 +900,10 @@ pub mod address_space {
             // @TODO in rr a 0 length mapping accepted. Is this correct?
             debug_assert!(num_bytes > 0);
 
-            remove_range(&mut self.dont_fork, MemoryRange::new_range(addr, num_bytes));
+            remove_range(
+                &mut self.dont_fork.borrow_mut(),
+                MemoryRange::new_range(addr, num_bytes),
+            );
 
             // The mmap() man page doesn't specifically describe
             // what should happen if an existing map is
@@ -888,7 +917,7 @@ pub mod address_space {
             // During an emulated exec, we will explicitly map in a (copy of) the VDSO
             // at the recorded address.
             if actual_recorded_map.is_vdso() {
-                self.vdso_start_addr = addr;
+                self.vdso_start_addr.set(addr);
             }
 
             self.map_and_coalesce(
@@ -905,36 +934,44 @@ pub mod address_space {
         }
 
         /// Return the mapping and mapped resource for the byte at address 'addr'.
-        pub fn mapping_of(&self, addr: RemotePtr<Void>) -> Option<&Mapping> {
+        pub fn mapping_of(&self, addr: RemotePtr<Void>) -> Option<Ref<Mapping>> {
             // A size of 1 will allow .intersects() to become true in a containing map.
             // @TODO This floor_page_size() call does not seem necessary
             let mr = MemoryRange::new_range(floor_page_size(addr), 1);
             let maps = Maps::new_from_range(self, mr);
             match maps.into_iter().next() {
-                Some((_, found_mapping)) if found_mapping.map.contains_ptr(addr) => {
-                    Some(found_mapping)
+                Some((&k, found_mapping)) if found_mapping.map.contains_ptr(addr) => {
+                    let mem_ref = maps.into_mem();
+
+                    Some(Ref::map(mem_ref, |memory_map: &MemoryMap| {
+                        memory_map.get(&k).unwrap()
+                    }))
                 }
                 _ => None,
             }
         }
 
-        pub fn mapping_of_mut(&mut self, addr: RemotePtr<Void>) -> Option<&mut Mapping> {
+        pub fn mapping_of_mut(&self, addr: RemotePtr<Void>) -> Option<RefMut<Mapping>> {
             // A size of 1 will allow .intersects() to become true in a containing map.
             // @TODO This floor_page_size() call does not seem necessary
             let mr = MemoryRange::new_range(floor_page_size(addr), 1);
-            let maps = MapsMut::new_from_range(self, mr);
+            let mut maps = MapsMut::new_from_range(self, mr);
             match maps.into_iter().next() {
-                Some((_, found_mapping)) if found_mapping.map.contains_ptr(addr) => {
-                    Some(found_mapping)
+                Some((&k, found_mapping)) if found_mapping.map.contains_ptr(addr) => {
+                    let mem_ref = maps.into_mem();
+
+                    Some(RefMut::map(mem_ref, |memory_map: &mut MemoryMap| {
+                        memory_map.get_mut(&k).unwrap()
+                    }))
                 }
                 _ => None,
             }
         }
 
         /// Detach local mapping and return it.
-        pub fn detach_local_mapping(&mut self, addr: RemotePtr<Void>) -> Option<NonNull<c_void>> {
+        pub fn detach_local_mapping(&self, addr: RemotePtr<Void>) -> Option<NonNull<c_void>> {
             match self.mapping_of_mut(addr) {
-                Some(found_mapping) if found_mapping.local_addr.is_some() => {
+                Some(mut found_mapping) if found_mapping.local_addr.is_some() => {
                     found_mapping.local_addr.take()
                 }
                 _ => None,
@@ -945,8 +982,8 @@ pub mod address_space {
         /// manipulation.
         ///
         /// Assume a mapping exists at addr, otherwise panics.
-        pub fn mapping_flags_of_mut(&mut self, addr: RemotePtr<Void>) -> &mut MappingFlags {
-            &mut self.mapping_of_mut(addr).unwrap().flags
+        pub fn mapping_flags_of_mut(&self, addr: RemotePtr<Void>) -> RefMut<MappingFlags> {
+            RefMut::map(self.mapping_of_mut(addr).unwrap(), |m| &mut m.flags)
         }
 
         /// If the given memory region is mapped into the local address space, obtain
@@ -998,14 +1035,14 @@ pub mod address_space {
             }
         }
 
-        pub fn monitored_addrs(&self) -> &HashSet<RemotePtr<Void>> {
-            &self.monitored_mem
+        pub fn monitored_addrs(&self) -> Ref<HashSet<RemotePtr<Void>>> {
+            self.monitored_mem.borrow()
         }
 
         /// Change the protection bits of [addr, addr + num_bytes) to
         /// `prot`.
         pub fn protect(
-            &mut self,
+            &self,
             t: &dyn Task,
             addr: RemotePtr<Void>,
             num_bytes: usize,
@@ -1014,9 +1051,9 @@ pub mod address_space {
             log!(LogDebug, "mprotect({}, {}, {:?})", addr, num_bytes, prot);
 
             let mut last_overlap: Option<MemoryRangeKey> = None;
-            let protector = |slf: &mut Self, m_key: MemoryRangeKey, rem: MemoryRange| {
+            let protector = |slf: &Self, m_key: MemoryRangeKey, rem: MemoryRange| {
                 // Important !
-                let m = slf.mem.get(&m_key).unwrap().clone();
+                let m = slf.mem.borrow().get(&m_key).unwrap().clone();
                 log!(LogDebug, "  protecting ({}) ...", rem);
 
                 slf.remove_from_map(*m.map);
@@ -1129,7 +1166,7 @@ pub mod address_space {
                 let mut r: Registers = *t.regs_ref();
                 let maybe_mapping = self.mapping_of(r.arg1().into());
                 if r.arg1() == floor_page_size(r.arg1()) && maybe_mapping.is_some() {
-                    let km_flags = maybe_mapping.unwrap().map.flags();
+                    let km_flags = maybe_mapping.as_ref().unwrap().map.flags();
                     let new_start = maybe_mapping.unwrap().map.start();
                     if km_flags.contains(MapFlags::MAP_GROWSDOWN) {
                         r.set_arg2(r.arg1() + r.arg2() - new_start.as_usize());
@@ -1144,7 +1181,7 @@ pub mod address_space {
         /// Move the mapping [old_addr, old_addr + old_num_bytes) to
         /// [new_addr, old_addr + new_num_bytes), preserving metadata.
         pub fn remap(
-            &mut self,
+            &self,
             t: &dyn Task,
             old_addr: RemotePtr<Void>,
             mut old_num_bytes: usize,
@@ -1179,31 +1216,35 @@ pub mod address_space {
             debug_assert!(new_num_bytes != 0);
             new_num_bytes = ceil_page_size(new_num_bytes);
 
-            let mut it = self.dont_fork.range((
-                Included(MemoryRange::new_range(old_addr, old_num_bytes)),
-                Unbounded,
-            ));
-            let maybe_next: Option<&MemoryRange> = it.next();
+            let maybe_next: Option<MemoryRange> = self
+                .dont_fork
+                .borrow()
+                .range((
+                    Included(MemoryRange::new_range(old_addr, old_num_bytes)),
+                    Unbounded,
+                ))
+                .next()
+                .copied();
             if maybe_next.is_some() && (maybe_next.unwrap().start() < old_addr + old_num_bytes) {
                 // mremap fails if some but not all pages are marked DONTFORK
                 debug_assert!(
-                    *maybe_next.unwrap() == MemoryRange::new_range(old_addr, old_num_bytes)
+                    maybe_next.unwrap() == MemoryRange::new_range(old_addr, old_num_bytes)
                 );
                 remove_range(
-                    &mut self.dont_fork,
+                    &mut self.dont_fork.borrow_mut(),
                     MemoryRange::new_range(old_addr, old_num_bytes),
                 );
                 add_range(
-                    &mut self.dont_fork,
+                    &mut self.dont_fork.borrow_mut(),
                     MemoryRange::new_range(new_addr, new_num_bytes),
                 );
             } else {
                 remove_range(
-                    &mut self.dont_fork,
+                    &mut self.dont_fork.borrow_mut(),
                     MemoryRange::new_range(old_addr, old_num_bytes),
                 );
                 remove_range(
-                    &mut self.dont_fork,
+                    &mut self.dont_fork.borrow_mut(),
                     MemoryRange::new_range(new_addr, new_num_bytes),
                 );
             }
@@ -1225,12 +1266,7 @@ pub mod address_space {
         /// Notify that data was written to this address space by rr or
         /// by the kernel.
         /// `flags` can contain values from Task::WriteFlags.
-        pub fn notify_written(
-            &mut self,
-            addr: RemotePtr<Void>,
-            num_bytes: usize,
-            flags: WriteFlags,
-        ) {
+        pub fn notify_written(&self, addr: RemotePtr<Void>, num_bytes: usize, flags: WriteFlags) {
             if !(flags.contains(WriteFlags::IS_BREAKPOINT_RELATED)) {
                 self.update_watchpoint_values(addr, addr + num_bytes);
             }
@@ -1239,12 +1275,12 @@ pub mod address_space {
 
         /// Assumes any weak pointer can be upgraded but does not assume task_set is NOT empty.
         pub fn any_task_from_task_set(&self) -> Option<TaskSharedPtr> {
-            self.iter().next()
+            self.task_set().iter().next()
         }
 
         /// Ensure a breakpoint of `type` is set at `addr`.
-        pub fn add_breakpoint(&mut self, addr: RemoteCodePtr, type_: BreakpointType) -> bool {
-            match self.breakpoints.get_mut(&addr) {
+        pub fn add_breakpoint(&self, addr: RemoteCodePtr, type_: BreakpointType) -> bool {
+            match self.breakpoints.borrow_mut().get_mut(&addr) {
                 None => {
                     let mut overwritten_data = [0u8; 1];
                     // Grab a random task from the VM so we can use its
@@ -1267,7 +1303,7 @@ pub mod address_space {
                     );
 
                     let bp = Breakpoint::new(overwritten_data[0]);
-                    self.breakpoints.insert(addr, bp);
+                    self.breakpoints.borrow_mut().insert(addr, bp);
                 }
                 Some(bp) => {
                     bp.do_ref(type_);
@@ -1279,8 +1315,8 @@ pub mod address_space {
         /// Remove a `type` reference to the breakpoint at `addr`.  If
         /// the removed reference was the last, the breakpoint is
         /// destroyed.
-        pub fn remove_breakpoint(&mut self, addr: RemoteCodePtr, type_: BreakpointType) {
-            match self.breakpoints.get_mut(&addr) {
+        pub fn remove_breakpoint(&self, addr: RemoteCodePtr, type_: BreakpointType) {
+            match self.breakpoints.borrow_mut().get_mut(&addr) {
                 Some(bp) => {
                     if bp.do_unref(type_) == 0 {
                         self.destroy_breakpoint_at(addr);
@@ -1291,9 +1327,9 @@ pub mod address_space {
         }
         /// Destroy all breakpoints in this VM, regardless of their
         /// reference counts.
-        pub fn remove_all_breakpoints(&mut self) {
+        pub fn remove_all_breakpoints(&self) {
             let mut bps_to_destroy = Vec::new();
-            for bp in self.breakpoints.keys() {
+            for bp in self.breakpoints.borrow().keys() {
                 bps_to_destroy.push(*bp);
             }
 
@@ -1304,7 +1340,7 @@ pub mod address_space {
 
         /// Temporarily remove the breakpoint at `addr`.
         pub fn suspend_breakpoint_at(&self, addr: RemoteCodePtr) {
-            match self.breakpoints.get(&addr) {
+            match self.breakpoints.borrow().get(&addr) {
                 Some(bp) => {
                     let t = self.any_task_from_task_set().unwrap();
                     write_val_mem::<u8>(
@@ -1320,7 +1356,7 @@ pub mod address_space {
 
         /// Restore any temporarily removed breakpoint at `addr`.
         pub fn restore_breakpoint_at(&self, addr: RemoteCodePtr) {
-            match self.breakpoints.get(&addr) {
+            match self.breakpoints.borrow().get(&addr) {
                 Some(_bp) => {
                     let t = self.any_task_from_task_set().unwrap();
                     write_val_mem::<u8>(
@@ -1338,55 +1374,58 @@ pub mod address_space {
         /// methods above, except that watchpoints can be set for an
         /// address range.
         pub fn add_watchpoint(
-            &mut self,
+            &self,
             addr: RemotePtr<Void>,
             num_bytes: usize,
             type_: WatchType,
         ) -> bool {
             let range = range_for_watchpoint(addr, num_bytes);
-            let mut result = self.watchpoints.get_mut(&range);
-            if let None = result {
-                let insert_result = self.watchpoints.insert(range, Watchpoint::new(num_bytes));
+            if self.watchpoints.borrow_mut().get_mut(&range).is_none() {
+                let insert_result = self
+                    .watchpoints
+                    .borrow_mut()
+                    .insert(range, Watchpoint::new(num_bytes));
                 // Its a new key
                 debug_assert!(insert_result.is_none());
                 self.update_watchpoint_value(&range, None);
-                result = self.watchpoints.get_mut(&range);
             }
-            result.unwrap().watch(Self::access_bits_of(type_));
+            self.watchpoints
+                .borrow_mut()
+                .get_mut(&range)
+                .unwrap()
+                .watch(Self::access_bits_of(type_));
+
             self.allocate_watchpoints()
         }
-        pub fn remove_watchpoint(
-            &mut self,
-            addr: RemotePtr<Void>,
-            num_bytes: usize,
-            type_: WatchType,
-        ) {
+        pub fn remove_watchpoint(&self, addr: RemotePtr<Void>, num_bytes: usize, type_: WatchType) {
             let r = range_for_watchpoint(addr, num_bytes);
-            if let Some(wp) = self.watchpoints.get_mut(&r) {
+            if let Some(wp) = self.watchpoints.borrow_mut().get_mut(&r) {
                 if 0 == wp.unwatch(Self::access_bits_of(type_)) {
-                    self.watchpoints.remove(&r);
+                    self.watchpoints.borrow_mut().remove(&r);
                 }
             }
             self.allocate_watchpoints();
         }
 
-        pub fn remove_all_watchpoints(&mut self) {
-            self.watchpoints.clear();
+        pub fn remove_all_watchpoints(&self) {
+            self.watchpoints.borrow_mut().clear();
             self.allocate_watchpoints();
         }
-        pub fn all_watchpoints(&mut self) -> Vec<WatchConfig> {
+        pub fn all_watchpoints(&self) -> Vec<WatchConfig> {
             self.get_watchpoints_internal(WatchPointFilter::AllWatchpoints)
         }
 
         /// Save all watchpoint state onto a stack.
-        pub fn save_watchpoints(&mut self) {
+        pub fn save_watchpoints(&self) {
             // CHECK: Is clone what we really want?
-            self.saved_watchpoints.push(self.watchpoints.clone());
+            self.saved_watchpoints
+                .borrow_mut()
+                .push(self.watchpoints.borrow().clone());
         }
         /// Pop all watchpoint state from the saved-state stack.
-        pub fn restore_watchpoints(&mut self) -> bool {
-            debug_assert!(!self.saved_watchpoints.is_empty());
-            self.watchpoints = self.saved_watchpoints.pop().unwrap();
+        pub fn restore_watchpoints(&self) -> bool {
+            debug_assert!(!self.saved_watchpoints.borrow().is_empty());
+            *self.watchpoints.borrow_mut() = self.saved_watchpoints.borrow_mut().pop().unwrap();
             self.allocate_watchpoints()
         }
 
@@ -1399,12 +1438,12 @@ pub mod address_space {
         /// hypervisor with 32-bit x86 guest, debug_status watchpoint bits
         /// are known to not be set on singlestep).
         pub fn notify_watchpoint_fired(
-            &mut self,
+            &self,
             debug_status: usize,
             address_of_singlestep_start: Option<RemoteCodePtr>,
         ) -> bool {
             let mut triggered = false;
-            for (k, w) in &mut self.watchpoints {
+            for (k, w) in self.watchpoints.borrow_mut().iter_mut() {
                 // On Skylake/4.14.13-300.fc27.x86_64 at least, we have observed a
                 // situation where singlestepping through the instruction before a hardware
                 // execution watchpoint causes singlestep completion *and* also reports the
@@ -1426,7 +1465,7 @@ pub mod address_space {
             }
 
             let mut for_update_watchpoint: Vec<MemoryRange> = Vec::new();
-            for (range, w) in &self.watchpoints {
+            for (range, w) in self.watchpoints.borrow().iter() {
                 let watched_bits = w.watched_bits();
                 if watched_bits.contains(RwxBits::WRITE_BIT) {
                     for_update_watchpoint.push(*range);
@@ -1444,7 +1483,7 @@ pub mod address_space {
         /// Return true if any watchpoint has fired. Will keep returning true until
         /// consume_watchpoint_changes() is called.
         pub fn has_any_watchpoint_changes(&self) -> bool {
-            for v in self.watchpoints.values() {
+            for v in self.watchpoints.borrow().values() {
                 if v.changed {
                     return true;
                 }
@@ -1455,7 +1494,7 @@ pub mod address_space {
         /// Return true if an EXEC watchpoint has fired at addr since the last
         /// consume_watchpoint_changes.
         pub fn has_exec_watchpoint_fired(&self, addr: RemoteCodePtr) -> bool {
-            for (k, v) in &self.watchpoints {
+            for (k, v) in self.watchpoints.borrow().iter() {
                 if v.changed && v.exec_count > 0 && k.start() == addr.to_data_ptr::<Void>() {
                     return true;
                 }
@@ -1464,40 +1503,43 @@ pub mod address_space {
         }
 
         /// Return all changed watchpoints in `watches` and clear their changed flags.
-        pub fn consume_watchpoint_changes(&mut self) -> Vec<WatchConfig> {
+        pub fn consume_watchpoint_changes(&self) -> Vec<WatchConfig> {
             self.get_watchpoints_internal(WatchPointFilter::ChangedWatchpoints)
         }
 
-        pub fn set_shm_size(&mut self, addr: RemotePtr<Void>, bytes: usize) {
-            self.shm_sizes.insert(addr, bytes);
+        pub fn set_shm_size(&self, addr: RemotePtr<Void>, bytes: usize) {
+            self.shm_sizes.borrow_mut().insert(addr, bytes);
         }
 
         /// Dies if no shm size is registered for the address.
         pub fn get_shm_size(&self, addr: RemotePtr<Void>) -> usize {
-            *self.shm_sizes.get(&addr).unwrap()
+            *self.shm_sizes.borrow().get(&addr).unwrap()
         }
         /// Returns true it the key was present in the map
-        pub fn remove_shm_size(&mut self, addr: RemotePtr<Void>) -> bool {
-            self.shm_sizes.remove(&addr).is_some()
+        pub fn remove_shm_size(&self, addr: RemotePtr<Void>) -> bool {
+            self.shm_sizes.borrow_mut().remove(&addr).is_some()
         }
 
         /// Make [addr, addr + num_bytes) inaccessible within this
         /// address space.
-        pub fn unmap(&mut self, t: &dyn Task, addr: RemotePtr<Void>, num_bytes: usize) {
+        pub fn unmap(&self, t: &dyn Task, addr: RemotePtr<Void>, num_bytes: usize) {
             log!(LogDebug, "munmap({}, {})", addr, num_bytes);
             let num_bytes = ceil_page_size(num_bytes);
 
             // DIFF NOTE: @TODO rr allows num_bytes to be 0 and simply returns
             debug_assert!(num_bytes > 0);
 
-            remove_range(&mut self.dont_fork, MemoryRange::new_range(addr, num_bytes));
+            remove_range(
+                &mut self.dont_fork.borrow_mut(),
+                MemoryRange::new_range(addr, num_bytes),
+            );
 
             self.unmap_internal(t, addr, num_bytes);
         }
 
         /// Notification of madvise call.
         pub fn advise(
-            &mut self,
+            &self,
             _t: &dyn Task,
             addr: RemotePtr<Void>,
             num_bytes: usize,
@@ -1507,12 +1549,14 @@ pub mod address_space {
             let num_bytes = ceil_page_size(num_bytes);
 
             match advice {
-                MmapAdvise::MADV_DONTFORK => {
-                    add_range(&mut self.dont_fork, MemoryRange::new_range(addr, num_bytes))
-                }
-                MmapAdvise::MADV_DOFORK => {
-                    remove_range(&mut self.dont_fork, MemoryRange::new_range(addr, num_bytes))
-                }
+                MmapAdvise::MADV_DONTFORK => add_range(
+                    &mut self.dont_fork.borrow_mut(),
+                    MemoryRange::new_range(addr, num_bytes),
+                ),
+                MmapAdvise::MADV_DOFORK => remove_range(
+                    &mut self.dont_fork.borrow_mut(),
+                    MemoryRange::new_range(addr, num_bytes),
+                ),
                 _ => (),
             }
         }
@@ -1521,14 +1565,17 @@ pub mod address_space {
         ///
         /// Panics if there is no Mapping of the vdso
         pub fn vdso(&self) -> KernelMapping {
-            debug_assert!(!self.vdso_start_addr.is_null());
-            self.mapping_of(self.vdso_start_addr).unwrap().map.clone()
+            debug_assert!(!self.vdso_start_addr.get().is_null());
+            self.mapping_of(self.vdso_start_addr.get())
+                .unwrap()
+                .map
+                .clone()
         }
 
         /// Verify that this cached address space matches what the
         /// kernel thinks it should be.
         pub fn verify(&self, t: &dyn Task) {
-            ed_assert!(t, self.has(t.weak_self_ptr()));
+            ed_assert!(t, self.task_set().has(t.weak_self_ptr()));
 
             if thread_group_in_exec(t) {
                 return;
@@ -1536,7 +1583,8 @@ pub mod address_space {
 
             log!(LogDebug, "Verifying address space for task {}", t.tid);
 
-            let mut mem_it = self.mem.values();
+            let mb = self.mem.borrow();
+            let mut mem_it = mb.values();
             let mut kernel_it = KernelMapIterator::new(t);
             let mut mem_m = mem_it.next();
             let mut kernel_m = kernel_it.next();
@@ -1561,47 +1609,47 @@ pub mod address_space {
         }
 
         pub fn has_breakpoints(&self) -> bool {
-            !self.breakpoints.is_empty()
+            !self.breakpoints.borrow().is_empty()
         }
         pub fn has_watchpoints(&self) -> bool {
-            !self.watchpoints.is_empty()
+            !self.watchpoints.borrow().is_empty()
         }
 
         /// Encoding of the `int $3` instruction.
         pub const BREAKPOINT_INSN: u8 = 0xCC;
 
-        pub fn mem_fd(&self) -> &ScopedFd {
-            &self.child_mem_fd
+        pub fn mem_fd(&self) -> Ref<ScopedFd> {
+            self.child_mem_fd.borrow()
         }
-        pub fn mem_fd_mut(&mut self) -> &mut ScopedFd {
-            &mut self.child_mem_fd
+        pub fn mem_fd_mut(&self) -> RefMut<ScopedFd> {
+            self.child_mem_fd.borrow_mut()
         }
-        pub fn set_mem_fd(&mut self, fd: ScopedFd) {
-            self.child_mem_fd = fd;
+        pub fn set_mem_fd(&self, fd: ScopedFd) {
+            *self.child_mem_fd.borrow_mut() = fd;
         }
 
         pub fn monkeypatcher(&self) -> Option<&MonkeyPatcher> {
             self.monkeypatch_state.as_ref()
         }
 
-        pub fn at_preload_init(&mut self, t: &mut dyn Task) {
+        pub fn at_preload_init(&self, t: &mut dyn Task) {
             rd_arch_function!(self, at_preload_init_arch, t.arch(), t)
         }
 
         /// The address of the syscall instruction from which traced syscalls made by
         /// the syscallbuf will originate.
         pub fn traced_syscall_ip(&self) -> RemoteCodePtr {
-            self.traced_syscall_ip_
+            self.traced_syscall_ip_.get()
         }
 
         /// The address of the syscall instruction from which privileged traced
         /// syscalls made by the syscallbuf will originate.
         pub fn privileged_traced_syscall_ip(&self) -> Option<RemoteCodePtr> {
-            self.privileged_traced_syscall_ip_
+            self.privileged_traced_syscall_ip_.get()
         }
 
         pub fn syscallbuf_enabled(&self) -> bool {
-            self.syscallbuf_enabled_
+            self.syscallbuf_enabled_.get()
         }
 
         /// We'll map a page of memory here into every exec'ed process for our own
@@ -1721,7 +1769,7 @@ pub mod address_space {
 
         /// Task `t` just forked from this address space. Apply dont_fork settings.
         pub fn did_fork_into(&self, t: &mut dyn Task) {
-            for range in &self.dont_fork {
+            for range in self.dont_fork.borrow().iter() {
                 // During recording we execute MADV_DONTFORK so the forked child will
                 // have had its dontfork areas unmapped by the kernel already
                 if !t.session().is_recording() {
@@ -1734,22 +1782,22 @@ pub mod address_space {
                         range.size()
                     );
                 }
-                t.vm_mut().unmap(t, range.start(), range.size());
+                t.vm().unmap(t, range.start(), range.size());
             }
         }
 
-        pub fn set_first_run_event(&mut self, event: FrameTime) {
-            self.first_run_event_ = event;
+        pub fn set_first_run_event(&self, event: FrameTime) {
+            self.first_run_event_.set(event);
         }
         pub fn first_run_event(&self) -> FrameTime {
-            self.first_run_event_
+            self.first_run_event_.get()
         }
 
-        pub fn saved_auxv(&self) -> &[u8] {
-            &self.saved_auxv_
+        pub fn saved_auxv(&self) -> Ref<[u8]> {
+            Ref::map(self.saved_auxv_.borrow(), |v| v.as_slice())
         }
-        pub fn save_auxv(&mut self, t: &mut dyn Task) {
-            self.saved_auxv_ = read_auxv(t);
+        pub fn save_auxv(&self, t: &mut dyn Task) {
+            *self.saved_auxv_.borrow_mut() = read_auxv(t);
         }
 
         /// Reads the /proc/<pid>/maps entry for a specific address. Does no caching.
@@ -1784,7 +1832,8 @@ pub mod address_space {
             maybe_after: Option<RemotePtr<Void>>,
         ) -> RemotePtr<Void> {
             let after = maybe_after.unwrap_or(RemotePtr::null());
-            let mut iter = self.maps_starting_at(after).into_iter();
+            let maps = self.maps_starting_at(after);
+            let mut iter = maps.into_iter();
             // This has to succeed otherwise we panic!
             let mut current = iter.next().unwrap().1;
             loop {
@@ -1810,7 +1859,7 @@ pub mod address_space {
 
         /// The return value indicates whether we (re)created the preload_thread_locals
         /// area.
-        pub fn post_vm_clone(&mut self, t: &mut dyn Task) -> bool {
+        pub fn post_vm_clone(&self, t: &mut dyn Task) -> bool {
             let maybe_m = self.mapping_of(Self::preload_thread_locals_start());
             if maybe_m.is_some()
                 && !maybe_m
@@ -1845,24 +1894,19 @@ pub mod address_space {
         ///
         /// Note that TaskUid is Copy
         pub fn thread_locals_tuid(&self) -> TaskUid {
-            self.thread_locals_tuid_
+            self.thread_locals_tuid_.get()
         }
 
         /// Note that TaskUid is Copy
-        pub fn set_thread_locals_tuid(&mut self, tuid: TaskUid) {
-            self.thread_locals_tuid_ = tuid;
+        pub fn set_thread_locals_tuid(&self, tuid: TaskUid) {
+            self.thread_locals_tuid_.set(tuid);
         }
 
         /// Call this when the memory at [addr,addr+len) was externally overwritten.
         /// This will attempt to update any breakpoints that may be set within the
         /// range (resetting them and storing the new value).
-        pub fn maybe_update_breakpoints(
-            &mut self,
-            t: &mut dyn Task,
-            addr: RemotePtr<u8>,
-            len: usize,
-        ) {
-            for (k, v) in &mut self.breakpoints {
+        pub fn maybe_update_breakpoints(&self, t: &mut dyn Task, addr: RemotePtr<u8>, len: usize) {
+            for (k, v) in self.breakpoints.borrow_mut().iter_mut() {
                 let bp_addr = k.to_data_ptr::<u8>();
                 if addr <= bp_addr && bp_addr < addr + len {
                     // This breakpoint was overwritten. Note the new data and reset the
@@ -1882,7 +1926,7 @@ pub mod address_space {
         /// The end of the range might be in the middle of a mapping.
         /// The start of the range might also be in the middle of a mapping.
         pub fn ensure_replay_matches_single_recorded_mapping(
-            &mut self,
+            &self,
             t: &mut dyn Task,
             range: MemoryRange,
         ) {
@@ -1893,9 +1937,9 @@ pub mod address_space {
             ed_assert!(t, range.start() == floor_page_size(range.start()));
             ed_assert!(t, range.end() == ceil_page_size(range.end()));
 
-            let fixer = |slf: &mut Self, m_key: MemoryRangeKey, range: MemoryRange| {
+            let fixer = |slf: &Self, m_key: MemoryRangeKey, range: MemoryRange| {
                 // Important !
-                let mapping = slf.mem.get(&m_key).unwrap().clone();
+                let mapping = slf.mem.borrow().get(&m_key).unwrap().clone();
                 if *mapping.map == range {
                     // Existing single mapping covers entire range; nothing to do.
                     return;
@@ -1933,7 +1977,7 @@ pub mod address_space {
                     // We replace the entire mapping even if part of it falls outside the desired range.
                     // That's OK, this replacement preserves behaviour, it's simpler, even if a bit
                     // less efficient in weird cases.
-                    slf.mem.remove(&MemoryRangeKey(*mapping.map));
+                    slf.mem.borrow_mut().remove(&MemoryRangeKey(*mapping.map));
                     let anonymous_km = KernelMapping::new_with_opts(
                         mapping.map.start(),
                         mapping.map.end(),
@@ -1946,7 +1990,7 @@ pub mod address_space {
                     );
                     let new_mapping =
                         Mapping::new(anonymous_km, mapping.recorded_map, None, None, None, None);
-                    slf.mem.insert(
+                    slf.mem.borrow_mut().insert(
                         MemoryRange::from_range(mapping.map.start(), mapping.map.end()).into(),
                         new_mapping,
                     );
@@ -1995,15 +2039,15 @@ pub mod address_space {
                 None
             };
 
-            let mut addr_space = AddressSpace {
+            let addr_space = AddressSpace {
                 exe: exe.to_owned(),
                 leader_tid_: t.rec_tid,
                 leader_serial: t.tuid().serial(),
                 exec_count,
                 session_: Rc::downgrade(&t.session()),
                 monkeypatch_state: patcher,
-                syscallbuf_enabled_: false,
-                first_run_event_: 0,
+                syscallbuf_enabled_: Default::default(),
+                first_run_event_: Default::default(),
                 // Implicit
                 breakpoints: Default::default(),
                 watchpoints: Default::default(),
@@ -2011,33 +2055,34 @@ pub mod address_space {
                 shm_sizes: Default::default(),
                 monitored_mem: Default::default(),
                 dont_fork: Default::default(),
-                saved_watchpoints: Vec::new(),
-                child_mem_fd: ScopedFd::new(),
-                privileged_traced_syscall_ip_: None,
-                saved_auxv_: Vec::new(),
+                saved_watchpoints: Default::default(),
+                child_mem_fd: Default::default(),
+                privileged_traced_syscall_ip_: Default::default(),
+                saved_auxv_: Default::default(),
                 // Is this what we want?
-                task_set: WeakPtrSet::new(),
+                task_set: Default::default(),
                 // Is TaskUid::new() what we want?
-                thread_locals_tuid_: TaskUid::new(),
+                thread_locals_tuid_: Default::default(),
                 // These are set below. Are both OK??
-                traced_syscall_ip_: 0usize.into(),
-                vdso_start_addr: 0usize.into(),
+                traced_syscall_ip_: Default::default(),
+                vdso_start_addr: Default::default(),
                 // Hmm...
-                brk_start: 0usize.into(),
-                brk_end: 0usize.into(),
+                brk_start: Default::default(),
+                brk_end: Default::default(),
             };
 
             // TODO: this is a workaround of
             // https://github.com/mozilla/rr/issues/1113 .
             if addr_space.session().done_initial_exec() {
                 addr_space.populate_address_space(t);
-                debug_assert!(!addr_space.vdso_start_addr.is_null());
+                debug_assert!(!addr_space.vdso_start_addr.get().is_null());
             } else {
                 // Setup traced_syscall_ip_ now because we need to do AutoRemoteSyscalls
                 // (for open_mem_fd) before the first exec. We rely on the fact that we
                 // haven't execed yet, so the address space layout is the same.
-                addr_space.traced_syscall_ip_ =
-                    RemoteCodePtr::from_val(rd_syscall_addr as *const fn() as usize);
+                addr_space.traced_syscall_ip_.set(RemoteCodePtr::from_val(
+                    rd_syscall_addr as *const fn() as usize,
+                ));
             }
 
             addr_space
@@ -2060,32 +2105,32 @@ pub mod address_space {
                 leader_tid_: leader_tid,
                 leader_serial,
                 exec_count,
-                brk_start: o.brk_start,
-                brk_end: o.brk_start,
+                brk_start: o.brk_start.clone(),
+                brk_end: o.brk_start.clone(),
                 mem: o.mem.clone(),
                 shm_sizes: o.shm_sizes.clone(),
                 monitored_mem: o.monitored_mem.clone(),
                 session_: session.clone(),
-                vdso_start_addr: o.vdso_start_addr,
+                vdso_start_addr: o.vdso_start_addr.clone(),
                 monkeypatch_state: o.monkeypatch_state.clone(),
-                traced_syscall_ip_: o.traced_syscall_ip_,
-                privileged_traced_syscall_ip_: o.privileged_traced_syscall_ip_,
-                syscallbuf_enabled_: o.syscallbuf_enabled_,
+                traced_syscall_ip_: o.traced_syscall_ip_.clone(),
+                privileged_traced_syscall_ip_: o.privileged_traced_syscall_ip_.clone(),
+                syscallbuf_enabled_: o.syscallbuf_enabled_.clone(),
                 saved_auxv_: o.saved_auxv_.clone(),
-                first_run_event_: 0,
+                first_run_event_: Default::default(),
                 watchpoints: o.watchpoints.clone(),
                 breakpoints: o.breakpoints.clone(),
                 // rr does not explicitly initialize these.
-                child_mem_fd: ScopedFd::new(),
-                dont_fork: BTreeSet::new(),
+                child_mem_fd: Default::default(),
+                dont_fork: Default::default(),
                 // Is this what we want?
-                task_set: WeakPtrSet::new(),
+                task_set: Default::default(),
                 // Is TaskUid::new() what we want?
-                thread_locals_tuid_: TaskUid::new(),
-                saved_watchpoints: Vec::new(),
+                thread_locals_tuid_: Default::default(),
+                saved_watchpoints: Default::default(),
             };
 
-            for (_, m) in &mut addr_space.mem {
+            for (_, m) in addr_space.mem.borrow_mut().iter_mut() {
                 // The original address space continues to have exclusive ownership of
                 // all local mappings.
                 m.local_addr = None;
@@ -2093,7 +2138,7 @@ pub mod address_space {
 
             if !Rc::ptr_eq(&addr_space.session(), &o.session()) {
                 // Cloning into a new session means we're checkpointing.
-                addr_space.first_run_event_ = o.first_run_event_;
+                addr_space.first_run_event_ = o.first_run_event_.clone();
             }
             // cloned tasks will automatically get cloned debug registers and
             // cloned address-space memory, so we don't need to do any more work here.
@@ -2103,7 +2148,7 @@ pub mod address_space {
 
         /// After an exec, populate the new address space of `t` with
         /// the existing mappings we find in /proc/maps.
-        fn populate_address_space(&mut self, t: &dyn Task) {
+        fn populate_address_space(&self, t: &dyn Task) {
             let mut found_proper_stack = false;
             let iter = KernelMapIterator::new(t);
             for km in iter {
@@ -2166,13 +2211,13 @@ pub mod address_space {
         }
 
         /// DIFF NOTE: @TODO In rr `num_bytes` is signed. Why?
-        fn unmap_internal(&mut self, _t: &dyn Task, addr: RemotePtr<Void>, num_bytes: usize) {
+        fn unmap_internal(&self, _t: &dyn Task, addr: RemotePtr<Void>, num_bytes: usize) {
             log!(LogDebug, "munmap({}, {}), ", addr, num_bytes);
 
-            let unmapper = |slf: &mut Self, m_key: MemoryRangeKey, rem: MemoryRange| {
+            let unmapper = |slf: &Self, m_key: MemoryRangeKey, rem: MemoryRange| {
                 log!(LogDebug, "  unmapping ({}) ...", rem);
 
-                let m = slf.mem.get(&m_key).unwrap().clone();
+                let m = slf.mem.borrow().get(&m_key).unwrap().clone();
                 slf.remove_from_map(*m.map);
 
                 log!(LogDebug, "  erased ({}) ...", m.map);
@@ -2236,7 +2281,7 @@ pub mod address_space {
         }
 
         /// Also sets brk_ptr.
-        fn map_rd_page(&mut self, remote: &mut AutoRemoteSyscalls) {
+        fn map_rd_page(&self, remote: &mut AutoRemoteSyscalls) {
             let prot = ProtFlags::PROT_EXEC | ProtFlags::PROT_READ;
             let mut flags = MapFlags::MAP_PRIVATE | MapFlags::MAP_FIXED;
 
@@ -2345,31 +2390,34 @@ pub mod address_space {
 
             if child_path.task().session().is_recording() {
                 // brk() will not have been called yet so the brk area is empty.
-                self.brk_start =
+                self.brk_start.set(
                     (rd_infallible_syscall!(child_path, syscall_number_for_brk(arch), 0) as usize)
-                        .into();
-                self.brk_end = self.brk_start;
-                ed_assert!(child_path.task(), !self.brk_end.is_null());
+                        .into(),
+                );
+                self.brk_end.set(self.brk_start.get());
+                ed_assert!(child_path.task(), !self.brk_end.get().is_null());
             }
 
-            self.traced_syscall_ip_ = Self::rd_page_syscall_entry_point(
-                Traced::Traced,
-                Privileged::Unpriviledged,
-                Enabled::RecordingAndReplay,
-                child_path.arch(),
-            );
-            self.privileged_traced_syscall_ip_ = Some(Self::rd_page_syscall_entry_point(
-                Traced::Traced,
-                Privileged::Privileged,
-                Enabled::RecordingAndReplay,
-                child_path.arch(),
-            ));
+            self.traced_syscall_ip_
+                .set(Self::rd_page_syscall_entry_point(
+                    Traced::Traced,
+                    Privileged::Unpriviledged,
+                    Enabled::RecordingAndReplay,
+                    child_path.arch(),
+                ));
+            self.privileged_traced_syscall_ip_
+                .set(Some(Self::rd_page_syscall_entry_point(
+                    Traced::Traced,
+                    Privileged::Privileged,
+                    Enabled::RecordingAndReplay,
+                    child_path.arch(),
+                )));
         }
 
         // DIFF NOTE: In rr this method takes 2 params but the second param is different.
         // `maybe_mark_changed_if_changed` default value is false.
         fn update_watchpoint_value(
-            &mut self,
+            &self,
             watchpoint_range: &MemoryRange,
             maybe_mark_changed_if_changed: Option<bool>,
         ) -> bool {
@@ -2378,9 +2426,14 @@ pub mod address_space {
             let changed: bool;
             let mark_changed_if_changed = maybe_mark_changed_if_changed.unwrap_or(false);
             {
-                let watchpoint_original = self.watchpoints.get(&watchpoint_range).unwrap();
-                value_bytes = watchpoint_original.value_bytes.clone();
-                let t = self.iter().next().unwrap();
+                value_bytes = self
+                    .watchpoints
+                    .borrow()
+                    .get(&watchpoint_range)
+                    .unwrap()
+                    .value_bytes
+                    .clone();
+                let t = self.task_set().iter().next().unwrap();
                 for i in 0..value_bytes.len() {
                     value_bytes[i] = 0xFF;
                 }
@@ -2406,6 +2459,8 @@ pub mod address_space {
                     num_bytes -= bytes_read;
                 }
 
+                let wb = self.watchpoints.borrow();
+                let watchpoint_original = wb.get(&watchpoint_range).unwrap();
                 changed = valid != watchpoint_original.valid
                     || unsafe {
                         libc::memcmp(
@@ -2415,7 +2470,8 @@ pub mod address_space {
                         )
                     } != 0;
             }
-            let mut watchpoint_original_mut = self.watchpoints.get_mut(watchpoint_range).unwrap();
+            let mut mbm = self.watchpoints.borrow_mut();
+            let mut watchpoint_original_mut = mbm.get_mut(watchpoint_range).unwrap();
             watchpoint_original_mut.valid = valid;
             watchpoint_original_mut.value_bytes = value_bytes;
             if mark_changed_if_changed && changed {
@@ -2425,10 +2481,10 @@ pub mod address_space {
             changed
         }
 
-        fn update_watchpoint_values(&mut self, start: RemotePtr<Void>, end: RemotePtr<Void>) {
+        fn update_watchpoint_values(&self, start: RemotePtr<Void>, end: RemotePtr<Void>) {
             let r = MemoryRange::from_range(start, end);
             let mut intersects: Vec<MemoryRange> = Vec::new();
-            for k in self.watchpoints.keys() {
+            for k in self.watchpoints.borrow().keys() {
                 if k.intersects(&r) {
                     intersects.push(*k);
                 }
@@ -2438,9 +2494,9 @@ pub mod address_space {
                 // We do nothing to track kernel reads of read-write watchpoints...
             }
         }
-        fn get_watchpoints_internal(&mut self, filter: WatchPointFilter) -> Vec<WatchConfig> {
+        fn get_watchpoints_internal(&self, filter: WatchPointFilter) -> Vec<WatchConfig> {
             let mut result: Vec<WatchConfig> = Vec::new();
-            for (r, v) in &mut self.watchpoints {
+            for (r, v) in self.watchpoints.borrow_mut().iter_mut() {
                 if filter == WatchPointFilter::ChangedWatchpoints {
                     if !v.changed {
                         continue;
@@ -2464,9 +2520,9 @@ pub mod address_space {
             result
         }
 
-        fn get_watch_configs(&mut self, will_set_task_state: WillSetTaskState) -> Vec<WatchConfig> {
+        fn get_watch_configs(&self, will_set_task_state: WillSetTaskState) -> Vec<WatchConfig> {
             let mut result: Vec<WatchConfig> = Vec::new();
-            for (r, v) in &mut self.watchpoints {
+            for (r, v) in self.watchpoints.borrow_mut().iter_mut() {
                 let mut assigned_regs: Option<&mut Vec<u8>> = None;
                 let watching = v.watched_bits();
                 if will_set_task_state == WillSetTaskState::SettingTaskState {
@@ -2498,12 +2554,12 @@ pub mod address_space {
         /// Construct a minimal set of watchpoints to be enabled based
         /// on `set_watchpoint()` calls, and program them for each task
         /// in this address space.
-        fn allocate_watchpoints(&mut self) -> bool {
+        fn allocate_watchpoints(&self) -> bool {
             let mut regs = self.get_watch_configs(WillSetTaskState::SettingTaskState);
 
             if regs.len() <= 0x7f {
                 let mut ok = true;
-                for t in self.iter() {
+                for t in self.task_set().iter() {
                     if !t.borrow_mut().set_debug_regs(&mut regs) {
                         ok = false;
                     }
@@ -2514,10 +2570,10 @@ pub mod address_space {
             }
 
             regs.clear();
-            for t2 in self.iter() {
+            for t2 in self.task_set().iter() {
                 t2.borrow_mut().set_debug_regs(&mut regs);
             }
-            for v in self.watchpoints.values_mut() {
+            for v in self.watchpoints.borrow_mut().values_mut() {
                 v.debug_regs_for_exec_read.clear();
             }
             return false;
@@ -2527,14 +2583,15 @@ pub mod address_space {
         /// semantically "adjacent mappings" of the same resource as
         /// well, for example have adjacent file offsets and the same
         /// prot and flags.
-        fn coalesce_around(&mut self, t: &dyn Task, key: MemoryRangeKey) {
+        fn coalesce_around(&self, t: &dyn Task, key: MemoryRangeKey) {
             let mut new_m: Mapping;
             let first_k: MemoryRangeKey;
             let last_k: MemoryRangeKey;
 
             {
-                let mut forward_iterator = self.mem.range((Included(key), Unbounded));
-                let mut backward_iterator = self.mem.range((Unbounded, Included(key)));
+                let mb = self.mem.borrow();
+                let mut forward_iterator = mb.range((Included(key), Unbounded));
+                let mut backward_iterator = mb.range((Unbounded, Included(key)));
                 let mut first_kv = backward_iterator.next_back().unwrap();
                 while let Some(prev_kv) = backward_iterator.next_back() {
                     if !is_coalescable(prev_kv.1, first_kv.1) {
@@ -2574,18 +2631,25 @@ pub mod address_space {
                 last_k = *last_kv.0;
             }
 
-            let result = self.mem.insert(MemoryRangeKey(*new_m.map), new_m);
+            let result = self
+                .mem
+                .borrow_mut()
+                .insert(MemoryRangeKey(*new_m.map), new_m);
             debug_assert!(result.is_some());
 
             // monitored-memory currently isn't coalescable so we don't need to
             // adjust monitored_mem
             let mut to_remove: Vec<MemoryRangeKey> = Vec::new();
-            for (k, _) in self.mem.range((Included(first_k), Included(last_k))) {
+            for (k, _) in self
+                .mem
+                .borrow()
+                .range((Included(first_k), Included(last_k)))
+            {
                 to_remove.push(*k);
             }
 
             for k in to_remove {
-                self.mem.remove(&k);
+                self.mem.borrow_mut().remove(&k);
             }
         }
 
@@ -2595,11 +2659,16 @@ pub mod address_space {
         /// Assumes there IS a breakpoint at `addr` or will panic
         ///
         /// Called destroy_breakpoint() in rr.
-        fn destroy_breakpoint_at(&mut self, addr: RemoteCodePtr) {
+        fn destroy_breakpoint_at(&self, addr: RemoteCodePtr) {
             match self.any_task_from_task_set() {
                 None => return,
                 Some(t) => {
-                    let data = self.breakpoints.get(&addr).unwrap().overwritten_data;
+                    let data = self
+                        .breakpoints
+                        .borrow()
+                        .get(&addr)
+                        .unwrap()
+                        .overwritten_data;
                     log!(LogDebug, "Writing back {:x} at {}", data, addr);
                     write_val_mem_with_flags::<u8>(
                         t.borrow_mut().as_mut(),
@@ -2610,7 +2679,7 @@ pub mod address_space {
                     );
                 }
             }
-            self.breakpoints.remove(&addr);
+            self.breakpoints.borrow_mut().remove(&addr);
         }
 
         /// For each mapped segment overlapping [addr, addr +
@@ -2621,8 +2690,8 @@ pub mod address_space {
         /// contiguous mapping after `addr` within the region is seen.
         ///
         /// `IterateDefault` will iterate all mappings in the region.
-        fn for_each_in_range<F: FnMut(&mut Self, MemoryRangeKey, MemoryRange)>(
-            &mut self,
+        fn for_each_in_range<F: FnMut(&Self, MemoryRangeKey, MemoryRange)>(
+            &self,
             addr: RemotePtr<Void>,
             // DIFF NOTE: This is signed in rr.
             num_bytes: usize,
@@ -2642,7 +2711,8 @@ pub mod address_space {
                 // the last one seen.
                 let range: MemoryRangeKey;
                 {
-                    let mut iter = Maps::new_from_range(self, rem).into_iter();
+                    let maps = Maps::new_from_range(self, rem);
+                    let mut iter = maps.into_iter();
                     let result = iter.next();
                     match result {
                         Some((r, _)) => {
@@ -2687,7 +2757,7 @@ pub mod address_space {
         /// Map `km` into this address space, and coalesce any
         /// mappings that are adjacent to `km`.
         fn map_and_coalesce(
-            &mut self,
+            &self,
             t: &dyn Task,
             km: KernelMapping,
             recorded_km: KernelMapping,
@@ -2699,13 +2769,13 @@ pub mod address_space {
             log!(LogDebug, "  mapping {}", km);
 
             if monitored.is_some() {
-                self.monitored_mem.insert(km.start());
+                self.monitored_mem.borrow_mut().insert(km.start());
             }
 
             let mr_key: MemoryRangeKey = MemoryRangeKey(*km);
             let km_start = km.start();
             let km_end = km.end();
-            self.mem.insert(
+            self.mem.borrow_mut().insert(
                 mr_key,
                 Mapping::new(
                     km,
@@ -2721,21 +2791,21 @@ pub mod address_space {
             self.update_watchpoint_values(km_start, km_end);
         }
 
-        fn remove_from_map(&mut self, range: MemoryRange) {
-            self.mem.remove(&MemoryRangeKey(range));
-            self.monitored_mem.remove(&range.start());
+        fn remove_from_map(&self, range: MemoryRange) {
+            self.mem.borrow_mut().remove(&MemoryRangeKey(range));
+            self.monitored_mem.borrow_mut().remove(&range.start());
         }
 
-        fn add_to_map(&mut self, m: Mapping) {
+        fn add_to_map(&self, m: Mapping) {
             let start_addr = m.map.start();
             if m.monitored_shared_memory.is_some() {
-                self.monitored_mem.insert(start_addr);
+                self.monitored_mem.borrow_mut().insert(start_addr);
             }
-            self.mem.insert(MemoryRangeKey(*m.map), m);
+            self.mem.borrow_mut().insert(MemoryRangeKey(*m.map), m);
         }
 
         /// Call this only during recording.
-        fn at_preload_init_arch<Arch: Architecture>(&mut self, t: &mut dyn Task) {
+        fn at_preload_init_arch<Arch: Architecture>(&self, t: &mut dyn Task) {
             let addr = t.regs_ref().arg1();
             let params = read_val_mem(
                 t,
@@ -2772,7 +2842,7 @@ pub mod address_space {
                 return;
             }
 
-            self.syscallbuf_enabled_ = true;
+            self.syscallbuf_enabled_.set(true);
 
             if t.session().is_recording() {
                 self.monkeypatch_state
@@ -2792,22 +2862,9 @@ pub mod address_space {
         }
     }
 
-    impl Deref for AddressSpace {
-        type Target = WeakPtrSet<Box<dyn Task>>;
-        fn deref(&self) -> &Self::Target {
-            &self.task_set
-        }
-    }
-
-    impl DerefMut for AddressSpace {
-        fn deref_mut(&mut self) -> &mut Self::Target {
-            &mut self.task_set
-        }
-    }
-
     impl Drop for AddressSpace {
         fn drop(&mut self) {
-            for (_, m) in &self.mem {
+            for (_, m) in self.mem.borrow().iter() {
                 match m.local_addr {
                     Some(local) => {
                         if unsafe { munmap(local.as_ptr(), m.map.size()) }.is_err() {

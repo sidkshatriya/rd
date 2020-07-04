@@ -18,6 +18,12 @@ pub struct TaskishUid<T> {
     phantom_data: PhantomData<T>,
 }
 
+impl<T> Default for TaskishUid<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T> Hash for TaskishUid<T> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.tid_.hash(state);

@@ -181,10 +181,10 @@ pub mod session_inner {
             let exe = maybe_exe.unwrap_or(OsStr::new(""));
             let exec_count = maybe_exec_count.unwrap_or(0);
             self.assert_fully_initialized();
-            let mut as_ = AddressSpace::new_after_execve(t, exe, exec_count);
-            as_.insert(t.weak_self_ptr());
+            let as_ = AddressSpace::new_after_execve(t, exe, exec_count);
+            as_.task_set_mut().insert(t.weak_self_ptr());
             let as_uid = as_.uid();
-            let shr_ptr = Rc::new(RefCell::new(as_));
+            let shr_ptr = Rc::new(as_);
             self.vm_map
                 .borrow_mut()
                 .insert(as_uid, Rc::downgrade(&shr_ptr));
@@ -200,10 +200,10 @@ pub mod session_inner {
             // If vm already belongs to our session this is a fork, otherwise it's
             // a session-clone
             let addr_space: AddressSpace;
-            if self.weak_self.ptr_eq(vm.borrow().session_weak()) {
+            if self.weak_self.ptr_eq(vm.session_weak()) {
                 addr_space = AddressSpace::new_after_fork_or_session_clone(
                     self.weak_self.clone(),
-                    &vm.borrow(),
+                    &vm,
                     t.rec_tid,
                     t.tuid().serial(),
                     0,
@@ -213,21 +213,21 @@ pub mod session_inner {
                 let vm_uid_serial: u32;
                 let vm_uid_exec_count: u32;
                 {
-                    let vmb = vm.borrow().uid();
+                    let vmb = vm.uid();
                     vm_uid_tid = vmb.tid();
                     vm_uid_serial = vmb.serial();
                     vm_uid_exec_count = vmb.exec_count();
                 }
                 addr_space = AddressSpace::new_after_fork_or_session_clone(
                     self.weak_self.clone(),
-                    &vm.borrow(),
+                    &vm,
                     vm_uid_tid,
                     vm_uid_serial,
                     vm_uid_exec_count,
                 );
             }
             let as_uid = addr_space.uid();
-            let shr_ptr = Rc::new(RefCell::new(addr_space));
+            let shr_ptr = Rc::new(addr_space);
             self.vm_map
                 .borrow_mut()
                 .insert(as_uid, Rc::downgrade(&shr_ptr));
@@ -470,7 +470,7 @@ pub mod session_inner {
             break_status: &mut BreakStatus,
         ) {
             self.assert_fully_initialized();
-            break_status.watchpoints_hit = t.vm_mut().consume_watchpoint_changes();
+            break_status.watchpoints_hit = t.vm().consume_watchpoint_changes();
         }
 
         /// XXX Move CloneCompletion/CaptureState etc to ReplayTask/ReplaySession

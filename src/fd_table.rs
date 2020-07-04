@@ -198,7 +198,7 @@ impl FdTable {
         // It's possible that some tasks in this address space have a different
         // FdTable. We need to disable syscallbuf for an fd if any tasks for this
         // address space are monitoring the fd.
-        for vm_t in rt.vm().iter() {
+        for vm_t in rt.vm().task_set().iter() {
             for &fd in vm_t.borrow().fd_table().fds.keys() {
                 debug_assert!(fd >= 0);
                 let mut adjusted_fd = fd;
@@ -300,7 +300,7 @@ fn is_fd_open(t: &dyn Task, fd: i32) -> bool {
 }
 
 fn is_fd_monitored_in_any_task(vm: &AddressSpace, fd: i32) -> bool {
-    for rc in vm.iter() {
+    for rc in vm.task_set().iter() {
         let t = rc.borrow();
         if t.fd_table().is_monitoring(fd)
             || (fd >= SYSCALLBUF_FDS_DISABLED_SIZE - 1 && t.fd_table().count_beyond_limit() > 0)

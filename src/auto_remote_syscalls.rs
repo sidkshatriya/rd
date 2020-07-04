@@ -34,7 +34,7 @@ use crate::{
     scoped_fd::ScopedFd,
     session::{
         address_space::{
-            address_space::{AddressSpace, AddressSpaceRef, AddressSpaceRefMut, Mapping},
+            address_space::{AddressSpace, Mapping},
             kernel_mapping::KernelMapping,
             memory_range::{MemoryRange, MemoryRangeKey},
             Enabled,
@@ -489,7 +489,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         }
 
         let mut found_stack: Option<MemoryRange> = None;
-        for (_, m) in self.t.vm().maps() {
+        for (_, m) in &self.t.vm().maps() {
             if is_usable_area(&m.map) {
                 // m.map Deref-s into a MemoryRange
                 found_stack = Some(*m.map);
@@ -687,12 +687,8 @@ impl<'a> AutoRemoteSyscalls<'a> {
         self.t
     }
 
-    pub fn vm(&self) -> AddressSpaceRef {
+    pub fn vm(&self) -> &AddressSpace {
         self.t.vm()
-    }
-
-    pub fn vm_mut(&self) -> AddressSpaceRefMut {
-        self.t.vm_mut()
     }
 
     /// A small helper to get at the Task's arch.
@@ -1051,7 +1047,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         let maybe_st = fstat(shmem_fd.as_raw());
         ed_assert!(self.task(), maybe_st.is_ok());
         let st = maybe_st.unwrap();
-        let km: KernelMapping = self.task().vm_mut().map(
+        let km: KernelMapping = self.task().vm().map(
             self.task(),
             child_map_addr,
             size,
@@ -1094,9 +1090,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
             MREMAP_MAYMOVE | MREMAP_FIXED,
             free_mem.as_usize()
         );
-        self.task()
-            .vm_mut()
-            .remap(self.task(), start, sz, free_mem, sz);
+        self.task().vm().remap(self.task(), start, sz, free_mem, sz);
 
         // AutoRemoteSyscalls may have gotten unlucky and picked the old stack
         // segment as it's scratch space, reevaluate that choice
@@ -1128,7 +1122,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
             free_mem.as_usize(),
             sz
         );
-        remote2.task().vm_mut().unmap(remote2.task(), free_mem, sz);
+        remote2.task().vm().unmap(remote2.task(), free_mem, sz);
         return true;
     }
 
@@ -1176,7 +1170,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         );
 
         let new_addr = km.start();
-        *self.vm_mut().mapping_flags_of_mut(new_addr) = flags;
+        *self.vm().mapping_flags_of_mut(new_addr) = flags;
         // DIFF NOTE: Logic slightly different from rr. We are only returning start of recreated
         // mapping.
         let new_map_local_addr = self.vm().mapping_of(new_addr).unwrap().local_addr;

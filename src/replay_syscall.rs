@@ -223,7 +223,7 @@ fn init_scratch_memory(t: &mut ReplayTask, km: &KernelMapping, data: &trace_stre
                 0,
             );
         }
-        t.vm_mut().map(
+        t.vm().map(
             t,
             t.scratch_ptr,
             sz,
@@ -468,11 +468,11 @@ fn prepare_clone<Arch: Architecture>(t: &mut ReplayTask) {
         // be useful to inherit breakpoints (along with their
         // refcounts) across a non-VM-sharing clone, but for
         // now we never want to do this.
-        new_task.vm_mut().remove_all_breakpoints();
-        new_task.vm_mut().remove_all_watchpoints();
+        new_task.vm().remove_all_breakpoints();
+        new_task.vm().remove_all_watchpoints();
 
         let mut remote = AutoRemoteSyscalls::new(new_task);
-        for (&k, m) in t.vm().maps() {
+        for (&k, m) in &t.vm().maps() {
             // Recreate any tracee-shared mappings
             if m.local_addr.is_some()
                 && !m
@@ -498,7 +498,7 @@ fn prepare_clone<Arch: Architecture>(t: &mut ReplayTask) {
 
     init_scratch_memory(new_task, &km, &data);
 
-    new_task.vm_mut().after_clone();
+    new_task.vm().after_clone();
 }
 
 /// DIFF NOTE: This simply returns a ReplayTraceStep instead of modifying one.
@@ -779,7 +779,7 @@ pub fn process_execve(t: &mut ReplayTask) -> ReplayTraceStep {
     // determine this by checking if this address space has any tasks with a
     // different tgid.
     let mut maybe_memory_task = None;
-    for task in t.vm().iter_except(t.weak_self_ptr()) {
+    for task in t.vm().task_set().iter_except(t.weak_self_ptr()) {
         if task.borrow().tgid() != t.tgid() {
             maybe_memory_task = Some(task);
             break;
@@ -953,7 +953,7 @@ pub fn process_execve(t: &mut ReplayTask) -> ReplayTraceStep {
         // Now fix up the address space. First unmap all the mappings other than
         // our rd page.
         let mut unmaps: Vec<MemoryRangeKey> = Vec::new();
-        for (&k, m) in t.vm().maps() {
+        for (&k, m) in &t.vm().maps() {
             // Do not attempt to unmap [vsyscall] --- it doesn't work.
             if m.map.start() != AddressSpace::rd_page_start()
                 && m.map.start() != AddressSpace::preload_thread_locals_start()
@@ -977,7 +977,6 @@ pub fn process_execve(t: &mut ReplayTask) -> ReplayTraceStep {
             remote
                 .task()
                 .vm_shr_ptr()
-                .borrow_mut()
                 .unmap(remote.task_mut(), m.start(), m.size());
         }
         // We will have unmapped the stack memory that |remote| would have used for
@@ -1027,7 +1026,7 @@ pub fn process_execve(t: &mut ReplayTask) -> ReplayTraceStep {
     t.apply_all_data_records_from_trace();
 
     // Now it's safe to save the auxv data
-    t.vm_shr_ptr().borrow_mut().save_auxv(t);
+    t.vm_shr_ptr().save_auxv(t);
 
     // Notify outer rd if there is one
     unsafe { syscall(SYS_rdcall_reload_auxv as i64, t.tid) };

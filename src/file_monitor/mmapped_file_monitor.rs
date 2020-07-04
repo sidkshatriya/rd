@@ -77,7 +77,7 @@ impl FileMonitor for MmappedFileMonitor {
 
         let is_replay = offset.t.session().is_replaying();
         for v in offset.t.session().vms() {
-            for (_, m) in v.maps() {
+            for (_, m) in &v.maps() {
                 let km: &KernelMapping = &m.map;
 
                 if is_replay {
@@ -126,13 +126,13 @@ impl FileMonitor for MmappedFileMonitor {
                                 .borrow_mut()
                                 .ensure_size(local_offset + r.length as u64);
                         } else {
-                            ed_assert!(offset.t, !v.inner_hashset().is_empty());
+                            ed_assert!(offset.t, !v.task_set().inner_hashset().is_empty());
                             // We will record multiple writes if the file is mapped multiple
                             // times. This is inefficient --- one is sufficient --- but not
                             // wrong.
                             // Make sure we use a task for this address space. `t` might have
                             // a different address space.
-                            for t_rc in v.iter() {
+                            for t_rc in v.task_set().iter() {
                                 // If the task here has execed, we may not be able to record its
                                 // memory any longer, so loop through all tasks in this address
                                 // space in turn in case any *didn't* exec.

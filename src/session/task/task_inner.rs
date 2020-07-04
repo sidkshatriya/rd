@@ -131,12 +131,7 @@ pub mod task_inner {
         scoped_fd::ScopedFd,
         session::{
             address_space::{
-                address_space::{
-                    AddressSpace,
-                    AddressSpaceRef,
-                    AddressSpaceRefMut,
-                    AddressSpaceSharedPtr,
-                },
+                address_space::{AddressSpace, AddressSpaceSharedPtr},
                 kernel_mapping::KernelMapping,
                 WatchConfig,
             },
@@ -1073,20 +1068,13 @@ pub mod task_inner {
 
         /// Return the virtual memory mapping (address space) of this
         /// task.
-        pub fn vm(&self) -> AddressSpaceRef {
-            self.as_.as_ref().unwrap().borrow()
+        pub fn vm(&self) -> &AddressSpace {
+            &self.as_.as_ref().unwrap()
         }
 
-        /// This is rarely needed. Please use vm() or vm_mut()
+        /// This is rarely needed. Please use vm()
         pub fn vm_as_ptr(&self) -> *const AddressSpace {
-            self.as_.as_ref().unwrap().as_ptr()
-        }
-
-        /// Return the virtual memory mapping (address space) of this
-        /// task.
-        /// Note that we DONT need &mut self here
-        pub fn vm_mut(&self) -> AddressSpaceRefMut {
-            self.as_.as_ref().unwrap().borrow_mut()
+            Rc::as_ptr(self.as_.as_ref().unwrap())
         }
 
         /// Useful for tricky situations when we need to pass a reference to task to
@@ -1239,7 +1227,7 @@ pub mod task_inner {
                             PRELOAD_THREAD_LOCALS_SIZE,
                         );
                     }
-                    self.vm_mut().set_thread_locals_tuid(self.tuid());
+                    self.vm().set_thread_locals_tuid(self.tuid());
                 }
             }
         }

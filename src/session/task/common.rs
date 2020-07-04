@@ -112,7 +112,7 @@ use std::{
 /// Returns false if the process no longer exists.
 pub(super) fn open_mem_fd<T: Task>(task: &mut T) -> bool {
     // Use ptrace to read/write during open_mem_fd
-    task.vm_mut().set_mem_fd(ScopedFd::new());
+    task.vm().set_mem_fd(ScopedFd::new());
 
     if !task.is_stopped {
         log!(
@@ -174,7 +174,7 @@ pub(super) fn open_mem_fd<T: Task>(task: &mut T) -> bool {
         );
         return false;
     }
-    remote.task().vm_mut().set_mem_fd(fd.try_into().unwrap());
+    remote.task().vm().set_mem_fd(fd.try_into().unwrap());
     true
 }
 
@@ -348,7 +348,7 @@ pub(super) fn safe_pwrite64(
 ) -> Result<usize, ()> {
     let mut mappings_to_fix: Vec<(MemoryRangeKey, ProtFlags)> = Vec::new();
     let buf_size = buf.len();
-    for (k, m) in t.vm().maps_containing_or_after(floor_page_size(addr)) {
+    for (k, m) in &t.vm().maps_containing_or_after(floor_page_size(addr)) {
         if m.map.start() >= ceil_page_size(addr + buf_size) {
             break;
         }
@@ -419,7 +419,7 @@ pub(super) fn write_bytes_helper<T: Task>(
     if !task.vm().mem_fd().is_open() {
         let nwritten = task.write_bytes_ptrace(addr, buf);
         if nwritten > 0 {
-            task.vm_mut().notify_written(addr, nwritten, flags);
+            task.vm().notify_written(addr, nwritten, flags);
         }
 
         if ok.is_some() && nwritten < buf_size {
@@ -463,7 +463,7 @@ pub(super) fn write_bytes_helper<T: Task>(
         );
     }
     if nwritten > 0 {
-        task.vm_mut().notify_written(addr, nwritten, flags);
+        task.vm().notify_written(addr, nwritten, flags);
     }
 }
 
@@ -725,7 +725,7 @@ pub(super) fn did_waitpid<T: Task>(task: &mut T, mut status: WaitStatus) {
                 r.set_ip(bkpt_addr);
                 task.set_regs(&r);
             }
-            task.vm_mut()
+            task.vm()
                 .remove_breakpoint(bkpt_addr, BreakpointType::BkptInternal);
             task.did_set_breakpoint_after_cpuid = false;
         }
@@ -860,7 +860,7 @@ pub(super) fn resume_execution<T: Task>(
         if task.singlestepping_instruction == TrappedInstruction::CpuId {
             // In KVM virtual machines (and maybe others), singlestepping over CPUID
             // executes the following instruction as well. Work around that.
-            let local_did_set_breakpoint_after_cpuid = task.vm_mut().add_breakpoint(
+            let local_did_set_breakpoint_after_cpuid = task.vm().add_breakpoint(
                 task.ip() + trapped_instruction_len(task.singlestepping_instruction),
                 BreakpointType::BkptInternal,
             );
@@ -1095,7 +1095,7 @@ pub(super) fn on_syscall_exit(
 pub(super) fn post_exec_syscall(t: &mut dyn Task) {
     let arch = t.arch();
     t.canonicalize_regs(arch);
-    t.vm_shr_ptr().borrow_mut().post_exec_syscall(t);
+    t.vm_shr_ptr().post_exec_syscall(t);
 
     if SessionInner::has_cpuid_faulting() {
         let mut remote = AutoRemoteSyscalls::new(t);
@@ -1116,7 +1116,7 @@ pub(super) fn post_exec_syscall(t: &mut dyn Task) {
 pub(super) fn post_exec_for_exe(t: &mut dyn Task, exe_file: &OsStr) {
     let mut stopped_task_in_address_space = None;
     let mut other_task_in_address_space = false;
-    for task in t.vm().iter_except(t.weak_self_ptr()) {
+    for task in t.vm().task_set().iter_except(t.weak_self_ptr()) {
         other_task_in_address_space = true;
         if task.borrow().is_stopped {
             stopped_task_in_address_space = Some(task);
@@ -1158,7 +1158,7 @@ pub(super) fn post_exec_for_exe(t: &mut dyn Task, exe_file: &OsStr) {
     }
     t.session().post_exec(t);
 
-    t.vm_mut().erase(t.weak_self_ptr());
+    t.vm().task_set_mut().erase(t.weak_self_ptr());
     t.fd_table_mut().erase(t.weak_self_ptr());
 
     t.extra_registers = None;

@@ -693,7 +693,7 @@ impl ReplaySession {
                 let next_task = next_task_t.as_replay_task().unwrap();
                 if next_task.vm().first_run_event() == 0 && self.done_initial_exec() {
                     next_task
-                        .vm_mut()
+                        .vm()
                         .set_first_run_event(self.current_frame_time());
                 }
                 self.ticks_at_start_of_event.set(next_task.tick_count());
@@ -1024,7 +1024,7 @@ impl ReplaySession {
                 if self.syscall_bp_vm.borrow().is_none()
                     && t.vm()
                         .is_breakpoint_in_private_read_only_memory(syscall_instruction)
-                    && t.vm_mut()
+                    && t.vm()
                         .add_breakpoint(syscall_instruction, BreakpointType::BkptInternal)
                 {
                     *self.syscall_bp_vm.borrow_mut() = Some(t.as_.as_ref().unwrap().clone());

@@ -123,7 +123,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
             {
                 let mut found_syscall_buf = None;
                 let mut remote = AutoRemoteSyscalls::new(leader.as_mut());
-                for (&mk, m) in remote.vm().maps() {
+                for (&mk, m) in &remote.vm().maps() {
                     if m.flags.contains(MappingFlags::IS_SYSCALLBUF) {
                         // DIFF NOTE: The whole reason why this approach is a bit different from rr because its
                         // its tougher to iterate and modify a map at the same time in rust vs c++.
