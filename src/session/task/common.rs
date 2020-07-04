@@ -98,8 +98,9 @@ use nix::{
 };
 use std::{
     convert::TryInto,
-    ffi::{c_void, CStr, CString, OsStr, OsString},
+    ffi::{c_void, CStr, CString, OsStr},
     mem::{size_of, zeroed},
+    os::unix::ffi::OsStrExt,
     path::Path,
     slice,
 };
@@ -1182,9 +1183,20 @@ pub(super) fn post_exec_for_exe(t: &mut dyn Task, exe_file: &OsStr) {
     // It's barely-documented, but Linux unshares the fd table on exec
     t.fds = Some(t.fd_table_shr_ptr().borrow().clone_into_task(t));
     let prname = prname_from_exe_image(t.vm().exe_image());
-    t.prname = prname;
+    t.prname = prname.to_owned();
 }
 
-fn prname_from_exe_image(exe_image: &OsStr) -> OsString {
-    unimplemented!()
+fn prname_from_exe_image(exe_image: &OsStr) -> &OsStr {
+    let len = exe_image.as_bytes().len();
+    debug_assert!(len > 0);
+    let maybe_pos = exe_image.as_bytes().iter().rposition(|&c| c == b'/');
+    let pos = match maybe_pos {
+        Some(loc) if loc == len => {
+            fatal!("empty prname?? {:?}", exe_image);
+            unreachable!();
+        }
+        Some(loc) => loc + 1,
+        None => 0,
+    };
+    OsStr::from_bytes(&exe_image.as_bytes()[pos..])
 }
