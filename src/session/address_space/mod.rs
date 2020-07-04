@@ -893,7 +893,7 @@ pub mod address_space {
                 device,
                 inode,
                 prot,
-                flags,
+                flags & KernelMapping::MAP_FLAGS_MASK,
                 offset_bytes,
             );
 
