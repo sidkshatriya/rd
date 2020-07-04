@@ -1007,7 +1007,8 @@ pub fn process_execve(t: &mut ReplayTask) -> ReplayTraceStep {
             .iter()
             .rposition(|&c| c == b'/')
             .unwrap_or(0);
-        name.extend_from_slice(&recorded_exe_name.as_bytes()[pos..]);
+        debug_assert!(recorded_exe_name.as_bytes().len() != pos + 1);
+        name.extend_from_slice(&recorded_exe_name.as_bytes()[pos + 1..]);
         name.extend_from_slice(b"\0");
         let mut mem = AutoRestoreMem::new(&mut remote, Some(&name), name.len());
         let addr = mem.get().unwrap();
