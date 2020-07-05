@@ -16,8 +16,10 @@ use crate::{
         is_rdcall_notify_syscall_hook_exit_syscall,
         is_restart_syscall_syscall,
         is_write_syscall,
+        syscall_number_for_close,
         syscall_number_for_execve,
         syscall_number_for_munmap,
+        syscall_number_for_open,
         syscall_number_for_prctl,
         CloneTLSType,
         SupportedArch,
@@ -59,6 +61,7 @@ use crate::{
         clone_flags_to_task_flags,
         extract_clone_parameters,
         floor_page_size,
+        page_size,
         resource_path,
         CloneParameters,
     },
@@ -66,6 +69,8 @@ use crate::{
 };
 use libc::{
     __errno_location,
+    dev_t,
+    ino_t,
     pid_t,
     syscall,
     CLONE_CHILD_CLEARTID,
@@ -81,11 +86,16 @@ use libc::{
     CLONE_VM,
     ENOENT,
     ENOSYS,
+    MAP_SYNC,
     PR_SET_NAME,
 };
 use nix::{
     errno::errno,
-    sys::mman::{MapFlags, ProtFlags},
+    fcntl::OFlag,
+    sys::{
+        mman::{MapFlags, ProtFlags},
+        stat::FileStat,
+    },
     unistd::{access, AccessFlags},
 };
 use std::{
@@ -95,6 +105,7 @@ use std::{
     mem::size_of,
     os::unix::ffi::{OsStrExt, OsStringExt},
 };
+use trace_stream::MappedDataSource;
 
 /// Proceeds until the next system call, which is being executed.
 ///
@@ -1010,6 +1021,7 @@ pub fn process_execve(t: &mut ReplayTask) -> ReplayTraceStep {
         debug_assert!(recorded_exe_name.as_bytes().len() != pos + 1);
         name.extend_from_slice(&recorded_exe_name.as_bytes()[pos + 1..]);
         name.extend_from_slice(b"\0");
+        // Note: NOT using AutorestoreMem::push_cstr() as we already have a '\0' at the end
         let mut mem = AutoRestoreMem::new(&mut remote, Some(&name), name.len());
         let addr = mem.get().unwrap();
         rd_infallible_syscall!(
@@ -1036,11 +1048,138 @@ pub fn process_execve(t: &mut ReplayTask) -> ReplayTraceStep {
 }
 
 fn restore_mapped_region(
-    _remote: &mut AutoRemoteSyscalls,
-    _km: &KernelMapping,
-    _data: &trace_stream::MappedData,
+    remote: &mut AutoRemoteSyscalls,
+    km: &KernelMapping,
+    data: &trace_stream::MappedData,
 ) {
-    unimplemented!()
+    ed_assert!(
+        remote.task(),
+        !km.flags().contains(MapFlags::MAP_SHARED),
+        "Shared mappings after exec not supported"
+    );
+
+    let real_file_name;
+    let mut device: dev_t = KernelMapping::NO_DEVICE;
+    let mut inode: ino_t = KernelMapping::NO_INODE;
+    let mut flags = km.flags();
+    let mut offset_bytes: u64 = 0;
+
+    match data.source {
+        MappedDataSource::SourceFile => {
+            let real_file: FileStat;
+            offset_bytes = km.file_offset_bytes();
+            // Private mapping, so O_RDONLY is always OK.
+            let res = finish_direct_mmap(
+                remote,
+                km.start(),
+                km.size(),
+                km.prot(),
+                km.flags(),
+                &data.filename,
+                OFlag::O_RDONLY,
+                data.data_offset_bytes / page_size(),
+            );
+            real_file = res.0;
+            real_file_name = res.1;
+            device = real_file.st_dev;
+            inode = real_file.st_ino;
+        }
+        MappedDataSource::SourceTrace | MappedDataSource::SourceZero => {
+            real_file_name = OsString::from("");
+            flags |= MapFlags::MAP_ANONYMOUS;
+            remote.infallible_mmap_syscall(
+                Some(km.start()),
+                km.size(),
+                km.prot(),
+                (flags & !MapFlags::MAP_GROWSDOWN) | MapFlags::MAP_FIXED,
+                -1,
+                0,
+            );
+            // The data, if any, will be written back by
+            // ReplayTask::apply_all_data_records_from_trace
+        }
+    }
+
+    remote.task().vm_shr_ptr().map(
+        remote.task_mut(),
+        km.start(),
+        km.size(),
+        km.prot(),
+        flags,
+        offset_bytes,
+        real_file_name.as_os_str(),
+        device,
+        inode,
+        None,
+        Some(&km),
+        None,
+        None,
+        None,
+    );
+}
+
+fn finish_direct_mmap(
+    remote: &mut AutoRemoteSyscalls,
+    rec_addr: RemotePtr<u8>,
+    length: usize,
+    prot: ProtFlags,
+    flags: MapFlags,
+    backing_filename: &OsStr,
+    backing_file_open_flags: OFlag,
+    backing_offset_pages: usize,
+) -> (FileStat, OsString) {
+    let fd: i32;
+    log!(
+        LogDebug,
+        "directly mmap'ing {} bytes of {:?} at page offset {:x}",
+        length,
+        backing_filename,
+        backing_offset_pages
+    );
+
+    ed_assert!(remote.task(), !flags.contains(MapFlags::MAP_GROWSDOWN));
+
+    // Open in the tracee the file that was mapped during
+    // recording.
+    {
+        let arch = remote.arch();
+        let mut child_mem = AutoRestoreMem::push_cstr(remote, backing_filename.as_bytes());
+        let child_addr = child_mem.get().unwrap();
+        fd = rd_infallible_syscall!(
+            child_mem,
+            syscall_number_for_open(arch),
+            child_addr.as_usize(),
+            backing_file_open_flags.bits()
+        ) as i32;
+    }
+    // And mmap that file.
+    remote.infallible_mmap_syscall(
+        Some(rec_addr),
+        length,
+        // (We let SHARED|WRITEABLE
+        // mappings go through while
+        // they're not handled properly,
+        // but we shouldn't do that.)
+        prot,
+        // MAP_SYNC does not seem to be present in 0.17 version of nix
+        (flags & unsafe { !MapFlags::from_bits_unchecked(MAP_SYNC) }) | MapFlags::MAP_FIXED,
+        fd,
+        // MAP_SYNC is used to request direct mapping
+        // (DAX) from the filesystem for persistent
+        // memory devices (requires
+        // MAP_SHARED_VALIDATE). Drop it for the
+        // backing file.
+        backing_offset_pages as u64,
+    );
+
+    // While it's open, grab the link reference.
+    let real_file = remote.task().stat_fd(fd);
+    let real_file_name = remote.task().file_name_of_fd(fd);
+
+    // Don't leak the tmp fd.  The mmap doesn't need the fd to stay open.
+    let arch = remote.arch();
+    rd_infallible_syscall!(remote, syscall_number_for_close(arch), fd);
+    (real_file, real_file_name)
 }
 
 fn find_exec_stub(arch: SupportedArch) -> CString {
