@@ -772,7 +772,7 @@ fn write_reg(
         if printed_digit {
             write!(out_str, "{:02x}", buf[i as usize]).unwrap();
         } else {
-            write!(out_str, "{:#x}", buf[i as usize]).unwrap();
+            write!(out_str, "{:x}", buf[i as usize]).unwrap();
         }
         printed_digit = true;
         i -= 1;

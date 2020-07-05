@@ -152,7 +152,7 @@ fn write_hex(value: &[u8], out: &mut dyn Write) -> io::Result<()> {
             if any_printed {
                 write!(out, "{:02x}", value[i as usize])?;
             } else {
-                write!(out, "{:#x}", value[i as usize])?;
+                write!(out, "{:x}", value[i as usize])?;
             }
             any_printed = true;
             i -= 1;
