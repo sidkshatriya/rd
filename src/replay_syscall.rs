@@ -1007,7 +1007,7 @@ pub fn process_execve(t: &mut ReplayTask) -> ReplayTraceStep {
         let mut remote = AutoRemoteSyscalls::new(t);
 
         // Now map in all the mappings that we recorded from the real exec.
-        for i in 1..kms.len() {
+        for i in 1..kms.len() - 1 {
             restore_mapped_region(&mut remote, &kms[i], &datas[i]);
         }
 

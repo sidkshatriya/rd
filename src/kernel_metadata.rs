@@ -392,8 +392,10 @@ pub fn siginfo_str_repr(siginfo: &siginfo_t) -> String {
     );
     match siginfo.si_signo {
         libc::SIGILL | libc::SIGFPE | libc::SIGSEGV | libc::SIGBUS | libc::SIGTRAP => {
-            s += &format!(",addr:{:#x}", unsafe { siginfo._sifields._sigfault.si_addr }
-                as usize);
+            s += &format!(
+                ",addr:{:#x}",
+                unsafe { siginfo._sifields._sigfault.si_addr } as usize
+            );
         }
         _ => (),
     }
