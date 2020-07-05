@@ -151,8 +151,8 @@ impl ExtraRegisters {
             if features & !native_layout.supported_feature_bits != 0 {
                 log!(
                     LogError,
-                    "Unsupported CPU features found: got {:x}\
-                      ({}), supported: {:x}({});\
+                    "Unsupported CPU features found: got {:#x}\
+                      ({}), supported: {:#x}({});\
                       Consider using `rr cpufeatures` and \
                       `rr record --disable-cpuid-features-(ext)`",
                     features,
@@ -772,7 +772,7 @@ fn write_reg(
         if printed_digit {
             write!(out_str, "{:02x}", buf[i as usize]).unwrap();
         } else {
-            write!(out_str, "{:x}", buf[i as usize]).unwrap();
+            write!(out_str, "{:#x}", buf[i as usize]).unwrap();
         }
         printed_digit = true;
         i -= 1;

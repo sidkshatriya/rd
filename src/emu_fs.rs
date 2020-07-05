@@ -346,7 +346,7 @@ impl EmuFs {
     /// Dump information about this emufs to the "error" log.
     pub fn log(&self) {
         let addr = self as *const _ as *const u8 as usize;
-        log!(LogError, "EmuFs {:x} with {} files:", addr, self.size());
+        log!(LogError, "EmuFs {:#x} with {} files:", addr, self.size());
         for (_, v) in &self.files {
             let emu_path = v.upgrade().unwrap().borrow().emu_path().to_owned();
             log!(LogError, "  {:?}", emu_path);

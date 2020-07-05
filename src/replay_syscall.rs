@@ -1131,7 +1131,7 @@ fn finish_direct_mmap(
     let fd: i32;
     log!(
         LogDebug,
-        "directly mmap'ing {} bytes of {:?} at page offset {:x}",
+        "directly mmap'ing {} bytes of {:?} at page offset {:#x}",
         length,
         backing_filename,
         backing_offset_pages

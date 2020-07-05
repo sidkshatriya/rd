@@ -143,7 +143,7 @@ impl ReplayTask {
                 log!(
                     LogWarn,
                     "Probably saw kernel bug mutating $esi across pread/write64\n\
-                call: recorded:{:x}; replaying:{:x}.  Fudging registers.",
+                call: recorded:{:#x}; replaying:{:#x}.  Fudging registers.",
                     rec_regs.arg4(),
                     self.regs_ref().arg4()
                 );

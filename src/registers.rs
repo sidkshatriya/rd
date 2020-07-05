@@ -1464,7 +1464,7 @@ fn maybe_log_reg_mismatch(
     if mismatch_behavior >= MismatchBehavior::BailOnMismatch {
         log!(
             LogError,
-            "{} {:x} != {:x} ({} vs. {})",
+            "{} {:#x} != {:#x} ({} vs. {})",
             regname,
             val1,
             val2,
@@ -1474,7 +1474,7 @@ fn maybe_log_reg_mismatch(
     } else if mismatch_behavior >= MismatchBehavior::LogMismatches {
         log!(
             LogInfo,
-            "{} {:x} != {:x} ({} vs. {})",
+            "{} {:#x} != {:#x} ({} vs. {})",
             regname,
             val1,
             val2,

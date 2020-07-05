@@ -1316,7 +1316,7 @@ fn check_xsave_compatibility(trace_in: &TraceReader) {
             // to XSAVE instructions executed on our CPU, or examines XCR0 directly,
             // This will cause divergence. The dynamic linker examines XCR0 so this
             // is nearly guaranteed.
-            write!(io::stderr(), "Trace XCR0 value {:x} != our XCR0 value {:x};\n\
+            write!(io::stderr(), "Trace XCR0 value {:#x} != our XCR0 value {:#x};\n\
                             Replay will probably fail because glibc dynamic loader examines XCR0\n\n",
                             tracee_xcr0, our_xcr0).unwrap();
         }

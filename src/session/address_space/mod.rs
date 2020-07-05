@@ -2669,7 +2669,7 @@ pub mod address_space {
                         .get(&addr)
                         .unwrap()
                         .overwritten_data;
-                    log!(LogDebug, "Writing back {:x} at {}", data, addr);
+                    log!(LogDebug, "Writing back {:#x} at {}", data, addr);
                     write_val_mem_with_flags::<u8>(
                         t.borrow_mut().as_mut(),
                         addr.to_data_ptr::<u8>(),

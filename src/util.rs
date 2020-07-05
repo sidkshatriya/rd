@@ -711,7 +711,7 @@ pub fn should_copy_mmap_region(mapping: &KernelMapping, stat: &libc::stat) -> bo
 
         log!(
             LogWarn,
-            "Scary mmap {:?} (prot: {:x} {}); uid:{}  mode:{}",
+            "Scary mmap {:?} (prot: {:#x} {}); uid:{}  mode:{}",
             file_name,
             prot,
             shared,
