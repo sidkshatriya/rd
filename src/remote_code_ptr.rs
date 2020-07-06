@@ -109,7 +109,7 @@ mod tests {
 
     #[test]
     fn new_test() {
-        let a = RemoteCodePtr::new();
+        let a = RemoteCodePtr::null();
         assert_eq!(0, a.as_usize());
     }
 }

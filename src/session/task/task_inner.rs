@@ -1,16 +1,23 @@
-use crate::bindings::ptrace::{
-    PTRACE_CONT,
-    PTRACE_SINGLESTEP,
-    PTRACE_SYSCALL,
-    PTRACE_SYSEMU,
-    PTRACE_SYSEMU_SINGLESTEP,
-};
-
 use crate::{
-    kernel_abi::common::preload_interface::PRELOAD_THREAD_LOCALS_SIZE,
+    arch::Architecture,
+    bindings::ptrace::{
+        PTRACE_CONT,
+        PTRACE_SINGLESTEP,
+        PTRACE_SYSCALL,
+        PTRACE_SYSEMU,
+        PTRACE_SYSEMU_SINGLESTEP,
+    },
+    kernel_abi::{
+        common::preload_interface::PRELOAD_THREAD_LOCALS_SIZE,
+        x64::{self, preload_interface::preload_thread_locals as x64_preload_thread_locals},
+        x86::{self, preload_interface::preload_thread_locals as x86_preload_thread_locals},
+        SupportedArch,
+    },
+    remote_ptr::Void,
     session::address_space::{address_space::AddressSpace, MappingFlags},
 };
-use std::{ffi::c_void, ptr::NonNull};
+use std::{ffi::c_void, mem::size_of, ptr::NonNull};
+use task_inner::TaskInner;
 
 bitflags! {
     /// CloneFlags::empty(): The child gets a semantic copy of all parent resources (and
@@ -1198,36 +1205,66 @@ pub mod task_inner {
             unimplemented!()
         }
         pub fn syscallbuf_alt_stack(&self) -> RemotePtr<Void> {
-            unimplemented!()
+            if self.scratch_ptr.is_null() {
+                RemotePtr::null()
+            } else {
+                self.scratch_ptr + self.scratch_size
+            }
         }
-        pub fn setup_preload_thread_locals(&self) {
-            unimplemented!()
+        pub fn setup_preload_thread_locals(&mut self) {
+            self.activate_preload_thread_locals();
+            rd_arch_function_selfless!(setup_preload_thread_locals_arch, self.arch(), self);
         }
+
         pub fn setup_preload_thread_locals_from_clone(&self, _origin: &TaskInner) {
             unimplemented!()
         }
-        pub fn fetch_preload_thread_locals(&self) -> &ThreadLocals {
-            unimplemented!()
-        }
-        pub fn activate_preload_thread_locals(&self) {
-            // Switch thread-locals to the new task.
-            if self.tuid() != self.vm().thread_locals_tuid() {
-                let local_addr = preload_thread_locals_local_addr(&self.vm());
-                if local_addr.is_some() {
-                    let maybe_t = self
-                        .session()
-                        .find_task_from_task_uid(self.vm().thread_locals_tuid());
-                    if maybe_t.is_some() {
-                        maybe_t.unwrap().borrow().fetch_preload_thread_locals();
-                    }
-                    unsafe {
+        pub fn fetch_preload_thread_locals(&mut self) -> &ThreadLocals {
+            if self.tuid() == self.vm().thread_locals_tuid() {
+                let maybe_local_addr = preload_thread_locals_local_addr(self.vm());
+                match maybe_local_addr {
+                    Some(local_addr) => unsafe {
                         copy_nonoverlapping(
-                            &self.thread_locals as *const u8,
-                            local_addr.unwrap().as_ptr().cast::<u8>(),
+                            local_addr.as_ptr().cast::<u8>(),
+                            (&raw mut self.thread_locals).cast::<u8>(),
                             PRELOAD_THREAD_LOCALS_SIZE,
                         );
+                    },
+                    None => {
+                        // The mapping might have been removed by crazy application code.
+                        // That's OK, assuming the preload library was removed too.
+                        for i in 0..PRELOAD_THREAD_LOCALS_SIZE {
+                            self.thread_locals[i] = 0u8;
+                        }
                     }
-                    self.vm().set_thread_locals_tuid(self.tuid());
+                }
+            }
+            &self.thread_locals
+        }
+        pub fn activate_preload_thread_locals(&mut self) {
+            // Switch thread-locals to the new task.
+            if self.tuid() != self.vm().thread_locals_tuid() {
+                let maybe_local_addr = preload_thread_locals_local_addr(&self.vm());
+                match maybe_local_addr {
+                    Some(local_addr) => {
+                        let maybe_t = self
+                            .session()
+                            .find_task_from_task_uid(self.vm().thread_locals_tuid());
+
+                        maybe_t.map(|t| {
+                            t.borrow_mut().fetch_preload_thread_locals();
+                        });
+
+                        unsafe {
+                            copy_nonoverlapping(
+                                &self.thread_locals as *const u8,
+                                local_addr.as_ptr().cast::<u8>(),
+                                PRELOAD_THREAD_LOCALS_SIZE,
+                            );
+                        }
+                        self.vm().set_thread_locals_tuid(self.tuid());
+                    }
+                    None => (),
                 }
             }
         }
@@ -1971,5 +2008,29 @@ fn preload_thread_locals_local_addr(as_: &AddressSpace) -> Option<NonNull<c_void
             mapping.local_addr
         }
         _ => None,
+    }
+}
+fn setup_preload_thread_locals_arch<Arch: Architecture>(t: &mut TaskInner) {
+    let maybe_local_addr = preload_thread_locals_local_addr(t.vm());
+    match maybe_local_addr {
+        Some(local_addr) => match Arch::arch() {
+            SupportedArch::X86 => {
+                let preload_ptr = local_addr.as_ptr() as *mut x86_preload_thread_locals;
+                debug_assert!(size_of::<x86_preload_thread_locals>() <= PRELOAD_THREAD_LOCALS_SIZE);
+                unsafe {
+                    (*preload_ptr).syscallbuf_stub_alt_stack =
+                        x86::ptr::<Void>::from_remote_ptr(t.syscallbuf_alt_stack())
+                };
+            }
+            SupportedArch::X64 => {
+                let preload_ptr = local_addr.as_ptr() as *mut x64_preload_thread_locals;
+                debug_assert!(size_of::<x64_preload_thread_locals>() <= PRELOAD_THREAD_LOCALS_SIZE);
+                unsafe {
+                    (*preload_ptr).syscallbuf_stub_alt_stack =
+                        x64::ptr::<Void>::from_remote_ptr(t.syscallbuf_alt_stack())
+                };
+            }
+        },
+        None => (),
     }
 }
