@@ -878,11 +878,13 @@ pub mod address_space {
         ) -> KernelMapping {
             log!(
                 LogDebug,
-                "mmap({}, {}, {:?}, {:?}, {})",
+                "mmap({}, {}, {:?} = {:#x}, {:?} = {:#x}, {})",
                 addr,
                 num_bytes,
                 prot,
+                prot.bits(),
                 flags,
+                flags.bits(),
                 offset_bytes
             );
             let num_bytes = ceil_page_size(num_bytes);
