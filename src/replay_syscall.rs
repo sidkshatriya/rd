@@ -513,8 +513,7 @@ fn prepare_clone<Arch: Architecture>(t: &mut ReplayTask) {
 }
 
 /// DIFF NOTE: This simply returns a ReplayTraceStep instead of modifying one.
-pub fn rep_prepare_run_to_syscall(t: &mut ReplayTask) -> ReplayTraceStep {
-    let step: ReplayTraceStep;
+pub fn rep_prepare_run_to_syscall(t: &mut ReplayTask, step: &mut ReplayTraceStep) {
     let sys_num = t.current_trace_frame().event().syscall_event().number;
     let sys_arch = t.current_trace_frame().event().syscall_event().arch();
     let sys_name = t
@@ -529,14 +528,12 @@ pub fn rep_prepare_run_to_syscall(t: &mut ReplayTask) -> ReplayTraceStep {
         let regs = t.current_trace_frame().regs_ref().clone();
         t.set_regs(&regs);
         t.apply_all_data_records_from_trace();
-        step = ReplayTraceStep {
-            action: ReplayTraceStepType::TstepRetire,
-            data: Default::default(),
-        };
-        return step;
+        step.action = ReplayTraceStepType::TstepRetire;
+        return;
     }
 
-    step = ReplayTraceStep {
+    // DIFF NOTE: @TODO In rr only the syscall number and action are set
+    *step = ReplayTraceStep {
         action: ReplayTraceStepType::TstepEnterSyscall,
         data: ReplayTraceStepData::Syscall(ReplayTraceStepSyscall {
             // @TODO Check again: is this what we want for arch?
@@ -554,11 +551,9 @@ pub fn rep_prepare_run_to_syscall(t: &mut ReplayTask) -> ReplayTraceStep {
             + offset_of!(syscallbuf_hdr, notify_on_syscall_hook_exit);
         write_val_mem(t, child_addr, &1u8, None);
     }
-
-    step
 }
 
-pub fn rep_process_syscall(t: &mut ReplayTask) -> ReplayTraceStep {
+pub fn rep_process_syscall(t: &mut ReplayTask, step: &mut ReplayTraceStep) {
     let arch: SupportedArch;
     let trace_regs: Registers;
     {
@@ -567,14 +562,15 @@ pub fn rep_process_syscall(t: &mut ReplayTask) -> ReplayTraceStep {
         trace_regs = trace_frame.regs_ref().clone()
     }
     with_converted_registers(&trace_regs, arch, |converted_regs| {
-        rd_arch_function_selfless!(rep_process_syscall_arch, arch, t, converted_regs)
+        rd_arch_function_selfless!(rep_process_syscall_arch, arch, t, step, converted_regs)
     })
 }
 
 fn rep_process_syscall_arch<Arch: Architecture>(
     t: &mut ReplayTask,
+    step: &mut ReplayTraceStep,
     trace_regs: &Registers,
-) -> ReplayTraceStep {
+) {
     let mut sys = t.current_trace_frame().event().syscall_event().number;
 
     log!(
@@ -600,17 +596,13 @@ fn rep_process_syscall_arch<Arch: Architecture>(
             trace_regs.syscall_result(),
             trace_regs.ip()
         );
-        return ReplayTraceStep {
-            action: ReplayTraceStepType::TstepRetire,
-            data: Default::default(),
-        };
     }
 
     if sys == Arch::RESTART_SYSCALL {
         sys = t.regs_ref().original_syscallno().try_into().unwrap();
     }
 
-    let step = ReplayTraceStep {
+    *step = ReplayTraceStep {
         action: ReplayTraceStepType::TstepExitSyscall,
         data: ReplayTraceStepData::Syscall(ReplayTraceStepSyscall {
             arch: Arch::arch(),
@@ -621,7 +613,7 @@ fn rep_process_syscall_arch<Arch: Architecture>(
         // rd vetoed this syscall. Don't do any post-processing. Do set registers
         // to match any registers rd modified to fool the signal handler.
         t.set_regs(&trace_regs);
-        return step;
+        return;
     }
 
     let nsys: i32 = non_negative_syscall(sys);
@@ -631,7 +623,7 @@ fn rep_process_syscall_arch<Arch: Architecture>(
             && nsys != Arch::SIGRETURN
             && nsys != Arch::RT_SIGRETURN
         {
-            return step;
+            return;
         }
     }
 
@@ -642,7 +634,7 @@ fn rep_process_syscall_arch<Arch: Architecture>(
     // exist in this architecture.
     // All invalid/unsupported syscalls get the default emulation treatment.
     if nsys == Arch::EXECVE {
-        return process_execve(t);
+        return process_execve(t, step);
     }
 
     if nsys == Arch::BRK {
@@ -725,7 +717,6 @@ fn rep_process_syscall_arch<Arch: Architecture>(
     if nsys == Arch::RDCALL_RELOAD_AUXV {
         unimplemented!();
     }
-    step
 }
 
 fn non_negative_syscall(sys: i32) -> i32 {
@@ -776,11 +767,8 @@ fn rep_after_enter_syscall_arch<Arch: Architecture>(t: &mut ReplayTask) {
 
 // DIFF NOTE: This does not take an extra param `trace_frame` as it can be
 // obtained from `t` itself
-pub fn process_execve(t: &mut ReplayTask) -> ReplayTraceStep {
-    let step = ReplayTraceStep {
-        action: ReplayTraceStepType::TstepRetire,
-        data: Default::default(),
-    };
+pub fn process_execve(t: &mut ReplayTask, step: &mut ReplayTraceStep) {
+    step.action = ReplayTraceStepType::TstepRetire;
     let frame_arch = t.current_trace_frame().regs_ref().arch();
     // First, exec a stub program
     let stub_filename: CString = find_exec_stub(frame_arch);
@@ -1043,8 +1031,6 @@ pub fn process_execve(t: &mut ReplayTask) -> ReplayTraceStep {
 
     // Notify outer rd if there is one
     unsafe { syscall(SYS_rdcall_reload_auxv as i64, t.tid) };
-
-    step
 }
 
 fn restore_mapped_region(

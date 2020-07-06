@@ -739,29 +739,20 @@ impl ReplaySession {
 
         // Ask the trace-interpretation code what to do next in order
         // to retire the current frame.
-        let current_step;
+        let mut current_step: ReplayTraceStep = Default::default();
         match ev.event_type() {
             EventType::EvExit => {
-                current_step = ReplayTraceStep {
-                    action: ReplayTraceStepType::TstepExitTask,
-                    data: Default::default(),
-                }
+                current_step.action = ReplayTraceStepType::TstepExitTask;
             }
             EventType::EvSyscallbufAbortCommit => {
                 let child_addr = RemotePtr::<u8>::cast(t.syscallbuf_child)
                     + offset_of!(syscallbuf_hdr, abort_commit);
                 write_val_mem(t, child_addr, &1u8, None);
                 t.apply_all_data_records_from_trace();
-                current_step = ReplayTraceStep {
-                    action: ReplayTraceStepType::TstepRetire,
-                    data: Default::default(),
-                }
+                current_step.action = ReplayTraceStepType::TstepRetire;
             }
             EventType::EvSyscallbufFlush => {
-                current_step = ReplayTraceStep {
-                    action: ReplayTraceStepType::TstepFlushSyscallbuf,
-                    data: Default::default(),
-                };
+                current_step.action = ReplayTraceStepType::TstepFlushSyscallbuf;
 
                 self.prepare_syscallbuf_records(t);
             }
@@ -773,16 +764,10 @@ impl ReplaySession {
                 // the recorded data area. This is important because stray reads such
                 // as those performed by return_addresses should be consistent.
                 t.reset_syscallbuf();
-                current_step = ReplayTraceStep {
-                    action: ReplayTraceStepType::TstepRetire,
-                    data: Default::default(),
-                };
+                current_step.action = ReplayTraceStepType::TstepRetire;
             }
             EventType::EvPatchSyscall => {
-                current_step = ReplayTraceStep {
-                    action: ReplayTraceStepType::TstepPatchSyscall,
-                    data: Default::default(),
-                };
+                current_step.action = ReplayTraceStepType::TstepPatchSyscall;
             }
             EventType::EvSched => {
                 current_step = ReplayTraceStep {
@@ -804,10 +789,7 @@ impl ReplaySession {
             }
             EventType::EvGrowMap => {
                 process_grow_map(t);
-                current_step = ReplayTraceStep {
-                    action: ReplayTraceStepType::TstepRetire,
-                    data: Default::default(),
-                }
+                current_step.action = ReplayTraceStepType::TstepRetire;
             }
             EventType::EvSignal => {
                 self.last_siginfo_.set(Some(ev.signal_event().siginfo));
@@ -833,6 +815,7 @@ impl ReplaySession {
                 current_step = ReplayTraceStep {
                     action: ReplayTraceStepType::TstepDeliverSignal,
                     data: ReplayTraceStepData::Target(ReplayTraceStepTarget {
+                        // Note this should NOT be None.
                         ticks: Some(0),
                         signo: ev.signal_event().siginfo.si_signo,
                     }),
@@ -842,9 +825,9 @@ impl ReplaySession {
                 if ev.syscall_event().state == SyscallState::EnteringSyscall
                     || ev.syscall_event().state == SyscallState::EnteringSyscallPtrace
                 {
-                    current_step = rep_prepare_run_to_syscall(t);
+                    rep_prepare_run_to_syscall(t, &mut current_step);
                 } else {
-                    current_step = rep_process_syscall(t);
+                    rep_process_syscall(t, &mut current_step);
                     if current_step.action == ReplayTraceStepType::TstepRetire {
                         t.on_syscall_exit(
                             current_step.syscall().number,
