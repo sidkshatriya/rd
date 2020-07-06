@@ -213,13 +213,36 @@ impl ReplayTask {
 
     /// Restore all remaining chunks of saved data for the current trace frame.
     pub fn apply_all_data_records_from_trace(&mut self) {
-        while let Some(buf) = self.trace_reader_mut().read_raw_data_for_frame() {
-            if !buf.addr.is_null() && buf.data.len() > 0 {
-                let t = self.session().find_task_from_rec_tid(buf.rec_tid).unwrap();
-                t.borrow_mut()
-                    .write_bytes_helper(buf.addr, &buf.data, None, WriteFlags::empty());
-                // @TODO Call to maybe_update_breakpoints
-                unimplemented!()
+        loop {
+            let maybe_buf = self.trace_reader_mut().read_raw_data_for_frame().clone();
+            match maybe_buf {
+                Some(buf) => {
+                    if !buf.addr.is_null() && buf.data.len() > 0 {
+                        if buf.rec_tid == self.rec_tid {
+                            self.write_bytes_helper(buf.addr, &buf.data, None, WriteFlags::empty());
+                            self.vm_shr_ptr().maybe_update_breakpoints(
+                                self,
+                                buf.addr,
+                                buf.data.len(),
+                            );
+                        } else {
+                            let t = self.session().find_task_from_rec_tid(buf.rec_tid).unwrap();
+                            t.borrow_mut().write_bytes_helper(
+                                buf.addr,
+                                &buf.data,
+                                None,
+                                WriteFlags::empty(),
+                            );
+                            let vm_shr = t.borrow().vm_shr_ptr();
+                            vm_shr.maybe_update_breakpoints(
+                                t.borrow_mut().as_mut(),
+                                buf.addr,
+                                buf.data.len(),
+                            );
+                        };
+                    }
+                }
+                None => break,
             }
         }
     }

@@ -144,19 +144,21 @@ fn seg_reg(regs: &Registers, index: u8) -> u64 {
     }
 }
 
-fn write_hex(value: &[u8], out: &mut dyn Write) -> io::Result<()> {
-    let mut any_printed = false;
-    let mut i = value.len() as isize - 1;
+fn write_hex(buf: &[u8], out: &mut dyn Write) -> io::Result<()> {
+    let mut printed_digit = false;
+    let mut i = buf.len() as isize - 1;
     while i >= 0 {
-        if value[i as usize] != 0 || any_printed || i == 0 {
-            if any_printed {
-                write!(out, "{:02x}", value[i as usize])?;
-            } else {
-                write!(out, "{:x}", value[i as usize])?;
-            }
-            any_printed = true;
+        if !printed_digit && buf[i as usize] == 0 && i > 0 {
             i -= 1;
+            continue;
         }
+        if printed_digit {
+            write!(out, "{:02x}", buf[i as usize]).unwrap();
+        } else {
+            write!(out, "{:x}", buf[i as usize]).unwrap();
+        }
+        printed_digit = true;
+        i -= 1;
     }
     Ok(())
 }
@@ -384,7 +386,7 @@ impl ReRunCommand {
                 old_ip = old_task.as_ref().map_or(0.into(), |t| t.borrow().ip());
                 if done_initial_exec && before_time >= self.trace_start {
                     if !done_first_step {
-                        if !self.function.is_some() {
+                        if self.function.is_some() {
                             self.run_diversion_function(
                                 replay_session,
                                 old_task.unwrap().borrow_mut().as_mut(),
@@ -702,8 +704,8 @@ impl ReRunCommand {
                     self.write_value(&name, &value, out)?;
                 }
             }
-            write!(out, "\n")?;
         }
+        write!(out, "\n")?;
         Ok(())
     }
 }
