@@ -2,8 +2,8 @@
 #![allow(non_upper_case_globals)]
 #![allow(non_snake_case)]
 
-use static_assertions::_core::cmp::Ordering;
 use std::{
+    cmp::Ordering,
     convert::TryFrom,
     fmt::{Display, Formatter, Result},
     ops::{Add, Sub},

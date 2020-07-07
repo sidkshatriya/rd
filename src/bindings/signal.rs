@@ -3,7 +3,7 @@
 #![allow(non_snake_case)]
 
 use crate::kernel_metadata::siginfo_str_repr;
-use bitflags::_core::fmt::Formatter;
+use fmt::Formatter;
 use std::{fmt, fmt::Debug};
 
 include!(concat!(env!("OUT_DIR"), "/signal_bindings_generated.rs"));

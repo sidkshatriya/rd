@@ -75,7 +75,6 @@ use nix::{
     },
     unistd::{access, AccessFlags},
 };
-use static_assertions::_core::intrinsics::copy_nonoverlapping;
 use std::{
     collections::HashMap,
     convert::{TryFrom, TryInto},
@@ -86,6 +85,7 @@ use std::{
     ops::{Deref, DerefMut},
     os::unix::ffi::{OsStrExt, OsStringExt},
     process::exit,
+    ptr::copy_nonoverlapping,
 };
 
 /// Read the next mapped region descriptor and return it.

@@ -255,17 +255,20 @@ pub mod task_inner {
         sys::signal::{kill, sigaction, signal, SaFlags, SigAction, SigHandler, SigSet, Signal},
         unistd::{dup2, execve, getpid, setsid, Pid},
     };
+    use owning_ref::OwningHandle;
     use rand::random;
     use std::{
-        cell::{Cell, RefCell},
+        cell::{Cell, Ref, RefCell},
         cmp::min,
         ffi::{CStr, CString, OsStr, OsString},
         mem::{size_of, size_of_val},
+        ops::Deref,
         os::{raw::c_int, unix::ffi::OsStrExt},
         ptr,
         ptr::copy_nonoverlapping,
         rc::{Rc, Weak},
     };
+
     const NUM_X86_DEBUG_REGS: usize = 8;
     const NUM_X86_WATCHPOINTS: usize = 4;
 
@@ -1519,9 +1522,25 @@ pub mod task_inner {
         }
 
         /// Return the TraceStream that we're using, if in recording or replay.
-        /// Returns null if we're not in record or replay.
-        pub(in super::super::super) fn trace_stream(&self) -> Option<&TraceStream> {
-            unimplemented!()
+        /// Returns `None` if we're not in record or replay.
+        pub(in super::super::super) fn trace_stream(
+            &self,
+        ) -> Option<OwningHandle<SessionSharedPtr, Ref<TraceStream>>> {
+            if self.session().is_diversion() {
+                return None;
+            }
+            let shr_ptr = self.session();
+            // @TODO remove this unsafety by implementing ToHandle??
+            let owning_handle =
+                OwningHandle::new_with_fn(shr_ptr, |s| match unsafe { (*s).as_record() } {
+                    Some(_rec_sess) => unimplemented!(),
+                    None => match unsafe { (*s).as_replay() } {
+                        Some(rep_sess) => Ref::map(rep_sess.trace_reader(), |tr| tr.deref()),
+                        None => unreachable!(),
+                    },
+                });
+
+            Some(owning_handle)
         }
 
         /// Make the OS-level calls to clone `parent` into `session`

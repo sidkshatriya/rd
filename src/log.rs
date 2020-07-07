@@ -325,8 +325,8 @@ macro_rules! ed_assert {
                         module_path!(),
                         true
                     );
-                    write!(stream, "\n (task {} (rec: {}) at time {})", t.tid, t.rec_tid, t.trace_time()).unwrap();
-                    write!(stream, "Assertion `{}' failed to hold. ", stringify!($cond)).unwrap();
+                    write!(stream, "\n (task {} (rec: {}) at time {})\n", t.tid, t.rec_tid, t.trace_time()).unwrap();
+                    write!(stream, " -> Assertion `{}' failed to hold. ", stringify!($cond)).unwrap();
                 }
                 // @TODO this should be replaced with starting an emergency debug session
                 crate::log::notifying_abort(backtrace::Backtrace::new());
@@ -349,8 +349,8 @@ macro_rules! ed_assert {
                         module_path!(),
                         true
                     );
-                    write!(stream, "\n (task {} (rec: {}) at time {})", t.tid, t.rec_tid, t.trace_time()).unwrap();
-                    write!(stream, "Assertion `{}' failed to hold. ", stringify!($cond)).unwrap();
+                    write!(stream, "\n (task {} (rec: {}) at time {})\n", t.tid, t.rec_tid, t.trace_time()).unwrap();
+                    write!(stream, " -> Assertion `{}' failed to hold. ", stringify!($cond)).unwrap();
                     write!(stream, $($args)+).unwrap();
                 }
                 // @TODO this should be replaced with starting an emergency debug session
