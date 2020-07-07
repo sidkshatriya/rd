@@ -72,9 +72,9 @@ dependencies = [
 
 [[package]]
 name = "bindgen"
-version = "0.53.3"
+version = "0.54.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c72a978d268b1d70b0e963217e60fdabd9523a941457a6c42a7315d15c7e89e5"
+checksum = "f4d49b80beb70d76cdac92f5681e666f9a697c737c4f4117a67229a0386dc736"
 dependencies = [
  "bitflags",
  "cexpr",
@@ -117,12 +117,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b9fc62803d62905cdc62628699ef104177bab00250e24e37f70051b440f1d46e"
 
 [[package]]
-name = "capnpc"
-version = "0.12.4"
+name = "capnp"
+version = "0.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1097e1096b83f7b816f5d3917bcc530cc39b081d65b1dbd2641f39adc208a8c1"
+checksum = "739fa606458e49df64116a3cda1bf711ada360ce714357674d0950ed2132a6a1"
+
+[[package]]
+name = "capnpc"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "81855cee80548f7a2ee549d3bc2e55ed5f7cabe469e85614046e5475712f75c1"
 dependencies = [
- "capnp",
+ "capnp 0.13.3",
 ]
 
 [[package]]
@@ -506,7 +512,7 @@ dependencies = [
  "bindgen",
  "bitflags",
  "brotli-sys",
- "capnp",
+ "capnp 0.12.3",
  "capnpc",
  "gimli 0.21.0",
  "goblin",
