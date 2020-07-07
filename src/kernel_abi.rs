@@ -2,7 +2,15 @@
 #![allow(non_upper_case_globals)]
 #![allow(non_snake_case)]
 
-use crate::remote_ptr::RemotePtr;
+use crate::{
+    remote_code_ptr::RemoteCodePtr,
+    remote_ptr::RemotePtr,
+    session::{
+        address_space::{address_space::AddressSpace, Enabled},
+        task::{task_common::read_mem, Task},
+    },
+};
+use libc::memcmp;
 use std::{
     convert::TryInto,
     fmt::{Display, Formatter, LowerHex, Result},
@@ -94,6 +102,80 @@ macro_rules! rd_kernel_abi_arch_function {
 const INT80_INSN: [u8; 2] = [0xcd, 0x80];
 const SYSENTER_INSN: [u8; 2] = [0x0f, 0x34];
 const SYSCALL_INSN: [u8; 2] = [0x0f, 0x05];
+fn get_syscall_instruction_arch(
+    t: &mut dyn Task,
+    ptr: RemoteCodePtr,
+    arch: &mut SupportedArch,
+) -> bool {
+    // Lots of syscalls occur in the rr page and we know what it contains without
+    // looking at it.
+    // (Without this optimization we spend a few % of all CPU time in this
+    // function in a syscall-dominated trace.)i
+    if t.vm().has_rd_page() {
+        let maybe_type = AddressSpace::rd_page_syscall_from_entry_point(ptr);
+
+        match maybe_type {
+            Some(type_) => {
+                if type_.enabled == Enabled::RecordingAndReplay
+                    || type_.enabled
+                        == (if t.session().is_recording() {
+                            Enabled::RecordingOnly
+                        } else {
+                            Enabled::ReplayOnly
+                        })
+                {
+                    // rd-page syscalls are always the task's arch
+                    *arch = t.arch();
+                    return true;
+                }
+            }
+            None => (),
+        }
+    }
+
+    let mut ok = true;
+    let code: Vec<u8> = read_mem(t, ptr.to_data_ptr::<u8>(), 2, Some(&mut ok));
+    if !ok {
+        return false;
+    }
+    match t.arch() {
+        // Compatibility mode switch can happen in user space (but even without
+        // such tricks, int80, which uses the 32bit syscall table, can be invoked
+        // from 64bit processes).
+        SupportedArch::X86 | SupportedArch::X64 => {
+            if unsafe {
+                memcmp(
+                    code.as_ptr().cast(),
+                    INT80_INSN.as_ptr().cast(),
+                    INT80_INSN.len(),
+                ) == 0
+                    || memcmp(
+                        code.as_ptr().cast(),
+                        SYSENTER_INSN.as_ptr().cast(),
+                        SYSENTER_INSN.len(),
+                    ) == 0
+            } {
+                *arch = SupportedArch::X86;
+            } else if unsafe {
+                memcmp(
+                    code.as_ptr().cast(),
+                    SYSCALL_INSN.as_ptr().cast(),
+                    SYSCALL_INSN.len(),
+                ) == 0
+            } {
+                *arch = SupportedArch::X64;
+            } else {
+                return false;
+            }
+            return true;
+        }
+    }
+}
+
+pub fn is_at_syscall_instruction(t: &mut dyn Task, ptr: RemoteCodePtr) -> bool {
+    let mut arch = SupportedArch::X64;
+    get_syscall_instruction_arch(t, ptr, &mut arch)
+}
 
 /// Return the code bytes of an invoke-syscall instruction. The vector must
 /// have the length given by `syscall_instruction_length`.

@@ -11,7 +11,7 @@
 //!     in task_inner.rs
 //! (c) Some misc methods that did not fit elsewhere...
 
-use super::task_inner::task_inner::TaskInner;
+use super::task_inner::{task_inner::TaskInner, TrapReasons};
 use crate::{
     arch::Architecture,
     auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem},
@@ -27,7 +27,9 @@ use crate::{
             preload_interface,
             preload_interface::{syscallbuf_hdr, syscallbuf_record},
         },
+        is_at_syscall_instruction,
         is_mprotect_syscall,
+        syscall_instruction_length,
         syscall_number_for_arch_prctl,
         syscall_number_for_close,
         syscall_number_for_mprotect,
@@ -45,7 +47,12 @@ use crate::{
     scoped_fd::ScopedFd,
     seccomp_filter_rewriter::SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO,
     session::{
-        address_space::{memory_range::MemoryRangeKey, BreakpointType},
+        address_space::{
+            address_space::AddressSpace,
+            memory_range::MemoryRangeKey,
+            BreakpointType,
+            DebugStatus,
+        },
         session_inner::session_inner::SessionInner,
         task::{
             is_signal_triggered_by_ptrace_interrupt,
@@ -67,6 +74,7 @@ use crate::{
         ceil_page_size,
         cpuid,
         floor_page_size,
+        is_kernel_trap,
         pwrite_all_fallible,
         trapped_instruction_at,
         trapped_instruction_len,
@@ -1200,4 +1208,99 @@ fn prname_from_exe_image(exe_image: &OsStr) -> &OsStr {
         None => 0,
     };
     OsStr::from_bytes(&exe_image.as_bytes()[pos..])
+}
+
+/// Forwarded method definition
+///
+/// Determine why a SIGTRAP occurred. Uses debug_status() but doesn't
+/// consume it.
+pub(super) fn compute_trap_reasons<T: Task>(t: &mut T) -> TrapReasons {
+    ed_assert!(t, t.maybe_stop_sig() == SIGTRAP);
+    let mut reasons = TrapReasons::default();
+    let status = t.debug_status();
+    reasons.singlestep = status & DebugStatus::DsSingleStep as usize != 0;
+
+    let addr_last_execution_resume = t.address_of_last_execution_resume;
+    if is_singlestep_resume(t.how_last_execution_resumed) {
+        if is_at_syscall_instruction(t, addr_last_execution_resume)
+            && t.ip() == addr_last_execution_resume + syscall_instruction_length(t.arch())
+        {
+            // During replay we execute syscall instructions in certain cases, e.g.
+            // mprotect with syscallbuf. The kernel does not set DS_SINGLESTEP when we
+            // step over those instructions so we need to detect that here.
+            reasons.singlestep = true;
+        } else {
+            let ti: TrappedInstruction = trapped_instruction_at(t, addr_last_execution_resume);
+            if ti == TrappedInstruction::CpuId
+                && t.ip()
+                    == addr_last_execution_resume
+                        + trapped_instruction_len(TrappedInstruction::CpuId)
+            {
+                // Likewise we emulate CPUID instructions and must forcibly detect that
+                // here.
+                reasons.singlestep = true;
+            // This also takes care of the did_set_breakpoint_after_cpuid workaround case
+            } else if ti == TrappedInstruction::Int3
+                && t.ip()
+                    == addr_last_execution_resume
+                        + trapped_instruction_len(TrappedInstruction::Int3)
+            {
+                // INT3 instructions should also be turned into a singlestep here.
+                reasons.singlestep = true;
+            }
+        }
+    }
+
+    // In VMWare Player 6.0.4 build-2249910, 32-bit Ubuntu x86 guest,
+    // single-stepping does not trigger watchpoints :-(. So we have to
+    // check watchpoints here. fast_forward also hides watchpoint changes.
+    // Write-watchpoints will detect that their value has changed and trigger.
+    // XXX Read/exec watchpoints can't be detected this way so they're still
+    // broken in the above configuration :-(.
+    if status & (DebugStatus::DsWatchpointAny as usize | DebugStatus::DsSingleStep as usize) != 0 {
+        t.vm().notify_watchpoint_fired(
+            status,
+            if is_singlestep_resume(t.how_last_execution_resumed) {
+                Some(addr_last_execution_resume)
+            } else {
+                None
+            },
+        );
+    }
+    reasons.watchpoint = t.vm().has_any_watchpoint_changes()
+        || (status & DebugStatus::DsWatchpointAny as usize != 0);
+
+    // If we triggered a breakpoint, this would be the address of the breakpoint
+    let ip_at_breakpoint: RemoteCodePtr = t.ip().decrement_by_bkpt_insn_length(t.arch());
+    // Don't trust siginfo to report execution of a breakpoint if singlestep or
+    // watchpoint triggered.
+    if reasons.singlestep {
+        reasons.breakpoint = AddressSpace::is_breakpoint_instruction(t, addr_last_execution_resume);
+        if reasons.breakpoint {
+            ed_assert!(t, addr_last_execution_resume == ip_at_breakpoint);
+        }
+    } else if reasons.watchpoint {
+        // We didn't singlestep, so watchpoint state is completely accurate.
+        // The only way the last instruction could have triggered a watchpoint
+        // and be a breakpoint instruction is if an EXEC watchpoint fired
+        // at the breakpoint address.
+        reasons.breakpoint = t.vm().has_exec_watchpoint_fired(ip_at_breakpoint)
+            && AddressSpace::is_breakpoint_instruction(t, ip_at_breakpoint);
+    } else {
+        let si = *t.get_siginfo();
+        ed_assert!(t, SIGTRAP == si.si_signo, " expected SIGTRAP, got {:?}", si);
+        reasons.breakpoint = is_kernel_trap(si.si_code);
+
+        let is_a_breakpoint = AddressSpace::is_breakpoint_instruction(t, ip_at_breakpoint);
+        if reasons.breakpoint {
+            ed_assert!(
+                t,
+                is_a_breakpoint,
+                " expected breakpoint at {}, got siginfo {:?}",
+                ip_at_breakpoint,
+                si
+            )
+        }
+    }
+    reasons
 }

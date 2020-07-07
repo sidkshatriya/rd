@@ -224,6 +224,7 @@ pub mod record_task {
             record_session::RecordSession,
             task::{
                 task_common::{
+                    compute_trap_reasons,
                     did_waitpid,
                     next_syscallbuf_record,
                     open_mem_fd,
@@ -243,6 +244,7 @@ pub mod record_task {
                     task_inner::{CloneReason, TaskInner, WriteFlags},
                     ResumeRequest,
                     TicksRequest,
+                    TrapReasons,
                     WaitRequest,
                 },
                 Task,
@@ -566,6 +568,11 @@ pub mod record_task {
         // Forwarded method
         fn post_exec_syscall(&mut self) {
             post_exec_syscall(self)
+        }
+
+        // Forwarded method
+        fn compute_trap_reasons(&mut self) -> TrapReasons {
+            compute_trap_reasons(self)
         }
     }
 

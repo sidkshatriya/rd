@@ -38,7 +38,10 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use super::task_common::{on_syscall_exit, post_exec_for_exe, post_exec_syscall};
+use super::{
+    task_common::{compute_trap_reasons, on_syscall_exit, post_exec_for_exe, post_exec_syscall},
+    task_inner::TrapReasons,
+};
 use crate::{
     log::LogLevel::LogWarn,
     registers::MismatchBehavior,
@@ -393,5 +396,10 @@ impl Task for ReplayTask {
     /// Forwarded method
     fn post_exec_syscall(&mut self) {
         post_exec_syscall(self)
+    }
+
+    // Forwarded method
+    fn compute_trap_reasons(&mut self) -> TrapReasons {
+        compute_trap_reasons(self)
     }
 }

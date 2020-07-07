@@ -238,7 +238,7 @@ pub mod task_inner {
     use crate::{
         bindings::{
             kernel::{user, CAP_SYS_ADMIN, NT_X86_XSTATE},
-            ptrace::{PTRACE_GETREGSET, PTRACE_POKEUSER, PTRACE_SETREGSET},
+            ptrace::{PTRACE_GETREGSET, PTRACE_PEEKUSER, PTRACE_POKEUSER, PTRACE_SETREGSET},
         },
         cpuid_bug_detector::CPUIDBugDetector,
         fd_table::{FdTableRef, FdTableRefMut},
@@ -864,18 +864,16 @@ pub mod task_inner {
         /// in resume_execution() before we resume, so it always only reflects the
         /// events since the last resume.
         pub fn debug_status(&self) -> usize {
-            unimplemented!()
+            self.fallible_ptrace(
+                PTRACE_PEEKUSER,
+                RemotePtr::new_from_val(dr_user_word_offset(6)),
+                PtraceData::None,
+            ) as usize
         }
 
         /// Set the debug status (DR6 on x86).
         pub fn set_debug_status(&self, status: usize) {
             self.set_debug_reg(6, status);
-        }
-
-        /// Determine why a SIGTRAP occurred. Uses debug_status() but doesn't
-        /// consume it.
-        pub fn compute_trap_reasons(&self) -> TrapReasons {
-            unimplemented!()
         }
 
         /// Return the session this is part of.

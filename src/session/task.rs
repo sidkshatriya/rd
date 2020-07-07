@@ -39,6 +39,7 @@ use std::{
 };
 
 use crate::kernel_abi::common::preload_interface::PRELOAD_THREAD_LOCALS_SIZE;
+use task_inner::TrapReasons;
 pub mod extra_registers;
 pub mod record_task;
 pub mod replay_task;
@@ -427,6 +428,9 @@ pub trait Task: DerefMut<Target = TaskInner> {
         ed_assert!(self, bytes_read > 0);
         self.prname = OsString::from_vec(buf);
     }
+
+    /// Forwarded method signature
+    fn compute_trap_reasons(&mut self) -> TrapReasons;
 }
 
 fn is_signal_triggered_by_ptrace_interrupt(group_stop_sig: MaybeStopSignal) -> bool {

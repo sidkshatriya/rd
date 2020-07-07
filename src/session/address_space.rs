@@ -64,14 +64,15 @@ pub enum WatchType {
     WatchReadWrite = 0x03,
 }
 
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone)]
+#[repr(usize)]
 pub enum DebugStatus {
     DsWatchpointAny = 0xf,
-    DsSingleStep = 1 << 14,
+    DsSinglestep = 1 << 14,
 }
 
 bitflags! {
-pub struct MappingFlags: u32 {
+   pub struct MappingFlags: u32 {
         /// This mapping represents a syscallbuf. It needs to handled specially
         /// during checksumming since its contents are not fully restored by the
         /// replay.

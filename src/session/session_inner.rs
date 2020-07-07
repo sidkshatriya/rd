@@ -464,7 +464,7 @@ pub mod session_inner {
 
         pub(in super::super) fn diagnose_debugger_trap(
             &self,
-            t: &dyn Task,
+            t: &mut dyn Task,
             run_command: RunCommand,
         ) -> BreakStatus {
             self.assert_fully_initialized();
