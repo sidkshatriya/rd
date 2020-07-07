@@ -1,7 +1,11 @@
 use crate::{
     registers::Registers,
-    session::task::{task_inner::ResumeRequest, Task},
+    session::task::{
+        task_inner::{ResumeRequest, TicksRequest, WaitRequest},
+        Task,
+    },
 };
+use libc::SIGTRAP;
 use std::ops::BitOr;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -61,12 +65,35 @@ pub fn at_x86_string_instruction<T: Task>(_t: &mut T) -> bool {
 ///
 /// Returns true if we did a fast-forward, false if we just did one regular
 /// singlestep.
+///
 /// DIFF NOTE: @TODO? In rr we're getting pointers to registers. Here we're getting a register copy
 pub fn fast_forward_through_instruction(
-    _t: &dyn Task,
-    _how: ResumeRequest,
+    t: &mut dyn Task,
+    how: ResumeRequest,
     _states: &[Registers],
 ) -> FastForwardStatus {
+    debug_assert!(
+        how == ResumeRequest::ResumeSinglestep || how == ResumeRequest::ResumeSysemuSinglestep
+    );
+    let result = FastForwardStatus::new();
+
+    let ip = t.ip();
+
+    t.resume_execution(
+        how,
+        WaitRequest::ResumeWait,
+        TicksRequest::ResumeUnlimitedTicks,
+        None,
+    );
+    if t.maybe_stop_sig() != SIGTRAP {
+        // we might have stepped into a system call...
+        return result;
+    }
+
+    if t.ip() != ip {
+        return result;
+    }
+
     unimplemented!()
 }
 
