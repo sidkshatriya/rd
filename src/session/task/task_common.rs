@@ -862,10 +862,11 @@ pub(super) fn resume_execution<T: Task>(
         if task.singlestepping_instruction == TrappedInstruction::CpuId {
             // In KVM virtual machines (and maybe others), singlestepping over CPUID
             // executes the following instruction as well. Work around that.
-            let local_did_set_breakpoint_after_cpuid = task.vm().add_breakpoint(
-                task.ip() + trapped_instruction_len(task.singlestepping_instruction),
-                BreakpointType::BkptInternal,
-            );
+            let ip = task.ip();
+            let len = trapped_instruction_len(task.singlestepping_instruction);
+            let local_did_set_breakpoint_after_cpuid =
+                task.vm_shr_ptr()
+                    .add_breakpoint(task, ip + len, BreakpointType::BkptInternal);
             task.did_set_breakpoint_after_cpuid = local_did_set_breakpoint_after_cpuid;
         }
     }

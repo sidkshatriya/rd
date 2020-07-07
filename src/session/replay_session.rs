@@ -1007,8 +1007,11 @@ impl ReplaySession {
                 if self.syscall_bp_vm.borrow().is_none()
                     && t.vm()
                         .is_breakpoint_in_private_read_only_memory(syscall_instruction)
-                    && t.vm()
-                        .add_breakpoint(syscall_instruction, BreakpointType::BkptInternal)
+                    && t.vm_shr_ptr().add_breakpoint(
+                        t,
+                        syscall_instruction,
+                        BreakpointType::BkptInternal,
+                    )
                 {
                     *self.syscall_bp_vm.borrow_mut() = Some(t.as_.as_ref().unwrap().clone());
                     self.syscall_bp_addr.set(syscall_instruction);

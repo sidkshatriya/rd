@@ -1281,35 +1281,41 @@ pub mod address_space {
         }
 
         /// Ensure a breakpoint of `type` is set at `addr`.
-        pub fn add_breakpoint(&self, addr: RemoteCodePtr, type_: BreakpointType) -> bool {
-            match self.breakpoints.borrow_mut().get_mut(&addr) {
-                None => {
-                    let mut overwritten_data = [0u8; 1];
-                    // Grab a random task from the VM so we can use its
-                    // read/write_mem() helpers.
-                    let rc_t = self.any_task_from_task_set().unwrap();
-                    let read_result = rc_t
-                        .borrow_mut()
-                        .read_bytes_fallible(addr.to_data_ptr::<u8>(), &mut overwritten_data);
-                    match read_result {
-                        Ok(read) if read == size_of::<u8>() => (),
-                        _ => return false,
-                    }
-
-                    write_val_mem_with_flags::<u8>(
-                        rc_t.borrow_mut().as_mut(),
-                        addr.to_data_ptr::<u8>(),
-                        &Self::BREAKPOINT_INSN,
-                        None,
-                        WriteFlags::IS_BREAKPOINT_RELATED,
-                    );
-
-                    let bp = Breakpoint::new(overwritten_data[0]);
-                    self.breakpoints.borrow_mut().insert(addr, bp);
+        ///
+        /// DIFF NOTE: In rr a random task is pulled out from the task set
+        /// Here we explicitly pass in the task to perform any read/writes
+        pub fn add_breakpoint(
+            &self,
+            t: &mut dyn Task,
+            addr: RemoteCodePtr,
+            type_: BreakpointType,
+        ) -> bool {
+            let found = self.breakpoints.borrow_mut().get_mut(&addr).is_some();
+            if found {
+                self.breakpoints
+                    .borrow_mut()
+                    .get_mut(&addr)
+                    .unwrap()
+                    .do_ref(type_);
+            } else {
+                let mut overwritten_data = [0u8; 1];
+                let read_result =
+                    t.read_bytes_fallible(addr.to_data_ptr::<u8>(), &mut overwritten_data);
+                match read_result {
+                    Ok(read) if read == size_of::<u8>() => (),
+                    _ => return false,
                 }
-                Some(bp) => {
-                    bp.do_ref(type_);
-                }
+
+                write_val_mem_with_flags::<u8>(
+                    t,
+                    addr.to_data_ptr::<u8>(),
+                    &Self::BREAKPOINT_INSN,
+                    None,
+                    WriteFlags::IS_BREAKPOINT_RELATED,
+                );
+
+                let bp = Breakpoint::new(overwritten_data[0]);
+                self.breakpoints.borrow_mut().insert(addr, bp);
             }
             true
         }
