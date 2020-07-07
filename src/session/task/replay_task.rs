@@ -5,7 +5,7 @@ use crate::{
     remote_ptr::{RemotePtr, Void},
     session::{
         task::{
-            common::{
+            task_common::{
                 did_waitpid,
                 next_syscallbuf_record,
                 open_mem_fd,
@@ -38,7 +38,7 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use super::common::{on_syscall_exit, post_exec_for_exe, post_exec_syscall};
+use super::task_common::{on_syscall_exit, post_exec_for_exe, post_exec_syscall};
 use crate::{
     log::LogLevel::LogWarn,
     registers::MismatchBehavior,

@@ -38,8 +38,8 @@ use crate::{
             RunCommand,
         },
         task::{
-            common::write_val_mem,
             replay_task::ReplayTask,
+            task_common::write_val_mem,
             task_inner::{
                 task_inner::{SaveTraceeFdNumber, TaskInner},
                 ResumeRequest,

@@ -223,7 +223,7 @@ pub mod record_task {
             address_space::memory_range::MemoryRange,
             record_session::RecordSession,
             task::{
-                common::{
+                task_common::{
                     did_waitpid,
                     next_syscallbuf_record,
                     open_mem_fd,

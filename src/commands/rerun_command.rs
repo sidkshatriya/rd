@@ -21,7 +21,7 @@ use crate::{
         replay_session,
         replay_session::{ReplaySession, ReplayStatus},
         session_inner::RunCommand,
-        task::{common::write_val_mem, Task},
+        task::{task_common::write_val_mem, Task},
         Session,
         SessionSharedPtr,
     },

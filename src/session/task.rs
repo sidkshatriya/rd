@@ -39,10 +39,10 @@ use std::{
 };
 
 use crate::kernel_abi::common::preload_interface::PRELOAD_THREAD_LOCALS_SIZE;
-pub mod common;
 pub mod extra_registers;
 pub mod record_task;
 pub mod replay_task;
+pub mod task_common;
 pub mod task_inner;
 
 pub type TaskSharedPtr = Rc<RefCell<Box<dyn Task>>>;

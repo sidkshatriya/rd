@@ -44,8 +44,8 @@ use crate::{
         replay_session::ReplaySession,
         session_inner::session_inner::SessionInner,
         task::{
-            common::{read_mem, read_val_mem, write_mem, write_val_mem},
             record_task::SignalDisposition,
+            task_common::{read_mem, read_val_mem, write_mem, write_val_mem},
             task_inner::{
                 task_inner::WriteFlags,
                 ResumeRequest::{ResumeSinglestep, ResumeSyscall},

@@ -10,7 +10,7 @@ use crate::{
         replay_session::ReplaySession,
         session_inner::session_inner::{AddressSpaceMap, SessionInner, TaskMap, ThreadGroupMap},
         task::{
-            common,
+            task_common,
             task_inner::{task_inner::WriteFlags, CloneFlags},
             Task,
             TaskSharedPtr,
@@ -149,7 +149,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
             {
                 let mut remote2 = AutoRemoteSyscalls::new(leader.as_mut());
                 for tgmember in &tgleader.member_states {
-                    let t_clone = common::os_clone_into(tgmember, &mut remote2);
+                    let t_clone = task_common::os_clone_into(tgmember, &mut remote2);
                     self.on_create(t_clone);
                 }
             }

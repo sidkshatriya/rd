@@ -45,8 +45,8 @@ use crate::{
             ReplayTraceStepType,
         },
         task::{
-            common::{read_mem, write_mem, write_val_mem},
             replay_task::ReplayTask,
+            task_common::{read_mem, write_mem, write_val_mem},
             task_inner::{task_inner::WriteFlags, ResumeRequest, TicksRequest, WaitRequest},
             Task,
         },

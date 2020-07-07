@@ -16,7 +16,7 @@ use crate::{
     session::{
         address_space::{address_space::AddressSpace, kernel_mapping::KernelMapping},
         task::{
-            common::{read_mem, read_val_mem},
+            task_common::{read_mem, read_val_mem},
             task_inner::CloneFlags,
             Task,
         },
