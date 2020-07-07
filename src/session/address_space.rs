@@ -68,7 +68,7 @@ pub enum WatchType {
 #[repr(usize)]
 pub enum DebugStatus {
     DsWatchpointAny = 0xf,
-    DsSinglestep = 1 << 14,
+    DsSingleStep = 1 << 14,
 }
 
 bitflags! {
@@ -762,6 +762,7 @@ pub mod address_space {
         }
 
         pub fn arch(&self) -> SupportedArch {
+            return SupportedArch::X64;
             // Return the arch() of the first task in the address space
             self.task_set
                 .borrow()
