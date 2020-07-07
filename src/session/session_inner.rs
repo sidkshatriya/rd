@@ -1,10 +1,13 @@
-use crate::session::{address_space::WatchConfig, task::TaskSharedWeakPtr};
-use libc::siginfo_t;
+use crate::{
+    bindings::signal::siginfo_t,
+    session::{address_space::WatchConfig, task::TaskSharedWeakPtr},
+};
 
 #[derive(Clone)]
 pub struct BreakStatus {
     /// The triggering Task. This may be different from session->current_task()
     /// when replay switches to a new task when ReplaySession::replay_step() ends.
+    /// @TODO Must this be an Option<>??
     pub task: Option<TaskSharedWeakPtr>,
     /// List of watchpoints hit; any watchpoint hit causes a stop after the
     /// instruction that triggered the watchpoint has completed.
@@ -71,23 +74,25 @@ pub fn is_singlestep(command: RunCommand) -> bool {
 }
 
 pub mod session_inner {
-    use super::{BreakStatus, RunCommand};
+    use super::{is_singlestep, BreakStatus, RunCommand};
     use crate::{
         bindings::ptrace::PTRACE_DETACH,
         flags::Flags,
         kernel_abi::syscall_number_for_exit,
         log::LogLevel::LogDebug,
-        perf_counters::{PerfCounters, TicksSemantics},
+        perf_counters::{self, PerfCounters, TicksSemantics},
         remote_ptr::{RemotePtr, Void},
         scoped_fd::ScopedFd,
         session::{
-            address_space::address_space::{
-                AddressSpace,
-                AddressSpaceSharedPtr,
-                AddressSpaceSharedWeakPtr,
+            address_space::{
+                address_space::{AddressSpace, AddressSpaceSharedPtr, AddressSpaceSharedWeakPtr},
+                BreakpointType,
             },
             task::{
-                task_inner::task_inner::{CapturedState, PtraceData},
+                task_inner::{
+                    task_inner::{CapturedState, PtraceData},
+                    TrapReasons,
+                },
                 Task,
                 TaskSharedPtr,
                 TaskSharedWeakPtr,
@@ -99,7 +104,7 @@ pub mod session_inner {
         ticks::Ticks,
         util::{cpuid_faulting_works, is_zombie_process},
     };
-    use libc::{pid_t, syscall, SYS_tgkill, ESRCH, SIGKILL};
+    use libc::{pid_t, syscall, SYS_tgkill, ESRCH, SIGKILL, SIGTRAP};
     use nix::{
         errno::errno,
         fcntl::OFlag,
@@ -459,10 +464,87 @@ pub mod session_inner {
 
         pub(in super::super) fn diagnose_debugger_trap(
             &self,
-            _t: &dyn Task,
-            _run_command: RunCommand,
+            t: &dyn Task,
+            run_command: RunCommand,
         ) -> BreakStatus {
-            unimplemented!()
+            self.assert_fully_initialized();
+            let mut break_status = BreakStatus::new();
+            break_status.task = Some(t.weak_self_ptr());
+
+            let maybe_stop_sig = t.maybe_stop_sig();
+            if maybe_stop_sig.is_not_sig() {
+                // This can happen if we were INCOMPLETE because we're close to
+                // the ticks_target.
+                return break_status;
+            }
+
+            if maybe_stop_sig != SIGTRAP {
+                let pending_bp: BreakpointType = t.vm().get_breakpoint_type_at_addr(t.ip());
+                if BreakpointType::BkptUser == pending_bp {
+                    // A signal was raised /just/ before a trap
+                    // instruction for a SW breakpoint.  This is
+                    // observed when debuggers write trap
+                    // instructions into no-exec memory, for
+                    // example the stack.
+                    //
+                    // We report the breakpoint before any signal
+                    // that might have been raised in order to let
+                    // the debugger do something at the breakpoint
+                    // insn; possibly clearing the breakpoint and
+                    // changing the $ip.  Otherwise, we expect the
+                    // debugger to clear the breakpoint and resume
+                    // execution, which should raise the original
+                    // signal again.
+                    log!(
+                        LogDebug,
+                        "hit debugger breakpoint BEFORE ip {} for {:?}",
+                        t.ip(),
+                        t.get_siginfo()
+                    );
+                    break_status.breakpoint_hit = true;
+                } else if maybe_stop_sig.is_sig()
+                    && maybe_stop_sig != perf_counters::TIME_SLICE_SIGNAL
+                {
+                    break_status.signal = Some(Box::new(*t.get_siginfo()));
+                    log!(
+                        LogDebug,
+                        "Got signal {:?} (expected sig {})",
+                        break_status.signal.as_ref().unwrap(),
+                        maybe_stop_sig
+                    );
+                    break_status
+                        .signal
+                        .as_mut()
+                        .map(|si| si.si_signo = maybe_stop_sig.unwrap_sig());
+                }
+            } else {
+                let trap_reasons: TrapReasons = t.compute_trap_reasons();
+
+                // Conceal any internal singlestepping
+                if trap_reasons.singlestep && is_singlestep(run_command) {
+                    log!(LogDebug, "  finished debugger stepi");
+                    break_status.singlestep_complete = true;
+                }
+
+                if trap_reasons.watchpoint {
+                    self.check_for_watchpoint_changes(t, &mut break_status);
+                }
+
+                if trap_reasons.breakpoint {
+                    let retired_bp: BreakpointType =
+                        t.vm().get_breakpoint_type_for_retired_insn(t.ip());
+                    if BreakpointType::BkptUser == retired_bp {
+                        log!(LogDebug, "hit debugger breakpoint at ip {}", t.ip());
+                        // SW breakpoint: $ip is just past the
+                        // breakpoint instruction.  Move $ip back
+                        // right before it.
+                        t.move_ip_before_breakpoint();
+                        break_status.breakpoint_hit = true;
+                    }
+                }
+            }
+
+            break_status
         }
         pub(in super::super) fn check_for_watchpoint_changes(
             &self,

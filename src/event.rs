@@ -1,4 +1,5 @@
 use crate::{
+    bindings::signal::siginfo_t,
     event::EventType::{
         EvDesched,
         EvExit,
@@ -26,7 +27,7 @@ use crate::{
     registers::Registers,
     remote_ptr::RemotePtr,
 };
-use libc::{dev_t, ino_t, siginfo_t};
+use libc::{dev_t, ino_t};
 use std::{
     ffi::OsString,
     fmt::{Display, Formatter, Result, Write},

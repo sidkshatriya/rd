@@ -1,7 +1,7 @@
 use super::task::{replay_task::ReplayTaskIgnore, task_inner::MAX_TICKS_REQUEST};
 use crate::{
     arch::{Architecture, X86Arch},
-    bindings::ptrace::PTRACE_EVENT_SECCOMP,
+    bindings::{ptrace::PTRACE_EVENT_SECCOMP, signal::siginfo_t},
     cpuid_bug_detector::CPUIDBugDetector,
     emu_fs::{EmuFs, EmuFsSharedPtr},
     event::{Event, EventType, SignalDeterministic, SignalEventData, SyscallState},
@@ -73,7 +73,7 @@ use crate::{
         XSAVEC_FEATURE_FLAG,
     },
 };
-use libc::{siginfo_t, ENOSYS, SIGBUS, SIGSEGV, SIGTRAP};
+use libc::{ENOSYS, SIGBUS, SIGSEGV, SIGTRAP};
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
     ffi::{OsStr, OsString},

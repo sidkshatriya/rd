@@ -1,4 +1,5 @@
 use crate::{
+    bindings::signal::siginfo_t,
     event::{
         Event,
         EventType,
@@ -66,7 +67,7 @@ use crate::{
     wait_status::WaitStatus,
 };
 use capnp::{message::ReaderOptions, serialize_packed::read_message};
-use libc::{ino_t, pid_t, siginfo_t, time_t};
+use libc::{ino_t, pid_t, time_t};
 use nix::{
     errno::errno,
     sys::{
@@ -81,7 +82,7 @@ use std::{
     ffi::{OsStr, OsString},
     fs::File,
     io::{stderr, BufRead, BufReader, Read, Write},
-    mem::{size_of, zeroed},
+    mem::size_of,
     ops::{Deref, DerefMut},
     os::unix::ffi::{OsStrExt, OsStringExt},
     process::exit,
@@ -834,7 +835,7 @@ fn from_trace_signal(event_type: EventType, signal: signal::Reader) -> Event {
     if siginfo_data.len() != size_of::<siginfo_t>() {
         fatal!("Bad siginfo");
     }
-    let mut siginfo: siginfo_t = unsafe { zeroed() };
+    let mut siginfo: siginfo_t = Default::default();
     unsafe {
         copy_nonoverlapping(
             siginfo_data.as_ptr(),

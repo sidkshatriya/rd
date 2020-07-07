@@ -93,6 +93,20 @@ impl Default for TicksRequest {
 /// Don't request more than this!
 pub const MAX_TICKS_REQUEST: u64 = 2000000000;
 
+/// Reasons why a SIGTRAP might have been delivered. Multiple reasons can
+/// apply. Also, none can apply, e.g. if someone sent us a SIGTRAP via kill().
+#[derive(Default, Eq, PartialEq)]
+pub struct TrapReasons {
+    // Singlestep completed (ResumeSinglestep, ResumeSysemuSinglestep).
+    pub singlestep: bool,
+    /// Hardware watchpoint fired. This includes cases where the actual values
+    /// did not change (i.e. AddressSpace::has_any_watchpoint_changes() may return
+    /// false even though this is set).
+    pub watchpoint: bool,
+    /// Breakpoint instruction was executed.
+    pub breakpoint: bool,
+}
+
 pub mod task_inner {
     use super::*;
     use crate::{
@@ -271,8 +285,6 @@ pub mod task_inner {
 
     const NUM_X86_DEBUG_REGS: usize = 8;
     const NUM_X86_WATCHPOINTS: usize = 4;
-
-    pub struct TrapReason;
 
     #[derive(Copy, Clone, Debug)]
     pub enum PtraceData {
@@ -862,7 +874,7 @@ pub mod task_inner {
 
         /// Determine why a SIGTRAP occurred. Uses debug_status() but doesn't
         /// consume it.
-        pub fn compute_trap_reasons(&self) -> TrapReason {
+        pub fn compute_trap_reasons(&self) -> TrapReasons {
             unimplemented!()
         }
 
