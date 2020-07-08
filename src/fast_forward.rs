@@ -67,8 +67,8 @@ pub fn at_x86_string_instruction<T: Task>(_t: &mut T) -> bool {
 /// singlestep.
 ///
 /// DIFF NOTE: @TODO? In rr we're getting pointers to registers. Here we're getting a register copy
-pub fn fast_forward_through_instruction(
-    t: &mut dyn Task,
+pub fn fast_forward_through_instruction<T: Task>(
+    t: &mut T,
     how: ResumeRequest,
     _states: &[Registers],
 ) -> FastForwardStatus {
@@ -101,6 +101,6 @@ pub fn fast_forward_through_instruction(
 /// before t->ip(), could be a REP-prefixed string instruction. It's OK to
 /// return true if it's not really a string instruction (though for performance
 /// reasons, this should be rare).
-pub fn maybe_at_or_after_x86_string_instruction(_t: &dyn Task) -> bool {
+pub fn maybe_at_or_after_x86_string_instruction<T: Task>(_t: &T) -> bool {
     unimplemented!()
 }

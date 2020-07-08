@@ -1,7 +1,12 @@
+use super::{
+    task_common::{compute_trap_reasons, on_syscall_exit, post_exec_for_exe, post_exec_syscall},
+    task_inner::TrapReasons,
+};
 use crate::{
     arch::Architecture,
     kernel_abi::{common::preload_interface::syscallbuf_record, SupportedArch},
-    registers::Registers,
+    log::LogLevel::LogWarn,
+    registers::{MismatchBehavior, Registers},
     remote_ptr::{RemotePtr, Void},
     session::{
         task::{
@@ -28,28 +33,21 @@ use crate::{
             Task,
         },
         Session,
+        SessionSharedPtr,
     },
-    trace::trace_frame::{FrameTime, TraceFrame},
+    trace::{
+        trace_frame::{FrameTime, TraceFrame},
+        trace_reader::TraceReader,
+    },
     wait_status::WaitStatus,
 };
 use libc::pid_t;
+use owning_ref::OwningHandle;
 use std::{
+    cell::{Ref, RefMut},
     ffi::{CString, OsStr},
     ops::{Deref, DerefMut},
 };
-
-use super::{
-    task_common::{compute_trap_reasons, on_syscall_exit, post_exec_for_exe, post_exec_syscall},
-    task_inner::TrapReasons,
-};
-use crate::{
-    log::LogLevel::LogWarn,
-    registers::MismatchBehavior,
-    session::SessionSharedPtr,
-    trace::trace_reader::TraceReader,
-};
-use owning_ref::OwningHandle;
-use std::cell::{Ref, RefMut};
 
 pub struct ReplayTask {
     pub task_inner: TaskInner,

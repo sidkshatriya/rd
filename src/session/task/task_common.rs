@@ -1124,7 +1124,7 @@ pub(super) fn post_exec_syscall(t: &mut dyn Task) {
 /// DIFF NOTE: Simply called post_exec(...) in rr
 /// Not to be confused with another post_exec() in rr that does not
 /// take any arguments
-pub(super) fn post_exec_for_exe(t: &mut dyn Task, exe_file: &OsStr) {
+pub(super) fn post_exec_for_exe<T: Task>(t: &mut T, exe_file: &OsStr) {
     let mut stopped_task_in_address_space = None;
     let mut other_task_in_address_space = false;
     for task in t.vm().task_set().iter_except(t.weak_self_ptr()) {
