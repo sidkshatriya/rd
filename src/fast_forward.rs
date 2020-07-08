@@ -2,13 +2,20 @@ use crate::{
     kernel_abi::SupportedArch,
     registers::Registers,
     remote_code_ptr::RemoteCodePtr,
-    session::task::{
-        task_inner::{ResumeRequest, TicksRequest, WaitRequest},
-        Task,
+    remote_ptr::{RemotePtr, Void},
+    session::{
+        address_space::WatchConfig,
+        task::{
+            task_inner::{ResumeRequest, TicksRequest, WaitRequest},
+            Task,
+        },
     },
 };
 use libc::SIGTRAP;
-use std::ops::BitOr;
+use std::{
+    cmp::{max, min},
+    ops::BitOr,
+};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct FastForwardStatus {
@@ -214,4 +221,57 @@ fn decode_x86_string_instruction(code: &InstructionBuf) -> Result<DecodedInstruc
     }
     decoded.address_size = if found_address_prefix { 4 } else { 8 };
     Ok(decoded)
+}
+
+fn mem_intersect(a1: RemotePtr<Void>, s1: usize, a2: RemotePtr<Void>, s2: usize) -> bool {
+    debug_assert!(a1 + s1 > a1);
+    debug_assert!(a2 + s2 > a2);
+    max(a1, a2) < min(a1 + s1, a2 + s2)
+}
+
+fn bound_iterations_for_watchpoint<T: Task>(
+    t: &T,
+    reg: RemotePtr<Void>,
+    decoded: &DecodedInstruction,
+    watch: &WatchConfig,
+    iterations: &mut usize,
+) {
+    if watch.num_bytes == 0 {
+        // Ignore zero-sized watch. It can't ever trigger.
+        return;
+    }
+
+    // Compute how many iterations it will take before we hit the watchpoint.
+    // 0 means the first iteration will hit the watchpoint.
+    let size = decoded.operand_size;
+    let direction = if t.regs_ref().df_flag() { -1 } else { 1 };
+
+    if mem_intersect(reg, size, watch.addr, watch.num_bytes) {
+        *iterations = 0;
+        return;
+    }
+
+    // Number of iterations we can perform without triggering the watchpoint
+    let steps: usize;
+    if direction > 0 {
+        if watch.addr < reg {
+            // We're assuming wraparound can't happpen!
+            return;
+        }
+        // We'll hit the first byte of the watchpoint moving forward.
+        steps = (watch.addr - reg) / size;
+    } else {
+        if watch.addr > reg {
+            // We're assuming wraparound can't happpen!
+            return;
+        }
+        // We'll hit the last byte of the watchpoint moving backward.
+        steps = (reg - (watch.addr + watch.num_bytes)) / size + 1;
+    }
+
+    *iterations = min(*iterations, steps);
+}
+
+fn is_x86ish<T: Task>(t: &T) -> bool {
+    t.arch() == SupportedArch::X86 || t.arch() == SupportedArch::X64
 }
