@@ -112,7 +112,7 @@ pub mod task_inner {
     use crate::{
         auto_remote_syscalls::AutoRemoteSyscalls,
         bindings::{
-            kernel::{sock_fprog, user_desc},
+            kernel::{sock_fprog, user, user_desc, CAP_SYS_ADMIN, NT_X86_XSTATE},
             ptrace::{
                 ptrace,
                 PTRACE_EVENT_CLONE,
@@ -121,6 +121,7 @@ pub mod task_inner {
                 PTRACE_EVENT_SECCOMP,
                 PTRACE_EVENT_VFORK,
                 PTRACE_GETEVENTMSG,
+                PTRACE_GETREGSET,
                 PTRACE_O_EXITKILL,
                 PTRACE_O_TRACECLONE,
                 PTRACE_O_TRACEEXEC,
@@ -130,36 +131,50 @@ pub mod task_inner {
                 PTRACE_O_TRACESYSGOOD,
                 PTRACE_O_TRACEVFORK,
                 PTRACE_PEEKDATA,
+                PTRACE_PEEKUSER,
                 PTRACE_POKEDATA,
+                PTRACE_POKEUSER,
                 PTRACE_SEIZE,
                 PTRACE_SETREGS,
+                PTRACE_SETREGSET,
             },
             signal::siginfo_t,
         },
-        fd_table::FdTableSharedPtr,
+        cpuid_bug_detector::CPUIDBugDetector,
+        fd_table::{FdTable, FdTableRef, FdTableRefMut, FdTableSharedPtr},
+        file_monitor::{
+            magic_save_data_monitor::MagicSaveDataMonitor,
+            preserve_file_monitor::PreserveFileMonitor,
+            stdio_monitor::StdioMonitor,
+        },
+        flags::Flags,
         kernel_abi::{
             common::preload_interface::{preload_globals, syscallbuf_hdr},
             SupportedArch,
+            RD_NATIVE_ARCH,
         },
         kernel_metadata::{errno_name, ptrace_req_name, syscall_name},
         kernel_supplement::PTRACE_EVENT_SECCOMP_OBSOLETE,
         log::LogLevel::{LogDebug, LogWarn},
         perf_counters::PerfCounters,
-        rd::RD_RESERVED_SOCKET_FD,
+        rd::{RD_MAGIC_SAVE_DATA_FD, RD_RESERVED_ROOT_DIR_FD, RD_RESERVED_SOCKET_FD},
         registers::Registers,
         remote_code_ptr::RemoteCodePtr,
         remote_ptr::{RemotePtr, Void},
         scoped_fd::ScopedFd,
+        seccomp_bpf::SeccompFilter,
         session::{
             address_space::{
                 address_space::{AddressSpace, AddressSpaceSharedPtr},
                 kernel_mapping::KernelMapping,
+                Traced,
                 WatchConfig,
             },
             session_inner::session_inner::SessionInner,
             task::{
                 extra_registers::{ExtraRegisters, Format},
                 Task,
+                TaskSharedPtr,
                 TaskSharedWeakPtr,
             },
             Session,
@@ -167,16 +182,21 @@ pub mod task_inner {
             SessionSharedWeakPtr,
         },
         taskish_uid::TaskUid,
-        thread_group::ThreadGroupSharedPtr,
+        thread_group::{ThreadGroupRef, ThreadGroupRefMut, ThreadGroupSharedPtr},
         ticks::Ticks,
-        trace::trace_stream::TraceStream,
+        trace::{trace_frame::FrameTime, trace_stream::TraceStream},
         util::{
             choose_cpu,
+            has_effective_caps,
+            restore_initial_resource_limits,
+            running_under_rd,
             set_cpu_affinity,
             to_cstr_array,
             to_cstring_array,
             u8_raw_slice,
             u8_raw_slice_mut,
+            write_all,
+            xsave_area_size,
             BindCPU,
             TrappedInstruction,
         },
@@ -186,88 +206,39 @@ pub mod task_inner {
         __errno_location,
         _exit,
         fork,
+        iovec,
         pid_t,
+        prctl,
+        syscall,
         uid_t,
+        SYS_write,
         EAGAIN,
         EBADF,
         EINVAL,
         ENOMEM,
         ENOSYS,
         EPERM,
+        PR_SET_NO_NEW_PRIVS,
+        PR_SET_PDEATHSIG,
         PR_SET_SECCOMP,
+        PR_SET_TSC,
+        PR_TSC_SIGSEGV,
         SECCOMP_MODE_FILTER,
+        SIGKILL,
         SIGSTOP,
         STDERR_FILENO,
         STDOUT_FILENO,
     };
     use nix::{
-        errno::errno,
-        fcntl::{fcntl, readlink, FcntlArg, OFlag},
+        errno::{errno, Errno, Errno::ESRCH},
+        fcntl::{fcntl, open, readlink, FcntlArg, OFlag},
         sys::{
+            signal::{kill, sigaction, signal, SaFlags, SigAction, SigHandler, SigSet, Signal},
             socket::{socketpair, AddressFamily, SockFlag, SockType},
             stat::{lstat, stat, FileStat, Mode},
         },
-        unistd::getuid,
+        unistd::{dup2, execve, getpid, getuid, setsid, Pid},
         Error,
-    };
-
-    use crate::{
-        fd_table::FdTable,
-        file_monitor::{
-            magic_save_data_monitor::MagicSaveDataMonitor,
-            preserve_file_monitor::PreserveFileMonitor,
-            stdio_monitor::StdioMonitor,
-        },
-        flags::Flags,
-        kernel_abi::RD_NATIVE_ARCH,
-        rd::{RD_MAGIC_SAVE_DATA_FD, RD_RESERVED_ROOT_DIR_FD},
-        seccomp_bpf::SeccompFilter,
-        session::{address_space::Traced, task::TaskSharedPtr},
-    };
-
-    #[cfg(target_arch = "x86")]
-    use crate::bindings::ptrace::{PTRACE_GETFPXREGS, PTRACE_SETFPXREGS};
-    #[cfg(target_arch = "x86")]
-    use crate::kernel_abi::x86;
-
-    #[cfg(target_arch = "x86_64")]
-    use crate::bindings::ptrace::{PTRACE_GETFPREGS, PTRACE_SETFPREGS};
-    #[cfg(target_arch = "x86_64")]
-    use crate::kernel_abi::x64;
-
-    use crate::{
-        bindings::{
-            kernel::{user, CAP_SYS_ADMIN, NT_X86_XSTATE},
-            ptrace::{PTRACE_GETREGSET, PTRACE_PEEKUSER, PTRACE_POKEUSER, PTRACE_SETREGSET},
-        },
-        cpuid_bug_detector::CPUIDBugDetector,
-        fd_table::{FdTableRef, FdTableRefMut},
-        thread_group::{ThreadGroupRef, ThreadGroupRefMut},
-        trace::trace_frame::FrameTime,
-        util::{
-            has_effective_caps,
-            restore_initial_resource_limits,
-            running_under_rd,
-            write_all,
-            xsave_area_size,
-        },
-    };
-    use libc::{
-        iovec,
-        prctl,
-        syscall,
-        SYS_write,
-        PR_SET_NO_NEW_PRIVS,
-        PR_SET_PDEATHSIG,
-        PR_SET_TSC,
-        PR_TSC_SIGSEGV,
-        SIGKILL,
-    };
-    use nix::{
-        errno::{Errno, Errno::ESRCH},
-        fcntl::open,
-        sys::signal::{kill, sigaction, signal, SaFlags, SigAction, SigHandler, SigSet, Signal},
-        unistd::{dup2, execve, getpid, setsid, Pid},
     };
     use owning_ref::OwningHandle;
     use rand::random;
@@ -282,6 +253,16 @@ pub mod task_inner {
         ptr::copy_nonoverlapping,
         rc::{Rc, Weak},
     };
+
+    #[cfg(target_arch = "x86")]
+    use crate::bindings::ptrace::{PTRACE_GETFPXREGS, PTRACE_SETFPXREGS};
+    #[cfg(target_arch = "x86")]
+    use crate::kernel_abi::x86;
+
+    #[cfg(target_arch = "x86_64")]
+    use crate::bindings::ptrace::{PTRACE_GETFPREGS, PTRACE_SETFPREGS};
+    #[cfg(target_arch = "x86_64")]
+    use crate::kernel_abi::x64;
 
     const NUM_X86_DEBUG_REGS: usize = 8;
     const NUM_X86_WATCHPOINTS: usize = 4;
@@ -985,7 +966,7 @@ pub mod task_inner {
                 dr_user_word_offset(regno).into(),
                 PtraceData::ReadWord(value),
             );
-            return errno() == 0 || Errno::last() == ESRCH;
+            errno() == 0 || Errno::last() == ESRCH
         }
 
         /// Update the thread area to `addr`.
@@ -1211,7 +1192,7 @@ pub mod task_inner {
         }
 
         pub fn last_execution_resume(&self) -> RemoteCodePtr {
-            unimplemented!()
+            self.address_of_last_execution_resume
         }
 
         pub fn usable_scratch_size(&self) {

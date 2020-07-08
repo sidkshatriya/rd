@@ -660,8 +660,9 @@ pub mod address_space {
         }
         /// Call this after a new task has been cloned within this
         /// address space.
-        pub fn after_clone(&self) {
-            self.allocate_watchpoints();
+        /// DIFF NOTE: Additional param `active_task`
+        pub fn after_clone(&self, active_task: &mut dyn Task) {
+            self.allocate_watchpoints(active_task);
         }
 
         /// Call this after a successful execve syscall has completed. At this point
@@ -1384,11 +1385,13 @@ pub mod address_space {
         /// Manage watchpoints.  Analogous to breakpoint-managing
         /// methods above, except that watchpoints can be set for an
         /// address range.
+        /// DIFF NOTE: Additional param `active_task`
         pub fn add_watchpoint(
             &self,
             addr: RemotePtr<Void>,
             num_bytes: usize,
             type_: WatchType,
+            active_task: &mut dyn Task,
         ) -> bool {
             let range = range_for_watchpoint(addr, num_bytes);
             if self.watchpoints.borrow_mut().get_mut(&range).is_none() {
@@ -1406,21 +1409,31 @@ pub mod address_space {
                 .unwrap()
                 .watch(Self::access_bits_of(type_));
 
-            self.allocate_watchpoints()
+            self.allocate_watchpoints(active_task)
         }
-        pub fn remove_watchpoint(&self, addr: RemotePtr<Void>, num_bytes: usize, type_: WatchType) {
+
+        /// DIFF NOTE: Additional param `active_task`
+        pub fn remove_watchpoint(
+            &self,
+            addr: RemotePtr<Void>,
+            num_bytes: usize,
+            type_: WatchType,
+            active_task: &mut dyn Task,
+        ) {
             let r = range_for_watchpoint(addr, num_bytes);
             if let Some(wp) = self.watchpoints.borrow_mut().get_mut(&r) {
                 if 0 == wp.unwatch(Self::access_bits_of(type_)) {
                     self.watchpoints.borrow_mut().remove(&r);
                 }
             }
-            self.allocate_watchpoints();
+            self.allocate_watchpoints(active_task);
         }
 
-        pub fn remove_all_watchpoints(&self) {
+        /// DIFF NOTE: To solve already borrowed error pass in the task
+        /// This requires an extra param `t`
+        pub fn remove_all_watchpoints(&self, t: &mut dyn Task) {
             self.watchpoints.borrow_mut().clear();
-            self.allocate_watchpoints();
+            self.allocate_watchpoints(t);
         }
         pub fn all_watchpoints(&self) -> Vec<WatchConfig> {
             self.get_watchpoints_internal(WatchPointFilter::AllWatchpoints)
@@ -1434,10 +1447,11 @@ pub mod address_space {
                 .push(self.watchpoints.borrow().clone());
         }
         /// Pop all watchpoint state from the saved-state stack.
-        pub fn restore_watchpoints(&self) -> bool {
+        /// DIFF NOTE: Additional param `active_task`
+        pub fn restore_watchpoints(&self, active_task: &mut dyn Task) -> bool {
             debug_assert!(!self.saved_watchpoints.borrow().is_empty());
             *self.watchpoints.borrow_mut() = self.saved_watchpoints.borrow_mut().pop().unwrap();
-            self.allocate_watchpoints()
+            self.allocate_watchpoints(active_task)
         }
 
         /// Notify that at least one watchpoint was hit --- recheck them all.
@@ -1451,7 +1465,7 @@ pub mod address_space {
         pub fn notify_watchpoint_fired(
             &self,
             debug_status: usize,
-            address_of_singlestep_start: Option<RemoteCodePtr>,
+            address_of_singlestep_start: RemoteCodePtr,
         ) -> bool {
             let mut triggered = false;
             for (k, w) in self.watchpoints.borrow_mut().iter_mut() {
@@ -1466,8 +1480,8 @@ pub mod address_space {
                 let read_triggered = watched_bits.contains(RwxBits::READ_BIT)
                     && watchpoint_triggered(debug_status, &w.debug_regs_for_exec_read);
                 let exec_triggered = watched_bits.contains(RwxBits::EXEC_BIT)
-                    && (address_of_singlestep_start.is_none()
-                        || k.start() == address_of_singlestep_start.unwrap().to_data_ptr::<Void>())
+                    && (address_of_singlestep_start.is_null()
+                        || k.start() == address_of_singlestep_start.to_data_ptr::<Void>())
                     && watchpoint_triggered(debug_status, &w.debug_regs_for_exec_read);
                 if read_triggered || exec_triggered {
                     w.changed = true;
@@ -2565,12 +2579,17 @@ pub mod address_space {
         /// Construct a minimal set of watchpoints to be enabled based
         /// on `set_watchpoint()` calls, and program them for each task
         /// in this address space.
-        fn allocate_watchpoints(&self) -> bool {
+        /// DIFF NOTE: To solve already borrowed error pass in the task
+        /// This requires an extra param `active_task`
+        fn allocate_watchpoints(&self, active_task: &mut dyn Task) -> bool {
             let mut regs = self.get_watch_configs(WillSetTaskState::SettingTaskState);
 
             if regs.len() <= 0x7f {
                 let mut ok = true;
-                for t in self.task_set().iter() {
+                if !active_task.set_debug_regs(&mut regs) {
+                    ok = false;
+                }
+                for t in self.task_set().iter_except(active_task.weak_self_ptr()) {
                     if !t.borrow_mut().set_debug_regs(&mut regs) {
                         ok = false;
                     }

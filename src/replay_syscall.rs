@@ -480,7 +480,7 @@ fn prepare_clone<Arch: Architecture>(t: &mut ReplayTask) {
         // refcounts) across a non-VM-sharing clone, but for
         // now we never want to do this.
         new_task.vm().remove_all_breakpoints();
-        new_task.vm().remove_all_watchpoints();
+        new_task.vm_shr_ptr().remove_all_watchpoints(new_task);
 
         let mut remote = AutoRemoteSyscalls::new(new_task);
         for (&k, m) in &t.vm().maps() {
@@ -509,7 +509,7 @@ fn prepare_clone<Arch: Architecture>(t: &mut ReplayTask) {
 
     init_scratch_memory(new_task, &km, &data);
 
-    new_task.vm().after_clone();
+    new_task.vm_shr_ptr().after_clone(new_task);
 }
 
 /// DIFF NOTE: This simply returns a ReplayTraceStep instead of modifying one.

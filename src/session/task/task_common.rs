@@ -1261,9 +1261,9 @@ pub(super) fn compute_trap_reasons<T: Task>(t: &mut T) -> TrapReasons {
         t.vm().notify_watchpoint_fired(
             status,
             if is_singlestep_resume(t.how_last_execution_resumed) {
-                Some(addr_last_execution_resume)
+                addr_last_execution_resume
             } else {
-                None
+                RemoteCodePtr::null()
             },
         );
     }

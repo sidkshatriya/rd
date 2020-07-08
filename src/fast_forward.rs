@@ -1,10 +1,11 @@
 use crate::{
     kernel_abi::SupportedArch,
+    log::LogLevel::LogDebug,
     registers::Registers,
     remote_code_ptr::RemoteCodePtr,
     remote_ptr::{RemotePtr, Void},
     session::{
-        address_space::WatchConfig,
+        address_space::{BreakpointType, DebugStatus, WatchConfig},
         task::{
             task_inner::{ResumeRequest, TicksRequest, WaitRequest},
             Task,
@@ -83,12 +84,12 @@ pub fn at_x86_string_instruction<T: Task>(t: &mut T) -> bool {
 pub fn fast_forward_through_instruction<T: Task>(
     t: &mut T,
     how: ResumeRequest,
-    _states: &[Registers],
+    states: &[Registers],
 ) -> FastForwardStatus {
     debug_assert!(
         how == ResumeRequest::ResumeSinglestep || how == ResumeRequest::ResumeSysemuSinglestep
     );
-    let result = FastForwardStatus::new();
+    let mut result = FastForwardStatus::new();
 
     let ip = t.ip();
 
@@ -106,8 +107,222 @@ pub fn fast_forward_through_instruction<T: Task>(
     if t.ip() != ip {
         return result;
     }
+    if t.vm().get_breakpoint_type_at_addr(ip) != BreakpointType::BkptNone {
+        // breakpoint must have fired
+        return result;
+    }
+    if t.vm()
+        .notify_watchpoint_fired(t.debug_status(), t.last_execution_resume())
+    {
+        // watchpoint fired
+        return result;
+    }
+    for state in states {
+        if state.matches(t.regs_ref()) {
+            return result;
+        }
+    }
+    if !is_x86ish(t) {
+        return result;
+    }
 
-    unimplemented!()
+    let instruction_buf: InstructionBuf = match read_instruction(t, ip) {
+        Ok(buf) => buf,
+        Err(()) => return result,
+    };
+
+    let decoded = match decode_x86_string_instruction(&instruction_buf) {
+        Ok(res) => res,
+        Err(()) => {
+            return result;
+        }
+    };
+
+    if decoded.address_size != 8 {
+        ed_assert!(
+            t,
+            false,
+            "Address-size prefix on string instructions unsupported"
+        );
+    }
+
+    let limit_ip = ip + decoded.length;
+
+    // At this point we can be sure the instruction didn't trigger a syscall,
+    // so we no longer care about the value of |how|.
+
+    let mut extra_state_to_avoid: Option<Registers> = None;
+
+    loop {
+        // This string instruction should execute until CX reaches 0 and
+        // we move to the next instruction, or we hit one of the states in
+        // |states|, or the ZF flag changes so that the REP stops, or we hit
+        // a watchpoint. (We can't hit a breakpoint during the loop since we
+        // already verified there isn't one set here.)
+
+        // We'll compute an upper bound on the number of string instruction
+        // iterations to execute, and execute just that many iterations by
+        // modifying CX, setting a breakpoint after the string instruction to catch it
+        // ending.
+        // Keep in mind that it's possible that states in |states| might
+        // belong to multiple independent loops of this string instruction, with
+        // registers reset in between the loops.
+
+        let cur_cx: usize = t.regs_ref().cx();
+        if cur_cx == 0 {
+            // Fake singlestep status for trap diagnosis
+            t.set_debug_status(DebugStatus::DsSingleStep as usize);
+            // This instruction will be skipped entirely.
+            return result;
+        }
+        // There is at least one more iteration to go.
+        result.incomplete_fast_forward = true;
+
+        // Don't execute the last iteration of the string instruction. That
+        // simplifies code below that tries to emulate the register effects
+        // of singlestepping to predict if the next singlestep would result in a
+        // mark_vector state.
+        let mut iterations: usize = cur_cx - 1;
+
+        // Bound |iterations| to ensure we stop before reachng any |states|.
+        let mut it = states.into_iter();
+        let mut extra_state_iterated = false;
+        loop {
+            let state = match it.next() {
+                Some(regs) => regs,
+                None => match extra_state_to_avoid.as_ref() {
+                    Some(regs) if !extra_state_iterated => {
+                        extra_state_iterated = true;
+                        regs
+                    }
+                    _ => break,
+                },
+            };
+            if state.ip() == ip {
+                let dest_cx: usize = state.cx();
+                if dest_cx == 0 {
+                    // This state represents entering the instruction with CX==0,
+                    // so we can't reach this instruction state in the current loop.
+                    continue;
+                }
+                if dest_cx >= cur_cx {
+                    // This can't be reached in the current loop.
+                    continue;
+                }
+                iterations = min(iterations, cur_cx - dest_cx - 1);
+            } else if state.ip() == limit_ip {
+                let dest_cx: usize = state.cx();
+                if dest_cx >= cur_cx {
+                    // This can't be reached in the current loop.
+                    continue;
+                }
+                iterations = min(iterations, cur_cx - dest_cx - 1);
+            }
+        }
+
+        // To stop before the ZF changes and we exit the loop, we don't bound
+        // the iterations here. Instead we run the loop, observe the ZF change,
+        // and then rerun the loop with the loop-exit state added to the |states|
+        // list. See below.
+
+        // A code watchpoint would already be hit if we're going to hit it.
+        // Check for data watchpoints that we might hit when reading/writing
+        // memory.
+        // Make conservative assumptions about the watchpoint type. Applying
+        // unnecessary watchpoints here will only result in a few more singlesteps.
+        // We do have to ignore SI if the instruction doesn't use it; otherwise
+        // a watchpoint which happens to match SI will appear to be hit on every
+        // iteration of the string instruction, which would be devastating.
+        for watch in t.vm().all_watchpoints() {
+            if decoded.uses_si {
+                bound_iterations_for_watchpoint(
+                    t,
+                    t.regs_ref().si().into(),
+                    &decoded,
+                    &watch,
+                    &mut iterations,
+                );
+            }
+            bound_iterations_for_watchpoint(
+                t,
+                t.regs_ref().di().into(),
+                &decoded,
+                &watch,
+                &mut iterations,
+            );
+        }
+
+        if iterations == 0 {
+            // Fake singlestep status for trap diagnosis
+            t.set_debug_status(DebugStatus::DsSingleStep as usize);
+            return result;
+        }
+
+        log!(
+            LogDebug,
+            "x86-string fast-forward: {} iterations required (ip=={})",
+            iterations,
+            t.ip()
+        );
+
+        let r: Registers = t.regs_ref().clone();
+        let mut tmp: Registers = r.clone();
+        tmp.set_cx(iterations);
+        t.set_regs(&tmp);
+        let ok = t
+            .vm_shr_ptr()
+            .add_breakpoint(t, limit_ip, BreakpointType::BkptInternal);
+        ed_assert!(t, ok, "Failed to add breakpoint");
+        // Watchpoints can fire spuriously because configure_watch_registers
+        // can increase the size of the watched area to conserve watch registers.
+        // So, disable watchpoints temporarily.
+        t.vm().save_watchpoints();
+        t.vm_shr_ptr().remove_all_watchpoints(t);
+        t.resume_execution(
+            ResumeRequest::ResumeCont,
+            WaitRequest::ResumeWait,
+            TicksRequest::ResumeUnlimitedTicks,
+            None,
+        );
+        t.vm_shr_ptr().restore_watchpoints(t);
+        t.vm()
+            .remove_breakpoint(limit_ip, BreakpointType::BkptInternal);
+        result.did_fast_forward = true;
+        // We should have reached the breakpoint
+        ed_assert!(t, t.maybe_stop_sig() == SIGTRAP);
+        ed_assert!(
+            t,
+            t.ip() == limit_ip.increment_by_bkpt_insn_length(t.arch())
+        );
+        let iterations_performed: usize = iterations - t.regs_ref().cx();
+        // Overwrite the value of tmp
+        tmp = t.regs_ref().clone();
+        // Undo our change to CX value
+        tmp.set_cx(tmp.cx() + cur_cx - iterations);
+        if decoded.modifies_flags && t.regs_ref().cx() > 0 {
+            // String instructions that modify flags don't have non-register side
+            // effects, so we can reset registers to effectively unwind the loop.
+            // Then we try rerunning the loop again, adding this state as one to
+            // avoid stepping into. We shouldn't need to do this more than once!
+            ed_assert!(t, extra_state_to_avoid.is_none());
+            tmp.set_ip(limit_ip);
+            extra_state_to_avoid = Some(tmp);
+            t.set_regs(&r);
+            continue;
+        }
+        // instructions that don't modify flags should not terminate too early.
+        ed_assert!(t, t.regs_ref().cx() == 0);
+        ed_assert!(t, iterations_performed == iterations);
+        // We always end with at least one iteration to go in the string instruction,
+        // so we must have the IP of the string instruction.
+        tmp.set_ip(r.ip());
+        t.set_regs(&tmp);
+
+        log!(LogDebug, "x86-string fast-forward done; ip()=={}", t.ip());
+        // Fake singlestep status for trap diagnosis
+        t.set_debug_status(DebugStatus::DsSingleStep as usize);
+        return result;
+    }
 }
 
 /// Return true if the instruction at t->ip(), or the instruction immediately
