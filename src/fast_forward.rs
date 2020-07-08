@@ -50,8 +50,12 @@ impl FastForwardStatus {
 }
 
 /// Return true if the instruction at t.ip() is a string instruction
-pub fn at_x86_string_instruction<T: Task>(_t: &mut T) -> bool {
-    unimplemented!()
+pub fn at_x86_string_instruction<T: Task>(t: &mut T) -> bool {
+    if !is_x86ish(t) {
+        return false;
+    }
+
+    is_string_instruction_at(t, t.ip())
 }
 
 /// Perform one or more synchronous singlesteps of |t|. Usually just does
