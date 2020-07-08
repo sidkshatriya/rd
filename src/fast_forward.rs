@@ -110,8 +110,12 @@ pub fn fast_forward_through_instruction<T: Task>(
 /// before t->ip(), could be a REP-prefixed string instruction. It's OK to
 /// return true if it's not really a string instruction (though for performance
 /// reasons, this should be rare).
-pub fn maybe_at_or_after_x86_string_instruction<T: Task>(_t: &T) -> bool {
-    unimplemented!()
+pub fn maybe_at_or_after_x86_string_instruction<T: Task>(t: &mut T) -> bool {
+    if !is_x86ish(t) {
+        return false;
+    }
+
+    is_string_instruction_at(t, t.ip()) || is_string_instruction_before(t, t.ip())
 }
 
 #[derive(Default)]
@@ -274,4 +278,104 @@ fn bound_iterations_for_watchpoint<T: Task>(
 
 fn is_x86ish<T: Task>(t: &T) -> bool {
     t.arch() == SupportedArch::X86 || t.arch() == SupportedArch::X64
+}
+
+fn is_ignorable_prefix<T: Task>(t: &T, byte: u8) -> bool {
+    if byte >= 0x40 && byte <= 0x4f {
+        // REX prefix
+        return t.arch() == SupportedArch::X64;
+    }
+    match byte {
+     0x26| // ES override
+     0x2E| // CS override
+     0x36| // SS override
+     0x3E| // DS override
+     0x64| // FS override
+     0x65| // GS override
+     0x66| // operand-size override
+     0x67| // address-size override
+     0xF0  // LOCK
+     => true,
+    _ => false
+  }
+}
+
+fn is_rep_prefix(byte: u8) -> bool {
+    byte == 0xF2 || byte == 0xF3
+}
+
+fn is_string_instruction(byte: u8) -> bool {
+    match byte {
+     0xA4| // MOVSB
+     0xA5| // MOVSW
+     0xA6| // CMPSB
+     0xA7| // CMPSW
+     0xAA| // STOSB
+     0xAB| // STOSW
+     0xAC| // LODSB
+     0xAD| // LODSW
+     0xAE| // SCASB
+     0xAF  // SCASW
+     => true,
+    _=> false
+  }
+}
+
+fn fallible_read_byte<T: Task>(t: &mut T, ip: RemotePtr<u8>) -> Result<u8, ()> {
+    let mut byte = [0u8; 1];
+    match t.read_bytes_fallible(ip, &mut byte) {
+        Ok(1) => Ok(byte[0]),
+        _ => Err(()),
+    }
+}
+
+fn is_string_instruction_at<T: Task>(t: &mut T, ip: RemoteCodePtr) -> bool {
+    let mut found_rep = false;
+    let mut bare_ip = ip.to_data_ptr::<u8>();
+    loop {
+        match fallible_read_byte(t, bare_ip) {
+            Err(()) => {
+                return false;
+            }
+            Ok(byte) if is_rep_prefix(byte) => {
+                found_rep = true;
+            }
+            Ok(byte) if is_string_instruction(byte) => {
+                return found_rep;
+            }
+            Ok(byte) if !is_ignorable_prefix(t, byte) => {
+                return false;
+            }
+            // @TODO check this!
+            Ok(_) => (),
+        }
+        bare_ip = bare_ip + 1usize;
+    }
+}
+
+fn is_string_instruction_before<T: Task>(t: &mut T, ip: RemoteCodePtr) -> bool {
+    let mut bare_ip = ip.to_data_ptr::<u8>();
+    bare_ip = bare_ip - 1usize;
+    match fallible_read_byte(t, bare_ip) {
+        Err(()) => return false,
+        Ok(byte) if !is_string_instruction(byte) => return false,
+        Ok(_) => (),
+    }
+
+    loop {
+        bare_ip = bare_ip - 1usize;
+        match fallible_read_byte(t, bare_ip) {
+            Err(()) => {
+                return false;
+            }
+            Ok(byte) if is_rep_prefix(byte) => {
+                return true;
+            }
+            Ok(byte) if !is_ignorable_prefix(t, byte) => {
+                return false;
+            }
+            // @TODO Check this
+            Ok(_) => (),
+        }
+    }
 }
