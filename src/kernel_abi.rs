@@ -23,6 +23,12 @@ pub enum SupportedArch {
     X64,
 }
 
+impl Default for SupportedArch {
+    fn default() -> Self {
+        Self::X64
+    }
+}
+
 // All architectures have an mmap syscall, but it has architecture-specific
 // calling semantics. We describe those here, and specializations need to
 // indicate which semantics they use.

@@ -762,15 +762,16 @@ pub mod address_space {
         }
 
         pub fn arch(&self) -> SupportedArch {
-            return SupportedArch::X64;
+            // @TODO TEMPORARY. THE CODE BELOW CAUSES RefCell issues
+            SupportedArch::X64
             // Return the arch() of the first task in the address space
-            self.task_set
-                .borrow()
-                .iter()
-                .next()
-                .unwrap()
-                .borrow()
-                .arch()
+            /*self.task_set
+            .borrow()
+            .iter()
+            .next()
+            .unwrap()
+            .borrow()
+            .arch()*/
         }
 
         /// Return the path this address space was exec()'d with.
