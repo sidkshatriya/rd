@@ -26,6 +26,7 @@ use crate::{
         RD_NATIVE_ARCH,
     },
     kernel_metadata::{is_sigreturn, syscall_name},
+    kernel_supplement::{ARCH_GET_CPUID, ARCH_SET_CPUID},
     log::LogLevel::LogDebug,
     registers::{with_converted_registers, Registers},
     remote_ptr::RemotePtr,
@@ -86,6 +87,8 @@ use libc::{
     CLONE_VM,
     ENOENT,
     ENOSYS,
+    MADV_DONTNEED,
+    MADV_REMOVE,
     MAP_SYNC,
     PR_SET_NAME,
 };
@@ -658,10 +661,18 @@ fn rep_process_syscall_arch<Arch: Architecture>(
         unimplemented!();
     }
     if nsys == Arch::MADVISE {
-        unimplemented!();
+        match t.regs_ref().arg3() as i32 {
+            MADV_DONTNEED | MADV_REMOVE => (),
+            _ => return,
+        }
     }
     if nsys == Arch::MADVISE || nsys == Arch::ARCH_PRCTL {
-        unimplemented!();
+        let arg1 = t.regs_ref().arg1();
+        if sys == Arch::ARCH_PRCTL
+            && (arg1 == ARCH_GET_CPUID as usize || arg1 == ARCH_SET_CPUID as usize)
+        {
+            return;
+        }
     }
     if nsys == Arch::MADVISE
         || nsys == Arch::ARCH_PRCTL
@@ -670,7 +681,44 @@ fn rep_process_syscall_arch<Arch: Architecture>(
         || nsys == Arch::MODIFY_LDT
         || nsys == Arch::SET_THREAD_AREA
     {
-        unimplemented!();
+        // Using AutoRemoteSyscalls here fails for arch_prctl, not sure why.
+        let mut r: Registers = t.regs_ref().clone();
+        r.set_syscallno(t.regs_ref().original_syscallno());
+        r.set_ip(r.ip().decrement_by_syscall_insn_length(r.arch()));
+        t.set_regs(&r);
+        if nsys == Arch::MPROTECT {
+            t.vm_shr_ptr().fixup_mprotect_growsdown_parameters(t);
+        }
+        __ptrace_cont(
+            t,
+            ResumeRequest::ResumeSyscall,
+            Arch::arch(),
+            nsys,
+            None,
+            None,
+        );
+        __ptrace_cont(
+            t,
+            ResumeRequest::ResumeSyscall,
+            Arch::arch(),
+            nsys,
+            None,
+            None,
+        );
+        ed_assert!(
+            t,
+            t.regs_ref().syscall_result() == trace_regs.syscall_result()
+        );
+        if nsys == Arch::MPROTECT {
+            let mut r2: Registers = t.regs_ref().clone();
+            r2.set_arg1(r.arg1());
+            r2.set_arg2(r.arg2());
+            r2.set_arg3(r.arg3());
+            t.set_regs(&r2);
+        }
+        // The syscall modified registers. Re-emulate the syscall entry.
+        t.canonicalize_regs(step.syscall().arch);
+        return;
     }
     if nsys == Arch::IPC {
         unimplemented!()
