@@ -169,6 +169,7 @@ pub mod task_inner {
                 kernel_mapping::KernelMapping,
                 Traced,
                 WatchConfig,
+                WatchType,
             },
             session_inner::session_inner::SessionInner,
             task::{
@@ -202,6 +203,7 @@ pub mod task_inner {
         },
         wait_status::{MaybePtraceEvent, MaybeStopSignal, WaitStatus},
     };
+    use bit_field::BitField;
     use libc::{
         __errno_location,
         _exit,
@@ -500,6 +502,70 @@ pub mod task_inner {
     pub enum SaveTraceeFdNumber<'a> {
         SaveToSession,
         SaveFdTo(&'a mut i32),
+    }
+
+    #[repr(usize)]
+    enum WatchBytesX86 {
+        Bytes1 = 0x00,
+        Bytes2 = 0x01,
+        Bytes4 = 0x03,
+        Bytes8 = 0x02,
+    }
+
+    #[repr(C)]
+    #[derive(Copy, Clone, Default)]
+    struct DebugControl(usize);
+
+    fn num_bytes_to_dr_len(num_bytes: usize) -> WatchBytesX86 {
+        match num_bytes {
+            1 => WatchBytesX86::Bytes1,
+            2 => WatchBytesX86::Bytes2,
+            4 => WatchBytesX86::Bytes4,
+            8 => WatchBytesX86::Bytes8,
+            _ => {
+                fatal!("Unsupported breakpoint size: {}", num_bytes);
+                unreachable!();
+            }
+        }
+    }
+
+    impl DebugControl {
+        pub fn get(&self) -> usize {
+            self.0
+        }
+        pub fn enable(&mut self, index: usize, size: WatchBytesX86, type_: WatchType) {
+            match index {
+                // dr0
+                0 => {
+                    self.0.set_bit(0, true);
+                    self.0.set_bit(1, false);
+                    self.0.set_bits(16..18, type_ as usize);
+                    self.0.set_bits(18..20, size as usize);
+                }
+                // dr1
+                1 => {
+                    self.0.set_bit(2, true);
+                    self.0.set_bit(3, false);
+                    self.0.set_bits(20..22, type_ as usize);
+                    self.0.set_bits(22..24, size as usize);
+                }
+                // dr2
+                2 => {
+                    self.0.set_bit(4, true);
+                    self.0.set_bit(5, false);
+                    self.0.set_bits(24..26, type_ as usize);
+                    self.0.set_bits(26..28, size as usize);
+                }
+                // dr3
+                3 => {
+                    self.0.set_bit(6, true);
+                    self.0.set_bit(7, false);
+                    self.0.set_bits(28..30, type_ as usize);
+                    self.0.set_bits(30..32, size as usize);
+                }
+                _ => fatal!("Invalid index: {}", index),
+            }
+        }
     }
 
     impl TaskInner {
@@ -943,14 +1009,41 @@ pub mod task_inner {
         }
 
         /// Program the debug registers to the vector of watchpoint
-        /// configurations in `reg` (also updating the debug control
+        /// configurations in `regs` (also updating the debug control
         /// register appropriately).  Return true if all registers were
         /// successfully programmed, false otherwise.  Any time false
         /// is returned, the caller is guaranteed that no watchpoint
         /// has been enabled; either all of `regs` is enabled and true
         /// is returned, or none are and false is returned.
-        pub fn set_debug_regs(&self, _regs: &DebugRegs) -> bool {
-            unimplemented!()
+        pub fn set_debug_regs(&self, regs: &DebugRegs) -> bool {
+            // Reset the debug status since we're about to change the set
+            // of programmed watchpoints.
+            self.set_debug_reg(6, 0);
+
+            if regs.len() > NUM_X86_WATCHPOINTS {
+                self.set_debug_reg(7, 0);
+                return false;
+            }
+
+            // Work around kernel bug https://bugzilla.kernel.org/show_bug.cgi?id=200965.
+            // For every watchpoint we're going to use, enable it with size 1.
+            // This will let us set the address freely without potentially triggering
+            // the kernel bug which will reject an unaligned address if the watchpoint
+            // is disabled but was non-size-1.
+            let mut dr7 = DebugControl::default();
+            for i in 0..regs.len() {
+                dr7.enable(i, WatchBytesX86::Bytes1, WatchType::WatchExec);
+            }
+            self.set_debug_reg(7, dr7.get());
+
+            for (index, reg) in regs.iter().enumerate() {
+                if !self.set_debug_reg(index, reg.addr.as_usize()) {
+                    self.set_debug_reg(7, 0);
+                    return false;
+                }
+                dr7.enable(index, num_bytes_to_dr_len(reg.num_bytes), reg.type_);
+            }
+            self.set_debug_reg(7, dr7.get())
         }
 
         /// @TODO should this be a GdbRegister type?
