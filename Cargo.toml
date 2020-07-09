@@ -9,9 +9,10 @@ build = "build.rs"
 
 [dependencies]
 array-init = "0.1.1"
+bit_field= "0.10.0"
 brotli-sys = "0.3.2"
-capnp = "0.12"
-gimli = "0.21.0"
+capnp = "0.13"
+gimli = "0.22.0"
 goblin = "0.2"
 backtrace = "0.3"
 bitflags = "1.2.1"
