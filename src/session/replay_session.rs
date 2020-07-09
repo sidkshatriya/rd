@@ -1032,7 +1032,7 @@ impl ReplaySession {
                     t.set_regs(&r);
                     t.canonicalize_regs(self.current_trace_frame().event().syscall_event().arch());
                     t.validate_regs(Default::default());
-                    self.clear_syscall_bp();
+                    self.clear_syscall_bp(t);
                 } else {
                     return Completion::Incomplete;
                 }
@@ -1199,8 +1199,18 @@ impl ReplaySession {
         }
     }
 
-    fn clear_syscall_bp(&self) {
-        unimplemented!()
+    // DIFF NOTE: Additional Param `active_task`
+    fn clear_syscall_bp(&self, active_task: &mut dyn Task) {
+        let mut maybe_bp_vm = self.syscall_bp_vm.borrow_mut();
+        maybe_bp_vm.as_ref().map(|bp_vm| {
+            bp_vm.remove_breakpoint(
+                self.syscall_bp_addr.get(),
+                BreakpointType::BkptInternal,
+                active_task,
+            )
+        });
+        *maybe_bp_vm = None;
+        self.syscall_bp_addr.set(RemoteCodePtr::null());
     }
 }
 
