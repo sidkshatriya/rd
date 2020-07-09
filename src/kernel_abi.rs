@@ -10,7 +10,6 @@ use crate::{
         task::{task_common::read_mem, Task},
     },
 };
-use libc::memcmp;
 use std::{
     convert::TryInto,
     fmt::{Display, Formatter, LowerHex, Result},
@@ -108,6 +107,7 @@ macro_rules! rd_kernel_abi_arch_function {
 const INT80_INSN: [u8; 2] = [0xcd, 0x80];
 const SYSENTER_INSN: [u8; 2] = [0x0f, 0x34];
 const SYSCALL_INSN: [u8; 2] = [0x0f, 0x05];
+
 fn get_syscall_instruction_arch(
     t: &mut dyn Task,
     ptr: RemoteCodePtr,
@@ -149,26 +149,9 @@ fn get_syscall_instruction_arch(
         // such tricks, int80, which uses the 32bit syscall table, can be invoked
         // from 64bit processes).
         SupportedArch::X86 | SupportedArch::X64 => {
-            if unsafe {
-                memcmp(
-                    code.as_ptr().cast(),
-                    INT80_INSN.as_ptr().cast(),
-                    INT80_INSN.len(),
-                ) == 0
-                    || memcmp(
-                        code.as_ptr().cast(),
-                        SYSENTER_INSN.as_ptr().cast(),
-                        SYSENTER_INSN.len(),
-                    ) == 0
-            } {
+            if code == INT80_INSN || code == SYSENTER_INSN {
                 *arch = SupportedArch::X86;
-            } else if unsafe {
-                memcmp(
-                    code.as_ptr().cast(),
-                    SYSCALL_INSN.as_ptr().cast(),
-                    SYSCALL_INSN.len(),
-                ) == 0
-            } {
+            } else if code == SYSCALL_INSN {
                 *arch = SupportedArch::X64;
             } else {
                 return false;
