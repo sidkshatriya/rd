@@ -271,7 +271,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
     /// After the first exec, we're running tracee code, and
     /// everything must be the same.
     ///
-    /// DIFF NOTE: Unlike rr this takes in param `t`. Makes things simpler.
+    /// DIFF NOTE: Additional param `t`. Makes things simpler.
     fn post_exec(&self, t: &mut dyn Task) {
         // We just saw a successful exec(), so from now on we know
         // that the address space layout for the replay tasks will

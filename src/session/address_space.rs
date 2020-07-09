@@ -1429,11 +1429,11 @@ pub mod address_space {
             self.allocate_watchpoints(active_task);
         }
 
-        /// DIFF NOTE: To solve already borrowed error pass in the task
-        /// This requires an extra param `t`
-        pub fn remove_all_watchpoints(&self, t: &mut dyn Task) {
+        /// DIFF NOTE: Additional param `active_task`
+        /// To solve already borrowed issue in the task.
+        pub fn remove_all_watchpoints(&self, active_task: &mut dyn Task) {
             self.watchpoints.borrow_mut().clear();
-            self.allocate_watchpoints(t);
+            self.allocate_watchpoints(active_task);
         }
         pub fn all_watchpoints(&self) -> Vec<WatchConfig> {
             self.get_watchpoints_internal(WatchPointFilter::AllWatchpoints)
@@ -2579,8 +2579,8 @@ pub mod address_space {
         /// Construct a minimal set of watchpoints to be enabled based
         /// on `set_watchpoint()` calls, and program them for each task
         /// in this address space.
-        /// DIFF NOTE: To solve already borrowed error pass in the task
-        /// This requires an extra param `active_task`
+        /// DIFF NOTE: Additional param `active_task`
+        /// To solve already borrowed issue in the task
         fn allocate_watchpoints(&self, active_task: &mut dyn Task) -> bool {
             let mut regs = self.get_watch_configs(WillSetTaskState::SettingTaskState);
 
