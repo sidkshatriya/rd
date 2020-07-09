@@ -479,7 +479,7 @@ fn prepare_clone<Arch: Architecture>(t: &mut ReplayTask) {
         // be useful to inherit breakpoints (along with their
         // refcounts) across a non-VM-sharing clone, but for
         // now we never want to do this.
-        new_task.vm().remove_all_breakpoints();
+        new_task.vm_shr_ptr().remove_all_breakpoints(new_task);
         new_task.vm_shr_ptr().remove_all_watchpoints(new_task);
 
         let mut remote = AutoRemoteSyscalls::new(new_task);

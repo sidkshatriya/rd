@@ -735,8 +735,8 @@ pub(super) fn did_waitpid<T: Task>(task: &mut T, mut status: WaitStatus) {
                 r.set_ip(bkpt_addr);
                 task.set_regs(&r);
             }
-            task.vm()
-                .remove_breakpoint(bkpt_addr, BreakpointType::BkptInternal);
+            task.vm_shr_ptr()
+                .remove_breakpoint(bkpt_addr, BreakpointType::BkptInternal, task);
             task.did_set_breakpoint_after_cpuid = false;
         }
         if (task.singlestepping_instruction == TrappedInstruction::Pushf

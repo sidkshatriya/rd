@@ -1295,7 +1295,7 @@ pub mod address_space {
             addr: RemoteCodePtr,
             type_: BreakpointType,
         ) -> bool {
-            let found = self.breakpoints.borrow_mut().get_mut(&addr).is_some();
+            let found = self.breakpoints.borrow().get(&addr).is_some();
             if found {
                 self.breakpoints
                     .borrow_mut()
@@ -1319,7 +1319,8 @@ pub mod address_space {
                     WriteFlags::IS_BREAKPOINT_RELATED,
                 );
 
-                let bp = Breakpoint::new(overwritten_data[0]);
+                let mut bp = Breakpoint::new(overwritten_data[0]);
+                bp.do_ref(type_);
                 self.breakpoints.borrow_mut().insert(addr, bp);
             }
             true
@@ -1328,26 +1329,37 @@ pub mod address_space {
         /// Remove a `type` reference to the breakpoint at `addr`.  If
         /// the removed reference was the last, the breakpoint is
         /// destroyed.
-        pub fn remove_breakpoint(&self, addr: RemoteCodePtr, type_: BreakpointType) {
+        /// DIFF NOTE: Additional param `active_task`
+        pub fn remove_breakpoint(
+            &self,
+            addr: RemoteCodePtr,
+            type_: BreakpointType,
+            active_task: &mut dyn Task,
+        ) {
+            let mut can_destroy_bp = false;
             match self.breakpoints.borrow_mut().get_mut(&addr) {
                 Some(bp) => {
                     if bp.do_unref(type_) == 0 {
-                        self.destroy_breakpoint_at(addr);
+                        can_destroy_bp = true;
                     }
                 }
                 _ => (),
             }
+            if can_destroy_bp {
+                self.destroy_breakpoint_at(addr, active_task);
+            }
         }
         /// Destroy all breakpoints in this VM, regardless of their
         /// reference counts.
-        pub fn remove_all_breakpoints(&self) {
+        /// DIFF NOTE: Additional param `active_task`
+        pub fn remove_all_breakpoints(&self, active_task: &mut dyn Task) {
             let mut bps_to_destroy = Vec::new();
             for bp in self.breakpoints.borrow().keys() {
                 bps_to_destroy.push(*bp);
             }
 
             for bp in bps_to_destroy {
-                self.destroy_breakpoint_at(bp)
+                self.destroy_breakpoint_at(bp, active_task)
             }
         }
 
@@ -2690,26 +2702,25 @@ pub mod address_space {
         /// Assumes there IS a breakpoint at `addr` or will panic
         ///
         /// Called destroy_breakpoint() in rr.
-        fn destroy_breakpoint_at(&self, addr: RemoteCodePtr) {
-            match self.any_task_from_task_set() {
-                None => return,
-                Some(t) => {
-                    let data = self
-                        .breakpoints
-                        .borrow()
-                        .get(&addr)
-                        .unwrap()
-                        .overwritten_data;
-                    log!(LogDebug, "Writing back {:#x} at {}", data, addr);
-                    write_val_mem_with_flags::<u8>(
-                        t.borrow_mut().as_mut(),
-                        addr.to_data_ptr::<u8>(),
-                        &data,
-                        None,
-                        WriteFlags::IS_BREAKPOINT_RELATED,
-                    );
-                }
-            }
+        /// DIFF NOTE: Additional param `active_task`
+        fn destroy_breakpoint_at(&self, addr: RemoteCodePtr, active_task: &mut dyn Task) {
+            // @TODO In an earlier version of this method there was the possibility that there was
+            // no task in the task set. In the new version we always assume there is an active
+            // task. Check whether this assumption will not cause any problems.
+            let data = self
+                .breakpoints
+                .borrow()
+                .get(&addr)
+                .unwrap()
+                .overwritten_data;
+            log!(LogDebug, "Writing back {:#x} at {}", data, addr);
+            write_val_mem_with_flags::<u8>(
+                active_task,
+                addr.to_data_ptr::<u8>(),
+                &data,
+                None,
+                WriteFlags::IS_BREAKPOINT_RELATED,
+            );
             self.breakpoints.borrow_mut().remove(&addr);
         }
 

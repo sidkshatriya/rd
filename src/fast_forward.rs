@@ -285,8 +285,8 @@ pub fn fast_forward_through_instruction<T: Task>(
             None,
         );
         t.vm_shr_ptr().restore_watchpoints(t);
-        t.vm()
-            .remove_breakpoint(limit_ip, BreakpointType::BkptInternal);
+        t.vm_shr_ptr()
+            .remove_breakpoint(limit_ip, BreakpointType::BkptInternal, t);
         result.did_fast_forward = true;
         // We should have reached the breakpoint
         ed_assert!(t, t.maybe_stop_sig() == SIGTRAP);
