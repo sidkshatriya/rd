@@ -778,7 +778,10 @@ pub mod task_inner {
         /// entered the traced syscall, ip() is immediately after the syscall
         /// instruction.
         pub fn is_in_untraced_syscall(&self) -> bool {
-            unimplemented!()
+            match AddressSpace::rd_page_syscall_from_exit_point(self.ip()) {
+                Some(syscall_type) => syscall_type.traced == Traced::Untraced,
+                None => false,
+            }
         }
 
         pub fn is_in_rd_page(&self) -> bool {

@@ -745,7 +745,11 @@ fn rep_process_syscall_arch<Arch: Architecture>(
     }
 
     if nsys == Arch::WRITE || nsys == Arch::WRITEV {
-        unimplemented!();
+        // write*() can be desched'd, but don't use scratch,
+        // so we might have saved 0 bytes of scratch after a
+        // desched.
+        maybe_noop_restore_syscallbuf_scratch(t);
+        return;
     }
     if nsys == Arch::PROCESS_VM_WRITEV {
         unimplemented!()
