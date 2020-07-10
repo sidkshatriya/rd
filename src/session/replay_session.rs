@@ -1119,11 +1119,32 @@ impl ReplaySession {
     }
     fn emulate_deterministic_signal(
         &self,
-        _t: &ReplayTask,
-        _sig: i32,
-        _constraints: &StepConstraints,
+        t: &ReplayTask,
+        sig: i32,
+        constraints: &StepConstraints,
     ) -> Completion {
-        unimplemented!();
+        loop {
+            if t.regs_ref().matches(self.current_trace_frame().regs_ref())
+                && t.tick_count() == self.current_trace_frame().ticks()
+            {
+                // We're already at the target. This can happen when multiple signals
+                // are delivered with no intervening execution.
+                return Completion::Complete;
+            }
+
+            let complete = self.continue_or_step(
+                t,
+                constraints,
+                TicksRequest::ResumeUnlimitedTicks,
+                Some(ResumeRequest::ResumeSysemu),
+            );
+            // @TODO avoid the get_raw_repr() method?
+            if complete == Completion::Complete && !ReplaySession::is_ignored_signal(t.maybe_stop_sig().get_raw_repr()) {
+                break;
+            }
+        }
+
+        unimplemented!()
     }
     fn emulate_async_signal(
         &self,

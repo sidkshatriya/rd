@@ -13,12 +13,13 @@ use crate::{
             PERF_TYPE_RAW,
         },
     },
+    flags::Flags,
     kernel_metadata::signal_name,
-    log::*,
+    log::LogLevel::{LogInfo, LogDebug, LogWarn},
     scoped_fd::ScopedFd,
     session::task::task_inner::task_inner::TaskInner,
     ticks::Ticks,
-    util::*,
+    util::running_under_rd,
 };
 use libc::{c_ulong, fcntl, ioctl, pid_t, F_SETFL, O_ASYNC};
 use nix::{
@@ -122,8 +123,6 @@ enum CpuMicroarch {
     AMDF15R30,
     AMDRyzen,
 }
-
-use crate::flags::Flags;
 use CpuMicroarch::*;
 
 /// Return the detected, known microarchitecture of this CPU, or don't
