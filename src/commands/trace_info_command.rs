@@ -36,7 +36,7 @@ struct TraceHeader {
     cpuid_faulting: bool,
     ticks_semantics: String,
     cpuid_records: Vec<[u32; 6]>,
-    environ: Vec<CString>,
+    environ: Vec<String>,
 }
 
 impl RdCommand for TraceInfoCommand {
@@ -82,7 +82,10 @@ impl RdCommand for TraceInfoCommand {
                 ));
             }
         }
-
+        let environ_strings: Vec<String> = environ
+            .iter()
+            .map(|c_str| c_str.to_string_lossy().into_owned())
+            .collect();
         let header = TraceHeader {
             uuid: uuid_bytes,
             xcr0,
@@ -90,7 +93,7 @@ impl RdCommand for TraceInfoCommand {
             cpuid_faulting,
             ticks_semantics,
             cpuid_records,
-            environ,
+            environ: environ_strings,
         };
 
         let serialized = serde_json::to_string(&header).unwrap();
