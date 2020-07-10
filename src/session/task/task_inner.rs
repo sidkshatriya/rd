@@ -220,6 +220,7 @@ pub mod task_inner {
         ENOMEM,
         ENOSYS,
         EPERM,
+        ESRCH,
         PR_SET_NO_NEW_PRIVS,
         PR_SET_PDEATHSIG,
         PR_SET_SECCOMP,
@@ -232,7 +233,7 @@ pub mod task_inner {
         STDOUT_FILENO,
     };
     use nix::{
-        errno::{errno, Errno, Errno::ESRCH},
+        errno::{errno, Errno},
         fcntl::{fcntl, open, readlink, FcntlArg, OFlag},
         sys::{
             signal::{kill, sigaction, signal, SaFlags, SigAction, SigHandler, SigSet, Signal},
@@ -716,7 +717,7 @@ pub mod task_inner {
 
         /// Return the siginfo at the signal-stop of `self`.
         /// Not meaningful unless this is actually at a signal stop.
-        /// @TODO Should this be an Option
+        /// @TODO Should this be an Option??
         pub fn get_siginfo(&self) -> &siginfo_t {
             &self.pending_siginfo
         }
@@ -1062,7 +1063,7 @@ pub mod task_inner {
                 dr_user_word_offset(regno).into(),
                 PtraceData::ReadWord(value),
             );
-            errno() == 0 || Errno::last() == ESRCH
+            errno() == 0 || errno() == ESRCH
         }
 
         /// Update the thread area to `addr`.
