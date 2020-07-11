@@ -1015,7 +1015,11 @@ fn on_syscall_exit_arch<Arch: Architecture>(t: &mut dyn Task, sys: i32, regs: &R
     }
 
     if sys == Arch::BRK || sys == Arch::MMAP || sys == Arch::MMAP2 || sys == Arch::MREMAP {
-        unimplemented!()
+        log!(
+            LogDebug,
+            "(brk/mmap/mmap2/mremap will receive / has received direct processing)"
+        );
+        return;
     }
 
     if sys == Arch::RDCALL_MPROTECT_RECORD {

@@ -641,7 +641,7 @@ fn rep_process_syscall_arch<Arch: Architecture>(
     }
 
     if nsys == Arch::BRK {
-        unimplemented!();
+        return process_brk(t);
     }
 
     if nsys == Arch::MMAP {
@@ -768,6 +768,56 @@ fn rep_process_syscall_arch<Arch: Architecture>(
 
     if nsys == Arch::RDCALL_RELOAD_AUXV {
         unimplemented!();
+    }
+}
+
+fn process_brk(t: &mut ReplayTask) {
+    let mut data = MappedData::default();
+    let km: KernelMapping = t
+        .trace_reader_mut()
+        .read_mapped_region(Some(&mut data), None, None, None, None)
+        .unwrap();
+    // Zero flags means it's an an unmap, or no change.
+    if !km.flags().is_empty() {
+        let mut remote = AutoRemoteSyscalls::new(t);
+        ed_assert!(remote.task(), data.source == MappedDataSource::SourceZero);
+        remote.infallible_mmap_syscall(
+            Some(km.start()),
+            km.size(),
+            km.prot(),
+            MapFlags::MAP_ANONYMOUS | MapFlags::MAP_FIXED | km.flags(),
+            -1,
+            0,
+        );
+        remote.task().vm_shr_ptr().map(
+            remote.task(),
+            km.start(),
+            km.size(),
+            km.prot(),
+            MapFlags::MAP_ANONYMOUS | km.flags(),
+            0,
+            OsStr::new("[heap]"),
+            KernelMapping::NO_DEVICE,
+            KernelMapping::NO_INODE,
+            None,
+            Some(&km),
+            None,
+            None,
+            None,
+        );
+    } else if km.size() > 0 {
+        let arch = t.arch();
+        let mut remote = AutoRemoteSyscalls::new(t);
+        rd_infallible_syscall!(
+            remote,
+            syscall_number_for_munmap(arch),
+            km.start().as_usize(),
+            km.size()
+        );
+        remote
+            .task()
+            .vm_shr_ptr()
+            .unmap(remote.task(), km.start(), km.size());
     }
 }
 
