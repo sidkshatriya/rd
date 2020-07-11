@@ -1,4 +1,7 @@
-use super::task::{replay_task::ReplayTaskIgnore, task_inner::MAX_TICKS_REQUEST};
+use super::task::{
+    replay_task::ReplayTaskIgnore,
+    task_inner::{TrapReasons, MAX_TICKS_REQUEST},
+};
 use crate::{
     arch::{Architecture, X86Arch},
     bindings::{ptrace::PTRACE_EVENT_SECCOMP, signal::siginfo_t},
@@ -8,6 +11,7 @@ use crate::{
     fast_forward::{fast_forward_through_instruction, FastForwardStatus},
     flags::Flags as ProgramFlags,
     kernel_abi::{common::preload_interface::syscallbuf_hdr, SupportedArch},
+    kernel_metadata::{signal_name, syscall_name},
     log::LogLevel::LogDebug,
     perf_counters,
     perf_counters::{PerfCounters, TIME_SLICE_SIGNAL},
@@ -63,15 +67,19 @@ use crate::{
         cpuid_compatible,
         find_cpuid_record,
         should_dump_memory,
+        trapped_instruction_at,
+        trapped_instruction_len,
         xcr0,
         xsave_enabled,
         CPUIDData,
         Completion,
+        TrappedInstruction,
         CPUID_GETFEATURES,
         CPUID_GETXSAVE,
         OSXSAVE_FEATURE_FLAG,
         XSAVEC_FEATURE_FLAG,
     },
+    wait_status::WaitStatus,
 };
 use libc::{ENOSYS, SIGBUS, SIGSEGV, SIGTRAP};
 use std::{
@@ -1076,10 +1084,44 @@ impl ReplaySession {
     }
     fn handle_unrecorded_cpuid_fault(
         &self,
-        _t: &ReplayTask,
-        _constraints: &StepConstraints,
+        t: &mut ReplayTask,
+        constraints: &StepConstraints,
     ) -> bool {
-        unimplemented!();
+        if t.maybe_stop_sig() != SIGSEGV
+            || !SessionInner::has_cpuid_faulting()
+            || self.trace_in.borrow().uses_cpuid_faulting()
+            || trapped_instruction_at(t, t.ip()) != TrappedInstruction::CpuId
+        {
+            return false;
+        }
+        // OK, this is a case where we did not record using CPUID faulting but we are
+        // replaying with CPUID faulting and the tracee just executed a CPUID.
+        // We try to find the results in the "all CPUID leaves" we saved.
+        let trace_in_b = self.trace_in.borrow();
+        let records = trace_in_b.cpuid_records();
+        let mut r = t.regs_ref().clone();
+        let maybe_rec = find_cpuid_record(records, r.ax() as u32, r.cx() as u32);
+        ed_assert!(
+            t,
+            maybe_rec.is_some(),
+            "Can't find CPUID record for request AX={:#x} CX={:#x}",
+            r.ax(),
+            r.cx()
+        );
+        let rec = maybe_rec.unwrap();
+        r.set_cpuid_output(rec.out.eax, rec.out.ebx, rec.out.ecx, rec.out.edx);
+        // Don't need the trace_in borrow anymore
+        drop(trace_in_b);
+
+        r.set_ip(r.ip() + trapped_instruction_len(TrappedInstruction::CpuId));
+        t.set_regs(&r);
+        // Clear SIGSEGV status since we're handling it
+        t.set_status(if constraints.is_singlestep() {
+            WaitStatus::for_stop_sig(SIGTRAP)
+        } else {
+            WaitStatus::default()
+        });
+        true
     }
     fn check_ticks_consistency(&self, t: &ReplayTask, ev: &Event) {
         if !self.done_initial_exec() {
@@ -1098,17 +1140,93 @@ impl ReplaySession {
             ticks_now
         );
     }
-    fn check_pending_sig(&self, _t: &ReplayTask) {
-        unimplemented!();
+    fn check_pending_sig(&self, t: &ReplayTask) {
+        if t.maybe_stop_sig().is_not_sig() {
+            ed_assert!(
+                t,
+                false,
+                "Replaying `{}': expecting tracee signal or trap, but instead at `{}' (ticks:{})",
+                self.current_trace_frame().event(),
+                syscall_name(
+                    t.regs_ref().original_syscallno() as i32,
+                    t.detect_syscall_arch()
+                ),
+                t.tick_count()
+            )
+        }
     }
+
+    /// Advance `t` to the next signal or trap according to `constraints.command`.
+    ///
+    /// Default `resume_how` is ResumeSysemu for error checking:
+    /// since the next event is supposed to be a signal, entering a syscall here
+    /// means divergence.  There shouldn't be any straight-line execution overhead
+    /// for SYSEMU vs. CONT, so the difference in cost should be negligible.
+    ///
+    /// Some callers pass ResumeCont because they want to execute any syscalls
+    /// encountered.
+    ///
+    /// If we return Incomplete, callers need to recalculate the constraints and
+    /// tick_request and try again. We may return Incomplete because we successfully
+    /// processed a CPUID trap.
     fn continue_or_step(
         &self,
-        _t: &ReplayTask,
-        _constraints: &StepConstraints,
-        _tick_request: TicksRequest,
-        _resume_request: Option<ResumeRequest>,
+        t: &mut ReplayTask,
+        constraints: &StepConstraints,
+        tick_request: TicksRequest,
+        maybe_resume_how: Option<ResumeRequest>,
     ) -> Completion {
-        unimplemented!();
+        let resume_how = maybe_resume_how.unwrap_or(ResumeRequest::ResumeSysemu);
+
+        if constraints.command == RunCommand::RunSinglestep {
+            t.resume_execution(
+                ResumeRequest::ResumeSinglestep,
+                WaitRequest::ResumeWait,
+                tick_request,
+                None,
+            );
+            self.handle_unrecorded_cpuid_fault(t, constraints);
+        } else if constraints.command == RunCommand::RunSinglestepFastForward {
+            self.fast_forward_status.set(
+                self.fast_forward_status.get()
+                    | fast_forward_through_instruction(
+                        t,
+                        ResumeRequest::ResumeSinglestep,
+                        &constraints.stop_before_states,
+                    ),
+            );
+            self.handle_unrecorded_cpuid_fault(t, constraints);
+        } else {
+            t.resume_execution(resume_how, WaitRequest::ResumeWait, tick_request, None);
+            if t.maybe_stop_sig().is_not_sig() {
+                let maybe_type = AddressSpace::rd_page_syscall_from_exit_point(t.ip());
+                match maybe_type {
+                    Some(type_) if type_.traced == Traced::Untraced => {
+                        // If we recorded an rr replay of an application doing a
+                        // syscall-buffered 'mprotect', the replay's `flush_syscallbuf`
+                        // PTRACE_CONT'ed to execute the mprotect syscall and nothing was
+                        // recorded for that until we hit the replay's breakpoint, when we
+                        // record a SIGTRAP. However, when we replay that SIGTRAP via
+                        // `emulate_deterministic_signal`, we call `continue_or_step`
+                        // with `ResumeRequest::ResumeSysemu` (to detect bugs when we reach a stray
+                        // syscall instead of the SIGTRAP). So, we'll stop for the
+                        // `mprotect` syscall here. We need to execute it and continue
+                        // as if it wasn't hit.
+                        // (Alternatively we could just replay with ResumeRequest::ResumeCont, but that
+                        // would make it harder to track down bugs. There is a performance hit
+                        // to stopping for each mprotect, but replaying recordings of replays
+                        // is not fast anyway.)
+                        perform_interrupted_syscall(t);
+                        return Completion::Incomplete;
+                    }
+                    _ => (),
+                }
+            } else if self.handle_unrecorded_cpuid_fault(t, constraints) {
+                return Completion::Incomplete;
+            }
+        }
+        self.check_pending_sig(t);
+        Completion::Complete
     }
     fn advance_to_ticks_target(
         &self,
@@ -1119,7 +1237,7 @@ impl ReplaySession {
     }
     fn emulate_deterministic_signal(
         &self,
-        t: &ReplayTask,
+        t: &mut ReplayTask,
         sig: i32,
         constraints: &StepConstraints,
     ) -> Completion {
@@ -1138,13 +1256,48 @@ impl ReplaySession {
                 TicksRequest::ResumeUnlimitedTicks,
                 Some(ResumeRequest::ResumeSysemu),
             );
-            // @TODO avoid the get_raw_repr() method?
-            if complete == Completion::Complete && !ReplaySession::is_ignored_signal(t.maybe_stop_sig().get_raw_repr()) {
+
+            if complete == Completion::Complete
+                && !ReplaySession::is_ignored_signal(t.maybe_stop_sig().get_raw_repr())
+            {
                 break;
             }
         }
+        if t.maybe_stop_sig() == SIGTRAP {
+            let trap_reasons: TrapReasons = t.compute_trap_reasons();
+            if trap_reasons.singlestep || trap_reasons.watchpoint {
+                // Singlestep or watchpoint must have been debugger-requested
+                return Completion::Incomplete;
+            }
+            if trap_reasons.breakpoint {
+                // An explicit breakpoint instruction in the tracee would produce a
+                // |breakpoint| reason as we emulate the deterministic SIGTRAP.
+                let type_: BreakpointType = t.vm().get_breakpoint_type_for_retired_insn(t.ip());
+                if BreakpointType::BkptNone != type_ {
+                    ed_assert!(t, BreakpointType::BkptUser == type_);
+                    return Completion::Incomplete;
+                }
+            }
+        }
+        ed_assert!(
+            t,
+            t.maybe_stop_sig() == sig,
+            "Replay got unrecorded signal {} (expecting {})",
+            t.maybe_stop_sig(),
+            signal_name(sig)
+        );
 
-        unimplemented!()
+        {
+            let ctf_b = self.current_trace_frame();
+            let ev = ctf_b.event();
+            self.check_ticks_consistency(t, ev);
+
+            if EventType::EvInstructionTrap == ev.event_type() {
+                t.set_regs(self.current_trace_frame().regs_ref());
+            }
+        }
+
+        Completion::Complete
     }
     fn emulate_async_signal(
         &self,
