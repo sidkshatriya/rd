@@ -37,7 +37,7 @@ use crate::{
     kernel_supplement::{ARCH_GET_CPUID, ARCH_SET_CPUID},
     log::LogLevel::LogDebug,
     registers::{with_converted_registers, Registers},
-    remote_ptr::RemotePtr,
+    remote_ptr::{RemotePtr, Void},
     seccomp_filter_rewriter::SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO,
     session::{
         address_space::{
@@ -54,7 +54,7 @@ use crate::{
             ReplayTraceStepType,
         },
         task::{
-            replay_task::ReplayTask,
+            replay_task::{ReplayTask, ReplayTaskIgnore},
             task_common::{read_mem, write_mem, write_val_mem},
             task_inner::{task_inner::WriteFlags, ResumeRequest, TicksRequest, WaitRequest},
             Task,
@@ -62,11 +62,13 @@ use crate::{
     },
     trace::{
         trace_frame::FrameTime,
+        trace_reader::{TimeConstraint, ValidateSourceFile},
         trace_stream,
         trace_stream::MappedData,
         trace_task_event::{TraceTaskEvent, TraceTaskEventType},
     },
     util::{
+        ceil_page_size,
         clone_flags_to_task_flags,
         extract_clone_parameters,
         floor_page_size,
@@ -118,7 +120,7 @@ use std::{
     mem::size_of,
     os::unix::ffi::{OsStrExt, OsStringExt},
 };
-use trace_stream::MappedDataSource;
+use trace_stream::{MappedDataSource, TraceRemoteFd};
 
 /// Proceeds until the next system call, which is being executed.
 ///
@@ -1346,5 +1348,203 @@ fn is_proc_fd_dir(_path: &OsStr) -> bool {
 
 // @TODO Shift this method out of this module
 fn is_proc_mem_file(_path: &OsStr) -> bool {
+    unimplemented!()
+}
+
+fn process_mmap(
+    t: &mut ReplayTask,
+    mut length: usize,
+    prot: ProtFlags,
+    flags: MapFlags,
+    fd: i32,
+    mut offset_pages: usize,
+    step: &mut ReplayTraceStep,
+) {
+    step.action = ReplayTraceStepType::TstepRetire;
+
+    {
+        let mut addr: RemotePtr<Void> = t.current_trace_frame().regs_ref().syscall_result().into();
+        // Hand off actual execution of the mapping to the appropriate helper.
+        let mut remote = AutoRemoteSyscalls::new_with_mem_params(
+            t,
+            if !flags.contains(MapFlags::MAP_SHARED) && flags.contains(MapFlags::MAP_ANONYMOUS) {
+                MemParamsEnabled::DisableMemoryParams
+            } else {
+                MemParamsEnabled::EnableMemoryParams
+            },
+        );
+        if flags.contains(MapFlags::MAP_ANONYMOUS) {
+            let syscall_result = remote
+                .task()
+                .as_replay_task()
+                .unwrap()
+                .current_trace_frame()
+                .regs_ref()
+                .syscall_result();
+            finish_anonymous_mmap(&mut remote, syscall_result, length, prot, flags);
+        } else {
+            let mut data = MappedData::default();
+            let mut extra_fds: Vec<TraceRemoteFd> = Vec::new();
+            let mut skip_monitoring_mapped_fd: bool = false;
+            let mut km: KernelMapping = remote
+                .task_mut()
+                .as_replay_task()
+                .unwrap()
+                .trace_reader_mut()
+                .read_mapped_region(
+                    Some(&mut data),
+                    Some(ValidateSourceFile::Validate),
+                    Some(TimeConstraint::CurrentTimeOnly),
+                    Some(&mut extra_fds),
+                    Some(&mut skip_monitoring_mapped_fd),
+                )
+                .unwrap();
+
+            if data.source == MappedDataSource::SourceFile
+                && data.file_size_bytes > data.data_offset_bytes
+            {
+                let map_bytes: usize = min(
+                    ceil_page_size(data.file_size_bytes) - data.data_offset_bytes,
+                    length,
+                );
+                let (real_file, real_file_name) = finish_direct_mmap(
+                    &mut remote,
+                    addr,
+                    map_bytes,
+                    prot,
+                    flags,
+                    data.filename.as_os_str(),
+                    OFlag::O_RDONLY,
+                    data.data_offset_bytes / page_size(),
+                );
+                let km_sub: KernelMapping =
+                    km.subrange(km.start(), km.start() + ceil_page_size(map_bytes));
+                remote.task().vm_shr_ptr().map(
+                    remote.task(),
+                    km.start(),
+                    map_bytes,
+                    prot,
+                    flags,
+                    page_size() as u64 * offset_pages as u64,
+                    real_file_name.as_os_str(),
+                    real_file.st_dev,
+                    real_file.st_ino,
+                    None,
+                    Some(&km_sub),
+                    None,
+                    None,
+                    None,
+                );
+                addr += map_bytes;
+                length -= map_bytes;
+                offset_pages += ceil_page_size(map_bytes) / page_size();
+                data.source = MappedDataSource::SourceZero;
+                km = km.subrange(km_sub.end(), km.end());
+            }
+            if length > 0 {
+                if flags.contains(MapFlags::MAP_SHARED) {
+                    if !skip_monitoring_mapped_fd {
+                        extra_fds.push(TraceRemoteFd {
+                            tid: remote.task().rec_tid,
+                            fd,
+                        });
+                    }
+                    finish_shared_mmap(
+                        &mut remote,
+                        addr,
+                        length,
+                        prot,
+                        flags,
+                        extra_fds,
+                        offset_pages,
+                        km,
+                        data,
+                    );
+                } else {
+                    ed_assert!(remote.task(), extra_fds.is_empty());
+                    finish_private_mmap(
+                        &mut remote,
+                        addr,
+                        length,
+                        prot,
+                        flags,
+                        offset_pages,
+                        km,
+                        data,
+                    );
+                }
+            }
+        }
+
+        // This code is used to test the sharing functionality. It is in
+        // general a bad idea to indiscriminately share mappings between the
+        // tracer and the tracee. Instead, only mappings that have
+        // sufficiently many memory access from the tracer to require
+        // acceleration should be shared.
+        if !flags.contains(MapFlags::MAP_SHARED)
+            && remote
+                .task()
+                .session()
+                .as_replay()
+                .unwrap()
+                .flags()
+                .share_private_mappings
+        {
+            let vm_shr_ptr = remote.task().vm_shr_ptr();
+            remote.make_private_shared(&vm_shr_ptr.mapping_of(addr).unwrap());
+        }
+
+        // Finally, we finish by emulating the return value.
+        let syscall_result = remote
+            .task()
+            .as_replay_task()
+            .unwrap()
+            .current_trace_frame()
+            .regs_ref()
+            .syscall_result();
+        remote
+            .task_mut()
+            .regs_mut()
+            .set_syscall_result(syscall_result);
+    }
+    // Monkeypatcher can emit data records that need to be applied now
+    t.apply_all_data_records_from_trace();
+    t.validate_regs(ReplayTaskIgnore::IgnoreNone);
+}
+
+fn finish_shared_mmap(
+    _remote: &mut AutoRemoteSyscalls,
+    _addr: RemotePtr<u8>,
+    _length: usize,
+    _prot: ProtFlags,
+    _flags: MapFlags,
+    _extra_fds: Vec<TraceRemoteFd>,
+    _offset_pages: usize,
+    _km: KernelMapping,
+    _data: MappedData,
+) {
+    unimplemented!()
+}
+
+fn finish_private_mmap(
+    _remote: &mut AutoRemoteSyscalls,
+    _addr: RemotePtr<u8>,
+    _length: usize,
+    _prot: ProtFlags,
+    _flags: MapFlags,
+    _offset_pages: usize,
+    _km: KernelMapping,
+    _data: MappedData,
+) {
+    unimplemented!()
+}
+
+fn finish_anonymous_mmap(
+    _remote: &mut AutoRemoteSyscalls,
+    _syscall_result: usize,
+    _length: usize,
+    _prot: ProtFlags,
+    _flags: MapFlags,
+) {
     unimplemented!()
 }
