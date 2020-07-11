@@ -3,6 +3,7 @@ use crate::{
     session::task::{record_task::record_task::RecordTask, Task},
     taskish_uid::TaskUid,
 };
+use std::ffi::OsStr;
 
 /// A FileMonitor to intercept enumerations of /proc/<pid>/fd so that entries
 /// for rr's private fds can be hidden when <pid> is a tracee.
@@ -23,7 +24,7 @@ impl FileMonitor for ProcFdDirMonitor {
 }
 
 impl ProcFdDirMonitor {
-    fn new(_t: &dyn Task, _pathname: &str) -> ProcFdDirMonitor {
+    pub fn new(_t: &dyn Task, _pathname: &OsStr) -> ProcFdDirMonitor {
         unimplemented!()
     }
 }

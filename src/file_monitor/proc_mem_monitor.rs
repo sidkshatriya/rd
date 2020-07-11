@@ -18,7 +18,8 @@ pub struct ProcMemMonitor {
 }
 
 impl ProcMemMonitor {
-    pub fn new(t: &dyn Task, pathname: &Path) -> ProcMemMonitor {
+    pub fn new(t: &dyn Task, pathname: &OsStr) -> ProcMemMonitor {
+        let pathname = Path::new(pathname);
         let mut components = pathname.components();
         let maybe_rootdir = components.next();
         let maybe_proc = components.next();

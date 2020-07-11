@@ -11,6 +11,14 @@ use crate::{
         MemParamsEnabled,
         PreserveContents::PreserveContents,
     },
+    emu_fs::EmuFileSharedPtr,
+    file_monitor::{
+        mmapped_file_monitor::MmappedFileMonitor,
+        proc_fd_dir_monitor::ProcFdDirMonitor,
+        proc_mem_monitor::ProcMemMonitor,
+        stdio_monitor::StdioMonitor,
+        FileMonitor,
+    },
     kernel_abi::{
         common::preload_interface::{syscallbuf_hdr, SYS_rdcall_reload_auxv},
         is_rdcall_notify_syscall_hook_exit_syscall,
@@ -91,6 +99,8 @@ use libc::{
     MADV_REMOVE,
     MAP_SYNC,
     PR_SET_NAME,
+    SEEK_CUR,
+    STDERR_FILENO,
 };
 use nix::{
     errno::errno,
@@ -738,7 +748,7 @@ fn rep_process_syscall_arch<Arch: Architecture>(
         unimplemented!();
     }
     if nsys == Arch::OPENAT {
-        unimplemented!();
+        handle_opened_files(t, t.regs_ref().arg3() as i32)
     }
     if nsys == Arch::OPEN {
         unimplemented!();
@@ -756,7 +766,19 @@ fn rep_process_syscall_arch<Arch: Architecture>(
     }
 
     if nsys == Arch::READ {
-        unimplemented!();
+        if t.cloned_file_data_fd_child >= 0 {
+            let fd: i32 = t.regs_ref().arg1() as i32;
+            let file_name = t.file_name_of_fd(fd);
+            if !file_name.is_empty() && file_name == t.file_name_of_fd(t.cloned_file_data_fd_child)
+            {
+                // This is a read of the cloned-data file. Replay logic depends on
+                // this file's offset actually advancing.
+                let mut remote = AutoRemoteSyscalls::new(t);
+                // @TODO Not 100% sure about the cast from usize to i64. OK??
+                remote.infallible_lseek_syscall(fd, trace_regs.syscall_result() as i64, SEEK_CUR);
+            }
+        }
+        return;
     }
 
     if nsys == Arch::RDCALL_INIT_BUFFERS {
@@ -1280,4 +1302,49 @@ fn find_exec_stub(arch: SupportedArch) -> CString {
         exe_path.extend_from_slice(b"rr_exec_stub");
     }
     CString::new(exe_path).unwrap()
+}
+
+fn handle_opened_files(t: &ReplayTask, flags_raw: i32) {
+    // @TODO use the unsafe version from_bits_unchecked ??
+    let flags = OFlag::from_bits(flags_raw).unwrap();
+    let ctf = t.current_trace_frame();
+    let opened = &ctf.event().syscall().opened;
+    for o in opened {
+        // This must be kept in sync with record_syscall's handle_opened_file.
+        let maybe_emu_file: Option<EmuFileSharedPtr> = t
+            .session()
+            .as_replay()
+            .unwrap()
+            .emufs()
+            .find(o.device, o.inode);
+        let file_monitor: Box<dyn FileMonitor>;
+        if maybe_emu_file.is_some() {
+            file_monitor = Box::new(MmappedFileMonitor::new_from_emufile(
+                t,
+                maybe_emu_file.unwrap(),
+            ));
+        } else if o.path == "terminal" {
+            file_monitor = Box::new(StdioMonitor::new(STDERR_FILENO));
+        } else if is_proc_mem_file(&o.path) {
+            file_monitor = Box::new(ProcMemMonitor::new(t, &o.path));
+        } else if is_proc_fd_dir(&o.path) {
+            file_monitor = Box::new(ProcFdDirMonitor::new(t, &o.path));
+        } else if flags.contains(OFlag::O_DIRECT) {
+            unimplemented!()
+        } else {
+            ed_assert!(t, false, "Why did we write filename {:?}", o.path);
+            unreachable!();
+        }
+        t.fd_table_mut().add_monitor(t, o.fd, file_monitor);
+    }
+}
+
+// @TODO Shift this method out of this module
+fn is_proc_fd_dir(_path: &OsStr) -> bool {
+    unimplemented!()
+}
+
+// @TODO Shift this method out of this module
+fn is_proc_mem_file(_path: &OsStr) -> bool {
+    unimplemented!()
 }
