@@ -1034,7 +1034,9 @@ fn on_syscall_exit_arch<Arch: Architecture>(t: &mut dyn Task, sys: i32, regs: &R
         t.vm_shr_ptr().protect(t, addr, num_bytes, prot_flags);
     }
     if sys == Arch::MUNMAP {
-        unimplemented!()
+        let addr: RemotePtr<Void> = regs.arg1().into();
+        let num_bytes: usize = regs.arg2();
+        return t.vm_shr_ptr().unmap(t, addr, num_bytes);
     }
     if sys == Arch::SHMDT {
         unimplemented!()
