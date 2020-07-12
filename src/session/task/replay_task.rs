@@ -136,10 +136,11 @@ impl ReplayTask {
             return;
         }
 
-        let mut trace_frame = self.current_trace_frame_mut();
-        let rec_regs = trace_frame.regs_mut();
-
+        // @TODO When this `if` triggers trace frame may already be borrowed.
+        // This could run into a borrow mut error.
         if flags == ReplayTaskIgnore::IgnoreEsi {
+            let mut trace_frame = self.current_trace_frame_mut();
+            let rec_regs = trace_frame.regs_mut();
             if self.regs_ref().arg4() != rec_regs.arg4() {
                 log!(
                     LogWarn,
@@ -153,6 +154,8 @@ impl ReplayTask {
         }
 
         // TODO: add perf counter validations (hw int, page faults, insts)
+        let trace_frame = self.current_trace_frame();
+        let rec_regs = trace_frame.regs_ref();
         Registers::compare_register_files(
             Some(self),
             "replaying",

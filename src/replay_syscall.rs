@@ -1402,7 +1402,13 @@ fn process_mmap(
                 .current_trace_frame()
                 .regs_ref()
                 .syscall_result();
-            finish_anonymous_mmap(&mut remote, syscall_result, length, prot, flags);
+            finish_anonymous_mmap(
+                &mut remote,
+                RemotePtr::new_from_val(syscall_result),
+                length,
+                prot,
+                flags,
+            );
         } else {
             let mut data = MappedData::default();
             let mut extra_fds: Vec<TraceRemoteFd> = Vec::new();
@@ -1523,14 +1529,11 @@ fn process_mmap(
             .current_trace_frame()
             .regs_ref()
             .syscall_result();
-        remote
-            .task_mut()
-            .regs_mut()
-            .set_syscall_result(syscall_result);
+        remote.initial_regs_mut().set_syscall_result(syscall_result);
     }
     // Monkeypatcher can emit data records that need to be applied now
     t.apply_all_data_records_from_trace();
-    t.validate_regs(ReplayTaskIgnore::IgnoreNone);
+    t.validate_regs(ReplayTaskIgnore::default());
 }
 
 fn finish_shared_mmap(
@@ -1561,11 +1564,77 @@ fn finish_private_mmap(
 }
 
 fn finish_anonymous_mmap(
-    _remote: &mut AutoRemoteSyscalls,
-    _syscall_result: usize,
-    _length: usize,
-    _prot: ProtFlags,
-    _flags: MapFlags,
+    remote: &mut AutoRemoteSyscalls,
+    rec_addr: RemotePtr<Void>,
+    length: usize,
+    prot: ProtFlags,
+    flags: MapFlags,
 ) {
-    unimplemented!()
+    let mut file_name = OsString::new();
+    let mut device: dev_t = KernelMapping::NO_DEVICE;
+    let mut inode: ino_t = KernelMapping::NO_INODE;
+    let mut data = MappedData::default();
+    let recorded_km: KernelMapping = remote
+        .task()
+        .as_replay_task()
+        .unwrap()
+        .trace_reader_mut()
+        .read_mapped_region(Some(&mut data), None, None, None, None)
+        .unwrap();
+    let mut maybe_emu_file = None;
+    if !flags.contains(MapFlags::MAP_SHARED) {
+        remote.infallible_mmap_syscall(
+            Some(rec_addr),
+            length,
+            prot,
+            // Tell the kernel to take |rec_addr|
+            // seriously.
+            (flags & !MapFlags::MAP_GROWSDOWN) | MapFlags::MAP_FIXED,
+            -1,
+            0,
+        );
+    } else {
+        ed_assert!(remote.task(), data.source == MappedDataSource::SourceZero);
+        let emu_file: EmuFileSharedPtr = remote
+            .task()
+            .session()
+            .as_replay()
+            .unwrap()
+            .emufs_mut()
+            .get_or_create(&recorded_km);
+
+        // Emufs file, so open it read-write in case we need to write to it
+        // through the task's memfd.
+        let (real_file, real_file_name) = finish_direct_mmap(
+            remote,
+            rec_addr,
+            length,
+            prot,
+            flags & !MapFlags::MAP_ANONYMOUS,
+            OsStr::new(&emu_file.borrow().proc_path()),
+            OFlag::O_RDWR,
+            0,
+        );
+        file_name = real_file_name;
+        device = real_file.st_dev;
+        inode = real_file.st_ino;
+        maybe_emu_file = Some(emu_file);
+    }
+
+    remote.task().vm_shr_ptr().map(
+        remote.task(),
+        rec_addr,
+        length,
+        prot,
+        flags,
+        0,
+        &file_name,
+        device,
+        inode,
+        None,
+        Some(&recorded_km),
+        maybe_emu_file,
+        None,
+        None,
+    );
 }
