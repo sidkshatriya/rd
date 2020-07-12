@@ -1383,8 +1383,8 @@ impl ReplaySession {
                 active_task,
             )
         });
-        *maybe_bp_vm = None;
         self.syscall_bp_addr.set(RemoteCodePtr::null());
+        maybe_bp_vm.take();
     }
 }
 

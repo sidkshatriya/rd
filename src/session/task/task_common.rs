@@ -1069,7 +1069,8 @@ fn on_syscall_exit_arch<Arch: Architecture>(t: &mut dyn Task, sys: i32, regs: &R
         unimplemented!()
     }
     if sys == Arch::CLOSE {
-        unimplemented!()
+        t.fd_table_mut().did_close(regs.arg1() as i32);
+        return;
     }
     if sys == Arch::UNSHARE {
         unimplemented!()
