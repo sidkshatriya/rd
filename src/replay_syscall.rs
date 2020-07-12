@@ -39,6 +39,7 @@ use crate::{
     log::LogLevel::LogDebug,
     registers::{with_converted_registers, Registers},
     remote_ptr::{RemotePtr, Void},
+    scoped_fd::ScopedFd,
     seccomp_filter_rewriter::SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO,
     session::{
         address_space::{
@@ -83,6 +84,7 @@ use libc::{
     __errno_location,
     dev_t,
     ino_t,
+    off_t,
     pid_t,
     syscall,
     CLONE_CHILD_CLEARTID,
@@ -112,7 +114,7 @@ use nix::{
         mman::{MapFlags, ProtFlags},
         stat::FileStat,
     },
-    unistd::{access, AccessFlags},
+    unistd::{access, lseek, read, AccessFlags, Whence},
 };
 use std::{
     cmp::min,
@@ -790,8 +792,13 @@ fn rep_process_syscall_arch<Arch: Architecture>(
                 // This is a read of the cloned-data file. Replay logic depends on
                 // this file's offset actually advancing.
                 let mut remote = AutoRemoteSyscalls::new(t);
-                // @TODO Not 100% sure about the cast from usize to i64. OK??
-                remote.infallible_lseek_syscall(fd, trace_regs.syscall_result() as i64, SEEK_CUR);
+                // DIFF NOTE: rr has syscall_result() here.
+                // However, signed result seems more appropriate??
+                remote.infallible_lseek_syscall(
+                    fd,
+                    trace_regs.syscall_result_signed() as i64,
+                    SEEK_CUR,
+                );
             }
         }
         return;
@@ -1485,7 +1492,7 @@ fn process_mmap(
                         extra_fds,
                         offset_pages,
                         km,
-                        data,
+                        &data,
                     );
                 } else {
                     ed_assert!(remote.task(), extra_fds.is_empty());
@@ -1497,7 +1504,7 @@ fn process_mmap(
                         flags,
                         offset_pages,
                         km,
-                        data,
+                        &data,
                     );
                 }
             }
@@ -1545,22 +1552,113 @@ fn finish_shared_mmap(
     _extra_fds: Vec<TraceRemoteFd>,
     _offset_pages: usize,
     _km: KernelMapping,
-    _data: MappedData,
+    _data: &MappedData,
 ) {
     unimplemented!()
 }
 
 fn finish_private_mmap(
-    _remote: &mut AutoRemoteSyscalls,
-    _addr: RemotePtr<u8>,
-    _length: usize,
-    _prot: ProtFlags,
-    _flags: MapFlags,
-    _offset_pages: usize,
-    _km: KernelMapping,
-    _data: MappedData,
+    remote: &mut AutoRemoteSyscalls,
+    rec_addr: RemotePtr<Void>,
+    length: usize,
+    prot: ProtFlags,
+    flags: MapFlags,
+    offset_pages: usize,
+    km: KernelMapping,
+    data: &MappedData,
 ) {
-    unimplemented!()
+    log!(LogDebug, "  finishing private mmap of {:?}", km.fsname());
+
+    remote.infallible_mmap_syscall(
+        Some(rec_addr),
+        length,
+        prot,
+        // Tell the kernel to take |rec_addr| seriously.
+        (flags & !MapFlags::MAP_GROWSDOWN) | MapFlags::MAP_FIXED | MapFlags::MAP_ANONYMOUS,
+        -1,
+        0,
+    );
+
+    // Update AddressSpace before loading data from the trace. This ensures our
+    // kernel-bug-workarounds when writing to tracee memory see the up-to-date
+    // virtual map.
+    remote.task().vm_shr_ptr().map(
+        remote.task_mut(),
+        rec_addr,
+        length,
+        prot,
+        flags | MapFlags::MAP_ANONYMOUS,
+        page_size() as u64 * offset_pages as u64,
+        OsStr::new(""),
+        KernelMapping::NO_DEVICE,
+        KernelMapping::NO_INODE,
+        None,
+        Some(&km),
+        None,
+        None,
+        None,
+    );
+
+    // Restore the map region we copied.
+    write_mapped_data(
+        remote.task_mut().as_replay_task_mut().unwrap(),
+        rec_addr,
+        km.size(),
+        data,
+    );
+}
+
+fn write_mapped_data(
+    t: &mut ReplayTask,
+    mut rec_addr: RemotePtr<Void>,
+    mut size: usize,
+    data: &MappedData,
+) {
+    match data.source {
+        MappedDataSource::SourceTrace => {
+            t.set_data_from_trace();
+        }
+        MappedDataSource::SourceFile => {
+            let file = ScopedFd::open_path(data.filename.as_os_str(), OFlag::O_RDONLY);
+            ed_assert!(t, file.is_open(), "Can't open {:?}", data.filename);
+            let offset: off_t = lseek(
+                file.as_raw(),
+                data.data_offset_bytes as i64,
+                Whence::SeekSet,
+            )
+            .unwrap();
+            let d_offset: off_t = data.data_offset_bytes.try_into().unwrap();
+            ed_assert!(
+                t,
+                offset == d_offset,
+                "Couldn't seek to {}, got {}",
+                data.data_offset_bytes,
+                offset
+            );
+            let mut buf: Vec<u8> = Vec::new();
+            // Read 16 pages at a time at most
+            // @TODO Any performance implications of this resize??
+            buf.resize(page_size() * 16, 0);
+            while size > 0 {
+                let to_read = min(size, buf.len());
+                match read(file.as_raw(), &mut buf[0..to_read]) {
+                    Err(_) => {
+                        fatal!("Can't read from trace file: {:?}", data.filename);
+                        unreachable!();
+                    }
+                    Ok(0) => {
+                        break;
+                    }
+                    Ok(nread) => {
+                        t.write_bytes_helper(rec_addr, &buf[0..nread], None, WriteFlags::empty());
+                        rec_addr += nread;
+                        size -= nread;
+                    }
+                }
+            }
+        }
+        MappedDataSource::SourceZero => {}
+    }
 }
 
 fn finish_anonymous_mmap(
