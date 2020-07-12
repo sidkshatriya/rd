@@ -1013,8 +1013,8 @@ impl ReplaySession {
                 // overwritten by the tracee. It could even be dynamically generated and
                 // not generated yet.
                 if self.syscall_bp_vm.borrow().is_none()
-                    && t.vm()
-                        .is_breakpoint_in_private_read_only_memory(syscall_instruction)
+                    && t.vm_shr_ptr()
+                        .is_breakpoint_in_private_read_only_memory(syscall_instruction, t)
                     && t.vm_shr_ptr().add_breakpoint(
                         t,
                         syscall_instruction,

@@ -763,19 +763,6 @@ pub mod address_space {
             &self.session_
         }
 
-        pub fn arch(&self) -> SupportedArch {
-            // @TODO TEMPORARY. THE CODE BELOW CAUSES RefCell issues
-            SupportedArch::X64
-            // Return the arch() of the first task in the address space
-            /*self.task_set
-            .borrow()
-            .iter()
-            .next()
-            .unwrap()
-            .borrow()
-            .arch()*/
-        }
-
         /// Return the path this address space was exec()'d with.
         pub fn exe_image(&self) -> &OsStr {
             &self.exe
@@ -803,13 +790,17 @@ pub mod address_space {
         /// non-writeable memory. When this returns true, the breakpoint can't be
         /// overwritten by the tracee without an intervening mprotect or mmap
         /// syscall.
-        pub fn is_breakpoint_in_private_read_only_memory(&self, addr: RemoteCodePtr) -> bool {
+        pub fn is_breakpoint_in_private_read_only_memory(
+            &self,
+            addr: RemoteCodePtr,
+            active_task: &mut dyn Task,
+        ) -> bool {
             // @TODO Its unclear why we need to iterate instead of just using
             // AddressSpace::mapping_of() to check breakpoint prot() and flags().
             for (_, m) in &self.maps_containing_or_after(addr.to_data_ptr::<Void>()) {
                 if m.map.start()
                     >= addr
-                        .increment_by_bkpt_insn_length(self.arch())
+                        .increment_by_bkpt_insn_length(active_task.arch())
                         .to_data_ptr::<Void>()
                 {
                     break;
