@@ -30,6 +30,7 @@ use crate::{
         syscall_number_for_open,
         syscall_number_for_prctl,
         CloneTLSType,
+        MmapCallingSemantics,
         SupportedArch,
         RD_NATIVE_ARCH,
     },
@@ -657,7 +658,20 @@ fn rep_process_syscall_arch<Arch: Architecture>(
     }
 
     if nsys == Arch::MMAP {
-        unimplemented!();
+        match Arch::MMAP_SEMANTICS {
+            MmapCallingSemantics::StructArguments => unimplemented!(),
+            MmapCallingSemantics::RegisterArguments => {
+                return process_mmap(
+                    t,
+                    trace_regs.arg2(),
+                    trace_regs.arg3() as i32,
+                    trace_regs.arg4() as i32,
+                    trace_regs.arg5() as i32,
+                    trace_regs.arg6() / page_size(),
+                    step,
+                );
+            }
+        }
     }
 
     if nsys == Arch::MMAP2 {
@@ -1351,15 +1365,22 @@ fn is_proc_mem_file(_path: &OsStr) -> bool {
     unimplemented!()
 }
 
+// DIFF NOTE: This does not take an extra param `trace_frame` as it can be
+// obtained from `t` itself
 fn process_mmap(
     t: &mut ReplayTask,
     mut length: usize,
-    prot: ProtFlags,
-    flags: MapFlags,
+    prot_raw: i32,
+    flags_raw: i32,
     fd: i32,
     mut offset_pages: usize,
     step: &mut ReplayTraceStep,
 ) {
+    // @TODO Could use the from_bits_unchecked version here??
+    let prot = ProtFlags::from_bits(prot_raw).unwrap();
+    // @TODO Could use the from_bits_unchecked version here??
+    let flags = MapFlags::from_bits(flags_raw).unwrap();
+
     step.action = ReplayTraceStepType::TstepRetire;
 
     {
