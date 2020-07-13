@@ -267,13 +267,13 @@ pub(super) fn read_bytes_fallible<T: Task>(
 
 /// Forwarded method definition
 ///
-/// If the data can't all be read, then if `ok` is non-null, sets *ok to
-/// false, otherwise asserts.
+/// If the data can't all be read, then if `maybe_ok` is None, asserts otherwise
+/// sets the inner mutable bool to false.
 pub(super) fn read_bytes_helper<T: Task>(
     task: &mut T,
     addr: RemotePtr<Void>,
     buf: &mut [u8],
-    ok: Option<&mut bool>,
+    maybe_ok: Option<&mut bool>,
 ) {
     // pread64 etc can't handle addresses that appear to be negative ...
     // like [vsyscall].
@@ -282,17 +282,18 @@ pub(super) fn read_bytes_helper<T: Task>(
         Ok(nread) if nread == buf.len() => (),
         _ => {
             let nread = result_nread.unwrap_or(0);
-            if ok.is_some() {
-                *ok.unwrap() = false;
-            } else {
-                ed_assert!(
-                    task,
-                    false,
-                    "Should have read {} bytes from {}, but only read {}",
-                    buf.len(),
-                    addr,
-                    nread
-                );
+            match maybe_ok {
+                Some(ok) => *ok = false,
+                None => {
+                    ed_assert!(
+                        task,
+                        false,
+                        "Should have read {} bytes from {}, but only read {}",
+                        buf.len(),
+                        addr,
+                        nread
+                    );
+                }
             }
         }
     }
