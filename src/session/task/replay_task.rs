@@ -43,7 +43,7 @@ use crate::{
     },
     trace::{
         trace_frame::{FrameTime, TraceFrame},
-        trace_reader::TraceReader,
+        trace_reader::{RawData, TraceReader},
     },
     wait_status::WaitStatus,
 };
@@ -198,9 +198,33 @@ impl ReplayTask {
         self.current_trace_frame().time()
     }
 
+    /// @TODO More elegant approach??
     /// Restore the next chunk of saved data from the trace to this.
     pub fn set_data_from_trace(&mut self) -> usize {
-        unimplemented!()
+        let buf: RawData = self.trace_reader_mut().read_raw_data();
+        if !buf.addr.is_null() && buf.data.len() > 0 {
+            if buf.rec_tid == self.rec_tid {
+                self.write_bytes_helper(buf.addr, &buf.data, None, WriteFlags::empty());
+                self.vm_shr_ptr().maybe_update_breakpoints(
+                    self,
+                    RemotePtr::cast::<u8>(buf.addr),
+                    buf.data.len(),
+                );
+            } else {
+                let t = self.session().find_task_from_rec_tid(buf.rec_tid).unwrap();
+
+                t.borrow_mut()
+                    .write_bytes_helper(buf.addr, &buf.data, None, WriteFlags::empty());
+                let vm_shr_ptr = t.borrow().vm_shr_ptr();
+                vm_shr_ptr.maybe_update_breakpoints(
+                    t.borrow_mut().as_mut(),
+                    RemotePtr::cast::<u8>(buf.addr),
+                    buf.data.len(),
+                );
+            }
+        }
+
+        buf.data.len()
     }
 
     pub fn trace_reader(&self) -> OwningHandle<SessionSharedPtr, Ref<'_, TraceReader>> {
