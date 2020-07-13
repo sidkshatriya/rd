@@ -127,22 +127,24 @@ use CpuMicroarch::*;
 
 /// Return the detected, known microarchitecture of this CPU, or don't
 /// return; i.e. never return UnknownCpu.
-#[allow(unreachable_code)]
 fn get_cpu_microarch() -> CpuMicroarch {
-    let forced_uarch = Flags::get().forced_uarch.as_ref().map(|u| u.to_lowercase());
-    if forced_uarch.is_some() {
-        for pmu in &PMU_CONFIGS {
-            let name: String = pmu.name.to_lowercase();
-            if let Some(_) = name.find(forced_uarch.as_ref().unwrap()) {
-                log!(LogInfo, "Using forced uarch {}", pmu.name);
-                return pmu.uarch;
+    let maybe_forced_uarch = Flags::get().forced_uarch.as_ref().map(|u| u.to_lowercase());
+    match maybe_forced_uarch {
+        Some(forced_uarch) => {
+            for pmu in &PMU_CONFIGS {
+                let name: String = pmu.name.to_lowercase();
+                if let Some(_) = name.find(&forced_uarch) {
+                    log!(LogInfo, "Using forced uarch {}", pmu.name);
+                    return pmu.uarch;
+                }
             }
-        }
 
-        clean_fatal!(
-            "Forced uarch {} isn't known",
-            Flags::get().forced_uarch.as_ref().unwrap()
-        );
+            clean_fatal!(
+                "Forced uarch {} isn't known",
+                Flags::get().forced_uarch.as_ref().unwrap()
+            );
+        }
+        None => (),
     }
 
     let cpuid = CpuId::new();
@@ -201,8 +203,6 @@ fn get_cpu_microarch() -> CpuMicroarch {
     } else {
         clean_fatal!("Intel CPU type {:#x} unknown", cpu_type);
     }
-
-    unreachable!()
 }
 
 struct PmuBugsAndExtra {

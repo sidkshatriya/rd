@@ -2289,20 +2289,20 @@ pub mod address_space {
                     slf.add_to_map(overflow);
                 }
 
-                if m.local_addr.is_some() {
-                    if unsafe {
-                        munmap(
-                            m.local_addr
-                                .unwrap()
-                                .as_ptr()
-                                .add(rem.start() - m.map.start()),
-                            rem.size(),
-                        )
+                match m.local_addr {
+                    Some(local_addr) => {
+                        if unsafe {
+                            munmap(
+                                local_addr.as_ptr().add(rem.start() - m.map.start()),
+                                rem.size(),
+                            )
+                        }
+                        .is_err()
+                        {
+                            fatal!("Can't munmap");
+                        }
                     }
-                    .is_err()
-                    {
-                        fatal!("Can't munmap");
-                    }
+                    None => (),
                 }
             };
             self.for_each_in_range(addr, num_bytes, unmapper, IterateHow::IterateDefault);

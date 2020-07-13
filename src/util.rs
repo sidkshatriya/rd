@@ -142,7 +142,10 @@ pub fn xsave_area_size() -> usize {
 
 pub fn running_under_rd() -> bool {
     let result = var_os("RUNNING_UNDER_RD");
-    result.is_some() && result.unwrap() != ""
+    match result {
+        Some(var_val) if !var_val.is_empty() => true,
+        _ => false,
+    }
 }
 
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -432,24 +435,22 @@ pub fn is_kernel_trap(si_code: i32) -> bool {
 /// Returns $TMPDIR or "/tmp". We call ensure_dir to make sure the directory
 /// exists and is writeable.
 pub fn tmp_dir() -> OsString {
-    let mut dir = var_os("RD_TMPDIR");
-    if dir.is_some() {
-        ensure_dir(
-            dir.as_ref().unwrap(),
-            "temporary file directory (RD_TMPDIR)",
-            Mode::S_IRWXU,
-        );
-        return OsString::from(&dir.unwrap());
+    let mut maybe_dir = var_os("RD_TMPDIR");
+    match maybe_dir {
+        Some(dir) => {
+            ensure_dir(&dir, "temporary file directory (RD_TMPDIR)", Mode::S_IRWXU);
+            return dir;
+        }
+        None => (),
     }
 
-    dir = var_os("TMPDIR");
-    if dir.is_some() {
-        ensure_dir(
-            dir.as_ref().unwrap(),
-            "temporary file directory (TMPDIR)",
-            Mode::S_IRWXU,
-        );
-        return OsString::from(dir.unwrap());
+    maybe_dir = var_os("TMPDIR");
+    match maybe_dir {
+        Some(dir) => {
+            ensure_dir(&dir, "temporary file directory (TMPDIR)", Mode::S_IRWXU);
+            return dir;
+        }
+        None => (),
     }
 
     // Don't try to create "/tmp", that probably won't work well.
@@ -460,7 +461,7 @@ pub fn tmp_dir() -> OsString {
     OsString::from("/tmp")
 }
 
-/// Create directory `str`, creating parent directories as needed.
+/// Create directory `dir`, creating parent directories as needed.
 /// `dir_type` is printed in error messages. Fails if the resulting directory
 /// is not writeable.
 pub fn ensure_dir(dir: &OsStr, dir_type: &str, mode: Mode) {
