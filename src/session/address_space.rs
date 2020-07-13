@@ -2604,7 +2604,8 @@ pub mod address_space {
             }
 
             regs.clear();
-            for t2 in self.task_set().iter() {
+            active_task.set_debug_regs(&mut regs);
+            for t2 in self.task_set().iter_except(active_task.weak_self_ptr()) {
                 t2.borrow_mut().set_debug_regs(&mut regs);
             }
             for v in self.watchpoints.borrow_mut().values_mut() {
