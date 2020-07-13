@@ -25,7 +25,7 @@ use crate::{
     kernel_abi::{
         common::{
             preload_interface,
-            preload_interface::{syscallbuf_hdr, syscallbuf_record},
+            preload_interface::{preload_globals, syscallbuf_hdr, syscallbuf_record},
         },
         is_at_syscall_instruction,
         is_mprotect_syscall,
@@ -1315,4 +1315,43 @@ pub(super) fn compute_trap_reasons<T: Task>(t: &mut T) -> TrapReasons {
         }
     }
     reasons
+}
+
+pub(super) fn at_preload_init_common<T: Task>(t: &mut T) {
+    t.vm_shr_ptr().at_preload_init(t);
+    do_preload_init(t);
+
+    t.fd_table_shr_ptr()
+        .borrow()
+        .init_syscallbuf_fds_disabled(t);
+}
+
+fn do_preload_init_arch<Arch: Architecture, T: Task>(t: &mut T) {
+    let addr_val = t.regs_ref().arg1();
+    let params = read_val_mem(
+        t,
+        RemotePtr::<Arch::rdcall_init_preload_params>::new_from_val(addr_val),
+        None,
+    );
+
+    let res = Arch::rdcall_init_preload_params_globals(&params);
+    t.preload_globals = Some(res.0);
+    t.stopping_breakpoint_table = res.1;
+    t.stopping_breakpoint_table_entry_size = res.2;
+    for rc_t in t.vm().task_set().iter_except(t.weak_self_ptr()) {
+        let mut tt = rc_t.borrow_mut();
+        tt.preload_globals = Some(res.0);
+
+        tt.stopping_breakpoint_table = res.1;
+        tt.stopping_breakpoint_table_entry_size = res.2;
+    }
+
+    let preload_globals_ptr: RemotePtr<bool> = RemotePtr::cast(t.preload_globals.unwrap());
+    let addr = preload_globals_ptr + offset_of!(preload_globals, in_replay);
+    let is_replaying = t.session().is_replaying();
+    write_val_mem(t, addr, &is_replaying, None);
+}
+
+fn do_preload_init<T: Task>(t: &mut T) {
+    rd_arch_task_function_selfless!(T, do_preload_init_arch, t.arch(), t);
 }

@@ -1,5 +1,6 @@
 use crate::{
     kernel_abi::{
+        common::preload_interface::preload_globals,
         x64,
         x86,
         CloneParameterOrdering,
@@ -9,6 +10,7 @@ use crate::{
         SupportedArch,
     },
     kernel_supplement::{CLD_STOPPED, CLD_TRAPPED},
+    remote_code_ptr::RemoteCodePtr,
     remote_ptr::{RemotePtr, Void},
     session::task::record_task::{record_task::RecordTask, EmulatedStopType},
 };
@@ -57,6 +59,20 @@ macro_rules! rd_arch_function_selfless {
     };
 }
 
+macro_rules! rd_arch_task_function_selfless {
+    ($t:ident, $func_name:ident, $arch:expr) => {
+        match $arch {
+            crate::kernel_abi::SupportedArch::X86 => $func_name::<crate::arch::X86Arch, $t>(),
+            crate::kernel_abi::SupportedArch::X64 => $func_name::<crate::arch::X64Arch, $t>(),
+        }
+    };
+    ($t:ident, $func_name:ident, $arch:expr, $($exp:tt)*) => {
+        match $arch {
+            crate::kernel_abi::SupportedArch::X86 => $func_name::<crate::arch::X86Arch, $t>($($exp)*),
+            crate::kernel_abi::SupportedArch::X64 => $func_name::<crate::arch::X64Arch, $t>($($exp)*),
+        }
+    };
+}
 // The const_assert_eq!() in these include files keep the syscalls and their values in sync.
 include!(concat!(
     env!("OUT_DIR"),
@@ -570,8 +586,11 @@ pub trait Architecture {
     fn set_siginfo_for_waited_task(r: &RecordTask, si: &mut Self::siginfo_t);
 
     fn rdcall_init_preload_params_syscallbuf_enabled(d: &Self::rdcall_init_preload_params) -> bool;
-}
 
+    fn rdcall_init_preload_params_globals(
+        params: &Self::rdcall_init_preload_params,
+    ) -> (RemotePtr<preload_globals>, RemoteCodePtr, usize);
+}
 impl Architecture for X86Arch {
     const MMAP_SEMANTICS: MmapCallingSemantics = x86::MMAP_SEMANTICS;
     const CLONE_TLS_TYPE: CloneTLSType = x86::CLONE_TLS_TYPE;
@@ -1087,6 +1106,15 @@ impl Architecture for X86Arch {
     fn rdcall_init_preload_params_syscallbuf_enabled(d: &Self::rdcall_init_preload_params) -> bool {
         d.syscallbuf_enabled != 0
     }
+    fn rdcall_init_preload_params_globals(
+        params: &Self::rdcall_init_preload_params,
+    ) -> (RemotePtr<preload_globals>, RemoteCodePtr, usize) {
+        (
+            params.globals.rptr(),
+            params.breakpoint_table.rptr().to_code_ptr(),
+            params.breakpoint_table_entry_size.try_into().unwrap(),
+        )
+    }
 }
 
 impl Architecture for X64Arch {
@@ -1600,5 +1628,14 @@ impl Architecture for X64Arch {
 
     fn rdcall_init_preload_params_syscallbuf_enabled(d: &Self::rdcall_init_preload_params) -> bool {
         d.syscallbuf_enabled != 0
+    }
+    fn rdcall_init_preload_params_globals(
+        params: &Self::rdcall_init_preload_params,
+    ) -> (RemotePtr<preload_globals>, RemoteCodePtr, usize) {
+        (
+            params.globals.rptr(),
+            params.breakpoint_table.rptr().to_code_ptr(),
+            params.breakpoint_table_entry_size.try_into().unwrap(),
+        )
     }
 }

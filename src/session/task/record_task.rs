@@ -496,7 +496,7 @@ pub mod record_task {
             unimplemented!()
         }
 
-        fn at_preload_init(&self) {
+        fn at_preload_init(&mut self) {
             unimplemented!()
         }
 

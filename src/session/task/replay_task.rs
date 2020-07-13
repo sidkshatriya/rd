@@ -1,5 +1,11 @@
 use super::{
-    task_common::{compute_trap_reasons, on_syscall_exit, post_exec_for_exe, post_exec_syscall},
+    task_common::{
+        at_preload_init_common,
+        compute_trap_reasons,
+        on_syscall_exit,
+        post_exec_for_exe,
+        post_exec_syscall,
+    },
     task_inner::TrapReasons,
 };
 use crate::{
@@ -333,8 +339,9 @@ impl Task for ReplayTask {
         on_syscall_exit(self, syscallno, arch, regs)
     }
 
-    fn at_preload_init(&self) {
-        unimplemented!()
+    // Forwarded method
+    fn at_preload_init(&mut self) {
+        at_preload_init_common(self)
     }
 
     /// Forwarded method

@@ -1,3 +1,4 @@
+use crate::remote_code_ptr::RemoteCodePtr;
 use std::{
     cmp::Ordering,
     convert::TryInto,
@@ -58,6 +59,10 @@ impl<T> RemotePtr<T> {
 
     pub fn cast<U>(r: RemotePtr<U>) -> RemotePtr<T> {
         RemotePtr::<T>::new_from_val(r.ptr)
+    }
+
+    pub fn to_code_ptr(self) -> RemoteCodePtr {
+        RemoteCodePtr::from_val(self.ptr)
     }
 }
 

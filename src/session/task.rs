@@ -117,8 +117,8 @@ pub trait Task: DerefMut<Target = TaskInner> {
         self.tid
     }
 
-    /// Called when SYS_rrcall_init_preload has happened.
-    fn at_preload_init(&self);
+    /// Called when SYS_rdcall_init_preload has happened.
+    fn at_preload_init(&mut self);
 
     /// (Note: Methods following this are protected in the rr implementation)
     /// Return a new Task cloned from `p`.  `flags` are a set of

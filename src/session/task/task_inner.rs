@@ -380,7 +380,7 @@ pub mod task_inner {
         pub syscallbuf_child: RemotePtr<syscallbuf_hdr>,
         /// XXX Move these fields to ReplayTask
         pub stopping_breakpoint_table: RemoteCodePtr,
-        pub stopping_breakpoint_table_entry_size: i32,
+        pub stopping_breakpoint_table_entry_size: usize,
 
         /// In rr null is used to denote no preload globals
         pub preload_globals: Option<RemotePtr<preload_globals>>,

@@ -2838,7 +2838,6 @@ pub mod address_space {
             self.mem.borrow_mut().insert(MemoryRangeKey(*m.map), m);
         }
 
-        /// Call this only during recording.
         fn at_preload_init_arch<Arch: Architecture>(&self, t: &mut dyn Task) {
             let addr = t.regs_ref().arg1();
             let params = read_val_mem(
