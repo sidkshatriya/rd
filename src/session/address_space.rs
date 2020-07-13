@@ -2854,14 +2854,14 @@ pub mod address_space {
                 "disabled"
             };
 
-            let tracer_syscallbuf_enabled = t.session().as_record().unwrap().use_syscall_buffer();
-            let tracer_syscallbuf_status = if tracer_syscallbuf_enabled {
-                "enabled"
-            } else {
-                "disabled"
-            };
-
             if t.session().is_recording() {
+                let tracer_syscallbuf_enabled =
+                    t.session().as_record().unwrap().use_syscall_buffer();
+                let tracer_syscallbuf_status = if tracer_syscallbuf_enabled {
+                    "enabled"
+                } else {
+                    "disabled"
+                };
                 ed_assert!(
                     t,
                     tracee_syscallbuf_enabled == tracer_syscallbuf_enabled,

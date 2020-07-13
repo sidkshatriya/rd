@@ -808,7 +808,8 @@ fn rep_process_syscall_arch<Arch: Architecture>(
         unimplemented!();
     }
     if nsys == Arch::RDCALL_INIT_PRELOAD {
-        unimplemented!();
+        t.at_preload_init();
+        return;
     }
 
     if nsys == Arch::RDCALL_RELOAD_AUXV {
