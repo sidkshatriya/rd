@@ -22,6 +22,7 @@ use crate::{
     },
     core::type_has_no_holes,
     fast_forward::at_x86_string_instruction,
+    file_monitor,
     kernel_abi::{
         common::{
             preload_interface,
@@ -85,6 +86,7 @@ use crate::{
     },
     wait_status::WaitStatus,
 };
+use file_monitor::LazyOffset;
 use libc::{
     pid_t,
     pread64,
@@ -1084,7 +1086,22 @@ fn on_syscall_exit_arch<Arch: Architecture>(t: &mut dyn Task, sys: i32, regs: &R
     }
 
     if sys == Arch::PWRITE64 || sys == Arch::WRITE {
-        unimplemented!()
+        let fd: i32 = regs.arg1_signed() as i32;
+        let mut ranges: Vec<file_monitor::Range> = Vec::new();
+        let amount: isize = regs.syscall_result_signed();
+        if amount > 0 {
+            ranges.push(file_monitor::Range::new(
+                regs.arg2().into(),
+                amount as usize,
+            ));
+        }
+        let mut offset = LazyOffset::new(t, &regs, sys);
+        offset
+            .task_mut()
+            .fd_table_shr_ptr()
+            .borrow_mut()
+            .did_write(fd, ranges, &mut offset);
+        return;
     }
 
     if sys == Arch::PWRITEV {

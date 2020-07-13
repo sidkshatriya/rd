@@ -68,6 +68,10 @@ pub struct LazyOffset<'b, 'a: 'b> {
 }
 
 impl<'b, 'a: 'b> LazyOffset<'b, 'a> {
+    pub fn task_mut(&mut self) -> &mut dyn Task {
+        self.t
+    }
+
     pub fn new(t: &'a mut dyn Task, regs: &'b Registers, syscallno: i32) -> LazyOffset<'b, 'a> {
         LazyOffset { t, regs, syscallno }
     }
