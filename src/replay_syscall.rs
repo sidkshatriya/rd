@@ -418,7 +418,7 @@ fn prepare_clone<Arch: Architecture>(t: &mut ReplayTask) {
 
     ed_assert!(
         t,
-        t.maybe_ptrace_event().is_ptrace_event(),
+        !t.maybe_ptrace_event().is_ptrace_event(),
         "Unexpected ptrace event while waiting for syscall exit; got {}",
         t.maybe_ptrace_event()
     );
@@ -891,7 +891,7 @@ fn rep_after_enter_syscall_arch<Arch: Architecture>(t: &mut ReplayTask) {
     if sys == Arch::CLONE || sys == Arch::VFORK || sys == Arch::FORK {
         // Create the new task now. It needs to exist before clone/fork/vfork
         // returns so that a ptracer can touch it during PTRACE_EVENT handling.
-        unimplemented!()
+        prepare_clone::<Arch>(t);
     }
 
     if sys == Arch::PTRACE {
