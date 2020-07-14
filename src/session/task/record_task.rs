@@ -4,7 +4,6 @@ use crate::{
     kernel_supplement::{SA_RESETHAND, SA_SIGINFO, _NSIG},
     remote_code_ptr::RemoteCodePtr,
     remote_ptr::{RemotePtr, Void},
-    session::task::task_inner::CloneFlags,
 };
 use libc::EINVAL;
 use nix::errno::errno;
@@ -241,16 +240,14 @@ pub mod record_task {
                     write_bytes_helper,
                 },
                 task_inner::{
-                    task_inner::{CloneReason, TaskInner, WriteFlags},
+                    task_inner::{TaskInner, WriteFlags},
                     ResumeRequest,
                     TicksRequest,
                     TrapReasons,
                     WaitRequest,
                 },
                 Task,
-                TaskSharedPtr,
             },
-            Session,
         },
         ticks::Ticks,
         trace::{trace_frame::FrameTime, trace_writer::TraceWriter},
@@ -498,22 +495,6 @@ pub mod record_task {
         }
 
         fn at_preload_init(&mut self) {
-            unimplemented!()
-        }
-
-        /// Overridden implementation
-        fn clone_task(
-            &self,
-            _reason: CloneReason,
-            _flags: CloneFlags,
-            _stack: RemotePtr<u8>,
-            _tls: RemotePtr<u8>,
-            _cleartid_addr: RemotePtr<i32>,
-            _new_tid: pid_t,
-            _new_rec_tid: Option<pid_t>,
-            _new_serial: u32,
-            _other_session: Option<&dyn Session>,
-        ) -> TaskSharedPtr {
             unimplemented!()
         }
 

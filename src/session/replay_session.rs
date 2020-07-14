@@ -81,7 +81,7 @@ use crate::{
     },
     wait_status::WaitStatus,
 };
-use libc::{ENOSYS, SIGBUS, SIGSEGV, SIGTRAP};
+use libc::{pid_t, ENOSYS, SIGBUS, SIGSEGV, SIGTRAP};
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
     ffi::{OsStr, OsString},
@@ -1415,7 +1415,13 @@ impl Session for ReplaySession {
         Some(self)
     }
 
-    fn new_task(&self, tid: i32, rec_tid: i32, serial: u32, a: SupportedArch) -> Box<dyn Task> {
+    fn new_task(
+        &self,
+        tid: pid_t,
+        rec_tid: Option<pid_t>,
+        serial: u32,
+        a: SupportedArch,
+    ) -> Box<dyn Task> {
         let t = ReplayTask::new(self, tid, rec_tid, serial, a);
         Box::new(t)
     }

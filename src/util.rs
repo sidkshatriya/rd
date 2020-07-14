@@ -23,12 +23,6 @@ use crate::{
     },
     trace::trace_frame::FrameTime,
 };
-#[cfg(target_arch = "x86")]
-use libc::{REG_EAX, REG_EIP};
-
-#[cfg(target_arch = "x86_64")]
-use libc::{REG_RAX, REG_RIP};
-
 use libc::{
     pid_t,
     pwrite64,
@@ -95,6 +89,12 @@ use std::{
     slice,
     sync::Mutex,
 };
+
+#[cfg(target_arch = "x86")]
+use libc::{REG_EAX, REG_EIP};
+
+#[cfg(target_arch = "x86_64")]
+use libc::{REG_RAX, REG_RIP};
 
 const RDTSC_INSN: [u8; 2] = [0x0f, 0x31];
 const RDTSCP_INSN: [u8; 3] = [0x0f, 0x01, 0xf9];

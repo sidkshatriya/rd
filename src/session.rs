@@ -27,6 +27,7 @@ use std::{
     rc::{Rc, Weak},
 };
 use task::task_inner::task_inner::CloneReason;
+use task_common::clone_task_common;
 
 pub mod address_space;
 pub mod diversion_session;
@@ -81,7 +82,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
     fn new_task(
         &self,
         _tid: pid_t,
-        _rec_tid: pid_t,
+        _rec_tid: Option<pid_t>,
         _serial: u32,
         _a: SupportedArch,
     ) -> Box<dyn Task> {
@@ -178,7 +179,8 @@ pub trait Session: DerefMut<Target = SessionInner> {
         new_rec_tid: Option<pid_t>,
     ) -> TaskSharedPtr {
         self.assert_fully_initialized();
-        let c = p.clone_task(
+        let c = clone_task_common(
+            p,
             CloneReason::TraceeClone,
             flags,
             stack,
@@ -243,7 +245,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
 
     /// Return a copy of `tg` with the same mappings.
     /// NOTE: Called simply Session::clone() in rr
-    fn clone_tg(&mut self, _t: &dyn Task, _tg: ThreadGroupSharedPtr) -> ThreadGroupSharedPtr {
+    fn clone_tg(&self, _t: &dyn Task, _tg: ThreadGroupSharedPtr) -> ThreadGroupSharedPtr {
         unimplemented!()
     }
 

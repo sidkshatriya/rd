@@ -308,7 +308,7 @@ pub mod task_inner {
         /// due to a signal sent to the entire thread group.
         pub unstable: Cell<bool>,
         /// exit(), or exit_group() with one task, has been called, so
-        /// the exit can be treated as stable. */
+        /// the exit can be treated as stable.
         pub stable_exit: bool,
 
         /// Imagine that task A passes buffer `b` to the read()
@@ -488,7 +488,7 @@ pub mod task_inner {
         pub wait_status: WaitStatus,
     }
 
-    #[derive(Copy, Clone, Debug)]
+    #[derive(Copy, Clone, Debug, Eq, PartialEq)]
     /// @TODO VISIBILITY originally this was NOT pub. Adjust?
     pub enum CloneReason {
         /// Cloning a task in the same session due to tracee fork()/vfork()/clone()
@@ -727,21 +727,6 @@ pub mod task_inner {
         /// This task must already be at a state in which remote syscalls can be
         /// executed; if it's not, results are undefined.
         pub fn destroy_buffers(&self) {
-            unimplemented!()
-        }
-
-        // DIFF NOTE: Param list different from rr version
-        pub fn unmap_buffers_for(
-            _remote: &mut AutoRemoteSyscalls,
-            _saved_syscallbuf_child: RemotePtr<syscallbuf_hdr>,
-            _syscallbuf_size: usize,
-            _scratch_ptr: RemotePtr<Void>,
-            _scratch_size: usize,
-        ) {
-            unimplemented!()
-        }
-
-        pub fn close_buffers_for(&self, _remote: &AutoRemoteSyscalls, _t: &TaskInner) {
             unimplemented!()
         }
 
@@ -1129,6 +1114,11 @@ pub mod task_inner {
             self.tg.as_ref().unwrap().borrow_mut()
         }
 
+        /// Use thread_group() and thread_group_mut() in preference to this
+        pub fn thread_group_shr_ptr(&self) -> ThreadGroupSharedPtr {
+            self.tg.as_ref().unwrap().clone()
+        }
+
         /// Return the id of this task's recorded thread group.
         pub fn tgid(&self) -> pid_t {
             self.thread_group().tgid
@@ -1363,11 +1353,11 @@ pub mod task_inner {
         pub(in super::super::super) fn new(
             session: &dyn Session,
             tid: pid_t,
-            rec_tid: pid_t,
+            rec_tid: Option<pid_t>,
             serial: u32,
             a: SupportedArch,
         ) -> TaskInner {
-            let adjusted_rec_tid = if rec_tid > 0 { rec_tid } else { tid };
+            let adjusted_rec_tid = rec_tid.unwrap_or(tid);
             TaskInner {
                 unstable: Cell::new(false),
                 stable_exit: false,
@@ -1819,7 +1809,7 @@ pub mod task_inner {
                 fatal!("PTRACE_SEIZE failed for tid `{}`{}", tid, hint);
             }
             let next_t_serial = session.next_task_serial();
-            let t = session.new_task(tid, rec_tid, next_t_serial, RD_NATIVE_ARCH);
+            let t = session.new_task(tid, Some(rec_tid), next_t_serial, RD_NATIVE_ARCH);
             let wrapped_t = Rc::new(RefCell::new(t));
             // Set the weak self pointer of the task
             wrapped_t.borrow_mut().weak_self = Rc::downgrade(&wrapped_t);

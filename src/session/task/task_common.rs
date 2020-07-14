@@ -11,7 +11,7 @@
 //!     in task_inner.rs
 //! (c) Some misc methods that did not fit elsewhere...
 
-use super::task_inner::{task_inner::TaskInner, TrapReasons};
+use super::task_inner::{task_inner::CloneReason, CloneFlags, TrapReasons};
 use crate::{
     arch::Architecture,
     auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem},
@@ -50,6 +50,7 @@ use crate::{
     session::{
         address_space::{
             address_space::AddressSpace,
+            kernel_mapping::KernelMapping,
             memory_range::MemoryRangeKey,
             BreakpointType,
             DebugStatus,
@@ -69,6 +70,7 @@ use crate::{
             TaskSharedPtr,
             PRELOAD_THREAD_LOCALS_SIZE,
         },
+        Session,
     },
     ticks::Ticks,
     util::{
@@ -107,11 +109,13 @@ use nix::{
     sys::mman::{MapFlags, ProtFlags},
 };
 use std::{
+    cell::RefCell,
     convert::TryInto,
     ffi::{c_void, CStr, CString, OsStr},
     mem::{size_of, zeroed},
     os::unix::ffi::OsStrExt,
     path::Path,
+    rc::Rc,
     slice,
 };
 
@@ -1172,7 +1176,7 @@ pub(super) fn post_exec_for_exe<T: Task>(t: &mut T, exe_file: &OsStr) {
             let scratch_ptr = t.scratch_ptr;
             let scratch_size = t.scratch_size;
             let mut remote = AutoRemoteSyscalls::new(t.as_mut());
-            TaskInner::unmap_buffers_for(
+            unmap_buffers_for(
                 &mut remote,
                 syscallbuf_child,
                 syscallbuf_size,
@@ -1371,4 +1375,217 @@ fn do_preload_init_arch<Arch: Architecture, T: Task>(t: &mut T) {
 
 fn do_preload_init<T: Task>(t: &mut T) {
     rd_arch_task_function_selfless!(T, do_preload_init_arch, t.arch(), t);
+}
+
+/// (Note: Methods following this are protected in the rr implementation)
+/// Return a new Task cloned from `p`.  `flags` are a set of
+/// CloneFlags (see above) that determine which resources are
+/// shared or copied to the new child.  `new_tid` is the tid
+/// assigned to the new task by the kernel.  `new_rec_tid` is
+/// only relevant to replay, and is the pid that was assigned
+/// to the task during recording.
+///
+/// NOTE: Called simply Task::clone() in rr.
+pub(in super::super) fn clone_task_common(
+    clone_this: &dyn Task,
+    reason: CloneReason,
+    flags: CloneFlags,
+    stack: RemotePtr<Void>,
+    tls: RemotePtr<Void>,
+    _cleartid_addr: RemotePtr<i32>,
+    new_tid: pid_t,
+    new_rec_tid: Option<pid_t>,
+    new_serial: u32,
+    maybe_other_session: Option<Rc<Box<dyn Session>>>,
+) -> TaskSharedPtr {
+    let mut new_task_session = clone_this.session();
+    match maybe_other_session {
+        Some(other_session) => {
+            ed_assert!(clone_this, reason != CloneReason::TraceeClone);
+            new_task_session = other_session;
+        }
+        None => {
+            ed_assert!(clone_this, reason == CloneReason::TraceeClone);
+        }
+    }
+    // No longer mutable.
+    let new_task_session = new_task_session;
+
+    let mut t: Box<dyn Task> =
+        new_task_session.new_task(new_tid, new_rec_tid, new_serial, clone_this.arch());
+
+    if flags.contains(CloneFlags::CLONE_SHARE_VM) {
+        // The cloned task has the same AddressSpace
+        t.as_ = clone_this.as_.clone();
+        if !stack.is_null() {
+            let last_stack_byte: RemotePtr<Void> = stack - 1usize;
+            match t.vm_shr_ptr().mapping_of(last_stack_byte) {
+                Some(mapping) => {
+                    if !mapping.recorded_map.is_heap() {
+                        let m: &KernelMapping = &mapping.map;
+                        log!(LogDebug, "mapping stack for {} at {}", new_tid, m);
+                        t.vm_shr_ptr().map(
+                            &mut *t,
+                            m.start(),
+                            m.size(),
+                            m.prot(),
+                            m.flags(),
+                            m.file_offset_bytes(),
+                            OsStr::new("[stack]"),
+                            m.device(),
+                            m.inode(),
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                        );
+                    }
+                }
+                None => (),
+            };
+        }
+    } else {
+        t.as_ = Some(new_task_session.clone_vm(&mut *t, clone_this.vm_shr_ptr()));
+    }
+
+    t.syscallbuf_size = clone_this.syscallbuf_size;
+    t.stopping_breakpoint_table = clone_this.stopping_breakpoint_table;
+    t.stopping_breakpoint_table_entry_size = clone_this.stopping_breakpoint_table_entry_size;
+    t.preload_globals = clone_this.preload_globals;
+    t.seccomp_bpf_enabled = clone_this.seccomp_bpf_enabled;
+
+    let rc_t: TaskSharedPtr = Rc::new(RefCell::new(t));
+    let weak_self_ptr = Rc::downgrade(&rc_t);
+    rc_t.borrow_mut().weak_self = weak_self_ptr.clone();
+
+    let mut ref_t = rc_t.borrow_mut();
+    // FdTable is either shared or copied, so the contents of
+    // syscallbuf_fds_disabled_child are still valid.
+    if flags.contains(CloneFlags::CLONE_SHARE_FILES) {
+        ref_t.fds = clone_this.fds.clone();
+        ref_t
+            .fd_table_shr_ptr()
+            .borrow_mut()
+            .insert(weak_self_ptr.clone());
+    } else {
+        ref_t.fds = Some(clone_this.fd_table().clone_into_task(ref_t.as_mut()));
+    }
+
+    ref_t.top_of_stack = stack;
+    // Clone children, both thread and fork, inherit the parent
+    // prname.
+    ref_t.prname = clone_this.prname.clone();
+
+    // wait() before trying to do anything that might need to
+    // use ptrace to access memory
+    ref_t.wait(None);
+
+    ref_t.post_wait_clone(clone_this, flags);
+    if flags.contains(CloneFlags::CLONE_SHARE_THREAD_GROUP) {
+        ref_t.tg = clone_this.tg.clone();
+    } else {
+        ref_t.tg =
+            Some(new_task_session.clone_tg(ref_t.as_mut(), clone_this.thread_group_shr_ptr()));
+    }
+    ref_t
+        .thread_group_shr_ptr()
+        .borrow_mut()
+        .insert(weak_self_ptr.clone());
+
+    ref_t.open_mem_fd_if_needed();
+    ref_t.thread_areas_ = clone_this.thread_areas_.clone();
+    if flags.contains(CloneFlags::CLONE_SET_TLS) {
+        set_thread_area_from_clone(ref_t.as_mut(), tls);
+    }
+
+    ref_t
+        .vm_shr_ptr()
+        .task_set_mut()
+        .insert(weak_self_ptr.clone());
+
+    if reason == CloneReason::TraceeClone {
+        if !flags.contains(CloneFlags::CLONE_SHARE_VM) {
+            // Unmap syscallbuf and scratch for tasks running the original address
+            // space.
+            let mut remote = AutoRemoteSyscalls::new(ref_t.as_mut());
+            // Leak the scratch buffer for the task we cloned from. We need to do
+            // this because we may be using part of it for the syscallbuf stack
+            // and unmapping it now would cause a crash in the new task.
+            for tt in clone_this
+                .vm()
+                .task_set()
+                .iter_except(clone_this.weak_self_ptr())
+            {
+                unmap_buffers_for(
+                    &mut remote,
+                    tt.borrow().syscallbuf_child,
+                    tt.borrow().syscallbuf_size,
+                    tt.borrow().scratch_ptr,
+                    tt.borrow().scratch_size,
+                );
+            }
+            clone_this.vm().did_fork_into(remote.task_mut());
+        }
+
+        if flags.contains(CloneFlags::CLONE_SHARE_FILES) {
+            // Clear our desched_fd_child so that we don't try to close it.
+            // It should only be closed in |this|.
+            ref_t.desched_fd_child = -1;
+            ref_t.cloned_file_data_fd_child = -1;
+        } else {
+            // Close syscallbuf fds for tasks using the original fd table.
+            let mut remote = AutoRemoteSyscalls::new(ref_t.as_mut());
+            close_buffers_for(
+                &mut remote,
+                clone_this.syscallbuf_child,
+                clone_this.syscallbuf_size,
+                clone_this.scratch_ptr,
+                clone_this.scratch_size,
+            );
+            for tt in clone_this
+                .fd_table()
+                .iter_except(clone_this.weak_self_ptr())
+            {
+                close_buffers_for(
+                    &mut remote,
+                    tt.borrow().syscallbuf_child,
+                    tt.borrow().syscallbuf_size,
+                    tt.borrow().scratch_ptr,
+                    tt.borrow().scratch_size,
+                )
+            }
+        }
+    }
+
+    ref_t.post_vm_clone(reason, flags, clone_this);
+
+    drop(ref_t);
+    rc_t
+}
+
+fn set_thread_area_from_clone(_t: &dyn Task, _tls: RemotePtr<u8>) {
+    unimplemented!()
+}
+
+// DIFF NOTE: Param list different from rr version
+fn unmap_buffers_for(
+    _remote: &mut AutoRemoteSyscalls,
+    _saved_syscallbuf_child: RemotePtr<syscallbuf_hdr>,
+    _syscallbuf_size: usize,
+    _scratch_ptr: RemotePtr<Void>,
+    _scratch_size: usize,
+) {
+    unimplemented!()
+}
+
+// DIFF NOTE: Param list different from rr version
+pub fn close_buffers_for(
+    _remote: &AutoRemoteSyscalls,
+    _saved_syscallbuf_child: RemotePtr<syscallbuf_hdr>,
+    _syscallbuf_size: usize,
+    _scratch_ptr: RemotePtr<Void>,
+    _scratch_size: usize,
+) {
+    unimplemented!()
 }

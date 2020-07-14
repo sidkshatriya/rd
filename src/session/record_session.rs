@@ -12,6 +12,7 @@ use crate::{
     trace::{trace_stream::TraceStream, trace_writer::TraceWriter},
     util::{good_random, CPUIDData, CPUID_GETEXTENDEDFEATURES, CPUID_GETFEATURES, CPUID_GETXSAVE},
 };
+use libc::pid_t;
 use std::{
     cell::{Ref, RefCell, RefMut},
     ops::{Deref, DerefMut},
@@ -187,7 +188,13 @@ impl Session for RecordSession {
         unimplemented!()
     }
 
-    fn new_task(&self, _tid: i32, _rec_tid: i32, _serial: u32, _a: SupportedArch) -> Box<dyn Task> {
+    fn new_task(
+        &self,
+        _tid: pid_t,
+        _rec_tid: Option<pid_t>,
+        _serial: u32,
+        _a: SupportedArch,
+    ) -> Box<dyn Task> {
         unimplemented!()
     }
 

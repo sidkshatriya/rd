@@ -3,7 +3,10 @@ use crate::{
         kernel::{itimerval, setitimer, ITIMER_REAL},
         ptrace::{PTRACE_EVENT_EXIT, PTRACE_INTERRUPT},
     },
-    kernel_abi::{common::preload_interface::syscallbuf_record, SupportedArch},
+    kernel_abi::{
+        common::preload_interface::{syscallbuf_record, PRELOAD_THREAD_LOCALS_SIZE},
+        SupportedArch,
+    },
     log::LogLevel::{LogDebug, LogWarn},
     registers::Registers,
     remote_ptr::{RemotePtr, Void},
@@ -21,7 +24,6 @@ use crate::{
                 WaitRequest,
             },
         },
-        Session,
     },
     util::{is_zombie_process, to_timeval},
     wait_status::{MaybeStopSignal, WaitStatus},
@@ -37,9 +39,8 @@ use std::{
     ptr,
     rc::{Rc, Weak},
 };
-
-use crate::kernel_abi::common::preload_interface::PRELOAD_THREAD_LOCALS_SIZE;
 use task_inner::TrapReasons;
+
 pub mod extra_registers;
 pub mod record_task;
 pub mod replay_task;
@@ -120,32 +121,11 @@ pub trait Task: DerefMut<Target = TaskInner> {
     /// Called when SYS_rdcall_init_preload has happened.
     fn at_preload_init(&mut self);
 
-    /// (Note: Methods following this are protected in the rr implementation)
-    /// Return a new Task cloned from `p`.  `flags` are a set of
-    /// CloneFlags (see above) that determine which resources are
-    /// shared or copied to the new child.  `new_tid` is the tid
-    /// assigned to the new task by the kernel.  `new_rec_tid` is
-    /// only relevant to replay, and is the pid that was assigned
-    /// to the task during recording.
-    /// NOTE: Called simply Task::clone() in rr.
-    fn clone_task(
-        &self,
-        reason: CloneReason,
-        flags: CloneFlags,
-        stack: RemotePtr<Void>,
-        tls: RemotePtr<Void>,
-        cleartid_addr: RemotePtr<i32>,
-        new_tid: pid_t,
-        new_rec_tid: Option<pid_t>,
-        new_serial: u32,
-        other_session: Option<&dyn Session>,
-    ) -> TaskSharedPtr;
-
     /// Internal method called after the first wait() during a clone().
-    fn post_wait_clone(&self, _t: &TaskInner, _flags: i32) {}
+    fn post_wait_clone(&self, _t: &dyn Task, _flags: CloneFlags) {}
 
     /// Internal method called after the clone to fix up the new address space.
-    fn post_vm_clone(&self, _reason: CloneReason, _flags: i32, _origin: &TaskInner) -> bool {
+    fn post_vm_clone(&self, _reason: CloneReason, _flags: CloneFlags, _origin: &TaskInner) -> bool {
         unimplemented!()
     }
 

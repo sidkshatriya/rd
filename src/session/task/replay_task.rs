@@ -7,7 +7,6 @@ use super::{
         post_exec_syscall,
     },
     task_inner::TrapReasons,
-    TaskSharedPtr,
 };
 use crate::{
     arch::Architecture,
@@ -31,8 +30,7 @@ use crate::{
                 write_bytes_helper,
             },
             task_inner::{
-                task_inner::{CloneReason, TaskInner, WriteFlags},
-                CloneFlags,
+                task_inner::{TaskInner, WriteFlags},
                 ResumeRequest,
                 TicksRequest,
                 WaitRequest,
@@ -92,7 +90,7 @@ impl ReplayTask {
     pub fn new(
         session: &dyn Session,
         tid: pid_t,
-        rec_tid: pid_t,
+        rec_tid: Option<pid_t>,
         serial: u32,
         arch: SupportedArch,
     ) -> ReplayTask {
@@ -367,23 +365,6 @@ impl Task for ReplayTask {
     // Forwarded method
     fn at_preload_init(&mut self) {
         at_preload_init_common(self)
-    }
-
-    /// Forwarded method
-    /// @TODO Forwarded method as this would be a non-overridden implementation
-    fn clone_task(
-        &self,
-        _reason: CloneReason,
-        _flags: CloneFlags,
-        _stack: RemotePtr<Void>,
-        _tls: RemotePtr<Void>,
-        _cleartid_addr: RemotePtr<i32>,
-        _new_tid: pid_t,
-        _new_rec_tid: Option<pid_t>,
-        _new_serial: u32,
-        _other_session: Option<&dyn Session>,
-    ) -> TaskSharedPtr {
-        unimplemented!()
     }
 
     /// Forwarded method
