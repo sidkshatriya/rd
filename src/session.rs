@@ -26,6 +26,7 @@ use std::{
     ops::DerefMut,
     rc::{Rc, Weak},
 };
+use task::task_inner::task_inner::CloneReason;
 
 pub mod address_space;
 pub mod diversion_session;
@@ -168,15 +169,28 @@ pub trait Session: DerefMut<Target = SessionInner> {
     /// This method is simply called Session::clone in rr.
     fn clone_task(
         &self,
-        _p: &dyn Task,
-        _flags: CloneFlags,
-        _stack: Option<RemotePtr<Void>>,
-        _tls: Option<RemotePtr<Void>>,
-        _cleartid_addr: Option<RemotePtr<i32>>,
-        _new_tid: pid_t,
-        _new_rec_tid: Option<pid_t>,
-    ) -> &mut dyn Task {
-        unimplemented!()
+        p: &dyn Task,
+        flags: CloneFlags,
+        stack: RemotePtr<Void>,
+        tls: RemotePtr<Void>,
+        cleartid_addr: RemotePtr<i32>,
+        new_tid: pid_t,
+        new_rec_tid: Option<pid_t>,
+    ) -> TaskSharedPtr {
+        self.assert_fully_initialized();
+        let c = p.clone_task(
+            CloneReason::TraceeClone,
+            flags,
+            stack,
+            tls,
+            cleartid_addr,
+            new_tid,
+            new_rec_tid,
+            self.next_task_serial(),
+            None,
+        );
+        self.on_create(c.clone());
+        c
     }
 
     /// Return the task created with `rec_tid`, or None if no such

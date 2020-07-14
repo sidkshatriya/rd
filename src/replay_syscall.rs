@@ -60,6 +60,7 @@ use crate::{
             task_common::{read_mem, write_mem, write_val_mem},
             task_inner::{task_inner::WriteFlags, ResumeRequest, TicksRequest, WaitRequest},
             Task,
+            TaskSharedPtr,
         },
     },
     trace::{
@@ -454,18 +455,18 @@ fn prepare_clone<Arch: Architecture>(t: &mut ReplayTask) {
     }
     let shr_ptr = t.session();
 
-    let new_task: &mut ReplayTask = shr_ptr
-        .clone_task(
-            t,
-            clone_flags_to_task_flags(flags),
-            params.stack,
-            params.tls,
-            params.ctid,
-            new_tid.unwrap(),
-            Some(rec_tid),
-        )
-        .as_replay_task_mut()
-        .unwrap();
+    let new_task_shr_ptr: TaskSharedPtr = shr_ptr.clone_task(
+        t,
+        clone_flags_to_task_flags(flags),
+        params.stack,
+        params.tls,
+        params.ctid,
+        new_tid.unwrap(),
+        Some(rec_tid),
+    );
+
+    let mut new_task_ref = new_task_shr_ptr.borrow_mut();
+    let new_task: &mut ReplayTask = new_task_ref.as_replay_task_mut().unwrap();
 
     if Arch::CLONE as isize == t.regs_ref().original_syscallno() {
         // FIXME: what if registers are non-null and contain an invalid address?

@@ -248,6 +248,7 @@ pub mod record_task {
                     WaitRequest,
                 },
                 Task,
+                TaskSharedPtr,
             },
             Session,
         },
@@ -505,14 +506,14 @@ pub mod record_task {
             &self,
             _reason: CloneReason,
             _flags: CloneFlags,
-            _stack: Option<RemotePtr<u8>>,
-            _tls: Option<RemotePtr<u8>>,
-            _cleartid_addr: Option<RemotePtr<i32>>,
-            _new_tid: i32,
-            _new_rec_tid: i32,
+            _stack: RemotePtr<u8>,
+            _tls: RemotePtr<u8>,
+            _cleartid_addr: RemotePtr<i32>,
+            _new_tid: pid_t,
+            _new_rec_tid: Option<pid_t>,
             _new_serial: u32,
             _other_session: Option<&dyn Session>,
-        ) -> &TaskInner {
+        ) -> TaskSharedPtr {
             unimplemented!()
         }
 

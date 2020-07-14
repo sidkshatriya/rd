@@ -132,14 +132,14 @@ pub trait Task: DerefMut<Target = TaskInner> {
         &self,
         reason: CloneReason,
         flags: CloneFlags,
-        stack: Option<RemotePtr<Void>>,
-        tls: Option<RemotePtr<Void>>,
-        cleartid_addr: Option<RemotePtr<i32>>,
+        stack: RemotePtr<Void>,
+        tls: RemotePtr<Void>,
+        cleartid_addr: RemotePtr<i32>,
         new_tid: pid_t,
-        new_rec_tid: pid_t,
+        new_rec_tid: Option<pid_t>,
         new_serial: u32,
         other_session: Option<&dyn Session>,
-    ) -> &TaskInner;
+    ) -> TaskSharedPtr;
 
     /// Internal method called after the first wait() during a clone().
     fn post_wait_clone(&self, _t: &TaskInner, _flags: i32) {}
