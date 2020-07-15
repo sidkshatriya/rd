@@ -722,14 +722,6 @@ pub mod task_inner {
             &self.pending_siginfo
         }
 
-        /// Destroy in the tracee task the scratch buffer and syscallbuf (if
-        /// syscallbuf_child is non-null).
-        /// This task must already be at a state in which remote syscalls can be
-        /// executed; if it's not, results are undefined.
-        pub fn destroy_buffers(&self) {
-            unimplemented!()
-        }
-
         /// Return the current $ip of this.
         pub fn ip(&self) -> RemoteCodePtr {
             self.registers.ip()

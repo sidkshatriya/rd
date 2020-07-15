@@ -2,6 +2,7 @@ use super::{
     task_common::{
         at_preload_init_common,
         compute_trap_reasons,
+        destroy_buffers,
         on_syscall_exit,
         post_exec_for_exe,
         post_exec_syscall,
@@ -315,6 +316,10 @@ impl DerefMut for ReplayTask {
 }
 
 impl Task for ReplayTask {
+    fn destroy_buffers(&mut self) {
+        destroy_buffers(self)
+    }
+
     /// Forwarded method
     fn post_exec_for_exe(&mut self, exe_file: &OsStr) {
         post_exec_for_exe(self, exe_file)

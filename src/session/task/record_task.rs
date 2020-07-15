@@ -224,6 +224,7 @@ pub mod record_task {
             task::{
                 task_common::{
                     compute_trap_reasons,
+                    destroy_buffers,
                     did_waitpid,
                     next_syscallbuf_record,
                     open_mem_fd,
@@ -440,6 +441,11 @@ pub mod record_task {
     }
 
     impl Task for RecordTask {
+        /// Forwarded method
+        fn destroy_buffers(&mut self) {
+            destroy_buffers(self)
+        }
+
         /// Forwarded method
         fn post_exec_for_exe(&mut self, exe_file: &OsStr) {
             post_exec_for_exe(self, exe_file)

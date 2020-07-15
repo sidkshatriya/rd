@@ -51,6 +51,14 @@ pub type TaskSharedPtr = Rc<RefCell<Box<dyn Task>>>;
 pub type TaskSharedWeakPtr = Weak<RefCell<Box<dyn Task>>>;
 
 pub trait Task: DerefMut<Target = TaskInner> {
+    /// Destroy in the tracee task the scratch buffer and syscallbuf (if
+    /// syscallbuf_child is non-null).
+    /// This task must already be at a state in which remote syscalls can be
+    /// executed; if it's not, results are undefined.
+    ///
+    /// Must be idempotent
+    fn destroy_buffers(&mut self);
+
     /// Calls open_mem_fd if this task's AddressSpace doesn't already have one.
     fn open_mem_fd_if_needed(&mut self) {
         if !self.vm().mem_fd().is_open() {

@@ -34,6 +34,7 @@ use crate::{
         syscall_number_for_arch_prctl,
         syscall_number_for_close,
         syscall_number_for_mprotect,
+        syscall_number_for_munmap,
         syscall_number_for_openat,
         SupportedArch,
     },
@@ -1573,13 +1574,38 @@ fn set_thread_area_from_clone(_t: &dyn Task, _tls: RemotePtr<u8>) {
 
 // DIFF NOTE: Param list different from rr version
 fn unmap_buffers_for(
-    _remote: &mut AutoRemoteSyscalls,
-    _saved_syscallbuf_child: RemotePtr<syscallbuf_hdr>,
-    _syscallbuf_size: usize,
-    _scratch_ptr: RemotePtr<Void>,
-    _scratch_size: usize,
+    remote: &mut AutoRemoteSyscalls,
+    other_saved_syscallbuf_child: RemotePtr<syscallbuf_hdr>,
+    other_syscallbuf_size: usize,
+    other_scratch_ptr: RemotePtr<Void>,
+    other_scratch_size: usize,
 ) {
-    unimplemented!()
+    let arch = remote.task().arch();
+    if !other_scratch_ptr.is_null() {
+        rd_infallible_syscall!(
+            remote,
+            syscall_number_for_munmap(arch),
+            other_scratch_ptr.as_usize(),
+            other_scratch_size
+        );
+        remote
+            .task()
+            .vm_shr_ptr()
+            .unmap(remote.task(), other_scratch_ptr, other_scratch_size);
+    }
+    if !other_saved_syscallbuf_child.is_null() {
+        rd_infallible_syscall!(
+            remote,
+            syscall_number_for_munmap(arch),
+            other_saved_syscallbuf_child.as_usize(),
+            other_syscallbuf_size
+        );
+        remote.task().vm_shr_ptr().unmap(
+            remote.task(),
+            RemotePtr::cast(other_saved_syscallbuf_child),
+            other_syscallbuf_size,
+        );
+    }
 }
 
 // DIFF NOTE: Param list different from rr version
@@ -1631,4 +1657,34 @@ pub(super) fn post_vm_clone_common<T: Task>(
     }
 
     return created_preload_thread_locals_mapping;
+}
+
+/// Forwarded method definition
+///
+pub(super) fn destroy_buffers<T: Task>(t: &mut T) {
+    let saved_syscallbuf_child = t.syscallbuf_child;
+    let mut remote = AutoRemoteSyscalls::new(t);
+    // Clear syscallbuf_child now so nothing tries to use it while tearing
+    // down buffers.
+    remote.task_mut().syscallbuf_child = RemotePtr::null();
+    let syscallbuf_size = remote.task().syscallbuf_size;
+    let scratch_ptr = remote.task().scratch_ptr;
+    let scratch_size = remote.task().scratch_size;
+    unmap_buffers_for(
+        &mut remote,
+        saved_syscallbuf_child,
+        syscallbuf_size,
+        scratch_ptr,
+        scratch_size,
+    );
+    remote.task_mut().scratch_ptr = RemotePtr::null();
+    let other_desched_fd_child = remote.task().desched_fd_child;
+    let other_cloned_file_data_fd_child = remote.task().cloned_file_data_fd_child;
+    close_buffers_for(
+        &mut remote,
+        other_desched_fd_child,
+        other_cloned_file_data_fd_child,
+    );
+    remote.task_mut().desched_fd_child = -1;
+    remote.task_mut().cloned_file_data_fd_child = -1;
 }
