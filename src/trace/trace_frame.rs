@@ -93,7 +93,7 @@ impl TraceFrame {
         &self.recorded_extra_regs
     }
 
-    /// Log a human-readable representation of this to |out|
+    /// Log a human-readable representation of this to `maybe_out`
     /// (defaulting to stdout), including a newline character.
     /// A human-friendly format is used. Does not emit a trailing '}'
     /// (so the caller can add more fields to the record).
@@ -124,7 +124,7 @@ impl TraceFrame {
         }
         write!(out, "\n")
     }
-    /// Log a human-readable representation of this to |out|
+    /// Log a human-readable representation of this to `maybe_out`
     /// (defaulting to stdout), including a newline character.  An
     /// easily machine-parseable format is dumped.
     ///

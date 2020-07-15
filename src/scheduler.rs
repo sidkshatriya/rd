@@ -18,11 +18,11 @@
 //! The scheduler only runs during recording. During replay we're just replaying
 //! the recorded scheduling decisions.
 //!
-//! The main interface to the scheduler is |get_next_thread|. This gets called
+//! The main interface to the scheduler is `get_next_thread`. This gets called
 //! after every rd event to decide which task to run next.
 //!
 //! The scheduler gives the current task a 'timeslice', a ticks deadline after
-//! which we will try to switch to another task. So |get_next_thread| first
+//! which we will try to switch to another task. So `get_next_thread` first
 //! checks whether the currently running task has exceeded that deadline. If
 //! not, and the current task is runnable, we schedule it again. If it's blocked
 //! or has exceeded its deadline, we search for another task to run:
@@ -32,7 +32,7 @@
 //! priority as the current task, choose the next runnable task after the
 //! current task (so equal priority tasks run in round-robin order).
 //!
-//! The main parameter to the scheduler is |max_ticks|, which controls the
+//! The main parameter to the scheduler is `max_ticks`, which controls the
 //! length of each timeslice.
 
 use crate::{session::task::record_task::record_task::RecordTask, ticks::Ticks};

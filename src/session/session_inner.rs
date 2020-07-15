@@ -329,7 +329,7 @@ pub mod session_inner {
                 let (_, t) = self.task_map.borrow_mut().pop_last().unwrap();
                 if !t.borrow().unstable.get() {
                     // Destroy the OS task backing this by sending it SIGKILL and
-                    // ensuring it was delivered.  After |kill()|, the only
+                    // ensuring it was delivered.  After `kill()`, the only
                     // meaningful thing that can be done with this task is to
                     // delete it.
                     log!(LogDebug, "sending SIGKILL to {} ...", t.borrow().tid);

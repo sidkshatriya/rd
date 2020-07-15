@@ -578,11 +578,11 @@ impl ReplaySession {
         {
             let rc_t = maybe_rc_t.as_ref().unwrap().clone();
             self.fast_forward_status.set(FastForwardStatus::new());
-            // Now we know |t| hasn't died, so save it in break_status.
+            // Now we know `t` hasn't died, so save it in break_status.
             result.break_status.task = Some(rc_t.borrow().weak_self.clone());
             let mut dt = rc_t.borrow_mut();
             let t = dt.as_replay_task_mut().unwrap();
-            // Advance towards fulfilling |current_step|.
+            // Advance towards fulfilling `current_step`.
             if self.try_one_trace_step(t, &constraints) == Completion::Incomplete {
                 if EventType::EvTraceTermination == self.current_trace_frame().event().event_type()
                 {
@@ -878,11 +878,11 @@ impl ReplaySession {
         unimplemented!();
     }
     // Continue until reaching either the "entry" of an emulated syscall,
-    // or the entry or exit of an executed syscall.  |emu| is nonzero when
+    // or the entry or exit of an executed syscall.  `emu` is nonzero when
     // we're emulating the syscall.  Return COMPLETE when the next syscall
     // boundary is reached, or INCOMPLETE if advancing to the boundary was
     // interrupted by an unknown trap.
-    // When |syscall_trace_frame| is non-null, we continue to the syscall by
+    // When the syscall trace frame is non-null, we continue to the syscall by
     // setting a breakpoint instead of running until we execute a system
     // call instruction. In that case we will not actually enter the kernel.
     fn cont_syscall_boundary(
@@ -974,7 +974,7 @@ impl ReplaySession {
     }
 
     /// Advance to the next syscall entry (or virtual entry) according to
-    /// |step|.  Return COMPLETE if successful, or INCOMPLETE if an unhandled trap
+    /// |step|.  Return `Complete` if successful, or `Incomplete` if an unhandled trap
     /// occurred.
     fn enter_syscall(&self, t: &mut ReplayTask, constraints: &StepConstraints) -> Completion {
         if t.regs_ref().matches(self.current_trace_frame().regs_ref())
@@ -1314,8 +1314,8 @@ impl ReplaySession {
         unimplemented!();
     }
 
-    /// Try to execute |step|, adjusting for |req| if needed.  Return Complete if
-    /// |step| was made, or Incomplete if there was a trap or |step| needs
+    /// Try to execute step, adjusting for `constraints` if needed.  Return `Complete` if
+    /// step was made, or `Incomplete` if there was a trap or step needs
     /// more work.
     fn try_one_trace_step(&self, t: &mut ReplayTask, constraints: &StepConstraints) -> Completion {
         if constraints.ticks_target > 0
@@ -1598,7 +1598,7 @@ fn is_fatal_default_action(_sig: i32) -> bool {
     unimplemented!()
 }
 
-/// Return true if replaying |ev| by running |step| should result in
+/// Return true if replaying `ev` by running `step` should result in
 /// the target task having the same ticks value as it did during
 /// recording.
 fn has_deterministic_ticks(ev: &Event, step: ReplayTraceStep) -> bool {

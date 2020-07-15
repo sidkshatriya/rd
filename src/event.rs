@@ -470,7 +470,7 @@ impl Event {
 
     /// Dump info about this to INFO log.
     ///
-    /// Note: usually you want to use |LOG(info) << event;|.
+    /// Note: usually you want to use `log!(LogInfo,...)`.
     pub fn log(&self) {
         log!(LogInfo, "{}", self);
     }

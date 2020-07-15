@@ -876,7 +876,7 @@ fn non_negative_syscall(sys: i32) -> i32 {
     }
 }
 
-/// Call this when |t| has just entered a syscall.
+/// Call this when `t` has just entered a syscall.
 pub fn rep_after_enter_syscall(t: &mut ReplayTask) {
     rd_arch_function_selfless!(rep_after_enter_syscall_arch, t.arch(), t)
 }
@@ -1127,7 +1127,7 @@ pub fn process_execve(t: &mut ReplayTask, step: &mut ReplayTraceStep) {
                 .vm_shr_ptr()
                 .unmap(remote.task_mut(), m.start(), m.size());
         }
-        // We will have unmapped the stack memory that |remote| would have used for
+        // We will have unmapped the stack memory that `remote` would have used for
         // memory parameters. Fortunately process_mapped_region below doesn't
         // need any memory parameters for its remote syscalls.
 
@@ -1575,7 +1575,7 @@ fn finish_private_mmap(
         Some(rec_addr),
         length,
         prot,
-        // Tell the kernel to take |rec_addr| seriously.
+        // Tell the kernel to take `rec_addr` seriously.
         (flags & !MapFlags::MAP_GROWSDOWN) | MapFlags::MAP_FIXED | MapFlags::MAP_ANONYMOUS,
         -1,
         0,
@@ -1687,8 +1687,7 @@ fn finish_anonymous_mmap(
             Some(rec_addr),
             length,
             prot,
-            // Tell the kernel to take |rec_addr|
-            // seriously.
+            // Tell the kernel to take `rec_addr` seriously.
             (flags & !MapFlags::MAP_GROWSDOWN) | MapFlags::MAP_FIXED,
             -1,
             0,

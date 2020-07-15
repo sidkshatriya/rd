@@ -859,7 +859,7 @@ pub struct __sysctl_args {
     pub oldlenp: ptr<size_t>,
     pub newval: ptr<u8>,
     pub newlen: ptr<size_t>,
-    pub __rr_unused: [unsigned_long; 4],
+    pub __rd_unused: [unsigned_long; 4],
 }
 //RR_VERIFY_TYPE(__sysctl_args);
 

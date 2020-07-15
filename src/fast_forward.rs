@@ -59,19 +59,18 @@ pub fn at_x86_string_instruction<T: Task>(t: &mut T) -> bool {
     is_string_instruction_at(t, t.ip())
 }
 
-/// Perform one or more synchronous singlesteps of |t|. Usually just does
+/// Perform one or more synchronous singlesteps of `t`. Usually just does
 /// one singlestep, except when a singlestep leaves the IP unchanged (i.e. a
 /// single instruction represents a loop, such as an x86 REP-prefixed string
 /// instruction).
 ///
-/// |how| must be either RESUME_SINGLESTEP or RESUME_SYSEMU_SINGLESTEP.
+/// `how` can be e.g. `ResumeSinglestep` or `ResumeSysemuSinglestep`.
 ///
 /// We always perform at least one singlestep. We stop after a singlestep if
 /// one of the following is true, or will be true after one more singlestep:
 /// -- Any breakpoint or watchpoint has been triggered
 /// -- IP has advanced to the next instruction
-/// -- One of the register states in |states| (a null-terminated list)
-/// has been reached.
+/// -- One of the register states in `states` has been reached.
 ///
 /// Spurious returns after any singlestep are also allowed.
 ///
@@ -80,7 +79,8 @@ pub fn at_x86_string_instruction<T: Task>(t: &mut T) -> bool {
 /// Returns true if we did a fast-forward, false if we just did one regular
 /// singlestep.
 ///
-/// DIFF NOTE: @TODO? In rr we're getting pointers to registers. Here we're getting a register copy
+/// DIFF NOTE: @TODO Performance?
+/// In rr we're getting pointers to registers. Here we're getting a register copy
 pub fn fast_forward_through_instruction<T: Task>(
     t: &mut T,
     how: ResumeRequest,
@@ -149,14 +149,14 @@ pub fn fast_forward_through_instruction<T: Task>(
     let limit_ip = ip + decoded.length;
 
     // At this point we can be sure the instruction didn't trigger a syscall,
-    // so we no longer care about the value of |how|.
+    // so we no longer care about the value of `how`.
 
     let mut extra_state_to_avoid: Option<Registers> = None;
 
     loop {
         // This string instruction should execute until CX reaches 0 and
         // we move to the next instruction, or we hit one of the states in
-        // |states|, or the ZF flag changes so that the REP stops, or we hit
+        // `states`, or the ZF flag changes so that the REP stops, or we hit
         // a watchpoint. (We can't hit a breakpoint during the loop since we
         // already verified there isn't one set here.)
 
@@ -164,7 +164,7 @@ pub fn fast_forward_through_instruction<T: Task>(
         // iterations to execute, and execute just that many iterations by
         // modifying CX, setting a breakpoint after the string instruction to catch it
         // ending.
-        // Keep in mind that it's possible that states in |states| might
+        // Keep in mind that it's possible that states in `states` might
         // belong to multiple independent loops of this string instruction, with
         // registers reset in between the loops.
 
@@ -184,7 +184,7 @@ pub fn fast_forward_through_instruction<T: Task>(
         // mark_vector state.
         let mut iterations: usize = cur_cx - 1;
 
-        // Bound |iterations| to ensure we stop before reachng any |states|.
+        // Bound `iterations` to ensure we stop before reachng any `states`.
         let mut it = states.into_iter();
         let mut extra_state_iterated = false;
         loop {
@@ -222,7 +222,7 @@ pub fn fast_forward_through_instruction<T: Task>(
 
         // To stop before the ZF changes and we exit the loop, we don't bound
         // the iterations here. Instead we run the loop, observe the ZF change,
-        // and then rerun the loop with the loop-exit state added to the |states|
+        // and then rerun the loop with the loop-exit state added to the `states`
         // list. See below.
 
         // A code watchpoint would already be hit if we're going to hit it.

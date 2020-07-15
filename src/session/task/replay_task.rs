@@ -103,8 +103,8 @@ impl ReplayTask {
     /// RRCALL_init_syscall_buffer.  This task must be at the point
     /// of *exit from* the rrcall.  Registers will be updated with
     /// the return value from the rrcall, which is also returned
-    /// from this call.  |map_hint| suggests where to map the
-    /// region; see |init_syscallbuf_buffer()|.
+    /// from this call.  `map_hint` suggests where to map the
+    /// region; see `init_syscallbuf_buffer()`.
     pub fn init_buffers(_map_hint: RemotePtr<Void>) {
         unimplemented!()
     }

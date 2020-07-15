@@ -1147,7 +1147,7 @@ pub mod address_space {
             match last_overlap {
                 Some(last_overlap_key) => {
                     // All mappings that we altered which might need coalescing
-                    // are adjacent to |last_overlap|.
+                    // are adjacent to `last_overlap_key`.
                     self.coalesce_around(t, last_overlap_key);
                 }
                 None => (),
@@ -3054,7 +3054,7 @@ fn is_coalescable(mleft: &Mapping, mright: &Mapping) -> bool {
     return mleft.flags == mright.flags;
 }
 
-/// Return true iff |left| and |right| are located adjacently in memory
+/// Return true iff `mleft` and `mright` are located adjacently in memory
 /// with the same metadata, and map adjacent locations of the same
 /// underlying (real) device.
 fn is_adjacent_mapping(
@@ -3095,7 +3095,7 @@ fn normalized_file_names_equal(
 ) -> bool {
     if km1.is_stack() || km2.is_stack() {
         // The kernel seems to use "[stack:<tid>]" for any mapping area containing
-        // thread |tid|'s stack pointer. When the thread exits, the next read of
+        // thread `tid`'s stack pointer. When the thread exits, the next read of
         // the maps doesn't treat the area as stack at all. We don't want to track
         // thread exits, so if one of the mappings is a stack, skip the name
         // comparison. Device and inode numbers will still be checked.
@@ -3239,9 +3239,9 @@ fn could_be_stack(km: &KernelMapping) -> bool {
         && km.inode() == KernelMapping::NO_INODE
 }
 
-/// If |*left_m| and |right_m| are adjacent (see
-/// |is_adjacent_mapping()|), write a merged segment descriptor to
-/// |*left_m| and return true.  Otherwise return false.
+/// If `left_m` and `right_m` are adjacent (see
+/// `is_adjacent_mapping()`), write a merged segment descriptor to
+/// `*left_m` and return true.  Otherwise return false.
 fn try_merge_adjacent(left_m: &mut KernelMapping, right_m: &KernelMapping) -> bool {
     if is_adjacent_mapping(
         left_m,
