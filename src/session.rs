@@ -17,7 +17,7 @@ use crate::{
         },
     },
     taskish_uid::{AddressSpaceUid, TaskUid, ThreadGroupUid},
-    thread_group::ThreadGroupSharedPtr,
+    thread_group::{ThreadGroup, ThreadGroupSharedPtr},
     trace::trace_stream::TraceStream,
 };
 use libc::pid_t;
@@ -213,10 +213,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
     /// Return the thread group whose unique ID is `tguid`, or None if no such
     /// thread group exists.
     /// NOTE: Method is simply called Session::find thread_group() in rr
-    fn find_thread_group_from_tguid(
-        &mut self,
-        tguid: ThreadGroupUid,
-    ) -> Option<ThreadGroupSharedPtr> {
+    fn find_thread_group_from_tguid(&self, tguid: ThreadGroupUid) -> Option<ThreadGroupSharedPtr> {
         self.finish_initializing();
         self.thread_group_map()
             .get(&tguid)
@@ -225,7 +222,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
 
     /// Find the thread group for a specific pid
     /// NOTE: Method is simply called Session::find thread_group() in rr
-    fn find_thread_group_from_pid(&mut self, pid: pid_t) -> Option<ThreadGroupSharedPtr> {
+    fn find_thread_group_from_pid(&self, pid: pid_t) -> Option<ThreadGroupSharedPtr> {
         self.finish_initializing();
         for (tguid, tg) in self.thread_group_map().iter() {
             if tguid.tid() == pid {
@@ -245,8 +242,35 @@ pub trait Session: DerefMut<Target = SessionInner> {
 
     /// Return a copy of `tg` with the same mappings.
     /// NOTE: Called simply Session::clone() in rr
-    fn clone_tg(&self, _t: &dyn Task, _tg: ThreadGroupSharedPtr) -> ThreadGroupSharedPtr {
-        unimplemented!()
+    fn clone_tg(&self, t: &dyn Task, tg: ThreadGroupSharedPtr) -> ThreadGroupSharedPtr {
+        self.assert_fully_initialized();
+        // If tg already belongs to our session this is a fork to create a new
+        // taskgroup, otherwise it's a session-clone of an existing taskgroup
+        if self.weak_self.ptr_eq(tg.borrow().session_weak_ptr()) {
+            ThreadGroup::new(
+                self.weak_self.clone(),
+                tg.borrow().parent_weak_ptr(),
+                t.rec_tid,
+                t.tid,
+                t.own_namespace_tid(),
+                t.tuid().serial(),
+            )
+        } else {
+            let maybe_parent = match tg.borrow().parent() {
+                Some(parent_tg) => self
+                    .find_thread_group_from_tguid(parent_tg.borrow().tguid())
+                    .map(|found| Rc::downgrade(&found)),
+                None => None,
+            };
+            ThreadGroup::new(
+                self.weak_self.clone(),
+                maybe_parent,
+                tg.borrow().tgid,
+                t.tid,
+                t.own_namespace_tid(),
+                tg.borrow().tguid().serial(),
+            )
+        }
     }
 
     /// Return the set of Tasks being traced in this session.

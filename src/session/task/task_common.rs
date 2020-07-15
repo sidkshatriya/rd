@@ -1538,10 +1538,8 @@ pub(in super::super) fn clone_task_common(
             let mut remote = AutoRemoteSyscalls::new(ref_t.as_mut());
             close_buffers_for(
                 &mut remote,
-                clone_this.syscallbuf_child,
-                clone_this.syscallbuf_size,
-                clone_this.scratch_ptr,
-                clone_this.scratch_size,
+                clone_this.desched_fd_child,
+                clone_this.cloned_file_data_fd_child,
             );
             for tt in clone_this
                 .fd_table()
@@ -1549,10 +1547,8 @@ pub(in super::super) fn clone_task_common(
             {
                 close_buffers_for(
                     &mut remote,
-                    tt.borrow().syscallbuf_child,
-                    tt.borrow().syscallbuf_size,
-                    tt.borrow().scratch_ptr,
-                    tt.borrow().scratch_size,
+                    tt.borrow().desched_fd_child,
+                    tt.borrow().cloned_file_data_fd_child,
                 )
             }
         }
@@ -1581,11 +1577,33 @@ fn unmap_buffers_for(
 
 // DIFF NOTE: Param list different from rr version
 pub fn close_buffers_for(
-    _remote: &AutoRemoteSyscalls,
-    _saved_syscallbuf_child: RemotePtr<syscallbuf_hdr>,
-    _syscallbuf_size: usize,
-    _scratch_ptr: RemotePtr<Void>,
-    _scratch_size: usize,
+    remote: &mut AutoRemoteSyscalls,
+    other_desched_fd_child: i32,
+    other_cloned_file_data_fd_child: i32,
 ) {
-    unimplemented!()
+    let arch = remote.task().arch();
+    if other_desched_fd_child >= 0 {
+        if remote.task().session().is_recording() {
+            rd_infallible_syscall!(
+                remote,
+                syscall_number_for_close(arch),
+                other_desched_fd_child
+            );
+        }
+        remote
+            .task_mut()
+            .fd_table_mut()
+            .did_close(other_desched_fd_child);
+    }
+    if other_cloned_file_data_fd_child >= 0 {
+        rd_infallible_syscall!(
+            remote,
+            syscall_number_for_close(arch),
+            other_cloned_file_data_fd_child
+        );
+        remote
+            .task_mut()
+            .fd_table_mut()
+            .did_close(other_cloned_file_data_fd_child);
+    }
 }

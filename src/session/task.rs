@@ -51,11 +51,22 @@ pub type TaskSharedPtr = Rc<RefCell<Box<dyn Task>>>;
 pub type TaskSharedWeakPtr = Weak<RefCell<Box<dyn Task>>>;
 
 pub trait Task: DerefMut<Target = TaskInner> {
-    /// DIFF NOTE: @TODO method is protected in rr
-    /// Internal method called after the first wait() during a clone().
-    fn post_wait_clone(&self, t: &dyn Task, flags: CloneFlags) {}
+    /// Calls open_mem_fd if this task's AddressSpace doesn't already have one.
+    fn open_mem_fd_if_needed(&mut self) {
+        if !self.vm().mem_fd().is_open() {
+            self.open_mem_fd();
+        }
+    }
 
     /// DIFF NOTE: @TODO method is protected in rr
+    ///
+    /// Internal method called after the first wait() during a clone().
+    fn post_wait_clone(&self, _t: &dyn Task, _flags: CloneFlags) {
+        // Do nothing by default. Can be overridden in trait impl-s.
+    }
+
+    /// DIFF NOTE: @TODO method is protected in rr
+    ///
     /// Internal method called after the clone to fix up the new address space.
     fn post_vm_clone(&self, reason: CloneReason, flags: CloneFlags, origin: &dyn Task) -> bool;
 

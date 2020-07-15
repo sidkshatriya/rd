@@ -1234,11 +1234,6 @@ pub mod task_inner {
             false
         }
 
-        /// Calls open_mem_fd if this task's AddressSpace doesn't already have one.
-        pub fn open_mem_fd_if_needed(&self) {
-            unimplemented!()
-        }
-
         /// Lock or unlock the syscallbuf to prevent the preload library from using it.
         /// Only has an effect if the syscallbuf has been initialized.
         pub fn set_syscallbuf_locked(&self, _locked: bool) {

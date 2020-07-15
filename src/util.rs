@@ -1047,7 +1047,7 @@ pub fn extract_clone_parameters(t: &dyn Task) -> CloneParameters {
 }
 
 /// Convert the flags passed to the clone() syscall, `flags_arg`, into
-/// the format understood by Task::clone_task().
+/// the format understood by `clone_task_common()`.
 pub fn clone_flags_to_task_flags(flags_arg: i32) -> CloneFlags {
     let mut flags = CloneFlags::empty();
     // See struct CloneFlags for description of the flags.
