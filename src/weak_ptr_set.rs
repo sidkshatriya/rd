@@ -1,3 +1,4 @@
+use crate::log::LogLevel::LogDebug;
 use std::{
     cell::RefCell,
     collections::{hash_set::Iter, HashSet},
@@ -69,9 +70,11 @@ impl<T> WeakPtrSet<T> {
         }
     }
     pub fn insert(&mut self, t: Weak<RefCell<T>>) -> bool {
+        log!(LogDebug, "adding a task to task set {:?}", t.as_ptr());
         self.0.insert(WeakPtrWrap(t))
     }
     pub fn erase(&mut self, t: Weak<RefCell<T>>) -> bool {
+        log!(LogDebug, "removing a task from task set {:?}", t.as_ptr());
         self.0.remove(&WeakPtrWrap(t))
     }
     pub fn has(&self, t: Weak<RefCell<T>>) -> bool {
