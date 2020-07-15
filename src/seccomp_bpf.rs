@@ -5,6 +5,19 @@ use crate::{
 };
 use std::convert::TryInto;
 
+// Copyright notice as in rr's `src/seccomp-bpf.h` (see https://github.com/mozilla/rr)
+/*
+ * seccomp example for x86 (32-bit and 64-bit) with BPF macros
+ *
+ * Copyright (c) 2012 The Chromium OS Authors <chromium-os-dev@chromium.org>
+ * Authors:
+ *  Will Drewry <wad@chromium.org>
+ *  Kees Cook <keescook@chromium.org>
+ *
+ * The code may be used by anyone for any purpose, and can serve as a
+ * starting point for developing applications using mode 2 seccomp.
+ */
+
 fn bpf_stmt(code: u16, k: u32) -> sock_filter {
     sock_filter {
         code,
