@@ -908,7 +908,10 @@ fn rep_after_enter_syscall_arch<Arch: Architecture>(t: &mut ReplayTask) {
     }
 
     if sys == Arch::EXIT_GROUP {
-        unimplemented!()
+        if t.thread_group().task_set().len() == 1 {
+            // See above.
+            t.destroy_buffers();
+        }
     }
 
     t.apply_all_data_records_from_trace();

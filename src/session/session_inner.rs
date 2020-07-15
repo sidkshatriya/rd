@@ -252,7 +252,7 @@ pub mod session_inner {
             }
 
             let tg = ThreadGroup::new(self.weak_self.clone(), None, rec_tid, tid, tid, tuid_serial);
-            tg.borrow_mut().insert(Rc::downgrade(&t));
+            tg.borrow_mut().task_set_mut().insert(Rc::downgrade(&t));
             tg
         }
 

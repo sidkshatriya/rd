@@ -1495,6 +1495,7 @@ pub(in super::super) fn clone_task_common(
     ref_t
         .thread_group_shr_ptr()
         .borrow_mut()
+        .task_set_mut()
         .insert(weak_self_ptr.clone());
 
     ref_t.open_mem_fd_if_needed();

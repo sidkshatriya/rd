@@ -8,7 +8,6 @@ use crate::{
 use libc::pid_t;
 use std::{
     cell::{Ref, RefCell, RefMut},
-    ops::{Deref, DerefMut},
     rc::{Rc, Weak},
 };
 
@@ -66,25 +65,19 @@ impl Drop for ThreadGroup {
     }
 }
 
-impl Deref for ThreadGroup {
-    type Target = WeakPtrSet<Box<dyn Task>>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.tasks
-    }
-}
-
-impl DerefMut for ThreadGroup {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.tasks
-    }
-}
-
 /// Tracks a group of tasks with an associated ID, set from the
 /// original "thread group leader", the child of `fork()` which became
 /// the ancestor of all other threads in the group.  Each constituent
 /// task must own a reference to this.
 impl ThreadGroup {
+    pub fn task_set(&self) -> &WeakPtrSet<Box<dyn Task>> {
+        &self.tasks
+    }
+
+    pub fn task_set_mut(&mut self) -> &mut WeakPtrSet<Box<dyn Task>> {
+        &mut self.tasks
+    }
+
     pub fn new(
         session: SessionSharedWeakPtr,
         maybe_parent: Option<ThreadGroupSharedWeakPtr>,
@@ -195,7 +188,7 @@ impl ThreadGroup {
     /// needed for death signals and exit_group().
     pub fn destabilize(&self) {
         log!(LogDebug, "destabilizing thread group {}", self.tgid);
-        for t in self.iter() {
+        for t in self.task_set().iter() {
             t.borrow().unstable.set(true);
             log!(LogDebug, "  destabilized task {}", t.borrow().tid);
         }

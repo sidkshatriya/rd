@@ -45,6 +45,14 @@ impl<T> Deref for WeakPtrWrap<T> {
     }
 }
 
+impl<T> Deref for WeakPtrSet<T> {
+    type Target = HashSet<WeakPtrWrap<T>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 pub struct WeakPtrSet<T>(HashSet<WeakPtrWrap<T>>);
 
 impl<T> Clone for WeakPtrSet<T> {

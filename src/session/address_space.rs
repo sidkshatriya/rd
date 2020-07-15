@@ -3194,7 +3194,7 @@ fn thread_group_in_exec(t: &dyn Task) -> bool {
     if !t.session().is_recording() {
         return false;
     }
-    for tt in t.thread_group().iter() {
+    for tt in t.thread_group().task_set().iter() {
         let rf = tt.borrow();
         // @TODO Is this comparison what we really want?
         if rf.tuid() == t.tuid() {
