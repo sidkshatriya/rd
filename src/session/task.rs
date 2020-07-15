@@ -68,7 +68,12 @@ pub trait Task: DerefMut<Target = TaskInner> {
     /// DIFF NOTE: @TODO method is protected in rr
     ///
     /// Internal method called after the clone to fix up the new address space.
-    fn post_vm_clone(&self, reason: CloneReason, flags: CloneFlags, origin: &dyn Task) -> bool;
+    fn post_vm_clone(
+        &mut self,
+        reason: CloneReason,
+        flags: CloneFlags,
+        origin: &mut dyn Task,
+    ) -> bool;
 
     fn post_exec_syscall(&mut self);
 

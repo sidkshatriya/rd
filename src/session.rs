@@ -170,7 +170,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
     /// This method is simply called Session::clone in rr.
     fn clone_task(
         &self,
-        p: &dyn Task,
+        p: &mut dyn Task,
         flags: CloneFlags,
         stack: RemotePtr<Void>,
         tls: RemotePtr<Void>,

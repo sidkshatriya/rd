@@ -5,6 +5,7 @@ use super::{
         on_syscall_exit,
         post_exec_for_exe,
         post_exec_syscall,
+        post_vm_clone_common,
     },
     task_inner::{task_inner::CloneReason, CloneFlags, TrapReasons},
 };
@@ -15,6 +16,7 @@ use crate::{
     registers::{MismatchBehavior, Registers},
     remote_ptr::{RemotePtr, Void},
     session::{
+        address_space::address_space::AddressSpace,
         task::{
             task_common::{
                 did_waitpid,
@@ -43,7 +45,9 @@ use crate::{
     trace::{
         trace_frame::{FrameTime, TraceFrame},
         trace_reader::{RawData, TraceReader},
+        trace_stream::MappedData,
     },
+    util::page_size,
     wait_status::WaitStatus,
 };
 use libc::pid_t;
@@ -418,7 +422,30 @@ impl Task for ReplayTask {
         compute_trap_reasons(self)
     }
 
-    fn post_vm_clone(&self, _reason: CloneReason, _flags: CloneFlags, _origin: &dyn Task) -> bool {
-        unimplemented!()
+    fn post_vm_clone(
+        &mut self,
+        reason: CloneReason,
+        flags: CloneFlags,
+        origin: &mut dyn Task,
+    ) -> bool {
+        if post_vm_clone_common(self, reason, flags, origin)
+            && reason == CloneReason::TraceeClone
+            && self.trace_reader().preload_thread_locals_recorded()
+        {
+            // Consume the mapping.
+            let mut data = MappedData::default();
+            let km = self
+                .trace_reader_mut()
+                .read_mapped_region(Some(&mut data), None, None, None, None)
+                .unwrap();
+            ed_assert!(
+                self,
+                km.start() == AddressSpace::preload_thread_locals_start()
+                    && km.size() == page_size()
+            );
+            true
+        } else {
+            false
+        }
     }
 }

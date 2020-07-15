@@ -1386,8 +1386,12 @@ fn do_preload_init<T: Task>(t: &mut T) {
 /// to the task during recording.
 ///
 /// NOTE: Called simply Task::clone() in rr.
+///
+/// @TODO Can make a template parameter for T:Task but will need to add a
+/// method to the Task Trait. Since this is a protected method in rr may
+/// want to think about this some more...
 pub(in super::super) fn clone_task_common(
-    clone_this: &dyn Task,
+    clone_this: &mut dyn Task,
     reason: CloneReason,
     flags: CloneFlags,
     stack: RemotePtr<Void>,
@@ -1606,4 +1610,22 @@ pub fn close_buffers_for(
             .fd_table_mut()
             .did_close(other_cloned_file_data_fd_child);
     }
+}
+
+pub(super) fn post_vm_clone_common<T: Task>(
+    t: &mut T,
+    reason: CloneReason,
+    flags: CloneFlags,
+    origin: &mut dyn Task,
+) -> bool {
+    let mut created_preload_thread_locals_mapping: bool = false;
+    if !flags.contains(CloneFlags::CLONE_SHARE_VM) {
+        created_preload_thread_locals_mapping = t.vm_shr_ptr().post_vm_clone(t);
+    }
+
+    if reason == CloneReason::TraceeClone {
+        t.setup_preload_thread_locals_from_clone(origin);
+    }
+
+    return created_preload_thread_locals_mapping;
 }

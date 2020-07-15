@@ -559,10 +559,10 @@ pub mod record_task {
         }
 
         fn post_vm_clone(
-            &self,
+            &mut self,
             _reason: CloneReason,
             _flags: CloneFlags,
-            _origin: &dyn Task,
+            _origin: &mut dyn Task,
         ) -> bool {
             unimplemented!()
         }

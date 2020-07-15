@@ -507,7 +507,7 @@ fn prepare_clone<Arch: Architecture>(t: &mut ReplayTask) {
             if m.local_addr.is_some()
                 && !m
                     .flags
-                    .contains(MappingFlags::IS_THREAD_LOCALS | MappingFlags::IS_SYSCALLBUF)
+                    .intersects(MappingFlags::IS_THREAD_LOCALS | MappingFlags::IS_SYSCALLBUF)
             {
                 remote.recreate_shared_mmap(k, Some(PreserveContents), None);
             }

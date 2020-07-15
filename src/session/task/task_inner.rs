@@ -1292,9 +1292,15 @@ pub mod task_inner {
             rd_arch_function_selfless!(setup_preload_thread_locals_arch, self.arch(), self);
         }
 
-        pub fn setup_preload_thread_locals_from_clone(&self, _origin: &TaskInner) {
-            unimplemented!()
+        pub fn setup_preload_thread_locals_from_clone(&mut self, origin: &mut TaskInner) {
+            rd_arch_function_selfless!(
+                setup_preload_thread_locals_from_clone_arch,
+                self.arch(),
+                self,
+                origin
+            )
         }
+
         pub fn fetch_preload_thread_locals(&mut self) -> &ThreadLocals {
             if self.tuid() == self.vm().thread_locals_tuid() {
                 let maybe_local_addr = preload_thread_locals_local_addr(self.vm());
@@ -2102,8 +2108,10 @@ fn preload_thread_locals_local_addr(as_: &AddressSpace) -> Option<NonNull<c_void
         _ => None,
     }
 }
-fn setup_preload_thread_locals_arch<Arch: Architecture>(t: &mut TaskInner) {
+fn setup_preload_thread_locals_arch<Arch: Architecture>(t: &TaskInner) {
     let maybe_local_addr = preload_thread_locals_local_addr(t.vm());
+
+    // @TODO find a way to make this more succint? Code is basically the same in both match arms
     match maybe_local_addr {
         Some(local_addr) => match Arch::arch() {
             SupportedArch::X86 => {
@@ -2121,6 +2129,42 @@ fn setup_preload_thread_locals_arch<Arch: Architecture>(t: &mut TaskInner) {
                     (*preload_ptr).syscallbuf_stub_alt_stack =
                         x64::ptr::<Void>::from_remote_ptr(t.syscallbuf_alt_stack())
                 };
+            }
+        },
+        None => (),
+    }
+}
+
+fn setup_preload_thread_locals_from_clone_arch<Arch: Architecture>(
+    t: &mut TaskInner,
+    origin: &mut TaskInner,
+) {
+    let maybe_local_addr = preload_thread_locals_local_addr(t.vm());
+
+    // @TODO find a way to make this more succint? Code is basically the same in both match arms
+    match maybe_local_addr {
+        Some(local_addr) => match Arch::arch() {
+            SupportedArch::X86 => {
+                t.activate_preload_thread_locals();
+                let locals = local_addr.as_ptr() as *mut x86_preload_thread_locals;
+                let origin_locals =
+                    origin.fetch_preload_thread_locals().as_ptr() as *mut x86_preload_thread_locals;
+                unsafe {
+                    (*locals).alt_stack_nesting_level = (*origin_locals).alt_stack_nesting_level
+                };
+                // clone() syscalls set the child stack pointer, so the child is no
+                // longer in the syscallbuf code even if the parent was.
+            }
+            SupportedArch::X64 => {
+                t.activate_preload_thread_locals();
+                let locals = local_addr.as_ptr() as *mut x64_preload_thread_locals;
+                let origin_locals =
+                    origin.fetch_preload_thread_locals().as_ptr() as *mut x64_preload_thread_locals;
+                unsafe {
+                    (*locals).alt_stack_nesting_level = (*origin_locals).alt_stack_nesting_level
+                };
+                // clone() syscalls set the child stack pointer, so the child is no
+                // longer in the syscallbuf code even if the parent was.
             }
         },
         None => (),
