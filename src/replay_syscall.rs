@@ -1061,6 +1061,10 @@ pub fn process_execve(t: &mut ReplayTask, step: &mut ReplayTraceStep) {
             // executable segment, as well as the km that contains the ip. This is
             // slightly complicated, but should handle the case where either file has
             // more than one executable segment.
+            //
+            // @TODO Its OK to leave this `if` branch unimplemented as we're assuming
+            // newer traces with the required information. The logic here is a bit
+            // hairy and can always be filled in later.
             unimplemented!()
         }
         kms.push(km);
