@@ -51,10 +51,16 @@ pub type TaskSharedPtr = Rc<RefCell<Box<dyn Task>>>;
 pub type TaskSharedWeakPtr = Weak<RefCell<Box<dyn Task>>>;
 
 pub trait Task: DerefMut<Target = TaskInner> {
-    /// Forwarded method signature
+    /// DIFF NOTE: @TODO method is protected in rr
+    /// Internal method called after the first wait() during a clone().
+    fn post_wait_clone(&self, t: &dyn Task, flags: CloneFlags) {}
+
+    /// DIFF NOTE: @TODO method is protected in rr
+    /// Internal method called after the clone to fix up the new address space.
+    fn post_vm_clone(&self, reason: CloneReason, flags: CloneFlags, origin: &dyn Task) -> bool;
+
     fn post_exec_syscall(&mut self);
 
-    /// Forwarded method signature
     fn post_exec_for_exe(&mut self, exe_file: &OsStr);
 
     fn resume_execution(
@@ -72,6 +78,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
     fn next_syscallbuf_record(&mut self) -> RemotePtr<syscallbuf_record>;
 
     fn as_task_inner(&self) -> &TaskInner;
+
     fn as_task_inner_mut(&mut self) -> &mut TaskInner;
 
     fn as_record_task(&self) -> Option<&RecordTask> {
@@ -89,7 +96,9 @@ pub trait Task: DerefMut<Target = TaskInner> {
     }
 
     /// Dump all pending events to the RecordTask INFO log.
-    fn log_pending_events(&self) {}
+    fn log_pending_events(&self) {
+        // Do nothing by default. Trait impl-s can override.
+    }
 
     /// Call this hook just before exiting a syscall.  Often Task
     /// attributes need to be updated based on the finishing syscall.
@@ -105,6 +114,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
         _ticks_req: TicksRequest,
         _sig: Option<i32>,
     ) {
+        // Do nothing by default. Trait impl-s can override.
     }
 
     /// Hook called by `did_waitpid`.
@@ -120,14 +130,6 @@ pub trait Task: DerefMut<Target = TaskInner> {
 
     /// Called when SYS_rdcall_init_preload has happened.
     fn at_preload_init(&mut self);
-
-    /// Internal method called after the first wait() during a clone().
-    fn post_wait_clone(&self, _t: &dyn Task, _flags: CloneFlags) {}
-
-    /// Internal method called after the clone to fix up the new address space.
-    fn post_vm_clone(&self, _reason: CloneReason, _flags: CloneFlags, _origin: &TaskInner) -> bool {
-        unimplemented!()
-    }
 
     /// Dump attributes of this process, including pending events,
     /// to `out`, which defaults to LOG_FILE.
@@ -369,19 +371,14 @@ pub trait Task: DerefMut<Target = TaskInner> {
         false
     }
 
-    /// Forwarded method signature
     fn open_mem_fd(&mut self) -> bool;
 
-    /// Forwarded method signature
     fn read_bytes_fallible(&mut self, addr: RemotePtr<Void>, buf: &mut [u8]) -> Result<usize, ()>;
 
-    /// Forwarded method signature
     fn read_bytes_helper(&mut self, addr: RemotePtr<Void>, buf: &mut [u8], ok: Option<&mut bool>);
 
-    /// Forwarded method signature
     fn read_c_str(&mut self, child_addr: RemotePtr<u8>) -> CString;
 
-    /// Forwarded method signature
     fn write_bytes_helper(
         &mut self,
         addr: RemotePtr<Void>,
@@ -390,10 +387,8 @@ pub trait Task: DerefMut<Target = TaskInner> {
         flags: WriteFlags,
     );
 
-    /// Forwarded method signature
     fn syscallbuf_data_size(&mut self) -> usize;
 
-    /// Forwarded method signature
     fn write_bytes(&mut self, child_addr: RemotePtr<Void>, buf: &[u8]);
 
     /// Call this after the tracee successfully makes a
@@ -409,7 +404,6 @@ pub trait Task: DerefMut<Target = TaskInner> {
         self.prname = OsString::from_vec(buf);
     }
 
-    /// Forwarded method signature
     fn compute_trap_reasons(&mut self) -> TrapReasons;
 }
 

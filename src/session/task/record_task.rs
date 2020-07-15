@@ -240,7 +240,8 @@ pub mod record_task {
                     write_bytes_helper,
                 },
                 task_inner::{
-                    task_inner::{TaskInner, WriteFlags},
+                    task_inner::{CloneReason, TaskInner, WriteFlags},
+                    CloneFlags,
                     ResumeRequest,
                     TicksRequest,
                     TrapReasons,
@@ -555,6 +556,15 @@ pub mod record_task {
         // Forwarded method
         fn compute_trap_reasons(&mut self) -> TrapReasons {
             compute_trap_reasons(self)
+        }
+
+        fn post_vm_clone(
+            &self,
+            _reason: CloneReason,
+            _flags: CloneFlags,
+            _origin: &dyn Task,
+        ) -> bool {
+            unimplemented!()
         }
     }
 

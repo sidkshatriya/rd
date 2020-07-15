@@ -1530,7 +1530,7 @@ pub(in super::super) fn clone_task_common(
 
         if flags.contains(CloneFlags::CLONE_SHARE_FILES) {
             // Clear our desched_fd_child so that we don't try to close it.
-            // It should only be closed in |this|.
+            // It should only be closed in `clone_this`.
             ref_t.desched_fd_child = -1;
             ref_t.cloned_file_data_fd_child = -1;
         } else {

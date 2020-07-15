@@ -6,7 +6,7 @@ use super::{
         post_exec_for_exe,
         post_exec_syscall,
     },
-    task_inner::TrapReasons,
+    task_inner::{task_inner::CloneReason, CloneFlags, TrapReasons},
 };
 use crate::{
     arch::Architecture,
@@ -407,6 +407,7 @@ impl Task for ReplayTask {
     fn write_bytes(&mut self, child_addr: RemotePtr<u8>, buf: &[u8]) {
         write_bytes(self, child_addr, buf);
     }
+
     /// Forwarded method
     fn post_exec_syscall(&mut self) {
         post_exec_syscall(self)
@@ -415,5 +416,9 @@ impl Task for ReplayTask {
     // Forwarded method
     fn compute_trap_reasons(&mut self) -> TrapReasons {
         compute_trap_reasons(self)
+    }
+
+    fn post_vm_clone(&self, _reason: CloneReason, _flags: CloneFlags, _origin: &dyn Task) -> bool {
+        unimplemented!()
     }
 }
