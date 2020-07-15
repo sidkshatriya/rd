@@ -19,7 +19,6 @@ use nix::sys::stat::lstat;
 use std::{
     cell::{Ref, RefCell, RefMut},
     collections::{HashMap, HashSet},
-    ops::{Deref, DerefMut},
     rc::{Rc, Weak},
 };
 
@@ -36,22 +35,16 @@ pub struct FdTable {
     fd_count_beyond_limit: u32,
 }
 
-impl Deref for FdTable {
-    type Target = WeakPtrSet<Box<dyn Task>>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.tasks
-    }
-}
-
-impl DerefMut for FdTable {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.tasks
-    }
-}
-
 /// We DO NOT want Copy or Clone traits
 impl FdTable {
+    pub fn task_set(&self) -> &WeakPtrSet<Box<dyn Task>> {
+        &self.tasks
+    }
+
+    pub fn task_set_mut(&mut self) -> &mut WeakPtrSet<Box<dyn Task>> {
+        &mut self.tasks
+    }
+
     pub fn add_monitor(&mut self, t: &dyn Task, fd: i32, monitor: Box<dyn FileMonitor>) {
         // In the future we could support multiple monitors on an fd, but we don't
         // need to yet.
@@ -185,7 +178,7 @@ impl FdTable {
 
         let rt = t.as_record_task_mut().unwrap();
 
-        ed_assert!(&rt, self.has(rt.weak_self_ptr()));
+        ed_assert!(&rt, self.task_set().has(rt.weak_self_ptr()));
 
         let preload_globals = match rt.preload_globals {
             None => return,
@@ -221,7 +214,7 @@ impl FdTable {
     /// been closed.
     /// This also updates our table to match reality.
     pub fn fds_to_close_after_exec(&mut self, t: &RecordTask) -> Vec<i32> {
-        ed_assert!(t, self.has(t.weak_self_ptr()));
+        ed_assert!(t, self.task_set().has(t.weak_self_ptr()));
 
         let mut fds_to_close: Vec<i32> = Vec::new();
         for &fd in self.fds.keys() {
@@ -238,7 +231,7 @@ impl FdTable {
 
     /// Close fds in list after an exec.
     pub fn close_after_exec(&mut self, t: &ReplayTask, fds_to_close: &[i32]) {
-        ed_assert!(t, self.has(t.weak_self_ptr()));
+        ed_assert!(t, self.task_set().has(t.weak_self_ptr()));
 
         for &fd in fds_to_close {
             self.did_close(fd)
@@ -255,12 +248,12 @@ impl FdTable {
 
     fn update_syscallbuf_fds_disabled(&self, mut fd: i32) {
         debug_assert!(fd >= 0);
-        debug_assert!(!self.inner_hashset().is_empty());
+        debug_assert!(!self.task_set().is_empty());
 
         let mut vms_updated: HashSet<*const AddressSpace> = HashSet::new();
         // It's possible for tasks with different VMs to share this fd table.
         // But tasks with the same VM might have different fd tables...
-        for t in self.iter() {
+        for t in self.task_set().iter() {
             if !t.borrow().session().is_recording() {
                 return;
             }

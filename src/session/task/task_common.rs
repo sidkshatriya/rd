@@ -1203,7 +1203,7 @@ pub(super) fn post_exec_for_exe<T: Task>(t: &mut T, exe_file: &OsStr) {
     t.session().post_exec(t);
 
     t.vm().task_set_mut().erase(t.weak_self_ptr());
-    t.fd_table_mut().erase(t.weak_self_ptr());
+    t.fd_table_mut().task_set_mut().erase(t.weak_self_ptr());
 
     t.extra_registers = None;
     let mut e = t.extra_regs_ref().clone();
@@ -1471,6 +1471,7 @@ pub(in super::super) fn clone_task_common(
         ref_t
             .fd_table_shr_ptr()
             .borrow_mut()
+            .task_set_mut()
             .insert(weak_self_ptr.clone());
     } else {
         ref_t.fds = Some(clone_this.fd_table().clone_into_task(ref_t.as_mut()));
@@ -1548,6 +1549,7 @@ pub(in super::super) fn clone_task_common(
             );
             for tt in clone_this
                 .fd_table()
+                .task_set()
                 .iter_except(clone_this.weak_self_ptr())
             {
                 close_buffers_for(
