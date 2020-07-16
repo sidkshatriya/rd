@@ -135,6 +135,12 @@ pub struct RecordSession {
     output_trace_dir: String,
 }
 
+impl Drop for RecordSession {
+    fn drop(&mut self) {
+        unimplemented!()
+    }
+}
+
 impl RecordSession {
     pub fn scheduler(&self) -> Ref<'_, Scheduler> {
         self.scheduler_.borrow()

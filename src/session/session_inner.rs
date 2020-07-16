@@ -52,7 +52,11 @@ impl BreakStatus {
     }
 
     pub fn any_break(&self) -> bool {
-        unimplemented!()
+        !self.watchpoints_hit.is_empty()
+            || self.signal.is_some()
+            || self.breakpoint_hit
+            || self.singlestep_complete
+            || self.approaching_ticks_target
     }
 }
 
@@ -347,7 +351,7 @@ pub mod session_inner {
                     t.borrow().thread_group().destabilize();
                 }
 
-                t.borrow().destroy();
+                t.borrow_mut().destroy();
             }
         }
 
@@ -364,8 +368,8 @@ pub mod session_inner {
                 .insert(tg.borrow().tguid(), Rc::downgrade(tg));
         }
         /// NOTE: Method is simply called on_Session::on_destroy() in rr.
-        pub fn on_destroy_tg(&mut self, _tg: &ThreadGroup) {
-            unimplemented!()
+        pub fn on_destroy_tg(&self, tg: &ThreadGroup) {
+            self.thread_group_map.borrow_mut().remove(&tg.tguid());
         }
 
         /// Return the set of AddressSpaces being tracked in this session.

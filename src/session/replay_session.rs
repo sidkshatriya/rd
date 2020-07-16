@@ -4,13 +4,20 @@ use super::task::{
 };
 use crate::{
     arch::{Architecture, X86Arch},
-    bindings::{ptrace::PTRACE_EVENT_SECCOMP, signal::siginfo_t},
+    bindings::{
+        ptrace::{PTRACE_EVENT_EXIT, PTRACE_EVENT_SECCOMP},
+        signal::siginfo_t,
+    },
     cpuid_bug_detector::CPUIDBugDetector,
     emu_fs::{EmuFs, EmuFsSharedPtr},
     event::{Event, EventType, SignalDeterministic, SignalEventData, SyscallState},
     fast_forward::{fast_forward_through_instruction, FastForwardStatus},
     flags::Flags as ProgramFlags,
-    kernel_abi::{common::preload_interface::syscallbuf_hdr, SupportedArch},
+    kernel_abi::{
+        common::preload_interface::syscallbuf_hdr,
+        syscall_number_for_exit,
+        SupportedArch,
+    },
     kernel_metadata::{signal_name, syscall_name},
     log::LogLevel::LogDebug,
     perf_counters,
@@ -1079,9 +1086,16 @@ impl ReplaySession {
 
         Completion::Complete
     }
-    fn exit_task(&self, _t: &ReplayTask) -> Completion {
-        unimplemented!();
+
+    fn exit_task(&self, t: &mut ReplayTask) -> Completion {
+        ed_assert!(t, !t.seen_ptrace_exit_event);
+        // Apply robust-futex updates captured during recording.
+        t.apply_all_data_records_from_trace();
+        end_task(t);
+        // |t| is dead now.
+        Completion::Complete
     }
+
     fn handle_unrecorded_cpuid_fault(
         &self,
         t: &mut ReplayTask,
@@ -1386,6 +1400,38 @@ impl ReplaySession {
         self.syscall_bp_addr.set(RemoteCodePtr::null());
         maybe_bp_vm.take();
     }
+}
+
+/// Task death during replay always goes through here (except for
+/// Session::kill_all_tasks when we forcibly kill all tasks in the session at
+/// once). `exit` and `exit_group` syscalls are both emulated so the real
+/// task doesn't die until we reach the EXIT/UNSTABLE_EXIT events in the trace.
+/// This ensures the real tasks are alive and available as long as our Task
+/// object exists, which simplifies code like Session cloning.
+///
+/// Killing tasks with fatal signals doesn't work because a fatal signal will
+/// try to kill all the tasks in the thread group. Instead we inject an `exit`
+/// syscall, which is apparently the only way to kill one specific thread.
+fn end_task(t: &mut ReplayTask) {
+    ed_assert!(t, t.maybe_ptrace_event() != PTRACE_EVENT_EXIT);
+
+    t.destroy_buffers();
+
+    let mut r: Registers = t.regs_ref().clone();
+    r.set_ip(t.vm().privileged_traced_syscall_ip().unwrap());
+    r.set_syscallno(syscall_number_for_exit(t.arch()) as isize);
+    t.set_regs(&r);
+    // Enter the syscall.
+    t.resume_execution(
+        ResumeRequest::ResumeCont,
+        WaitRequest::ResumeWait,
+        TicksRequest::ResumeNoTicks,
+        None,
+    );
+    ed_assert!(t, t.maybe_ptrace_event() == PTRACE_EVENT_EXIT);
+
+    t.stable_exit = true;
+    t.destroy();
 }
 
 impl Deref for ReplaySession {

@@ -421,7 +421,7 @@ impl ReRunCommand {
             if cmd != RunCommand::RunContinue {
                 {
                     let old_task =
-                        old_task_tuid.map(|id| replay_session.find_task_from_task_uid(id).unwrap());
+                        old_task_tuid.map_or(None, |id| replay_session.find_task_from_task_uid(id));
                     let after_ip: RemoteCodePtr =
                         old_task.as_ref().map_or(0.into(), |t| t.borrow().ip());
                     debug_assert!(after_time >= before_time && after_time <= before_time + 1);

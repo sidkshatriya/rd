@@ -1656,7 +1656,7 @@ pub(super) fn post_vm_clone_common<T: Task>(
         t.setup_preload_thread_locals_from_clone(origin);
     }
 
-    return created_preload_thread_locals_mapping;
+    created_preload_thread_locals_mapping
 }
 
 /// Forwarded method definition

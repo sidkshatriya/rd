@@ -61,7 +61,21 @@ pub struct ThreadGroup {
 
 impl Drop for ThreadGroup {
     fn drop(&mut self) {
-        unimplemented!()
+        self.session().on_destroy_tg(self);
+        for tg in self.children() {
+            tg.borrow_mut().parent_ = None;
+        }
+        match &self.parent_ {
+            Some(parent) => {
+                parent
+                    .upgrade()
+                    .unwrap()
+                    .borrow_mut()
+                    .children_mut()
+                    .erase(self.weak_self_ptr());
+            }
+            None => (),
+        }
     }
 }
 
@@ -214,11 +228,15 @@ impl ThreadGroup {
         &self.children_
     }
 
+    pub fn children_mut(&mut self) -> &mut WeakPtrSet<ThreadGroup> {
+        &mut self.children_
+    }
+
     pub fn tguid(&self) -> ThreadGroupUid {
         ThreadGroupUid::new_with(self.tgid, self.serial)
     }
 
-    pub fn self_ptr(&self) -> ThreadGroupSharedWeakPtr {
+    pub fn weak_self_ptr(&self) -> ThreadGroupSharedWeakPtr {
         self.weak_self.clone()
     }
 }

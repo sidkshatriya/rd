@@ -574,13 +574,6 @@ pub mod task_inner {
             self.weak_self.clone()
         }
 
-        /// We hide the destructor and require clients to call this instead. This
-        /// lets us make virtual calls from within the destruction code. This
-        /// does the actual PTRACE_DETACH and then calls the real destructor.
-        pub fn destroy(&self) {
-            unimplemented!()
-        }
-
         /// Called after the first exec in a session, when the session first
         /// enters a consistent state. Prior to that, the task state
         /// can vary based on how rd set up the child process. We have to flush
