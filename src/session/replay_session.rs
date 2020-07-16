@@ -359,7 +359,23 @@ pub struct Flags {
 
 impl Drop for ReplaySession {
     fn drop(&mut self) {
-        unimplemented!()
+        // We won't permanently leak any OS resources by not ensuring
+        // we've cleaned up here, but sessions can be created and
+        // destroyed many times, and we don't want to temporarily hog
+        // resources.
+        self.kill_all_tasks();
+        // Drop any AddressSpace
+        {
+            self.syscall_bp_vm.borrow_mut().take();
+        }
+        debug_assert!(self.task_map.borrow().is_empty());
+        debug_assert!(self.vm_map.borrow().is_empty());
+        debug_assert!(self.emufs().size() == 0);
+        log!(
+            LogDebug,
+            "ReplaySession {:?} destroyed",
+            self as *const Self
+        );
     }
 }
 
@@ -497,12 +513,15 @@ impl ReplaySession {
 
     fn advance_to_next_trace_frame(&self) {
         if self.trace_in.borrow().at_end() {
-            *self.trace_frame.borrow_mut() = TraceFrame::new_with(
-                self.current_frame_time(),
+            let global_time = self.current_frame_time();
+            let tick_count = self.current_trace_frame().ticks();
+            let monotonic_time = self.current_trace_frame().monotonic_time();
+            *self.current_trace_frame_mut() = TraceFrame::new_with(
+                global_time,
                 0,
                 Event::trace_termination(),
-                self.current_trace_frame().ticks(),
-                self.current_trace_frame().monotonic_time(),
+                tick_count,
+                monotonic_time,
             );
             return;
         }

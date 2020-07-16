@@ -355,12 +355,15 @@ pub mod session_inner {
             }
         }
 
-        /// Call these functions from the objects' destructors in order
+        /// Call these functions from the objects' drop impl in order
         /// to notify this session that the objects are dying.
         /// NOTE: Method is simply called on_Session::on_destroy() in rr.
-        pub fn on_destroy_vm(&mut self, _vm: &AddressSpace) {
-            unimplemented!()
+        pub fn on_destroy_vm(&self, vm: &AddressSpace) {
+            debug_assert!(vm.task_set().len() == 0);
+            debug_assert!(self.vm_map.borrow().get(&vm.uid()).is_some());
+            self.vm_map.borrow_mut().remove(&vm.uid());
         }
+
         /// NOTE: Method is simply called Session::on_create() in rr.
         pub fn on_create_tg(&self, tg: &ThreadGroupSharedPtr) {
             self.thread_group_map

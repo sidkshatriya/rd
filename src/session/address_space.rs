@@ -2907,6 +2907,7 @@ pub mod address_space {
                     _ => (),
                 }
             }
+            self.session().on_destroy_vm(self);
         }
     }
 }
