@@ -298,7 +298,11 @@ pub fn fast_forward_through_instruction<T: Task>(
         // Overwrite the value of tmp
         tmp = t.regs_ref().clone();
         // Undo our change to CX value
-        tmp.set_cx(tmp.cx() + cur_cx - iterations);
+        //
+        // DIFF NOTE: Expression for set_cx() slightly refactored to prevent arithmetic overflow
+        // which still gives the correct result but in rust would give an error as arithmetic
+        // can be checked (e.g. in debug mode).
+        tmp.set_cx(cur_cx - iterations_performed);
         if decoded.modifies_flags && t.regs_ref().cx() > 0 {
             // String instructions that modify flags don't have non-register side
             // effects, so we can reset registers to effectively unwind the loop.
