@@ -182,16 +182,17 @@ impl DerefMut for RecordSession {
 }
 
 impl Session for RecordSession {
+    /// DIFF NOTE: Simply called on_destroy() in rr
+    fn on_destroy_task(&self, _t: &dyn Task) {
+        unimplemented!()
+    }
+
     fn as_session_inner(&self) -> &SessionInner {
         &self.session_inner
     }
 
     fn as_session_inner_mut(&mut self) -> &mut SessionInner {
         &mut self.session_inner
-    }
-
-    fn on_destroy(&self, _t: &dyn Task) {
-        unimplemented!()
     }
 
     fn new_task(

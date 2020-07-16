@@ -76,7 +76,7 @@ use crate::{
 use nix::sys::utsname::uname;
 use std::{
     io,
-    io::{stderr, Write},
+    io::Write,
 };
 use structopt::StructOpt;
 
@@ -127,6 +127,6 @@ fn main() -> io::Result<()> {
         _ => (),
     }
 
-    write!(stderr(), "{:?}\n", options)?;
+    // write!(stderr(), "{:?}\n", options)?;
     Ok(())
 }

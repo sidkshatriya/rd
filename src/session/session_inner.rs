@@ -574,7 +574,7 @@ pub mod session_inner {
 
     impl Drop for SessionInner {
         fn drop(&mut self) {
-            unimplemented!()
+            // Do nothing
         }
     }
 

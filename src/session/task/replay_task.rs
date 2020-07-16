@@ -7,6 +7,7 @@ use super::{
         post_exec_for_exe,
         post_exec_syscall,
         post_vm_clone_common,
+        task_drop_common,
     },
     task_inner::{task_inner::CloneReason, CloneFlags, TrapReasons},
 };
@@ -68,6 +69,12 @@ impl Deref for ReplayTask {
 
     fn deref(&self) -> &Self::Target {
         &self.task_inner
+    }
+}
+
+impl Drop for ReplayTask {
+    fn drop(&mut self) {
+        task_drop_common(self);
     }
 }
 

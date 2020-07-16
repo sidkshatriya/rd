@@ -46,8 +46,9 @@ pub trait Session: DerefMut<Target = SessionInner> {
     fn as_session_inner(&self) -> &SessionInner;
     fn as_session_inner_mut(&mut self) -> &mut SessionInner;
 
-    fn on_destroy(&self, _t: &dyn Task) {
-        unimplemented!()
+    /// DIFF NOTE: Simply called on_destroy() in rr
+    fn on_destroy_task(&self, _t: &dyn Task) {
+        // Do nothing by default.
     }
 
     fn as_record(&self) -> Option<&RecordSession> {

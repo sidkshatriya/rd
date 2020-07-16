@@ -62,6 +62,8 @@ pub trait Task: DerefMut<Target = TaskInner> {
         );
         self.fallible_ptrace(PTRACE_DETACH, RemotePtr::null(), PtraceData::None);
 
+        debug_assert!(self.session().tasks().get(&self.rec_tid).is_some());
+        // Removing the entry from the HashMap causes the drop() to happen
         self.session().tasks_mut().remove(&self.rec_tid);
     }
     /// Destroy in the tracee task the scratch buffer and syscallbuf (if

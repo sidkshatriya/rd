@@ -94,6 +94,7 @@ use libc::{
     pid_t,
     pread64,
     waitpid,
+    ECHILD,
     EPERM,
     ESRCH,
     PR_SET_NAME,
@@ -116,6 +117,7 @@ use std::{
     mem::{size_of, zeroed},
     os::unix::ffi::OsStrExt,
     path::Path,
+    ptr,
     rc::Rc,
     slice,
 };
@@ -1687,4 +1689,48 @@ pub(super) fn destroy_buffers<T: Task>(t: &mut T) {
     );
     remote.task_mut().desched_fd_child = -1;
     remote.task_mut().cloned_file_data_fd_child = -1;
+}
+
+pub(super) fn task_drop_common<T: Task>(t: &T) {
+    if t.unstable.get() {
+        log!(
+            LogWarn,
+            "{} is unstable; not blocking on its termination",
+            t.tid
+        );
+        // This will probably leak a zombie process for rd's lifetime.
+
+        // Destroying a Session may result in unstable exits during which
+        // destroy_buffers() will not have been called.
+        if !t.syscallbuf_child.is_null() {
+            t.vm_shr_ptr()
+                .unmap(t, RemotePtr::cast(t.syscallbuf_child), t.syscallbuf_size);
+        }
+    } else {
+        ed_assert!(t, t.seen_ptrace_exit_event);
+        ed_assert!(t, t.syscallbuf_child.is_null());
+
+        if t.thread_group().task_set().is_empty() && !t.session().is_recording() {
+            // Reap the zombie.
+            let ret = unsafe { waitpid(t.thread_group().real_tgid, ptr::null_mut(), __WALL) };
+            if ret == -1 {
+                ed_assert!(t, errno() == ECHILD || errno() == ESRCH);
+            } else {
+                ed_assert!(t, ret == t.thread_group().real_tgid);
+            }
+        }
+    }
+
+    t.session().on_destroy_task(t);
+    t.thread_group_shr_ptr()
+        .borrow_mut()
+        .task_set_mut()
+        .erase(t.weak_self_ptr());
+    t.vm_shr_ptr().task_set_mut().erase(t.weak_self_ptr());
+    t.fd_table_shr_ptr()
+        .borrow_mut()
+        .task_set_mut()
+        .erase(t.weak_self_ptr());
+
+    log!(LogDebug, "  dead");
 }
