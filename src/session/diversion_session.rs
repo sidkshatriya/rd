@@ -1,3 +1,4 @@
+use super::session_common::kill_all_tasks;
 use crate::{
     emu_fs::{EmuFs, EmuFsSharedPtr},
     session::{
@@ -88,6 +89,11 @@ impl DerefMut for DiversionSession {
 }
 
 impl Session for DiversionSession {
+    // Forwarded method
+    fn kill_all_tasks(&self) {
+        kill_all_tasks(self)
+    }
+
     fn as_session_inner(&self) -> &SessionInner {
         &self.session_inner
     }

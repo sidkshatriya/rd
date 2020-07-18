@@ -1,7 +1,7 @@
 use crate::{
     bindings::{
         kernel::{itimerval, setitimer, ITIMER_REAL},
-        ptrace::{PTRACE_DETACH, PTRACE_EVENT_EXIT, PTRACE_INTERRUPT},
+        ptrace::{PTRACE_EVENT_EXIT, PTRACE_INTERRUPT},
     },
     kernel_abi::{
         common::preload_interface::{syscallbuf_record, PRELOAD_THREAD_LOCALS_SIZE},
@@ -51,17 +51,14 @@ pub type TaskSharedPtr = Rc<RefCell<Box<dyn Task>>>;
 pub type TaskSharedWeakPtr = Weak<RefCell<Box<dyn Task>>>;
 
 pub trait Task: DerefMut<Target = TaskInner> {
-    /// Require clients to call this to totally remove and drop the task
-    /// This does the actual PTRACE_DETACH and then initiates the drop().
+    /// DIFF NOTE: Unlike rr, it is NOT compulsory to always call this method
+    /// to cleanup a task. Call this method when you need to explicitly remove
+    /// the entry the task_map in SessionInner.
+    /// If this method is NOT called then simply do what this method is doing
+    /// which is to remove the corresponding TaskSharedPtr entry from the
+    /// task_map. See kill_all_tasks() for an example where the task map
+    /// is being pop-ed from.
     fn destroy(&mut self) {
-        log!(
-            LogDebug,
-            "task {} (rec:{}) is dying ...",
-            self.tid,
-            self.rec_tid
-        );
-        self.fallible_ptrace(PTRACE_DETACH, RemotePtr::null(), PtraceData::None);
-
         debug_assert!(self.session().tasks().get(&self.rec_tid).is_some());
         // Removing the entry from the HashMap causes the drop() to happen
         self.session().tasks_mut().remove(&self.rec_tid);

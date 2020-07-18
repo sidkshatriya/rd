@@ -74,10 +74,7 @@ use crate::{
     util::raise_resource_limits,
 };
 use nix::sys::utsname::uname;
-use std::{
-    io,
-    io::Write,
-};
+use std::io;
 use structopt::StructOpt;
 
 pub fn assert_prerequisites(maybe_use_syscall_buffer: Option<bool>) {

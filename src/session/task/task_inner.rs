@@ -902,6 +902,12 @@ pub mod task_inner {
             self.session_.upgrade().unwrap()
         }
 
+        /// Use this method when the session weak pointer upgrade
+        /// may not work e.g. when a Session Rc is being drop()-ed
+        pub fn try_session(&self) -> Option<SessionSharedPtr> {
+            self.session_.upgrade()
+        }
+
         /// Set the tracee's registers to `regs`. Lazy.
         pub fn set_regs(&mut self, regs: &Registers) {
             ed_assert!(self, self.is_stopped);

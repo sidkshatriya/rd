@@ -61,7 +61,6 @@ pub struct ThreadGroup {
 
 impl Drop for ThreadGroup {
     fn drop(&mut self) {
-        self.session().on_destroy_tg(self);
         for tg in self.children() {
             tg.borrow_mut().parent_ = None;
         }
@@ -76,6 +75,12 @@ impl Drop for ThreadGroup {
             }
             None => (),
         }
+        // DIFF NOTE: @TODO This assert is not present in rr.
+        // Is there any scenario where this assert may not hold but
+        // but the program is still correct?
+        debug_assert!(self.task_set().len() == 0);
+        self.try_session()
+            .map(|sess| sess.on_destroy_tg(self.tguid()));
     }
 }
 
@@ -210,6 +215,13 @@ impl ThreadGroup {
 
     pub fn session(&self) -> SessionSharedPtr {
         self.session_.upgrade().unwrap()
+    }
+
+    /// In some scenarios the session may not be available e.g.
+    /// Session Rc may be getting drop()-ed. In that case use this
+    /// method instead of session() e.g. in the ThreadGroup drop().
+    pub fn try_session(&self) -> Option<SessionSharedPtr> {
+        self.session_.upgrade()
     }
 
     pub fn session_weak_ptr(&self) -> &SessionSharedWeakPtr {

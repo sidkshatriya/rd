@@ -1,3 +1,4 @@
+use super::session_common::kill_all_tasks;
 use crate::{
     event::Switchable,
     kernel_abi::SupportedArch,
@@ -8,6 +9,7 @@ use crate::{
         task::{Task, TaskSharedPtr},
         Session,
     },
+    taskish_uid::TaskUid,
     thread_group::ThreadGroupSharedPtr,
     trace::{trace_stream::TraceStream, trace_writer::TraceWriter},
     util::{good_random, CPUIDData, CPUID_GETEXTENDEDFEATURES, CPUID_GETFEATURES, CPUID_GETXSAVE},
@@ -182,8 +184,12 @@ impl DerefMut for RecordSession {
 }
 
 impl Session for RecordSession {
-    /// DIFF NOTE: Simply called on_destroy() in rr
-    fn on_destroy_task(&self, _t: &dyn Task) {
+    /// Forwarded method
+    fn kill_all_tasks(&self) {
+        kill_all_tasks(self)
+    }
+
+    fn on_destroy_task(&self, _t: TaskUid) {
         unimplemented!()
     }
 

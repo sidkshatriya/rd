@@ -11,13 +11,12 @@
 //!     in task_inner.rs
 //! (c) Some misc methods that did not fit elsewhere...
 
-use super::task_inner::{task_inner::CloneReason, CloneFlags, TrapReasons};
 use crate::{
     arch::Architecture,
     auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem},
     bindings::{
         kernel::user_regs_struct as native_user_regs_struct,
-        ptrace::{PTRACE_EVENT_EXIT, PTRACE_GETREGS, PTRACE_GETSIGINFO},
+        ptrace::{PTRACE_DETACH, PTRACE_EVENT_EXIT, PTRACE_GETREGS, PTRACE_GETSIGINFO},
         signal::POLL_IN,
     },
     core::type_has_no_holes,
@@ -61,9 +60,11 @@ use crate::{
             is_signal_triggered_by_ptrace_interrupt,
             is_singlestep_resume,
             task_inner::{
-                task_inner::{CapturedState, PtraceData, WriteFlags},
+                task_inner::{CapturedState, CloneReason, PtraceData, WriteFlags},
+                CloneFlags,
                 ResumeRequest,
                 TicksRequest,
+                TrapReasons,
                 WaitRequest,
                 MAX_TICKS_REQUEST,
             },
@@ -1691,7 +1692,15 @@ pub(super) fn destroy_buffers<T: Task>(t: &mut T) {
     remote.task_mut().cloned_file_data_fd_child = -1;
 }
 
+/// Takes sess as a param because sess might be in the process of
+/// getting drop()-ed. Calling t.session() will not be a good idea
+/// in this case because the weak point upgrade will fail as the
+/// session is gettng dropped.
 pub(super) fn task_drop_common<T: Task>(t: &T) {
+    log!(LogDebug, "task {} (rec:{}) is dying ...", t.tid, t.rec_tid);
+
+    t.fallible_ptrace(PTRACE_DETACH, RemotePtr::null(), PtraceData::None);
+
     if t.unstable.get() {
         log!(
             LogWarn,
@@ -1721,7 +1730,9 @@ pub(super) fn task_drop_common<T: Task>(t: &T) {
         }
     }
 
-    t.session().on_destroy_task(t);
+    // Session Rc may be getting drop()-ed so we may not have access to it
+    // via weak pointer
+    t.try_session().map(|sess| sess.on_destroy_task(t.tuid()));
     t.thread_group_shr_ptr()
         .borrow_mut()
         .task_set_mut()

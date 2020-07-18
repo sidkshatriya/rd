@@ -33,6 +33,7 @@ pub mod address_space;
 pub mod diversion_session;
 pub mod record_session;
 pub mod replay_session;
+pub mod session_common;
 pub mod session_inner;
 pub mod task;
 
@@ -43,11 +44,21 @@ pub type SessionSharedPtr = Rc<Box<dyn Session>>;
 pub type SessionSharedWeakPtr = Weak<Box<dyn Session>>;
 
 pub trait Session: DerefMut<Target = SessionInner> {
+    /// `tasks().len()` will be zero and all the OS tasks will be
+    /// gone when this returns, or this won't return.
+    fn kill_all_tasks(&self);
+
     fn as_session_inner(&self) -> &SessionInner;
+
     fn as_session_inner_mut(&mut self) -> &mut SessionInner;
 
-    /// DIFF NOTE: Simply called on_destroy() in rr
-    fn on_destroy_task(&self, _t: &dyn Task) {
+    /// DIFF NOTE: Simply called on_destroy() in rr.
+    /// Also takes a TaskUid instead of a &dyn Task
+    fn on_destroy_task(&self, _tuid: TaskUid) {
+        // DIFF NOTE: Don't need to remove task from task
+        // map like in rr. This is done in kill_all_tasks() or
+        // Task::destroy() already.
+        //
         // Do nothing by default.
     }
 

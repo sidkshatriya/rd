@@ -163,7 +163,7 @@ impl WaitStatus {
             }
 
             // We're using PTRACE_O_TRACESYSGOOD.
-            return WSTOPSIG(self.status) == (SIGTRAP | 0x80);
+            WSTOPSIG(self.status) == (SIGTRAP | 0x80)
         }
     }
 

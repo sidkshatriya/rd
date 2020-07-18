@@ -1,6 +1,9 @@
-use super::task::{
-    replay_task::ReplayTaskIgnore,
-    task_inner::{TrapReasons, MAX_TICKS_REQUEST},
+use super::{
+    session_common::kill_all_tasks,
+    task::{
+        replay_task::ReplayTaskIgnore,
+        task_inner::{TrapReasons, MAX_TICKS_REQUEST},
+    },
 };
 use crate::{
     arch::{Architecture, X86Arch},
@@ -1468,6 +1471,11 @@ impl DerefMut for ReplaySession {
 }
 
 impl Session for ReplaySession {
+    /// Forwarded method
+    fn kill_all_tasks(&self) {
+        kill_all_tasks(self)
+    }
+
     fn as_session_inner(&self) -> &SessionInner {
         &self.session_inner
     }

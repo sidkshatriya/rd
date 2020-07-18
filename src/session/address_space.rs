@@ -759,6 +759,13 @@ pub mod address_space {
             self.session_.upgrade().unwrap()
         }
 
+        // An upgrade can fail sometimes e.g the Session Rc is being drop()-ed.
+        // Use this method instead of session() if that may be happening
+        // e.g. in drop() of AddressSpace...
+        pub fn try_session(&self) -> Option<SessionSharedPtr> {
+            self.session_.upgrade()
+        }
+
         pub fn session_weak(&self) -> &SessionSharedWeakPtr {
             &self.session_
         }
@@ -2897,6 +2904,10 @@ pub mod address_space {
 
     impl Drop for AddressSpace {
         fn drop(&mut self) {
+            // DIFF NOTE: @TODO this assertion is not present in rr.
+            // Might there be any situations where the program is correct but
+            // the assertion fails to hold?
+            debug_assert!(self.task_set().len() == 0);
             for (_, m) in self.mem.borrow().iter() {
                 match m.local_addr {
                     Some(local) => {
@@ -2907,7 +2918,8 @@ pub mod address_space {
                     _ => (),
                 }
             }
-            self.session().on_destroy_vm(self);
+            self.try_session()
+                .map(|sess| sess.on_destroy_vm(self.uid()));
         }
     }
 }
