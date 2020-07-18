@@ -846,12 +846,9 @@ impl<'a> AutoRemoteSyscalls<'a> {
             log!(LogDebug, "Task is dying, no status result");
             -ESRCH as isize
         } else {
-            log!(
-                LogDebug,
-                "done, result={}",
-                self.t.regs_ref().syscall_result_signed()
-            );
-            self.t.regs_ref().syscall_result_signed()
+            let res = self.t.regs_ref().syscall_result_signed();
+            log!(LogDebug, "done, result={} ({:#x})", res, res);
+            res
         }
     }
 

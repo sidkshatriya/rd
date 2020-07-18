@@ -788,7 +788,12 @@ impl PerfCounters {
         }
 
         if !self.started {
-            log!(LogDebug, "Recreating counters with period {}", ticks_period);
+            log!(
+                LogDebug,
+                "Recreating counters with period {} ({:#x})",
+                ticks_period,
+                ticks_period
+            );
 
             let mut attr = PMU_ATTRIBUTES.ticks_attr;
             // Note that perf_event_attr struct implements the `Copy` trait.
@@ -863,7 +868,12 @@ impl PerfCounters {
             }
             make_counter_async(&self.fd_ticks_interrupt, TIME_SLICE_SIGNAL);
         } else {
-            log!(LogDebug, "Resetting counters with period {}", ticks_period);
+            log!(
+                LogDebug,
+                "Resetting counters with period {} ({:#x})",
+                ticks_period,
+                ticks_period
+            );
 
             if perf_ioctl_null(&self.fd_ticks_interrupt, PERF_EVENT_IOC_RESET) != 0 {
                 fatal!("ioctl(PERF_EVENT_IOC_RESET) failed");
