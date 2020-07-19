@@ -18,13 +18,15 @@ use crate::{
     fast_forward::{fast_forward_through_instruction, FastForwardStatus},
     flags::Flags as ProgramFlags,
     kernel_abi::{
-        common::preload_interface::syscallbuf_hdr, syscall_number_for_exit, SupportedArch,
+        common::preload_interface::syscallbuf_hdr,
+        syscall_number_for_exit,
+        SupportedArch,
     },
     kernel_metadata::{signal_name, syscall_name},
-    log::LogLevel::LogDebug,
+    log::LogLevel::{self, LogDebug},
     perf_counters,
     perf_counters::{PerfCounters, TIME_SLICE_SIGNAL},
-    registers::Registers,
+    registers::{MismatchBehavior, Registers},
     remote_code_ptr::RemoteCodePtr,
     remote_ptr::RemotePtr,
     replay_syscall::{rep_after_enter_syscall, rep_prepare_run_to_syscall, rep_process_syscall},
@@ -32,30 +34,38 @@ use crate::{
     session::{
         address_space::{
             address_space::{AddressSpace, AddressSpaceSharedPtr},
-            BreakpointType, Enabled, Traced,
+            BreakpointType,
+            Enabled,
+            Traced,
         },
         diversion_session::DiversionSessionSharedPtr,
         replay_session::ReplayTraceStepType::TstepNone,
         session_inner::{
             session_inner::{
                 PtraceSyscallBeforeSeccomp::{
-                    PtraceSyscallBeforeSeccomp, PtraceSyscallBeforeSeccompUnknown,
+                    PtraceSyscallBeforeSeccomp,
+                    PtraceSyscallBeforeSeccompUnknown,
                     SeccompBeforePtraceSyscall,
                 },
                 SessionInner,
             },
-            BreakStatus, RunCommand,
+            BreakStatus,
+            RunCommand,
         },
         task::{
             replay_task::ReplayTask,
             task_common::write_val_mem,
             task_inner::{
                 task_inner::{SaveTraceeFdNumber, TaskInner},
-                ResumeRequest, TicksRequest, WaitRequest,
+                ResumeRequest,
+                TicksRequest,
+                WaitRequest,
             },
-            Task, TaskSharedPtr,
+            Task,
+            TaskSharedPtr,
         },
-        Session, SessionSharedPtr,
+        Session,
+        SessionSharedPtr,
     },
     ticks::Ticks,
     trace::{
@@ -64,17 +74,29 @@ use crate::{
         trace_stream::TraceStream,
     },
     util::{
-        cpuid, cpuid_compatible, find_cpuid_record, should_dump_memory, trapped_instruction_at,
-        trapped_instruction_len, xcr0, xsave_enabled, CPUIDData, Completion, TrappedInstruction,
-        CPUID_GETFEATURES, CPUID_GETXSAVE, OSXSAVE_FEATURE_FLAG, XSAVEC_FEATURE_FLAG,
+        cpuid,
+        cpuid_compatible,
+        find_cpuid_record,
+        should_dump_memory,
+        trapped_instruction_at,
+        trapped_instruction_len,
+        xcr0,
+        xsave_enabled,
+        CPUIDData,
+        Completion,
+        TrappedInstruction,
+        CPUID_GETFEATURES,
+        CPUID_GETXSAVE,
+        OSXSAVE_FEATURE_FLAG,
+        XSAVEC_FEATURE_FLAG,
     },
     wait_status::WaitStatus,
 };
 use libc::{pid_t, ENOSYS, SIGBUS, SIGSEGV, SIGTRAP};
-use std::convert::TryInto;
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
     cmp::min,
+    convert::TryInto,
     ffi::{OsStr, OsString},
     io,
     io::Write,
@@ -1952,13 +1974,54 @@ fn guard_unexpected_signal(t: &mut ReplayTask) {
     }
 }
 
+// @TODO this needs to be implemented
+fn is_logging(_level: LogLevel) -> bool {
+    true
+}
+
 fn is_same_execution_point(
-    _t: &mut ReplayTask,
-    _regs: &Registers,
-    _ticks_left: Ticks,
-    _mismatched_regs: &mut Option<Registers>,
+    t: &mut ReplayTask,
+    rec_regs: &Registers,
+    ticks_left: Ticks,
+    mismatched_regs: &mut Option<Registers>,
 ) -> bool {
-    unimplemented!()
+    let behavior: MismatchBehavior = if is_logging(LogDebug) {
+        MismatchBehavior::LogMismatches
+    } else {
+        MismatchBehavior::ExpectMismatches
+    };
+
+    if ticks_left != 0 {
+        log!(
+            LogDebug,
+            "  not same execution point: {} ticks left (@{})",
+            ticks_left,
+            rec_regs.ip()
+        );
+        if is_logging(LogDebug) {
+            Registers::compare_register_files(
+                Some(t),
+                "(rep)",
+                t.regs_ref(),
+                "(rec)",
+                rec_regs,
+                MismatchBehavior::LogMismatches,
+            );
+        }
+        return false;
+    }
+    if !Registers::compare_register_files(Some(t), "rep", t.regs_ref(), "rec", rec_regs, behavior) {
+        log!(
+            LogDebug,
+            "  not same execution point: regs differ (@{})",
+            rec_regs.ip()
+        );
+
+        *mismatched_regs = Some(t.regs_ref().clone());
+        return false;
+    }
+    log!(LogDebug, "  same execution point");
+    true
 }
 
 fn guard_overshoot(
