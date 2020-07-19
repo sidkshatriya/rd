@@ -18,9 +18,7 @@ use crate::{
     fast_forward::{fast_forward_through_instruction, FastForwardStatus},
     flags::Flags as ProgramFlags,
     kernel_abi::{
-        common::preload_interface::syscallbuf_hdr,
-        syscall_number_for_exit,
-        SupportedArch,
+        common::preload_interface::syscallbuf_hdr, syscall_number_for_exit, SupportedArch,
     },
     kernel_metadata::{signal_name, syscall_name},
     log::LogLevel::LogDebug,
@@ -34,38 +32,30 @@ use crate::{
     session::{
         address_space::{
             address_space::{AddressSpace, AddressSpaceSharedPtr},
-            BreakpointType,
-            Enabled,
-            Traced,
+            BreakpointType, Enabled, Traced,
         },
         diversion_session::DiversionSessionSharedPtr,
         replay_session::ReplayTraceStepType::TstepNone,
         session_inner::{
             session_inner::{
                 PtraceSyscallBeforeSeccomp::{
-                    PtraceSyscallBeforeSeccomp,
-                    PtraceSyscallBeforeSeccompUnknown,
+                    PtraceSyscallBeforeSeccomp, PtraceSyscallBeforeSeccompUnknown,
                     SeccompBeforePtraceSyscall,
                 },
                 SessionInner,
             },
-            BreakStatus,
-            RunCommand,
+            BreakStatus, RunCommand,
         },
         task::{
             replay_task::ReplayTask,
             task_common::write_val_mem,
             task_inner::{
                 task_inner::{SaveTraceeFdNumber, TaskInner},
-                ResumeRequest,
-                TicksRequest,
-                WaitRequest,
+                ResumeRequest, TicksRequest, WaitRequest,
             },
-            Task,
-            TaskSharedPtr,
+            Task, TaskSharedPtr,
         },
-        Session,
-        SessionSharedPtr,
+        Session, SessionSharedPtr,
     },
     ticks::Ticks,
     trace::{
@@ -74,25 +64,14 @@ use crate::{
         trace_stream::TraceStream,
     },
     util::{
-        cpuid,
-        cpuid_compatible,
-        find_cpuid_record,
-        should_dump_memory,
-        trapped_instruction_at,
-        trapped_instruction_len,
-        xcr0,
-        xsave_enabled,
-        CPUIDData,
-        Completion,
-        TrappedInstruction,
-        CPUID_GETFEATURES,
-        CPUID_GETXSAVE,
-        OSXSAVE_FEATURE_FLAG,
-        XSAVEC_FEATURE_FLAG,
+        cpuid, cpuid_compatible, find_cpuid_record, should_dump_memory, trapped_instruction_at,
+        trapped_instruction_len, xcr0, xsave_enabled, CPUIDData, Completion, TrappedInstruction,
+        CPUID_GETFEATURES, CPUID_GETXSAVE, OSXSAVE_FEATURE_FLAG, XSAVEC_FEATURE_FLAG,
     },
     wait_status::WaitStatus,
 };
 use libc::{pid_t, ENOSYS, SIGBUS, SIGSEGV, SIGTRAP};
+use std::convert::TryInto;
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
     cmp::min,
@@ -1400,7 +1379,9 @@ impl ReplaySession {
 
         // True when our advancing has triggered a tracee SIGTRAP that needs to
         // be dealt with.
+        #[allow(non_snake_case)]
         let mut pending_SIGTRAP: bool = false;
+        #[allow(non_snake_case)]
         let mut SIGTRAP_run_command: RunCommand = RunCommand::RunContinue;
 
         // Step 2: more slowly, find our way to the target ticks and
@@ -1944,8 +1925,31 @@ fn debug_memory(t: &ReplayTask) {
     }
 }
 
-fn guard_unexpected_signal(_t: &mut ReplayTask) {
-    unimplemented!()
+fn guard_unexpected_signal(t: &mut ReplayTask) {
+    if ReplaySession::is_ignored_signal(t.maybe_stop_sig().get_raw_repr())
+        || t.maybe_stop_sig() == SIGTRAP
+    {
+        return;
+    }
+
+    if t.maybe_stop_sig().is_sig() {
+        ed_assert!(
+            t,
+            false,
+            "Replay got unrecorded signal {} while awaiting signal",
+            t.maybe_stop_sig()
+        );
+    } else if t.status().is_syscall() {
+        ed_assert!(
+            t,
+            false,
+            "Replay got unrecorded syscall {} while awaiting signal",
+            syscall_name(
+                t.regs_ref().original_syscallno().try_into().unwrap(),
+                t.arch()
+            )
+        );
+    }
 }
 
 fn is_same_execution_point(
