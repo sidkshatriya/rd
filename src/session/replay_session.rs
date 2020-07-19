@@ -1,5 +1,6 @@
 use super::{
     session_common::kill_all_tasks,
+    session_inner::is_singlestep,
     task::{
         replay_task::ReplayTaskIgnore,
         task_inner::{TrapReasons, MAX_TICKS_REQUEST},
@@ -94,12 +95,15 @@ use crate::{
 use libc::{pid_t, ENOSYS, SIGBUS, SIGSEGV, SIGTRAP};
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
+    cmp::min,
     ffi::{OsStr, OsString},
     io,
     io::Write,
     ops::{Deref, DerefMut},
     rc::Rc,
 };
+
+const USE_BREAKPOINT_TARGET: bool = true;
 
 pub type ReplaySessionSharedPtr = Rc<RefCell<ReplaySession>>;
 
@@ -253,12 +257,12 @@ pub struct StepConstraints {
     pub command: RunCommand,
     pub stop_at_time: FrameTime,
     pub ticks_target: Ticks,
-    // When the RunCommand is RUN_SINGLESTEP_FAST_FORWARD, stop if the next
+    // When the RunCommand is RunSinglestepFastForward, stop if the next
     // singlestep would enter one of the register states in this list.
-    // RUN_SINGLESTEP_FAST_FORWARD will always singlestep at least once
+    // RunSinglestepFastForwardWill always singlestep at least once
     // regardless.
-    // DIFF NOTE: @TODO? In rr this is a pointer to the registers i.e. in Rust it would be
-    // Vec<&Registers>
+    // DIFF NOTE: @TODO? In rr this is a pointer to the registers
+    // i.e. in Rust it would be Vec<&Registers>
     pub stop_before_states: Vec<Registers>,
 }
 
@@ -1337,11 +1341,259 @@ impl ReplaySession {
     }
     fn emulate_async_signal(
         &self,
-        _t: &ReplayTask,
-        _constraints: &StepConstraints,
-        _ticks: Ticks,
+        t: &mut ReplayTask,
+        constraints: &StepConstraints,
+        ticks: Ticks,
     ) -> Completion {
-        unimplemented!();
+        let regs = self.trace_frame.borrow().regs_ref().clone();
+        let ip: RemoteCodePtr = regs.ip();
+        let mut did_set_internal_breakpoint: bool = false;
+
+        // Step 1: advance to the target ticks (minus a slack region) as
+        // quickly as possible by programming the hpc.
+        let mut ticks_left: Ticks = ticks - t.tick_count();
+
+        log!(
+            LogDebug,
+            "advancing {} ticks to reach {}/{}",
+            ticks_left,
+            ticks,
+            ip
+        );
+
+        // XXX should we only do this if ticks > 10000?
+        while ticks_left > 2 * PerfCounters::skid_size() {
+            log!(
+                LogDebug,
+                "  programming interrupt for {} ticks",
+                ticks_left - PerfCounters::skid_size()
+            );
+
+            // Avoid overflow. If ticks_left > MAX_TICKS_REQUEST, execution will stop
+            // early but we'll treat that just like a stray TIME_SLICE_SIGNAL and
+            // continue as needed.
+            self.continue_or_step(
+                t,
+                constraints,
+                TicksRequest::ResumeWithTicksRequest(
+                    min(MAX_TICKS_REQUEST, ticks_left) - PerfCounters::skid_size(),
+                ),
+                None,
+            );
+            guard_unexpected_signal(t);
+
+            // Update ticks_left
+            ticks_left = ticks - t.tick_count();
+
+            if t.maybe_stop_sig() == SIGTRAP {
+                // We proved we're not at the execution
+                // target, and we haven't set any internal
+                // breakpoints, and we're not temporarily
+                // internally single-stepping, so we must have
+                // hit a debugger breakpoint or the debugger
+                // was single-stepping the tracee.  (The
+                // debugging code will verify that.)
+                return Completion::Incomplete;
+            }
+        }
+        guard_overshoot(t, &regs, ticks, ticks_left, None);
+
+        // True when our advancing has triggered a tracee SIGTRAP that needs to
+        // be dealt with.
+        let mut pending_SIGTRAP: bool = false;
+        let mut SIGTRAP_run_command: RunCommand = RunCommand::RunContinue;
+
+        // Step 2: more slowly, find our way to the target ticks and
+        // execution point.  We set an internal breakpoint on the
+        // target $ip and then resume execution.  When that *internal*
+        // breakpoint is hit (i.e., not one incidentally also set on
+        // that $ip by the debugger), we check again if we're at the
+        // target ticks and execution point.  If not, we temporarily
+        // remove the breakpoint, single-step over the insn, and
+        // repeat.
+        //
+        // What we really want to do is set a (precise)
+        // retired-instruction interrupt and do away with all this
+        // cruft.
+        let mut mismatched_regs: Option<Registers> = None;
+        loop {
+            // Invariants here are
+            //  o ticks_left is up-to-date
+            //  o ticks_left >= 0
+            //
+            // Possible state of the execution of `t`
+            //  0. at a debugger trap (breakpoint, watchpoint, stepi)
+            //  1. at an internal breakpoint
+            //  2. at the execution target
+            //  3. not at the execution target, but incidentally
+            //     at the target $ip
+            //  4. otherwise not at the execution target
+            //
+            // Determining whether we're at a debugger trap is
+            // surprisingly complicated.
+            let at_target: bool =
+                is_same_execution_point(t, &regs, ticks_left, &mut mismatched_regs);
+            if pending_SIGTRAP {
+                let trap_reasons: TrapReasons = t.compute_trap_reasons();
+                let breakpoint_type: BreakpointType =
+                    t.vm().get_breakpoint_type_for_retired_insn(t.ip());
+
+                if constraints.is_singlestep() {
+                    ed_assert!(t, trap_reasons.singlestep);
+                }
+                if constraints.is_singlestep()
+                    || (trap_reasons.watchpoint && t.vm().has_any_watchpoint_changes())
+                    || (trap_reasons.breakpoint && BreakpointType::BkptUser == breakpoint_type)
+                {
+                    // Case (0) above: interrupt for the debugger.
+                    log!(LogDebug, "    trap was debugger singlestep/breakpoint");
+                    if did_set_internal_breakpoint {
+                        t.vm_shr_ptr()
+                            .remove_breakpoint(ip, BreakpointType::BkptInternal, t);
+                    }
+                    return Completion::Incomplete;
+                }
+
+                if trap_reasons.breakpoint {
+                    // We didn't hit a user breakpoint, and executing an explicit
+                    // breakpoint instruction in the tracee would have triggered a
+                    // deterministic signal instead of an async one.
+                    // So we must have hit our internal breakpoint.
+                    ed_assert!(t, did_set_internal_breakpoint);
+                    ed_assert!(
+                        t,
+                        regs.ip().increment_by_bkpt_insn_length(t.arch()) == t.ip()
+                    );
+                    // We didn't do an internal singlestep, and if we'd done a
+                    // user-requested singlestep we would have hit the above case.
+                    ed_assert!(t, !trap_reasons.singlestep);
+                    // Case (1) above: cover the tracks of
+                    // our internal breakpoint, and go
+                    // check again if we're at the
+                    // target.
+                    log!(LogDebug, "    trap was for target $ip");
+                    // (The breakpoint would have trapped
+                    // at the $ip one byte beyond the
+                    // target.)
+                    debug_assert!(!at_target);
+
+                    pending_SIGTRAP = false;
+                    t.move_ip_before_breakpoint();
+                    // We just backed up the $ip, but
+                    // rewound it over an |int $3|
+                    // instruction, which couldn't have
+                    // retired a branch.  So we don't need
+                    // to adjust |tick_count()|.
+                    continue;
+                }
+
+                // Otherwise, either we did an internal singlestep or a hardware
+                // watchpoint fired but values didn't change. */
+                if trap_reasons.singlestep {
+                    ed_assert!(t, is_singlestep(SIGTRAP_run_command));
+                    log!(LogDebug, "    (SIGTRAP; stepi'd target $ip)");
+                } else {
+                    ed_assert!(t, trap_reasons.watchpoint);
+                    log!(
+                        LogDebug,
+                        "    (SIGTRAP; HW watchpoint fired without changes)"
+                    );
+                }
+            }
+
+            // We had to keep the internal breakpoint set (if it
+            // was when we entered the loop) for the checks above.
+            // But now we're either done (at the target) or about
+            // to resume execution in one of a variety of ways,
+            // and it's simpler to start out knowing that the
+            // breakpoint isn't set.
+            if did_set_internal_breakpoint {
+                t.vm_shr_ptr()
+                    .remove_breakpoint(ip, BreakpointType::BkptInternal, t);
+                did_set_internal_breakpoint = false;
+            }
+
+            if at_target {
+                // Case (2) above: done.
+                return Completion::Complete;
+            }
+
+            // At this point, we've proven that we're not at the
+            // target execution point, and we've ensured the
+            // internal breakpoint is unset.
+            if USE_BREAKPOINT_TARGET && regs.ip() != t.regs_ref().ip() {
+                // Case (4) above: set a breakpoint on the
+                // target $ip and PTRACE_CONT in an attempt to
+                // execute as many non-trapped insns as we
+                // can.  (Unless the debugger is stepping, of
+                // course.)  Trapping and checking
+                // are-we-at-target is slow.  It bears
+                // repeating that the ideal implementation
+                // would be programming a precise counter
+                // interrupt (insns-retired best of all), but
+                // we're forced to be conservative by observed
+                // imprecise counters.  This should still be
+                // no slower than single-stepping our way to
+                // the target execution point.
+                log!(LogDebug, "    breaking on target $ip");
+                t.vm_shr_ptr()
+                    .add_breakpoint(t, ip, BreakpointType::BkptInternal);
+                did_set_internal_breakpoint = true;
+                self.continue_or_step(t, constraints, TicksRequest::ResumeUnlimitedTicks, None);
+                SIGTRAP_run_command = constraints.command;
+            } else {
+                // Case (3) above: we can't put a breakpoint
+                // on the $ip, because resuming execution
+                // would just trap and we'd be back where we
+                // started.  Single-step or fast-forward past it.
+                log!(LogDebug, "    (fast-forwarding over target $ip)");
+                // Just do whatever the user asked for if the user requested
+                // singlestepping
+                // or there is user breakpoint at the run address. The latter is safe
+                // because the breakpoint will be triggered immediately. This gives us the
+                // invariant that an internal singlestep never triggers a user breakpoint.
+                if constraints.command == RunCommand::RunSinglestep
+                    || t.vm().get_breakpoint_type_at_addr(t.regs_ref().ip())
+                        == BreakpointType::BkptUser
+                {
+                    self.continue_or_step(t, constraints, TicksRequest::ResumeUnlimitedTicks, None);
+                    SIGTRAP_run_command = constraints.command;
+                } else {
+                    // @TODO Avoid the performance hit by explicitly copying all the registers??
+                    let mut states = constraints.stop_before_states.clone();
+                    // This state may not be relevant if we don't have the correct tick
+                    // count yet. But it doesn't hurt to push it on anyway.
+                    states.push(regs);
+                    self.fast_forward_status.set(
+                        self.fast_forward_status.get()
+                            | fast_forward_through_instruction(
+                                t,
+                                ResumeRequest::ResumeSinglestep,
+                                &states,
+                            ),
+                    );
+                    SIGTRAP_run_command = RunCommand::RunSinglestepFastForward;
+                    self.check_pending_sig(t);
+                }
+            }
+            pending_SIGTRAP = t.maybe_stop_sig() == SIGTRAP;
+
+            // Maintain the "'ticks_left'-is-up-to-date"
+            // invariant.
+            ticks_left = ticks - t.tick_count();
+
+            // Sometimes (e.g. in the ptrace_signal_32 test), we're in almost
+            // the correct state when we enter |advance_to|, except that exotic
+            // registers (i.e. segment registers) need to be normalized by the kernel
+            // by continuing and hitting a deterministic signal without actually
+            // advancing execution. So we allow |advance_to| to proceed and actually
+            // reach the desired state.
+            if !is_same_execution_point(t, &regs, ticks_left, &mut mismatched_regs) {
+                guard_unexpected_signal(t);
+            }
+
+            guard_overshoot(t, &regs, ticks, ticks_left, mismatched_regs.as_ref());
+        }
     }
     fn flush_syscallbuf(&self, _t: &ReplayTask, _constraints: &StepConstraints) -> Completion {
         unimplemented!();
@@ -1690,4 +1942,27 @@ fn debug_memory(t: &ReplayTask) {
     if should_dump_memory(t.current_trace_frame().event(), current_time) {
         unimplemented!()
     }
+}
+
+fn guard_unexpected_signal(_t: &mut ReplayTask) {
+    unimplemented!()
+}
+
+fn is_same_execution_point(
+    _t: &mut ReplayTask,
+    _regs: &Registers,
+    _ticks_left: Ticks,
+    _mismatched_regs: &mut Option<Registers>,
+) -> bool {
+    unimplemented!()
+}
+
+fn guard_overshoot(
+    _t: &mut ReplayTask,
+    _regs: &Registers,
+    _ticks: Ticks,
+    _ticks_left: Ticks,
+    _closest_matching_regs: Option<&Registers>,
+) {
+    unimplemented!()
 }
