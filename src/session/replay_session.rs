@@ -76,6 +76,7 @@ use crate::{
     util::{
         cpuid,
         cpuid_compatible,
+        default_action,
         find_cpuid_record,
         should_dump_memory,
         trapped_instruction_at,
@@ -84,6 +85,7 @@ use crate::{
         xsave_enabled,
         CPUIDData,
         Completion,
+        SignalAction,
         TrappedInstruction,
         CPUID_GETFEATURES,
         CPUID_GETXSAVE,
@@ -452,9 +454,6 @@ impl ReplaySession {
     pub fn current_task(&self) -> Option<TaskSharedPtr> {
         self.finish_initializing();
         let found = self.find_task_from_rec_tid(self.current_trace_frame().tid());
-        found
-            .as_ref()
-            .map(|r| debug_assert!(r.borrow().as_replay_task().is_some()));
         found
     }
 
@@ -908,8 +907,58 @@ impl ReplaySession {
         self.replay_step_with_constraints(StepConstraints::new(command))
     }
 
-    fn emulate_signal_delivery(&self, _oldtask: &ReplayTask, _sig: i32) -> Completion {
-        unimplemented!();
+    fn emulate_signal_delivery(&self, t: &mut ReplayTask, sig: i32) -> Completion {
+        let maybe_t = self.current_task();
+        match maybe_t {
+            None => {
+                // Trace terminated abnormally.  We'll pop out to code
+                // that knows what to do.
+                Completion::Incomplete
+            }
+            Some(newtask) => {
+                ed_assert!(
+                    t,
+                    t.weak_self_ptr().ptr_eq(&Rc::downgrade(&newtask)),
+                    "emulate_signal_delivery changed task"
+                );
+
+                {
+                    let trace_frame = self.current_trace_frame();
+                    let ev = trace_frame.event();
+                    ed_assert!(
+                        t,
+                        ev.event_type() == EventType::EvSignalDelivery
+                            || ev.event_type() == EventType::EvSignalHandler,
+                        "Unexpected signal disposition"
+                    );
+                    // Entering a signal handler seems to clear FP/SSE registers for some
+                    // reason. So we saved those cleared values, and now we restore that
+                    // state so they're cleared during replay.
+                    if ev.event_type() == EventType::EvSignalHandler {
+                        t.set_extra_regs(trace_frame.extra_regs_ref());
+                    }
+
+                    // Restore the signal-hander frame data, if there was one.
+                    let restored_sighandler_frame: bool = 0 < t.set_data_from_trace();
+                    if restored_sighandler_frame {
+                        log!(
+                            LogDebug,
+                            "-. restoring sighandler frame for {}",
+                            signal_name(sig)
+                        )
+                    }
+                    // Note that fatal signals are not actually injected into the task!
+                    // This is very important; we must never actually inject fatal signals
+                    // into a task. All replay task death must go through exit_task.
+                    // If this signal had a user handler, and we just set up the
+                    // callframe, and we need to restore the $sp for continued
+                    // execution.
+                    t.set_regs(trace_frame.regs_ref());
+                }
+                t.validate_regs(Default::default());
+                Completion::Complete
+            }
+        }
     }
     // Continue until reaching either the "entry" of an emulated syscall,
     // or the entry or exit of an executed syscall.  `emu` is nonzero when
@@ -1922,8 +1971,9 @@ fn compute_ticks_request(
     true
 }
 
-fn is_fatal_default_action(_sig: i32) -> bool {
-    unimplemented!()
+fn is_fatal_default_action(sig: i32) -> bool {
+    let action: SignalAction = default_action(sig);
+    action == SignalAction::DumpCore || action == SignalAction::Terminate
 }
 
 /// Return true if replaying `ev` by running `step` should result in

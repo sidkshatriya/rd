@@ -135,6 +135,64 @@ lazy_static! {
     static ref SAVED_FD_LIMIT: Mutex<Option<libc::rlimit>> = Mutex::new(None);
 }
 
+#[derive(Copy, Clone, Eq, PartialEq)]
+pub enum SignalAction {
+    DumpCore,
+    Terminate,
+    Continue,
+    Stop,
+    Ignore,
+}
+
+pub fn default_action(sig: i32) -> SignalAction {
+    if 32 <= sig && sig <= 64 {
+        return SignalAction::Terminate;
+    }
+
+    match sig {
+        // TODO: SSoT for signal defs/semantics.
+        libc::SIGHUP => SignalAction::Terminate,
+        libc::SIGINT => SignalAction::Terminate,
+        libc::SIGQUIT => SignalAction::DumpCore,
+        libc::SIGILL => SignalAction::DumpCore,
+        libc::SIGABRT => SignalAction::DumpCore,
+        libc::SIGFPE => SignalAction::DumpCore,
+        libc::SIGKILL => SignalAction::Terminate,
+        libc::SIGSEGV => SignalAction::DumpCore,
+        libc::SIGPIPE => SignalAction::Terminate,
+        libc::SIGALRM => SignalAction::Terminate,
+        libc::SIGTERM => SignalAction::Terminate,
+        libc::SIGUSR1 => SignalAction::Terminate,
+        libc::SIGUSR2 => SignalAction::Terminate,
+        libc::SIGCHLD => SignalAction::Ignore,
+        libc::SIGCONT => SignalAction::Continue,
+        libc::SIGSTOP => SignalAction::Stop,
+        libc::SIGTSTP => SignalAction::Stop,
+        libc::SIGTTIN => SignalAction::Stop,
+        libc::SIGTTOU => SignalAction::Stop,
+        libc::SIGBUS => SignalAction::DumpCore,
+        // SIGPOLL => SignalAction::Terminate,
+        libc::SIGPROF => SignalAction::Terminate,
+        libc::SIGSYS => SignalAction::DumpCore,
+        libc::SIGTRAP => SignalAction::DumpCore,
+        libc::SIGURG => SignalAction::Ignore,
+        libc::SIGVTALRM => SignalAction::Terminate,
+        libc::SIGXCPU => SignalAction::DumpCore,
+        libc::SIGXFSZ => SignalAction::DumpCore,
+        // SIGIOT=>SignalAction::DumpCore,
+        // SIGEMT=>SignalAction::Terminate,
+        libc::SIGSTKFLT => SignalAction::Terminate,
+        libc::SIGIO => SignalAction::Terminate,
+        libc::SIGPWR => SignalAction::Terminate,
+        // SIGLOST=>SignalAction::Terminate,
+        libc::SIGWINCH => SignalAction::Ignore,
+        _ => {
+            fatal!("Unknown signal {}", sig);
+            unreachable!();
+        }
+    }
+}
+
 // 0 means XSAVE not detected
 pub fn xsave_area_size() -> usize {
     xsave_native_layout().full_size
