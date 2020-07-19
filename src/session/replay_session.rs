@@ -23,7 +23,7 @@ use crate::{
         SupportedArch,
     },
     kernel_metadata::{signal_name, syscall_name},
-    log::LogLevel::{self, LogDebug},
+    log::LogLevel::{self, LogDebug, LogError},
     perf_counters,
     perf_counters::{PerfCounters, TIME_SLICE_SIGNAL},
     registers::{MismatchBehavior, Registers},
@@ -1352,7 +1352,7 @@ impl ReplaySession {
 
         // Step 1: advance to the target ticks (minus a slack region) as
         // quickly as possible by programming the hpc.
-        let mut ticks_left: Ticks = ticks - t.tick_count();
+        let mut ticks_left: i64 = ticks as i64 - t.tick_count() as i64;
 
         log!(
             LogDebug,
@@ -1363,11 +1363,11 @@ impl ReplaySession {
         );
 
         // XXX should we only do this if ticks > 10000?
-        while ticks_left > 2 * PerfCounters::skid_size() {
+        while ticks_left > 2 * PerfCounters::skid_size() as i64 {
             log!(
                 LogDebug,
                 "  programming interrupt for {} ticks",
-                ticks_left - PerfCounters::skid_size()
+                ticks_left - PerfCounters::skid_size() as i64
             );
 
             // Avoid overflow. If ticks_left > MAX_TICKS_REQUEST, execution will stop
@@ -1377,14 +1377,14 @@ impl ReplaySession {
                 t,
                 constraints,
                 TicksRequest::ResumeWithTicksRequest(
-                    min(MAX_TICKS_REQUEST, ticks_left) - PerfCounters::skid_size(),
+                    min(MAX_TICKS_REQUEST, ticks_left as u64) - PerfCounters::skid_size(),
                 ),
                 None,
             );
             guard_unexpected_signal(t);
 
             // Update ticks_left
-            ticks_left = ticks - t.tick_count();
+            ticks_left = ticks as i64 - t.tick_count() as i64;
 
             if t.maybe_stop_sig() == SIGTRAP {
                 // We proved we're not at the execution
@@ -1583,7 +1583,7 @@ impl ReplaySession {
 
             // Maintain the "'ticks_left'-is-up-to-date"
             // invariant.
-            ticks_left = ticks - t.tick_count();
+            ticks_left = ticks as i64 - t.tick_count() as i64;
 
             // Sometimes (e.g. in the ptrace_signal_32 test), we're in almost
             // the correct state when we enter |advance_to|, except that exotic
@@ -1982,7 +1982,7 @@ fn is_logging(_level: LogLevel) -> bool {
 fn is_same_execution_point(
     t: &mut ReplayTask,
     rec_regs: &Registers,
-    ticks_left: Ticks,
+    ticks_left: i64,
     mismatched_regs: &mut Option<Registers>,
 ) -> bool {
     let behavior: MismatchBehavior = if is_logging(LogDebug) {
@@ -2025,11 +2025,54 @@ fn is_same_execution_point(
 }
 
 fn guard_overshoot(
-    _t: &mut ReplayTask,
-    _regs: &Registers,
-    _ticks: Ticks,
-    _ticks_left: Ticks,
-    _closest_matching_regs: Option<&Registers>,
+    t: &mut ReplayTask,
+    target_regs: &Registers,
+    target_ticks: Ticks,
+    remaining_ticks: i64,
+    closest_matching_regs: Option<&Registers>,
 ) {
-    unimplemented!()
+    if remaining_ticks < 0 {
+        let target_ip: RemoteCodePtr = target_regs.ip();
+
+        // Cover up the internal breakpoint that we may have
+        // set, and restore the tracee's $ip to what it would
+        // have been had it not hit the breakpoint (if it did
+        // hit the breakpoint).
+        t.vm_shr_ptr()
+            .remove_breakpoint(target_ip, BreakpointType::BkptInternal, t);
+        if t.regs_ref().ip() == target_ip.increment_by_bkpt_insn_length(t.arch()) {
+            t.move_ip_before_breakpoint();
+        }
+        if closest_matching_regs.is_some() {
+            log!(
+                LogError,
+                "Replay diverged; target registers at ticks target mismatched: "
+            );
+            Registers::compare_register_files(
+                Some(t),
+                "rep overshoot",
+                t.regs_ref(),
+                "rec",
+                closest_matching_regs.unwrap(),
+                MismatchBehavior::LogMismatches,
+            );
+        } else {
+            log!(LogError, "Replay diverged; target registers mismatched: ");
+            Registers::compare_register_files(
+                Some(t),
+                "rep overshoot",
+                t.regs_ref(),
+                "rec",
+                target_regs,
+                MismatchBehavior::LogMismatches,
+            );
+        }
+        ed_assert!(
+            t,
+            false,
+            "overshot target ticks={} by {}",
+            target_ticks,
+            -remaining_ticks
+        );
+    }
 }
