@@ -1274,7 +1274,7 @@ pub mod task_inner {
             }
         }
         pub fn setup_preload_thread_locals(&mut self) {
-            self.activate_preload_thread_locals();
+            self.activate_preload_thread_locals(None);
             rd_arch_function_selfless!(setup_preload_thread_locals_arch, self.arch(), self);
         }
 
@@ -1309,19 +1309,33 @@ pub mod task_inner {
             }
             &self.thread_locals
         }
-        pub fn activate_preload_thread_locals(&mut self) {
+
+        // DIFF NOTE: Takes an additional param maybe_active_task
+        pub fn activate_preload_thread_locals(
+            &mut self,
+            maybe_active_task: Option<&mut TaskInner>,
+        ) {
             // Switch thread-locals to the new task.
             if self.tuid() != self.vm().thread_locals_tuid() {
                 let maybe_local_addr = preload_thread_locals_local_addr(&self.vm());
                 match maybe_local_addr {
                     Some(local_addr) => {
-                        let maybe_t = self
-                            .session()
-                            .find_task_from_task_uid(self.vm().thread_locals_tuid());
+                        match maybe_active_task {
+                            Some(active_task)
+                                if active_task.tuid() == self.vm().thread_locals_tuid() =>
+                            {
+                                active_task.fetch_preload_thread_locals();
+                            }
+                            _ => {
+                                let maybe_t = self
+                                    .session()
+                                    .find_task_from_task_uid(self.vm().thread_locals_tuid());
 
-                        maybe_t.map(|t| {
-                            t.borrow_mut().fetch_preload_thread_locals();
-                        });
+                                maybe_t.map(|t| {
+                                    t.borrow_mut().fetch_preload_thread_locals();
+                                });
+                            }
+                        };
 
                         unsafe {
                             copy_nonoverlapping(
@@ -2131,7 +2145,7 @@ fn setup_preload_thread_locals_from_clone_arch<Arch: Architecture>(
     match maybe_local_addr {
         Some(local_addr) => match Arch::arch() {
             SupportedArch::X86 => {
-                t.activate_preload_thread_locals();
+                t.activate_preload_thread_locals(Some(origin));
                 let locals = local_addr.as_ptr() as *mut x86_preload_thread_locals;
                 let origin_locals =
                     origin.fetch_preload_thread_locals().as_ptr() as *mut x86_preload_thread_locals;
@@ -2142,7 +2156,7 @@ fn setup_preload_thread_locals_from_clone_arch<Arch: Architecture>(
                 // longer in the syscallbuf code even if the parent was.
             }
             SupportedArch::X64 => {
-                t.activate_preload_thread_locals();
+                t.activate_preload_thread_locals(Some(origin));
                 let locals = local_addr.as_ptr() as *mut x64_preload_thread_locals;
                 let origin_locals =
                     origin.fetch_preload_thread_locals().as_ptr() as *mut x64_preload_thread_locals;

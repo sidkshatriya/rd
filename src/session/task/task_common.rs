@@ -27,9 +27,16 @@ use crate::{
             preload_interface,
             preload_interface::{preload_globals, syscallbuf_hdr, syscallbuf_record},
         },
-        is_at_syscall_instruction, is_mprotect_syscall, syscall_instruction_length,
-        syscall_number_for_arch_prctl, syscall_number_for_close, syscall_number_for_mprotect,
-        syscall_number_for_munmap, syscall_number_for_openat, CloneTLSType, SupportedArch,
+        is_at_syscall_instruction,
+        is_mprotect_syscall,
+        syscall_instruction_length,
+        syscall_number_for_arch_prctl,
+        syscall_number_for_close,
+        syscall_number_for_mprotect,
+        syscall_number_for_munmap,
+        syscall_number_for_openat,
+        CloneTLSType,
+        SupportedArch,
     },
     kernel_metadata::{ptrace_req_name, signal_name},
     kernel_supplement::ARCH_SET_CPUID,
@@ -43,33 +50,62 @@ use crate::{
     seccomp_filter_rewriter::SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO,
     session::{
         address_space::{
-            address_space::AddressSpace, kernel_mapping::KernelMapping,
-            memory_range::MemoryRangeKey, BreakpointType, DebugStatus,
+            address_space::AddressSpace,
+            kernel_mapping::KernelMapping,
+            memory_range::MemoryRangeKey,
+            BreakpointType,
+            DebugStatus,
         },
         session_inner::session_inner::SessionInner,
         task::{
-            is_signal_triggered_by_ptrace_interrupt, is_singlestep_resume,
+            is_signal_triggered_by_ptrace_interrupt,
+            is_singlestep_resume,
             task_inner::{
                 task_inner::{CapturedState, CloneReason, PtraceData, WriteFlags},
-                CloneFlags, ResumeRequest, TicksRequest, TrapReasons, WaitRequest,
+                CloneFlags,
+                ResumeRequest,
+                TicksRequest,
+                TrapReasons,
+                WaitRequest,
                 MAX_TICKS_REQUEST,
             },
-            Task, TaskSharedPtr, PRELOAD_THREAD_LOCALS_SIZE,
+            Task,
+            TaskSharedPtr,
+            PRELOAD_THREAD_LOCALS_SIZE,
         },
         Session,
     },
     ticks::Ticks,
     util::{
-        ceil_page_size, cpuid, floor_page_size, is_kernel_trap, pwrite_all_fallible,
-        trapped_instruction_at, trapped_instruction_len, u8_raw_slice, u8_raw_slice_mut,
-        TrappedInstruction, CPUID_GETFEATURES,
+        ceil_page_size,
+        cpuid,
+        floor_page_size,
+        is_kernel_trap,
+        pwrite_all_fallible,
+        trapped_instruction_at,
+        trapped_instruction_len,
+        u8_raw_slice,
+        u8_raw_slice_mut,
+        TrappedInstruction,
+        CPUID_GETFEATURES,
     },
     wait_status::WaitStatus,
 };
 use file_monitor::LazyOffset;
 use libc::{
-    pid_t, pread64, waitpid, ECHILD, EPERM, ESRCH, PR_SET_NAME, PR_SET_SECCOMP,
-    SECCOMP_MODE_FILTER, SIGKILL, SIGTRAP, WNOHANG, __WALL,
+    pid_t,
+    pread64,
+    waitpid,
+    ECHILD,
+    EPERM,
+    ESRCH,
+    PR_SET_NAME,
+    PR_SET_SECCOMP,
+    SECCOMP_MODE_FILTER,
+    SIGKILL,
+    SIGTRAP,
+    WNOHANG,
+    __WALL,
 };
 use nix::{
     errno::{errno, Errno},
@@ -813,14 +849,14 @@ pub(super) fn resume_execution<T: Task>(
         TicksRequest::ResumeNoTicks => (),
         TicksRequest::ResumeUnlimitedTicks => {
             task.hpc.reset(0);
-            task.activate_preload_thread_locals();
+            task.activate_preload_thread_locals(None);
         }
         TicksRequest::ResumeWithTicksRequest(tr) => {
             // DIFF NOTE: rr ensures that that ticks requested is at least 1 through a max
             // We assert for it.
             ed_assert!(task, tr >= 1 && tr <= MAX_TICKS_REQUEST);
             task.hpc.reset(tr);
-            task.activate_preload_thread_locals();
+            task.activate_preload_thread_locals(None);
         }
     }
     let sig_string = match maybe_sig {
