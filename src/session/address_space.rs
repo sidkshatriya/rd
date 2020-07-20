@@ -242,13 +242,20 @@ pub mod address_space {
         weak_ptr_set::WeakPtrSet,
     };
     use core::ffi::c_void;
-    use libc::{dev_t, ino_t, pid_t, stat, EACCES, ENOENT, O_RDONLY, PROT_GROWSDOWN, PROT_GROWSUP};
-    use nix::{
-        fcntl::OFlag,
-        sys::mman::{munmap, MmapAdvise},
-        unistd::getpid,
+    use libc::{
+        dev_t,
+        ino_t,
+        pid_t,
+        stat,
+        EACCES,
+        ENOENT,
+        MADV_DOFORK,
+        MADV_DONTFORK,
+        O_RDONLY,
+        PROT_GROWSDOWN,
+        PROT_GROWSUP,
     };
-
+    use nix::{fcntl::OFlag, sys::mman::munmap, unistd::getpid};
     use std::{
         cell::{Cell, Ref, RefCell, RefMut},
         cmp::{max, min},
@@ -1578,22 +1585,16 @@ pub mod address_space {
         }
 
         /// Notification of madvise call.
-        pub fn advise(
-            &self,
-            _t: &dyn Task,
-            addr: RemotePtr<Void>,
-            num_bytes: usize,
-            advice: MmapAdvise,
-        ) {
-            log!(LogDebug, "madvise({}, {}, {:?})", addr, num_bytes, advice);
+        pub fn advise(&self, _t: &dyn Task, addr: RemotePtr<Void>, num_bytes: usize, advice: i32) {
+            log!(LogDebug, "madvise({}, {}, {})", addr, num_bytes, advice);
             let num_bytes = ceil_page_size(num_bytes);
 
             match advice {
-                MmapAdvise::MADV_DONTFORK => add_range(
+                MADV_DONTFORK => add_range(
                     &mut self.dont_fork.borrow_mut(),
                     MemoryRange::new_range(addr, num_bytes),
                 ),
-                MmapAdvise::MADV_DOFORK => remove_range(
+                MADV_DOFORK => remove_range(
                     &mut self.dont_fork.borrow_mut(),
                     MemoryRange::new_range(addr, num_bytes),
                 ),

@@ -110,7 +110,7 @@ use libc::{
 use nix::{
     errno::{errno, Errno},
     fcntl::OFlag,
-    sys::mman::{MapFlags, ProtFlags},
+    sys::mman::{MapFlags, MmapAdvise, ProtFlags},
 };
 use std::{
     cell::RefCell,
@@ -1054,7 +1054,10 @@ fn on_syscall_exit_arch<Arch: Architecture>(t: &mut dyn Task, sys: i32, regs: &R
         unimplemented!()
     }
     if sys == Arch::MADVISE {
-        unimplemented!()
+        let addr: RemotePtr<Void> = regs.arg1().into();
+        let num_bytes: usize = regs.arg2();
+        let advice = regs.arg3() as i32;
+        return t.vm_shr_ptr().advise(t, addr, num_bytes, advice);
     }
     if sys == Arch::IPC {
         unimplemented!()
