@@ -1,6 +1,6 @@
 use crate::{
     bindings::{
-        kernel::{itimerval, setitimer, ITIMER_REAL},
+        kernel::{itimerval, setitimer, user_desc, ITIMER_REAL},
         ptrace::{PTRACE_EVENT_EXIT, PTRACE_INTERRUPT},
     },
     kernel_abi::{
@@ -441,6 +441,8 @@ pub trait Task: DerefMut<Target = TaskInner> {
     }
 
     fn compute_trap_reasons(&mut self) -> TrapReasons;
+
+    fn set_thread_area(&mut self, tls: RemotePtr<user_desc>);
 }
 
 fn is_signal_triggered_by_ptrace_interrupt(group_stop_sig: MaybeStopSignal) -> bool {

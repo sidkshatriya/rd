@@ -210,7 +210,7 @@ pub enum SignalDisposition {
 pub mod record_task {
     use super::*;
     use crate::{
-        bindings::signal::siginfo_t,
+        bindings::{kernel::user_desc, signal::siginfo_t},
         event::{Event, EventType, SignalDeterministic, SignalResolvedDisposition},
         kernel_abi::{common::preload_interface::syscallbuf_record, SupportedArch},
         kernel_supplement::sig_set_t,
@@ -235,6 +235,7 @@ pub mod record_task {
                     read_bytes_helper_for,
                     read_c_str,
                     resume_execution,
+                    set_thread_area,
                     stored_record_size,
                     syscallbuf_data_size,
                     write_bytes,
@@ -571,6 +572,11 @@ pub mod record_task {
             _origin: &mut dyn Task,
         ) -> bool {
             unimplemented!()
+        }
+
+        // Forwarded method
+        fn set_thread_area(&mut self, tls: RemotePtr<user_desc>) {
+            set_thread_area(self, tls)
         }
     }
 

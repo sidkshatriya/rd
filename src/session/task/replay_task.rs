@@ -13,6 +13,7 @@ use super::{
 };
 use crate::{
     arch::Architecture,
+    bindings::kernel::user_desc,
     kernel_abi::{common::preload_interface::syscallbuf_record, SupportedArch},
     log::LogLevel::LogWarn,
     registers::{MismatchBehavior, Registers},
@@ -28,6 +29,7 @@ use crate::{
                 read_bytes_helper,
                 read_c_str,
                 resume_execution,
+                set_thread_area,
                 stored_record_size,
                 syscallbuf_data_size,
                 write_bytes,
@@ -459,5 +461,10 @@ impl Task for ReplayTask {
         } else {
             false
         }
+    }
+
+    // Forwarded method
+    fn set_thread_area(&mut self, tls: RemotePtr<user_desc>) {
+        set_thread_area(self, tls)
     }
 }

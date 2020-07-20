@@ -15,7 +15,7 @@ use crate::{
     arch::Architecture,
     auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem},
     bindings::{
-        kernel::user_regs_struct as native_user_regs_struct,
+        kernel::{user_desc, user_regs_struct as native_user_regs_struct},
         ptrace::{PTRACE_DETACH, PTRACE_EVENT_EXIT, PTRACE_GETREGS, PTRACE_GETSIGINFO},
         signal::POLL_IN,
     },
@@ -27,15 +27,9 @@ use crate::{
             preload_interface,
             preload_interface::{preload_globals, syscallbuf_hdr, syscallbuf_record},
         },
-        is_at_syscall_instruction,
-        is_mprotect_syscall,
-        syscall_instruction_length,
-        syscall_number_for_arch_prctl,
-        syscall_number_for_close,
-        syscall_number_for_mprotect,
-        syscall_number_for_munmap,
-        syscall_number_for_openat,
-        SupportedArch,
+        is_at_syscall_instruction, is_mprotect_syscall, syscall_instruction_length,
+        syscall_number_for_arch_prctl, syscall_number_for_close, syscall_number_for_mprotect,
+        syscall_number_for_munmap, syscall_number_for_openat, CloneTLSType, SupportedArch,
     },
     kernel_metadata::{ptrace_req_name, signal_name},
     kernel_supplement::ARCH_SET_CPUID,
@@ -49,62 +43,33 @@ use crate::{
     seccomp_filter_rewriter::SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO,
     session::{
         address_space::{
-            address_space::AddressSpace,
-            kernel_mapping::KernelMapping,
-            memory_range::MemoryRangeKey,
-            BreakpointType,
-            DebugStatus,
+            address_space::AddressSpace, kernel_mapping::KernelMapping,
+            memory_range::MemoryRangeKey, BreakpointType, DebugStatus,
         },
         session_inner::session_inner::SessionInner,
         task::{
-            is_signal_triggered_by_ptrace_interrupt,
-            is_singlestep_resume,
+            is_signal_triggered_by_ptrace_interrupt, is_singlestep_resume,
             task_inner::{
                 task_inner::{CapturedState, CloneReason, PtraceData, WriteFlags},
-                CloneFlags,
-                ResumeRequest,
-                TicksRequest,
-                TrapReasons,
-                WaitRequest,
+                CloneFlags, ResumeRequest, TicksRequest, TrapReasons, WaitRequest,
                 MAX_TICKS_REQUEST,
             },
-            Task,
-            TaskSharedPtr,
-            PRELOAD_THREAD_LOCALS_SIZE,
+            Task, TaskSharedPtr, PRELOAD_THREAD_LOCALS_SIZE,
         },
         Session,
     },
     ticks::Ticks,
     util::{
-        ceil_page_size,
-        cpuid,
-        floor_page_size,
-        is_kernel_trap,
-        pwrite_all_fallible,
-        trapped_instruction_at,
-        trapped_instruction_len,
-        u8_raw_slice,
-        u8_raw_slice_mut,
-        TrappedInstruction,
-        CPUID_GETFEATURES,
+        ceil_page_size, cpuid, floor_page_size, is_kernel_trap, pwrite_all_fallible,
+        trapped_instruction_at, trapped_instruction_len, u8_raw_slice, u8_raw_slice_mut,
+        TrappedInstruction, CPUID_GETFEATURES,
     },
     wait_status::WaitStatus,
 };
 use file_monitor::LazyOffset;
 use libc::{
-    pid_t,
-    pread64,
-    waitpid,
-    ECHILD,
-    EPERM,
-    ESRCH,
-    PR_SET_NAME,
-    PR_SET_SECCOMP,
-    SECCOMP_MODE_FILTER,
-    SIGKILL,
-    SIGTRAP,
-    WNOHANG,
-    __WALL,
+    pid_t, pread64, waitpid, ECHILD, EPERM, ESRCH, PR_SET_NAME, PR_SET_SECCOMP,
+    SECCOMP_MODE_FILTER, SIGKILL, SIGTRAP, WNOHANG, __WALL,
 };
 use nix::{
     errno::{errno, Errno},
@@ -1432,16 +1397,26 @@ pub(in super::super) fn clone_task_common(
                     if !mapping.recorded_map.is_heap() {
                         let m: &KernelMapping = &mapping.map;
                         log!(LogDebug, "mapping stack for {} at {}", new_tid, m);
+                        let m_start = m.start();
+                        let m_size = m.size();
+                        let m_prot = m.prot();
+                        let m_flags = m.flags();
+                        let m_file_offset_bytes = m.file_offset_bytes();
+                        let m_device = m.device();
+                        let m_inode = m.inode();
+
+                        // Release the borrow because we may want to modify the vm MemoryMap
+                        drop(mapping);
                         t.vm_shr_ptr().map(
                             &mut *t,
-                            m.start(),
-                            m.size(),
-                            m.prot(),
-                            m.flags(),
-                            m.file_offset_bytes(),
+                            m_start,
+                            m_size,
+                            m_prot,
+                            m_flags,
+                            m_file_offset_bytes,
                             OsStr::new("[stack]"),
-                            m.device(),
-                            m.inode(),
+                            m_device,
+                            m_inode,
                             None,
                             None,
                             None,
@@ -1571,8 +1546,14 @@ pub(in super::super) fn clone_task_common(
     rc_t
 }
 
-fn set_thread_area_from_clone(_t: &dyn Task, _tls: RemotePtr<u8>) {
-    unimplemented!()
+fn set_thread_area_from_clone(t: &mut dyn Task, tls: RemotePtr<u8>) {
+    rd_arch_function_selfless!(set_thread_area_from_clone_arch, t.arch(), t, tls)
+}
+
+fn set_thread_area_from_clone_arch<Arch: Architecture>(t: &mut dyn Task, tls: RemotePtr<Void>) {
+    if Arch::CLONE_TLS_TYPE == CloneTLSType::UserDescPointer {
+        t.set_thread_area(RemotePtr::cast(tls));
+    }
 }
 
 // DIFF NOTE: Param list different from rr version
@@ -1744,4 +1725,22 @@ pub(super) fn task_drop_common<T: Task>(t: &T) {
         .erase(t.weak_self_ptr());
 
     log!(LogDebug, "  dead");
+}
+
+/// Forwarded method definition
+///
+pub(super) fn set_thread_area<T: Task>(t: &mut T, tls: RemotePtr<user_desc>) {
+    let desc: user_desc = read_val_mem(t, tls, None);
+    set_thread_area_core(&mut t.thread_areas_, desc)
+}
+
+fn set_thread_area_core(thread_areas: &mut Vec<user_desc>, desc: user_desc) {
+    for t in thread_areas.iter_mut() {
+        if t.entry_number == desc.entry_number {
+            *t = desc;
+            return;
+        }
+    }
+
+    thread_areas.push(desc);
 }

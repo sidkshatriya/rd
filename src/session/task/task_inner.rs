@@ -1042,11 +1042,6 @@ pub mod task_inner {
             errno() == 0 || errno() == ESRCH
         }
 
-        /// Update the thread area to `addr`.
-        pub fn set_thread_area(&self, _tls: RemotePtr<user_desc>) {
-            unimplemented!()
-        }
-
         /// Set the thread area at index `idx` to desc and reflect this
         /// into the OS task. Returns 0 on success, errno otherwise.
         pub fn emulate_set_thread_area(&self, _idx: i32, _desc: user_desc) {
