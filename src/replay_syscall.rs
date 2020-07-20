@@ -58,7 +58,13 @@ use crate::{
         task::{
             replay_task::{ReplayTask, ReplayTaskIgnore},
             task_common::{read_mem, write_mem, write_val_mem},
-            task_inner::{task_inner::WriteFlags, ResumeRequest, TicksRequest, WaitRequest},
+            task_inner::{
+                task_inner::WriteFlags,
+                CloneFlags,
+                ResumeRequest,
+                TicksRequest,
+                WaitRequest,
+            },
             Task,
             TaskSharedPtr,
         },
@@ -455,6 +461,7 @@ fn prepare_clone<Arch: Architecture>(t: &mut ReplayTask) {
     }
     let shr_ptr = t.session();
 
+    let clone_flags = clone_flags_to_task_flags(flags);
     let new_task_shr_ptr: TaskSharedPtr = shr_ptr.clone_task(
         t,
         clone_flags_to_task_flags(flags),
@@ -528,7 +535,11 @@ fn prepare_clone<Arch: Architecture>(t: &mut ReplayTask) {
 
     init_scratch_memory(new_task, &km, &data);
 
-    new_task.vm_shr_ptr().after_clone(new_task);
+    if clone_flags.contains(CloneFlags::CLONE_SHARE_VM) {
+        new_task.vm_shr_ptr().after_clone(new_task, Some(t));
+    } else {
+        new_task.vm_shr_ptr().after_clone(new_task, None);
+    }
 }
 
 /// DIFF NOTE: This simply returns a ReplayTraceStep instead of modifying one.

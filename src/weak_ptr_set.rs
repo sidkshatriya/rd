@@ -77,10 +77,18 @@ impl<T> WeakPtrSet<T> {
             except: tw,
         }
     }
+    pub fn iter_except_vec(&self, tw_vec: Vec<Weak<RefCell<T>>>) -> ExceptVecSetIterator<T> {
+        ExceptVecSetIterator {
+            hash_set_iterator: self.0.iter(),
+            except: tw_vec,
+        }
+    }
+
     pub fn insert(&mut self, t: Weak<RefCell<T>>) -> bool {
         log!(LogDebug, "adding a task to task set {:?}", t.as_ptr());
         self.0.insert(WeakPtrWrap(t))
     }
+
     pub fn erase(&mut self, t: Weak<RefCell<T>>) -> bool {
         log!(LogDebug, "removing a task from task set {:?}", t.as_ptr());
         self.0.remove(&WeakPtrWrap(t))
@@ -110,6 +118,11 @@ pub struct ExceptSetIterator<'a, T> {
     except: Weak<RefCell<T>>,
 }
 
+pub struct ExceptVecSetIterator<'a, T> {
+    hash_set_iterator: Iter<'a, WeakPtrWrap<T>>,
+    except: Vec<Weak<RefCell<T>>>,
+}
+
 impl<T> Iterator for SetIterator<'_, T> {
     type Item = Rc<RefCell<T>>;
 
@@ -132,6 +145,22 @@ impl<T> Iterator for ExceptSetIterator<'_, T> {
         None
     }
 }
+
+impl<T> Iterator for ExceptVecSetIterator<'_, T> {
+    type Item = Rc<RefCell<T>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some(WeakPtrWrap(it)) = self.hash_set_iterator.next() {
+            if self.except.iter().any(|v| v.ptr_eq(it)) {
+                continue;
+            } else {
+                return Some(it.upgrade().unwrap());
+            }
+        }
+        None
+    }
+}
+
 impl<T> Default for WeakPtrSet<T> {
     fn default() -> Self {
         WeakPtrSet(Default::default())

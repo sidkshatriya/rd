@@ -662,8 +662,12 @@ pub mod address_space {
         /// Call this after a new task has been cloned within this
         /// address space.
         /// DIFF NOTE: Additional param `active_task`
-        pub fn after_clone(&self, active_task: &mut dyn Task) {
-            self.allocate_watchpoints(active_task);
+        pub fn after_clone(
+            &self,
+            active_task: &mut dyn Task,
+            cloned_from_thread: Option<&mut dyn Task>,
+        ) {
+            self.allocate_watchpoints(active_task, cloned_from_thread);
         }
 
         /// Call this after a successful execve syscall has completed. At this point
@@ -1420,7 +1424,7 @@ pub mod address_space {
                 .unwrap()
                 .watch(Self::access_bits_of(type_));
 
-            self.allocate_watchpoints(active_task)
+            self.allocate_watchpoints(active_task, None)
         }
 
         /// DIFF NOTE: Additional param `active_task`
@@ -1437,14 +1441,14 @@ pub mod address_space {
                     self.watchpoints.borrow_mut().remove(&r);
                 }
             }
-            self.allocate_watchpoints(active_task);
+            self.allocate_watchpoints(active_task, None);
         }
 
         /// DIFF NOTE: Additional param `active_task`
         /// To solve already borrowed issue in the task.
         pub fn remove_all_watchpoints(&self, active_task: &mut dyn Task) {
             self.watchpoints.borrow_mut().clear();
-            self.allocate_watchpoints(active_task);
+            self.allocate_watchpoints(active_task, None);
         }
         pub fn all_watchpoints(&self) -> Vec<WatchConfig> {
             self.get_watchpoints_internal(WatchPointFilter::AllWatchpoints)
@@ -1462,7 +1466,7 @@ pub mod address_space {
         pub fn restore_watchpoints(&self, active_task: &mut dyn Task) -> bool {
             debug_assert!(!self.saved_watchpoints.borrow().is_empty());
             *self.watchpoints.borrow_mut() = self.saved_watchpoints.borrow_mut().pop().unwrap();
-            self.allocate_watchpoints(active_task)
+            self.allocate_watchpoints(active_task, None)
         }
 
         /// Notify that at least one watchpoint was hit --- recheck them all.
@@ -2590,18 +2594,38 @@ pub mod address_space {
         /// Construct a minimal set of watchpoints to be enabled based
         /// on `set_watchpoint()` calls, and program them for each task
         /// in this address space.
-        /// DIFF NOTE: Additional param `active_task`
-        /// To solve already borrowed issue in the task
-        fn allocate_watchpoints(&self, active_task: &mut dyn Task) -> bool {
+        /// DIFF NOTE: Additional param `active_task` and `cloned_from_thread`.
+        /// In most situations `cloned_from_thread` can be set to None.
+        /// To solve already borrowed issues for the tasks
+        fn allocate_watchpoints(
+            &self,
+            active_task: &mut dyn Task,
+            cloned_from_thread: Option<&mut dyn Task>,
+        ) -> bool {
             let mut regs = self.get_watch_configs(WillSetTaskState::SettingTaskState);
+
+            let mut except_vec = vec![active_task.weak_self_ptr()];
+            cloned_from_thread
+                .as_ref()
+                .map(|t| except_vec.push(t.weak_self_ptr()));
 
             if regs.len() <= 0x7f {
                 let mut ok = true;
-                if !active_task.set_debug_regs(&mut regs) {
+                if !active_task.set_debug_regs(&regs) {
                     ok = false;
                 }
-                for t in self.task_set().iter_except(active_task.weak_self_ptr()) {
-                    if !t.borrow_mut().set_debug_regs(&mut regs) {
+
+                match cloned_from_thread.as_ref() {
+                    Some(t) => {
+                        if !t.set_debug_regs(&regs) {
+                            ok = false;
+                        }
+                    }
+                    None => (),
+                }
+
+                for t in self.task_set().iter_except_vec(except_vec.clone()) {
+                    if !t.borrow_mut().set_debug_regs(&regs) {
                         ok = false;
                     }
                 }
@@ -2611,14 +2635,17 @@ pub mod address_space {
             }
 
             regs.clear();
-            active_task.set_debug_regs(&mut regs);
-            for t2 in self.task_set().iter_except(active_task.weak_self_ptr()) {
-                t2.borrow_mut().set_debug_regs(&mut regs);
+            active_task.set_debug_regs(&regs);
+            cloned_from_thread.map(|t| t.set_debug_regs(&mut regs));
+            for t2 in self.task_set().iter_except_vec(except_vec) {
+                t2.borrow_mut().set_debug_regs(&regs);
             }
+
             for v in self.watchpoints.borrow_mut().values_mut() {
                 v.debug_regs_for_exec_read.clear();
             }
-            return false;
+
+            false
         }
 
         /// Merge the mappings adjacent to `key` in memory that are
