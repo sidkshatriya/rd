@@ -749,15 +749,22 @@ fn rep_process_syscall_arch<Arch: Architecture>(
         t.canonicalize_regs(step.syscall().arch);
         return;
     }
+
     if nsys == Arch::IPC {
         unimplemented!()
     }
+
     if nsys == Arch::SIGRETURN || nsys == Arch::RT_SIGRETURN {
-        unimplemented!();
+        t.set_regs(trace_regs);
+        let extra_regs = t.current_trace_frame().extra_regs_ref().clone();
+        t.set_extra_regs(&extra_regs);
+        step.action = ReplayTraceStepType::TstepRetire;
     }
+
     if nsys == Arch::PERF_EVENT_OPEN {
         unimplemented!();
     }
+
     if nsys == Arch::PERF_EVENT_OPEN
         || nsys == Arch::RECVMSG
         || nsys == Arch::RECVMMSG
@@ -766,9 +773,11 @@ fn rep_process_syscall_arch<Arch: Architecture>(
     {
         unimplemented!();
     }
+
     if nsys == Arch::OPENAT {
         handle_opened_files(t, t.regs_ref().arg3() as i32)
     }
+
     if nsys == Arch::OPEN {
         unimplemented!();
     }
