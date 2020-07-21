@@ -96,6 +96,7 @@ use libc::{
     pid_t,
     pread64,
     waitpid,
+    CLONE_FILES,
     ECHILD,
     EPERM,
     ESRCH,
@@ -1064,8 +1065,10 @@ fn on_syscall_exit_arch<Arch: Architecture>(t: &mut dyn Task, sys: i32, regs: &R
     }
 
     if sys == Arch::SET_THREAD_AREA {
-        unimplemented!()
+        t.set_thread_area(regs.arg1().into());
+        return;
     }
+
     if sys == Arch::PRCTL {
         match t.regs_ref().arg1_signed() as i32 {
             PR_SET_SECCOMP => {
@@ -1083,18 +1086,28 @@ fn on_syscall_exit_arch<Arch: Architecture>(t: &mut dyn Task, sys: i32, regs: &R
         }
         return;
     }
-    if sys == Arch::DUP {
+
+    if sys == Arch::DUP || sys == Arch::DUP2 || sys == Arch::DUP3 {
+        t.fd_table_mut()
+            .did_dup(regs.arg1() as i32, regs.syscall_result() as i32);
+        return;
+    }
+
+    if sys == Arch::FCNTL64 || sys == Arch::FCNTL {
         unimplemented!()
     }
-    if sys == Arch::FCNTL64 {
-        unimplemented!()
-    }
+
     if sys == Arch::CLOSE {
         t.fd_table_mut().did_close(regs.arg1() as i32);
         return;
     }
+
     if sys == Arch::UNSHARE {
-        unimplemented!()
+        if regs.arg1() & CLONE_FILES as usize != 0 {
+            t.fd_table_mut().task_set_mut().erase(t.weak_self_ptr());
+            t.fds = Some(t.fd_table_shr_ptr().borrow().clone_into_task(t));
+        }
+        return;
     }
 
     if sys == Arch::PWRITE64 || sys == Arch::WRITE {
@@ -1116,7 +1129,7 @@ fn on_syscall_exit_arch<Arch: Architecture>(t: &mut dyn Task, sys: i32, regs: &R
         return;
     }
 
-    if sys == Arch::PWRITEV {
+    if sys == Arch::PWRITEV || sys == Arch::WRITEV {
         unimplemented!()
     }
 
