@@ -1359,7 +1359,6 @@ fn find_exec_stub(arch: SupportedArch) -> CString {
 }
 
 fn handle_opened_files(t: &ReplayTask, flags_raw: i32) {
-    // @TODO use the unsafe version from_bits_unchecked ??
     let flags = OFlag::from_bits(flags_raw).unwrap();
     let ctf = t.current_trace_frame();
     let opened = &ctf.event().syscall().opened;
@@ -1676,7 +1675,8 @@ fn finish_shared_mmap(
             fd.tid
         );
         let rt = maybe_rt.unwrap();
-        match rt.fd_table().get_monitor(fd.fd) {
+        let maybe_mon = rt.fd_table().get_monitor(fd.fd);
+        match maybe_mon {
             Some(file_mon_shr_ptr) => {
                 ed_assert!(
                     rt,

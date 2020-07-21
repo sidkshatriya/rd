@@ -165,7 +165,7 @@ impl FdTable {
         self.fd_count_beyond_limit
     }
 
-    pub fn get_monitor(self, fd: i32) -> Option<FileMonitorSharedPtr> {
+    pub fn get_monitor(&self, fd: i32) -> Option<FileMonitorSharedPtr> {
         self.fds.get(&fd).map(|f| f.clone())
     }
 
@@ -247,6 +247,11 @@ impl FdTable {
     }
 
     fn update_syscallbuf_fds_disabled(&self, mut fd: i32) {
+        // @TODO TEMPORARY, REMOVE
+        // The iteration through the task set causes "already borrowed" issues
+        // As we're not using syscall buf yet, make this method a no-op.
+        return;
+
         debug_assert!(fd >= 0);
         debug_assert!(!self.task_set().is_empty());
 

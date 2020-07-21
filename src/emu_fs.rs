@@ -397,7 +397,7 @@ fn create_memfd_file(
     let mut name: Vec<u8> = Vec::new();
     write!(
         name,
-        "rr-emufs-{}-dev-{}-inode-{}-",
+        "rd-emufs-{}-dev-{}-inode-{}-",
         getpid(),
         orig_device,
         orig_inode
