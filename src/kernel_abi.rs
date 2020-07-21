@@ -77,6 +77,49 @@ pub enum CloneParameterOrdering {
     FlagsStackParentChildTLS,
 }
 
+// @TODO This is available via e.g. Arch::DUPFD in rr.
+// Here since this is common between 32 and 64 bit, we just put it here.
+// May need a more elegant solution.
+//
+// These duplicate the matching F_* constants for commands for fcntl, with two
+// small differences: we unconditionally define the *64 variants to their values
+// for 32-bit systems.  This change enables us to always use our constants in
+// switch cases without worrying about duplicated case values and makes dealing
+// with 32-bit and 64-bit tracees in the same rd process simpler.
+#[repr(C)]
+pub enum FcntlOperation {
+    DUPFD = 0,
+    GETFD = 1,
+    SETFD = 2,
+    GETFL = 3,
+    SETFL = 4,
+    GETLK = 5,
+    SETLK = 6,
+    SETLKW = 7,
+    SETOWN = 8,
+    GETOWN = 9,
+    SETSIG = 10,
+    GETSIG = 11,
+    GETLK64 = 12,
+    SETLK64 = 13,
+    SETLKW64 = 14,
+    SETOWN_EX = 15,
+    GETOWN_EX = 16,
+    // Open File descriptor locks (Linux specific)
+    OFD_GETLK = 36,
+    OFD_SETLK = 37,
+    OFD_SETLKW = 38,
+    // Other Linux-specific operations
+    DUPFD_CLOEXEC = 0x400 + 6,
+    SETPIPE_SZ = 0x400 + 7,
+    GETPIPE_SZ = 0x400 + 8,
+    ADD_SEALS = 0x400 + 9,
+    GET_RW_HINT = 0x400 + 11,
+    SET_RW_HINT = 0x400 + 12,
+    GET_FILE_RW_HINT = 0x400 + 13,
+    SET_FILE_RW_HINT = 0x400 + 14,
+}
+
 // IMPORTANT //
 include!(concat!(
     env!("OUT_DIR"),

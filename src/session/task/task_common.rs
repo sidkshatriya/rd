@@ -36,6 +36,7 @@ use crate::{
         syscall_number_for_munmap,
         syscall_number_for_openat,
         CloneTLSType,
+        FcntlOperation,
         SupportedArch,
     },
     kernel_metadata::{ptrace_req_name, signal_name},
@@ -1094,7 +1095,13 @@ fn on_syscall_exit_arch<Arch: Architecture>(t: &mut dyn Task, sys: i32, regs: &R
     }
 
     if sys == Arch::FCNTL64 || sys == Arch::FCNTL {
-        unimplemented!()
+        if regs.arg2() == FcntlOperation::DUPFD as usize
+            || regs.arg2() == FcntlOperation::DUPFD_CLOEXEC as usize
+        {
+            t.fd_table_mut()
+                .did_dup(regs.arg1() as i32, regs.syscall_result() as i32);
+        }
+        return;
     }
 
     if sys == Arch::CLOSE {
