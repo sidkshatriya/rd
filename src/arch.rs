@@ -570,9 +570,15 @@ pub trait Architecture {
     type rdcall_init_preload_params: Copy + 'static;
 
     fn get_k_sa_handler(k: &Self::kernel_sigaction) -> RemotePtr<Void>;
+
     fn get_sa_flags(k: &Self::kernel_sigaction) -> usize;
+
     fn arch() -> SupportedArch;
+
     fn set_iovec(msgdata: &mut Self::iovec, iov_base: RemotePtr<Void>, iov_len: usize);
+
+    fn get_iovec(msgdata: &Self::iovec) -> (RemotePtr<Void>, usize);
+
     fn set_msghdr(
         msg: &mut Self::msghdr,
         msg_control: RemotePtr<u8>,
@@ -1065,6 +1071,10 @@ impl Architecture for X86Arch {
     fn set_iovec(msgdata: &mut Self::iovec, iov_base: RemotePtr<u8>, iov_len: usize) {
         msgdata.iov_base = iov_base.into();
         msgdata.iov_len = iov_len.try_into().unwrap();
+    }
+
+    fn get_iovec(msgdata: &Self::iovec) -> (RemotePtr<Void>, usize) {
+        (msgdata.iov_base.rptr(), msgdata.iov_len as usize)
     }
 
     fn set_msghdr(
@@ -1590,6 +1600,10 @@ impl Architecture for X64Arch {
     fn set_iovec(msgdata: &mut Self::iovec, iov_base: RemotePtr<u8>, iov_len: usize) {
         msgdata.iov_base = iov_base.into();
         msgdata.iov_len = iov_len as _;
+    }
+
+    fn get_iovec(msgdata: &Self::iovec) -> (RemotePtr<Void>, usize) {
+        (msgdata.iov_base.rptr(), msgdata.iov_len as usize)
     }
 
     fn set_msghdr(

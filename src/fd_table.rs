@@ -250,7 +250,7 @@ impl FdTable {
         // @TODO TEMPORARY, REMOVE
         // The iteration through the task set causes "already borrowed" issues
         // As we're not using syscall buf yet, make this method a no-op.
-        return;
+        return; // EVERYTHING BELOW IS TEMPORARILY UNREACHABLE
 
         debug_assert!(fd >= 0);
         debug_assert!(!self.task_set().is_empty());

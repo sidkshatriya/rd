@@ -116,6 +116,7 @@ use nix::{
 };
 use std::{
     cell::RefCell,
+    cmp::min,
     convert::TryInto,
     ffi::{c_void, CStr, CString, OsStr},
     mem::{size_of, zeroed},
@@ -1137,7 +1138,31 @@ fn on_syscall_exit_arch<Arch: Architecture>(t: &mut dyn Task, sys: i32, regs: &R
     }
 
     if sys == Arch::PWRITEV || sys == Arch::WRITEV {
-        unimplemented!()
+        let fd: i32 = regs.arg1_signed() as i32;
+        let mut ranges: Vec<file_monitor::Range> = Vec::new();
+        let iovecs = read_mem(
+            t,
+            RemotePtr::<Arch::iovec>::new_from_val(regs.arg2()),
+            regs.arg3(),
+            None,
+        );
+        let mut written = regs.syscall_result_signed();
+        ed_assert!(t, written >= 0);
+        for v in iovecs {
+            let (iov_remote_ptr, iov_len) = Arch::get_iovec(&v);
+            let amount = min(written, iov_len.try_into().unwrap());
+            if amount > 0 {
+                ranges.push(file_monitor::Range::new(iov_remote_ptr, amount as usize));
+                written -= amount;
+            }
+        }
+        let mut offset = LazyOffset::new(t, &regs, sys);
+        offset
+            .task_mut()
+            .fd_table_shr_ptr()
+            .borrow_mut()
+            .did_write(fd, ranges, &mut offset);
+        return;
     }
 
     if sys == Arch::PTRACE {
