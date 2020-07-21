@@ -6,6 +6,7 @@ use crate::{
     remote_ptr::{RemotePtr, Void},
     session::task::{record_task::record_task::RecordTask, Task},
 };
+use mmapped_file_monitor::MmappedFileMonitor;
 use std::{
     cell::RefCell,
     fs::File,
@@ -212,6 +213,14 @@ fn retrieve_offset(t: &mut dyn Task, syscallno: i32, regs: &Registers) -> Option
 pub trait FileMonitor {
     /// You have to provide a type if you implement this trait
     fn file_monitor_type(&self) -> FileMonitorType;
+
+    fn as_mmapped_file_monitor_mut(&mut self) -> Option<&mut MmappedFileMonitor> {
+        None
+    }
+
+    fn as_mmapped_file_monitor(&self) -> Option<&MmappedFileMonitor> {
+        None
+    }
 
     /// Overriding this to return true will cause close() (and related fd-smashing
     /// operations such as dup2) to return EBADF, and hide it from the tracee's

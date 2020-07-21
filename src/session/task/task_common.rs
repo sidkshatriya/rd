@@ -110,7 +110,7 @@ use libc::{
 use nix::{
     errno::{errno, Errno},
     fcntl::OFlag,
-    sys::mman::{MapFlags, MmapAdvise, ProtFlags},
+    sys::mman::{MapFlags, ProtFlags},
 };
 use std::{
     cell::RefCell,

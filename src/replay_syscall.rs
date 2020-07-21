@@ -18,6 +18,7 @@ use crate::{
         proc_mem_monitor::ProcMemMonitor,
         stdio_monitor::StdioMonitor,
         FileMonitor,
+        FileMonitorType,
     },
     kernel_abi::{
         common::preload_interface::{syscallbuf_hdr, SYS_rdcall_reload_auxv},
@@ -124,6 +125,7 @@ use nix::{
     unistd::{access, lseek, read, AccessFlags, Whence},
 };
 use std::{
+    cell::Ref,
     cmp::min,
     convert::TryInto,
     ffi::{CString, OsStr, OsString},
@@ -1412,9 +1414,7 @@ fn process_mmap(
     mut offset_pages: usize,
     step: &mut ReplayTraceStep,
 ) {
-    // @TODO Could use the from_bits_unchecked version here??
     let prot = ProtFlags::from_bits(prot_raw).unwrap();
-    // @TODO Could use the from_bits_unchecked version here??
     let flags = MapFlags::from_bits(flags_raw).unwrap();
 
     step.action = ReplayTraceStepType::TstepRetire;
@@ -1518,7 +1518,7 @@ fn process_mmap(
                         length,
                         prot,
                         flags,
-                        extra_fds,
+                        &extra_fds,
                         offset_pages,
                         km,
                         &data,
@@ -1573,17 +1573,130 @@ fn process_mmap(
 }
 
 fn finish_shared_mmap(
-    _remote: &mut AutoRemoteSyscalls,
-    _addr: RemotePtr<u8>,
-    _length: usize,
-    _prot: ProtFlags,
-    _flags: MapFlags,
-    _extra_fds: Vec<TraceRemoteFd>,
-    _offset_pages: usize,
-    _km: KernelMapping,
-    _data: &MappedData,
+    remote: &mut AutoRemoteSyscalls,
+    rec_addr: RemotePtr<u8>,
+    length: usize,
+    prot: ProtFlags,
+    flags: MapFlags,
+    fds: &[TraceRemoteFd],
+    offset_pages: usize,
+    km: KernelMapping,
+    data: &MappedData,
 ) {
-    unimplemented!()
+    // Ensure there's a virtual file for the file that was mapped
+    // during recording.
+    let emufile: EmuFileSharedPtr = remote
+        .task()
+        .session()
+        .as_replay()
+        .unwrap()
+        .emufs_mut()
+        .get_or_create(&km);
+    // Re-use the direct_map() machinery to map the virtual file.
+    //
+    // NB: the tracee will map the procfs link to our fd; there's
+    // no "real" name for the file anywhere, to ensure that when
+    // we exit/crash the kernel will clean up for us.
+    // Emufs file, so open it read-write in case we want to write to it through
+    // the task's mem fd.
+    let (real_file, real_file_name) = finish_direct_mmap(
+        remote,
+        rec_addr,
+        km.size(),
+        prot,
+        flags,
+        &OsString::from(emufile.borrow().proc_path()),
+        OFlag::O_RDWR,
+        offset_pages,
+    );
+    // Write back the snapshot of the segment that we recorded.
+    //
+    // TODO: this is a poor man's shared segment synchronization.
+    // For full generality, we also need to emulate direct file
+    // modifications through write/splice/etc.
+    //
+    // Update AddressSpace before loading data from the trace. This ensures our
+    // kernel-bug-workarounds when writing to tracee memory see the up-to-date
+    // virtual map.
+    let offset_bytes: u64 = page_size() as u64 * offset_pages as u64;
+    remote.task().vm_shr_ptr().map(
+        remote.task(),
+        rec_addr,
+        km.size(),
+        prot,
+        flags,
+        offset_bytes,
+        real_file_name.as_os_str(),
+        real_file.st_dev,
+        real_file.st_ino,
+        None,
+        Some(&km),
+        Some(emufile.clone()),
+        None,
+        None,
+    );
+
+    write_mapped_data(
+        remote.task_mut().as_replay_task_mut().unwrap(),
+        rec_addr,
+        km.size(),
+        data,
+    );
+
+    log!(
+        LogDebug,
+        "  restored {} bytes at {:#x} to {:?} for {:?}",
+        length,
+        offset_bytes,
+        emufile.borrow().real_path(),
+        emufile.borrow().emu_path()
+    );
+
+    for fd in fds {
+        let t_shr_ptr: TaskSharedPtr;
+        let t_b: Ref<Box<dyn Task>>;
+        // @TODO Is this complication needed? Probably...
+        let maybe_rt = if remote.task().rec_tid == fd.tid {
+            Some(remote.task())
+        } else {
+            match remote.task().session().find_task_from_rec_tid(fd.tid) {
+                Some(shr_ptr) => {
+                    t_shr_ptr = shr_ptr;
+                    t_b = t_shr_ptr.borrow();
+                    Some(t_b.as_ref())
+                }
+                None => None,
+            }
+        };
+
+        ed_assert!(
+            remote.task(),
+            maybe_rt.is_some(),
+            "Can't find task {}",
+            fd.tid
+        );
+        let rt = maybe_rt.unwrap();
+        match rt.fd_table().get_monitor(fd.fd) {
+            Some(file_mon_shr_ptr) => {
+                ed_assert!(
+                    rt,
+                    file_mon_shr_ptr.borrow().file_monitor_type() == FileMonitorType::Mmapped
+                );
+                file_mon_shr_ptr
+                    .borrow_mut()
+                    .as_mmapped_file_monitor_mut()
+                    .unwrap()
+                    .revive();
+            }
+            None => {
+                rt.fd_table_mut().add_monitor(
+                    rt,
+                    fd.fd,
+                    Box::new(MmappedFileMonitor::new_from_emufile(rt, emufile.clone())),
+                );
+            }
+        };
+    }
 }
 
 fn finish_private_mmap(

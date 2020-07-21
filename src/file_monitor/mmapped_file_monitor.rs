@@ -35,8 +35,12 @@ impl MmappedFileMonitor {
         }
     }
 
+    pub fn revive(&mut self) {
+        self.dead_ = false;
+    }
+
     pub fn new_from_emufile(t: &dyn Task, f: EmuFileSharedPtr) -> MmappedFileMonitor {
-        ed_assert!(t, !t.session().is_replaying());
+        ed_assert!(t, t.session().is_replaying());
         MmappedFileMonitor {
             dead_: false,
             device_: f.borrow().device(),
@@ -48,6 +52,14 @@ impl MmappedFileMonitor {
 impl FileMonitor for MmappedFileMonitor {
     fn file_monitor_type(&self) -> FileMonitorType {
         FileMonitorType::Mmapped
+    }
+
+    fn as_mmapped_file_monitor_mut(&mut self) -> Option<&mut MmappedFileMonitor> {
+        Some(self)
+    }
+
+    fn as_mmapped_file_monitor(&self) -> Option<&MmappedFileMonitor> {
+        Some(self)
     }
 
     fn will_write(&self, _t: &dyn Task) -> Switchable {

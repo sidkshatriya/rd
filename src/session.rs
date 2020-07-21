@@ -209,7 +209,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
 
     /// Return the task created with `rec_tid`, or None if no such
     /// task exists.
-    /// NOTE: Method is simply called Session::find task() in rr
+    /// NOTE: Method is simply called Session::find_task() in rr
     fn find_task_from_rec_tid(&self, rec_tid: pid_t) -> Option<TaskSharedPtr> {
         self.finish_initializing();
         self.tasks()
