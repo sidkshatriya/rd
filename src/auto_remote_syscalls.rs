@@ -1,7 +1,7 @@
 use crate::{
     arch::Architecture,
     auto_remote_syscalls::MemParamsEnabled::{DisableMemoryParams, EnableMemoryParams},
-    bindings::ptrace::PTRACE_EVENT_EXIT,
+    bindings::{kernel::SYS_SENDMSG, ptrace::PTRACE_EVENT_EXIT},
     kernel_abi::{
         has_mmap2_syscall,
         has_socketcall_syscall,
@@ -61,7 +61,6 @@ use crate::{
 use core::ffi::c_void;
 use libc::{
     pid_t,
-    SYS_sendmsg,
     ESRCH,
     MREMAP_FIXED,
     MREMAP_MAYMOVE,
@@ -846,9 +845,12 @@ impl<'a> AutoRemoteSyscalls<'a> {
             log!(LogDebug, "Task is dying, no status result");
             -ESRCH as isize
         } else {
-            let res = self.t.regs_ref().syscall_result_signed();
+            // IMPORTANT: Note unsigned syscall result.
+            // Ensures that sign extention does NOT happen for x86
+            let res = self.t.regs_ref().syscall_result();
             log!(LogDebug, "done, result={} ({:#x})", res, res);
-            res
+            // Make signed now
+            res as isize
         }
     }
 
@@ -1290,19 +1292,16 @@ impl<Arch: Architecture> Clone for SocketcallArgs<Arch> {
 
 impl<Arch: Architecture> Copy for SocketcallArgs<Arch> {}
 
-/// The rr version takes a `bool ok` argument
-/// This version simple returns a bool for success/failure
 fn write_socketcall_args<Arch: Architecture>(
     t: &mut dyn Task,
     remote_mem: RemotePtr<SocketcallArgs<Arch>>,
     arg1: Arch::signed_long,
     arg2: Arch::signed_long,
     arg3: Arch::signed_long,
-) -> bool {
-    let mut ok: bool = false;
+    maybe_ok: Option<&mut bool>,
+) {
     let sc_args = [arg1, arg2, arg3];
-    write_mem(t, RemotePtr::cast(remote_mem), &sc_args, Some(&mut ok));
-    ok
+    write_mem(t, RemotePtr::cast(remote_mem), &sc_args, maybe_ok);
 }
 
 const fn align_size(size: usize) -> usize {
@@ -1410,22 +1409,23 @@ fn child_sendmsg<Arch: Architecture>(
     }
 
     let addr: Arch::unsigned_long = remote_msg.as_usize().try_into().unwrap();
-    let success = write_socketcall_args::<Arch>(
+    write_socketcall_args::<Arch>(
         remote_buf.task_mut(),
         sc_args.unwrap(),
         child_sock.into(),
         Arch::as_signed_long(addr),
         0i32.into(),
+        Some(&mut ok),
     );
 
-    if !success {
+    if !ok {
         return -ESRCH as isize;
     }
 
     rd_syscall!(
         remote_buf,
         syscall_number_for_socketcall(arch),
-        SYS_sendmsg,
+        SYS_SENDMSG,
         sc_args.unwrap().as_usize()
     )
 }
