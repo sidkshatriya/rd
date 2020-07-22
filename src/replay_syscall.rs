@@ -691,7 +691,15 @@ fn rep_process_syscall_arch<Arch: Architecture>(
     }
 
     if nsys == Arch::MMAP2 {
-        unimplemented!();
+        return process_mmap(
+            t,
+            trace_regs.arg2(),
+            trace_regs.arg3() as i32,
+            trace_regs.arg4() as i32,
+            trace_regs.arg5() as i32,
+            trace_regs.arg6(),
+            step,
+        );
     }
     if nsys == Arch::SHMAT {
         unimplemented!();
@@ -1359,7 +1367,9 @@ fn find_exec_stub(arch: SupportedArch) -> CString {
 }
 
 fn handle_opened_files(t: &ReplayTask, flags_raw: i32) {
-    let flags = OFlag::from_bits(flags_raw).unwrap();
+    // @TODO The from_bits_unchecked seems to be needed here cause in x86 there is a flag that
+    // is not recognized here by OFlag::from_bits(flags_raw).unwrap(). Check again?
+    let flags = unsafe { OFlag::from_bits_unchecked(flags_raw) };
     let ctf = t.current_trace_frame();
     let opened = &ctf.event().syscall().opened;
     for o in opened {
