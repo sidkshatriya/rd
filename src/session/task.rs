@@ -5,8 +5,11 @@ use crate::{
     },
     kernel_abi::{
         common::preload_interface::{syscallbuf_record, PRELOAD_THREAD_LOCALS_SIZE},
+        syscall_instruction_length,
+        syscall_number_for_gettid,
         SupportedArch,
     },
+    kernel_metadata::syscall_name,
     log::LogLevel::{LogDebug, LogWarn},
     registers::Registers,
     remote_ptr::{RemotePtr, Void},
@@ -28,7 +31,7 @@ use crate::{
     util::{is_zombie_process, to_timeval},
     wait_status::{MaybeStopSignal, WaitStatus},
 };
-use libc::{pid_t, waitpid, SIGSTOP, SIGTRAP};
+use libc::{pid_t, waitpid, ENOSYS, SIGSTOP, SIGTRAP};
 use nix::errno::errno;
 use std::{
     cell::RefCell,
@@ -299,8 +302,36 @@ pub trait Task: DerefMut<Target = TaskInner> {
     /// Assuming we've just entered a syscall, exit that syscall and reset
     /// state to reenter the syscall just as it was called the first time.
     /// Returns false if we see the process exit instead.
-    fn exit_syscall_and_prepare_restart(&self) -> bool {
-        unimplemented!()
+    fn exit_syscall_and_prepare_restart(&mut self) -> bool {
+        let mut r: Registers = self.regs_ref().clone();
+        let syscallno: i32 = r.original_syscallno() as i32;
+        log!(
+            LogDebug,
+            "exit_syscall_and_prepare_restart from syscall {}",
+            syscall_name(syscallno, r.arch())
+        );
+        r.set_original_syscallno(syscall_number_for_gettid(r.arch()) as isize);
+        self.set_regs(&r);
+        // This exits the hijacked SYS_gettid.  Now the tracee is
+        // ready to do our bidding.
+        if !self.exit_syscall() {
+            // The tracee suddenly exited. To get this to replay correctly, we need to
+            // make it look like we really entered the syscall. Then
+            // handle_ptrace_exit_event will record something appropriate.
+            r.set_original_syscallno(syscallno as isize);
+            r.set_syscall_result_signed(-ENOSYS as isize);
+            self.set_regs(&r);
+            return false;
+        }
+        log!(LogDebug, "exit_syscall_and_prepare_restart done");
+
+        // Restore these regs to what they would have been just before
+        // the tracee trapped at the syscall.
+        r.set_original_syscallno(-1);
+        r.set_syscallno(syscallno as isize);
+        r.set_ip(r.ip() - syscall_instruction_length(r.arch()));
+        self.set_regs(&r);
+        true
     }
 
     /// Return true if the status of this has changed, but don't
