@@ -1,6 +1,7 @@
 use super::{
+    address_space::{kernel_mapping::KernelMapping, MappingFlags},
     session_common::kill_all_tasks,
-    session_inner::is_singlestep,
+    session_inner::{is_singlestep, session_inner::PtraceSyscallSeccompOrdering},
     task::{
         replay_task::ReplayTaskIgnore,
         task_inner::{TrapReasons, MAX_TICKS_REQUEST},
@@ -8,6 +9,7 @@ use super::{
 };
 use crate::{
     arch::{Architecture, X86Arch},
+    auto_remote_syscalls::AutoRemoteSyscalls,
     bindings::{
         ptrace::{PTRACE_EVENT_EXIT, PTRACE_EVENT_SECCOMP},
         signal::siginfo_t,
@@ -40,18 +42,7 @@ use crate::{
         },
         diversion_session::DiversionSessionSharedPtr,
         replay_session::ReplayTraceStepType::TstepNone,
-        session_inner::{
-            session_inner::{
-                PtraceSyscallBeforeSeccomp::{
-                    PtraceSyscallBeforeSeccomp,
-                    PtraceSyscallBeforeSeccompUnknown,
-                    SeccompBeforePtraceSyscall,
-                },
-                SessionInner,
-            },
-            BreakStatus,
-            RunCommand,
-        },
+        session_inner::{session_inner::SessionInner, BreakStatus, RunCommand},
         task::{
             replay_task::ReplayTask,
             task_common::write_val_mem,
@@ -71,7 +62,7 @@ use crate::{
     trace::{
         trace_frame::{FrameTime, TraceFrame},
         trace_reader::TraceReader,
-        trace_stream::TraceStream,
+        trace_stream::{MappedData, TraceStream},
     },
     util::{
         cpuid,
@@ -95,6 +86,7 @@ use crate::{
     wait_status::WaitStatus,
 };
 use libc::{pid_t, ENOSYS, SIGBUS, SIGSEGV, SIGTRAP};
+use nix::sys::mman::MapFlags;
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
     cmp::min,
@@ -1023,15 +1015,16 @@ impl ReplaySession {
             );
         }
         if t.seccomp_bpf_enabled
-            && self.syscall_seccomp_ordering_.get() == PtraceSyscallBeforeSeccompUnknown
+            && self.syscall_seccomp_ordering_.get()
+                == PtraceSyscallSeccompOrdering::SyscallBeforeSeccompUnknown
         {
             ed_assert!(t, !constraints.is_singlestep());
             if t.maybe_ptrace_event() == PTRACE_EVENT_SECCOMP {
                 self.syscall_seccomp_ordering_
-                    .set(SeccompBeforePtraceSyscall);
+                    .set(PtraceSyscallSeccompOrdering::SeccompBeforeSyscall);
             } else {
                 self.syscall_seccomp_ordering_
-                    .set(PtraceSyscallBeforeSeccomp);
+                    .set(PtraceSyscallSeccompOrdering::SyscallBeforeSeccomp);
             }
             // Eat the following event, either a seccomp or syscall notification
             t.resume_execution(
@@ -1650,8 +1643,64 @@ impl ReplaySession {
     fn flush_syscallbuf(&self, _t: &ReplayTask, _constraints: &StepConstraints) -> Completion {
         unimplemented!();
     }
-    fn patch_next_syscall(&self, _t: &ReplayTask, _constraints: &StepConstraints) -> Completion {
-        unimplemented!();
+    fn patch_next_syscall(&self, t: &mut ReplayTask, constraints: &StepConstraints) -> Completion {
+        if self.cont_syscall_boundary(t, constraints) == Completion::Incomplete {
+            return Completion::Incomplete;
+        }
+
+        let arch = t.arch();
+        t.canonicalize_regs(arch);
+        t.exit_syscall_and_prepare_restart();
+
+        // All patching effects have been recorded to the trace.
+        // First, replay any memory mapping done by Monkeypatcher. There should be
+        // at most one but we might as well be general.
+        loop {
+            let mut data = MappedData::default();
+            let maybe_km =
+                t.trace_reader_mut()
+                    .read_mapped_region(Some(&mut data), None, None, None, None);
+
+            match maybe_km {
+                None => {
+                    break;
+                }
+                Some(km) => {
+                    let mut remote = AutoRemoteSyscalls::new(t);
+                    ed_assert!(remote.task(), km.flags().contains(MapFlags::MAP_ANONYMOUS));
+                    remote.infallible_mmap_syscall(
+                        Some(km.start()),
+                        km.size(),
+                        km.prot(),
+                        km.flags() | MapFlags::MAP_FIXED,
+                        -1,
+                        0,
+                    );
+                    remote.task().vm_shr_ptr().map(
+                        remote.task_mut(),
+                        km.start(),
+                        km.size(),
+                        km.prot(),
+                        km.flags(),
+                        0,
+                        OsStr::new(""),
+                        KernelMapping::NO_DEVICE,
+                        KernelMapping::NO_INODE,
+                        None,
+                        Some(&km),
+                        None,
+                        None,
+                        None,
+                    );
+                    *remote.task().vm().mapping_flags_of_mut(km.start()) |=
+                        MappingFlags::IS_PATCH_STUBS;
+                }
+            }
+        }
+
+        // Now replay all data records.
+        t.apply_all_data_records_from_trace();
+        Completion::Complete
     }
 
     /// Try to execute step, adjusting for `constraints` if needed.  Return `Complete` if

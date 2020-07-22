@@ -12,7 +12,7 @@ use crate::{
     remote_ptr::{RemotePtr, Void},
     session::{
         replay_session::ReplaySession,
-        session_inner::session_inner::PtraceSyscallBeforeSeccomp,
+        session_inner::session_inner::PtraceSyscallSeccompOrdering,
         task::{
             record_task::record_task::RecordTask,
             replay_task::ReplayTask,
@@ -179,7 +179,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
     fn enter_syscall(&mut self) {
         let mut need_ptrace_syscall_event = !self.seccomp_bpf_enabled
             || self.session().syscall_seccomp_ordering()
-                == PtraceSyscallBeforeSeccomp::SeccompBeforePtraceSyscall;
+                == PtraceSyscallSeccompOrdering::SeccompBeforeSyscall;
         let mut need_seccomp_event = self.seccomp_bpf_enabled;
         while need_ptrace_syscall_event || need_seccomp_event {
             let resume_how = if need_ptrace_syscall_event {
@@ -234,8 +234,44 @@ pub trait Task: DerefMut<Target = TaskInner> {
     /// Continue into the kernel to perform the syscall and stop at the
     /// PTRACE_SYSCALL syscall-exit trap. Returns false if we see the process exit
     /// before that.
-    fn exit_syscall(&self) -> bool {
-        unimplemented!()
+    fn exit_syscall(&mut self) -> bool {
+        // If PTRACE_SYSCALL_BEFORE_SECCOMP, we are inconsistent about
+        // whether we process the syscall on the syscall entry trap or
+        // on the seccomp trap. Detect if we are on the former and
+        // just bring us forward to the seccomp trap.
+        let mut will_see_seccomp: bool = self.seccomp_bpf_enabled
+            && (self.session().syscall_seccomp_ordering()
+                == PtraceSyscallSeccompOrdering::SyscallBeforeSeccomp)
+            && !self.is_ptrace_seccomp_event();
+        loop {
+            self.resume_execution(
+                ResumeRequest::ResumeSyscall,
+                WaitRequest::ResumeWait,
+                TicksRequest::ResumeNoTicks,
+                None,
+            );
+            if will_see_seccomp && self.is_ptrace_seccomp_event() {
+                will_see_seccomp = false;
+                continue;
+            }
+            if self.maybe_ptrace_event() == PTRACE_EVENT_EXIT {
+                return false;
+            }
+            ed_assert!(self, !self.maybe_ptrace_event().is_ptrace_event());
+            if self.maybe_stop_sig().is_not_sig() {
+                let arch = self.arch();
+                self.canonicalize_regs(arch);
+                break;
+            }
+            if ReplaySession::is_ignored_signal(self.maybe_stop_sig().get_raw_repr())
+                && self.session().is_replaying()
+            {
+                continue;
+            }
+            ed_assert!(self, self.session().is_recording());
+            self.as_record_task().unwrap().stash_sig();
+        }
+        true
     }
 
     /// This must be in an emulated syscall, entered through

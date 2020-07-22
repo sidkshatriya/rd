@@ -125,15 +125,15 @@ pub mod session_inner {
     pub type ThreadGroupMap = HashMap<ThreadGroupUid, ThreadGroupSharedWeakPtr>;
 
     #[derive(Copy, Clone, Eq, PartialEq)]
-    pub enum PtraceSyscallBeforeSeccomp {
-        PtraceSyscallBeforeSeccomp,
-        SeccompBeforePtraceSyscall,
-        PtraceSyscallBeforeSeccompUnknown,
+    pub enum PtraceSyscallSeccompOrdering {
+        SyscallBeforeSeccomp,
+        SeccompBeforeSyscall,
+        SyscallBeforeSeccompUnknown,
     }
 
-    impl Default for PtraceSyscallBeforeSeccomp {
+    impl Default for PtraceSyscallSeccompOrdering {
         fn default() -> Self {
-            PtraceSyscallBeforeSeccomp::PtraceSyscallBeforeSeccompUnknown
+            PtraceSyscallSeccompOrdering::SyscallBeforeSeccompUnknown
         }
     }
 
@@ -316,7 +316,7 @@ pub mod session_inner {
             }
         }
 
-        pub fn syscall_seccomp_ordering(&self) -> PtraceSyscallBeforeSeccomp {
+        pub fn syscall_seccomp_ordering(&self) -> PtraceSyscallSeccompOrdering {
             self.syscall_seccomp_ordering_.get()
         }
 
@@ -537,7 +537,7 @@ pub mod session_inner {
         // @TODO Should this be an Option?
         pub(in super::super) spawned_task_error_fd_: RefCell<ScopedFd>,
 
-        pub(in super::super) syscall_seccomp_ordering_: Cell<PtraceSyscallBeforeSeccomp>,
+        pub(in super::super) syscall_seccomp_ordering_: Cell<PtraceSyscallSeccompOrdering>,
 
         pub(in super::super) ticks_semantics_: TicksSemantics,
 
