@@ -277,7 +277,7 @@ pub fn fast_forward_through_instruction<T: Task>(
         // can increase the size of the watched area to conserve watch registers.
         // So, disable watchpoints temporarily.
         t.vm().save_watchpoints();
-        t.vm_shr_ptr().remove_all_watchpoints(t);
+        t.vm_shr_ptr().remove_all_watchpoints(t, None);
         t.resume_execution(
             ResumeRequest::ResumeCont,
             WaitRequest::ResumeWait,

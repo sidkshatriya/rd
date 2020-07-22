@@ -1451,11 +1451,15 @@ pub mod address_space {
             self.allocate_watchpoints(active_task, None);
         }
 
-        /// DIFF NOTE: Additional param `active_task`
+        /// DIFF NOTE: Additional param `active_task` and `maybe_cloned_from_thread`
         /// To solve already borrowed issue in the task.
-        pub fn remove_all_watchpoints(&self, active_task: &mut dyn Task) {
+        pub fn remove_all_watchpoints(
+            &self,
+            active_task: &mut dyn Task,
+            maybe_cloned_from_thread: Option<&mut dyn Task>,
+        ) {
             self.watchpoints.borrow_mut().clear();
-            self.allocate_watchpoints(active_task, None);
+            self.allocate_watchpoints(active_task, maybe_cloned_from_thread);
         }
         pub fn all_watchpoints(&self) -> Vec<WatchConfig> {
             self.get_watchpoints_internal(WatchPointFilter::AllWatchpoints)
@@ -2601,28 +2605,43 @@ pub mod address_space {
         fn allocate_watchpoints(
             &self,
             active_task: &mut dyn Task,
-            cloned_from_thread: Option<&mut dyn Task>,
+            maybe_cloned_from_thread: Option<&mut dyn Task>,
         ) -> bool {
             let mut regs = self.get_watch_configs(WillSetTaskState::SettingTaskState);
 
-            let mut except_vec = vec![active_task.weak_self_ptr()];
-            cloned_from_thread
-                .as_ref()
-                .map(|t| except_vec.push(t.weak_self_ptr()));
+            let mut except_vec = Vec::new();
+            let mut active_task_same_task_set = false;
+            if self.task_set().has(active_task.weak_self_ptr()) {
+                except_vec.push(active_task.weak_self_ptr());
+                active_task_same_task_set = true;
+            }
+
+            let mut cloned_from_thread_same_task_set = false;
+            match maybe_cloned_from_thread.as_ref() {
+                Some(cloned_from_thread) => {
+                    if self.task_set().has(cloned_from_thread.weak_self_ptr()) {
+                        except_vec.push(cloned_from_thread.weak_self_ptr());
+                        cloned_from_thread_same_task_set = true;
+                    }
+                }
+                None => (),
+            }
 
             if regs.len() <= 0x7f {
                 let mut ok = true;
-                if !active_task.set_debug_regs(&regs) {
+                if active_task_same_task_set && !active_task.set_debug_regs(&regs) {
                     ok = false;
                 }
 
-                match cloned_from_thread.as_ref() {
-                    Some(t) => {
-                        if !t.set_debug_regs(&regs) {
-                            ok = false;
+                if cloned_from_thread_same_task_set {
+                    match maybe_cloned_from_thread.as_ref() {
+                        Some(cloned_from_thread) => {
+                            if !cloned_from_thread.set_debug_regs(&regs) {
+                                ok = false;
+                            }
                         }
+                        None => (),
                     }
-                    None => (),
                 }
 
                 for t in self.task_set().iter_except_vec(except_vec.clone()) {
@@ -2636,8 +2655,13 @@ pub mod address_space {
             }
 
             regs.clear();
-            active_task.set_debug_regs(&regs);
-            cloned_from_thread.map(|t| t.set_debug_regs(&mut regs));
+            if active_task_same_task_set {
+                active_task.set_debug_regs(&regs);
+            }
+            if cloned_from_thread_same_task_set {
+                maybe_cloned_from_thread
+                    .map(|cloned_from_thread| cloned_from_thread.set_debug_regs(&mut regs));
+            }
             for t2 in self.task_set().iter_except_vec(except_vec) {
                 t2.borrow_mut().set_debug_regs(&regs);
             }

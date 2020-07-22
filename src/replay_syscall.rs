@@ -59,13 +59,7 @@ use crate::{
         task::{
             replay_task::{ReplayTask, ReplayTaskIgnore},
             task_common::{read_mem, write_mem, write_val_mem},
-            task_inner::{
-                task_inner::WriteFlags,
-                CloneFlags,
-                ResumeRequest,
-                TicksRequest,
-                WaitRequest,
-            },
+            task_inner::{task_inner::WriteFlags, ResumeRequest, TicksRequest, WaitRequest},
             Task,
             TaskSharedPtr,
         },
@@ -508,7 +502,9 @@ fn prepare_clone<Arch: Architecture>(t: &mut ReplayTask) {
         // refcounts) across a non-VM-sharing clone, but for
         // now we never want to do this.
         new_task.vm_shr_ptr().remove_all_breakpoints(new_task);
-        new_task.vm_shr_ptr().remove_all_watchpoints(new_task);
+        new_task
+            .vm_shr_ptr()
+            .remove_all_watchpoints(new_task, Some(t));
 
         let mut remote = AutoRemoteSyscalls::new(new_task);
         for (&k, m) in &t.vm().maps() {
@@ -537,11 +533,7 @@ fn prepare_clone<Arch: Architecture>(t: &mut ReplayTask) {
 
     init_scratch_memory(new_task, &km, &data);
 
-    if clone_flags.contains(CloneFlags::CLONE_SHARE_VM) {
-        new_task.vm_shr_ptr().after_clone(new_task, Some(t));
-    } else {
-        new_task.vm_shr_ptr().after_clone(new_task, None);
-    }
+    new_task.vm_shr_ptr().after_clone(new_task, Some(t));
 }
 
 /// DIFF NOTE: This simply returns a ReplayTraceStep instead of modifying one.
