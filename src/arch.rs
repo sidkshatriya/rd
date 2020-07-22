@@ -544,6 +544,9 @@ pub trait Architecture {
     type signed_long: Copy + From<i32> + TryFrom<usize, Error = TryFromIntError> + 'static;
 
     #[allow(non_camel_case_types)]
+    type unsigned_long: Copy + From<u32> + TryFrom<usize, Error = TryFromIntError> + 'static;
+
+    #[allow(non_camel_case_types)]
     type iovec: Copy + Default + 'static;
 
     #[allow(non_camel_case_types)]
@@ -576,6 +579,8 @@ pub trait Architecture {
     fn arch() -> SupportedArch;
 
     fn set_iovec(msgdata: &mut Self::iovec, iov_base: RemotePtr<Void>, iov_len: usize);
+
+    fn as_signed_long(ul: Self::unsigned_long) -> Self::signed_long;
 
     fn get_iovec(msgdata: &Self::iovec) -> (RemotePtr<Void>, usize);
 
@@ -1049,6 +1054,7 @@ impl Architecture for X86Arch {
 
     type kernel_sigaction = x86::kernel_sigaction;
     type signed_long = x86::signed_long;
+    type unsigned_long = x86::unsigned_long;
     type iovec = x86::iovec;
     type msghdr = x86::msghdr;
     type cmsghdr = x86::cmsghdr;
@@ -1071,6 +1077,10 @@ impl Architecture for X86Arch {
     fn set_iovec(msgdata: &mut Self::iovec, iov_base: RemotePtr<u8>, iov_len: usize) {
         msgdata.iov_base = iov_base.into();
         msgdata.iov_len = iov_len.try_into().unwrap();
+    }
+
+    fn as_signed_long(ul: Self::unsigned_long) -> Self::signed_long {
+        ul as Self::signed_long
     }
 
     fn get_iovec(msgdata: &Self::iovec) -> (RemotePtr<Void>, usize) {
@@ -1579,6 +1589,7 @@ impl Architecture for X64Arch {
 
     type kernel_sigaction = x64::kernel_sigaction;
     type signed_long = x64::signed_long;
+    type unsigned_long = x64::unsigned_long;
     type iovec = x64::iovec;
     type msghdr = x64::msghdr;
     type cmsghdr = x64::cmsghdr;
@@ -1600,6 +1611,10 @@ impl Architecture for X64Arch {
     fn set_iovec(msgdata: &mut Self::iovec, iov_base: RemotePtr<u8>, iov_len: usize) {
         msgdata.iov_base = iov_base.into();
         msgdata.iov_len = iov_len as _;
+    }
+
+    fn as_signed_long(ul: Self::unsigned_long) -> Self::signed_long {
+        ul as Self::signed_long
     }
 
     fn get_iovec(msgdata: &Self::iovec) -> (RemotePtr<Void>, usize) {

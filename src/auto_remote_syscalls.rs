@@ -1409,11 +1409,12 @@ fn child_sendmsg<Arch: Architecture>(
         );
     }
 
+    let addr: Arch::unsigned_long = remote_msg.as_usize().try_into().unwrap();
     let success = write_socketcall_args::<Arch>(
         remote_buf.task_mut(),
         sc_args.unwrap(),
         child_sock.into(),
-        remote_msg.as_usize().try_into().unwrap(),
+        Arch::as_signed_long(addr),
         0i32.into(),
     );
 
