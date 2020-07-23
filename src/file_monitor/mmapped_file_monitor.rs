@@ -88,7 +88,7 @@ impl FileMonitor for MmappedFileMonitor {
         let mut realized_offset: u64 = 0;
 
         let is_replay = offset.t.session().is_replaying();
-        for v in offset.t.session().vms() {
+        for v in &offset.t.session().vms() {
             for (_, m) in &v.maps() {
                 let km: &KernelMapping = &m.map;
 

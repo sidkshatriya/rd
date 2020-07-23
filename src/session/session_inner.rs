@@ -281,25 +281,36 @@ pub mod session_inner {
         }
 
         /// Return the set of AddressSpaces being tracked in this session.
-        pub fn vms(&self) -> Vec<&AddressSpace> {
-            unimplemented!()
+        pub fn vms(&self) -> Vec<Rc<AddressSpace>> {
+            let res: Vec<Rc<AddressSpace>> = self
+                .vm_map
+                .borrow()
+                .iter()
+                .map(|weak| weak.1.upgrade().unwrap())
+                .collect();
+            res
         }
 
         pub fn visible_execution(&self) -> bool {
             self.visible_execution_
         }
+
         pub fn set_visible_execution(&mut self, visible: bool) {
             self.visible_execution_ = visible
         }
+
         pub fn accumulate_bytes_written(&self, bytes_written: u64) {
             self.statistics_.borrow_mut().bytes_written += bytes_written
         }
+
         pub fn accumulate_syscall_performed(&self) {
             self.statistics_.borrow_mut().syscalls_performed += 1
         }
+
         pub fn accumulate_ticks_processed(&self, ticks: Ticks) {
             self.statistics_.borrow_mut().ticks_processed += ticks;
         }
+
         pub fn statistics(&self) -> Statistics {
             *self.statistics_.borrow()
         }
