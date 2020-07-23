@@ -340,7 +340,7 @@ fn prepare_clone<Arch: Architecture>(t: &mut ReplayTask) {
     let mut sys: i32 = r.original_syscallno() as i32;
     let mut flags: i32 = 0;
     if Arch::CLONE == sys {
-        // If we allow CLONE_UNTRACED then the child would escape from rr control
+        // If we allow CLONE_UNTRACED then the child would escape from rd control
         // and we can't allow that.
         // Block CLONE_CHILD_CLEARTID because we'll emulate that ourselves.
         // Block CLONE_VFORK for the reasons below.
@@ -1028,7 +1028,7 @@ pub fn process_execve(t: &mut ReplayTask, step: &mut ReplayTraceStep) {
             && errno() == ENOENT
             && frame_arch == SupportedArch::X86
         {
-            fatal!("Cannot find exec stub {:?} to replay this 32-bit process; you probably built rr with disable32bit", stub_filename);
+            fatal!("Cannot find exec stub {:?} to replay this 32-bit process; you probably built rd with disable32bit", stub_filename);
         }
         ed_assert!(t, false, "Exec of stub {:?} failed", stub_filename);
     }

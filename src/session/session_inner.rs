@@ -154,7 +154,7 @@ pub mod session_inner {
     }
 
     /// Sessions track the global state of a set of tracees corresponding
-    /// to an rr recorder or replayer.  During recording, the tracked
+    /// to an rd recorder or replayer.  During recording, the tracked
     /// tracees will all write to the same TraceWriter, and during
     /// replay, the tracees that will be tracked will all be created based
     /// on the same TraceReader.
@@ -518,7 +518,7 @@ pub mod session_inner {
     }
 
     /// Sessions track the global state of a set of tracees corresponding
-    /// to an rr recorder or replayer.  During recording, the tracked
+    /// to an rd recorder or replayer.  During recording, the tracked
     /// tracees will all write to the same TraceWriter, and during
     /// replay, the tracees that will be tracked will all be created based
     /// on the same TraceReader.

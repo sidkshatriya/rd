@@ -6,7 +6,7 @@
 //! point at the same underling resource, so that modifications are
 //! seen by all mappees.
 //!
-//! The rr EmuFs creates "emulated files" in shared memory during
+//! The rd EmuFs creates "emulated files" in shared memory during
 //! replay.  Each efile is uniquely identified at a given event in the
 //! trace by `(edev, einode)` (i.e., the recorded device ID and inode).
 //! "What about inode recycling", you're probably thinking to yourself.

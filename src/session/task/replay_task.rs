@@ -87,7 +87,7 @@ pub enum ReplayTaskIgnore {
     /// The x86 linux 3.5.0-36 kernel packaged with Ubuntu
     /// 12.04 has been observed to mutate $esi across
     /// syscall entry/exit.  (This has been verified
-    /// outside of rr as well; not an rr bug.)  It's not
+    /// outside of rd as well; not an rr bug.)  It's not
     /// clear whether this is a ptrace bug or a kernel bug,
     /// but either way it's not supposed to happen.  So we
     /// allow validate_args to cover up that bug.
@@ -133,7 +133,7 @@ impl ReplayTask {
         // switch registers. This lets us perform AutoRemoteSyscalls using the
         // regular stack instead of having to search the address space for usable
         // pages (which is error prone, e.g. if we happen to find the scratch space
-        // allocated by an rr recorder under which we're running).
+        // allocated by an rd recorder under which we're running).
         post_exec_syscall(self);
 
         // Delay setting the replay_regs until here so the original registers

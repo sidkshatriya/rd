@@ -1285,7 +1285,7 @@ impl ReplaySession {
                 let maybe_type = AddressSpace::rd_page_syscall_from_exit_point(t.ip());
                 match maybe_type {
                     Some(type_) if type_.traced == Traced::Untraced => {
-                        // If we recorded an rr replay of an application doing a
+                        // If we recorded an rd replay of an application doing a
                         // syscall-buffered 'mprotect', the replay's `flush_syscallbuf`
                         // PTRACE_CONT'ed to execute the mprotect syscall and nothing was
                         // recorded for that until we hit the replay's breakpoint, when we
@@ -1985,7 +1985,7 @@ fn perform_interrupted_syscall(_t: &mut ReplayTask) {
 /// and (2).  This spew means that the replayer programmed an interrupt
 /// for ticks=[target-SKID_SIZE], but the tracee was actually interrupted
 /// at ticks=[target+i].  And that in turn means that the kernel/HW
-/// skidded too far past the programmed target for rr to handle it.
+/// skidded too far past the programmed target for rd to handle it.
 ///
 /// If that occurs, the SKID_SIZE needs to be increased by at least
 /// [i].

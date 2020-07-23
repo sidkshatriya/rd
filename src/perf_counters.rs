@@ -182,7 +182,7 @@ fn get_cpu_microarch() -> CpuMicroarch {
                         stderr(),
                         "You have a Ryzen CPU. The Ryzen\n\
                      retired-conditional-branches hardware\n\
-                     performance counter is not accurate enough; rr will\n\
+                     performance counter is not accurate enough; rd will\n\
                      be unreliable.\n\
                      See https://github.com/mozilla/rr/issues/2034.\n"
                     )
@@ -310,7 +310,7 @@ fn new_perf_event_attr(type_id: perf_type_id, config: u64) -> perf_event_attr {
     attr.type_ = type_id;
     attr.size = std::mem::size_of::<perf_event_attr>() as u32;
     attr.config = config;
-    // rr requires that its events count userspace tracee code
+    // rd requires that its events count userspace tracee code
     // only.
     attr.set_exclude_kernel(1);
     attr.set_exclude_guest(1);

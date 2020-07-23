@@ -48,7 +48,7 @@ use std::{
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub enum BreakpointType {
     BkptNone = 0,
-    /// Trap for internal rr purposes, f.e. replaying async
+    /// Trap for internal rd purposes, f.e. replaying async
     /// signals.
     BkptInternal = 1,
     /// Trap on behalf of a debugger user.
@@ -913,7 +913,7 @@ pub mod address_space {
                 offset_bytes,
             );
 
-            // @TODO in rr a 0 length mapping accepted. Is this correct?
+            // DIFF NOTE: @TODO in rr a 0 length mapping accepted. Is this correct?
             debug_assert!(num_bytes > 0);
 
             remove_range(
@@ -1279,7 +1279,7 @@ pub mod address_space {
             );
         }
 
-        /// Notify that data was written to this address space by rr or
+        /// Notify that data was written to this address space by rd or
         /// by the kernel.
         /// `flags` can contain values from Task::WriteFlags.
         pub fn notify_written(&self, addr: RemotePtr<Void>, num_bytes: usize, flags: WriteFlags) {
@@ -1749,7 +1749,7 @@ pub mod address_space {
             unreachable!()
         }
 
-        /// rr returns a std vector.
+        /// DIFF NOTE: rr returns a std vector.
         pub fn rd_page_syscalls() -> &'static [SyscallType] {
             &ENTRY_POINTS
         }
@@ -2054,7 +2054,7 @@ pub mod address_space {
 
         /// Dump process maps as string
         ///
-        /// Method is called print_process_maps() in rr and outputs to std err
+        /// DIFF NOTE: Method is called print_process_maps() in rr and outputs to std err
         /// Here we output as a String for more flexibility
         ///
         /// Another difference with rr is that we print our internal representation of data rather
@@ -2168,7 +2168,6 @@ pub mod address_space {
                 // rr does not explicitly initialize these.
                 child_mem_fd: Default::default(),
                 dont_fork: Default::default(),
-                // Is this what we want?
                 task_set: Default::default(),
                 // Is TaskUid::new() what we want?
                 thread_locals_tuid_: Default::default(),
@@ -2208,7 +2207,7 @@ pub mod address_space {
             // own mappings. That's OK because a) the rr_page contents are the same
             // anyway and immutable and b) the preload_thread_locals page is only
             // used by the preload library, and the preload library only knows about
-            // the inner rr. I.e. as far as the outer rr is concerned, the tracee is
+            // the inner rd. I.e. as far as the outer rd is concerned, the tracee is
             // not doing syscall buffering.
 
             let mut found_stacks = 0;
@@ -3211,7 +3210,7 @@ fn add_range(ranges: &mut BTreeSet<MemoryRange>, range: MemoryRange) {
 }
 
 /// We do not allow a watchpoint to watch the last byte of memory addressable
-/// by rr. This avoids constructing a MemoryRange that wraps around.
+/// by rd. This avoids constructing a MemoryRange that wraps around.
 /// For 64-bit builds this is no problem because addresses at the top of memory
 /// are in kernel space. For 32-bit builds it seems impossible to map the last
 /// page of memory in Linux so we should be OK there too.

@@ -134,7 +134,7 @@ impl WaitStatus {
 
     /// Group stop signal if wait_type() == GROUP_STOP, otherwise None. A zero signal
     /// (rare but observed via PTRACE_INTERRUPT) is converted to SIGSTOP.
-    /// This method is called group_stop() in the rr codebase.
+    /// DIFF NOTE: This method is called group_stop() in the rr codebase.
     pub fn maybe_group_stop_sig(&self) -> MaybeStopSignal {
         unsafe {
             // (self.status >> 16) & 0xff == PTRACE_EVENT_STOP is the classic signature of a group

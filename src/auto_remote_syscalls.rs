@@ -326,7 +326,7 @@ impl<'a, 'b> AutoRestoreMem<'a, 'b> {
         remote: &'a mut AutoRemoteSyscalls<'b>,
         s: &P,
     ) -> AutoRestoreMem<'a, 'b> {
-        // rr assumes the AutoRestoreMem construction always succeeds. We don't.
+        // DIFF NOTE: rr assumes the AutoRestoreMem construction always succeeds. We don't.
         // This could happen if a CStr could not be extracted successfully.
         s.with_nix_path(move |c| {
             Self::new(
@@ -397,12 +397,12 @@ pub struct AutoRemoteSyscalls<'a> {
     initial_regs: Registers,
     initial_ip: RemoteCodePtr,
     initial_sp: RemotePtr<Void>,
-    /// This is different from rr where null is used.
+    /// DIFF NOTE: This is different from rr where null is used.
     fixed_sp: Option<RemotePtr<Void>>,
     replaced_bytes: Vec<u8>,
     restore_wait_status: WaitStatus,
 
-    /// This is different from rr where -1 is used for not set value.
+    /// DIFF NOTE: This is different from rr where -1 is used for not set value.
     new_tid_: Option<pid_t>,
     /// Whether we had to mmap a scratch region because none was found
     scratch_mem_was_mapped: bool,
@@ -449,7 +449,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         // PTRACE_CONT via Task::enter_syscall(). This requires 2 or 3 task-waits
         // depending on whether the seccomp event fires before the syscall-entry
         // event.
-        // Use the slow path when running under rr, because the rr recording us
+        // Use the slow path when running under rd, because the rd recording us
         // needs to see and trace these tracee syscalls, and if they're untraced by
         // us they're also untraced by the outer rr.
         // Use the slow path if SIGTRAP is blocked or ignored because otherwise
@@ -1008,7 +1008,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         // Remove the fs name so that we don't have to worry about cleaning
         // up this segment in error conditions.
         //
-        // rr swallows any potential error but we don't for now.
+        // DIFF NOTE: rr swallows any potential error but we don't for now.
         unlink(path.as_slice()).unwrap();
 
         let mut shmem_fd: ScopedFd = self.retrieve_fd(child_shmem_fd);
@@ -1073,7 +1073,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         km
     }
 
-    /// Replace a MAP_PRIVATE segment by one that is shared between rr and the
+    /// Replace a MAP_PRIVATE segment by one that is shared between rd and the
     /// tracee. Returns true on success
     pub fn make_private_shared(&mut self, m: &Mapping) -> bool {
         if !m.map.flags().contains(MapFlags::MAP_PRIVATE) {
@@ -1190,7 +1190,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         new_addr
     }
 
-    /// Takes a mapping and replaces it by one that is shared between rr and
+    /// Takes a mapping and replaces it by one that is shared between rd and
     /// the tracee. The caller is responsible for filling the contents of the
     /// new mapping.
     /// If None is provided for `monitored` it is assumed that there is no memory monitor.
@@ -1204,7 +1204,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         let name_raw = m.map.fsname().as_bytes();
 
         // Truncate the string and replace all '/' with '-'
-        // No sure why rr has deducted 40 from PATH_MAX, we do the same here too for now.
+        // Not sure why rr has deducted 40 from PATH_MAX, we do the same here too for now.
         let mut name = Vec::from(&name_raw[0..min(PATH_MAX as usize - 40, name_raw.len())]);
         name.iter_mut()
             .map(|c| {

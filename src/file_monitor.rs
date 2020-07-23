@@ -242,7 +242,8 @@ pub trait FileMonitor {
         Switchable::AllowSwitch
     }
 
-    /// We don't have a task param like in rr as the task is included in `l`, the LazyOffset
+    /// DIFF NOTE: We don't have a task param like in rr as the task is included
+    /// in `l`, the LazyOffset
     fn did_write<'b, 'a: 'b>(&mut self, _rv: &[Range], _l: &mut LazyOffset<'b, 'a>) {}
 
     /// Return true if the ioctl should be fully emulated. If so the result

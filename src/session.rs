@@ -318,8 +318,8 @@ pub trait Session: DerefMut<Target = SessionInner> {
     /// to perform remote syscalls in this method.
     ///
     /// Tracee state can't be validated before the first exec,
-    /// because the address space inside the rr process for |rr
-    /// replay| will be different than it was for `rr record`.
+    /// because the address space inside the rd process for `rd
+    /// replay` will be different than it was for `rd record`.
     /// After the first exec, we're running tracee code, and
     /// everything must be the same.
     ///

@@ -111,7 +111,7 @@ pub enum MappingOrigin {
 pub enum CloseStatus {
     /// Trace completed normally and can be replayed.
     CloseOk,
-    /// Trace completed abnormally due to rr error.
+    /// Trace completed abnormally due to rd error.
     CloseError,
 }
 
@@ -121,28 +121,28 @@ pub enum CloseStatus {
 /// -- Initially the trace directory does not exist.
 /// -- The trace directory is created. It is empty.
 /// -- A file `incomplete` is created in the trace directory. It is empty.
-/// -- rr takes an exclusive flock() lock on `incomplete`.
-/// -- rr writes data to `incomplete` so it is no longer empty. (At this
-/// point the data is undefined.) rr may write to the file at any
+/// -- rd takes an exclusive flock() lock on `incomplete`.
+/// -- rd writes data to `incomplete` so it is no longer empty. (At this
+/// point the data is undefined.) rd may write to the file at any
 /// time during recording.
-/// -- At the end of trace recording, rr renames `incomplete` to `version`.
+/// -- At the end of trace recording, rd renames `incomplete` to `version`.
 /// At this point the trace is complete and ready to replay.
-/// -- rr releases its flock() lock on `version`.
+/// -- rd releases its flock() lock on `version`.
 ///
 /// Thus:
 /// -- If the trace directory contains the file `version` the trace is valid
 /// and ready for replay.
 /// -- If the trace directory contains the file `incomplete`, and there is an
-/// exclusive flock() lock on that file, rr is still recording (or something
+/// exclusive flock() lock on that file, rd is still recording (or something
 /// is messing with us).
 /// -- If the trace directory contains the file `incomplete`, that file
 /// does not have an exclusive `flock()` lock on it, and the file is non-empty,
-/// rr must have died before the recording was complete.
+/// rd must have died before the recording was complete.
 /// -- If the trace directory contains the file `incomplete`, that file
 /// does not have an exclusive `flock()` lock on it, and the file is empty,
-/// rr has just started recording (or perhaps died during startup).
+/// rd has just started recording (or perhaps died during startup).
 /// -- If the trace directory does not contain the file `incomplete`,
-/// rr has just started recording (or perhaps died during startup) (or perhaps
+/// rd has just started recording (or perhaps died during startup) (or perhaps
 /// that isn't a trace directory at all).
 pub struct TraceWriter {
     trace_stream: TraceStream,
@@ -736,7 +736,7 @@ impl TraceWriter {
         let link_name = latest_trace_symlink();
         // Try to update the symlink to `self`.  We only try attempt
         // to set the symlink once.  If the link is re-created after
-        // we `unlink()` it, then another rr process is racing with us
+        // we `unlink()` it, then another rd process is racing with us
         // and it "won".  The link is then valid and points at some
         // very-recent trace, so that's good enough.
         //

@@ -314,7 +314,7 @@ pub mod task_inner {
         /// Imagine that task A passes buffer `b` to the read()
         /// syscall.  Imagine that, after A is switched out for task B,
         /// task B then writes to `b`.  Then B is switched out for A.
-        /// Since rr doesn't schedule the kernel code, the result is
+        /// Since rd doesn't schedule the kernel code, the result is
         /// nondeterministic.  To avoid that class of replay
         /// divergence, we "redirect" (in)outparams passed to may-block
         /// syscalls, to "scratch memory".  The kernel writes to
@@ -382,7 +382,7 @@ pub mod task_inner {
         pub stopping_breakpoint_table: RemoteCodePtr,
         pub stopping_breakpoint_table_entry_size: usize,
 
-        /// In rr null is used to denote no preload globals
+        /// DIFF NOTE: In rr null is used to denote no preload globals
         pub preload_globals: Option<RemotePtr<preload_globals>>,
         pub thread_locals: ThreadLocals,
 
@@ -696,7 +696,7 @@ pub mod task_inner {
         /// Return the ptrace message pid associated with the current ptrace
         /// event, f.e. the new child's pid at PTRACE_EVENT_CLONE.
         ///
-        /// This method is more generic in rr and is called get_ptrace_event_msg()
+        /// DIFF NOTE: This method is more generic in rr and is called get_ptrace_event_msg()
         /// However, since it is only used to extract pid_t we monomorphize it in rd.
         pub fn get_ptrace_eventmsg_pid(&self) -> pid_t {
             let mut pid: pid_t = 0;
@@ -1704,7 +1704,7 @@ pub mod task_inner {
                     // Set CPU affinity now, after we've created any helper threads
                     // (so they aren't affected), but before we create any
                     // tracees (so they are all affected).
-                    // Note that we're binding rr itself to the same CPU as the
+                    // Note that we're binding rd itself to the same CPU as the
                     // tracees, since this seems to help performance.
                     if !set_cpu_affinity(cpu_index) {
                         if SessionInner::has_cpuid_faulting() && !is_recording {
@@ -1768,9 +1768,9 @@ pub mod task_inner {
 
             // Sync with the child process.
             // We minimize the code we run between fork()ing and PTRACE_SEIZE, because
-            // any abnormal exit of the rr process will leave the child paused and
+            // any abnormal exit of the rd process will leave the child paused and
             // parented by the init process, i.e. effectively leaked. After PTRACE_SEIZE
-            // with PTRACE_O_EXITKILL, the tracee will die if rr dies.
+            // with PTRACE_O_EXITKILL, the tracee will die if rd dies.
             let mut options = PTRACE_O_TRACESYSGOOD | PTRACE_O_TRACEFORK | PTRACE_O_TRACECLONE;
             if !Flags::get().disable_ptrace_exit_events {
                 options |= PTRACE_O_TRACEEXIT;
@@ -1882,7 +1882,7 @@ pub mod task_inner {
         // Signal to tracer that we're configured.
         kill(pid, Signal::SIGSTOP).unwrap_or(());
 
-        // This code must run after rr has taken ptrace control.
+        // This code must run after rd has taken ptrace control.
         set_up_seccomp_filter(seccomp_prog, error_fd);
 
         // We do a small amount of dummy work here to retire
@@ -1960,7 +1960,7 @@ pub mod task_inner {
 
     /// Prepare this process and its ancestors for recording/replay by
     /// preventing direct access to sources of nondeterminism, and ensuring
-    /// that rr bugs don't adversely affect the underlying system.
+    /// that rd bugs don't adversely affect the underlying system.
     fn set_up_process(
         session: &dyn Session,
         err_fd: &ScopedFd,
@@ -1987,7 +1987,7 @@ pub mod task_inner {
             spawned_child_fatal_error(err_fd, "error duping to RD_MAGIC_SAVE_DATA_FD");
         }
 
-        // If we're running under rr then don't try to set up RD_RESERVED_ROOT_DIR_FD;
+        // If we're running under rd then don't try to set up RD_RESERVED_ROOT_DIR_FD;
         // it should already be correct (unless someone chrooted in between,
         // which would be crazy ... though we could fix it by dynamically
         // assigning RR_RESERVED_ROOT_DIR_FD.)
@@ -2065,7 +2065,7 @@ pub mod task_inner {
         unsafe { _exit(1) };
     }
 
-    /// This is called (and must be called) in the tracee after rr has taken
+    /// This is called (and must be called) in the tracee after rd has taken
     /// ptrace control. Otherwise, once we've installed the seccomp filter,
     /// things go wrong because we have no ptracer and the seccomp filter demands
     /// one.

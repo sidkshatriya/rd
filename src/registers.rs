@@ -94,12 +94,12 @@ use Registers::*;
 /// type according to the kernel docs. E.g. int values should be cast
 /// to int explicitly (or implicitly, by assigning to an int-typed variable),
 /// size_t should be cast to size_t, etc. If the type is signed, call the
-/// _signed getter. This ensures that when building rr 64-bit we will use the
+/// _signed getter. This ensures that when building rd 64-bit we will use the
 /// right number of register bits whether the tracee is 32-bit or 64-bit, and
 /// get sign-extension right.
 ///
 /// We have different register sets for different architectures. To ensure a
-/// trace can be dumped/processed by an rr build on any platform, we allow
+/// trace can be dumped/processed by an rd build on any platform, we allow
 /// Registers to contain registers for any architecture. So we store them
 /// in a union of Arch::user_regs_structs for each known Arch.
 impl Registers {
@@ -443,8 +443,8 @@ impl Registers {
     /// 64-bit rr. In that case the user_regs_struct is 64-bit and we extract
     /// the 32-bit register values from it into u.x86regs.
     /// It's invalid to call this when the Registers' arch is 64-bit and the
-    /// rr build is 32-bit, or when the Registers' arch is completely different
-    /// to the rr build (e.g. ARM vs x86).
+    /// rd build is 32-bit, or when the Registers' arch is completely different
+    /// to the rd build (e.g. ARM vs x86).
     pub fn set_from_ptrace(&mut self, ptrace_regs: &native_user_regs_struct) {
         #[cfg(target_arch = "x86")]
         match self {
@@ -481,8 +481,8 @@ impl Registers {
     /// 64-bit rr. In that case the user_regs_struct is 64-bit and we copy
     /// the 32-bit register values from u.x86regs into it.
     /// It's invalid to call this when the Registers' arch is 64-bit and the
-    /// rr build is 32-bit, or when the Registers' arch is completely different
-    /// to the rr build (e.g. ARM vs x86).
+    /// rd build is 32-bit, or when the Registers' arch is completely different
+    /// to the rd build (e.g. ARM vs x86).
     pub fn get_ptrace(&self) -> native_user_regs_struct {
         #[cfg(target_arch = "x86")]
         match self {
@@ -543,8 +543,8 @@ impl Registers {
 
     /// Get a user_regs_struct for a particular Arch from these Registers.
     /// It's invalid to call this when 'arch' is 64-bit and the
-    /// rr build is 32-bit, or when the Registers' arch is completely different
-    /// to the rr build (e.g. ARM vs x86).
+    /// rd build is 32-bit, or when the Registers' arch is completely different
+    /// to the rd build (e.g. ARM vs x86).
     pub fn get_ptrace_for_arch(&self, arch: SupportedArch) -> Vec<u8> {
         let mut tmp_regs = Registers::new(arch);
         tmp_regs.set_from_ptrace(&self.get_ptrace());
@@ -567,8 +567,8 @@ impl Registers {
 
     /// Copy an arch-specific user_regs_struct into these Registers.
     /// It's invalid to call this when 'arch' is 64-bit and the
-    /// rr build is 32-bit, or when the Registers' arch is completely different
-    /// to the rr build (e.g. ARM vs x86).
+    /// rd build is 32-bit, or when the Registers' arch is completely different
+    /// to the rd build (e.g. ARM vs x86).
     pub fn set_from_ptrace_for_arch(&mut self, arch: SupportedArch, data: &[u8]) {
         if arch == RD_NATIVE_ARCH {
             debug_assert_eq!(data.len(), size_of::<native_user_regs_struct>());

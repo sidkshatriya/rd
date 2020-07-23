@@ -50,7 +50,7 @@ pub struct ThreadGroup {
     /// which we don't use.
     session_: SessionSharedWeakPtr,
     /// Parent ThreadGroup, or None if it's not a tracee (rd or init).
-    /// Different from rr where nullptr is used.
+    /// DIFF NOTE: Different from rr where nullptr is used.
     parent_: Option<ThreadGroupSharedWeakPtr>,
 
     children_: WeakPtrSet<ThreadGroup>,

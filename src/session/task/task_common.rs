@@ -180,7 +180,7 @@ pub(super) fn open_mem_fd<T: Task>(task: &mut T) -> bool {
         if remote_fd < 0 {
             // This can happen when a process fork()s after setuid; it can no longer
             // open its own /proc/self/mem. Hopefully we can read the child's
-            // mem file in this case (because rr is probably running as root).
+            // mem file in this case (because rd is probably running as root).
             let buf: String = format!("/proc/{}/mem", remote.task().tid);
             fd = ScopedFd::open_path(Path::new(&buf), OFlag::O_RDWR);
         } else {

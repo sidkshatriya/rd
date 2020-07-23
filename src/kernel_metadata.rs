@@ -382,7 +382,7 @@ pub fn xsave_feature_string(xsave_features: u64) -> String {
     }
 }
 
-/// In rr this is an operator<<()
+/// DIFF NOTE: In rr this is an operator<<()
 pub fn siginfo_str_repr(siginfo: &siginfo_t) -> String {
     let mut s: String = format!(
         "{{signo:{},errno:{},code:{}",

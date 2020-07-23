@@ -156,7 +156,7 @@ fn get_syscall_instruction_arch(
     ptr: RemoteCodePtr,
     arch: &mut SupportedArch,
 ) -> bool {
-    // Lots of syscalls occur in the rr page and we know what it contains without
+    // Lots of syscalls occur in the rd page and we know what it contains without
     // looking at it.
     // (Without this optimization we spend a few % of all CPU time in this
     // function in a syscall-dominated trace.)i

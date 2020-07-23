@@ -825,7 +825,7 @@ fn from_trace_signal(event_type: EventType, signal: signal::Reader) -> Event {
     match signal.get_siginfo_arch() {
         Ok(arch) if arch == native => (),
         _ => {
-            // XXX if we want to handle consumption of rr traces created on a different
+            // XXX if we want to handle consumption of rd traces created on a different
             // architecture rr build than we're running now, we should convert siginfo
             // formats here.
             fatal!("Could not obtain signal architecture or unsupported siginfo arch");
