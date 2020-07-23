@@ -119,7 +119,6 @@ use nix::{
     unistd::{access, lseek, read, AccessFlags, Whence},
 };
 use std::{
-    cell::Ref,
     cmp::min,
     convert::TryInto,
     ffi::{CString, OsStr, OsString},
@@ -457,7 +456,6 @@ fn prepare_clone<Arch: Architecture>(t: &mut ReplayTask) {
     }
     let shr_ptr = t.session();
 
-    let clone_flags = clone_flags_to_task_flags(flags);
     let new_task_shr_ptr: TaskSharedPtr = shr_ptr.clone_task(
         t,
         clone_flags_to_task_flags(flags),
@@ -1116,13 +1114,15 @@ pub fn process_execve(t: &mut ReplayTask, step: &mut ReplayTraceStep) {
     };
     t.post_exec_syscall_for_replay_exe(exe_name);
 
-    t.fd_table_mut().close_after_exec(
-        t,
-        &t.current_trace_frame()
-            .event()
-            .syscall_event()
-            .exec_fds_to_close,
-    );
+    let fds_to_close = t
+        .current_trace_frame()
+        .event()
+        .syscall_event()
+        .exec_fds_to_close
+        .clone();
+    t.fd_table_shr_ptr()
+        .borrow_mut()
+        .close_after_exec(t, &fds_to_close);
 
     {
         let arch = t.arch();
@@ -1358,13 +1358,13 @@ fn find_exec_stub(arch: SupportedArch) -> CString {
     CString::new(exe_path).unwrap()
 }
 
-fn handle_opened_files(t: &ReplayTask, flags_raw: i32) {
+fn handle_opened_files(t: &mut ReplayTask, flags_raw: i32) {
     // @TODO The from_bits_unchecked seems to be needed here cause in x86 there is a flag that
     // is not recognized here by OFlag::from_bits(flags_raw).unwrap(). Check again?
     let flags = unsafe { OFlag::from_bits_unchecked(flags_raw) };
-    let ctf = t.current_trace_frame();
-    let opened = &ctf.event().syscall().opened;
-    for o in opened {
+
+    let opened = t.current_trace_frame().event().syscall().opened.clone();
+    for o in &opened {
         // This must be kept in sync with record_syscall's handle_opened_file.
         let maybe_emu_file: Option<EmuFileSharedPtr> = t
             .session()
@@ -1390,7 +1390,9 @@ fn handle_opened_files(t: &ReplayTask, flags_raw: i32) {
             ed_assert!(t, false, "Why did we write filename {:?}", o.path);
             unreachable!();
         }
-        t.fd_table_mut().add_monitor(t, o.fd, file_monitor);
+        t.fd_table_shr_ptr()
+            .borrow_mut()
+            .add_monitor(t, o.fd, file_monitor);
     }
 }
 
@@ -1573,8 +1575,8 @@ fn process_mmap(
     t.validate_regs(ReplayTaskIgnore::default());
 }
 
-fn finish_shared_mmap(
-    remote: &mut AutoRemoteSyscalls,
+fn finish_shared_mmap<'a>(
+    remote: &mut AutoRemoteSyscalls<'a>,
     rec_addr: RemotePtr<u8>,
     length: usize,
     prot: ProtFlags,
@@ -1653,30 +1655,7 @@ fn finish_shared_mmap(
         emufile.borrow().emu_path()
     );
 
-    for fd in fds {
-        let t_shr_ptr: TaskSharedPtr;
-        let t_b: Ref<Box<dyn Task>>;
-        // @TODO Is this complication needed? Probably...
-        let maybe_rt = if remote.task().rec_tid == fd.tid {
-            Some(remote.task())
-        } else {
-            match remote.task().session().find_task_from_rec_tid(fd.tid) {
-                Some(shr_ptr) => {
-                    t_shr_ptr = shr_ptr;
-                    t_b = t_shr_ptr.borrow();
-                    Some(t_b.as_ref())
-                }
-                None => None,
-            }
-        };
-
-        ed_assert!(
-            remote.task(),
-            maybe_rt.is_some(),
-            "Can't find task {}",
-            fd.tid
-        );
-        let rt = maybe_rt.unwrap();
+    let process = |rt: &mut dyn Task, fd: &TraceRemoteFd| -> () {
         let maybe_mon = rt.fd_table().get_monitor(fd.fd);
         match maybe_mon {
             Some(file_mon_shr_ptr) => {
@@ -1691,13 +1670,28 @@ fn finish_shared_mmap(
                     .revive();
             }
             None => {
-                rt.fd_table_mut().add_monitor(
-                    rt,
-                    fd.fd,
-                    Box::new(MmappedFileMonitor::new_from_emufile(rt, emufile.clone())),
-                );
+                let fm = Box::new(MmappedFileMonitor::new_from_emufile(rt, emufile.clone()));
+                rt.fd_table_shr_ptr()
+                    .borrow_mut()
+                    .add_monitor(rt, fd.fd, fm);
             }
         };
+    };
+
+    for fd in fds {
+        if remote.task().rec_tid == fd.tid {
+            process(remote.task_mut(), fd);
+        } else {
+            match remote.task().session().find_task_from_rec_tid(fd.tid) {
+                Some(shr_ptr) => {
+                    let mut t_b = shr_ptr.borrow_mut();
+                    process(t_b.as_mut(), fd);
+                }
+                None => {
+                    ed_assert!(remote.task(), false, "Can't find task {}", fd.tid);
+                }
+            };
+        }
     }
 }
 

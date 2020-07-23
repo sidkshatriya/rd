@@ -1090,8 +1090,11 @@ fn on_syscall_exit_arch<Arch: Architecture>(t: &mut dyn Task, sys: i32, regs: &R
     }
 
     if sys == Arch::DUP || sys == Arch::DUP2 || sys == Arch::DUP3 {
-        t.fd_table_mut()
-            .did_dup(regs.arg1() as i32, regs.syscall_result() as i32);
+        t.fd_table_shr_ptr().borrow_mut().did_dup(
+            regs.arg1() as i32,
+            regs.syscall_result() as i32,
+            t,
+        );
         return;
     }
 
@@ -1099,14 +1102,19 @@ fn on_syscall_exit_arch<Arch: Architecture>(t: &mut dyn Task, sys: i32, regs: &R
         if regs.arg2() == FcntlOperation::DUPFD as usize
             || regs.arg2() == FcntlOperation::DUPFD_CLOEXEC as usize
         {
-            t.fd_table_mut()
-                .did_dup(regs.arg1() as i32, regs.syscall_result() as i32);
+            t.fd_table_shr_ptr().borrow_mut().did_dup(
+                regs.arg1() as i32,
+                regs.syscall_result() as i32,
+                t,
+            );
         }
         return;
     }
 
     if sys == Arch::CLOSE {
-        t.fd_table_mut().did_close(regs.arg1() as i32);
+        t.fd_table_shr_ptr()
+            .borrow_mut()
+            .did_close(regs.arg1() as i32, t);
         return;
     }
 
@@ -1693,8 +1701,9 @@ pub fn close_buffers_for(
         }
         remote
             .task_mut()
-            .fd_table_mut()
-            .did_close(other_desched_fd_child);
+            .fd_table_shr_ptr()
+            .borrow_mut()
+            .did_close(other_desched_fd_child, remote.task_mut());
     }
     if other_cloned_file_data_fd_child >= 0 {
         rd_infallible_syscall!(
@@ -1704,8 +1713,9 @@ pub fn close_buffers_for(
         );
         remote
             .task_mut()
-            .fd_table_mut()
-            .did_close(other_cloned_file_data_fd_child);
+            .fd_table_shr_ptr()
+            .borrow_mut()
+            .did_close(other_cloned_file_data_fd_child, remote.task_mut());
     }
 }
 

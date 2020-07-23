@@ -1146,11 +1146,6 @@ pub mod task_inner {
             &self.as_.as_ref().unwrap()
         }
 
-        /// This is rarely needed. Please use vm()
-        pub fn vm_as_ptr(&self) -> *const AddressSpace {
-            Rc::as_ptr(self.as_.as_ref().unwrap())
-        }
-
         /// Useful for tricky situations when we need to pass a reference to task to
         /// the AddressSpace methods for instance
         pub fn vm_shr_ptr(&self) -> AddressSpaceSharedPtr {
@@ -1822,9 +1817,9 @@ pub mod task_inner {
             let weak_t_ptr = wrapped_t.borrow().weak_self.clone();
             wrapped_t.borrow_mut().fds = Some(FdTable::create(weak_t_ptr));
             {
-                let ref_task = wrapped_t.borrow();
+                let mut ref_task = wrapped_t.borrow_mut();
                 let fds: FdTableSharedPtr = ref_task.fds.as_ref().unwrap().clone();
-                setup_fd_table(ref_task.as_ref(), &mut fds.borrow_mut(), fd_number);
+                setup_fd_table(ref_task.as_mut(), &mut fds.borrow_mut(), fd_number);
             }
 
             // Install signal handler here, so that when creating the first RecordTask
@@ -1944,7 +1939,7 @@ pub mod task_inner {
     // waitpid to return EINTR and that's all we need.
     extern "C" fn handle_alarm_signal(_sig: c_int) {}
 
-    fn setup_fd_table(t: &dyn Task, fds: &mut FdTable, tracee_socket_fd_number: i32) {
+    fn setup_fd_table(t: &mut dyn Task, fds: &mut FdTable, tracee_socket_fd_number: i32) {
         fds.add_monitor(t, STDOUT_FILENO, Box::new(StdioMonitor::new(STDOUT_FILENO)));
         fds.add_monitor(t, STDERR_FILENO, Box::new(StdioMonitor::new(STDERR_FILENO)));
         fds.add_monitor(

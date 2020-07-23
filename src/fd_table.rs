@@ -13,6 +13,7 @@ use crate::{
             TaskSharedWeakPtr,
         },
     },
+    taskish_uid::AddressSpaceUid,
     weak_ptr_set::WeakPtrSet,
 };
 use nix::sys::stat::lstat;
@@ -45,7 +46,7 @@ impl FdTable {
         &mut self.tasks
     }
 
-    pub fn add_monitor(&mut self, t: &dyn Task, fd: i32, monitor: Box<dyn FileMonitor>) {
+    pub fn add_monitor(&mut self, t: &mut dyn Task, fd: i32, monitor: Box<dyn FileMonitor>) {
         // In the future we could support multiple monitors on an fd, but we don't
         // need to yet.
         ed_assert!(
@@ -60,7 +61,7 @@ impl FdTable {
         }
 
         self.fds.insert(fd, Rc::new(RefCell::new(monitor)));
-        self.update_syscallbuf_fds_disabled(fd);
+        self.update_syscallbuf_fds_disabled(fd, t);
     }
     pub fn emulate_ioctl(&self, fd: i32, t: &RecordTask, result: &mut u64) -> bool {
         match self.fds.get(&fd) {
@@ -112,7 +113,9 @@ impl FdTable {
             None => (),
         }
     }
-    pub fn did_dup(&mut self, from: i32, to: i32) {
+
+    /// DIFF NOTE: Additional param `active_task` to solve borrow issues.
+    pub fn did_dup(&mut self, from: i32, to: i32, active_task: &mut dyn Task) {
         if self.fds.contains_key(&from) {
             if to >= SYSCALLBUF_FDS_DISABLED_SIZE && !self.fds.contains_key(&to) {
                 self.fd_count_beyond_limit += 1;
@@ -124,15 +127,17 @@ impl FdTable {
             }
             self.fds.remove(&to);
         }
-        self.update_syscallbuf_fds_disabled(to);
+        self.update_syscallbuf_fds_disabled(to, active_task);
     }
-    pub fn did_close(&mut self, fd: i32) {
+
+    /// DIFF NOTE: Additional param `active_task` to solve borrow issues.
+    pub fn did_close(&mut self, fd: i32, active_task: &mut dyn Task) {
         log!(LogDebug, "Close fd {}", fd);
         if fd >= SYSCALLBUF_FDS_DISABLED_SIZE && self.fds.contains_key(&fd) {
             self.fd_count_beyond_limit -= 1;
         }
         self.fds.remove(&fd);
-        self.update_syscallbuf_fds_disabled(fd);
+        self.update_syscallbuf_fds_disabled(fd, active_task);
     }
 
     /// Method is called clone() in rr
@@ -213,7 +218,7 @@ impl FdTable {
     /// scan /proc/<pid>/fd during recording and note any monitored fds that have
     /// been closed.
     /// This also updates our table to match reality.
-    pub fn fds_to_close_after_exec(&mut self, t: &RecordTask) -> Vec<i32> {
+    pub fn fds_to_close_after_exec(&mut self, t: &mut RecordTask) -> Vec<i32> {
         ed_assert!(t, self.task_set().has(t.weak_self_ptr()));
 
         let mut fds_to_close: Vec<i32> = Vec::new();
@@ -223,18 +228,18 @@ impl FdTable {
             }
         }
         for &fd in &fds_to_close {
-            self.did_close(fd);
+            self.did_close(fd, t);
         }
 
         fds_to_close
     }
 
     /// Close fds in list after an exec.
-    pub fn close_after_exec(&mut self, t: &ReplayTask, fds_to_close: &[i32]) {
+    pub fn close_after_exec(&mut self, t: &mut ReplayTask, fds_to_close: &[i32]) {
         ed_assert!(t, self.task_set().has(t.weak_self_ptr()));
 
         for &fd in fds_to_close {
-            self.did_close(fd)
+            self.did_close(fd, t)
         }
     }
 
@@ -246,31 +251,19 @@ impl FdTable {
         }
     }
 
-    fn update_syscallbuf_fds_disabled(&self, mut fd: i32) {
-        // @TODO TEMPORARY, REMOVE
-        // The iteration through the task set causes "already borrowed" issues
-        // As we're not using syscall buf yet, make this method a no-op.
-        return; // EVERYTHING BELOW IS TEMPORARILY UNREACHABLE
-
+    /// DIFF NOTE: Additional param `active_task` to solve borrow issues.
+    fn update_syscallbuf_fds_disabled(&self, mut fd: i32, active_task: &mut dyn Task) {
         debug_assert!(fd >= 0);
         debug_assert!(!self.task_set().is_empty());
 
-        let mut vms_updated: HashSet<*const AddressSpace> = HashSet::new();
-        // It's possible for tasks with different VMs to share this fd table.
-        // But tasks with the same VM might have different fd tables...
-        for t in self.task_set().iter() {
-            if !t.borrow().session().is_recording() {
+        let mut vms_updated: HashSet<AddressSpaceUid> = HashSet::new();
+
+        let mut process = |rt: &mut RecordTask| -> () {
+            let vm_uid = rt.vm().uid();
+            if !vms_updated.contains(&vm_uid) {
                 return;
             }
-
-            let mut t_ref_task = t.borrow_mut();
-            let rt: &mut RecordTask = t_ref_task.as_record_task_mut().unwrap();
-
-            let vm_addr = rt.vm_as_ptr();
-            if !vms_updated.contains(&vm_addr) {
-                continue;
-            }
-            vms_updated.insert(vm_addr);
+            vms_updated.insert(vm_uid);
 
             if rt.preload_globals.is_some() {
                 if fd >= SYSCALLBUF_FDS_DISABLED_SIZE {
@@ -288,6 +281,22 @@ impl FdTable {
                 rt.write_bytes(addr, &disable.to_le_bytes());
                 rt.record_local(addr, &disable.to_le_bytes());
             }
+        };
+
+        if active_task.session().is_recording() {
+            process(active_task.as_record_task_mut().unwrap());
+        } else {
+            return;
+        }
+
+        // It's possible for tasks with different VMs to share this fd table.
+        // But tasks with the same VM might have different fd tables...
+        for t in self.task_set().iter_except(active_task.weak_self_ptr()) {
+            ed_assert!(active_task, t.borrow().session().is_recording());
+
+            let mut t_ref_task = t.borrow_mut();
+            let rt: &mut RecordTask = t_ref_task.as_record_task_mut().unwrap();
+            process(rt);
         }
     }
 }
