@@ -187,7 +187,6 @@ impl ReplayTask {
 
     pub fn current_trace_frame(&self) -> OwningHandle<SessionSharedPtr, Ref<'_, TraceFrame>> {
         let sess = self.session();
-        // @TODO remove this unsafety by implementing ToHandle??
         let owning_handle = OwningHandle::new_with_fn(sess, |o| {
             unsafe { (*o).as_replay() }.unwrap().current_trace_frame()
         });
@@ -198,7 +197,6 @@ impl ReplayTask {
         &self,
     ) -> OwningHandle<SessionSharedPtr, RefMut<'_, TraceFrame>> {
         let sess = self.session();
-        // @TODO remove this unsafety by implementing ToHandle??
         let owning_handle = OwningHandle::new_with_fn(sess, |o| {
             unsafe { (*o).as_replay() }
                 .unwrap()
@@ -242,7 +240,6 @@ impl ReplayTask {
 
     pub fn trace_reader(&self) -> OwningHandle<SessionSharedPtr, Ref<'_, TraceReader>> {
         let sess = self.session();
-        // @TODO remove this unsafety by implementing ToHandle??
         let owning_handle = OwningHandle::new_with_fn(sess, |o| {
             unsafe { (*o).as_replay() }.unwrap().trace_reader()
         });
@@ -251,7 +248,6 @@ impl ReplayTask {
 
     pub fn trace_reader_mut(&self) -> OwningHandle<SessionSharedPtr, RefMut<'_, TraceReader>> {
         let sess = self.session();
-        // @TODO remove this unsafety by implementing ToHandle??
         let owning_handle = OwningHandle::new_with_fn(sess, |o| {
             unsafe { (*o).as_replay() }.unwrap().trace_reader_mut()
         });

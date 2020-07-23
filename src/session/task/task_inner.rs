@@ -1604,7 +1604,6 @@ pub mod task_inner {
                 return None;
             }
             let shr_ptr = self.session();
-            // @TODO remove this unsafety by implementing ToHandle??
             let owning_handle =
                 OwningHandle::new_with_fn(shr_ptr, |s| match unsafe { (*s).as_record() } {
                     Some(_rec_sess) => unimplemented!(),

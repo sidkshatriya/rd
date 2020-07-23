@@ -214,7 +214,7 @@ pub enum RdSubCommand {
         /// `gp_x16`, `xmm_x16`, `ymm_x16`. For the `x16` cases, we always output 16,
         ///  values, the latter 8 of which are zero for x86-32. GP registers are in
         ///  architectural order (AX,CX,DX,BX,SP,BP,SI,DI,R8-R15). All data is output
-        ///  in little-endian binary format; records are separated by \\n. String
+        ///  in little-endian binary format; records are separated by `\n`. String
         ///  instruction repetitions are treated as a single instruction if not
         ///  interrupted. A 'singlestep' includes events such as system-call-exit
         ///  where tracee state changes without any user-level instructions actually
