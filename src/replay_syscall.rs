@@ -35,7 +35,7 @@ use crate::{
         SupportedArch,
         RD_NATIVE_ARCH,
     },
-    kernel_metadata::{is_sigreturn, syscall_name},
+    kernel_metadata::{is_sigreturn, shm_flags_to_mmap_prot, syscall_name},
     kernel_supplement::{ARCH_GET_CPUID, ARCH_SET_CPUID},
     log::LogLevel::LogDebug,
     registers::{with_converted_registers, Registers},
@@ -1537,7 +1537,7 @@ fn process_mmap(
                         flags,
                         &extra_fds,
                         offset_pages,
-                        km,
+                        &km,
                         &data,
                     );
                 } else {
@@ -1597,7 +1597,7 @@ fn finish_shared_mmap<'a>(
     flags: MapFlags,
     fds: &[TraceRemoteFd],
     offset_pages: usize,
-    km: KernelMapping,
+    km: &KernelMapping,
     data: &MappedData,
 ) {
     // Ensure there's a virtual file for the file that was mapped
@@ -2040,5 +2040,47 @@ fn process_mremap(t: &mut ReplayTask, trace_regs: &Registers, step: &mut ReplayT
         None => (),
     }
 
+    t.validate_regs(ReplayTaskIgnore::default());
+}
+
+fn process_shmat(
+    t: &mut ReplayTask,
+    trace_regs: &Registers,
+    shm_flags: i32,
+    step: &mut ReplayTraceStep,
+) {
+    step.action = ReplayTraceStepType::TstepRetire;
+
+    {
+        let mut data = MappedData::default();
+        let km: KernelMapping = t
+            .trace_reader_mut()
+            .read_mapped_region(Some(&mut data), None, None, None, None)
+            .unwrap();
+        let mut remote = AutoRemoteSyscalls::new(t);
+        let prot: ProtFlags = shm_flags_to_mmap_prot(shm_flags);
+        let flags: MapFlags = MapFlags::MAP_SHARED;
+        finish_shared_mmap(
+            &mut remote,
+            km.start(),
+            km.size(),
+            prot,
+            flags,
+            &vec![],
+            0,
+            &km,
+            &data,
+        );
+        remote.task().vm().set_shm_size(km.start(), km.size());
+
+        // Finally, we finish by emulating the return value.
+        // On x86-32 this is not the shm address...
+        remote
+            .initial_regs_mut()
+            .set_syscall_result(trace_regs.syscall_result());
+    }
+    // on x86-32 we have an extra data record that we need to apply ---
+    // the ipc syscall's klugy out-parameter.
+    t.apply_all_data_records_from_trace();
     t.validate_regs(ReplayTaskIgnore::default());
 }
