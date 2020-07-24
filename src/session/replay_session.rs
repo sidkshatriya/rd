@@ -1964,8 +1964,8 @@ fn perform_interrupted_syscall(_t: &mut ReplayTask) {
 /// fire at exactly the programmed point (as of 2013 kernel/HW);
 /// there's a variable slack region, which is technically unbounded.
 /// This means that an interrupt programmed for retired branch k might
-/// fire at |k + 50|, for example.  To counteract the slack, we program
-/// interrupts just short of our target, by the |SKID_SIZE| region
+/// fire at `k + 50`, for example.  To counteract the slack, we program
+/// interrupts just short of our target, by the `SKID_SIZE` region
 /// below, and then more slowly advance to the real target.
 ///
 /// How was this magic number determined?  Trial and error: we want it
@@ -1976,19 +1976,19 @@ fn perform_interrupted_syscall(_t: &mut ReplayTask) {
 /// observed during replay.  Running with DEBUGLOG enabled (see above),
 /// a sequence of log messages like the following will appear
 ///
-/// 1. programming interrupt for [target - SKID_SIZE] ticks
+/// 1. programming interrupt for `target - SKID_SIZE` ticks
 /// 2. Error: Replay diverged.  Dumping register comparison.
-/// 3. Error: [list of divergent registers; arbitrary]
-/// 4. Error: overshot target ticks=[target] by [i]
+/// 3. Error: \[list of divergent registers; arbitrary\]
+/// 4. Error: overshot target ticks=`target` by `i`
 ///
 /// The key is that no other replayer log messages occur between (1)
 /// and (2).  This spew means that the replayer programmed an interrupt
-/// for ticks=[target-SKID_SIZE], but the tracee was actually interrupted
-/// at ticks=[target+i].  And that in turn means that the kernel/HW
+/// for ticks=`target-SKID_SIZE`, but the tracee was actually interrupted
+/// at ticks=`target+i`.  And that in turn means that the kernel/HW
 /// skidded too far past the programmed target for rd to handle it.
 ///
 /// If that occurs, the SKID_SIZE needs to be increased by at least
-/// [i].
+/// `i`.
 ///
 /// NB: there are probably deeper reasons for the target slack that
 /// could perhaps let it be deduced instead of arrived at empirically;

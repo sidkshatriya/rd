@@ -46,7 +46,7 @@ use crate::{
         address_space::{
             address_space::AddressSpace,
             kernel_mapping::KernelMapping,
-            memory_range::MemoryRangeKey,
+            memory_range::{MemoryRange, MemoryRangeKey},
             MappingFlags,
         },
         replay_session::{
@@ -73,6 +73,7 @@ use crate::{
     },
     util::{
         ceil_page_size,
+        ceil_page_u64,
         clone_flags_to_task_flags,
         extract_clone_parameters,
         floor_page_size,
@@ -105,6 +106,8 @@ use libc::{
     MADV_DONTNEED,
     MADV_REMOVE,
     MAP_SYNC,
+    MREMAP_FIXED,
+    MREMAP_MAYMOVE,
     PR_SET_NAME,
     SEEK_CUR,
     STDERR_FILENO,
@@ -114,7 +117,7 @@ use nix::{
     fcntl::OFlag,
     sys::{
         mman::{MapFlags, ProtFlags},
-        stat::FileStat,
+        stat::{stat, FileStat},
     },
     unistd::{access, lseek, read, AccessFlags, Whence},
 };
@@ -691,21 +694,26 @@ fn rep_process_syscall_arch<Arch: Architecture>(
             step,
         );
     }
+
     if nsys == Arch::SHMAT {
         unimplemented!();
     }
+
     if nsys == Arch::SHMDT {
         unimplemented!();
     }
+
     if nsys == Arch::MREMAP {
-        unimplemented!();
+        return process_mremap(t, trace_regs, step);
     }
+
     if nsys == Arch::MADVISE {
         match t.regs_ref().arg3() as i32 {
             MADV_DONTNEED | MADV_REMOVE => (),
             _ => return,
         }
     }
+
     if nsys == Arch::MADVISE || nsys == Arch::ARCH_PRCTL {
         let arg1 = t.regs_ref().arg1();
         if sys == Arch::ARCH_PRCTL
@@ -714,6 +722,7 @@ fn rep_process_syscall_arch<Arch: Architecture>(
             return;
         }
     }
+
     if nsys == Arch::MADVISE
         || nsys == Arch::ARCH_PRCTL
         || nsys == Arch::MUNMAP
@@ -1872,4 +1881,159 @@ fn finish_anonymous_mmap(
         None,
         None,
     );
+}
+
+/// DIFF NOTE: Take trace_regs as param. rr takes trace_frame instead.
+fn process_mremap(t: &mut ReplayTask, trace_regs: &Registers, step: &mut ReplayTraceStep) {
+    step.action = ReplayTraceStepType::TstepRetire;
+
+    let original_syscallno: i32 = trace_regs.original_syscallno() as i32;
+    let old_addr: RemotePtr<Void> = trace_regs.arg1().into();
+    let old_size: usize = ceil_page_size(trace_regs.arg2());
+    let new_addr: RemotePtr<Void> = trace_regs.syscall_result().into();
+    let new_size: usize = ceil_page_size(trace_regs.arg3());
+
+    // The recorded mremap call succeeded, so we know the original mapping can be
+    // treated as a single mapping.
+    t.vm_shr_ptr()
+        .ensure_replay_matches_single_recorded_mapping(
+            t,
+            MemoryRange::new_range(old_addr, old_size),
+        );
+
+    let mut data = MappedData::default();
+    t.trace_reader_mut()
+        .read_mapped_region(Some(&mut data), None, None, None, None);
+    ed_assert!(t, data.source == MappedDataSource::SourceZero);
+    // We don't need to do anything; this is the mapping record for the moved
+    // data.
+
+    // Try reading a mapping record for new data.
+    let maybe_km = t
+        .trace_reader_mut()
+        .read_mapped_region(Some(&mut data), None, None, None, None);
+
+    {
+        // We must emulate mremap because the kernel's choice for the remap
+        // destination can vary (in particular, when we emulate exec it makes
+        // different decisions).
+        let mut remote = AutoRemoteSyscalls::new(t);
+        if new_addr == old_addr {
+            // Non-moving mremap. Don't pass MREMAP_FIXED or MREMAP_MAYMOVE
+            // since that triggers EINVAL when the new map overlaps the old map.
+            rd_infallible_syscall_ptr!(
+                remote,
+                original_syscallno,
+                new_addr.as_usize(),
+                old_size,
+                new_size,
+                0
+            );
+        } else {
+            // Force the mremap to use the destination address from recording.
+            // XXX could the new mapping overlap the old, with different start
+            // addresses? Hopefully the kernel doesn't do that to us!!!
+            rd_infallible_syscall_ptr!(
+                remote,
+                original_syscallno,
+                old_addr.as_usize(),
+                old_size,
+                new_size,
+                MREMAP_MAYMOVE | MREMAP_FIXED,
+                new_addr.as_usize()
+            );
+        }
+
+        remote
+            .initial_regs_mut()
+            .set_syscall_result(new_addr.as_usize());
+    }
+
+    t.vm().remap(t, old_addr, old_size, new_addr, new_size);
+
+    // This needs to be cloned because it might be changed/removed so we can't borrow it.
+    let mut mapping = t.vm().mapping_of(new_addr).unwrap().clone();
+    let maybe_f = mapping.emu_file;
+    match maybe_f.as_ref() {
+        Some(f) => {
+            f.borrow_mut()
+                .ensure_size(mapping.map.file_offset_bytes() + new_size as u64);
+        }
+        None if new_size > old_size && !mapping.map.fsname().is_empty() => {
+            let st: FileStat;
+            match stat(mapping.map.fsname()) {
+                Err(_) => {
+                    fatal!("Can't stat {:?}", mapping.map.fsname());
+                    unreachable!();
+                }
+                Ok(res) => st = res,
+            }
+            // @TODO Should be fine to cast st_size as u64 but any edge cases?
+            if ceil_page_u64(st.st_size as u64) < mapping.map.file_offset_bytes() + new_size as u64
+            {
+                // Replace mapping with anonymous mapping to cover full mapped region.
+                // Don't just read the file data, since this could be a private mapping
+                // with some data changed.
+                let mut buf = Vec::<u8>::new();
+                buf.resize(old_size, 0);
+                t.read_bytes_helper(new_addr, &mut buf, None);
+                let mut remote = AutoRemoteSyscalls::new(t);
+                // Shared non-EmuFs mappings must be of immutable files so it's OK to
+                // just copy the file data into a private mapping here.
+                let map_flags =
+                    MapFlags::MAP_ANONYMOUS | MapFlags::MAP_PRIVATE | MapFlags::MAP_FIXED;
+                remote.infallible_mmap_syscall(
+                    Some(new_addr),
+                    new_size,
+                    mapping.map.prot(),
+                    map_flags,
+                    -1,
+                    0,
+                );
+                remote
+                    .task()
+                    .vm_shr_ptr()
+                    .unmap(remote.task(), new_addr, new_size);
+                remote.task().vm_shr_ptr().map(
+                    remote.task(),
+                    new_addr,
+                    new_size,
+                    mapping.map.prot(),
+                    map_flags,
+                    mapping.map.file_offset_bytes(),
+                    OsStr::new(""),
+                    KernelMapping::NO_DEVICE,
+                    KernelMapping::NO_INODE,
+                    None,
+                    Some(&mapping.recorded_map),
+                    None,
+                    None,
+                    None,
+                );
+                remote
+                    .task_mut()
+                    .write_bytes_helper(new_addr, &buf, None, WriteFlags::empty());
+                mapping = remote.task().vm().mapping_of(new_addr).unwrap().clone();
+            }
+        }
+        _ => (),
+    }
+
+    // MappedDataSource::SourceFile for mapped files should be handled automatically by the mremap
+    // above.
+    // (If we started storing partial files, we'd have to careful to ensure this
+    // is still the case.)
+    match maybe_km {
+        Some(_km) => {
+            if data.source != MappedDataSource::SourceFile
+                || maybe_f.is_some()
+                || mapping.map.fsname().is_empty()
+            {
+                write_mapped_data(t, new_addr + old_size, new_size - old_size, &data);
+            }
+        }
+        None => (),
+    }
+
+    t.validate_regs(ReplayTaskIgnore::default());
 }

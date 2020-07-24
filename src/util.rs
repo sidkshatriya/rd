@@ -460,6 +460,10 @@ pub fn ceil_page_size<T: Into<usize> + From<usize>>(size: T) -> T {
     ((size.into() + page_size() - 1) & !(page_size() - 1)).into()
 }
 
+pub fn ceil_page_u64(size: u64) -> u64 {
+    (size + page_size() as u64 - 1) & !(page_size() as u64 - 1)
+}
+
 pub fn floor_page_size<T: Into<usize> + From<usize>>(sz: T) -> T {
     let page_mask: usize = !(page_size() - 1);
     (sz.into() & page_mask).into()
