@@ -11,6 +11,7 @@ use crate::{
         MemParamsEnabled,
         PreserveContents::PreserveContents,
     },
+    bindings::kernel::{SHMAT, SHMDT},
     emu_fs::EmuFileSharedPtr,
     file_monitor::{
         mmapped_file_monitor::MmappedFileMonitor,
@@ -696,11 +697,11 @@ fn rep_process_syscall_arch<Arch: Architecture>(
     }
 
     if nsys == Arch::SHMAT {
-        unimplemented!();
+        return process_shmat(t, trace_regs, trace_regs.arg3() as i32, step);
     }
 
     if nsys == Arch::SHMDT {
-        unimplemented!();
+        return process_shmdt(t, trace_regs, trace_regs.arg1().into(), step);
     }
 
     if nsys == Arch::MREMAP {
@@ -771,7 +772,11 @@ fn rep_process_syscall_arch<Arch: Architecture>(
     }
 
     if nsys == Arch::IPC {
-        unimplemented!()
+        match trace_regs.arg1() as u32 {
+            SHMAT => return process_shmat(t, trace_regs, trace_regs.arg3() as i32, step),
+            SHMDT => return process_shmdt(t, trace_regs, trace_regs.arg5().into(), step),
+            _ => return,
+        }
     }
 
     if nsys == Arch::SIGRETURN || nsys == Arch::RT_SIGRETURN {
@@ -2043,6 +2048,7 @@ fn process_mremap(t: &mut ReplayTask, trace_regs: &Registers, step: &mut ReplayT
     t.validate_regs(ReplayTaskIgnore::default());
 }
 
+/// DIFF NOTE: Takes `trace_regs` instead of trace frame as a param
 fn process_shmat(
     t: &mut ReplayTask,
     trace_regs: &Registers,
@@ -2082,5 +2088,31 @@ fn process_shmat(
     // on x86-32 we have an extra data record that we need to apply ---
     // the ipc syscall's klugy out-parameter.
     t.apply_all_data_records_from_trace();
+    t.validate_regs(ReplayTaskIgnore::default());
+}
+
+/// DIFF NOTE: Takes `trace_regs` instead of trace frame as a param
+fn process_shmdt(
+    t: &mut ReplayTask,
+    trace_regs: &Registers,
+    addr: RemotePtr<Void>,
+    step: &mut ReplayTraceStep,
+) {
+    step.action = ReplayTraceStepType::TstepRetire;
+
+    {
+        let size: usize = t.vm().get_shm_size(addr);
+        let arch = t.arch();
+        let mut remote = AutoRemoteSyscalls::new(t);
+        rd_infallible_syscall!(
+            remote,
+            syscall_number_for_munmap(arch),
+            addr.as_usize(),
+            size
+        );
+        remote
+            .initial_regs_mut()
+            .set_syscall_result(trace_regs.syscall_result());
+    }
     t.validate_regs(ReplayTaskIgnore::default());
 }
