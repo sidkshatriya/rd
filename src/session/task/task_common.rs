@@ -15,7 +15,7 @@ use crate::{
     arch::Architecture,
     auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem},
     bindings::{
-        kernel::{user_desc, user_regs_struct as native_user_regs_struct},
+        kernel::{user_desc, user_regs_struct as native_user_regs_struct, SHMDT},
         ptrace::{PTRACE_DETACH, PTRACE_EVENT_EXIT, PTRACE_GETREGS, PTRACE_GETSIGINFO},
         signal::POLL_IN,
     },
@@ -1048,22 +1048,29 @@ fn on_syscall_exit_arch<Arch: Architecture>(t: &mut dyn Task, sys: i32, regs: &R
         let prot_flags = ProtFlags::from_bits(prot).unwrap();
         t.vm_shr_ptr().protect(t, addr, num_bytes, prot_flags);
     }
+
     if sys == Arch::MUNMAP {
         let addr: RemotePtr<Void> = regs.arg1().into();
         let num_bytes: usize = regs.arg2();
         return t.vm_shr_ptr().unmap(t, addr, num_bytes);
     }
+
     if sys == Arch::SHMDT {
-        unimplemented!()
+        return process_shmdt(t, regs.arg1().into());
     }
+
     if sys == Arch::MADVISE {
         let addr: RemotePtr<Void> = regs.arg1().into();
         let num_bytes: usize = regs.arg2();
         let advice = regs.arg3() as i32;
         return t.vm_shr_ptr().advise(t, addr, num_bytes, advice);
     }
+
     if sys == Arch::IPC {
-        unimplemented!()
+        match regs.arg1() as u32 {
+            SHMDT => return process_shmdt(t, regs.arg5().into()),
+            _ => return,
+        }
     }
 
     if sys == Arch::SET_THREAD_AREA {
@@ -1837,4 +1844,10 @@ fn set_thread_area_core(thread_areas: &mut Vec<user_desc>, desc: user_desc) {
     }
 
     thread_areas.push(desc);
+}
+
+fn process_shmdt(t: &dyn Task, addr: RemotePtr<Void>) {
+    let size: usize = t.vm().get_shm_size(addr);
+    t.vm().remove_shm_size(addr);
+    t.vm_shr_ptr().unmap(t, addr, size);
 }
