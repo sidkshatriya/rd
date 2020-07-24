@@ -791,15 +791,18 @@ fn rep_process_syscall_arch<Arch: Architecture>(
         || nsys == Arch::SOCKETCALL
         || nsys == Arch::RDCALL_NOTIFY_CONTROL_MSG
     {
-        unimplemented!();
+        handle_opened_files(t, 0);
+        return;
     }
 
     if nsys == Arch::OPENAT {
-        handle_opened_files(t, t.regs_ref().arg3() as i32)
+        handle_opened_files(t, t.regs_ref().arg3() as i32);
+        return;
     }
 
     if nsys == Arch::OPEN {
-        unimplemented!();
+        handle_opened_files(t, t.regs_ref().arg2() as i32);
+        return;
     }
 
     if nsys == Arch::WRITE || nsys == Arch::WRITEV {
@@ -809,6 +812,7 @@ fn rep_process_syscall_arch<Arch: Architecture>(
         maybe_noop_restore_syscallbuf_scratch(t);
         return;
     }
+
     if nsys == Arch::PROCESS_VM_WRITEV {
         unimplemented!()
     }
@@ -837,6 +841,7 @@ fn rep_process_syscall_arch<Arch: Architecture>(
     if nsys == Arch::RDCALL_INIT_BUFFERS {
         unimplemented!();
     }
+
     if nsys == Arch::RDCALL_INIT_PRELOAD {
         t.at_preload_init();
         return;
