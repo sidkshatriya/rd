@@ -572,6 +572,12 @@ pub trait Architecture {
     #[allow(non_camel_case_types)]
     type rdcall_init_preload_params: Copy + 'static;
 
+    #[allow(non_camel_case_types)]
+    type user_regs_struct: Copy;
+
+    #[allow(non_camel_case_types)]
+    type user_fpregs_struct: Copy;
+
     fn get_k_sa_handler(k: &Self::kernel_sigaction) -> RemotePtr<Void>;
 
     fn get_sa_flags(k: &Self::kernel_sigaction) -> usize;
@@ -581,6 +587,8 @@ pub trait Architecture {
     fn set_iovec(msgdata: &mut Self::iovec, iov_base: RemotePtr<Void>, iov_len: usize);
 
     fn as_signed_long(ul: Self::unsigned_long) -> Self::signed_long;
+
+    fn as_unsigned_word(u: usize) -> Self::unsigned_word;
 
     fn get_iovec(msgdata: &Self::iovec) -> (RemotePtr<Void>, usize);
 
@@ -1061,6 +1069,9 @@ impl Architecture for X86Arch {
     type siginfo_t = x86::siginfo_t;
     type sockaddr_un = x86::sockaddr_un;
     type unsigned_word = x86::unsigned_word;
+    type rdcall_init_preload_params = x86::preload_interface::rdcall_init_preload_params;
+    type user_regs_struct = x86::user_regs_struct;
+    type user_fpregs_struct = x86::user_fpregs_struct;
 
     fn get_k_sa_handler(k: &Self::kernel_sigaction) -> RemotePtr<Void> {
         k.k_sa_handler.rptr()
@@ -1081,6 +1092,10 @@ impl Architecture for X86Arch {
 
     fn as_signed_long(ul: Self::unsigned_long) -> Self::signed_long {
         ul as Self::signed_long
+    }
+
+    fn as_unsigned_word(u: usize) -> Self::unsigned_word {
+        u as Self::unsigned_word
     }
 
     fn get_iovec(msgdata: &Self::iovec) -> (RemotePtr<Void>, usize) {
@@ -1121,11 +1136,10 @@ impl Architecture for X86Arch {
         si._sifields._sigchld.si_uid_ = r.getuid();
     }
 
-    type rdcall_init_preload_params = x86::preload_interface::rdcall_init_preload_params;
-
     fn rdcall_init_preload_params_syscallbuf_enabled(d: &Self::rdcall_init_preload_params) -> bool {
         d.syscallbuf_enabled != 0
     }
+
     fn rdcall_init_preload_params_globals(
         params: &Self::rdcall_init_preload_params,
     ) -> (RemotePtr<preload_globals>, RemoteCodePtr, usize) {
@@ -1597,6 +1611,8 @@ impl Architecture for X64Arch {
     type sockaddr_un = x64::sockaddr_un;
     type unsigned_word = x64::unsigned_word;
     type rdcall_init_preload_params = x64::preload_interface::rdcall_init_preload_params;
+    type user_regs_struct = x64::user_regs_struct;
+    type user_fpregs_struct = x64::user_fpregs_struct;
 
     fn get_k_sa_handler(k: &Self::kernel_sigaction) -> RemotePtr<Void> {
         k.k_sa_handler.rptr()
@@ -1615,6 +1631,10 @@ impl Architecture for X64Arch {
 
     fn as_signed_long(ul: Self::unsigned_long) -> Self::signed_long {
         ul as Self::signed_long
+    }
+
+    fn as_unsigned_word(u: usize) -> Self::unsigned_word {
+        u as Self::unsigned_word
     }
 
     fn get_iovec(msgdata: &Self::iovec) -> (RemotePtr<Void>, usize) {

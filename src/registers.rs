@@ -866,27 +866,34 @@ impl Registers {
     pub fn singlestep_flag(&self) -> bool {
         self.flags() & X86_TF_FLAG == X86_TF_FLAG
     }
+
     pub fn clear_singlestep_flag(&mut self) {
         self.set_flags(self.flags() & !X86_TF_FLAG);
     }
+
     pub fn df_flag(&self) -> bool {
         self.flags() & X86_DF_FLAG == X86_DF_FLAG
     }
 
+    /// DIFF NOTE: rr returns a usize instead
     pub fn fs_base(&self) -> u64 {
         let x64 = self.x64();
         x64.fs_base
     }
+
+    /// DIFF NOTE:: rr returns a usize instead
     pub fn gs_base(&self) -> u64 {
         let x64 = self.x64();
         x64.gs_base
     }
 
+    /// DIFF NOTE: rr takes a usize instead
     pub fn set_fs_base(&mut self, fs_base: u64) {
         let mut x64 = self.x64_mut();
         x64.fs_base = fs_base;
     }
 
+    /// DIFF NOTE: rr takes a usize instead
     pub fn set_gs_base(&mut self, gs_base: u64) {
         let mut x64 = self.x64_mut();
         x64.gs_base = gs_base;

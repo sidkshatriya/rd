@@ -490,6 +490,40 @@ pub mod x64 {
         pub padding: [uint32_t; 24],
     }
 
+    #[repr(C)]
+    #[derive(Copy, Clone)]
+    pub union user_regs_ptr {
+        pub u_ar0: *mut user_regs_struct,
+        pub __u_ar0_word: uint64_t,
+    }
+
+    #[repr(C)]
+    #[derive(Copy, Clone)]
+    pub union user_fpregs_ptr {
+        pub u_fpstate: *mut user_fpregs_struct,
+        pub __u_fpstate_word: uint64_t,
+    }
+
+    #[repr(C)]
+    #[derive(Copy, Clone)]
+    pub struct user {
+        pub regs: user_regs_struct,
+        pub u_fpvalid: int,
+        pub i387: user_fpregs_struct,
+        pub u_tsize: uint64_t,
+        pub u_dsize: uint64_t,
+        pub u_ussize: uint64_t,
+        pub start_code: uint64_t,
+        pub start_stack: uint64_t,
+        pub signal: int64_t,
+        pub reserved: int,
+        pub user_regs_ptr: user_regs_ptr,
+        pub user_fpregs_ptr: user_fpregs_ptr,
+        pub magic: uint64_t,
+        pub u_comm: [u8; 32],
+        pub u_debugreg: [uint64_t; 8],
+    }
+
     #[cfg(target_arch = "x86_64")]
     mod assert {
         use super::*;
@@ -500,6 +534,9 @@ pub mod x64 {
 
         assert_eq_align!(kernel::user_fpregs_struct, user_fpregs_struct);
         assert_eq_size!(kernel::user_fpregs_struct, user_fpregs_struct);
+
+        assert_eq_align!(kernel::user, user);
+        assert_eq_size!(kernel::user, user);
 
         assert_eq_align!(kernel::user_regs_struct, user_regs_struct);
         assert_eq_size!(kernel::user_regs_struct, user_regs_struct);
@@ -881,6 +918,25 @@ pub mod x86 {
 
     #[repr(C)]
     #[derive(Copy, Clone, Default)]
+    pub struct user {
+        pub regs: user_regs_struct,
+        pub u_fpvalid: int,
+        pub i387: user_fpregs_struct,
+        pub u_tsize: uint32_t,
+        pub u_dsize: uint32_t,
+        pub u_ssize: uint32_t,
+        pub start_code: uint32_t,
+        pub start_stack: uint32_t,
+        pub signal: int32_t,
+        pub u_ar0: ptr<user_regs_struct>,
+        pub u_fpstate: ptr<user_fpregs_struct>,
+        pub magic: uint32_t,
+        pub u_comm: [u8; 32],
+        pub u_debugreg: [int; 8],
+    }
+
+    #[repr(C)]
+    #[derive(Copy, Clone, Default)]
     pub struct user_fpxregs_struct {
         pub cwd: uint16_t,
         pub swd: uint16_t,
@@ -933,6 +989,9 @@ pub mod x86 {
 
         assert_eq_align!(kernel::sigcontext, sigcontext);
         assert_eq_size!(kernel::sigcontext, sigcontext);
+
+        assert_eq_align!(kernel::user, user);
+        assert_eq_size!(kernel::user, user);
 
         assert_eq_size!(kernel::sockaddr, sockaddr);
         assert_eq_align!(kernel::sockaddr, sockaddr);
