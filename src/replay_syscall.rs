@@ -11,7 +11,20 @@ use crate::{
         MemParamsEnabled,
         PreserveContents::PreserveContents,
     },
-    bindings::kernel::{SHMAT, SHMDT},
+    bindings::{
+        kernel::{user_desc, SHMAT, SHMDT},
+        ptrace::{
+            PTRACE_CONT,
+            PTRACE_DETACH,
+            PTRACE_POKEDATA,
+            PTRACE_POKETEXT,
+            PTRACE_SET_THREAD_AREA,
+            PTRACE_SINGLESTEP,
+            PTRACE_SYSCALL,
+            PTRACE_SYSEMU,
+            PTRACE_SYSEMU_SINGLESTEP,
+        },
+    },
     emu_fs::EmuFileSharedPtr,
     file_monitor::{
         mmapped_file_monitor::MmappedFileMonitor,
@@ -59,7 +72,7 @@ use crate::{
         },
         task::{
             replay_task::{ReplayTask, ReplayTaskIgnore},
-            task_common::{read_mem, write_mem, write_val_mem},
+            task_common::{read_mem, read_val_mem, write_mem, write_val_mem},
             task_inner::{task_inner::WriteFlags, ResumeRequest, TicksRequest, WaitRequest},
             Task,
             TaskSharedPtr,
@@ -935,7 +948,45 @@ fn rep_after_enter_syscall_arch<Arch: Architecture>(t: &mut ReplayTask) {
     }
 
     if sys == Arch::PTRACE {
-        unimplemented!()
+        let pid: pid_t = t.regs_ref().arg2_signed() as pid_t;
+        // DIFF NOTE: This assertion is not there in rr.
+        ed_assert!(t, pid != t.rec_tid);
+        let maybe_target = t.session().find_task_from_rec_tid(pid);
+        match maybe_target {
+            None => (),
+            Some(target) => match t.regs_ref().arg1() as u32 {
+                PTRACE_POKETEXT | PTRACE_POKEDATA => {
+                    target
+                        .borrow_mut()
+                        .as_replay_task_mut()
+                        .unwrap()
+                        .apply_all_data_records_from_trace();
+                }
+                PTRACE_SYSCALL
+                | PTRACE_SINGLESTEP
+                | PTRACE_SYSEMU
+                | PTRACE_SYSEMU_SINGLESTEP
+                | PTRACE_CONT
+                | PTRACE_DETACH => {
+                    let command = t.regs_ref().arg1() as u32;
+                    target
+                        .borrow()
+                        .set_syscallbuf_locked(command != PTRACE_CONT && command != PTRACE_DETACH);
+                }
+                PTRACE_SET_THREAD_AREA => {
+                    let mut ok = true;
+                    let child_addr = t.regs_ref().arg4();
+                    let desc: user_desc =
+                        read_val_mem(t, RemotePtr::<user_desc>::from(child_addr), Some(&mut ok));
+                    if ok {
+                        target
+                            .borrow_mut()
+                            .emulate_set_thread_area(t.regs_ref().arg3() as u32, desc);
+                    }
+                }
+                _ => (),
+            },
+        }
     }
 
     if sys == Arch::EXIT {

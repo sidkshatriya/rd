@@ -1860,7 +1860,7 @@ pub(super) fn set_thread_area<T: Task>(t: &mut T, tls: RemotePtr<user_desc>) {
     set_thread_area_core(&mut t.thread_areas_, desc)
 }
 
-fn set_thread_area_core(thread_areas: &mut Vec<user_desc>, desc: user_desc) {
+pub(super) fn set_thread_area_core(thread_areas: &mut Vec<user_desc>, desc: user_desc) {
     for t in thread_areas.iter_mut() {
         if t.entry_number == desc.entry_number {
             *t = desc;

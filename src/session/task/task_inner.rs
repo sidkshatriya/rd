@@ -2,6 +2,7 @@ use crate::{
     arch::Architecture,
     bindings::ptrace::{
         PTRACE_CONT,
+        PTRACE_SET_THREAD_AREA,
         PTRACE_SINGLESTEP,
         PTRACE_SYSCALL,
         PTRACE_SYSEMU,
@@ -174,6 +175,7 @@ pub mod task_inner {
             session_inner::session_inner::SessionInner,
             task::{
                 extra_registers::{ExtraRegisters, Format},
+                task_common::set_thread_area_core,
                 Task,
                 TaskSharedPtr,
                 TaskSharedWeakPtr,
@@ -1044,8 +1046,20 @@ pub mod task_inner {
 
         /// Set the thread area at index `idx` to desc and reflect this
         /// into the OS task. Returns 0 on success, errno otherwise.
-        pub fn emulate_set_thread_area(&self, _idx: i32, _desc: user_desc) {
-            unimplemented!()
+        pub fn emulate_set_thread_area(&mut self, idx: u32, mut desc: user_desc) -> i32 {
+            unsafe { Errno::clear() };
+            // @TODO Is the cast `idx as usize` what we want?
+            self.fallible_ptrace(
+                PTRACE_SET_THREAD_AREA,
+                RemotePtr::from(idx as usize),
+                PtraceData::ReadFrom(u8_raw_slice(&desc)),
+            );
+            if errno() != 0 {
+                return errno();
+            }
+            desc.entry_number = idx;
+            set_thread_area_core(&mut self.thread_areas_, desc);
+            0
         }
 
         /// Get the thread area from the remote process.
@@ -1218,6 +1232,10 @@ pub mod task_inner {
         /// Lock or unlock the syscallbuf to prevent the preload library from using it.
         /// Only has an effect if the syscallbuf has been initialized.
         pub fn set_syscallbuf_locked(&self, _locked: bool) {
+            if self.syscallbuf_child.is_null() {
+                return;
+            }
+
             unimplemented!()
         }
 
