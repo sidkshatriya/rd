@@ -578,6 +578,9 @@ pub trait Architecture {
     #[allow(non_camel_case_types)]
     type user_fpregs_struct: Copy;
 
+    #[allow(non_camel_case_types)]
+    type user: Copy;
+
     fn get_k_sa_handler(k: &Self::kernel_sigaction) -> RemotePtr<Void>;
 
     fn get_sa_flags(k: &Self::kernel_sigaction) -> usize;
@@ -1072,6 +1075,7 @@ impl Architecture for X86Arch {
     type rdcall_init_preload_params = x86::preload_interface::rdcall_init_preload_params;
     type user_regs_struct = x86::user_regs_struct;
     type user_fpregs_struct = x86::user_fpregs_struct;
+    type user = x86::user;
 
     fn get_k_sa_handler(k: &Self::kernel_sigaction) -> RemotePtr<Void> {
         k.k_sa_handler.rptr()
@@ -1613,6 +1617,7 @@ impl Architecture for X64Arch {
     type rdcall_init_preload_params = x64::preload_interface::rdcall_init_preload_params;
     type user_regs_struct = x64::user_regs_struct;
     type user_fpregs_struct = x64::user_fpregs_struct;
+    type user = x64::user;
 
     fn get_k_sa_handler(k: &Self::kernel_sigaction) -> RemotePtr<Void> {
         k.k_sa_handler.rptr()

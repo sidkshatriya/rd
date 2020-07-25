@@ -127,15 +127,26 @@ fn main() {
         .write_to_file(path.join("perf_event_bindings_generated.rs"))
         .unwrap();
 
-    let fcntl_event_bindings = Builder::default()
+    let fcntl_bindings = Builder::default()
         .parse_callbacks(Box::new(CargoCallbacks))
         .prepend_enum_name(false)
         .header("bindgen/fcntl_wrapper.h")
         .generate()
         .unwrap();
 
-    fcntl_event_bindings
+    fcntl_bindings
         .write_to_file(path.join("fcntl_bindings_generated.rs"))
+        .unwrap();
+
+    let prctl_bindings = Builder::default()
+        .parse_callbacks(Box::new(CargoCallbacks))
+        .prepend_enum_name(false)
+        .header("bindgen/prctl_wrapper.h")
+        .generate()
+        .unwrap();
+
+    prctl_bindings
+        .write_to_file(path.join("prctl_bindings_generated.rs"))
         .unwrap();
 
     let kernel_abi_bindings = Builder::default()
