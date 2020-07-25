@@ -11,12 +11,32 @@
 //!     in task_inner.rs
 //! (c) Some misc methods that did not fit elsewhere...
 
+use super::extra_registers::{ExtraRegisters, Format};
 use crate::{
     arch::Architecture,
     auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem},
     bindings::{
-        kernel::{user_desc, user_regs_struct as native_user_regs_struct, SHMDT},
-        ptrace::{PTRACE_DETACH, PTRACE_EVENT_EXIT, PTRACE_GETREGS, PTRACE_GETSIGINFO},
+        kernel::{
+            user_desc,
+            user_regs_struct as native_user_regs_struct,
+            NT_FPREGSET,
+            NT_PRSTATUS,
+            NT_X86_XSTATE,
+            SHMDT,
+        },
+        prctl::{ARCH_GET_FS, ARCH_GET_GS, ARCH_SET_FS, ARCH_SET_GS},
+        ptrace::{
+            PTRACE_ARCH_PRCTL,
+            PTRACE_DETACH,
+            PTRACE_EVENT_EXIT,
+            PTRACE_GETREGS,
+            PTRACE_GETSIGINFO,
+            PTRACE_POKEUSER,
+            PTRACE_SETFPREGS,
+            PTRACE_SETFPXREGS,
+            PTRACE_SETREGS,
+            PTRACE_SETREGSET,
+        },
         signal::POLL_IN,
     },
     core::type_has_no_holes,
@@ -35,6 +55,7 @@ use crate::{
         syscall_number_for_mprotect,
         syscall_number_for_munmap,
         syscall_number_for_openat,
+        x86,
         CloneTLSType,
         FcntlOperation,
         SupportedArch,
@@ -87,7 +108,10 @@ use crate::{
         trapped_instruction_len,
         u8_raw_slice,
         u8_raw_slice_mut,
+        xsave_layout_from_trace,
+        xsave_native_layout,
         TrappedInstruction,
+        XSaveLayout,
         CPUID_GETFEATURES,
     },
     wait_status::WaitStatus,
@@ -1181,7 +1205,8 @@ fn on_syscall_exit_arch<Arch: Architecture>(t: &mut dyn Task, sys: i32, regs: &R
     }
 
     if sys == Arch::PTRACE {
-        unimplemented!()
+        process_ptrace::<Arch>(regs, t);
+        return;
     }
 }
 
@@ -1850,4 +1875,169 @@ fn process_shmdt(t: &dyn Task, addr: RemotePtr<Void>) {
     let size: usize = t.vm().get_shm_size(addr);
     t.vm().remove_shm_size(addr);
     t.vm_shr_ptr().unmap(t, addr, size);
+}
+
+fn process_ptrace<Arch: Architecture>(regs: &Registers, t: &mut dyn Task) {
+    let pid = regs.arg2_signed() as pid_t;
+    let maybe_tracee = t.session().find_task_from_rec_tid(pid);
+    match regs.arg1() as u32 {
+        PTRACE_SETREGS => {
+            let tracee_rc = maybe_tracee.unwrap();
+            let mut tracee = tracee_rc.borrow_mut();
+            let data = read_mem(
+                t,
+                RemotePtr::<u8>::from(regs.arg4()),
+                size_of::<Arch::user_regs_struct>(),
+                None,
+            );
+            let mut r: Registers = tracee.regs_ref().clone();
+            r.set_from_ptrace_for_arch(Arch::arch(), &data);
+            tracee.set_regs(&r);
+            return;
+        }
+        PTRACE_SETFPREGS => {
+            let data = read_mem(
+                t,
+                RemotePtr::<u8>::from(regs.arg4()),
+                size_of::<Arch::user_fpregs_struct>(),
+                None,
+            );
+            let mut r = t.extra_regs_ref().clone();
+            r.set_user_fpregs_struct(t, Arch::arch(), &data);
+            t.set_extra_regs(&r);
+            return;
+        }
+        PTRACE_SETFPXREGS => {
+            let data = read_val_mem(
+                t,
+                RemotePtr::<x86::user_fpxregs_struct>::from(regs.arg4()),
+                None,
+            );
+            let mut r = t.extra_regs_ref().clone();
+            r.set_user_fpxregs_struct(t, &data);
+            t.set_extra_regs(&r);
+            return;
+        }
+        PTRACE_SETREGSET => {
+            match regs.arg3() as u32 {
+                NT_PRSTATUS => {
+                    let tracee_rc = maybe_tracee.unwrap();
+                    let mut tracee = tracee_rc.borrow_mut();
+                    let set =
+                        ptrace_get_regs_set::<Arch>(t, regs, size_of::<Arch::user_regs_struct>());
+                    let mut r = tracee.regs_ref().clone();
+                    r.set_from_ptrace_for_arch(Arch::arch(), &set);
+                    tracee.set_regs(&r);
+                }
+                NT_FPREGSET => {
+                    let tracee_rc = maybe_tracee.unwrap();
+                    let mut tracee = tracee_rc.borrow_mut();
+                    let set =
+                        ptrace_get_regs_set::<Arch>(t, regs, size_of::<Arch::user_fpregs_struct>());
+                    let mut r: ExtraRegisters = tracee.extra_regs_ref().clone();
+                    r.set_user_fpregs_struct(t, Arch::arch(), &set);
+                    tracee.set_extra_regs(&r);
+                }
+                NT_X86_XSTATE => {
+                    let tracee_rc = maybe_tracee.unwrap();
+                    let mut tracee = tracee_rc.borrow_mut();
+                    match tracee.extra_regs_ref().format() {
+                        Format::XSave => {
+                            let set = ptrace_get_regs_set::<Arch>(
+                                t,
+                                regs,
+                                tracee.extra_regs_ref().data_size(),
+                            );
+                            let mut r = ExtraRegisters::default();
+                            let layout: XSaveLayout;
+                            let session = t.session();
+                            let maybe_replay = session.as_replay();
+                            match maybe_replay {
+                                Some(replay) => {
+                                    layout = xsave_layout_from_trace(
+                                        replay.trace_reader().cpuid_records(),
+                                    );
+                                }
+                                None => {
+                                    layout = xsave_native_layout().clone();
+                                }
+                            };
+                            let ok = r.set_to_raw_data(tracee.arch(), Format::XSave, &set, layout);
+                            ed_assert!(t, ok, "Invalid XSAVE data");
+                            tracee.set_extra_regs(&r);
+                        }
+                        _ => {
+                            ed_assert!(
+                                t,
+                                false,
+                                "Unknown ExtraRegisters format; \n\
+                                         Should have been caught during \n\
+                                         prepare_ptrace"
+                            );
+                        }
+                    }
+                }
+                _ => {
+                    ed_assert!(
+                        t,
+                        false,
+                        "Unknown regset type; Should have been \n\
+                                        caught during prepare_ptrace"
+                    );
+                }
+            }
+            return;
+        }
+        PTRACE_POKEUSER => {
+            unimplemented!();
+        }
+        PTRACE_ARCH_PRCTL => {
+            let code = regs.arg4() as u32;
+            match code {
+                ARCH_GET_FS | ARCH_GET_GS => (),
+                ARCH_SET_FS | ARCH_SET_GS => {
+                    let tracee_rc = maybe_tracee.unwrap();
+                    let mut tracee = tracee_rc.borrow_mut();
+                    let mut r: Registers = tracee.regs_ref().clone();
+                    if regs.arg3() == 0 {
+                        // Work around a kernel bug in pre-4.7 kernels, where setting
+                        // the gs/fs base to 0 via PTRACE_REGSET did not work correctly.
+                        tracee.ptrace_if_alive(
+                            PTRACE_ARCH_PRCTL,
+                            regs.arg3().into(),
+                            PtraceData::ReadWord(regs.arg4()),
+                        );
+                    }
+                    if code == ARCH_SET_FS {
+                        r.set_fs_base(regs.arg3() as u64);
+                    } else {
+                        r.set_gs_base(regs.arg3() as u64);
+                    }
+                    tracee.set_regs(&r);
+                }
+                _ => {
+                    let tracee_rc = maybe_tracee.unwrap();
+                    let tracee = tracee_rc.borrow_mut();
+                    ed_assert!(tracee.as_ref(), false, "Should have detected this earlier");
+                }
+            };
+            return;
+        }
+        _ => (),
+    }
+}
+
+fn ptrace_get_regs_set<Arch: Architecture>(
+    t: &mut dyn Task,
+    regs: &Registers,
+    min_size: usize,
+) -> Vec<u8> {
+    let iov = read_val_mem(t, RemotePtr::<Arch::iovec>::from(regs.arg4()), None);
+    let (remote_ptr, iov_len) = Arch::get_iovec(&iov);
+    ed_assert!(
+        t,
+        iov_len >= min_size,
+        "Should have been caught during prepare_ptrace"
+    );
+    read_mem(t, remote_ptr, iov_len, None)
 }

@@ -218,7 +218,7 @@ pub struct XSaveFeatureLayout {
     pub size: u32,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct XSaveLayout {
     pub full_size: usize,
     pub supported_feature_bits: u64,
