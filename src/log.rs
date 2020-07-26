@@ -175,6 +175,14 @@ impl NewLineTerminatingOstream {
     }
 }
 
+/// Low level. Use is_logging!() macro instead.
+pub fn is_logging(level: LogLevel, filename: &str, _line: u32, _func_name: &str) -> bool {
+    let mut lock = LOG_GLOBALS.lock().unwrap();
+    let m = get_log_module(filename, &mut lock);
+    let enabled = level <= m.level;
+    enabled
+}
+
 impl Drop for NewLineTerminatingOstream {
     fn drop(&mut self) {
         if self.enabled {
@@ -256,6 +264,12 @@ macro_rules! log {
             );
             write!(stream, $($args)+).unwrap()
         }
+    };
+}
+
+macro_rules! is_logging {
+    ($log_level:expr) => {
+        crate::log::is_logging($log_level, file!(), line!(), module_path!())
     };
 }
 

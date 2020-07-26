@@ -25,7 +25,7 @@ use crate::{
         SupportedArch,
     },
     kernel_metadata::{signal_name, syscall_name},
-    log::LogLevel::{self, LogDebug, LogError},
+    log::LogLevel::{LogDebug, LogError},
     perf_counters,
     perf_counters::{PerfCounters, TIME_SLICE_SIGNAL},
     registers::{MismatchBehavior, Registers},
@@ -2073,18 +2073,13 @@ fn guard_unexpected_signal(t: &mut ReplayTask) {
     }
 }
 
-// @TODO this needs to be implemented
-fn is_logging(_level: LogLevel) -> bool {
-    true
-}
-
 fn is_same_execution_point(
     t: &mut ReplayTask,
     rec_regs: &Registers,
     ticks_left: i64,
     mismatched_regs: &mut Option<Registers>,
 ) -> bool {
-    let behavior: MismatchBehavior = if is_logging(LogDebug) {
+    let behavior: MismatchBehavior = if is_logging!(LogDebug) {
         MismatchBehavior::LogMismatches
     } else {
         MismatchBehavior::ExpectMismatches
@@ -2097,7 +2092,8 @@ fn is_same_execution_point(
             ticks_left,
             rec_regs.ip()
         );
-        if is_logging(LogDebug) {
+
+        if is_logging!(LogDebug) {
             Registers::compare_register_files(
                 Some(t),
                 "(rep)",
