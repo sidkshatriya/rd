@@ -75,15 +75,54 @@ lazy_static! {
         };
         assert_eq!(ret, 0);
 
+        let (default_level, level_map) = match env::var("RD_LOG") {
+            Ok(rd_log) => init_log_levels(&rd_log),
+            // Ignore any errors. @TODO change behavior?
+            Err(_) => (LogWarn, HashMap::new())
+        };
+
         Mutex::new(LogGlobals {
-            level_map: HashMap::new(),
+            level_map,
             log_modules_cache: HashMap::new(),
             logging_stream: String::new(),
             // Possibly buffered
             log_file: f,
-            default_level: LogDebug,
+            default_level,
         })
     };
+}
+
+fn log_level_string_to_level(log_level_string: &str) -> LogLevel {
+    match log_level_string {
+        "fatal" => LogFatal,
+        "error" => LogError,
+        "warn" => LogWarn,
+        "info" => LogInfo,
+        "debug" => LogDebug,
+        _ => LogWarn,
+    }
+}
+
+fn init_log_levels(rd_log: &str) -> (LogLevel, HashMap<String, LogLevel>) {
+    let mut hm: HashMap<String, LogLevel> = HashMap::new();
+    let mod_colon_levels = rd_log.split(',');
+    let mut default_level = LogWarn;
+    for mod_colon_level in mod_colon_levels {
+        let res: Vec<&str> = mod_colon_level.splitn(2, ':').collect();
+        if res.len() == 2 {
+            let mod_name = res[0].trim();
+            let log_level_string = res[1].trim();
+            if mod_name == "all" {
+                default_level = log_level_string_to_level(log_level_string);
+            } else {
+                hm.insert(
+                    mod_name.to_owned(),
+                    log_level_string_to_level(log_level_string),
+                );
+            }
+        }
+    }
+    (default_level, hm)
 }
 
 /// Given a module name, what is its log level?
