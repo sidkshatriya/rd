@@ -32,9 +32,11 @@ use std::{
     io::{stderr, Write},
     mem::size_of,
     os::unix::io::RawFd,
+    sync::Mutex,
 };
 
 lazy_static! {
+    static ref PMU_BRANCHES_ACCUMULATOR: Mutex<u32> = Mutex::new(0);
     static ref PMU_BUGS_AND_EXTRA: PmuBugsAndExtra = check_for_bugs_and_extra();
     static ref PMU_ATTRIBUTES: PmuAttributes = get_init_attributes();
 }
@@ -651,19 +653,23 @@ fn perf_ioctl_null(fd: &ScopedFd, param1: c_ulong) -> i32 {
     unsafe { ioctl(fd.as_raw(), param1, 0) }
 }
 
-// @TODO not sure if this is ported properly.
-fn do_branches() -> u32 {
+fn do_branches() {
     // Do NUM_BRANCHES conditional branches that can't be optimized out.
     // 'accumulator' is always odd and can't be zero
-    let mut accumulator: u32 = (unsafe { libc::rand() } as u32) * 2 + 1;
+    let mut accumulator: u32 = (unsafe { libc::rand() } as u32)
+        .overflowing_mul(2)
+        .0
+        .overflowing_add(1)
+        .0;
     for _ in 0..NUM_BRANCHES {
         if accumulator == 0 {
             break;
         }
-        accumulator = ((((accumulator as u64) * 7) + 2) & 0xffffff) as u32;
+        accumulator = accumulator.overflowing_mul(7).0.overflowing_add(2).0 & 0xffffff;
     }
 
-    accumulator
+    let mut lock = PMU_BRANCHES_ACCUMULATOR.lock().unwrap();
+    *lock = accumulator;
 }
 
 /// Returns true if there is only 1 working counter, false otherwise.
