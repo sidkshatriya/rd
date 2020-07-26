@@ -16,7 +16,7 @@ use structopt::{clap, clap::AppSettings, StructOpt};
 #[structopt(
     name = "rd",
     about = "The record and debug tool",
-    after_help = "Use RD_LOG to control logging; e.g. RD_LOG=all:warn,Task:debug"
+    after_help = "Use RD_LOG to control logging; e.g. RD_LOG=all:warn,auto_remote_syscalls:debug"
 )]
 #[structopt(global_settings =
 &[AppSettings::AllowNegativeNumbers, AppSettings::UnifiedHelpMessage])]
