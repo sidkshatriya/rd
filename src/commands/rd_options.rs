@@ -3,7 +3,13 @@ use crate::{
     flags::{Checksum, DumpOn},
     trace::trace_frame::FrameTime,
 };
-use std::{error::Error, num::ParseIntError, path::PathBuf};
+use std::{
+    error::Error,
+    ffi::{OsStr, OsString},
+    num::ParseIntError,
+    os::unix::ffi::OsStringExt,
+    path::PathBuf,
+};
 use structopt::{clap, clap::AppSettings, StructOpt};
 
 #[derive(Debug, StructOpt)]
@@ -27,7 +33,7 @@ pub struct RdOptions {
     /// specify the paths that rd should use to find files such as rd_page_*.  These files
     /// should be located in `<resource-path>/bin`, `<resource-path>/lib[64]`, and
     /// `<resource-path>/share` as appropriate.
-    #[structopt(parse(from_os_str), long)]
+    #[structopt(parse(try_from_os_str = parse_resource_path), long)]
     pub resource_path: Option<PathBuf>,
 
     /// force rd to assume it's running on a CPU with microarch <microarch> even if runtime
@@ -95,6 +101,22 @@ pub struct RdOptions {
 
     #[structopt(subcommand)]
     pub cmd: RdSubCommand,
+}
+
+fn parse_resource_path(res_path: &OsStr) -> Result<PathBuf, OsString> {
+    let dir_path = PathBuf::from(res_path);
+    match dir_path.canonicalize() {
+        Err(e) => Err(OsString::from(format!("{:?}", e))),
+        Ok(canonicalized) if canonicalized.is_dir() => {
+            let mut can_os_str = canonicalized.into_os_string().into_vec();
+            can_os_str.extend_from_slice(b"/");
+            Ok(PathBuf::from(OsString::from_vec(can_os_str)))
+        }
+        Ok(canonicallized) => Err(OsString::from(format!(
+            "{:?} is not a directory",
+            canonicallized
+        ))),
+    }
 }
 
 fn parse_checksum(checksum_s: &str) -> Result<Checksum, Box<dyn Error>> {
