@@ -3,8 +3,9 @@
 `rd` is a Rust language port of [mozilla/rr](https://github.com/mozilla/rr).
 
 ## Installing
-
 ```bash
+git clone git@github.com:sidkshatriya/rd.git
+cd rd
 cargo install --locked --force --path .
 ```
 
