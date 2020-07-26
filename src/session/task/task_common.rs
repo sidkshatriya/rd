@@ -55,6 +55,7 @@ use crate::{
         syscall_number_for_mprotect,
         syscall_number_for_munmap,
         syscall_number_for_openat,
+        x64,
         x86,
         CloneTLSType,
         FcntlOperation,
@@ -143,7 +144,7 @@ use std::{
     cmp::min,
     convert::TryInto,
     ffi::{c_void, CStr, CString, OsStr},
-    mem::{size_of, zeroed},
+    mem::{size_of, size_of_val, zeroed},
     os::unix::ffi::OsStrExt,
     path::Path,
     ptr,
@@ -1989,7 +1990,29 @@ fn process_ptrace<Arch: Architecture>(regs: &Registers, t: &mut dyn Task) {
             return;
         }
         PTRACE_POKEUSER => {
-            unimplemented!();
+            let tracee_rc = maybe_tracee.unwrap();
+            let mut tracee = tracee_rc.borrow_mut();
+            let addr: usize = regs.arg3();
+            let data: Arch::unsigned_word = Arch::as_unsigned_word(regs.arg4());
+            if addr < size_of::<Arch::user_regs_struct>() {
+                let mut r: Registers = tracee.regs_ref().clone();
+                r.write_register_by_user_offset(addr, regs.arg4());
+                tracee.set_regs(&r);
+            } else {
+                let u_debugreg_offset: usize = match Arch::arch() {
+                    // Unfortunately we can't do something like offset_of!(Arch::user, u_debugreg)
+                    // as rustc complains. Revisit to see if we can make this more generic.
+                    SupportedArch::X64 => offset_of!(x64::user, u_debugreg),
+                    SupportedArch::X86 => offset_of!(x86::user, u_debugreg),
+                };
+
+                // Assumes that there would be no fields added after u_debugreg[7]
+                if addr >= u_debugreg_offset && addr < size_of::<Arch::user>() {
+                    let regno: usize = (addr - u_debugreg_offset) / size_of_val(&data);
+                    tracee.set_debug_reg(regno, regs.arg4());
+                }
+            }
+            return;
         }
         PTRACE_ARCH_PRCTL => {
             let code = regs.arg4() as u32;
