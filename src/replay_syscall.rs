@@ -91,6 +91,8 @@ use crate::{
         clone_flags_to_task_flags,
         extract_clone_parameters,
         floor_page_size,
+        is_proc_fd_dir,
+        is_proc_mem_file,
         page_size,
         resource_path,
         CloneParameters,
@@ -1464,16 +1466,6 @@ fn handle_opened_files(t: &mut ReplayTask, flags_raw: i32) {
             .borrow_mut()
             .add_monitor(t, o.fd, file_monitor);
     }
-}
-
-// @TODO Shift this method out of this module
-fn is_proc_fd_dir(_path: &OsStr) -> bool {
-    unimplemented!()
-}
-
-// @TODO Shift this method out of this module
-fn is_proc_mem_file(_path: &OsStr) -> bool {
-    unimplemented!()
 }
 
 // DIFF NOTE: This does not take an extra param `trace_frame` as it can be

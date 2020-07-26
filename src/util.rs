@@ -1550,3 +1550,13 @@ pub fn should_dump_memory(event: &Event, time: FrameTime) -> bool {
             && event.event_type() == EventType::EvInstructionTrap)
         || flags.dump_at == Some(time)
 }
+
+pub fn is_proc_mem_file(filename_os: &OsStr) -> bool {
+    let filename = filename_os.as_bytes();
+    filename.starts_with(b"/proc/") && filename.ends_with(b"/mem")
+}
+
+pub fn is_proc_fd_dir(filename_os: &OsStr) -> bool {
+    let filename = filename_os.as_bytes();
+    filename.starts_with(b"/proc/") && (filename.ends_with(b"/fd") || filename.ends_with(b"/fd/"))
+}
