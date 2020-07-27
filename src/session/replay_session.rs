@@ -1608,7 +1608,7 @@ impl ReplaySession {
                     let mut states = constraints.stop_before_states.clone();
                     // This state may not be relevant if we don't have the correct tick
                     // count yet. But it doesn't hurt to push it on anyway.
-                    states.push(regs);
+                    states.push(regs.clone());
                     self.fast_forward_status.set(
                         self.fast_forward_status.get()
                             | fast_forward_through_instruction(

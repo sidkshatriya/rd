@@ -913,7 +913,7 @@ pub mod task_inner {
         /// Set the tracee's registers to `regs`. Lazy.
         pub fn set_regs(&mut self, regs: &Registers) {
             ed_assert!(self, self.is_stopped);
-            self.registers = *regs;
+            self.registers = regs.clone();
             self.registers_dirty = true;
         }
 

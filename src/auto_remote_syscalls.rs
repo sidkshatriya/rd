@@ -557,7 +557,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         }
 
         // Make a copy
-        let mut regs = self.initial_regs;
+        let mut regs = self.initial_regs.clone();
         regs.set_ip(self.initial_ip);
         regs.set_sp(self.initial_sp);
         // Restore stomped registers.
@@ -572,7 +572,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
     /// Returns -ESRCH if the process dies or has died.
     pub fn syscall(&mut self, syscallno: i32, args: &[usize]) -> isize {
         // Make a copy
-        let mut callregs = self.initial_regs;
+        let mut callregs = self.initial_regs.clone();
         debug_assert!(args.len() <= 6);
         for (i, arg) in args.iter().enumerate() {
             // Syscall argument are indexed from 1 onwards and not 0.

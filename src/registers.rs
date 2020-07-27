@@ -77,7 +77,7 @@ pub const X86_DF_FLAG: usize = 1 << 10;
 pub const X86_RF_FLAG: usize = 1 << 16;
 pub const X86_ID_FLAG: usize = 1 << 21;
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub enum Registers {
     X64(x64::user_regs_struct),
     X86(x86::user_regs_struct),

@@ -1179,7 +1179,7 @@ pub mod address_space {
                 !(t.regs_ref().arg3() & PROT_GROWSUP as usize == PROT_GROWSUP as usize)
             );
             if t.regs_ref().arg3() & PROT_GROWSDOWN as usize == PROT_GROWSDOWN as usize {
-                let mut r: Registers = *t.regs_ref();
+                let mut r: Registers = t.regs_ref().clone();
                 let maybe_mapping = self.mapping_of(r.arg1().into());
                 if r.arg1() == floor_page_size(r.arg1()) && maybe_mapping.is_some() {
                     let km_flags = maybe_mapping.as_ref().unwrap().map.flags();
