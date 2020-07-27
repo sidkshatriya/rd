@@ -142,6 +142,7 @@ pub mod task_inner {
             signal::siginfo_t,
         },
         cpuid_bug_detector::CPUIDBugDetector,
+        extra_registers::{ExtraRegisters, Format},
         fd_table::{FdTable, FdTableRef, FdTableRefMut, FdTableSharedPtr},
         file_monitor::{
             magic_save_data_monitor::MagicSaveDataMonitor,
@@ -173,13 +174,7 @@ pub mod task_inner {
                 WatchType,
             },
             session_inner::session_inner::SessionInner,
-            task::{
-                extra_registers::{ExtraRegisters, Format},
-                task_common::set_thread_area_core,
-                Task,
-                TaskSharedPtr,
-                TaskSharedWeakPtr,
-            },
+            task::{task_common::set_thread_area_core, Task, TaskSharedPtr, TaskSharedWeakPtr},
             Session,
             SessionSharedPtr,
             SessionSharedWeakPtr,

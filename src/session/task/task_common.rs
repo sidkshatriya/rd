@@ -11,7 +11,6 @@
 //!     in task_inner.rs
 //! (c) Some misc methods that did not fit elsewhere...
 
-use super::extra_registers::{ExtraRegisters, Format};
 use crate::{
     arch::Architecture,
     auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem},
@@ -40,6 +39,7 @@ use crate::{
         signal::POLL_IN,
     },
     core::type_has_no_holes,
+    extra_registers::{ExtraRegisters, Format},
     fast_forward::at_x86_string_instruction,
     file_monitor,
     kernel_abi::{

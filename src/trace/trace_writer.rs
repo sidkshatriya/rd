@@ -1,4 +1,4 @@
-use crate::session::task::extra_registers::ExtraRegisters;
+use crate::extra_registers::ExtraRegisters;
 
 use crate::{
     bindings::signal::siginfo_t,

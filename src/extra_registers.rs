@@ -78,9 +78,9 @@ pub enum Format {
 
 #[derive(Clone)]
 pub struct ExtraRegisters {
-    pub(super) format_: Format,
-    pub(super) arch_: SupportedArch,
-    pub(super) data_: Vec<u8>,
+    pub(crate) format_: Format,
+    pub(crate) arch_: SupportedArch,
+    pub(crate) data_: Vec<u8>,
 }
 
 impl Default for ExtraRegisters {

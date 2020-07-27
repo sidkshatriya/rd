@@ -11,16 +11,13 @@ use crate::{
         SyscallState,
         SyscallbufFlushEventData,
     },
+    extra_registers::{ExtraRegisters, Format},
     kernel_abi::{common::preload_interface::mprotect_record, SupportedArch, RD_NATIVE_ARCH},
     log::LogLevel::{LogDebug, LogError},
     perf_counters::TicksSemantics,
     registers::Registers,
     remote_ptr::{RemotePtr, Void},
-    session::{
-        address_space::kernel_mapping::KernelMapping,
-        record_session::TraceUuid,
-        task::extra_registers::{ExtraRegisters, Format},
-    },
+    session::{address_space::kernel_mapping::KernelMapping, record_session::TraceUuid},
     trace::{
         compressed_reader::{CompressedReader, CompressedReaderState},
         trace_frame::{FrameTime, TraceFrame},

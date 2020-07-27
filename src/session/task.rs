@@ -44,7 +44,6 @@ use std::{
 };
 use task_inner::TrapReasons;
 
-pub mod extra_registers;
 pub mod record_task;
 pub mod replay_task;
 pub mod task_common;

@@ -1,7 +1,7 @@
 use crate::{
     event::Event,
+    extra_registers::{ExtraRegisters, Format},
     registers::Registers,
-    session::task::extra_registers::{ExtraRegisters, Format},
     ticks::Ticks,
 };
 use libc::pid_t;
