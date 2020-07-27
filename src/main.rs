@@ -74,6 +74,7 @@ use crate::{
     perf_counters::init_pmu,
     util::raise_resource_limits,
 };
+use commands::replay_command::ReplayCommand;
 use nix::sys::utsname::uname;
 use std::io;
 use structopt::StructOpt;
@@ -115,6 +116,9 @@ fn main() -> io::Result<()> {
         }
         RdSubCommand::ReRun { .. } => {
             ReRunCommand::new(&options).run()?;
+        }
+        RdSubCommand::Replay { .. } => {
+            ReplayCommand::new(&options).run()?;
         }
         RdSubCommand::TraceInfo { .. } => {
             TraceInfoCommand::new(&options).run()?;
