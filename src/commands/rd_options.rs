@@ -3,6 +3,7 @@ use crate::{
     flags::{Checksum, DumpOn},
     trace::trace_frame::FrameTime,
 };
+use libc::pid_t;
 use std::{
     error::Error,
     ffi::{OsStr, OsString},
@@ -21,28 +22,28 @@ use structopt::{clap, clap::AppSettings, StructOpt};
 #[structopt(global_settings =
 &[AppSettings::AllowNegativeNumbers, AppSettings::UnifiedHelpMessage])]
 pub struct RdOptions {
-    #[structopt(long, help = "disable use of CPUID faulting.")]
+    #[structopt(long, help = "Disable use of CPUID faulting.")]
     pub disable_cpuid_faulting: bool,
 
     #[structopt(
         long = "disable-ptrace-exit_events",
-        help = "disable use of PTRACE_EVENT_EXIT"
+        help = "Disable use of PTRACE_EVENT_EXIT"
     )]
     pub disable_ptrace_exit_events: bool,
 
-    /// specify the paths that rd should use to find files such as rd_page_*.  These files
+    /// Specify the paths that rd should use to find files such as rr_page_*.  These files
     /// should be located in `<resource-path>/bin`, `<resource-path>/lib[64]`, and
     /// `<resource-path>/share` as appropriate.
     #[structopt(parse(try_from_os_str = parse_resource_path), long)]
     pub resource_path: Option<PathBuf>,
 
-    /// force rd to assume it's running on a CPU with microarch <microarch> even if runtime
+    /// Force rd to assume it's running on a CPU with microarch <microarch> even if runtime
     /// detection says otherwise. <microarch> should be a string like 'Ivy Bridge'. Note that rd
     /// will not work with Intel Merom or Penryn microarchitectures.
     #[structopt(short = "A", long)]
     pub microarch: Option<String>,
 
-    /// force rd to do some things that don't seem like good ideas, for example launching
+    /// Force rd to do some things that don't seem like good ideas, for example launching
     /// an interactive emergency debugger if stderr isn't a tty.
     #[structopt(short = "F", long)]
     pub force_things: bool,
@@ -50,21 +51,21 @@ pub struct RdOptions {
     #[structopt(
         short = "K",
         long,
-        help = "verify that cached task mmaps match /proc/maps."
+        help = "Verify that cached task mmaps match /proc/maps."
     )]
     pub check_cached_mmaps: bool,
 
     #[structopt(
         short = "E",
         long,
-        help = "any warning or error that is printed is treated as fatal."
+        help = "Any warning or error that is printed is treated as fatal."
     )]
     pub fatal_errors: bool,
 
     #[structopt(
         short = "M",
         long,
-        help = "mark stdio writes with `[rr <pid> <ev>]` where <ev> is the global trace time at \
+        help = "Mark stdio writes with `[rd <pid> <ev>]` where <ev> is the global trace time at \
         which the write occurs and <pid> is the pid of the process it occurs in."
     )]
     pub mark_stdio: bool,
@@ -72,17 +73,17 @@ pub struct RdOptions {
     #[structopt(
         short = "S",
         long,
-        help = "suppress warnings about issues in the environment that rd has no control over."
+        help = "Suppress warnings about issues in the environment that rd has no control over."
     )]
     pub suppress_environment_warnings: bool,
 
-    #[structopt(short = "T", long, help = "dump memory at global time point <time>.")]
+    #[structopt(short = "T", long, help = "Dump memory at global time point <time>.")]
     pub dump_at: Option<FrameTime>,
 
     #[structopt(
     short = "D",
     long,
-    help = "where <dump_on> := `ALL` | `RDTSC` | <syscall-no> | -<signal number> \n\n@TODO more details",
+    help = "Where <dump_on> := `ALL` | `RDTSC` | <syscall-no> | -<signal number> \n\n@TODO more details",
     parse(try_from_str = parse_dump_on)
     )]
     pub dump_on: Option<DumpOn>,
@@ -91,8 +92,8 @@ pub struct RdOptions {
     short = "C",
     long,
     parse(try_from_str = parse_checksum),
-    help = "where <checksum> := `on-syscalls` | `on-all-events` | <from-time>\n\n\
-                compute and store (during recording) or read and verify (during replay) checksums \
+    help = "Where <checksum> := `on-syscalls` | `on-all-events` | <from-time>\n\n\
+                Compute and store (during recording) or read and verify (during replay) checksums \
                 of each of a tracee's memory mappings either at the end of all syscalls (`on-syscalls`), \
                 at all events (`on-all-events`), or starting from a global timepoint <from-time> \
                 (which is a positive integer).",
@@ -168,43 +169,126 @@ pub enum RdSubCommand {
     #[structopt(name = "cpufeatures")]
     CpuFeatures,
 
-    /// dump data from the recorded trace
+    /// Dump data from the recorded trace
     #[structopt(name = "dump")]
     Dump {
-        #[structopt(short = "b", long, help = "dump syscallbuf events")]
+        /// Dump syscallbuf events
+        #[structopt(short = "b", long)]
         syscallbuf: bool,
 
-        #[structopt(short = "e", long, help = "dump task events")]
+        /// Dump task events
+        #[structopt(short = "e", long)]
         task_events: bool,
 
-        #[structopt(short = "m", long, help = "dump recorded data metadata")]
+        /// Dump recorded data metadata
+        #[structopt(short = "m", long)]
         recorded_metadata: bool,
 
-        #[structopt(short = "p", long, help = "dump mmap data")]
+        /// Dump mmap data
+        #[structopt(short = "p", long)]
         mmaps: bool,
 
-        /// dump trace frames in a more easily machine-parseable
-        /// format instead of the default human-readable format"
+        /// Dump trace frames in a more easily machine-parseable
+        /// format instead of the default human-readable format
         #[structopt(short = "r", long = "raw")]
         raw_dump: bool,
 
-        #[structopt(short = "s", long, help = "dump statistics about the trace")]
+        /// Dump statistics about the trace
+        #[structopt(short = "s")]
         statistics: bool,
 
-        #[structopt(
-            short = "t",
-            long = "tid",
-            help = "dump events only for the specified tid"
-        )]
+        /// Dump events only for the specified tid
+        #[structopt(short = "t", long = "tid")]
         only_tid: Option<libc::pid_t>,
 
-        /// which directory is the trace data in? If omitted the latest trace dir is used
+        /// Which directory is the trace data in? If omitted the latest trace dir is used
         trace_dir: Option<PathBuf>,
 
-        /// event specs can be either an event number like `127`, or a range
-        /// like `1000-5000`. By default, all events are dumped."
+        /// Event specs can be either an event number like `127`, or a range
+        /// like `1000-5000`. By default, all events are dumped
         #[structopt(parse(try_from_str = parse_range))]
         event_spec: Option<(FrameTime, Option<FrameTime>)>,
+    },
+
+    /// Replay a previously recorded trace.
+    #[structopt(name = "replay")]
+    Replay {
+        /// Replay without debugger server
+        #[structopt(short = "a", long = "autopilot")]
+        autopilot: bool,
+
+        /// Where <onfork> := <pid>. Start a debug server when <pid> has been fork()-end,
+        /// AND target event has been reached
+        #[structopt(short = "f", long = "onfork")]
+        onfork: Option<pid_t>,
+
+        /// Where <goto-event> := <event-num>. Start a debug server on reaching <event-num>
+        /// in the trace.  See -M in the general options
+        #[structopt(short = "g", long = "goto")]
+        goto_event: Option<FrameTime>,
+
+        /// Pass an option to the debugger
+        #[structopt(short = "o", long = "debugger-option")]
+        debugger_option: Option<String>,
+
+        /// Where <onprocess> := <pid> | <command> . Start a debug server when <pid> or
+        /// <command> has been exec()d, AND the target event has been reached
+        #[structopt(short = "p", long = "onprocess")]
+        onprocess: Option<String>,
+
+        /// This is passed directly to gdb. It is here for convenience to support 'gdb --fullname'
+        /// as suggested by GNU Emacs"
+        #[structopt(long = "fullname")]
+        fullname: Option<String>,
+
+        /// This is passed directly to gdb. It is here for convenience to support 'gdb -i=mi'
+        /// as suggested by GNU Emacs
+        #[structopt(short = "i", long = "interpreter")]
+        interpreter: Option<String>,
+
+        /// Use <debugger-file> as the debugger command
+        #[structopt(long = "debugger")]
+        debugger_file: Option<PathBuf>,
+
+        /// Don't replay writes to stdout/stderr
+        #[structopt(short = "q", long = "no-redirect-output")]
+        no_redirect_output: bool,
+
+        /// Listen address for the debug server. Default listen address is set to localhost
+        #[structopt(short = "h", long = "dbghost")]
+        dbghost: Option<String>,
+
+        /// Only start a debug server on <dbgport>, don't automatically launch the debugger
+        /// client; set <dbgport> to 0 to automatically probe a port
+        #[structopt(short = "s", long = "dbgport")]
+        dbgport: Option<u16>,
+
+        /// Keep listening after detaching when using --dbgport (-s) mode
+        #[structopt(short = "k", long = "keep-listening")]
+        keep_listening: bool,
+
+        /// Singlestep instructions and dump register states when replaying towards <trace-event> or
+        /// later
+        #[structopt(short = "t", long = "trace")]
+        trace_event: Option<FrameTime>,
+
+        /// Allow replay to run on any CPU. Default is to run on the CPU stored in the trace.
+        /// Note that this may cause a diverge from the recording in some cases.
+        #[structopt(short = "u", long = "cpu-unbound")]
+        cpu_unbound: bool,
+
+        /// Execute gdb commands from <gdb-x-file>
+        #[structopt(short = "x", long = "gdb-x")]
+        gdb_x_file: Option<PathBuf>,
+
+        /// Display brief stats every N steps (eg 10000)
+        #[structopt(long = "stats")]
+        stats: Option<u32>,
+
+        /// Which directory is the trace data in? If omitted the latest trace dir is used
+        trace_dir: Option<PathBuf>,
+        // @TODO There are extra debugger options also passed after a `--`
+        // Revisit.
     },
 
     /// 'rerun' is intended to be a more powerful form of `rd replay -a`. It does
@@ -213,50 +297,52 @@ pub enum RdSubCommand {
     /// of trace events, dumping selected register values after each step.
     #[structopt(name = "rerun")]
     ReRun {
-        #[structopt(short = "s", long, help = "start tracing at <trace-start>")]
+        #[structopt(short = "s", long, help = "Start tracing at <trace-start>")]
         trace_start: Option<FrameTime>,
 
-        #[structopt(short = "e", long, help = "end tracing at <trace-end>")]
+        #[structopt(short = "e", long, help = "End tracing at <trace-end>")]
         trace_end: Option<FrameTime>,
 
-        #[structopt(short = "r", long = "raw", help = "dump registers in raw format")]
+        #[structopt(short = "r", long = "raw", help = "Dump registers in raw format")]
         raw: bool,
 
-        /// allow replay to run on any CPU. Default is to run on the CPU stored in the trace.
-        /// Note that this may diverge from the recording in some cases.
+        /// Allow replay to run on any CPU. Default is to run on the CPU stored in the trace.
+        /// Note that this may cause a diverge from the recording in some cases
         #[structopt(short = "u", long)]
         cpu_unbound: bool,
 
-        /// when starting tracing, push sentinel return address and jump to <function-addr>
+        /// When starting tracing, push sentinel return address and jump to <function-addr>
         /// to fake call
         #[structopt(short = "f", long = "function")]
         function_addr: Option<usize>,
 
-        /// <singlestep-regs> is a comma-separated sequence of `event`, `icount'`, `ip`, `flags`,
+        /// Where <singlestep-regs> is a comma-separated sequence of `event`, `icount'`, `ip`, `flags`,
         /// `gp_x16`, `xmm_x16`, `ymm_x16`. For the `x16` cases, we always output 16,
-        ///  values, the latter 8 of which are zero for x86-32. GP registers are in
-        ///  architectural order (AX,CX,DX,BX,SP,BP,SI,DI,R8-R15). All data is output
-        ///  in little-endian binary format; records are separated by `\n`. String
-        ///  instruction repetitions are treated as a single instruction if not
-        ///  interrupted. A 'singlestep' includes events such as system-call-exit
-        ///  where tracee state changes without any user-level instructions actually
-        ///  being executed.
+        /// values, the latter 8 of which are zero for x86-32. GP registers are in
+        /// architectural order (AX,CX,DX,BX,SP,BP,SI,DI,R8-R15). All data is output
+        /// in little-endian binary format; records are separated by `\n`. String
+        /// instruction repetitions are treated as a single instruction if not
+        /// interrupted. A 'singlestep' includes events such as system-call-exit
+        /// where tracee state changes without any user-level instructions actually
+        /// being executed
         #[structopt(long = "singlestep", parse(try_from_str = crate::commands::rerun_command::parse_regs))]
         singlestep_regs: Option<TraceFields>,
 
-        /// which directory is the trace data in? If omitted the latest trace dir is used
+        /// Which directory is the trace data in? If omitted the latest trace dir is used
         trace_dir: Option<PathBuf>,
     },
+
     /// Dump trace header in JSON format.
     #[structopt(name = "traceinfo")]
     TraceInfo {
-        /// which directory is the trace data in? If omitted the latest trace dir is used
+        /// Which directory is the trace data in? If omitted the latest trace dir is used
         trace_dir: Option<PathBuf>,
     },
+
     /// Dump information on the processes encountered during recording.
     #[structopt(name = "ps")]
     Ps {
-        /// which directory is the trace data in? If omitted the latest trace dir is used
+        /// Which directory is the trace data in? If omitted the latest trace dir is used
         trace_dir: Option<PathBuf>,
     },
 }

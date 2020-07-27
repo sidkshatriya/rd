@@ -355,6 +355,7 @@ impl ReRunCommand {
             _ => panic!("Unexpected RdSubCommand variant. Not a ReRun variant!"),
         }
     }
+
     fn session_flags(&self) -> replay_session::Flags {
         replay_session::Flags {
             redirect_stdio: false,
@@ -362,6 +363,7 @@ impl ReRunCommand {
             cpu_unbound: self.cpu_unbound,
         }
     }
+
     // DIFF NOTE: In rr a result code e.g. 0 is return. We simply return Ok(()) if there is no error.
     fn rerun(&self) -> io::Result<()> {
         let session: SessionSharedPtr =
@@ -521,6 +523,7 @@ impl ReRunCommand {
             }
         }
     }
+
     fn write_value(&self, name: &str, value: &[u8], out: &mut dyn Write) -> io::Result<()> {
         if self.raw_dump {
             out.write(value)?;
