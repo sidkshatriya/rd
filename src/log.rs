@@ -77,8 +77,8 @@ lazy_static! {
 
         let (default_level, level_map) = match env::var("RD_LOG") {
             Ok(rd_log) => init_log_levels(&rd_log),
-            // Ignore any errors. @TODO change behavior?
-            Err(_) => (LogWarn, HashMap::new())
+            // Ignore Err(_). @TODO change behavior?
+            Err(_) => (LogError, HashMap::new())
         };
 
         Mutex::new(LogGlobals {

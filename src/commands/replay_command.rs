@@ -4,6 +4,7 @@ use crate::{
     bindings::kernel::{gettimeofday, timeval},
     commands::RdCommand,
     flags::Flags,
+    gdb_server::gdb_server,
     log::LogLevel::LogInfo,
     session::{
         replay_session,
@@ -165,7 +166,7 @@ impl ReplayCommand {
                     }
                 }
 
-                flags.redirect = no_redirect_output;
+                flags.redirect = !no_redirect_output;
 
                 if dbghost.is_some() {
                     flags.dbg_host = dbghost.unwrap();
@@ -289,7 +290,34 @@ impl ReplayCommand {
 
     // DIFF NOTE: In rr a result code e.g. 0 is return. We simply return Ok(()) if there is no error.
     fn replay(&self) -> io::Result<()> {
-        unimplemented!()
+        let mut target = gdb_server::Target::default();
+        match self.process_created_how {
+            CreatedHow::CreatedExec => {
+                target.pid = self.target_process;
+                target.require_exec = true;
+            }
+            CreatedHow::CreatedFork => {
+                target.pid = self.target_process;
+                target.require_exec = false;
+            }
+            CreatedHow::CreatedNone => (),
+        }
+        target.event = self.goto_event;
+
+        // If we're not going to autolaunch the debugger, don't go
+        // through the rigamarole to set that up.  All it does is
+        // complicate the process tree and confuse users.
+        if self.dont_launch_debugger {
+            if target.event == FrameTime::MAX {
+                self.serve_replay_no_debugger(&mut stderr())?;
+            } else {
+                unimplemented!();
+            }
+
+            // @TODO
+        }
+
+        Ok(())
     }
 }
 

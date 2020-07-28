@@ -707,7 +707,7 @@ fn check_working_counters() -> bool {
     }
 
     let only_one_counter = events2 == 0;
-    log!(LogWarn, "only_one_counter={}", only_one_counter);
+    log!(LogDebug, "only_one_counter={}", only_one_counter);
     let cpuid = CpuId::new();
 
     if only_one_counter
