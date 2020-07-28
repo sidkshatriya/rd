@@ -1,16 +1,23 @@
 use super::rd_options::{PidOrCommand, RdOptions, RdSubCommand};
 use crate::{
     assert_prerequisites,
+    bindings::kernel::{gettimeofday, timeval},
     commands::RdCommand,
     flags::Flags,
-    session::replay_session,
+    log::LogLevel::LogInfo,
+    session::{
+        replay_session,
+        session_inner::{session_inner::Statistics, RunCommand},
+        SessionSharedPtr,
+    },
     trace::trace_frame::FrameTime,
     util::running_under_rd,
 };
 use io::stderr;
 use libc::pid_t;
 use nix::unistd::{getpid, getppid};
-use std::{ffi::OsString, io, io::Write, path::PathBuf};
+use replay_session::{ReplaySession, ReplayStatus};
+use std::{ffi::OsString, io, io::Write, path::PathBuf, ptr};
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 enum CreatedHow {
@@ -212,6 +219,74 @@ impl ReplayCommand {
         }
     }
 
+    fn serve_replay_no_debugger(&self, out: &mut dyn Write) -> io::Result<()> {
+        let session: SessionSharedPtr =
+            ReplaySession::create(self.trace_dir.as_ref(), self.session_flags());
+        let replay_session = session.as_replay().unwrap();
+        let mut step_count: u32 = 0;
+        let mut last_dump_time = timeval::default();
+        let mut last_dump_rectime: f64 = 0.0;
+        let mut last_stats = Statistics::default();
+        unsafe { gettimeofday(&raw mut last_dump_time, ptr::null_mut()) };
+
+        loop {
+            let mut cmd = RunCommand::RunContinue;
+            if self.singlestep_to_event > 0
+                && replay_session.trace_reader().time() >= self.singlestep_to_event
+            {
+                cmd = RunCommand::RunSinglestep;
+                write!(out, "Stepping from: ")?;
+                let t = replay_session.current_task().unwrap();
+                t.borrow().regs_ref().write_register_file_compact(out)?;
+                write!(out, " ")?;
+                t.borrow_mut()
+                    .extra_regs_ref()
+                    .write_register_file_compact(out)?;
+                write!(out, " ticks:{}", t.borrow().tick_count())?;
+            }
+
+            let before_time: FrameTime = replay_session.trace_reader().time();
+            let result = replay_session.replay_step(cmd);
+            let after_time: FrameTime = replay_session.trace_reader().time();
+            debug_assert!(after_time >= before_time && after_time <= before_time + 1);
+            if last_dump_rectime == 0.0 {
+                last_dump_rectime = replay_session.trace_reader().recording_time();
+            }
+            step_count += 1;
+            if self.dump_interval.is_some() && step_count % self.dump_interval.unwrap() == 0 {
+                let mut now = timeval::default();
+                unsafe { gettimeofday(&raw mut now, ptr::null_mut()) };
+                let rectime: f64 = replay_session.trace_reader().recording_time();
+                let elapsed_usec: u64 = to_microseconds(&now) - to_microseconds(&last_dump_time);
+                let stats: Statistics = replay_session.statistics();
+                write!(out,
+          "[ReplayStatistics] ticks {} syscalls {} bytes_written {} microseconds {} %%realtime {:.0}%%\n",
+          stats.ticks_processed - last_stats.ticks_processed,
+          stats.syscalls_performed - last_stats.syscalls_performed,
+          stats.bytes_written - last_stats.bytes_written,
+          elapsed_usec,
+          100.0 * ((rectime - last_dump_rectime) * 1.0e6) / (elapsed_usec as f64)
+        )?;
+                last_dump_time = now;
+                last_stats = stats;
+                last_dump_rectime = rectime;
+            }
+
+            if result.status == ReplayStatus::ReplayExited {
+                break;
+            }
+            debug_assert!(result.status == ReplayStatus::ReplayContinue);
+            debug_assert!(result.break_status.watchpoints_hit.is_empty());
+            debug_assert!(!result.break_status.breakpoint_hit);
+            debug_assert!(
+                cmd == RunCommand::RunSinglestep || !result.break_status.singlestep_complete
+            );
+        }
+
+        log!(LogInfo, "Replayer successfully finished");
+        Ok(())
+    }
+
     // DIFF NOTE: In rr a result code e.g. 0 is return. We simply return Ok(()) if there is no error.
     fn replay(&self) -> io::Result<()> {
         unimplemented!()
@@ -268,4 +343,8 @@ impl RdCommand for ReplayCommand {
 
         self.replay()
     }
+}
+
+fn to_microseconds(tv: &timeval) -> u64 {
+    (tv.tv_sec as u64) * 1000000 + (tv.tv_usec as u64)
 }
