@@ -3173,7 +3173,7 @@ fn normalized_file_names_equal(
     }
     // We don't track when a file gets deleted, so it's possible for the kernel
     // to have " (deleted)" when we don't.
-    return strip_deleted(km1.fsname()) == strip_deleted(km2.fsname());
+    strip_deleted(km1.fsname()) == strip_deleted(km2.fsname())
 }
 
 fn strip_deleted(s: &OsStr) -> &OsStr {
@@ -3181,8 +3181,7 @@ fn strip_deleted(s: &OsStr) -> &OsStr {
     match maybe_loc {
         Some(loc) => OsStr::from_bytes(&s.as_bytes()[0..loc]),
         None => s,
-    };
-    s
+    }
 }
 
 fn remove_range(ranges: &mut BTreeSet<MemoryRange>, range: MemoryRange) {
@@ -3340,8 +3339,8 @@ fn assert_segments_match(t: &dyn Task, m: &KernelMapping, km: &KernelMapping) {
     } else if (m.flags() ^ km.flags()) & KernelMapping::CHECKABLE_FLAGS_MASK != MapFlags::empty() {
         err = "flags differ";
     } else if !normalized_file_names_equal(m, km, HandleHeap::TreatHeapAsAnonymous)
-        && !(km.is_heap() && m.fsname() == "")
-        && !(m.is_heap() && km.fsname() == "")
+        && !(km.is_heap() && m.fsname().is_empty())
+        && !(m.is_heap() && km.fsname().is_empty())
         && !km.is_vdso()
     {
         // Due to emulated exec, the kernel may identify any of our anonymous maps
@@ -3360,8 +3359,9 @@ fn assert_segments_match(t: &dyn Task, m: &KernelMapping, km: &KernelMapping) {
     if err.len() > 0 {
         log!(
             LogError,
-            "cached mmap:\n{}\n /proc/{}/maps:\n",
+            "cached mmap:\n{}\n/proc/{}/maps:\n{}\n",
             t.vm().dump(),
+            t.tid,
             AddressSpace::dump_process_maps(t)
         );
         ed_assert!(t, false, "\nCached mapping {} should be {}; {}", m, km, err);
