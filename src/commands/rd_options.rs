@@ -8,7 +8,7 @@ use std::{
     error::Error,
     ffi::{OsStr, OsString},
     num::ParseIntError,
-    os::unix::ffi::OsStringExt,
+    os::unix::ffi::{OsStrExt, OsStringExt},
     path::PathBuf,
 };
 use structopt::{clap, clap::AppSettings, StructOpt};
@@ -219,27 +219,27 @@ pub enum RdSubCommand {
 
         /// Where <onfork> := <pid>. Start a debug server when <pid> has been fork()-end,
         /// AND target event has been reached
-        #[structopt(short = "f", long = "onfork")]
+        #[structopt(short = "f", long = "onfork", parse(try_from_str = parse_pid))]
         onfork: Option<pid_t>,
 
         /// Where <goto-event> := <event-num>. Start a debug server on reaching <event-num>
         /// in the trace.  See -M in the general options
-        #[structopt(short = "g", long = "goto")]
+        #[structopt(short = "g", long = "goto", parse(try_from_str = parse_goto_event))]
         goto_event: Option<FrameTime>,
 
         /// Pass an option to the debugger
         #[structopt(short = "o", long = "debugger-option")]
-        debugger_option: Option<String>,
+        debugger_option: Option<OsString>,
 
         /// Where <onprocess> := <pid> | <command> . Start a debug server when <pid> or
         /// <command> has been exec()d, AND the target event has been reached
-        #[structopt(short = "p", long = "onprocess")]
-        onprocess: Option<String>,
+        #[structopt(short = "p", long = "onprocess", parse(try_from_os_str = parse_onprocess))]
+        onprocess: Option<PidOrCommand>,
 
         /// This is passed directly to gdb. It is here for convenience to support 'gdb --fullname'
         /// as suggested by GNU Emacs"
         #[structopt(long = "fullname")]
-        fullname: Option<String>,
+        fullname: bool,
 
         /// This is passed directly to gdb. It is here for convenience to support 'gdb -i=mi'
         /// as suggested by GNU Emacs
@@ -247,7 +247,7 @@ pub enum RdSubCommand {
         interpreter: Option<String>,
 
         /// Use <debugger-file> as the debugger command
-        #[structopt(long = "debugger")]
+        #[structopt(short = "d", long = "debugger")]
         debugger_file: Option<PathBuf>,
 
         /// Don't replay writes to stdout/stderr
@@ -267,6 +267,11 @@ pub enum RdSubCommand {
         #[structopt(short = "k", long = "keep-listening")]
         keep_listening: bool,
 
+        /// When true make all private mappings shared with the tracee by default
+        /// to test the corresponding code.
+        #[structopt(long = "share-private-mappings")]
+        share_private_mappings: bool,
+
         /// Singlestep instructions and dump register states when replaying towards <trace-event> or
         /// later
         #[structopt(short = "t", long = "trace")]
@@ -279,10 +284,10 @@ pub enum RdSubCommand {
 
         /// Execute gdb commands from <gdb-x-file>
         #[structopt(short = "x", long = "gdb-x")]
-        gdb_x_file: Option<PathBuf>,
+        gdb_x_file: Option<OsString>,
 
         /// Display brief stats every N steps (eg 10000)
-        #[structopt(long = "stats")]
+        #[structopt(long = "stats", parse(try_from_str = parse_stats))]
         stats: Option<u32>,
 
         /// Which directory is the trace data in? If omitted the latest trace dir is used
@@ -355,4 +360,58 @@ fn parse_range(range_or_single: &str) -> Result<(FrameTime, Option<FrameTime>), 
         high = Some(args[1].parse::<FrameTime>()?);
     }
     Ok((low, high))
+}
+
+fn parse_pid(maybe_pid: &str) -> Result<pid_t, Box<dyn Error>> {
+    let pid = maybe_pid.trim().parse::<pid_t>()?;
+    if pid < 1 {
+        Err(Box::new(clap::Error::with_description(
+            "pid cannot be 0 or negative",
+            clap::ErrorKind::InvalidValue,
+        )))
+    } else {
+        Ok(pid)
+    }
+}
+
+fn parse_stats(maybe_stats: &str) -> Result<u32, Box<dyn Error>> {
+    let stats = maybe_stats.trim().parse::<u32>()?;
+    if stats == 0 {
+        Err(Box::new(clap::Error::with_description(
+            "Please provide a number greater than 0",
+            clap::ErrorKind::InvalidValue,
+        )))
+    } else {
+        Ok(stats)
+    }
+}
+
+fn parse_goto_event(maybe_goto_event: &str) -> Result<FrameTime, Box<dyn Error>> {
+    let goto_event = maybe_goto_event.trim().parse::<FrameTime>()?;
+    if goto_event == 0 {
+        Err(Box::new(clap::Error::with_description(
+            "Please provide a number greater than 0",
+            clap::ErrorKind::InvalidValue,
+        )))
+    } else {
+        Ok(goto_event)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum PidOrCommand {
+    Pid(pid_t),
+    Command(OsString),
+}
+
+fn parse_onprocess(pid_or_command: &OsStr) -> Result<PidOrCommand, OsString> {
+    let maybe_pid = String::from_utf8_lossy(pid_or_command.as_bytes());
+    if maybe_pid.chars().all(|c| c.is_ascii_digit()) {
+        match parse_pid(&maybe_pid) {
+            Ok(pid) => Ok(PidOrCommand::Pid(pid)),
+            Err(e) => Err(OsString::from(format!("{}", e))),
+        }
+    } else {
+        Ok(PidOrCommand::Command(pid_or_command.into()))
+    }
 }
