@@ -53,19 +53,19 @@ impl FileMonitor for StdioMonitor {
     fn did_write<'b, 'a: 'b>(&mut self, ranges: &[Range], l: &mut LazyOffset<'b, 'a>) {
         let session_rc = l.t.session();
 
-        let maybe_rs = session_rc.as_replay();
-        if maybe_rs.is_none() {
-            return;
-        }
-        let rs = maybe_rs.unwrap();
-        if rs.flags().redirect_stdio && rs.visible_execution() {
-            for r in ranges {
-                let mut buf: Vec<u8> = Vec::with_capacity(r.length);
-                buf.resize(r.length, 0);
-                l.t.read_bytes_helper(r.data, &mut buf, None);
-                let result = write(self.original_fd, &buf);
-                if result.is_err() || result.unwrap() != buf.len() {
-                    ed_assert!(l.t, false, "Couldn't write to {}", self.original_fd);
+        match session_rc.as_replay() {
+            None => return,
+            Some(rs) => {
+                if rs.flags().redirect_stdio && rs.visible_execution() {
+                    for r in ranges {
+                        let mut buf: Vec<u8> = Vec::with_capacity(r.length);
+                        buf.resize(r.length, 0);
+                        l.t.read_bytes_helper(r.data, &mut buf, None);
+                        let result = write(self.original_fd, &buf);
+                        if result.is_err() || result.unwrap() != buf.len() {
+                            ed_assert!(l.t, false, "Couldn't write to {}", self.original_fd);
+                        }
+                    }
                 }
             }
         }

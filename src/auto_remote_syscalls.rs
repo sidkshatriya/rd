@@ -276,16 +276,20 @@ impl<'a, 'b> Drop for AutoRestoreMem<'a, 'b> {
         let new_sp = self.task().regs_ref().sp() + self.len;
         ed_assert!(self.remote.task(), self.saved_sp == new_sp);
 
-        if self.addr.is_some() {
-            // XXX what should we do if this task was sigkilled but the address
-            // space is used by other live tasks?
-            self.remote.task_mut().write_bytes_helper(
-                self.addr.unwrap(),
-                &self.data,
-                None,
-                WriteFlags::empty(),
-            );
-        }
+        match self.addr {
+            Some(child_addr) => {
+                // XXX what should we do if this task was sigkilled but the address
+                // space is used by other live tasks?
+                self.remote.task_mut().write_bytes_helper(
+                    child_addr,
+                    &self.data,
+                    None,
+                    WriteFlags::empty(),
+                );
+            }
+            None => (),
+        };
+
         self.remote.initial_regs_mut().set_sp(new_sp);
         let initial_regs = self.remote.initial_regs_ref().clone();
         self.remote.task_mut().set_regs(&initial_regs);
@@ -344,7 +348,7 @@ impl<'a, 'b> AutoRestoreMem<'a, 'b> {
         self.addr
     }
 
-    fn init(&mut self, mem: Option<&[u8]>) {
+    fn init(&mut self, maybe_mem: Option<&[u8]>) {
         ed_assert!(
             self.remote.task(),
             self.remote.enable_mem_params() == EnableMemoryParams,
@@ -367,14 +371,17 @@ impl<'a, 'b> AutoRestoreMem<'a, 'b> {
         // @TODO what do we do if ok is false due to read_bytes_helper call above?
         // Adding a debug_assert!() for now.
         debug_assert!(ok);
-        if mem.is_some() {
-            self.remote.task_mut().write_bytes_helper(
-                self.addr.unwrap(),
-                mem.unwrap(),
-                Some(&mut ok),
-                WriteFlags::empty(),
-            );
-        }
+        match maybe_mem {
+            Some(mem) => {
+                self.remote.task_mut().write_bytes_helper(
+                    self.addr.unwrap(),
+                    mem,
+                    Some(&mut ok),
+                    WriteFlags::empty(),
+                );
+            }
+            None => (),
+        };
         if !ok {
             self.addr = None;
         }
