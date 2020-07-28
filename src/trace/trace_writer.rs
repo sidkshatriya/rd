@@ -569,7 +569,7 @@ impl TraceWriter {
     /// Create a trace where the traces are bound to cpu `bind_to_cpu`. This
     /// data is recorded in the trace. If `bind_to_cpu` is `None` then the tracees
     /// were not bound.
-    /// The trace name is determined by `file_name` and _RD_TRACE_DIR (if set)
+    /// The trace name is determined by `file_name` and _RD_TRACE_DIR/_RR_TRACE_DIR (if set)
     /// or by setting -o=<OUTPUT_TRACE_DIR>.
     pub fn new(
         file_name: &OsStr,
