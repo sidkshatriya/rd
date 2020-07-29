@@ -31,7 +31,12 @@ use crate::{
     registers::{MismatchBehavior, Registers},
     remote_code_ptr::RemoteCodePtr,
     remote_ptr::RemotePtr,
-    replay_syscall::{rep_after_enter_syscall, rep_prepare_run_to_syscall, rep_process_syscall},
+    replay_syscall::{
+        rep_after_enter_syscall,
+        rep_prepare_run_to_syscall,
+        rep_process_syscall,
+        restore_mapped_region,
+    },
     scoped_fd::ScopedFd,
     session::{
         address_space::{
@@ -1948,8 +1953,15 @@ fn check_xsave_compatibility(trace_in: &TraceReader) {
     }
 }
 
-fn process_grow_map(_t: &ReplayTask) {
-    unimplemented!()
+fn process_grow_map(t: &mut ReplayTask) {
+    let mut data = MappedData::default();
+    let km = t
+        .trace_reader_mut()
+        .read_mapped_region(Some(&mut data), None, None, None, None)
+        .unwrap();
+    ed_assert!(t, km.size() > 0);
+    let mut remote = AutoRemoteSyscalls::new(t);
+    restore_mapped_region(&mut remote, &km, &data);
 }
 
 fn treat_signal_event_as_deterministic(ev: &SignalEventData) -> bool {

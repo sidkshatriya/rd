@@ -1283,7 +1283,7 @@ pub fn process_execve(t: &mut ReplayTask, step: &mut ReplayTraceStep) {
     unsafe { syscall(SYS_rdcall_reload_auxv as i64, t.tid) };
 }
 
-fn restore_mapped_region(
+pub fn restore_mapped_region(
     remote: &mut AutoRemoteSyscalls,
     km: &KernelMapping,
     data: &trace_stream::MappedData,
