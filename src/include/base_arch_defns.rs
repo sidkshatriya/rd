@@ -48,7 +48,7 @@ pub struct sockaddr {
     pub sa_family: unsigned_short,
     pub sa_data: [u8; 14],
 }
-//RR_VERIFY_TYPE(sockaddr);
+
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -56,7 +56,7 @@ pub struct sockaddr_un {
     pub sun_family: unsigned_short,
     pub sun_path: [u8; 108],
 }
-//RR_VERIFY_TYPE(sockaddr_un);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -64,7 +64,7 @@ pub struct timeval {
     pub tv_sec: __kernel_time_t,
     pub tv_usec: __kernel_suseconds_t,
 }
-//RR_VERIFY_TYPE(timeval);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -72,7 +72,7 @@ pub struct timespec {
     pub tv_sec: __kernel_time_t,
     pub tv_nsec: syscall_slong_t,
 }
-//RR_VERIFY_TYPE(timespec);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -81,7 +81,7 @@ pub struct pollfd {
     pub events: signed_short,
     pub revents: signed_short,
 }
-//RR_VERIFY_TYPE(pollfd);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -89,7 +89,7 @@ pub struct iovec {
     pub iov_base: ptr<u8>,
     pub iov_len: size_t,
 }
-//RR_VERIFY_TYPE(iovec);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -106,7 +106,7 @@ pub struct msghdr {
 
     pub msg_flags: signed_int,
 }
-//RR_VERIFY_TYPE(msghdr);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -115,7 +115,7 @@ pub struct cmsghdr {
     pub cmsg_level: int,
     pub cmsg_type: int,
 }
-//RR_VERIFY_TYPE(cmsghdr);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -123,7 +123,7 @@ pub struct mmsghdr {
     pub msg_hdr: msghdr,
     pub msg_len: unsigned_int,
 }
-//RR_VERIFY_TYPE(mmsghdr);
+
 
 #[repr(C)]
 pub union epoll_data {
@@ -153,7 +153,7 @@ pub struct epoll_event {
     pub events: u32,
     pub data: epoll_data,
 }
-//RR_VERIFY_TYPE(epoll_event);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -175,7 +175,7 @@ pub struct rusage {
     pub ru_nvcsw: signed_long,
     pub ru_nivcsw: signed_long,
 }
-//RR_VERIFY_TYPE(rusage);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -253,7 +253,7 @@ pub struct siginfo_t {
     pub si_code: signed_int,
     pub _sifields: siginfo_sifields,
 }
-//RR_VERIFY_TYPE_EXPLICIT(siginfo_t, ::siginfo_t);
+
 
 pub type cc_t = u8;
 pub type speed_t = unsigned_int;
@@ -272,7 +272,7 @@ pub struct termios {
     pub c_ispeed: speed_t,
     pub c_ospeed: speed_t,
 }
-//RR_VERIFY_TYPE(termios);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -284,7 +284,7 @@ pub struct termio {
     pub c_line: u8,
     pub c_cc: [u8; 8],
 }
-//RR_VERIFY_TYPE(termio);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -294,7 +294,7 @@ pub struct winsize {
     pub ws_xpixel: unsigned_short,
     pub ws_ypixel: unsigned_short,
 }
-//RR_VERIFY_TYPE(winsize);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -311,7 +311,7 @@ pub struct ipc64_perm {
     pub unused1: __kernel_ulong_t,
     pub unused2: __kernel_ulong_t,
 }
-//RR_VERIFY_TYPE(ipc64_perm);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -334,7 +334,7 @@ pub struct msqid64_ds {
     pub unused1: __kernel_ulong_t,
     pub unused2: __kernel_ulong_t,
 }
-//RR_VERIFY_TYPE(msqid64_ds);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -348,7 +348,7 @@ pub struct msginfo {
     pub msgtql: signed_int,
     pub msgseg: unsigned_short,
 }
-//RR_VERIFY_TYPE(msginfo);
+
 
 /// Don't align for the 64-bit values on 32-bit x86
 #[repr(C, packed)]
@@ -365,7 +365,7 @@ pub struct shmid64_ds {
     pub unused4: __kernel_ulong_t,
     pub unused5: __kernel_ulong_t,
 }
-//RR_VERIFY_TYPE(shmid64_ds);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -380,7 +380,7 @@ pub struct shminfo64 {
     pub unused3: __kernel_ulong_t,
     pub unused4: __kernel_ulong_t,
 }
-//RR_VERIFY_TYPE(shminfo64);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -393,7 +393,7 @@ pub struct shm_info {
     pub swap_attempts: __kernel_ulong_t,
     pub swap_successes: __kernel_ulong_t,
 }
-//RR_VERIFY_TYPE(shm_info);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -407,7 +407,7 @@ pub struct semid64_ds {
     pub __unused3: __kernel_ulong_t,
     pub __unused4: __kernel_ulong_t,
 }
-//RR_VERIFY_TYPE(semid64_ds);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -423,10 +423,10 @@ pub struct seminfo {
     pub semvmx: int,
     pub semaem: int,
 }
-//RR_VERIFY_TYPE(seminfo);
+
 
 // @TODO user_desc struct.
-//RR_VERIFY_TYPE(user_desc);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -434,7 +434,7 @@ pub struct __user_cap_header_struct {
     pub version: __u32,
     pub pid: int,
 }
-//RR_VERIFY_TYPE(__user_cap_header_struct);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -443,7 +443,7 @@ pub struct __user_cap_data_struct {
     pub permitted: __u32,
     pub inheritable: __u32,
 }
-//RR_VERIFY_TYPE(__user_cap_data_struct);
+
 
 // This structure uses fixed-size fields, but the padding rules
 // for 32-bit vs. 64-bit architectures dictate that it be
@@ -461,7 +461,7 @@ pub struct dqblk {
     pub dqb_itime: uint64_t,
     pub dqb_valid: uint32_t,
 }
-//RR_VERIFY_TYPE(dqblk);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -471,7 +471,7 @@ pub struct dqinfo {
     pub dqi_flags: uint32_t,
     pub dqi_valid: uint32_t,
 }
-//RR_VERIFY_TYPE(dqinfo);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -483,7 +483,7 @@ pub struct ifmap {
     pub dma: u8,
     pub port: u8,
 }
-//RR_VERIFY_TYPE(ifmap);
+
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -505,7 +505,7 @@ pub struct if_settings {
     pub ifs_ifsu: ifs_ifsu,
 }
 
-//RR_VERIFY_TYPE(if_settings);
+
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub union ifr_ifru {
@@ -536,7 +536,7 @@ pub struct ifreq {
     pub ifr_ifrn: ifr_ifrn,
     pub ifr_ifru: ifr_ifru,
 }
-//RR_VERIFY_TYPE(ifreq);
+
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -552,7 +552,7 @@ pub struct ifconf {
     pub __pad: [u8; STD_PAD],
     pub ifc_ifcu: ifc_ifcu,
 }
-//RR_VERIFY_TYPE(ifconf);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -562,7 +562,7 @@ pub struct iw_param {
     pub disabled: uint8_t,
     pub flags: uint16_t,
 }
-//RR_VERIFY_TYPE(iw_param);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -571,7 +571,7 @@ pub struct iw_point {
     pub length: uint16_t,
     pub flags: uint16_t,
 }
-//RR_VERIFY_TYPE(iw_point);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -581,7 +581,7 @@ pub struct iw_freq {
     pub i: uint8_t,
     pub flags: uint8_t,
 }
-//RR_VERIFY_TYPE(iw_freq);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -591,7 +591,7 @@ pub struct iw_quality {
     pub noise: uint8_t,
     pub updated: uint8_t,
 }
-//RR_VERIFY_TYPE(iw_quality);
+
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -615,7 +615,7 @@ pub union iwreq_data {
     pub param: iw_param,
     pub data: iw_point,
 }
-//RR_VERIFY_TYPE(iwreq_data);
+
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -623,7 +623,7 @@ pub struct iwreq {
     pub ifr_ifrn: ifr_ifrn,
     pub u: iwreq_data,
 }
-//RR_VERIFY_TYPE(iwreq);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -646,7 +646,7 @@ pub struct ethtool_cmd {
     pub lp_advertising: uint32_t,
     pub reserved: [uint32_t; 2],
 }
-//RR_VERIFY_TYPE(ethtool_cmd);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -658,7 +658,7 @@ pub struct _flock {
     pub l_len: off_t,
     pub l_pid: pid_t,
 }
-//RR_VERIFY_TYPE_EXPLICIT(struct ::flock, _flock);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -671,7 +671,7 @@ pub struct flock64 {
     pub l_len: uint64_t,
     pub l_pid: pid_t,
 }
-//RR_VERIFY_TYPE(flock64);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -679,7 +679,7 @@ pub struct f_owner_ex {
     pub type_: signed_int,
     pub pid: __kernel_pid_t,
 }
-//RR_VERIFY_TYPE(f_owner_ex);
+
 
 // Define various structures that package up syscall arguments.
 // The types of their members are part of the ABI, and defining
@@ -861,7 +861,7 @@ pub struct __sysctl_args {
     pub newlen: ptr<size_t>,
     pub __rd_unused: [unsigned_long; 4],
 }
-//RR_VERIFY_TYPE(__sysctl_args);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -876,7 +876,7 @@ pub struct kernel_sigset_t {
 pub struct sigset_t {
     pub __val: [unsigned_long; SIGSET_SIZE],
 }
-//RR_VERIFY_TYPE(sigset_t);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -902,7 +902,7 @@ pub struct tms {
     pub tms_cutime: clock_t,
     pub tms_cstime: clock_t,
 }
-//RR_VERIFY_TYPE(tms);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -910,7 +910,7 @@ pub struct rlimit {
     pub rlim_cur: rlim_t,
     pub rlim_max: rlim_t,
 }
-//RR_VERIFY_TYPE(rlimit);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -918,7 +918,7 @@ pub struct rlimit64 {
     pub rlim_cur: rlim64_t,
     pub rlim_max: rlim64_t,
 }
-//RR_VERIFY_TYPE(rlimit64);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -926,7 +926,7 @@ pub struct timezone {
     pub tz_minuteswest: int,
     pub tz_dsttime: int,
 }
-//RR_VERIFY_TYPE_EXPLICIT(struct ::timezone, timezone);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -950,7 +950,7 @@ pub struct statfs {
     pub f_flags: __statfs_word,
     pub f_spare: [__statfs_word; 4],
 }
-//RR_VERIFY_TYPE_EXPLICIT(struct ::statfs, statfs);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -968,7 +968,7 @@ pub struct statfs64 {
     pub f_flags: __statfs_word,
     pub f_spare: [__statfs_word; 4],
 }
-//RR_VERIFY_TYPE_EXPLICIT(struct ::statfs64, statfs64);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -976,7 +976,7 @@ pub struct itimerval {
     pub it_interval: timeval,
     pub it_value: timeval,
 }
-//RR_VERIFY_TYPE(itimerval);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -984,7 +984,7 @@ pub struct itimerspec {
     pub it_interval: timespec,
     pub it_value: timespec,
 }
-//RR_VERIFY_TYPE(itimerspec);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -996,7 +996,7 @@ pub struct sigaltstack {
 }
 
 pub type stack_t = sigaltstack;
-//RR_VERIFY_TYPE(stack_t);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -1017,7 +1017,7 @@ pub struct sysinfo {
     pub mem_unit: uint32_t,
     pub _f: [u8; SYSINFO_F_SIZE],
 }
-//RR_VERIFY_TYPE_EXPLICIT(struct pub ::sysinfo, sysinfo);
+
 
 pub const UTSNAME_LENGTH: usize = 65;
 
@@ -1031,14 +1031,14 @@ pub struct utsname {
     pub machine: [u8; UTSNAME_LENGTH],
     pub domainname: [u8; UTSNAME_LENGTH],
 }
-//RR_VERIFY_TYPE(utsname);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
 pub struct sched_param {
     pub __sched_priority: int,
 }
-//RR_VERIFY_TYPE(sched_param);
+
 
 pub const fn cmsg_data_offset() -> usize {
     cmsg_align(size_of::<cmsghdr>())
@@ -1067,7 +1067,7 @@ pub struct v4l2_timecode {
     pub hours: uint8_t,
     pub userbits: [uint8_t; 4],
 }
-//RR_VERIFY_TYPE(v4l2_timecode);
+
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -1096,7 +1096,7 @@ pub struct v4l2_buffer {
     pub reserved2: uint32_t,
     pub reserved: uint32_t,
 }
-//RR_VERIFY_TYPE(v4l2_buffer);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -1106,7 +1106,7 @@ pub struct sock_filter {
     pub jf: uint8_t,
     pub k: uint32_t,
 }
-//RR_VERIFY_TYPE(sock_filter);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -1115,14 +1115,14 @@ pub struct sock_fprog {
     pub _padding: [u8; STD_PAD],
     pub filter: ptr<sock_filter>,
 }
-//RR_VERIFY_TYPE(sock_fprog);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
 pub struct robust_list {
     pub next: ptr<robust_list>,
 }
-//RR_VERIFY_TYPE(robust_list);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -1131,7 +1131,7 @@ pub struct robust_list_head {
     pub futex_offset: signed_long,
     pub list_op_pending: ptr<robust_list>,
 }
-//RR_VERIFY_TYPE(robust_list_head);
+
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -1146,7 +1146,7 @@ pub struct snd_ctl_card_info {
     pub mixername: [u8; 80],
     pub components: [u8; 128],
 }
-//RR_VERIFY_TYPE(snd_ctl_card_info);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -1155,7 +1155,7 @@ pub struct usbdevfs_iso_packet_desc {
     pub actual_length: unsigned_int,
     pub status: unsigned_int,
 }
-//RR_VERIFY_TYPE(usbdevfs_iso_packet_desc);
+
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -1181,7 +1181,7 @@ pub struct usbdevfs_urb {
     pub usercontext: ptr<u8>,
     pub iso_frame_desc: [usbdevfs_iso_packet_desc; 0],
 }
-//RR_VERIFY_TYPE(usbdevfs_urb);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -1190,7 +1190,7 @@ pub struct usbdevfs_ioctl {
     pub ioctl_code: int,
     pub data: ptr<u8>,
 }
-//RR_VERIFY_TYPE(usbdevfs_ioctl);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -1203,7 +1203,7 @@ pub struct usbdevfs_ctrltransfer {
     pub timeout: uint32_t,
     pub data: ptr<u8>,
 }
-//RR_VERIFY_TYPE(usbdevfs_ctrltransfer);
+
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -1214,7 +1214,7 @@ pub struct dirent {
     //    pub d_type : uint8_t,
     pub d_name: [uint8_t; 256],
 }
-//RR_VERIFY_TYPE(dirent);
+
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -1225,7 +1225,7 @@ pub struct dirent64 {
     pub d_type: uint8_t,
     pub d_name: [uint8_t; 256],
 }
-//RR_VERIFY_TYPE(dirent64);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -1236,7 +1236,7 @@ pub struct mq_attr {
     pub mq_curmsgs: signed_long,
     pub __reserved: [signed_long; 4],
 }
-//RR_VERIFY_TYPE(mq_attr);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -1244,7 +1244,7 @@ pub struct xt_counters {
     pub pcnt: uint64_t,
     pub bcnt: uint64_t,
 }
-//RR_VERIFY_TYPE(xt_counters);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -1261,7 +1261,7 @@ pub struct ipt_replace {
 }
 // The corresponding header requires -fpermissive, which we don't pass. Skip
 // this check.
-//RR_VERIFY_TYPE(ipt_replace);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -1345,7 +1345,7 @@ pub struct ifbond {
     pub num_slaves: int32_t,
     pub miimon: int32_t,
 }
-//RR_VERIFY_TYPE(ifbond);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -1385,7 +1385,7 @@ pub struct timex {
     pub i_11: u32,
 }
 
-//RR_VERIFY_TYPE(timex);
+
 
 pub struct statx_timestamp {
     pub tv_sec: int64_t,
@@ -1393,7 +1393,7 @@ pub struct statx_timestamp {
     pub __reserved: int32_t,
 }
 // statx_timestamp not yet widely available in system headers
-//RR_VERIFY_TYPE(statx_timestamp);
+
 
 pub struct statx {
     pub stx_mask: uint32_t,
@@ -1419,7 +1419,7 @@ pub struct statx {
     pub __spare2: [uint64_t; 14],
 }
 // statx not yet widely available in system headers
-//RR_VERIFY_TYPE(statx);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -1447,7 +1447,7 @@ pub struct sg_io_hdr {
     pub duration: unsigned_int,
     pub info: unsigned_int,
 }
-//RR_VERIFY_TYPE(sg_io_hdr);
+
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
