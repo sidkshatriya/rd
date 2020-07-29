@@ -2743,7 +2743,7 @@ pub mod address_space {
                 .mem
                 .borrow_mut()
                 .insert(MemoryRangeKey(*new_m.map), new_m);
-            debug_assert!(result.is_some());
+            debug_assert!(result.is_none());
         }
 
         /// Erase `it` from `breakpoints` and restore any memory in
