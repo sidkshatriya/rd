@@ -2724,12 +2724,6 @@ pub mod address_space {
                 last_k = *last_kv.0;
             }
 
-            let result = self
-                .mem
-                .borrow_mut()
-                .insert(MemoryRangeKey(*new_m.map), new_m);
-            debug_assert!(result.is_some());
-
             // monitored-memory currently isn't coalescable so we don't need to
             // adjust monitored_mem
             let mut to_remove: Vec<MemoryRangeKey> = Vec::new();
@@ -2744,6 +2738,12 @@ pub mod address_space {
             for k in to_remove {
                 self.mem.borrow_mut().remove(&k);
             }
+
+            let result = self
+                .mem
+                .borrow_mut()
+                .insert(MemoryRangeKey(*new_m.map), new_m);
+            debug_assert!(result.is_some());
         }
 
         /// Erase `it` from `breakpoints` and restore any memory in
