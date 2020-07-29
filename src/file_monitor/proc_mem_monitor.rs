@@ -37,10 +37,14 @@ impl ProcMemMonitor {
                     let tid_str = String::from_utf8_lossy(tid_os_str.as_bytes());
                     let maybe_tid = tid_str.parse::<pid_t>();
                     let tid = maybe_tid.unwrap();
-                    let maybe_found = t
-                        .session()
-                        .find_task_from_rec_tid(tid)
-                        .map_or(None, |ft| Some(ft.borrow().tuid()));
+                    let maybe_found = if t.rec_tid == tid {
+                        Some(t.tuid())
+                    } else {
+                        t.session()
+                            .find_task_from_rec_tid(tid)
+                            .map_or(None, |ft| Some(ft.borrow().tuid()))
+                    };
+
                     return ProcMemMonitor {
                         maybe_tuid: maybe_found,
                     };
