@@ -767,8 +767,12 @@ pub mod task_inner {
 
         /// Assuming ip() is just past a breakpoint instruction, adjust
         /// ip() backwards to point at that breakpoint insn.
-        pub fn move_ip_before_breakpoint(&self) {
-            unimplemented!()
+        pub fn move_ip_before_breakpoint(&mut self) {
+            // TODO: assert that this is at a breakpoint trap.
+            let mut r: Registers = self.regs_ref().clone();
+            let arch = self.arch();
+            r.set_ip(r.ip().decrement_by_bkpt_insn_length(arch));
+            self.set_regs(&r);
         }
 
         /// Return the "task name"; i.e. what `prctl(PR_GET_NAME)` or
