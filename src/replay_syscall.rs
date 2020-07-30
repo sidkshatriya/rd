@@ -1619,7 +1619,8 @@ fn process_mmap(
                 .share_private_mappings
         {
             let vm_shr_ptr = remote.task().vm_shr_ptr();
-            remote.make_private_shared(&vm_shr_ptr.mapping_of(addr).unwrap());
+            let mapping = vm_shr_ptr.mapping_of(addr).unwrap().clone();
+            remote.make_private_shared(mapping);
         }
 
         // Finally, we finish by emulating the return value.

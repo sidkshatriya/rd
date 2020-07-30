@@ -1082,7 +1082,8 @@ impl<'a> AutoRemoteSyscalls<'a> {
 
     /// Replace a MAP_PRIVATE segment by one that is shared between rd and the
     /// tracee. Returns true on success
-    pub fn make_private_shared(&mut self, m: &Mapping) -> bool {
+    /// NOTE: Takes a Mapping instead of &Mapping to avoid already borrowed issue.
+    pub fn make_private_shared(&mut self, m: Mapping) -> bool {
         if !m.map.flags().contains(MapFlags::MAP_PRIVATE) {
             return false;
         }
@@ -1107,7 +1108,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         // segment as it's scratch space, reevaluate that choice
         let mut remote2 = AutoRemoteSyscalls::new(self.task_mut());
 
-        let new_m = remote2.steal_mapping(m, None);
+        let new_m = remote2.steal_mapping(&m, None);
 
         // And copy over the contents. Since we can't just call memcpy in the
         // inferior, just copy directly from the remote private into the local
