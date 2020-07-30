@@ -263,6 +263,7 @@ pub mod address_space {
             btree_map::{Range, RangeMut},
             hash_map::Iter as HashMapIter,
             BTreeMap,
+            Bound,
             HashMap,
             HashSet,
         },
@@ -341,21 +342,34 @@ pub mod address_space {
 
     pub struct Maps<'a> {
         memory_map: Ref<'a, MemoryMap>,
-        range: MemoryRange,
+        lower_bound: Bound<MemoryRangeKey>,
+        upper_bound: Bound<MemoryRangeKey>,
     }
 
     impl<'a> Maps<'a> {
-        pub fn new(outer: &'a AddressSpace, start: RemotePtr<Void>) -> Maps<'a> {
+        pub fn starting_at(outer: &'a AddressSpace, start: RemotePtr<Void>) -> Maps<'a> {
             Maps {
                 memory_map: outer.mem.borrow(),
-                range: MemoryRange::from_range(start, start),
+                // Note the 0 size range.
+                lower_bound: Included(MemoryRangeKey(MemoryRange::from_range(start, start))),
+                upper_bound: Unbounded,
             }
         }
 
-        pub fn new_from_range(outer: &'a AddressSpace, range: MemoryRange) -> Maps<'a> {
+        pub fn containing_or_after(outer: &'a AddressSpace, start: RemotePtr<Void>) -> Maps<'a> {
             Maps {
                 memory_map: outer.mem.borrow(),
-                range,
+                lower_bound: Included(MemoryRangeKey(MemoryRange::new_range(start, 1))),
+                upper_bound: Unbounded,
+            }
+        }
+
+        pub fn from_range(outer: &'a AddressSpace, range: MemoryRange) -> Maps<'a> {
+            Maps {
+                memory_map: outer.mem.borrow(),
+                // Note that we ignore the range.end() and create a new memory range with a length of 1
+                lower_bound: Included(MemoryRangeKey(MemoryRange::new_range(range.start(), 1))),
+                upper_bound: Unbounded,
             }
         }
 
@@ -369,30 +383,43 @@ pub mod address_space {
         type IntoIter = Range<'b, MemoryRangeKey, Mapping>;
 
         fn into_iter(self) -> Self::IntoIter {
-            self.memory_map
-                .range((Included(MemoryRangeKey(self.range)), Unbounded))
+            self.memory_map.range((self.lower_bound, self.upper_bound))
         }
     }
 
     pub struct MapsMut<'a> {
         memory_map: RefMut<'a, MemoryMap>,
-        range: MemoryRange,
+        lower_bound: Bound<MemoryRangeKey>,
+        upper_bound: Bound<MemoryRangeKey>,
     }
 
     impl<'a> MapsMut<'a> {
-        pub fn new(outer: &'a mut AddressSpace, start: RemotePtr<Void>) -> MapsMut<'a> {
+        pub fn starting_at(outer: &'a mut AddressSpace, start: RemotePtr<Void>) -> MapsMut<'a> {
             MapsMut {
                 memory_map: outer.mem.borrow_mut(),
-                range: MemoryRange::from_range(start, start),
+                // Note the 0 size range.
+                lower_bound: Included(MemoryRangeKey(MemoryRange::from_range(start, start))),
+                upper_bound: Unbounded,
             }
         }
 
-        pub fn new_from_range(outer: &'a AddressSpace, range: MemoryRange) -> MapsMut<'a> {
+        pub fn containing_or_after(outer: &'a AddressSpace, start: RemotePtr<Void>) -> MapsMut<'a> {
             MapsMut {
                 memory_map: outer.mem.borrow_mut(),
-                range,
+                lower_bound: Included(MemoryRangeKey(MemoryRange::new_range(start, 1))),
+                upper_bound: Unbounded,
             }
         }
+
+        pub fn from_range(outer: &'a AddressSpace, range: MemoryRange) -> MapsMut<'a> {
+            MapsMut {
+                memory_map: outer.mem.borrow_mut(),
+                // Note that we ignore the range.end() and create a new memory range with a length of 1
+                lower_bound: Included(MemoryRangeKey(MemoryRange::new_range(range.start(), 1))),
+                upper_bound: Unbounded,
+            }
+        }
+
         pub fn into_mem(self) -> RefMut<'a, MemoryMap> {
             self.memory_map
         }
@@ -404,7 +431,7 @@ pub mod address_space {
 
         fn into_iter(self) -> Self::IntoIter {
             self.memory_map
-                .range_mut((Included(MemoryRangeKey(self.range)), Unbounded))
+                .range_mut((self.lower_bound, self.upper_bound))
         }
     }
 
@@ -952,9 +979,8 @@ pub mod address_space {
         /// Return the mapping and mapped resource for the byte at address 'addr'.
         pub fn mapping_of(&self, addr: RemotePtr<Void>) -> Option<Ref<Mapping>> {
             // A size of 1 will allow .intersects() to become true in a containing map.
-            // @TODO This floor_page_size() call does not seem necessary
-            let mr = MemoryRange::new_range(floor_page_size(addr), 1);
-            let maps = Maps::new_from_range(self, mr);
+            let mr = MemoryRange::new_range(addr, 1);
+            let maps = Maps::from_range(self, mr);
             match maps.into_iter().next() {
                 Some((&k, found_mapping)) if found_mapping.map.contains_ptr(addr) => {
                     let mem_ref = maps.into_mem();
@@ -969,9 +995,8 @@ pub mod address_space {
 
         pub fn mapping_of_mut(&self, addr: RemotePtr<Void>) -> Option<RefMut<Mapping>> {
             // A size of 1 will allow .intersects() to become true in a containing map.
-            // @TODO This floor_page_size() call does not seem necessary
-            let mr = MemoryRange::new_range(floor_page_size(addr), 1);
-            let mut maps = MapsMut::new_from_range(self, mr);
+            let mr = MemoryRange::new_range(addr, 1);
+            let mut maps = MapsMut::from_range(self, mr);
             match maps.into_iter().next() {
                 Some((&k, found_mapping)) if found_mapping.map.contains_ptr(addr) => {
                     let mem_ref = maps.into_mem();
@@ -1039,16 +1064,17 @@ pub mod address_space {
         }
 
         pub fn maps(&self) -> Maps {
-            Maps::new(self, RemotePtr::null())
+            Maps::starting_at(self, RemotePtr::null())
         }
-        pub fn maps_starting_at(&self, start: RemotePtr<Void>) -> Maps {
-            Maps::new(self, start)
+
+        /// If addr is a map start address then all maps including addr and after
+        /// If addr is NOT a map start then all maps that come AFTER addr
+        pub fn maps_starting_at(&self, addr: RemotePtr<Void>) -> Maps {
+            Maps::starting_at(self, addr)
         }
+
         pub fn maps_containing_or_after(&self, start: RemotePtr<Void>) -> Maps {
-            match self.mapping_of(start) {
-                Some(found) => Maps::new(self, found.map.start()),
-                None => Maps::new(self, start),
-            }
+            Maps::containing_or_after(self, start)
         }
 
         pub fn monitored_addrs(&self) -> Ref<HashSet<RemotePtr<Void>>> {
@@ -2803,7 +2829,8 @@ pub mod address_space {
                 // the last one seen.
                 let range: MemoryRangeKey;
                 {
-                    let maps = Maps::new_from_range(self, rem);
+                    let maps = Maps::from_range(self, rem);
+                    // Note that this iterator is set afresh every for-each iteration!
                     let mut iter = maps.into_iter();
                     let result = iter.next();
                     match result {
