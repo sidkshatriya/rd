@@ -103,8 +103,8 @@ impl Ord for MemoryRangeKey {
             } else if self.0.start_ > other.0.start_ {
                 Ordering::Greater
             } else {
-                // @TODO This needs to be checked. Tricky. For single points?
-                // What about putting a panic here??
+                // Tricky case. Used for single point comparison with starting of interval
+                // e.g. MemoryRange::from_addr(addr, addr).
                 Ordering::Equal
             }
         } else {
@@ -157,43 +157,104 @@ mod test {
 
     #[test]
     pub fn test_overlapping_and_iter() {
-        let mut m: BTreeSet<MemoryRangeKey> = BTreeSet::new();
+        let mut m: BTreeMap<MemoryRangeKey, u32> = BTreeMap::new();
         let k1 = MemoryRangeKey(MemoryRange::from_range(0usize.into(), 10usize.into()));
-        let k2 = MemoryRangeKey(MemoryRange::from_range(10usize.into(), 15usize.into()));
         let k4 = MemoryRangeKey(MemoryRange::from_range(1usize.into(), 10usize.into()));
-        m.insert(k1);
-        m.insert(k2);
-        let r0 = m.insert(k4);
-        assert_eq!(m.len(), 2);
-        assert_eq!(r0, false);
+
+        let k2 = MemoryRangeKey(MemoryRange::from_range(10usize.into(), 15usize.into()));
+        let k5 = MemoryRangeKey(MemoryRange::from_range(15usize.into(), 20usize.into()));
+        m.insert(k2, 0);
+        m.insert(k1, 1);
+        m.insert(k5, 5);
+        let r0 = m.insert(k4, 4);
+        assert_eq!(m.len(), 3);
+        match m.get(&k4) {
+            Some(&v) => {
+                assert_eq!(v, 4);
+            }
+            None => assert!(false),
+        };
+        assert!(r0.is_some());
 
         let mut found = 0;
-        // Will find all MemoryRangeKeys that are less than or equal to [9, 11).
-        // However if there is more than 1 item that is considered equal then it will return the smallest one.
-        // In this case it returns [0, 10).
-        // Ranges are assumed to be non-overlapping in the BTree so this behavior should be OK.
-        let mut range = m.range((
-            Unbounded,
-            Included(MemoryRangeKey(MemoryRange::from_range(
-                9usize.into(),
-                11usize.into(),
-            ))),
-        ));
 
+        // MemoryRangeKeys that are less than or equal to [9, 11).
+        let mrk_9to11 = MemoryRangeKey(MemoryRange::from_range(9usize.into(), 11usize.into()));
+
+        let mut range = m.range((Unbounded, Included(mrk_9to11)));
         while range.next().is_some() {
             found = found + 1;
         }
         assert_eq!(found, 1);
+        let mut range2 = m.range((Unbounded, Included(mrk_9to11)));
+
+        match range2.next() {
+            Some((found_r, _)) => {
+                assert_eq!(found_r.end(), 10usize.into());
+                assert_eq!(found_r.start(), 0usize.into());
+            }
+            None => assert!(false),
+        };
+
+        // MemoryRangeKeys that are greater than or equal to [9, 11).
+        let mut range3 = m.range((Included(mrk_9to11), Unbounded));
+
+        match range3.next() {
+            Some((found_r, _)) => {
+                assert_eq!(found_r.end(), 10usize.into());
+                assert_eq!(found_r.start(), 0usize.into());
+            }
+            None => assert!(false),
+        };
+
+        match range3.next() {
+            Some((found_r, _)) => {
+                assert_eq!(found_r.end(), 15usize.into());
+                assert_eq!(found_r.start(), 10usize.into());
+            }
+            None => assert!(false),
+        };
+
+        match range3.next() {
+            Some((found_r, _)) => {
+                assert_eq!(found_r.end(), 20usize.into());
+                assert_eq!(found_r.start(), 15usize.into());
+            }
+            None => assert!(false),
+        };
+
+        // Iterate in interval in both items are Included and the same.
+        // This is a tricky case. Only 1 element will be found even though 2 may qualify
+        // (i.e. [0, 10) and [10, 15) )
+        // In this case it will be [0, 10) but it can be [10, 15) in larger BTreeSets.
+        // Because of this the interval length is only 0 or 1 in Maps/MapsMut
+        let mut range4 = m.range((Included(mrk_9to11), Included(mrk_9to11)));
+
+        match range4.next() {
+            Some((found_r, _)) => {
+                // In this case it will be [0,10) but it can be [10, 15) also in larger BTreeSets
+                assert_eq!(mrk_9to11, *found_r);
+                assert_eq!(found_r.end(), 10usize.into());
+                assert_eq!(found_r.start(), 0usize.into());
+            }
+            None => assert!(false, "Iterator does not have 1st element"),
+        };
+
+        match range4.next() {
+            Some((_found_r, _)) => assert!(false, "Unexpected - Iterator has a 2nd element"),
+            None => (),
+        };
+
         let k3 = MemoryRangeKey(MemoryRange::from_range(3usize.into(), 11usize.into()));
         let r1 = m.remove(&k3);
-        assert_eq!(r1, true);
-        assert_eq!(m.len(), 1);
+        assert!(r1.is_some());
+        assert_eq!(m.len(), 2);
         let r2 = m.remove(&k3);
-        assert_eq!(r2, true);
-        assert_eq!(m.len(), 0);
+        assert!(r2.is_some());
+        assert_eq!(m.len(), 1);
         let r3 = m.remove(&k3);
-        assert_eq!(m.len(), 0);
-        assert_eq!(r3, false);
+        assert_eq!(m.len(), 1);
+        assert!(r3.is_none());
     }
 
     #[test]
