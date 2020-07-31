@@ -273,7 +273,7 @@ impl<'a, 'b> DerefMut for AutoRestoreMem<'a, 'b> {
 
 impl<'a, 'b> Drop for AutoRestoreMem<'a, 'b> {
     fn drop(&mut self) {
-        let new_sp = self.task().regs_ref().sp() + self.len;
+        let new_sp = self.remote.initial_regs_ref().sp() + self.len;
         ed_assert!(self.remote.task(), self.saved_sp == new_sp);
 
         match self.addr {
@@ -355,9 +355,9 @@ impl<'a, 'b> AutoRestoreMem<'a, 'b> {
             "Memory parameters were disabled"
         );
 
-        self.saved_sp = self.remote.task().regs_ref().sp();
+        self.saved_sp = self.remote.initial_regs_ref().sp();
 
-        let new_sp = self.remote.task().regs_ref().sp() - self.len;
+        let new_sp = self.saved_sp - self.len;
         self.remote.initial_regs_mut().set_sp(new_sp);
 
         let initial_regs = self.remote.initial_regs_ref().clone();
