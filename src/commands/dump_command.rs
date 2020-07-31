@@ -129,7 +129,7 @@ impl DumpCommand {
             }
 
             if the_time <= last_time {
-                fatal!("TraceTaskEvent times non-increasing");
+                fatal!("TraceTaskEvent times non-increasing (time:{}, last time:{})", the_time, last_time);
             }
 
             let r = maybe_r.unwrap();
