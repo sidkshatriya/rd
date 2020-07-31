@@ -21,6 +21,7 @@ use crate::{
     flags::Flags as ProgramFlags,
     kernel_abi::{
         common::preload_interface::syscallbuf_hdr,
+        is_execve_syscall,
         syscall_number_for_exit,
         SupportedArch,
     },
@@ -63,6 +64,7 @@ use crate::{
         Session,
         SessionSharedPtr,
     },
+    thread_group::ThreadGroupSharedPtr,
     ticks::Ticks,
     trace::{
         trace_frame::{FrameTime, TraceFrame},
@@ -750,9 +752,10 @@ impl ReplaySession {
     fn setup_replay_one_trace_frame(&self, maybe_t: Option<TaskSharedPtr>) -> TaskSharedPtr {
         let trace_frame = self.current_trace_frame();
         let ev = trace_frame.event();
+        let trace_frame_tid = trace_frame.tid();
 
         let t_shr_ptr = match maybe_t {
-            None => self.revive_task_for_exec(),
+            None => self.revive_task_for_exec(ev, trace_frame_tid),
             Some(ts) => ts,
         };
         let mut dyn_t = t_shr_ptr.borrow_mut();
@@ -896,8 +899,41 @@ impl ReplaySession {
         unimplemented!()
     }
 
-    fn revive_task_for_exec(&self) -> TaskSharedPtr {
-        unimplemented!()
+    fn revive_task_for_exec(&self, ev: &Event, trace_frame_tid: pid_t) -> TaskSharedPtr {
+        if !ev.is_syscall_event() || !is_execve_syscall(ev.syscall().number, ev.syscall().arch()) {
+            fatal!("Can't find task, but we're not in an execve");
+        }
+
+        let mut maybe_tg: Option<ThreadGroupSharedPtr> = None;
+        for (&tgid, weak_ptr) in self.thread_group_map.borrow().iter() {
+            if tgid.tid() == trace_frame_tid {
+                maybe_tg = Some(weak_ptr.upgrade().unwrap());
+                break;
+            }
+        }
+        if maybe_tg.is_none() {
+            fatal!("Dead task tid should be task-group leader, but we can't find it");
+        }
+
+        let tg = maybe_tg.unwrap();
+        if tg.borrow().task_set().len() != 1 {
+            fatal!("Should only be one task left in the taskgroup");
+        }
+
+        let t_rc = tg.borrow().task_set().iter().next().unwrap();
+        let t_rec_tid = t_rc.borrow().rec_tid;
+        log!(
+            LogDebug,
+            "Changing task tid from {} to {}",
+            t_rec_tid,
+            trace_frame_tid,
+        );
+        let t_rc_removed = self.task_map.borrow_mut().remove(&t_rec_tid).unwrap();
+        debug_assert!(Rc::ptr_eq(&t_rc_removed, &t_rc));
+        t_rc.borrow_mut().rec_tid = trace_frame_tid;
+        self.task_map.borrow_mut().insert(trace_frame_tid, t_rc);
+        // The real tid is not changing yet. It will, in process_execve.
+        t_rc_removed
     }
 
     pub fn replay_step(&self, command: RunCommand) -> ReplayResult {

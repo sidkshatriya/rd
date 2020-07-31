@@ -384,7 +384,7 @@ pub mod task_inner {
         pub thread_locals: ThreadLocals,
 
         /// These are private
-        serial: u32,
+        pub(in super::super::super) serial: u32,
         /// The address space of this task.
         pub(in super::super::super) as_: Option<AddressSpaceSharedPtr>,
         /// The file descriptor table of this task.

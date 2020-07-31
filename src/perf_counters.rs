@@ -936,6 +936,7 @@ impl PerfCounters {
             return;
         }
 
+        self.started = false;
         self.fd_ticks_interrupt.close();
         self.fd_ticks_measure.close();
         self.fd_minus_ticks_measure.close();
