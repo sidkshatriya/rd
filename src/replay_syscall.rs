@@ -139,6 +139,7 @@ use nix::{
     unistd::{access, lseek, read, AccessFlags, Whence},
 };
 use std::{
+    cell::RefMut,
     cmp::min,
     convert::TryInto,
     ffi::{CString, OsStr, OsString},
@@ -835,7 +836,32 @@ fn rep_process_syscall_arch<Arch: Architecture>(
     }
 
     if nsys == Arch::PROCESS_VM_WRITEV {
-        unimplemented!()
+        let dest_pid = t.regs_ref().arg1() as pid_t;
+        let iov_cnt = t.regs_ref().arg5();
+        let t_rc: TaskSharedPtr;
+        let mut t_b: RefMut<Box<dyn Task>>;
+        let maybe_dest = if dest_pid == t.rec_tid {
+            Some(t)
+        } else {
+            // Recorded data records may be for another process.
+            match t.session().find_task_from_rec_tid(dest_pid) {
+                Some(found_rc) => {
+                    t_rc = found_rc;
+                    t_b = t_rc.borrow_mut();
+                    Some(t_b.as_replay_task_mut().unwrap())
+                }
+                None => None,
+            }
+        };
+        match maybe_dest {
+            Some(dest) => {
+                for _ in 0..iov_cnt {
+                    dest.set_data_from_trace();
+                }
+            }
+            None => (),
+        }
+        return;
     }
 
     if nsys == Arch::READ {
