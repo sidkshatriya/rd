@@ -15,6 +15,7 @@ use std::{
     rc::{Rc, Weak},
 };
 
+pub mod base_file_monitor;
 pub mod magic_save_data_monitor;
 pub mod mmapped_file_monitor;
 pub mod preserve_file_monitor;

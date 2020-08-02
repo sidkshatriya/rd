@@ -27,6 +27,7 @@ use crate::{
     },
     emu_fs::EmuFileSharedPtr,
     file_monitor::{
+        base_file_monitor::BaseFileMonitor,
         mmapped_file_monitor::MmappedFileMonitor,
         proc_fd_dir_monitor::ProcFdDirMonitor,
         proc_mem_monitor::ProcMemMonitor,
@@ -1457,7 +1458,7 @@ fn handle_opened_files(t: &mut ReplayTask, flags_raw: i32) {
         } else if is_proc_fd_dir(&o.path) {
             file_monitor = Box::new(ProcFdDirMonitor::new(t, &o.path));
         } else if flags.contains(OFlag::O_DIRECT) {
-            unimplemented!()
+            file_monitor = Box::new(BaseFileMonitor::new())
         } else {
             ed_assert!(t, false, "Why did we write filename {:?}", o.path);
             unreachable!();
