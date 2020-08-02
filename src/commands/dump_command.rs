@@ -128,8 +128,12 @@ impl DumpCommand {
                 break;
             }
 
-            if the_time <= last_time {
-                fatal!("TraceTaskEvent times non-increasing (time:{}, last time:{})", the_time, last_time);
+            if the_time < last_time {
+                fatal!(
+                    "TraceTaskEvent times non-monotonic (time:{}, last time:{})",
+                    the_time,
+                    last_time
+                );
             }
 
             let r = maybe_r.unwrap();

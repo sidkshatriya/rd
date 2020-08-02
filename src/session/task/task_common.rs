@@ -1258,8 +1258,7 @@ pub(super) fn post_exec_for_exe<T: Task>(t: &mut T, exe_file: &OsStr) {
         other_task_in_address_space = true;
         if task.borrow().is_stopped {
             stopped_task_in_address_space = Some(task);
-            // @TODO What about breaking out of the loop here?
-            // It would be a small optimization
+            break;
         }
     }
     match stopped_task_in_address_space {
