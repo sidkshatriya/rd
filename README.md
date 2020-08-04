@@ -1,6 +1,8 @@
 # `rd` The Record & Debug Tool
 
-`rd` is a Rust language port of [mozilla/rr](https://github.com/mozilla/rr). The port is  _in progress_ but many things work already (see below).
+`rd` is a Rust language port of [mozilla/rr](https://github.com/mozilla/rr). 
+
+The port is  _in progress_ but many things work already (see below).
 
 ## Installing
 
@@ -12,7 +14,7 @@ cd rd
 cargo install --locked --force --path .
 ```
 
-Alternatively, use `--debug` like below. Things will run much more slowly but this mode may be useful in debugging `rd` itself. The code will run with lower compiler optimizations, extra debug-mode assertions etc. 
+Alternatively, use `--debug` like below. Things will run much more slowly as the code will be compiled with lower compiler optimizations, extra debug-mode assertions etc. 
 
 ```bash
 cargo install --debug --locked --force --path .
@@ -48,7 +50,7 @@ The `rd` project is grateful to all the contributors of the `mozilla/rr` project
 
 ## Contributions
 
-Contributions to the Record and Debug Tool (`rd`) are welcome and encouraged. Please help make `rd` a flourishing open source project!
+Contributions to the Record and Debug Tool (`rd`) are welcome and encouraged!
 
 By contributing to `rd` you agree to license your contributions under the MIT license without any further terms and conditions.
 
@@ -61,7 +63,7 @@ The port is currently capable of only replaying traces recorded previously by [m
 The following work:
 * `rd rerun`
 * `rd replay -a`
-  * More practically this means that interactive replay (which uses a debugger like gdb) is not yet supported 
+  * This means that interactive replay (which uses a debugger like gdb) is not yet supported 
 * `rd buildid`
 * `rd cpufeatures`
 * `rd dump`
@@ -78,7 +80,7 @@ Assuming you have a local source build of `mozilla/rr` at `/home/abcxyz/rr/build
 alias rd="rd --resource-path=/home/abcxyz/rr/build
 ```
 
-This will save you from constantly specifying the resource path on every `rd` invocation.
+This will avoid constantly specifying the resource path on every `rd` invocation.
 
 ### Logging
 
@@ -90,16 +92,15 @@ $ RD_LOG=all:warn,auto_remote_syscalls:debug rd <etc params>
 
 ### Recording traces
 
-As mentioned above, `rd` cannot record its own traces at this point in time. It can however process traces recorded by `rr`. Make sure these traces are recorded with the `-n` flags (disabled syscallbuf). `rd` will support syscallbuf recordings in the future.
+`rd` cannot record its own traces at this point in time. It can, however, process traces previously recorded by `rr`. Make sure these traces are recorded with the `-n` flags (disabled syscallbuf). `rd` will support syscallbuf recordings in the future.
 
-i.e. 
 ```bash
 rr record -n <program to be recorded>
 ```
 
 ### _RR_TRACE environment variable
 
-`rd` understands the `_RR_TRACE` environment variable. So you can invoke `rd` like so:
+`rd` understands the `_RR_TRACE` environment variable. E.g.
 
 ```bash
 $ _RR_TRACE=/the/trace/directory rd replay -a
