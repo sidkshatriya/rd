@@ -92,7 +92,7 @@ $ RD_LOG=all:warn,auto_remote_syscalls:debug rd <etc params>
 
 ### Recording traces
 
-`rd` cannot record its own traces at this point in time. It can, however, process traces previously recorded by `rr`. Make sure these traces are recorded with the `-n` flags (disabled syscallbuf). `rd` will support syscallbuf recordings in the future.
+`rd` cannot record its own traces at this point in time. It can, however, process traces previously recorded by `rr`. Make sure these traces are recorded with the `-n` flag (disabled syscallbuf). `rd` will support syscallbuf recordings in the future.
 
 ```bash
 rr record -n <program to be recorded>
