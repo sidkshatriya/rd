@@ -1,6 +1,6 @@
 # `rd` The Record & Debug Tool
 
-`rd` is a Rust language port of [mozilla/rr](https://github.com/mozilla/rr) debugger. 
+`rd` is a Rust language port of the [mozilla/rr](https://github.com/mozilla/rr) debugger. 
 
 The port is  _in progress_ but many things work already (see below).
 
