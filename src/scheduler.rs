@@ -35,7 +35,7 @@
 //! The main parameter to the scheduler is `max_ticks`, which controls the
 //! length of each timeslice.
 
-use crate::{session::task::record_task::record_task::RecordTask, ticks::Ticks};
+use crate::{event::Switchable, session::task::record_task::record_task::RecordTask, ticks::Ticks};
 use libc::cpu_set_t;
 use std::{
     cell::RefCell,
@@ -90,29 +90,181 @@ pub struct Scheduler {
     last_reschedule_in_high_priority_only_interval: bool,
 }
 
-/// Like most task schedulers, there are conflicting goals to balance. Lower
-/// max-ticks generally makes the application more "interactive", generally
-/// speaking lower latency. (And wrt catching bugs, this setting generally
-/// creates more opportunity for bugs to arise in multi-threaded/process
-/// applications.) This comes at the cost of more overhead from scheduling and
-/// context switching. Context switches during recording are expensive because
-/// we must context switch to the rd process and then to the next tracee task.
-/// Increasing max-ticks generally gives the application higher throughput.
-///
-/// Using ticks (retired conditional branches) to compute timeslices is quite
-/// crude, since they don't correspond to any unit of time in general.
-/// Hopefully that can be improved, but empirical data from Firefox
-/// demonstrate, surprisingly consistently, a distribution of insns/rcb massed
-/// around 10. Somewhat arbitrarily guessing ~4cycles/insn on average
-/// (fair amount of pointer chasing), that implies for a nominal 2GHz CPU
-/// 50,000 ticks per millisecond. We choose the default max ticks to give us
-/// 10ms timeslices, i.e. 500,000 ticks.
+#[repr(u64)]
 enum TickHowMany {
+    /// Like most task schedulers, there are conflicting goals to balance. Lower
+    /// max-ticks generally makes the application more "interactive", generally
+    /// speaking lower latency. (And wrt catching bugs, this setting generally
+    /// creates more opportunity for bugs to arise in multi-threaded/process
+    /// applications.) This comes at the cost of more overhead from scheduling and
+    /// context switching. Context switches during recording are expensive because
+    /// we must context switch to the rd process and then to the next tracee task.
+    /// Increasing max-ticks generally gives the application higher throughput.
+    ///
+    /// Using ticks (retired conditional branches) to compute timeslices is quite
+    /// crude, since they don't correspond to any unit of time in general.
+    /// Hopefully that can be improved, but empirical data from Firefox
+    /// demonstrate, surprisingly consistently, a distribution of insns/rcb massed
+    /// around 10. Somewhat arbitrarily guessing ~4cycles/insn on average
+    /// (fair amount of pointer chasing), that implies for a nominal 2GHz CPU
+    /// 50,000 ticks per millisecond. We choose the default max ticks to give us
+    /// 10ms timeslices, i.e. 500,000 ticks.
     DefaultMaxTicks = 500000,
+
+    /// Don't allow max_ticks to get above this value.
+    MaxMaxTicks = 1000000000,
+}
+
+/// Schedule a new runnable task (which may be the same as current()).
+///
+/// The new current() task is guaranteed to either have already been
+/// runnable, or have been made runnable by a waitpid status change (in
+/// which case, result.by_waitpid will be true.
+#[derive(Copy, Clone, Eq, PartialEq)]
+pub struct Rescheduled {
+    interrupted_by_signal: bool,
+    by_waitpid: bool,
+    started_new_timeslice: bool,
 }
 
 impl Scheduler {
+    pub fn set_max_ticks(&mut self, max_ticks: Ticks) {
+        debug_assert!(max_ticks <= TickHowMany::MaxMaxTicks as u64);
+        self.max_ticks_ = max_ticks;
+    }
+
+    pub fn max_ticks(&self) -> Ticks {
+        self.max_ticks_
+    }
+
+    pub fn set_always_switch(&mut self, always_switch: bool) {
+        self.always_switch = always_switch;
+    }
+
+    pub fn reschedule(&mut self, _switchable: Switchable) -> Rescheduled {
+        unimplemented!()
+    }
+
+    /// Set the priority of `t` to `value` and update related state.
+    pub fn update_task_priority(&mut self, _t: &RecordTask, _value: i32) {
+        unimplemented!()
+    }
+
+    /// Do one round of round-robin scheduling if we're not already doing one.
+    /// If we start round-robin scheduling now, make last_task the last
+    /// task to be scheduled.
+    /// If the task_round_robin_queue is empty this moves all tasks into it,
+    /// putting last_task last.
+    pub fn schedule_one_round_robin(&mut self, _last_task: &RecordTask) {
+        unimplemented!()
+    }
+
+    pub fn on_create(&mut self, _t: &RecordTask) {
+        unimplemented!()
+    }
+
+    ///  De-register a thread. This function should be called when a thread exits.
+    pub fn on_destroy(&mut self, _t: &RecordTask) {
+        unimplemented!()
+    }
+
+    pub fn current(&self) -> &RecordTask {
+        unimplemented!()
+    }
+
+    pub fn set_current(&mut self, _t: &RecordTask) {
+        unimplemented!()
+    }
+
+    pub fn current_timeslice_end(&self) -> Ticks {
+        self.current_timeslice_end_
+    }
+
     pub fn expire_timeslice(&mut self) {
         self.current_timeslice_end_ = 0;
+    }
+
+    pub fn interrupt_after_elapsed_time() -> f64 {
+        unimplemented!()
+    }
+
+    /// Return the number of cores we should report to applications.
+    pub fn pretend_num_cores(&self) -> u32 {
+        self.pretend_num_cores_
+    }
+
+    /// Return the processor affinity masks we should report to applications.
+    pub fn pretend_affinity_mask(&self) -> cpu_set_t {
+        self.pretend_affinity_mask_
+    }
+
+    pub fn in_stable_exit(&self, _t: &RecordTask) {
+        unimplemented!()
+    }
+
+    /// Pull a task from the round-robin queue if available. Otherwise,
+    /// find the highest-priority task that is runnable. If the highest-priority
+    /// runnable task has the same priority as 't', return 't' or
+    /// the next runnable task after 't' in round-robin order.
+    /// Sets 'by_waitpid' to true if we determined the task was runnable by
+    /// calling waitpid on it and observing a state change. This task *must*
+    /// be returned by get_next_thread, and is_runnable_task must not be called
+    /// on it again until it has run.
+    /// Considers only tasks with priority <= priority_threshold.
+    fn find_next_runnable_task(_t: &RecordTask, _by_waitpid: &bool, _priority_threshold: i32) {
+        unimplemented!()
+    }
+
+    /// Returns the first task in the round-robin queue or null if it's empty,
+    /// removing it from the round-robin queue.
+    fn get_round_robin_task(&self) -> &RecordTask {
+        unimplemented!()
+    }
+
+    fn maybe_pop_round_robin_task(_t: &RecordTask) {
+        unimplemented!()
+    }
+
+    fn get_next_task_with_same_priority(&self, _t: &RecordTask) {
+        unimplemented!()
+    }
+
+    fn setup_new_timeslice() {
+        unimplemented!()
+    }
+
+    fn maybe_reset_priorities(&self, _now: f64) {
+        unimplemented!()
+    }
+
+    fn choose_random_priority(self, _t: &RecordTask) {
+        unimplemented!()
+    }
+    fn update_task_priority_internal(_t: &RecordTask, _value: i32) {
+        unimplemented!()
+    }
+
+    fn maybe_reset_high_priority_only_intervals(&self, _now: f64) {
+        unimplemented!()
+    }
+
+    fn in_high_priority_only_interval(self, _now: f64) {
+        unimplemented!()
+    }
+
+    fn treat_as_high_priority(&self, _t: &RecordTask) {
+        unimplemented!()
+    }
+
+    fn is_task_runnable(&self, _t: RecordTask, _by_waitpid: &mut bool) {
+        unimplemented!()
+    }
+
+    fn validate_scheduled_task() {
+        unimplemented!()
+    }
+
+    fn regenerate_affinity_mask() {
+        unimplemented!()
     }
 }
