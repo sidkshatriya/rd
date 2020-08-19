@@ -1,6 +1,8 @@
 use crate::{
     commands::rerun_command::TraceFields,
     flags::{Checksum, DumpOn},
+    session::record_session::TraceUuid,
+    ticks::Ticks,
     trace::trace_frame::FrameTime,
 };
 use libc::pid_t;
@@ -296,6 +298,139 @@ pub enum RdSubCommand {
         // Revisit.
     },
 
+    /// Record a trace
+    #[structopt(name = "record")]
+    Record {
+        /// Force the syscall buffer preload library to be used, even if that's
+        /// probably a bad idea.
+        #[structopt(short = "b", long = "force-syscall-buffer")]
+        force_syscall_buffer: bool,
+
+        #[structopt(short = "c", long = "num-cpu-ticks")]
+        num_cpu_ticks: Option<Ticks>,
+
+        #[structopt(long="disable-cpuid-features", parse(try_from_str = parse_disable_cpuid_features),
+           help="Where <disable-cpuid-features> := <CCC>[,<DDD>]\n\
+                 Mask out CPUID EAX=1 feature bits\n\
+                 <CCC>: Bitmask of bits to clear from ECX\n\
+                 <DDD>: Bitmask of bits to clear from EDX")]
+        disable_cpuid_features: Option<(u32, u32)>,
+
+        #[structopt(long="disable-cpuid-features-ext", parse(try_from_str = parse_disable_cpuid_features_ext),
+           help="Where <disable-cpuid-features-ext> := <BBB>[,<CCC>[,<DDD>]]\n\
+                 Mask out CPUID EAX=7, ECX=0 feature bits\n\
+                 <BBB>: Bitmask of bits to clear from EBX\n\
+                 <CCC>: Bitmask of bits to clear from ECX\n\
+                 <DDD>: Bitmask of bits to clear from EDX")]
+        disable_cpuid_features_ext: Option<(u32, u32, u32)>,
+
+        #[structopt(long="disable-cpuid-features-xsave", parse(try_from_str = parse_disable_cpuid_features_xsave),
+           help="Where <disable-cpuid-features-xsave> := <AAA>\n\
+                 Mask out CPUID EAX=0xD,ECX=1 feature bits\n\
+                 <AAA>: Bitmask of bits to clear from EAX")]
+        disable_cpuid_features_xsave: Option<u32>,
+
+        /// Randomize scheduling decisions to try reproduce bugs
+        #[structopt(short = "h", long = "chaos")]
+        chaos_mode: bool,
+
+        /// block <ignore-signal> from being delivered to tracees. Probably only useful
+        /// for unit tests.
+        #[structopt(short = "i", long = "ignore-signal")]
+        ignore_signal: Option<u8>,
+
+        /// disable the syscall buffer preload library even if it would otherwise be used
+        #[structopt(short = "n", long = "no-syscall-buffer")]
+        no_syscall_buffer: bool,
+
+        /// disable file cloning for mmapped files
+        #[structopt(long = "no-file-cloning")]
+        no_file_cloning: bool,
+
+        /// disable file-block cloning for syscallbuf reads
+        #[structopt(long = "no-read-cloning")]
+        no_read_cloning: bool,
+
+        /// pretend to have N cores (rd will still only run on a single core). Overrides
+        /// random setting from --chaos.
+        #[structopt(long = "num-cores")]
+        num_cores: Option<u32>,
+
+        /// set the output trace directory. _RR_TRACE_DIR gets ignored.
+        /// Directory name is given name, not the application name.
+        #[structopt(short = "o", long = "output-trace-dir")]
+        output_trace_dir: Option<OsString>,
+
+        /// print trace directory followed by a newline to given file descriptor
+        #[structopt(short = "p", long = "print-trace-dir")]
+        print_trace_dir_fd: Option<i32>,
+
+        /// Desired size of syscall buffer in kB. Mainly for tests
+        #[structopt(long = "syscall-buffer-size")]
+        syscall_buffer_size: Option<u32>,
+
+        /// The signal used for communication with the syscall buffer. SIGPWR by default,
+        /// unused if --no-syscall-buffer is passed
+        #[structopt(long = "syscall-buffer-sig")]
+        syscall_buffer_sig: Option<u8>,
+
+        /// Try to context switch at every rd event
+        #[structopt(short = "s", long = "always-switch")]
+        always_switch: bool,
+
+        /// Unhandled <continue-through-signal> signals will be ignored
+        /// instead of terminating the program. The signal will still be delivered for user
+        /// handlers and debugging.
+        #[structopt(short = "t", long = "continue-through-signal")]
+        continue_through_signal: Option<u8>,
+
+        /// Allow tracees to run on any virtual CPU.
+        /// Default is to bind to a random CPU.  This option can cause replay divergence:
+        /// use with caution.
+        #[structopt(short = "u", long = "cpu-unbound")]
+        cpu_unbound: bool,
+
+        /// Bind to a particular CPU instead of a randomly chosen one
+        #[structopt(long = "bind-to-cpu")]
+        bind_to_cpu: Option<u32>,
+
+        #[structopt(
+            short = "v",
+            long = "env",
+            multiple = true,
+            help = "A value to add to the environment of the tracee.\n\
+                    Where <env> := NAME=VALUE\n\
+                    There can be any number of --env params each with a single NAME=VALUE."
+        )]
+        env: Option<Vec<OsString>>,
+
+        /// Wait for all child processes to exit, not just the initial process.
+        #[structopt(short = "w", long = "wait")]
+        wait: bool,
+
+        /// Directly start child process when running under nested rd recording,
+        /// instead of raising an error.
+        #[structopt(long = "ignore-error")]
+        ignore_error: bool,
+
+        /// Consume 950 fds before recording (for testing purposes)
+        #[structopt(long = "scarce-fds")]
+        scarce_fds: bool,
+
+        /// If running under sudo, pretend to be the user that ran sudo rather than
+        /// root. This allows recording setuid/setcap binaries.
+        #[structopt(long = "setuid-sudo")]
+        setuid_sudo: bool,
+
+        // @TODO
+        // Sets the trace id to the specified id
+        // #[structopt(long = "trace-id")]
+        // trace_id: Option<TraceUuid>,
+        /// Copy preload sources to trace dir
+        #[structopt(long = "copy-preload-src")]
+        copy_preload_src: bool,
+    },
+
     /// 'rerun' is intended to be a more powerful form of `rd replay -a`. It does
     /// a replay without debugging support, but it provides options for tracing and
     /// dumping tracee state. Initially it supports singlestepping through a range
@@ -384,6 +519,51 @@ fn parse_stats(maybe_stats: &str) -> Result<u32, Box<dyn Error>> {
     } else {
         Ok(stats)
     }
+}
+
+fn parse_disable_cpuid_features_xsave(
+    disable_cpuid_features_xsave: &str,
+) -> Result<u32, ParseIntError> {
+    disable_cpuid_features_xsave.trim().parse::<u32>()
+}
+
+fn parse_disable_cpuid_features(
+    disable_cpuid_features: &str,
+) -> Result<(u32, u32), Box<dyn Error>> {
+    let feat: Vec<&str> = disable_cpuid_features.trim().splitn(2, ',').collect();
+    let u1: u32;
+    let u2: u32;
+    if feat.len() == 1 {
+        u1 = feat[0].parse::<u32>()?;
+        u2 = 0;
+    } else {
+        u1 = feat[0].parse::<u32>()?;
+        u2 = feat[1].parse::<u32>()?;
+    }
+    Ok((u1, u2))
+}
+
+fn parse_disable_cpuid_features_ext(
+    disable_cpuid_features_ext: &str,
+) -> Result<(u32, u32, u32), Box<dyn Error>> {
+    let feat: Vec<&str> = disable_cpuid_features_ext.trim().splitn(3, ',').collect();
+    let u1: u32;
+    let u2: u32;
+    let u3: u32;
+    if feat.len() == 1 {
+        u1 = feat[0].trim().parse::<u32>()?;
+        u2 = 0;
+        u3 = 0;
+    } else if feat.len() == 2 {
+        u1 = feat[0].trim().parse::<u32>()?;
+        u2 = feat[1].trim().parse::<u32>()?;
+        u3 = 0;
+    } else {
+        u1 = feat[0].trim().parse::<u32>()?;
+        u2 = feat[1].trim().parse::<u32>()?;
+        u3 = feat[2].trim().parse::<u32>()?;
+    }
+    Ok((u1, u2, u3))
 }
 
 fn parse_goto_event(maybe_goto_event: &str) -> Result<FrameTime, Box<dyn Error>> {

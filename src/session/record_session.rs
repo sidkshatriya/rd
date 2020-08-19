@@ -20,6 +20,11 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
+const CPUID_RDRAND_FLAG: u32 = 1 << 30;
+const CPUID_RTM_FLAG: u32 = 1 << 11;
+const CPUID_RDSEED_FLAG: u32 = 1 << 18;
+const CPUID_XSAVEOPT_FLAG: u32 = 1 << 0;
+
 #[derive(Clone, Eq, PartialEq)]
 pub struct DisableCPUIDFeatures {
     /// in: EAX=0x01
@@ -32,11 +37,6 @@ pub struct DisableCPUIDFeatures {
     /// in: EAX=0x0D ECX=1
     xsave_features_eax: u32,
 }
-
-const CPUID_RDRAND_FLAG: u32 = 1 << 30;
-const CPUID_RTM_FLAG: u32 = 1 << 11;
-const CPUID_RDSEED_FLAG: u32 = 1 << 18;
-const CPUID_XSAVEOPT_FLAG: u32 = 1 << 0;
 
 impl Default for DisableCPUIDFeatures {
     fn default() -> Self {
