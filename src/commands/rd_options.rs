@@ -1,6 +1,8 @@
 use crate::{
     commands::rerun_command::TraceFields,
     flags::{Checksum, DumpOn},
+    kernel_metadata::signal_name,
+    kernel_supplement::_NSIG,
     scheduler::TicksHowMany,
     session::record_session::TraceUuid,
     ticks::Ticks,
@@ -353,8 +355,8 @@ pub enum RdSubCommand {
 
         /// block <ignore-signal> from being delivered to tracees. Probably only useful
         /// for unit tests.
-        #[structopt(short = "i", long = "ignore-signal")]
-        ignore_signal: Option<u8>,
+        #[structopt(short = "i", long = "ignore-signal", parse(try_from_str = parse_signal_name))]
+        ignore_signal: Option<i32>,
 
         /// disable the syscall buffer preload library even if it would otherwise be used
         #[structopt(short = "n", long = "no-syscall-buffer")]
@@ -388,8 +390,8 @@ pub enum RdSubCommand {
 
         /// The signal used for communication with the syscall buffer. SIGPWR by default,
         /// unused if --no-syscall-buffer is passed
-        #[structopt(long = "syscall-buffer-sig")]
-        syscall_buffer_sig: Option<u8>,
+        #[structopt(long = "syscall-buffer-sig", parse(try_from_str = parse_signal_name))]
+        syscall_buffer_sig: Option<i32>,
 
         /// Try to context switch at every rd event
         #[structopt(short = "s", long = "always-switch")]
@@ -398,8 +400,8 @@ pub enum RdSubCommand {
         /// Unhandled <continue-through-signal> signals will be ignored
         /// instead of terminating the program. The signal will still be delivered for user
         /// handlers and debugging.
-        #[structopt(short = "t", long = "continue-through-signal")]
-        continue_through_signal: Option<u8>,
+        #[structopt(short = "t", long = "continue-through-signal", parse(try_from_str = parse_signal_name))]
+        continue_through_signal: Option<i32>,
 
         /// Allow tracees to run on any virtual CPU.
         /// Default is to bind to a random CPU.  This option can cause replay divergence:
@@ -518,6 +520,36 @@ fn parse_num_cpu_ticks(maybe_num_ticks: &str) -> Result<Ticks, Box<dyn Error>> {
         }
         Ok(n) => Ok(n),
     }
+}
+
+fn parse_signal_name(maybe_signal_name: &str) -> Result<i32, Box<dyn Error>> {
+    let maybe_sig_trimmed = maybe_signal_name.trim();
+    if maybe_sig_trimmed.chars().all(|c| c.is_ascii_digit()) {
+        let sig_result = maybe_sig_trimmed.parse::<i32>().map_err(|e| {
+            let b: Box<dyn Error> = Box::new(e);
+            b
+        });
+        let sig = sig_result?;
+        if sig >= 1 && sig <= _NSIG as i32 {
+            return Ok(sig);
+        }
+    } else {
+        for i in 1i32.._NSIG as i32 {
+            let sig_name = signal_name(i);
+            if maybe_sig_trimmed == &sig_name {
+                return Ok(i);
+            } else {
+                debug_assert_eq!(sig_name[0..3].to_ascii_uppercase(), "SIG");
+                if &sig_name[3..] == maybe_sig_trimmed {
+                    return Ok(i);
+                }
+            }
+        }
+    }
+    Err(Box::new(clap::Error::with_description(
+        &format!("Unknown signal `{}`", maybe_sig_trimmed),
+        clap::ErrorKind::InvalidValue,
+    )))
 }
 
 fn parse_range(range_or_single: &str) -> Result<(FrameTime, Option<FrameTime>), ParseIntError> {
