@@ -720,7 +720,7 @@ impl TraceReader {
         let preload_thread_locals_recorded_ = header.get_preload_thread_locals_recorded();
         let ticks_semantics_ = from_trace_ticks_semantics(header.get_ticks_semantics().unwrap());
         let uuid_from_trace = header.get_uuid().unwrap();
-        let mut uuid_ = TraceUuid::new();
+        let mut uuid_ = TraceUuid::zero();
         if uuid_from_trace.len() != uuid_.bytes.len() {
             fatal!("Invalid UUID length");
         }

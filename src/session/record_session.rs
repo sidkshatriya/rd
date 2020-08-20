@@ -90,7 +90,7 @@ impl DisableCPUIDFeatures {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct TraceUuid {
     pub bytes: [u8; 16],
 }
@@ -99,9 +99,14 @@ impl TraceUuid {
     pub fn inner_bytes(&self) -> &[u8] {
         &self.bytes
     }
-    pub fn new() -> TraceUuid {
+    pub fn generate_new() -> TraceUuid {
         let mut bytes = [0u8; 16];
         good_random(&mut bytes);
+        TraceUuid { bytes }
+    }
+
+    pub fn zero() -> TraceUuid {
+        let bytes = [0u8; 16];
         TraceUuid { bytes }
     }
 
@@ -116,8 +121,7 @@ pub struct RecordSession {
     scheduler_: RefCell<Scheduler>,
     initial_thread_group: ThreadGroupSharedPtr,
     seccomp_filter_rewriter_: SeccompFilterRewriter,
-    // DIFF NOTE: This is a unique_ptr in rr
-    trace_id: TraceUuid,
+    trace_id: Box<TraceUuid>,
     disable_cpuid_features_: DisableCPUIDFeatures,
     ignore_sig: i32,
     continue_through_sig: i32,

@@ -443,10 +443,10 @@ pub enum RdSubCommand {
         #[structopt(long = "setuid-sudo")]
         setuid_sudo: bool,
 
-        // @TODO
-        // Sets the trace id to the specified id
-        // #[structopt(long = "trace-id")]
-        // trace_id: Option<TraceUuid>,
+        /// Sets the trace id to the specified id
+        #[structopt(long = "trace-id", parse(try_from_str = parse_trace_id))]
+        trace_id: Option<TraceUuid>,
+
         /// Copy preload sources to trace dir
         #[structopt(long = "copy-preload-src")]
         copy_preload_src: bool,
@@ -520,6 +520,72 @@ fn parse_env_name_val(maybe_name_val: &OsStr) -> Result<(OsString, OsString), Os
             "Could not find `=` separator in {:?}",
             maybe_name_val
         ))),
+    }
+}
+
+fn parse_trace_id(maybe_trace_id: &str) -> Result<TraceUuid, Box<dyn Error>> {
+    const SUM_GROUP_LENS: [u8; 5] = [8, 12, 16, 20, 32];
+    // Parse UUIDs from string form optionally with hypens
+    let mut digit = 0u8; // This counts only hex digits (i.e. not hypens)
+    let mut group = 0usize;
+    let mut acc = 0u8;
+    let mut it = maybe_trace_id.trim().bytes();
+    let err : Result<TraceUuid, Box<dyn Error>> = Err(Box::new(clap::Error::with_description(
+          &format!(
+              "Could not convert `{}` to Trace UUID.\n\
+               A 32 digit hexadecimal number (with any number of hyphens and without a leading `0x`) is required.",
+              maybe_trace_id
+          ),
+          clap::ErrorKind::InvalidValue,
+      )));
+
+    let mut buf = TraceUuid::zero();
+    while let Some(c) = it.next() {
+        if digit > SUM_GROUP_LENS[4] {
+            return err;
+        }
+
+        if digit % 2 == 0 {
+            // First digit of the byte.
+            if b'0' <= c && c <= b'9' {
+                acc = c - b'0';
+            } else if b'a' <= c && c <= b'f' {
+                acc = c - b'a' + 10;
+            } else if b'A' <= c && c <= b'F' {
+                acc = c - b'A' + 10;
+            } else if c == b'-' {
+                // Group delimiter.
+                if SUM_GROUP_LENS[group] != digit {
+                    return err;
+                }
+                group += 1;
+                continue;
+            } else {
+                return err;
+            }
+        } else {
+            // Second digit of the byte.
+            acc <<= 4;
+            if b'0' <= c && c <= b'9' {
+                acc += c - b'0';
+            } else if b'a' <= c && c <= b'f' {
+                acc += c - b'a' + 10;
+            } else if b'A' <= c && c <= b'F' {
+                acc += c - b'A' + 10;
+            } else {
+                return err;
+            }
+
+            buf.bytes[digit as usize / 2] = acc;
+        }
+
+        digit += 1;
+    }
+
+    if SUM_GROUP_LENS[4] != digit {
+        err
+    } else {
+        Ok(buf)
     }
 }
 

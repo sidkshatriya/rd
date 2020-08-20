@@ -710,7 +710,7 @@ impl TraceWriter {
         // easily.
         match maybe_uuid {
             None => {
-                header.set_uuid(TraceUuid::new().inner_bytes());
+                header.set_uuid(TraceUuid::generate_new().inner_bytes());
             }
             Some(uuid) => {
                 header.set_uuid(uuid.inner_bytes());
