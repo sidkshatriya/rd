@@ -7,6 +7,7 @@ use crate::{
     session::record_session::TraceUuid,
     ticks::Ticks,
     trace::trace_frame::FrameTime,
+    util::find,
 };
 use libc::pid_t;
 use std::{
@@ -381,7 +382,7 @@ pub enum RdSubCommand {
         output_trace_dir: Option<OsString>,
 
         /// print trace directory followed by a newline to given file descriptor
-        #[structopt(short = "p", long = "print-trace-dir")]
+        #[structopt(short = "p", long = "print-trace-dir", parse(try_from_str = parse_fd))]
         print_trace_dir_fd: Option<i32>,
 
         /// Desired size of syscall buffer in kB. Mainly for tests
@@ -417,11 +418,12 @@ pub enum RdSubCommand {
             short = "v",
             long = "env",
             multiple = true,
+            parse(try_from_os_str = parse_env_name_val),
             help = "A value to add to the environment of the tracee.\n\
                     Where <env> := NAME=VALUE\n\
                     There can be any number of --env params each with a single NAME=VALUE."
         )]
-        env: Option<Vec<OsString>>,
+        env: Option<Vec<(OsString, OsString)>>,
 
         /// Wait for all child processes to exit, not just the initial process.
         #[structopt(short = "w", long = "wait")]
@@ -506,6 +508,21 @@ pub enum RdSubCommand {
     },
 }
 
+fn parse_env_name_val(maybe_name_val: &OsStr) -> Result<(OsString, OsString), OsString> {
+    let s = maybe_name_val.as_bytes();
+    match find(s, b"=") {
+        Some(n) => {
+            let name: Vec<u8> = Vec::from(&s[0..n]);
+            let value: Vec<u8> = Vec::from(&s[n + 1..]);
+            Ok((OsString::from_vec(name), OsString::from_vec(value)))
+        }
+        None => Err(OsString::from(format!(
+            "Could not find `=` separator in {:?}",
+            maybe_name_val
+        ))),
+    }
+}
+
 fn parse_num_cpu_ticks(maybe_num_ticks: &str) -> Result<Ticks, Box<dyn Error>> {
     match maybe_num_ticks.parse::<Ticks>() {
         Err(e) => Err(Box::new(e)),
@@ -518,6 +535,17 @@ fn parse_num_cpu_ticks(maybe_num_ticks: &str) -> Result<Ticks, Box<dyn Error>> {
                 clap::ErrorKind::InvalidValue,
             )))
         }
+        Ok(n) => Ok(n),
+    }
+}
+
+fn parse_fd(maybe_fd: &str) -> Result<i32, Box<dyn Error>> {
+    match maybe_fd.parse::<i32>() {
+        Err(e) => Err(Box::new(e)),
+        Ok(n) if n < 0 => Err(Box::new(clap::Error::with_description(
+            &format!("fd value cannot be negative or greater than {}", i32::MAX),
+            clap::ErrorKind::InvalidValue,
+        ))),
         Ok(n) => Ok(n),
     }
 }
