@@ -91,7 +91,7 @@ pub struct Scheduler {
 }
 
 #[repr(u64)]
-enum TickHowMany {
+pub enum TicksHowMany {
     /// Like most task schedulers, there are conflicting goals to balance. Lower
     /// max-ticks generally makes the application more "interactive", generally
     /// speaking lower latency. (And wrt catching bugs, this setting generally
@@ -129,7 +129,7 @@ pub struct Rescheduled {
 
 impl Scheduler {
     pub fn set_max_ticks(&mut self, max_ticks: Ticks) {
-        debug_assert!(max_ticks <= TickHowMany::MaxMaxTicks as u64);
+        debug_assert!(max_ticks <= TicksHowMany::MaxMaxTicks as u64);
         self.max_ticks_ = max_ticks;
     }
 

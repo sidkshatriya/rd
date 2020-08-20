@@ -1,6 +1,7 @@
 use crate::{
     commands::rerun_command::TraceFields,
     flags::{Checksum, DumpOn},
+    scheduler::TicksHowMany,
     session::record_session::TraceUuid,
     ticks::Ticks,
     trace::trace_frame::FrameTime,
@@ -24,7 +25,17 @@ use structopt::{clap, clap::AppSettings, StructOpt};
 #[structopt(global_settings =
 &[AppSettings::AllowNegativeNumbers, AppSettings::UnifiedHelpMessage])]
 pub struct RdOptions {
-    #[structopt(long, help = "Disable use of CPUID faulting.")]
+    #[structopt(
+        short = "z",
+        long = "output-options-chosen",
+        help = "Output the options chosen (for debugging only)."
+    )]
+    pub output_options_chosen: bool,
+
+    #[structopt(
+        long = "disable-cpuid-faulting",
+        help = "Disable use of CPUID faulting."
+    )]
     pub disable_cpuid_faulting: bool,
 
     #[structopt(
@@ -36,37 +47,37 @@ pub struct RdOptions {
     /// Specify the paths that rd should use to find files such as rr_page_*.  These files
     /// should be located in `<resource-path>/bin`, `<resource-path>/lib[64]`, and
     /// `<resource-path>/share` as appropriate.
-    #[structopt(parse(try_from_os_str = parse_resource_path), long)]
+    #[structopt(parse(try_from_os_str = parse_resource_path), long="resource-path")]
     pub resource_path: Option<PathBuf>,
 
     /// Force rd to assume it's running on a CPU with microarch <microarch> even if runtime
     /// detection says otherwise. <microarch> should be a string like 'Ivy Bridge'. Note that rd
     /// will not work with Intel Merom or Penryn microarchitectures.
-    #[structopt(short = "A", long)]
+    #[structopt(short = "A", long = "microarch")]
     pub microarch: Option<String>,
 
     /// Force rd to do some things that don't seem like good ideas, for example launching
     /// an interactive emergency debugger if stderr isn't a tty.
-    #[structopt(short = "F", long)]
+    #[structopt(short = "F", long = "force-things")]
     pub force_things: bool,
 
     #[structopt(
         short = "K",
-        long,
+        long = "check-cached-maps",
         help = "Verify that cached task mmaps match /proc/maps."
     )]
     pub check_cached_mmaps: bool,
 
     #[structopt(
         short = "E",
-        long,
+        long = "fatal-errors",
         help = "Any warning or error that is printed is treated as fatal."
     )]
     pub fatal_errors: bool,
 
     #[structopt(
         short = "M",
-        long,
+        long = "mark-stdio",
         help = "Mark stdio writes with `[rd <pid> <ev>]` where <ev> is the global trace time at \
         which the write occurs and <pid> is the pid of the process it occurs in."
     )]
@@ -74,17 +85,21 @@ pub struct RdOptions {
 
     #[structopt(
         short = "S",
-        long,
+        long = "suppress-environmental-warnings",
         help = "Suppress warnings about issues in the environment that rd has no control over."
     )]
     pub suppress_environment_warnings: bool,
 
-    #[structopt(short = "T", long, help = "Dump memory at global time point <time>.")]
+    #[structopt(
+        short = "T",
+        long = "dump-at",
+        help = "Dump memory at global time point <time>."
+    )]
     pub dump_at: Option<FrameTime>,
 
     #[structopt(
     short = "D",
-    long,
+    long="dump-on",
     help = "Where <dump_on> := `ALL` | `RDTSC` | <syscall-no> | -<signal number> \n\n@TODO more details",
     parse(try_from_str = parse_dump_on)
     )]
@@ -92,7 +107,7 @@ pub struct RdOptions {
 
     #[structopt(
     short = "C",
-    long,
+    long="checksum",
     parse(try_from_str = parse_checksum),
     help = "Where <checksum> := `on-syscalls` | `on-all-events` | <from-time>\n\n\
                 Compute and store (during recording) or read and verify (during replay) checksums \
@@ -306,7 +321,9 @@ pub enum RdSubCommand {
         #[structopt(short = "b", long = "force-syscall-buffer")]
         force_syscall_buffer: bool,
 
-        #[structopt(short = "c", long = "num-cpu-ticks")]
+        /// Maximum number of 'CPU ticks' (currently retired conditional branches) to allow a
+        /// task to run before interrupting it.
+        #[structopt(short = "c", long = "num-cpu-ticks", parse(try_from_str = parse_num_cpu_ticks))]
         num_cpu_ticks: Option<Ticks>,
 
         #[structopt(long="disable-cpuid-features", parse(try_from_str = parse_disable_cpuid_features),
@@ -487,6 +504,22 @@ pub enum RdSubCommand {
     },
 }
 
+fn parse_num_cpu_ticks(maybe_num_ticks: &str) -> Result<Ticks, Box<dyn Error>> {
+    match maybe_num_ticks.parse::<Ticks>() {
+        Err(e) => Err(Box::new(e)),
+        Ok(n) if n == 0 || n > TicksHowMany::MaxMaxTicks as u64 => {
+            Err(Box::new(clap::Error::with_description(
+                &format!(
+                    "Max 'CPU Ticks' cannot be 0 or greater than {}",
+                    TicksHowMany::MaxMaxTicks as u64
+                ),
+                clap::ErrorKind::InvalidValue,
+            )))
+        }
+        Ok(n) => Ok(n),
+    }
+}
+
 fn parse_range(range_or_single: &str) -> Result<(FrameTime, Option<FrameTime>), ParseIntError> {
     let args: Vec<&str> = range_or_single.splitn(2, '-').collect();
     let low = args[0].parse::<FrameTime>()?;
@@ -521,6 +554,31 @@ fn parse_stats(maybe_stats: &str) -> Result<u32, Box<dyn Error>> {
     }
 }
 
+fn parse_u32(s: &str) -> Result<u32, Box<dyn Error>> {
+    let ts: &str = s.trim();
+    if ts.starts_with("0x") {
+        u32::from_str_radix(&ts[2..], 16).map_err(|e| {
+            let b: Box<dyn Error> = Box::new(e);
+            b
+        })
+    } else if ts.starts_with("0o") {
+        u32::from_str_radix(&ts[2..], 8).map_err(|e| {
+            let b: Box<dyn Error> = Box::new(e);
+            b
+        })
+    } else if ts.starts_with("0") {
+        Err(Box::new(clap::Error::with_description(
+            "Octal values should have a prefix of 0o",
+            clap::ErrorKind::InvalidValue,
+        )))
+    } else {
+        u32::from_str_radix(ts, 10).map_err(|e| {
+            let b: Box<dyn Error> = Box::new(e);
+            b
+        })
+    }
+}
+
 fn parse_disable_cpuid_features_xsave(
     disable_cpuid_features_xsave: &str,
 ) -> Result<u32, ParseIntError> {
@@ -534,11 +592,11 @@ fn parse_disable_cpuid_features(
     let u1: u32;
     let u2: u32;
     if feat.len() == 1 {
-        u1 = feat[0].parse::<u32>()?;
+        u1 = parse_u32(&feat[0])?;
         u2 = 0;
     } else {
-        u1 = feat[0].parse::<u32>()?;
-        u2 = feat[1].parse::<u32>()?;
+        u1 = parse_u32(&feat[0])?;
+        u2 = parse_u32(&feat[1])?;
     }
     Ok((u1, u2))
 }
@@ -551,17 +609,17 @@ fn parse_disable_cpuid_features_ext(
     let u2: u32;
     let u3: u32;
     if feat.len() == 1 {
-        u1 = feat[0].trim().parse::<u32>()?;
+        u1 = parse_u32(&feat[0])?;
         u2 = 0;
         u3 = 0;
     } else if feat.len() == 2 {
-        u1 = feat[0].trim().parse::<u32>()?;
-        u2 = feat[1].trim().parse::<u32>()?;
+        u1 = parse_u32(&feat[0])?;
+        u2 = parse_u32(&feat[1])?;
         u3 = 0;
     } else {
-        u1 = feat[0].trim().parse::<u32>()?;
-        u2 = feat[1].trim().parse::<u32>()?;
-        u3 = feat[2].trim().parse::<u32>()?;
+        u1 = parse_u32(&feat[0])?;
+        u2 = parse_u32(&feat[1])?;
+        u3 = parse_u32(&feat[2])?;
     }
     Ok((u1, u2, u3))
 }

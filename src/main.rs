@@ -76,8 +76,9 @@ use crate::{
     util::raise_resource_limits,
 };
 use commands::replay_command::ReplayCommand;
+use io::stderr;
 use nix::sys::utsname::uname;
-use std::io;
+use std::{io, io::Write};
 use structopt::StructOpt;
 
 pub fn assert_prerequisites(maybe_use_syscall_buffer: Option<bool>) {
@@ -130,6 +131,9 @@ fn main() -> io::Result<()> {
         _ => (),
     }
 
-    // write!(stderr(), "{:?}\n", options)?;
+    if options.output_options_chosen {
+        write!(stderr(), "{:?}\n", options)?;
+    }
+
     Ok(())
 }
