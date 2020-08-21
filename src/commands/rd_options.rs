@@ -373,7 +373,7 @@ pub enum RdSubCommand {
 
         /// pretend to have N cores (rd will still only run on a single core). Overrides
         /// random setting from --chaos.
-        #[structopt(long = "num-cores")]
+        #[structopt(long = "num-cores", parse(try_from_str = parse_num_cores))]
         num_cores: Option<u32>,
 
         /// set the output trace directory. _RR_TRACE_DIR gets ignored.
@@ -530,14 +530,14 @@ fn parse_trace_id(maybe_trace_id: &str) -> Result<TraceUuid, Box<dyn Error>> {
     let mut group = 0usize;
     let mut acc = 0u8;
     let mut it = maybe_trace_id.trim().bytes();
-    let err : Result<TraceUuid, Box<dyn Error>> = Err(Box::new(clap::Error::with_description(
-          &format!(
-              "Could not convert `{}` to Trace UUID.\n\
-               A 32 digit hexadecimal number (with any number of hyphens and without a leading `0x`) is required.",
-              maybe_trace_id
-          ),
-          clap::ErrorKind::InvalidValue,
-      )));
+    let err: Result<TraceUuid, Box<dyn Error>> = Err(Box::new(clap::Error::with_description(
+        &format!(
+            "Could not convert `{}` to Trace UUID.\n\
+               A 32 digit hexadecimal number in format XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX is required.",
+            maybe_trace_id
+        ),
+        clap::ErrorKind::InvalidValue,
+    )));
 
     let mut buf = TraceUuid::zero();
     while let Some(c) = it.next() {
@@ -601,6 +601,17 @@ fn parse_num_cpu_ticks(maybe_num_ticks: &str) -> Result<Ticks, Box<dyn Error>> {
                 clap::ErrorKind::InvalidValue,
             )))
         }
+        Ok(n) => Ok(n),
+    }
+}
+
+fn parse_num_cores(maybe_num_cores: &str) -> Result<u32, Box<dyn Error>> {
+    match maybe_num_cores.parse::<u32>() {
+        Err(e) => Err(Box::new(e)),
+        Ok(n) if n < 1 || n > 1024 => Err(Box::new(clap::Error::with_description(
+            "Number of cores needs to be > 0 and <= 1024",
+            clap::ErrorKind::InvalidValue,
+        ))),
         Ok(n) => Ok(n),
     }
 }
