@@ -387,7 +387,7 @@ pub enum RdSubCommand {
 
         /// Desired size of syscall buffer in kB. Mainly for tests
         #[structopt(long = "syscall-buffer-size")]
-        syscall_buffer_size: Option<u32>,
+        syscall_buffer_size: Option<usize>,
 
         /// The signal used for communication with the syscall buffer. SIGPWR by default,
         /// unused if --no-syscall-buffer is passed

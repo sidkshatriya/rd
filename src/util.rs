@@ -1201,7 +1201,7 @@ pub enum BindCPU {
     RandomCPU,
     /// `UnboundCpu` means not binding to a particular CPU.
     UnboundCPU,
-    /// A non-negative value means binding to the specific CPU number.
+    /// Bind to the specific CPU number.
     BindToCPU(u32),
 }
 

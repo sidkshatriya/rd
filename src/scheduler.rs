@@ -78,7 +78,9 @@ pub struct Scheduler {
     must_run_task: RecordTask,
 
     pretend_affinity_mask_: cpu_set_t,
-    pretend_num_cores_: u32,
+
+    /// DIFF NOTE: Made this into an Option in rd
+    pretend_num_cores_: Option<u32>,
 
     /// When true, context switch at every possible point.
     always_switch: bool,
@@ -190,7 +192,7 @@ impl Scheduler {
 
     /// Return the number of cores we should report to applications.
     pub fn pretend_num_cores(&self) -> u32 {
-        self.pretend_num_cores_
+        unimplemented!()
     }
 
     /// Return the processor affinity masks we should report to applications.

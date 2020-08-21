@@ -17,6 +17,7 @@ use crate::{
 use libc::pid_t;
 use std::{
     cell::{Ref, RefCell, RefMut},
+    ffi::OsString,
     ops::{Deref, DerefMut},
 };
 
@@ -45,8 +46,8 @@ impl Default for DisableCPUIDFeatures {
 }
 
 impl DisableCPUIDFeatures {
-    pub fn new() -> DisableCPUIDFeatures {
-        DisableCPUIDFeatures {
+    pub fn new() -> Self {
+        Self {
             features_ecx: 0,
             features_edx: 0,
             extended_features_ebx: 0,
@@ -55,6 +56,18 @@ impl DisableCPUIDFeatures {
             xsave_features_eax: 0,
         }
     }
+
+    pub fn from(features: (u32, u32), features_ext: (u32, u32, u32), features_xsave: u32) -> Self {
+        Self {
+            features_ecx: features.0,
+            features_edx: features.1,
+            extended_features_ebx: features_ext.0,
+            extended_features_ecx: features_ext.1,
+            extended_features_edx: features_ext.2,
+            xsave_features_eax: features_xsave,
+        }
+    }
+
     pub fn any_features_disabled(&self) -> bool {
         self.features_ecx != 0
             || self.features_edx != 0
@@ -115,6 +128,11 @@ impl TraceUuid {
     }
 }
 
+pub enum SyscallBuffering {
+    EnableSycallBuf,
+    DisableSyscallBuf,
+}
+
 pub struct RecordSession {
     session_inner: SessionInner,
     trace_out: TraceWriter,
@@ -138,7 +156,7 @@ pub struct RecordSession {
     /// When true, wait for all tracees to exit before finishing recording.
     wait_for_all_: bool,
 
-    output_trace_dir: String,
+    output_trace_dir: OsString,
 }
 
 impl Drop for RecordSession {
