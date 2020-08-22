@@ -1,3 +1,4 @@
+use super::exit_result::ExitResult;
 #[cfg(target_arch = "x86_64")]
 use crate::kernel_abi::x64;
 #[cfg(target_arch = "x86")]
@@ -33,7 +34,7 @@ use nix::unistd::{getpid, getppid};
 use std::{
     fmt::Write as fmtWrite,
     io,
-    io::{stderr, stdout, Write},
+    io::{stdout, Write},
     mem,
     mem::size_of,
     path::PathBuf,
@@ -41,30 +42,32 @@ use std::{
 use structopt::clap;
 
 impl RdCommand for ReRunCommand {
-    /// DIFF NOTE: In rr a result code e.g. 3 is returned. We simply return `Ok(())` in case there is
-    /// no error or a `Err(_)` if there is.
-    fn run(&mut self) -> io::Result<()> {
+    fn run(&mut self) -> ExitResult<()> {
         assert_prerequisites(None);
         if running_under_rd() {
             if !Flags::get().suppress_environment_warnings {
-                write!(
-                    stderr(),
+                eprintln!(
                     "rd: rd pid {} running under parent {}. Good luck.\n",
                     getpid(),
                     getppid()
-                )?;
+                );
             }
             if self.trace_dir.is_none() {
-                // DIFF NOTE: An error code of 3 is returned in rr. We return an `Err(_)`
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "No trace-dir supplied. You'll try to rerun the recording of this rd \
+                return ExitResult::err_from(
+                    io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "No trace-dir supplied. You'll try to rerun the recording of this rd \
                         and have a bad time. Bailing out.",
-                ));
+                    ),
+                    3,
+                );
             }
         }
 
-        self.rerun()
+        match self.rerun() {
+            Ok(()) => ExitResult::Ok(()),
+            Err(e) => ExitResult::err_from(e, 1),
+        }
     }
 }
 
@@ -364,7 +367,6 @@ impl ReRunCommand {
         }
     }
 
-    // DIFF NOTE: In rr a result code e.g. 0 is return. We simply return Ok(()) if there is no error.
     fn rerun(&self) -> io::Result<()> {
         let session: SessionSharedPtr =
             ReplaySession::create(self.trace_dir.as_ref(), self.session_flags());

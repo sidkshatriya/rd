@@ -2,6 +2,7 @@
 #![feature(map_first_last)]
 #![feature(llvm_asm)]
 #![feature(raw_ref_op)]
+#![feature(termination_trait_lib)]
 // @TODO To many results for "never used". Disable for now.
 #![allow(dead_code)]
 
@@ -75,10 +76,8 @@ use crate::{
     perf_counters::init_pmu,
     util::raise_resource_limits,
 };
-use commands::replay_command::ReplayCommand;
-use io::stderr;
+use commands::{exit_result::ExitResult, replay_command::ReplayCommand};
 use nix::sys::utsname::uname;
-use std::{io, io::Write};
 use structopt::StructOpt;
 
 pub fn assert_prerequisites(maybe_use_syscall_buffer: Option<bool>) {
@@ -106,34 +105,36 @@ pub fn assert_prerequisites(maybe_use_syscall_buffer: Option<bool>) {
     }
 }
 
-fn main() -> io::Result<()> {
+fn main() -> ExitResult<()> {
     raise_resource_limits();
     let options = RdOptions::from_args();
+    if options.output_options_chosen {
+        eprintln!("{:?}", options);
+    }
 
     init_pmu();
     match &options.cmd {
         RdSubCommand::BuildId => return BuildIdCommand::new().run(),
         RdSubCommand::Dump { .. } => {
-            DumpCommand::new(&options).run()?;
+            return DumpCommand::new(&options).run();
         }
         RdSubCommand::ReRun { .. } => {
-            ReRunCommand::new(&options).run()?;
+            return ReRunCommand::new(&options).run();
         }
         RdSubCommand::Replay { .. } => {
-            ReplayCommand::new(&options).run()?;
+            return ReplayCommand::new(&options).run();
         }
         RdSubCommand::TraceInfo { .. } => {
-            TraceInfoCommand::new(&options).run()?;
+            return TraceInfoCommand::new(&options).run();
         }
         RdSubCommand::Ps { .. } => {
-            PsCommand::new(&options).run()?;
+            return PsCommand::new(&options).run();
+        }
+        RdSubCommand::Record { .. } => {
+            return ReRunCommand::new(&options).run();
         }
         _ => (),
     }
 
-    if options.output_options_chosen {
-        write!(stderr(), "{:?}\n", options)?;
-    }
-
-    Ok(())
+    ExitResult::Ok(())
 }

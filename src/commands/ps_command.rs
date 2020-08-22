@@ -1,3 +1,4 @@
+use super::exit_result::ExitResult;
 use crate::{
     commands::{
         rd_options::{RdOptions, RdSubCommand},
@@ -32,8 +33,11 @@ impl PsCommand {
 }
 
 impl RdCommand for PsCommand {
-    fn run(&mut self) -> io::Result<()> {
-        self.ps(&mut stdout())
+    fn run(&mut self) -> ExitResult<()> {
+        match self.ps(&mut stdout()) {
+            Ok(()) => ExitResult::Ok(()),
+            Err(e) => ExitResult::err_from(e, 1),
+        }
     }
 }
 

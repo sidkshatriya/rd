@@ -28,12 +28,7 @@ use nix::{
     unistd::read,
 };
 use raw_cpuid::CpuId;
-use std::{
-    io::{stderr, Write},
-    mem::size_of,
-    os::unix::io::RawFd,
-    sync::Mutex,
-};
+use std::{mem::size_of, os::unix::io::RawFd, sync::Mutex};
 
 lazy_static! {
     static ref PMU_BRANCHES_ACCUMULATOR: Mutex<u32> = Mutex::new(0);
@@ -180,15 +175,13 @@ fn get_cpu_microarch() -> CpuMicroarch {
         0x00f10 => {
             if ext_family == 8 {
                 if !Flags::get().suppress_environment_warnings {
-                    write!(
-                        stderr(),
+                    eprintln!(
                         "You have a Ryzen CPU. The Ryzen\n\
                      retired-conditional-branches hardware\n\
                      performance counter is not accurate enough; rd will\n\
                      be unreliable.\n\
-                     See https://github.com/mozilla/rr/issues/2034.\n"
-                    )
-                    .unwrap();
+                     See https://github.com/mozilla/rr/issues/2034."
+                    );
                 }
                 return AMDRyzen;
             }
@@ -612,14 +605,12 @@ fn start_counter(tid: pid_t, group_fd: i32, attr: &mut perf_event_attr) -> (Scop
             if cpuid.get_extended_feature_info().unwrap().has_hle()
                 && !Flags::get().suppress_environment_warnings
             {
-                write!(
-                    stderr(),
+                eprintln!(
                     "Your CPU supports Hardware Lock Elision but your kernel does\n\
                      not support setting the IN_TXCP PMU flag. Record and replay\n\
                      of code that uses HLE will fail unless you update your\n\
-                     kernel.\n"
-                )
-                .unwrap();
+                     kernel."
+                );
             }
         }
     }
@@ -714,15 +705,13 @@ fn check_working_counters() -> bool {
         && cpuid.get_extended_feature_info().unwrap().has_hle()
         && !Flags::get().suppress_environment_warnings
     {
-        write!(
-            stderr(),
+        eprintln!(
             "Your CPU supports Hardware Lock Elision but you only have one\n\
              hardware performance counter available. Record and replay\n\
              of code that uses HLE will fail unless you alter your\n\
              configuration to make more than one hardware performance counter\n\
-             available.\n"
-        )
-        .unwrap();
+             available."
+        );
     }
     only_one_counter
 }

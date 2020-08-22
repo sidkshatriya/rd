@@ -1,3 +1,4 @@
+use super::exit_result::ExitResult;
 use crate::{
     commands::{
         rd_options::{RdOptions, RdSubCommand},
@@ -25,7 +26,7 @@ use std::{
     collections::HashMap,
     ffi::OsString,
     io,
-    io::{stderr, stdout, Write},
+    io::{stdout, Write},
     mem::size_of,
     os::unix::ffi::OsStringExt,
     path::PathBuf,
@@ -260,8 +261,11 @@ impl DumpCommand {
 }
 
 impl RdCommand for DumpCommand {
-    fn run(&mut self) -> io::Result<()> {
-        self.dump(&mut stdout())
+    fn run(&mut self) -> ExitResult<()> {
+        match self.dump(&mut stdout()) {
+            Ok(()) => ExitResult::Ok(()),
+            Err(e) => ExitResult::err_from(e, 1),
+        }
     }
 }
 
@@ -313,7 +317,7 @@ unsafe fn dump_syscallbuf_data(
     let mut bytes_remaining = (buf.data.len() - size_of::<syscallbuf_hdr>()) as u32;
     let flush_hdr_addr = buf.data.as_ptr() as *const syscallbuf_hdr;
     if (*flush_hdr_addr).num_rec_bytes > bytes_remaining {
-        write!(stderr(), "Malformed trace file (bad recorded-bytes count)")?;
+        eprintln!("Malformed trace file (bad recorded-bytes count)");
         notifying_abort(backtrace::Backtrace::new());
     }
     bytes_remaining = (*flush_hdr_addr).num_rec_bytes;
@@ -331,7 +335,7 @@ unsafe fn dump_syscallbuf_data(
             (*record).size
         )?;
         if ((*record).size as usize) < size_of::<syscallbuf_record>() {
-            write!(stderr(), "Malformed trace file (bad record size)\n")?;
+            eprintln!("Malformed trace file (bad record size)");
             notifying_abort(backtrace::Backtrace::new());
         }
         record_ptr = record_ptr.add(stored_record_size((*record).size) as usize);

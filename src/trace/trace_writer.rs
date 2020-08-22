@@ -650,7 +650,7 @@ impl TraceWriter {
 
         if !probably_not_interactive(Some(STDOUT_FILENO)) {
             println!(
-                "rr: Saving execution to trace directory `{:?}'.",
+                "rd: Saving execution to trace directory `{:?}'.",
                 tw.trace_dir,
             );
         }

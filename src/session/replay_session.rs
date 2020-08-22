@@ -1925,13 +1925,11 @@ fn check_xsave_compatibility(trace_in: &TraceReader) {
     if !xsave_enabled() {
         // Replaying on a super old CPU that doesn't even support XSAVE!
         if !ProgramFlags::get().suppress_environment_warnings {
-            write!(
-                io::stderr(),
+            eprintln!(
                 "rr: Tracees had XSAVE but XSAVE is not available\n\
                 now; Replay will probably fail because glibc dynamic loader\n\
                             uses XSAVE\n\n"
-            )
-            .unwrap();
+            );
         }
         return;
     }
@@ -1944,13 +1942,11 @@ fn check_xsave_compatibility(trace_in: &TraceReader) {
     let data: CPUIDData = cpuid(CPUID_GETXSAVE, 1);
     let our_xsavec: bool = (data.eax & XSAVEC_FEATURE_FLAG) != 0;
     if tracee_xsavec && !our_xsavec && !ProgramFlags::get().suppress_environment_warnings {
-        write!(
-            io::stderr(),
-            "rr: Tracees had XSAVEC but XSAVEC is not available\n\
+        eprintln!(
+            "rd: Tracees had XSAVEC but XSAVEC is not available\n\
             now; Replay will probably fail because glibc dynamic loader\n\
                          uses XSAVEC\n\n"
-        )
-        .unwrap();
+        );
     }
 
     if tracee_xcr0 != our_xcr0 {

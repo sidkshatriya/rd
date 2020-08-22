@@ -1,4 +1,7 @@
-use super::rd_options::{PidOrCommand, RdOptions, RdSubCommand};
+use super::{
+    exit_result::ExitResult,
+    rd_options::{PidOrCommand, RdOptions, RdSubCommand},
+};
 use crate::{
     assert_prerequisites,
     bindings::kernel::{gettimeofday, timeval},
@@ -322,9 +325,7 @@ impl ReplayCommand {
 }
 
 impl RdCommand for ReplayCommand {
-    /// DIFF NOTE: In rr a result code e.g. 3 is returned. We simply return `Ok(())` in case there is
-    /// no error or a `Err(_)` if there is.
-    fn run(&mut self) -> io::Result<()> {
+    fn run(&mut self) -> ExitResult<()> {
         if self.target_command.is_some() {
             unimplemented!()
         }
@@ -334,42 +335,47 @@ impl RdCommand for ReplayCommand {
         }
 
         if self.dump_interval.is_some() && !self.dont_launch_debugger {
-            // DIFF NOTE: We return an Err() while rr returns error code 2
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "--stats requires -a",
-            ));
+            return ExitResult::err_from(
+                io::Error::new(io::ErrorKind::InvalidInput, "--stats requires -a"),
+                2,
+            );
         }
 
         assert_prerequisites(None);
 
         if running_under_rd() {
             if !Flags::get().suppress_environment_warnings {
-                write!(
-                    stderr(),
-                    "rd: rd pid {} running under parent {}. Good luck.\n",
+                eprintln!(
+                    "rd: rd pid {} running under parent {}. Good luck.",
                     getpid(),
                     getppid()
-                )?;
+                );
             }
             if self.trace_dir.is_none() {
-                // DIFF NOTE: An error code of 3 is returned in rr. We return an `Err(_)`
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "No trace-dir supplied. You'll try to rerun the recording of this rd \
+                return ExitResult::err_from(
+                    io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "No trace-dir supplied. You'll try to rerun the recording of this rd \
                         and have a bad time. Bailing out.",
-                ));
+                    ),
+                    3,
+                );
             }
         }
         if self.keep_listening && self.dbg_port.is_none() {
-            // DIFF NOTE: An error code of 4 is returned in rr. We return an `Err(_)`
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "Cannot use --keep-listening (-k) without --dbgport (-s).",
-            ));
+            return ExitResult::err_from(
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "Cannot use --keep-listening (-k) without --dbgport (-s).",
+                ),
+                4,
+            );
         }
 
-        self.replay()
+        match self.replay() {
+            Ok(()) => ExitResult::Ok(()),
+            Err(e) => ExitResult::err_from(e, 1),
+        }
     }
 }
 

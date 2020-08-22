@@ -1,3 +1,4 @@
+use super::exit_result::ExitResult;
 use crate::{commands::RdCommand, log::LogLevel::LogError};
 use goblin::elf::{note, Elf};
 use std::{
@@ -48,12 +49,12 @@ impl BuildIdCommand {
 }
 
 impl RdCommand for BuildIdCommand {
-    fn run(&mut self) -> io::Result<()> {
+    fn run(&mut self) -> ExitResult<()> {
         let mut fd = BufReader::new(stdin());
         let mut elf_file_vec = Vec::new();
         loop {
             match fd.read_until(b'\n', &mut elf_file_vec) {
-                Ok(0) => return Ok(()),
+                Ok(0) => return ExitResult::Ok(()),
                 Ok(_) => {
                     if elf_file_vec.ends_with(b"\n") {
                         elf_file_vec.pop();
@@ -75,14 +76,14 @@ impl RdCommand for BuildIdCommand {
                                 elf_file,
                                 e
                             );
-                            return Err(e);
+                            return ExitResult::Err(Box::new(e), 1);
                         }
                     }
                     elf_file_vec.clear();
                 }
                 Err(e) => {
                     log!(LogError, "Error while trying to read from stdin: {:?}", e);
-                    return Err(e);
+                    return ExitResult::Err(Box::new(e), 1);
                 }
             }
         }

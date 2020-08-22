@@ -1,3 +1,4 @@
+use super::exit_result::ExitResult;
 use crate::{
     commands::{
         rd_options::{RdOptions, RdSubCommand},
@@ -40,7 +41,7 @@ struct TraceHeader {
 }
 
 impl RdCommand for TraceInfoCommand {
-    fn run(&mut self) -> io::Result<()> {
+    fn run(&mut self) -> ExitResult<()> {
         let trace = TraceReader::new(self.trace_dir.as_ref());
 
         let uuid_bytes = trace.uuid().bytes;
@@ -76,10 +77,10 @@ impl RdCommand for TraceInfoCommand {
             }
 
             if result.status == ReplayStatus::ReplayExited {
-                return Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    "Replay finished before initial exec!",
-                ));
+                return ExitResult::err_from(
+                    io::Error::new(io::ErrorKind::Other, "Replay finished before initial exec!"),
+                    1,
+                );
             }
         }
         let environ_strings: Vec<String> = environ
@@ -98,6 +99,6 @@ impl RdCommand for TraceInfoCommand {
 
         let serialized = serde_json::to_string(&header).unwrap();
         println!("{}", serialized);
-        Ok(())
+        ExitResult::Ok(())
     }
 }

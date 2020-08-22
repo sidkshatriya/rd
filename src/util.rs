@@ -1560,3 +1560,7 @@ pub fn is_proc_fd_dir(filename_os: &OsStr) -> bool {
     let filename = filename_os.as_bytes();
     filename.starts_with(b"/proc/") && (filename.ends_with(b"/fd") || filename.ends_with(b"/fd/"))
 }
+
+pub fn check_for_leaks() {
+    unimplemented!()
+}

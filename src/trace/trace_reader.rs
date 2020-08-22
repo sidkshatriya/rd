@@ -78,7 +78,7 @@ use std::{
     convert::{TryFrom, TryInto},
     ffi::{OsStr, OsString},
     fs::File,
-    io::{stderr, BufRead, BufReader, Read, Write},
+    io::{BufRead, BufReader, Read},
     mem::size_of,
     ops::{Deref, DerefMut},
     os::unix::ffi::{OsStrExt, OsStringExt},
@@ -615,23 +615,19 @@ impl TraceReader {
             if errno() == libc::ENOENT {
                 let incomplete_path = trace_stream.incomplete_version_path();
                 if access(incomplete_path.as_os_str(), AccessFlags::F_OK).is_ok() {
-                    write!(
-                        stderr(),
+                    eprintln!(
                         "\nrd: Trace file `{:?}' found.\n\
-                         rd recording terminated abnormally and the trace is incomplete.\n\n",
+                         rd recording terminated abnormally and the trace is incomplete.\n",
                         incomplete_path
-                    )
-                    .unwrap();
+                    );
                 } else {
-                    write!(
-                        stderr(),
-                        "\nrr: Trace file `{:?}' not found. There is no trace there.\n\n",
+                    eprintln!(
+                        "\nrd: Trace file `{:?}' not found. There is no trace there.\n",
                         path
-                    )
-                    .unwrap();
+                    );
                 }
             } else {
-                write!(stderr(), "\nrd: Trace file `{:?}' not readable.\n\n", path).unwrap();
+                eprintln!("\nrd: Trace file `{:?}' not readable.\n", path);
             }
             // @TODO Check if logging flush etc. works as intended
             // @TODO EX_DATAERR = 65
@@ -641,12 +637,7 @@ impl TraceReader {
         let mut buf_reader = BufReader::new(version_file.unwrap());
         let res = buf_reader.read_line(&mut version_str);
         if res.is_err() {
-            write!(
-                stderr(),
-                "Could not read from the version file `{:?}'",
-                path
-            )
-            .unwrap();
+            eprintln!("Could not read from the version file `{:?}'", path);
             // @TODO Check if logging flush etc. works as intended
             // @TODO EX_DATAERR = 65
             exit(65);
@@ -663,19 +654,13 @@ impl TraceReader {
         }
 
         if TRACE_VERSION != version {
-            write!(
-                stderr(),
+            eprintln!(
                 "\nrd: error: Recorded trace `{:?}' has an incompatible version {}; expected\n\
                  {}.  Did you record `{:?}' with an older version of rd?  If so,\n\
                  you'll need to replay `{:?}' with that older version.  Otherwise,\n\
-                 your trace is likely corrupted.\n\n",
-                path,
-                version,
-                TRACE_VERSION,
-                path,
-                path
-            )
-            .unwrap();
+                 your trace is likely corrupted.\n",
+                path, version, TRACE_VERSION, path, path
+            );
             // @TODO Check if logging flush etc. works as intended
             // @TODO EX_DATAERR = 65
             exit(65);
