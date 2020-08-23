@@ -7,7 +7,7 @@ use crate::{
     session::record_session::TraceUuid,
     ticks::Ticks,
     trace::trace_frame::FrameTime,
-    util::find,
+    util::{find, page_size},
 };
 use libc::pid_t;
 use std::{
@@ -388,7 +388,7 @@ pub enum RdSubCommand {
         print_trace_dir_fd: Option<i32>,
 
         /// Desired size of syscall buffer in kB. Mainly for tests
-        #[structopt(long = "syscall-buffer-size")]
+        #[structopt(long = "syscall-buffer-size", parse(try_from_str = parse_syscallbuf_size))]
         syscall_buffer_size: Option<usize>,
 
         /// The signal used for communication with the syscall buffer. SIGPWR by default,
@@ -544,7 +544,8 @@ fn parse_trace_id(maybe_trace_id: &str) -> Result<TraceUuid, Box<dyn Error>> {
     let err: Result<TraceUuid, Box<dyn Error>> = Err(Box::new(clap::Error::with_description(
         &format!(
             "Could not convert `{}` to Trace UUID.\n\
-               A 32 digit hexadecimal number in format XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX is required.",
+             A 32 digit hexadecimal number in format XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX is required.\n\
+             NOTE: Dashes i.e. '-' may be omitted all together from the UUID also.",
             maybe_trace_id
         ),
         clap::ErrorKind::InvalidValue,
@@ -613,6 +614,23 @@ fn parse_num_cpu_ticks(maybe_num_ticks: &str) -> Result<Ticks, Box<dyn Error>> {
             )))
         }
         Ok(n) => Ok(n),
+    }
+}
+
+fn parse_syscallbuf_size(maybe_size: &str) -> Result<usize, Box<dyn Error>> {
+    match maybe_size.parse::<usize>() {
+        Err(e) => Err(Box::new(e)),
+        Ok(n) if n < 4 || n > 1024 * 1024 || (n * 1024 % page_size() != 0) => {
+            Err(Box::new(clap::Error::with_description(
+                &format!(
+                    "Size can be between 4 and 1048576 (in units of kB).\n\
+                     Size also needs to be a natural number multiple of {} (which is the system page size in kB)",
+                    page_size() / 1024,
+                ),
+                clap::ErrorKind::InvalidValue,
+            )))
+        }
+        Ok(n) => Ok(n * 1024),
     }
 }
 

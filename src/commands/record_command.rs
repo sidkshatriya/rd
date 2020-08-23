@@ -6,6 +6,7 @@ use crate::{
         RdCommand,
     },
     kernel_metadata::signal_name,
+    log::{LogInfo, LogWarn},
     scheduler::TicksHowMany,
     session::record_session::{DisableCPUIDFeatures, SyscallBuffering, TraceUuid},
     ticks::Ticks,
@@ -21,7 +22,7 @@ use rand::random;
 use std::{convert::TryFrom, env::var_os, ffi::OsString, io, os::unix::ffi::OsStringExt};
 
 /// DIFF NOTE: Many struct members are Option<> when compared to rr equivalents.
-struct RecordCommand {
+pub struct RecordCommand {
     extra_env: Vec<(OsString, OsString)>,
 
     /// Max counter value before the scheduler interrupts a tracee. */
@@ -37,8 +38,8 @@ struct RecordCommand {
     /// Whether to use syscall buffering optimization during recording.
     use_syscall_buffer: SyscallBuffering,
 
-    /// If nonzero, the desired syscall buffer size. Must be a multiple of the page size.
-    syscall_buffer_size: usize,
+    /// If Some(_), the desired syscall buffer size in bytes. Must be a multiple of the page size.
+    syscall_buffer_size: Option<usize>,
 
     /// CPUID features to disable
     disable_cpuid_features: DisableCPUIDFeatures,
@@ -124,20 +125,24 @@ impl RecordCommand {
                 max_ticks: num_cpu_ticks.unwrap_or(TicksHowMany::DefaultMaxTicks as u64),
                 ignore_sig: ignore_signal,
                 continue_through_sig: continue_through_signal,
-                // @TODO Generally speaking the `force_syscall_buffer` and the `no_syscall_buffer`
+                // Generally speaking the `force_syscall_buffer` and the `no_syscall_buffer`
                 // options are contradictory and and error should result if both options were
                 // used on the commandline. For now give priority for `force_syscall_buffer`.
-                use_syscall_buffer: if force_syscall_buffer {
-                    SyscallBuffering::EnableSycallBuf
-                } else {
-                    if no_syscall_buffer {
-                        SyscallBuffering::DisableSyscallBuf
-                    } else {
+                use_syscall_buffer: {
+                    if force_syscall_buffer && no_syscall_buffer {
+                        log!(LogWarn, "--force-syscall-buffer and --no-syscall-buffer are contradictory. Giving preference to --force-syscall-buffer");
+                    }
+                    if force_syscall_buffer {
                         SyscallBuffering::EnableSycallBuf
+                    } else {
+                        if no_syscall_buffer {
+                            SyscallBuffering::DisableSyscallBuf
+                        } else {
+                            SyscallBuffering::EnableSycallBuf
+                        }
                     }
                 },
-                // @TODO
-                syscall_buffer_size: syscall_buffer_size.unwrap(),
+                syscall_buffer_size,
                 disable_cpuid_features: DisableCPUIDFeatures::from(
                     disable_cpuid_features.unwrap_or((0, 0)),
                     disable_cpuid_features_ext.unwrap_or((0, 0, 0)),
@@ -147,21 +152,31 @@ impl RecordCommand {
                 output_trace_dir,
                 use_file_cloning: !no_file_cloning,
                 use_read_cloning: !no_read_cloning,
-                // @TODO Generally speaking the `cpu_unbound` and `bind_to_cpu` options
+                // Generally speaking the `cpu_unbound` and `bind_to_cpu` options
                 // are contradictory and an error should result if both options were
                 // used on the commandline. For now we give priority to `bind_to_cpu`.
-                bind_cpu: match bind_to_cpu {
-                    Some(n) => BindCPU::BindToCPU(n),
-                    None => {
-                        if cpu_unbound {
-                            BindCPU::UnboundCPU
-                        } else {
-                            BindCPU::RandomCPU
+                bind_cpu: {
+                    if bind_to_cpu.is_some() && cpu_unbound {
+                        log!(LogWarn, "--bind-to-cpu and --cpu-unbound are contradictory. Giving preference to --bind-to-cpu");
+                    }
+                    match bind_to_cpu {
+                        Some(n) => BindCPU::BindToCPU(n),
+                        None => {
+                            if cpu_unbound {
+                                BindCPU::UnboundCPU
+                            } else {
+                                BindCPU::RandomCPU
+                            }
                         }
                     }
                 },
                 always_switch,
-                chaos: chaos_mode,
+                chaos: {
+                    if chaos_mode {
+                        log!(LogInfo, "Enabled chaos mode");
+                    }
+                    chaos_mode
+                },
                 num_cores,
                 wait_for_all: wait,
                 ignore_nested: ignore_error,

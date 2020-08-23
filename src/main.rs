@@ -76,7 +76,11 @@ use crate::{
     perf_counters::init_pmu,
     util::raise_resource_limits,
 };
-use commands::{exit_result::ExitResult, replay_command::ReplayCommand};
+use commands::{
+    exit_result::ExitResult,
+    record_command::RecordCommand,
+    replay_command::ReplayCommand,
+};
 use nix::sys::utsname::uname;
 use structopt::StructOpt;
 
@@ -131,7 +135,7 @@ fn main() -> ExitResult<()> {
             return PsCommand::new(&options).run();
         }
         RdSubCommand::Record { .. } => {
-            return ReRunCommand::new(&options).run();
+            return RecordCommand::new(&options).run();
         }
         _ => (),
     }
