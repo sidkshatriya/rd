@@ -82,12 +82,17 @@ struct RecordCommand {
 
     /// The signal to use for syscallbuf desched events
     syscallbuf_desched_sig: Option<i32>,
+
+    // The exe and exe_args
+    args: Vec<OsString>,
 }
 
 impl RecordCommand {
     pub fn new(options: &RdOptions) -> RecordCommand {
         match options.cmd.clone() {
             RdSubCommand::Record {
+                exe,
+                exe_args,
                 force_syscall_buffer,
                 num_cpu_ticks,
                 disable_cpuid_features,
@@ -165,6 +170,12 @@ impl RecordCommand {
                 trace_id: Box::new(trace_id.unwrap_or(TraceUuid::generate_new())),
                 copy_preload_src,
                 syscallbuf_desched_sig: syscall_buffer_sig,
+                args: {
+                    let mut args = Vec::new();
+                    args.push(exe);
+                    args.extend(exe_args);
+                    args
+                },
             },
             _ => panic!("Unexpected RdSubCommand variant. Not a Record variant!"),
         }

@@ -114,6 +114,7 @@ impl ReplayCommand {
                 onfork,
                 goto_event,
                 debugger_option,
+                debugger_options,
                 onprocess,
                 fullname,
                 interpreter,
@@ -153,6 +154,7 @@ impl ReplayCommand {
                 if debugger_option.is_some() {
                     flags.gdb_options.push(debugger_option.unwrap());
                 }
+                flags.gdb_options.extend(debugger_options);
 
                 match onprocess {
                     None => (),

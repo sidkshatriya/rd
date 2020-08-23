@@ -312,8 +312,10 @@ pub enum RdSubCommand {
 
         /// Which directory is the trace data in? If omitted the latest trace dir is used
         trace_dir: Option<PathBuf>,
-        // @TODO There are extra debugger options also passed after a `--`
-        // Revisit.
+
+        /// Extra debugger options passed to the debugger after `--`
+        #[structopt(last = true, multiple = true)]
+        debugger_options: Vec<OsString>,
     },
 
     /// Record a trace
@@ -450,6 +452,15 @@ pub enum RdSubCommand {
         /// Copy preload sources to trace dir
         #[structopt(long = "copy-preload-src")]
         copy_preload_src: bool,
+
+        /// Program being recorded
+        exe: OsString,
+
+        /// Optional command line arguments passed to the program being recorded
+        /// Use a single `--` to prevent rd from confusing the command line switches being
+        /// passed to <exe> with command line switches meant for itself.
+        #[structopt(multiple = true)]
+        exe_args: Vec<OsString>,
     },
 
     /// 'rerun' is intended to be a more powerful form of `rd replay -a`. It does
