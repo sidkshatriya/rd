@@ -22,7 +22,7 @@ use crate::{
 };
 use libc::{prctl, PR_SET_DUMPABLE, SIGTERM, STDERR_FILENO};
 use nix::{
-    sys::signal::{kill, signal, SigHandler, Signal},
+    sys::signal::{kill, sigaction, signal, SaFlags, SigAction, SigHandler, SigSet, Signal},
     unistd::{geteuid, getpid, Uid},
 };
 use rand::random;
@@ -278,17 +278,31 @@ impl RecordCommand {
     }
 }
 
+/// DIFF NOTE: In rr the success of sigaction() is not checked. In rd, we do an unwrap().
 fn install_signal_handlers() {
-    unimplemented!()
+    let sa = SigAction::new(
+        SigHandler::Handler(handle_SIGTERM),
+        SaFlags::empty(),
+        SigSet::empty(),
+    );
+    unsafe { sigaction(Signal::SIGTERM, &sa) }.unwrap();
+
+    let sa = SigAction::new(SigHandler::SigIgn, SaFlags::empty(), SigSet::empty());
+    unsafe {
+        sigaction(Signal::SIGHUP, &sa).unwrap();
+        sigaction(Signal::SIGINT, &sa).unwrap();
+        sigaction(Signal::SIGABRT, &sa).unwrap();
+        sigaction(Signal::SIGQUIT, &sa).unwrap();
+    }
 }
 
 fn save_rd_git_revision<T: AsRef<OsStr>>(dir: T) {
-    let dir_os: &OsStr = dir.as_ref();
+    let _dir_os: &OsStr = dir.as_ref();
     unimplemented!()
 }
 
 fn copy_preload_sources_to_trace<T: AsRef<OsStr>>(dir: T) {
-    let dir_os: &OsStr = dir.as_ref();
+    let _dir_os: &OsStr = dir.as_ref();
     unimplemented!()
 }
 
@@ -401,7 +415,7 @@ fn reset_uid_sudo() {
 /// be called off the main thread.
 ///
 /// @TODO Is this method signal handler safe?
-/// @TODO Is it necessary to have extern "C" here?
+#[allow(non_snake_case)]
 extern "C" fn handle_SIGTERM(_sig: i32) {
     if TERM_REQUEST.load(Ordering::SeqCst) {
         // Don't use log!() here because we're in a signal handler. If we do anything
