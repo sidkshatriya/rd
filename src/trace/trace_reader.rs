@@ -597,10 +597,6 @@ impl TraceReader {
 
     /// Open the trace in 'dir'. When 'dir' is the `None`, open the
     /// latest trace.
-    ///
-    /// @TODO We are writing to stderr() in this method in various places and then exit() with
-    /// an error code. This is different from other places where we simply use fatal!(). Need to
-    /// review this again.
     pub fn new<T: AsRef<OsStr>>(maybe_dir: Option<&T>) -> TraceReader {
         let mut trace_stream = TraceStream::new(&resolve_trace_name(maybe_dir), 1);
 
@@ -726,9 +722,11 @@ impl TraceReader {
     pub fn cpuid_records(&self) -> &[CPUIDRecord] {
         &self.cpuid_records_
     }
+
     pub fn uses_cpuid_faulting(&self) -> bool {
         self.trace_uses_cpuid_faulting
     }
+
     pub fn xcr0(&self) -> u64 {
         if self.xcr0_ != 0 {
             return self.xcr0_;

@@ -37,69 +37,69 @@ use std::{
 
 /// DIFF NOTE: Many struct members are Option<> when compared to rr equivalents.
 pub struct RecordCommand {
-    extra_env: Vec<(OsString, OsString)>,
+    pub extra_env: Vec<(OsString, OsString)>,
 
     /// Max counter value before the scheduler interrupts a tracee. */
-    max_ticks: Ticks,
+    pub max_ticks: Ticks,
 
     /// Whenever `ignore_sig` is pending for a tracee, decline to deliver it.
-    ignore_sig: Option<i32>,
+    pub ignore_sig: Option<i32>,
 
     /// Whenever `continue_through_sig` is delivered to a tracee, if there is no
     /// user handler and the signal would terminate the program, just ignore it.
-    continue_through_sig: Option<i32>,
+    pub continue_through_sig: Option<i32>,
 
     /// Whether to use syscall buffering optimization during recording.
-    use_syscall_buffer: SyscallBuffering,
+    pub use_syscall_buffer: SyscallBuffering,
 
     /// If Some(_), the desired syscall buffer size in bytes. Must be a multiple of the page size.
-    syscall_buffer_size: Option<usize>,
+    pub syscall_buffer_size: Option<usize>,
 
     /// CPUID features to disable
-    disable_cpuid_features: DisableCPUIDFeatures,
+    pub disable_cpuid_features: DisableCPUIDFeatures,
 
-    print_trace_dir_fd: Option<i32>,
+    pub print_trace_dir_fd: Option<i32>,
 
-    output_trace_dir: Option<OsString>,
+    pub output_trace_dir: Option<OsString>,
 
     /// Whether to use file-cloning optimization during recording.
-    use_file_cloning: bool,
+    pub use_file_cloning: bool,
 
     /// Whether to use read-cloning optimization during recording.
-    use_read_cloning: bool,
+    pub use_read_cloning: bool,
 
     /// Whether tracee processes in record and replay are allowed to run on any logical CPU.
-    bind_cpu: BindCPU,
+    pub bind_cpu: BindCPU,
 
     /// True if we should context switch after every rd event
-    always_switch: bool,
+    pub always_switch: bool,
 
     /// Whether to enable chaos mode in the scheduler
-    chaos: bool,
+    pub chaos: bool,
 
     /// Controls number of cores reported to recorded process.
-    num_cores: Option<u32>,
+    pub num_cores: Option<u32>,
 
     /// True if we should wait for all processes to exit before finishing recording.
-    wait_for_all: bool,
+    pub wait_for_all: bool,
 
     /// Start child process directly if run under nested rr recording
-    ignore_nested: bool,
+    pub ignore_nested: bool,
 
-    scarce_fds: bool,
+    pub scarce_fds: bool,
 
-    setuid_sudo: bool,
+    pub setuid_sudo: bool,
 
-    trace_id: Box<TraceUuid>,
+    pub trace_id: Box<TraceUuid>,
 
     /// Copy preload sources to trace dir
-    copy_preload_src: bool,
+    pub copy_preload_src: bool,
 
     /// The signal to use for syscallbuf desched events
-    syscallbuf_desched_sig: Option<i32>,
+    pub syscallbuf_desched_sig: Option<i32>,
 
     // The exe and exe_args
-    args: Vec<OsString>,
+    pub args: Vec<OsString>,
 }
 
 /// This can be called during debugging to close the trace so it can be used

@@ -2,8 +2,17 @@ use super::{session_common::kill_all_tasks, SessionSharedPtr};
 use crate::{
     commands::record_command::RecordCommand,
     event::Switchable,
-    kernel_abi::SupportedArch,
+    kernel_abi::{
+        common::preload_interface::{
+            SYSCALLBUF_ENABLED_ENV_VAR,
+            SYSCALLBUF_LIB_FILENAME,
+            SYSCALLBUF_LIB_FILENAME_PADDED,
+        },
+        SupportedArch,
+    },
+    log::{LogDebug, LogError},
     scheduler::Scheduler,
+    scoped_fd::ScopedFd,
     seccomp_filter_rewriter::SeccompFilterRewriter,
     session::{
         session_inner::session_inner::SessionInner,
@@ -17,10 +26,14 @@ use crate::{
     wait_status::WaitStatus,
 };
 use libc::pid_t;
+use nix::{fcntl::OFlag, unistd::read};
 use std::{
     cell::{Ref, RefCell, RefMut},
-    ffi::OsString,
+    convert::AsRef,
+    env,
+    ffi::{OsStr, OsString},
     ops::{Deref, DerefMut},
+    os::unix::ffi::OsStrExt,
 };
 
 const CPUID_RDRAND_FLAG: u32 = 1 << 30;
@@ -208,7 +221,65 @@ impl RecordSession {
 
     /// DIFF NOTE: Param list very different from rr.
     /// Takes the whole &RecordCommand for simplicity.
-    pub fn create(_options: &RecordCommand) -> SessionSharedPtr {
+    pub fn create(options: &RecordCommand) -> SessionSharedPtr {
+        // The syscallbuf library interposes some critical
+        // external symbols like XShmQueryExtension(), so we
+        // preload it whether or not syscallbuf is enabled. Indicate here whether
+        // syscallbuf is enabled.
+        if options.use_syscall_buffer == SyscallBuffering::DisableSyscallBuf {
+            env::remove_var(SYSCALLBUF_ENABLED_ENV_VAR);
+        } else {
+            env::set_var(SYSCALLBUF_ENABLED_ENV_VAR, "1");
+            check_perf_event_paranoid();
+        }
+
+        let mut env: Vec<(OsString, OsString)> = env::vars_os().collect();
+        env.extend_from_slice(&options.extra_env);
+
+        let full_path = lookup_by_path(&options.args[0]);
+        let exe_info: ExeInfo = read_exe_info(&full_path);
+
+        // LD_PRELOAD the syscall interception lib
+        let syscall_buffer_lib_path = find_helper_library(SYSCALLBUF_LIB_FILENAME);
+        if !syscall_buffer_lib_path.is_empty() {
+            let mut ld_preload = Vec::<u8>::new();
+            match &exe_info.libasan_path {
+                Some(libasan_path) => {
+                    log!(LogDebug, "Prepending {:?} to LD_PRELOAD", libasan_path);
+                    // Put an LD_PRELOAD entry for it before our preload library, because
+                    // it checks that it's loaded first
+                    ld_preload.extend_from_slice(libasan_path.as_bytes());
+                    ld_preload.push(b':');
+                }
+                None => (),
+            }
+
+            ld_preload.extend_from_slice(syscall_buffer_lib_path.as_bytes());
+            ld_preload.extend_from_slice(SYSCALLBUF_LIB_FILENAME_PADDED.as_bytes());
+            inject_ld_helper_library(&mut env, &OsStr::new("LD_PRELOAD"), ld_preload);
+        }
+
+        env.push(("RUNNING_UNDER_RD".into(), "1".into()));
+        // Stop Mesa using the GPU
+        env.push(("LIBGL_ALWAYS_SOFTWARE".into(), "1".into()));
+        // Stop sssd from using shared-memory with its daemon
+        env.push(("SSS_NSS_USE_MEMCACHE".into(), "NO".into()));
+
+        // Disable Gecko's "wait for gdb to attach on process crash" behavior, since
+        // it is useless when running under rr.
+        env.push(("MOZ_GDB_SLEEP".into(), "0".into()));
+
+        // If we have CPUID faulting, don't use these environment hacks. We don't
+        // need them and the user might want to use them themselves for other reasons.
+        if !SessionInner::has_cpuid_faulting() {
+            // OpenSSL uses RDRAND, but we can disable it. These bitmasks are inverted
+            // and ANDed with the results of CPUID. The number below is 2^62, which is the
+            // bit for RDRAND support.
+            env.push(("OPENSSL_ia32cap".into(), "~4611686018427387904:~0".into()));
+            // Disable Qt's use of RDRAND/RDSEED/RTM
+            env.push(("QT_NO_CPU_FEATURE".into(), "rdrand rdseed rtm".into()));
+        }
+
         unimplemented!()
     }
 
@@ -283,4 +354,73 @@ impl Session for RecordSession {
     fn on_create(&self, _t: TaskSharedPtr) {
         unimplemented!()
     }
+}
+
+fn check_perf_event_paranoid() {
+    let fd = ScopedFd::open_path("/proc/sys/kernel/perf_event_paranoid", OFlag::O_RDONLY);
+    if fd.is_open() {
+        let mut buf = [0u8; 100];
+        match read(fd.as_raw(), &mut buf) {
+            Ok(siz) if siz != 0 => {
+                let int_str = String::from_utf8_lossy(&buf[0..siz]);
+                let maybe_val = int_str.trim().parse::<usize>();
+                match maybe_val {
+                    Ok(val) if val > 1 => {
+                        clean_fatal!("rd needs `/proc/sys/kernel/perf_event_paranoid` <= 1, but it is {}.\n\
+                                      Change it to 1, or use 'rd record -n' (slow).\n\
+                                      Consider putting 'kernel.perf_event_paranoid = 1' in /etc/sysctl.conf", val);
+                    }
+                    Err(e) => {
+                        clean_fatal!(
+                            "Error while parsing file `/proc/sys/kernel/perf_event_paranoid`: {:?}",
+                            e
+                        );
+                    }
+                    _ => (),
+                }
+            }
+            // @TODO This should actually be just Ok(0) but Rust doesn't accept it and says
+            // patterns are not exhaustive.
+            Ok(_) => {
+                clean_fatal!(
+                    "Read 0 bytes from `/proc/sys/kernel/perf_event_paranoid`.\n\
+                             Need to read non-zero number of bytes."
+                );
+            }
+            Err(e) => {
+                clean_fatal!(
+                    "Error while reading file `/proc/sys/kernel/perf_event_paranoid`: {:?}",
+                    e
+                );
+            }
+        }
+    } else {
+        log!(
+            LogError,
+            "Could not open `/proc/sys/kernel/perf_event_paranoid`. Continuing anyway."
+        );
+    }
+}
+
+fn find_helper_library<T: AsRef<OsStr>>(_lib: T) -> OsString {
+    unimplemented!()
+}
+
+#[derive(Clone, Default)]
+struct ExeInfo {
+    /// None if anything fails
+    libasan_path: Option<OsString>,
+    has_asan_symbols: bool,
+}
+
+fn read_exe_info<T: AsRef<OsStr>>(_full_path: T) -> ExeInfo {
+    unimplemented!()
+}
+
+fn lookup_by_path<T: AsRef<OsStr>>(_args: T) -> OsString {
+    unimplemented!()
+}
+
+fn inject_ld_helper_library(_env: &mut Vec<(OsString, OsString)>, _name: &OsStr, _value: Vec<u8>) {
+    unimplemented!()
 }
