@@ -1,5 +1,6 @@
-use super::session_common::kill_all_tasks;
+use super::{session_common::kill_all_tasks, SessionSharedPtr};
 use crate::{
+    commands::record_command::RecordCommand,
     event::Switchable,
     kernel_abi::SupportedArch,
     scheduler::Scheduler,
@@ -13,6 +14,7 @@ use crate::{
     thread_group::ThreadGroupSharedPtr,
     trace::{trace_stream::TraceStream, trace_writer::TraceWriter},
     util::{good_random, CPUIDData, CPUID_GETEXTENDEDFEATURES, CPUID_GETFEATURES, CPUID_GETXSAVE},
+    wait_status::WaitStatus,
 };
 use libc::pid_t;
 use std::{
@@ -128,9 +130,21 @@ impl TraceUuid {
     }
 }
 
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub enum SyscallBuffering {
     EnableSycallBuf,
     DisableSyscallBuf,
+}
+
+/// DIFF NOTE: Subsumes RecordResult and RecordStatus from rr
+#[derive(Clone, Eq, PartialEq)]
+pub enum RecordResult {
+    /// Some execution was recorded. record_step() can be called again.
+    StepContinue,
+    /// All tracees are dead. record_step() should not be called again.
+    StepExited(WaitStatus),
+    /// Spawning the initial tracee failed. The OsString represents the error message.
+    StepSpawnFailed(OsString),
 }
 
 pub struct RecordSession {
@@ -166,9 +180,42 @@ impl Drop for RecordSession {
 }
 
 impl RecordSession {
+    pub fn trace_writer(&self) -> &TraceWriter {
+        &self.trace_out
+    }
+
+    pub fn trace_writer_mut(&mut self) -> &mut TraceWriter {
+        &mut self.trace_out
+    }
+
+    /// Record some tracee execution.
+    /// This may block. If blocking is interrupted by a signal, will return
+    /// StepContinue.
+    /// Typically you'd call this in a loop until it returns something other than
+    /// StepContinue.
+    /// Note that when this returns, some tasks may be running (not in a ptrace-
+    /// stop). In particular, up to one task may be executing user code and any
+    /// number of tasks may be blocked in syscalls.
+    pub fn record_step(&self) -> RecordResult {
+        unimplemented!()
+    }
+
+    /// Flush buffers and write a termination record to the trace. Don't call
+    /// record_step() after this.
+    pub fn terminate_recording(&self) {
+        unimplemented!()
+    }
+
+    /// DIFF NOTE: Param list very different from rr.
+    /// Takes the whole &RecordCommand for simplicity.
+    pub fn create(_options: &RecordCommand) -> SessionSharedPtr {
+        unimplemented!()
+    }
+
     pub fn scheduler(&self) -> Ref<'_, Scheduler> {
         self.scheduler_.borrow()
     }
+
     pub fn scheduler_mut(&self) -> RefMut<'_, Scheduler> {
         self.scheduler_.borrow_mut()
     }

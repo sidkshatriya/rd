@@ -138,6 +138,17 @@ fn main() {
         .write_to_file(path.join("fcntl_bindings_generated.rs"))
         .unwrap();
 
+    let sysexits_bindings = Builder::default()
+        .parse_callbacks(Box::new(CargoCallbacks))
+        .prepend_enum_name(false)
+        .header("bindgen/sysexits_wrapper.h")
+        .generate()
+        .unwrap();
+
+    sysexits_bindings
+        .write_to_file(path.join("sysexits_bindings_generated.rs"))
+        .unwrap();
+
     let prctl_bindings = Builder::default()
         .parse_callbacks(Box::new(CargoCallbacks))
         .prepend_enum_name(false)

@@ -1,25 +1,39 @@
 use super::exit_result::ExitResult;
 use crate::{
     assert_prerequisites,
+    bindings::sysexits::EX_UNAVAILABLE,
     commands::{
         rd_options::{RdOptions, RdSubCommand},
         RdCommand,
     },
     kernel_metadata::signal_name,
-    log::{LogInfo, LogWarn},
+    log::{notifying_abort, LogInfo, LogWarn},
     scheduler::TicksHowMany,
-    session::record_session::{DisableCPUIDFeatures, SyscallBuffering, TraceUuid},
+    session::record_session::{
+        DisableCPUIDFeatures,
+        RecordResult,
+        RecordSession,
+        SyscallBuffering,
+        TraceUuid,
+    },
     ticks::Ticks,
-    util::{check_for_leaks, page_size, running_under_rd, BindCPU},
+    util::{check_for_leaks, page_size, running_under_rd, write_all, BindCPU},
     wait_status::{WaitStatus, WaitType},
 };
-use libc::{prctl, PR_SET_DUMPABLE};
+use libc::{prctl, PR_SET_DUMPABLE, SIGTERM, STDERR_FILENO};
 use nix::{
     sys::signal::{kill, signal, SigHandler, Signal},
     unistd::{geteuid, getpid, Uid},
 };
 use rand::random;
-use std::{convert::TryFrom, env::var_os, ffi::OsString, io, os::unix::ffi::OsStringExt};
+use std::{
+    convert::TryFrom,
+    env::var_os,
+    ffi::{OsStr, OsString},
+    io,
+    os::unix::ffi::{OsStrExt, OsStringExt},
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 /// DIFF NOTE: Many struct members are Option<> when compared to rr equivalents.
 pub struct RecordCommand {
@@ -87,6 +101,14 @@ pub struct RecordCommand {
     // The exe and exe_args
     args: Vec<OsString>,
 }
+
+/// This can be called during debugging to close the trace so it can be used
+/// later.
+pub fn force_close_record_session() {
+    unimplemented!()
+}
+
+static TERM_REQUEST: AtomicBool = AtomicBool::new(false);
 
 impl RecordCommand {
     pub fn new(options: &RdOptions) -> RecordCommand {
@@ -201,8 +223,73 @@ impl RecordCommand {
     }
 
     fn record(&self) -> WaitStatus {
-        unimplemented!()
+        log!(LogInfo, "Start recording...");
+
+        let session = RecordSession::create(self);
+        let rec_session = session.as_record_mut().unwrap();
+
+        match self.print_trace_dir_fd {
+            Some(fd) => {
+                let dir = rec_session.trace_writer().dir().as_bytes();
+                write_all(fd, dir);
+                write_all(fd, b"\n");
+            }
+            None => (),
+        }
+
+        if self.copy_preload_src {
+            let dir = rec_session.trace_writer().dir();
+            copy_preload_sources_to_trace(dir);
+            save_rd_git_revision(dir);
+        }
+
+        // Install signal handlers after creating the session, to ensure they're not
+        // inherited by the tracee.
+        install_signal_handlers();
+
+        let mut step_result: RecordResult;
+        loop {
+            let done_initial_exec = rec_session.done_initial_exec();
+            step_result = rec_session.record_step();
+            if !done_initial_exec && rec_session.done_initial_exec() {
+                rec_session.trace_writer().make_latest_trace();
+            }
+            if step_result != RecordResult::StepContinue || TERM_REQUEST.load(Ordering::SeqCst) {
+                break;
+            }
+        }
+
+        rec_session.terminate_recording();
+
+        match step_result {
+            RecordResult::StepContinue => {
+                // SIGTERM interrupted us.
+                return WaitStatus::for_fatal_sig(SIGTERM);
+            }
+            RecordResult::StepExited(wait_status) => {
+                return wait_status;
+            }
+
+            RecordResult::StepSpawnFailed(message) => {
+                eprintln!("\n{:?}", message);
+                return WaitStatus::for_exit_code(EX_UNAVAILABLE as i32);
+            }
+        }
     }
+}
+
+fn install_signal_handlers() {
+    unimplemented!()
+}
+
+fn save_rd_git_revision<T: AsRef<OsStr>>(dir: T) {
+    let dir_os: &OsStr = dir.as_ref();
+    unimplemented!()
+}
+
+fn copy_preload_sources_to_trace<T: AsRef<OsStr>>(dir: T) {
+    let dir_os: &OsStr = dir.as_ref();
+    unimplemented!()
 }
 
 impl RdCommand for RecordCommand {
@@ -302,4 +389,26 @@ impl RdCommand for RecordCommand {
 
 fn reset_uid_sudo() {
     unimplemented!()
+}
+
+/// A terminating signal was received.  Set the `TERM_REQUEST` bit to
+/// terminate the trace at the next convenient point.
+///
+/// If there's already a term request pending, then assume rd is wedged
+/// and abort.
+///
+/// Note that this is not only called in a signal handler but it could
+/// be called off the main thread.
+///
+/// @TODO Is this method signal handler safe?
+/// @TODO Is it necessary to have extern "C" here?
+extern "C" fn handle_SIGTERM(_sig: i32) {
+    if TERM_REQUEST.load(Ordering::SeqCst) {
+        // Don't use log!() here because we're in a signal handler. If we do anything
+        // that could allocate, we could deadlock.
+        let msg = b"Received SIGTERM while an earlier one was pending.  We're probably wedged.\n";
+        write_all(STDERR_FILENO, msg);
+        notifying_abort(backtrace::Backtrace::new());
+    }
+    TERM_REQUEST.store(true, Ordering::SeqCst);
 }
