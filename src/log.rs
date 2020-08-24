@@ -337,11 +337,9 @@ macro_rules! fatal {
 /// Output to stderr always. No backtrace -- simply exit.
 macro_rules! clean_fatal {
     ($($args:tt)+) => {
-        use std::io::Write;
         use std::io::stderr;
         crate::log::write_prefix(&mut stderr(), crate::log::LogLevel::LogFatal, file!(), line!(), module_path!());
-        write!(stderr(), $($args)+).unwrap();
-        write!(stderr(), "\n").unwrap();
+        eprintln!($($args)+);
         std::process::exit(1);
     };
 }
@@ -355,12 +353,12 @@ pub fn notifying_abort(bt: Backtrace) {
 
 /// Write the backtrace to stderr.
 fn dump_rd_stack(bt: Backtrace) {
-    write!(io::stderr(), "=== Start rd backtrace:\n").unwrap();
-    write!(io::stderr(), "{:?}", bt).unwrap();
-    write!(io::stderr(), "=== End rd backtrace\n").unwrap();
+    eprintln!("=== Start rd backtrace:");
+    eprintln!("{:?}", bt);
+    eprintln!("=== End rd backtrace");
 }
 
-// If asserting fails, start an emergency debug session
+/// If asserting fails, start an emergency debug session
 macro_rules! ed_assert {
     ($task:expr, $cond:expr) => {
         {
