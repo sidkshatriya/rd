@@ -1,5 +1,5 @@
 use crate::{
-    bindings::signal::siginfo_t,
+    bindings::{signal::siginfo_t, sysexits::EX_DATAERR},
     event::{
         Event,
         EventType,
@@ -629,18 +629,14 @@ impl TraceReader {
             } else {
                 eprintln!("\nrd: Trace file `{:?}' not readable.\n", path);
             }
-            // @TODO Check if logging flush etc. works as intended
-            // @TODO EX_DATAERR = 65
-            exit(65);
+            exit(EX_DATAERR as i32);
         }
         let mut version_str = String::new();
         let mut buf_reader = BufReader::new(version_file.unwrap());
         let res = buf_reader.read_line(&mut version_str);
         if res.is_err() {
             eprintln!("Could not read from the version file `{:?}'", path);
-            // @TODO Check if logging flush etc. works as intended
-            // @TODO EX_DATAERR = 65
-            exit(65);
+            exit(EX_DATAERR as i32);
         }
 
         let maybe_version = version_str.trim().parse::<u32>();
@@ -661,9 +657,7 @@ impl TraceReader {
                  your trace is likely corrupted.\n",
                 path, version, TRACE_VERSION, path, path
             );
-            // @TODO Check if logging flush etc. works as intended
-            // @TODO EX_DATAERR = 65
-            exit(65);
+            exit(EX_DATAERR as i32);
         }
 
         let res = read_message(&mut buf_reader, ReaderOptions::new());
@@ -686,7 +680,7 @@ impl TraceReader {
             unreachable!()
         };
         let trace_uses_cpuid_faulting = header.get_has_cpuid_faulting();
-        // @TODO Are we sure we an unwrap here?
+        // @TODO Are we sure we want an unwrap here?
         let cpuid_records_bytes = header.get_cpuid_records().unwrap();
         let len = cpuid_records_bytes.len() / size_of::<CPUIDRecord>();
         if cpuid_records_bytes.len() != len * size_of::<CPUIDRecord>() {
