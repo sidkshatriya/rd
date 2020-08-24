@@ -17,7 +17,7 @@ struct LogModule {
     level: LogLevel,
 }
 
-#[derive(Copy, Clone, Eq, PartialEq, PartialOrd)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug)]
 pub enum LogLevel {
     LogFatal,
     LogError,
@@ -78,7 +78,7 @@ lazy_static! {
         let (default_level, level_map) = match env::var("RD_LOG") {
             Ok(rd_log) => init_log_levels(&rd_log),
             // Ignore Err(_). @TODO change behavior?
-            Err(_) => (LogError, HashMap::new())
+            Err(_) => (LogWarn, HashMap::new())
         };
 
         Mutex::new(LogGlobals {
