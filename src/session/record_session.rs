@@ -22,18 +22,29 @@ use crate::{
     taskish_uid::TaskUid,
     thread_group::ThreadGroupSharedPtr,
     trace::{trace_stream::TraceStream, trace_writer::TraceWriter},
-    util::{good_random, CPUIDData, CPUID_GETEXTENDEDFEATURES, CPUID_GETFEATURES, CPUID_GETXSAVE},
+    util::{
+        find,
+        good_random,
+        CPUIDData,
+        CPUID_GETEXTENDEDFEATURES,
+        CPUID_GETFEATURES,
+        CPUID_GETXSAVE,
+    },
     wait_status::WaitStatus,
 };
-use libc::pid_t;
-use nix::{fcntl::OFlag, unistd::read};
+use libc::{pid_t, S_IFREG};
+use nix::{
+    fcntl::OFlag,
+    sys::stat::stat,
+    unistd::{access, read, AccessFlags},
+};
 use std::{
     cell::{Ref, RefCell, RefMut},
     convert::AsRef,
     env,
     ffi::{OsStr, OsString},
     ops::{Deref, DerefMut},
-    os::unix::ffi::OsStrExt,
+    os::unix::ffi::{OsStrExt, OsStringExt},
 };
 
 const CPUID_RDRAND_FLAG: u32 = 1 << 30;
@@ -417,8 +428,36 @@ fn read_exe_info<T: AsRef<OsStr>>(_full_path: T) -> ExeInfo {
     unimplemented!()
 }
 
-fn lookup_by_path<T: AsRef<OsStr>>(_args: T) -> OsString {
-    unimplemented!()
+fn lookup_by_path<T: AsRef<OsStr>>(file: T) -> OsString {
+    let file_ostr = file.as_ref();
+    if find(file_ostr.as_bytes(), b"/").is_none() {
+        return file_ostr.to_owned();
+    }
+    match env::var_os("PATH") {
+        Some(path) => {
+            let path_vec = path.into_vec();
+            let dirs = path_vec.split(|&c| c == b':');
+            for dir in dirs {
+                let mut full_path = Vec::<u8>::new();
+                full_path.extend_from_slice(dir);
+                full_path.push(b'/');
+                full_path.extend_from_slice(file_ostr.as_bytes());
+
+                match stat(full_path.as_slice()) {
+                    Ok(st) if st.st_mode & S_IFREG == S_IFREG => {
+                        if access(full_path.as_slice(), AccessFlags::X_OK).is_ok() {
+                            return OsString::from_vec(full_path);
+                        } else {
+                            continue;
+                        }
+                    }
+                    _ => continue,
+                }
+            }
+            file_ostr.to_owned()
+        }
+        None => file_ostr.to_owned(),
+    }
 }
 
 fn inject_ld_helper_library(_env: &mut Vec<(OsString, OsString)>, _name: &OsStr, _value: Vec<u8>) {
