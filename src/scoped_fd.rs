@@ -4,7 +4,12 @@ use nix::{
     unistd::close,
     NixPath,
 };
-use std::{cell::RefCell, os::unix::io::RawFd, rc::Rc};
+use std::{
+    cell::RefCell,
+    fmt::{self, Display, Formatter},
+    os::unix::io::RawFd,
+    rc::Rc,
+};
 
 pub type ScopedFdSharedPtr = Rc<RefCell<ScopedFd>>;
 
@@ -73,5 +78,11 @@ impl ScopedFd {
 impl Drop for ScopedFd {
     fn drop(&mut self) {
         self.close()
+    }
+}
+
+impl Display for ScopedFd {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.fd)
     }
 }

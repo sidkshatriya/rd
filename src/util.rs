@@ -536,9 +536,9 @@ pub fn ensure_dir(dir: &OsStr, dir_type: &str, mode: Mode) {
     }
 
     let st: FileStat = match stat(d) {
-        Err(_) => {
+        Err(e) => {
             if errno() != libc::ENOENT {
-                fatal!("Error accessing {} {:?}", dir_type, dir);
+                fatal!("Error accessing {} {:?}: {:?}", dir_type, dir, e);
             }
 
             let last_slash = d.iter().enumerate().rfind(|c| *c.1 == b'/');
@@ -557,8 +557,8 @@ pub fn ensure_dir(dir: &OsStr, dir_type: &str, mode: Mode) {
             }
 
             match stat(d) {
-                Err(_) => {
-                    fatal!("Can't stat {} {:?}", dir_type, dir);
+                Err(e) => {
+                    fatal!("Can't stat {} {:?}: {:?}", dir_type, dir, e);
                 }
                 Ok(st) => st,
             }
@@ -822,7 +822,8 @@ pub fn write_all(fd: i32, mut buf: &[u8]) {
     while size > 0 {
         let ret = write(fd, buf);
         match ret {
-            Err(_) | Ok(0) => fatal!("Can't write {} bytes", size),
+            Err(e) => fatal!("Can't write {} bytes to fd {}: {:?}", size, fd, e),
+            Ok(0) => fatal!("Can't write {} bytes to fd {}", size, fd),
             Ok(nwritten) => {
                 buf = &buf[nwritten..];
                 size -= nwritten;
@@ -838,13 +839,13 @@ pub fn all_cpuid_records() -> Vec<CPUIDRecord> {
 pub fn probably_not_interactive(maybe_fd: Option<i32>) -> bool {
     let fd = maybe_fd.unwrap_or(STDERR_FILENO);
     // Eminently tunable heuristic, but this is guaranteed to be
-    // true during rr unit tests, where we care most about this
+    // true during unit tests, where we care most about this
     // check (to a first degree).  A failing test shouldn't
     // hang.
     match isatty(fd) {
         Ok(res) => !res,
-        Err(_) => {
-            fatal!("Failure in calling isatty()");
+        Err(e) => {
+            fatal!("Failure in calling isatty() on fd {}: {:?}", fd, e);
         }
     }
 }
@@ -898,11 +899,10 @@ pub fn dir_exists<P: ?Sized + NixPath>(dir: &P) -> bool {
 
 pub fn real_path(path: &OsStr) -> OsString {
     // @TODO does canonicalize do what realpath does exactly?
-    Path::new(&path)
-        .canonicalize()
-        .expect(&format!("Could not retrieve path {:?}", path))
-        .as_os_str()
-        .to_os_string()
+    match Path::new(&path).canonicalize() {
+        Ok(p) => p.as_os_str().to_os_string(),
+        Err(e) => fatal!("Could not retreive path {:?}: {:?}", path, e),
+    }
 }
 
 pub fn resource_path() -> &'static OsStr {

@@ -152,8 +152,8 @@ fn retrieve_offset_arch<Arch: Architecture>(
         let fdinfo_path = format!("/proc/{}/fdinfo/{}", t.tid, fd);
         let result = File::open(&fdinfo_path);
         let mut f = match result {
-            Err(_) => {
-                fatal!("Failed to open {}", fdinfo_path);
+            Err(e) => {
+                fatal!("Failed to open `{}': {:?}", fdinfo_path, e);
             }
             Ok(file) => BufReader::new(file),
         };
@@ -177,11 +177,15 @@ fn retrieve_offset_arch<Arch: Architecture>(
             let loc = maybe_loc.unwrap() + 5;
             // @TODO This is tricky. Are we sure that a negative offset won't appear in
             // /proc/{}/fdinfo/{} ?
-            maybe_offset = Some(
-                s[loc..]
-                    .parse::<u64>()
-                    .expect("Unable to parse file offset"),
-            );
+            let maybe_res = s[loc..].parse::<u64>();
+            match maybe_res {
+                Ok(res) => maybe_offset = Some(res),
+                Err(e) => fatal!(
+                    "Unable to parse file offset from `{}': {:?}",
+                    fdinfo_path,
+                    e
+                ),
+            }
         }
 
         if maybe_offset.is_none() {

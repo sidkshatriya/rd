@@ -70,8 +70,8 @@ impl KernelMapIterator {
         let maps_path = format!("/proc/{}/maps", tid);
         let result = File::open(&maps_path);
         match result {
-            Err(_) => {
-                fatal!("Failed to open {}", maps_path);
+            Err(e) => {
+                fatal!("Failed to open {}: {:?}", maps_path, e);
             }
             Ok(file) => BufReader::new(file),
         }

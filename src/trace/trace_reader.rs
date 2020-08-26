@@ -605,61 +605,74 @@ impl TraceReader {
         }
 
         let path = trace_stream.version_path();
-        let version_file = File::open(&path);
-        if version_file.is_err() {
-            if errno() == libc::ENOENT {
-                let incomplete_path = trace_stream.incomplete_version_path();
-                if access(incomplete_path.as_os_str(), AccessFlags::F_OK).is_ok() {
-                    eprintln!(
-                        "\nrd: Trace file `{:?}' found.\n\
-                         rd recording terminated abnormally and the trace is incomplete.\n",
-                        incomplete_path
-                    );
+        let version_file: File;
+        match File::open(&path) {
+            Err(e) => {
+                if errno() == libc::ENOENT {
+                    let incomplete_path = trace_stream.incomplete_version_path();
+                    if access(incomplete_path.as_os_str(), AccessFlags::F_OK).is_ok() {
+                        eprintln!(
+                            "\nrd: Trace file {:?} found.\n\
+                             rd recording terminated abnormally and the trace is incomplete: {:?}.\n",
+                            incomplete_path, e
+                        );
+                    } else {
+                        eprintln!(
+                            "\nrd: Trace file {:?} not found. There is no trace there: {:?}.\n",
+                            path, e
+                        );
+                    }
                 } else {
-                    eprintln!(
-                        "\nrd: Trace file `{:?}' not found. There is no trace there.\n",
-                        path
-                    );
+                    eprintln!("\nrd: Trace file {:?} not readable: {:?}\n", path, e);
                 }
-            } else {
-                eprintln!("\nrd: Trace file `{:?}' not readable.\n", path);
+                exit(EX_DATAERR as i32);
             }
-            exit(EX_DATAERR as i32);
+            Ok(f) => version_file = f,
         }
         let mut version_str = String::new();
-        let mut buf_reader = BufReader::new(version_file.unwrap());
+        let mut buf_reader = BufReader::new(version_file);
         let res = buf_reader.read_line(&mut version_str);
-        if res.is_err() {
-            eprintln!("Could not read from the version file `{:?}'", path);
-            exit(EX_DATAERR as i32);
+        match res {
+            Err(e) => {
+                eprintln!("Could not read from the version file {:?}: {:?}", path, e);
+                exit(EX_DATAERR as i32);
+            }
+            Ok(_) => (),
         }
 
         let maybe_version = version_str.trim().parse::<u32>();
         let version: u32;
         match maybe_version {
             Ok(ver) => version = ver,
-            Err(_) => {
-                fatal!("Could not successfully parse version file");
+            Err(e) => {
+                fatal!(
+                    "Could not successfully parse version file {:?}: {:?}",
+                    path,
+                    e
+                );
             }
         }
 
         if TRACE_VERSION != version {
             eprintln!(
-                "\nrd: error: Recorded trace `{:?}' has an incompatible version {}; expected\n\
-                 {}.  Did you record `{:?}' with an older version of rd?  If so,\n\
-                 you'll need to replay `{:?}' with that older version.  Otherwise,\n\
+                "\nrd: error: Recorded trace {:?} has an incompatible version {}; expected\n\
+                 {}.  Did you record {:?} with an older version of rd?  If so,\n\
+                 you'll need to replay {:?} with that older version.  Otherwise,\n\
                  your trace is likely corrupted.\n",
                 path, version, TRACE_VERSION, path, path
             );
             exit(EX_DATAERR as i32);
         }
 
-        let res = read_message(&mut buf_reader, ReaderOptions::new());
-        if res.is_err() {
-            fatal!("Could not read version file {:?}", path);
+        let maybe_res = read_message(&mut buf_reader, ReaderOptions::new());
+        let header_msg;
+        match maybe_res {
+            Ok(res) => header_msg = res,
+            Err(e) => {
+                fatal!("Could not read version file {:?}: {:?}", path, e);
+            }
         }
 
-        let header_msg = res.unwrap();
         let header = header_msg.get_root::<header::Reader>().unwrap();
         let bind_to_cpu = header.get_bind_to_cpu();
         debug_assert!(bind_to_cpu >= 0);

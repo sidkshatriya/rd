@@ -32,6 +32,7 @@ use crate::{
     },
     wait_status::WaitStatus,
 };
+use goblin::elf::Elf;
 use libc::{pid_t, S_IFREG};
 use nix::{
     fcntl::OFlag,
@@ -43,6 +44,7 @@ use std::{
     convert::AsRef,
     env,
     ffi::{OsStr, OsString},
+    fs,
     ops::{Deref, DerefMut},
     os::unix::ffi::{OsStrExt, OsStringExt},
 };
@@ -424,8 +426,18 @@ struct ExeInfo {
     has_asan_symbols: bool,
 }
 
-fn read_exe_info<T: AsRef<OsStr>>(_full_path: T) -> ExeInfo {
-    unimplemented!()
+fn read_exe_info<T: AsRef<OsStr>>(full_path: T) -> ExeInfo {
+    let maybe_data = fs::read(full_path.as_ref());
+
+    if maybe_data.is_err() {
+        fatal!("Error while reading {:?}", full_path.as_ref());
+    }
+
+    let data = maybe_data.unwrap();
+    match Elf::parse(&data) {
+        Err(e) => fatal!("Error while Elf parsing {:?}: {:?}", full_path.as_ref(), e),
+        Ok(_elf_file) => unimplemented!(),
+    }
 }
 
 fn lookup_by_path<T: AsRef<OsStr>>(file: T) -> OsString {

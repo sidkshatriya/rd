@@ -3274,7 +3274,7 @@ fn read_all(t: &dyn Task, fd: &ScopedFd) -> Vec<u8> {
             Ok(nread) => {
                 result.extend_from_slice(&buf[0..nread]);
             }
-            Err(_) => ed_assert!(t, false, "Error in performing read from file descriptor"),
+            Err(e) => ed_assert!(t, false, "Error in performing read from fd {}: {:?}", fd, e),
         }
     }
 }

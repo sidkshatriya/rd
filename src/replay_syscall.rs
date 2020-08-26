@@ -1870,8 +1870,8 @@ fn write_mapped_data(
             while size > 0 {
                 let to_read = min(size, buf.len());
                 match read(file.as_raw(), &mut buf[0..to_read]) {
-                    Err(_) => {
-                        fatal!("Can't read from trace file: {:?}", data.filename);
+                    Err(e) => {
+                        fatal!("Can't read from trace file: {:?}: {:?}", data.filename, e);
                     }
                     Ok(0) => {
                         break;
@@ -2042,8 +2042,8 @@ fn process_mremap(t: &mut ReplayTask, trace_regs: &Registers, step: &mut ReplayT
         None if new_size > old_size && !mapping.map.fsname().is_empty() => {
             let st: FileStat;
             match stat(mapping.map.fsname()) {
-                Err(_) => {
-                    fatal!("Can't stat {:?}", mapping.map.fsname());
+                Err(e) => {
+                    fatal!("Can't stat {:?}: {:?}", mapping.map.fsname(), e);
                 }
                 Ok(res) => st = res,
             }

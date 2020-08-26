@@ -39,14 +39,16 @@ struct LogGlobals {
 }
 
 /// @TODO Will this work in all situations?
-/// Is this what we want?
 extern "C" fn flush_log_buffer() {
     let mut maybe_log_lock = LOG_GLOBALS.lock();
     match &mut maybe_log_lock {
         Ok(lock) => {
             lock.log_file.flush().unwrap_or(());
         }
-        Err(_) => panic!("Could not obtain lock on rd log. Can't flush log buffer"),
+        Err(e) => panic!(
+            "Could not obtain lock on rd log. Can't flush log buffer: {:?}",
+            e
+        ),
     };
 }
 
@@ -77,7 +79,6 @@ lazy_static! {
 
         let (default_level, level_map) = match env::var("RD_LOG") {
             Ok(rd_log) => init_log_levels(&rd_log),
-            // Ignore Err(_). @TODO change behavior?
             Err(_) => (LogWarn, HashMap::new())
         };
 

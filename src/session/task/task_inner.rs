@@ -1680,10 +1680,10 @@ pub mod task_inner {
             );
             let sock: ScopedFd;
             match ret {
-                Result::Err(_) => {
-                    fatal!("socketpair() failed");
+                Err(e) => {
+                    fatal!("socketpair() failed: {:?}", e);
                 }
-                Result::Ok((fd0, fd1)) => {
+                Ok((fd0, fd1)) => {
                     *sock_fd_out.borrow_mut() = ScopedFd::from_raw(fd0);
                     sock = ScopedFd::from_raw(fd1);
                 }
