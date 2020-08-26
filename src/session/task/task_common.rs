@@ -256,7 +256,7 @@ pub(super) fn read_bytes_fallible<T: Task>(
 
     let mut all_read = 0;
     while all_read < buf.len() {
-        unsafe { Errno::clear() };
+        Errno::clear();
         let nread: isize = unsafe {
             pread64(
                 task.vm().mem_fd().as_raw(),
@@ -292,7 +292,7 @@ pub(super) fn read_bytes_fallible<T: Task>(
             if all_read > 0 {
                 // We did successfully read _some_ data, so return success and ignore
                 // any error.
-                unsafe { Errno::clear() };
+                Errno::clear();
                 return Ok(all_read);
             }
             return Err(());
@@ -478,9 +478,7 @@ pub(super) fn write_bytes_helper<T: Task>(
         return;
     }
 
-    unsafe {
-        Errno::clear();
-    }
+    Errno::clear();
     let nwritten_result = safe_pwrite64(task, buf, addr);
     // See comment in read_bytes_helper().
     if let Ok(0) = nwritten_result {

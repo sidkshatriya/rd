@@ -1033,7 +1033,7 @@ pub mod task_inner {
 
         /// @TODO should this be a GdbRegister type?
         pub fn set_debug_reg(&self, regno: usize, value: usize) -> bool {
-            unsafe { Errno::clear() };
+            Errno::clear();
             self.fallible_ptrace(
                 PTRACE_POKEUSER,
                 dr_user_word_offset(regno).into(),
@@ -1045,7 +1045,7 @@ pub mod task_inner {
         /// Set the thread area at index `idx` to desc and reflect this
         /// into the OS task. Returns 0 on success, errno otherwise.
         pub fn emulate_set_thread_area(&mut self, idx: u32, mut desc: user_desc) -> i32 {
-            unsafe { Errno::clear() };
+            Errno::clear();
             // @TODO Is the cast `idx as usize` what we want?
             self.fallible_ptrace(
                 PTRACE_SET_THREAD_AREA,
@@ -1247,7 +1247,7 @@ pub mod task_inner {
             addr: RemotePtr<Void>,
             data: PtraceData,
         ) -> bool {
-            unsafe { Errno::clear() };
+            Errno::clear();
             self.fallible_ptrace(request, addr, data);
             if errno() == ESRCH {
                 log!(LogDebug, "ptrace_if_alive tid {} was not alive", self.tid);
@@ -1462,7 +1462,7 @@ pub mod task_inner {
             addr: RemotePtr<Void>,
             data: PtraceData,
         ) {
-            unsafe { Errno::clear() };
+            Errno::clear();
             self.fallible_ptrace(request, addr, data);
             let errno = errno();
             ed_assert!(
@@ -1488,7 +1488,7 @@ pub mod task_inner {
             // ptrace operates on the word size of the host, so we really do want
             // to use sizes of host types here.
             let word_size = size_of::<isize>();
-            unsafe { Errno::clear() };
+            Errno::clear();
             // Only write aligned words. This ensures we can always read the last
             // byte before an unmapped region.
             let buf_size = buf.len();
@@ -1531,7 +1531,7 @@ pub mod task_inner {
             // ptrace operates on the word size of the host, so we really do want
             // to use sizes of host types here.
             let word_size = size_of::<isize>();
-            unsafe { Errno::clear() };
+            Errno::clear();
             // Only write aligned words. This ensures we can always write the last
             // byte before an unmapped region.
             let buf_size = buf.len();
