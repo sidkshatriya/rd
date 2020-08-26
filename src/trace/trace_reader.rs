@@ -508,7 +508,6 @@ impl TraceReader {
             raw_data
         } else {
             fatal!("Expected raw data, found none");
-            unreachable!()
         }
     }
 
@@ -641,7 +640,6 @@ impl TraceReader {
             Ok(ver) => version = ver,
             Err(_) => {
                 fatal!("Could not successfully parse version file");
-                unreachable!()
             }
         }
 
@@ -673,7 +671,6 @@ impl TraceReader {
             Some(bind_to_cpu as u32)
         } else {
             fatal!("Unexpected value of `{}` for bound cpu", bind_to_cpu);
-            unreachable!()
         };
         let trace_uses_cpuid_faulting = header.get_has_cpuid_faulting();
         // @TODO Are we sure we want an unwrap here?

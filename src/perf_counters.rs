@@ -556,7 +556,6 @@ fn read_counter(fd: &ScopedFd) -> u64 {
         // In rd we check the result for success unlike rr.
         _ => {
             fatal!("Could not read pert counter successfully");
-            unreachable!()
         }
     }
 }
@@ -1103,7 +1102,6 @@ impl PerfCounters {
             return TicksRetiredConditionalBranches;
         }
         fatal!("Unsupported architecture");
-        unreachable!()
     }
 
     /// When an interrupt is requested, at most this many ticks may elapse before

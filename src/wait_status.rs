@@ -74,8 +74,6 @@ impl WaitStatus {
         }
 
         fatal!("Status {:#x} not understood", self.status);
-
-        return WaitType::Exit;
     }
 
     /// What was the exit code of the process?

@@ -146,7 +146,6 @@ fn find_exit_code(pid: pid_t, events: &[TraceTaskEvent], current_tid_to_pid: &Ti
                     WaitType::FatalSignal => return (-status.fatal_sig().unwrap()).to_string(),
                     w => {
                         fatal!("Unexpected WaitType {:?}", w);
-                        unreachable!();
                     }
                 }
             }

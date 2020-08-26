@@ -380,7 +380,6 @@ pub mod session_inner {
                 }
                 Err(e) => {
                     fatal!("Unsuccessful call to pipe2: {}", e);
-                    unreachable!()
                 }
             }
         }

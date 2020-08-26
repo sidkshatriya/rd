@@ -188,7 +188,6 @@ pub fn default_action(sig: i32) -> SignalAction {
         libc::SIGWINCH => SignalAction::Ignore,
         _ => {
             fatal!("Unknown signal {}", sig);
-            unreachable!();
         }
     }
 }
@@ -539,7 +538,7 @@ pub fn ensure_dir(dir: &OsStr, dir_type: &str, mode: Mode) {
     let st: FileStat = match stat(d) {
         Err(_) => {
             if errno() != libc::ENOENT {
-                fatal!("Error accessing {} `{:?}'", dir_type, dir);
+                fatal!("Error accessing {} {:?}", dir_type, dir);
             }
 
             let last_slash = d.iter().enumerate().rfind(|c| *c.1 == b'/');
@@ -548,19 +547,18 @@ pub fn ensure_dir(dir: &OsStr, dir_type: &str, mode: Mode) {
                     ensure_dir(OsStr::from_bytes(&d[0..pos.0]), dir_type, mode);
                 }
                 _ => {
-                    fatal!("Can't find directory `{:?}'", dir);
+                    fatal!("Can't find directory {:?}", dir);
                 }
             }
 
             // Allow for a race condition where someone else creates the directory
             if mkdir(d, mode).is_err() && errno() != libc::EEXIST {
-                fatal!("Can't create {} `{:?}'", dir_type, dir);
+                fatal!("Can't create {} {:?}", dir_type, dir);
             }
 
             match stat(d) {
                 Err(_) => {
-                    fatal!("Can't stat {} `{:?}'", dir_type, dir);
-                    unreachable!()
+                    fatal!("Can't stat {} {:?}", dir_type, dir);
                 }
                 Ok(st) => st,
             }
@@ -847,7 +845,6 @@ pub fn probably_not_interactive(maybe_fd: Option<i32>) -> bool {
         Ok(res) => !res,
         Err(_) => {
             fatal!("Failure in calling isatty()");
-            unreachable!()
         }
     }
 }
@@ -1525,7 +1522,6 @@ pub fn cpuid_compatible(trace_records: &[CPUIDRecord]) -> bool {
     match maybe_trace_cpuid_data {
         None => {
             fatal!("GETFEATURES missing???");
-            unreachable!()
         }
         Some(trace_cpuid_data) => {
             let trace_cpu_type: u32 = trace_cpuid_data.out.eax & 0xF0FF0;

@@ -234,7 +234,6 @@ impl Registers {
                         val2 = rv.u32_into_x64(&regs2_x64) as u64;
                     } else {
                         fatal!("Unexpected register size: {}", rv.nbytes);
-                        unreachable!();
                     }
                 }
             }

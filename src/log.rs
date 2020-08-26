@@ -330,6 +330,7 @@ macro_rules! fatal {
                 write!(stream, $($args)+).unwrap();
             }
             crate::log::notifying_abort(backtrace::Backtrace::new());
+            unreachable!();
         }
     };
 }
@@ -346,6 +347,7 @@ macro_rules! clean_fatal {
 
 /// Dump the stacktrace and abort.
 pub fn notifying_abort(bt: Backtrace) {
+    flush_log_buffer();
     // @TODO running under test monitor stuff.
     dump_rd_stack(bt);
     std::process::abort();

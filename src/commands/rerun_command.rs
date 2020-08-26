@@ -142,7 +142,6 @@ fn seg_reg(regs: &Registers, index: u8) -> u64 {
         5 => regs.gs() as u64,
         _ => {
             fatal!("Unknown seg reg number: {}", index);
-            unreachable!();
         }
     }
 }

@@ -224,12 +224,10 @@ pub(super) fn make_trace_dir(exe_path: &OsStr, output_trace_dir: &OsStr) -> OsSt
         }
         if libc::EEXIST == errno() {
             // directory already exists
-            fatal!("Directory `{:?}' already exists.", output_trace_dir);
+            fatal!("Directory {:?} already exists.", output_trace_dir);
         } else {
-            fatal!("Unable to create trace directory `{:?}'", output_trace_dir);
+            fatal!("Unable to create trace directory {:?}", output_trace_dir);
         }
-
-        unreachable!()
     } else {
         // save trace dir set in _RD_TRACE_DIR/_RR_TRACE_DIR or in the default trace dir
         ensure_dir(

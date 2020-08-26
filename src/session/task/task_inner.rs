@@ -522,7 +522,6 @@ pub mod task_inner {
             8 => WatchBytesX86::Bytes8,
             _ => {
                 fatal!("Unsupported breakpoint size: {}", num_bytes);
-                unreachable!();
             }
         }
     }
@@ -1683,7 +1682,6 @@ pub mod task_inner {
             match ret {
                 Result::Err(_) => {
                     fatal!("socketpair() failed");
-                    unreachable!()
                 }
                 Result::Ok((fd0, fd1)) => {
                     *sock_fd_out.borrow_mut() = ScopedFd::from_raw(fd0);

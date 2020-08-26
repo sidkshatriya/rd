@@ -395,7 +395,6 @@ impl RdCommand for RecordCommand {
             }
             _ => {
                 fatal!("Don't know why we exited: WaitStatus is `{}`", status);
-                unreachable!();
             }
         }
     }

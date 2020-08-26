@@ -1872,7 +1872,6 @@ fn write_mapped_data(
                 match read(file.as_raw(), &mut buf[0..to_read]) {
                     Err(_) => {
                         fatal!("Can't read from trace file: {:?}", data.filename);
-                        unreachable!();
                     }
                     Ok(0) => {
                         break;
@@ -2045,7 +2044,6 @@ fn process_mremap(t: &mut ReplayTask, trace_regs: &Registers, step: &mut ReplayT
             match stat(mapping.map.fsname()) {
                 Err(_) => {
                     fatal!("Can't stat {:?}", mapping.map.fsname());
-                    unreachable!();
                 }
                 Ok(res) => st = res,
             }

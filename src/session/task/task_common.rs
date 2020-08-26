@@ -1328,7 +1328,6 @@ fn prname_from_exe_image(exe_image: &OsStr) -> &OsStr {
     let pos = match maybe_pos {
         Some(loc) if loc == len => {
             fatal!("empty prname?? {:?}", exe_image);
-            unreachable!();
         }
         Some(loc) => loc + 1,
         None => 0,

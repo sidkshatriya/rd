@@ -38,7 +38,6 @@ impl Iterator for KernelMapIterator {
             Some(Self::parse_rawline(&raw_line))
         } else {
             fatal!("Error in reading /proc/{}/maps", self.tid);
-            unreachable!()
         }
     }
 }
@@ -73,7 +72,6 @@ impl KernelMapIterator {
         match result {
             Err(_) => {
                 fatal!("Failed to open {}", maps_path);
-                unreachable!()
             }
             Ok(file) => BufReader::new(file),
         }

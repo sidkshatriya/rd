@@ -115,7 +115,6 @@ impl CompressedReader {
                 // DIFF NOTE: rr does not abort with a fatal error if pread was not successful.
                 Err(e) => {
                     fatal!("Could not pread {:?} {:?}", filename, e);
-                    unreachable!()
                 }
             }
         }

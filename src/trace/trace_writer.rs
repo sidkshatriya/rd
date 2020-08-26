@@ -891,7 +891,6 @@ fn to_trace_syscall_state(state: SyscallState) -> TraceSyscallState {
         SyscallState::ExitingSyscall => TraceSyscallState::Exiting,
         _ => {
             fatal!("Unknown syscall state");
-            unreachable!()
         }
     }
 }

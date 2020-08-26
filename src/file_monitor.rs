@@ -154,7 +154,6 @@ fn retrieve_offset_arch<Arch: Architecture>(
         let mut f = match result {
             Err(_) => {
                 fatal!("Failed to open {}", fdinfo_path);
-                unreachable!()
             }
             Ok(file) => BufReader::new(file),
         };

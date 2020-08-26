@@ -886,7 +886,6 @@ impl ReplaySession {
             | EventType::EvSyscallInterruption
             | EventType::EvTraceTermination => {
                 fatal!("Unexpected event {}", ev);
-                unreachable!()
             }
         }
 
@@ -1785,7 +1784,6 @@ impl ReplaySession {
             ReplayTraceStepType::TstepExitTask => self.exit_task(t),
             _ => {
                 fatal!("Unhandled step type: {:?}", self.current_step.get().action);
-                unreachable!();
             }
         }
     }
