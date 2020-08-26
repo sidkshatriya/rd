@@ -20,7 +20,7 @@ lazy_static = "1.4.0"
 libc = "0.2"
 memchr = "2.3.3"
 memoffset = "0.5"
-nix = "0.17"
+nix = "0.18"
 owning_ref = "0.4"
 rand = "0.7"
 raw-cpuid = "7.0.3"
@@ -30,7 +30,7 @@ static_assertions = "1.1.0"
 structopt = "0.3"
 
 [build-dependencies]
-bindgen = "0.54"
+bindgen = "0.55"
 capnpc = "0.13"
 
 [features]
