@@ -429,11 +429,11 @@ struct ExeInfo {
 fn read_exe_info<T: AsRef<OsStr>>(full_path: T) -> ExeInfo {
     let maybe_data = fs::read(full_path.as_ref());
 
-    if maybe_data.is_err() {
-        fatal!("Error while reading {:?}", full_path.as_ref());
-    }
+    let data = match maybe_data {
+        Err(e) => fatal!("Error while reading {:?}: {:?}", full_path.as_ref(), e),
+        Ok(data) => data,
+    };
 
-    let data = maybe_data.unwrap();
     match Elf::parse(&data) {
         Err(e) => fatal!("Error while Elf parsing {:?}: {:?}", full_path.as_ref(), e),
         Ok(_elf_file) => unimplemented!(),

@@ -2332,15 +2332,16 @@ pub mod address_space {
 
                 match m.local_addr {
                     Some(local_addr) => {
-                        if unsafe {
+                        let res = unsafe {
                             munmap(
                                 local_addr.as_ptr().add(rem.start() - m.map.start()),
                                 rem.size(),
                             )
-                        }
-                        .is_err()
-                        {
-                            fatal!("Can't munmap");
+                        };
+
+                        match res {
+                            Err(e) => fatal!("Can't munmap: {:?}", e),
+                            Ok(_) => (),
                         }
                     }
                     None => (),
@@ -2988,12 +2989,11 @@ pub mod address_space {
             debug_assert!(self.task_set().len() == 0);
             for (_, m) in self.mem.borrow().iter() {
                 match m.local_addr {
-                    Some(local) => {
-                        if unsafe { munmap(local.as_ptr(), m.map.size()) }.is_err() {
-                            fatal!("Can't munmap");
-                        }
-                    }
-                    _ => (),
+                    Some(local) => match unsafe { munmap(local.as_ptr(), m.map.size()) } {
+                        Err(e) => fatal!("Can't munmap: {:?}", e),
+                        Ok(_) => (),
+                    },
+                    None => (),
                 }
             }
             self.try_session()

@@ -65,7 +65,7 @@ use capnp::{
     private::layout::ListBuilder,
     serialize_packed::write_message,
 };
-use libc::{dev_t, ino_t, ioctl, pid_t, STDOUT_FILENO};
+use libc::{dev_t, ino_t, ioctl, pid_t, EEXIST, STDOUT_FILENO};
 use nix::{
     errno::errno,
     fcntl::{flock, readlink, FlockArg::LockExclusiveNonblock, OFlag},
@@ -320,8 +320,9 @@ impl TraceWriter {
         }
 
         let events = self.writer_mut(Substream::Events);
-        if write_message(events, &frame_msg).is_err() {
-            fatal!("Unable to write events");
+        match write_message(events, &frame_msg) {
+            Err(e) => fatal!("Unable to write events: {:?}", e),
+            Ok(_) => (),
         }
 
         self.tick_time()
@@ -454,8 +455,9 @@ impl TraceWriter {
             }
         }
         let mmaps = self.writer_mut(Substream::Mmaps);
-        if write_message(mmaps, &map_msg).is_err() {
-            fatal!("Unable to write mmaps");
+        match write_message(mmaps, &map_msg) {
+            Err(e) => fatal!("Unable to write mmaps: {:?}", e),
+            Ok(_) => (),
         }
 
         self.mmap_count += 1;
@@ -502,8 +504,9 @@ impl TraceWriter {
             }
         }
 
-        if write_message(mmaps, &map_msg).is_err() {
-            fatal!("Unable to write mmaps");
+        match write_message(mmaps, &map_msg) {
+            Err(e) => fatal!("Unable to write mmaps: {:?}", e),
+            Ok(_) => (),
         }
     }
 
@@ -551,8 +554,9 @@ impl TraceWriter {
         }
 
         let tasks = self.writer_mut(Substream::Tasks);
-        if write_message(tasks, &task_msg).is_err() {
-            fatal!("Unable to write tasks");
+        match write_message(tasks, &task_msg) {
+            Err(e) => fatal!("Unable to write tasks: {:?}", e),
+            Ok(_) => (),
         }
     }
 
@@ -611,9 +615,11 @@ impl TraceWriter {
 
         // Take an exclusive lock and hold it until we rename the file at
         // the end of recording and then close our file descriptor.
-        if flock(tw.version_fd.as_raw(), LockExclusiveNonblock).is_err() {
-            fatal!("Unable to lock {:?}", ver_path);
+        match flock(tw.version_fd.as_raw(), LockExclusiveNonblock) {
+            Err(e) => fatal!("Unable to lock {:?}: {:?}", ver_path, e),
+            Ok(_) => (),
         }
+
         let buf = format!("{}\n", TRACE_VERSION);
         write_all(tw.version_fd.as_raw(), buf.as_bytes());
 
@@ -718,15 +724,22 @@ impl TraceWriter {
         }
         header.set_ok(status == CloseStatus::CloseOk);
         let mut f = unsafe { File::from_raw_fd(self.version_fd.as_raw()) };
-        if write_message(&mut f, &header_msg).is_err() {
-            fatal!("Unable to write {:?}", self.incomplete_version_path());
+        match write_message(&mut f, &header_msg) {
+            Err(e) => fatal!(
+                "Unable to write {:?}: {:?}",
+                self.incomplete_version_path(),
+                e
+            ),
+            Ok(_) => (),
         }
 
         let incomplete_path = self.incomplete_version_path();
         let path = self.version_path();
-        if rename(&incomplete_path, &path).is_err() {
-            fatal!("Unable to create version file {:?}", path);
+        match rename(&incomplete_path, &path) {
+            Err(e) => fatal!("Unable to create version file {:?}: {:?}", path, e),
+            Ok(_) => (),
         }
+
         self.version_fd.close();
     }
 
@@ -741,21 +754,25 @@ impl TraceWriter {
         // very-recent trace, so that's good enough.
         //
         // DIFF NOTE: rr swallows any error on unlink. We don't for now.
-        if unlink(link_name.as_os_str()).is_err() {
-            fatal!("Unable to unlink {:?}", link_name);
+        match unlink(link_name.as_os_str()) {
+            Err(e) => fatal!("Unable to unlink {:?}: {:?}", link_name, e),
+            Ok(_) => (),
         }
 
         // Link only the trace name, not the full path, so moving a directory full
         // of traces around doesn't break the latest-trace link.
         let trace_name_path = Path::new(&self.trace_dir);
         let trace_name = trace_name_path.file_name().unwrap();
-        let ret = symlink(trace_name, &link_name);
-        if ret.is_err() && errno() != libc::EEXIST {
-            fatal!(
-                "Failed to update symlink `{:?}' to `{:?}'.",
-                link_name,
-                trace_name
-            );
+        match symlink(trace_name, &link_name) {
+            Err(e) if errno() != EEXIST => {
+                fatal!(
+                    "Failed to update symlink {:?} to {:?}: {:?}",
+                    link_name,
+                    trace_name,
+                    e
+                );
+            }
+            _ => (),
         }
     }
 

@@ -2040,13 +2040,12 @@ fn process_mremap(t: &mut ReplayTask, trace_regs: &Registers, step: &mut ReplayT
                 .ensure_size(mapping.map.file_offset_bytes() + new_size as u64);
         }
         None if new_size > old_size && !mapping.map.fsname().is_empty() => {
-            let st: FileStat;
-            match stat(mapping.map.fsname()) {
+            let st: FileStat = match stat(mapping.map.fsname()) {
                 Err(e) => {
                     fatal!("Can't stat {:?}: {:?}", mapping.map.fsname(), e);
                 }
-                Ok(res) => st = res,
-            }
+                Ok(res) => res,
+            };
             // @TODO Should be fine to cast st_size as u64 but any edge cases?
             if ceil_page_u64(st.st_size as u64) < mapping.map.file_offset_bytes() + new_size as u64
             {

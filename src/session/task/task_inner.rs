@@ -2077,6 +2077,7 @@ pub mod task_inner {
         write_all(err_fd.as_raw(), msg.as_bytes());
         let errno_name = format!(" ({}) ", errno_name(errno()));
         write_all(err_fd.as_raw(), errno_name.as_bytes());
+        // @TODO How about using process::exit()?
         unsafe { _exit(1) };
     }
 

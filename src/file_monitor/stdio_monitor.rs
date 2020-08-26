@@ -35,14 +35,29 @@ impl FileMonitor for StdioMonitor {
     /// via a pipe ... but that seems unlikely to bite in practice.
     ///
     /// Also, if stdio-marking is enabled, prepend the stdio write with
-    /// "[rr <pid> <global-time>]".  This allows users to more easily correlate
+    /// "[rd <pid> <global-time>]".  This allows users to more easily correlate
     /// stdio with trace event numbers.
     fn will_write(&self, t: &dyn Task) -> Switchable {
         if Flags::get().mark_stdio && t.session().visible_execution() {
-            let prefix = format!("[rr {} {}]", t.tgid(), t.trace_time());
-            let result = write(self.original_fd, prefix.as_bytes());
-            if result.is_err() || result.unwrap() != prefix.len() {
-                ed_assert!(t, false, "Couldn't write to fd: {}", self.original_fd);
+            let prefix = format!("[rd {} {}]", t.tgid(), t.trace_time());
+            let maybe_result = write(self.original_fd, prefix.as_bytes());
+            match maybe_result {
+                Err(e) => ed_assert!(
+                    t,
+                    false,
+                    "Couldn't write to fd `{}': {:?}",
+                    self.original_fd,
+                    e
+                ),
+                Ok(result) if result != prefix.len() => ed_assert!(
+                    t,
+                    false,
+                    "Couldn't write to fd `{}': {} != {}",
+                    self.original_fd,
+                    result,
+                    prefix.len()
+                ),
+                Ok(_) => (),
             }
         }
 
@@ -61,9 +76,24 @@ impl FileMonitor for StdioMonitor {
                         let mut buf: Vec<u8> = Vec::with_capacity(r.length);
                         buf.resize(r.length, 0);
                         l.t.read_bytes_helper(r.data, &mut buf, None);
-                        let result = write(self.original_fd, &buf);
-                        if result.is_err() || result.unwrap() != buf.len() {
-                            ed_assert!(l.t, false, "Couldn't write to {}", self.original_fd);
+                        let maybe_result = write(self.original_fd, &buf);
+                        match maybe_result {
+                            Err(e) => ed_assert!(
+                                l.t,
+                                false,
+                                "Couldn't write to fd `{}': {:?}",
+                                self.original_fd,
+                                e
+                            ),
+                            Ok(result) if result != buf.len() => ed_assert!(
+                                l.t,
+                                false,
+                                "Couldn't write to fd `{}': {} != {}",
+                                self.original_fd,
+                                result,
+                                buf.len()
+                            ),
+                            Ok(_) => (),
                         }
                     }
                 }

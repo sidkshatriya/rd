@@ -64,7 +64,7 @@ use crate::{
     wait_status::WaitStatus,
 };
 use capnp::{message::ReaderOptions, serialize_packed::read_message};
-use libc::{ino_t, pid_t, time_t};
+use libc::{ino_t, pid_t, time_t, ENOENT};
 use nix::{
     errno::errno,
     sys::{
@@ -367,14 +367,17 @@ impl TraceReader {
                                 && validate == ValidateSourceFile::Validate
                                 && has_stat_buf
                             {
+                                let backing_stat: FileStat;
                                 let maybe_file_stat = stat(backing_file_name_vec.as_slice());
-                                if maybe_file_stat.is_err() {
-                                    fatal!(
-                                        "Failed to stat {:?}: replay is impossible",
-                                        backing_file_name
-                                    );
+                                match maybe_file_stat {
+                                    Err(e) => fatal!(
+                                        "Failed to stat {:?}: Replay is impossible. Error: {:?}",
+                                        backing_file_name,
+                                        e
+                                    ),
+                                    Ok(file_stat) => backing_stat = file_stat,
                                 }
-                                let backing_stat: FileStat = maybe_file_stat.unwrap();
+
                                 // On x86 ino_t is a u32 and on x86_64 ino_t is a u64
                                 if backing_stat.st_ino != ino_t::try_from(map.get_inode()).unwrap()
                                     || backing_stat.st_mode != mode
@@ -605,10 +608,9 @@ impl TraceReader {
         }
 
         let path = trace_stream.version_path();
-        let version_file: File;
-        match File::open(&path) {
+        let version_file: File = match File::open(&path) {
             Err(e) => {
-                if errno() == libc::ENOENT {
+                if errno() == ENOENT {
                     let incomplete_path = trace_stream.incomplete_version_path();
                     if access(incomplete_path.as_os_str(), AccessFlags::F_OK).is_ok() {
                         eprintln!(
@@ -627,8 +629,8 @@ impl TraceReader {
                 }
                 exit(EX_DATAERR as i32);
             }
-            Ok(f) => version_file = f,
-        }
+            Ok(f) => f,
+        };
         let mut version_str = String::new();
         let mut buf_reader = BufReader::new(version_file);
         let res = buf_reader.read_line(&mut version_str);
@@ -641,9 +643,8 @@ impl TraceReader {
         }
 
         let maybe_version = version_str.trim().parse::<u32>();
-        let version: u32;
-        match maybe_version {
-            Ok(ver) => version = ver,
+        let version: u32 = match maybe_version {
+            Ok(ver) => ver,
             Err(e) => {
                 fatal!(
                     "Could not successfully parse version file {:?}: {:?}",
@@ -651,7 +652,7 @@ impl TraceReader {
                     e
                 );
             }
-        }
+        };
 
         if TRACE_VERSION != version {
             eprintln!(
@@ -665,13 +666,12 @@ impl TraceReader {
         }
 
         let maybe_res = read_message(&mut buf_reader, ReaderOptions::new());
-        let header_msg;
-        match maybe_res {
-            Ok(res) => header_msg = res,
+        let header_msg = match maybe_res {
+            Ok(res) => res,
             Err(e) => {
                 fatal!("Could not read version file {:?}: {:?}", path, e);
             }
-        }
+        };
 
         let header = header_msg.get_root::<header::Reader>().unwrap();
         let bind_to_cpu = header.get_bind_to_cpu();

@@ -6,7 +6,7 @@ use crate::{
     trace_capnp::Arch as TraceArch,
     util::{dir_exists, ensure_dir, real_path},
 };
-use libc::pid_t;
+use libc::{pid_t, EEXIST};
 use nix::{errno::errno, sys::stat::Mode, unistd::mkdir};
 use std::{
     env,
@@ -219,14 +219,17 @@ pub(super) fn make_trace_dir(exe_path: &OsStr, output_trace_dir: &OsStr) -> OsSt
     if !output_trace_dir.is_empty() {
         // save trace dir in given output trace dir with option -o
         let ret = mkdir(output_trace_dir, Mode::S_IRWXU | Mode::S_IRWXG);
-        if ret.is_ok() {
-            return output_trace_dir.to_owned();
-        }
-        if libc::EEXIST == errno() {
-            // directory already exists
-            fatal!("Directory {:?} already exists.", output_trace_dir);
-        } else {
-            fatal!("Unable to create trace directory {:?}", output_trace_dir);
+        match ret {
+            Ok(_) => return output_trace_dir.to_owned(),
+            Err(e) if EEXIST == errno() => {
+                // directory already exists
+                fatal!("Directory {:?} already exists: {:?}", output_trace_dir, e)
+            }
+            Err(e) => fatal!(
+                "Unable to create trace directory {:?}: {:?}",
+                output_trace_dir,
+                e
+            ),
         }
     } else {
         // save trace dir set in _RD_TRACE_DIR/_RR_TRACE_DIR or in the default trace dir
@@ -241,23 +244,23 @@ pub(super) fn make_trace_dir(exe_path: &OsStr, output_trace_dir: &OsStr) -> OsSt
         let mut ret;
         let mut dir;
         let mut ss: Vec<u8> = Vec::from(trace_save_dir().as_bytes());
-        ss.extend_from_slice(b"/");
+        ss.push(b'/');
         ss.extend_from_slice(Path::new(exe_path).file_name().unwrap().as_bytes());
         loop {
             dir = Vec::from(ss.as_slice());
             write!(dir, "-{}", nonce).unwrap();
             nonce += 1;
             ret = mkdir(dir.as_slice(), Mode::S_IRWXU | Mode::S_IRWXG);
-            if ret.is_ok() || libc::EEXIST != errno() {
+            if ret.is_ok() || EEXIST != errno() {
                 break;
             }
         }
 
-        if ret.is_err() {
-            fatal!("Unable to create trace directory `{:?}'", dir);
+        let os_dir = OsString::from_vec(dir);
+        match ret {
+            Err(e) => fatal!("Unable to create trace directory {:?}: {:?}", os_dir, e),
+            Ok(_) => os_dir,
         }
-
-        OsString::from_vec(dir)
     }
 }
 
@@ -274,7 +277,7 @@ pub(super) fn default_rd_trace_dir() -> OsString {
             home = found_home;
         }
         // @TODO This seems to be an implicit outcome of what we have in rr
-        _ => home = OsStr::from_bytes(b"").to_os_string(),
+        _ => home = OsString::new(),
     }
 
     let mut xdg_dir: Vec<u8> = Vec::new();

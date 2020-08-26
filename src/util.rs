@@ -94,7 +94,7 @@ use std::{
 use libc::{REG_EAX, REG_EIP};
 
 #[cfg(target_arch = "x86_64")]
-use libc::{REG_RAX, REG_RIP};
+use libc::{EEXIST, ENOENT, REG_RAX, REG_RIP};
 
 const RDTSC_INSN: [u8; 2] = [0x0f, 0x31];
 const RDTSCP_INSN: [u8; 3] = [0x0f, 0x01, 0xf9];
@@ -469,9 +469,10 @@ pub fn floor_page_size<T: Into<usize> + From<usize>>(sz: T) -> T {
 }
 
 pub fn resize_shmem_segment(fd: &ScopedFd, num_bytes: usize) {
-    if ftruncate(fd.as_raw(), num_bytes as libc::off_t).is_err() {
+    match ftruncate(fd.as_raw(), num_bytes as libc::off_t) {
         // errno will be reported as part of fatal
-        fatal!("Failed to resize shmem to {}", num_bytes);
+        Err(e) => fatal!("Failed to resize shmem to {}: {:?}", num_bytes, e),
+        Ok(_) => (),
     }
 }
 
@@ -515,8 +516,9 @@ pub fn tmp_dir() -> OsString {
     }
 
     // Don't try to create "/tmp", that probably won't work well.
-    if access("/tmp", AccessFlags::W_OK).is_err() {
-        fatal!("Can't write to temporary file directory /tmp.");
+    match access("/tmp", AccessFlags::W_OK) {
+        Err(e) => fatal!("Can't write to temporary file directory /tmp: {:?}", e),
+        Ok(_) => (),
     }
 
     OsString::from("/tmp")
@@ -537,7 +539,7 @@ pub fn ensure_dir(dir: &OsStr, dir_type: &str, mode: Mode) {
 
     let st: FileStat = match stat(d) {
         Err(e) => {
-            if errno() != libc::ENOENT {
+            if errno() != ENOENT {
                 fatal!("Error accessing {} {:?}: {:?}", dir_type, dir, e);
             }
 
@@ -552,8 +554,11 @@ pub fn ensure_dir(dir: &OsStr, dir_type: &str, mode: Mode) {
             }
 
             // Allow for a race condition where someone else creates the directory
-            if mkdir(d, mode).is_err() && errno() != libc::EEXIST {
-                fatal!("Can't create {} {:?}", dir_type, dir);
+            match mkdir(d, mode) {
+                Err(e) if errno() != EEXIST => {
+                    fatal!("Can't create {} {:?}: {:?}", dir_type, dir, e)
+                }
+                _ => (),
             }
 
             match stat(d) {
@@ -567,10 +572,12 @@ pub fn ensure_dir(dir: &OsStr, dir_type: &str, mode: Mode) {
     };
 
     if !(S_IFDIR & st.st_mode == S_IFDIR) {
-        fatal!("`{:?}' exists but isn't a directory.", dir);
+        fatal!("{:?} exists but isn't a directory.", dir);
     }
-    if access(d, AccessFlags::W_OK).is_err() {
-        fatal!("Can't write to {} `{:?}'", dir_type, dir);
+
+    match access(d, AccessFlags::W_OK) {
+        Err(e) => fatal!("Can't write to {} {:?}: {:?}", dir_type, dir, e),
+        Ok(_) => (),
     }
 }
 
@@ -1426,18 +1433,16 @@ pub fn read_proc_status_fields(tid: pid_t, matches_for: &[&[u8]]) -> io::Result<
     Ok(result)
 }
 
-// Returns true if we succeeded, false if we failed because the
-// requested CPU does not exist/is not available.
+/// Returns true if we succeeded, false if we failed because the
+/// requested CPU does not exist/is not available.
 pub fn set_cpu_affinity(cpu: u32) -> bool {
     let mut mask = CpuSet::new();
     mask.set(cpu as usize).unwrap();
-    if sched_setaffinity(Pid::from_raw(0), &mask).is_err() {
-        if errno() == EINVAL {
-            return false;
-        }
-        fatal!("Couldn't bind to CPU `{}`", cpu);
+    match sched_setaffinity(Pid::from_raw(0), &mask) {
+        Err(_) if errno() == EINVAL => false,
+        Err(e) => fatal!("Couldn't bind to CPU `{}': {:?}", cpu, e),
+        Ok(_) => true,
     }
-    true
 }
 
 pub fn to_cstring_array(ar: &[OsString]) -> Vec<CString> {
