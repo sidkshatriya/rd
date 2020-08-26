@@ -118,6 +118,7 @@ use libc::{
     CLONE_UNTRACED,
     CLONE_VFORK,
     CLONE_VM,
+    EAGAIN,
     ENOENT,
     ENOSYS,
     MADV_DONTNEED,
@@ -414,10 +415,7 @@ fn prepare_clone<Arch: Architecture>(t: &mut ReplayTask) {
         // clone() calls sometimes fail with -EAGAIN due to load issues or
         // whatever. We need to retry the system call until it succeeds. Reset
         // state to try the syscall again.
-        ed_assert!(
-            t,
-            t.regs_ref().syscall_result_signed() == -libc::EAGAIN as isize
-        );
+        ed_assert!(t, t.regs_ref().syscall_result_signed() == -EAGAIN as isize);
         t.set_regs(&entry_regs);
         __ptrace_cont(
             t,

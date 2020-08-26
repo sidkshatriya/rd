@@ -1249,7 +1249,7 @@ pub mod task_inner {
         ) -> bool {
             unsafe { Errno::clear() };
             self.fallible_ptrace(request, addr, data);
-            if errno() == libc::ESRCH {
+            if errno() == ESRCH {
                 log!(LogDebug, "ptrace_if_alive tid {} was not alive", self.tid);
                 return false;
             }

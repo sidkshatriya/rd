@@ -21,7 +21,7 @@ use crate::{
     ticks::Ticks,
     util::running_under_rd,
 };
-use libc::{c_ulong, fcntl, ioctl, pid_t, F_SETFL, O_ASYNC};
+use libc::{c_ulong, fcntl, ioctl, pid_t, EACCES, EINVAL, ENOENT, F_SETFL, O_ASYNC};
 use nix::{
     errno::errno,
     poll::{poll, PollFd, PollFlags},
@@ -579,7 +579,7 @@ fn start_counter(tid: pid_t, group_fd: i32, attr: &mut perf_event_attr) -> (Scop
         ) as RawFd
     };
     if 0 >= fd
-        && errno() == libc::EINVAL
+        && errno() == EINVAL
         && attr.type_ == PERF_TYPE_RAW
         && (attr.config & IN_TXCP == IN_TXCP)
     {
@@ -615,13 +615,13 @@ fn start_counter(tid: pid_t, group_fd: i32, attr: &mut perf_event_attr) -> (Scop
     }
 
     if 0 >= fd {
-        if errno() == libc::EACCES {
+        if errno() == EACCES {
             fatal!(
                 "Permission denied to use 'perf_event_open'; are perf events \n\
                  enabled? Try 'perf record'."
             );
         }
-        if errno() == libc::ENOENT {
+        if errno() == ENOENT {
             fatal!(
                 "Unable to open performance counter with 'perf_event_open'; \n\
                  are perf events enabled? Try 'perf record'."

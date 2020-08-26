@@ -31,7 +31,7 @@ use crate::{
     util::{is_zombie_process, to_timeval},
     wait_status::{MaybeStopSignal, WaitStatus},
 };
-use libc::{pid_t, waitpid, ENOSYS, SIGSTOP, SIGTRAP};
+use libc::{pid_t, waitpid, EINTR, ENOSYS, SIGSTOP, SIGTRAP};
 use nix::errno::errno;
 use std::{
     cell::RefCell,
@@ -374,7 +374,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
                 let timer: itimerval = Default::default();
                 unsafe { setitimer(ITIMER_REAL as u32, &timer, ptr::null_mut()) };
             }
-            if ret >= 0 || errno() != libc::EINTR {
+            if ret >= 0 || errno() != EINTR {
                 // waitpid was not interrupted by the alarm.
                 break;
             }
