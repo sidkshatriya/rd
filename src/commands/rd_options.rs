@@ -66,7 +66,7 @@ pub struct RdOptions {
 
     #[structopt(
         short = "K",
-        long = "check-cached-maps",
+        long = "check-cached-mmaps",
         help = "Verify that cached task mmaps match /proc/maps."
     )]
     pub check_cached_mmaps: bool,
@@ -88,7 +88,7 @@ pub struct RdOptions {
 
     #[structopt(
         short = "S",
-        long = "suppress-environmental-warnings",
+        long = "suppress-environment-warnings",
         help = "Suppress warnings about issues in the environment that rd has no control over."
     )]
     pub suppress_environment_warnings: bool,
