@@ -547,20 +547,14 @@ impl Registers {
     pub fn get_ptrace_for_arch(&self, arch: SupportedArch) -> Vec<u8> {
         let mut tmp_regs = Registers::new(arch);
         tmp_regs.set_from_ptrace(&self.get_ptrace());
-        let l = match self {
+        let l = match tmp_regs {
             X86(_) => size_of::<x86::user_regs_struct>(),
             X64(_) => size_of::<x64::user_regs_struct>(),
         };
 
         let mut v: Vec<u8> = Vec::with_capacity(l);
         v.resize(l, 0);
-        unsafe {
-            copy_nonoverlapping(
-                &tmp_regs as *const Registers as *const u8,
-                v.as_mut_ptr(),
-                l,
-            );
-        }
+        v.copy_from_slice(tmp_regs.get_ptrace_for_self_arch());
         v
     }
 
