@@ -928,6 +928,7 @@ pub mod x86 {
         pub start_code: uint32_t,
         pub start_stack: uint32_t,
         pub signal: int32_t,
+        pub reserved: int,
         pub u_ar0: ptr<user_regs_struct>,
         pub u_fpstate: ptr<user_fpregs_struct>,
         pub magic: uint32_t,

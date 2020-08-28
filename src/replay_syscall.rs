@@ -1847,12 +1847,8 @@ fn write_mapped_data(
         MappedDataSource::SourceFile => {
             let file = ScopedFd::open_path(data.filename.as_os_str(), OFlag::O_RDONLY);
             ed_assert!(t, file.is_open(), "Can't open {:?}", data.filename);
-            let offset: off_t = lseek(
-                file.as_raw(),
-                data.data_offset_bytes as i64,
-                Whence::SeekSet,
-            )
-            .unwrap();
+            let offset: off_t =
+                lseek(file.as_raw(), data.data_offset_bytes as _, Whence::SeekSet).unwrap();
             let d_offset: off_t = data.data_offset_bytes.try_into().unwrap();
             ed_assert!(
                 t,
