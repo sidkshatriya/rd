@@ -7,7 +7,6 @@ use crate::{
     event::{Event, EventType},
     flags::{DumpOn, Flags},
     kernel_abi::CloneParameterOrdering,
-    kernel_supplement::ARCH_SET_CPUID,
     log::LogLevel::{LogDebug, LogWarn},
     registers::Registers,
     remote_code_ptr::RemoteCodePtr,
@@ -27,9 +26,7 @@ use libc::{
     pid_t,
     pwrite64,
     siginfo_t,
-    syscall,
     ucontext_t,
-    SYS_arch_prctl,
     CLONE_CHILD_CLEARTID,
     CLONE_CHILD_SETTID,
     CLONE_FILES,
@@ -38,7 +35,9 @@ use libc::{
     CLONE_SIGHAND,
     CLONE_THREAD,
     CLONE_VM,
+    EEXIST,
     EINVAL,
+    ENOENT,
     STDERR_FILENO,
     S_IFDIR,
     S_IFREG,
@@ -94,7 +93,10 @@ use std::{
 use libc::{REG_EAX, REG_EIP};
 
 #[cfg(target_arch = "x86_64")]
-use libc::{EEXIST, ENOENT, REG_RAX, REG_RIP};
+use crate::kernel_supplement::ARCH_SET_CPUID;
+
+#[cfg(target_arch = "x86_64")]
+use libc::{syscall, SYS_arch_prctl, REG_RAX, REG_RIP};
 
 const RDTSC_INSN: [u8; 2] = [0x0f, 0x31];
 const RDTSCP_INSN: [u8; 3] = [0x0f, 0x01, 0xf9];
@@ -1464,11 +1466,11 @@ pub fn to_cstr_array(ar: &[CString]) -> Vec<&CStr> {
 const SEGV_HANDLER_MAGIC: u32 = 0x98765432;
 
 #[cfg(target_arch = "x86")]
-extern "C" fn cpuid_segv_handler(_sig: i32, _siginfo: *mut siginfo_t, ctx: *mut c_void) {
+extern "C" fn cpuid_segv_handler(_sig: i32, _siginfo: *mut siginfo_t, user: *mut c_void) {
     let ctx = user as *mut ucontext_t;
     unsafe {
         (*ctx).uc_mcontext.gregs[REG_EIP as usize] += 2;
-        (*ctx).uc_mcontext.gregs[REG_EAX as usize] = SEGV_HANDLER_MAGIC.into();
+        (*ctx).uc_mcontext.gregs[REG_EAX as usize] = SEGV_HANDLER_MAGIC as _;
     }
 }
 
@@ -1477,13 +1479,15 @@ extern "C" fn cpuid_segv_handler(_sig: i32, _siginfo: *mut siginfo_t, user: *mut
     let ctx = user as *mut ucontext_t;
     unsafe {
         (*ctx).uc_mcontext.gregs[REG_RIP as usize] += 2;
-        (*ctx).uc_mcontext.gregs[REG_RAX as usize] = SEGV_HANDLER_MAGIC.into();
+        (*ctx).uc_mcontext.gregs[REG_RAX as usize] = SEGV_HANDLER_MAGIC as _;
     }
 }
 
 fn cpuid_faulting_works_init() -> bool {
     let mut cpuid_faulting_ok = false;
+
     // Test to see if CPUID faulting works.
+    #[cfg(not(target_arch = "x86"))]
     if unsafe { syscall(SYS_arch_prctl, ARCH_SET_CPUID, 0) } != 0 {
         log!(LogDebug, "CPUID faulting not supported by kernel/hardware");
         return false;
@@ -1507,6 +1511,8 @@ fn cpuid_faulting_works_init() -> bool {
     }
 
     unsafe { sigaction(Signal::SIGSEGV, &old_sa) }.unwrap();
+
+    #[cfg(not(target_arch = "x86"))]
     if unsafe { syscall(SYS_arch_prctl, ARCH_SET_CPUID, 1) } < 0 {
         fatal!("Can't restore ARCH_SET_CPUID");
     }

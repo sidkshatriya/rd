@@ -848,7 +848,7 @@ pub mod task_inner {
                         data_.resize(size_of::<x86::user_fpxregs_struct>(), 0u8);
                         self.xptrace(
                             PTRACE_GETFPXREGS,
-                            0.into(),
+                            0usize.into(),
                             PtraceData::WriteInto(data_.as_mut_slice()),
                         );
                     }

@@ -1305,7 +1305,7 @@ pub fn process_execve(t: &mut ReplayTask, step: &mut ReplayTraceStep) {
     t.vm_shr_ptr().save_auxv(t);
 
     // Notify outer rd if there is one
-    unsafe { syscall(SYS_rdcall_reload_auxv as i64, t.tid) };
+    unsafe { syscall(SYS_rdcall_reload_auxv as _, t.tid) };
 }
 
 pub fn restore_mapped_region(
