@@ -151,7 +151,7 @@ const INT80_INSN: [u8; 2] = [0xcd, 0x80];
 const SYSENTER_INSN: [u8; 2] = [0x0f, 0x34];
 const SYSCALL_INSN: [u8; 2] = [0x0f, 0x05];
 
-fn get_syscall_instruction_arch(
+pub fn get_syscall_instruction_arch(
     t: &mut dyn Task,
     ptr: RemoteCodePtr,
     arch: &mut SupportedArch,
@@ -159,7 +159,7 @@ fn get_syscall_instruction_arch(
     // Lots of syscalls occur in the rd page and we know what it contains without
     // looking at it.
     // (Without this optimization we spend a few % of all CPU time in this
-    // function in a syscall-dominated trace.)i
+    // function in a syscall-dominated trace)
     if t.vm().has_rd_page() {
         let maybe_type = AddressSpace::rd_page_syscall_from_entry_point(ptr);
 

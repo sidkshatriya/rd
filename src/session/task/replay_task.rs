@@ -3,6 +3,7 @@ use super::{
         at_preload_init_common,
         compute_trap_reasons,
         destroy_buffers,
+        detect_syscall_arch,
         on_syscall_exit,
         post_exec_for_exe,
         post_exec_syscall,
@@ -323,6 +324,12 @@ impl DerefMut for ReplayTask {
 }
 
 impl Task for ReplayTask {
+    /// Forwarded method
+    fn detect_syscall_arch(&mut self) -> SupportedArch {
+        detect_syscall_arch(self)
+    }
+
+    /// Forwarded method
     fn destroy_buffers(&mut self) {
         destroy_buffers(self)
     }

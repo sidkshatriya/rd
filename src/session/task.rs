@@ -53,6 +53,8 @@ pub type TaskSharedPtr = Rc<RefCell<Box<dyn Task>>>;
 pub type TaskSharedWeakPtr = Weak<RefCell<Box<dyn Task>>>;
 
 pub trait Task: DerefMut<Target = TaskInner> {
+    fn detect_syscall_arch(&mut self) -> SupportedArch;
+
     /// DIFF NOTE: Unlike rr, it is NOT compulsory to always call this method
     /// to cleanup a task. Call this method when you need to explicitly remove
     /// the entry the task_map in SessionInner.

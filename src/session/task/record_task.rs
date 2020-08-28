@@ -225,6 +225,7 @@ pub mod record_task {
                 task_common::{
                     compute_trap_reasons,
                     destroy_buffers,
+                    detect_syscall_arch,
                     did_waitpid,
                     next_syscallbuf_record,
                     open_mem_fd,
@@ -442,6 +443,11 @@ pub mod record_task {
     }
 
     impl Task for RecordTask {
+        /// Forwarded method
+        fn detect_syscall_arch(&mut self) -> SupportedArch {
+            detect_syscall_arch(self)
+        }
+
         /// Forwarded method
         fn destroy_buffers(&mut self) {
             destroy_buffers(self)

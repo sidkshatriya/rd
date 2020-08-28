@@ -1183,10 +1183,6 @@ pub mod task_inner {
             getuid().as_raw()
         }
 
-        pub fn detect_syscall_arch(&self) -> SupportedArch {
-            unimplemented!()
-        }
-
         /// Call this when performing a clone syscall in this task. Returns
         /// true if the call completed, false if it was interrupted and
         /// needs to be resumed. When the call returns true, the task is

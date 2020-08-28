@@ -1263,7 +1263,7 @@ impl ReplaySession {
             ticks_now
         );
     }
-    fn check_pending_sig(&self, t: &ReplayTask) {
+    fn check_pending_sig(&self, t: &mut ReplayTask) {
         if t.maybe_stop_sig().is_not_sig() {
             ed_assert!(
                 t,

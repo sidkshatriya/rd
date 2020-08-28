@@ -47,6 +47,7 @@ use crate::{
             preload_interface,
             preload_interface::{preload_globals, syscallbuf_hdr, syscallbuf_record},
         },
+        get_syscall_instruction_arch,
         is_at_syscall_instruction,
         is_mprotect_syscall,
         syscall_instruction_length,
@@ -2059,4 +2060,15 @@ fn ptrace_get_regs_set<Arch: Architecture>(
         "Should have been caught during prepare_ptrace"
     );
     read_mem(t, remote_ptr, iov_len, None)
+}
+
+/// Forwarded method definition
+///
+pub(super) fn detect_syscall_arch<T: Task>(task: &mut T) -> SupportedArch {
+    let mut syscall_arch = SupportedArch::X64;
+    let arch = task.arch();
+    let code_ptr = task.regs_ref().ip().decrement_by_syscall_insn_length(arch);
+    let ok = get_syscall_instruction_arch(task, code_ptr, &mut syscall_arch);
+    ed_assert!(task, ok);
+    syscall_arch
 }
