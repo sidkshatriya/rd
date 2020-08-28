@@ -87,6 +87,12 @@ pub struct RdOptions {
     pub mark_stdio: bool,
 
     #[structopt(
+        long = "extra-compat",
+        help = "Extra compatibility with rr (mainly useful for passing tests)."
+    )]
+    pub extra_compat: bool,
+
+    #[structopt(
         short = "S",
         long = "suppress-environment-warnings",
         help = "Suppress warnings about issues in the environment that rd has no control over."

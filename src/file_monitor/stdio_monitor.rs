@@ -38,8 +38,16 @@ impl FileMonitor for StdioMonitor {
     /// "[rd <pid> <global-time>]".  This allows users to more easily correlate
     /// stdio with trace event numbers.
     fn will_write(&self, t: &dyn Task) -> Switchable {
-        if Flags::get().mark_stdio && t.session().visible_execution() {
-            let prefix = format!("[rd {} {}]", t.tgid(), t.trace_time());
+        if Flags::get().mark_stdio
+            && t.session().visible_execution()
+            && t.session().done_initial_exec()
+        {
+            let prefix = if Flags::get().extra_compat {
+                format!("[rr {} {}]", t.tgid(), t.trace_time())
+            } else {
+                format!("[rd {} {}]", t.tgid(), t.trace_time())
+            };
+
             let maybe_result = write(self.original_fd, prefix.as_bytes());
             match maybe_result {
                 Err(e) => ed_assert!(

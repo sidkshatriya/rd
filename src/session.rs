@@ -318,8 +318,8 @@ pub trait Session: DerefMut<Target = SessionInner> {
     /// to perform remote syscalls in this method.
     ///
     /// Tracee state can't be validated before the first exec,
-    /// because the address space inside the rd process for `rd
-    /// replay` will be different than it was for `rd record`.
+    /// because the address space inside the rd process for `rd replay`
+    /// will be different than it was for `rd record`.
     /// After the first exec, we're running tracee code, and
     /// everything must be the same.
     ///
@@ -328,7 +328,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
         // We just saw a successful exec(), so from now on we know
         // that the address space layout for the replay tasks will
         // (should!) be the same as for the recorded tasks.  So we can
-        // start validating registers at events. */
+        // start validating registers at events.
         self.assert_fully_initialized();
         if self.done_initial_exec() {
             return;
