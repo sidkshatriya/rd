@@ -37,9 +37,5 @@ capnpc = "0.13"
 default = []
 verify_syscall_numbers = []
 
-# Optimize all dependencies only
-[profile.dev.package."*"]
-opt-level = 3
-
 [profile.release]
 lto = true
