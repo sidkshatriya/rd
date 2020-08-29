@@ -516,6 +516,7 @@ dependencies = [
  "brotli-sys",
  "capnp",
  "capnpc",
+ "cc",
  "gimli",
  "goblin",
  "lazy_static",

@@ -27,6 +27,10 @@ fn main() {
     let out_dir = env::var("OUT_DIR").unwrap();
     let path = PathBuf::from(out_dir);
 
+    cc::Build::new()
+        .file("src/cpuid_loop.S")
+        .compile("cpuid_loop");
+
     Command::new("scripts/generate_syscalls.py")
         .arg(path.join("syscall_consts_x64_generated.rs"))
         .status()

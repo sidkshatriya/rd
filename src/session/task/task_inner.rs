@@ -241,7 +241,6 @@ pub mod task_inner {
         Error,
     };
     use owning_ref::OwningHandle;
-    use rand::random;
     use std::{
         cell::{Cell, Ref, RefCell},
         cmp::min,
@@ -1901,7 +1900,9 @@ pub mod task_inner {
         // non-zero.  The tracer can then check the ticks value
         // at the first ptrace-trap to see if it seems to be
         // working.
-        let start = random::<u32>() % 5;
+        // Deliberately call a PRNG here as we don't want any system
+        // calls to be issued while generating a random number.
+        let start = unsafe { libc::rand() as u32 % 5 };
         let num_its = start + 5;
         let mut sum: u32 = 0;
         for i in start..num_its {
@@ -1916,7 +1917,7 @@ pub mod task_inner {
                 spawned_child_fatal_error(
                     error_fd,
                     &format!(
-                        "execve failed: '{:?}' (or interpreter) not found",
+                        "execve failed: {:?} (or interpreter) not found",
                         exe_path_cstr
                     ),
                 );
@@ -1924,7 +1925,7 @@ pub mod task_inner {
             _ => {
                 spawned_child_fatal_error(
                     error_fd,
-                    &format!("execve of '{:?}' failed", exe_path_cstr),
+                    &format!("execve of {:?} failed", exe_path_cstr),
                 );
             }
         }

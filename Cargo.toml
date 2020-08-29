@@ -32,6 +32,7 @@ structopt = "0.3"
 [build-dependencies]
 bindgen = "0.55"
 capnpc = "0.13"
+cc = "1.0"
 
 [features]
 default = []

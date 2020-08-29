@@ -344,7 +344,7 @@ pub struct ReplaySession {
     trace_frame: RefCell<TraceFrame>,
     current_step: Cell<ReplayTraceStep>,
     ticks_at_start_of_event: Cell<Ticks>,
-    cpuid_bug_detector: CPUIDBugDetector,
+    cpuid_bug_detector: RefCell<CPUIDBugDetector>,
     last_siginfo_: Cell<Option<siginfo_t>>,
     flags_: Flags,
     fast_forward_status: Cell<FastForwardStatus>,
@@ -687,6 +687,7 @@ impl ReplaySession {
                 }
                 ReplayTraceStepType::TstepEnterSyscall => {
                     self.cpuid_bug_detector
+                        .borrow_mut()
                         .notify_reached_syscall_during_replay(t);
                 }
                 ReplayTraceStepType::TstepExitSyscall => {

@@ -82,6 +82,8 @@ use commands::{
     replay_command::ReplayCommand,
 };
 use nix::sys::utsname::uname;
+use rand::random;
+use std::os::raw::c_uint;
 use structopt::StructOpt;
 
 pub fn assert_prerequisites(maybe_use_syscall_buffer: Option<bool>) {
@@ -110,6 +112,7 @@ pub fn assert_prerequisites(maybe_use_syscall_buffer: Option<bool>) {
 }
 
 fn main() -> ExitResult<()> {
+    unsafe { libc::srand(random::<c_uint>()) };
     raise_resource_limits();
     let options = RdOptions::from_args();
     if options.output_options_chosen {
