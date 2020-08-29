@@ -907,6 +907,7 @@ pub mod address_space {
             prot: ProtFlags,
             flags: MapFlags,
             // DIFF NOTE: This is an i64 in rr
+            // @TODO Are we OK with only positive offsets?
             offset_bytes: u64,
             fsname: &OsStr,
             device: dev_t,

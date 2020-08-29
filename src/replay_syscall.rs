@@ -684,18 +684,20 @@ fn rep_process_syscall_arch<Arch: Architecture>(
 
     if nsys == Arch::MMAP {
         match Arch::MMAP_SEMANTICS {
-            MmapCallingSemantics::StructArguments => unimplemented!(),
-            MmapCallingSemantics::RegisterArguments => {
-                return process_mmap(
-                    t,
-                    trace_regs.arg2(),
-                    trace_regs.arg3() as i32,
-                    trace_regs.arg4() as i32,
-                    trace_regs.arg5() as i32,
-                    trace_regs.arg6() / page_size(),
-                    step,
-                );
+            MmapCallingSemantics::StructArguments => {
+                let args = read_val_mem::<Arch::mmap_args>(t, trace_regs.arg1().into(), None);
+                let (len, prot, flags, fd, offset) = Arch::get_mmap_args(&args);
+                process_mmap(t, len, prot, flags, fd, offset / page_size(), step)
             }
+            MmapCallingSemantics::RegisterArguments => process_mmap(
+                t,
+                trace_regs.arg2(),
+                trace_regs.arg3() as i32,
+                trace_regs.arg4() as i32,
+                trace_regs.arg5() as i32,
+                trace_regs.arg6() / page_size(),
+                step,
+            ),
         }
     }
 

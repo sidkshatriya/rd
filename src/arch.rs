@@ -581,6 +581,11 @@ pub trait Architecture {
     #[allow(non_camel_case_types)]
     type user: Copy;
 
+    #[allow(non_camel_case_types)]
+    type mmap_args: Copy + 'static;
+
+    fn get_mmap_args(k: &Self::mmap_args) -> (usize, i32, i32, i32, usize);
+
     fn get_k_sa_handler(k: &Self::kernel_sigaction) -> RemotePtr<Void>;
 
     fn get_sa_flags(k: &Self::kernel_sigaction) -> usize;
@@ -1076,6 +1081,12 @@ impl Architecture for X86Arch {
     type user_regs_struct = x86::user_regs_struct;
     type user_fpregs_struct = x86::user_fpregs_struct;
     type user = x86::user;
+    type mmap_args = x86::mmap_args;
+
+    fn get_mmap_args(k: &Self::mmap_args) -> (usize, i32, i32, i32, usize) {
+        // @TODO OK to cast offset to usize?
+        (k.len as usize, k.prot, k.flags, k.fd, k.offset as usize)
+    }
 
     fn get_k_sa_handler(k: &Self::kernel_sigaction) -> RemotePtr<Void> {
         k.k_sa_handler.rptr()
@@ -1618,13 +1629,21 @@ impl Architecture for X64Arch {
     type user_regs_struct = x64::user_regs_struct;
     type user_fpregs_struct = x64::user_fpregs_struct;
     type user = x64::user;
+    type mmap_args = x64::mmap_args;
+
+    fn get_mmap_args(k: &Self::mmap_args) -> (usize, i32, i32, i32, usize) {
+        // @TODO OK to cast offset to usize?
+        (k.len as usize, k.prot, k.flags, k.fd, k.offset as usize)
+    }
 
     fn get_k_sa_handler(k: &Self::kernel_sigaction) -> RemotePtr<Void> {
         k.k_sa_handler.rptr()
     }
+
     fn get_sa_flags(k: &Self::kernel_sigaction) -> usize {
         k.sa_flags as usize
     }
+
     fn arch() -> SupportedArch {
         SupportedArch::X64
     }
