@@ -2332,11 +2332,10 @@ pub mod address_space {
 
                 match m.local_addr {
                     Some(local_addr) => {
+                        let size = min(rem.size(), m.map.size() - (rem.start() - m.map.start()));
                         let res = unsafe {
-                            munmap(
-                                local_addr.as_ptr().add(rem.start() - m.map.start()),
-                                rem.size(),
-                            )
+                            let addr = local_addr.as_ptr().add(rem.start() - m.map.start());
+                            munmap(addr, size)
                         };
 
                         match res {
