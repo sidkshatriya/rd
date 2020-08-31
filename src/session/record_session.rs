@@ -25,6 +25,7 @@ use crate::{
     util::{
         find,
         good_random,
+        resource_path,
         CPUIDData,
         CPUID_GETEXTENDEDFEATURES,
         CPUID_GETFEATURES,
@@ -254,23 +255,26 @@ impl RecordSession {
         let exe_info: ExeInfo = read_exe_info(&full_path);
 
         // LD_PRELOAD the syscall interception lib
-        let syscall_buffer_lib_path = find_helper_library(SYSCALLBUF_LIB_FILENAME);
-        if !syscall_buffer_lib_path.is_empty() {
-            let mut ld_preload = Vec::<u8>::new();
-            match exe_info.libasan_path {
-                Some(asan_path) => {
-                    log!(LogDebug, "Prepending {:?} to LD_PRELOAD", asan_path);
-                    // Put an LD_PRELOAD entry for it before our preload library, because
-                    // it checks that it's loaded first
-                    ld_preload.extend_from_slice(asan_path.as_bytes());
-                    ld_preload.push(b':');
+        let maybe_syscall_buffer_lib_path = find_helper_library(SYSCALLBUF_LIB_FILENAME);
+        match maybe_syscall_buffer_lib_path {
+            Some(syscall_buffer_lib_path) => {
+                let mut ld_preload = Vec::<u8>::new();
+                match exe_info.libasan_path {
+                    Some(asan_path) => {
+                        log!(LogDebug, "Prepending {:?} to LD_PRELOAD", asan_path);
+                        // Put an LD_PRELOAD entry for it before our preload library, because
+                        // it checks that it's loaded first
+                        ld_preload.extend_from_slice(asan_path.as_bytes());
+                        ld_preload.push(b':');
+                    }
+                    None => (),
                 }
-                None => (),
-            }
 
-            ld_preload.extend_from_slice(syscall_buffer_lib_path.as_bytes());
-            ld_preload.extend_from_slice(SYSCALLBUF_LIB_FILENAME_PADDED.as_bytes());
-            inject_ld_helper_library(&mut env, &OsStr::new("LD_PRELOAD"), ld_preload);
+                ld_preload.extend_from_slice(syscall_buffer_lib_path.as_bytes());
+                ld_preload.extend_from_slice(SYSCALLBUF_LIB_FILENAME_PADDED.as_bytes());
+                inject_ld_helper_library(&mut env, &OsStr::new("LD_PRELOAD"), ld_preload);
+            }
+            None => (),
         }
 
         env.push(("RUNNING_UNDER_RD".into(), "1".into()));
@@ -419,8 +423,18 @@ fn check_perf_event_paranoid() {
     }
 }
 
-fn find_helper_library<T: AsRef<OsStr>>(_lib: T) -> OsString {
-    unimplemented!()
+fn find_helper_library<T: AsRef<OsStr>>(basepath: T) -> Option<OsString> {
+    for suffix in &["lib64/rd/", "lib64/rr/", "lib/rd/", "lib/rr"] {
+        let mut lib_path = OsString::from(resource_path());
+        lib_path.push(suffix);
+        let mut file_name = OsString::from(lib_path.clone());
+        file_name.push(basepath.as_ref());
+        if access(file_name.as_bytes(), AccessFlags::F_OK).is_ok() {
+            return Some(lib_path);
+        }
+    }
+    // File does not exist. Assume install put it in LD_LIBRARY_PATH.
+    None
 }
 
 #[derive(Clone, Debug, Default)]
