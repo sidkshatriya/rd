@@ -509,6 +509,29 @@ fn lookup_by_path<T: AsRef<OsStr>>(file: T) -> OsString {
     }
 }
 
-fn inject_ld_helper_library(_env: &mut Vec<(OsString, OsString)>, _name: &OsStr, _value: Vec<u8>) {
-    unimplemented!()
+fn inject_ld_helper_library(env: &mut Vec<(OsString, OsString)>, name: &OsStr, val: Vec<u8>) {
+    // Our preload lib should come first if possible, because that will speed up
+    // the loading of the other libraries; it's also a good idea to put our audit
+    // library at the head of the list, since there's only sixteen possible link
+    // namespaces on glibc and each audit library uses up one.
+    //
+    // We supply a placeholder which is then mutated to the correct filename in
+    // Monkeypatcher::patch_after_exec.
+    let mut found = false;
+    for (key, curr_value) in env.iter_mut() {
+        if key == name {
+            let mut new_value = Vec::new();
+            new_value.extend_from_slice(&val);
+            new_value.push(b':');
+            new_value.extend_from_slice(&val);
+            curr_value.clear();
+            curr_value.push(OsStr::from_bytes(&new_value));
+            found = true;
+            break;
+        }
+    }
+
+    if !found {
+        env.push((OsString::from(name), OsString::from_vec(val)))
+    }
 }
