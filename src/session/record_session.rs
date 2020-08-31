@@ -104,6 +104,7 @@ impl DisableCPUIDFeatures {
             || self.extended_features_edx != 0
             || self.xsave_features_eax != 0
     }
+
     pub fn amend_cpuid_data(&self, eax_in: u32, ecx_in: u32, cpuid_data: &mut CPUIDData) {
         match eax_in {
             CPUID_GETFEATURES => {
@@ -256,12 +257,12 @@ impl RecordSession {
         let syscall_buffer_lib_path = find_helper_library(SYSCALLBUF_LIB_FILENAME);
         if !syscall_buffer_lib_path.is_empty() {
             let mut ld_preload = Vec::<u8>::new();
-            match &exe_info.libasan_path {
-                Some(libasan_path) => {
-                    log!(LogDebug, "Prepending {:?} to LD_PRELOAD", libasan_path);
+            match exe_info.libasan_path {
+                Some(asan_path) => {
+                    log!(LogDebug, "Prepending {:?} to LD_PRELOAD", asan_path);
                     // Put an LD_PRELOAD entry for it before our preload library, because
                     // it checks that it's loaded first
-                    ld_preload.extend_from_slice(libasan_path.as_bytes());
+                    ld_preload.extend_from_slice(asan_path.as_bytes());
                     ld_preload.push(b':');
                 }
                 None => (),
@@ -311,12 +312,15 @@ impl RecordSession {
     pub fn use_file_cloning(&self) -> bool {
         self.use_file_cloning_
     }
+
     pub fn use_syscall_buffer(&self) -> bool {
         self.use_syscall_buffer_
     }
+
     pub fn trace_stream(&self) -> Option<&TraceStream> {
         Some(&self.trace_out)
     }
+
     pub fn trace_stream_mut(&mut self) -> Option<&mut TraceStream> {
         Some(&mut self.trace_out)
     }
@@ -419,9 +423,8 @@ fn find_helper_library<T: AsRef<OsStr>>(_lib: T) -> OsString {
     unimplemented!()
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 struct ExeInfo {
-    /// None if anything fails
     libasan_path: Option<OsString>,
     has_asan_symbols: bool,
 }
@@ -436,7 +439,41 @@ fn read_exe_info<T: AsRef<OsStr>>(full_path: T) -> ExeInfo {
 
     match Elf::parse(&data) {
         Err(e) => fatal!("Error while Elf parsing {:?}: {:?}", full_path.as_ref(), e),
-        Ok(_elf_file) => unimplemented!(),
+        Ok(elf_file) => match elf_file.dynamic {
+            Some(dyns) => {
+                let mut maybe_libasan_path = None;
+                let mut has_asan_init = false;
+                for lib in dyns.get_libraries(&elf_file.dynstrtab) {
+                    // @TODO Is contains() OK?
+                    if lib.contains("libasan") {
+                        maybe_libasan_path = Some(OsString::from(lib));
+                        break;
+                    }
+                }
+                for s in elf_file.dynsyms.iter() {
+                    match elf_file.dynstrtab.get(s.st_name) {
+                        Some(name_res) => match name_res {
+                            Ok(name) => {
+                                if name == "__asan_init" {
+                                    has_asan_init = true;
+                                    break;
+                                }
+                            }
+                            Err(_) => (),
+                        },
+                        None => {}
+                    }
+                }
+                ExeInfo {
+                    libasan_path: maybe_libasan_path,
+                    has_asan_symbols: has_asan_init,
+                }
+            }
+            None => ExeInfo {
+                libasan_path: None,
+                has_asan_symbols: false,
+            },
+        },
     }
 }
 
