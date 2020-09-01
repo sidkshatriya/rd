@@ -208,32 +208,8 @@ impl Drop for RecordSession {
 }
 
 impl RecordSession {
-    pub fn trace_writer(&self) -> &TraceWriter {
-        &self.trace_out
-    }
-
-    pub fn trace_writer_mut(&mut self) -> &mut TraceWriter {
-        &mut self.trace_out
-    }
-
-    /// Record some tracee execution.
-    /// This may block. If blocking is interrupted by a signal, will return
-    /// StepContinue.
-    /// Typically you'd call this in a loop until it returns something other than
-    /// StepContinue.
-    /// Note that when this returns, some tasks may be running (not in a ptrace-
-    /// stop). In particular, up to one task may be executing user code and any
-    /// number of tasks may be blocked in syscalls.
-    pub fn record_step(&self) -> RecordResult {
-        unimplemented!()
-    }
-
-    /// Flush buffers and write a termination record to the trace. Don't call
-    /// record_step() after this.
-    pub fn terminate_recording(&self) {
-        unimplemented!()
-    }
-
+    /// Create a recording session for the initial command line argv.
+    ///
     /// DIFF NOTE: Param list very different from rr.
     /// Takes the whole &RecordCommand for simplicity.
     pub fn create(options: &RecordCommand) -> SessionSharedPtr {
@@ -301,24 +277,90 @@ impl RecordSession {
         unimplemented!()
     }
 
-    pub fn scheduler(&self) -> Ref<'_, Scheduler> {
-        self.scheduler_.borrow()
+    pub fn disable_cpuid_features(&self) -> &DisableCPUIDFeatures {
+        &self.disable_cpuid_features_
     }
 
-    pub fn scheduler_mut(&self) -> RefMut<'_, Scheduler> {
-        self.scheduler_.borrow_mut()
+    pub fn use_syscall_buffer(&self) -> bool {
+        self.use_syscall_buffer_
+    }
+
+    pub fn syscall_buffer_size(&self) -> usize {
+        self.syscall_buffer_size_
     }
 
     pub fn syscallbuf_desched_sig(&self) -> u8 {
         self.syscallbuf_desched_sig_
     }
 
+    pub fn use_read_cloning(&self) -> bool {
+        self.use_read_cloning_
+    }
+
     pub fn use_file_cloning(&self) -> bool {
         self.use_file_cloning_
     }
 
-    pub fn use_syscall_buffer(&self) -> bool {
-        self.use_syscall_buffer_
+    pub fn set_ignore_sig(&mut self, sig: i32) {
+        self.ignore_sig = sig;
+    }
+
+    pub fn get_ignore_sig(&self) -> i32 {
+        self.ignore_sig
+    }
+
+    pub fn set_continue_through_sig(&mut self, sig: i32) {
+        self.continue_through_sig = sig;
+    }
+
+    pub fn get_continue_through_sig(&self) -> i32 {
+        self.continue_through_sig
+    }
+
+    pub fn set_asan_active(&mut self, active: bool) {
+        self.asan_active_ = active;
+    }
+
+    pub fn asan_active(&self) -> bool {
+        self.asan_active_
+    }
+
+    pub fn rd_signal_mask() -> u64 {
+        unimplemented!()
+    }
+
+    pub fn trace_writer(&self) -> &TraceWriter {
+        &self.trace_out
+    }
+
+    pub fn trace_writer_mut(&mut self) -> &mut TraceWriter {
+        &mut self.trace_out
+    }
+
+    /// Record some tracee execution.
+    /// This may block. If blocking is interrupted by a signal, will return
+    /// StepContinue.
+    /// Typically you'd call this in a loop until it returns something other than
+    /// StepContinue.
+    /// Note that when this returns, some tasks may be running (not in a ptrace-
+    /// stop). In particular, up to one task may be executing user code and any
+    /// number of tasks may be blocked in syscalls.
+    pub fn record_step(&self) -> RecordResult {
+        unimplemented!()
+    }
+
+    /// Flush buffers and write a termination record to the trace. Don't call
+    /// record_step() after this.
+    pub fn terminate_recording(&self) {
+        unimplemented!()
+    }
+
+    pub fn scheduler(&self) -> Ref<'_, Scheduler> {
+        self.scheduler_.borrow()
+    }
+
+    pub fn scheduler_mut(&self) -> RefMut<'_, Scheduler> {
+        self.scheduler_.borrow_mut()
     }
 
     pub fn trace_stream(&self) -> Option<&TraceStream> {
