@@ -143,6 +143,19 @@ impl Scheduler {
         self.always_switch = always_switch;
     }
 
+    pub fn set_enable_chaos(&mut self, _enable_chaos: bool) {
+        unimplemented!()
+    }
+
+    pub fn set_num_cores(&mut self, _num_cores: u32) {
+        unimplemented!()
+    }
+
+    /// Schedule a new runnable task (which may be the same as current()).
+    ///
+    /// The new current() task is guaranteed to either have already been
+    /// runnable, or have been made runnable by a waitpid status change (in
+    /// which case, result.by_waitpid will be true.
     pub fn reschedule(&mut self, _switchable: Switchable) -> Rescheduled {
         unimplemented!()
     }

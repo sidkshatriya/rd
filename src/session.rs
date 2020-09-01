@@ -104,9 +104,11 @@ pub trait Session: DerefMut<Target = SessionInner> {
     fn trace_stream(&self) -> Option<Ref<'_, TraceStream>> {
         None
     }
+
     fn trace_stream_mut(&self) -> Option<RefMut<'_, TraceStream>> {
         None
     }
+
     fn cpu_binding(&self, trace: &TraceStream) -> Option<u32> {
         trace.bound_to_cpu()
     }

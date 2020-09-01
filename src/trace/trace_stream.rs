@@ -106,8 +106,8 @@ impl Default for MappedDataSource {
 /// writing code together for easier coordination.
 impl TraceStream {
     /// Return the directory storing this trace's files.
-    pub fn dir(&self) -> &OsStr {
-        &self.trace_dir
+    pub fn dir(&self) -> OsString {
+        self.trace_dir.to_owned()
     }
 
     pub fn bound_to_cpu(&self) -> Option<u32> {

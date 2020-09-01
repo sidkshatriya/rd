@@ -1,4 +1,8 @@
-use super::{session_common::kill_all_tasks, SessionSharedPtr};
+use super::{
+    session_common::kill_all_tasks,
+    task::record_task::record_task::RecordTask,
+    SessionSharedPtr,
+};
 use crate::{
     commands::record_command::RecordCommand,
     event::Switchable,
@@ -21,7 +25,10 @@ use crate::{
     },
     taskish_uid::TaskUid,
     thread_group::ThreadGroupSharedPtr,
-    trace::{trace_stream::TraceStream, trace_writer::TraceWriter},
+    trace::{
+        trace_stream::TraceStream,
+        trace_writer::{CloseStatus, TraceWriter},
+    },
     util::{
         find,
         good_random,
@@ -175,9 +182,16 @@ pub enum RecordResult {
     StepSpawnFailed(OsString),
 }
 
+#[derive(Copy, Clone, Eq, PartialEq)]
+pub enum ContinueType {
+    DontContinue,
+    Continue,
+    ContinueSyscall,
+}
+
 pub struct RecordSession {
     session_inner: SessionInner,
-    trace_out: TraceWriter,
+    trace_out: RefCell<TraceWriter>,
     scheduler_: RefCell<Scheduler>,
     initial_thread_group: ThreadGroupSharedPtr,
     seccomp_filter_rewriter_: SeccompFilterRewriter,
@@ -329,14 +343,6 @@ impl RecordSession {
         unimplemented!()
     }
 
-    pub fn trace_writer(&self) -> &TraceWriter {
-        &self.trace_out
-    }
-
-    pub fn trace_writer_mut(&mut self) -> &mut TraceWriter {
-        &mut self.trace_out
-    }
-
     /// Record some tracee execution.
     /// This may block. If blocking is interrupted by a signal, will return
     /// StepContinue.
@@ -355,6 +361,20 @@ impl RecordSession {
         unimplemented!()
     }
 
+    /// Close trace output without flushing syscall buffers or writing
+    /// task exit/termination records to the trace.
+    pub fn close_trace_writer(_status: CloseStatus) {
+        unimplemented!()
+    }
+
+    pub fn trace_writer(&self) -> Ref<'_, TraceWriter> {
+        self.trace_out.borrow()
+    }
+
+    pub fn trace_writer_mut(&self) -> RefMut<'_, TraceWriter> {
+        self.trace_out.borrow_mut()
+    }
+
     pub fn scheduler(&self) -> Ref<'_, Scheduler> {
         self.scheduler_.borrow()
     }
@@ -363,12 +383,48 @@ impl RecordSession {
         self.scheduler_.borrow_mut()
     }
 
-    pub fn trace_stream(&self) -> Option<&TraceStream> {
-        Some(&self.trace_out)
+    pub fn seccomp_filter_rewriter(&self) -> &SeccompFilterRewriter {
+        &self.seccomp_filter_rewriter_
     }
 
-    pub fn trace_stream_mut(&mut self) -> Option<&mut TraceStream> {
-        Some(&mut self.trace_out)
+    pub fn set_enable_chaos(&mut self, enable_chaos: bool) {
+        self.scheduler_mut().set_enable_chaos(enable_chaos);
+        self.enable_chaos_ = enable_chaos;
+    }
+
+    pub fn enable_chaos(&self) -> bool {
+        self.enable_chaos_
+    }
+
+    pub fn set_num_cores(&mut self, num_cores: u32) {
+        self.scheduler_mut().set_num_cores(num_cores);
+    }
+
+    pub fn set_use_read_cloning(&mut self, enable: bool) {
+        self.use_read_cloning_ = enable;
+    }
+
+    pub fn set_use_file_cloning(&mut self, enable: bool) {
+        self.use_file_cloning_ = enable;
+    }
+
+    pub fn set_syscall_buffer_size(&mut self, size: usize) {
+        self.syscall_buffer_size_ = size;
+    }
+
+    pub fn set_wait_for_all(&mut self, wait_for_all: bool) {
+        self.wait_for_all_ = wait_for_all;
+    }
+
+    /// This gets called when we detect that a task has been revived from the
+    /// dead with a PTRACE_EVENT_EXEC. See ptrace man page under "execve(2) under
+    /// ptrace" for the horrid details.
+    ///
+    /// The task in the thread-group that triggered the successful execve has changed
+    /// its tid to |rec_tid|. We mirror that, and emit TraceTaskEvents to make it
+    /// look like a new task was spawned and the old task exited.
+    pub fn revive_task_for_exec(&self, _rec_tid: pid_t) -> &RecordTask {
+        unimplemented!()
     }
 }
 
@@ -416,6 +472,16 @@ impl Session for RecordSession {
 
     fn on_create(&self, _t: TaskSharedPtr) {
         unimplemented!()
+    }
+
+    fn trace_stream(&self) -> Option<Ref<'_, TraceStream>> {
+        let r = self.trace_out.borrow();
+        Some(Ref::map(r, |t| t.deref()))
+    }
+
+    fn trace_stream_mut(&self) -> Option<RefMut<'_, TraceStream>> {
+        let r = self.trace_out.borrow_mut();
+        Some(RefMut::map(r, |t| t.deref_mut()))
     }
 }
 

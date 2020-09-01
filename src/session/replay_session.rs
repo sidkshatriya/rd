@@ -1901,6 +1901,7 @@ impl Session for ReplaySession {
         let r = self.trace_in.borrow_mut();
         Some(RefMut::map(r, |t| t.deref_mut()))
     }
+
     fn cpu_binding(&self, trace: &TraceStream) -> Option<u32> {
         if self.flags_.cpu_unbound {
             return None;

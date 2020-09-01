@@ -230,8 +230,8 @@ impl RecordCommand {
 
         match self.print_trace_dir_fd {
             Some(fd) => {
-                let dir = rec_session.trace_writer().dir().as_bytes();
-                write_all(fd, dir);
+                let dir = rec_session.trace_writer().dir();
+                write_all(fd, dir.as_bytes());
                 write_all(fd, b"\n");
             }
             None => (),
@@ -239,7 +239,7 @@ impl RecordCommand {
 
         if self.copy_preload_src {
             let dir = rec_session.trace_writer().dir();
-            copy_preload_sources_to_trace(dir);
+            copy_preload_sources_to_trace(dir.as_os_str());
             save_rd_git_revision(dir);
         }
 
