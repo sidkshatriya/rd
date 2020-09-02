@@ -748,7 +748,7 @@ fn read_exe_info<T: AsRef<OsStr>>(full_path: T) -> ExeInfo {
 
 fn lookup_by_path<T: AsRef<OsStr>>(file: T) -> OsString {
     let file_ostr = file.as_ref();
-    if find(file_ostr.as_bytes(), b"/").is_none() {
+    if find(file_ostr.as_bytes(), b"/").is_some() {
         return file_ostr.to_owned();
     }
     match env::var_os("PATH") {
