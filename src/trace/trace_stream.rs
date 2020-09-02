@@ -215,51 +215,54 @@ pub struct MappedData {
     pub file_size_bytes: usize,
 }
 
-pub(super) fn make_trace_dir(exe_path: &OsStr, output_trace_dir: &OsStr) -> OsString {
-    if !output_trace_dir.is_empty() {
-        // save trace dir in given output trace dir with option -o
-        let ret = mkdir(output_trace_dir, Mode::S_IRWXU | Mode::S_IRWXG);
-        match ret {
-            Ok(_) => return output_trace_dir.to_owned(),
-            Err(e) if EEXIST == errno() => {
-                // directory already exists
-                fatal!("Directory {:?} already exists: {:?}", output_trace_dir, e)
-            }
-            Err(e) => fatal!(
-                "Unable to create trace directory {:?}: {:?}",
-                output_trace_dir,
-                e
-            ),
-        }
-    } else {
-        // save trace dir set in _RD_TRACE_DIR/_RR_TRACE_DIR or in the default trace dir
-        ensure_dir(
-            trace_save_dir().as_os_str(),
-            "trace directory",
-            Mode::S_IRWXU,
-        );
-
-        // Find a unique trace directory name.
-        let mut nonce = 0;
-        let mut ret;
-        let mut dir;
-        let mut ss: Vec<u8> = Vec::from(trace_save_dir().as_bytes());
-        ss.push(b'/');
-        ss.extend_from_slice(Path::new(exe_path).file_name().unwrap().as_bytes());
-        loop {
-            dir = Vec::from(ss.as_slice());
-            write!(dir, "-{}", nonce).unwrap();
-            nonce += 1;
-            ret = mkdir(dir.as_slice(), Mode::S_IRWXU | Mode::S_IRWXG);
-            if ret.is_ok() || EEXIST != errno() {
-                break;
+pub(super) fn make_trace_dir(exe_path: &OsStr, maybe_output_trace_dir: Option<&OsStr>) -> OsString {
+    match maybe_output_trace_dir {
+        Some(output_trace_dir) => {
+            // save trace dir in given output trace dir with option -o
+            let ret = mkdir(output_trace_dir, Mode::S_IRWXU | Mode::S_IRWXG);
+            match ret {
+                Ok(_) => output_trace_dir.to_owned(),
+                Err(e) if EEXIST == errno() => {
+                    // directory already exists
+                    fatal!("Directory {:?} already exists: {:?}", output_trace_dir, e)
+                }
+                Err(e) => fatal!(
+                    "Unable to create trace directory {:?}: {:?}",
+                    output_trace_dir,
+                    e
+                ),
             }
         }
+        None => {
+            // save trace dir set in _RD_TRACE_DIR/_RR_TRACE_DIR or in the default trace dir
+            ensure_dir(
+                trace_save_dir().as_os_str(),
+                "trace directory",
+                Mode::S_IRWXU,
+            );
 
-        let os_dir = OsString::from_vec(dir);
-        match ret {
-            Err(e) => fatal!("Unable to create trace directory {:?}: {:?}", os_dir, e),
-            Ok(_) => os_dir,
+            // Find a unique trace directory name.
+            let mut nonce = 0;
+            let mut ret;
+            let mut dir;
+            let mut ss: Vec<u8> = Vec::from(trace_save_dir().as_bytes());
+            ss.push(b'/');
+            ss.extend_from_slice(Path::new(exe_path).file_name().unwrap().as_bytes());
+            loop {
+                dir = Vec::from(ss.as_slice());
+                write!(dir, "-{}", nonce).unwrap();
+                nonce += 1;
+                ret = mkdir(dir.as_slice(), Mode::S_IRWXU | Mode::S_IRWXG);
+                if ret.is_ok() || EEXIST != errno() {
+                    break;
+                }
+            }
+
+            let os_dir = OsString::from_vec(dir);
+            match ret {
+                Err(e) => fatal!("Unable to create trace directory {:?}: {:?}", os_dir, e),
+                Ok(_) => os_dir,
+            }
         }
     }
 }

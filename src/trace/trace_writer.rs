@@ -578,7 +578,7 @@ impl TraceWriter {
     pub fn new(
         file_name: &OsStr,
         bind_to_cpu: Option<u32>,
-        output_trace_dir: &OsStr,
+        output_trace_dir: Option<&OsStr>,
         ticks_semantics_: TicksSemantics,
     ) -> TraceWriter {
         let mut tw = TraceWriter {

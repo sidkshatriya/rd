@@ -20,7 +20,7 @@ use crate::{
     util::{check_for_leaks, page_size, running_under_rd, write_all, BindCPU},
     wait_status::{WaitStatus, WaitType},
 };
-use libc::{prctl, PR_SET_DUMPABLE, SIGTERM, STDERR_FILENO};
+use libc::{prctl, PR_SET_DUMPABLE, SIGPWR, SIGTERM, STDERR_FILENO};
 use nix::{
     sys::signal::{kill, sigaction, signal, SaFlags, SigAction, SigHandler, SigSet, Signal},
     unistd::{geteuid, getpid, Uid},
@@ -52,8 +52,8 @@ pub struct RecordCommand {
     /// Whether to use syscall buffering optimization during recording.
     pub use_syscall_buffer: SyscallBuffering,
 
-    /// If Some(_), the desired syscall buffer size in bytes. Must be a multiple of the page size.
-    pub syscall_buffer_size: Option<usize>,
+    /// The desired buffer size in bytes. Must be a multiple of the page size.
+    pub syscall_buffer_size: usize,
 
     /// CPUID features to disable
     pub disable_cpuid_features: DisableCPUIDFeatures,
@@ -96,7 +96,7 @@ pub struct RecordCommand {
     pub copy_preload_src: bool,
 
     /// The signal to use for syscallbuf desched events
-    pub syscallbuf_desched_sig: Option<i32>,
+    pub syscallbuf_desched_sig: i32,
 
     // The exe and exe_args
     pub args: Vec<OsString>,
@@ -164,7 +164,7 @@ impl RecordCommand {
                         }
                     }
                 },
-                syscall_buffer_size,
+                syscall_buffer_size: syscall_buffer_size.unwrap_or(1024 * 1024),
                 disable_cpuid_features: DisableCPUIDFeatures::from(
                     disable_cpuid_features.unwrap_or((0, 0)),
                     disable_cpuid_features_ext.unwrap_or((0, 0, 0)),
@@ -206,7 +206,7 @@ impl RecordCommand {
                 setuid_sudo,
                 trace_id: Box::new(trace_id.unwrap_or(TraceUuid::generate_new())),
                 copy_preload_src,
-                syscallbuf_desched_sig: syscall_buffer_sig,
+                syscallbuf_desched_sig: syscall_buffer_sig.unwrap_or(SIGPWR),
                 args: {
                     let mut args = Vec::new();
                     args.push(exe);

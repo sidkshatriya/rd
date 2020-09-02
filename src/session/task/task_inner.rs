@@ -1663,7 +1663,7 @@ pub mod task_inner {
             exe_path: &OsStr,
             argv: &[OsString],
             envp: &[OsString],
-            rec_tid: pid_t,
+            rec_tid: Option<pid_t>,
         ) -> TaskSharedPtr {
             debug_assert!(session.tasks().len() == 0);
 
@@ -1684,19 +1684,19 @@ pub mod task_inner {
                 }
             }
 
-            // Find a usable FD number to dup to in the child. RR_RESERVED_SOCKET_FD
+            // Find a usable FD number to dup to in the child. RD_RESERVED_SOCKET_FD
             // might already be used by an outer rr.
             let mut fd_number: i32 = RD_RESERVED_SOCKET_FD;
             // We assume no other thread is mucking with this part of the fd address space.
             loop {
                 let ret = fcntl(fd_number, FcntlArg::F_GETFD);
-                if ret.is_err() {
-                    if errno() != EBADF {
-                        fatal!("Error checking fd");
+                match ret {
+                    Err(_) if errno() == EBADF => break,
+                    Err(e) => {
+                        fatal!("Error checking fd: {:?}", e);
                     }
-                    break;
+                    _ => fd_number += 1,
                 }
-                fd_number += 1;
             }
 
             match tracee_socket_fd_number {
@@ -1814,7 +1814,7 @@ pub mod task_inner {
                 fatal!("PTRACE_SEIZE failed for tid `{}`{}", tid, hint);
             }
             let next_t_serial = session.next_task_serial();
-            let t = session.new_task(tid, Some(rec_tid), next_t_serial, RD_NATIVE_ARCH);
+            let t = session.new_task(tid, rec_tid, next_t_serial, RD_NATIVE_ARCH);
             let wrapped_t = Rc::new(RefCell::new(t));
             // Set the weak self pointer of the task
             wrapped_t.borrow_mut().weak_self = Rc::downgrade(&wrapped_t);

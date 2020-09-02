@@ -564,7 +564,7 @@ impl ReplaySession {
             &exe_path,
             &argv,
             &env,
-            tid,
+            Some(tid),
         );
 
         rc.on_create(t);

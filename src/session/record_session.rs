@@ -1,6 +1,9 @@
 use super::{
     session_common::kill_all_tasks,
-    task::record_task::record_task::RecordTask,
+    task::{
+        record_task::record_task::RecordTask,
+        task_inner::task_inner::{SaveTraceeFdNumber, TaskInner},
+    },
     SessionSharedPtr,
 };
 use crate::{
@@ -15,6 +18,7 @@ use crate::{
         SupportedArch,
     },
     log::{LogDebug, LogError},
+    perf_counters::TicksSemantics,
     scheduler::Scheduler,
     scoped_fd::ScopedFd,
     seccomp_filter_rewriter::SeccompFilterRewriter,
@@ -30,6 +34,7 @@ use crate::{
         trace_writer::{CloseStatus, TraceWriter},
     },
     util::{
+        choose_cpu,
         find,
         good_random,
         resource_path,
@@ -43,18 +48,18 @@ use crate::{
 use goblin::elf::Elf;
 use libc::{pid_t, S_IFREG};
 use nix::{
-    fcntl::OFlag,
-    sys::stat::stat,
+    fcntl::{open, OFlag},
+    sys::stat::{stat, Mode},
     unistd::{access, read, AccessFlags},
 };
 use std::{
     cell::{Ref, RefCell, RefMut},
-    convert::AsRef,
     env,
     ffi::{OsStr, OsString},
     fs,
     ops::{Deref, DerefMut},
     os::unix::ffi::{OsStrExt, OsStringExt},
+    rc::Rc,
 };
 
 const CPUID_RDRAND_FLAG: u32 = 1 << 30;
@@ -193,15 +198,19 @@ pub struct RecordSession {
     session_inner: SessionInner,
     trace_out: RefCell<TraceWriter>,
     scheduler_: RefCell<Scheduler>,
-    initial_thread_group: ThreadGroupSharedPtr,
+    initial_thread_group: Option<ThreadGroupSharedPtr>,
     seccomp_filter_rewriter_: SeccompFilterRewriter,
     trace_id: Box<TraceUuid>,
     disable_cpuid_features_: DisableCPUIDFeatures,
-    ignore_sig: i32,
-    continue_through_sig: i32,
+    /// DIFF NOTE: In rr, a None is indicated by value 0
+    ignore_sig: Option<i32>,
+    /// DIFF NOTE: In rr, a None is indicated by value 0
+    continue_through_sig: Option<i32>,
     last_task_switchable: Switchable,
     syscall_buffer_size_: usize,
-    syscallbuf_desched_sig_: u8,
+    /// DIFF NOTE: In rr this is a unsigned char.
+    /// We use i32 to be consistent with signal number in the rest of codebase
+    syscallbuf_desched_sig_: i32,
     use_syscall_buffer_: bool,
 
     use_file_cloning_: bool,
@@ -212,7 +221,10 @@ pub struct RecordSession {
     /// When true, wait for all tracees to exit before finishing recording.
     wait_for_all_: bool,
 
-    output_trace_dir: OsString,
+    /// DIFF NOTE: This is simply a normal string in rr.
+    /// `None` means the user did not provide any trace dir options and we need
+    /// to use the default trace dir.
+    output_trace_dir: Option<OsString>,
 }
 
 impl Drop for RecordSession {
@@ -222,6 +234,139 @@ impl Drop for RecordSession {
 }
 
 impl RecordSession {
+    /// DIFF Note:
+    /// - The param list is much simpler than rr RecordSession::RecordSession. Takes the
+    ///   whole RecordCommand for simplicity.
+    /// - This method also incorporates functionality from rr setup_session_from_flags()
+    ///   method
+    pub fn new(
+        exe_path: &OsString,
+        // We don't use flags.extra_env. We augment flags.extra_env producing `envp`.
+        envp: &[(OsString, OsString)],
+        flags: &RecordCommand,
+    ) -> SessionSharedPtr {
+        let sched = Scheduler::new(flags.max_ticks, flags.always_switch);
+
+        if flags.scarce_fds {
+            for _ in 0..950 {
+                // DIFF NOTE: rr swallows any errors on open. We don't for now.
+                open("/dev/null", OFlag::O_RDONLY, Mode::empty()).unwrap();
+            }
+        }
+
+        let mut rec_sess = RecordSession {
+            session_inner: SessionInner::new(),
+            trace_out: RefCell::new(TraceWriter::new(
+                &flags.args[0],
+                choose_cpu(flags.bind_cpu),
+                flags.output_trace_dir.as_deref(),
+                TicksSemantics::default(),
+            )),
+            scheduler_: RefCell::new(sched),
+            initial_thread_group: Default::default(),
+            seccomp_filter_rewriter_: SeccompFilterRewriter,
+            trace_id: flags.trace_id.clone(),
+            disable_cpuid_features_: flags.disable_cpuid_features.clone(),
+            ignore_sig: flags.ignore_sig,
+            continue_through_sig: flags.continue_through_sig,
+            last_task_switchable: Switchable::PreventSwitch,
+            syscall_buffer_size_: flags.syscall_buffer_size,
+            syscallbuf_desched_sig_: flags.syscallbuf_desched_sig,
+            use_syscall_buffer_: flags.use_syscall_buffer == SyscallBuffering::EnableSycallBuf,
+            use_file_cloning_: flags.use_file_cloning,
+            use_read_cloning_: flags.use_read_cloning,
+            enable_chaos_: Default::default(),
+            asan_active_: false,
+            wait_for_all_: flags.wait_for_all,
+            output_trace_dir: flags.output_trace_dir.clone(),
+        };
+
+        if !SessionInner::has_cpuid_faulting()
+            && rec_sess.disable_cpuid_features_.any_features_disabled()
+        {
+            fatal!("CPUID faulting required to disable CPUID features");
+        }
+
+        // CPU affinity has been set.
+        rec_sess.trace_out.borrow_mut().setup_cpuid_records(
+            SessionInner::has_cpuid_faulting(),
+            &flags.disable_cpuid_features,
+        );
+
+        let env: Vec<OsString> = envp
+            .iter()
+            .map(|(k, v)| -> OsString {
+                let mut kv = k.clone();
+                kv.push("=");
+                kv.push(v);
+                kv
+            })
+            .collect();
+        let error_fd: ScopedFd = rec_sess.create_spawn_task_error_pipe();
+        let socket_fd = rec_sess.tracee_socket_fd();
+
+        let mut rc: SessionSharedPtr = Rc::new(Box::new(rec_sess));
+        let weak_self = Rc::downgrade(&rc);
+        // We never change the weak_self pointer so its a good idea to use
+        // a bit of unsafe here otherwise we would unecessarily need a RefCell.
+        unsafe {
+            Rc::get_mut_unchecked(&mut rc).weak_self = weak_self.clone();
+
+            // Set the session for the scheduler now that the session is nicely ensconced
+            // in a Box() and will have a stable address.
+            Rc::get_mut_unchecked(&mut rc)
+                .as_record_mut()
+                .unwrap()
+                .scheduler_mut()
+                .set_session_weak_ptr(weak_self);
+        }
+
+        if flags.chaos {
+            rc.as_record_mut()
+                .unwrap()
+                .scheduler_mut()
+                .set_enable_chaos(flags.chaos);
+        }
+
+        match flags.num_cores {
+            Some(num_cores) => {
+                // Set the number of cores reported, possibly overriding the chaos mode
+                // setting.
+                rc.as_record_mut()
+                    .unwrap()
+                    .scheduler_mut()
+                    .set_num_cores(num_cores);
+            }
+            // This is necessary for the default case
+            None => rc
+                .as_record_mut()
+                .unwrap()
+                .scheduler_mut()
+                .regenerate_affinity_mask(),
+        }
+
+        let t = TaskInner::spawn(
+            (*rc).as_ref(),
+            &error_fd,
+            socket_fd,
+            SaveTraceeFdNumber::SaveToSession,
+            exe_path,
+            &flags.args,
+            &env,
+            None,
+        );
+        // The initial_thread_group is set only once so its worth it to use
+        // unsafe
+        unsafe {
+            Rc::get_mut_unchecked(&mut rc)
+                .as_record_mut()
+                .unwrap()
+                .initial_thread_group = Some(t.borrow().thread_group_shr_ptr());
+        }
+        rc.on_create(t);
+        rc
+    }
+
     /// Create a recording session for the initial command line argv.
     ///
     /// DIFF NOTE: Param list very different from rr.
@@ -303,7 +448,7 @@ impl RecordSession {
         self.syscall_buffer_size_
     }
 
-    pub fn syscallbuf_desched_sig(&self) -> u8 {
+    pub fn syscallbuf_desched_sig(&self) -> i32 {
         self.syscallbuf_desched_sig_
     }
 
@@ -315,19 +460,19 @@ impl RecordSession {
         self.use_file_cloning_
     }
 
-    pub fn set_ignore_sig(&mut self, sig: i32) {
-        self.ignore_sig = sig;
+    pub fn set_ignore_sig(&mut self, maybe_sig: Option<i32>) {
+        self.ignore_sig = maybe_sig;
     }
 
-    pub fn get_ignore_sig(&self) -> i32 {
+    pub fn get_ignore_sig(&self) -> Option<i32> {
         self.ignore_sig
     }
 
-    pub fn set_continue_through_sig(&mut self, sig: i32) {
-        self.continue_through_sig = sig;
+    pub fn set_continue_through_sig(&mut self, maybe_sig: Option<i32>) {
+        self.continue_through_sig = maybe_sig;
     }
 
-    pub fn get_continue_through_sig(&self) -> i32 {
+    pub fn get_continue_through_sig(&self) -> Option<i32> {
         self.continue_through_sig
     }
 

@@ -35,21 +35,32 @@
 //! The main parameter to the scheduler is `max_ticks`, which controls the
 //! length of each timeslice.
 
-use crate::{event::Switchable, session::task::record_task::record_task::RecordTask, ticks::Ticks};
+use crate::{
+    event::Switchable,
+    session::{
+        task::{record_task::record_task::RecordTask, TaskSharedWeakPtr},
+        SessionSharedPtr,
+        SessionSharedWeakPtr,
+    },
+    ticks::Ticks,
+};
 use libc::cpu_set_t;
 use std::{
-    cell::RefCell,
-    collections::{BTreeSet, VecDeque},
-    rc::{Rc, Weak},
+    collections::{BTreeMap, VecDeque},
+    mem,
+    rc::Weak,
 };
 
 // Tasks sorted by priority.
-type TaskPrioritySet = BTreeSet<(i32, Weak<RefCell<RecordTask>>)>;
-type TaskQueue = VecDeque<Weak<RefCell<RecordTask>>>;
+type TaskPrioritySet = BTreeMap<i32, TaskSharedWeakPtr>;
+type TaskQueue = VecDeque<TaskSharedWeakPtr>;
 
+/// DIFF NOTE: In rr we deal with *RecordTasks. Here we are dealing with the
+/// "superclass" Task (see the various TaskSharedWeakPtr-s). This will mean
+/// that we need to do as_record_task() in various locations. An extra step...
 pub struct Scheduler {
-    // @TODO figure this out. Currently Session owns a scheduler
-    // session: RecordSession,
+    /// @TODO Is this what we want?
+    session: SessionSharedWeakPtr,
     /// Every task of this session is either in task_priority_set
     /// (when in_round_robin_queue is false), or in task_round_robin_queue
     /// (when in_round_robin_queue is true).
@@ -62,7 +73,7 @@ pub struct Scheduler {
 
     /// The currently scheduled task. This may be `None` if the last scheduled
     /// task has been destroyed.
-    current_: Option<Rc<RefCell<RecordTask>>>,
+    current_: Option<TaskSharedWeakPtr>,
     current_timeslice_end_: Ticks,
 
     /// At this time (or later) we should refresh these values.
@@ -75,12 +86,12 @@ pub struct Scheduler {
 
     max_ticks_: Ticks,
 
-    must_run_task: RecordTask,
+    must_run_task: Option<TaskSharedWeakPtr>,
 
     pretend_affinity_mask_: cpu_set_t,
 
-    /// DIFF NOTE: Made this into an Option in rd
-    pretend_num_cores_: Option<u32>,
+    /// @TODO Is this what we want?
+    pretend_num_cores_: u32,
 
     /// When true, context switch at every possible point.
     always_switch: bool,
@@ -130,6 +141,38 @@ pub struct Rescheduled {
 }
 
 impl Scheduler {
+    /// DIFF This constructor does NOT call regenerate_affinity_mask() like in rr.
+    pub fn new(max_ticks: Ticks, always_switch: bool) -> Scheduler {
+        Scheduler {
+            session: Weak::new(),
+            task_priority_set: Default::default(),
+            task_round_robin_queue: Default::default(),
+            current_: Default::default(),
+            current_timeslice_end_: Default::default(),
+            high_priority_only_intervals_refresh_time: Default::default(),
+            high_priority_only_intervals_start: Default::default(),
+            high_priority_only_intervals_duration: Default::default(),
+            high_priority_only_intervals_period: Default::default(),
+            priorities_refresh_time: Default::default(),
+            max_ticks_: max_ticks,
+            must_run_task: Default::default(),
+            pretend_affinity_mask_: unsafe { mem::zeroed() },
+            pretend_num_cores_: 1,
+            always_switch,
+            enable_chaos: Default::default(),
+            enable_poll: Default::default(),
+            last_reschedule_in_high_priority_only_interval: Default::default(),
+        }
+    }
+
+    pub fn set_session_weak_ptr(&mut self, weak_ptr: SessionSharedWeakPtr) {
+        self.session = weak_ptr;
+    }
+
+    fn session_shr_ptr(&self) -> SessionSharedPtr {
+        self.session.upgrade().unwrap()
+    }
+
     pub fn set_max_ticks(&mut self, max_ticks: Ticks) {
         debug_assert!(max_ticks <= TicksHowMany::MaxMaxTicks as u64);
         self.max_ticks_ = max_ticks;
@@ -275,11 +318,13 @@ impl Scheduler {
         unimplemented!()
     }
 
-    fn validate_scheduled_task() {
+    fn validate_scheduled_task(&self) {
         unimplemented!()
     }
 
-    fn regenerate_affinity_mask() {
+    /// DIFF NOTE: This is a private method in rr.
+    /// In rd this need to be pub because of the way things are being constructed.
+    pub fn regenerate_affinity_mask(&mut self) {
         unimplemented!()
     }
 }

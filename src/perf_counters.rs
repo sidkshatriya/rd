@@ -95,6 +95,12 @@ pub enum TicksSemantics {
     TicksTakenBranches,
 }
 
+impl Default for TicksSemantics {
+    fn default() -> TicksSemantics {
+        TicksSemantics::TicksRetiredConditionalBranches
+    }
+}
+
 use TicksSemantics::*;
 
 /// Find out the cpu model using the cpuid instruction.

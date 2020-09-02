@@ -1202,6 +1202,7 @@ pub fn trapped_instruction_at<T: Task>(t: &mut T, ip: RemoteCodePtr) -> TrappedI
     TrappedInstruction::None
 }
 
+#[derive(Copy, Clone)]
 pub enum BindCPU {
     /// `RandomCPU` means binding to a randomly chosen CPU.
     RandomCPU,
