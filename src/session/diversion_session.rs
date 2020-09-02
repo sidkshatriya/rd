@@ -1,4 +1,4 @@
-use super::session_common::kill_all_tasks;
+use super::{on_create_task_common, session_common::kill_all_tasks, task::TaskSharedPtr};
 use crate::{
     emu_fs::{EmuFs, EmuFsSharedPtr},
     session::{
@@ -104,5 +104,9 @@ impl Session for DiversionSession {
 
     fn as_diversion(&self) -> Option<&DiversionSession> {
         Some(self)
+    }
+
+    fn on_create_task(&self, t: TaskSharedPtr) {
+        on_create_task_common(self, t);
     }
 }

@@ -1,4 +1,5 @@
 use super::{
+    on_create_task_common,
     session_common::kill_all_tasks,
     task::{
         record_task::record_task::RecordTask,
@@ -234,7 +235,7 @@ impl Drop for RecordSession {
 }
 
 impl RecordSession {
-    /// DIFF Note:
+    /// DIFF NOTE:
     /// - The param list is much simpler than rr RecordSession::RecordSession. Takes the
     ///   whole RecordCommand for simplicity.
     /// - This method also incorporates functionality from rr setup_session_from_flags()
@@ -363,7 +364,7 @@ impl RecordSession {
                 .unwrap()
                 .initial_thread_group = Some(t.borrow().thread_group_shr_ptr());
         }
-        rc.on_create(t);
+        rc.on_create_task(t);
         rc
     }
 
@@ -615,8 +616,9 @@ impl Session for RecordSession {
         unimplemented!()
     }
 
-    fn on_create(&self, _t: TaskSharedPtr) {
-        unimplemented!()
+    fn on_create_task(&self, t: TaskSharedPtr) {
+        on_create_task_common(self, t.clone());
+        self.scheduler_mut().on_create_task(t);
     }
 
     fn trace_stream(&self) -> Option<Ref<'_, TraceStream>> {

@@ -113,10 +113,8 @@ pub trait Session: DerefMut<Target = SessionInner> {
         trace.bound_to_cpu()
     }
 
-    fn on_create(&self, t: TaskSharedPtr) {
-        let rec_tid = t.borrow().rec_tid;
-        self.task_map.borrow_mut().insert(rec_tid, t);
-    }
+    /// DIFF NOTE: Simply called on_create() in rr
+    fn on_create_task(&self, t: TaskSharedPtr);
 
     /// NOTE: called Session::copy_state_to() in rr.
     fn copy_state_to_session(&self, _dest: &SessionInner, _emu_fs: &EmuFs, _dest_emu_fs: EmuFs) {
@@ -166,7 +164,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
                 let mut remote2 = AutoRemoteSyscalls::new(leader.as_mut());
                 for tgmember in &tgleader.member_states {
                     let t_clone = task_common::os_clone_into(tgmember, &mut remote2);
-                    self.on_create(t_clone);
+                    self.on_create_task(t_clone);
                 }
             }
 
@@ -205,7 +203,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
             self.next_task_serial(),
             None,
         );
-        self.on_create(c.clone());
+        self.on_create_task(c.clone());
         c
     }
 
@@ -340,4 +338,9 @@ pub trait Session: DerefMut<Target = SessionInner> {
         t.flush_inconsistent_state();
         self.spawned_task_error_fd_.borrow_mut().close();
     }
+}
+
+fn on_create_task_common<S: Session>(sess: &S, t: TaskSharedPtr) {
+    let rec_tid = t.borrow().rec_tid;
+    sess.task_map.borrow_mut().insert(rec_tid, t);
 }

@@ -1,5 +1,6 @@
 use super::{
     address_space::{kernel_mapping::KernelMapping, MappingFlags},
+    on_create_task_common,
     session_common::kill_all_tasks,
     session_inner::{is_singlestep, session_inner::PtraceSyscallSeccompOrdering},
     task::{
@@ -567,7 +568,7 @@ impl ReplaySession {
             Some(tid),
         );
 
-        rc.on_create(t);
+        rc.on_create_task(t);
 
         rc
     }
@@ -1864,6 +1865,11 @@ impl DerefMut for ReplaySession {
 }
 
 impl Session for ReplaySession {
+    /// Forwarded Method
+    fn on_create_task(&self, t: TaskSharedPtr) {
+        on_create_task_common(self, t);
+    }
+
     /// Forwarded method
     fn kill_all_tasks(&self) {
         kill_all_tasks(self)

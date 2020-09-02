@@ -38,7 +38,7 @@
 use crate::{
     event::Switchable,
     session::{
-        task::{record_task::record_task::RecordTask, TaskSharedWeakPtr},
+        task::{record_task::record_task::RecordTask, TaskSharedPtr, TaskSharedWeakPtr},
         SessionSharedPtr,
         SessionSharedWeakPtr,
     },
@@ -217,12 +217,12 @@ impl Scheduler {
         unimplemented!()
     }
 
-    pub fn on_create(&mut self, _t: &RecordTask) {
+    pub fn on_create_task(&mut self, _t: TaskSharedPtr) {
         unimplemented!()
     }
 
     ///  De-register a thread. This function should be called when a thread exits.
-    pub fn on_destroy(&mut self, _t: &RecordTask) {
+    pub fn on_destroy_task(&mut self, _t: TaskSharedPtr) {
         unimplemented!()
     }
 
