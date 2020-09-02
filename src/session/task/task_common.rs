@@ -663,7 +663,7 @@ pub(super) fn did_waitpid<T: Task>(task: &mut T, mut status: WaitStatus) {
             if task.session().is_recording() {
                 // Force this timeslice to end
                 task.session()
-                    .as_record_mut()
+                    .as_record()
                     .unwrap()
                     .scheduler_mut()
                     .expire_timeslice();

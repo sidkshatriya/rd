@@ -65,7 +65,8 @@ pub trait Session: DerefMut<Target = SessionInner> {
     fn as_record(&self) -> Option<&RecordSession> {
         None
     }
-    fn as_record_mut(&self) -> Option<&mut RecordSession> {
+
+    fn as_record_mut(&mut self) -> Option<&mut RecordSession> {
         None
     }
 

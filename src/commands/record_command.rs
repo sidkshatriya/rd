@@ -226,7 +226,7 @@ impl RecordCommand {
         log!(LogInfo, "Start recording...");
 
         let session = RecordSession::create(self);
-        let rec_session = session.as_record_mut().unwrap();
+        let rec_session = session.as_record().unwrap();
 
         match self.print_trace_dir_fd {
             Some(fd) => {

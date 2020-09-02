@@ -241,10 +241,11 @@ impl RecordSession {
     /// - This method also incorporates functionality from rr setup_session_from_flags()
     ///   method
     pub fn new(
-        exe_path: &OsString,
+        exe_path: &OsStr,
         // We don't use flags.extra_env. We augment flags.extra_env producing `envp`.
         envp: &[(OsString, OsString)],
         flags: &RecordCommand,
+        asan_active: bool,
     ) -> SessionSharedPtr {
         let sched = Scheduler::new(flags.max_ticks, flags.always_switch);
 
@@ -277,7 +278,7 @@ impl RecordSession {
             use_file_cloning_: flags.use_file_cloning,
             use_read_cloning_: flags.use_read_cloning,
             enable_chaos_: Default::default(),
-            asan_active_: false,
+            asan_active_: asan_active,
             wait_for_all_: flags.wait_for_all,
             output_trace_dir: flags.output_trace_dir.clone(),
         };
@@ -310,40 +311,27 @@ impl RecordSession {
         let weak_self = Rc::downgrade(&rc);
         // We never change the weak_self pointer so its a good idea to use
         // a bit of unsafe here otherwise we would unecessarily need a RefCell.
-        unsafe {
-            Rc::get_mut_unchecked(&mut rc).weak_self = weak_self.clone();
+        let rs = unsafe {
+            let s = Rc::get_mut_unchecked(&mut rc);
+            s.weak_self = weak_self.clone();
+            // Use this to also set things that shouldn't change.
+            s.as_record_mut().unwrap()
+        };
 
-            // Set the session for the scheduler now that the session is nicely ensconced
-            // in a Box() and will have a stable address.
-            Rc::get_mut_unchecked(&mut rc)
-                .as_record_mut()
-                .unwrap()
-                .scheduler_mut()
-                .set_session_weak_ptr(weak_self);
-        }
+        rs.scheduler_mut().set_session_weak_ptr(weak_self);
 
         if flags.chaos {
-            rc.as_record_mut()
-                .unwrap()
-                .scheduler_mut()
-                .set_enable_chaos(flags.chaos);
+            rs.scheduler_mut().set_enable_chaos(flags.chaos);
         }
 
         match flags.num_cores {
             Some(num_cores) => {
                 // Set the number of cores reported, possibly overriding the chaos mode
                 // setting.
-                rc.as_record_mut()
-                    .unwrap()
-                    .scheduler_mut()
-                    .set_num_cores(num_cores);
+                rs.scheduler_mut().set_num_cores(num_cores);
             }
             // This is necessary for the default case
-            None => rc
-                .as_record_mut()
-                .unwrap()
-                .scheduler_mut()
-                .regenerate_affinity_mask(),
+            None => rs.scheduler_mut().regenerate_affinity_mask(),
         }
 
         let t = TaskInner::spawn(
@@ -395,7 +383,7 @@ impl RecordSession {
         match maybe_syscall_buffer_lib_path {
             Some(syscall_buffer_lib_path) => {
                 let mut ld_preload = Vec::<u8>::new();
-                match exe_info.libasan_path {
+                match &exe_info.libasan_path {
                     Some(asan_path) => {
                         log!(LogDebug, "Prepending {:?} to LD_PRELOAD", asan_path);
                         // Put an LD_PRELOAD entry for it before our preload library, because
@@ -434,7 +422,12 @@ impl RecordSession {
             env.push(("QT_NO_CPU_FEATURE".into(), "rdrand rdseed rtm".into()));
         }
 
-        unimplemented!()
+        RecordSession::new(
+            &full_path,
+            &env,
+            options,
+            exe_info.has_asan_symbols || exe_info.libasan_path.is_some(),
+        )
     }
 
     pub fn disable_cpuid_features(&self) -> &DisableCPUIDFeatures {
@@ -589,6 +582,14 @@ impl DerefMut for RecordSession {
 }
 
 impl Session for RecordSession {
+    fn as_record(&self) -> Option<&RecordSession> {
+        Some(self)
+    }
+
+    fn as_record_mut(&mut self) -> Option<&mut RecordSession> {
+        Some(self)
+    }
+
     /// Forwarded method
     fn kill_all_tasks(&self) {
         kill_all_tasks(self)
