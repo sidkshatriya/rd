@@ -34,17 +34,23 @@
 //!
 //! The main parameter to the scheduler is `max_ticks`, which controls the
 //! length of each timeslice.
-
 use crate::{
     event::Switchable,
+    log::LogWarn,
     session::{
+        record_session::RecordSession,
         task::{record_task::record_task::RecordTask, TaskSharedPtr, TaskSharedWeakPtr},
         SessionSharedPtr,
         SessionSharedWeakPtr,
     },
     ticks::Ticks,
 };
-use libc::cpu_set_t;
+use libc::{sysconf, _SC_NPROCESSORS_CONF};
+use nix::{
+    sched::{sched_getaffinity, CpuSet},
+    unistd::Pid,
+};
+use rand::{seq::SliceRandom, thread_rng};
 use std::{
     collections::{BTreeMap, VecDeque},
     mem,
@@ -88,7 +94,7 @@ pub struct Scheduler {
 
     must_run_task: Option<TaskSharedWeakPtr>,
 
-    pretend_affinity_mask_: cpu_set_t,
+    pretend_affinity_mask_: CpuSet,
 
     /// @TODO Is this what we want?
     pretend_num_cores_: u32,
@@ -173,6 +179,10 @@ impl Scheduler {
         self.session.upgrade().unwrap()
     }
 
+    pub fn record_session(&self) -> &RecordSession {
+        unimplemented!()
+    }
+
     pub fn set_max_ticks(&mut self, max_ticks: Ticks) {
         debug_assert!(max_ticks <= TicksHowMany::MaxMaxTicks as u64);
         self.max_ticks_ = max_ticks;
@@ -252,7 +262,7 @@ impl Scheduler {
     }
 
     /// Return the processor affinity masks we should report to applications.
-    pub fn pretend_affinity_mask(&self) -> cpu_set_t {
+    pub fn pretend_affinity_mask(&self) -> CpuSet {
         self.pretend_affinity_mask_
     }
 
@@ -322,9 +332,83 @@ impl Scheduler {
         unimplemented!()
     }
 
+    /// Compute an affinity mask to report via sched_getaffinity.
+    /// This mask should include whatever CPU number the task is
+    /// actually running on, otherwise we may confuse applications.
+    /// The mask should also match the number of CPUs we're pretending
+    /// to have.
+    ///
     /// DIFF NOTE: This is a private method in rr.
     /// In rd this need to be pub because of the way things are being constructed.
     pub fn regenerate_affinity_mask(&mut self) {
-        unimplemented!()
+        let ret = sched_getaffinity(Pid::from_raw(0));
+        match ret {
+            Err(e) => fatal!("Failed sched_getaffinity {:?}", e),
+            Ok(aff) => self.pretend_affinity_mask_ = aff,
+        }
+
+        let maybe_cpu: Option<u32> = self
+            .session_shr_ptr()
+            .as_record()
+            .unwrap()
+            .trace_writer()
+            .bound_to_cpu();
+        let cpu = match maybe_cpu {
+            None => {
+                // We only run one thread at a time but we're not limiting
+                // where that thread can run, so report all available CPUs
+                // in the affinity mask even though that doesn't match
+                // pretend_num_cores. We only run unbound during tests or
+                // when explicitly requested by the user.
+                return;
+            }
+            Some(cpu) => {
+                match self.pretend_affinity_mask_.is_set(cpu as usize) {
+                    Err(e) => {
+                        log!(LogWarn, "Bound CPU {} not in affinity mask: {:?}", cpu, e);
+                        // Use the original affinity mask since something strange is
+                        // going on.
+                        return;
+                    }
+                    Ok(false) => {
+                        log!(LogWarn, "Bound CPU {} not in affinity mask", cpu);
+                        // Use the original affinity mask since something strange is
+                        // going on.
+                        return;
+                    }
+                    Ok(true) => cpu,
+                }
+            }
+        };
+        // Try to limit the CPU numbers we generate to the ones that
+        // actually exist on this system, but generate fake ones if there
+        // aren't enough.
+        let np = unsafe { sysconf(_SC_NPROCESSORS_CONF) };
+        if np < 0 {
+            fatal!("Error while obtaining the number of CPUs");
+        }
+        let mut faked_num_cpus: u32 = np as u32;
+        if faked_num_cpus < self.pretend_num_cores_ {
+            faked_num_cpus = self.pretend_num_cores_;
+        }
+        let mut pretend_affinity_mask = CpuSet::new();
+        // DIFF NOTE: rr swallows any error. We don't for now.
+        pretend_affinity_mask.set(cpu as usize);
+        if self.pretend_num_cores_ > 1 {
+            // generate random CPU numbers that fit into the CPU mask
+            let mut other_cpus = Vec::<u32>::new();
+            for i in 0..faked_num_cpus {
+                if i != cpu {
+                    other_cpus.push(i);
+                }
+            }
+            let mut rg = thread_rng();
+            other_cpus.shuffle(&mut rg);
+            for i in 0..self.pretend_num_cores_ as usize - 1 {
+                // DIFF NOTE: rr swallows any error. We don't for now.
+                pretend_affinity_mask.set(other_cpus[i] as usize).unwrap();
+            }
+        }
+        self.pretend_affinity_mask_ = pretend_affinity_mask;
     }
 }
