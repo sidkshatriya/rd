@@ -134,7 +134,7 @@ impl Default for PtraceSyscallSeccompOrdering {
 
 /// struct is NOT pub
 #[derive(Clone)]
-pub(in super::super) struct AddressSpaceClone {
+pub(super) struct AddressSpaceClone {
     /// @TODO need to think about this
     pub clone_leader: TaskSharedWeakPtr,
     pub clone_leader_state: CapturedState,
@@ -144,7 +144,7 @@ pub(in super::super) struct AddressSpaceClone {
 
 /// struct is NOT pub
 #[derive(Clone)]
-pub(in super::super) struct CloneCompletion {
+pub(super) struct CloneCompletion {
     pub address_spaces: Vec<AddressSpaceClone>,
 }
 
@@ -345,7 +345,7 @@ impl SessionInner {
         self.ticks_semantics_
     }
 
-    pub(in super::super) fn new() -> SessionInner {
+    pub(super) fn new() -> SessionInner {
         let s = SessionInner {
             weak_self: Default::default(),
             vm_map: Default::default(),
@@ -366,7 +366,7 @@ impl SessionInner {
         s
     }
 
-    pub(in super::super) fn create_spawn_task_error_pipe(&mut self) -> ScopedFd {
+    pub(super) fn create_spawn_task_error_pipe(&mut self) -> ScopedFd {
         let res = pipe2(OFlag::O_CLOEXEC);
         match res {
             Ok((fd0, fd1)) => {
@@ -379,7 +379,7 @@ impl SessionInner {
         }
     }
 
-    pub(in super::super) fn diagnose_debugger_trap(
+    pub(super) fn diagnose_debugger_trap(
         &self,
         t: &mut dyn Task,
         run_command: RunCommand,
@@ -462,7 +462,7 @@ impl SessionInner {
 
         break_status
     }
-    pub(in super::super) fn check_for_watchpoint_changes(
+    pub(super) fn check_for_watchpoint_changes(
         &self,
         t: &dyn Task,
         break_status: &mut BreakStatus,
@@ -473,7 +473,7 @@ impl SessionInner {
 
     /// XXX Move CloneCompletion/CaptureState etc to ReplayTask/ReplaySession
 
-    pub(in super::super) fn assert_fully_initialized(&self) {
+    pub(super) fn assert_fully_initialized(&self) {
         debug_assert!(
             self.clone_completion.borrow().is_none(),
             "Session not fully initialized"
@@ -522,35 +522,35 @@ impl Statistics {
 /// This struct should NOT impl the Session trait
 pub struct SessionInner {
     /// Weak dyn Session pointer to self
-    pub(in super::super) weak_self: SessionSharedWeakPtr,
+    pub(super) weak_self: SessionSharedWeakPtr,
     /// All these members are NOT pub
-    pub(in super::super) vm_map: RefCell<AddressSpaceMap>,
-    pub(in super::super) task_map: RefCell<TaskMap>,
-    pub(in super::super) thread_group_map: RefCell<ThreadGroupMap>,
+    pub(super) vm_map: RefCell<AddressSpaceMap>,
+    pub(super) task_map: RefCell<TaskMap>,
+    pub(super) thread_group_map: RefCell<ThreadGroupMap>,
 
     /// If non-None, data required to finish initializing the tasks of this
     /// session.
     /// @TODO is a Box required here?
-    pub(in super::super) clone_completion: RefCell<Option<Box<CloneCompletion>>>,
+    pub(super) clone_completion: RefCell<Option<Box<CloneCompletion>>>,
 
-    pub(in super::super) statistics_: RefCell<Statistics>,
+    pub(super) statistics_: RefCell<Statistics>,
 
-    pub(in super::super) tracee_socket: Rc<RefCell<ScopedFd>>,
-    pub(in super::super) tracee_socket_fd_number: Cell<i32>,
-    pub(in super::super) next_task_serial_: Cell<u32>,
+    pub(super) tracee_socket: Rc<RefCell<ScopedFd>>,
+    pub(super) tracee_socket_fd_number: Cell<i32>,
+    pub(super) next_task_serial_: Cell<u32>,
     // @TODO Should this be an Option?
-    pub(in super::super) spawned_task_error_fd_: RefCell<ScopedFd>,
+    pub(super) spawned_task_error_fd_: RefCell<ScopedFd>,
 
-    pub(in super::super) syscall_seccomp_ordering_: Cell<PtraceSyscallSeccompOrdering>,
+    pub(super) syscall_seccomp_ordering_: Cell<PtraceSyscallSeccompOrdering>,
 
-    pub(in super::super) ticks_semantics_: TicksSemantics,
+    pub(super) ticks_semantics_: TicksSemantics,
 
     /// True if we've done an exec so tracees are now in a state that will be
     /// consistent across record and replay.
-    pub(in super::super) done_initial_exec_: Cell<bool>,
+    pub(super) done_initial_exec_: Cell<bool>,
 
     /// True while the execution of this session is visible to users.
-    pub(in super::super) visible_execution_: bool,
+    pub(super) visible_execution_: bool,
 }
 
 impl Default for SessionInner {
