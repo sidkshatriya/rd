@@ -77,7 +77,7 @@ After installing `rd` add an alias like this in your bash (or other shell):
 Assuming you have a local source build of `mozilla/rr` at `/home/abcxyz/rr/build` 
 
 ```bash
-alias rd="rd --resource-path=/home/abcxyz/rr/build
+alias rd="rd --resource-path=/home/abcxyz/rr/build"
 ```
 
 This will avoid constantly specifying the resource path on every `rd` invocation.
