@@ -42,7 +42,7 @@ use crate::{
             Traced,
         },
         replay_session::ReplaySession,
-        session_inner::session_inner::SessionInner,
+        session_inner::SessionInner,
         task::{
             record_task::SignalDisposition,
             task_common::{read_mem, read_val_mem, write_mem, write_val_mem},

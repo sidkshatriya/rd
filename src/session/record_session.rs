@@ -24,7 +24,7 @@ use crate::{
     scoped_fd::ScopedFd,
     seccomp_filter_rewriter::SeccompFilterRewriter,
     session::{
-        session_inner::session_inner::SessionInner,
+        session_inner::SessionInner,
         task::{Task, TaskSharedPtr},
         Session,
     },

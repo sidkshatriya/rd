@@ -11,7 +11,7 @@ use crate::{
     log::LogLevel::LogInfo,
     session::{
         replay_session,
-        session_inner::{session_inner::Statistics, RunCommand},
+        session_inner::{RunCommand, Statistics},
         SessionSharedPtr,
     },
     trace::trace_frame::FrameTime,

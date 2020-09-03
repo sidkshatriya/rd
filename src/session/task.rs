@@ -15,7 +15,7 @@ use crate::{
     remote_ptr::{RemotePtr, Void},
     session::{
         replay_session::ReplaySession,
-        session_inner::session_inner::PtraceSyscallSeccompOrdering,
+        session_inner::PtraceSyscallSeccompOrdering,
         task::{
             record_task::RecordTask,
             replay_task::ReplayTask,

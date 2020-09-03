@@ -2,7 +2,7 @@ use super::{on_create_task_common, session_common::kill_all_tasks, task::TaskSha
 use crate::{
     emu_fs::{EmuFs, EmuFsSharedPtr},
     session::{
-        session_inner::{session_inner::SessionInner, BreakStatus, RunCommand},
+        session_inner::{BreakStatus, RunCommand, SessionInner},
         task::Task,
         Session,
     },

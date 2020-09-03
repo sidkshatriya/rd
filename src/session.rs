@@ -8,7 +8,7 @@ use crate::{
         diversion_session::DiversionSession,
         record_session::RecordSession,
         replay_session::ReplaySession,
-        session_inner::session_inner::{AddressSpaceMap, SessionInner, TaskMap, ThreadGroupMap},
+        session_inner::{AddressSpaceMap, SessionInner, TaskMap, ThreadGroupMap},
         task::{
             task_common,
             task_inner::{CloneFlags, WriteFlags},

@@ -80,7 +80,7 @@ use crate::{
             BreakpointType,
             DebugStatus,
         },
-        session_inner::session_inner::SessionInner,
+        session_inner::SessionInner,
         task::{
             is_signal_triggered_by_ptrace_interrupt,
             is_singlestep_resume,

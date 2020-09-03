@@ -71,7 +71,7 @@ use crate::{
             WatchConfig,
             WatchType,
         },
-        session_inner::session_inner::SessionInner,
+        session_inner::SessionInner,
         task::{task_common::set_thread_area_core, Task, TaskSharedPtr, TaskSharedWeakPtr},
         Session,
         SessionSharedPtr,

@@ -2,7 +2,7 @@ use super::{
     address_space::{kernel_mapping::KernelMapping, MappingFlags},
     on_create_task_common,
     session_common::kill_all_tasks,
-    session_inner::{is_singlestep, session_inner::PtraceSyscallSeccompOrdering},
+    session_inner::{is_singlestep, PtraceSyscallSeccompOrdering},
     task::{
         replay_task::ReplayTaskIgnore,
         task_inner::{TrapReasons, MAX_TICKS_REQUEST},
@@ -49,7 +49,7 @@ use crate::{
         },
         diversion_session::DiversionSessionSharedPtr,
         replay_session::ReplayTraceStepType::TstepNone,
-        session_inner::{session_inner::SessionInner, BreakStatus, RunCommand},
+        session_inner::{BreakStatus, RunCommand, SessionInner},
         task::{
             replay_task::ReplayTask,
             task_common::write_val_mem,
