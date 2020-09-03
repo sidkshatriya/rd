@@ -64,6 +64,7 @@ use std::{
     ptr::copy_nonoverlapping,
     rc::{Rc, Weak},
 };
+use libc::PR_TSC_ENABLE;
 
 #[derive(Clone)]
 pub struct Sighandlers {
@@ -248,6 +249,7 @@ pub enum AddSysgoodFlag {
     UseSysgood,
 }
 
+#[derive(Clone, Default)]
 pub struct SyscallbufCodeLayout {
     pub syscallbuf_code_start: RemoteCodePtr,
     pub syscallbuf_code_end: RemoteCodePtr,
@@ -578,12 +580,65 @@ impl RecordTask {
     /// Every Task owned by a RecordSession is a RecordTask. Functionality that
     /// only applies during recording belongs here.
     pub fn new(
-        _session: &RecordSession,
-        _tid: pid_t,
-        _serial: u32,
-        _a: SupportedArch,
-    ) -> RecordTask {
-        unimplemented!()
+        session: &RecordSession,
+        tid: pid_t,
+        serial: u32,
+        a: SupportedArch,
+    ) -> Box<dyn Task> {
+        let rt = RecordTask {
+            task_inner: TaskInner::new(session, tid, None, serial, a),
+            ticks_at_last_recorded_syscall_exit: 0,
+            time_at_start_of_last_timeslice: 0,
+            priority: 0,
+            in_round_robin_queue: false,
+            emulated_ptracer: None,
+            emulated_ptrace_event_msg: 0,
+            emulated_ptrace_options: None,
+            emulated_ptrace_cont_command: None,
+            emulated_stop_pending: false,
+            emulated_ptrace_sigchld_pending: false,
+            emulated_sigchld_pending: false,
+            emulated_ptrace_seized: false,
+            emulated_ptrace_queued_exit_stop: false,
+            in_wait_type: WaitType::WaitTypeNone,
+            in_wait_pid: 0,
+            emulated_stop_type: EmulatedStopType::NotStopped,
+            blocked_sigs_dirty: true,
+            syscallbuf_blocked_sigs_generation: 0,
+            flushed_num_rec_bytes: 0,
+            flushed_syscallbuf: false,
+            delay_syscallbuf_reset_for_desched: false,
+            delay_syscallbuf_reset_for_seccomp_trap: false,
+            prctl_seccomp_status: 0,
+            robust_futex_list_len: 0,
+            own_namespace_rec_tid: 0,
+            exit_code: 0,
+            termination_signal: None,
+            tsc_mode: PR_TSC_ENABLE,
+            cpuid_mode: 1,
+            stashed_signals: Default::default(),
+            stashed_signals_blocking_more_signals: false,
+            stashed_group_stop: false,
+            break_at_syscallbuf_traced_syscalls: false,
+            break_at_syscallbuf_untraced_syscalls: false,
+            break_at_syscallbuf_final_instruction: false,
+            next_pmc_interrupt_is_for_user: false,
+            did_record_robust_futex_changes: false,
+            // Implicit
+            registers_at_start_of_last_timeslice: Registers::new(a),
+            emulated_ptrace_tracees: Default::default(),
+            saved_ptrace_siginfos: vec![],
+            emulated_stop_code: Default::default(),
+            sighandlers: Rc::new(RefCell::new(Default::default())),
+            blocked_sigs: 0,
+            syscallbuf_code_layout: Default::default(),
+            desched_fd: Default::default(),
+            robust_futex_list: Default::default(),
+            tid_futex: Default::default(),
+            pending_events: Default::default(),
+        };
+        // @TODO incomplete
+        Box::new(rt)
     }
 
     // @TODO clone_task() ??
