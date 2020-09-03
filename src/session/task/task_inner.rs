@@ -365,74 +365,74 @@ pub struct TaskInner {
     pub thread_locals: ThreadLocals,
 
     /// These are private
-    pub(in super::super::super) serial: u32,
+    pub(in super::super) serial: u32,
     /// The address space of this task.
-    pub(in super::super::super) as_: Option<AddressSpaceSharedPtr>,
+    pub(in super::super) as_: Option<AddressSpaceSharedPtr>,
     /// The file descriptor table of this task.
-    pub(in super::super::super) fds: Option<FdTableSharedPtr>,
+    pub(in super::super) fds: Option<FdTableSharedPtr>,
     /// Task's OS name.
-    pub(in super::super::super) prname: OsString,
+    pub(in super::super) prname: OsString,
     /// Count of all ticks seen by this task since tracees became
     /// consistent and the task last wait()ed.
-    pub(in super::super::super) ticks: Ticks,
+    pub(in super::super) ticks: Ticks,
     /// When `is_stopped`, these are our child registers.
-    pub(in super::super::super) registers: Registers,
+    pub(in super::super) registers: Registers,
     /// Where we last resumed execution
-    pub(in super::super::super) address_of_last_execution_resume: RemoteCodePtr,
-    pub(in super::super::super) how_last_execution_resumed: ResumeRequest,
+    pub(in super::super) address_of_last_execution_resume: RemoteCodePtr,
+    pub(in super::super) how_last_execution_resumed: ResumeRequest,
     /// In certain circumstances, due to hardware bugs, we need to fudge the
     /// cx register. If so, we record the orginal value here. See comments in
     /// Task.cc
     /// DIFF NOTE: In rr this is a u64. We use usize. @TODO Will this cause any issues?
-    pub(in super::super::super) last_resume_orig_cx: usize,
+    pub(in super::super) last_resume_orig_cx: usize,
     /// The instruction type we're singlestepping through.
-    pub(in super::super::super) singlestepping_instruction: TrappedInstruction,
+    pub(in super::super) singlestepping_instruction: TrappedInstruction,
     /// True if we set a breakpoint after a singlestepped CPUID instruction.
     /// We need this in addition to `singlestepping_instruction` because that
     /// might be CPUID but we failed to set the breakpoint.
-    pub(in super::super::super) did_set_breakpoint_after_cpuid: bool,
+    pub(in super::super) did_set_breakpoint_after_cpuid: bool,
     /// True when we know via waitpid() that the task is stopped and we haven't
     /// resumed it.
-    pub(in super::super::super) is_stopped: bool,
+    pub(in super::super) is_stopped: bool,
     /// True when the seccomp filter has been enabled via prctl(). This happens
     /// in the first system call issued by the initial tracee (after it returns
     /// from kill(SIGSTOP) to synchronize with the tracer).
-    pub(in super::super::super) seccomp_bpf_enabled: bool,
+    pub(in super::super) seccomp_bpf_enabled: bool,
     /// True when we consumed a PTRACE_EVENT_EXIT that was about to race with
     /// a resume_execution, that was issued while stopped (i.e. SIGKILL).
-    pub(in super::super::super) detected_unexpected_exit: bool,
+    pub(in super::super) detected_unexpected_exit: bool,
     /// True when 'registers' has changes that haven't been flushed back to the
     /// task yet.
-    pub(in super::super::super) registers_dirty: bool,
+    pub(in super::super) registers_dirty: bool,
     /// DIFF NOTE: This is an option in rd. In rr there is `extra_registers_known`
     /// which we don't need.
-    pub(in super::super::super) extra_registers: Option<ExtraRegisters>,
+    pub(in super::super) extra_registers: Option<ExtraRegisters>,
     /// A weak pointer to the  session we're part of.
-    pub(in super::super::super) session_: SessionSharedWeakPtr,
+    pub(in super::super) session_: SessionSharedWeakPtr,
     /// The thread group this belongs to.
-    pub(in super::super::super) tg: Option<ThreadGroupSharedPtr>,
+    pub(in super::super) tg: Option<ThreadGroupSharedPtr>,
     /// Entries set by `set_thread_area()` or the `tls` argument to `clone()`
     /// (when that's a user_desc). May be more than one due to different
     /// entry_numbers.
-    pub(in super::super::super) thread_areas_: Vec<user_desc>,
+    pub(in super::super) thread_areas_: Vec<user_desc>,
     /// The `stack` argument passed to `clone()`, which for
     /// "threads" is the top of the user-allocated stack.
-    pub(in super::super::super) top_of_stack: RemotePtr<Void>,
+    pub(in super::super) top_of_stack: RemotePtr<Void>,
     /// The most recent status of this task as returned by
     /// waitpid().
-    pub(in super::super::super) wait_status: WaitStatus,
+    pub(in super::super) wait_status: WaitStatus,
     /// The most recent siginfo (captured when wait_status shows pending_sig())
     /// @TODO Should this be an Option??
-    pub(in super::super::super) pending_siginfo: siginfo_t,
+    pub(in super::super) pending_siginfo: siginfo_t,
     /// True when a PTRACE_EXIT_EVENT has been observed in the wait_status
     /// for this task.
-    pub(in super::super::super) seen_ptrace_exit_event: bool,
+    pub(in super::super) seen_ptrace_exit_event: bool,
     /// A counter for the number of stops for which the stop may have been caused
     /// by PTRACE_INTERRUPT. See description in do_waitpid
-    pub(in super::super::super) expecting_ptrace_interrupt_stop: u32,
+    pub(in super::super) expecting_ptrace_interrupt_stop: u32,
 
     /// Important. Weak dyn Task pointer to self.
-    pub(in super::super::super) weak_self: TaskSharedWeakPtr,
+    pub(in super::super) weak_self: TaskSharedWeakPtr,
 }
 
 pub type DebugRegs = Vec<WatchConfig>;
@@ -1328,7 +1328,7 @@ impl TaskInner {
         }
     }
 
-    pub(in super::super::super) fn new(
+    pub(in super::super) fn new(
         session: &dyn Session,
         tid: pid_t,
         rec_tid: Option<pid_t>,
@@ -1384,13 +1384,13 @@ impl TaskInner {
     }
 
     /// Helper function for init_buffers. */
-    pub(in super::super::super) fn init_buffers_arch(&self, _map_hint: RemotePtr<Void>) {
+    pub(in super::super) fn init_buffers_arch(&self, _map_hint: RemotePtr<Void>) {
         unimplemented!()
     }
 
     /// Grab state from this task into a structure that we can use to
     /// initialize a new task via os_clone_into/os_fork_into and copy_state.
-    pub(in super::super::super) fn capture_state(&self) -> CapturedState {
+    pub(in super::super) fn capture_state(&self) -> CapturedState {
         unimplemented!()
     }
 
@@ -1403,13 +1403,13 @@ impl TaskInner {
     /// Some task state must be copied into this by injecting and
     /// running syscalls in this task.  Other state is metadata
     /// that can simply be copied over in local memory.
-    pub(in super::super::super) fn copy_state(&mut self, _stat: &CapturedState) {
+    pub(in super::super) fn copy_state(&mut self, _stat: &CapturedState) {
         unimplemented!()
     }
 
     /// Make the ptrace `request` with `addr` and `data`, return
     /// the ptrace return value.
-    pub(in super::super::super) fn fallible_ptrace(
+    pub(in super::super) fn fallible_ptrace(
         &self,
         request: u32,
         addr: RemotePtr<Void>,
@@ -1421,12 +1421,7 @@ impl TaskInner {
 
     /// Like `fallible_ptrace()` but completely infallible.
     /// All errors are treated as fatal.
-    pub(in super::super::super) fn xptrace(
-        &self,
-        request: u32,
-        addr: RemotePtr<Void>,
-        data: PtraceData,
-    ) {
+    pub(in super::super) fn xptrace(&self, request: u32, addr: RemotePtr<Void>, data: PtraceData) {
         Errno::clear();
         self.fallible_ptrace(request, addr, data);
         let errno = errno();
@@ -1444,7 +1439,7 @@ impl TaskInner {
 
     /// Read tracee memory using PTRACE_PEEKDATA calls. Slow, only use
     /// as fallback. Returns number of bytes actually read.
-    pub(in super::super::super) fn read_bytes_ptrace(
+    pub(in super::super) fn read_bytes_ptrace(
         &self,
         addr: RemotePtr<Void>,
         buf: &mut [u8],
@@ -1487,11 +1482,7 @@ impl TaskInner {
 
     /// Write tracee memory using PTRACE_POKEDATA calls. Slow, only use
     /// as fallback. Returns number of bytes actually written.
-    pub(in super::super::super) fn write_bytes_ptrace(
-        &self,
-        addr: RemotePtr<Void>,
-        buf: &[u8],
-    ) -> usize {
+    pub(in super::super) fn write_bytes_ptrace(&self, addr: RemotePtr<Void>, buf: &[u8]) -> usize {
         let mut nwritten: usize = 0;
         // ptrace operates on the word size of the host, so we really do want
         // to use sizes of host types here.
@@ -1538,11 +1529,7 @@ impl TaskInner {
 
     /// Try writing 'buf' to 'addr' by replacing pages in the tracee
     /// address-space using a temporary file. This may work around PaX issues.
-    pub(in super::super::super) fn try_replace_pages(
-        &self,
-        _addr: RemotePtr<Void>,
-        _buf: &[u8],
-    ) -> bool {
+    pub(in super::super) fn try_replace_pages(&self, _addr: RemotePtr<Void>, _buf: &[u8]) -> bool {
         unimplemented!()
     }
 
@@ -1551,7 +1538,7 @@ impl TaskInner {
     /// to be mapped --- and this is asserted --- or nullptr if
     /// there are no expectations.
     /// Initializes syscallbuf_child.
-    pub(in super::super::super) fn init_syscall_buffer(
+    pub(in super::super) fn init_syscall_buffer(
         &self,
         _remote: &AutoRemoteSyscalls,
         _map_hint: RemotePtr<Void>,
@@ -1572,13 +1559,13 @@ impl TaskInner {
     /// in the process into which the copy of this task will be
     /// created.  `task_leader` will perform the actual OS calls to
     /// create the new child.
-    pub(in super::super::super) fn os_fork_into(&self, _session: &dyn Session) -> &TaskInner {
+    pub(in super::super) fn os_fork_into(&self, _session: &dyn Session) -> &TaskInner {
         unimplemented!()
     }
 
     /// Return the TraceStream that we're using, if in recording or replay.
     /// Returns `None` if we're not in record or replay.
-    pub(in super::super::super) fn trace_stream(
+    pub(in super::super) fn trace_stream(
         &self,
     ) -> Option<OwningHandle<SessionSharedPtr, Ref<TraceStream>>> {
         if self.session().is_diversion() {
@@ -1604,7 +1591,7 @@ impl TaskInner {
     ///
     /// The new clone will be tracked in `session`.  The other
     /// arguments are as for `Task::clone()` above.
-    pub(in super::super::super) fn os_clone(
+    pub(in super::super) fn os_clone(
         _reason: CloneReason,
         _session: &dyn Session,
         _remote: &AutoRemoteSyscalls,
@@ -1625,7 +1612,7 @@ impl TaskInner {
     ///
     /// DIFF NOTE: rr takes an explicit `trace` param. Since trace is available from the
     /// session we avoid it.
-    pub(in super::super::super) fn spawn<'a, 'b>(
+    pub(in super::super) fn spawn<'a, 'b>(
         session: &'a dyn Session,
         error_fd: &ScopedFd,
         sock_fd_out: Rc<RefCell<ScopedFd>>,
@@ -1837,7 +1824,7 @@ impl TaskInner {
         wrapped_t
     }
 
-    pub(in super::super::super) fn preload_thread_locals(&self) -> &mut u8 {
+    pub(in super::super) fn preload_thread_locals(&self) -> &mut u8 {
         unimplemented!()
     }
 }
