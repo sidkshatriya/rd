@@ -78,7 +78,7 @@ impl Drop for ThreadGroup {
         // DIFF NOTE: @TODO This assert is not present in rr.
         // Is there any scenario where this assert may not hold but
         // but the program is still correct?
-        debug_assert!(self.task_set().len() == 0);
+        assert_eq!(self.task_set().len(), 0);
         self.try_session()
             .map(|sess| sess.on_destroy_tg(self.tguid()));
     }

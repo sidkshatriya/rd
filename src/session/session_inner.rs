@@ -35,6 +35,7 @@ use std::{
     ffi::{OsStr, OsString},
     os::unix::ffi::OsStringExt,
     rc::Rc,
+    sync::atomic::{AtomicUsize, Ordering},
 };
 
 #[derive(Clone)]
@@ -270,6 +271,7 @@ impl SessionInner {
             .borrow_mut()
             .insert(tg.borrow().tguid(), Rc::downgrade(tg));
     }
+
     /// NOTE: Method is simply called on_Session::on_destroy() in rr.
     pub fn on_destroy_tg(&self, tguid: ThreadGroupUid) {
         self.thread_group_map.borrow_mut().remove(&tguid);
@@ -346,7 +348,9 @@ impl SessionInner {
     }
 
     pub(super) fn new() -> SessionInner {
+        static NONCE: AtomicUsize = AtomicUsize::new(1);
         let s = SessionInner {
+            unique_id: NONCE.fetch_add(1, Ordering::SeqCst),
             weak_self: Default::default(),
             vm_map: Default::default(),
             task_map: Default::default(),
@@ -362,7 +366,7 @@ impl SessionInner {
             done_initial_exec_: Default::default(),
             visible_execution_: true,
         };
-        log!(LogDebug, "Session @TODO unique identifier created");
+        log!(LogDebug, "Session {} created", s.unique_id);
         s
     }
 
@@ -483,7 +487,7 @@ impl SessionInner {
 
 impl Drop for SessionInner {
     fn drop(&mut self) {
-        // Do nothing
+        log!(LogDebug, "Session {} destroyed", self.unique_id);
     }
 }
 
@@ -521,6 +525,7 @@ impl Statistics {
 ///
 /// This struct should NOT impl the Session trait
 pub struct SessionInner {
+    pub(super) unique_id: usize,
     /// Weak dyn Session pointer to self
     pub(super) weak_self: SessionSharedWeakPtr,
     /// All these members are NOT pub
