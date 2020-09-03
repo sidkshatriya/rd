@@ -65,18 +65,22 @@ impl<T> WeakPtrSet<T> {
     pub fn new() -> WeakPtrSet<T> {
         WeakPtrSet(HashSet::new())
     }
+
     pub fn inner_hashset(&self) -> &HashSet<WeakPtrWrap<T>> {
         &self.0
     }
+
     pub fn iter(&self) -> SetIterator<T> {
         self.into_iter()
     }
+
     pub fn iter_except(&self, tw: Weak<RefCell<T>>) -> ExceptSetIterator<T> {
         ExceptSetIterator {
             hash_set_iterator: self.0.iter(),
             except: tw,
         }
     }
+
     pub fn iter_except_vec(&self, tw_vec: Vec<Weak<RefCell<T>>>) -> ExceptVecSetIterator<T> {
         ExceptVecSetIterator {
             hash_set_iterator: self.0.iter(),
@@ -85,14 +89,17 @@ impl<T> WeakPtrSet<T> {
     }
 
     pub fn insert(&mut self, t: Weak<RefCell<T>>) -> bool {
-        log!(LogDebug, "adding a task to task set {:?}", t.as_ptr());
+        // Make this message more specific e.g. are we dealing with a task or thread group etc.
+        log!(LogDebug, "adding an item to set {:?}", t.as_ptr());
         self.0.insert(WeakPtrWrap(t))
     }
 
     pub fn erase(&mut self, t: Weak<RefCell<T>>) -> bool {
-        log!(LogDebug, "removing a task from task set {:?}", t.as_ptr());
+        // Make this message more specific e.g. are we dealing with a task or thread group etc.
+        log!(LogDebug, "removing an item from set {:?}", t.as_ptr());
         self.0.remove(&WeakPtrWrap(t))
     }
+
     pub fn has(&self, t: Weak<RefCell<T>>) -> bool {
         self.0.contains(&WeakPtrWrap(t))
     }
