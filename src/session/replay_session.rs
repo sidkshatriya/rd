@@ -53,12 +53,7 @@ use crate::{
         task::{
             replay_task::ReplayTask,
             task_common::write_val_mem,
-            task_inner::{
-                task_inner::{SaveTraceeFdNumber, TaskInner},
-                ResumeRequest,
-                TicksRequest,
-                WaitRequest,
-            },
+            task_inner::{ResumeRequest, SaveTraceeFdNumber, TaskInner, TicksRequest, WaitRequest},
             Task,
             TaskSharedPtr,
         },

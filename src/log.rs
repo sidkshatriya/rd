@@ -365,7 +365,7 @@ fn dump_rd_stack(bt: Backtrace) {
 macro_rules! ed_assert {
     ($task:expr, $cond:expr) => {
         {
-            use crate::session::task::task_inner::task_inner::TaskInner;
+            use crate::session::task::task_inner::TaskInner;
             // For type checking. Will use this param later though.
             let t : &TaskInner = $task;
             if !$cond {
@@ -389,7 +389,7 @@ macro_rules! ed_assert {
     };
     ($task:expr, $cond:expr, $($args:tt)+) => {
         {
-            use crate::session::task::task_inner::task_inner::TaskInner;
+            use crate::session::task::task_inner::TaskInner;
             // For type checking. Will use this param later though.
             let t : &TaskInner = $task;
             if !$cond {

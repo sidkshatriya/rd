@@ -17,7 +17,7 @@ use crate::{
     kernel_metadata::signal_name,
     log::LogLevel::{LogDebug, LogInfo, LogWarn},
     scoped_fd::ScopedFd,
-    session::task::task_inner::task_inner::TaskInner,
+    session::task::task_inner::TaskInner,
     ticks::Ticks,
     util::running_under_rd,
 };

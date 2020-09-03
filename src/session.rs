@@ -11,7 +11,7 @@ use crate::{
         session_inner::session_inner::{AddressSpaceMap, SessionInner, TaskMap, ThreadGroupMap},
         task::{
             task_common,
-            task_inner::{task_inner::WriteFlags, CloneFlags},
+            task_inner::{CloneFlags, WriteFlags},
             Task,
             TaskSharedPtr,
         },
@@ -26,7 +26,7 @@ use std::{
     ops::DerefMut,
     rc::{Rc, Weak},
 };
-use task::task_inner::task_inner::CloneReason;
+use task::task_inner::CloneReason;
 use task_common::clone_task_common;
 
 pub mod address_space;

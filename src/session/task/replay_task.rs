@@ -10,7 +10,7 @@ use super::{
         post_vm_clone_common,
         task_drop_common,
     },
-    task_inner::{task_inner::CloneReason, CloneFlags, TrapReasons},
+    task_inner::{CloneFlags, CloneReason, TrapReasons},
 };
 use crate::{
     arch::Architecture,
@@ -36,12 +36,7 @@ use crate::{
                 write_bytes,
                 write_bytes_helper,
             },
-            task_inner::{
-                task_inner::{TaskInner, WriteFlags},
-                ResumeRequest,
-                TicksRequest,
-                WaitRequest,
-            },
+            task_inner::{ResumeRequest, TaskInner, TicksRequest, WaitRequest, WriteFlags},
             Task,
         },
         Session,

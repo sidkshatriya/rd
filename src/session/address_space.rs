@@ -229,7 +229,7 @@ pub mod address_space {
             task::{
                 record_task::RecordTask,
                 task_common::{read_mem, read_val_mem, write_val_mem, write_val_mem_with_flags},
-                task_inner::task_inner::WriteFlags,
+                task_inner::WriteFlags,
                 Task,
                 TaskSharedPtr,
             },

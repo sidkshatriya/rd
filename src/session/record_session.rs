@@ -3,7 +3,7 @@ use super::{
     session_common::kill_all_tasks,
     task::{
         record_task::RecordTask,
-        task_inner::task_inner::{SaveTraceeFdNumber, TaskInner},
+        task_inner::{SaveTraceeFdNumber, TaskInner},
     },
     SessionSharedPtr,
 };

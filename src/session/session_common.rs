@@ -3,7 +3,7 @@ use crate::{
     kernel_abi::syscall_number_for_exit,
     log::LogDebug,
     remote_ptr::RemotePtr,
-    session::{task::task_inner::task_inner::PtraceData, Session},
+    session::{task::task_inner::PtraceData, Session},
     taskish_uid::{AddressSpaceUid, ThreadGroupUid},
     util::is_zombie_process,
 };

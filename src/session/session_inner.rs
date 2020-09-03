@@ -91,7 +91,7 @@ pub mod session_inner {
                 BreakpointType,
             },
             task::{
-                task_inner::{task_inner::CapturedState, TrapReasons},
+                task_inner::{CapturedState, TrapReasons},
                 Task,
                 TaskSharedPtr,
                 TaskSharedWeakPtr,

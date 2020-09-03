@@ -74,7 +74,7 @@ use crate::{
         task::{
             replay_task::{ReplayTask, ReplayTaskIgnore},
             task_common::{read_mem, read_val_mem, write_mem, write_val_mem},
-            task_inner::{task_inner::WriteFlags, ResumeRequest, TicksRequest, WaitRequest},
+            task_inner::{ResumeRequest, TicksRequest, WaitRequest, WriteFlags},
             Task,
             TaskSharedPtr,
         },
