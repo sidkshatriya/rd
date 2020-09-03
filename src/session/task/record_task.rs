@@ -48,12 +48,13 @@ use crate::{
             },
             Task,
         },
+        Session,
     },
     ticks::Ticks,
     trace::{trace_frame::FrameTime, trace_writer::TraceWriter},
     wait_status::WaitStatus,
 };
-use libc::{pid_t, EINVAL};
+use libc::{pid_t, EINVAL, PR_TSC_ENABLE};
 use nix::errno::errno;
 use std::{
     cell::RefCell,
@@ -64,7 +65,6 @@ use std::{
     ptr::copy_nonoverlapping,
     rc::{Rc, Weak},
 };
-use libc::PR_TSC_ENABLE;
 
 #[derive(Clone)]
 pub struct Sighandlers {
@@ -585,7 +585,7 @@ impl RecordTask {
         serial: u32,
         a: SupportedArch,
     ) -> Box<dyn Task> {
-        let rt = RecordTask {
+        let mut rt = RecordTask {
             task_inner: TaskInner::new(session, tid, None, serial, a),
             ticks_at_last_recorded_syscall_exit: 0,
             time_at_start_of_last_timeslice: 0,
@@ -611,7 +611,7 @@ impl RecordTask {
             delay_syscallbuf_reset_for_seccomp_trap: false,
             prctl_seccomp_status: 0,
             robust_futex_list_len: 0,
-            own_namespace_rec_tid: 0,
+            own_namespace_rec_tid: tid,
             exit_code: 0,
             termination_signal: None,
             tsc_mode: PR_TSC_ENABLE,
@@ -637,8 +637,17 @@ impl RecordTask {
             tid_futex: Default::default(),
             pending_events: Default::default(),
         };
-        // @TODO incomplete
-        Box::new(rt)
+        rt.push_event(Event::sentinel());
+        if session.tasks().is_empty() {
+            // Initial tracee. It inherited its state from this process, so set it up.
+            // The very first task we fork inherits the signal
+            // dispositions of the current OS process (which should all be
+            // default at this point, but ...).  From there on, new tasks
+            // will transitively inherit from this first task.
+            rt.sighandlers.borrow_mut().init_from_current_process();
+        }
+        let box_rt = Box::new(rt);
+        box_rt
     }
 
     // @TODO clone_task() ??
@@ -808,8 +817,8 @@ impl RecordTask {
     }
 
     /// Return the applications current disposition of `sig`.
-    pub fn sig_disposition(&self, _sig: i32) -> SignalDisposition {
-        unimplemented!()
+    pub fn sig_disposition(&self, sig: i32) -> SignalDisposition {
+        self.sighandlers.borrow_mut().handlers.get(sig as usize).unwrap().disposition()
     }
 
     /// Return the resolved disposition --- what this signal will actually do,
@@ -1046,8 +1055,8 @@ impl RecordTask {
     /// event onto the top of the event stack.  The `pop_*()`
     /// helpers pop the event at top of the stack, which must be of
     /// the specified type.
-    pub fn push_event(&self, _ev: &Event) {
-        unimplemented!()
+    pub fn push_event(&mut self, ev: Event) {
+        self.pending_events.push_back(ev);
     }
 
     pub fn push_syscall_eventsyscallno(&self, _no: i32) {

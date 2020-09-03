@@ -334,7 +334,6 @@ impl RecordSession {
             None => rs.scheduler_mut().regenerate_affinity_mask(),
         }
 
-        drop(rs);
         let t = TaskInner::spawn(
             (*rc).as_ref(),
             &error_fd,
@@ -610,12 +609,12 @@ impl Session for RecordSession {
 
     fn new_task(
         &self,
-        _tid: pid_t,
+        tid: pid_t,
         _rec_tid: Option<pid_t>,
-        _serial: u32,
-        _a: SupportedArch,
+        serial: u32,
+        a: SupportedArch,
     ) -> Box<dyn Task> {
-        unimplemented!()
+        RecordTask::new(self, tid, serial, a)
     }
 
     fn on_create_task(&self, t: TaskSharedPtr) {
