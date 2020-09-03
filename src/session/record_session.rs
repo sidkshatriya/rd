@@ -2,7 +2,7 @@ use super::{
     on_create_task_common,
     session_common::kill_all_tasks,
     task::{
-        record_task::record_task::RecordTask,
+        record_task::RecordTask,
         task_inner::task_inner::{SaveTraceeFdNumber, TaskInner},
     },
     SessionSharedPtr,
@@ -334,6 +334,7 @@ impl RecordSession {
             None => rs.scheduler_mut().regenerate_affinity_mask(),
         }
 
+        drop(rs);
         let t = TaskInner::spawn(
             (*rc).as_ref(),
             &error_fd,

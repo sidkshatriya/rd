@@ -39,7 +39,7 @@ use crate::{
     log::LogWarn,
     session::{
         record_session::RecordSession,
-        task::{record_task::record_task::RecordTask, TaskSharedPtr, TaskSharedWeakPtr},
+        task::{record_task::RecordTask, TaskSharedPtr, TaskSharedWeakPtr},
         SessionSharedPtr,
         SessionSharedWeakPtr,
     },
@@ -393,7 +393,7 @@ impl Scheduler {
         }
         let mut pretend_affinity_mask = CpuSet::new();
         // DIFF NOTE: rr swallows any error. We don't for now.
-        pretend_affinity_mask.set(cpu as usize);
+        pretend_affinity_mask.set(cpu as usize).unwrap();
         if self.pretend_num_cores_ > 1 {
             // generate random CPU numbers that fit into the CPU mask
             let mut other_cpus = Vec::<u32>::new();

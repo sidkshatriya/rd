@@ -17,7 +17,7 @@ use crate::{
     session::{
         address_space::kernel_mapping::KernelMapping,
         record_session::{DisableCPUIDFeatures, TraceUuid},
-        task::record_task::record_task::RecordTask,
+        task::record_task::RecordTask,
     },
     trace::{
         compressed_writer::CompressedWriter,

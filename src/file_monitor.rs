@@ -4,7 +4,7 @@ use crate::{
     kernel_abi::SupportedArch,
     registers::Registers,
     remote_ptr::{RemotePtr, Void},
-    session::task::{record_task::record_task::RecordTask, Task},
+    session::task::{record_task::RecordTask, Task},
 };
 use mmapped_file_monitor::MmappedFileMonitor;
 use std::{

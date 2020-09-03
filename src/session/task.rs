@@ -17,7 +17,7 @@ use crate::{
         replay_session::ReplaySession,
         session_inner::session_inner::PtraceSyscallSeccompOrdering,
         task::{
-            record_task::record_task::RecordTask,
+            record_task::RecordTask,
             replay_task::ReplayTask,
             task_inner::{
                 task_inner::{CloneReason, PtraceData, TaskInner, WriteFlags},

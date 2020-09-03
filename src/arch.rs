@@ -12,7 +12,7 @@ use crate::{
     kernel_supplement::{CLD_STOPPED, CLD_TRAPPED},
     remote_code_ptr::RemoteCodePtr,
     remote_ptr::{RemotePtr, Void},
-    session::task::record_task::{record_task::RecordTask, EmulatedStopType},
+    session::task::record_task::{EmulatedStopType, RecordTask},
 };
 use std::{
     convert::{TryFrom, TryInto},
