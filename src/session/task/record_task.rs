@@ -590,9 +590,11 @@ impl RecordTask {
     pub fn syscallbuf_syscall_entry_breakpoints(&self) -> Vec<RemoteCodePtr> {
         unimplemented!()
     }
+
     pub fn is_at_syscallbuf_syscall_entry_breakpoint(&self) -> bool {
         unimplemented!()
     }
+
     pub fn is_at_syscallbuf_final_instruction_breakpoint(&self) -> bool {
         unimplemented!()
     }
@@ -605,6 +607,8 @@ impl RecordTask {
     pub fn init_buffers(&self) {
         unimplemented!()
     }
+
+    /// @TODO ??
     pub fn post_exec(&self) {
         unimplemented!()
     }
@@ -804,24 +808,31 @@ impl RecordTask {
     pub fn stash_sig(&self) {
         unimplemented!()
     }
+
     pub fn stash_synthetic_sig(&self, _si: &siginfo_t, _deterministic: SignalDeterministic) {
         unimplemented!()
     }
+
     pub fn has_any_stashed_sig(&self) -> bool {
         unimplemented!()
     }
+
     pub fn stashed_sig_not_synthetic_sigchld(&self) -> &siginfo_t {
         unimplemented!()
     }
+
     pub fn has_stashed_sig(&self, _sig: i32) -> bool {
         unimplemented!()
     }
+
     pub fn peek_stashed_sig_to_deliver(&self) -> &StashedSignal {
         unimplemented!()
     }
+
     pub fn pop_stash_sig(&self, _stashed: &StashedSignal) {
         unimplemented!()
     }
+
     pub fn stashed_signal_processed(&self) {
         unimplemented!()
     }
@@ -831,9 +842,11 @@ impl RecordTask {
     pub fn stash_group_stop(&self) {
         unimplemented!()
     }
+
     pub fn clear_stashed_group_stop(&self) {
         unimplemented!()
     }
+
     pub fn has_stashed_group_stop(&self) -> bool {
         unimplemented!()
     }
@@ -917,9 +930,11 @@ impl RecordTask {
     pub fn record_local(&self, _addr: RemotePtr<Void>, _buf: &[u8]) {
         unimplemented!()
     }
+
     pub fn record_local_for<T>(_addr: RemotePtr<T>, _data: &T) {
         unimplemented!()
     }
+
     pub fn record_local_for_slice<T>(_addr: RemotePtr<T>, _buf: &[T]) {
         unimplemented!()
     }
@@ -927,9 +942,11 @@ impl RecordTask {
     pub fn record_remote(&self, _addr: RemotePtr<Void>, _num_bytes: usize) {
         unimplemented!()
     }
+
     pub fn record_remote_for<T>(_addr: RemotePtr<T>) {
         unimplemented!()
     }
+
     pub fn record_remote_range(&mut self, _range: MemoryRange) {
         unimplemented!()
     }
@@ -965,6 +982,7 @@ impl RecordTask {
     pub fn record_remote_even_if_null(&self, _addr: RemotePtr<Void>, _num_bytes: usize) {
         unimplemented!()
     }
+
     pub fn record_remote_even_if_null_for<T>(_addr: RemotePtr<T>) {
         unimplemented!()
     }
@@ -976,33 +994,43 @@ impl RecordTask {
     pub fn push_event(&self, _ev: &Event) {
         unimplemented!()
     }
+
     pub fn push_syscall_eventsyscallno(&self, _no: i32) {
         unimplemented!()
     }
+
     pub fn pop_eventexpected_type(&self) -> EventType {
         unimplemented!()
     }
+
     pub fn pop_noop(&self) {
         unimplemented!()
     }
+
     pub fn pop_desched(&self) {
         unimplemented!()
     }
+
     pub fn pop_seccomp_trap(&self) {
         unimplemented!()
     }
+
     pub fn pop_signal_delivery(&self) {
         unimplemented!()
     }
+
     pub fn pop_signal_handler(&self) {
         unimplemented!()
     }
+
     pub fn pop_syscall(&self) {
         unimplemented!()
     }
+
     pub fn pop_syscall_interruption(&self) {
         unimplemented!()
     }
+
     /// Return the event at the top of this's stack.
     pub fn ev(&self) -> &Event {
         unimplemented!()
@@ -1043,6 +1071,7 @@ impl RecordTask {
     pub fn record_current_event(&self) {
         unimplemented!()
     }
+
     pub fn record_event(
         &self,
         _ev: &Event,
@@ -1180,6 +1209,7 @@ impl RecordTask {
     fn init_buffers_arch<Arch>(&self) {
         unimplemented!()
     }
+
     fn on_syscall_exit_arch<Arch>(&self, _syscallno: i32, _regs: &Registers) {
         unimplemented!()
     }
