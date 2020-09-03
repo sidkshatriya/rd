@@ -21,7 +21,6 @@ pub struct TraceFrame {
     pub(super) ev: Event,
     pub(super) ticks_: Ticks,
     pub(super) monotonic_time_: f64,
-    /// @TODO Is it useful for the next 2 of these to be Option<> ?
     pub(super) recorded_regs: Registers,
     /// Only used when has_exec_info, but variable length (and usually not
     /// present) so we don't want to stuff it into exec_info

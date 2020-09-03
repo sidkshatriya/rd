@@ -259,7 +259,6 @@ pub enum PtraceData {
 impl PtraceData {
     fn get_addr(self) -> *const u8 {
         match self {
-            // @TODO Check this works as intended.
             PtraceData::WriteInto(s) => s.cast(),
             PtraceData::ReadFrom(s) => s.cast(),
             PtraceData::ReadWord(w) => w as *const u8,
@@ -383,7 +382,7 @@ pub struct TaskInner {
     /// In certain circumstances, due to hardware bugs, we need to fudge the
     /// cx register. If so, we record the orginal value here. See comments in
     /// Task.cc
-    /// DIFF NOTE: In rr this is a u64. We use usize. @TODO Will this cause any issues?
+    /// DIFF NOTE: In rr this is a u64. We use usize.
     pub(in super::super) last_resume_orig_cx: usize,
     /// The instruction type we're singlestepping through.
     pub(in super::super) singlestepping_instruction: TrappedInstruction,

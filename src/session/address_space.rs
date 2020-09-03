@@ -1889,7 +1889,6 @@ pub mod address_space {
             8 * 1024 * 1024
         }
 
-        // @TODO Deliberately left unimplemented. We don't support chaos mode for now
         pub fn chaos_mode_find_free_memory(_t: &RecordTask, _len: usize) -> RemotePtr<Void> {
             unimplemented!()
         }

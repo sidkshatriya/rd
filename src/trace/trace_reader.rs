@@ -115,8 +115,6 @@ pub struct RawData {
 /// Create a copy of this stream that has exactly the same
 /// state as 'other', but for which mutations of this
 /// clone won't affect the state of 'other' (and vice versa).
-/// @TODO: Currently doing a derive Clone. In case the semantics are not exactly
-/// what we want, we will need to implement Clone manually.
 #[derive(Clone)]
 pub struct TraceReader {
     trace_stream: TraceStream,
@@ -126,7 +124,6 @@ pub struct TraceReader {
     raw_recs: Vec<RawDataMetadata>,
     ticks_semantics_: TicksSemantics,
     monotonic_time_: f64,
-    /// @TODO This is a unique ptr in rr. Do we need a Box here?
     uuid_: TraceUuid,
     trace_uses_cpuid_faulting: bool,
     preload_thread_locals_recorded_: bool,
@@ -686,7 +683,6 @@ impl TraceReader {
             fatal!("Unexpected value of `{}` for bound cpu", bind_to_cpu);
         };
         let trace_uses_cpuid_faulting = header.get_has_cpuid_faulting();
-        // @TODO Are we sure we want an unwrap here?
         let cpuid_records_bytes = header.get_cpuid_records().unwrap();
         let len = cpuid_records_bytes.len() / size_of::<CPUIDRecord>();
         if cpuid_records_bytes.len() != len * size_of::<CPUIDRecord>() {
@@ -723,7 +719,6 @@ impl TraceReader {
             uuid_,
             trace_uses_cpuid_faulting,
             preload_thread_locals_recorded_,
-            // @TODO Is this what we want?
             monotonic_time_: 0.0,
             raw_recs: vec![],
         }
