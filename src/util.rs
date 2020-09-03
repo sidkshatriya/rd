@@ -97,6 +97,7 @@ use crate::kernel_supplement::ARCH_SET_CPUID;
 
 #[cfg(target_arch = "x86_64")]
 use libc::{syscall, SYS_arch_prctl, REG_RAX, REG_RIP};
+use nix::unistd::getpid;
 
 const RDTSC_INSN: [u8; 2] = [0x0f, 0x31];
 const RDTSCP_INSN: [u8; 3] = [0x0f, 0x01, 0xf9];
@@ -612,9 +613,12 @@ pub fn pwrite_all_fallible(fd: i32, buf_initial: &[u8], offset: isize) -> Result
     Ok(written)
 }
 
-/// @TODO Hardcoded to false.
 pub fn check_for_pax_kernel() -> bool {
-    false
+    let results = read_proc_status_fields(getpid().as_raw(), &[b"PaX"]);
+    match results {
+        Ok(vec) => !vec.is_empty(),
+        Err(e) => fatal!("Error while checking if kernel is a pax kernel: {:?}", e),
+    }
 }
 
 lazy_static! {
