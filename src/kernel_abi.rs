@@ -129,6 +129,12 @@ include!(concat!(
 #[cfg(target_arch = "x86_64")]
 pub const RD_NATIVE_ARCH: SupportedArch = SupportedArch::X64;
 
+#[cfg(target_arch = "x86_64")]
+pub use x64 as native_arch;
+
+#[cfg(target_arch = "x86")]
+pub use x86 as native_arch;
+
 #[cfg(target_arch = "x86")]
 pub const RD_NATIVE_ARCH: SupportedArch = SupportedArch::X86;
 

@@ -1,12 +1,12 @@
 use crate::{
     arch::Architecture,
     bindings::{
-        kernel::timeval,
+        kernel::{timeval, _LINUX_CAPABILITY_U32S_3, _LINUX_CAPABILITY_VERSION_3},
         signal::{SI_KERNEL, TRAP_BRKPT},
     },
     event::{Event, EventType},
     flags::{DumpOn, Flags},
-    kernel_abi::CloneParameterOrdering,
+    kernel_abi::{native_arch, CloneParameterOrdering},
     log::LogLevel::{LogDebug, LogWarn},
     registers::Registers,
     remote_code_ptr::RemoteCodePtr,
@@ -56,6 +56,7 @@ use nix::{
     unistd::{
         access,
         ftruncate,
+        getpid,
         isatty,
         mkdir,
         read,
@@ -97,7 +98,6 @@ use crate::kernel_supplement::ARCH_SET_CPUID;
 
 #[cfg(target_arch = "x86_64")]
 use libc::{syscall, SYS_arch_prctl, REG_RAX, REG_RIP};
-use nix::unistd::getpid;
 
 const RDTSC_INSN: [u8; 2] = [0x0f, 0x31];
 const RDTSCP_INSN: [u8; 3] = [0x0f, 0x01, 0xf9];
@@ -1546,8 +1546,23 @@ pub fn cpuid_compatible(trace_records: &[CPUIDRecord]) -> bool {
     }
 }
 
-pub fn has_effective_caps(_caps: u64) -> bool {
-    unimplemented!()
+pub fn has_effective_caps(mut caps: u64) -> bool {
+    let header = native_arch::cap_header {
+        version: _LINUX_CAPABILITY_VERSION_3 as _,
+        pid: 0,
+    };
+    let mut data: [native_arch::cap_data; _LINUX_CAPABILITY_U32S_3 as usize] = Default::default();
+    if unsafe { libc::syscall(native_arch::CAPGET as _, &header, &mut data) != 0 } {
+        fatal!("Failed to read capabilities");
+    }
+    for i in 0.._LINUX_CAPABILITY_U32S_3 as usize {
+        if (data[i].effective & caps as u32) != caps as u32 {
+            return false;
+        }
+        caps = caps >> 32;
+    }
+
+    true
 }
 
 pub fn should_dump_memory(event: &Event, time: FrameTime) -> bool {
