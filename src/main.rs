@@ -54,6 +54,7 @@ mod scoped_fd;
 mod seccomp_bpf;
 mod seccomp_filter_rewriter;
 mod session;
+mod sig;
 mod taskish_uid;
 mod thread_group;
 mod ticks;
@@ -112,7 +113,9 @@ pub fn assert_prerequisites(maybe_use_syscall_buffer: Option<bool>) {
 }
 
 fn main() -> ExitResult<()> {
+    // Seed the PRNG
     unsafe { libc::srand(random::<c_uint>()) };
+
     raise_resource_limits();
     let options = RdOptions::from_args();
     if options.output_options_chosen {

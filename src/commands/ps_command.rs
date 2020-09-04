@@ -143,7 +143,9 @@ fn find_exit_code(pid: pid_t, events: &[TraceTaskEvent], current_tid_to_pid: &Ti
                 let status = ex.exit_status();
                 match status.wait_type() {
                     WaitType::Exit => return status.exit_code().unwrap().to_string(),
-                    WaitType::FatalSignal => return (-status.fatal_sig().unwrap()).to_string(),
+                    WaitType::FatalSignal => {
+                        return (-status.fatal_sig().unwrap().as_raw()).to_string()
+                    }
                     w => {
                         fatal!("Unexpected WaitType {:?}", w);
                     }

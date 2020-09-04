@@ -14,10 +14,11 @@ use crate::{
         },
     },
     flags::Flags,
-    kernel_metadata::signal_name,
     log::LogLevel::{LogDebug, LogInfo, LogWarn},
     scoped_fd::ScopedFd,
     session::task::task_inner::TaskInner,
+    sig,
+    sig::Sig,
     ticks::Ticks,
     util::running_under_rd,
 };
@@ -58,7 +59,7 @@ const PERF_COUNT_RD: u32 = 0x72727272;
 
 /// This choice is fairly arbitrary; linux doesn't use SIGSTKFLT so we
 /// hope that tracees don't either.
-pub const TIME_SLICE_SIGNAL: i32 = libc::SIGSTKFLT;
+pub const TIME_SLICE_SIGNAL: Sig = sig::SIGSTKFLT;
 
 const IN_TX: u64 = 1 << 32;
 const IN_TXCP: u64 = 1 << 33;
@@ -739,15 +740,12 @@ pub struct PerfCounters {
     counting: bool,
 }
 
-fn make_counter_async(fd: &ScopedFd, signal: i32) {
+fn make_counter_async(fd: &ScopedFd, signal: Sig) {
     if unsafe {
         fcntl(fd.as_raw(), F_SETFL, O_ASYNC) != 0
-            || fcntl(fd.as_raw(), F_SETSIG as i32, signal) != 0
+            || fcntl(fd.as_raw(), F_SETSIG as i32, signal.as_raw()) != 0
     } {
-        fatal!(
-            "Failed to make ticks counter ASYNC with sig{}",
-            signal_name(signal)
-        );
+        fatal!("Failed to make ticks counter ASYNC with signal {}", signal);
     }
 }
 

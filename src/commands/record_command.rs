@@ -6,7 +6,6 @@ use crate::{
         rd_options::{RdOptions, RdSubCommand},
         RdCommand,
     },
-    kernel_metadata::signal_name,
     log::{notifying_abort, LogInfo, LogWarn},
     scheduler::TicksHowMany,
     session::record_session::{
@@ -16,18 +15,19 @@ use crate::{
         SyscallBuffering,
         TraceUuid,
     },
+    sig,
+    sig::Sig,
     ticks::Ticks,
     util::{check_for_leaks, page_size, running_under_rd, write_all, BindCPU},
     wait_status::{WaitStatus, WaitType},
 };
-use libc::{prctl, PR_SET_DUMPABLE, SIGPWR, SIGTERM, STDERR_FILENO};
+use libc::{prctl, PR_SET_DUMPABLE, STDERR_FILENO};
 use nix::{
     sys::signal::{kill, sigaction, signal, SaFlags, SigAction, SigHandler, SigSet, Signal},
     unistd::{geteuid, getpid, Uid},
 };
 use rand::random;
 use std::{
-    convert::TryFrom,
     env::var_os,
     ffi::{OsStr, OsString},
     io,
@@ -43,11 +43,11 @@ pub struct RecordCommand {
     pub max_ticks: Ticks,
 
     /// Whenever `ignore_sig` is pending for a tracee, decline to deliver it.
-    pub ignore_sig: Option<i32>,
+    pub ignore_sig: Option<Sig>,
 
     /// Whenever `continue_through_sig` is delivered to a tracee, if there is no
     /// user handler and the signal would terminate the program, just ignore it.
-    pub continue_through_sig: Option<i32>,
+    pub continue_through_sig: Option<Sig>,
 
     /// Whether to use syscall buffering optimization during recording.
     pub use_syscall_buffer: SyscallBuffering,
@@ -96,7 +96,7 @@ pub struct RecordCommand {
     pub copy_preload_src: bool,
 
     /// The signal to use for syscallbuf desched events
-    pub syscallbuf_desched_sig: i32,
+    pub syscallbuf_desched_sig: Sig,
 
     // The exe and exe_args
     pub args: Vec<OsString>,
@@ -206,7 +206,7 @@ impl RecordCommand {
                 setuid_sudo,
                 trace_id: Box::new(trace_id.unwrap_or(TraceUuid::generate_new())),
                 copy_preload_src,
-                syscallbuf_desched_sig: syscall_buffer_sig.unwrap_or(SIGPWR),
+                syscallbuf_desched_sig: syscall_buffer_sig.unwrap_or(sig::SIGPWR),
                 args: {
                     let mut args = Vec::new();
                     args.push(exe);
@@ -264,7 +264,7 @@ impl RecordCommand {
         match step_result {
             RecordResult::StepContinue => {
                 // SIGTERM interrupted us.
-                return WaitStatus::for_fatal_sig(SIGTERM);
+                return WaitStatus::for_fatal_sig(sig::SIGTERM);
             }
             RecordResult::StepExited(wait_status) => {
                 return wait_status;
@@ -381,14 +381,15 @@ impl RdCommand for RecordCommand {
             WaitType::FatalSignal => {
                 let sig = status.fatal_sig().unwrap();
                 unsafe {
-                    signal(Signal::try_from(sig).unwrap(), SigHandler::SigDfl).unwrap();
+                    signal(sig.as_nix_signal(), SigHandler::SigDfl).unwrap();
                     prctl(PR_SET_DUMPABLE, 0);
                 }
-                kill(getpid(), Some(Signal::try_from(sig).unwrap())).unwrap_or(());
+                // @TODO Ok to swallow any error on kill?
+                kill(getpid(), Some(sig.as_nix_signal())).unwrap_or(());
                 ExitResult::err_from(
                     io::Error::new(
                         io::ErrorKind::Other,
-                        format!("tracee exited due to fatal signal {}", signal_name(sig)),
+                        format!("tracee exited due to fatal signal {}", sig),
                     ),
                     1,
                 )

@@ -28,6 +28,7 @@ use crate::{
         task::{Task, TaskSharedPtr},
         Session,
     },
+    sig::Sig,
     taskish_uid::TaskUid,
     thread_group::ThreadGroupSharedPtr,
     trace::{
@@ -204,14 +205,12 @@ pub struct RecordSession {
     trace_id: Box<TraceUuid>,
     disable_cpuid_features_: DisableCPUIDFeatures,
     /// DIFF NOTE: In rr, a None is indicated by value 0
-    ignore_sig: Option<i32>,
+    ignore_sig: Option<Sig>,
     /// DIFF NOTE: In rr, a None is indicated by value 0
-    continue_through_sig: Option<i32>,
+    continue_through_sig: Option<Sig>,
     last_task_switchable: Switchable,
     syscall_buffer_size_: usize,
-    /// DIFF NOTE: In rr this is a unsigned char.
-    /// We use i32 to be consistent with signal number in the rest of codebase
-    syscallbuf_desched_sig_: i32,
+    syscallbuf_desched_sig_: Sig,
     use_syscall_buffer_: bool,
 
     use_file_cloning_: bool,
@@ -442,7 +441,7 @@ impl RecordSession {
         self.syscall_buffer_size_
     }
 
-    pub fn syscallbuf_desched_sig(&self) -> i32 {
+    pub fn syscallbuf_desched_sig(&self) -> Sig {
         self.syscallbuf_desched_sig_
     }
 
@@ -454,19 +453,19 @@ impl RecordSession {
         self.use_file_cloning_
     }
 
-    pub fn set_ignore_sig(&mut self, maybe_sig: Option<i32>) {
+    pub fn set_ignore_sig(&mut self, maybe_sig: Option<Sig>) {
         self.ignore_sig = maybe_sig;
     }
 
-    pub fn get_ignore_sig(&self) -> Option<i32> {
+    pub fn get_ignore_sig(&self) -> Option<Sig> {
         self.ignore_sig
     }
 
-    pub fn set_continue_through_sig(&mut self, maybe_sig: Option<i32>) {
+    pub fn set_continue_through_sig(&mut self, maybe_sig: Option<Sig>) {
         self.continue_through_sig = maybe_sig;
     }
 
-    pub fn get_continue_through_sig(&self) -> Option<i32> {
+    pub fn get_continue_through_sig(&self) -> Option<Sig> {
         self.continue_through_sig
     }
 

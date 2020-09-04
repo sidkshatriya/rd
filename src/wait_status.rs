@@ -1,10 +1,12 @@
 use crate::{
     bindings::ptrace::{PTRACE_EVENT_STOP, PTRACE_O_TRACESYSGOOD},
-    kernel_metadata::{ptrace_event_name, signal_name},
+    kernel_metadata::ptrace_event_name,
     session::task::record_task::RecordTask,
+    sig::Sig,
 };
 use libc::{SIGSTOP, SIGTRAP, WEXITSTATUS, WIFEXITED, WIFSIGNALED, WIFSTOPPED, WSTOPSIG, WTERMSIG};
 use std::{
+    convert::TryFrom,
     fmt,
     fmt::{Display, Formatter, Result},
     num::NonZeroU8,
@@ -90,15 +92,13 @@ impl WaitStatus {
 
     /// Did we receive a fatal signal?
     /// Fatal signal if wait_type() == FATAL_SIGNAL, otherwise None.
-    pub fn fatal_sig(&self) -> Option<i32> {
-        unsafe {
-            let termsig = WTERMSIG(self.status);
-            // Subtle. Makes sure Option<> is what we mean.
-            if WIFSIGNALED(self.status) && termsig > 0 {
-                Some(termsig)
-            } else {
-                None
-            }
+    pub fn fatal_sig(&self) -> Option<Sig> {
+        let termsig: i32 = unsafe { WTERMSIG(self.status) };
+        // Subtle. Makes sure Option<> is what we mean.
+        if unsafe { WIFSIGNALED(self.status) } {
+            Sig::try_from(termsig).ok()
+        } else {
+            None
         }
     }
 
@@ -194,22 +194,21 @@ impl WaitStatus {
     }
 
     /// Return a WaitStatus for a fatal signal
-    pub fn for_fatal_sig(sig: i32) -> WaitStatus {
-        debug_assert!(sig >= 1 && sig < 0x80);
-        WaitStatus { status: sig }
-    }
-
-    /// Return a WaitStatus for a stop signal
-    pub fn for_stop_sig(sig: i32) -> WaitStatus {
-        debug_assert!(sig >= 1 && sig < 0x80);
+    pub fn for_fatal_sig(sig: Sig) -> WaitStatus {
         WaitStatus {
-            status: (sig << 8) | 0x7f,
+            status: sig.as_raw(),
         }
     }
 
-    pub fn for_group_sig(sig: i32, t: &RecordTask) -> WaitStatus {
-        debug_assert!(sig >= 1 && sig < 0x80);
-        let mut code: i32 = (sig << 8) | 0x7f;
+    /// Return a WaitStatus for a stop signal
+    pub fn for_stop_sig(sig: Sig) -> WaitStatus {
+        WaitStatus {
+            status: (sig.as_raw() << 8) | 0x7f,
+        }
+    }
+
+    pub fn for_group_sig(sig: Sig, t: &RecordTask) -> WaitStatus {
+        let mut code: i32 = (sig.as_raw() << 8) | 0x7f;
         if t.emulated_ptrace_seized {
             code |= (PTRACE_EVENT_STOP as i32) << 16;
         }
@@ -246,18 +245,12 @@ impl Display for WaitStatus {
         write!(f, "{:#x}", self.status)?;
         match self.wait_type() {
             WaitType::Exit => write!(f, " (EXIT-{})", self.exit_code().unwrap()),
-            WaitType::FatalSignal => {
-                write!(f, " (FATAL-{})", signal_name(self.fatal_sig().unwrap()))
-            }
-            WaitType::SignalStop => write!(
-                f,
-                " (STOP-{})",
-                signal_name(self.maybe_stop_sig().unwrap_sig())
-            ),
+            WaitType::FatalSignal => write!(f, " (FATAL-{})", self.fatal_sig().unwrap()),
+            WaitType::SignalStop => write!(f, " (STOP-{})", self.maybe_stop_sig().unwrap_sig()),
             WaitType::GroupStop => write!(
                 f,
                 " (GROUP-STOP-{})",
-                signal_name(self.maybe_group_stop_sig().unwrap_sig())
+                self.maybe_group_stop_sig().unwrap_sig()
             ),
             WaitType::SyscallStop => write!(f, " (SYSCALL)"),
             WaitType::PtraceEvent => write!(
@@ -323,27 +316,22 @@ impl Display for MaybePtraceEvent {
 }
 
 #[derive(Copy, Clone, Eq, PartialEq)]
-pub struct MaybeStopSignal(Option<NonZeroU8>);
+pub struct MaybeStopSignal(Option<Sig>);
 
 impl MaybeStopSignal {
-    pub fn unwrap_sig(&self) -> i32 {
-        match self.0 {
-            None => panic!("Cannot unwrap"),
-            Some(non_zero) => non_zero.get() as i32,
-        }
+    pub fn unwrap_sig(&self) -> Sig {
+        self.0.unwrap()
     }
 
     // Avoid using this method. Use `unwrap_sig()`
-    pub fn get_raw_repr(&self) -> i32 {
-        match self.0 {
-            None => 0,
-            Some(non_zero) => non_zero.get() as i32,
-        }
+    pub fn get_raw_repr(&self) -> Option<Sig> {
+        self.0
     }
 
     pub fn is_sig(&self) -> bool {
         self.0.is_some()
     }
+
     pub fn is_not_sig(&self) -> bool {
         self.0.is_none()
     }
@@ -352,26 +340,26 @@ impl MaybeStopSignal {
         MaybeStopSignal(None)
     }
 
-    /// Ensure that sig >= 1 and sig < 0x80 otherwise you will get `MaybeStopSignal(None)`
     pub fn new_sig(sig: i32) -> MaybeStopSignal {
-        if sig < 1 || sig >= 0x80 {
-            MaybeStopSignal(None)
-        } else {
-            // We've already checked so no point checking again.
-            MaybeStopSignal(Some(unsafe { NonZeroU8::new_unchecked(sig as u8) }))
-        }
+        MaybeStopSignal(Sig::try_from(sig).ok())
     }
 }
 
 impl PartialEq<i32> for MaybeStopSignal {
     fn eq(&self, other: &i32) -> bool {
-        self.0.map_or(false, |op| op.get() as i32 == *other)
+        self.0.map_or(false, |op| op.as_raw() == *other)
     }
 }
 
 impl PartialEq<u8> for MaybeStopSignal {
     fn eq(&self, other: &u8) -> bool {
-        self.0.map_or(false, |op| op.get() == *other)
+        self.0.map_or(false, |op| op.as_raw() == *other as i32)
+    }
+}
+
+impl PartialEq<Sig> for MaybeStopSignal {
+    fn eq(&self, other: &Sig) -> bool {
+        self.0.map_or(false, |op| op == *other)
     }
 }
 
@@ -380,7 +368,7 @@ impl Display for MaybeStopSignal {
         if !self.is_sig() {
             f.write_str("- Not a signal -")
         } else {
-            f.write_str(&signal_name(self.unwrap_sig()))
+            f.write_str(&self.unwrap_sig().as_str())
         }
     }
 }

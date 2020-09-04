@@ -217,7 +217,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
                 need_ptrace_syscall_event = false;
                 continue;
             }
-            if ReplaySession::is_ignored_signal(self.maybe_stop_sig().unwrap_sig())
+            if ReplaySession::is_ignored_signal(Some(self.maybe_stop_sig().unwrap_sig()))
                 && self.session().is_replaying()
             {
                 continue;

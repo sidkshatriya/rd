@@ -24,7 +24,7 @@ use crate::{
         syscall_number_for_socketcall,
         SupportedArch,
     },
-    kernel_metadata::{errno_name, signal_name, syscall_name},
+    kernel_metadata::{errno_name, syscall_name},
     log::LogLevel::LogDebug,
     monitored_shared_memory::MonitoredSharedMemorySharedPtr,
     rd::RD_RESERVED_ROOT_DIR_FD,
@@ -1257,25 +1257,18 @@ fn ignore_signal(t: &dyn Task) -> bool {
     }
 
     if t.session().is_replaying() {
-        if ReplaySession::is_ignored_signal(maybe_sig.unwrap_sig()) {
+        if ReplaySession::is_ignored_signal(Some(maybe_sig.unwrap_sig())) {
             return true;
         }
     } else if t.session().is_recording() {
         let rt = t.as_record_task().unwrap();
         // Better to use unwrap_sig() here as we've already made sure that maybe_sig.is_sig() above.
-        if maybe_sig.unwrap_sig()
-            != rt.session().as_record().unwrap().syscallbuf_desched_sig() as i32
-        {
+        if maybe_sig.unwrap_sig() != rt.session().as_record().unwrap().syscallbuf_desched_sig() {
             rt.stash_sig();
         }
         return true;
     }
-    ed_assert!(
-        t,
-        false,
-        "Unexpected signal {}",
-        signal_name(maybe_sig.unwrap_sig())
-    );
+    ed_assert!(t, false, "Unexpected signal {}", maybe_sig.unwrap_sig());
     false
 }
 

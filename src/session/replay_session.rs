@@ -60,6 +60,8 @@ use crate::{
         Session,
         SessionSharedPtr,
     },
+    sig,
+    sig::Sig,
     thread_group::ThreadGroupSharedPtr,
     ticks::Ticks,
     trace::{
@@ -452,11 +454,12 @@ impl ReplaySession {
         found
     }
 
-    pub fn is_ignored_signal(sig: i32) -> bool {
+    /// @TODO Check this
+    pub fn is_ignored_signal(sig: Option<Sig>) -> bool {
         match sig {
             // TIME_SLICE_SIGNALs can be queued but not delivered before we stop
             // execution for some other reason. Ignore them.
-            TIME_SLICE_SIGNAL => true,
+            Some(TIME_SLICE_SIGNAL) => true,
             _ => false,
         }
     }
@@ -1028,17 +1031,17 @@ impl ReplaySession {
         }
 
         match t.maybe_stop_sig().get_raw_repr() {
-            perf_counters::TIME_SLICE_SIGNAL => {
+            Some(perf_counters::TIME_SLICE_SIGNAL) => {
                 // This would normally be triggered by constraints.ticks_target but it's
                 // also possible to get stray signals here.
                 return Completion::Incomplete;
             }
-            SIGSEGV => {
+            Some(sig::SIGSEGV) => {
                 if self.handle_unrecorded_cpuid_fault(t, constraints) {
                     return Completion::Incomplete;
                 }
             }
-            SIGTRAP => {
+            Some(sig::SIGTRAP) => {
                 return Completion::Incomplete;
             }
             _ => (),
@@ -1237,7 +1240,7 @@ impl ReplaySession {
         t.set_regs(&r);
         // Clear SIGSEGV status since we're handling it
         t.set_status(if constraints.is_singlestep() {
-            WaitStatus::for_stop_sig(SIGTRAP)
+            WaitStatus::for_stop_sig(sig::SIGTRAP)
         } else {
             WaitStatus::default()
         });

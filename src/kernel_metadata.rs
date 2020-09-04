@@ -32,7 +32,7 @@ pub fn signal_name(sig: i32) -> String {
         libc::SIGPIPE => "SIGPIPE".into(),
         libc::SIGALRM => "SIGALRM".into(),
         libc::SIGTERM => "SIGTERM".into(),
-        libc::SIGSTKFLT => "SIGSTKFLT".into(), /*libc::SIGCLD".into(),*/
+        libc::SIGSTKFLT => "SIGSTKFLT".into(), // libc::SIGCLD".into()
         libc::SIGCHLD => "SIGCHLD".into(),
         libc::SIGCONT => "SIGCONT".into(),
         libc::SIGSTOP => "SIGSTOP".into(),
@@ -52,7 +52,7 @@ pub fn signal_name(sig: i32) -> String {
         // This case is common because we often pass signal_name(sig) to assertions
         // when sig is 0.
         0 => "signal(0)".into(),
-        _ => format!("signal({}))", sig)
+        _ => format!("signal({}))", sig),
     }
 }
 

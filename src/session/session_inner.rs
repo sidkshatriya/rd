@@ -435,7 +435,7 @@ impl SessionInner {
                 break_status
                     .signal
                     .as_mut()
-                    .map(|si| si.si_signo = maybe_stop_sig.unwrap_sig());
+                    .map(|si| si.si_signo = maybe_stop_sig.unwrap_sig().as_raw());
             }
         } else {
             let trap_reasons: TrapReasons = t.compute_trap_reasons();

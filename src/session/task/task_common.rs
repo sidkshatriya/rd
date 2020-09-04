@@ -102,6 +102,7 @@ use crate::{
         },
         Session,
     },
+    sig,
     ticks::Ticks,
     util::{
         ceil_page_size,
@@ -133,7 +134,6 @@ use libc::{
     PR_SET_NAME,
     PR_SET_SECCOMP,
     SECCOMP_MODE_FILTER,
-    SIGKILL,
     SIGTRAP,
     WNOHANG,
     __WALL,
@@ -673,7 +673,7 @@ pub(super) fn did_waitpid<T: Task>(task: &mut T, mut status: WaitStatus) {
             }
             status = WaitStatus::for_stop_sig(TIME_SLICE_SIGNAL);
             task.pending_siginfo = Default::default();
-            task.pending_siginfo.si_signo = TIME_SLICE_SIGNAL;
+            task.pending_siginfo.si_signo = TIME_SLICE_SIGNAL.as_raw();
             task.pending_siginfo._sifields._sigpoll.si_fd = task.hpc.ticks_interrupt_fd();
             task.pending_siginfo.si_code = POLL_IN as i32;
             siginfo_overriden = true;
@@ -953,7 +953,7 @@ pub(super) fn resume_execution<T: Task>(
             ed_assert!(
                 task,
                 status.maybe_ptrace_event() == PTRACE_EVENT_EXIT
-                    || status.fatal_sig().unwrap_or(0) == SIGKILL,
+                    || status.fatal_sig().map_or(false, |s| s == sig::SIGKILL),
                 "got {:?}",
                 status
             );
