@@ -177,10 +177,10 @@ impl WaitStatus {
 
     /// For exit_code() and fatal_sig(), returns None. For all other types
     /// returns the signal involved.
-    pub fn ptrace_signal(&self) -> Option<i32> {
+    pub fn ptrace_signal(&self) -> Option<Sig> {
         unsafe {
             if WIFSTOPPED(self.status) {
-                Some(WSTOPSIG(self.status) & 0x7f)
+                Some(Sig::try_from(WSTOPSIG(self.status) & 0x7f).unwrap())
             } else {
                 None
             }

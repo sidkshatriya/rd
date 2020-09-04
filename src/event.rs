@@ -26,9 +26,11 @@ use crate::{
     log::LogLevel::LogInfo,
     registers::Registers,
     remote_ptr::RemotePtr,
+    sig::Sig,
 };
 use libc::{dev_t, ino_t};
 use std::{
+    convert::TryFrom,
     ffi::OsString,
     fmt::{Display, Formatter, Result, Write},
 };
@@ -171,6 +173,10 @@ impl SignalEventData {
             deterministic,
             disposition,
         }
+    }
+
+    pub fn maybe_sig(&self) -> Option<Sig> {
+        Sig::try_from(self.siginfo.si_signo).ok()
     }
 }
 

@@ -26,7 +26,7 @@ use crate::{
         syscall_number_for_exit,
         SupportedArch,
     },
-    kernel_metadata::{signal_name, syscall_name},
+    kernel_metadata::syscall_name,
     log::LogLevel::{LogDebug, LogError},
     perf_counters,
     perf_counters::{PerfCounters, TIME_SLICE_SIGNAL},
@@ -168,7 +168,7 @@ pub struct ReplayTraceStepTarget {
     /// Use `None` instead in rd.
     /// @TODO Or should this be an enum TicksRequest ??
     pub ticks: Option<Ticks>,
-    pub signo: i32,
+    pub signo: Option<Sig>,
 }
 
 /// rep_trace_step is saved in Session and cloned with its Session, so it needs
@@ -651,20 +651,22 @@ impl ReplaySession {
             match self.current_step.get().action {
                 ReplayTraceStepType::TstepDeterministicSignal
                 | ReplayTraceStepType::TstepProgramAsyncSignalInterrupt => {
-                    if self.current_step.get().target().signo != 0 {
-                        if self.current_trace_frame().event().event_type()
-                            != EventType::EvInstructionTrap
-                        {
-                            ed_assert!(
-                                t,
-                                self.current_step.get().target().signo
-                                    == self.last_siginfo_.get().unwrap().si_signo
-                            );
-                            result.break_status.signal =
-                                Some(Box::new(self.last_siginfo_.get().unwrap()));
-                        }
-                        if constraints.is_singlestep() {
-                            result.break_status.singlestep_complete = true;
+                    match self.current_step.get().target().signo {
+                        None => (),
+                        Some(signo) => {
+                            if self.current_trace_frame().event().event_type()
+                                != EventType::EvInstructionTrap
+                            {
+                                ed_assert!(
+                                    t,
+                                    signo.as_raw() == self.last_siginfo_.get().unwrap().si_signo
+                                );
+                                result.break_status.signal =
+                                    Some(Box::new(self.last_siginfo_.get().unwrap()));
+                            }
+                            if constraints.is_singlestep() {
+                                result.break_status.singlestep_complete = true;
+                            }
                         }
                     }
                 }
@@ -674,7 +676,9 @@ impl ReplaySession {
                     if constraints.is_singlestep()
                         && !(self.current_trace_frame().event().event_type()
                             == EventType::EvSignalDelivery
-                            && is_fatal_default_action(self.current_step.get().target().signo))
+                            && is_fatal_default_action(
+                                self.current_step.get().target().signo.unwrap(),
+                            ))
                     {
                         result.break_status.singlestep_complete = true;
                     }
@@ -815,7 +819,7 @@ impl ReplaySession {
                     action: ReplayTraceStepType::TstepProgramAsyncSignalInterrupt,
                     data: ReplayTraceStepData::Target(ReplayTraceStepTarget {
                         ticks: Some(trace_frame.ticks()),
-                        signo: 0,
+                        signo: None,
                     }),
                 };
             }
@@ -824,7 +828,7 @@ impl ReplaySession {
                     action: ReplayTraceStepType::TstepDeterministicSignal,
                     data: ReplayTraceStepData::Target(ReplayTraceStepTarget {
                         ticks: None,
-                        signo: SIGSEGV,
+                        signo: Some(sig::SIGSEGV),
                     }),
                 };
             }
@@ -839,7 +843,7 @@ impl ReplaySession {
                         action: ReplayTraceStepType::TstepDeterministicSignal,
                         data: ReplayTraceStepData::Target(ReplayTraceStepTarget {
                             ticks: None,
-                            signo: ev.signal_event().siginfo.si_signo,
+                            signo: Some(ev.signal_event().maybe_sig().unwrap()),
                         }),
                     };
                 } else {
@@ -847,7 +851,7 @@ impl ReplaySession {
                         action: ReplayTraceStepType::TstepProgramAsyncSignalInterrupt,
                         data: ReplayTraceStepData::Target(ReplayTraceStepTarget {
                             ticks: Some(trace_frame.ticks()),
-                            signo: ev.signal_event().siginfo.si_signo,
+                            signo: Some(ev.signal_event().maybe_sig().unwrap()),
                         }),
                     };
                 }
@@ -858,7 +862,7 @@ impl ReplaySession {
                     data: ReplayTraceStepData::Target(ReplayTraceStepTarget {
                         // Note this should NOT be None.
                         ticks: Some(0),
-                        signo: ev.signal_event().siginfo.si_signo,
+                        signo: Some(ev.signal_event().maybe_sig().unwrap()),
                     }),
                 };
             }
@@ -939,7 +943,7 @@ impl ReplaySession {
         self.replay_step_with_constraints(StepConstraints::new(command))
     }
 
-    fn emulate_signal_delivery(&self, t: &mut ReplayTask, sig: i32) -> Completion {
+    fn emulate_signal_delivery(&self, t: &mut ReplayTask, sig: Sig) -> Completion {
         let maybe_t = self.current_task();
         match maybe_t {
             None => {
@@ -973,11 +977,7 @@ impl ReplaySession {
                     // Restore the signal-hander frame data, if there was one.
                     let restored_sighandler_frame: bool = 0 < t.set_data_from_trace();
                     if restored_sighandler_frame {
-                        log!(
-                            LogDebug,
-                            "-. restoring sighandler frame for {}",
-                            signal_name(sig)
-                        )
+                        log!(LogDebug, "-. restoring sighandler frame for {}", sig)
                     }
                     // Note that fatal signals are not actually injected into the task!
                     // This is very important; we must never actually inject fatal signals
@@ -1361,7 +1361,7 @@ impl ReplaySession {
     fn emulate_deterministic_signal(
         &self,
         t: &mut ReplayTask,
-        sig: i32,
+        sig: Sig,
         constraints: &StepConstraints,
     ) -> Completion {
         loop {
@@ -1407,7 +1407,7 @@ impl ReplaySession {
             t.maybe_stop_sig() == sig,
             "Replay got unrecorded signal {} (expecting {})",
             t.maybe_stop_sig(),
-            signal_name(sig)
+            sig
         );
 
         {
@@ -1765,7 +1765,7 @@ impl ReplaySession {
             ReplayTraceStepType::TstepExitSyscall => self.exit_syscall(t),
             ReplayTraceStepType::TstepDeterministicSignal => self.emulate_deterministic_signal(
                 t,
-                self.current_step.get().target().signo,
+                self.current_step.get().target().signo.unwrap(),
                 &constraints,
             ),
             ReplayTraceStepType::TstepProgramAsyncSignalInterrupt => {
@@ -1777,7 +1777,7 @@ impl ReplaySession {
                 )
             }
             ReplayTraceStepType::TstepDeliverSignal => {
-                self.emulate_signal_delivery(t, self.current_step.get().target().signo)
+                self.emulate_signal_delivery(t, self.current_step.get().target().signo.unwrap())
             }
             ReplayTraceStepType::TstepFlushSyscallbuf => self.flush_syscallbuf(t, &constraints),
             ReplayTraceStepType::TstepPatchSyscall => self.patch_next_syscall(t, &constraints),
@@ -2068,7 +2068,7 @@ fn compute_ticks_request(
     true
 }
 
-fn is_fatal_default_action(sig: i32) -> bool {
+fn is_fatal_default_action(sig: Sig) -> bool {
     let action: SignalAction = default_action(sig);
     action == SignalAction::DumpCore || action == SignalAction::Terminate
 }

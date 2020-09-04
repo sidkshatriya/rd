@@ -94,7 +94,7 @@ use std::{
 use libc::{REG_EAX, REG_EIP};
 
 #[cfg(target_arch = "x86_64")]
-use crate::kernel_supplement::ARCH_SET_CPUID;
+use crate::{kernel_supplement::ARCH_SET_CPUID, sig::Sig};
 
 #[cfg(target_arch = "x86_64")]
 use libc::{syscall, SYS_arch_prctl, REG_RAX, REG_RIP};
@@ -147,12 +147,12 @@ pub enum SignalAction {
     Ignore,
 }
 
-pub fn default_action(sig: i32) -> SignalAction {
-    if 32 <= sig && sig <= 64 {
+pub fn default_action(sig: Sig) -> SignalAction {
+    if 32 <= sig.as_raw() && sig.as_raw() <= 64 {
         return SignalAction::Terminate;
     }
 
-    match sig {
+    match sig.as_raw() {
         // TODO: SSoT for signal defs/semantics.
         libc::SIGHUP => SignalAction::Terminate,
         libc::SIGINT => SignalAction::Terminate,

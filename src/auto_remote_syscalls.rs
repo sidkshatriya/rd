@@ -55,6 +55,7 @@ use crate::{
             Task,
         },
     },
+    sig,
     util::{find, is_kernel_trap, page_size, resize_shmem_segment, running_under_rd, tmp_dir},
     wait_status::{MaybeStopSignal, WaitStatus},
 };
@@ -1513,5 +1514,6 @@ fn is_sigtrap_default_and_unblocked(t: &dyn Task) -> bool {
         return true;
     }
     let rt = t.as_record_task().unwrap();
-    rt.sig_disposition(SIGTRAP) == SignalDisposition::SignalDefault && !rt.is_sig_blocked(SIGTRAP)
+    rt.sig_disposition(sig::SIGTRAP) == SignalDisposition::SignalDefault
+        && !rt.is_sig_blocked(sig::SIGTRAP)
 }

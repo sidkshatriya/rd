@@ -31,6 +31,7 @@ use crate::{
             },
         },
     },
+    sig::Sig,
     util::{is_zombie_process, to_timeval},
     wait_status::{MaybeStopSignal, WaitStatus},
 };
@@ -111,7 +112,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
         how: ResumeRequest,
         wait_how: WaitRequest,
         tick_period: TicksRequest,
-        maybe_sig: Option<i32>,
+        maybe_sig: Option<Sig>,
     );
 
     fn stored_record_size(&mut self, record: RemotePtr<syscallbuf_record>) -> u32;
@@ -155,7 +156,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
         _resume_req: ResumeRequest,
         _wait_req: WaitRequest,
         _ticks_req: TicksRequest,
-        _sig: Option<i32>,
+        _sig: Option<Sig>,
     ) {
         // Do nothing by default. Trait impl-s can override.
     }

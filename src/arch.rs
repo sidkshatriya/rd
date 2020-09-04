@@ -1146,7 +1146,8 @@ impl Architecture for X86Arch {
         } else {
             si.si_code = CLD_TRAPPED as _;
             // @TODO Is the unwrap approach what we want?
-            si._sifields._sigchld.si_status_ = r.emulated_stop_code.ptrace_signal().unwrap();
+            si._sifields._sigchld.si_status_ =
+                r.emulated_stop_code.ptrace_signal().unwrap().as_raw();
         }
         si._sifields._sigchld.si_pid_ = r.tgid();
         si._sifields._sigchld.si_uid_ = r.getuid();
@@ -1695,7 +1696,8 @@ impl Architecture for X64Arch {
         } else {
             si.si_code = CLD_TRAPPED as _;
             // @TODO Is the unwrap approach what we want?
-            si._sifields._sigchld.si_status_ = r.emulated_stop_code.ptrace_signal().unwrap();
+            si._sifields._sigchld.si_status_ =
+                r.emulated_stop_code.ptrace_signal().unwrap().as_raw();
         }
         si._sifields._sigchld.si_pid_ = r.tgid();
         si._sifields._sigchld.si_uid_ = r.getuid();

@@ -6,6 +6,7 @@ use crate::{
         task::Task,
         Session,
     },
+    sig::Sig,
 };
 use std::{
     cell::{Ref, RefCell, RefMut},
@@ -68,7 +69,7 @@ impl DiversionSession {
         &self,
         _t: &mut dyn Task,
         _command: Option<RunCommand>,
-        _signal_to_deliver: Option<i32>,
+        _signal_to_deliver: Option<Sig>,
     ) -> DiversionResult {
         unimplemented!()
     }

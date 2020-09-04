@@ -62,7 +62,7 @@ use crate::{
         FcntlOperation,
         SupportedArch,
     },
-    kernel_metadata::{ptrace_req_name, signal_name},
+    kernel_metadata::ptrace_req_name,
     kernel_supplement::ARCH_SET_CPUID,
     log::LogLevel::{LogDebug, LogInfo, LogWarn},
     perf_counters::TIME_SLICE_SIGNAL,
@@ -143,6 +143,7 @@ use nix::{
     fcntl::OFlag,
     sys::mman::{MapFlags, ProtFlags},
 };
+use sig::Sig;
 use std::{
     cell::RefCell,
     cmp::min,
@@ -872,7 +873,7 @@ pub(super) fn resume_execution<T: Task>(
     how: ResumeRequest,
     wait_how: WaitRequest,
     tick_period: TicksRequest,
-    maybe_sig: Option<i32>,
+    maybe_sig: Option<Sig>,
 ) {
     task.will_resume_execution(how, wait_how, tick_period, maybe_sig);
     match tick_period {
@@ -890,7 +891,7 @@ pub(super) fn resume_execution<T: Task>(
         }
     }
     let sig_string = match maybe_sig {
-        Some(sig) => format!(", signal: {}", signal_name(sig)),
+        Some(sig) => format!(", signal: {}", sig),
         None => String::new(),
     };
 

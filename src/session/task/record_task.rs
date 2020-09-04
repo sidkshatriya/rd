@@ -51,6 +51,7 @@ use crate::{
         },
         Session,
     },
+    sig::Sig,
     ticks::Ticks,
     trace::{trace_frame::FrameTime, trace_writer::TraceWriter},
     wait_status::WaitStatus,
@@ -400,7 +401,7 @@ pub struct RecordTask {
     /// Signal delivered by the kernel when this task terminates
     /// DIFF NOTE: We have an Option<> here which is different from rr.
     /// Also should this be a u32?
-    pub termination_signal: Option<i32>,
+    pub termination_signal: Option<Sig>,
 
     /// Our value for PR_GET/SET_TSC (one of PR_TSC_ENABLED, PR_TSC_SIGSEGV).
     pub tsc_mode: i32,
@@ -464,7 +465,7 @@ impl Task for RecordTask {
         how: ResumeRequest,
         wait_how: WaitRequest,
         tick_period: TicksRequest,
-        maybe_sig: Option<i32>,
+        maybe_sig: Option<Sig>,
     ) {
         resume_execution(self, how, wait_how, tick_period, maybe_sig)
     }
@@ -738,7 +739,7 @@ impl RecordTask {
     /// When emulating a ptrace-continue with a signal number, extract the siginfo
     /// that was saved by `save_ptrace_signal_siginfo`. If no such siginfo was
     /// saved, make one up.
-    pub fn take_ptrace_signal_siginfo(&self, _sig: i32) -> siginfo_t {
+    pub fn take_ptrace_signal_siginfo(&self, _sig: Sig) -> siginfo_t {
         unimplemented!()
     }
 
@@ -756,18 +757,18 @@ impl RecordTask {
 
     /// Call this to force a group stop for this task with signal 'sig',
     /// notifying ptracer if necessary.
-    pub fn apply_group_stop(&self, _sig: i32) {
+    pub fn apply_group_stop(&self, _sig: Sig) {
         unimplemented!()
     }
 
     /// Call this after `sig` is delivered to this task.  Emulate
     /// sighandler updates induced by the signal delivery.
-    pub fn signal_delivered(&self, _sig: i32) {
+    pub fn signal_delivered(&self, _sig: Sig) {
         unimplemented!()
     }
 
     /// Return true if `sig` is pending but hasn't been reported to ptrace yet
-    pub fn is_signal_pending(&self, _sig: i32) -> bool {
+    pub fn is_signal_pending(&self, _sig: Sig) -> bool {
         unimplemented!()
     }
 
@@ -784,45 +785,45 @@ impl RecordTask {
     /// Return true if the disposition of `sig` in `table` isn't
     /// SIG_IGN or SIG_DFL, that is, if a user sighandler will be
     /// invoked when `sig` is received.
-    pub fn signal_has_user_handler(&self, _sig: i32) -> bool {
+    pub fn signal_has_user_handler(&self, _sig: Sig) -> bool {
         unimplemented!()
     }
 
     /// If signal_has_user_handler(sig) is true, return the address of the
     /// user handler, otherwise return null.
-    pub fn get_signal_user_handler(&self, _sig: i32) -> RemoteCodePtr {
+    pub fn get_signal_user_handler(&self, _sig: Sig) -> RemoteCodePtr {
         unimplemented!()
     }
 
     /// Return true if the signal handler for `sig` takes a &siginfo_t
     /// parameter.
-    pub fn signal_handler_takes_siginfo(&self, _sig: i32) -> bool {
+    pub fn signal_handler_takes_siginfo(&self, _sig: Sig) -> bool {
         unimplemented!()
     }
 
     /// Return `sig`'s current sigaction. Returned as raw bytes since the
     /// data is architecture-dependent.
-    pub fn signal_action(&self, _sig: i32) -> &[u8] {
+    pub fn signal_action(&self, _sig: Sig) -> &[u8] {
         unimplemented!()
     }
 
     /// Return true iff `sig` is blocked for this.
-    pub fn is_sig_blocked(&self, _sig: i32) -> bool {
+    pub fn is_sig_blocked(&self, _sig: Sig) -> bool {
         unimplemented!()
     }
 
     /// Return true iff `sig` is SIG_IGN, or it's SIG_DFL and the
     /// default disposition is "ignore".
-    pub fn is_sig_ignored(&self, _sig: i32) -> bool {
+    pub fn is_sig_ignored(&self, _sig: Sig) -> bool {
         unimplemented!()
     }
 
     /// Return the applications current disposition of `sig`.
-    pub fn sig_disposition(&self, sig: i32) -> SignalDisposition {
+    pub fn sig_disposition(&self, sig: Sig) -> SignalDisposition {
         self.sighandlers
             .borrow_mut()
             .handlers
-            .get(sig as usize)
+            .get(sig.as_raw() as usize)
             .unwrap()
             .disposition()
     }
@@ -831,7 +832,7 @@ impl RecordTask {
     /// taking into account the default behavior.
     pub fn sig_resolved_disposition(
         &self,
-        _sig: i32,
+        _sig: Sig,
         _deterministic: SignalDeterministic,
     ) -> SignalResolvedDisposition {
         unimplemented!()
@@ -848,7 +849,7 @@ impl RecordTask {
     }
 
     /// Reset the signal handler for this signal to the default.
-    pub fn did_set_sig_handler_default(&self, _sig: i32) {
+    pub fn did_set_sig_handler_default(&self, _sig: Sig) {
         unimplemented!()
     }
 
@@ -891,7 +892,7 @@ impl RecordTask {
         unimplemented!()
     }
 
-    pub fn has_stashed_sig(&self, _sig: i32) -> bool {
+    pub fn has_stashed_sig(&self, _sig: Sig) -> bool {
         unimplemented!()
     }
 
@@ -1152,7 +1153,7 @@ impl RecordTask {
         unimplemented!()
     }
 
-    pub fn is_fatal_signal(&self, _sig: i32, _deterministic: SignalDeterministic) -> bool {
+    pub fn is_fatal_signal(&self, _sig: Sig, _deterministic: SignalDeterministic) -> bool {
         unimplemented!()
     }
 
@@ -1171,7 +1172,7 @@ impl RecordTask {
     }
 
     /// Do a tgkill to send a specific signal to this task.
-    pub fn tgkill(&self, _sig: i32) {
+    pub fn tgkill(&self, _sig: Sig) {
         unimplemented!()
     }
 
@@ -1199,7 +1200,7 @@ impl RecordTask {
         unimplemented!()
     }
 
-    pub fn set_termination_signal(&self, _sig: i32) {
+    pub fn set_termination_signal(&self, _sig: Sig) {
         unimplemented!()
     }
 
@@ -1228,12 +1229,12 @@ impl RecordTask {
     }
 
     /// Unblock the signal for the process.
-    pub fn unblock_signal(&self, _sig: i32) {
+    pub fn unblock_signal(&self, _sig: Sig) {
         unimplemented!()
     }
 
     /// Set the signal handler to default for the process.
-    pub fn set_sig_handler_default(&self, _sig: i32) {
+    pub fn set_sig_handler_default(&self, _sig: Sig) {
         unimplemented!()
     }
 

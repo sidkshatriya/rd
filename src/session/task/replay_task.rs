@@ -42,6 +42,7 @@ use crate::{
         Session,
         SessionSharedPtr,
     },
+    sig::Sig,
     trace::{
         trace_frame::{FrameTime, TraceFrame},
         trace_reader::{RawData, TraceReader},
@@ -340,7 +341,7 @@ impl Task for ReplayTask {
         how: ResumeRequest,
         wait_how: WaitRequest,
         tick_period: TicksRequest,
-        maybe_sig: Option<i32>,
+        maybe_sig: Option<Sig>,
     ) {
         resume_execution(self, how, wait_how, tick_period, maybe_sig)
     }
