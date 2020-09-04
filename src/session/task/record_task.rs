@@ -4,6 +4,7 @@ use crate::{
     event::{Event, EventType, SignalDeterministic, SignalResolvedDisposition},
     kernel_abi::{
         common::preload_interface::syscallbuf_record,
+        native_arch,
         syscall_number_for_rt_sigaction,
         SupportedArch,
     },
@@ -104,7 +105,7 @@ impl Sighandlers {
         for i in 1.._NSIG as usize {
             let h = &mut self.handlers[i];
 
-            let mut sa = <NativeArch as Architecture>::kernel_sigaction::default();
+            let mut sa = native_arch::kernel_sigaction::default();
             if 0 != unsafe {
                 libc::syscall(
                     syscall_number_for_rt_sigaction(NativeArch::arch()) as _,
@@ -115,7 +116,7 @@ impl Sighandlers {
                 )
             } {
                 // EINVAL means we're querying an unused signal number.
-                debug_assert!(EINVAL == errno());
+                debug_assert_eq!(EINVAL, errno());
                 continue;
             }
             // @TODO msan unpoison?
@@ -818,7 +819,12 @@ impl RecordTask {
 
     /// Return the applications current disposition of `sig`.
     pub fn sig_disposition(&self, sig: i32) -> SignalDisposition {
-        self.sighandlers.borrow_mut().handlers.get(sig as usize).unwrap().disposition()
+        self.sighandlers
+            .borrow_mut()
+            .handlers
+            .get(sig as usize)
+            .unwrap()
+            .disposition()
     }
 
     /// Return the resolved disposition --- what this signal will actually do,

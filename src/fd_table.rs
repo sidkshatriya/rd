@@ -260,21 +260,24 @@ impl FdTable {
             }
             vms_updated.insert(vm_uid);
 
-            if rt.preload_globals.is_some() {
-                if fd >= SYSCALLBUF_FDS_DISABLED_SIZE {
-                    fd = SYSCALLBUF_FDS_DISABLED_SIZE - 1;
-                }
-                let disable: u8 = if is_fd_monitored_in_any_task(&rt.vm(), fd) {
-                    1
-                } else {
-                    0
-                };
+            match rt.preload_globals {
+                Some(pg) => {
+                    if fd >= SYSCALLBUF_FDS_DISABLED_SIZE {
+                        fd = SYSCALLBUF_FDS_DISABLED_SIZE - 1;
+                    }
+                    let disable: u8 = if is_fd_monitored_in_any_task(&rt.vm(), fd) {
+                        1
+                    } else {
+                        0
+                    };
 
-                let addr: RemotePtr<u8> = RemotePtr::cast(rt.preload_globals.unwrap())
-                    + offset_of!(preload_globals, syscallbuf_fds_disabled)
-                    + fd as usize;
-                rt.write_bytes(addr, &disable.to_le_bytes());
-                rt.record_local(addr, &disable.to_le_bytes());
+                    let addr: RemotePtr<u8> = RemotePtr::cast(pg)
+                        + offset_of!(preload_globals, syscallbuf_fds_disabled)
+                        + fd as usize;
+                    rt.write_bytes(addr, &disable.to_le_bytes());
+                    rt.record_local(addr, &disable.to_le_bytes());
+                }
+                None => (),
             }
         };
 
