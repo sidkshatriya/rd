@@ -77,6 +77,10 @@ pub const X86_DF_FLAG: usize = 1 << 10;
 pub const X86_RF_FLAG: usize = 1 << 16;
 pub const X86_ID_FLAG: usize = 1 << 21;
 
+// Max register size
+// DIFF NOTE: Called MAX_SIZE in rr and within the Registers struct
+pub const MAX_REG_SIZE_BYTES: usize = 16;
+
 #[derive(Clone)]
 pub enum Registers {
     X64(x64::user_regs_struct),

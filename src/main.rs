@@ -40,6 +40,7 @@ pub mod extra_registers;
 mod fast_forward;
 mod fd_table;
 mod file_monitor;
+mod gdb_connection;
 mod gdb_expression;
 mod gdb_register;
 mod gdb_server;

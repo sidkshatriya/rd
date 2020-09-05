@@ -7,7 +7,7 @@ use crate::{
     bindings::kernel::{gettimeofday, timeval},
     commands::RdCommand,
     flags::Flags,
-    gdb_server::gdb_server,
+    gdb_server,
     log::LogLevel::LogInfo,
     session::{
         replay_session,
