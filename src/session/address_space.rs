@@ -1827,6 +1827,7 @@ pub mod address_space {
                     None => ed_assert!(t, false, "No syscall instruction found in VDSO"),
                     Some(calc_offset) => {
                         assert_ne!(calc_offset, 0);
+                        offset = calc_offset;
                         match arch {
                             SupportedArch::X86 => {
                                 OFFSET_TO_SYSCALL_IN_X86.store(calc_offset, Ordering::SeqCst)
@@ -3307,17 +3308,15 @@ fn thread_group_in_exec(t: &dyn Task) -> bool {
 fn check_device(km: &KernelMapping) -> dev_t {
     let maybe_first = km.fsname().as_bytes().get(0);
     match maybe_first {
-        Some(c) if *c != b'/' => {
-            return km.device();
+        Some(c) if *c != b'/' => km.device(),
+        _ => {
+            // btrfs files can return the wrong device number in /proc/<pid>/maps
+            let ret = stat(km.fsname());
+            match ret {
+                Ok(st) => st.st_dev,
+                Err(_) => km.device(),
+            }
         }
-        _ => (),
-    }
-
-    // btrfs files can return the wrong device number in /proc/<pid>/maps
-    let ret = stat(km.fsname());
-    match ret {
-        Ok(st) => st.st_dev,
-        Err(_) => km.device(),
     }
 }
 
@@ -3401,17 +3400,20 @@ fn assert_segments_match(t: &dyn Task, m: &KernelMapping, km: &KernelMapping) {
 }
 
 fn normalized_device_number(m: &KernelMapping) -> dev_t {
-    let maybe_first_char = m.fsname().as_bytes().get(0);
-    if maybe_first_char.is_some() && *maybe_first_char.unwrap() != b'/' {
-        return m.device();
+    let maybe_first = m.fsname().as_bytes().get(0);
+    match maybe_first {
+        Some(c) if *c != b'/' => m.device(),
+        _ => {
+            // btrfs files can report the wrong device number in /proc/<pid>/maps, so
+            // restrict ourselves to checking whether the device number is != 0
+            if m.device() != KernelMapping::NO_DEVICE {
+                // Find a better way to return an "out of band" value like -1.
+                -1i64 as dev_t
+            } else {
+                m.device()
+            }
+        }
     }
-    // btrfs files can report the wrong device number in /proc/<pid>/maps, so
-    // restrict ourselves to checking whether the device number is != 0
-    if m.device() != KernelMapping::NO_DEVICE {
-        // Find a better way to return an "out of band" value like -1.
-        return -1i64 as dev_t;
-    }
-    m.device()
 }
 
 fn read_kernel_mapping(tid: pid_t, addr: RemotePtr<Void>) -> KernelMapping {

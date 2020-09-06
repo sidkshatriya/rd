@@ -1076,18 +1076,19 @@ impl ReplaySession {
             );
         }
 
-        let type_ = AddressSpace::rd_page_syscall_from_exit_point(t.ip());
-        if type_.is_some()
-            && type_.unwrap().traced == Traced::Untraced
-            && type_.unwrap().enabled == Enabled::ReplayOnly
-        {
-            // Actually perform it. We can hit these when replaying through syscallbuf
-            // code that was interrupted.
-            perform_interrupted_syscall(t);
-            return Completion::Incomplete;
+        let maybe_syscall_type = AddressSpace::rd_page_syscall_from_exit_point(t.ip());
+        match maybe_syscall_type {
+            Some(syscall_type)
+                if syscall_type.traced == Traced::Untraced
+                    && syscall_type.enabled == Enabled::ReplayOnly =>
+            {
+                // Actually perform it. We can hit these when replaying through syscallbuf
+                // code that was interrupted.
+                perform_interrupted_syscall(t);
+                Completion::Incomplete
+            }
+            _ => Completion::Complete,
         }
-
-        Completion::Complete
     }
 
     /// Advance to the next syscall entry (or virtual entry) according to
