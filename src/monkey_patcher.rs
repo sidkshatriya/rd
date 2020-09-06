@@ -3,9 +3,12 @@ use crate::{
     kernel_abi::common::preload_interface::syscall_patch_hook,
     remote_code_ptr::RemoteCodePtr,
     remote_ptr::{RemotePtr, Void},
-    session::task::record_task::RecordTask,
+    session::{address_space::address_space, task::record_task::RecordTask},
 };
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    ffi::OsStr,
+};
 
 const MAX_VDSO_SIZE: usize = 16384;
 const VDSO_ABSOLUTE_ADDRESS: usize = 0xffffe000;
@@ -65,7 +68,7 @@ impl ExtendedJumpPage {
 /// 3) Patch syscall instructions whose following instructions match a known
 /// pattern to call the syscall hook.
 ///
-/// Monkeypatcher only runs during recording, never replay.
+/// MonkeyPatcher only runs during recording, never replay.
 impl MonkeyPatcher {
     pub fn new() -> MonkeyPatcher {
         unimplemented!()
@@ -130,5 +133,211 @@ impl MonkeyPatcher {
 }
 
 fn patch_at_preload_init_arch<Arch: Architecture>(_t: &RecordTask, _patcher: &MonkeyPatcher) {
+    unimplemented!()
+}
+
+struct VdsoReader;
+/// @TODO Remove
+struct ElfReader;
+/// @TODO Remove
+struct SymbolTable;
+
+fn write_and_record_bytes(_t: &RecordTask, _child_addr: RemotePtr<Void>, _buf: &[u8]) {
+    unimplemented!()
+}
+
+fn write_and_record_mem<T>(_t: &RecordTask, _child_addr: RemotePtr<T>, _vals: &[T]) {
+    unimplemented!()
+}
+
+/// RecordSession sets up an LD_PRELOAD environment variable with an entry
+/// SYSCALLBUF_LIB_FILENAME_PADDED (and, if enabled, an LD_AUDIT environment
+/// variable with an entry RTLDAUDIT_LIB_FILENAME_PADDED) which is big enough to
+/// hold either the 32-bit or 64-bit preload/audit library file names.
+/// Immediately after exec we enter this function, which patches the environment
+/// variable value with the correct library name for the task's architecture.
+///
+/// It's possible for this to fail if a tracee alters the LD_PRELOAD value
+/// and then does an exec. That's just too bad. If we ever have to handle that,
+/// we should modify the environment passed to the exec call. This function
+/// failing isn't necessarily fatal; a tracee might not rely on the functions
+/// overridden by the preload library, or might override them itself (e.g.
+/// because we're recording an rr replay).
+////
+fn setup_library_path_arch<Arch: Architecture>(
+    _t: &RecordTask,
+    _env_var: &OsStr,
+    _soname_base: &OsStr,
+    _soname_padded: &OsStr,
+    _soname_32: &OsStr,
+) {
+    unimplemented!()
+}
+
+fn setup_preload_library_path<Arch: Architecture>(_t: &RecordTask) {
+    unimplemented!()
+}
+
+fn setup_audit_library_path<Arch: Architecture>(_t: &RecordTask) {
+    unimplemented!()
+}
+
+fn patch_syscall_with_hook_arch<Arch: Architecture>(
+    _patcher: &MonkeyPatcher,
+    _t: &RecordTask,
+    _hook: &syscall_patch_hook,
+) -> bool {
+    unimplemented!()
+}
+
+fn substitute<Arch: Architecture>(
+    _buffer: &[u8],
+    _return_addr: u64,
+    _trampoline_relative_addr: u64,
+) {
+    unimplemented!()
+}
+
+fn substitute_extended_jump<Arch: Architecture>(
+    _buffer: &[u8],
+    _patch_addr: u64,
+    _return_addr: u64,
+    _target_addr: u64,
+) {
+    unimplemented!()
+}
+
+/// Allocate an extended jump in an extended jump page and return its address.
+/// The resulting address must be within 2G of from_end, and the instruction
+/// there must jump to to_start.
+fn allocate_extended_jump(
+    _t: &RecordTask,
+    _pages: Vec<ExtendedJumpPage>,
+    _from_end: RemotePtr<u8>,
+) -> RemotePtr<u8> {
+    unimplemented!()
+}
+
+/// Some functions make system calls while storing local variables in memory
+/// below the stack pointer. We need to decrement the stack pointer by
+/// some "safety zone" amount to get clear of those variables before we make
+/// a call instruction. So, we allocate a stub per patched callsite, and jump
+/// from the callsite to the stub. The stub decrements the stack pointer,
+/// calls the appropriate syscall hook function, reincrements the stack pointer,
+/// and jumps back to immediately after the patched callsite.
+///
+/// It's important that gdb stack traces work while a thread is stopped in the
+/// syscallbuf code. To ensure that the above manipulations don't foil gdb's
+/// stack walking code, we add CFI data to all the stubs. To ease that, the
+/// stubs are written in assembly and linked into the preload library.
+///
+/// On x86-64 with ASLR, we need to be able to patch a call to a stub from
+/// sites more than 2^31 bytes away. We only have space for a 5-byte jump
+/// instruction. So, we allocate "extender pages" --- pages of memory within
+/// 2GB of the patch site, that contain the stub code. We don't really need this
+/// on x86, but we do it there too for consistency.
+fn patch_syscall_with_hook_x86ish(
+    _patcher: &MonkeyPatcher,
+    _t: &RecordTask,
+    _hook: syscall_patch_hook,
+) -> bool {
+    unimplemented!()
+}
+
+fn patch_syscall_with_hook(
+    _patcher: &MonkeyPatcher,
+    _t: &RecordTask,
+    _hook: &syscall_patch_hook,
+) -> bool {
+    unimplemented!()
+}
+
+fn task_safe_for_syscall_patching(
+    _t: &RecordTask,
+    _start: RemoteCodePtr,
+    _end: RemoteCodePtr,
+) -> bool {
+    unimplemented!()
+}
+
+fn safe_for_syscall_patching(_start: RemoteCodePtr, _end: RemoteCodePtr, _exclude: &RecordTask) {
+    unimplemented!()
+}
+
+/// Return true iff |addr| points to a known |__kernel_vsyscall()|
+/// implementation.
+fn is_kernel_vsyscall(_t: &RecordTask, _addr: RemotePtr<Void>) -> bool {
+    unimplemented!()
+}
+
+/// Return the address of a recognized |__kernel_vsyscall()|
+/// implementation in |t|'s address space.
+fn locate_and_verify_kernel_vsyscall(
+    _t: &RecordTask,
+    _reader: &ElfReader,
+    _syms: &SymbolTable,
+) -> RemotePtr<Void> {
+    unimplemented!()
+}
+
+/// VDSOs are filled with overhead critical functions related to getting the
+/// time and current CPU.  We need to ensure that these syscalls get redirected
+/// into actual trap-into-the-kernel syscalls so rr can intercept them.
+fn patch_after_exec_arch<Arch: Architecture>(_t: &RecordTask, _patcher: &MonkeyPatcher) {
+    unimplemented!()
+}
+
+struct NamedSyscall<'a> {
+    pub name: &'a OsStr,
+    pub syscall_number: i32,
+}
+
+fn erase_section(_t: &RecordTask, _reader: &VdsoReader, _name: &OsStr) {
+    unimplemented!()
+}
+
+fn obliterate_debug_info(_t: &RecordTask, _reader: &VdsoReader) {
+    unimplemented!()
+}
+
+fn resolve_address(
+    _reader: &ElfReader,
+    _elf_addr: usize,
+    _map_start: RemotePtr<Void>,
+    _map_size: usize,
+    _map_offset_pages: usize,
+) -> RemotePtr<Void> {
+    unimplemented!()
+}
+
+fn set_and_record_bytes(
+    _t: &RecordTask,
+    _reader: &ElfReader,
+    _elf_addr: usize,
+    _bytes: &[u8],
+    _map_start: RemotePtr<Void>,
+    _map_size: usize,
+    _map_offset_pages: usize,
+) {
+    unimplemented!()
+}
+
+/// Patch _dl_runtime_resolve_(fxsave,xsave,xsavec) to clear "FDP Data Pointer"
+/// register so that CPU-specific behaviors involving that register don't leak
+/// into stack memory.
+fn patch_dl_runtime_resolve(
+    _patcher: &MonkeyPatcher,
+    _t: &RecordTask,
+    _reader: &ElfReader,
+    _elf_addr: usize,
+    _bytes: &[u8],
+    _map_start: RemotePtr<Void>,
+    _map_size: usize,
+    _map_offset_pages: usize,
+) {
+    unimplemented!()
+}
+
+fn file_may_need_instrumentation(_map: &address_space::Mapping) -> bool {
     unimplemented!()
 }
