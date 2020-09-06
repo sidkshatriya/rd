@@ -214,7 +214,7 @@ pub struct syscallbuf_record {
 /// This struct summarizes the state of the syscall buffer.  It happens
 /// to be located at the start of the buffer.
 #[repr(C, packed)]
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Default)]
 pub struct syscallbuf_hdr {
     /// The number of valid syscallbuf_record bytes in the buffer,
     /// not counting this header.
@@ -274,6 +274,12 @@ pub enum syscallbuf_locked_why {
     /// Used by the tracer to prevent syscall buffering when necessary to preserve
     /// semantics (e.g. for ptracees whose syscalls are being observed)
     SyscallbufLockedTracer = 0x2,
+}
+
+impl Default for syscallbuf_locked_why {
+    fn default() -> Self {
+        Self::SyscallbufLockedTracer
+    }
 }
 
 /// Return the amount of space that a record of `length` will occupy in

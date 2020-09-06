@@ -5,7 +5,7 @@ use super::{
     session_inner::{is_singlestep, PtraceSyscallSeccompOrdering},
     task::{
         replay_task::ReplayTaskIgnore,
-        task_inner::{TrapReasons, MAX_TICKS_REQUEST},
+        task_inner::{TrapReasons, WriteFlags, MAX_TICKS_REQUEST},
     },
 };
 use crate::{
@@ -32,7 +32,7 @@ use crate::{
     perf_counters::{PerfCounters, TIME_SLICE_SIGNAL},
     registers::{MismatchBehavior, Registers},
     remote_code_ptr::RemoteCodePtr,
-    remote_ptr::RemotePtr,
+    remote_ptr::{RemotePtr, Void},
     replay_syscall::{
         rep_after_enter_syscall,
         rep_prepare_run_to_syscall,
@@ -97,8 +97,10 @@ use std::{
     cmp::min,
     convert::TryInto,
     ffi::{OsStr, OsString},
+    intrinsics::copy_nonoverlapping,
     io,
     io::Write,
+    mem::size_of,
     ops::{Deref, DerefMut},
     rc::Rc,
 };
@@ -899,8 +901,53 @@ impl ReplaySession {
         t_shr_ptr
     }
 
-    fn prepare_syscallbuf_records(&self, _t: &ReplayTask) {
-        unimplemented!()
+    fn prepare_syscallbuf_records(&self, t: &mut ReplayTask) {
+        // Read the recorded syscall buffer back into the buffer region.
+        let buf = t.trace_reader_mut().read_raw_data();
+        ed_assert!(t, buf.data.len() >= size_of::<syscallbuf_hdr>());
+        ed_assert!(t, buf.data.len() <= t.syscallbuf_size);
+        ed_assert!(t, buf.addr == RemotePtr::cast(t.syscallbuf_child));
+
+        let mut recorded_hdr: syscallbuf_hdr = Default::default();
+        unsafe {
+            copy_nonoverlapping(
+                buf.data.as_ptr(),
+                &raw mut recorded_hdr as *mut u8,
+                size_of::<syscallbuf_hdr>(),
+            );
+        }
+        // Don't overwrite syscallbuf_hdr. That needs to keep tracking the current
+        // syscallbuf state.
+        t.write_bytes_helper(
+            RemotePtr::cast(t.syscallbuf_child + 1usize),
+            &buf.data[size_of::<syscallbuf_hdr>()..],
+            None,
+            WriteFlags::empty(),
+        );
+
+        let num_rec_bytes = recorded_hdr.num_rec_bytes;
+        ed_assert!(
+            t,
+            num_rec_bytes as usize + size_of::<syscallbuf_hdr>() <= t.syscallbuf_size
+        );
+
+        let mut step = self.current_step.get();
+        match &mut step.data {
+            ReplayTraceStepData::Flush(flush) => {
+                flush.stop_breakpoint_addr =
+                    t.stopping_breakpoint_table.to_data_ptr::<Void>().as_usize()
+                        + (num_rec_bytes as usize / 8) * t.stopping_breakpoint_table_entry_size;
+            }
+            _ => panic!("Unexpected ReplayTraceStepData variant"),
+        }
+
+        self.current_step.set(step);
+
+        log!(
+            LogDebug,
+            "Prepared {} bytes of syscall records",
+            num_rec_bytes
+        );
     }
 
     fn revive_task_for_exec(&self, ev: &Event, trace_frame_tid: pid_t) -> TaskSharedPtr {
