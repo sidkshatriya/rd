@@ -156,6 +156,8 @@ use crate::bindings::ptrace::{PTRACE_GETFPXREGS, PTRACE_SETFPXREGS};
 
 #[cfg(target_arch = "x86_64")]
 use crate::bindings::ptrace::{PTRACE_GETFPREGS, PTRACE_SETFPREGS};
+use crate::file_monitor::FileMonitorSharedWeakPtr;
+use std::collections::HashMap;
 
 const NUM_X86_DEBUG_REGS: usize = 8;
 const NUM_X86_WATCHPOINTS: usize = 4;
@@ -362,6 +364,9 @@ pub struct TaskInner {
     /// DIFF NOTE: In rr null is used to denote no preload globals
     pub preload_globals: Option<RemotePtr<preload_globals>>,
     pub thread_locals: ThreadLocals,
+
+    /// @TODO Do we need this as pub?
+    pub tasks_with_interrupts: HashMap<TaskUid, FileMonitorSharedWeakPtr>,
 
     /// These are private
     pub(in super::super) serial: u32,
@@ -1336,6 +1341,7 @@ impl TaskInner {
     ) -> TaskInner {
         let adjusted_rec_tid = rec_tid.unwrap_or(tid);
         TaskInner {
+            tasks_with_interrupts: Default::default(),
             unstable: Cell::new(false),
             stable_exit: false,
             scratch_ptr: Default::default(),

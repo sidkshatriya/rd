@@ -1,6 +1,7 @@
 use crate::{
     arch::Architecture,
     event::Switchable,
+    file_monitor::virtual_perf_counter_monitor::VirtualPerfCounterMonitor,
     kernel_abi::SupportedArch,
     registers::Registers,
     remote_ptr::{RemotePtr, Void},
@@ -223,6 +224,14 @@ pub trait FileMonitor {
     }
 
     fn as_mmapped_file_monitor(&self) -> Option<&MmappedFileMonitor> {
+        None
+    }
+
+    fn as_virtual_perf_counter_monitor(&self) -> Option<&VirtualPerfCounterMonitor> {
+        None
+    }
+
+    fn as_virtual_perf_counter_monitor_mut(&mut self) -> Option<&mut VirtualPerfCounterMonitor> {
         None
     }
 
