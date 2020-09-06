@@ -13,6 +13,7 @@ use crate::{
     },
     bindings::{
         kernel::{user_desc, SHMAT, SHMDT},
+        perf_event::perf_event_attr,
         ptrace::{
             PTRACE_CONT,
             PTRACE_DETACH,
@@ -32,6 +33,7 @@ use crate::{
         proc_fd_dir_monitor::ProcFdDirMonitor,
         proc_mem_monitor::ProcMemMonitor,
         stdio_monitor::StdioMonitor,
+        virtual_perf_counter_monitor::VirtualPerfCounterMonitor,
         FileMonitor,
         FileMonitorType,
     },
@@ -804,7 +806,23 @@ fn rep_process_syscall_arch<Arch: Architecture>(
     }
 
     if nsys == Arch::PERF_EVENT_OPEN {
-        unimplemented!();
+        // @TODO Need to look at this again. There could be lurking already borrowed issues.
+        let pid = trace_regs.arg2_signed() as pid_t;
+        let maybe_target = t.session().find_task_from_rec_tid(pid);
+        let cpu = trace_regs.arg3_signed() as i32;
+        let flags = trace_regs.arg5() as u32;
+        let fd = trace_regs.syscall_result_signed() as i32;
+        if maybe_target.is_some() && cpu == -1 && flags == 0 {
+            let attr = read_val_mem(t, RemotePtr::<perf_event_attr>::from(trace_regs.arg1()), None);
+            if VirtualPerfCounterMonitor::should_virtualize(&attr) {
+                let monitor: Box<dyn FileMonitor> = Box::new(VirtualPerfCounterMonitor::new(t, maybe_target.unwrap().borrow().as_ref(), &attr));
+                t.fd_table_shr_ptr().borrow_mut().add_monitor(
+                    t,
+                    fd,
+                    monitor,
+                );
+            }
+        }
     }
 
     if nsys == Arch::PERF_EVENT_OPEN

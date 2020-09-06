@@ -1,6 +1,14 @@
 use crate::{
     bindings::{perf_event::perf_event_attr, signal::siginfo_t},
-    file_monitor::{FileMonitor, FileMonitorSharedPtr, FileMonitorType, LazyOffset, Range},
+    file_monitor::{
+        FileMonitor,
+        FileMonitorSharedPtr,
+        FileMonitorSharedWeakPtr,
+        FileMonitorType,
+        LazyOffset,
+        Range,
+    },
+    perf_counters::PerfCounters,
     session::task::{record_task::RecordTask, Task},
     sig::Sig,
     taskish_uid::TaskUid,
@@ -19,8 +27,9 @@ pub struct VirtualPerfCounterMonitor {
     target_tuid_: TaskUid,
     owner_tid: pid_t,
     flags: i32,
-    sig: Sig,
+    sig: Option<Sig>,
     enabled: bool,
+    weak_self: FileMonitorSharedWeakPtr,
 }
 
 impl Drop for VirtualPerfCounterMonitor {
@@ -30,12 +39,33 @@ impl Drop for VirtualPerfCounterMonitor {
 }
 
 impl VirtualPerfCounterMonitor {
-    pub fn should_virtualize(_attr: &perf_event_attr) -> bool {
-        unimplemented!()
+    pub fn should_virtualize(attr: &perf_event_attr) -> bool {
+        PerfCounters::is_rd_ticks_attr(attr)
     }
 
-    pub fn new(_t: &dyn Task, _target: &dyn Task, _attr: &perf_event_attr) {
-        unimplemented!()
+    pub fn new(
+        t: &dyn Task,
+        target: &dyn Task,
+        attr: &perf_event_attr,
+    ) -> VirtualPerfCounterMonitor {
+        let v = VirtualPerfCounterMonitor {
+            initial_ticks: target.tick_count(),
+            target_ticks_: 0,
+            target_tuid_: target.tuid(),
+            owner_tid: 0,
+            flags: 0,
+            sig: None,
+            enabled: false,
+            weak_self: Default::default(),
+        };
+
+        ed_assert!(t, VirtualPerfCounterMonitor::should_virtualize(attr));
+        if t.session().is_recording() {
+            v.maybe_enable_interrupt(t.as_record_task().unwrap(), unsafe {
+                attr.__bindgen_anon_1.sample_period
+            });
+        }
+        v
     }
 
     pub fn target_ticks(&self) -> Ticks {
@@ -61,7 +91,7 @@ impl VirtualPerfCounterMonitor {
             .map(|f| f.upgrade().unwrap())
     }
 
-    fn maybe_enable_interrupt(&self, _t: &dyn Task, _after: u64) {
+    fn maybe_enable_interrupt(&self, _t: &RecordTask, _after: u64) {
         unimplemented!()
     }
 
