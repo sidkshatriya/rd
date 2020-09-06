@@ -55,7 +55,14 @@ impl FdTable {
             self.fd_count_beyond_limit += 1;
         }
 
-        self.fds.insert(fd, Rc::new(RefCell::new(monitor)));
+        let rc = Rc::new(RefCell::new(monitor));
+        let weak = Rc::downgrade(&rc);
+        match rc.borrow_mut().as_virtual_perf_counter_monitor_mut() {
+            None => (),
+            Some(v) => v.weak_self = weak,
+        }
+
+        self.fds.insert(fd, rc);
         self.update_syscallbuf_fds_disabled(fd, t);
     }
     pub fn emulate_ioctl(&self, fd: i32, t: &RecordTask, result: &mut u64) -> bool {

@@ -813,14 +813,20 @@ fn rep_process_syscall_arch<Arch: Architecture>(
         let flags = trace_regs.arg5() as u32;
         let fd = trace_regs.syscall_result_signed() as i32;
         if maybe_target.is_some() && cpu == -1 && flags == 0 {
-            let attr = read_val_mem(t, RemotePtr::<perf_event_attr>::from(trace_regs.arg1()), None);
+            let attr = read_val_mem(
+                t,
+                RemotePtr::<perf_event_attr>::from(trace_regs.arg1()),
+                None,
+            );
             if VirtualPerfCounterMonitor::should_virtualize(&attr) {
-                let monitor: Box<dyn FileMonitor> = Box::new(VirtualPerfCounterMonitor::new(t, maybe_target.unwrap().borrow().as_ref(), &attr));
-                t.fd_table_shr_ptr().borrow_mut().add_monitor(
+                let monitor: Box<dyn FileMonitor> = Box::new(VirtualPerfCounterMonitor::new(
                     t,
-                    fd,
-                    monitor,
-                );
+                    maybe_target.unwrap().borrow().as_ref(),
+                    &attr,
+                ));
+                t.fd_table_shr_ptr()
+                    .borrow_mut()
+                    .add_monitor(t, fd, monitor);
             }
         }
     }

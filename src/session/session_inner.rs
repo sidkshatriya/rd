@@ -1,5 +1,6 @@
 use crate::{
     bindings::signal::siginfo_t,
+    file_monitor::FileMonitorSharedWeakPtr,
     flags::Flags,
     log::LogLevel::LogDebug,
     perf_counters::{self, PerfCounters, TicksSemantics},
@@ -19,7 +20,7 @@ use crate::{
         },
         SessionSharedWeakPtr,
     },
-    taskish_uid::{AddressSpaceUid, ThreadGroupUid},
+    taskish_uid::{AddressSpaceUid, TaskUid, ThreadGroupUid},
     thread_group::{ThreadGroup, ThreadGroupSharedPtr, ThreadGroupSharedWeakPtr},
     ticks::Ticks,
     util::cpuid_faulting_works,
@@ -158,6 +159,10 @@ pub(super) struct CloneCompletion {
 /// Multiple sessions can coexist in the same process.  This
 /// is required when using replay checkpoints, for example.
 impl SessionInner {
+    pub fn weak_self_ptr(&self) -> SessionSharedWeakPtr {
+        self.weak_self.clone()
+    }
+
     /// Returns true after the tracee has done the initial exec in Task::spawn.
     /// Before then, tracee state can be inconsistent; from the exec exit-event
     /// onwards, the tracee state much be consistent.
@@ -350,6 +355,7 @@ impl SessionInner {
     pub(super) fn new() -> SessionInner {
         static NONCE: AtomicUsize = AtomicUsize::new(1);
         let s = SessionInner {
+            tasks_with_interrupts: Default::default(),
             unique_id: NONCE.fetch_add(1, Ordering::SeqCst),
             weak_self: Default::default(),
             vm_map: Default::default(),
@@ -525,6 +531,9 @@ impl Statistics {
 ///
 /// This struct should NOT impl the Session trait
 pub struct SessionInner {
+    /// @TODO Do we need this as pub?
+    pub tasks_with_interrupts: RefCell<HashMap<TaskUid, FileMonitorSharedWeakPtr>>,
+
     pub(super) unique_id: usize,
     /// Weak dyn Session pointer to self
     pub(super) weak_self: SessionSharedWeakPtr,

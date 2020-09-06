@@ -9,7 +9,10 @@ use crate::{
         Range,
     },
     perf_counters::PerfCounters,
-    session::task::{record_task::RecordTask, Task},
+    session::{
+        task::{record_task::RecordTask, Task},
+        SessionSharedWeakPtr,
+    },
     sig::Sig,
     taskish_uid::TaskUid,
     ticks::Ticks,
@@ -29,7 +32,8 @@ pub struct VirtualPerfCounterMonitor {
     flags: i32,
     sig: Option<Sig>,
     enabled: bool,
-    weak_self: FileMonitorSharedWeakPtr,
+    session: SessionSharedWeakPtr,
+    pub weak_self: FileMonitorSharedWeakPtr,
 }
 
 impl Drop for VirtualPerfCounterMonitor {
@@ -49,6 +53,7 @@ impl VirtualPerfCounterMonitor {
         attr: &perf_event_attr,
     ) -> VirtualPerfCounterMonitor {
         let v = VirtualPerfCounterMonitor {
+            session: t.session().weak_self_ptr(),
             initial_ticks: target.tick_count(),
             target_ticks_: 0,
             target_tuid_: target.tuid(),
@@ -86,7 +91,9 @@ impl VirtualPerfCounterMonitor {
 
     pub fn interrupting_virtual_pmc_for_task(t: &dyn Task) -> Option<FileMonitorSharedPtr> {
         let tuid = t.tuid();
-        t.tasks_with_interrupts
+        t.session()
+            .tasks_with_interrupts
+            .borrow()
             .get(&tuid)
             .map(|f| f.upgrade().unwrap())
     }
@@ -96,7 +103,15 @@ impl VirtualPerfCounterMonitor {
     }
 
     fn disable_interrupt(&self) {
-        unimplemented!()
+        let session = self.session.upgrade().unwrap();
+        let tuid = self.target_tuid();
+        let maybe_v = session.tasks_with_interrupts.borrow().get(&tuid).cloned();
+        match maybe_v {
+            Some(v) if v.ptr_eq(&self.weak_self) => {
+                session.tasks_with_interrupts.borrow_mut().remove(&tuid);
+            }
+            _ => (),
+        }
     }
 }
 
