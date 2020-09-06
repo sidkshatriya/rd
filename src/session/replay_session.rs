@@ -701,29 +701,30 @@ impl ReplaySession {
                 _ => (),
             }
         }
-        if maybe_rc_t.is_some() {
-            let rc_t = maybe_rc_t.unwrap();
+        match maybe_rc_t {
+            None => (),
+            Some(rc_t) => {
+                let mut dt = rc_t.borrow_mut();
+                let t = dt.as_replay_task_mut().unwrap();
 
-            let mut dt = rc_t.borrow_mut();
-            let t = dt.as_replay_task_mut().unwrap();
+                let frame = self.current_trace_frame();
+                let ev = frame.event();
+                if self.done_initial_exec()
+                    && ev.is_syscall_event()
+                    && ProgramFlags::get().check_cached_mmaps
+                {
+                    t.vm().verify(t);
+                }
 
-            let frame = self.current_trace_frame();
-            let ev = frame.event();
-            if self.done_initial_exec()
-                && ev.is_syscall_event()
-                && ProgramFlags::get().check_cached_mmaps
-            {
-                t.vm().verify(t);
+                if has_deterministic_ticks(ev, self.current_step.get()) {
+                    self.check_ticks_consistency(t, ev);
+                }
+
+                debug_memory(t);
+
+                self.check_for_watchpoint_changes(t, &mut result.break_status);
+                self.check_approaching_ticks_target(t, &constraints, &mut result.break_status);
             }
-
-            if has_deterministic_ticks(ev, self.current_step.get()) {
-                self.check_ticks_consistency(t, ev);
-            }
-
-            debug_memory(t);
-
-            self.check_for_watchpoint_changes(t, &mut result.break_status);
-            self.check_approaching_ticks_target(t, &constraints, &mut result.break_status);
         }
 
         self.advance_to_next_trace_frame();

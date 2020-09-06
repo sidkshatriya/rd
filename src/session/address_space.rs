@@ -1823,16 +1823,19 @@ pub mod address_space {
             if offset == 0 {
                 let vdso = read_mem::<u8>(t, self.vdso().start(), self.vdso().size(), None);
                 let maybe_offset = find_offset_of_syscall_instruction_in(arch, &vdso);
-                ed_assert!(
-                    t,
-                    maybe_offset.is_some(),
-                    "No syscall instruction found in VDSO"
-                );
-                offset = maybe_offset.unwrap();
-                assert!(offset != 0);
-                match arch {
-                    SupportedArch::X86 => OFFSET_TO_SYSCALL_IN_X86.store(offset, Ordering::SeqCst),
-                    SupportedArch::X64 => OFFSET_TO_SYSCALL_IN_X64.store(offset, Ordering::SeqCst),
+                match maybe_offset {
+                    None => ed_assert!(t, false, "No syscall instruction found in VDSO"),
+                    Some(calc_offset) => {
+                        assert_ne!(calc_offset, 0);
+                        match arch {
+                            SupportedArch::X86 => {
+                                OFFSET_TO_SYSCALL_IN_X86.store(calc_offset, Ordering::SeqCst)
+                            }
+                            SupportedArch::X64 => {
+                                OFFSET_TO_SYSCALL_IN_X64.store(calc_offset, Ordering::SeqCst)
+                            }
+                        };
+                    }
                 };
             }
 
@@ -3303,8 +3306,11 @@ fn thread_group_in_exec(t: &dyn Task) -> bool {
 
 fn check_device(km: &KernelMapping) -> dev_t {
     let maybe_first = km.fsname().as_bytes().get(0);
-    if maybe_first.is_some() && *maybe_first.unwrap() != b'/' {
-        return km.device();
+    match maybe_first {
+        Some(c) if *c != b'/' => {
+            return km.device();
+        }
+        _ => (),
     }
 
     // btrfs files can return the wrong device number in /proc/<pid>/maps
