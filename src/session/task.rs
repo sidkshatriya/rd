@@ -57,6 +57,12 @@ pub type TaskSharedPtr = Rc<RefCell<Box<dyn Task>>>;
 pub type TaskSharedWeakPtr = Weak<RefCell<Box<dyn Task>>>;
 
 pub trait Task: DerefMut<Target = TaskInner> {
+    /// Call this to reset syscallbuf_hdr->num_rec_bytes and zero out the data
+    /// recorded in the syscall buffer. This makes for more deterministic behavior
+    /// especially during replay, where during checkpointing we only save and
+    /// restore the recorded data area.
+    fn reset_syscallbuf(&mut self);
+
     fn detect_syscall_arch(&mut self) -> SupportedArch;
 
     /// DIFF NOTE: Unlike rr, it is NOT compulsory to always call this method

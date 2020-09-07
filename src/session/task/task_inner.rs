@@ -1120,14 +1120,6 @@ impl TaskInner {
         trace.time()
     }
 
-    /// Call this to reset syscallbuf_hdr->num_rec_bytes and zero out the data
-    /// recorded in the syscall buffer. This makes for more deterministic behavior
-    /// especially during replay, where during checkpointing we only save and
-    /// restore the recorded data area.
-    pub fn reset_syscallbuf(&self) {
-        unimplemented!()
-    }
-
     /// Return the virtual memory mapping (address space) of this
     /// task.
     pub fn vm(&self) -> &AddressSpace {

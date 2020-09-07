@@ -45,7 +45,12 @@ use crate::{
     kernel_abi::{
         common::{
             preload_interface,
-            preload_interface::{preload_globals, syscallbuf_hdr, syscallbuf_record},
+            preload_interface::{
+                preload_globals,
+                syscallbuf_hdr,
+                syscallbuf_locked_why,
+                syscallbuf_record,
+            },
         },
         get_syscall_instruction_arch,
         is_at_syscall_instruction,
@@ -2089,4 +2094,82 @@ pub(super) fn detect_syscall_arch<T: Task>(task: &mut T) -> SupportedArch {
     let ok = get_syscall_instruction_arch(task, code_ptr, &mut syscall_arch);
     ed_assert!(task, ok);
     syscall_arch
+}
+
+pub(super) fn reset_syscallbuf<T: Task>(t: &mut T) {
+    let syscallbuf_child_addr = t.syscallbuf_child;
+    if syscallbuf_child_addr.is_null() {
+        return;
+    }
+
+    // @TODO Check this again
+    if t.is_in_untraced_syscall() {
+        let check = syscallbuf_locked_why::SyscallbufLockedTracee
+            != read_val_mem::<syscallbuf_locked_why>(
+                t,
+                RemotePtr::cast(
+                    RemotePtr::<u8>::cast(syscallbuf_child_addr)
+                        + offset_of!(syscallbuf_hdr, locked),
+                ),
+                None,
+            );
+        ed_assert!(t, check);
+    }
+
+    // Memset is easiest to do by using the local mapping which should always
+    // exist for the syscallbuf
+    let num_rec_bytes: u32 = read_val_mem(
+        t,
+        RemotePtr::cast(
+            RemotePtr::<u8>::cast(syscallbuf_child_addr)
+                + offset_of!(syscallbuf_hdr, num_rec_bytes),
+        ),
+        None,
+    );
+    let m = t
+        .vm()
+        .local_mapping_mut(
+            RemotePtr::<u8>::cast(syscallbuf_child_addr + 1usize),
+            num_rec_bytes as usize,
+        )
+        .unwrap();
+    m.fill(0);
+
+    let zero = 0u32;
+    write_val_mem(
+        t,
+        RemotePtr::cast(
+            RemotePtr::<u32>::cast(syscallbuf_child_addr)
+                + offset_of!(syscallbuf_hdr, num_rec_bytes),
+        ),
+        &zero,
+        None,
+    );
+    write_val_mem(
+        t,
+        RemotePtr::cast(
+            RemotePtr::<u32>::cast(syscallbuf_child_addr)
+                + offset_of!(syscallbuf_hdr, mprotect_record_count),
+        ),
+        &zero,
+        None,
+    );
+    write_val_mem(
+        t,
+        RemotePtr::cast(
+            RemotePtr::<u32>::cast(syscallbuf_child_addr)
+                + offset_of!(syscallbuf_hdr, mprotect_record_count_completed),
+        ),
+        &zero,
+        None,
+    );
+    write_val_mem(
+        t,
+        RemotePtr::cast(
+            RemotePtr::<u32>::cast(syscallbuf_child_addr)
+                + offset_of!(syscallbuf_hdr, blocked_sigs_generation),
+        ),
+        &zero,
+        None,
+    );
 }

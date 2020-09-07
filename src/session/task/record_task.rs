@@ -1,3 +1,4 @@
+use super::task_common::reset_syscallbuf;
 use crate::{
     arch::{Architecture, NativeArch},
     bindings::{kernel::user_desc, signal::siginfo_t},
@@ -572,9 +573,14 @@ impl Task for RecordTask {
         unimplemented!()
     }
 
-    // Forwarded method
+    /// Forwarded method
     fn set_thread_area(&mut self, tls: RemotePtr<user_desc>) {
         set_thread_area(self, tls)
+    }
+
+    /// Forwarded method
+    fn reset_syscallbuf(&mut self) {
+        reset_syscallbuf(self);
     }
 }
 

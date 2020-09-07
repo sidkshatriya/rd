@@ -9,6 +9,7 @@ use super::{
         post_exec_syscall,
         post_vm_clone_common,
         read_val_mem,
+        reset_syscallbuf,
         task_drop_common,
     },
     task_inner::{CloneFlags, CloneReason, TrapReasons},
@@ -555,5 +556,10 @@ impl Task for ReplayTask {
     // Forwarded method
     fn set_thread_area(&mut self, tls: RemotePtr<user_desc>) {
         set_thread_area(self, tls)
+    }
+
+    /// Forwarded method
+    fn reset_syscallbuf(&mut self) {
+        reset_syscallbuf(self);
     }
 }
