@@ -596,16 +596,17 @@ pub(super) fn next_syscallbuf_record<T: Task>(task: &mut T) -> RemotePtr<syscall
 pub(super) fn stored_record_size<T: Task>(
     task: &mut T,
     record: RemotePtr<syscallbuf_record>,
-) -> u32 {
-    let size_field_addr = RemotePtr::<u8>::cast(record) + offset_of!(syscallbuf_record, size);
+) -> usize {
+    let size_field_addr: RemotePtr<u8> =
+        RemotePtr::cast(record) + offset_of!(syscallbuf_record, size);
 
     // @TODO: Here we have used our knowledge that `size` is a u32.
     // There does not seem to be a generic way to get that information -- explore more later.
-    preload_interface::stored_record_size(read_val_mem(
+    preload_interface::stored_record_size(read_val_mem::<u32>(
         task,
-        RemotePtr::<u32>::cast(size_field_addr),
+        RemotePtr::cast(size_field_addr),
         None,
-    ))
+    )) as usize
 }
 
 /// NOT Forwarded method definition

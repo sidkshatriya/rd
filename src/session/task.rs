@@ -115,7 +115,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
         maybe_sig: Option<Sig>,
     );
 
-    fn stored_record_size(&mut self, record: RemotePtr<syscallbuf_record>) -> u32;
+    fn stored_record_size(&mut self, record: RemotePtr<syscallbuf_record>) -> usize;
 
     fn did_waitpid(&mut self, status: WaitStatus);
 

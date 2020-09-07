@@ -1738,8 +1738,88 @@ impl ReplaySession {
         }
     }
 
-    fn flush_syscallbuf(&self, _t: &ReplayTask, _constraints: &StepConstraints) -> Completion {
-        unimplemented!();
+    fn flush_syscallbuf(&self, t: &mut ReplayTask, constraints: &StepConstraints) -> Completion {
+        let mut user_breakpoint_at_addr = false;
+
+        loop {
+            let mut next_rec = t.next_syscallbuf_record();
+            let child_addr: RemotePtr<u8> = RemotePtr::cast(t.syscallbuf_child)
+                + offset_of!(syscallbuf_hdr, mprotect_record_count_completed);
+            let skip_mprotect_records = read_val_mem::<u32>(t, RemotePtr::cast(child_addr), None);
+
+            let mut ticks_request = TicksRequest::default();
+            if !compute_ticks_request(t, constraints, &mut ticks_request) {
+                return Completion::Incomplete;
+            }
+
+            let added: bool = t.vm_shr_ptr().add_breakpoint(
+                t,
+                RemoteCodePtr::from(self.current_step.get().flush().stop_breakpoint_addr),
+                BreakpointType::BkptInternal,
+            );
+            ed_assert!(t, added);
+            let complete = self.continue_or_step(
+                t,
+                constraints,
+                ticks_request,
+                Some(ResumeRequest::ResumeCont),
+            );
+            user_breakpoint_at_addr = t.vm().get_breakpoint_type_at_addr(RemoteCodePtr::from(
+                self.current_step.get().flush().stop_breakpoint_addr,
+            )) != BreakpointType::BkptInternal;
+
+            t.vm_shr_ptr().remove_breakpoint(
+                RemoteCodePtr::from(self.current_step.get().flush().stop_breakpoint_addr),
+                BreakpointType::BkptInternal,
+                t,
+            );
+
+            // Account for buffered syscalls just completed
+            let end_rec = t.next_syscallbuf_record();
+            while next_rec != end_rec {
+                self.accumulate_syscall_performed();
+                next_rec = RemotePtr::cast(
+                    RemotePtr::<u8>::cast(next_rec) + t.stored_record_size(next_rec),
+                );
+            }
+
+            // Apply the mprotect records we just completed.
+            apply_mprotect_records(t, skip_mprotect_records);
+
+            if t.maybe_stop_sig() == perf_counters::TIME_SLICE_SIGNAL {
+                // This would normally be triggered by constraints.ticks_target but it's
+                // also possible to get stray signals here.
+                return Completion::Incomplete;
+            }
+
+            if complete == Completion::Complete
+                && !Self::is_ignored_signal(t.maybe_stop_sig().get_raw_repr())
+            {
+                break;
+            }
+        }
+
+        ed_assert!(
+            t,
+            t.maybe_stop_sig() == SIGTRAP,
+            "Replay got unexpected signal (or none) {}",
+            t.maybe_stop_sig()
+        );
+
+        if t.ip().decrement_by_bkpt_insn_length(t.arch())
+            == RemoteCodePtr::from(self.current_step.get().flush().stop_breakpoint_addr)
+            && !user_breakpoint_at_addr
+        {
+            let mut r: Registers = t.regs_ref().clone();
+            r.set_ip(RemoteCodePtr::from(
+                self.current_step.get().flush().stop_breakpoint_addr,
+            ));
+            t.set_regs(&r);
+
+            Completion::Complete
+        } else {
+            Completion::Incomplete
+        }
     }
 
     fn patch_next_syscall(&self, t: &mut ReplayTask, constraints: &StepConstraints) -> Completion {
@@ -1873,6 +1953,10 @@ impl ReplaySession {
         self.syscall_bp_addr.set(RemoteCodePtr::null());
         maybe_bp_vm.take();
     }
+}
+
+fn apply_mprotect_records(_t: &mut ReplayTask, _skip_mprotect_records: u32) {
+    unimplemented!()
 }
 
 /// Task death during replay always goes through here (except for

@@ -590,7 +590,7 @@ pub fn rep_prepare_run_to_syscall(t: &mut ReplayTask, step: &mut ReplayTraceStep
     // exist in this architecture.
     if is_rdcall_notify_syscall_hook_exit_syscall(sys_num, sys_arch) {
         ed_assert!(t, !t.syscallbuf_child.is_null());
-        let child_addr = RemotePtr::<u8>::cast(t.syscallbuf_child)
+        let child_addr: RemotePtr<u8> = RemotePtr::<u8>::cast(t.syscallbuf_child)
             + offset_of!(syscallbuf_hdr, notify_on_syscall_hook_exit);
         write_val_mem(t, child_addr, &1u8, None);
     }
@@ -1184,7 +1184,7 @@ pub fn process_execve(t: &mut ReplayTask, step: &mut ReplayTraceStep) {
     if maybe_memory_task.is_some() {
         write_mem(
             maybe_memory_task.as_ref().unwrap().borrow_mut().as_mut(),
-            RemotePtr::cast::<u8>(remote_mem),
+            remote_mem,
             saved_data.as_slice(),
             None,
         );

@@ -471,7 +471,7 @@ impl Task for RecordTask {
     }
 
     /// Forwarded method
-    fn stored_record_size(&mut self, record: RemotePtr<syscallbuf_record>) -> u32 {
+    fn stored_record_size(&mut self, record: RemotePtr<syscallbuf_record>) -> usize {
         stored_record_size(self, record)
     }
 
