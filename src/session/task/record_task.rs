@@ -1277,11 +1277,11 @@ impl RecordTask {
         unimplemented!()
     }
 
-    fn init_buffers_arch<Arch>(&self) {
+    fn init_buffers_arch<Arch: Architecture>(&self) {
         unimplemented!()
     }
 
-    fn on_syscall_exit_arch<Arch>(&self, _syscallno: i32, _regs: &Registers) {
+    fn on_syscall_exit_arch<Arch: Architecture>(&self, _syscallno: i32, _regs: &Registers) {
         unimplemented!()
     }
 

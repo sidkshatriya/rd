@@ -1381,11 +1381,6 @@ impl TaskInner {
         }
     }
 
-    /// Helper function for init_buffers. */
-    pub(in super::super) fn init_buffers_arch(&self, _map_hint: RemotePtr<Void>) {
-        unimplemented!()
-    }
-
     /// Grab state from this task into a structure that we can use to
     /// initialize a new task via os_clone_into/os_fork_into and copy_state.
     pub(in super::super) fn capture_state(&self) -> CapturedState {

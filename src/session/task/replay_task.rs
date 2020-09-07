@@ -126,8 +126,8 @@ impl ReplayTask {
     /// the return value from the rrcall, which is also returned
     /// from this call.  `map_hint` suggests where to map the
     /// region; see `init_syscallbuf_buffer()`.
-    pub fn init_buffers(&self, _map_hint: RemotePtr<Void>) {
-        unimplemented!()
+    pub fn init_buffers(&mut self, map_hint: RemotePtr<Void>) {
+        rd_arch_function!(self, init_buffers_arch, self.arch(), map_hint)
     }
 
     /// DIFF NOTE: Simply called ReplayTask::post_exec_syscall(...) in rr
@@ -318,8 +318,89 @@ impl ReplayTask {
     }
 
     /// Note: This method is private
-    fn init_buffers_arch<Arch: Architecture>(_map_hint: RemotePtr<Void>) {
-        unimplemented!()
+    fn init_buffers_arch<Arch: Architecture>(&mut self, map_hint: RemotePtr<Void>) {
+        self.apply_all_data_records_from_trace();
+
+        let child_args: RemotePtr<Arch::rdcall_init_buffers_params> =
+            RemotePtr::from(self.regs_ref().arg1());
+        let args = read_val_mem(self, child_args, None);
+        let (syscallbuf_ptr, syscallbuf_size, desched_counter_fd, cloned_file_data_fd) =
+            Arch::get_rdcall_init_buffers_params_args(&args);
+        let tuid = self.tuid();
+
+        let mut remote = AutoRemoteSyscalls::new(self);
+        if !syscallbuf_ptr.is_null() {
+            remote.task_mut().syscallbuf_size = syscallbuf_size;
+            remote.init_syscall_buffer(map_hint);
+            remote.task_mut().desched_fd_child = desched_counter_fd;
+            // Prevent the child from closing this fd
+            remote
+                .task_mut()
+                .fd_table_shr_ptr()
+                .borrow_mut()
+                .add_monitor(
+                    remote.task_mut(),
+                    desched_counter_fd,
+                    Box::new(PreserveFileMonitor::new()),
+                );
+
+            // Skip mmap record. It exists mainly to inform non-replay code
+            // (e.g. RemixModule) that this memory will be mapped.
+            remote
+                .task_mut()
+                .as_replay_task_mut()
+                .unwrap()
+                .trace_reader_mut()
+                .read_mapped_region(None, None, None, None, None);
+
+            if cloned_file_data_fd >= 0 {
+                remote.task_mut().cloned_file_data_fd_child = cloned_file_data_fd;
+                let arch = remote.arch();
+                let clone_file_name = remote
+                    .task()
+                    .as_replay_task()
+                    .unwrap()
+                    .trace_reader()
+                    .file_data_clone_file_name(tuid);
+                let fd: i32 = {
+                    let mut name_restore =
+                        AutoRestoreMem::push_cstr(&mut remote, clone_file_name.as_os_str());
+                    let name = name_restore.get().unwrap();
+                    rd_infallible_syscall!(
+                        name_restore,
+                        syscall_number_for_openat(arch),
+                        RD_RESERVED_ROOT_DIR_FD,
+                        name.as_usize(),
+                        O_RDONLY | O_CLOEXEC
+                    ) as i32
+                };
+                if fd != cloned_file_data_fd {
+                    let ret = rd_infallible_syscall!(
+                        remote,
+                        syscall_number_for_dup3(arch),
+                        fd,
+                        cloned_file_data_fd,
+                        O_CLOEXEC
+                    ) as i32;
+                    ed_assert!(remote.task(), ret == cloned_file_data_fd);
+                    rd_infallible_syscall!(remote, syscall_number_for_close(arch), fd);
+                }
+                remote
+                    .task_mut()
+                    .fd_table_shr_ptr()
+                    .borrow_mut()
+                    .add_monitor(
+                        remote.task_mut(),
+                        cloned_file_data_fd,
+                        Box::new(PreserveFileMonitor::new()),
+                    );
+            }
+        }
+
+        let syscallbuf_child_addr = remote.task().syscallbuf_child.as_usize();
+        remote
+            .initial_regs_mut()
+            .set_syscall_result(syscallbuf_child_addr);
     }
 }
 
@@ -478,89 +559,4 @@ impl Task for ReplayTask {
     fn set_thread_area(&mut self, tls: RemotePtr<user_desc>) {
         set_thread_area(self, tls)
     }
-}
-
-fn init_buffers_arch<Arch: Architecture>(t: &mut ReplayTask, map_hint: RemotePtr<Void>) {
-    t.apply_all_data_records_from_trace();
-
-    let child_args: RemotePtr<Arch::rdcall_init_buffers_params> =
-        RemotePtr::from(t.regs_ref().arg1());
-    let args = read_val_mem(t, child_args, None);
-    let (syscallbuf_ptr, syscallbuf_size, desched_counter_fd, cloned_file_data_fd) =
-        Arch::get_rdcall_init_buffers_params_args(&args);
-    let tuid = t.tuid();
-
-    let mut remote = AutoRemoteSyscalls::new(t);
-    if !syscallbuf_ptr.is_null() {
-        remote.task_mut().syscallbuf_size = syscallbuf_size;
-        remote.init_syscall_buffer(map_hint);
-        remote.task_mut().desched_fd_child = desched_counter_fd;
-        // Prevent the child from closing this fd
-        remote
-            .task_mut()
-            .fd_table_shr_ptr()
-            .borrow_mut()
-            .add_monitor(
-                remote.task_mut(),
-                desched_counter_fd,
-                Box::new(PreserveFileMonitor::new()),
-            );
-
-        // Skip mmap record. It exists mainly to inform non-replay code
-        // (e.g. RemixModule) that this memory will be mapped.
-        remote
-            .task_mut()
-            .as_replay_task_mut()
-            .unwrap()
-            .trace_reader_mut()
-            .read_mapped_region(None, None, None, None, None);
-
-        if cloned_file_data_fd >= 0 {
-            remote.task_mut().cloned_file_data_fd_child = cloned_file_data_fd;
-            let arch = remote.arch();
-            let clone_file_name = remote
-                .task()
-                .as_replay_task()
-                .unwrap()
-                .trace_reader()
-                .file_data_clone_file_name(tuid);
-            let fd: i32 = {
-                let mut name_restore =
-                    AutoRestoreMem::push_cstr(&mut remote, clone_file_name.as_os_str());
-                let name = name_restore.get().unwrap();
-                rd_infallible_syscall!(
-                    name_restore,
-                    syscall_number_for_openat(arch),
-                    RD_RESERVED_ROOT_DIR_FD,
-                    name.as_usize(),
-                    O_RDONLY | O_CLOEXEC
-                ) as i32
-            };
-            if fd != cloned_file_data_fd {
-                let ret = rd_infallible_syscall!(
-                    remote,
-                    syscall_number_for_dup3(arch),
-                    fd,
-                    cloned_file_data_fd,
-                    O_CLOEXEC
-                ) as i32;
-                ed_assert!(remote.task(), ret == cloned_file_data_fd);
-                rd_infallible_syscall!(remote, syscall_number_for_close(arch), fd);
-            }
-            remote
-                .task_mut()
-                .fd_table_shr_ptr()
-                .borrow_mut()
-                .add_monitor(
-                    remote.task_mut(),
-                    cloned_file_data_fd,
-                    Box::new(PreserveFileMonitor::new()),
-                );
-        }
-    }
-
-    let syscallbuf_child_addr = remote.task().syscallbuf_child.as_usize();
-    remote
-        .initial_regs_mut()
-        .set_syscall_result(syscallbuf_child_addr);
 }

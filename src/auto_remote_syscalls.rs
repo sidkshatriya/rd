@@ -3,6 +3,7 @@ use crate::{
     auto_remote_syscalls::MemParamsEnabled::{DisableMemoryParams, EnableMemoryParams},
     bindings::{kernel::SYS_SENDMSG, ptrace::PTRACE_EVENT_EXIT},
     kernel_abi::{
+        common::preload_interface::syscallbuf_hdr,
         has_mmap2_syscall,
         has_socketcall_syscall,
         is_clone_syscall,
@@ -38,6 +39,7 @@ use crate::{
             kernel_mapping::KernelMapping,
             memory_range::{MemoryRange, MemoryRangeKey},
             Enabled,
+            MappingFlags,
             Privileged,
             Traced,
         },
@@ -85,9 +87,9 @@ use nix::{
 use std::{
     cmp::{max, min},
     convert::TryInto,
-    ffi::OsStr,
+    ffi::{OsStr, OsString},
     io::Write,
-    mem::{size_of, size_of_val, zeroed},
+    mem::{self, size_of, size_of_val, zeroed},
     ops::{Deref, DerefMut},
     os::unix::ffi::OsStrExt,
     ptr::{copy_nonoverlapping, NonNull},
@@ -877,9 +879,42 @@ impl<'a> AutoRemoteSyscalls<'a> {
     /// to be mapped --- and this is asserted --- or nullptr if
     /// there are no expectations.
     /// Initializes syscallbuf_child.
+    ///
     /// DIFF NOTE: This method in rr is in the task.
-    pub fn init_syscall_buffer(&self, _map_hint: RemotePtr<Void>) -> KernelMapping {
-        unimplemented!()
+    pub fn init_syscall_buffer(&mut self, map_hint: RemotePtr<Void>) -> KernelMapping {
+        let name = format!("syscallbuf.{}", self.task().rec_tid);
+        let syscallbuf_size = self.task().syscallbuf_size;
+        let km: KernelMapping = self.create_shared_mmap(
+            syscallbuf_size,
+            Some(map_hint),
+            &OsString::from(name),
+            None,
+            None,
+            None,
+        );
+        *self.task().vm().mapping_flags_of_mut(km.start()) |= MappingFlags::IS_SYSCALLBUF;
+        unsafe {
+            // No entries to begin with.
+            *self
+                .task()
+                .vm()
+                .mapping_of(km.start())
+                .unwrap()
+                .local_addr
+                .unwrap()
+                .cast::<syscallbuf_hdr>()
+                .as_mut() = mem::zeroed()
+        };
+        let syscallbuf_child = self.task().syscallbuf_child;
+        ed_assert!(
+            self.task(),
+            syscallbuf_child.is_null(),
+            "Should not already have syscallbuf initialized!"
+        );
+
+        self.task_mut().syscallbuf_child = RemotePtr::cast(km.start());
+
+        km
     }
 
     /// Private methods start
