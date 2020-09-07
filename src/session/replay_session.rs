@@ -5,7 +5,7 @@ use super::{
     session_inner::{is_singlestep, PtraceSyscallSeccompOrdering},
     task::{
         replay_task::ReplayTaskIgnore,
-        task_common::{read_val_mem, read_val_with_default_mem},
+        task_common::{read_mem, read_val_mem, read_val_with_default_mem},
         task_inner::{TrapReasons, WriteFlags, MAX_TICKS_REQUEST},
     },
 };
@@ -22,7 +22,13 @@ use crate::{
     fast_forward::{fast_forward_through_instruction, FastForwardStatus},
     flags::Flags as ProgramFlags,
     kernel_abi::{
-        common::preload_interface::{syscallbuf_hdr, syscallbuf_locked_why},
+        common::preload_interface::{
+            mprotect_record,
+            preload_globals,
+            syscallbuf_hdr,
+            syscallbuf_locked_why,
+            SYS_rdcall_mprotect_record,
+        },
         is_execve_syscall,
         syscall_number_for_exit,
         SupportedArch,
@@ -75,6 +81,7 @@ use crate::{
         cpuid_compatible,
         default_action,
         find_cpuid_record,
+        running_under_rd,
         should_dump_memory,
         trapped_instruction_at,
         trapped_instruction_len,
@@ -92,7 +99,7 @@ use crate::{
     wait_status::WaitStatus,
 };
 use libc::{pid_t, ENOSYS, SIGBUS, SIGSEGV, SIGTRAP};
-use nix::sys::mman::MapFlags;
+use nix::sys::mman::{MapFlags, ProtFlags};
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
     cmp::min,
@@ -1739,7 +1746,7 @@ impl ReplaySession {
     }
 
     fn flush_syscallbuf(&self, t: &mut ReplayTask, constraints: &StepConstraints) -> Completion {
-        let mut user_breakpoint_at_addr = false;
+        let mut user_breakpoint_at_addr: bool;
 
         loop {
             let mut next_rec = t.next_syscallbuf_record();
@@ -1955,8 +1962,61 @@ impl ReplaySession {
     }
 }
 
-fn apply_mprotect_records(_t: &mut ReplayTask, _skip_mprotect_records: u32) {
-    unimplemented!()
+fn apply_mprotect_records(t: &mut ReplayTask, skip_mprotect_records: u32) -> u32 {
+    let final_mprotect_record_count_addr = RemotePtr::<u32>::cast(
+        RemotePtr::<u8>::cast(t.syscallbuf_child)
+            + offset_of!(syscallbuf_hdr, mprotect_record_count),
+    );
+
+    let final_mprotect_record_count =
+        read_val_mem::<u32>(t, final_mprotect_record_count_addr, None);
+
+    if skip_mprotect_records < final_mprotect_record_count {
+        let records_addr = RemotePtr::<mprotect_record>::cast(
+            RemotePtr::<u8>::cast(t.preload_globals.unwrap())
+                + offset_of!(preload_globals, mprotect_records),
+        ) + skip_mprotect_records;
+
+        let records: Vec<mprotect_record> = read_mem(
+            t,
+            records_addr,
+            final_mprotect_record_count as usize - skip_mprotect_records as usize,
+            None,
+        );
+
+        for (i, r) in records.iter().enumerate() {
+            let completed_count_addr = RemotePtr::<u32>::cast(
+                RemotePtr::<u8>::cast(t.syscallbuf_child)
+                    + offset_of!(syscallbuf_hdr, mprotect_record_count_completed),
+            );
+            let completed_count: u32 = read_val_mem(t, completed_count_addr, None);
+            if i >= completed_count as usize {
+                let km = AddressSpace::read_kernel_mapping(t, RemotePtr::from(r.start));
+                if km.prot() != ProtFlags::from_bits(r.prot).unwrap() {
+                    // mprotect didn't happen yet.
+                    continue;
+                }
+            }
+            t.vm_shr_ptr().protect(
+                t,
+                RemotePtr::from(r.start),
+                r.size as usize,
+                ProtFlags::from_bits(r.prot).unwrap(),
+            );
+            if running_under_rd() {
+                unsafe {
+                    libc::syscall(
+                        SYS_rdcall_mprotect_record as _,
+                        t.tid,
+                        r.start as usize,
+                        r.size as usize,
+                        r.prot,
+                    );
+                }
+            }
+        }
+    }
+    final_mprotect_record_count
 }
 
 /// Task death during replay always goes through here (except for
