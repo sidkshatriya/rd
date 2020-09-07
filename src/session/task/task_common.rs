@@ -529,7 +529,20 @@ pub fn read_val_mem<D>(task: &mut dyn Task, child_addr: RemotePtr<D>, ok: Option
     let mut v: D = unsafe { zeroed() };
     let u8_slice = unsafe { slice::from_raw_parts_mut(&raw mut v as *mut u8, size_of::<D>()) };
     task.read_bytes_helper(RemotePtr::cast(child_addr), u8_slice, ok);
-    return v;
+    v
+}
+
+/// Just like read_val_mem() for those occations where unsafe { zeroed() } for init
+/// is not a good idea.
+pub fn read_val_with_default_mem<D: Default>(
+    task: &mut dyn Task,
+    child_addr: RemotePtr<D>,
+    ok: Option<&mut bool>,
+) -> D {
+    let mut v: D = Default::default();
+    let u8_slice = unsafe { slice::from_raw_parts_mut(&raw mut v as *mut u8, size_of::<D>()) };
+    task.read_bytes_helper(RemotePtr::cast(child_addr), u8_slice, ok);
+    v
 }
 
 /// NOT Forwarded method definition

@@ -5,6 +5,7 @@ use super::{
     session_inner::{is_singlestep, PtraceSyscallSeccompOrdering},
     task::{
         replay_task::ReplayTaskIgnore,
+        task_common::{read_val_mem, read_val_with_default_mem},
         task_inner::{TrapReasons, WriteFlags, MAX_TICKS_REQUEST},
     },
 };
@@ -21,7 +22,7 @@ use crate::{
     fast_forward::{fast_forward_through_instruction, FastForwardStatus},
     flags::Flags as ProgramFlags,
     kernel_abi::{
-        common::preload_interface::syscallbuf_hdr,
+        common::preload_interface::{syscallbuf_hdr, syscallbuf_locked_why},
         is_execve_syscall,
         syscall_number_for_exit,
         SupportedArch,
@@ -112,7 +113,7 @@ pub type ReplaySessionSharedPtr = Rc<RefCell<ReplaySession>>;
 /// ReplayFlushBufferedSyscallState is saved in Session and cloned with its
 /// Session, so it needs to be simple data, i.e. not holding pointers to
 /// per-Session data.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Default)]
 pub struct ReplayFlushBufferedSyscallState {
     /// An internal breakpoint is set at this address
     pub stop_breakpoint_addr: usize,
@@ -782,7 +783,20 @@ impl ReplaySession {
         );
 
         if !t.syscallbuf_child.is_null() {
-            unimplemented!()
+            let syscallbuf_hdr: RemotePtr<u8> = RemotePtr::cast(t.syscallbuf_child);
+            let syscallbuf_num_rec_bytes: RemotePtr<u32> =
+                RemotePtr::cast(syscallbuf_hdr + offset_of!(syscallbuf_hdr, num_rec_bytes));
+            let syscallbuf_abort_commit: RemotePtr<u8> =
+                RemotePtr::cast(syscallbuf_hdr + offset_of!(syscallbuf_hdr, abort_commit));
+            let syscallbuf_locked: RemotePtr<syscallbuf_locked_why> =
+                RemotePtr::cast(syscallbuf_hdr + offset_of!(syscallbuf_hdr, locked));
+            log!(
+                LogDebug,
+                "    (syscllbufsz:{}, abrtcmt:{}, locked:{:?})",
+                read_val_mem(t, syscallbuf_num_rec_bytes, None),
+                read_val_mem(t, syscallbuf_abort_commit, None) != 0,
+                read_val_with_default_mem(t, syscallbuf_locked, None),
+            );
         }
 
         // Ask the trace-interpretation code what to do next in order
@@ -800,9 +814,7 @@ impl ReplaySession {
                 current_step.action = ReplayTraceStepType::TstepRetire;
             }
             EventType::EvSyscallbufFlush => {
-                current_step.action = ReplayTraceStepType::TstepFlushSyscallbuf;
-
-                self.prepare_syscallbuf_records(t);
+                self.prepare_syscallbuf_records(t, &mut current_step);
             }
             EventType::EvSyscallbufReset => {
                 // Reset syscallbuf_hdr->num_rec_bytes and zero out the recorded data.
@@ -901,7 +913,8 @@ impl ReplaySession {
         t_shr_ptr
     }
 
-    fn prepare_syscallbuf_records(&self, t: &mut ReplayTask) {
+    /// DIFF NOTE: Extra param compared to rr
+    fn prepare_syscallbuf_records(&self, t: &mut ReplayTask, current_step: &mut ReplayTraceStep) {
         // Read the recorded syscall buffer back into the buffer region.
         let buf = t.trace_reader_mut().read_raw_data();
         ed_assert!(t, buf.data.len() >= size_of::<syscallbuf_hdr>());
@@ -931,17 +944,12 @@ impl ReplaySession {
             num_rec_bytes as usize + size_of::<syscallbuf_hdr>() <= t.syscallbuf_size
         );
 
-        let mut step = self.current_step.get();
-        match &mut step.data {
-            ReplayTraceStepData::Flush(flush) => {
-                flush.stop_breakpoint_addr =
-                    t.stopping_breakpoint_table.to_data_ptr::<Void>().as_usize()
-                        + (num_rec_bytes as usize / 8) * t.stopping_breakpoint_table_entry_size;
-            }
-            _ => panic!("Unexpected ReplayTraceStepData variant"),
-        }
-
-        self.current_step.set(step);
+        current_step.action = ReplayTraceStepType::TstepFlushSyscallbuf;
+        let stop_breakpoint_addr = t.stopping_breakpoint_table.to_data_ptr::<Void>().as_usize()
+            + (num_rec_bytes as usize / 8) * t.stopping_breakpoint_table_entry_size;
+        current_step.data = ReplayTraceStepData::Flush(ReplayFlushBufferedSyscallState {
+            stop_breakpoint_addr,
+        });
 
         log!(
             LogDebug,
@@ -1729,9 +1737,11 @@ impl ReplaySession {
             guard_overshoot(t, &regs, ticks, ticks_left, mismatched_regs.as_ref());
         }
     }
+
     fn flush_syscallbuf(&self, _t: &ReplayTask, _constraints: &StepConstraints) -> Completion {
         unimplemented!();
     }
+
     fn patch_next_syscall(&self, t: &mut ReplayTask, constraints: &StepConstraints) -> Completion {
         if self.cont_syscall_boundary(t, constraints) == Completion::Incomplete {
             return Completion::Incomplete;

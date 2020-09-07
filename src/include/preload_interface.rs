@@ -269,6 +269,8 @@ pub struct syscallbuf_hdr {
 #[repr(u8)]
 #[derive(Debug, Copy, Clone)]
 pub enum syscallbuf_locked_why {
+    /// DIFF NOTE: Not present in rr but implicit?
+    SyscallbufUnlocked = 0x0,
     /// Used by the tracee, during interruptible syscalls to avoid recursion
     SyscallbufLockedTracee = 0x1,
     /// Used by the tracer to prevent syscall buffering when necessary to preserve
@@ -278,7 +280,7 @@ pub enum syscallbuf_locked_why {
 
 impl Default for syscallbuf_locked_why {
     fn default() -> Self {
-        Self::SyscallbufLockedTracer
+        Self::SyscallbufUnlocked
     }
 }
 
