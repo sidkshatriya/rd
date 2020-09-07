@@ -567,22 +567,26 @@ pub trait Architecture {
         + PartialEq
         + Add<Self::unsigned_word, Output = Self::unsigned_word>
         + From<u8>
-        + TryInto<usize, Error = TryFromIntError>;
+        + TryInto<usize, Error = TryFromIntError>
+        + 'static;
 
     #[allow(non_camel_case_types)]
     type rdcall_init_preload_params: Copy + 'static;
 
     #[allow(non_camel_case_types)]
-    type user_regs_struct: Copy;
+    type user_regs_struct: Copy + 'static;
 
     #[allow(non_camel_case_types)]
-    type user_fpregs_struct: Copy;
+    type user_fpregs_struct: Copy + 'static;
 
     #[allow(non_camel_case_types)]
-    type user: Copy;
+    type user: Copy + 'static;
 
     #[allow(non_camel_case_types)]
     type mmap_args: Copy + 'static;
+
+    #[allow(non_camel_case_types)]
+    type rdcall_init_buffers_params: Copy + 'static;
 
     fn get_mmap_args(k: &Self::mmap_args) -> (usize, i32, i32, i32, usize);
 
@@ -617,7 +621,12 @@ pub trait Architecture {
     fn rdcall_init_preload_params_globals(
         params: &Self::rdcall_init_preload_params,
     ) -> (RemotePtr<preload_globals>, RemoteCodePtr, usize);
+
+    fn get_rdcall_init_buffers_params_args(
+        k: &Self::rdcall_init_buffers_params,
+    ) -> (RemotePtr<u8>, usize, i32, i32);
 }
+
 impl Architecture for X86Arch {
     const MMAP_SEMANTICS: MmapCallingSemantics = x86::MMAP_SEMANTICS;
     const CLONE_TLS_TYPE: CloneTLSType = x86::CLONE_TLS_TYPE;
@@ -1082,6 +1091,7 @@ impl Architecture for X86Arch {
     type user_fpregs_struct = x86::user_fpregs_struct;
     type user = x86::user;
     type mmap_args = x86::mmap_args;
+    type rdcall_init_buffers_params = x86::preload_interface::rdcall_init_buffers_params;
 
     fn get_mmap_args(k: &Self::mmap_args) -> (usize, i32, i32, i32, usize) {
         // @TODO OK to cast offset to usize?
@@ -1164,6 +1174,17 @@ impl Architecture for X86Arch {
             params.globals.rptr(),
             params.breakpoint_table.rptr().to_code_ptr(),
             params.breakpoint_table_entry_size.try_into().unwrap(),
+        )
+    }
+
+    fn get_rdcall_init_buffers_params_args(
+        k: &Self::rdcall_init_buffers_params,
+    ) -> (RemotePtr<u8>, usize, i32, i32) {
+        (
+            k.syscallbuf_ptr.rptr(),
+            k.syscallbuf_size as usize,
+            k.desched_counter_fd,
+            k.cloned_file_data_fd,
         )
     }
 }
@@ -1632,6 +1653,7 @@ impl Architecture for X64Arch {
     type user_fpregs_struct = x64::user_fpregs_struct;
     type user = x64::user;
     type mmap_args = x64::mmap_args;
+    type rdcall_init_buffers_params = x64::preload_interface::rdcall_init_buffers_params;
 
     fn get_mmap_args(k: &Self::mmap_args) -> (usize, i32, i32, i32, usize) {
         // @TODO OK to cast offset to usize?
@@ -1706,6 +1728,7 @@ impl Architecture for X64Arch {
     fn rdcall_init_preload_params_syscallbuf_enabled(d: &Self::rdcall_init_preload_params) -> bool {
         d.syscallbuf_enabled != 0
     }
+
     fn rdcall_init_preload_params_globals(
         params: &Self::rdcall_init_preload_params,
     ) -> (RemotePtr<preload_globals>, RemoteCodePtr, usize) {
@@ -1713,6 +1736,17 @@ impl Architecture for X64Arch {
             params.globals.rptr(),
             params.breakpoint_table.rptr().to_code_ptr(),
             params.breakpoint_table_entry_size.try_into().unwrap(),
+        )
+    }
+
+    fn get_rdcall_init_buffers_params_args(
+        k: &Self::rdcall_init_buffers_params,
+    ) -> (RemotePtr<u8>, usize, i32, i32) {
+        (
+            k.syscallbuf_ptr.rptr(),
+            k.syscallbuf_size as usize,
+            k.desched_counter_fd,
+            k.cloned_file_data_fd,
         )
     }
 }

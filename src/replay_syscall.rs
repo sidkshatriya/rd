@@ -910,7 +910,7 @@ fn rep_process_syscall_arch<Arch: Architecture>(
     }
 
     if nsys == Arch::RDCALL_INIT_BUFFERS {
-        unimplemented!();
+        return process_init_buffers(t, step);
     }
 
     if nsys == Arch::RDCALL_INIT_PRELOAD {
@@ -921,6 +921,28 @@ fn rep_process_syscall_arch<Arch: Architecture>(
     if nsys == Arch::RDCALL_RELOAD_AUXV {
         unimplemented!();
     }
+}
+
+fn process_init_buffers(t: &mut ReplayTask, step: &mut ReplayTraceStep) {
+    step.action = ReplayTraceStepType::TstepRetire;
+
+    // Proceed to syscall exit so we can run our own syscalls. */
+    let rec_child_map_addr: RemotePtr<Void> =
+        RemotePtr::from(t.current_trace_frame().regs_ref().syscall_result());
+
+    // We don't want the desched event fd during replay, because
+    // we already know where they were.  (The perf_event fd is
+    // emulated anyway.)
+    t.init_buffers(rec_child_map_addr);
+
+    ed_assert!(
+        t,
+        RemotePtr::cast(t.syscallbuf_child) == rec_child_map_addr,
+        "Should have mapped syscallbuf at {}, but it's at {}",
+        rec_child_map_addr,
+        t.syscallbuf_child
+    );
+    t.validate_regs(ReplayTaskIgnore::default());
 }
 
 fn process_brk(t: &mut ReplayTask) {

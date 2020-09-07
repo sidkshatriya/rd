@@ -123,7 +123,7 @@ impl TraceStream {
         self.global_time
     }
 
-    pub fn file_data_clone_file_name(&self, tuid: &TaskUid) -> OsString {
+    pub fn file_data_clone_file_name(&self, tuid: TaskUid) -> OsString {
         let mut ss: Vec<u8> = Vec::from(self.trace_dir.as_bytes());
         write!(ss, "/cloned_data_{}_{}", tuid.tid(), tuid.serial()).unwrap();
         OsString::from_vec(ss)

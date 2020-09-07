@@ -872,6 +872,16 @@ impl<'a> AutoRemoteSyscalls<'a> {
         self.new_tid_
     }
 
+    /// Map the syscallbuffer for this, shared with this process.
+    /// `map_hint` is the address where the syscallbuf is expected
+    /// to be mapped --- and this is asserted --- or nullptr if
+    /// there are no expectations.
+    /// Initializes syscallbuf_child.
+    /// DIFF NOTE: This method in rr is in the task.
+    pub fn init_syscall_buffer(&self, _map_hint: RemotePtr<Void>) -> KernelMapping {
+        unimplemented!()
+    }
+
     /// Private methods start
     fn setup_path(&mut self, enable_singlestep_path: bool) {
         if !self.replaced_bytes.is_empty() {

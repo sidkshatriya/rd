@@ -667,8 +667,8 @@ impl RecordTask {
 
     /// Initialize tracee buffers in this, i.e., implement
     /// RDCALL_init_syscall_buffer.  This task must be at the point
-    /// of *exit from* the rrcall.  Registers will be updated with
-    /// the return value from the rrcall, which is also returned
+    /// of *exit from* the rdcall.  Registers will be updated with
+    /// the return value from the rdcall, which is also returned
     /// from this call.
     pub fn init_buffers(&self) {
         unimplemented!()

@@ -65,7 +65,6 @@ use crate::{
     session::{
         address_space::{
             address_space::{AddressSpace, AddressSpaceSharedPtr},
-            kernel_mapping::KernelMapping,
             MappingFlags,
             Traced,
             WatchConfig,
@@ -1529,19 +1528,6 @@ impl TaskInner {
     /// Try writing 'buf' to 'addr' by replacing pages in the tracee
     /// address-space using a temporary file. This may work around PaX issues.
     pub(in super::super) fn try_replace_pages(&self, _addr: RemotePtr<Void>, _buf: &[u8]) -> bool {
-        unimplemented!()
-    }
-
-    /// Map the syscallbuffer for this, shared with this process.
-    /// `map_hint` is the address where the syscallbuf is expected
-    /// to be mapped --- and this is asserted --- or nullptr if
-    /// there are no expectations.
-    /// Initializes syscallbuf_child.
-    pub(in super::super) fn init_syscall_buffer(
-        &self,
-        _remote: &AutoRemoteSyscalls,
-        _map_hint: RemotePtr<Void>,
-    ) -> KernelMapping {
         unimplemented!()
     }
 
