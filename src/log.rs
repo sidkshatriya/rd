@@ -193,25 +193,27 @@ impl NewLineTerminatingOstream {
         line: u32,
         func_name: &str,
         always_enabled: bool,
-    ) -> NewLineTerminatingOstream {
+    ) -> Option<NewLineTerminatingOstream> {
         let mut lock = LOG_GLOBALS.lock().unwrap();
         let m = get_log_module(filename, &mut lock);
         let enabled = always_enabled || level <= m.level;
-        let mut this = NewLineTerminatingOstream {
-            message: Vec::new(),
-            enabled,
-            level,
-            lock,
-        };
         if enabled {
+            let mut stream = NewLineTerminatingOstream {
+                message: Vec::new(),
+                enabled,
+                level,
+                lock,
+            };
             if level == LogDebug {
-                write!(this, "[{}] ", m.name).unwrap();
+                write!(stream, "[{}] ", m.name).unwrap();
             } else {
-                write_prefix(&mut this, level, filename, line, func_name);
+                write_prefix(&mut stream, level, filename, line, func_name);
             }
-        }
 
-        this
+            Some(stream)
+        } else {
+            None
+        }
     }
 }
 
@@ -285,7 +287,7 @@ pub fn log(
     line: u32,
     module_path: &str,
     always_enabled: bool,
-) -> NewLineTerminatingOstream {
+) -> Option<NewLineTerminatingOstream> {
     NewLineTerminatingOstream::new(log_level, filename, line, module_path, always_enabled)
 }
 
@@ -295,14 +297,17 @@ macro_rules! log {
     ($log_level:expr, $($args:tt)+) => {
         {
             use std::io::Write;
-            let mut stream = crate::log::log(
+            let maybe_stream = crate::log::log(
                 $log_level,
                 file!(),
                 line!(),
                 module_path!(),
                 false
             );
-            write!(stream, $($args)+).unwrap()
+            match maybe_stream {
+                Some(mut stream) => write!(stream, $($args)+).unwrap(),
+                None => ()
+            }
         }
     };
 }
@@ -321,14 +326,17 @@ macro_rules! fatal {
             {
                 use std::io::Write;
                 use crate::log::LogFatal;
-                let mut stream = crate::log::log(
+                let maybe_stream = crate::log::log(
                     LogFatal,
                     file!(),
                     line!(),
                     module_path!(),
                     true
                 );
-                write!(stream, $($args)+).unwrap();
+                match maybe_stream {
+                   Some(mut stream) => write!(stream, $($args)+).unwrap(),
+                   None => ()
+                }
             }
             crate::log::notifying_abort(backtrace::Backtrace::new());
             unreachable!();
@@ -372,16 +380,21 @@ macro_rules! ed_assert {
                 {
                     use std::io::Write;
                     use crate::log::LogFatal;
-                    let mut stream = crate::log::log(
+                    let maybe_stream = crate::log::log(
                         LogFatal,
                         file!(),
                         line!(),
                         module_path!(),
                         true
                     );
-                    write!(stream, "\n (task {} (rec: {}) at time {})\n", t.tid, t.rec_tid, t.trace_time()).unwrap();
-                    write!(stream, " -> Assertion `{}' failed to hold. ", stringify!($cond)).unwrap();
-                }
+                    match maybe_stream {
+                       Some(mut stream) => {
+                           write!(stream, "\n (task {} (rec: {}) at time {})\n", t.tid, t.rec_tid, t.trace_time()).unwrap();
+                           write!(stream, " -> Assertion `{}' failed to hold. ", stringify!($cond)).unwrap();
+                       },
+                       None => ()
+                    }
+               }
                 // @TODO this should be replaced with starting an emergency debug session
                 crate::log::notifying_abort(backtrace::Backtrace::new());
             }
@@ -396,17 +409,22 @@ macro_rules! ed_assert {
                 {
                     use std::io::Write;
                     use crate::log::LogFatal;
-                    let mut stream = crate::log::log(
+                    let maybe_stream = crate::log::log(
                         LogFatal,
                         file!(),
                         line!(),
                         module_path!(),
                         true
                     );
-                    write!(stream, "\n (task {} (rec: {}) at time {})\n", t.tid, t.rec_tid, t.trace_time()).unwrap();
-                    write!(stream, " -> Assertion `{}' failed to hold. ", stringify!($cond)).unwrap();
-                    write!(stream, $($args)+).unwrap();
-                }
+                    match maybe_stream {
+                       Some(mut stream) => {
+                           write!(stream, "\n (task {} (rec: {}) at time {})\n", t.tid, t.rec_tid, t.trace_time()).unwrap();
+                           write!(stream, " -> Assertion `{}' failed to hold. ", stringify!($cond)).unwrap();
+                           write!(stream, $($args)+).unwrap();
+                       },
+                       None => ()
+                    }
+               }
                 // @TODO this should be replaced with starting an emergency debug session
                 crate::log::notifying_abort(backtrace::Backtrace::new());
             }
