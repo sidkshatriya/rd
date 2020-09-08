@@ -1045,7 +1045,7 @@ fn rep_after_enter_syscall_arch<Arch: Architecture>(t: &mut ReplayTask) {
                 | PTRACE_DETACH => {
                     let command = t.regs_ref().arg1() as u32;
                     target
-                        .borrow()
+                        .borrow_mut()
                         .set_syscallbuf_locked(command != PTRACE_CONT && command != PTRACE_DETACH);
                 }
                 PTRACE_SET_THREAD_AREA => {

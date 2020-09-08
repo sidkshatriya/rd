@@ -57,6 +57,10 @@ pub type TaskSharedPtr = Rc<RefCell<Box<dyn Task>>>;
 pub type TaskSharedWeakPtr = Weak<RefCell<Box<dyn Task>>>;
 
 pub trait Task: DerefMut<Target = TaskInner> {
+    /// Lock or unlock the syscallbuf to prevent the preload library from using it.
+    /// Only has an effect if the syscallbuf has been initialized.
+    fn set_syscallbuf_locked(&mut self, locked: bool);
+
     /// Call this to reset syscallbuf_hdr->num_rec_bytes and zero out the data
     /// recorded in the syscall buffer. This makes for more deterministic behavior
     /// especially during replay, where during checkpointing we only save and

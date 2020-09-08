@@ -1,4 +1,4 @@
-use super::task_common::reset_syscallbuf;
+use super::task_common::{reset_syscallbuf, set_syscallbuf_locked};
 use crate::{
     arch::{Architecture, NativeArch},
     bindings::{kernel::user_desc, signal::siginfo_t},
@@ -581,6 +581,11 @@ impl Task for RecordTask {
     /// Forwarded method
     fn reset_syscallbuf(&mut self) {
         reset_syscallbuf(self);
+    }
+
+    /// Forwarded method
+    fn set_syscallbuf_locked(&mut self, locked: bool) {
+        set_syscallbuf_locked(self, locked);
     }
 }
 

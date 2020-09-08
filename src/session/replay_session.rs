@@ -5,7 +5,7 @@ use super::{
     session_inner::{is_singlestep, PtraceSyscallSeccompOrdering},
     task::{
         replay_task::ReplayTaskIgnore,
-        task_common::{read_mem, read_val_mem, read_val_with_default_mem},
+        task_common::{read_mem, read_val_mem},
         task_inner::{TrapReasons, WriteFlags, MAX_TICKS_REQUEST},
     },
 };
@@ -802,7 +802,7 @@ impl ReplaySession {
                 "    (syscllbufsz:{}, abrtcmt:{}, locked:{:?})",
                 read_val_mem(t, syscallbuf_num_rec_bytes, None),
                 read_val_mem(t, syscallbuf_abort_commit, None) != 0,
-                read_val_with_default_mem(t, syscallbuf_locked, None),
+                read_val_mem(t, syscallbuf_locked, None),
             );
         }
 

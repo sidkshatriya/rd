@@ -2096,6 +2096,26 @@ pub(super) fn detect_syscall_arch<T: Task>(task: &mut T) -> SupportedArch {
     syscall_arch
 }
 
+pub(super) fn set_syscallbuf_locked<T: Task>(t: &mut T, locked: bool) {
+    if t.syscallbuf_child.is_null() {
+        return;
+    }
+    let remote_addr: RemotePtr<u8> =
+        RemotePtr::<u8>::cast(t.syscallbuf_child) + offset_of!(syscallbuf_hdr, locked);
+    let locked_before =
+        read_val_mem::<syscallbuf_locked_why>(t, RemotePtr::cast(remote_addr), None);
+
+    let new_locked: syscallbuf_locked_why = if locked {
+        locked_before | syscallbuf_locked_why::SYSCALLBUF_LOCKED_TRACER
+    } else {
+        locked_before & !syscallbuf_locked_why::SYSCALLBUF_LOCKED_TRACER
+    };
+
+    if new_locked != locked_before {
+        write_val_mem(t, RemotePtr::cast(remote_addr), &new_locked, None);
+    }
+}
+
 pub(super) fn reset_syscallbuf<T: Task>(t: &mut T) {
     let syscallbuf_child_addr = t.syscallbuf_child;
     if syscallbuf_child_addr.is_null() {
@@ -2104,20 +2124,17 @@ pub(super) fn reset_syscallbuf<T: Task>(t: &mut T) {
 
     // @TODO Check this again
     if t.is_in_untraced_syscall() {
-        let check = syscallbuf_locked_why::SyscallbufLockedTracee
-            != read_val_mem::<syscallbuf_locked_why>(
-                t,
-                RemotePtr::cast(
-                    RemotePtr::<u8>::cast(syscallbuf_child_addr)
-                        + offset_of!(syscallbuf_hdr, locked),
-                ),
-                None,
-            );
+        let check = !read_val_mem::<syscallbuf_locked_why>(
+            t,
+            RemotePtr::cast(
+                RemotePtr::<u8>::cast(syscallbuf_child_addr) + offset_of!(syscallbuf_hdr, locked),
+            ),
+            None,
+        )
+        .contains(syscallbuf_locked_why::SYSCALLBUF_LOCKED_TRACEE);
         ed_assert!(t, check);
     }
 
-    // Memset is easiest to do by using the local mapping which should always
-    // exist for the syscallbuf
     let num_rec_bytes: u32 = read_val_mem(
         t,
         RemotePtr::cast(

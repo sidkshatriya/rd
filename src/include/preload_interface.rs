@@ -263,23 +263,16 @@ pub struct syscallbuf_hdr {
     pub recs: [syscallbuf_record; 0],
 }
 
-/// Each bit of of syscallbuf_hdr->locked indicates a reason why the syscallbuf
-/// is locked. These are all the bits that are currently defined.
-#[repr(u8)]
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub enum syscallbuf_locked_why {
-    /// DIFF NOTE: Not present in rr but implicit?
-    SyscallbufUnlocked = 0x0,
-    /// Used by the tracee, during interruptible syscalls to avoid recursion
-    SyscallbufLockedTracee = 0x1,
-    /// Used by the tracer to prevent syscall buffering when necessary to preserve
-    /// semantics (e.g. for ptracees whose syscalls are being observed)
-    SyscallbufLockedTracer = 0x2,
-}
-
-impl Default for syscallbuf_locked_why {
-    fn default() -> Self {
-        Self::SyscallbufUnlocked
+bitflags! {
+    /// Each bit of of syscallbuf_hdr->locked indicates a reason why the syscallbuf
+    /// is locked. These are all the bits that are currently defined.
+    #[derive(Default)]
+    pub struct syscallbuf_locked_why: u8 {
+        /// Used by the tracee, during interruptible syscalls to avoid recursion
+        const SYSCALLBUF_LOCKED_TRACEE = 0x1;
+        /// Used by the tracer to prevent syscall buffering when necessary to preserve
+        /// semantics (e.g. for ptracees whose syscalls are being observed)
+        const SYSCALLBUF_LOCKED_TRACER = 0x2;
     }
 }
 

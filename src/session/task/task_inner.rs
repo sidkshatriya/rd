@@ -1191,16 +1191,6 @@ impl TaskInner {
         false
     }
 
-    /// Lock or unlock the syscallbuf to prevent the preload library from using it.
-    /// Only has an effect if the syscallbuf has been initialized.
-    pub fn set_syscallbuf_locked(&self, _locked: bool) {
-        if self.syscallbuf_child.is_null() {
-            return;
-        }
-
-        unimplemented!()
-    }
-
     /// Like `fallible_ptrace()` but infallible for most purposes.
     /// Errors other than ESRCH are treated as fatal. Returns false if
     /// we got ESRCH. This can happen any time during recording when the
