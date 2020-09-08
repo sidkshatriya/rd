@@ -317,7 +317,7 @@ fn maybe_noop_restore_syscallbuf_scratch(t: &mut ReplayTask) {
             "  noop-restoring scratch for write-only desched'd {}",
             syscall_name(t.regs_ref().original_syscallno() as i32, t.arch())
         );
-        t.set_data_from_trace();
+        t.set_data_from_trace(None);
     }
 }
 
@@ -492,16 +492,16 @@ fn prepare_clone<Arch: Architecture>(t: &mut ReplayTask) {
 
     if Arch::CLONE as isize == t.regs_ref().original_syscallno() {
         // FIXME: what if registers are non-null and contain an invalid address?
-        t.set_data_from_trace();
+        t.set_data_from_trace(Some(new_task));
 
         if Arch::CLONE_TLS_TYPE == CloneTLSType::UserDescPointer {
-            t.set_data_from_trace();
-            new_task.set_data_from_trace();
+            t.set_data_from_trace(Some(new_task));
+            new_task.set_data_from_trace(Some(t));
         } else {
             debug_assert!(Arch::CLONE_TLS_TYPE == CloneTLSType::PthreadStructurePointer);
         }
-        new_task.set_data_from_trace();
-        new_task.set_data_from_trace();
+        new_task.set_data_from_trace(Some(t));
+        new_task.set_data_from_trace(Some(t));
     }
 
     // Fix registers in new task
@@ -880,7 +880,7 @@ fn rep_process_syscall_arch<Arch: Architecture>(
         match maybe_dest {
             Some(dest) => {
                 for _ in 0..iov_cnt {
-                    dest.set_data_from_trace();
+                    dest.set_data_from_trace(None);
                 }
             }
             None => (),
@@ -1890,7 +1890,7 @@ fn write_mapped_data(
 ) {
     match data.source {
         MappedDataSource::SourceTrace => {
-            t.set_data_from_trace();
+            t.set_data_from_trace(None);
         }
         MappedDataSource::SourceFile => {
             let file = ScopedFd::open_path(data.filename.as_os_str(), OFlag::O_RDONLY);

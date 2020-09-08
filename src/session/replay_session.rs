@@ -1038,7 +1038,7 @@ impl ReplaySession {
                     }
 
                     // Restore the signal-hander frame data, if there was one.
-                    let restored_sighandler_frame: bool = 0 < t.set_data_from_trace();
+                    let restored_sighandler_frame: bool = 0 < t.set_data_from_trace(None);
                     if restored_sighandler_frame {
                         log!(LogDebug, "-. restoring sighandler frame for {}", sig)
                     }

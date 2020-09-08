@@ -219,7 +219,7 @@ impl ReplayTask {
 
     /// @TODO More elegant approach??
     /// Restore the next chunk of saved data from the trace to this.
-    pub fn set_data_from_trace(&mut self) -> usize {
+    pub fn set_data_from_trace(&mut self, maybe_other: Option<&mut ReplayTask>) -> usize {
         let buf: RawData = self.trace_reader_mut().read_raw_data();
         if !buf.addr.is_null() && buf.data.len() > 0 {
             if buf.rec_tid == self.rec_tid {
@@ -227,16 +227,35 @@ impl ReplayTask {
                 self.vm_shr_ptr()
                     .maybe_update_breakpoints(self, buf.addr, buf.data.len());
             } else {
-                let t = self.session().find_task_from_rec_tid(buf.rec_tid).unwrap();
+                if buf.rec_tid == self.rec_tid {
+                    self.write_bytes_helper(buf.addr, &buf.data, None, WriteFlags::empty());
+                    self.vm_shr_ptr()
+                        .maybe_update_breakpoints(self, buf.addr, buf.data.len());
+                } else if maybe_other
+                    .as_ref()
+                    .map_or(false, |o| o.rec_tid == buf.rec_tid)
+                {
+                    let other = maybe_other.unwrap();
+                    other.write_bytes_helper(buf.addr, &buf.data, None, WriteFlags::empty());
+                    other
+                        .vm_shr_ptr()
+                        .maybe_update_breakpoints(other, buf.addr, buf.data.len());
+                } else {
+                    let t = self.session().find_task_from_rec_tid(buf.rec_tid).unwrap();
 
-                t.borrow_mut()
-                    .write_bytes_helper(buf.addr, &buf.data, None, WriteFlags::empty());
-                let vm_shr_ptr = t.borrow().vm_shr_ptr();
-                vm_shr_ptr.maybe_update_breakpoints(
-                    t.borrow_mut().as_mut(),
-                    buf.addr,
-                    buf.data.len(),
-                );
+                    t.borrow_mut().write_bytes_helper(
+                        buf.addr,
+                        &buf.data,
+                        None,
+                        WriteFlags::empty(),
+                    );
+                    let vm_shr_ptr = t.borrow().vm_shr_ptr();
+                    vm_shr_ptr.maybe_update_breakpoints(
+                        t.borrow_mut().as_mut(),
+                        buf.addr,
+                        buf.data.len(),
+                    );
+                }
             }
         }
 
