@@ -1288,10 +1288,9 @@ pub(super) fn post_exec_for_exe<T: Task>(t: &mut T, exe_file: &OsStr) {
             let mut stopped = stopped_task.borrow_mut();
             // Note this is `t` and NOT `stopped`
             let syscallbuf_child = t.syscallbuf_child;
-
-            let syscallbuf_size = stopped.syscallbuf_size;
-            let scratch_ptr = stopped.scratch_ptr;
-            let scratch_size = stopped.scratch_size;
+            let syscallbuf_size = t.syscallbuf_size;
+            let scratch_ptr = t.scratch_ptr;
+            let scratch_size = t.scratch_size;
 
             let mut remote = AutoRemoteSyscalls::new(stopped.as_mut());
             unmap_buffers_for(
@@ -1748,12 +1747,12 @@ fn unmap_buffers_for(
         match maybe_context {
             None => remote.task().vm_shr_ptr().unmap(
                 remote.task(),
-                RemotePtr::cast(saved_syscallbuf_child),
+                RemotePtr::<Void>::cast(saved_syscallbuf_child),
                 other_syscallbuf_size,
             ),
             Some(ref context) => context.vm_shr_ptr().unmap(
                 *context,
-                RemotePtr::cast(saved_syscallbuf_child),
+                RemotePtr::<Void>::cast(saved_syscallbuf_child),
                 other_syscallbuf_size,
             ),
         }
