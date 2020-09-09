@@ -1296,6 +1296,7 @@ pub(super) fn post_exec_for_exe<T: Task>(t: &mut T, exe_file: &OsStr) {
             let mut remote = AutoRemoteSyscalls::new(stopped.as_mut());
             unmap_buffers_for(
                 &mut remote,
+                Some(t),
                 syscallbuf_child,
                 syscallbuf_size,
                 scratch_ptr,
@@ -1652,6 +1653,7 @@ pub(in super::super) fn clone_task_common(
             {
                 unmap_buffers_for(
                     &mut remote,
+                    None,
                     tt.borrow().syscallbuf_child,
                     tt.borrow().syscallbuf_size,
                     tt.borrow().scratch_ptr,
@@ -1671,6 +1673,7 @@ pub(in super::super) fn clone_task_common(
             let mut remote = AutoRemoteSyscalls::new(ref_t.as_mut());
             close_buffers_for(
                 &mut remote,
+                None,
                 clone_this.desched_fd_child,
                 clone_this.cloned_file_data_fd_child,
             );
@@ -1681,6 +1684,7 @@ pub(in super::super) fn clone_task_common(
             {
                 close_buffers_for(
                     &mut remote,
+                    None,
                     tt.borrow().desched_fd_child,
                     tt.borrow().cloned_file_data_fd_child,
                 )
@@ -1707,6 +1711,7 @@ fn set_thread_area_from_clone_arch<Arch: Architecture>(t: &mut dyn Task, tls: Re
 // DIFF NOTE: Param list different from rr version
 fn unmap_buffers_for(
     remote: &mut AutoRemoteSyscalls,
+    maybe_context: Option<&mut dyn Task>,
     saved_syscallbuf_child: RemotePtr<syscallbuf_hdr>,
     other_syscallbuf_size: usize,
     other_scratch_ptr: RemotePtr<Void>,
@@ -1720,10 +1725,18 @@ fn unmap_buffers_for(
             other_scratch_ptr.as_usize(),
             other_scratch_size
         );
-        remote
-            .task()
-            .vm_shr_ptr()
-            .unmap(remote.task(), other_scratch_ptr, other_scratch_size);
+        match maybe_context {
+            None => remote.task().vm_shr_ptr().unmap(
+                remote.task(),
+                other_scratch_ptr,
+                other_scratch_size,
+            ),
+            Some(ref context) => {
+                context
+                    .vm_shr_ptr()
+                    .unmap(*context, other_scratch_ptr, other_scratch_size)
+            }
+        }
     }
     if !saved_syscallbuf_child.is_null() {
         rd_infallible_syscall!(
@@ -1732,17 +1745,25 @@ fn unmap_buffers_for(
             saved_syscallbuf_child.as_usize(),
             other_syscallbuf_size
         );
-        remote.task().vm_shr_ptr().unmap(
-            remote.task(),
-            RemotePtr::cast(saved_syscallbuf_child),
-            other_syscallbuf_size,
-        );
+        match maybe_context {
+            None => remote.task().vm_shr_ptr().unmap(
+                remote.task(),
+                RemotePtr::cast(saved_syscallbuf_child),
+                other_syscallbuf_size,
+            ),
+            Some(ref context) => context.vm_shr_ptr().unmap(
+                *context,
+                RemotePtr::cast(saved_syscallbuf_child),
+                other_syscallbuf_size,
+            ),
+        }
     }
 }
 
 // DIFF NOTE: Param list different from rr version
 pub fn close_buffers_for(
     remote: &mut AutoRemoteSyscalls,
+    mut maybe_context: Option<&mut dyn Task>,
     other_desched_fd_child: i32,
     other_cloned_file_data_fd_child: i32,
 ) {
@@ -1755,11 +1776,17 @@ pub fn close_buffers_for(
                 other_desched_fd_child
             );
         }
-        remote
-            .task_mut()
-            .fd_table_shr_ptr()
-            .borrow_mut()
-            .did_close(other_desched_fd_child, remote.task_mut());
+        match maybe_context {
+            None => remote
+                .task_mut()
+                .fd_table_shr_ptr()
+                .borrow_mut()
+                .did_close(other_desched_fd_child, remote.task_mut()),
+            Some(ref mut context) => context
+                .fd_table_shr_ptr()
+                .borrow_mut()
+                .did_close(other_desched_fd_child, *context),
+        }
     }
     if other_cloned_file_data_fd_child >= 0 {
         rd_infallible_syscall!(
@@ -1767,11 +1794,17 @@ pub fn close_buffers_for(
             syscall_number_for_close(arch),
             other_cloned_file_data_fd_child
         );
-        remote
-            .task_mut()
-            .fd_table_shr_ptr()
-            .borrow_mut()
-            .did_close(other_cloned_file_data_fd_child, remote.task_mut());
+        match maybe_context {
+            None => remote
+                .task_mut()
+                .fd_table_shr_ptr()
+                .borrow_mut()
+                .did_close(other_cloned_file_data_fd_child, remote.task_mut()),
+            Some(ref mut context) => context
+                .fd_table_shr_ptr()
+                .borrow_mut()
+                .did_close(other_cloned_file_data_fd_child, *context),
+        }
     }
 }
 
@@ -1806,6 +1839,7 @@ pub(super) fn destroy_buffers<T: Task>(t: &mut T) {
     let scratch_size = remote.task().scratch_size;
     unmap_buffers_for(
         &mut remote,
+        None,
         saved_syscallbuf_child,
         syscallbuf_size,
         scratch_ptr,
@@ -1816,6 +1850,7 @@ pub(super) fn destroy_buffers<T: Task>(t: &mut T) {
     let other_cloned_file_data_fd_child = remote.task().cloned_file_data_fd_child;
     close_buffers_for(
         &mut remote,
+        None,
         other_desched_fd_child,
         other_cloned_file_data_fd_child,
     );
