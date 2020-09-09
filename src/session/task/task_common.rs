@@ -2096,6 +2096,8 @@ pub(super) fn detect_syscall_arch<T: Task>(task: &mut T) -> SupportedArch {
     syscall_arch
 }
 
+/// Forwarded method definition
+///
 pub(super) fn set_syscallbuf_locked<T: Task>(t: &mut T, locked: bool) {
     if t.syscallbuf_child.is_null() {
         return;
