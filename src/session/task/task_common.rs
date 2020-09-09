@@ -1285,12 +1285,15 @@ pub(super) fn post_exec_for_exe<T: Task>(t: &mut T, exe_file: &OsStr) {
     }
     match stopped_task_in_address_space {
         Some(stopped_task) => {
-            let mut t = stopped_task.borrow_mut();
+            let mut stopped = stopped_task.borrow_mut();
+            // Note this is `t` and NOT `stopped`
             let syscallbuf_child = t.syscallbuf_child;
-            let syscallbuf_size = t.syscallbuf_size;
-            let scratch_ptr = t.scratch_ptr;
-            let scratch_size = t.scratch_size;
-            let mut remote = AutoRemoteSyscalls::new(t.as_mut());
+
+            let syscallbuf_size = stopped.syscallbuf_size;
+            let scratch_ptr = stopped.scratch_ptr;
+            let scratch_size = stopped.scratch_size;
+
+            let mut remote = AutoRemoteSyscalls::new(stopped.as_mut());
             unmap_buffers_for(
                 &mut remote,
                 syscallbuf_child,
@@ -1704,7 +1707,7 @@ fn set_thread_area_from_clone_arch<Arch: Architecture>(t: &mut dyn Task, tls: Re
 // DIFF NOTE: Param list different from rr version
 fn unmap_buffers_for(
     remote: &mut AutoRemoteSyscalls,
-    other_saved_syscallbuf_child: RemotePtr<syscallbuf_hdr>,
+    saved_syscallbuf_child: RemotePtr<syscallbuf_hdr>,
     other_syscallbuf_size: usize,
     other_scratch_ptr: RemotePtr<Void>,
     other_scratch_size: usize,
@@ -1722,16 +1725,16 @@ fn unmap_buffers_for(
             .vm_shr_ptr()
             .unmap(remote.task(), other_scratch_ptr, other_scratch_size);
     }
-    if !other_saved_syscallbuf_child.is_null() {
+    if !saved_syscallbuf_child.is_null() {
         rd_infallible_syscall!(
             remote,
             syscall_number_for_munmap(arch),
-            other_saved_syscallbuf_child.as_usize(),
+            saved_syscallbuf_child.as_usize(),
             other_syscallbuf_size
         );
         remote.task().vm_shr_ptr().unmap(
             remote.task(),
-            RemotePtr::cast(other_saved_syscallbuf_child),
+            RemotePtr::cast(saved_syscallbuf_child),
             other_syscallbuf_size,
         );
     }
