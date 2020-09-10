@@ -9,6 +9,11 @@ use crate::{
 use libc::pid_t;
 use std::ffi::OsStr;
 
+include!(concat!(
+    env!("OUT_DIR"),
+    "/gdb_request_bindings_generated.rs"
+));
+
 /// Represents a possibly-undefined register `name`.  `size` indicates how
 /// many bytes of `value` are valid, if any.
 #[derive(Clone, Debug)]

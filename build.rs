@@ -187,6 +187,17 @@ fn main() {
         .write_to_file(path.join("gdb_register_bindings_generated.rs"))
         .unwrap();
 
+    let gdb_request_bindings = Builder::default()
+        .parse_callbacks(Box::new(CargoCallbacks))
+        .prepend_enum_name(false)
+        .header("bindgen/gdb_request_wrapper.h")
+        .generate()
+        .unwrap();
+
+    gdb_request_bindings
+        .write_to_file(path.join("gdb_request_bindings_generated.rs"))
+        .unwrap();
+
     let kernel_supplement_bindings = Builder::default()
         .parse_callbacks(Box::new(CargoCallbacks))
         .derive_default(true)
