@@ -52,6 +52,7 @@ mod rd;
 mod remote_code_ptr;
 mod remote_ptr;
 mod replay_syscall;
+mod replay_timeline;
 mod scheduler;
 mod scoped_fd;
 mod seccomp_bpf;

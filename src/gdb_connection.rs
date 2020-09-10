@@ -71,6 +71,77 @@ pub struct GdbThreadId;
 
 /// @TODO
 pub struct GdbRequest;
+/// @TODO
+pub struct GdbRestartType;
+/// @TODO
+pub struct GdbContAction;
+
+pub mod gdb_request {
+    use super::{GdbContAction, GdbRestartType};
+    use crate::{
+        remote_ptr::{RemotePtr, Void},
+        replay_timeline::RunDirection,
+    };
+    use libc::pid_t;
+    use std::ffi::OsString;
+
+    pub struct Mem {
+        pub addr: usize,
+        pub len: usize,
+        /// For SET_MEM requests, the |len| raw bytes that are to be written.
+        /// For SEARCH_MEM requests, the bytes to search for.
+        pub data: Vec<u8>,
+    }
+
+    pub struct Watch {
+        pub addr: usize,
+        pub kind: i32,
+        pub conditions: Vec<Vec<u8>>,
+    }
+
+    pub struct Restart {
+        pub param: i32,
+        pub param_str: OsString,
+        pub type_: GdbRestartType,
+    }
+
+    pub struct Cont {
+        pub run_direction: RunDirection,
+        pub actions: Vec<GdbContAction>,
+    }
+
+    pub struct Tls {
+        pub offset: usize,
+        pub load_module: RemotePtr<Void>,
+    }
+
+    pub struct Symbol {
+        pub has_address: bool,
+        pub address: RemotePtr<Void>,
+        pub name: OsString,
+    }
+
+    pub struct FileSetfs {
+        pub pid: pid_t,
+    }
+
+    pub struct FileOpen {
+        pub file_name: OsString,
+        /// In system format, not gdb's format
+        pub flags: i32,
+        pub mode: i32,
+    }
+
+    pub struct FilePread {
+        pub fd: i32,
+        pub size: usize,
+        pub offset: u64,
+    }
+
+    pub struct FileClose {
+        pub fd: i32,
+    }
+}
 
 #[derive(Copy, Clone)]
 pub struct GdbConnectionFeatures {
