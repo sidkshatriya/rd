@@ -1181,13 +1181,14 @@ pub fn process_execve(t: &mut ReplayTask, step: &mut ReplayTraceStep) {
     // Restore any memory if required. We need to do this through memory_task,
     // since the new task is now on the new address space. Do it now because
     // later we may try to unmap this task's syscallbuf.
-    if maybe_memory_task.is_some() {
-        write_mem(
-            maybe_memory_task.as_ref().unwrap().borrow_mut().as_mut(),
+    match maybe_memory_task {
+        None => (),
+        Some(ref memory_task) => write_mem(
+            memory_task.borrow_mut().as_mut(),
             remote_mem,
             saved_data.as_slice(),
             None,
-        );
+        ),
     }
 
     let mut kms: Vec<KernelMapping> = Vec::new();
