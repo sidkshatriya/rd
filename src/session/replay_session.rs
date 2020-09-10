@@ -212,6 +212,7 @@ impl ReplayTraceStep {
             }
         }
     }
+
     pub fn syscall_mut(&mut self) -> &mut ReplayTraceStepSyscall {
         match &mut self.data {
             ReplayTraceStepData::Syscall(s) => s,
@@ -220,6 +221,7 @@ impl ReplayTraceStep {
             }
         }
     }
+
     pub fn target(&self) -> ReplayTraceStepTarget {
         match self.data {
             ReplayTraceStepData::Target(t) => t,
@@ -228,6 +230,7 @@ impl ReplayTraceStep {
             }
         }
     }
+
     pub fn target_mut(&mut self) -> &mut ReplayTraceStepTarget {
         match &mut self.data {
             ReplayTraceStepData::Target(t) => t,
@@ -236,6 +239,7 @@ impl ReplayTraceStep {
             }
         }
     }
+
     pub fn flush(&self) -> ReplayFlushBufferedSyscallState {
         match self.data {
             ReplayTraceStepData::Flush(f) => f,
@@ -244,6 +248,7 @@ impl ReplayTraceStep {
             }
         }
     }
+
     pub fn flush_mut(&mut self) -> &mut ReplayFlushBufferedSyscallState {
         match &mut self.data {
             ReplayTraceStepData::Flush(f) => f,
@@ -290,6 +295,7 @@ impl StepConstraints {
         }
     }
 }
+
 pub struct ReplayResult {
     pub status: ReplayStatus,
     pub break_status: BreakStatus,
@@ -447,11 +453,13 @@ impl ReplaySession {
     pub fn current_trace_frame(&self) -> Ref<'_, TraceFrame> {
         self.trace_frame.borrow()
     }
+
     /// The trace record that we are working on --- the next event
     /// for replay to reach.
     pub fn current_trace_frame_mut(&self) -> RefMut<'_, TraceFrame> {
         self.trace_frame.borrow_mut()
     }
+
     /// Time of the current frame
     pub fn current_frame_time(&self) -> FrameTime {
         self.trace_frame.borrow().time()
@@ -1055,14 +1063,15 @@ impl ReplaySession {
             }
         }
     }
-    // Continue until reaching either the "entry" of an emulated syscall,
-    // or the entry or exit of an executed syscall.  `emu` is nonzero when
-    // we're emulating the syscall.  Return COMPLETE when the next syscall
-    // boundary is reached, or INCOMPLETE if advancing to the boundary was
-    // interrupted by an unknown trap.
-    // When the syscall trace frame is non-null, we continue to the syscall by
-    // setting a breakpoint instead of running until we execute a system
-    // call instruction. In that case we will not actually enter the kernel.
+
+    /// Continue until reaching either the "entry" of an emulated syscall,
+    /// or the entry or exit of an executed syscall.  `emu` is nonzero when
+    /// we're emulating the syscall.  Return COMPLETE when the next syscall
+    /// boundary is reached, or INCOMPLETE if advancing to the boundary was
+    /// interrupted by an unknown trap.
+    /// When the syscall trace frame is non-null, we continue to the syscall by
+    /// setting a breakpoint instead of running until we execute a system
+    /// call instruction. In that case we will not actually enter the kernel.
     fn cont_syscall_boundary(
         &self,
         t: &mut ReplayTask,
@@ -1153,9 +1162,8 @@ impl ReplaySession {
         }
     }
 
-    /// Advance to the next syscall entry (or virtual entry) according to
-    /// |step|.  Return `Complete` if successful, or `Incomplete` if an unhandled trap
-    /// occurred.
+    /// Advance to the next syscall entry (or virtual entry) according to constraints
+    /// Return `Complete` if successful, or `Incomplete` if an unhandled trap occurred.
     fn enter_syscall(&self, t: &mut ReplayTask, constraints: &StepConstraints) -> Completion {
         if t.regs_ref().matches(self.current_trace_frame().regs_ref())
             && t.tick_count() == self.current_trace_frame().ticks()
@@ -1238,8 +1246,10 @@ impl ReplaySession {
         {
             rep_after_enter_syscall(t);
         }
+
         Completion::Complete
     }
+
     fn exit_syscall(&self, t: &mut ReplayTask) -> Completion {
         let arch = self.current_step.get().syscall().arch;
         let sys = self.current_step.get().syscall().number;
@@ -1310,6 +1320,7 @@ impl ReplaySession {
         });
         true
     }
+
     fn check_ticks_consistency(&self, t: &ReplayTask, ev: &Event) {
         if !self.done_initial_exec() {
             return;
@@ -1327,6 +1338,7 @@ impl ReplaySession {
             ticks_now
         );
     }
+
     fn check_pending_sig(&self, t: &mut ReplayTask) {
         if t.maybe_stop_sig().is_not_sig() {
             ed_assert!(
@@ -1415,6 +1427,7 @@ impl ReplaySession {
         self.check_pending_sig(t);
         Completion::Complete
     }
+
     fn advance_to_ticks_target(
         &self,
         _t: &ReplayTask,
@@ -1422,6 +1435,7 @@ impl ReplaySession {
     ) -> Completion {
         unimplemented!();
     }
+
     fn emulate_deterministic_signal(
         &self,
         t: &mut ReplayTask,
@@ -1486,6 +1500,7 @@ impl ReplaySession {
 
         Completion::Complete
     }
+
     fn emulate_async_signal(
         &self,
         t: &mut ReplayTask,
@@ -1933,6 +1948,7 @@ impl ReplaySession {
             }
         }
     }
+
     fn check_approaching_ticks_target(
         &self,
         t: &ReplayTask,
