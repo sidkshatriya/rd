@@ -81,21 +81,19 @@ impl WaitStatus {
     /// What was the exit code of the process?
     /// Exit code if wait_type() == EXIT, otherwise None.
     pub fn exit_code(&self) -> Option<i32> {
-        unsafe {
-            if WIFEXITED(self.status) {
-                Some(WEXITSTATUS(self.status))
-            } else {
-                None
-            }
+        if WIFEXITED(self.status) {
+            Some(WEXITSTATUS(self.status))
+        } else {
+            None
         }
     }
 
     /// Did we receive a fatal signal?
     /// Fatal signal if wait_type() == FATAL_SIGNAL, otherwise None.
     pub fn fatal_sig(&self) -> Option<Sig> {
-        let termsig: i32 = unsafe { WTERMSIG(self.status) };
+        let termsig: i32 = WTERMSIG(self.status);
         // Subtle. Makes sure Option<> is what we mean.
-        if unsafe { WIFSIGNALED(self.status) } {
+        if WIFSIGNALED(self.status) {
             Sig::try_from(termsig).ok()
         } else {
             None
@@ -106,16 +104,14 @@ impl WaitStatus {
     /// Stop signal if wait_type() == STOP_SIGNAL, otherwise None. A zero signal
     /// (rare but observed via PTRACE_INTERRUPT) is converted to SIGSTOP.
     pub fn maybe_stop_sig(&self) -> MaybeStopSignal {
-        unsafe {
-            // Here the ((self.status >> 16) & 0xff != 0) is checking if its not some ptrace event
-            // or a group stop (which is nothing but a ptrace event where
-            // ((self.status >> 16) & 0xff == PTRACE_EVENT_STOP if PTRACE_SIEZE is used)
-            if !WIFSTOPPED(self.status) || ((self.status >> 16) & 0xff != 0) {
-                return MaybeStopSignal::new_none();
-            }
+        // Here the ((self.status >> 16) & 0xff != 0) is checking if its not some ptrace event
+        // or a group stop (which is nothing but a ptrace event where
+        // ((self.status >> 16) & 0xff == PTRACE_EVENT_STOP if PTRACE_SIEZE is used)
+        if !WIFSTOPPED(self.status) || ((self.status >> 16) & 0xff != 0) {
+            return MaybeStopSignal::new_none();
         }
 
-        let mut sig: i32 = unsafe { WSTOPSIG(self.status) };
+        let mut sig: i32 = WSTOPSIG(self.status);
 
         if sig == (SIGTRAP | 0x80) {
             // Its a syscall-enter or syscall-exit stop as we're using PTRACE_O_TRACESYSGOOD
@@ -134,16 +130,13 @@ impl WaitStatus {
     /// (rare but observed via PTRACE_INTERRUPT) is converted to SIGSTOP.
     /// DIFF NOTE: This method is called group_stop() in the rr codebase.
     pub fn maybe_group_stop_sig(&self) -> MaybeStopSignal {
-        unsafe {
-            // (self.status >> 16) & 0xff == PTRACE_EVENT_STOP is the classic signature of a group
-            // stop when PTRACE_SIEZE is used
-            if !WIFSTOPPED(self.status) || ((self.status >> 16) & 0xff != PTRACE_EVENT_STOP as i32)
-            {
-                return MaybeStopSignal::new_none();
-            }
+        // (self.status >> 16) & 0xff == PTRACE_EVENT_STOP is the classic signature of a group
+        // stop when PTRACE_SIEZE is used
+        if !WIFSTOPPED(self.status) || ((self.status >> 16) & 0xff != PTRACE_EVENT_STOP as i32) {
+            return MaybeStopSignal::new_none();
         }
 
-        let mut sig: i32 = unsafe { WSTOPSIG(self.status) };
+        let mut sig: i32 = WSTOPSIG(self.status);
 
         sig &= !0x80;
         if sig != 0 {
@@ -154,15 +147,13 @@ impl WaitStatus {
     }
 
     pub fn is_syscall(&self) -> bool {
-        unsafe {
-            // Eliminate some obvious im-possibilities.
-            if self.maybe_ptrace_event().is_ptrace_event() || !WIFSTOPPED(self.status) {
-                return false;
-            }
-
-            // We're using PTRACE_O_TRACESYSGOOD.
-            WSTOPSIG(self.status) == (SIGTRAP | 0x80)
+        // Eliminate some obvious im-possibilities.
+        if self.maybe_ptrace_event().is_ptrace_event() || !WIFSTOPPED(self.status) {
+            return false;
         }
+
+        // We're using PTRACE_O_TRACESYSGOOD.
+        WSTOPSIG(self.status) == (SIGTRAP | 0x80)
     }
 
     /// ptrace event if wait_type() == PTRACE_EVENT, None otherwise.
@@ -178,12 +169,10 @@ impl WaitStatus {
     /// For exit_code() and fatal_sig(), returns None. For all other types
     /// returns the signal involved.
     pub fn ptrace_signal(&self) -> Option<Sig> {
-        unsafe {
-            if WIFSTOPPED(self.status) {
-                Some(Sig::try_from(WSTOPSIG(self.status) & 0x7f).unwrap())
-            } else {
-                None
-            }
+        if WIFSTOPPED(self.status) {
+            Some(Sig::try_from(WSTOPSIG(self.status) & 0x7f).unwrap())
+        } else {
+            None
         }
     }
 
