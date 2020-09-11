@@ -1085,7 +1085,40 @@ fn on_syscall_exit_arch<Arch: Architecture>(t: &mut dyn Task, sys: i32, regs: &R
     }
 
     if sys == Arch::RDCALL_MPROTECT_RECORD {
-        unimplemented!()
+        // When we record an rd replay of a tracee which does a syscallbuf'ed
+        // `mprotect`, neither the replay nor its recording see the mprotect
+        // syscall, since it's untraced during both recording and replay. rd
+        // replay is notified of the syscall via the `mprotect_records`
+        // mechanism; if it's being recorded, it forwards that notification to
+        // the recorder by calling this syscall.
+        let tid = regs.arg1() as pid_t;
+        let addr = RemotePtr::from(regs.arg2());
+        let num_bytes = regs.arg3();
+        let prot = regs.arg4_signed() as i32;
+        if tid == t.rec_tid {
+            return t
+                .vm_shr_ptr()
+                .protect(t, addr, num_bytes, ProtFlags::from_bits(prot).unwrap());
+        } else {
+            match t.session().find_task_from_rec_tid(tid) {
+                None => {
+                    ed_assert!(
+                        t,
+                        false,
+                        "Could not find task with rec tid: {} in session",
+                        tid
+                    );
+                }
+                Some(found_t) => {
+                    return found_t.borrow().vm_shr_ptr().protect(
+                        found_t.borrow().as_ref(),
+                        addr,
+                        num_bytes,
+                        ProtFlags::from_bits(prot).unwrap(),
+                    );
+                }
+            }
+        }
     }
 
     if sys == Arch::MPROTECT {
