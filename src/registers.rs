@@ -681,12 +681,15 @@ impl Registers {
     pub fn arg1(&self) -> usize {
         rd_get_reg!(self, ebx, rdi)
     }
+
     pub fn arg1_signed(&self) -> isize {
         rd_get_reg_signed!(self, ebx, rdi)
     }
+
     pub fn set_arg1(&mut self, value: usize) {
         rd_set_reg!(self, ebx, rdi, value);
     }
+
     pub fn set_arg1_from_remote_ptr<T>(&mut self, value: RemotePtr<T>) {
         rd_set_reg!(self, ebx, rdi, value.as_usize());
     }
@@ -694,12 +697,15 @@ impl Registers {
     pub fn arg2(&self) -> usize {
         rd_get_reg!(self, ecx, rsi)
     }
+
     pub fn arg2_signed(&self) -> isize {
         rd_get_reg_signed!(self, ecx, rsi)
     }
+
     pub fn set_arg2(&mut self, value: usize) {
         rd_set_reg!(self, ecx, rsi, value);
     }
+
     pub fn set_arg2_from_remote_ptr<T>(&mut self, value: RemotePtr<T>) {
         rd_set_reg!(self, ecx, rsi, value.as_usize());
     }
@@ -707,12 +713,15 @@ impl Registers {
     pub fn arg3(&self) -> usize {
         rd_get_reg!(self, edx, rdx)
     }
+
     pub fn arg3_signed(&self) -> isize {
         rd_get_reg_signed!(self, edx, rdx)
     }
+
     pub fn set_arg3(&mut self, value: usize) {
         rd_set_reg!(self, edx, rdx, value);
     }
+
     pub fn set_arg3_from_remote_ptr<T>(&mut self, value: RemotePtr<T>) {
         rd_set_reg!(self, edx, rdx, value.as_usize());
     }
@@ -720,12 +729,15 @@ impl Registers {
     pub fn arg4(&self) -> usize {
         rd_get_reg!(self, esi, r10)
     }
+
     pub fn arg4_signed(&self) -> isize {
         rd_get_reg_signed!(self, esi, r10)
     }
+
     pub fn set_arg4(&mut self, value: usize) {
         rd_set_reg!(self, esi, r10, value);
     }
+
     pub fn set_arg4_from_remote_ptr<T>(&mut self, value: RemotePtr<T>) {
         rd_set_reg!(self, esi, r10, value.as_usize());
     }
@@ -733,12 +745,15 @@ impl Registers {
     pub fn arg5(&self) -> usize {
         rd_get_reg!(self, edi, r8)
     }
+
     pub fn arg5_signed(&self) -> isize {
         rd_get_reg_signed!(self, edi, r8)
     }
+
     pub fn set_arg5(&mut self, value: usize) {
         rd_set_reg!(self, edi, r8, value);
     }
+
     pub fn set_arg5_from_remote_ptr<T>(&mut self, value: RemotePtr<T>) {
         rd_set_reg!(self, edi, r8, value.as_usize());
     }
@@ -746,12 +761,15 @@ impl Registers {
     pub fn arg6(&self) -> usize {
         rd_get_reg!(self, ebp, r9)
     }
+
     pub fn arg6_signed(&self) -> isize {
         rd_get_reg_signed!(self, ebp, r9)
     }
+
     pub fn set_arg6(&mut self, value: usize) {
         rd_set_reg!(self, ebp, r9, value);
     }
+
     pub fn set_arg6_from_remote_ptr<T>(&mut self, value: RemotePtr<T>) {
         rd_set_reg!(self, ebp, r9, value.as_usize());
     }
@@ -835,6 +853,7 @@ impl Registers {
     pub fn di(&self) -> usize {
         rd_get_reg!(self, edi, rdi)
     }
+
     pub fn set_di(&mut self, value: usize) {
         rd_set_reg!(self, edi, rdi, value);
     }
@@ -842,6 +861,7 @@ impl Registers {
     pub fn si(&self) -> usize {
         rd_get_reg!(self, esi, rsi)
     }
+
     pub fn set_si(&mut self, value: usize) {
         rd_set_reg!(self, esi, rsi, value);
     }
@@ -849,6 +869,7 @@ impl Registers {
     pub fn cx(&self) -> usize {
         rd_get_reg!(self, ecx, rcx)
     }
+
     pub fn set_cx(&mut self, value: usize) {
         rd_set_reg!(self, ecx, rcx, value);
     }
@@ -856,6 +877,7 @@ impl Registers {
     pub fn ax(&self) -> usize {
         rd_get_reg!(self, eax, rax)
     }
+
     pub fn bp(&self) -> usize {
         rd_get_reg!(self, ebp, rbp)
     }
@@ -900,18 +922,23 @@ impl Registers {
     pub fn cs(&self) -> usize {
         rd_get_reg!(self, xcs, cs)
     }
+
     pub fn ss(&self) -> usize {
         rd_get_reg!(self, xss, ss)
     }
+
     pub fn ds(&self) -> usize {
         rd_get_reg!(self, xds, ds)
     }
+
     pub fn es(&self) -> usize {
         rd_get_reg!(self, xes, es)
     }
+
     pub fn fs(&self) -> usize {
         rd_get_reg!(self, xfs, fs)
     }
+
     pub fn gs(&self) -> usize {
         rd_get_reg!(self, xgs, gs)
     }
@@ -1081,10 +1108,12 @@ impl Registers {
 fn to_x86_narrow(r32: &mut i32, r64: u64) {
     *r32 = r64 as i32;
 }
+
 /// No signed extension
 fn from_x86_narrow(r64: &mut u64, r32: i32) {
     *r64 = r32 as u32 as u64
 }
+
 /// Signed extension
 fn from_x86_narrow_signed(r64: &mut u64, r32: i32) {
     *r64 = r32 as i64 as u64;
@@ -1298,6 +1327,7 @@ impl RegisterValue {
                 .unwrap()
         }
     }
+
     pub fn mut_u32_ref_into_x64(&self, regs: &mut x64::user_regs_struct) -> &mut u32 {
         unsafe {
             (self.mut_pointer_into_x64(regs) as *mut u32)
