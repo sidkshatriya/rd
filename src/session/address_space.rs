@@ -920,7 +920,7 @@ pub mod address_space {
         ) -> KernelMapping {
             log!(
                 LogDebug,
-                "mmap({}, {} = {:#x}, {:?} = {:#x}, {:?} = {:#x}, {})",
+                "mmap({}, {} = {:#x}, {:?} = {:#x}, {:?} = {:#x}, {} = {:#x})",
                 addr,
                 num_bytes,
                 num_bytes,
@@ -928,6 +928,7 @@ pub mod address_space {
                 prot.bits(),
                 flags,
                 flags.bits(),
+                offset_bytes,
                 offset_bytes
             );
             let num_bytes = ceil_page_size(num_bytes);
