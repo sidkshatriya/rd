@@ -1981,6 +1981,7 @@ impl ReplaySession {
     }
 }
 
+/// Returns mprotect record count
 fn apply_mprotect_records(t: &mut ReplayTask, skip_mprotect_records: u32) -> u32 {
     let final_mprotect_record_count_addr = RemotePtr::<u32>::cast(
         RemotePtr::<u8>::cast(t.syscallbuf_child)

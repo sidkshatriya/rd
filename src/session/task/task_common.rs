@@ -2194,7 +2194,6 @@ pub(super) fn reset_syscallbuf<T: Task>(t: &mut T) {
         return;
     }
 
-    // @TODO Check this again
     if t.is_in_untraced_syscall() {
         let check = !read_val_mem::<syscallbuf_locked_why>(
             t,
@@ -2209,7 +2208,7 @@ pub(super) fn reset_syscallbuf<T: Task>(t: &mut T) {
 
     let num_rec_bytes: u32 = read_val_mem(
         t,
-        RemotePtr::cast(
+        RemotePtr::<u32>::cast(
             RemotePtr::<u8>::cast(syscallbuf_child_addr)
                 + offset_of!(syscallbuf_hdr, num_rec_bytes),
         ),
@@ -2227,8 +2226,8 @@ pub(super) fn reset_syscallbuf<T: Task>(t: &mut T) {
     let zero = 0u32;
     write_val_mem(
         t,
-        RemotePtr::cast(
-            RemotePtr::<u32>::cast(syscallbuf_child_addr)
+        RemotePtr::<u32>::cast(
+            RemotePtr::<u8>::cast(syscallbuf_child_addr)
                 + offset_of!(syscallbuf_hdr, num_rec_bytes),
         ),
         &zero,
@@ -2236,8 +2235,8 @@ pub(super) fn reset_syscallbuf<T: Task>(t: &mut T) {
     );
     write_val_mem(
         t,
-        RemotePtr::cast(
-            RemotePtr::<u32>::cast(syscallbuf_child_addr)
+        RemotePtr::<u32>::cast(
+            RemotePtr::<u8>::cast(syscallbuf_child_addr)
                 + offset_of!(syscallbuf_hdr, mprotect_record_count),
         ),
         &zero,
@@ -2245,8 +2244,8 @@ pub(super) fn reset_syscallbuf<T: Task>(t: &mut T) {
     );
     write_val_mem(
         t,
-        RemotePtr::cast(
-            RemotePtr::<u32>::cast(syscallbuf_child_addr)
+        RemotePtr::<u32>::cast(
+            RemotePtr::<u8>::cast(syscallbuf_child_addr)
                 + offset_of!(syscallbuf_hdr, mprotect_record_count_completed),
         ),
         &zero,
@@ -2254,8 +2253,8 @@ pub(super) fn reset_syscallbuf<T: Task>(t: &mut T) {
     );
     write_val_mem(
         t,
-        RemotePtr::cast(
-            RemotePtr::<u32>::cast(syscallbuf_child_addr)
+        RemotePtr::<u32>::cast(
+            RemotePtr::<u8>::cast(syscallbuf_child_addr)
                 + offset_of!(syscallbuf_hdr, blocked_sigs_generation),
         ),
         &zero,
