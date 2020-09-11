@@ -1,5 +1,6 @@
 use crate::{
     bindings::{ptrace::*, signal::siginfo_t},
+    flags::Flags,
     kernel_abi,
     kernel_abi::SupportedArch,
     kernel_supplement::PTRACE_EVENT_SECCOMP_OBSOLETE,
@@ -7,7 +8,12 @@ use crate::{
 use nix::sys::mman::ProtFlags;
 
 pub fn syscall_name(syscall: i32, arch: SupportedArch) -> String {
-    rd_kernel_abi_arch_function!(syscallname_arch, arch, syscall)
+    let name = rd_kernel_abi_arch_function!(syscallname_arch, arch, syscall);
+    if Flags::get().extra_compat {
+        name.replace("rdcall", "rrcall")
+    } else {
+        name
+    }
 }
 
 pub fn signal_name(sig: i32) -> String {
