@@ -119,6 +119,7 @@ impl KernelMapping {
             self.offset,
         )
     }
+
     pub fn set_range(&self, start: RemotePtr<Void>, end: RemotePtr<Void>) -> KernelMapping {
         KernelMapping::new_with_opts(
             start,
@@ -131,6 +132,7 @@ impl KernelMapping {
             self.offset,
         )
     }
+
     pub fn subrange(&self, start: RemotePtr<Void>, end: RemotePtr<Void>) -> KernelMapping {
         debug_assert!(start >= self.start() && end <= self.end());
         let start_addr: u64 = if self.is_real_device() {
@@ -149,6 +151,7 @@ impl KernelMapping {
             self.offset + start_addr,
         )
     }
+
     pub fn set_prot(&self, prot: ProtFlags) -> KernelMapping {
         KernelMapping::new_with_opts(
             self.start(),
@@ -165,18 +168,23 @@ impl KernelMapping {
     pub fn fsname(&self) -> &OsStr {
         &self.fsname_
     }
+
     pub fn device(&self) -> dev_t {
         self.device_
     }
+
     pub fn inode(&self) -> ino_t {
         self.inode_
     }
+
     pub fn prot(&self) -> ProtFlags {
         self.prot_
     }
+
     pub fn flags(&self) -> MapFlags {
         self.flags_
     }
+
     pub fn file_offset_bytes(&self) -> u64 {
         self.offset
     }
@@ -186,12 +194,15 @@ impl KernelMapping {
     pub fn is_real_device(&self) -> bool {
         self.device() > Self::NO_DEVICE
     }
+
     pub fn is_vdso(&self) -> bool {
         self.fsname() == "[vdso]"
     }
+
     pub fn is_heap(&self) -> bool {
         self.fsname() == "[heap]"
     }
+
     pub fn is_stack(&self) -> bool {
         // Note the lack of ending `]` in match string
         if let Some(loc) = find(self.fsname().as_bytes(), b"[stack") {
@@ -203,6 +214,7 @@ impl KernelMapping {
     pub fn is_vvar(&self) -> bool {
         self.fsname() == "[vvar]"
     }
+
     pub fn is_vsyscall(&self) -> bool {
         self.fsname() == "[vsyscall]"
     }
@@ -224,9 +236,8 @@ impl KernelMapping {
             'p'
         };
 
-        // @TODO this needs to be checked.
         let s = format!(
-            "{:8x}-{:8x} {}{} {:08x} {:02x}:{:02x} {:<10} {:?}",
+            "{:#8x}-{:#8x} {}{} {:08x} {:02x}:{:02x} {:<10} {:?}",
             self.start().as_usize(),
             self.end().as_usize(),
             self.prot_string(),

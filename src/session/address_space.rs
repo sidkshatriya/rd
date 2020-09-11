@@ -920,8 +920,9 @@ pub mod address_space {
         ) -> KernelMapping {
             log!(
                 LogDebug,
-                "mmap({}, {}, {:?} = {:#x}, {:?} = {:#x}, {})",
+                "mmap({}, {} = {:#x}, {:?} = {:#x}, {:?} = {:#x}, {})",
                 addr,
+                num_bytes,
                 num_bytes,
                 prot,
                 prot.bits(),
@@ -1091,7 +1092,15 @@ pub mod address_space {
             num_bytes: usize,
             prot: ProtFlags,
         ) {
-            log!(LogDebug, "mprotect({}, {}, {:?})", addr, num_bytes, prot);
+            log!(
+                LogDebug,
+                "mprotect({}, {} = {:#x}, {:?} = {:#x})",
+                addr,
+                num_bytes,
+                num_bytes,
+                prot,
+                prot.bits()
+            );
 
             let mut last_overlap: Option<MemoryRangeKey> = None;
             let protector = |slf: &Self, m_key: MemoryRangeKey, rem: MemoryRange| {
@@ -1601,7 +1610,13 @@ pub mod address_space {
         /// Make [addr, addr + num_bytes) inaccessible within this
         /// address space.
         pub fn unmap(&self, t: &dyn Task, addr: RemotePtr<Void>, num_bytes: usize) {
-            log!(LogDebug, "munmap({}, {})", addr, num_bytes);
+            log!(
+                LogDebug,
+                "munmap({}, {} = {:#x})",
+                addr,
+                num_bytes,
+                num_bytes
+            );
             let num_bytes = ceil_page_size(num_bytes);
 
             // DIFF NOTE: @TODO rr allows num_bytes to be 0 and simply returns
@@ -2286,7 +2301,13 @@ pub mod address_space {
 
         /// DIFF NOTE: @TODO In rr `num_bytes` is signed. Why?
         fn unmap_internal(&self, _t: &dyn Task, addr: RemotePtr<Void>, num_bytes: usize) {
-            log!(LogDebug, "munmap({}, {}), ", addr, num_bytes);
+            log!(
+                LogDebug,
+                "munmap({}, {} = {:#x})",
+                addr,
+                num_bytes,
+                num_bytes
+            );
 
             let unmapper = |slf: &Self, m_key: MemoryRangeKey, rem: MemoryRange| {
                 log!(LogDebug, "  unmapping ({}) ...", rem);

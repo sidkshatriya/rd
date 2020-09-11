@@ -249,6 +249,8 @@ pub struct OpenedFd {
 
 #[derive(Clone)]
 pub struct SyscallEventData {
+    /// @TODO Is this field redundant?
+    /// We can get arch from `regs` field also
     pub arch_: SupportedArch,
     /// The original (before scratch is set up) arguments to the
     /// syscall passed by the tracee.  These are used to detect

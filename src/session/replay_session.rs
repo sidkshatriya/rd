@@ -928,6 +928,9 @@ impl ReplaySession {
         t_shr_ptr
     }
 
+    /// Restore the recorded syscallbuf data to the tracee, preparing the
+    /// tracee for replaying the records.
+    ///
     /// DIFF NOTE: Extra param compared to rr
     fn prepare_syscallbuf_records(&self, t: &mut ReplayTask, current_step: &mut ReplayTraceStep) {
         // Read the recorded syscall buffer back into the buffer region.
