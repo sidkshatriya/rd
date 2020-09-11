@@ -285,7 +285,7 @@ impl SyscallEventData {
     pub fn new(syscallno: i32, arch: SupportedArch) -> SyscallEventData {
         SyscallEventData {
             arch_: arch,
-            regs: Default::default(),
+            regs: Registers::new(arch),
             desched_rec: None,
             write_offset: None,
             state: SyscallState::NoSyscall,
@@ -306,6 +306,7 @@ impl SyscallEventData {
     pub fn arch(&self) -> SupportedArch {
         self.arch_
     }
+
     /// Change the architecture for this event.
     pub fn set_arch(&mut self, a: SupportedArch) {
         self.arch_ = a;
