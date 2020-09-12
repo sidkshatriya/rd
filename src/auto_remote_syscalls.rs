@@ -1197,7 +1197,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
     pub fn recreate_shared_mmap(
         &mut self,
         k: MemoryRangeKey,
-        option_preserve: Option<PreserveContents>,
+        maybe_option_preserve: Option<PreserveContents>,
         monitored: Option<MonitoredSharedMemorySharedPtr>,
     ) -> RemotePtr<Void> {
         let (map, flags, local_addr) = self
@@ -1209,13 +1209,16 @@ impl<'a> AutoRemoteSyscalls<'a> {
         let flags = flags;
         let size = map.size();
         let name = map.fsname();
-        let maybe_preserved_data = if option_preserve.is_some()
-            && option_preserve.unwrap() == PreserveContents::PreserveContents
-            && local_addr.is_some()
-        {
-            Some(local_addr.unwrap())
-        } else {
-            None
+        let maybe_preserved_data = match maybe_option_preserve {
+            Some(option_preserve)
+                if option_preserve == PreserveContents::PreserveContents
+                    && local_addr.is_some() =>
+            {
+                // @TODO Check this
+                self.task().vm().detach_local_mapping(map.start());
+                Some(local_addr.unwrap())
+            }
+            _ => None,
         };
 
         let km = self.create_shared_mmap(
@@ -1232,14 +1235,16 @@ impl<'a> AutoRemoteSyscalls<'a> {
         // DIFF NOTE: Logic slightly different from rr. We are only returning start of recreated
         // mapping.
         let new_map_local_addr = self.vm().mapping_of(new_addr).unwrap().local_addr;
-        if maybe_preserved_data.is_some() {
-            let preserved_data = maybe_preserved_data.unwrap();
-            let new_map_local = new_map_local_addr.unwrap();
-            unsafe {
-                // @TODO This should be non-overlapping but think about this more to be sure.
-                copy_nonoverlapping(preserved_data.as_ptr(), new_map_local.as_ptr(), size);
-                munmap(preserved_data.as_ptr(), size).unwrap();
+        match maybe_preserved_data {
+            Some(preserved_data) => {
+                let new_map_local = new_map_local_addr.unwrap();
+                unsafe {
+                    // @TODO This should be non-overlapping but think about this more to be sure.
+                    copy_nonoverlapping(preserved_data.as_ptr(), new_map_local.as_ptr(), size);
+                    munmap(preserved_data.as_ptr(), size).unwrap();
+                }
             }
+            None => (),
         }
         new_addr
     }
