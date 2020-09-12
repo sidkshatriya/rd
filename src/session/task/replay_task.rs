@@ -390,7 +390,7 @@ impl ReplayTask {
                         cloned_file_data_fd,
                         O_CLOEXEC
                     ) as i32;
-                    ed_assert!(remote.task(), ret == cloned_file_data_fd);
+                    ed_assert_eq!(remote.task(), ret, cloned_file_data_fd);
                     rd_infallible_syscall!(remote, syscall_number_for_close(arch), fd);
                 }
                 remote

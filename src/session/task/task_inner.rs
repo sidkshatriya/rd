@@ -947,7 +947,7 @@ impl TaskInner {
 
                     #[cfg(target_arch = "x86_64")]
                     {
-                        ed_assert!(self, er.data_.len() == size_of::<x64::user_fpregs_struct>());
+                        ed_assert_eq!(self, er.data_.len(), size_of::<x64::user_fpregs_struct>());
                         self.ptrace_if_alive(
                             PTRACE_SETFPREGS,
                             RemotePtr::null(),

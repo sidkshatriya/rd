@@ -958,7 +958,7 @@ fn env_ptr<Arch: Architecture>(t: &mut dyn Task) -> RemotePtr<Arch::unsigned_wor
 
     // Check final NULL in argv
     let null_ptr = read_val_mem::<Arch::unsigned_word>(t, stack_ptr, None);
-    ed_assert!(t, null_ptr == 0u8.into());
+    ed_assert_eq!(t, null_ptr, 0u8.into());
     stack_ptr += 1;
     stack_ptr
 }

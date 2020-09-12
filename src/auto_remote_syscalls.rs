@@ -277,7 +277,7 @@ impl<'a, 'b> DerefMut for AutoRestoreMem<'a, 'b> {
 impl<'a, 'b> Drop for AutoRestoreMem<'a, 'b> {
     fn drop(&mut self) {
         let new_sp = self.remote.initial_regs_ref().sp() + self.len;
-        ed_assert!(self.remote.task(), self.saved_sp == new_sp);
+        ed_assert_eq!(self.remote.task(), self.saved_sp, new_sp);
 
         match self.addr {
             Some(child_addr) => {

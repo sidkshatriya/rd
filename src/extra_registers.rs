@@ -405,8 +405,8 @@ impl ExtraRegisters {
 
     /// Update registers from a user_fpxregs_struct.
     pub fn set_user_fpxregs_struct(&mut self, t: &TaskInner, regs: &x86::user_fpxregs_struct) {
-        ed_assert!(t, self.format_ == Format::XSave);
-        ed_assert!(t, self.arch_ == X86);
+        ed_assert_eq!(t, self.format_, Format::XSave);
+        ed_assert_eq!(t, self.arch_, X86);
         ed_assert!(t, self.data_.len() >= size_of::<x86::user_fpxregs_struct>());
         unsafe {
             copy_nonoverlapping(

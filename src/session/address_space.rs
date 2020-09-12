@@ -45,7 +45,7 @@ use std::{
     os::unix::ffi::{OsStrExt, OsStringExt},
 };
 
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Debug, Clone, Eq, PartialEq)]
 pub enum BreakpointType {
     BkptNone = 0,
     /// Trap for internal rd purposes, f.e. replaying async
@@ -2025,8 +2025,8 @@ pub mod address_space {
             // be where we mapped private memory beyond-end-of-file.
             // Don't do an actual coalescing check here; we rely on the caller to tell us
             // the range to coalesce.
-            ed_assert!(t, range.start() == floor_page_size(range.start()));
-            ed_assert!(t, range.end() == ceil_page_size(range.end()));
+            ed_assert_eq!(t, range.start(), floor_page_size(range.start()));
+            ed_assert_eq!(t, range.end(), ceil_page_size(range.end()));
 
             let fixer = |slf: &Self, m_key: MemoryRangeKey, range: MemoryRange| {
                 // Important !
@@ -2297,7 +2297,7 @@ pub mod address_space {
                     None,
                 );
             }
-            ed_assert!(t, found_stacks == 1);
+            ed_assert_eq!(t, found_stacks, 1);
         }
 
         /// DIFF NOTE: @TODO In rr `num_bytes` is signed. Why?
@@ -3148,7 +3148,7 @@ fn assert_coalesceable(t: &dyn Task, lower: &Mapping, higher: &Mapping) {
         None => higher.local_addr.is_none(),
     };
     ed_assert!(t, local_addr_comparison);
-    ed_assert!(t, lower.flags == higher.flags);
+    ed_assert_eq!(t, lower.flags, higher.flags);
     ed_assert!(
         t,
         lower.monitored_shared_memory.is_none() && higher.monitored_shared_memory.is_none()

@@ -16,6 +16,7 @@ use crate::{
 };
 use std::{
     convert::{TryFrom, TryInto},
+    fmt::Debug,
     num::TryFromIntError,
     ops::Add,
 };
@@ -564,6 +565,7 @@ pub trait Architecture {
     #[allow(non_camel_case_types)]
     type unsigned_word: Copy
         + Eq
+        + Debug
         + PartialEq
         + Add<Self::unsigned_word, Output = Self::unsigned_word>
         + From<u8>

@@ -833,7 +833,7 @@ pub(super) fn did_waitpid<T: Task>(task: &mut T, mut status: WaitStatus) {
                     .address_of_last_execution_resume
                     .increment_by_bkpt_insn_length(task.arch())
         {
-            ed_assert!(task, more_ticks == 0);
+            ed_assert_eq!(task, more_ticks, 0);
             // When we resume execution and immediately hit a breakpoint, the original
             // syscall number can be reset to -1. Undo that, so that the register
             // state matches the state we'd be in if we hadn't resumed. ReplayTimeline
@@ -1398,7 +1398,7 @@ fn prname_from_exe_image(exe_image: &OsStr) -> &OsStr {
 /// Determine why a SIGTRAP occurred. Uses debug_status() but doesn't
 /// consume it.
 pub(super) fn compute_trap_reasons<T: Task>(t: &mut T) -> TrapReasons {
-    ed_assert!(t, t.maybe_stop_sig() == SIGTRAP);
+    ed_assert_eq!(t, t.maybe_stop_sig(), SIGTRAP);
     let mut reasons = TrapReasons::default();
     let status = t.debug_status();
     reasons.singlestep = status & DebugStatus::DsSingleStep as usize != 0;
@@ -1460,7 +1460,7 @@ pub(super) fn compute_trap_reasons<T: Task>(t: &mut T) -> TrapReasons {
     if reasons.singlestep {
         reasons.breakpoint = AddressSpace::is_breakpoint_instruction(t, addr_last_execution_resume);
         if reasons.breakpoint {
-            ed_assert!(t, addr_last_execution_resume == ip_at_breakpoint);
+            ed_assert_eq!(t, addr_last_execution_resume, ip_at_breakpoint);
         }
     } else if reasons.watchpoint {
         // We didn't singlestep, so watchpoint state is completely accurate.
@@ -1471,7 +1471,7 @@ pub(super) fn compute_trap_reasons<T: Task>(t: &mut T) -> TrapReasons {
             && AddressSpace::is_breakpoint_instruction(t, ip_at_breakpoint);
     } else {
         let si = *t.get_siginfo();
-        ed_assert!(t, SIGTRAP == si.si_signo, " expected SIGTRAP, got {:?}", si);
+        ed_assert_eq!(t, SIGTRAP, si.si_signo, " expected SIGTRAP, got {:?}", si);
         reasons.breakpoint = is_kernel_trap(si.si_code);
 
         let is_a_breakpoint = AddressSpace::is_breakpoint_instruction(t, ip_at_breakpoint);
@@ -1559,7 +1559,7 @@ pub(in super::super) fn clone_task_common(
             new_task_session = other_session;
         }
         None => {
-            ed_assert!(clone_this, reason == CloneReason::TraceeClone);
+            ed_assert_eq!(clone_this, reason, CloneReason::TraceeClone);
         }
     }
     // No longer mutable.
@@ -1923,7 +1923,7 @@ pub(super) fn task_drop_common<T: Task>(t: &T) {
             if ret == -1 {
                 ed_assert!(t, errno() == ECHILD || errno() == ESRCH);
             } else {
-                ed_assert!(t, ret == t.thread_group().real_tgid);
+                ed_assert_eq!(t, ret, t.thread_group().real_tgid);
             }
         }
     }

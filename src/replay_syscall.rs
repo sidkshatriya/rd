@@ -191,7 +191,7 @@ fn __ptrace_cont(
             // Update the serial as if this task was really created by cloning the old task.
             t.set_real_tid_and_update_serial(new_tid);
         }
-        ed_assert!(t, ret == t.tid);
+        ed_assert_eq!(t, ret, t.tid);
         t.did_waitpid(WaitStatus::new(raw_status));
 
         // DIFF NOTE: @TODO The `if` statement logic may create a slight divergence from rr.
@@ -247,7 +247,7 @@ fn maybe_dump_written_string(t: &mut ReplayTask) -> Option<OsString> {
 }
 
 fn init_scratch_memory(t: &mut ReplayTask, km: &KernelMapping, data: &trace_stream::MappedData) {
-    ed_assert!(t, data.source == trace_stream::MappedDataSource::SourceZero);
+    ed_assert_eq!(t, data.source, trace_stream::MappedDataSource::SourceZero);
 
     t.scratch_ptr = km.start();
     t.scratch_size = km.size();
@@ -341,7 +341,7 @@ fn read_task_trace_event(t: &ReplayTask, task_event_type: TraceTaskEventType) ->
             break;
         }
     }
-    ed_assert!(t, time == t.current_frame_time());
+    ed_assert_eq!(t, time, t.current_frame_time());
     tte.unwrap()
 }
 
@@ -417,7 +417,7 @@ fn prepare_clone<Arch: Architecture>(t: &mut ReplayTask) {
         // clone() calls sometimes fail with -EAGAIN due to load issues or
         // whatever. We need to retry the system call until it succeeds. Reset
         // state to try the syscall again.
-        ed_assert!(t, t.regs_ref().syscall_result_signed() == -EAGAIN as isize);
+        ed_assert_eq!(t, t.regs_ref().syscall_result_signed(), -EAGAIN as isize);
         t.set_regs(&entry_regs);
         __ptrace_cont(
             t,
@@ -567,7 +567,7 @@ pub fn rep_prepare_run_to_syscall(t: &mut ReplayTask, step: &mut ReplayTraceStep
     log!(LogDebug, "processing {} (entry)", sys_name);
 
     if is_restart_syscall_syscall(sys_num, sys_arch) {
-        ed_assert!(t, t.tick_count() == t.current_trace_frame().ticks());
+        ed_assert_eq!(t, t.tick_count(), t.current_trace_frame().ticks());
         let regs = t.current_trace_frame().regs_ref().clone();
         t.set_regs(&regs);
         t.apply_all_data_records_from_trace();
@@ -954,7 +954,7 @@ fn process_brk(t: &mut ReplayTask) {
     // Zero flags means it's an an unmap, or no change.
     if !km.flags().is_empty() {
         let mut remote = AutoRemoteSyscalls::new(t);
-        ed_assert!(remote.task(), data.source == MappedDataSource::SourceZero);
+        ed_assert_eq!(remote.task(), data.source, MappedDataSource::SourceZero);
         remote.infallible_mmap_syscall(
             Some(km.start()),
             km.size(),
@@ -1961,7 +1961,7 @@ fn finish_anonymous_mmap(
             0,
         );
     } else {
-        ed_assert!(remote.task(), data.source == MappedDataSource::SourceZero);
+        ed_assert_eq!(remote.task(), data.source, MappedDataSource::SourceZero);
         let emu_file: EmuFileSharedPtr = remote
             .task()
             .session()
@@ -2027,7 +2027,7 @@ fn process_mremap(t: &mut ReplayTask, trace_regs: &Registers, step: &mut ReplayT
     let mut data = MappedData::default();
     t.trace_reader_mut()
         .read_mapped_region(Some(&mut data), None, None, None, None);
-    ed_assert!(t, data.source == MappedDataSource::SourceZero);
+    ed_assert_eq!(t, data.source, MappedDataSource::SourceZero);
     // We don't need to do anything; this is the mapping record for the moved
     // data.
 

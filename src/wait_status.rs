@@ -4,6 +4,7 @@ use crate::{
     session::task::record_task::RecordTask,
     sig::Sig,
 };
+use fmt::Debug;
 use libc::{SIGSTOP, SIGTRAP, WEXITSTATUS, WIFEXITED, WIFSIGNALED, WIFSTOPPED, WSTOPSIG, WTERMSIG};
 use std::{
     convert::TryFrom,
@@ -304,6 +305,12 @@ impl Display for MaybePtraceEvent {
     }
 }
 
+impl Debug for MaybePtraceEvent {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        Display::fmt(self, f)
+    }
+}
+
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub struct MaybeStopSignal(Option<Sig>);
 
@@ -359,5 +366,11 @@ impl Display for MaybeStopSignal {
         } else {
             f.write_str(&self.unwrap_sig().as_str())
         }
+    }
+}
+
+impl Debug for MaybeStopSignal {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        Display::fmt(self, f)
     }
 }

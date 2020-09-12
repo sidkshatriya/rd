@@ -937,7 +937,7 @@ impl ReplaySession {
         let buf = t.trace_reader_mut().read_raw_data();
         ed_assert!(t, buf.data.len() >= size_of::<syscallbuf_hdr>());
         ed_assert!(t, buf.data.len() <= t.syscallbuf_size);
-        ed_assert!(t, buf.addr == RemotePtr::cast(t.syscallbuf_child));
+        ed_assert_eq!(t, buf.addr, RemotePtr::cast(t.syscallbuf_child));
 
         let mut recorded_hdr: syscallbuf_hdr = Default::default();
         unsafe {
@@ -1478,7 +1478,7 @@ impl ReplaySession {
                 // |breakpoint| reason as we emulate the deterministic SIGTRAP.
                 let type_: BreakpointType = t.vm().get_breakpoint_type_for_retired_insn(t.ip());
                 if BreakpointType::BkptNone != type_ {
-                    ed_assert!(t, BreakpointType::BkptUser == type_);
+                    ed_assert_eq!(t, BreakpointType::BkptUser, type_);
                     return Completion::Incomplete;
                 }
             }
@@ -2065,7 +2065,7 @@ fn end_task(t: &mut ReplayTask) {
         TicksRequest::ResumeNoTicks,
         None,
     );
-    ed_assert!(t, t.maybe_ptrace_event() == PTRACE_EVENT_EXIT);
+    ed_assert_eq!(t, t.maybe_ptrace_event(), PTRACE_EVENT_EXIT);
 
     t.stable_exit = true;
     t.destroy();

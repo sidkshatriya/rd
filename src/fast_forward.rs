@@ -289,11 +289,8 @@ pub fn fast_forward_through_instruction<T: Task>(
             .remove_breakpoint(limit_ip, BreakpointType::BkptInternal, t);
         result.did_fast_forward = true;
         // We should have reached the breakpoint
-        ed_assert!(t, t.maybe_stop_sig() == SIGTRAP);
-        ed_assert!(
-            t,
-            t.ip() == limit_ip.increment_by_bkpt_insn_length(t.arch())
-        );
+        ed_assert_eq!(t, t.maybe_stop_sig(), SIGTRAP);
+        ed_assert_eq!(t, t.ip(), limit_ip.increment_by_bkpt_insn_length(t.arch()));
         let iterations_performed: usize = iterations - t.regs_ref().cx();
         // Overwrite the value of tmp
         tmp = t.regs_ref().clone();
@@ -315,8 +312,8 @@ pub fn fast_forward_through_instruction<T: Task>(
             continue;
         }
         // instructions that don't modify flags should not terminate too early.
-        ed_assert!(t, t.regs_ref().cx() == 0);
-        ed_assert!(t, iterations_performed == iterations);
+        ed_assert_eq!(t, t.regs_ref().cx(), 0);
+        ed_assert_eq!(t, iterations_performed, iterations);
         // We always end with at least one iteration to go in the string instruction,
         // so we must have the IP of the string instruction.
         tmp.set_ip(r.ip());
