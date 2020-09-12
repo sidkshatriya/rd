@@ -2164,8 +2164,10 @@ fn check_xsave_compatibility(trace_in: &TraceReader) {
     let tracee_xcr0: u64 = trace_in.xcr0();
     let our_xcr0: u64 = xcr0();
     let maybe_record = find_cpuid_record(trace_in.cpuid_records(), CPUID_GETXSAVE, 1);
-    let tracee_xsavec: bool =
-        maybe_record.is_some() && (maybe_record.unwrap().out.eax & XSAVEC_FEATURE_FLAG != 0);
+    let tracee_xsavec: bool = match maybe_record {
+        Some(record) => record.out.eax & XSAVEC_FEATURE_FLAG != 0,
+        None => false,
+    };
     let data: CPUIDData = cpuid(CPUID_GETXSAVE, 1);
     let our_xsavec: bool = (data.eax & XSAVEC_FEATURE_FLAG) != 0;
     if tracee_xsavec && !our_xsavec && !ProgramFlags::get().suppress_environment_warnings {
@@ -2416,29 +2418,32 @@ fn guard_overshoot(
         if t.regs_ref().ip() == target_ip.increment_by_bkpt_insn_length(t.arch()) {
             t.move_ip_before_breakpoint();
         }
-        if closest_matching_regs.is_some() {
-            log!(
-                LogError,
-                "Replay diverged; target registers at ticks target mismatched: "
-            );
-            Registers::compare_register_files(
-                Some(t),
-                "rep overshoot",
-                t.regs_ref(),
-                "rec",
-                closest_matching_regs.unwrap(),
-                MismatchBehavior::LogMismatches,
-            );
-        } else {
-            log!(LogError, "Replay diverged; target registers mismatched: ");
-            Registers::compare_register_files(
-                Some(t),
-                "rep overshoot",
-                t.regs_ref(),
-                "rec",
-                target_regs,
-                MismatchBehavior::LogMismatches,
-            );
+        match closest_matching_regs {
+            Some(cmr) => {
+                log!(
+                    LogError,
+                    "Replay diverged; target registers at ticks target mismatched: "
+                );
+                Registers::compare_register_files(
+                    Some(t),
+                    "rep overshoot",
+                    t.regs_ref(),
+                    "rec",
+                    cmr,
+                    MismatchBehavior::LogMismatches,
+                );
+            }
+            None => {
+                log!(LogError, "Replay diverged; target registers mismatched: ");
+                Registers::compare_register_files(
+                    Some(t),
+                    "rep overshoot",
+                    t.regs_ref(),
+                    "rec",
+                    target_regs,
+                    MismatchBehavior::LogMismatches,
+                );
+            }
         }
         ed_assert!(
             t,
