@@ -335,7 +335,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
             return;
         }
         self.done_initial_exec_.set(true);
-        debug_assert!(self.tasks().len() == 1);
+        debug_assert_eq!(self.tasks().len(), 1);
         t.flush_inconsistent_state();
         self.spawned_task_error_fd_.borrow_mut().close();
     }

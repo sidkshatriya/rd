@@ -498,7 +498,7 @@ fn prepare_clone<Arch: Architecture>(t: &mut ReplayTask) {
             t.set_data_from_trace(Some(new_task));
             new_task.set_data_from_trace(Some(t));
         } else {
-            debug_assert!(Arch::CLONE_TLS_TYPE == CloneTLSType::PthreadStructurePointer);
+            debug_assert_eq!(Arch::CLONE_TLS_TYPE, CloneTLSType::PthreadStructurePointer);
         }
         new_task.set_data_from_trace(Some(t));
         new_task.set_data_from_trace(Some(t));

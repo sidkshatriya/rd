@@ -13,7 +13,7 @@ use std::{
     fmt::{Display, Formatter, Result},
     io,
     io::Write,
-    mem::{size_of, transmute_copy},
+    mem::{self, size_of, transmute_copy},
     num::Wrapping,
     ptr::copy_nonoverlapping,
 };
@@ -163,7 +163,7 @@ impl Registers {
         mismatch_behavior: MismatchBehavior,
     ) -> bool {
         let mut match_ = true;
-        debug_assert!(regs1.arch() == regs2.arch());
+        debug_assert_eq!(regs1.arch(), regs2.arch());
         let regs_info = regs1.get_regs_info();
 
         match regs1 {
@@ -221,7 +221,7 @@ impl Registers {
             match regs1 {
                 X86(regs1_x86) => {
                     let regs2_x86 = regs2.x86();
-                    debug_assert!(rv.nbytes == 4);
+                    debug_assert_eq!(rv.nbytes, 4);
                     let val1_32 = rv.u32_into_x86(&regs1_x86);
                     let val2_32 = rv.u32_into_x86(&regs2_x86);
 
@@ -258,7 +258,7 @@ impl Registers {
         regs2: &Registers,
         mismatch_behavior: MismatchBehavior,
     ) -> bool {
-        debug_assert!(regs1.arch() == regs2.arch());
+        debug_assert_eq!(regs1.arch(), regs2.arch());
         Registers::compare_registers_arch(name1, name2, regs1, regs2, mismatch_behavior)
     }
 
@@ -464,17 +464,14 @@ impl Registers {
         #[cfg(target_arch = "x86_64")]
         match self {
             X86(regs_x86) => unsafe {
-                let regs_x64_tmp = std::mem::transmute::<
-                    native_user_regs_struct,
-                    x64::user_regs_struct,
-                >(*ptrace_regs);
+                let regs_x64_tmp =
+                    mem::transmute::<native_user_regs_struct, x64::user_regs_struct>(*ptrace_regs);
 
                 convert_x86_narrow(regs_x86, &regs_x64_tmp, to_x86_narrow, to_x86_narrow);
             },
             X64(regs_x64) => unsafe {
-                *regs_x64 = std::mem::transmute::<native_user_regs_struct, x64::user_regs_struct>(
-                    *ptrace_regs,
-                );
+                *regs_x64 =
+                    mem::transmute::<native_user_regs_struct, x64::user_regs_struct>(*ptrace_regs);
             },
         }
     }
@@ -575,8 +572,9 @@ impl Registers {
             }
             self.set_from_ptrace(&n);
         } else {
-            debug_assert!(arch == SupportedArch::X86 && RD_NATIVE_ARCH == SupportedArch::X64);
-            debug_assert!(self.arch() == SupportedArch::X86);
+            debug_assert_eq!(arch, SupportedArch::X86);
+            debug_assert_eq!(RD_NATIVE_ARCH, SupportedArch::X64);
+            debug_assert_eq!(self.arch(), SupportedArch::X86);
             debug_assert_eq!(data.len(), size_of::<x86::user_regs_struct>());
             unsafe {
                 copy_nonoverlapping(
@@ -1236,7 +1234,10 @@ impl RegisterValue {
         comparison_mask: u64,
     ) -> RegisterValue {
         // Ensure no bits are set outside of the register's bitwidth.
-        debug_assert!((comparison_mask & !RegisterValue::mask_for_nbytes(nbytes)) == 0);
+        debug_assert_eq!(
+            (comparison_mask & !RegisterValue::mask_for_nbytes(nbytes)),
+            0
+        );
         RegisterValue {
             name,
             offset,
@@ -1253,7 +1254,10 @@ impl RegisterValue {
         size_override: usize,
     ) -> RegisterValue {
         // Ensure no bits are set outside of the register's bitwidth.
-        debug_assert!((comparison_mask & !RegisterValue::mask_for_nbytes(nbytes)) == 0);
+        debug_assert_eq!(
+            (comparison_mask & !RegisterValue::mask_for_nbytes(nbytes)),
+            0
+        );
 
         if size_override > 0 {
             nbytes = size_override;

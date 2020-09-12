@@ -3011,7 +3011,7 @@ pub mod address_space {
             // DIFF NOTE: @TODO this assertion is not present in rr.
             // Might there be any situations where the program is correct but
             // the assertion fails to hold?
-            debug_assert!(self.task_set().len() == 0);
+            debug_assert_eq!(self.task_set().len(), 0);
             for (_, m) in self.mem.borrow().iter() {
                 match m.local_addr {
                     Some(local) => match unsafe { munmap(local.as_ptr(), m.map.size()) } {

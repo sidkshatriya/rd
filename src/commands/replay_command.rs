@@ -281,7 +281,7 @@ impl ReplayCommand {
             if result.status == ReplayStatus::ReplayExited {
                 break;
             }
-            debug_assert!(result.status == ReplayStatus::ReplayContinue);
+            debug_assert_eq!(result.status, ReplayStatus::ReplayContinue);
             debug_assert!(result.break_status.watchpoints_hit.is_empty());
             debug_assert!(!result.break_status.breakpoint_hit);
             debug_assert!(

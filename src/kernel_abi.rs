@@ -46,7 +46,7 @@ pub enum MmapCallingSemantics {
 /// whatever they like with.  See for instance the definition of TLS_VALUE
 /// in nptl/sysdeps/pthread/createthread.c in the glibc source.  We need to
 /// describe what the architecture uses so we can record things accurately.
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum CloneTLSType {
     /// `struct user_desc*`
     UserDescPointer,

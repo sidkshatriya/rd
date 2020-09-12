@@ -202,7 +202,8 @@ impl EmuFile {
     /// Ensure that the emulated file is sized to match a later
     /// stat() of it.
     fn update(&mut self, device: dev_t, inode: ino_t, size: u64) {
-        debug_assert!(self.device_ == device && self.inode_ == inode);
+        debug_assert_eq!(self.device_, device);
+        debug_assert_eq!(self.inode_, inode);
         self.ensure_size(size);
     }
 

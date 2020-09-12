@@ -393,7 +393,7 @@ impl Drop for ReplaySession {
         }
         debug_assert!(self.task_map.borrow().is_empty());
         debug_assert!(self.vm_map.borrow().is_empty());
-        debug_assert!(self.emufs().size() == 0);
+        debug_assert_eq!(self.emufs().size(), 0);
         log!(
             LogDebug,
             "ReplaySession {:?} destroyed",

@@ -70,13 +70,13 @@ const XINUSE_OFFSET: usize = 512;
 ///
 /// The data always uses our CPU's native XSAVE layout. When reading a trace,
 /// we need to convert from the trace's CPU's XSAVE layout to our layout.
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Format {
     None,
     XSave,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ExtraRegisters {
     pub(crate) format_: Format,
     pub(crate) arch_: SupportedArch,
@@ -314,7 +314,7 @@ impl ExtraRegisters {
 
     /// Get a user_fpregs_struct for a particular Arch from these ExtraRegisters.
     pub fn get_user_fpregs_struct(&self, arch: SupportedArch) -> Vec<u8> {
-        debug_assert!(self.format_ == Format::XSave);
+        debug_assert_eq!(self.format_, Format::XSave);
         match arch {
             X86 => {
                 debug_assert!(self.data_.len() >= std::mem::size_of::<x86::user_fpxregs_struct>());
@@ -350,7 +350,7 @@ impl ExtraRegisters {
 
     /// Update registers from a user_fpregs_struct.
     pub fn set_user_fpregs_struct(&mut self, t: &TaskInner, arch: SupportedArch, data_from: &[u8]) {
-        debug_assert!(self.format_ == Format::XSave);
+        debug_assert_eq!(self.format_, Format::XSave);
         match arch {
             X86 => {
                 ed_assert!(t, data_from.len() >= size_of::<x86::user_fpregs_struct>());
@@ -389,8 +389,8 @@ impl ExtraRegisters {
 
     /// Get a user_fpxregs_struct for from these ExtraRegisters.
     pub fn get_user_fpxregs_struct(&self) -> x86::user_fpxregs_struct {
-        debug_assert!(self.format_ == Format::XSave);
-        debug_assert!(self.arch_ == X86);
+        debug_assert_eq!(self.format_, Format::XSave);
+        debug_assert_eq!(self.arch_, X86);
         debug_assert!(self.data_.len() >= size_of::<x86::user_fpxregs_struct>());
         let mut regs = x86::user_fpxregs_struct::default();
         unsafe {
@@ -435,7 +435,7 @@ impl ExtraRegisters {
 
     /// Reset to post-exec initial state
     pub fn reset(&mut self) {
-        debug_assert!(self.format_ == Format::XSave);
+        debug_assert_eq!(self.format_, Format::XSave);
         unsafe {
             std::ptr::write_bytes(self.data_.as_mut_ptr(), 0, self.data_.len());
         }
@@ -710,7 +710,7 @@ fn convert_x86_fpregs_to_fxsave(
 
 fn set_word(arch: SupportedArch, v: &mut [u8], r: GdbRegister, word: i32) {
     let d: RegData = xsave_register_data(arch, r);
-    debug_assert!(d.size == 4);
+    debug_assert_eq!(d.size, 4);
     debug_assert!(d.offset.is_some() && d.offset.unwrap() + d.size <= v.len());
     debug_assert!(d.xsave_feature_bit.is_none());
     let d_offset = d.offset.unwrap();
@@ -756,7 +756,7 @@ fn write_reg(
     if hi != 0 {
         let len2 = r.read_register(buf.get_mut(len.unwrap()..).unwrap(), hi);
         if len2.is_some() {
-            debug_assert!(len.unwrap() == len2.unwrap());
+            debug_assert_eq!(len.unwrap(), len2.unwrap());
             final_len += len2.unwrap();
         }
     }

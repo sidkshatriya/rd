@@ -33,7 +33,7 @@ struct LogGlobals {
     level_map: HashMap<String, LogLevel>,
     log_modules_cache: HashMap<String, LogModule>,
     logging_stream: String,
-    // Possibly buffered
+    /// Possibly buffered
     log_file: Box<dyn Write + Send>,
     default_level: LogLevel,
 }

@@ -101,9 +101,9 @@ impl KernelMapping {
 
     pub fn assert_valid(&self) {
         debug_assert!(self.end() >= self.start());
-        debug_assert!(self.size() % page_size() == 0);
+        debug_assert_eq!(self.size() % page_size(), 0);
         debug_assert!((self.flags_ & !KernelMapping::MAP_FLAGS_MASK).is_empty());
-        debug_assert!(self.offset % page_size() as u64 == 0);
+        debug_assert_eq!(self.offset % page_size() as u64, 0);
     }
 
     pub fn extend(&self, end: RemotePtr<Void>) -> KernelMapping {

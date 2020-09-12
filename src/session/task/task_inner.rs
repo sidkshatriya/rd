@@ -1584,7 +1584,7 @@ impl TaskInner {
         envp: &[OsString],
         rec_tid: Option<pid_t>,
     ) -> TaskSharedPtr {
-        debug_assert!(session.tasks().len() == 0);
+        debug_assert_eq!(session.tasks().len(), 0);
 
         let ret = socketpair(
             AddressFamily::Unix,
