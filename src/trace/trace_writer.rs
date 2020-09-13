@@ -292,27 +292,32 @@ impl TraceWriter {
                     syscall.set_state(to_trace_syscall_state(e.state));
                     syscall.set_failed_during_preparation(e.failed_during_preparation);
                     let mut data = syscall.init_extra();
-                    if e.write_offset.is_some() {
-                        // DIFF NOTE: Offsets in rd are u64 and i64 in rr
-                        data.set_write_offset(e.write_offset.unwrap() as i64);
-                    } else if e.exec_fds_to_close.len() > 0 {
-                        let lb = ListBuilder::new_default();
-                        let mut primitive_list = primitive_list::Builder::new(lb);
-                        for (i, fd) in e.exec_fds_to_close.iter().enumerate() {
-                            primitive_list.set(i as u32, *fd);
+                    match e.write_offset {
+                        Some(offset) => {
+                            // DIFF NOTE: Offsets in rd are u64 and i64 in rr
+                            data.set_write_offset(offset as i64);
                         }
-                        data.set_exec_fds_to_close(primitive_list.into_reader())
-                            .unwrap();
-                    } else if e.opened.len() > 0 {
-                        let mut open = data.init_opened_fds(e.opened.len() as u32);
-                        for i in 0..e.opened.len() {
-                            let mut o = open.reborrow().get(i as u32);
-                            let opened = &e.opened[i];
-                            o.set_fd(opened.fd);
-                            o.set_path(opened.path.as_bytes());
-                            o.set_device(opened.device);
-                            o.set_inode(opened.inode.into());
+                        None if e.exec_fds_to_close.len() > 0 => {
+                            let lb = ListBuilder::new_default();
+                            let mut primitive_list = primitive_list::Builder::new(lb);
+                            for (i, fd) in e.exec_fds_to_close.iter().enumerate() {
+                                primitive_list.set(i as u32, *fd);
+                            }
+                            data.set_exec_fds_to_close(primitive_list.into_reader())
+                                .unwrap();
                         }
+                        None if e.opened.len() > 0 => {
+                            let mut open = data.init_opened_fds(e.opened.len() as u32);
+                            for i in 0..e.opened.len() {
+                                let mut o = open.reborrow().get(i as u32);
+                                let opened = &e.opened[i];
+                                o.set_fd(opened.fd);
+                                o.set_path(opened.path.as_bytes());
+                                o.set_device(opened.device);
+                                o.set_inode(opened.inode.into());
+                            }
+                        }
+                        None => (),
                     }
                 }
                 _ => fatal!("Event type not recordable"),
