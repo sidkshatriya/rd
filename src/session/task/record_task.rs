@@ -15,7 +15,13 @@ use crate::{
     remote_ptr::{RemotePtr, Void},
     scoped_fd::ScopedFd,
     session::{
-        address_space::memory_range::MemoryRange,
+        address_space::{
+            address_space::AddressSpace,
+            memory_range::MemoryRange,
+            Enabled,
+            Privileged,
+            Traced,
+        },
         record_session::RecordSession,
         task::{
             task_common::{
@@ -665,7 +671,30 @@ impl RecordTask {
 
     // @TODO clone_task() ??
     pub fn syscallbuf_syscall_entry_breakpoints(&self) -> Vec<RemoteCodePtr> {
-        unimplemented!()
+        let mut result = Vec::<RemoteCodePtr>::new();
+        if self.break_at_syscallbuf_untraced_syscalls {
+            result.push(AddressSpace::rd_page_syscall_entry_point(
+                Traced::Untraced,
+                Privileged::Unprivileged,
+                Enabled::RecordingOnly,
+                self.arch(),
+            ));
+            result.push(AddressSpace::rd_page_syscall_entry_point(
+                Traced::Untraced,
+                Privileged::Unprivileged,
+                Enabled::RecordingAndReplay,
+                self.arch(),
+            ));
+        }
+        if self.break_at_syscallbuf_traced_syscalls {
+            result.push(AddressSpace::rd_page_syscall_entry_point(
+                Traced::Traced,
+                Privileged::Unprivileged,
+                Enabled::RecordingAndReplay,
+                self.arch(),
+            ));
+        }
+        result
     }
 
     pub fn is_at_syscallbuf_syscall_entry_breakpoint(&self) -> bool {

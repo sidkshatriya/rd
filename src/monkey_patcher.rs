@@ -71,7 +71,14 @@ impl ExtendedJumpPage {
 /// MonkeyPatcher only runs during recording, never replay.
 impl MonkeyPatcher {
     pub fn new() -> MonkeyPatcher {
-        unimplemented!()
+        MonkeyPatcher {
+            x86_vsyscall: Default::default(),
+            extended_jump_pages: vec![],
+            patched_vdso_syscalls: Default::default(),
+            syscallbuf_stubs: Default::default(),
+            syscall_hooks: vec![],
+            tried_to_patch_syscall_addresses: Default::default()
+        }
     }
 
     /// Apply any necessary patching immediately after exec.

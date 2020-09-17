@@ -96,7 +96,7 @@ pub enum Traced {
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub enum Privileged {
     Privileged,
-    Unpriviledged,
+    Unprivileged,
 }
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub enum Enabled {
@@ -115,7 +115,7 @@ enum HandleHeap {
 const ENTRY_POINTS: [SyscallType; 8] = [
     SyscallType::new(
         Traced::Traced,
-        Privileged::Unpriviledged,
+        Privileged::Unprivileged,
         Enabled::RecordingAndReplay,
     ),
     SyscallType::new(
@@ -125,17 +125,17 @@ const ENTRY_POINTS: [SyscallType; 8] = [
     ),
     SyscallType::new(
         Traced::Untraced,
-        Privileged::Unpriviledged,
+        Privileged::Unprivileged,
         Enabled::RecordingAndReplay,
     ),
     SyscallType::new(
         Traced::Untraced,
-        Privileged::Unpriviledged,
+        Privileged::Unprivileged,
         Enabled::ReplayOnly,
     ),
     SyscallType::new(
         Traced::Untraced,
-        Privileged::Unpriviledged,
+        Privileged::Unprivileged,
         Enabled::RecordingOnly,
     ),
     SyscallType::new(
@@ -2497,7 +2497,7 @@ pub mod address_space {
             self.traced_syscall_ip_
                 .set(Self::rd_page_syscall_entry_point(
                     Traced::Traced,
-                    Privileged::Unpriviledged,
+                    Privileged::Unprivileged,
                     Enabled::RecordingAndReplay,
                     child_path.arch(),
                 ));

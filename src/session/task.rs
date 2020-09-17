@@ -355,8 +355,8 @@ pub trait Task: DerefMut<Target = TaskInner> {
         unimplemented!()
     }
 
-    /// Block until the status of this changes. wait() expects the wait to end
-    /// with the process in a stopped() state. If interrupt_after_elapsed > 0,
+    /// Block until the status of self changes. wait() expects the wait to end
+    /// with the process in a stopped state. If interrupt_after_elapsed > 0,
     /// interrupt the task after that many seconds have elapsed.
     fn wait(&mut self, maybe_interrupt_after_elapsed: Option<f64>) {
         let interrupt_after_elapsed = maybe_interrupt_after_elapsed.unwrap_or(0.0);
