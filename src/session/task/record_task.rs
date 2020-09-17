@@ -6,7 +6,7 @@ use crate::{
     arch::{Architecture, NativeArch},
     bindings::{
         kernel::user_desc,
-        ptrace::{PTRACE_GETSIGMASK, PTRACE_SETSIGMASK},
+        ptrace::{PTRACE_GETSIGMASK, PTRACE_SETSIGINFO, PTRACE_SETSIGMASK},
         signal::siginfo_t,
     },
     event::{Event, EventType, SignalDeterministic, SignalResolvedDisposition, SyscallEventData},
@@ -70,7 +70,7 @@ use crate::{
     sig::{self, Sig},
     ticks::Ticks,
     trace::{trace_frame::FrameTime, trace_writer::TraceWriter},
-    util::{read_proc_status_fields, u8_raw_slice, u8_raw_slice_mut},
+    util::{default_action, read_proc_status_fields, u8_raw_slice, u8_raw_slice_mut, SignalAction},
     wait_status::WaitStatus,
 };
 use libc::{pid_t, EINVAL, PR_TSC_ENABLE};
@@ -105,18 +105,17 @@ impl Sighandlers {
     }
 
     pub fn get_mut(&mut self, sig: usize) -> &mut Sighandler {
-        self.assert_valid(sig);
+        // DIFF NOTE: in rr there is a call to assert_valid
+        // In rust we don't need this as an out of bounds index
+        // will panic
         &mut self.handlers[sig]
     }
 
     pub fn get(&self, sig: usize) -> &Sighandler {
-        self.assert_valid(sig);
+        // DIFF NOTE: in rr there is a call to assert_valid
+        // In rust we don't need this as an out of bounds index
+        // will panic
         &self.handlers[sig]
-    }
-
-    pub fn assert_valid(&self, sig: usize) {
-        debug_assert!(sig > 0);
-        debug_assert!(sig < self.handlers.len());
     }
 
     pub fn init_from_current_process(&mut self) {
@@ -749,11 +748,25 @@ impl RecordTask {
     }
 
     pub fn is_at_syscallbuf_syscall_entry_breakpoint(&self) -> bool {
-        unimplemented!()
+        let arch = self.arch();
+        let i = self.ip().decrement_by_bkpt_insn_length(arch);
+        for p in self.syscallbuf_syscall_entry_breakpoints() {
+            if i == p {
+                return true;
+            }
+        }
+        false
     }
 
     pub fn is_at_syscallbuf_final_instruction_breakpoint(&self) -> bool {
-        unimplemented!()
+        if !self.break_at_syscallbuf_final_instruction {
+            return false;
+        }
+        let arch = self.arch();
+        let i = self.ip().decrement_by_bkpt_insn_length(arch);
+        i == self
+            .syscallbuf_code_layout
+            .syscallbuf_final_exit_instruction
     }
 
     /// Initialize tracee buffers in this, i.e., implement
@@ -910,33 +923,55 @@ impl RecordTask {
 
     /// Return true iff `sig` is SIG_IGN, or it's SIG_DFL and the
     /// default disposition is "ignore".
-    pub fn is_sig_ignored(&self, _sig: Sig) -> bool {
-        unimplemented!()
+    pub fn is_sig_ignored(&self, sig: Sig) -> bool {
+        if is_unstoppable_signal(sig) {
+            // These can never be ignored
+            return false;
+        }
+        match self
+            .sighandlers
+            .borrow()
+            .get(sig.as_raw() as usize)
+            .disposition()
+        {
+            SignalDisposition::SignalIgnore => true,
+            SignalDisposition::SignalDefault => SignalAction::Ignore == default_action(sig),
+            SignalDisposition::SignalHandler => false,
+        }
     }
 
     /// Return the applications current disposition of `sig`.
     pub fn sig_disposition(&self, sig: Sig) -> SignalDisposition {
         self.sighandlers
-            .borrow_mut()
-            .handlers
+            .borrow()
             .get(sig.as_raw() as usize)
-            .unwrap()
             .disposition()
     }
 
     /// Return the resolved disposition --- what this signal will actually do,
     /// taking into account the default behavior.
     pub fn sig_resolved_disposition(
-        &self,
-        _sig: Sig,
-        _deterministic: SignalDeterministic,
+        &mut self,
+        sig: Sig,
+        deterministic: SignalDeterministic,
     ) -> SignalResolvedDisposition {
-        unimplemented!()
+        if self.is_fatal_signal(sig, deterministic) {
+            return SignalResolvedDisposition::DispositionFatal;
+        }
+        if self.signal_has_user_handler(sig) && !self.is_sig_blocked(sig) {
+            return SignalResolvedDisposition::DispositionUserHandler;
+        }
+        SignalResolvedDisposition::DispositionIgnored
     }
 
-    /// Set the siginfo for the signal-stop of this.
-    pub fn set_siginfo(&self, _si: &siginfo_t) {
-        unimplemented!()
+    /// Set the siginfo for the signal-stop of self.
+    pub fn set_siginfo(&mut self, si: &siginfo_t) {
+        self.pending_siginfo = si.clone();
+        self.ptrace_if_alive(
+            PTRACE_SETSIGINFO,
+            RemotePtr::null(),
+            PtraceData::ReadFrom(u8_raw_slice(si)),
+        );
     }
 
     /// Note that the task sigmask needs to be refetched.

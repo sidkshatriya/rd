@@ -677,7 +677,7 @@ pub(super) fn did_waitpid<T: Task>(task: &mut T, mut status: WaitStatus) {
     // When we issue PTRACE_INTERRUPT, we this set this counter to 2, and here
     // we decrement it on every stop such that while this counter is positive,
     // any group-stop could be one induced by PTRACE_INTERRUPT
-    let mut siginfo_overriden = false;
+    let mut siginfo_overridden = false;
     if task.expecting_ptrace_interrupt_stop > 0 {
         task.expecting_ptrace_interrupt_stop -= 1;
         if is_signal_triggered_by_ptrace_interrupt(status.maybe_group_stop_sig()) {
@@ -696,12 +696,12 @@ pub(super) fn did_waitpid<T: Task>(task: &mut T, mut status: WaitStatus) {
             task.pending_siginfo.si_signo = TIME_SLICE_SIGNAL.as_raw();
             task.pending_siginfo._sifields._sigpoll.si_fd = task.hpc.ticks_interrupt_fd();
             task.pending_siginfo.si_code = POLL_IN as i32;
-            siginfo_overriden = true;
+            siginfo_overridden = true;
             task.expecting_ptrace_interrupt_stop = 0;
         }
     }
 
-    if !siginfo_overriden && status.maybe_stop_sig().is_sig() {
+    if !siginfo_overridden && status.maybe_stop_sig().is_sig() {
         let mut local_pending_siginfo = Default::default();
         if !task.ptrace_if_alive(
             PTRACE_GETSIGINFO,
