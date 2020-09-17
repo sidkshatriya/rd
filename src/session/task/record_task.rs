@@ -1034,7 +1034,16 @@ impl RecordTask {
     /// then delivering the signal may restart the first syscall
     /// and this method will return true.
     pub fn at_may_restart_syscall(&self) -> bool {
-        unimplemented!()
+        let depth = self.pending_events.len();
+        let prev_ev: Option<&Event> = if depth > 2 {
+            Some(&self.pending_events[depth - 2])
+        } else {
+            None
+        };
+        EventType::EvSyscallInterruption == self.ev().event_type()
+            || (EventType::EvSignalDelivery == self.ev().event_type()
+                && prev_ev.is_some()
+                && EventType::EvSyscallInterruption == prev_ev.unwrap().event_type())
     }
 
     /// Return true if this is at an arm-desched-event syscall.
@@ -1200,11 +1209,11 @@ impl RecordTask {
 
     /// Return the event at the top of this's stack.
     pub fn ev(&self) -> &Event {
-        unimplemented!()
+        self.pending_events.back().unwrap()
     }
 
     pub fn ev_mut(&mut self) -> &mut Event {
-        unimplemented!()
+        self.pending_events.back_mut().unwrap()
     }
 
     /// Call this before recording events or data.  Records
