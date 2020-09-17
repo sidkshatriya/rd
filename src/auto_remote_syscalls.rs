@@ -1559,11 +1559,11 @@ fn extract_name(name: &OsStr) -> Option<&OsStr> {
     None
 }
 
-fn is_sigtrap_default_and_unblocked(t: &dyn Task) -> bool {
+fn is_sigtrap_default_and_unblocked(t: &mut dyn Task) -> bool {
     if !t.session().is_recording() {
         return true;
     }
-    let rt = t.as_record_task().unwrap();
+    let rt = t.as_record_task_mut().unwrap();
     rt.sig_disposition(sig::SIGTRAP) == SignalDisposition::SignalDefault
         && !rt.is_sig_blocked(sig::SIGTRAP)
 }

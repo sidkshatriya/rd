@@ -77,7 +77,7 @@ impl MonkeyPatcher {
             patched_vdso_syscalls: Default::default(),
             syscallbuf_stubs: Default::default(),
             syscall_hooks: vec![],
-            tried_to_patch_syscall_addresses: Default::default()
+            tried_to_patch_syscall_addresses: Default::default(),
         }
     }
 

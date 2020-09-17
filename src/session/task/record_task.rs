@@ -4,7 +4,11 @@ use super::{
 };
 use crate::{
     arch::{Architecture, NativeArch},
-    bindings::{kernel::user_desc, ptrace::PTRACE_SETSIGMASK, signal::siginfo_t},
+    bindings::{
+        kernel::user_desc,
+        ptrace::{PTRACE_GETSIGMASK, PTRACE_SETSIGMASK},
+        signal::siginfo_t,
+    },
     event::{Event, EventType, SignalDeterministic, SignalResolvedDisposition},
     kernel_abi::{
         common::preload_interface::syscallbuf_record,
@@ -13,6 +17,7 @@ use crate::{
         SupportedArch,
     },
     kernel_supplement::{sig_set_t, SA_RESETHAND, SA_SIGINFO, _NSIG},
+    log::LogDebug,
     registers::Registers,
     remote_code_ptr::RemoteCodePtr,
     remote_ptr::{RemotePtr, Void},
@@ -62,10 +67,10 @@ use crate::{
         },
         Session,
     },
-    sig::Sig,
+    sig::{self, Sig},
     ticks::Ticks,
     trace::{trace_frame::FrameTime, trace_writer::TraceWriter},
-    util::u8_raw_slice,
+    util::{read_proc_status_fields, u8_raw_slice, u8_raw_slice_mut},
     wait_status::WaitStatus,
 };
 use libc::{pid_t, EINVAL, PR_TSC_ENABLE};
@@ -74,7 +79,7 @@ use std::{
     cell::RefCell,
     collections::{HashSet, VecDeque},
     ffi::{CString, OsStr},
-    mem::size_of,
+    mem::{self, size_of},
     ops::{Deref, DerefMut},
     ptr::copy_nonoverlapping,
     rc::{Rc, Weak},
@@ -538,7 +543,7 @@ impl Task for RecordTask {
             ed_assert!(self, !self.blocked_sigs_dirty);
             self.xptrace(
                 PTRACE_SETSIGMASK,
-                RemotePtr::<Void>::from(8usize),
+                RemotePtr::<Void>::from(size_of::<sig_set_t>()),
                 PtraceData::ReadFrom(u8_raw_slice(&self.blocked_sigs)),
             );
         } else if !self.syscallbuf_child.is_null() {
@@ -894,8 +899,13 @@ impl RecordTask {
     }
 
     /// Return true iff `sig` is blocked for this.
-    pub fn is_sig_blocked(&self, _sig: Sig) -> bool {
-        unimplemented!()
+    pub fn is_sig_blocked(&mut self, sig: Sig) -> bool {
+        if is_unstoppable_signal(sig) {
+            // These can never be blocked
+            return false;
+        }
+        let sig_bit = sig.as_raw() - 1;
+        (self.get_sigmask() >> sig_bit) & 1 != 0
     }
 
     /// Return true iff `sig` is SIG_IGN, or it's SIG_DFL and the
@@ -1305,13 +1315,38 @@ impl RecordTask {
     }
 
     /// Return our cached copy of the signal mask, updating it if necessary.
-    pub fn get_sigmask(&self) -> sig_set_t {
-        unimplemented!()
+    pub fn get_sigmask(&mut self) -> sig_set_t {
+        if self.blocked_sigs_dirty {
+            self.blocked_sigs = self.read_sigmask_from_process();
+            log!(LogDebug, "Refreshed sigmask, now {:#x}", self.blocked_sigs);
+            self.blocked_sigs_dirty = false;
+        }
+        self.blocked_sigs
     }
 
     /// Just get the signal mask of the process.
     pub fn read_sigmask_from_process(&self) -> sig_set_t {
-        unimplemented!()
+        // During syscall interruptions, PTRACE_GETSIGMASK may return the sigmask that is going
+        // to be restored, not the kernel's current (internal) sigmask, which is what
+        // /proc/.../status reports. Always go with what /proc/.../status reports. See
+        // https://github.com/torvalds/linux/commit/fcfc2aa0185f4a731d05a21e9f359968fdfd02e7
+        if !self.at_may_restart_syscall() {
+            let mut mask: sig_set_t = Default::default();
+            let ret = self.fallible_ptrace(
+                PTRACE_GETSIGMASK,
+                RemotePtr::<Void>::from(size_of::<sig_set_t>()),
+                PtraceData::WriteInto(u8_raw_slice_mut(&mut mask)),
+            );
+            if ret >= 0 {
+                return mask;
+            }
+        }
+
+        let results = read_proc_status_fields(self.tid, &[b"SigBlk"]).unwrap();
+        ed_assert!(self, results.len() == 1);
+
+        let res = u64::from_str_radix(&results[0].clone().into_string().unwrap(), 16).unwrap();
+        unsafe { mem::transmute(res) }
     }
 
     /// Unblock the signal for the process.
@@ -1399,4 +1434,8 @@ impl RecordTask {
     fn set_tid_addr(&self, _tid_addr: RemotePtr<i32>) {
         unimplemented!()
     }
+}
+
+fn is_unstoppable_signal(sig: Sig) -> bool {
+    sig == sig::SIGSTOP || sig == sig::SIGKILL
 }
