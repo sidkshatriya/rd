@@ -9,7 +9,7 @@ use crate::{
         ptrace::{PTRACE_GETSIGMASK, PTRACE_SETSIGMASK},
         signal::siginfo_t,
     },
-    event::{Event, EventType, SignalDeterministic, SignalResolvedDisposition},
+    event::{Event, EventType, SignalDeterministic, SignalResolvedDisposition, SyscallEventData},
     kernel_abi::{
         common::preload_interface::syscallbuf_record,
         native_arch,
@@ -1171,40 +1171,42 @@ impl RecordTask {
         self.pending_events.push_back(ev);
     }
 
-    pub fn push_syscall_eventsyscallno(&self, _no: i32) {
-        unimplemented!()
+    pub fn push_syscall_eventsyscallno(&mut self, no: i32) {
+        let arch = self.detect_syscall_arch();
+        self.push_event(Event::new_syscall_event(SyscallEventData::new(no, arch)));
     }
 
-    pub fn pop_eventexpected_type(&self) -> EventType {
-        unimplemented!()
+    pub fn pop_event(&mut self, expected_type: EventType) {
+        let e = self.pending_events.pop_back().unwrap();
+        ed_assert_eq!(self, e.event_type(), expected_type);
     }
 
-    pub fn pop_noop(&self) {
-        unimplemented!()
+    pub fn pop_noop(&mut self) {
+        self.pop_event(EventType::EvNoop);
     }
 
-    pub fn pop_desched(&self) {
-        unimplemented!()
+    pub fn pop_desched(&mut self) {
+        self.pop_event(EventType::EvDesched);
     }
 
-    pub fn pop_seccomp_trap(&self) {
-        unimplemented!()
+    pub fn pop_seccomp_trap(&mut self) {
+        self.pop_event(EventType::EvSeccompTrap);
     }
 
-    pub fn pop_signal_delivery(&self) {
-        unimplemented!()
+    pub fn pop_signal_delivery(&mut self) {
+        self.pop_event(EventType::EvSignalDelivery);
     }
 
-    pub fn pop_signal_handler(&self) {
-        unimplemented!()
+    pub fn pop_signal_handler(&mut self) {
+        self.pop_event(EventType::EvSignalHandler);
     }
 
-    pub fn pop_syscall(&self) {
-        unimplemented!()
+    pub fn pop_syscall(&mut self) {
+        self.pop_event(EventType::EvSyscall);
     }
 
-    pub fn pop_syscall_interruption(&self) {
-        unimplemented!()
+    pub fn pop_syscall_interruption(&mut self) {
+        self.pop_event(EventType::EvSyscallInterruption);
     }
 
     /// Return the event at the top of this's stack.
