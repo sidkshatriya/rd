@@ -1,7 +1,10 @@
-use super::task_common::{reset_syscallbuf, set_syscallbuf_locked};
+use super::{
+    task_common::{read_val_mem, reset_syscallbuf, set_syscallbuf_locked},
+    task_inner::PtraceData,
+};
 use crate::{
     arch::{Architecture, NativeArch},
-    bindings::{kernel::user_desc, signal::siginfo_t},
+    bindings::{kernel::user_desc, ptrace::PTRACE_SETSIGMASK, signal::siginfo_t},
     event::{Event, EventType, SignalDeterministic, SignalResolvedDisposition},
     kernel_abi::{
         common::preload_interface::syscallbuf_record,
@@ -18,6 +21,7 @@ use crate::{
         address_space::{
             address_space::AddressSpace,
             memory_range::MemoryRange,
+            BreakpointType,
             Enabled,
             Privileged,
             Traced,
@@ -61,6 +65,7 @@ use crate::{
     sig::Sig,
     ticks::Ticks,
     trace::{trace_frame::FrameTime, trace_writer::TraceWriter},
+    util::u8_raw_slice,
     wait_status::WaitStatus,
 };
 use libc::{pid_t, EINVAL, PR_TSC_ENABLE};
@@ -513,7 +518,48 @@ impl Task for RecordTask {
     }
 
     fn did_wait(&mut self) {
-        unimplemented!()
+        for p in self.syscallbuf_syscall_entry_breakpoints() {
+            self.vm_shr_ptr()
+                .remove_breakpoint(p, BreakpointType::BkptInternal, self);
+        }
+        if self.break_at_syscallbuf_final_instruction {
+            self.vm_shr_ptr().remove_breakpoint(
+                self.syscallbuf_code_layout
+                    .syscallbuf_final_exit_instruction,
+                BreakpointType::BkptInternal,
+                self,
+            );
+        }
+
+        if self.stashed_signals_blocking_more_signals {
+            // Saved 'blocked_sigs' must still be correct regardless of syscallbuf
+            // state, because we do not allow stashed_signals_blocking_more_signals
+            // to hold across syscalls (traced or untraced) that change the signal mask.
+            ed_assert!(self, !self.blocked_sigs_dirty);
+            self.xptrace(
+                PTRACE_SETSIGMASK,
+                RemotePtr::<Void>::from(8usize),
+                PtraceData::ReadFrom(u8_raw_slice(&self.blocked_sigs)),
+            );
+        } else if !self.syscallbuf_child.is_null() {
+            // The syscallbuf struct is only 32 bytes currently so read the whole thing
+            // at once to aVoid multiple calls to read_mem. Even though this shouldn't
+            // need a syscall because we use a local-mapping, apparently that lookup
+            // is still noticeably expensive.
+            let child_addr = self.syscallbuf_child;
+            let syscallbuf = read_val_mem(self, child_addr, None);
+            if syscallbuf.in_sigprocmask_critical_section != 0 {
+                // |blocked_sigs| may have been updated but the syscall not yet issued.
+                // Use the kernel's value.
+                self.invalidate_sigmask();
+            } else {
+                let syscallbuf_generation = syscallbuf.blocked_sigs_generation;
+                if syscallbuf_generation > self.syscallbuf_blocked_sigs_generation {
+                    self.syscallbuf_blocked_sigs_generation = syscallbuf_generation;
+                    self.blocked_sigs = syscallbuf.blocked_sigs;
+                }
+            }
+        }
     }
 
     fn at_preload_init(&mut self) {
@@ -884,8 +930,8 @@ impl RecordTask {
     }
 
     /// Note that the task sigmask needs to be refetched.
-    pub fn invalidate_sigmask(&self) {
-        unimplemented!()
+    pub fn invalidate_sigmask(&mut self) {
+        self.blocked_sigs_dirty = true;
     }
 
     /// Reset the signal handler for this signal to the default.
