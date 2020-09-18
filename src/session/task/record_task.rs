@@ -10,15 +10,24 @@ use super::{
 };
 use crate::{
     arch::{Architecture, NativeArch},
+    auto_remote_syscalls::AutoRemoteSyscalls,
     bindings::{
         kernel::user_desc,
         ptrace::{PTRACE_GETSIGMASK, PTRACE_SETSIGINFO, PTRACE_SETSIGMASK},
         signal::siginfo_t,
     },
-    event::{Event, EventType, SignalDeterministic, SignalResolvedDisposition, SyscallEventData},
+    event::{
+        Event,
+        EventType,
+        SignalDeterministic,
+        SignalResolvedDisposition,
+        SyscallEventData,
+        SyscallState,
+    },
     kernel_abi::{
         common::preload_interface::syscallbuf_record,
         native_arch,
+        syscall_number_for_gettid,
         syscall_number_for_rt_sigaction,
         SupportedArch,
     },
@@ -78,8 +87,12 @@ use crate::{
     ticks::Ticks,
     trace::{trace_frame::FrameTime, trace_writer::TraceWriter},
     util::{
+        checksum_process_memory,
         default_action,
+        dump_process_memory,
         read_proc_status_fields,
+        should_checksum,
+        should_dump_memory,
         signal_bit,
         u8_raw_slice,
         u8_raw_slice_mut,
@@ -88,7 +101,7 @@ use crate::{
     },
     wait_status::WaitStatus,
 };
-use libc::{pid_t, EINVAL, PR_TSC_ENABLE};
+use libc::{pid_t, syscall, SYS_tgkill, EINVAL, PR_TSC_ENABLE};
 use nix::{errno::errno, sys::mman::ProtFlags};
 use owning_ref::OwningHandle;
 use std::{
@@ -107,7 +120,7 @@ use std::{
 
 #[derive(Clone)]
 pub struct Sighandlers {
-    /// @TODO Keep as opaque for now. Need to ensure correct visibility.
+    /// Keep as opaque for now. Need to ensure correct visibility.
     handlers: [Sighandler; _NSIG as usize],
 }
 
@@ -308,7 +321,7 @@ pub struct StashedSignal {
     deterministic: SignalDeterministic,
 }
 
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum FlushSyscallbuf {
     FlushSyscallbuf,
     /// Pass this if it's safe to replay the event before we process the
@@ -1494,13 +1507,61 @@ impl RecordTask {
     }
 
     pub fn record_event(
-        &self,
-        _ev: &Event,
-        _flush: Option<FlushSyscallbuf>,
-        _reset: Option<AllowSyscallbufReset>,
-        _registers: Option<&Registers>,
+        &mut self,
+        ev: &Event,
+        maybe_flush: Option<FlushSyscallbuf>,
+        maybe_reset: Option<AllowSyscallbufReset>,
+        maybe_registers: Option<&Registers>,
     ) {
-        unimplemented!()
+        let flush = maybe_flush.unwrap_or(FlushSyscallbuf::FlushSyscallbuf);
+        let reset = maybe_reset.unwrap_or(AllowSyscallbufReset::AllowResetSyscallbuf);
+        if flush == FlushSyscallbuf::FlushSyscallbuf {
+            self.maybe_flush_syscallbuf();
+        }
+
+        let current_time = self.trace_writer().time();
+        if should_dump_memory(ev, current_time) {
+            dump_process_memory(self, current_time, "rec");
+        }
+
+        if should_checksum(ev, current_time) {
+            checksum_process_memory(self, current_time);
+        }
+
+        if ev.is_syscall_event() && ev.syscall().state == SyscallState::ExitingSyscall {
+            self.ticks_at_last_recorded_syscall_exit = self.tick_count();
+        }
+
+        let mut maybe_extra_registers = None;
+        let mut maybe_record_registers = None;
+        if ev.record_regs() {
+            maybe_record_registers = match maybe_registers {
+                Some(registers) => Some(registers.clone()),
+                None => Some(self.regs_ref().clone()),
+            };
+
+            if ev.record_extra_regs() {
+                maybe_extra_registers = Some(self.extra_regs_ref().clone());
+            }
+        }
+
+        self.trace_writer_mut().write_frame(
+            self,
+            ev,
+            maybe_record_registers.as_ref(),
+            maybe_extra_registers.as_ref(),
+        );
+        log!(LogDebug, "Wrote event {} for time {}", ev, current_time);
+
+        if !ev.has_ticks_slop() && reset == AllowSyscallbufReset::AllowResetSyscallbuf {
+            ed_assert_eq!(self, flush, FlushSyscallbuf::FlushSyscallbuf);
+            // After we've output an event, it's safe to reset the syscallbuf (if not
+            // explicitly delayed) since we will have exited the syscallbuf code that
+            // consumed the syscallbuf data.
+            // This only works if the event has a reliable tick count so when we
+            // reach it, we're done.
+            self.maybe_reset_syscallbuf();
+        }
     }
 
     pub fn is_fatal_signal(&self, sig: Sig, deterministic: SignalDeterministic) -> bool {
@@ -1539,8 +1600,11 @@ impl RecordTask {
     }
 
     /// Do a tgkill to send a specific signal to this task.
-    pub fn tgkill(&self, _sig: Sig) {
-        unimplemented!()
+    pub fn tgkill(&self, sig: Sig) {
+        log!(LogDebug, "Sending {} to tid {}", sig, self.tid);
+        ed_assert_eq!(self, 0, unsafe {
+            syscall(SYS_tgkill, self.real_tgid(), self.tid, sig.as_raw())
+        });
     }
 
     /// If the process looks alive, kill it. It is recommended to call try_wait(),
@@ -1553,16 +1617,17 @@ impl RecordTask {
     }
 
     pub fn robust_list(&self) -> RemotePtr<Void> {
-        unimplemented!()
+        self.robust_futex_list
     }
 
     pub fn robust_list_len(&self) -> usize {
-        unimplemented!()
+        self.robust_futex_list_len
     }
 
     /// Uses /proc so not trivially cheap.
+    /// Returns -1 if there was a problem in getting the pid
     pub fn get_parent_pid(&self) -> pid_t {
-        unimplemented!()
+        get_ppid(self.tid).unwrap_or(-1)
     }
 
     /// Return true if this is a "clone child" per the wait(2) man page.
@@ -1570,8 +1635,8 @@ impl RecordTask {
         unimplemented!()
     }
 
-    pub fn set_termination_signal(&self, _sig: Sig) {
-        unimplemented!()
+    pub fn set_termination_signal(&mut self, maybe_sig: Option<Sig>) {
+        self.termination_signal = maybe_sig;
     }
 
     /// When a signal triggers an emulated a ptrace-stop for this task,
@@ -1642,8 +1707,14 @@ impl RecordTask {
     }
 
     /// Retrieve the tid of this task from the tracee and store it
-    fn update_own_namespace_tid(&self) {
-        unimplemented!()
+    fn update_own_namespace_tid(&mut self) {
+        let arch = self.arch();
+        let ret: i32;
+        {
+            let mut remote = AutoRemoteSyscalls::new(self);
+            ret = remote.infallible_syscall(syscall_number_for_gettid(arch), &[]) as i32;
+        }
+        self.own_namespace_rec_tid = ret;
     }
 
     /// Wait for `futex` in this address space to have the value

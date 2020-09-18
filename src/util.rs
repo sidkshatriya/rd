@@ -1570,6 +1570,7 @@ pub fn has_effective_caps(mut caps: u64) -> bool {
     true
 }
 
+/// Return true if the user requested memory be dumped at this event/time.
 pub fn should_dump_memory(event: &Event, time: FrameTime) -> bool {
     let flags = Flags::get();
 
@@ -1581,6 +1582,31 @@ pub fn should_dump_memory(event: &Event, time: FrameTime) -> bool {
         || (flags.dump_on == Some(DumpOn::DumpOnRdtsc)
             && event.event_type() == EventType::EvInstructionTrap)
         || flags.dump_at == Some(time)
+}
+
+/// Dump all of the memory in `t`'s address to the file
+/// "[trace_dir]/[t.tid]_[global_time]_[tag]"
+pub fn dump_process_memory(_t: &dyn Task, _global_time: FrameTime, _tag: &str) {
+    unimplemented!()
+}
+
+/// Return true if the user has requested `t`'s memory be
+/// checksummed at this event/time
+pub fn should_checksum(_ev: &Event, _time: FrameTime) -> bool {
+    unimplemented!()
+}
+
+/// Write a checksum of each mapped region in `t`'s address space to a
+/// special log, where it can be read by `validate_process_memory()`
+/// during replay
+pub fn checksum_process_memory(_t: &dyn Task, _global_time: FrameTime) {
+    unimplemented!()
+}
+
+/// Validate the checksum of `t`'s address space that was written
+/// during recording
+fn validate_process_memory(_t: &dyn Task, _global_time: FrameTime) {
+    unimplemented!()
 }
 
 pub fn is_proc_mem_file(filename_os: &OsStr) -> bool {
