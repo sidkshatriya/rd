@@ -11,6 +11,7 @@ lazy_static! {
 /// event time at which to start checksumming.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum Checksum {
+    ChecksumNone,
     ChecksumSyscall,
     ChecksumAll,
     ChecksumAt(FrameTime),
@@ -26,7 +27,7 @@ pub enum DumpOn {
 
 #[derive(Clone)]
 pub struct Flags {
-    pub checksum: Option<Checksum>,
+    pub checksum: Checksum,
     pub dump_on: Option<DumpOn>,
     pub dump_at: Option<u64>,
     /// Force rd to do some things that it otherwise wouldn't, for
@@ -65,7 +66,7 @@ pub fn init_flags() -> Flags {
     let options = RdOptions::from_args();
 
     Flags {
-        checksum: options.checksum,
+        checksum: options.checksum.unwrap_or(Checksum::ChecksumNone),
         dump_on: options.dump_on,
         dump_at: options.dump_at,
         force_things: options.force_things,

@@ -4,8 +4,8 @@ use crate::{
         kernel::{timeval, _LINUX_CAPABILITY_U32S_3, _LINUX_CAPABILITY_VERSION_3},
         signal::{SI_KERNEL, TRAP_BRKPT},
     },
-    event::{Event, EventType},
-    flags::{DumpOn, Flags},
+    event::{Event, EventType, SyscallState},
+    flags::{Checksum, DumpOn, Flags},
     kernel_abi::{native_arch, CloneParameterOrdering},
     kernel_supplement::sig_set_t,
     log::LogLevel::{LogDebug, LogWarn},
@@ -1592,8 +1592,27 @@ pub fn dump_process_memory(_t: &dyn Task, _global_time: FrameTime, _tag: &str) {
 
 /// Return true if the user has requested `t`'s memory be
 /// checksummed at this event/time
-pub fn should_checksum(_ev: &Event, _time: FrameTime) -> bool {
-    unimplemented!()
+pub fn should_checksum(event: &Event, time: FrameTime) -> bool {
+    if event.event_type() == EventType::EvExit {
+        // Task is dead, or at least detached, and we can't read its memory safely.
+        return false;
+    }
+    if event.has_ticks_slop() {
+        // We may not be at the same point during recording and replay, so don't
+        // compute checksums.
+        return false;
+    }
+
+    let checksum = Flags::get().checksum;
+    let is_syscall_exit = EventType::EvSyscall == event.event_type()
+        && SyscallState::ExitingSyscall == event.syscall().state;
+
+    match checksum {
+        Checksum::ChecksumNone => false,
+        Checksum::ChecksumSyscall => is_syscall_exit,
+        Checksum::ChecksumAll => true,
+        Checksum::ChecksumAt(at_time) => time >= at_time,
+    }
 }
 
 /// Write a checksum of each mapped region in `t`'s address space to a
