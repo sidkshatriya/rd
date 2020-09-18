@@ -70,7 +70,14 @@ use crate::{
     sig::{self, Sig},
     ticks::Ticks,
     trace::{trace_frame::FrameTime, trace_writer::TraceWriter},
-    util::{default_action, read_proc_status_fields, u8_raw_slice, u8_raw_slice_mut, SignalAction},
+    util::{
+        default_action,
+        read_proc_status_fields,
+        signal_bit,
+        u8_raw_slice,
+        u8_raw_slice_mut,
+        SignalAction,
+    },
     wait_status::WaitStatus,
 };
 use libc::{pid_t, EINVAL, PR_TSC_ENABLE};
@@ -872,13 +879,32 @@ impl RecordTask {
     }
 
     /// Return true if `sig` is pending but hasn't been reported to ptrace yet
-    pub fn is_signal_pending(&self, _sig: Sig) -> bool {
-        unimplemented!()
+    pub fn is_signal_pending(&self, sig: Sig) -> bool {
+        let mut pending_strs = read_proc_status_fields(self.tid, &[b"SigPnd", b"ShdPnd"]).unwrap();
+        if pending_strs.len() < 2 {
+            return false;
+        }
+
+        let mask2 = u64::from_str_radix(&pending_strs.pop().unwrap().into_string().unwrap(), 16);
+        let mask1 = u64::from_str_radix(&pending_strs.pop().unwrap().into_string().unwrap(), 16);
+        mask1.is_ok() && mask2.is_ok() && ((mask1.unwrap() | mask2.unwrap()) & signal_bit(sig)) != 0
     }
 
     /// Return true if there are any signals pending that are not blocked.
     pub fn has_any_actionable_signal(&self) -> bool {
-        unimplemented!()
+        let mut pending_strs =
+            read_proc_status_fields(self.tid, &[b"SigPnd", b"ShdPnd", b"SigBlk"]).unwrap();
+        if pending_strs.len() < 3 {
+            return false;
+        }
+
+        let mask_blk = u64::from_str_radix(&pending_strs.pop().unwrap().into_string().unwrap(), 16);
+        let mask2 = u64::from_str_radix(&pending_strs.pop().unwrap().into_string().unwrap(), 16);
+        let mask1 = u64::from_str_radix(&pending_strs.pop().unwrap().into_string().unwrap(), 16);
+        mask1.is_ok()
+            && mask2.is_ok()
+            && mask_blk.is_ok()
+            && ((mask1.unwrap() | mask2.unwrap()) & !mask_blk.unwrap()) != 0
     }
 
     /// Get all threads out of an emulated GROUP_STOP
@@ -1391,7 +1417,7 @@ impl RecordTask {
         let results = read_proc_status_fields(self.tid, &[b"SigBlk"]).unwrap();
         ed_assert!(self, results.len() == 1);
 
-        let res = u64::from_str_radix(&results[0].clone().into_string().unwrap(), 16).unwrap();
+        let res = u64::from_str_radix(&results.pop().unwrap().into_string().unwrap(), 16).unwrap();
         unsafe { mem::transmute(res) }
     }
 

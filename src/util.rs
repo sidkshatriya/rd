@@ -7,6 +7,7 @@ use crate::{
     event::{Event, EventType},
     flags::{DumpOn, Flags},
     kernel_abi::{native_arch, CloneParameterOrdering},
+    kernel_supplement::sig_set_t,
     log::LogLevel::{LogDebug, LogWarn},
     registers::Registers,
     remote_code_ptr::RemoteCodePtr,
@@ -1590,4 +1591,8 @@ pub fn is_proc_fd_dir(filename_os: &OsStr) -> bool {
 
 pub fn check_for_leaks() {
     unimplemented!()
+}
+
+pub fn signal_bit(sig: Sig) -> sig_set_t {
+    (1 as sig_set_t) << (sig.as_raw() - 1)
 }
