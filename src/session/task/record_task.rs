@@ -1492,8 +1492,17 @@ impl RecordTask {
     /// Call this after recording an event when it might be safe to reset the
     /// syscallbuf. It must be after recording an event to ensure during replay
     /// we run past any syscallbuf after-syscall code that uses the buffer data.
-    pub fn maybe_reset_syscallbuf(&self) {
-        unimplemented!()
+    pub fn maybe_reset_syscallbuf(&mut self) {
+        if self.flushed_syscallbuf
+            && !self.delay_syscallbuf_reset_for_desched
+            && !self.delay_syscallbuf_reset_for_seccomp_trap
+        {
+            self.flushed_syscallbuf = false;
+            log!(LogDebug, "Syscallbuf reset");
+            self.reset_syscallbuf();
+            self.syscallbuf_blocked_sigs_generation = 0;
+            self.record_event(Some(Event::syscallbuf_reset()), None, None, None);
+        }
     }
 
     /// Record an event on behalf of this.  Record the registers of
@@ -1502,17 +1511,19 @@ impl RecordTask {
     /// and meaningful at this's current execution point.
     /// `record_current_event()` record `this->ev()`, and
     /// `record_event()` records the specified event.
-    pub fn record_current_event(&self) {
-        unimplemented!()
+    pub fn record_current_event(&mut self) {
+        self.record_event(None, None, None, None)
     }
 
     pub fn record_event(
         &mut self,
-        ev: &Event,
+        maybe_ev: Option<Event>,
         maybe_flush: Option<FlushSyscallbuf>,
         maybe_reset: Option<AllowSyscallbufReset>,
         maybe_registers: Option<&Registers>,
     ) {
+        // @TODO see if we can avoid clone() for performance at some point
+        let ev = maybe_ev.unwrap_or(self.ev().clone());
         let flush = maybe_flush.unwrap_or(FlushSyscallbuf::FlushSyscallbuf);
         let reset = maybe_reset.unwrap_or(AllowSyscallbufReset::AllowResetSyscallbuf);
         if flush == FlushSyscallbuf::FlushSyscallbuf {
@@ -1520,11 +1531,11 @@ impl RecordTask {
         }
 
         let current_time = self.trace_writer().time();
-        if should_dump_memory(ev, current_time) {
+        if should_dump_memory(&ev, current_time) {
             dump_process_memory(self, current_time, "rec");
         }
 
-        if should_checksum(ev, current_time) {
+        if should_checksum(&ev, current_time) {
             checksum_process_memory(self, current_time);
         }
 
@@ -1547,7 +1558,7 @@ impl RecordTask {
 
         self.trace_writer_mut().write_frame(
             self,
-            ev,
+            &ev,
             maybe_record_registers.as_ref(),
             maybe_extra_registers.as_ref(),
         );
