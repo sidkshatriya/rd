@@ -1,5 +1,11 @@
 use super::{
-    task_common::{read_val_mem, reset_syscallbuf, set_syscallbuf_locked, task_drop_common},
+    task_common::{
+        read_mem,
+        read_val_mem,
+        reset_syscallbuf,
+        set_syscallbuf_locked,
+        task_drop_common,
+    },
     task_inner::PtraceData,
 };
 use crate::{
@@ -82,10 +88,11 @@ use crate::{
     wait_status::WaitStatus,
 };
 use libc::{pid_t, EINVAL, PR_TSC_ENABLE};
-use nix::errno::errno;
+use nix::{errno::errno, sys::mman::ProtFlags};
 use owning_ref::OwningHandle;
 use std::{
     cell::{Ref, RefCell, RefMut},
+    cmp::min,
     collections::{HashSet, VecDeque},
     convert::TryFrom,
     ffi::{CString, OsStr},
@@ -1254,14 +1261,22 @@ impl RecordTask {
 
     /// Save tracee data to the trace.  `addr` is the address in
     /// the address space of this task.  The `record_local*()`
-    /// variants record data that's already been read from this,
+    /// variants record data that's already been read from `self`,
     /// and the `record_remote*()` variants read the data and then
     /// record it.
+    ///
     /// If 'addr' is null then no record is written.
+    ///
     /// DIFF NOTE: @TODO In the rr implementation ssize_t is being used instead of size_t
-    /// for the record_* methods in many places. Why??
-    pub fn record_local(&self, _addr: RemotePtr<Void>, _buf: &[u8]) {
-        unimplemented!()
+    /// for the record_* methods in many places. Why?
+    pub fn record_local(&self, addr: RemotePtr<Void>, data: &[u8]) {
+        self.maybe_flush_syscallbuf();
+
+        if addr.is_null() {
+            return;
+        }
+
+        self.trace_writer_mut().write_raw(self.rec_tid, data, addr);
     }
 
     pub fn record_local_for<T>(_addr: RemotePtr<T>, _data: &T) {
@@ -1272,8 +1287,19 @@ impl RecordTask {
         unimplemented!()
     }
 
-    pub fn record_remote(&self, _addr: RemotePtr<Void>, _num_bytes: usize) {
-        unimplemented!()
+    pub fn record_remote(&mut self, addr: RemotePtr<Void>, num_bytes: usize) {
+        self.maybe_flush_syscallbuf();
+
+        if addr.is_null() {
+            return;
+        }
+
+        if self.record_remote_by_local_map(addr, num_bytes) {
+            return;
+        }
+
+        let buf = read_mem(self, addr, num_bytes, None);
+        self.trace_writer_mut().write_raw(self.rec_tid, &buf, addr);
     }
 
     pub fn record_remote_for<T>(_addr: RemotePtr<T>) {
@@ -1283,6 +1309,7 @@ impl RecordTask {
     pub fn record_remote_range(&mut self, _range: MemoryRange) {
         unimplemented!()
     }
+
     pub fn record_remote_range_fallible(&mut self, _range: MemoryRange) -> Result<usize, ()> {
         unimplemented!()
     }
@@ -1291,29 +1318,74 @@ impl RecordTask {
     /// contiguous mapped data starting at `addr`.
     pub fn record_remote_fallible(
         &mut self,
-        _addr: RemotePtr<Void>,
-        _num_bytes: usize,
+        addr: RemotePtr<Void>,
+        num_bytes: usize,
     ) -> Result<usize, ()> {
-        unimplemented!()
+        if self.record_remote_by_local_map(addr, num_bytes) {
+            return Ok(num_bytes);
+        }
+
+        let mut buf = Vec::new();
+        let mut nread = 0;
+        if !addr.is_null() {
+            buf.resize(num_bytes, 0u8);
+            nread = self.read_bytes_fallible(addr, &mut buf)?;
+            buf.truncate(nread);
+        }
+        self.trace_writer_mut().write_raw(self.rec_tid, &buf, addr);
+
+        Ok(nread)
     }
 
     /// Record as much as we can of the bytes in this range. Will record only
     /// contiguous mapped-writable data starting at `addr`.
-    pub fn record_remote_writable(&self, _addr: RemotePtr<Void>, _num_bytes: usize) {
-        unimplemented!()
+    pub fn record_remote_writable(&mut self, addr: RemotePtr<Void>, mut num_bytes: usize) {
+        let mut p = addr;
+        while p < addr + num_bytes {
+            match self.vm().mapping_of(p) {
+                Some(m) => {
+                    if !m.map.prot().contains(ProtFlags::PROT_WRITE) {
+                        break;
+                    }
+                    p = m.map.end();
+                }
+                None => break,
+            }
+        }
+        num_bytes = min(num_bytes, p - addr);
+
+        self.record_remote(addr, num_bytes);
     }
 
     /// Simple helper that attempts to use the local mapping to record if one
     /// exists
-    pub fn record_remote_by_local_map(&self, _addr: RemotePtr<Void>, _num_bytes: usize) -> bool {
-        unimplemented!()
+    pub fn record_remote_by_local_map(&self, addr: RemotePtr<Void>, num_bytes: usize) -> bool {
+        match self.vm().local_mapping(addr, num_bytes) {
+            Some(local_data) => {
+                self.record_local(addr, local_data);
+                true
+            }
+            None => false,
+        }
     }
 
     /// Save tracee data to the trace.  `addr` is the address in
     /// the address space of this task.
     /// If 'addr' is null then a zero-length record is written.
-    pub fn record_remote_even_if_null(&self, _addr: RemotePtr<Void>, _num_bytes: usize) {
-        unimplemented!()
+    pub fn record_remote_even_if_null(&mut self, addr: RemotePtr<Void>, num_bytes: usize) {
+        self.maybe_flush_syscallbuf();
+
+        if addr.is_null() {
+            self.trace_writer_mut().write_raw(self.rec_tid, &[], addr);
+            return;
+        }
+
+        if self.record_remote_by_local_map(addr, num_bytes) {
+            return;
+        }
+
+        let buf = read_mem(self, addr, num_bytes, None);
+        self.trace_writer_mut().write_raw(self.rec_tid, &buf, addr);
     }
 
     pub fn record_remote_even_if_null_for<T>(_addr: RemotePtr<T>) {

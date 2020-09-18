@@ -81,8 +81,8 @@ impl FileMonitor for ProcMemMonitor {
         match maybe_target {
             None => return,
             Some(target) => {
-                let t = target.borrow_mut();
-                let record_task = t.as_record_task().unwrap();
+                let mut t = target.borrow_mut();
+                let record_task = t.as_record_task_mut().unwrap();
                 let mut offset = lazy_offset.retrieve(false).unwrap();
                 for r in ranges {
                     record_task.record_remote(

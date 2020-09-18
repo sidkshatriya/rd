@@ -21,7 +21,7 @@ impl FileMonitor for MagicSaveDataMonitor {
     fn did_write<'b, 'a: 'b>(&mut self, rv: &[Range], l: &mut LazyOffset<'b, 'a>) {
         for r in rv {
             if l.t.session().is_recording() {
-                let rec_task = l.t.as_record_task().unwrap();
+                let rec_task = l.t.as_record_task_mut().unwrap();
                 rec_task.record_remote(r.data, r.length);
             } else if l.t.session().is_replaying() {
                 let mut bytes: Vec<u8> = Vec::with_capacity(r.length);
