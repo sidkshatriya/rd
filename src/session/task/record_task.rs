@@ -1,5 +1,5 @@
 use super::{
-    task_common::{read_val_mem, reset_syscallbuf, set_syscallbuf_locked},
+    task_common::{read_val_mem, reset_syscallbuf, set_syscallbuf_locked, task_drop_common},
     task_inner::PtraceData,
 };
 use crate::{
@@ -66,6 +66,7 @@ use crate::{
             Task,
         },
         Session,
+        SessionSharedPtr,
     },
     sig::{self, Sig},
     ticks::Ticks,
@@ -82,9 +83,11 @@ use crate::{
 };
 use libc::{pid_t, EINVAL, PR_TSC_ENABLE};
 use nix::errno::errno;
+use owning_ref::OwningHandle;
 use std::{
-    cell::RefCell,
+    cell::{Ref, RefCell, RefMut},
     collections::{HashSet, VecDeque},
+    convert::TryFrom,
     ffi::{CString, OsStr},
     mem::{self, size_of},
     ops::{Deref, DerefMut},
@@ -111,18 +114,18 @@ impl Sighandlers {
         Self::default()
     }
 
-    pub fn get_mut(&mut self, sig: usize) -> &mut Sighandler {
+    pub fn get_mut(&mut self, sig: Sig) -> &mut Sighandler {
         // DIFF NOTE: in rr there is a call to assert_valid
         // In rust we don't need this as an out of bounds index
         // will panic
-        &mut self.handlers[sig]
+        &mut self.handlers[sig.as_raw() as usize]
     }
 
-    pub fn get(&self, sig: usize) -> &Sighandler {
+    pub fn get(&self, sig: Sig) -> &Sighandler {
         // DIFF NOTE: in rr there is a call to assert_valid
         // In rust we don't need this as an out of bounds index
         // will panic
-        &self.handlers[sig]
+        &self.handlers[sig.as_raw() as usize]
     }
 
     pub fn init_from_current_process(&mut self) {
@@ -195,7 +198,7 @@ impl Sighandler {
         unsafe {
             copy_nonoverlapping(
                 // @TODO does this cast of an associated type reference work as expected?
-                ksa as *const _ as *const u8,
+                &raw const ksa as *const u8,
                 self.sa.as_mut_ptr() as *mut u8,
                 size_of::<Arch::kernel_sigaction>(),
             );
@@ -363,7 +366,7 @@ pub struct RecordTask {
     pub in_wait_pid: pid_t,
 
     /// Signal handler state
-
+    ///
     /// Points to the signal-hander table of this task.  If this
     /// task is a non-fork clone child, then the table will be
     /// shared with all its "thread" siblings.  Any updates made to
@@ -776,12 +779,17 @@ impl RecordTask {
             .syscallbuf_final_exit_instruction
     }
 
-    /// Initialize tracee buffers in this, i.e., implement
+    /// Initialize tracee buffers in `self`, i.e., implement
     /// RDCALL_init_syscall_buffer.  This task must be at the point
     /// of *exit from* the rdcall.  Registers will be updated with
     /// the return value from the rdcall, which is also returned
     /// from this call.
     pub fn init_buffers(&self) {
+        let arch = self.arch();
+        rd_arch_function!(self, init_buffers_arch, arch)
+    }
+
+    fn init_buffers_arch<Arch: Architecture>(&self) {
         unimplemented!()
     }
 
@@ -790,8 +798,20 @@ impl RecordTask {
         unimplemented!()
     }
 
-    pub fn trace_writer(&self) -> &TraceWriter {
-        unimplemented!()
+    pub fn trace_writer(&self) -> OwningHandle<SessionSharedPtr, Ref<'_, TraceWriter>> {
+        let sess = self.session();
+        let owning_handle = OwningHandle::new_with_fn(sess, |o| {
+            unsafe { (*o).as_record() }.unwrap().trace_writer()
+        });
+        owning_handle
+    }
+
+    pub fn trace_writer_mut(&self) -> OwningHandle<SessionSharedPtr, RefMut<'_, TraceWriter>> {
+        let sess = self.session();
+        let owning_handle = OwningHandle::new_with_fn(sess, |o| {
+            unsafe { (*o).as_record() }.unwrap().trace_writer_mut()
+        });
+        owning_handle
     }
 
     /// Emulate 'tracer' ptracing this task.
@@ -915,26 +935,27 @@ impl RecordTask {
     /// Return true if the disposition of `sig` in `table` isn't
     /// SIG_IGN or SIG_DFL, that is, if a user sighandler will be
     /// invoked when `sig` is received.
-    pub fn signal_has_user_handler(&self, _sig: Sig) -> bool {
-        unimplemented!()
+    pub fn signal_has_user_handler(&self, sig: Sig) -> bool {
+        self.sighandlers.borrow().get(sig).disposition() == SignalDisposition::SignalHandler
     }
 
     /// If signal_has_user_handler(sig) is true, return the address of the
-    /// user handler, otherwise return null.
-    pub fn get_signal_user_handler(&self, _sig: Sig) -> RemoteCodePtr {
-        unimplemented!()
+    /// user handler as a Some, otherwise return None.
+    pub fn get_signal_user_handler(&self, sig: Sig) -> Option<RemoteCodePtr> {
+        self.sighandlers.borrow().get(sig).get_user_handler()
     }
 
     /// Return true if the signal handler for `sig` takes a &siginfo_t
     /// parameter.
-    pub fn signal_handler_takes_siginfo(&self, _sig: Sig) -> bool {
-        unimplemented!()
+    pub fn signal_handler_takes_siginfo(&self, sig: Sig) -> bool {
+        self.sighandlers.borrow().get(sig).takes_siginfo
     }
 
     /// Return `sig`'s current sigaction. Returned as raw bytes since the
     /// data is architecture-dependent.
-    pub fn signal_action(&self, _sig: Sig) -> &[u8] {
-        unimplemented!()
+    /// DIFF NOTE: Returning the vector instead of the reference
+    pub fn signal_action(&self, sig: Sig) -> Vec<u8> {
+        self.sighandlers.borrow().get(sig).sa.to_owned()
     }
 
     /// Return true iff `sig` is blocked for this.
@@ -954,12 +975,7 @@ impl RecordTask {
             // These can never be ignored
             return false;
         }
-        match self
-            .sighandlers
-            .borrow()
-            .get(sig.as_raw() as usize)
-            .disposition()
-        {
+        match self.sighandlers.borrow().get(sig).disposition() {
             SignalDisposition::SignalIgnore => true,
             SignalDisposition::SignalDefault => SignalAction::Ignore == default_action(sig),
             SignalDisposition::SignalHandler => false,
@@ -968,10 +984,7 @@ impl RecordTask {
 
     /// Return the applications current disposition of `sig`.
     pub fn sig_disposition(&self, sig: Sig) -> SignalDisposition {
-        self.sighandlers
-            .borrow()
-            .get(sig.as_raw() as usize)
-            .disposition()
+        self.sighandlers.borrow().get(sig).disposition()
     }
 
     /// Return the resolved disposition --- what this signal will actually do,
@@ -1006,13 +1019,96 @@ impl RecordTask {
     }
 
     /// Reset the signal handler for this signal to the default.
-    pub fn did_set_sig_handler_default(&self, _sig: Sig) {
-        unimplemented!()
+    pub fn did_set_sig_handler_default(&self, sig: Sig) {
+        let mut shb = self.sighandlers.borrow_mut();
+        let h: &mut Sighandler = shb.get_mut(sig);
+        reset_handler(h, self.arch());
     }
 
     /// Check that our status for `sig` matches what's in /proc/<pid>/status.
-    pub fn verify_signal_states(&self) {
-        unimplemented!()
+    #[cfg(debug_assertions)]
+    pub fn verify_signal_states(&mut self) {
+        if self.ev().is_syscall_event() {
+            // If the syscall event is on the event stack with PROCESSING or EXITING
+            // states, we won't have applied the signal-state updates yet while the
+            // kernel may have.
+            return;
+        }
+        let mut results =
+            read_proc_status_fields(self.tid, &[b"SigBlk", b"SigIgn", b"SigCgt"]).unwrap();
+        ed_assert!(self, results.len() == 3);
+        let caught =
+            u64::from_str_radix(&results.pop().unwrap().into_string().unwrap(), 16).unwrap();
+        let ignored =
+            u64::from_str_radix(&results.pop().unwrap().into_string().unwrap(), 16).unwrap();
+        let blocked =
+            u64::from_str_radix(&results.pop().unwrap().into_string().unwrap(), 16).unwrap();
+
+        for sigi in 1.._NSIG as i32 {
+            let sig = Sig::try_from(sigi).unwrap();
+            let mask = signal_bit(sig);
+            if is_unstoppable_signal(sig) {
+                ed_assert!(
+                    self,
+                    blocked & mask != 0,
+                    "Expected {} to not be blocked, but it is",
+                    sig
+                );
+                ed_assert!(
+                    self,
+                    ignored & mask != 0,
+                    "Expected {} to not be ignored, but it is",
+                    sig
+                );
+                ed_assert!(
+                    self,
+                    caught & mask != 0,
+                    "Expected {} to not be caught, but it is",
+                    sig
+                );
+            } else {
+                let is_sig_blocked = self.is_sig_blocked(sig);
+                ed_assert!(
+                    self,
+                    (blocked & mask != 0) == is_sig_blocked,
+                    "{} {}",
+                    sig,
+                    if blocked & mask != 0 {
+                        " is blocked"
+                    } else {
+                        " is not blocked"
+                    }
+                );
+                let disposition = self.sighandlers.borrow().get(sig).disposition();
+                ed_assert!(
+                    self,
+                    (ignored & mask != 0) == (disposition == SignalDisposition::SignalIgnore),
+                    "{} {}",
+                    sig,
+                    if ignored & mask != 0 {
+                        " is ignored"
+                    } else {
+                        " is not ignored"
+                    }
+                );
+                ed_assert!(
+                    self,
+                    (caught & mask != 0) == (disposition == SignalDisposition::SignalHandler),
+                    "{} {}",
+                    sig,
+                    if caught & mask != 0 {
+                        " is caught"
+                    } else {
+                        " is not caught"
+                    }
+                );
+            }
+        }
+    }
+
+    #[cfg(not(debug_assertions))]
+    pub fn verify_signal_states(&mut self) {
+        // Do nothing
     }
 
     /// Stashed-signal API: if a signal becomes pending at an
@@ -1414,7 +1510,7 @@ impl RecordTask {
             }
         }
 
-        let results = read_proc_status_fields(self.tid, &[b"SigBlk"]).unwrap();
+        let mut results = read_proc_status_fields(self.tid, &[b"SigBlk"]).unwrap();
         ed_assert!(self, results.len() == 1);
 
         let res = u64::from_str_radix(&results.pop().unwrap().into_string().unwrap(), 16).unwrap();
@@ -1470,18 +1566,13 @@ impl RecordTask {
         unimplemented!()
     }
 
-    fn init_buffers_arch<Arch: Architecture>(&self) {
-        unimplemented!()
-    }
-
     fn on_syscall_exit_arch<Arch: Architecture>(&self, _syscallno: i32, _regs: &Registers) {
         unimplemented!()
     }
 
     /// Helper function for update_sigaction.
     fn update_sigaction_arch<Arch: Architecture>(&mut self, regs: &Registers) {
-        // DIFF NOTE: @TODO in rr this is regs.args1_signed(). Why??
-        let sig = regs.arg1();
+        let sig = Sig::try_from(regs.arg1_signed() as i32).unwrap();
         let new_sigaction_addr = RemotePtr::<Arch::kernel_sigaction>::new_from_val(regs.arg2());
         if 0 == regs.syscall_result() && !new_sigaction_addr.is_null() {
             // A new sighandler was installed.  Update our
@@ -1510,4 +1601,11 @@ impl RecordTask {
 
 fn is_unstoppable_signal(sig: Sig) -> bool {
     sig == sig::SIGSTOP || sig == sig::SIGKILL
+}
+
+impl Drop for RecordTask {
+    fn drop(&mut self) {
+        task_drop_common(self);
+        unimplemented!()
+    }
 }
