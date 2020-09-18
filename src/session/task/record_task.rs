@@ -96,6 +96,7 @@ use std::{
     cmp::min,
     collections::{HashSet, VecDeque},
     convert::TryFrom,
+    error::Error,
     ffi::{CString, OsStr},
     mem::{self, size_of},
     ops::{Deref, DerefMut},
@@ -908,32 +909,32 @@ impl RecordTask {
     }
 
     /// Return true if `sig` is pending but hasn't been reported to ptrace yet
+    /// DIFF NOTE: A little more stricter than rr due to the unwraps and assert
     pub fn is_signal_pending(&self, sig: Sig) -> bool {
         let mut pending_strs = read_proc_status_fields(self.tid, &[b"SigPnd", b"ShdPnd"]).unwrap();
-        if pending_strs.len() < 2 {
-            return false;
-        }
+        ed_assert_eq!(self, pending_strs.len(), 2);
 
-        let mask2 = u64::from_str_radix(&pending_strs.pop().unwrap().into_string().unwrap(), 16);
-        let mask1 = u64::from_str_radix(&pending_strs.pop().unwrap().into_string().unwrap(), 16);
-        mask1.is_ok() && mask2.is_ok() && ((mask1.unwrap() | mask2.unwrap()) & signal_bit(sig)) != 0
+        let mask2 =
+            u64::from_str_radix(&pending_strs.pop().unwrap().into_string().unwrap(), 16).unwrap();
+        let mask1 =
+            u64::from_str_radix(&pending_strs.pop().unwrap().into_string().unwrap(), 16).unwrap();
+        ((mask1 | mask2) & signal_bit(sig)) != 0
     }
 
-    /// Return true if there are any signals pending that are not blocked.
+    /// Return true if there are any signals pending that are not blocked
+    /// DIFF NOTE: A little more stricter than rr due to the unwraps and assert
     pub fn has_any_actionable_signal(&self) -> bool {
         let mut pending_strs =
             read_proc_status_fields(self.tid, &[b"SigPnd", b"ShdPnd", b"SigBlk"]).unwrap();
-        if pending_strs.len() < 3 {
-            return false;
-        }
+        ed_assert_eq!(self, pending_strs.len(), 3);
 
-        let mask_blk = u64::from_str_radix(&pending_strs.pop().unwrap().into_string().unwrap(), 16);
-        let mask2 = u64::from_str_radix(&pending_strs.pop().unwrap().into_string().unwrap(), 16);
-        let mask1 = u64::from_str_radix(&pending_strs.pop().unwrap().into_string().unwrap(), 16);
-        mask1.is_ok()
-            && mask2.is_ok()
-            && mask_blk.is_ok()
-            && ((mask1.unwrap() | mask2.unwrap()) & !mask_blk.unwrap()) != 0
+        let mask_blk =
+            u64::from_str_radix(&pending_strs.pop().unwrap().into_string().unwrap(), 16).unwrap();
+        let mask2 =
+            u64::from_str_radix(&pending_strs.pop().unwrap().into_string().unwrap(), 16).unwrap();
+        let mask1 =
+            u64::from_str_radix(&pending_strs.pop().unwrap().into_string().unwrap(), 16).unwrap();
+        ((mask1 | mask2) & !mask_blk) != 0
     }
 
     /// Get all threads out of an emulated GROUP_STOP
@@ -1464,6 +1465,14 @@ impl RecordTask {
     /// before the tracee runs again in a way that might append another buffered
     /// syscall --- so we can't flush too early
     pub fn maybe_flush_syscallbuf(&self) {
+        if EventType::EvSyscallbufFlush == self.ev().event_type() {
+            // Already flushing.
+            return;
+        }
+        if self.syscallbuf_child.is_null() {
+            return;
+        }
+
         unimplemented!()
     }
 
@@ -1494,8 +1503,25 @@ impl RecordTask {
         unimplemented!()
     }
 
-    pub fn is_fatal_signal(&self, _sig: Sig, _deterministic: SignalDeterministic) -> bool {
-        unimplemented!()
+    pub fn is_fatal_signal(&self, sig: Sig, deterministic: SignalDeterministic) -> bool {
+        if self.thread_group().received_sigframe_sigsegv {
+            // Can't be blocked, caught or ignored
+            return true;
+        }
+
+        let action = default_action(sig);
+        if action != SignalAction::DumpCore && action != SignalAction::Terminate {
+            // If the default action doesn't kill the process, it won't die.
+            return false;
+        }
+
+        if self.is_sig_ignored(sig) {
+            // Deterministic fatal signals can't be ignored.
+            return deterministic == SignalDeterministic::DeterministicSig;
+        }
+
+        // If there's a signal handler, the signal won't be fatal.
+        !self.signal_has_user_handler(sig)
     }
 
     /// Return the pid of the newborn thread created by this task.
@@ -1521,12 +1547,15 @@ impl RecordTask {
     /// on this task before, to make sure liveness is correctly reflected when
     /// making this decision
     pub fn kill_if_alive(&self) {
-        unimplemented!()
+        if !self.is_dying() {
+            self.tgkill(sig::SIGKILL);
+        }
     }
 
     pub fn robust_list(&self) -> RemotePtr<Void> {
         unimplemented!()
     }
+
     pub fn robust_list_len(&self) -> usize {
         unimplemented!()
     }
@@ -1555,8 +1584,12 @@ impl RecordTask {
     /// Tasks normally can't change their tid. There is one very special situation
     /// where they can: when a non-main-thread does an execve, its tid changes
     /// to the tid of the thread-group leader.
-    pub fn set_tid_and_update_serial(&self, _tid: pid_t, _own_namespace_tid: pid_t) {
-        unimplemented!()
+    pub fn set_tid_and_update_serial(&mut self, tid: pid_t, own_namespace_tid: pid_t) {
+        self.hpc.set_tid(tid);
+        self.rec_tid = tid;
+        self.tid = tid;
+        self.serial = self.session().next_task_serial();
+        self.own_namespace_rec_tid = own_namespace_tid;
     }
 
     /// Return our cached copy of the signal mask, updating it if necessary.
@@ -1685,4 +1718,10 @@ impl Drop for RecordTask {
         task_drop_common(self);
         unimplemented!()
     }
+}
+
+fn get_ppid(pid: pid_t) -> Result<pid_t, Box<dyn Error>> {
+    let mut ppid_str = read_proc_status_fields(pid, &[b"PPid"])?;
+    let actual_ppid = pid_t::from_str_radix(&ppid_str.pop().unwrap().into_string().unwrap(), 10)?;
+    Ok(actual_ppid)
 }
