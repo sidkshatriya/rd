@@ -49,6 +49,7 @@ mod kernel_supplement;
 mod monitored_shared_memory;
 mod monkey_patcher;
 mod rd;
+mod record_signal;
 mod remote_code_ptr;
 mod remote_ptr;
 mod replay_syscall;

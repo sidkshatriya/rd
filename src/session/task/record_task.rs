@@ -10,7 +10,7 @@ use super::{
 };
 use crate::{
     arch::{Architecture, NativeArch},
-    auto_remote_syscalls::AutoRemoteSyscalls,
+    auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem},
     bindings::{
         kernel::user_desc,
         ptrace::{PTRACE_GETSIGMASK, PTRACE_SETSIGINFO, PTRACE_SETSIGMASK},
@@ -27,12 +27,14 @@ use crate::{
     kernel_abi::{
         common::preload_interface::syscallbuf_record,
         native_arch,
+        sigaction_sigset_size,
         syscall_number_for_gettid,
         syscall_number_for_rt_sigaction,
         SupportedArch,
     },
     kernel_supplement::{sig_set_t, SA_RESETHAND, SA_SIGINFO, _NSIG},
     log::LogDebug,
+    record_signal::disarm_desched_event,
     registers::Registers,
     remote_code_ptr::RemoteCodePtr,
     remote_ptr::{RemotePtr, Void},
@@ -101,7 +103,7 @@ use crate::{
     },
     wait_status::WaitStatus,
 };
-use libc::{pid_t, syscall, SYS_tgkill, EINVAL, PR_TSC_ENABLE};
+use libc::{pid_t, syscall, SYS_tgkill, EINVAL, EIO, PR_TSC_ENABLE};
 use nix::{errno::errno, sys::mman::ProtFlags};
 use owning_ref::OwningHandle;
 use std::{
@@ -111,7 +113,7 @@ use std::{
     convert::TryFrom,
     error::Error,
     ffi::{CString, OsStr},
-    mem::{self, size_of},
+    mem::size_of,
     ops::{Deref, DerefMut},
     ptr::copy_nonoverlapping,
     rc::{Rc, Weak},
@@ -1700,17 +1702,54 @@ impl RecordTask {
         ed_assert!(self, results.len() == 1);
 
         let res = u64::from_str_radix(&results.pop().unwrap().into_string().unwrap(), 16).unwrap();
-        unsafe { mem::transmute(res) }
+        res
     }
 
     /// Unblock the signal for the process.
-    pub fn unblock_signal(&self, _sig: Sig) {
-        unimplemented!()
+    pub fn unblock_signal(&mut self, sig: Sig) {
+        let mut mask: sig_set_t = self.get_sigmask();
+        mask &= !signal_bit(sig);
+        let ret = self.fallible_ptrace(
+            PTRACE_SETSIGMASK,
+            RemotePtr::<Void>::from(size_of::<sig_set_t>()),
+            PtraceData::ReadFrom(u8_raw_slice(&mask)),
+        );
+        if ret < 0 {
+            if errno() == EIO {
+                fatal!("PTRACE_SETSIGMASK not supported; rd requires Linux kernel >= 3.11");
+            }
+            ed_assert!(self, errno() == EINVAL);
+        } else {
+            log!(
+                LogDebug,
+                "Set signal mask to block all signals (bar \
+                 SYSCALLBUF_DESCHED_SIGNAL/TIME_SLICE_SIGNAL) while we \
+                 have a stashed signal"
+            );
+        }
+        self.invalidate_sigmask();
     }
 
     /// Set the signal handler to default for the process.
-    pub fn set_sig_handler_default(&self, _sig: Sig) {
-        unimplemented!()
+    pub fn set_sig_handler_default(&mut self, sig: Sig) {
+        self.did_set_sig_handler_default(sig);
+        // This could happen during a syscallbuf untraced syscall. In that case
+        // our remote syscall here could trigger a desched signal if that event
+        // is armed, making progress impossible. Disarm the event now.
+        disarm_desched_event(self);
+        let sa = self.sighandlers.borrow().get(sig).sa.clone();
+        let arch = self.arch();
+        let mut remote = AutoRemoteSyscalls::new(self);
+        let mut mem = AutoRestoreMem::new(&mut remote, Some(&sa), sa.len());
+        let ptr_val = mem.get().unwrap().as_usize();
+        rd_infallible_syscall!(
+            mem,
+            syscall_number_for_rt_sigaction(arch),
+            sig.as_raw(),
+            ptr_val,
+            0,
+            sigaction_sigset_size(arch)
+        );
     }
 
     pub fn maybe_restore_original_syscall_registers(&self) {

@@ -22,6 +22,10 @@ pub enum SupportedArch {
     X64,
 }
 
+pub fn sigaction_sigset_size(_arch: SupportedArch) -> usize {
+    unimplemented!()
+}
+
 impl Default for SupportedArch {
     fn default() -> Self {
         Self::X64
