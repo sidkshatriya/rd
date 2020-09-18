@@ -1157,6 +1157,10 @@ pub fn is_zombie_process(pid: pid_t) -> bool {
     return state.is_empty() || state[0].is_empty() || state[0].as_bytes()[0] == b'Z';
 }
 
+pub fn u8_slice<D: Sized>(data: &D) -> &[u8] {
+    unsafe { slice::from_raw_parts(data as *const D as *const u8, size_of::<D>()) }
+}
+
 pub fn u8_raw_slice<D: Sized>(data: &D) -> *const [u8] {
     unsafe { slice::from_raw_parts(data as *const D as *const u8, size_of::<D>()) }
 }

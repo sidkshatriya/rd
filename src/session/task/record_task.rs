@@ -83,6 +83,7 @@ use crate::{
         signal_bit,
         u8_raw_slice,
         u8_raw_slice_mut,
+        u8_slice,
         SignalAction,
     },
     wait_status::WaitStatus,
@@ -100,6 +101,7 @@ use std::{
     ops::{Deref, DerefMut},
     ptr::copy_nonoverlapping,
     rc::{Rc, Weak},
+    slice,
 };
 
 #[derive(Clone)]
@@ -1279,12 +1281,15 @@ impl RecordTask {
         self.trace_writer_mut().write_raw(self.rec_tid, data, addr);
     }
 
-    pub fn record_local_for<T>(_addr: RemotePtr<T>, _data: &T) {
-        unimplemented!()
+    pub fn record_local_for<T>(&self, addr: RemotePtr<T>, data: &T) {
+        self.record_local(RemotePtr::<Void>::cast(addr), u8_slice(data))
     }
 
-    pub fn record_local_for_slice<T>(_addr: RemotePtr<T>, _buf: &[T]) {
-        unimplemented!()
+    pub fn record_local_for_slice<T>(&self, addr: RemotePtr<T>, data: &[T]) {
+        let num = data.len();
+        let data =
+            unsafe { slice::from_raw_parts(data.as_ptr() as *const u8, num * size_of::<T>()) };
+        self.record_local(RemotePtr::<Void>::cast(addr), data);
     }
 
     pub fn record_remote(&mut self, addr: RemotePtr<Void>, num_bytes: usize) {
@@ -1302,16 +1307,16 @@ impl RecordTask {
         self.trace_writer_mut().write_raw(self.rec_tid, &buf, addr);
     }
 
-    pub fn record_remote_for<T>(_addr: RemotePtr<T>) {
-        unimplemented!()
+    pub fn record_remote_for<T>(&mut self, addr: RemotePtr<T>) {
+        self.record_remote(RemotePtr::<Void>::cast(addr), size_of::<T>())
     }
 
-    pub fn record_remote_range(&mut self, _range: MemoryRange) {
-        unimplemented!()
+    pub fn record_remote_range(&mut self, range: MemoryRange) {
+        self.record_remote(range.start(), range.size())
     }
 
-    pub fn record_remote_range_fallible(&mut self, _range: MemoryRange) -> Result<usize, ()> {
-        unimplemented!()
+    pub fn record_remote_range_fallible(&mut self, range: MemoryRange) -> Result<usize, ()> {
+        self.record_remote_fallible(range.start(), range.size())
     }
 
     /// Record as much as we can of the bytes in this range. Will record only
@@ -1388,8 +1393,8 @@ impl RecordTask {
         self.trace_writer_mut().write_raw(self.rec_tid, &buf, addr);
     }
 
-    pub fn record_remote_even_if_null_for<T>(_addr: RemotePtr<T>) {
-        unimplemented!()
+    pub fn record_remote_even_if_null_for<T>(&mut self, addr: RemotePtr<T>) {
+        self.record_remote_even_if_null(RemotePtr::<Void>::cast(addr), size_of::<T>())
     }
 
     /// Manage pending events.  `push_event()` pushes the given
