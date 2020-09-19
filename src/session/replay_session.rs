@@ -2050,7 +2050,7 @@ fn apply_mprotect_records(t: &mut ReplayTask, skip_mprotect_records: u32) -> u32
 /// try to kill all the tasks in the thread group. Instead we inject an `exit`
 /// syscall, which is apparently the only way to kill one specific thread.
 fn end_task(t: &mut ReplayTask) {
-    ed_assert!(t, t.maybe_ptrace_event() != PTRACE_EVENT_EXIT);
+    ed_assert_ne!(t, t.maybe_ptrace_event(), PTRACE_EVENT_EXIT);
 
     t.destroy_buffers();
 

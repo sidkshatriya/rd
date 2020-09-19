@@ -1555,7 +1555,7 @@ pub(in super::super) fn clone_task_common(
     let mut new_task_session = clone_this.session();
     match maybe_other_session {
         Some(other_session) => {
-            ed_assert!(clone_this, reason != CloneReason::TraceeClone);
+            ed_assert_ne!(clone_this, reason, CloneReason::TraceeClone);
             new_task_session = other_session;
         }
         None => {

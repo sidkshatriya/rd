@@ -187,7 +187,7 @@ fn __ptrace_cont(
         ed_assert!(t, ret >= 0);
         if ret == new_tid {
             // Check that we only do this once
-            ed_assert!(t, t.tid != new_tid);
+            ed_assert_ne!(t, t.tid, new_tid);
             // Update the serial as if this task was really created by cloning the old task.
             t.set_real_tid_and_update_serial(new_tid);
         }
@@ -1025,7 +1025,7 @@ fn rep_after_enter_syscall_arch<Arch: Architecture>(t: &mut ReplayTask) {
     if sys == Arch::PTRACE {
         let pid: pid_t = t.regs_ref().arg2_signed() as pid_t;
         // DIFF NOTE: This assertion is not there in rr.
-        ed_assert!(t, pid != t.rec_tid);
+        ed_assert_ne!(t, pid, t.rec_tid);
         let maybe_target = t.session().find_task_from_rec_tid(pid);
         match maybe_target {
             None => (),
