@@ -502,6 +502,78 @@ macro_rules! ed_assert_eq {
         }
     };
 }
+
+/// If asserting fails, start an emergency debug session
+macro_rules! ed_assert_ne {
+    ($task:expr, $cond1:expr, $cond2:expr) => {
+        {
+            use crate::session::task::task_inner::TaskInner;
+            // For type checking. Will use this param later though.
+            let t : &TaskInner = $task;
+            let val1 = $cond1;
+            let val2 = $cond2;
+            if val1 == val2 {
+                {
+                    use std::io::Write;
+                    use crate::log::LogFatal;
+                    let maybe_stream = crate::log::log(
+                        LogFatal,
+                        file!(),
+                        line!(),
+                        module_path!(),
+                        true
+                    );
+                    match maybe_stream {
+                       Some(mut stream) => {
+                           write!(stream, "\n (task {} (rec: {}) at time {})\n", t.tid, t.rec_tid, t.trace_time()).unwrap();
+                           write!(
+                               stream, " -> Assertion `{} != {}` failed to hold.\n    Left: `{:?}`, Right: `{:?}`\n",
+                               stringify!($cond1), stringify!($cond2), val1, val2).unwrap();
+                        },
+                       None => ()
+                    }
+               }
+                // @TODO this should be replaced with starting an emergency debug session
+                crate::log::notifying_abort(backtrace::Backtrace::new());
+            }
+        }
+    };
+    ($task:expr, $cond1:expr, $cond2:expr, $($args:tt)+) => {
+        {
+            use crate::session::task::task_inner::TaskInner;
+            // For type checking. Will use this param later though.
+            let t : &TaskInner = $task;
+            let val1 = $cond1;
+            let val2 = $cond2;
+            if val1 == val2 {
+                {
+                    use std::io::Write;
+                    use crate::log::LogFatal;
+                    let maybe_stream = crate::log::log(
+                        LogFatal,
+                        file!(),
+                        line!(),
+                        module_path!(),
+                        true
+                    );
+                    match maybe_stream {
+                       Some(mut stream) => {
+                           write!(stream, "\n (task {} (rec: {}) at time {})\n", t.tid, t.rec_tid, t.trace_time()).unwrap();
+                           write!(
+                               stream, " -> Assertion `{} != {}` failed to hold.\n    Left: `{:?}`, Right: `{:?}`\n",
+                               stringify!($cond1), stringify!($cond2), val1, val2).unwrap();
+                           write!(stream, $($args)+).unwrap();
+                       },
+                       None => ()
+                    }
+               }
+                // @TODO this should be replaced with starting an emergency debug session
+                crate::log::notifying_abort(backtrace::Backtrace::new());
+            }
+        }
+    };
+}
+
 fn emergency_debug(_t: &dyn Task) {
     unimplemented!()
 }

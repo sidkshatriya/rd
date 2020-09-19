@@ -1301,7 +1301,7 @@ fn is_usable_area(km: &KernelMapping) -> bool {
         && (km.flags().contains(MapFlags::MAP_PRIVATE))
 }
 
-fn ignore_signal(t: &dyn Task) -> bool {
+fn ignore_signal(t: &mut dyn Task) -> bool {
     let maybe_sig: MaybeStopSignal = t.maybe_stop_sig();
     if !maybe_sig.is_sig() {
         return false;
@@ -1312,7 +1312,7 @@ fn ignore_signal(t: &dyn Task) -> bool {
             return true;
         }
     } else if t.session().is_recording() {
-        let rt = t.as_record_task().unwrap();
+        let rt = t.as_record_task_mut().unwrap();
         // Better to use unwrap_sig() here as we've already made sure that maybe_sig.is_sig() above.
         if maybe_sig.unwrap_sig() != rt.session().as_record().unwrap().syscallbuf_desched_sig() {
             rt.stash_sig();

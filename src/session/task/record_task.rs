@@ -15,7 +15,7 @@ use crate::{
     bindings::{
         kernel::user_desc,
         ptrace::{PTRACE_GETSIGMASK, PTRACE_SETSIGINFO, PTRACE_SETSIGMASK},
-        signal::siginfo_t,
+        signal::{siginfo_t, __SIGRTMIN},
     },
     event::{
         Event,
@@ -95,6 +95,7 @@ use crate::{
         checksum_process_memory,
         default_action,
         dump_process_memory,
+        is_deterministic_signal,
         read_proc_status_fields,
         should_checksum,
         should_dump_memory,
@@ -1156,8 +1157,40 @@ impl RecordTask {
     ///
     /// If the process unexpectedly died (due to SIGKILL), we don't
     /// stash anything.
-    pub fn stash_sig(&self) {
-        unimplemented!()
+    pub fn stash_sig(&mut self) {
+        let sig = self.maybe_stop_sig().unwrap_sig();
+
+        // Callers should avoid passing SYSCALLBUF_DESCHED_SIGNAL in here.
+        ed_assert_ne!(
+            self,
+            sig,
+            self.session().as_record().unwrap().syscallbuf_desched_sig()
+        );
+        // multiple non-RT signals coalesce
+        if sig.as_raw() < __SIGRTMIN as i32 {
+            for it in &self.stashed_signals {
+                if it.siginfo.si_signo == sig.as_raw() {
+                    log!(
+                        LogDebug,
+                        "discarding stashed signal {} since we already have one pending",
+                        sig
+                    );
+                    return;
+                }
+            }
+        }
+        let deterministic = is_deterministic_signal(self);
+        let siginfo = self.get_siginfo().clone();
+        self.stashed_signals.push_back(StashedSignal {
+            siginfo,
+            deterministic,
+        });
+        // Once we've stashed a signal, stop at the next traced/untraced syscall to
+        // check whether we need to process the signal before it runs.
+        self.stashed_signals_blocking_more_signals = true;
+        self.break_at_syscallbuf_final_instruction = true;
+        self.break_at_syscallbuf_traced_syscalls = true;
+        self.break_at_syscallbuf_untraced_syscalls = true;
     }
 
     pub fn stash_synthetic_sig(&self, _si: &siginfo_t, _deterministic: SignalDeterministic) {

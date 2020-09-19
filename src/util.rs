@@ -4,7 +4,7 @@ use crate::{
         kernel::{timeval, _LINUX_CAPABILITY_U32S_3, _LINUX_CAPABILITY_VERSION_3},
         signal::{SI_KERNEL, TRAP_BRKPT},
     },
-    event::{Event, EventType, SyscallState},
+    event::{Event, EventType, SignalDeterministic, SyscallState},
     flags::{Checksum, DumpOn, Flags},
     kernel_abi::{native_arch, CloneParameterOrdering},
     kernel_supplement::sig_set_t,
@@ -39,6 +39,11 @@ use libc::{
     EEXIST,
     EINVAL,
     ENOENT,
+    SIGBUS,
+    SIGFPE,
+    SIGILL,
+    SIGSEGV,
+    SIGTRAP,
     STDERR_FILENO,
     S_IFDIR,
     S_IFREG,
@@ -1644,4 +1649,46 @@ pub fn check_for_leaks() {
 
 pub fn signal_bit(sig: Sig) -> sig_set_t {
     (1 as sig_set_t) << (sig.as_raw() - 1)
+}
+
+pub fn is_deterministic_signal(t: &mut dyn Task) -> SignalDeterministic {
+    let si = t.get_siginfo();
+    match si.si_signo {
+        // These signals may be delivered deterministically;
+        // we'll check for sure below.
+        SIGILL | SIGBUS | SIGFPE | SIGSEGV =>
+        // As bits/siginfo.h documents,
+        //
+        //   Values for `si_code'.  Positive values are
+        //   reserved for kernel-generated signals.
+        //
+        // So if the signal is maybe-synchronous, and the
+        // kernel delivered it, then it must have been
+        // delivered deterministically. */
+        {
+            if si.si_code > 0 {
+                SignalDeterministic::DeterministicSig
+            } else {
+                SignalDeterministic::NondeterministicSig
+            }
+        }
+        SIGTRAP => {
+            // The kernel code is wrong about this one. It treats singlestep
+            // traps as deterministic, but they aren't. PTRACE_ATTACH traps aren't
+            // really deterministic either.
+            let reasons = t.compute_trap_reasons();
+            if reasons.breakpoint || reasons.watchpoint {
+                SignalDeterministic::DeterministicSig
+            } else {
+                SignalDeterministic::NondeterministicSig
+            }
+        }
+        _ =>
+        // All other signals can never be delivered
+        // deterministically (to the approximation required by
+        // rd).
+        {
+            SignalDeterministic::NondeterministicSig
+        }
+    }
 }

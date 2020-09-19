@@ -243,7 +243,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
             {
                 continue;
             }
-            self.as_record_task().unwrap().stash_sig();
+            self.as_record_task_mut().unwrap().stash_sig();
         }
     }
 
@@ -287,7 +287,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
                 continue;
             }
             ed_assert!(self, self.session().is_recording());
-            self.as_record_task().unwrap().stash_sig();
+            self.as_record_task_mut().unwrap().stash_sig();
         }
         true
     }
