@@ -219,7 +219,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
             }
             ed_assert!(self, !self.maybe_ptrace_event().is_ptrace_event());
             if self.session().is_recording() && self.maybe_group_stop_sig().is_sig() {
-                self.as_record_task().unwrap().stash_group_stop();
+                self.as_record_task_mut().unwrap().stash_group_stop();
                 continue;
             }
 

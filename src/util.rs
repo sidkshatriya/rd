@@ -1590,7 +1590,7 @@ pub fn should_dump_memory(event: &Event, time: FrameTime) -> bool {
 }
 
 /// Dump all of the memory in `t`'s address to the file
-/// "[trace_dir]/[t.tid]_[global_time]_[tag]"
+/// "<trace_dir>/<t.tid>_<global_time>_<tag>"
 pub fn dump_process_memory(_t: &dyn Task, _global_time: FrameTime, _tag: &str) {
     unimplemented!()
 }

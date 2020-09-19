@@ -108,7 +108,7 @@ use crate::{
     wait_status::WaitStatus,
     weak_ptr_set::WeakPtrSet,
 };
-use libc::{pid_t, syscall, SYS_tgkill, EINVAL, EIO, PR_TSC_ENABLE};
+use libc::{pid_t, syscall, SYS_tgkill, EINVAL, EIO, PR_TSC_ENABLE, SIGCHLD};
 use nix::{errno::errno, sys::mman::ProtFlags};
 use owning_ref::OwningHandle;
 use std::{
@@ -684,6 +684,8 @@ impl Task for RecordTask {
 }
 
 impl RecordTask {
+    pub const SIGCHLD_SYNTHETIC: i32 = 0xbeadf00du32 as i32;
+
     /// Every Task owned by a RecordSession is a RecordTask. Functionality that
     /// only applies during recording belongs here.
     pub fn new(
@@ -1240,42 +1242,67 @@ impl RecordTask {
         self.break_at_syscallbuf_untraced_syscalls = true;
     }
 
+    /// DIFF NOTE: Simply called has_stashed_sig() in rr
     pub fn has_any_stashed_sig(&self) -> bool {
-        unimplemented!()
+        !self.stashed_signals.is_empty()
     }
 
-    pub fn stashed_sig_not_synthetic_sigchld(&self) -> &siginfo_t {
-        unimplemented!()
+    pub fn stashed_sig_not_synthetic_sigchld(&self) -> Option<&siginfo_t> {
+        for it in &self.stashed_signals {
+            if !is_synthetic_SIGCHLD(&it.siginfo) {
+                return Some(&it.siginfo);
+            }
+        }
+        None
     }
 
-    pub fn has_stashed_sig(&self, _sig: Sig) -> bool {
-        unimplemented!()
+    pub fn has_stashed_sig(&self, sig: Sig) -> bool {
+        for it in &self.stashed_signals {
+            if it.siginfo.si_signo == sig.as_raw() {
+                return true;
+            }
+        }
+        false
     }
 
-    pub fn peek_stashed_sig_to_deliver(&self) -> &StashedSignal {
-        unimplemented!()
+    pub fn peek_stashed_sig_to_deliver(&self) -> Option<&StashedSignal> {
+        if self.stashed_signals.is_empty() {
+            return None;
+        }
+        // Choose the first non-synthetic-SIGCHLD signal so that if a syscall should
+        // be interrupted, we'll interrupt it.
+        for sig in &self.stashed_signals {
+            if !is_synthetic_SIGCHLD(&sig.siginfo) {
+                return Some(sig);
+            }
+        }
+        self.stashed_signals.get(0)
     }
 
     pub fn pop_stash_sig(&self, _stashed: &StashedSignal) {
         unimplemented!()
     }
 
-    pub fn stashed_signal_processed(&self) {
-        unimplemented!()
+    pub fn stashed_signal_processed(&mut self) {
+        let has_any_stashed_sig = self.has_any_stashed_sig();
+        self.break_at_syscallbuf_final_instruction = has_any_stashed_sig;
+        self.break_at_syscallbuf_traced_syscalls = has_any_stashed_sig;
+        self.break_at_syscallbuf_untraced_syscalls = has_any_stashed_sig;
+        self.stashed_signals_blocking_more_signals = has_any_stashed_sig;
     }
 
     /// If a group-stop occurs at an inconvenient time, stash it and
     /// process it later.
-    pub fn stash_group_stop(&self) {
-        unimplemented!()
+    pub fn stash_group_stop(&mut self) {
+        self.stashed_group_stop = true;
     }
 
-    pub fn clear_stashed_group_stop(&self) {
-        unimplemented!()
+    pub fn clear_stashed_group_stop(&mut self) {
+        self.stashed_group_stop = false;
     }
 
     pub fn has_stashed_group_stop(&self) -> bool {
-        unimplemented!()
+        self.stashed_group_stop
     }
 
     /// Return true if the current state of this looks like the
@@ -1991,4 +2018,11 @@ fn get_ppid(pid: pid_t) -> Result<pid_t, Box<dyn Error>> {
     let mut ppid_str = read_proc_status_fields(pid, &[b"PPid"])?;
     let actual_ppid = pid_t::from_str_radix(&ppid_str.pop().unwrap().into_string().unwrap(), 10)?;
     Ok(actual_ppid)
+}
+
+#[allow(non_snake_case)]
+fn is_synthetic_SIGCHLD(si: &siginfo_t) -> bool {
+    // @TODO is path to sival_int correct?
+    si.si_signo == SIGCHLD
+        && unsafe { si._sifields._timer.si_sigval.sival_int } == RecordTask::SIGCHLD_SYNTHETIC
 }
