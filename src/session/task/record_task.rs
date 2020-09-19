@@ -27,12 +27,14 @@ use crate::{
         SyscallState,
     },
     kernel_abi::{
-        common::preload_interface::syscallbuf_record,
+        common::preload_interface::{syscallbuf_record, PRELOAD_THREAD_LOCALS_SIZE},
         is_restart_syscall_syscall,
         native_arch,
         sigaction_sigset_size,
         syscall_number_for_gettid,
         syscall_number_for_rt_sigaction,
+        x64,
+        x86,
         SupportedArch,
     },
     kernel_metadata::syscall_name,
@@ -112,13 +114,14 @@ use crate::{
 use libc::{pid_t, syscall, SYS_tgkill, EINVAL, EIO, PR_TSC_ENABLE, SIGCHLD};
 use nix::{errno::errno, sys::mman::ProtFlags};
 use owning_ref::OwningHandle;
+use ptr::NonNull;
 use std::{
     cell::{Ref, RefCell, RefMut},
     cmp::min,
     collections::VecDeque,
     convert::TryFrom,
     error::Error,
-    ffi::{CString, OsStr},
+    ffi::{c_void, CString, OsStr},
     mem::size_of,
     ops::{Deref, DerefMut},
     ptr::{self, copy_nonoverlapping},
@@ -1973,8 +1976,15 @@ impl RecordTask {
         );
     }
 
-    pub fn maybe_restore_original_syscall_registers(&self) {
-        unimplemented!()
+    pub fn maybe_restore_original_syscall_registers(&mut self) {
+        let arch = self.arch();
+        let ptl = self.preload_thread_locals();
+        rd_arch_function_selfless!(
+            maybe_restore_original_syscall_registers_arch,
+            arch,
+            self,
+            ptl
+        );
     }
 
     /// Retrieve the tid of this task from the tracee and store it
@@ -2073,4 +2083,73 @@ fn is_synthetic_SIGCHLD(si: &siginfo_t) -> bool {
     // @TODO is path to sival_int correct?
     si.si_signo == SIGCHLD
         && unsafe { si._sifields._timer.si_sigval.sival_int } == RecordTask::SIGCHLD_SYNTHETIC
+}
+
+fn maybe_restore_original_syscall_registers_arch<Arch: Architecture>(
+    t: &mut RecordTask,
+    maybe_local_addr: Option<NonNull<c_void>>,
+) {
+    if maybe_local_addr.is_none() {
+        return;
+    }
+
+    // @TODO There is a lot of code duplication in both match arms
+    // Better way?
+    let local_addr = maybe_local_addr.unwrap();
+    match Arch::arch() {
+        SupportedArch::X64 => {
+            let locals =
+                local_addr.as_ptr() as *const x64::preload_interface::preload_thread_locals;
+            const_assert!(
+                size_of::<x64::preload_interface::preload_thread_locals>()
+                    <= PRELOAD_THREAD_LOCALS_SIZE,
+            );
+            let rptr = unsafe { (*locals).original_syscall_parameters }.rptr();
+            if rptr.is_null() {
+                return;
+            }
+
+            let args = read_val_mem(t, rptr, None);
+            let mut r = t.regs_ref().clone();
+            if args.no as isize != r.syscallno() {
+                // Maybe a preparatory syscall before the real syscall (e.g. sys_read)
+                return;
+            }
+            r.set_arg1(args.args[0] as usize);
+            r.set_arg2(args.args[1] as usize);
+            r.set_arg3(args.args[2] as usize);
+            r.set_arg4(args.args[3] as usize);
+            r.set_arg5(args.args[4] as usize);
+            r.set_arg6(args.args[5] as usize);
+            t.set_regs(&r);
+        }
+        SupportedArch::X86 => {
+            let locals =
+                local_addr.as_ptr() as *const x86::preload_interface::preload_thread_locals;
+            const_assert!(
+                size_of::<x86::preload_interface::preload_thread_locals>()
+                    <= PRELOAD_THREAD_LOCALS_SIZE,
+            );
+            let rptr = unsafe { (*locals).original_syscall_parameters }.rptr();
+            if rptr.is_null() {
+                return;
+            }
+
+            let args = read_val_mem(t, rptr, None);
+            let mut r = t.regs_ref().clone();
+            if args.no as isize != r.syscallno() {
+                // Maybe a preparatory syscall before the real syscall (e.g. sys_read)
+                return;
+            }
+            // @TODO A sign extension would happen here
+            // Is this what we want?
+            r.set_arg1(args.args[0] as usize);
+            r.set_arg2(args.args[1] as usize);
+            r.set_arg3(args.args[2] as usize);
+            r.set_arg4(args.args[3] as usize);
+            r.set_arg5(args.args[4] as usize);
+            r.set_arg6(args.args[5] as usize);
+            t.set_regs(&r);
+        }
+    };
 }

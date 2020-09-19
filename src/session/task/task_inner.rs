@@ -1789,8 +1789,8 @@ impl TaskInner {
         wrapped_t
     }
 
-    pub(in super::super) fn preload_thread_locals(&self) -> &mut u8 {
-        unimplemented!()
+    pub(in super::super) fn preload_thread_locals(&self) -> Option<NonNull<c_void>> {
+        preload_thread_locals_local_addr(&self.vm())
     }
 }
 
