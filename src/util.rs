@@ -1,3 +1,12 @@
+#[cfg(target_arch = "x86")]
+use libc::{REG_EAX, REG_EIP};
+
+#[cfg(target_arch = "x86_64")]
+use crate::kernel_supplement::ARCH_SET_CPUID;
+
+#[cfg(target_arch = "x86_64")]
+use libc::{syscall, SYS_arch_prctl, REG_RAX, REG_RIP};
+
 use crate::{
     arch::Architecture,
     bindings::{
@@ -21,6 +30,7 @@ use crate::{
             Task,
         },
     },
+    sig::Sig,
     trace::trace_frame::FrameTime,
 };
 use libc::{
@@ -95,15 +105,6 @@ use std::{
     slice,
     sync::Mutex,
 };
-
-#[cfg(target_arch = "x86")]
-use libc::{REG_EAX, REG_EIP};
-
-#[cfg(target_arch = "x86_64")]
-use crate::{kernel_supplement::ARCH_SET_CPUID, sig::Sig};
-
-#[cfg(target_arch = "x86_64")]
-use libc::{syscall, SYS_arch_prctl, REG_RAX, REG_RIP};
 
 const RDTSC_INSN: [u8; 2] = [0x0f, 0x31];
 const RDTSCP_INSN: [u8; 3] = [0x0f, 0x01, 0xf9];
