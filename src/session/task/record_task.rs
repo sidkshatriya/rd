@@ -1193,8 +1193,51 @@ impl RecordTask {
         self.break_at_syscallbuf_untraced_syscalls = true;
     }
 
-    pub fn stash_synthetic_sig(&self, _si: &siginfo_t, _deterministic: SignalDeterministic) {
-        unimplemented!()
+    pub fn stash_synthetic_sig(&mut self, si: &siginfo_t, deterministic: SignalDeterministic) {
+        let sig = si.si_signo;
+        // DIFF NOTE: In rr the debug is assert just verifies sig is non-zero
+        debug_assert!(sig > 0);
+        // Callers should avoid passing SYSCALLBUF_DESCHED_SIGNAL in here.
+        debug_assert_ne!(
+            sig,
+            self.session()
+                .as_record()
+                .unwrap()
+                .syscallbuf_desched_sig()
+                .as_raw()
+        );
+        // multiple non-RT signals coalesce
+        if sig < __SIGRTMIN as i32 {
+            for (pos, it) in self.stashed_signals.iter().enumerate() {
+                if it.siginfo.si_signo == sig {
+                    if deterministic == SignalDeterministic::DeterministicSig
+                        && it.deterministic == SignalDeterministic::NondeterministicSig
+                    {
+                        self.stashed_signals.remove(pos);
+                        break;
+                    } else {
+                        log!(
+                            LogDebug,
+                            "discarding stashed signal {} since we already have one pending",
+                            sig
+                        );
+                        return;
+                    }
+                }
+            }
+        }
+
+        self.stashed_signals.insert(
+            0,
+            StashedSignal {
+                siginfo: si.clone(),
+                deterministic,
+            },
+        );
+        self.stashed_signals_blocking_more_signals = true;
+        self.break_at_syscallbuf_final_instruction = true;
+        self.break_at_syscallbuf_traced_syscalls = true;
+        self.break_at_syscallbuf_untraced_syscalls = true;
     }
 
     pub fn has_any_stashed_sig(&self) -> bool {
