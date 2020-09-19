@@ -208,11 +208,8 @@ impl WaitStatus {
 
     pub fn for_syscall(t: &RecordTask) -> WaitStatus {
         let mut code: i32 = (SIGTRAP << 8) | 0x7f;
-        match t.emulated_ptrace_options {
-            Some(options) if options & PTRACE_O_TRACESYSGOOD != 0 => {
-                code |= 0x80 << 8;
-            }
-            _ => (),
+        if t.emulated_ptrace_options & PTRACE_O_TRACESYSGOOD != 0 {
+            code |= 0x80 << 8;
         }
 
         WaitStatus { status: code }

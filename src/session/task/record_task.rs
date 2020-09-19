@@ -7,6 +7,7 @@ use super::{
         task_drop_common,
     },
     task_inner::PtraceData,
+    TaskSharedWeakPtr,
 };
 use crate::{
     arch::{Architecture, NativeArch},
@@ -26,12 +27,14 @@ use crate::{
     },
     kernel_abi::{
         common::preload_interface::syscallbuf_record,
+        is_restart_syscall_syscall,
         native_arch,
         sigaction_sigset_size,
         syscall_number_for_gettid,
         syscall_number_for_rt_sigaction,
         SupportedArch,
     },
+    kernel_metadata::syscall_name,
     kernel_supplement::{sig_set_t, SA_RESETHAND, SA_SIGINFO, _NSIG},
     log::LogDebug,
     record_signal::disarm_desched_event,
@@ -102,6 +105,7 @@ use crate::{
         SignalAction,
     },
     wait_status::WaitStatus,
+    weak_ptr_set::WeakPtrSet,
 };
 use libc::{pid_t, syscall, SYS_tgkill, EINVAL, EIO, PR_TSC_ENABLE};
 use nix::{errno::errno, sys::mman::ProtFlags};
@@ -109,7 +113,7 @@ use owning_ref::OwningHandle;
 use std::{
     cell::{Ref, RefCell, RefMut},
     cmp::min,
-    collections::{HashSet, VecDeque},
+    collections::VecDeque,
     convert::TryFrom,
     error::Error,
     ffi::{CString, OsStr},
@@ -359,23 +363,21 @@ pub struct RecordTask {
     pub in_round_robin_queue: bool,
 
     /// ptrace emulation state
-
-    /// Task for which we're emulating ptrace of this task, or null
-    pub emulated_ptracer: Option<RecordTaskSharedWeakPtr>,
-    pub emulated_ptrace_tracees: HashSet<RecordTaskSharedWeakPtr>,
+    ///
+    /// Task for which we're emulating ptrace of this task, or None
+    pub emulated_ptracer: Option<TaskSharedWeakPtr>,
+    pub emulated_ptrace_tracees: WeakPtrSet<Box<dyn Task>>,
     pub emulated_ptrace_event_msg: usize,
     /// Saved emulated-ptrace signals
     pub saved_ptrace_siginfos: Vec<siginfo_t>,
     /// Code to deliver to ptracer/waiter when it waits. Note that zero can be a
     /// valid code! Reset to zero when leaving the stop due to PTRACE_CONT etc.
     pub emulated_stop_code: WaitStatus,
-    /// None while no ptracer is attached.
-    /// Different from rr which uses 0.
-    pub emulated_ptrace_options: Option<u32>,
-    /// One of PTRACE_CONT, PTRACE_SYSCALL --- or None if the tracee has not been
+    /// Always zero while no ptracer is attached.
+    pub emulated_ptrace_options: u32,
+    /// One of PTRACE_CONT, PTRACE_SYSCALL --- or 0 if the tracee has not been
     /// continued by its ptracer yet, or has no ptracer.
-    /// Different from rr which uses 0 and a signed int.
-    pub emulated_ptrace_cont_command: Option<u32>,
+    pub emulated_ptrace_cont_command: u32,
     /// true when a ptracer/waiter wait() can return `emulated_stop_code`.
     pub emulated_stop_pending: bool,
     /// true if this task needs to send a SIGCHLD to its ptracer for its
@@ -697,8 +699,8 @@ impl RecordTask {
             in_round_robin_queue: false,
             emulated_ptracer: None,
             emulated_ptrace_event_msg: 0,
-            emulated_ptrace_options: None,
-            emulated_ptrace_cont_command: None,
+            emulated_ptrace_options: 0,
+            emulated_ptrace_cont_command: 0,
             emulated_stop_pending: false,
             emulated_ptrace_sigchld_pending: false,
             emulated_sigchld_pending: false,
@@ -1204,7 +1206,75 @@ impl RecordTask {
     /// interrupted syscall at the top of our event stack, if there
     /// is one.
     pub fn is_syscall_restart(&self) -> bool {
-        unimplemented!()
+        if EventType::EvSyscallInterruption != self.ev().event_type() {
+            return false;
+        }
+
+        let mut syscallno = self.regs_ref().original_syscallno() as i32;
+        let syscall_arch = self.ev().syscall().arch();
+        let call_name = syscall_name(syscallno, syscall_arch);
+        let mut is_restart = false;
+        log!(
+            LogDebug,
+            "  is syscall interruption of recorded {} ? (now {})",
+            self.ev(),
+            call_name
+        );
+
+        // It's possible for the tracee to resume after a sighandler
+        // with a fresh syscall that happens to be the same as the one
+        // that was interrupted.  So we check here if the args are the
+        // same.
+        //
+        // Of course, it's possible (but less likely) for the tracee
+        // to incidentally resume with a fresh syscall that just
+        // happens to have the same *arguments* too.  But in that
+        // case, we would usually set up scratch buffers etc the same
+        // was as for the original interrupted syscall, so we just
+        // save a step here.
+        //
+        // TODO: it's possible for arg structures to be mutated
+        // between the original call and restarted call in such a way
+        // that it might change the scratch allocation decisions. */
+        if is_restart_syscall_syscall(syscallno, syscall_arch) {
+            is_restart = true;
+            syscallno = self.ev().syscall().number;
+            log!(LogDebug, "  (SYS_restart_syscall)");
+        }
+
+        let mut skip = false;
+        if self.ev().syscall().number != syscallno {
+            log!(LogDebug, "  interrupted {} != {}", self.ev(), call_name);
+            skip = true;
+        } else {
+            let old_regs = &self.ev().syscall().regs;
+            if !(old_regs.arg1() == self.regs_ref().arg1()
+                && old_regs.arg2() == self.regs_ref().arg2()
+                && old_regs.arg3() == self.regs_ref().arg3()
+                && old_regs.arg4() == self.regs_ref().arg4()
+                && old_regs.arg5() == self.regs_ref().arg5()
+                && old_regs.arg6() == self.regs_ref().arg6())
+            {
+                log!(
+                    LogDebug,
+                    "  regs different at interrupted {}: {} vs {}",
+                    call_name,
+                    old_regs,
+                    self.regs_ref()
+                );
+                skip = true;
+            }
+        }
+
+        if !skip {
+            is_restart = true;
+        }
+
+        if is_restart {
+            log!(LogDebug, "  restart of {}", call_name);
+        }
+
+        is_restart
     }
 
     /// Return true iff this is at an execution state where
