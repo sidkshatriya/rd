@@ -3,26 +3,35 @@ use super::{
     session_common::kill_all_tasks,
     task::{
         record_task::RecordTask,
-        task_inner::{SaveTraceeFdNumber, TaskInner},
+        task_common::write_val_mem,
+        task_inner::{ResumeRequest, SaveTraceeFdNumber, TaskInner, TicksRequest, WaitRequest},
     },
     SessionSharedPtr,
 };
 use crate::{
+    bindings::{
+        audit::{AUDIT_ARCH_I386, AUDIT_ARCH_X86_64},
+        signal::siginfo_t,
+    },
     commands::record_command::RecordCommand,
-    event::Switchable,
+    event::{Event, EventType, SignalDeterministic, Switchable, SyscallState},
     kernel_abi::{
         common::preload_interface::{
+            syscallbuf_hdr,
             SYSCALLBUF_ENABLED_ENV_VAR,
             SYSCALLBUF_LIB_FILENAME,
             SYSCALLBUF_LIB_FILENAME_PADDED,
         },
+        native_arch,
         SupportedArch,
     },
+    kernel_supplement::SYS_SECCOMP,
     log::{LogDebug, LogError},
     perf_counters::TicksSemantics,
+    remote_ptr::{RemotePtr, Void},
     scheduler::Scheduler,
     scoped_fd::ScopedFd,
-    seccomp_filter_rewriter::SeccompFilterRewriter,
+    seccomp_filter_rewriter::{SeccompFilterRewriter, SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO},
     session::{
         session_inner::SessionInner,
         task::{Task, TaskSharedPtr},
@@ -48,7 +57,7 @@ use crate::{
     wait_status::WaitStatus,
 };
 use goblin::elf::Elf;
-use libc::{pid_t, S_IFREG};
+use libc::{pid_t, SIGSYS, S_IFREG};
 use nix::{
     fcntl::{open, OFlag},
     sys::stat::{stat, Mode},
@@ -59,6 +68,7 @@ use std::{
     env,
     ffi::{OsStr, OsString},
     fs,
+    mem,
     ops::{Deref, DerefMut},
     os::unix::ffi::{OsStrExt, OsStringExt},
     rc::Rc,
@@ -194,6 +204,11 @@ pub enum ContinueType {
     DontContinue,
     Continue,
     ContinueSyscall,
+}
+
+#[derive(Copy, Clone, Eq, PartialEq)]
+pub struct StepState {
+    continue_type: ContinueType,
 }
 
 pub struct RecordSession {
@@ -803,4 +818,130 @@ fn inject_ld_helper_library(env: &mut Vec<(OsString, OsString)>, name: &OsStr, v
     if !found {
         env.push((OsString::from(name), OsString::from_vec(val)))
     }
+}
+
+union USiginfo {
+    native_api: native_arch::siginfo_t,
+    linux_api: siginfo_t,
+}
+
+fn handle_seccomp_trap(t: &mut RecordTask, step_state: &mut StepState, seccomp_data: u16) {
+    // The architecture may be wrong, but that's ok, because an actual syscall
+    // entry did happen, so the registers are already updated according to the
+    // architecture of the system call.
+    let arch = t.detect_syscall_arch();
+    t.canonicalize_regs(arch);
+
+    let mut r = t.regs_ref().clone();
+    let syscallno = r.original_syscallno() as i32;
+    // Cause kernel processing to skip the syscall
+    r.set_original_syscallno(SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO);
+    t.set_regs(&r);
+
+    let mut syscall_entry_already_recorded = false;
+    if t.ev().is_syscall_event() {
+        // A syscall event was already pushed, probably because we did a
+        // PTRACE_SYSCALL to enter the syscall during handle_desched_event. Cancel
+        // that event now since the seccomp SIGSYS aborts it completely.
+        ed_assert_eq!(t, t.ev().syscall().number, syscallno);
+        // Make sure any prepared syscall state is discarded and any temporary
+        // effects (e.g. redirecting pointers to scratch) undone.
+        rec_abort_prepared_syscall(t);
+        if t.ev().event_type() == EventType::EvSyscallInterruption {
+            // The event could be a syscall-interruption if it was pushed by
+            // `handle_desched_event`. In that case, it has not been recorded yet.
+            t.pop_syscall_interruption();
+        } else {
+            t.pop_syscall();
+            syscall_entry_already_recorded = true;
+        }
+    }
+
+    if t.is_in_untraced_syscall() {
+        ed_assert!(t, !t.delay_syscallbuf_reset_for_seccomp_trap);
+        // Don't reset the syscallbuf immediately after delivering the trap. We have
+        // to wait until this buffered syscall aborts completely before resetting
+        // the buffer.
+        t.delay_syscallbuf_reset_for_seccomp_trap = true;
+
+        t.push_event(Event::seccomp_trap());
+
+        // desched may be armed but we're not going to execute the syscall, let
+        // alone block. If it fires, ignore it.
+        let syscallbuf_child = t.syscallbuf_child;
+        write_val_mem(
+            t,
+            RemotePtr::<u8>::cast(syscallbuf_child)
+                + offset_of!(syscallbuf_hdr, desched_signal_may_be_relevant),
+            &0u8,
+            None,
+        );
+    }
+
+    t.push_syscall_event(syscallno);
+    t.ev_mut().syscall_mut().failed_during_preparation = true;
+    note_entering_syscall(t);
+
+    if t.is_in_untraced_syscall() && !syscall_entry_already_recorded {
+        t.record_current_event();
+    }
+
+    // Use NativeArch here because different versions of system headers
+    // have inconsistent field naming.
+    let mut si: USiginfo = unsafe { mem::zeroed() };
+    si.native_api.si_signo = SIGSYS;
+    si.native_api.si_errno = seccomp_data as i32;
+    si.native_api.si_code = SYS_SECCOMP as i32;
+    match r.arch() {
+        SupportedArch::X86 => si.native_api._sifields._sigsys._arch = AUDIT_ARCH_I386,
+        SupportedArch::X64 => si.native_api._sifields._sigsys._arch = AUDIT_ARCH_X86_64,
+    }
+    si.native_api._sifields._sigsys._syscall = syscallno;
+    // Documentation says that si_call_addr is the address of the syscall
+    // instruction, but in tests it's immediately after the syscall
+    // instruction.
+    si.native_api._sifields._sigsys._call_addr =
+        native_arch::ptr::<Void>::from_remote_ptr(t.ip().to_data_ptr::<Void>());
+    log!(LogDebug, "Synthesizing {}", unsafe { si.linux_api });
+    t.stash_synthetic_sig(
+        unsafe { &si.linux_api },
+        SignalDeterministic::DeterministicSig,
+    );
+
+    // Tests show that the current registers are preserved (on x86, eax/rax
+    // retains the syscall number).
+    r.set_syscallno(syscallno as isize);
+    t.set_regs(&r);
+    t.maybe_restore_original_syscall_registers();
+
+    if t.is_in_untraced_syscall() {
+        // For buffered syscalls, go ahead and record the exit state immediately.
+        t.ev_mut().syscall_mut().state = SyscallState::ExitingSyscall;
+        t.record_current_event();
+        t.pop_syscall();
+
+        // The tracee is currently in the seccomp ptrace-stop. Advance it to the
+        // syscall-exit stop so that when we try to deliver the SIGSYS via
+        // PTRACE_SINGLESTEP, that doesn't trigger a SIGTRAP stop.
+        t.resume_execution(
+            ResumeRequest::ResumeSyscall,
+            WaitRequest::ResumeWait,
+            TicksRequest::ResumeNoTicks,
+            None,
+        );
+    }
+
+    // Don't continue yet. At the next iteration of record_step, if we
+    // recorded the syscall-entry we'll enter syscall_state_changed and
+    // that will trigger a continue to the syscall exit. If we recorded the
+    // syscall-exit we'll go straight into signal delivery.
+    step_state.continue_type = ContinueType::DontContinue;
+}
+
+fn note_entering_syscall(_t: &mut RecordTask) {
+    unimplemented!()
+}
+
+fn rec_abort_prepared_syscall(_t: &mut RecordTask) {
+    unimplemented!()
 }

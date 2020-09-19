@@ -14,7 +14,8 @@ use crate::{
     auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem},
     bindings::{
         kernel::user_desc,
-        ptrace::{PTRACE_GETSIGMASK, PTRACE_SETSIGINFO, PTRACE_SETSIGMASK},
+        perf_event::{PERF_EVENT_IOC_DISABLE, PERF_EVENT_IOC_ENABLE},
+        ptrace::{PTRACE_GETEVENTMSG, PTRACE_GETSIGMASK, PTRACE_SETSIGINFO, PTRACE_SETSIGMASK},
         signal::{siginfo_t, __SIGRTMIN},
     },
     event::{
@@ -120,7 +121,7 @@ use std::{
     ffi::{CString, OsStr},
     mem::size_of,
     ops::{Deref, DerefMut},
-    ptr::copy_nonoverlapping,
+    ptr::{self, copy_nonoverlapping},
     rc::{Rc, Weak},
     slice,
 };
@@ -1279,8 +1280,14 @@ impl RecordTask {
         self.stashed_signals.get(0)
     }
 
-    pub fn pop_stash_sig(&self, _stashed: &StashedSignal) {
-        unimplemented!()
+    pub fn pop_stash_sig(&mut self, stashed: &StashedSignal) {
+        for (pos, it) in self.stashed_signals.iter().enumerate() {
+            if ptr::eq(it, stashed) {
+                self.stashed_signals.remove(pos);
+                return;
+            }
+        }
+        ed_assert!(self, false, "signal not found");
     }
 
     pub fn stashed_signal_processed(&mut self) {
@@ -1403,51 +1410,92 @@ impl RecordTask {
 
     /// Return true if this is at an arm-desched-event syscall.
     pub fn is_arm_desched_event_syscall(&self) -> bool {
-        unimplemented!()
+        self.is_desched_event_syscall() && PERF_EVENT_IOC_ENABLE as usize == self.regs_ref().arg2()
     }
 
     /// Return true if this is at a disarm-desched-event syscall.
     pub fn is_disarm_desched_event_syscall(&self) -> bool {
-        unimplemented!()
+        self.is_desched_event_syscall() && PERF_EVENT_IOC_DISABLE as usize == self.regs_ref().arg2()
     }
 
-    /// Return true if `t` may not be immediately runnable,
+    /// Return true if `self` may not be immediately runnable,
     /// i.e., resuming execution and then `waitpid()`'ing may block
     /// for an unbounded amount of time.  When the task is in this
     /// state, the tracer must await a `waitpid()` notification
     /// that the task is no longer possibly-blocked before resuming
     /// its execution.
     pub fn may_be_blocked(&self) -> bool {
-        unimplemented!()
+        (EventType::EvSyscall == self.ev().event_type()
+            && SyscallState::ProcessingSyscall == self.ev().syscall().state)
+            || self.emulated_stop_type != EmulatedStopType::NotStopped
     }
 
     /// Returns true if it looks like this task has been spinning on an atomic
     /// access/lock.
     pub fn maybe_in_spinlock(&self) -> bool {
-        unimplemented!()
+        self.time_at_start_of_last_timeslice == self.trace_writer().time()
+            && self
+                .regs_ref()
+                .matches(&self.registers_at_start_of_last_timeslice)
     }
 
-    /// Return true if this is within the syscallbuf library.  This
+    /// Return true if `self` is within the syscallbuf library.  This
     /// *does not* imply that $ip is at a buffered syscall.
     pub fn is_in_syscallbuf(&self) -> bool {
+        if !self.vm().syscallbuf_enabled() {
+            // Even if we're in the rd page, if syscallbuf isn't enabled then the
+            // rd page is not being used by syscallbuf.
+            return false;
+        }
+
+        // @TODO
         unimplemented!()
     }
 
     /// Shortcut to the most recent `pending_event->desched.rec` when
-    /// there's a desched event on the stack, and nullptr otherwise.
+    /// there's a desched event on the stack, and None otherwise.
     /// Exists just so that clients don't need to dig around in the
-    /// event stack to find this record.
-    pub fn desched_rec(&self) -> RemotePtr<syscallbuf_record> {
-        unimplemented!()
+    /// event stack to find this record
+    /// DIFF NOTE: In rr a nullptr is returned. Here we use an Option.
+    pub fn desched_rec(&self) -> Option<RemotePtr<syscallbuf_record>> {
+        if self.ev().is_syscall_event() {
+            // @TODO Already an Option<>. Check this for any edge cases?
+            self.ev().syscall().desched_rec
+        } else {
+            if EventType::EvDesched == self.ev().event_type() {
+                Some(self.ev().desched_event().rec)
+            } else {
+                None
+            }
+        }
     }
 
     /// Returns true when the task is in a signal handler in an interrupted
     /// system call being handled by syscall buffering.
     pub fn running_inside_desched(&self) -> bool {
-        unimplemented!()
+        for e in &self.pending_events {
+            if e.event_type() == EventType::EvDesched {
+                // @TODO Looks a little kludgy?
+                return Some(e.desched_event().rec) != self.desched_rec();
+            }
+        }
+
+        false
     }
+
     pub fn get_ptrace_eventmsg_seccomp_data(&self) -> u16 {
-        unimplemented!()
+        let mut data: usize = 0;
+        // in theory we could hit an assertion failure if the tracee suffers
+        // a SIGKILL before we get here. But the SIGKILL would have to be
+        // precisely timed between the generation of a PTRACE_EVENT_FORK/CLONE/
+        // SYS_clone event, and us fetching the event message here.
+        self.xptrace(
+            PTRACE_GETEVENTMSG,
+            RemotePtr::null(),
+            PtraceData::WriteInto(u8_raw_slice_mut(&mut data)),
+        );
+
+        data as u16
     }
 
     /// Save tracee data to the trace.  `addr` is the address in
@@ -1594,7 +1642,7 @@ impl RecordTask {
         self.pending_events.push_back(ev);
     }
 
-    pub fn push_syscall_eventsyscallno(&mut self, no: i32) {
+    pub fn push_syscall_event(&mut self, no: i32) {
         let arch = self.detect_syscall_arch();
         self.push_event(Event::new_syscall_event(SyscallEventData::new(no, arch)));
     }

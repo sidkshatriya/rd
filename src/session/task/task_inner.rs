@@ -47,6 +47,7 @@ use crate::{
     flags::Flags,
     kernel_abi::{
         common::preload_interface::{preload_globals, syscallbuf_hdr, PRELOAD_THREAD_LOCALS_SIZE},
+        is_ioctl_syscall,
         x64::{self, preload_interface::preload_thread_locals as x64_preload_thread_locals},
         x86::{self, preload_interface::preload_thread_locals as x86_preload_thread_locals},
         SupportedArch,
@@ -703,7 +704,9 @@ impl TaskInner {
     /// Return true if this is at an arm-desched-event or
     /// disarm-desched-event syscall.
     pub fn is_desched_event_syscall(&self) -> bool {
-        unimplemented!()
+        is_ioctl_syscall(self.regs_ref().original_syscallno() as i32, self.arch())
+            && self.desched_fd_child != -1
+            && self.desched_fd_child == self.regs_ref().arg1_signed() as i32
     }
 
     /// Return true when this task is in a traced syscall made by the

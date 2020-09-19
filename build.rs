@@ -103,6 +103,17 @@ fn main() {
         .write_to_file(path.join("signal_bindings_generated.rs"))
         .unwrap();
 
+    let audit_bindings = Builder::default()
+        .parse_callbacks(Box::new(CargoCallbacks))
+        .header("bindgen/audit_wrapper.h")
+        .derive_default(true)
+        .generate()
+        .unwrap();
+
+    audit_bindings
+        .write_to_file(path.join("audit_bindings_generated.rs"))
+        .unwrap();
+
     let ptrace_bindings = Builder::default()
         .parse_callbacks(Box::new(CargoCallbacks))
         .prepend_enum_name(false)
