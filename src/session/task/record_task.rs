@@ -120,7 +120,7 @@ use crate::{
     weak_ptr_set::WeakPtrSet,
 };
 use libc::{pid_t, syscall, SYS_tgkill, EINVAL, EIO, PR_TSC_ENABLE, SIGCHLD};
-use nix::{errno::errno, sys::mman::ProtFlags};
+use nix::{errno::errno, sched::sched_yield, sys::mman::ProtFlags};
 use owning_ref::OwningHandle;
 use ptr::NonNull;
 use std::{
@@ -2003,14 +2003,36 @@ impl RecordTask {
         self.own_namespace_rec_tid = ret;
     }
 
-    /// Wait for `futex` in this address space to have the value
-    /// `val`.
+    /// Wait for `sync_addr` in `self` address space to have the value
+    /// `sync_val`.
     ///
     /// WARNING: this implementation semi-busy-waits for the value
     /// change.  This must only be used in contexts where the futex
     /// will change "soon".
-    fn futex_wait(&self, _futex: RemotePtr<i32>, _val: i32, _ok: Option<&mut bool>) {
-        unimplemented!()
+    fn futex_wait(&mut self, sync_addr: RemotePtr<i32>, sync_val: i32) -> Result<(), ()> {
+        // Wait for *sync_addr == sync_val.  This implementation isn't
+        // pretty, but it's pretty much the best we can do with
+        // available kernel tools.
+        //
+        // TODO: find clever way to avoid busy-waiting.
+        loop {
+            let mut ok = true;
+            let mem = read_val_mem(self, sync_addr, Some(&mut ok));
+            if !ok {
+                // Invalid addresses are just ignored by the kernel
+                return Err(());
+            }
+
+            if sync_val == mem {
+                break;
+            }
+
+            // Try to give our scheduling slot to the kernel
+            // thread that's going to write sync_addr.
+            sched_yield().unwrap();
+        }
+
+        Ok(())
     }
 
     /// Called when this task is able to receive a SIGCHLD (e.g. because
@@ -2130,9 +2152,8 @@ impl Drop for RecordTask {
                 " waiting for tid futex {} to be cleared ...",
                 self.tid_futex
             );
-            let mut ok = true;
-            self.futex_wait(self.tid_futex, 0, Some(&mut ok));
-            if ok {
+
+            if self.futex_wait(self.tid_futex, 0).is_ok() {
                 let val = 0;
                 self.record_local_for(self.tid_futex, &val);
             }
