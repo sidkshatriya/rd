@@ -2048,14 +2048,15 @@ impl RecordTask {
     }
 
     /// Call this when SYS_sigaction is finishing with `regs`.
-    fn update_sigaction(&self, _regs: &Registers) {
-        unimplemented!()
+    fn update_sigaction(&mut self, regs: &Registers) {
+        rd_arch_function!(self, update_sigaction_arch, regs.arch(), regs);
     }
 
     /// Update the futex robust list head pointer to `list` (which
     /// is of size `len`).
-    fn set_robust_list(&self, _list: RemotePtr<Void>, _len: usize) {
-        unimplemented!()
+    fn set_robust_list(&mut self, list: RemotePtr<Void>, len: usize) {
+        self.robust_futex_list = list;
+        self.robust_futex_list_len = len;
     }
 
     fn on_syscall_exit_arch<Arch: Architecture>(&mut self, sys: i32, regs: &Registers) {
@@ -2120,8 +2121,9 @@ impl RecordTask {
     }
 
     /// Update the clear-tid futex to `tid_addr`.
-    fn set_tid_addr(&self, _tid_addr: RemotePtr<i32>) {
-        unimplemented!()
+    fn set_tid_addr(&mut self, tid_addr: RemotePtr<i32>) {
+        log!(LogDebug, "updating cleartid futex to {}", tid_addr);
+        self.tid_futex = tid_addr;
     }
 }
 
