@@ -257,9 +257,8 @@ pub struct SyscallEventData {
     /// restarted syscalls.
     pub regs: Registers,
     /// If this is a descheduled buffered syscall, points at the
-    /// record for that syscall.
-    /// DIFF NOTE: this is slightly different from rr where nullptr is used to indicate no value
-    pub desched_rec: Option<RemotePtr<syscallbuf_record>>,
+    /// record for that syscall. RemotePtr::null() if there isn't any.
+    pub desched_rec: RemotePtr<syscallbuf_record>,
 
     /// Extra data for specific syscalls. Only used for exit events currently.
     /// This is a int64_t with -1 to indicate no offset in rr.
@@ -288,7 +287,7 @@ impl SyscallEventData {
         SyscallEventData {
             arch_: arch,
             regs: Registers::new(arch),
-            desched_rec: None,
+            desched_rec: Default::default(),
             write_offset: None,
             state: SyscallState::NoSyscall,
             number: syscallno,

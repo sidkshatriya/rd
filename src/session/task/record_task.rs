@@ -1456,19 +1456,17 @@ impl RecordTask {
     }
 
     /// Shortcut to the most recent `pending_event->desched.rec` when
-    /// there's a desched event on the stack, and None otherwise.
+    /// there's a desched event on the stack, and RemotePtr::null() otherwise.
     /// Exists just so that clients don't need to dig around in the
     /// event stack to find this record
-    /// DIFF NOTE: In rr a nullptr is returned. Here we use an Option.
-    pub fn desched_rec(&self) -> Option<RemotePtr<syscallbuf_record>> {
+    pub fn desched_rec(&self) -> RemotePtr<syscallbuf_record> {
         if self.ev().is_syscall_event() {
-            // @TODO Already an Option<>. Check this for any edge cases?
             self.ev().syscall().desched_rec
         } else {
             if EventType::EvDesched == self.ev().event_type() {
-                Some(self.ev().desched_event().rec)
+                self.ev().desched_event().rec
             } else {
-                None
+                RemotePtr::null()
             }
         }
     }
@@ -1478,8 +1476,7 @@ impl RecordTask {
     pub fn running_inside_desched(&self) -> bool {
         for e in &self.pending_events {
             if e.event_type() == EventType::EvDesched {
-                // @TODO Looks a little kludgy?
-                return Some(e.desched_event().rec) != self.desched_rec();
+                return e.desched_event().rec != self.desched_rec();
             }
         }
 
