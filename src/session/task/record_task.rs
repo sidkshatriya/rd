@@ -49,10 +49,11 @@ use crate::{
     kernel_supplement::{sig_set_t, SA_RESETHAND, SA_SIGINFO, _NSIG},
     log::{LogDebug, LogWarn},
     record_signal::disarm_desched_event,
-    registers::Registers,
+    registers::{with_converted_registers, Registers},
     remote_code_ptr::RemoteCodePtr,
     remote_ptr::{RemotePtr, Void},
     scoped_fd::ScopedFd,
+    seccomp_filter_rewriter::SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO,
     session::{
         address_space::{
             address_space::AddressSpace,
@@ -567,8 +568,10 @@ impl Task for RecordTask {
         Some(self)
     }
 
-    fn on_syscall_exit(&mut self, _syscallno: i32, _arch: SupportedArch, _regs: &Registers) {
-        unimplemented!()
+    fn on_syscall_exit(&mut self, syscallno: i32, arch: SupportedArch, regs: &Registers) {
+        with_converted_registers(regs, arch, |regs| {
+            rd_arch_function!(self, on_syscall_exit_arch, arch, syscallno, regs);
+        })
     }
 
     fn did_wait(&mut self) {
@@ -2055,8 +2058,42 @@ impl RecordTask {
         unimplemented!()
     }
 
-    fn on_syscall_exit_arch<Arch: Architecture>(&self, _syscallno: i32, _regs: &Registers) {
-        unimplemented!()
+    fn on_syscall_exit_arch<Arch: Architecture>(&mut self, sys: i32, regs: &Registers) {
+        if regs.original_syscallno() == SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO
+            || regs.syscall_failed()
+        {
+            return;
+        }
+
+        // @TODO match statement not allowed on associated constants
+        if sys == Arch::SET_ROBUST_LIST {
+            self.set_robust_list(RemotePtr::from(regs.arg1()), regs.arg2());
+            return;
+        }
+
+        if sys == Arch::SIGACTION || sys == Arch::RT_SIGACTION {
+            // TODO: SYS_signal
+            self.update_sigaction(regs);
+            return;
+        }
+
+        if sys == Arch::SET_TID_ADDRESS {
+            self.set_tid_addr(RemotePtr::from(regs.arg1()));
+            return;
+        }
+
+        if sys == Arch::SIGSUSPEND
+            || sys == Arch::RT_SIGSUSPEND
+            || sys == Arch::SIGPROCMASK
+            || sys == Arch::RT_SIGPROCMASK
+            || sys == Arch::PSELECT6
+            || sys == Arch::PSELECT6_TIME64
+            || sys == Arch::PPOLL
+            || sys == Arch::PPOLL_TIME64
+        {
+            self.invalidate_sigmask();
+            return;
+        }
     }
 
     /// Helper function for update_sigaction.
