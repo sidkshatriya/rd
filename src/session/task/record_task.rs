@@ -39,6 +39,7 @@ use crate::{
         is_restart_syscall_syscall,
         native_arch,
         sigaction_sigset_size,
+        syscall_number_for_execve,
         syscall_number_for_gettid,
         syscall_number_for_rt_sigaction,
         x64,
@@ -130,7 +131,7 @@ use std::{
     collections::VecDeque,
     convert::TryFrom,
     error::Error,
-    ffi::{c_void, CString, OsStr},
+    ffi::{c_void, CString, OsStr, OsString},
     mem::size_of,
     ops::{Deref, DerefMut},
     ptr::{self, copy_nonoverlapping},
@@ -838,9 +839,44 @@ impl RecordTask {
         unimplemented!()
     }
 
-    /// @TODO ??
-    pub fn post_exec(&self) {
-        unimplemented!()
+    pub fn post_exec(&mut self) {
+        // Change syscall number to execve *for the new arch*. If we don't do this,
+        // and the arch changes, then the syscall number for execve in the old arch/
+        // is treated as the syscall we're executing in the new arch, with hilarious
+        // results.
+        let arch = self.arch();
+        let syscallno: i32 = syscall_number_for_execve(arch);
+        self.registers.set_original_syscallno(syscallno as isize);
+        // Fix event architecture and syscall number
+        self.ev_mut().syscall_mut().number = syscallno;
+        self.ev_mut().syscall_mut().set_arch(arch);
+
+        // The signal mask is inherited across execve so we don't need to invalidate.
+        let exe_file = exe_path(self);
+        self.post_exec_for_exe(&exe_file);
+        match &self.emulated_ptracer {
+            Some(emulated_ptracer) => ed_assert!(
+                self,
+                !(emulated_ptracer.upgrade().unwrap().borrow().arch() == SupportedArch::X86
+                    && self.arch() == SupportedArch::X64),
+                "We don't support a 32-bit process tracing a 64-bit process"
+            ),
+            None => (),
+        }
+
+        // Clear robust_list state to match kernel state. If this task is cloned
+        // soon after exec, we must not do a bogus set_robust_list syscall for
+        // the clone.
+        self.set_robust_list(RemotePtr::null(), 0);
+
+        // @TODO Check this again
+        let cloned = self.sighandlers.borrow().clone();
+        self.sighandlers = Rc::new(RefCell::new(cloned));
+        self.sighandlers.borrow_mut().reset_user_handlers(arch);
+
+        // Newly execed tasks always have non-faulting mode (from their point of
+        // view, even if rr is secretly causing faults).
+        self.cpuid_mode = 1;
     }
 
     pub fn trace_writer(&self) -> OwningHandle<SessionSharedPtr, Ref<'_, TraceWriter>> {
@@ -2125,6 +2161,10 @@ impl RecordTask {
         log!(LogDebug, "updating cleartid futex to {}", tid_addr);
         self.tid_futex = tid_addr;
     }
+}
+
+fn exe_path(_t: &RecordTask) -> OsString {
+    unimplemented!()
 }
 
 fn is_unstoppable_signal(sig: Sig) -> bool {
