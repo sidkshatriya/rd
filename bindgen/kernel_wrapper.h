@@ -18,6 +18,7 @@
 #include <linux/sem.h>
 #include <linux/shm.h>
 #include <linux/sockios.h>
+#include <linux/stat.h>
 #include <linux/sysctl.h>
 #include <linux/usbdevice_fs.h>
 #include <linux/videodev2.h>
@@ -36,6 +37,7 @@
 #include <sys/stat.h>
 #include <sys/sysinfo.h>
 #include <sys/time.h>
+#include <sys/timerfd.h>
 #include <sys/times.h>
 #include <sys/timex.h>
 #include <sys/un.h>
