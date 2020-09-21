@@ -1084,7 +1084,7 @@ impl Architecture for X86Arch {
 
     type size_t = u32;
     type off_t = i32;
-    type ptr<T: 'static> = Ptr<u64, T>;
+    type ptr<T: 'static> = Ptr<u32, T>;
     type kernel_sigaction = x86::kernel_sigaction;
     type signed_long = x86::signed_long;
     type unsigned_long = x86::unsigned_long;
@@ -1634,7 +1634,7 @@ impl Architecture for X64Arch {
 
     type size_t = u64;
     type off_t = i64;
-    type ptr<T: 'static> = Ptr<u32, T>;
+    type ptr<T: 'static> = Ptr<u64, T>;
     type kernel_sigaction = x64::kernel_sigaction;
     type signed_long = x64::signed_long;
     type unsigned_long = x64::unsigned_long;
