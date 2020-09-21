@@ -70,6 +70,7 @@ use std::{
     ffi::{CString, OsStr},
     ops::{Deref, DerefMut},
 };
+use crate::preload_interface_arch::rdcall_init_buffers_params;
 
 pub struct ReplayTask {
     pub task_inner: TaskInner,
@@ -329,11 +330,15 @@ impl ReplayTask {
     fn init_buffers_arch<Arch: Architecture>(&mut self, map_hint: RemotePtr<Void>) {
         self.apply_all_data_records_from_trace();
 
-        let child_args: RemotePtr<Arch::rdcall_init_buffers_params> =
+        let child_args: RemotePtr<rdcall_init_buffers_params<Arch>> =
             RemotePtr::from(self.regs_ref().arg1());
         let args = read_val_mem(self, child_args, None);
-        let (syscallbuf_ptr, syscallbuf_size, desched_counter_fd, cloned_file_data_fd) =
-            Arch::get_rdcall_init_buffers_params_args(&args);
+
+        let syscallbuf_ptr = Arch::as_rptr(args.syscallbuf_ptr);
+        let syscallbuf_size = args.syscallbuf_size as usize;
+        let desched_counter_fd = args.desched_counter_fd;
+        let cloned_file_data_fd = args.cloned_file_data_fd;
+
         let tuid = self.tuid();
 
         let mut remote = AutoRemoteSyscalls::new(self);

@@ -4,6 +4,7 @@
 #![feature(llvm_asm)]
 #![feature(raw_ref_op)]
 #![feature(termination_trait_lib)]
+#![feature(generic_associated_types)]
 // @TODO To many results for "never used". Disable for now.
 #![allow(dead_code)]
 
@@ -48,6 +49,7 @@ mod gdb_server;
 mod kernel_supplement;
 mod monitored_shared_memory;
 mod monkey_patcher;
+mod preload_interface_arch;
 mod rd;
 mod record_signal;
 mod remote_code_ptr;

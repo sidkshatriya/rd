@@ -6,6 +6,7 @@ use crate::{
         CloneParameterOrdering,
         CloneTLSType,
         MmapCallingSemantics,
+        Ptr,
         SelectCallingSemantics,
         SupportedArch,
     },
@@ -539,6 +540,15 @@ pub trait Architecture {
     // End list from generate_syscalls.py. See above.
 
     #[allow(non_camel_case_types)]
+    type size_t: Default + Copy + 'static;
+
+    #[allow(non_camel_case_types)]
+    type off_t: Default + Copy + 'static;
+
+    #[allow(non_camel_case_types)]
+    type ptr<T: 'static>: Default + Copy + 'static;
+
+    #[allow(non_camel_case_types)]
     type kernel_sigaction: Default + Copy + 'static;
 
     #[allow(non_camel_case_types)]
@@ -589,6 +599,8 @@ pub trait Architecture {
 
     #[allow(non_camel_case_types)]
     type rdcall_init_buffers_params: Copy + 'static;
+
+    fn as_rptr<T: 'static>(p: Self::ptr<T>) -> RemotePtr<T>;
 
     fn get_mmap_args(k: &Self::mmap_args) -> (usize, i32, i32, i32, usize);
 
@@ -1079,6 +1091,9 @@ impl Architecture for X86Arch {
     const INVALID_SYSCALL_COUNT: i32 = 17;
     // End list from generate_syscalls.py. See above.
 
+    type size_t = u32;
+    type off_t = i32;
+    type ptr<T: 'static> = Ptr<u64, T>;
     type kernel_sigaction = x86::kernel_sigaction;
     type signed_long = x86::signed_long;
     type unsigned_long = x86::unsigned_long;
@@ -1094,6 +1109,10 @@ impl Architecture for X86Arch {
     type user = x86::user;
     type mmap_args = x86::mmap_args;
     type rdcall_init_buffers_params = x86::preload_interface::rdcall_init_buffers_params;
+
+    fn as_rptr<T: 'static>(p: Self::ptr<T>) -> RemotePtr<T> {
+        p.rptr()
+    }
 
     fn get_mmap_args(k: &Self::mmap_args) -> (usize, i32, i32, i32, usize) {
         // @TODO OK to cast offset to usize?
@@ -1641,6 +1660,9 @@ impl Architecture for X64Arch {
     const INVALID_SYSCALL_COUNT: i32 = 86;
     // End list from generate_syscalls.py. See above.
 
+    type size_t = u64;
+    type off_t = i64;
+    type ptr<T: 'static> = Ptr<u32, T>;
     type kernel_sigaction = x64::kernel_sigaction;
     type signed_long = x64::signed_long;
     type unsigned_long = x64::unsigned_long;
@@ -1656,6 +1678,10 @@ impl Architecture for X64Arch {
     type user = x64::user;
     type mmap_args = x64::mmap_args;
     type rdcall_init_buffers_params = x64::preload_interface::rdcall_init_buffers_params;
+
+    fn as_rptr<T: 'static>(p: Self::ptr<T>) -> RemotePtr<T> {
+        p.rptr()
+    }
 
     fn get_mmap_args(k: &Self::mmap_args) -> (usize, i32, i32, i32, usize) {
         // @TODO OK to cast offset to usize?
