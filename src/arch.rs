@@ -1,6 +1,5 @@
 use crate::{
     kernel_abi::{
-        common::preload_interface::preload_globals,
         x64,
         x86,
         CloneParameterOrdering,
@@ -11,7 +10,6 @@ use crate::{
         SupportedArch,
     },
     kernel_supplement::{CLD_STOPPED, CLD_TRAPPED},
-    remote_code_ptr::RemoteCodePtr,
     remote_ptr::{RemotePtr, Void},
     session::task::record_task::{EmulatedStopType, RecordTask},
 };
@@ -588,9 +586,6 @@ pub trait Architecture: 'static {
         + 'static;
 
     #[allow(non_camel_case_types)]
-    type rdcall_init_preload_params: Copy + 'static;
-
-    #[allow(non_camel_case_types)]
     type user_regs_struct: Copy + 'static;
 
     #[allow(non_camel_case_types)]
@@ -601,9 +596,6 @@ pub trait Architecture: 'static {
 
     #[allow(non_camel_case_types)]
     type mmap_args: Copy + 'static;
-
-    #[allow(non_camel_case_types)]
-    type rdcall_init_buffers_params: Copy + 'static;
 
     fn as_rptr<T: 'static>(p: Self::ptr<T>) -> RemotePtr<T>;
 
@@ -638,16 +630,6 @@ pub trait Architecture: 'static {
     fn set_csmsghdr(msg: &mut Self::cmsghdr, cmsg_len: usize, cmsg_level: i32, cmsg_type: i32);
 
     fn set_siginfo_for_waited_task(r: &RecordTask, si: &mut Self::siginfo_t);
-
-    fn rdcall_init_preload_params_syscallbuf_enabled(d: &Self::rdcall_init_preload_params) -> bool;
-
-    fn rdcall_init_preload_params_globals(
-        params: &Self::rdcall_init_preload_params,
-    ) -> (RemotePtr<preload_globals>, RemoteCodePtr, usize);
-
-    fn get_rdcall_init_buffers_params_args(
-        k: &Self::rdcall_init_buffers_params,
-    ) -> (RemotePtr<u8>, usize, i32, i32);
 }
 
 impl Architecture for X86Arch {
@@ -1112,12 +1094,10 @@ impl Architecture for X86Arch {
     type siginfo_t = x86::siginfo_t;
     type sockaddr_un = x86::sockaddr_un;
     type unsigned_word = x86::unsigned_word;
-    type rdcall_init_preload_params = x86::preload_interface::rdcall_init_preload_params;
     type user_regs_struct = x86::user_regs_struct;
     type user_fpregs_struct = x86::user_fpregs_struct;
     type user = x86::user;
     type mmap_args = x86::mmap_args;
-    type rdcall_init_buffers_params = x86::preload_interface::rdcall_init_buffers_params;
 
     fn as_rptr<T: 'static>(p: Self::ptr<T>) -> RemotePtr<T> {
         p.rptr()
@@ -1199,31 +1179,6 @@ impl Architecture for X86Arch {
         }
         si._sifields._sigchld.si_pid_ = r.tgid();
         si._sifields._sigchld.si_uid_ = r.getuid();
-    }
-
-    fn rdcall_init_preload_params_syscallbuf_enabled(d: &Self::rdcall_init_preload_params) -> bool {
-        d.syscallbuf_enabled != 0
-    }
-
-    fn rdcall_init_preload_params_globals(
-        params: &Self::rdcall_init_preload_params,
-    ) -> (RemotePtr<preload_globals>, RemoteCodePtr, usize) {
-        (
-            params.globals.rptr(),
-            params.breakpoint_table.rptr().to_code_ptr(),
-            params.breakpoint_table_entry_size.try_into().unwrap(),
-        )
-    }
-
-    fn get_rdcall_init_buffers_params_args(
-        k: &Self::rdcall_init_buffers_params,
-    ) -> (RemotePtr<u8>, usize, i32, i32) {
-        (
-            k.syscallbuf_ptr.rptr(),
-            k.syscallbuf_size as usize,
-            k.desched_counter_fd,
-            k.cloned_file_data_fd,
-        )
     }
 }
 
@@ -1689,12 +1644,10 @@ impl Architecture for X64Arch {
     type siginfo_t = x64::siginfo_t;
     type sockaddr_un = x64::sockaddr_un;
     type unsigned_word = x64::unsigned_word;
-    type rdcall_init_preload_params = x64::preload_interface::rdcall_init_preload_params;
     type user_regs_struct = x64::user_regs_struct;
     type user_fpregs_struct = x64::user_fpregs_struct;
     type user = x64::user;
     type mmap_args = x64::mmap_args;
-    type rdcall_init_buffers_params = x64::preload_interface::rdcall_init_buffers_params;
 
     fn as_rptr<T: 'static>(p: Self::ptr<T>) -> RemotePtr<T> {
         p.rptr()
@@ -1776,30 +1729,5 @@ impl Architecture for X64Arch {
         }
         si._sifields._sigchld.si_pid_ = r.tgid();
         si._sifields._sigchld.si_uid_ = r.getuid();
-    }
-
-    fn rdcall_init_preload_params_syscallbuf_enabled(d: &Self::rdcall_init_preload_params) -> bool {
-        d.syscallbuf_enabled != 0
-    }
-
-    fn rdcall_init_preload_params_globals(
-        params: &Self::rdcall_init_preload_params,
-    ) -> (RemotePtr<preload_globals>, RemoteCodePtr, usize) {
-        (
-            params.globals.rptr(),
-            params.breakpoint_table.rptr().to_code_ptr(),
-            params.breakpoint_table_entry_size.try_into().unwrap(),
-        )
-    }
-
-    fn get_rdcall_init_buffers_params_args(
-        k: &Self::rdcall_init_buffers_params,
-    ) -> (RemotePtr<u8>, usize, i32, i32) {
-        (
-            k.syscallbuf_ptr.rptr(),
-            k.syscallbuf_size as usize,
-            k.desched_counter_fd,
-            k.cloned_file_data_fd,
-        )
     }
 }

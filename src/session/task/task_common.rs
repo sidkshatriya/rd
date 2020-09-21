@@ -71,6 +71,7 @@ use crate::{
     kernel_supplement::ARCH_SET_CPUID,
     log::LogLevel::{LogDebug, LogInfo, LogWarn},
     perf_counters::TIME_SLICE_SIGNAL,
+    preload_interface_arch::rdcall_init_preload_params,
     rd::RD_RESERVED_ROOT_DIR_FD,
     registers::{with_converted_registers, Registers, X86_TF_FLAG},
     remote_code_ptr::RemoteCodePtr,
@@ -1501,20 +1502,20 @@ fn do_preload_init_arch<Arch: Architecture, T: Task>(t: &mut T) {
     let addr_val = t.regs_ref().arg1();
     let params = read_val_mem(
         t,
-        RemotePtr::<Arch::rdcall_init_preload_params>::new_from_val(addr_val),
+        RemotePtr::<rdcall_init_preload_params<Arch>>::new_from_val(addr_val),
         None,
     );
 
-    let res = Arch::rdcall_init_preload_params_globals(&params);
-    t.preload_globals = Some(res.0);
-    t.stopping_breakpoint_table = res.1;
-    t.stopping_breakpoint_table_entry_size = res.2;
+    t.preload_globals = Some(Arch::as_rptr(params.globals));
+    t.stopping_breakpoint_table = Arch::as_rptr(params.breakpoint_table).to_code_ptr();
+    t.stopping_breakpoint_table_entry_size = params.breakpoint_table_entry_size.try_into().unwrap();
     for rc_t in t.vm().task_set().iter_except(t.weak_self_ptr()) {
         let mut tt = rc_t.borrow_mut();
-        tt.preload_globals = Some(res.0);
+        tt.preload_globals = Some(Arch::as_rptr(params.globals));
 
-        tt.stopping_breakpoint_table = res.1;
-        tt.stopping_breakpoint_table_entry_size = res.2;
+        tt.stopping_breakpoint_table = Arch::as_rptr(params.breakpoint_table).to_code_ptr();
+        tt.stopping_breakpoint_table_entry_size =
+            params.breakpoint_table_entry_size.try_into().unwrap();
     }
 
     let preload_globals_ptr: RemotePtr<bool> = RemotePtr::cast(t.preload_globals.unwrap());

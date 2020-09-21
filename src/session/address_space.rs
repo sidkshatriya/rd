@@ -213,6 +213,7 @@ pub mod address_space {
         log::LogLevel::LogDebug,
         monitored_shared_memory::MonitoredSharedMemorySharedPtr,
         monkey_patcher::MonkeyPatcher,
+        preload_interface_arch::rdcall_init_preload_params,
         rd::RD_RESERVED_ROOT_DIR_FD,
         registers::Registers,
         remote_code_ptr::RemoteCodePtr,
@@ -2953,12 +2954,11 @@ pub mod address_space {
             let addr = t.regs_ref().arg1();
             let params = read_val_mem(
                 t,
-                RemotePtr::<Arch::rdcall_init_preload_params>::new_from_val(addr),
+                RemotePtr::<rdcall_init_preload_params<Arch>>::new_from_val(addr),
                 None,
             );
 
-            let tracee_syscallbuf_enabled =
-                Arch::rdcall_init_preload_params_syscallbuf_enabled(&params);
+            let tracee_syscallbuf_enabled = params.syscallbuf_enabled != 0;
             let tracee_syscallbuf_status = if tracee_syscallbuf_enabled {
                 "enabled"
             } else {
