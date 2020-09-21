@@ -34,6 +34,7 @@ use crate::{
         SignalResolvedDisposition,
         SyscallEventData,
         SyscallState,
+        SyscallbufFlushEventData,
     },
     kernel_abi::{
         is_exit_group_syscall,
@@ -49,7 +50,13 @@ use crate::{
     kernel_metadata::syscall_name,
     kernel_supplement::{sig_set_t, SA_RESETHAND, SA_SIGINFO, _NSIG},
     log::{LogDebug, LogWarn},
-    preload_interface::{preload_globals, syscallbuf_record, PRELOAD_THREAD_LOCALS_SIZE},
+    preload_interface::{
+        mprotect_record,
+        preload_globals,
+        syscallbuf_hdr,
+        syscallbuf_record,
+        PRELOAD_THREAD_LOCALS_SIZE,
+    },
     preload_interface_arch::{preload_thread_locals, rdcall_init_preload_params},
     record_signal::disarm_desched_event,
     registers::{with_converted_registers, Registers},
@@ -1583,7 +1590,7 @@ impl RecordTask {
     ///
     /// DIFF NOTE: @TODO In the rr implementation ssize_t is being used instead of size_t
     /// for the record_* methods in many places. Why?
-    pub fn record_local(&self, addr: RemotePtr<Void>, data: &[u8]) {
+    pub fn record_local(&mut self, addr: RemotePtr<Void>, data: &[u8]) {
         self.maybe_flush_syscallbuf();
 
         if addr.is_null() {
@@ -1593,11 +1600,11 @@ impl RecordTask {
         self.trace_writer_mut().write_raw(self.rec_tid, data, addr);
     }
 
-    pub fn record_local_for<T>(&self, addr: RemotePtr<T>, data: &T) {
+    pub fn record_local_for<T>(&mut self, addr: RemotePtr<T>, data: &T) {
         self.record_local(RemotePtr::<Void>::cast(addr), u8_slice(data))
     }
 
-    pub fn record_local_for_slice<T>(&self, addr: RemotePtr<T>, data: &[T]) {
+    pub fn record_local_for_slice<T>(&mut self, addr: RemotePtr<T>, data: &[T]) {
         let num = data.len();
         let data =
             unsafe { slice::from_raw_parts(data.as_ptr() as *const u8, num * size_of::<T>()) };
@@ -1676,8 +1683,8 @@ impl RecordTask {
 
     /// Simple helper that attempts to use the local mapping to record if one
     /// exists
-    pub fn record_remote_by_local_map(&self, addr: RemotePtr<Void>, num_bytes: usize) -> bool {
-        match self.vm().local_mapping(addr, num_bytes) {
+    pub fn record_remote_by_local_map(&mut self, addr: RemotePtr<Void>, num_bytes: usize) -> bool {
+        match self.vm_shr_ptr().local_mapping(addr, num_bytes) {
             Some(local_data) => {
                 self.record_local(addr, local_data);
                 true
@@ -1775,16 +1782,101 @@ impl RecordTask {
     /// a chance to reset the syscallbuf (i.e. record some other kind of event)
     /// before the tracee runs again in a way that might append another buffered
     /// syscall --- so we can't flush too early
-    pub fn maybe_flush_syscallbuf(&self) {
+    pub fn maybe_flush_syscallbuf(&mut self) {
         if EventType::EvSyscallbufFlush == self.ev().event_type() {
             // Already flushing.
             return;
         }
+
         if self.syscallbuf_child.is_null() {
             return;
         }
 
-        unimplemented!()
+        // This can be called while the task is not stopped, when we prematurely
+        // terminate the trace. In that case, the tracee could be concurrently
+        // modifying the header. We'll take a snapshot of the header now.
+        // The syscallbuf code ensures that writes to syscallbuf records
+        // complete before num_rec_bytes is incremented.
+        let syscallbuf_child = self.syscallbuf_child;
+        let hdr = read_val_mem(self, syscallbuf_child, None);
+
+        ed_assert!(
+            self,
+            !self.flushed_syscallbuf || self.flushed_num_rec_bytes == hdr.num_rec_bytes
+        );
+
+        if hdr.num_rec_bytes == 0 || self.flushed_syscallbuf {
+            // no records, or we've already flushed.
+            return;
+        }
+
+        self.push_event(Event::new_syscallbuf_flush_event(
+            SyscallbufFlushEventData::default(),
+        ));
+
+        // Apply buffered mprotect operations and flush the buffer in the tracee.
+        if hdr.mprotect_record_count > 0 {
+            let preload_globals = self.preload_globals.unwrap();
+            let read_records = read_mem(
+                self,
+                RemotePtr::<mprotect_record>::cast(
+                    RemotePtr::<u8>::cast(preload_globals)
+                        + offset_of!(preload_globals, mprotect_records),
+                ),
+                hdr.mprotect_record_count as usize,
+                None,
+            );
+            for r in &read_records {
+                self.vm_shr_ptr().protect(
+                    self,
+                    RemotePtr::from(r.start),
+                    r.size.try_into().unwrap(),
+                    ProtFlags::from_bits(r.prot).unwrap(),
+                );
+            }
+            self.ev_mut().syscallbuf_flush_event_mut().mprotect_records = read_records;
+        }
+
+        // Write the entire buffer in one shot without parsing it,
+        // because replay will take care of that.
+        if self.is_running() {
+            let mut buf = Vec::<u8>::new();
+            buf.resize(
+                size_of::<syscallbuf_hdr>() + hdr.num_rec_bytes as usize,
+                0u8,
+            );
+            unsafe {
+                copy_nonoverlapping(
+                    &raw const hdr as *const u8,
+                    buf.as_mut_ptr(),
+                    size_of::<syscallbuf_hdr>(),
+                );
+            };
+            self.read_bytes_helper(
+                RemotePtr::<u8>::cast(syscallbuf_child + 1usize),
+                &mut buf[size_of::<syscallbuf_hdr>()..],
+                None,
+            );
+            self.record_local(RemotePtr::<u8>::cast(syscallbuf_child), &buf);
+        } else {
+            let syscallbuf_data_size = self.syscallbuf_data_size();
+            self.record_remote(
+                RemotePtr::<u8>::cast(syscallbuf_child),
+                syscallbuf_data_size,
+            );
+        }
+
+        self.record_current_event();
+        self.pop_event(EventType::EvSyscallbufFlush);
+
+        self.flushed_syscallbuf = true;
+        self.flushed_num_rec_bytes = hdr.num_rec_bytes;
+
+        log!(
+            LogDebug,
+            "Syscallbuf flushed with num_rec_bytes={}",
+            hdr.num_rec_bytes
+        );
     }
 
     /// Call this after recording an event when it might be safe to reset the
