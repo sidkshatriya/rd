@@ -22,7 +22,10 @@ use std::{
     ops::Add,
 };
 
+/// This type will impl Architecture
 pub struct X86Arch;
+
+/// This type will impl Archiecture
 pub struct X64Arch;
 
 #[cfg(target_arch = "x86_64")]
@@ -84,12 +87,14 @@ include!(concat!(
     env!("OUT_DIR"),
     "/syscall_const_asserts_x64_generated.rs"
 ));
+
 // Invariant
 const_assert_eq!(
     X64Arch::VALID_SYSCALL_COUNT + X64Arch::INVALID_SYSCALL_COUNT,
     X86Arch::VALID_SYSCALL_COUNT + X86Arch::INVALID_SYSCALL_COUNT
 );
-pub trait Architecture {
+
+pub trait Architecture: 'static {
     const MMAP_SEMANTICS: MmapCallingSemantics;
     const CLONE_TLS_TYPE: CloneTLSType;
     const CLONE_PARAMETER_ORDERING: CloneParameterOrdering;
@@ -613,6 +618,10 @@ pub trait Architecture {
     fn set_iovec(msgdata: &mut Self::iovec, iov_base: RemotePtr<Void>, iov_len: usize);
 
     fn as_signed_long(ul: Self::unsigned_long) -> Self::signed_long;
+
+    fn long_as_usize(sl: Self::signed_long) -> usize;
+
+    fn long_as_isize(sl: Self::signed_long) -> isize;
 
     fn as_unsigned_word(u: usize) -> Self::unsigned_word;
 
@@ -1138,6 +1147,14 @@ impl Architecture for X86Arch {
 
     fn as_signed_long(ul: Self::unsigned_long) -> Self::signed_long {
         ul as Self::signed_long
+    }
+
+    fn long_as_usize(sl: Self::signed_long) -> usize {
+        sl as usize
+    }
+
+    fn long_as_isize(sl: Self::signed_long) -> isize {
+        sl as isize
     }
 
     fn as_unsigned_word(u: usize) -> Self::unsigned_word {
@@ -1707,6 +1724,14 @@ impl Architecture for X64Arch {
 
     fn as_signed_long(ul: Self::unsigned_long) -> Self::signed_long {
         ul as Self::signed_long
+    }
+
+    fn long_as_usize(sl: Self::signed_long) -> usize {
+        sl as usize
+    }
+
+    fn long_as_isize(sl: Self::signed_long) -> isize {
+        sl as isize
     }
 
     fn as_unsigned_word(u: usize) -> Self::unsigned_word {

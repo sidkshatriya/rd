@@ -43,13 +43,12 @@ use crate::{
         syscall_number_for_execve,
         syscall_number_for_gettid,
         syscall_number_for_rt_sigaction,
-        x64,
-        x86,
         SupportedArch,
     },
     kernel_metadata::syscall_name,
     kernel_supplement::{sig_set_t, SA_RESETHAND, SA_SIGINFO, _NSIG},
     log::{LogDebug, LogWarn},
+    preload_interface_arch::preload_thread_locals,
     record_signal::disarm_desched_event,
     registers::{with_converted_registers, Registers},
     remote_code_ptr::RemoteCodePtr,
@@ -2300,65 +2299,27 @@ fn maybe_restore_original_syscall_registers_arch<Arch: Architecture>(
         return;
     }
 
-    // @TODO There is a lot of code duplication in both match arms
-    // Better way?
     let local_addr = maybe_local_addr.unwrap();
-    match Arch::arch() {
-        SupportedArch::X64 => {
-            let locals =
-                local_addr.as_ptr() as *const x64::preload_interface::preload_thread_locals;
-            const_assert!(
-                size_of::<x64::preload_interface::preload_thread_locals>()
-                    <= PRELOAD_THREAD_LOCALS_SIZE,
-            );
-            let rptr = unsafe { (*locals).original_syscall_parameters }.rptr();
-            if rptr.is_null() {
-                return;
-            }
+    let locals = local_addr.as_ptr() as *const preload_thread_locals<Arch>;
+    assert!(size_of::<preload_thread_locals<Arch>>() <= PRELOAD_THREAD_LOCALS_SIZE,);
+    let rptr = Arch::as_rptr(unsafe { (*locals).original_syscall_parameters });
+    if rptr.is_null() {
+        return;
+    }
 
-            let args = read_val_mem(t, rptr, None);
-            let mut r = t.regs_ref().clone();
-            if args.no as isize != r.syscallno() {
-                // Maybe a preparatory syscall before the real syscall (e.g. sys_read)
-                return;
-            }
-            r.set_arg1(args.args[0] as usize);
-            r.set_arg2(args.args[1] as usize);
-            r.set_arg3(args.args[2] as usize);
-            r.set_arg4(args.args[3] as usize);
-            r.set_arg5(args.args[4] as usize);
-            r.set_arg6(args.args[5] as usize);
-            t.set_regs(&r);
-        }
-        SupportedArch::X86 => {
-            let locals =
-                local_addr.as_ptr() as *const x86::preload_interface::preload_thread_locals;
-            const_assert!(
-                size_of::<x86::preload_interface::preload_thread_locals>()
-                    <= PRELOAD_THREAD_LOCALS_SIZE,
-            );
-            let rptr = unsafe { (*locals).original_syscall_parameters }.rptr();
-            if rptr.is_null() {
-                return;
-            }
-
-            let args = read_val_mem(t, rptr, None);
-            let mut r = t.regs_ref().clone();
-            if args.no as isize != r.syscallno() {
-                // Maybe a preparatory syscall before the real syscall (e.g. sys_read)
-                return;
-            }
-            // @TODO A sign extension would happen here
-            // Is this what we want?
-            r.set_arg1(args.args[0] as usize);
-            r.set_arg2(args.args[1] as usize);
-            r.set_arg3(args.args[2] as usize);
-            r.set_arg4(args.args[3] as usize);
-            r.set_arg5(args.args[4] as usize);
-            r.set_arg6(args.args[5] as usize);
-            t.set_regs(&r);
-        }
-    };
+    let args = read_val_mem(t, rptr, None);
+    let mut r = t.regs_ref().clone();
+    if Arch::long_as_isize(args.no) != r.syscallno() {
+        // Maybe a preparatory syscall before the real syscall (e.g. sys_read)
+        return;
+    }
+    r.set_arg1(Arch::long_as_usize(args.args[0]));
+    r.set_arg2(Arch::long_as_usize(args.args[1]));
+    r.set_arg3(Arch::long_as_usize(args.args[2]));
+    r.set_arg4(Arch::long_as_usize(args.args[3]));
+    r.set_arg5(Arch::long_as_usize(args.args[4]));
+    r.set_arg6(Arch::long_as_usize(args.args[5]));
+    t.set_regs(&r);
 }
 
 fn do_preload_init(t: &mut RecordTask) {
