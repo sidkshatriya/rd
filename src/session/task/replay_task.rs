@@ -21,13 +21,14 @@ use crate::{
     bindings::kernel::user_desc,
     file_monitor::preserve_file_monitor::PreserveFileMonitor,
     kernel_abi::{
-        common::preload_interface::syscallbuf_record,
         syscall_number_for_close,
         syscall_number_for_dup3,
         syscall_number_for_openat,
         SupportedArch,
     },
     log::LogLevel::LogWarn,
+    preload_interface::syscallbuf_record,
+    preload_interface_arch::rdcall_init_buffers_params,
     rd::RD_RESERVED_ROOT_DIR_FD,
     registers::{MismatchBehavior, Registers},
     remote_ptr::{RemotePtr, Void},
@@ -70,7 +71,6 @@ use std::{
     ffi::{CString, OsStr},
     ops::{Deref, DerefMut},
 };
-use crate::preload_interface_arch::rdcall_init_buffers_params;
 
 pub struct ReplayTask {
     pub task_inner: TaskInner,

@@ -1,3 +1,7 @@
+#![allow(non_camel_case_types)]
+#![allow(non_snake_case)]
+#![allow(non_upper_case_globals)]
+
 use crate::bindings::kernel::PAGE_SIZE;
 
 /// Bump this whenever the interface between syscallbuf and rd changes in a way
@@ -159,7 +163,7 @@ pub struct preload_globals {
     pub desched_sig: u8,
     /// Number of cores to pretend we have. 0 means 1. rd sets this when
     /// the preload library is initialized.
-    pub pretend_num_cores: int,
+    pub pretend_num_cores: i32,
     /// Set by rd.
     /// If `syscallbuf_fds_disabled[fd]` is nonzero, then operations on that fd
     /// must be performed through traced syscalls, not the syscallbuf.

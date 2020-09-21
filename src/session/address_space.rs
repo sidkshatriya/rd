@@ -4,16 +4,9 @@ pub mod memory_range;
 
 use crate::{
     event::Event,
-    kernel_abi::{
-        common::preload_interface::{
-            RD_PAGE_ADDR,
-            RD_PAGE_SYSCALL_INSTRUCTION_END,
-            RD_PAGE_SYSCALL_STUB_SIZE,
-        },
-        is_execve_syscall,
-        SupportedArch,
-    },
+    kernel_abi::{is_execve_syscall, SupportedArch},
     log::LogLevel::LogError,
+    preload_interface::{RD_PAGE_ADDR, RD_PAGE_SYSCALL_INSTRUCTION_END, RD_PAGE_SYSCALL_STUB_SIZE},
     remote_code_ptr::RemoteCodePtr,
     remote_ptr::{RemotePtr, Void},
     scoped_fd::ScopedFd,
@@ -198,11 +191,6 @@ pub mod address_space {
         auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem},
         emu_fs::EmuFileSharedPtr,
         kernel_abi::{
-            common::preload_interface::{
-                PRELOAD_THREAD_LOCALS_SIZE,
-                RD_PAGE_ADDR,
-                RD_PAGE_FF_BYTES,
-            },
             syscall_instruction,
             syscall_number_for_brk,
             syscall_number_for_close,
@@ -213,6 +201,7 @@ pub mod address_space {
         log::LogLevel::LogDebug,
         monitored_shared_memory::MonitoredSharedMemorySharedPtr,
         monkey_patcher::MonkeyPatcher,
+        preload_interface::{PRELOAD_THREAD_LOCALS_SIZE, RD_PAGE_ADDR, RD_PAGE_FF_BYTES},
         preload_interface_arch::rdcall_init_preload_params,
         rd::RD_RESERVED_ROOT_DIR_FD,
         registers::Registers,

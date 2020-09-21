@@ -3,14 +3,11 @@ use crate::extra_registers::ExtraRegisters;
 use crate::{
     bindings::signal::siginfo_t,
     event::{Event, EventType, SignalDeterministic, SignalResolvedDisposition, SyscallState},
-    kernel_abi::{
-        common::preload_interface::{mprotect_record, SYSCALLBUF_PROTOCOL_VERSION},
-        syscall_number_for_restart_syscall,
-        RD_NATIVE_ARCH,
-    },
+    kernel_abi::{syscall_number_for_restart_syscall, RD_NATIVE_ARCH},
     kernel_supplement::{btrfs_ioctl_clone_range_args, BTRFS_IOC_CLONE_, BTRFS_IOC_CLONE_RANGE_},
     log::LogLevel::LogDebug,
     perf_counters::{PerfCounters, TicksSemantics},
+    preload_interface::{mprotect_record, SYSCALLBUF_PROTOCOL_VERSION},
     registers::Registers,
     remote_ptr::{RemotePtr, Void},
     scoped_fd::ScopedFd,

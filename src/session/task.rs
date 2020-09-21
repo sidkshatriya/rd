@@ -3,14 +3,10 @@ use crate::{
         kernel::{itimerval, setitimer, user_desc, ITIMER_REAL},
         ptrace::{PTRACE_EVENT_EXIT, PTRACE_INTERRUPT},
     },
-    kernel_abi::{
-        common::preload_interface::{syscallbuf_record, PRELOAD_THREAD_LOCALS_SIZE},
-        syscall_instruction_length,
-        syscall_number_for_gettid,
-        SupportedArch,
-    },
+    kernel_abi::{syscall_instruction_length, syscall_number_for_gettid, SupportedArch},
     kernel_metadata::syscall_name,
     log::LogLevel::{LogDebug, LogWarn},
+    preload_interface::{syscallbuf_record, PRELOAD_THREAD_LOCALS_SIZE},
     registers::Registers,
     remote_ptr::{RemotePtr, Void},
     session::{

@@ -38,7 +38,6 @@ use crate::{
         FileMonitorType,
     },
     kernel_abi::{
-        common::preload_interface::{syscallbuf_hdr, SYS_rdcall_reload_auxv},
         is_rdcall_notify_syscall_hook_exit_syscall,
         is_restart_syscall_syscall,
         is_write_syscall,
@@ -55,6 +54,7 @@ use crate::{
     kernel_metadata::{is_sigreturn, shm_flags_to_mmap_prot, syscall_name},
     kernel_supplement::{ARCH_GET_CPUID, ARCH_SET_CPUID},
     log::LogLevel::LogDebug,
+    preload_interface::{syscallbuf_hdr, SYS_rdcall_reload_auxv},
     registers::{with_converted_registers, Registers},
     remote_ptr::{RemotePtr, Void},
     scoped_fd::ScopedFd,

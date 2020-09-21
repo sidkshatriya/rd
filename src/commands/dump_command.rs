@@ -5,13 +5,9 @@ use crate::{
         RdCommand,
     },
     event::EventType,
-    kernel_abi::common::preload_interface::{
-        stored_record_size,
-        syscallbuf_hdr,
-        syscallbuf_record,
-    },
     kernel_metadata::syscall_name,
     log::notifying_abort,
+    preload_interface::{stored_record_size, syscallbuf_hdr, syscallbuf_record},
     session::address_space::kernel_mapping::KernelMapping,
     trace::{
         trace_frame::{FrameTime, TraceFrame},

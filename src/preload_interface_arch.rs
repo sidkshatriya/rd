@@ -1,6 +1,6 @@
 use crate::{
     arch::Architecture,
-    kernel_abi::common::preload_interface::{preload_globals, syscall_patch_hook},
+    preload_interface::{preload_globals, syscall_patch_hook},
 };
 
 /// Represents syscall params.  Makes it simpler to pass them around,

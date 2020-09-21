@@ -1,6 +1,6 @@
 use crate::{
     arch::Architecture,
-    kernel_abi::common::preload_interface::syscall_patch_hook,
+    preload_interface::syscall_patch_hook,
     remote_code_ptr::RemoteCodePtr,
     remote_ptr::{RemotePtr, Void},
     session::{address_space::address_space, task::record_task::RecordTask},

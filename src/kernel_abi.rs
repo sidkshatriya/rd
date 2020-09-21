@@ -348,12 +348,6 @@ pub mod common {
 
     pub use super::aligned_u64;
     pub type ptr64<T> = super::Ptr<aligned_u64, T>;
-
-    // IMPORTANT ! ////////////////////////
-    pub mod preload_interface {
-        use super::*;
-        include!("include/preload_interface.rs");
-    }
 }
 
 pub mod w64 {

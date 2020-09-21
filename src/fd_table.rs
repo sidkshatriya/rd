@@ -1,8 +1,8 @@
 use crate::{
     event::Switchable,
     file_monitor::{FileMonitor, FileMonitorSharedPtr, LazyOffset, Range},
-    kernel_abi::common::preload_interface::{preload_globals, SYSCALLBUF_FDS_DISABLED_SIZE},
     log::LogLevel::LogDebug,
+    preload_interface::{preload_globals, SYSCALLBUF_FDS_DISABLED_SIZE},
     remote_ptr::RemotePtr,
     session::{
         address_space::address_space::AddressSpace,

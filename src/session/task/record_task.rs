@@ -36,11 +36,6 @@ use crate::{
         SyscallState,
     },
     kernel_abi::{
-        common::preload_interface::{
-            preload_globals,
-            syscallbuf_record,
-            PRELOAD_THREAD_LOCALS_SIZE,
-        },
         is_exit_group_syscall,
         is_exit_syscall,
         is_restart_syscall_syscall,
@@ -54,6 +49,7 @@ use crate::{
     kernel_metadata::syscall_name,
     kernel_supplement::{sig_set_t, SA_RESETHAND, SA_SIGINFO, _NSIG},
     log::{LogDebug, LogWarn},
+    preload_interface::{preload_globals, syscallbuf_record, PRELOAD_THREAD_LOCALS_SIZE},
     preload_interface_arch::{preload_thread_locals, rdcall_init_preload_params},
     record_signal::disarm_desched_event,
     registers::{with_converted_registers, Registers},

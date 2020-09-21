@@ -3,7 +3,6 @@ use crate::{
     auto_remote_syscalls::MemParamsEnabled::{DisableMemoryParams, EnableMemoryParams},
     bindings::{kernel::SYS_SENDMSG, ptrace::PTRACE_EVENT_EXIT},
     kernel_abi::{
-        common::preload_interface::syscallbuf_hdr,
         has_mmap2_syscall,
         has_socketcall_syscall,
         is_clone_syscall,
@@ -28,6 +27,7 @@ use crate::{
     kernel_metadata::{errno_name, syscall_name},
     log::LogLevel::LogDebug,
     monitored_shared_memory::MonitoredSharedMemorySharedPtr,
+    preload_interface::syscallbuf_hdr,
     rd::RD_RESERVED_ROOT_DIR_FD,
     registers::Registers,
     remote_code_ptr::RemoteCodePtr,

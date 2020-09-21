@@ -43,15 +43,6 @@ use crate::{
     fast_forward::at_x86_string_instruction,
     file_monitor,
     kernel_abi::{
-        common::{
-            preload_interface,
-            preload_interface::{
-                preload_globals,
-                syscallbuf_hdr,
-                syscallbuf_locked_why,
-                syscallbuf_record,
-            },
-        },
         get_syscall_instruction_arch,
         is_at_syscall_instruction,
         is_mprotect_syscall,
@@ -71,6 +62,13 @@ use crate::{
     kernel_supplement::ARCH_SET_CPUID,
     log::LogLevel::{LogDebug, LogInfo, LogWarn},
     perf_counters::TIME_SLICE_SIGNAL,
+    preload_interface::{
+        self,
+        preload_globals,
+        syscallbuf_hdr,
+        syscallbuf_locked_why,
+        syscallbuf_record,
+    },
     preload_interface_arch::rdcall_init_preload_params,
     rd::RD_RESERVED_ROOT_DIR_FD,
     registers::{with_converted_registers, Registers, X86_TF_FLAG},
