@@ -6,6 +6,7 @@ use super::{
         reset_syscallbuf,
         set_syscallbuf_locked,
         task_drop_common,
+        write_val_mem,
     },
     task_inner::PtraceData,
     TaskSharedWeakPtr,
@@ -34,7 +35,11 @@ use crate::{
         SyscallState,
     },
     kernel_abi::{
-        common::preload_interface::{syscallbuf_record, PRELOAD_THREAD_LOCALS_SIZE},
+        common::preload_interface::{
+            preload_globals,
+            syscallbuf_record,
+            PRELOAD_THREAD_LOCALS_SIZE,
+        },
         is_exit_group_syscall,
         is_exit_syscall,
         is_restart_syscall_syscall,
@@ -48,7 +53,7 @@ use crate::{
     kernel_metadata::syscall_name,
     kernel_supplement::{sig_set_t, SA_RESETHAND, SA_SIGINFO, _NSIG},
     log::{LogDebug, LogWarn},
-    preload_interface_arch::preload_thread_locals,
+    preload_interface_arch::{preload_thread_locals, rdcall_init_preload_params},
     record_signal::disarm_desched_event,
     registers::{with_converted_registers, Registers},
     remote_code_ptr::RemoteCodePtr,
@@ -129,7 +134,7 @@ use std::{
     cell::{Ref, RefCell, RefMut},
     cmp::min,
     collections::VecDeque,
-    convert::TryFrom,
+    convert::{TryFrom, TryInto},
     error::Error,
     ffi::{c_void, CString, OsStr, OsString},
     mem::size_of,
@@ -2326,6 +2331,70 @@ fn do_preload_init(t: &mut RecordTask) {
     rd_arch_function_selfless!(do_preload_init_arch, t.arch(), t);
 }
 
-fn do_preload_init_arch<Arch: Architecture>(_t: &mut RecordTask) {
-    unimplemented!()
+fn do_preload_init_arch<Arch: Architecture>(t: &mut RecordTask) {
+    let child_addr = t.regs_ref().arg1();
+    let params = read_val_mem(
+        t,
+        RemotePtr::<rdcall_init_preload_params<Arch>>::from(child_addr),
+        None,
+    );
+
+    t.syscallbuf_code_layout.syscallbuf_final_exit_instruction =
+        Arch::as_rptr(params.syscallbuf_final_exit_instruction).to_code_ptr();
+    t.syscallbuf_code_layout.syscallbuf_code_start =
+        Arch::as_rptr(params.syscallbuf_code_start).to_code_ptr();
+    t.syscallbuf_code_layout.syscallbuf_code_end =
+        Arch::as_rptr(params.syscallbuf_code_end).to_code_ptr();
+    t.syscallbuf_code_layout.get_pc_thunks_start =
+        Arch::as_rptr(params.get_pc_thunks_start).to_code_ptr();
+    t.syscallbuf_code_layout.get_pc_thunks_end =
+        Arch::as_rptr(params.get_pc_thunks_end).to_code_ptr();
+
+    let in_chaos: u8 = t.session().as_record().unwrap().enable_chaos() as u8;
+    let in_chaos_ptr = RemotePtr::<u8>::cast(Arch::as_rptr(params.globals))
+        + offset_of!(preload_globals, in_chaos);
+    write_val_mem(t, in_chaos_ptr, &in_chaos, None);
+    t.record_local_for(in_chaos_ptr, &in_chaos);
+
+    let cores: i32 = t
+        .session()
+        .as_record()
+        .unwrap()
+        .scheduler()
+        .pretend_num_cores()
+        .try_into()
+        .unwrap();
+    let cores_ptr = RemotePtr::<i32>::cast(
+        RemotePtr::<u8>::cast(Arch::as_rptr(params.globals))
+            + offset_of!(preload_globals, pretend_num_cores),
+    );
+    write_val_mem(t, cores_ptr, &cores, None);
+    t.record_local_for(cores_ptr, &cores);
+
+    let desched_sig: u8 = t
+        .session()
+        .as_record()
+        .unwrap()
+        .syscallbuf_desched_sig()
+        .as_raw()
+        .try_into()
+        .unwrap();
+    let desched_sig_ptr = RemotePtr::<u8>::cast(Arch::as_rptr(params.globals))
+        + offset_of!(preload_globals, desched_sig);
+    write_val_mem(t, desched_sig_ptr, &desched_sig, None);
+    t.record_local_for(desched_sig_ptr, &desched_sig);
+
+    let mut random_seed: u64;
+    loop {
+        random_seed = rand::random();
+        if random_seed > 0 {
+            break;
+        }
+    }
+    let random_seed_ptr = RemotePtr::<u64>::cast(
+        RemotePtr::<u8>::cast(Arch::as_rptr(params.globals))
+            + offset_of!(preload_globals, random_seed),
+    );
+    write_val_mem(t, random_seed_ptr, &random_seed, None);
+    t.record_local_for(random_seed_ptr, &random_seed);
 }
