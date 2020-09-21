@@ -599,6 +599,8 @@ pub trait Architecture: 'static {
 
     fn as_rptr<T: 'static>(p: Self::ptr<T>) -> RemotePtr<T>;
 
+    fn from_remote_ptr<T: 'static>(p: RemotePtr<T>) -> Self::ptr<T>;
+
     fn get_mmap_args(k: &Self::mmap_args) -> (usize, i32, i32, i32, usize);
 
     fn get_k_sa_handler(k: &Self::kernel_sigaction) -> RemotePtr<Void>;
@@ -1101,6 +1103,10 @@ impl Architecture for X86Arch {
 
     fn as_rptr<T: 'static>(p: Self::ptr<T>) -> RemotePtr<T> {
         p.rptr()
+    }
+
+    fn from_remote_ptr<T: 'static>(p: RemotePtr<T>) -> Self::ptr<T> {
+        Self::ptr::<T>::from_remote_ptr(p)
     }
 
     fn get_mmap_args(k: &Self::mmap_args) -> (usize, i32, i32, i32, usize) {
@@ -1651,6 +1657,10 @@ impl Architecture for X64Arch {
 
     fn as_rptr<T: 'static>(p: Self::ptr<T>) -> RemotePtr<T> {
         p.rptr()
+    }
+
+    fn from_remote_ptr<T: 'static>(p: RemotePtr<T>) -> Self::ptr<T> {
+        Self::ptr::<T>::from_remote_ptr(p)
     }
 
     fn get_mmap_args(k: &Self::mmap_args) -> (usize, i32, i32, i32, usize) {

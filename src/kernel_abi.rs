@@ -411,12 +411,6 @@ pub mod x64 {
     // IMPORTANT ! ////////////////////////
     include!("include/base_arch_defns.rs");
 
-    // IMPORTANT ! ////////////////////////
-    pub mod preload_interface {
-        use super::*;
-        include!("include/preload_interface_arch.rs");
-    }
-
     #[repr(C)]
     #[derive(Copy, Clone, Default)]
     struct stat64 {
@@ -865,12 +859,6 @@ pub mod x86 {
 
     // IMPORTANT ! ////////////////////////
     include!("include/base_arch_defns.rs");
-
-    // IMPORTANT ! ////////////////////////
-    pub mod preload_interface {
-        use super::*;
-        include!("include/preload_interface_arch.rs");
-    }
 
     /// @TODO Check this in x86
     #[repr(C, packed)]

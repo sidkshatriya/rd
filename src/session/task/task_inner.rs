@@ -1,3 +1,15 @@
+#[cfg(target_arch = "x86")]
+use crate::{
+    bindings::ptrace::{PTRACE_GETFPXREGS, PTRACE_SETFPXREGS},
+    kernel_abi::x86,
+};
+
+#[cfg(target_arch = "x86_64")]
+use crate::{
+    bindings::ptrace::{PTRACE_GETFPREGS, PTRACE_SETFPREGS},
+    kernel_abi::x64,
+};
+
 use crate::{
     arch::Architecture,
     auto_remote_syscalls::AutoRemoteSyscalls,
@@ -48,8 +60,6 @@ use crate::{
     kernel_abi::{
         common::preload_interface::{preload_globals, syscallbuf_hdr, PRELOAD_THREAD_LOCALS_SIZE},
         is_ioctl_syscall,
-        x64::{self, preload_interface::preload_thread_locals as x64_preload_thread_locals},
-        x86::{self, preload_interface::preload_thread_locals as x86_preload_thread_locals},
         SupportedArch,
         RD_NATIVE_ARCH,
     },
@@ -57,6 +67,7 @@ use crate::{
     kernel_supplement::PTRACE_EVENT_SECCOMP_OBSOLETE,
     log::LogLevel::{LogDebug, LogWarn},
     perf_counters::PerfCounters,
+    preload_interface_arch::preload_thread_locals,
     rd::{RD_MAGIC_SAVE_DATA_FD, RD_RESERVED_ROOT_DIR_FD, RD_RESERVED_SOCKET_FD},
     registers::Registers,
     remote_code_ptr::RemoteCodePtr,
@@ -150,12 +161,6 @@ use std::{
     ptr::{copy_nonoverlapping, NonNull},
     rc::{Rc, Weak},
 };
-
-#[cfg(target_arch = "x86")]
-use crate::bindings::ptrace::{PTRACE_GETFPXREGS, PTRACE_SETFPXREGS};
-
-#[cfg(target_arch = "x86_64")]
-use crate::bindings::ptrace::{PTRACE_GETFPREGS, PTRACE_SETFPREGS};
 
 const NUM_X86_DEBUG_REGS: usize = 8;
 const NUM_X86_WATCHPOINTS: usize = 4;
@@ -2034,26 +2039,15 @@ fn preload_thread_locals_local_addr(as_: &AddressSpace) -> Option<NonNull<c_void
 fn setup_preload_thread_locals_arch<Arch: Architecture>(t: &TaskInner) {
     let maybe_local_addr = preload_thread_locals_local_addr(t.vm());
 
-    // @TODO find a way to make this more succint? Code is basically the same in both match arms
     match maybe_local_addr {
-        Some(local_addr) => match Arch::arch() {
-            SupportedArch::X86 => {
-                let preload_ptr = local_addr.as_ptr() as *mut x86_preload_thread_locals;
-                debug_assert!(size_of::<x86_preload_thread_locals>() <= PRELOAD_THREAD_LOCALS_SIZE);
-                unsafe {
-                    (*preload_ptr).syscallbuf_stub_alt_stack =
-                        x86::ptr::<Void>::from_remote_ptr(t.syscallbuf_alt_stack())
-                };
-            }
-            SupportedArch::X64 => {
-                let preload_ptr = local_addr.as_ptr() as *mut x64_preload_thread_locals;
-                debug_assert!(size_of::<x64_preload_thread_locals>() <= PRELOAD_THREAD_LOCALS_SIZE);
-                unsafe {
-                    (*preload_ptr).syscallbuf_stub_alt_stack =
-                        x64::ptr::<Void>::from_remote_ptr(t.syscallbuf_alt_stack())
-                };
-            }
-        },
+        Some(local_addr) => {
+            let preload_ptr = local_addr.as_ptr() as *mut preload_thread_locals<Arch>;
+            debug_assert!(size_of::<preload_thread_locals<Arch>>() <= PRELOAD_THREAD_LOCALS_SIZE);
+            unsafe {
+                (*preload_ptr).syscallbuf_stub_alt_stack =
+                    Arch::from_remote_ptr(t.syscallbuf_alt_stack())
+            };
+        }
         None => (),
     }
 }
@@ -2064,32 +2058,16 @@ fn setup_preload_thread_locals_from_clone_arch<Arch: Architecture>(
 ) {
     let maybe_local_addr = preload_thread_locals_local_addr(t.vm());
 
-    // @TODO find a way to make this more succint? Code is basically the same in both match arms
     match maybe_local_addr {
-        Some(local_addr) => match Arch::arch() {
-            SupportedArch::X86 => {
-                t.activate_preload_thread_locals(Some(origin));
-                let locals = local_addr.as_ptr() as *mut x86_preload_thread_locals;
-                let origin_locals =
-                    origin.fetch_preload_thread_locals().as_ptr() as *mut x86_preload_thread_locals;
-                unsafe {
-                    (*locals).alt_stack_nesting_level = (*origin_locals).alt_stack_nesting_level
-                };
-                // clone() syscalls set the child stack pointer, so the child is no
-                // longer in the syscallbuf code even if the parent was.
-            }
-            SupportedArch::X64 => {
-                t.activate_preload_thread_locals(Some(origin));
-                let locals = local_addr.as_ptr() as *mut x64_preload_thread_locals;
-                let origin_locals =
-                    origin.fetch_preload_thread_locals().as_ptr() as *mut x64_preload_thread_locals;
-                unsafe {
-                    (*locals).alt_stack_nesting_level = (*origin_locals).alt_stack_nesting_level
-                };
-                // clone() syscalls set the child stack pointer, so the child is no
-                // longer in the syscallbuf code even if the parent was.
-            }
-        },
+        Some(local_addr) => {
+            t.activate_preload_thread_locals(Some(origin));
+            let locals = local_addr.as_ptr() as *mut preload_thread_locals<Arch>;
+            let origin_locals =
+                origin.fetch_preload_thread_locals().as_ptr() as *mut preload_thread_locals<Arch>;
+            unsafe { (*locals).alt_stack_nesting_level = (*origin_locals).alt_stack_nesting_level };
+            // clone() syscalls set the child stack pointer, so the child is no
+            // longer in the syscallbuf code even if the parent was.
+        }
         None => (),
     }
 }
