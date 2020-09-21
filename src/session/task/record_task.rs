@@ -1,5 +1,6 @@
 use super::{
     task_common::{
+        at_preload_init_common,
         read_mem,
         read_val_mem,
         reset_syscallbuf,
@@ -122,7 +123,7 @@ use crate::{
     weak_ptr_set::WeakPtrSet,
 };
 use libc::{pid_t, syscall, SYS_tgkill, EINVAL, EIO, PR_TSC_ENABLE, SIGCHLD};
-use nix::{errno::errno, sched::sched_yield, sys::mman::ProtFlags};
+use nix::{errno::errno, fcntl::readlink, sched::sched_yield, sys::mman::ProtFlags};
 use owning_ref::OwningHandle;
 use ptr::NonNull;
 use std::{
@@ -621,7 +622,8 @@ impl Task for RecordTask {
     }
 
     fn at_preload_init(&mut self) {
-        unimplemented!()
+        at_preload_init_common(self);
+        do_preload_init(self);
     }
 
     /// Forwarded method
@@ -2163,8 +2165,9 @@ impl RecordTask {
     }
 }
 
-fn exe_path(_t: &RecordTask) -> OsString {
-    unimplemented!()
+fn exe_path(t: &RecordTask) -> OsString {
+    let proc_link = format!("/proc/{}/exe", t.tid);
+    readlink(proc_link.as_str()).unwrap()
 }
 
 fn is_unstoppable_signal(sig: Sig) -> bool {
@@ -2356,4 +2359,12 @@ fn maybe_restore_original_syscall_registers_arch<Arch: Architecture>(
             t.set_regs(&r);
         }
     };
+}
+
+fn do_preload_init(t: &mut RecordTask) {
+    rd_arch_function_selfless!(do_preload_init_arch, t.arch(), t);
+}
+
+fn do_preload_init_arch<Arch: Architecture>(_t: &mut RecordTask) {
+    unimplemented!()
 }
