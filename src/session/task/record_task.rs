@@ -1,6 +1,7 @@
 use super::{
     task_common::{
         at_preload_init_common,
+        post_vm_clone_common,
         read_mem,
         read_val_mem,
         reset_syscallbuf,
@@ -108,7 +109,10 @@ use crate::{
     },
     sig::{self, Sig},
     ticks::Ticks,
-    trace::{trace_frame::FrameTime, trace_writer::TraceWriter},
+    trace::{
+        trace_frame::FrameTime,
+        trace_writer::{MappingOrigin, RecordInTrace, TraceWriter},
+    },
     util::{
         checksum_process_memory,
         default_action,
@@ -682,11 +686,33 @@ impl Task for RecordTask {
 
     fn post_vm_clone(
         &mut self,
-        _reason: CloneReason,
-        _flags: CloneFlags,
-        _origin: &mut dyn Task,
+        reason: CloneReason,
+        flags: CloneFlags,
+        origin: &mut dyn Task,
     ) -> bool {
-        unimplemented!()
+        if post_vm_clone_common(self, reason, flags, origin) {
+            // @TODO Could just do a &self here and avoid a clone.
+            let preload_thread_locals_mapping = self
+                .vm()
+                .mapping_of(AddressSpace::preload_thread_locals_start())
+                .unwrap()
+                .map
+                .clone();
+
+            let mode = self.trace_writer_mut().write_mapped_region(
+                self,
+                &preload_thread_locals_mapping,
+                &preload_thread_locals_mapping.fake_stat(),
+                &[],
+                Some(MappingOrigin::RdBufferMapping),
+                None,
+            );
+            ed_assert_eq!(self, mode, RecordInTrace::DontRecordInTrace);
+
+            true
+        } else {
+            false
+        }
     }
 
     /// Forwarded method
