@@ -14,6 +14,7 @@ use std::{
     convert::TryInto,
     fmt::{Display, Formatter, LowerHex, Result},
     marker::PhantomData,
+    mem::size_of,
 };
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -245,15 +246,36 @@ pub struct aligned_u64 {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct Ptr<ValT: Copy, ReferentT> {
+/// Derive Copy, Clone, Default manually due to quirks with rust treatment of
+/// PhantomData
+pub struct Ptr<ValT, ReferentT> {
     val: ValT,
     referent: PhantomData<ReferentT>,
 }
 
+impl<ValT: Copy, ReferentT> Clone for Ptr<ValT, ReferentT> {
+    fn clone(&self) -> Self {
+        Ptr {
+            val: self.val,
+            referent: PhantomData,
+        }
+    }
+}
+
+impl<ValT: Default, ReferentT> Default for Ptr<ValT, ReferentT> {
+    fn default() -> Self {
+        Ptr {
+            val: Default::default(),
+            referent: PhantomData,
+        }
+    }
+}
+
+impl<ValT: Copy, ReferentT> Copy for Ptr<ValT, ReferentT> {}
+
 impl<ValT: Copy, ReferentT> Ptr<ValT, ReferentT> {
     pub fn referent_size(&self) -> usize {
-        std::mem::size_of::<ReferentT>()
+        size_of::<ReferentT>()
     }
 }
 
