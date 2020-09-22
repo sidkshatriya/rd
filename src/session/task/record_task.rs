@@ -1165,14 +1165,78 @@ impl RecordTask {
 
     /// Call this to force a group stop for this task with signal 'sig',
     /// notifying ptracer if necessary.
-    pub fn apply_group_stop(&self, _sig: Sig) {
-        unimplemented!()
+    pub fn apply_group_stop(&mut self, sig: Sig) {
+        if self.emulated_stop_type == EmulatedStopType::NotStopped {
+            log!(
+                LogDebug,
+                "setting {} to GROUP_STOP due to signal {}",
+                self.tid,
+                sig
+            );
+            let status: WaitStatus = WaitStatus::for_group_sig(sig, self);
+            if !self.emulate_ptrace_stop(status, None, None) {
+                self.emulated_stop_type = EmulatedStopType::GroupStop;
+                self.emulated_stop_code = status;
+                self.emulated_stop_pending = true;
+                self.emulated_sigchld_pending = true;
+                match self
+                    .session()
+                    .find_task_from_rec_tid(get_ppid(self.tid).unwrap())
+                {
+                    Some(t) => t
+                        .borrow()
+                        .as_record_task()
+                        .unwrap()
+                        .send_synthetic_sigchld_if_necessary(),
+                    None => (),
+                }
+            }
+        }
     }
 
     /// Call this after `sig` is delivered to this task.  Emulate
     /// sighandler updates induced by the signal delivery.
-    pub fn signal_delivered(&self, _sig: Sig) {
-        unimplemented!()
+    pub fn signal_delivered(&mut self, sig: Sig) {
+        let h_disposition: SignalDisposition;
+        let arch = self.arch();
+
+        {
+            let mut hb = self.sighandlers.borrow_mut();
+            let handler = hb.get_mut(sig);
+            h_disposition = handler.disposition();
+            if handler.resethand {
+                reset_handler(handler, arch);
+            }
+        }
+
+        if !self.is_sig_ignored(sig) {
+            if (sig == sig::SIGTSTP || sig == sig::SIGTTIN || sig == sig::SIGTTOU)
+                && h_disposition == SignalDisposition::SignalHandler
+            {
+                // do nothing
+            } else if sig == sig::SIGTSTP
+                || sig == sig::SIGTTIN
+                || sig == sig::SIGTTOU
+                || sig == sig::SIGSTOP
+            {
+                // All threads in the process are stopped.
+                self.apply_group_stop(sig);
+                for t in self
+                    .thread_group()
+                    .task_set()
+                    .iter_except(self.weak_self_ptr())
+                {
+                    t.borrow_mut()
+                        .as_record_task_mut()
+                        .unwrap()
+                        .apply_group_stop(sig);
+                }
+            } else if sig == sig::SIGCONT {
+                self.emulate_sigcont();
+            }
+        }
+
+        self.send_synthetic_sigchld_if_necessary();
     }
 
     /// Return true if `sig` is pending but hasn't been reported to ptrace yet
