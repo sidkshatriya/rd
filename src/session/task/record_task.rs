@@ -160,7 +160,7 @@ use nix::{
     fcntl::readlink,
     sched::sched_yield,
     sys::mman::ProtFlags,
-    unistd::{access, AccessFlags},
+    unistd::{access, getpgid, AccessFlags, Pid},
 };
 use owning_ref::OwningHandle;
 use ptr::NonNull;
@@ -1157,10 +1157,28 @@ impl RecordTask {
         unimplemented!()
     }
 
-    /// Returns true if this task is in a waitpid or similar that would return
+    /// Returns true if `self` task is in a waitpid or similar that would return
     /// when t's status changes due to a regular event (exit).
-    pub fn is_waiting_for(&self, _t: &RecordTask) -> bool {
-        unimplemented!()
+    pub fn is_waiting_for(&self, t: &RecordTask) -> bool {
+        // t must be a child of this task.
+        if t.thread_group().parent().map_or(false, |parent| {
+            Rc::ptr_eq(&parent, &self.thread_group_shr_ptr())
+        }) {
+            return false;
+        }
+
+        match self.in_wait_type {
+            WaitType::WaitTypeNone => false,
+            WaitType::WaitTypeAny => true,
+            WaitType::WaitTypeSamePgid => {
+                getpgid(Some(Pid::from_raw(t.tgid()))).unwrap()
+                    == getpgid(Some(Pid::from_raw(self.tgid()))).unwrap()
+            }
+            WaitType::WaitTypePgid => {
+                getpgid(Some(Pid::from_raw(t.tgid()))).unwrap().as_raw() == self.in_wait_pid
+            }
+            WaitType::WaitTypePid => t.tgid() == self.in_wait_pid,
+        }
     }
 
     /// Call this to force a group stop for this task with signal 'sig',
