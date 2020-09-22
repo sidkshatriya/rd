@@ -10,11 +10,23 @@ use std::{
 /// Useful alias.
 pub type Void = u8;
 
-#[derive(Copy, Clone, Hash, Debug)]
+#[derive(Hash, Debug)]
+/// Manually derive Copy, Clone due to quirks with PhantomData
 pub struct RemotePtr<T> {
     ptr: usize,
     phantom: PhantomData<T>,
 }
+
+impl<T> Clone for RemotePtr<T> {
+    fn clone(&self) -> Self {
+        RemotePtr {
+            ptr: self.ptr,
+            phantom: PhantomData,
+        }
+    }
+}
+
+impl<T> Copy for RemotePtr<T> {}
 
 impl<T> Default for RemotePtr<T> {
     fn default() -> Self {

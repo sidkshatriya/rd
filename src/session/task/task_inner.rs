@@ -1149,6 +1149,7 @@ impl TaskInner {
     pub fn fd_table_shr_ptr(&self) -> FdTableSharedPtr {
         self.fds.as_ref().unwrap().clone()
     }
+
     /// Currently we don't allow recording across uid changes, so we can
     /// just return rd's uid.
     pub fn getuid(&self) -> uid_t {
@@ -1227,9 +1228,10 @@ impl TaskInner {
         self.address_of_last_execution_resume
     }
 
-    pub fn usable_scratch_size(&self) {
+    pub fn usable_scratch_size(&self) -> usize {
         unimplemented!()
     }
+
     pub fn syscallbuf_alt_stack(&self) -> RemotePtr<Void> {
         if self.scratch_ptr.is_null() {
             RemotePtr::null()

@@ -36,14 +36,18 @@ use crate::{
         SyscallState,
         SyscallbufFlushEventData,
     },
+    file_monitor::preserve_file_monitor::PreserveFileMonitor,
     kernel_abi::{
         is_exit_group_syscall,
         is_exit_syscall,
         is_restart_syscall_syscall,
         native_arch,
         sigaction_sigset_size,
+        syscall_number_for_close,
+        syscall_number_for_dup3,
         syscall_number_for_execve,
         syscall_number_for_gettid,
+        syscall_number_for_openat,
         syscall_number_for_rt_sigaction,
         SupportedArch,
     },
@@ -57,7 +61,12 @@ use crate::{
         syscallbuf_record,
         PRELOAD_THREAD_LOCALS_SIZE,
     },
-    preload_interface_arch::{preload_thread_locals, rdcall_init_preload_params},
+    preload_interface_arch::{
+        preload_thread_locals,
+        rdcall_init_buffers_params,
+        rdcall_init_preload_params,
+    },
+    rd::RD_RESERVED_ROOT_DIR_FD,
     record_signal::disarm_desched_event,
     registers::{with_converted_registers, Registers},
     remote_code_ptr::RemoteCodePtr,
@@ -133,7 +142,18 @@ use crate::{
     wait_status::WaitStatus,
     weak_ptr_set::WeakPtrSet,
 };
-use libc::{pid_t, syscall, SYS_tgkill, EINVAL, EIO, PR_TSC_ENABLE, SIGCHLD};
+use libc::{
+    pid_t,
+    syscall,
+    SYS_tgkill,
+    EINVAL,
+    EIO,
+    O_CLOEXEC,
+    O_CREAT,
+    O_RDWR,
+    PR_TSC_ENABLE,
+    SIGCHLD,
+};
 use nix::{errno::errno, fcntl::readlink, sched::sched_yield, sys::mman::ProtFlags};
 use owning_ref::OwningHandle;
 use ptr::NonNull;
@@ -865,13 +885,147 @@ impl RecordTask {
     /// of *exit from* the rdcall.  Registers will be updated with
     /// the return value from the rdcall, which is also returned
     /// from this call.
-    pub fn init_buffers(&self) {
+    pub fn init_buffers(&mut self) {
         let arch = self.arch();
         rd_arch_function!(self, init_buffers_arch, arch)
     }
 
-    fn init_buffers_arch<Arch: Architecture>(&self) {
-        unimplemented!()
+    fn init_buffers_arch<Arch: Architecture>(&mut self) {
+        // NB: the tracee can't be interrupted with a signal while
+        // we're processing the rdcall, because it's masked off all
+        // signals.
+        let mut remote = AutoRemoteSyscalls::new(self);
+
+        // Arguments to the rdcall.
+        let child_args: RemotePtr<rdcall_init_buffers_params<Arch>> =
+            RemotePtr::from(remote.task().regs_ref().arg1());
+        let mut args = read_val_mem(remote.task_mut(), child_args, None);
+
+        args.cloned_file_data_fd = -1;
+        if remote.vm().syscallbuf_enabled() {
+            remote.task_mut().syscallbuf_size = remote
+                .task()
+                .session()
+                .as_record()
+                .unwrap()
+                .syscall_buffer_size();
+            args.syscallbuf_size = remote.task_mut().syscallbuf_size.try_into().unwrap();
+            let syscallbuf_km = remote.init_syscall_buffer(RemotePtr::null());
+            args.syscallbuf_ptr =
+                Arch::from_remote_ptr(RemotePtr::<u8>::cast(remote.task().syscallbuf_child));
+            remote.task_mut().desched_fd_child = args.desched_counter_fd;
+            // Prevent the child from closing this fd
+            remote.task().fd_table_shr_ptr().borrow_mut().add_monitor(
+                remote.task_mut(),
+                args.desched_counter_fd,
+                Box::new(PreserveFileMonitor::new()),
+            );
+            remote.task_mut().as_record_task_mut().unwrap().desched_fd =
+                remote.retrieve_fd(args.desched_counter_fd);
+
+            let record_in_trace = remote
+                .task()
+                .as_record_task()
+                .unwrap()
+                .trace_writer_mut()
+                .write_mapped_region(
+                    remote.task().as_record_task().unwrap(),
+                    &syscallbuf_km,
+                    &syscallbuf_km.fake_stat(),
+                    &[],
+                    Some(MappingOrigin::RdBufferMapping),
+                    None,
+                );
+            ed_assert_eq!(
+                remote.task(),
+                record_in_trace,
+                RecordInTrace::DontRecordInTrace
+            );
+
+            if remote
+                .task()
+                .as_record_task()
+                .unwrap()
+                .trace_writer()
+                .supports_file_data_cloning()
+                && remote
+                    .task()
+                    .session()
+                    .as_record()
+                    .unwrap()
+                    .use_read_cloning()
+            {
+                let tuid = remote.task().tuid();
+                let arch = remote.task().arch();
+                let clone_file_name = remote
+                    .task()
+                    .as_record_task()
+                    .unwrap()
+                    .trace_writer()
+                    .file_data_clone_file_name(tuid);
+                let mut name = AutoRestoreMem::push_cstr(&mut remote, clone_file_name.as_os_str());
+                let filename_addr = name.get().unwrap();
+                let cloned_file_data = rd_syscall!(
+                    name,
+                    syscall_number_for_openat(arch),
+                    RD_RESERVED_ROOT_DIR_FD,
+                    filename_addr.as_usize(),
+                    O_RDWR | O_CREAT | O_CLOEXEC,
+                    0o0600
+                ) as i32;
+
+                if cloned_file_data >= 0 {
+                    let tid = name.task().tid;
+                    let free_fd: i32 = find_free_file_descriptor(tid);
+                    let cloned_file_data_fd_child = rd_syscall!(
+                        name,
+                        syscall_number_for_dup3(arch),
+                        cloned_file_data,
+                        free_fd,
+                        O_CLOEXEC
+                    ) as i32;
+                    name.task_mut().cloned_file_data_fd_child = cloned_file_data_fd_child;
+
+                    if cloned_file_data_fd_child != free_fd {
+                        ed_assert!(name.task(), cloned_file_data_fd_child < 0);
+                        log!(LogWarn, "Couldn't dup clone-data file to free fd");
+                        name.task_mut().cloned_file_data_fd_child = cloned_file_data;
+                    } else {
+                        // Prevent the child from closing this fd. We're going to close it
+                        // ourselves and we don't want the child closing it and then reopening
+                        // its own file with this fd.
+                        name.task().fd_table_shr_ptr().borrow_mut().add_monitor(
+                            name.task_mut(),
+                            cloned_file_data_fd_child,
+                            Box::new(PreserveFileMonitor::new()),
+                        );
+                        rd_infallible_syscall!(
+                            name,
+                            syscall_number_for_close(arch),
+                            cloned_file_data
+                        );
+                    }
+                    args.cloned_file_data_fd = name.task().cloned_file_data_fd_child;
+                }
+            }
+        } else {
+            args.syscallbuf_ptr = Arch::from_remote_ptr(RemotePtr::null());
+            args.syscallbuf_size = 0;
+        }
+        args.scratch_buf = Arch::from_remote_ptr(remote.task().scratch_ptr);
+        args.usable_scratch_size = remote.task().usable_scratch_size().try_into().unwrap();
+
+        // Return the mapped buffers to the child.
+        write_val_mem(remote.task_mut(), child_args, &args, None);
+
+        // The tracee doesn't need this addr returned, because it's
+        // already written to the inout |args| param, but we stash it
+        // away in the return value slot so that we can easily check
+        // that we map the segment at the same addr during replay.
+        let syscallbuf_child = remote.task().syscallbuf_child;
+        remote
+            .initial_regs_mut()
+            .set_syscall_result(syscallbuf_child.as_usize());
     }
 
     pub fn post_exec(&mut self) {
@@ -2282,6 +2436,10 @@ impl RecordTask {
         log!(LogDebug, "updating cleartid futex to {}", tid_addr);
         self.tid_futex = tid_addr;
     }
+}
+
+fn find_free_file_descriptor(_tid: i32) -> i32 {
+    unimplemented!()
 }
 
 fn exe_path(t: &RecordTask) -> OsString {
