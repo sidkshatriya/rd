@@ -19,6 +19,9 @@ use crate::{
         kernel::user_desc,
         perf_event::{PERF_EVENT_IOC_DISABLE, PERF_EVENT_IOC_ENABLE},
         ptrace::{
+            PTRACE_EVENT_CLONE,
+            PTRACE_EVENT_FORK,
+            PTRACE_EVENT_VFORK,
             PTRACE_GETEVENTMSG,
             PTRACE_GETSIGMASK,
             PTRACE_O_TRACEEXIT,
@@ -159,7 +162,7 @@ use nix::{
     errno::errno,
     fcntl::readlink,
     sched::sched_yield,
-    sys::mman::ProtFlags,
+    sys::{mman::ProtFlags, stat::stat},
     unistd::{access, getpgid, AccessFlags, Pid},
 };
 use owning_ref::OwningHandle;
@@ -2233,6 +2236,19 @@ impl RecordTask {
     /// Return the pid of the newborn thread created by this task.
     /// Called when this task has a PTRACE_CLONE_EVENT with CLONE_THREAD.
     pub fn find_newborn_thread(&self) -> pid_t {
+        ed_assert!(self, self.session().is_recording());
+        ed_assert_eq!(self, self.maybe_ptrace_event(), PTRACE_EVENT_CLONE);
+
+        let hint: pid_t = self.get_ptrace_eventmsg_pid();
+        let filename = format!("/proc/{}/task/{}", self.tid, hint);
+        // This should always succeed, but may fail in old kernels due to
+        // a kernel bug. See RecordSession::handle_ptrace_event.
+        if self.session().find_task_from_rec_tid(hint).is_none() && stat(filename.as_str()).is_ok()
+        {
+            return hint;
+        }
+
+        // Code for older kernels
         unimplemented!()
     }
 
@@ -2240,7 +2256,25 @@ impl RecordTask {
     /// which need not be the same as the current task's pid, due to CLONE_PARENT)
     /// created by this task. Called when this task has a PTRACE_CLONE_EVENT
     /// without CLONE_THREAD, or PTRACE_FORK_EVENT.
-    pub fn find_newborn_process(&self, _child_parent: pid_t) -> pid_t {
+    pub fn find_newborn_process(&self, child_parent: pid_t) -> pid_t {
+        ed_assert!(self, self.session().is_recording());
+        ed_assert!(
+            self,
+            self.maybe_ptrace_event() == PTRACE_EVENT_CLONE
+                || self.maybe_ptrace_event() == PTRACE_EVENT_VFORK
+                || self.maybe_ptrace_event() == PTRACE_EVENT_FORK
+        );
+
+        let hint = self.get_ptrace_eventmsg_pid();
+        // This should always succeed, but may fail in old kernels due to
+        // a kernel bug. See RecordSession::handle_ptrace_event.
+        if self.session().find_task_from_rec_tid(hint).is_none()
+            && get_ppid(hint).unwrap() == child_parent
+        {
+            return hint;
+        }
+
+        // Code for older kernels
         unimplemented!()
     }
 
