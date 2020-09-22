@@ -510,7 +510,7 @@ pub struct RecordTask {
     pub exit_code: i32,
     /// Signal delivered by the kernel when this task terminates
     /// DIFF NOTE: We have an Option<> here which is different from rr.
-    /// Also should this be a u32?
+    /// In rr None is indicated by 0
     pub termination_signal: Option<Sig>,
 
     /// Our value for PR_GET/SET_TSC (one of PR_TSC_ENABLED, PR_TSC_SIGSEGV).
@@ -2311,7 +2311,8 @@ impl RecordTask {
 
     /// Return true if this is a "clone child" per the wait(2) man page.
     pub fn is_clone_child(&self) -> bool {
-        unimplemented!()
+        // @TODO Is this what we want? Should we unwrap?
+        self.termination_signal != Some(sig::SIGCHLD)
     }
 
     pub fn set_termination_signal(&mut self, maybe_sig: Option<Sig>) {

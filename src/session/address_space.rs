@@ -665,6 +665,7 @@ pub mod address_space {
         /// access when child_mem_fd is not open.
         child_mem_fd: RefCell<ScopedFd>,
         traced_syscall_ip_: Cell<RemoteCodePtr>,
+        // @TODO Convert this into a plain Cell<RemoteCodePtr> ?
         privileged_traced_syscall_ip_: Cell<Option<RemoteCodePtr>>,
         syscallbuf_enabled_: Cell<bool>,
 

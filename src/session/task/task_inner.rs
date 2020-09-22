@@ -25,6 +25,7 @@ use crate::{
             PTRACE_EVENT_VFORK,
             PTRACE_GETEVENTMSG,
             PTRACE_GETREGSET,
+            PTRACE_GET_THREAD_AREA,
             PTRACE_O_EXITKILL,
             PTRACE_O_TRACECLONE,
             PTRACE_O_TRACEEXEC,
@@ -699,8 +700,11 @@ impl TaskInner {
     }
 
     /// Emulate a jump to a new IP, updating the ticks counter as appropriate.
-    pub fn emulate_jump(&self, _ptr: RemoteCodePtr) {
-        unimplemented!()
+    pub fn emulate_jump(&mut self, ip: RemoteCodePtr) {
+        let mut r = self.regs_ref().clone();
+        r.set_ip(ip);
+        self.set_regs(&r);
+        self.ticks += PerfCounters::ticks_for_unconditional_indirect_branch(self);
     }
 
     /// Return true if this is at an arm-desched-event or
@@ -716,11 +720,23 @@ impl TaskInner {
     /// is implied by this. Note that once we've entered the traced syscall,
     /// ip() is immediately after the syscall instruction.
     pub fn is_in_traced_syscall(&self) -> bool {
-        unimplemented!()
+        let arch = self.arch();
+        self.ip()
+            == self
+                .vm()
+                .traced_syscall_ip()
+                .increment_by_syscall_insn_length(arch)
+            || self.ip()
+                == self
+                    .vm()
+                    .privileged_traced_syscall_ip()
+                    .unwrap()
+                    .increment_by_syscall_insn_length(arch)
     }
 
     pub fn is_at_traced_syscall_entry(&self) -> bool {
-        unimplemented!()
+        self.ip() == self.vm().traced_syscall_ip()
+            || self.ip() == self.vm().privileged_traced_syscall_ip().unwrap()
     }
 
     /// Return true when this task is in an untraced syscall, i.e. one
@@ -1012,7 +1028,6 @@ impl TaskInner {
         unimplemented!()
     }
 
-    /// @TODO should this be a GdbRegister type?
     pub fn set_debug_reg(&self, regno: usize, value: usize) -> bool {
         Errno::clear();
         self.fallible_ptrace(
@@ -1043,12 +1058,20 @@ impl TaskInner {
 
     /// Get the thread area from the remote process.
     /// Returns 0 on success, errno otherwise.
-    pub fn emulate_get_thread_area(&self, _idx: i32, _desc: &mut user_desc) -> i32 {
-        unimplemented!()
+    pub fn emulate_get_thread_area(&self, idx: i32, desc: &mut user_desc) -> i32 {
+        log!(LogDebug, "Emulating PTRACE_GET_THREAD_AREA");
+        Errno::clear();
+        self.fallible_ptrace(
+            PTRACE_GET_THREAD_AREA,
+            // @TODO Is the cast `idx as usize` what we want?
+            RemotePtr::from(idx as usize),
+            PtraceData::WriteInto(u8_raw_slice_mut(desc)),
+        );
+        errno()
     }
 
-    pub fn thread_areas(&self) -> Vec<user_desc> {
-        unimplemented!()
+    pub fn thread_areas(&self) -> &[user_desc] {
+        &self.thread_areas_
     }
 
     pub fn set_status(&mut self, status: WaitStatus) {
@@ -1102,7 +1125,8 @@ impl TaskInner {
     pub fn tgid(&self) -> pid_t {
         self.thread_group().tgid
     }
-    /// Return id of real OS thread group.|
+
+    /// Return id of real OS thread group
     pub fn real_tgid(&self) -> pid_t {
         self.thread_group().real_tgid
     }
@@ -1113,13 +1137,18 @@ impl TaskInner {
 
     /// Return the dir of the trace we're using.
     pub fn trace_dir(&self) -> OsString {
-        unimplemented!()
+        let maybe_trace_stream = self.trace_stream();
+        match maybe_trace_stream {
+            Some(trace_stream) => return trace_stream.dir(),
+            None => ed_assert!(self, false, "Trace directory not available"),
+        }
+
+        OsString::new()
     }
 
     /// Get the current "time" measured as ticks on recording trace
     /// events.  `task_time()` returns that "time" wrt this task
     /// only.
-    /// @TODO should we be returning some other type?
     pub fn trace_time(&self) -> FrameTime {
         let trace = self.trace_stream().unwrap();
         trace.time()
@@ -1194,6 +1223,7 @@ impl TaskInner {
             syscall_name(self.regs_ref().original_syscallno() as i32, syscall_arch),
             errno_name(-result as i32)
         );
+
         false
     }
 
@@ -1240,6 +1270,7 @@ impl TaskInner {
             self.scratch_ptr + self.scratch_size
         }
     }
+
     pub fn setup_preload_thread_locals(&mut self) {
         self.activate_preload_thread_locals(None);
         rd_arch_function_selfless!(setup_preload_thread_locals_arch, self.arch(), self);
@@ -1274,6 +1305,7 @@ impl TaskInner {
                 }
             }
         }
+
         &self.thread_locals
     }
 
@@ -2035,6 +2067,7 @@ fn preload_thread_locals_local_addr(as_: &AddressSpace) -> Option<NonNull<c_void
         _ => None,
     }
 }
+
 fn setup_preload_thread_locals_arch<Arch: Architecture>(t: &TaskInner) {
     let maybe_local_addr = preload_thread_locals_local_addr(t.vm());
 
