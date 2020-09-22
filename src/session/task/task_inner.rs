@@ -12,7 +12,7 @@ use crate::{
 
 use crate::{
     arch::Architecture,
-    auto_remote_syscalls::AutoRemoteSyscalls,
+    auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem},
     bindings::{
         kernel::{sock_fprog, user, user_desc, CAP_SYS_ADMIN, NT_X86_XSTATE},
         ptrace::{
@@ -58,7 +58,13 @@ use crate::{
         stdio_monitor::StdioMonitor,
     },
     flags::Flags,
-    kernel_abi::{is_ioctl_syscall, SupportedArch, RD_NATIVE_ARCH},
+    kernel_abi::{
+        is_ioctl_syscall,
+        syscall_number_for_set_thread_area,
+        CloneTLSType,
+        SupportedArch,
+        RD_NATIVE_ARCH,
+    },
     kernel_metadata::{errno_name, ptrace_req_name, syscall_name},
     kernel_supplement::PTRACE_EVENT_SECCOMP_OBSOLETE,
     log::LogLevel::{LogDebug, LogWarn},
@@ -91,6 +97,7 @@ use crate::{
     trace::{trace_frame::FrameTime, trace_stream::TraceStream},
     util::{
         choose_cpu,
+        get_fd_offset,
         has_effective_caps,
         page_size,
         restore_initial_resource_limits,
@@ -158,6 +165,7 @@ use std::{
     ptr,
     ptr::{copy_nonoverlapping, NonNull},
     rc::{Rc, Weak},
+    slice,
 };
 
 const NUM_X86_DEBUG_REGS: usize = 8;
@@ -454,10 +462,13 @@ pub struct CapturedState {
     pub thread_areas: Vec<user_desc>,
     pub syscallbuf_child: RemotePtr<syscallbuf_hdr>,
     pub syscallbuf_size: usize,
-    pub num_syscallbuf_bytes: usize,
-    pub preload_globals: RemotePtr<preload_globals>,
+    // DIFF NOTE: Removed. This does not seem to be used.
+    // pub num_syscallbuf_bytes: usize,
+    /// DIFF NOTE: None to indicate no preload_globals
+    pub preload_globals: Option<RemotePtr<preload_globals>>,
     pub scratch_ptr: RemotePtr<Void>,
-    pub scratch_size: isize,
+    /// DIFF NOTE: This is signed in rr
+    pub scratch_size: usize,
     pub top_of_stack: RemotePtr<Void>,
     pub cloned_file_data_offset: u64,
     pub thread_locals: ThreadLocals,
@@ -1404,8 +1415,31 @@ impl TaskInner {
 
     /// Grab state from this task into a structure that we can use to
     /// initialize a new task via os_clone_into/os_fork_into and copy_state.
-    pub(in super::super) fn capture_state(&self) -> CapturedState {
-        unimplemented!()
+    pub(in super::super) fn capture_state(&mut self) -> CapturedState {
+        CapturedState {
+            rec_tid: self.rec_tid,
+            serial: self.serial,
+            regs: self.regs_ref().clone(),
+            extra_regs: self.extra_regs_ref().clone(),
+            prname: self.prname.clone(),
+            thread_areas: self.thread_areas_.clone(),
+            desched_fd_child: self.desched_fd_child,
+            cloned_file_data_fd_child: self.cloned_file_data_fd_child,
+            cloned_file_data_offset: if self.cloned_file_data_fd_child > 0 {
+                get_fd_offset(self.tid, self.cloned_file_data_fd_child)
+            } else {
+                0
+            },
+            syscallbuf_child: self.syscallbuf_child,
+            syscallbuf_size: self.syscallbuf_size,
+            preload_globals: self.preload_globals,
+            scratch_ptr: self.scratch_ptr,
+            scratch_size: self.scratch_size,
+            wait_status: self.wait_status,
+            ticks: self.ticks,
+            top_of_stack: self.top_of_stack,
+            thread_locals: self.fetch_preload_thread_locals().clone(),
+        }
     }
 
     /// Make this task look like an identical copy of the task whose state
@@ -1827,6 +1861,30 @@ impl TaskInner {
 
     pub(in super::super) fn preload_thread_locals(&self) -> Option<NonNull<c_void>> {
         preload_thread_locals_local_addr(&self.vm())
+    }
+}
+
+fn copy_tls(state: &CapturedState, remote: &mut AutoRemoteSyscalls) {
+    let arch = remote.arch();
+    rd_arch_function_selfless!(copy_tls_arch, arch, state, remote);
+}
+
+fn copy_tls_arch<Arch: Architecture>(state: &CapturedState, remote: &mut AutoRemoteSyscalls) {
+    if Arch::CLONE_TLS_TYPE == CloneTLSType::UserDescPointer {
+        for t in &state.thread_areas {
+            let data: &[u8] = unsafe {
+                slice::from_raw_parts(t as *const user_desc as *const u8, size_of::<user_desc>())
+            };
+            let arch = remote.arch();
+            let mut remote_tls = AutoRestoreMem::new(remote, Some(data), data.len());
+            let addr = remote_tls.get().unwrap();
+            log!(LogDebug, "    setting tls {}", addr);
+            rd_infallible_syscall!(
+                remote_tls,
+                syscall_number_for_set_thread_area(arch),
+                addr.as_usize()
+            );
+        }
     }
 }
 

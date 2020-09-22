@@ -6,12 +6,11 @@ use crate::{
     registers::Registers,
     remote_ptr::{RemotePtr, Void},
     session::task::{record_task::RecordTask, Task},
+    util::get_fd_offset,
 };
 use mmapped_file_monitor::MmappedFileMonitor;
 use std::{
     cell::RefCell,
-    fs::File,
-    io::{BufRead, BufReader},
     mem::size_of,
     rc::{Rc, Weak},
 };
@@ -149,51 +148,7 @@ fn retrieve_offset_arch<Arch: Architecture>(
             "Can only read a file descriptor's offset while recording"
         );
         let fd: i32 = regs.arg1_signed() as i32;
-        // Get the offset from /proc/*/fdinfo/*
-        let fdinfo_path = format!("/proc/{}/fdinfo/{}", t.tid, fd);
-        let result = File::open(&fdinfo_path);
-        let mut f = match result {
-            Err(e) => {
-                fatal!("Failed to open `{}': {:?}", fdinfo_path, e);
-            }
-            Ok(file) => BufReader::new(file),
-        };
-
-        let mut buf = String::new();
-        let mut maybe_offset: Option<u64> = None;
-        // @TODO do we need to use read_until() which will give a Vec<u8> instead?
-        // But buf being a String should be OK for now. The characters in fdinfo should be ASCII
-        // anyways.
-        while let Ok(nread) = f.read_line(&mut buf) {
-            if nread == 0 {
-                break;
-            }
-
-            let s = buf.trim();
-            let maybe_loc = s.find("pos:\t");
-            if maybe_loc.is_none() {
-                continue;
-            }
-            // 5 is length of str "pos:\t"
-            let loc = maybe_loc.unwrap() + 5;
-            // @TODO This is tricky. Are we sure that a negative offset won't appear in
-            // /proc/{}/fdinfo/{} ?
-            let maybe_res = s[loc..].parse::<u64>();
-            match maybe_res {
-                Ok(res) => maybe_offset = Some(res),
-                Err(e) => fatal!(
-                    "Unable to parse file offset from `{}': {:?}",
-                    fdinfo_path,
-                    e
-                ),
-            }
-        }
-
-        if maybe_offset.is_none() {
-            fatal!("Failed to read position");
-        }
-
-        let offset = maybe_offset.unwrap();
+        let offset = get_fd_offset(t.tid, fd);
         // The pos we just read, was after the write completed. Luckily, we do
         // know how many bytes were written.
         // DIFF NOTE: This is slightly different from the rr approach.

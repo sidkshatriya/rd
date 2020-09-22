@@ -1693,3 +1693,50 @@ pub fn is_deterministic_signal(t: &mut dyn Task) -> SignalDeterministic {
         }
     }
 }
+
+pub fn get_fd_offset(tid: pid_t, fd: i32) -> u64 {
+    // Get the offset from /proc/*/fdinfo/*
+    let fdinfo_path = format!("/proc/{}/fdinfo/{}", tid, fd);
+    let result = File::open(&fdinfo_path);
+    let mut f = match result {
+        Err(e) => {
+            fatal!("Failed to open `{}`: {:?}", fdinfo_path, e);
+        }
+        Ok(file) => BufReader::new(file),
+    };
+
+    let mut buf = String::new();
+    let mut maybe_offset: Option<u64> = None;
+    // @TODO do we need to use read_until() which will give a Vec<u8> instead?
+    // But buf being a String should be OK for now. The characters in fdinfo should be ASCII
+    // anyways.
+    while let Ok(nread) = f.read_line(&mut buf) {
+        if nread == 0 {
+            break;
+        }
+
+        let s = buf.trim();
+        let maybe_loc = s.find("pos:\t");
+        if maybe_loc.is_none() {
+            continue;
+        }
+        // 5 is length of str "pos:\t"
+        let loc = maybe_loc.unwrap() + 5;
+        // @TODO This is tricky. Are we sure that a negative offset won't appear in
+        // /proc/{}/fdinfo/{} ?
+        let maybe_res = s[loc..].parse::<u64>();
+        match maybe_res {
+            Ok(res) => maybe_offset = Some(res),
+            Err(e) => fatal!(
+                "Unable to parse file offset from `{}': {:?}",
+                fdinfo_path,
+                e
+            ),
+        }
+    }
+
+    match maybe_offset {
+        None => fatal!("Failed to read position"),
+        Some(offset) => offset,
+    }
+}
