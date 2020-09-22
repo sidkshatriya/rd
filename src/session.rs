@@ -27,7 +27,7 @@ use std::{
     rc::{Rc, Weak},
 };
 use task::task_inner::CloneReason;
-use task_common::clone_task_common;
+use task_common::{clone_task_common, copy_state};
 
 pub mod address_space;
 pub mod diversion_session;
@@ -169,12 +169,15 @@ pub trait Session: DerefMut<Target = SessionInner> {
                 }
             }
 
-            tgleader
-                .clone_leader
-                .upgrade()
-                .unwrap()
-                .borrow_mut()
-                .copy_state(&tgleader.clone_leader_state);
+            copy_state(
+                tgleader
+                    .clone_leader
+                    .upgrade()
+                    .unwrap()
+                    .borrow_mut()
+                    .as_mut(),
+                &tgleader.clone_leader_state,
+            );
         }
         // Don't need to set clone completion to `None`. Its already been done!
     }

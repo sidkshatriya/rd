@@ -12,7 +12,7 @@ use crate::{
 
 use crate::{
     arch::Architecture,
-    auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem},
+    auto_remote_syscalls::AutoRemoteSyscalls,
     bindings::{
         kernel::{sock_fprog, user, user_desc, CAP_SYS_ADMIN, NT_X86_XSTATE},
         ptrace::{
@@ -58,13 +58,7 @@ use crate::{
         stdio_monitor::StdioMonitor,
     },
     flags::Flags,
-    kernel_abi::{
-        is_ioctl_syscall,
-        syscall_number_for_set_thread_area,
-        CloneTLSType,
-        SupportedArch,
-        RD_NATIVE_ARCH,
-    },
+    kernel_abi::{is_ioctl_syscall, SupportedArch, RD_NATIVE_ARCH},
     kernel_metadata::{errno_name, ptrace_req_name, syscall_name},
     kernel_supplement::PTRACE_EVENT_SECCOMP_OBSOLETE,
     log::LogLevel::{LogDebug, LogWarn},
@@ -165,7 +159,6 @@ use std::{
     ptr,
     ptr::{copy_nonoverlapping, NonNull},
     rc::{Rc, Weak},
-    slice,
 };
 
 const NUM_X86_DEBUG_REGS: usize = 8;
@@ -1442,19 +1435,6 @@ impl TaskInner {
         }
     }
 
-    /// Make this task look like an identical copy of the task whose state
-    /// was captured by capture_task_state(), in
-    /// every way relevant to replay.  This task should have been
-    /// created by calling os_clone_into() or os_fork_into(),
-    /// and if it wasn't results are undefined.
-    ///
-    /// Some task state must be copied into this by injecting and
-    /// running syscalls in this task.  Other state is metadata
-    /// that can simply be copied over in local memory.
-    pub(in super::super) fn copy_state(&mut self, _stat: &CapturedState) {
-        unimplemented!()
-    }
-
     /// Make the ptrace `request` with `addr` and `data`, return
     /// the ptrace return value.
     pub(in super::super) fn fallible_ptrace(
@@ -1861,30 +1841,6 @@ impl TaskInner {
 
     pub(in super::super) fn preload_thread_locals(&self) -> Option<NonNull<c_void>> {
         preload_thread_locals_local_addr(&self.vm())
-    }
-}
-
-fn copy_tls(state: &CapturedState, remote: &mut AutoRemoteSyscalls) {
-    let arch = remote.arch();
-    rd_arch_function_selfless!(copy_tls_arch, arch, state, remote);
-}
-
-fn copy_tls_arch<Arch: Architecture>(state: &CapturedState, remote: &mut AutoRemoteSyscalls) {
-    if Arch::CLONE_TLS_TYPE == CloneTLSType::UserDescPointer {
-        for t in &state.thread_areas {
-            let data: &[u8] = unsafe {
-                slice::from_raw_parts(t as *const user_desc as *const u8, size_of::<user_desc>())
-            };
-            let arch = remote.arch();
-            let mut remote_tls = AutoRestoreMem::new(remote, Some(data), data.len());
-            let addr = remote_tls.get().unwrap();
-            log!(LogDebug, "    setting tls {}", addr);
-            rd_infallible_syscall!(
-                remote_tls,
-                syscall_number_for_set_thread_area(arch),
-                addr.as_usize()
-            );
-        }
     }
 }
 

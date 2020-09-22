@@ -52,6 +52,8 @@ use crate::{
         syscall_number_for_mprotect,
         syscall_number_for_munmap,
         syscall_number_for_openat,
+        syscall_number_for_prctl,
+        syscall_number_for_set_thread_area,
         x64,
         x86,
         CloneTLSType,
@@ -138,6 +140,7 @@ use libc::{
     PR_SET_NAME,
     PR_SET_SECCOMP,
     SECCOMP_MODE_FILTER,
+    SEEK_SET,
     SIGTRAP,
     WNOHANG,
     __WALL,
@@ -2259,4 +2262,98 @@ pub(super) fn reset_syscallbuf<T: Task>(t: &mut T) {
         &zero,
         None,
     );
+}
+
+/// Make this task look like an identical copy of the task whose state
+/// was captured by capture_task_state(), in
+/// every way relevant to replay.  This task should have been
+/// created by calling os_clone_into() or os_fork_into(),
+/// and if it wasn't results are undefined.
+///
+/// Some task state must be copied into this by injecting and
+/// running syscalls in this task.  Other state is metadata
+/// that can simply be copied over in local memory
+pub(in super::super) fn copy_state(t: &mut dyn Task, state: &CapturedState) {
+    t.set_regs(&state.regs);
+    t.set_extra_regs(&state.extra_regs);
+    {
+        let mut remote = AutoRemoteSyscalls::new(t);
+        {
+            let arch = remote.arch();
+            let mut remote_prname =
+                AutoRestoreMem::push_cstr(&mut remote, state.prname.as_os_str());
+            log!(LogDebug, "    setting name to {:?}", state.prname);
+            let child_addr = remote_prname.get().unwrap();
+            rd_infallible_syscall!(
+                remote_prname,
+                syscall_number_for_prctl(arch),
+                PR_SET_NAME,
+                child_addr.as_usize()
+            );
+            remote_prname.task_mut().update_prname(child_addr);
+        }
+
+        copy_tls(state, &mut remote);
+        remote.task_mut().thread_areas_ = state.thread_areas.clone();
+        remote.task_mut().syscallbuf_size = state.syscallbuf_size;
+
+        ed_assert!(
+            remote.task(),
+            remote.task().syscallbuf_child.is_null(),
+            "Syscallbuf should not already be initialized in clone"
+        );
+        if !state.syscallbuf_child.is_null() {
+            // All these fields are preserved by the fork.
+            remote.task_mut().desched_fd_child = state.desched_fd_child;
+            remote.task_mut().cloned_file_data_fd_child = state.cloned_file_data_fd_child;
+            if state.cloned_file_data_fd_child >= 0 {
+                remote.infallible_lseek_syscall(
+                    state.cloned_file_data_fd_child,
+                    state.cloned_file_data_offset.try_into().unwrap(),
+                    SEEK_SET,
+                );
+            }
+            remote.task_mut().syscallbuf_child = state.syscallbuf_child;
+        }
+    }
+
+    t.preload_globals = state.preload_globals;
+    ed_assert!(t, t.vm().thread_locals_tuid() != t.tuid());
+    t.thread_locals = state.thread_locals.clone();
+    // The scratch buffer (for now) is merely a private mapping in
+    // the remote task.  The CoW copy made by fork()'ing the
+    // address space has the semantics we want.  It's not used in
+    // replay anyway.
+    t.scratch_ptr = state.scratch_ptr;
+    t.scratch_size = state.scratch_size;
+
+    // Whatever |from|'s last wait status was is what ours would
+    // have been.
+    t.wait_status = state.wait_status;
+
+    t.ticks = state.ticks;
+}
+
+fn copy_tls(state: &CapturedState, remote: &mut AutoRemoteSyscalls) {
+    let arch = remote.arch();
+    rd_arch_function_selfless!(copy_tls_arch, arch, state, remote);
+}
+
+fn copy_tls_arch<Arch: Architecture>(state: &CapturedState, remote: &mut AutoRemoteSyscalls) {
+    if Arch::CLONE_TLS_TYPE == CloneTLSType::UserDescPointer {
+        for t in &state.thread_areas {
+            let data: &[u8] = unsafe {
+                slice::from_raw_parts(t as *const user_desc as *const u8, size_of::<user_desc>())
+            };
+            let arch = remote.arch();
+            let mut remote_tls = AutoRestoreMem::new(remote, Some(data), data.len());
+            let addr = remote_tls.get().unwrap();
+            log!(LogDebug, "    setting tls {}", addr);
+            rd_infallible_syscall!(
+                remote_tls,
+                syscall_number_for_set_thread_area(arch),
+                addr.as_usize()
+            );
+        }
+    }
 }
