@@ -1872,10 +1872,11 @@ impl RecordTask {
         self.flushed_syscallbuf = true;
         self.flushed_num_rec_bytes = hdr.num_rec_bytes;
 
+        let num_rec_bytes = hdr.num_rec_bytes;
         log!(
             LogDebug,
             "Syscallbuf flushed with num_rec_bytes={}",
-            hdr.num_rec_bytes
+            num_rec_bytes
         );
     }
 
