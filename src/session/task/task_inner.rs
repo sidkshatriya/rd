@@ -91,6 +91,7 @@ use crate::{
     util::{
         choose_cpu,
         has_effective_caps,
+        page_size,
         restore_initial_resource_limits,
         running_under_rd,
         set_cpu_affinity,
@@ -148,7 +149,7 @@ use nix::{
 use owning_ref::OwningHandle;
 use std::{
     cell::{Cell, Ref, RefCell},
-    cmp::min,
+    cmp::{max, min},
     ffi::{c_void, CStr, CString, OsStr, OsString},
     mem::{size_of, size_of_val},
     ops::Deref,
@@ -1229,7 +1230,7 @@ impl TaskInner {
     }
 
     pub fn usable_scratch_size(&self) -> usize {
-        unimplemented!()
+        max(0, self.scratch_size as isize - page_size() as isize) as usize
     }
 
     pub fn syscallbuf_alt_stack(&self) -> RemotePtr<Void> {

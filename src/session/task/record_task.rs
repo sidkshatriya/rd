@@ -148,13 +148,20 @@ use libc::{
     SYS_tgkill,
     EINVAL,
     EIO,
+    ENOENT,
     O_CLOEXEC,
     O_CREAT,
     O_RDWR,
     PR_TSC_ENABLE,
     SIGCHLD,
 };
-use nix::{errno::errno, fcntl::readlink, sched::sched_yield, sys::mman::ProtFlags};
+use nix::{
+    errno::errno,
+    fcntl::readlink,
+    sched::sched_yield,
+    sys::mman::ProtFlags,
+    unistd::{access, AccessFlags},
+};
 use owning_ref::OwningHandle;
 use ptr::NonNull;
 use std::{
@@ -2438,8 +2445,18 @@ impl RecordTask {
     }
 }
 
-fn find_free_file_descriptor(_tid: i32) -> i32 {
-    unimplemented!()
+/// Avoid using low-numbered file descriptors since that can confuse
+/// developers.
+fn find_free_file_descriptor(for_tid: pid_t) -> i32 {
+    assert!(for_tid >= 1);
+    let mut fd = 300 + (for_tid % 500);
+    loop {
+        let filename = format!("/proc/{}/fd/{}", for_tid, fd);
+        if access(filename.as_str(), AccessFlags::F_OK).is_err() && errno() == ENOENT {
+            return fd;
+        }
+        fd += 1;
+    }
 }
 
 fn exe_path(t: &RecordTask) -> OsString {
