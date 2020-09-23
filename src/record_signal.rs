@@ -1,10 +1,14 @@
 use crate::{
     arch::Architecture,
+    auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem},
     bindings::{
         perf_event::{PERF_EVENT_IOC_DISABLE, PERF_EVENT_IOC_ENABLE},
         signal::siginfo_t,
     },
     event::SignalDeterministic,
+    kernel_abi::{sigaction_sigset_size, syscall_number_for_rt_sigprocmask},
+    kernel_supplement::sig_set_t,
+    log::LogDebug,
     preload_interface_arch::preload_thread_locals,
     remote_code_ptr::RemoteCodePtr,
     remote_ptr::RemotePtr,
@@ -13,8 +17,10 @@ use crate::{
         task::{record_task::RecordTask, task_common::read_val_mem},
     },
     sig::Sig,
+    util::signal_bit,
 };
-use libc::ioctl;
+use libc::{ioctl, SIG_BLOCK};
+use std::{intrinsics::copy_nonoverlapping, mem::size_of};
 
 pub const SIGCHLD_SYNTHETIC: i32 = 0xbeadf00du32 as i32;
 
@@ -34,6 +40,7 @@ pub fn arm_desched_event(t: &RecordTask) {
     }
 }
 
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum SignalBlocked {
     SigUnblocked = 0,
     SigBlocked = 1,
@@ -71,8 +78,39 @@ fn restore_sighandler_if_not_default(_t: &RecordTask, _sig: Sig) {
 
 /// Restore the blocked-ness and sigaction for |sig| from |t|'s local
 /// copy.
-fn restore_signal_state(_t: &RecordTask, _sig: Sig, _signal_was_blocked: SignalBlocked) {
-    unimplemented!()
+fn restore_signal_state(t: &mut RecordTask, sig: Sig, signal_was_blocked: SignalBlocked) {
+    restore_sighandler_if_not_default(t, sig);
+    if signal_was_blocked == SignalBlocked::SigBlocked {
+        log!(LogDebug, "Restoring signal blocked-ness for {}", sig);
+        {
+            let mut remote = AutoRemoteSyscalls::new(t);
+            let sigset_size: usize = sigaction_sigset_size(remote.arch());
+            let mut bytes = Vec::<u8>::new();
+            bytes.resize(sigset_size, 0u8);
+            let mask: sig_set_t = signal_bit(sig);
+            ed_assert!(remote.task(), sigset_size >= size_of::<sig_set_t>());
+            unsafe {
+                copy_nonoverlapping(
+                    &raw const mask as *const u8,
+                    bytes.as_mut_ptr(),
+                    size_of::<sig_set_t>(),
+                )
+            };
+            let arch = remote.arch();
+            let mut child_block = AutoRestoreMem::new(&mut remote, Some(&bytes), bytes.len());
+            let child_addr = child_block.get().unwrap();
+            rd_infallible_syscall!(
+                child_block,
+                syscall_number_for_rt_sigprocmask(arch),
+                SIG_BLOCK,
+                child_addr.as_usize(),
+                0,
+                sigset_size
+            );
+        }
+        // We just changed the sigmask ourselves.
+        t.invalidate_sigmask();
+    }
 }
 
 /// Return true if |t| was stopped because of a SIGSEGV resulting
