@@ -322,7 +322,7 @@ impl<'a, 'b> AutoRestoreMem<'a, 'b> {
             saved_sp: 0usize.into(),
             len,
         };
-        mem.map(|s| debug_assert_eq!(len, s.len()));
+        mem.map(|s| assert_eq!(len, s.len()));
         result.init(mem);
         result
     }

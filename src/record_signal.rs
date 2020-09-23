@@ -6,7 +6,11 @@ use crate::{
         signal::siginfo_t,
     },
     event::SignalDeterministic,
-    kernel_abi::{sigaction_sigset_size, syscall_number_for_rt_sigprocmask},
+    kernel_abi::{
+        sigaction_sigset_size,
+        syscall_number_for_rt_sigaction,
+        syscall_number_for_rt_sigprocmask,
+    },
     kernel_supplement::sig_set_t,
     log::LogDebug,
     preload_interface_arch::preload_thread_locals,
@@ -14,7 +18,10 @@ use crate::{
     remote_ptr::RemotePtr,
     session::{
         address_space::address_space::AddressSpace,
-        task::{record_task::RecordTask, task_common::read_val_mem},
+        task::{
+            record_task::{RecordTask, SignalDisposition},
+            task_common::read_val_mem,
+        },
     },
     sig::Sig,
     util::signal_bit,
@@ -72,8 +79,24 @@ fn rdtsc() -> u64 {
     unimplemented!()
 }
 
-fn restore_sighandler_if_not_default(_t: &RecordTask, _sig: Sig) {
-    unimplemented!()
+fn restore_sighandler_if_not_default(t: &mut RecordTask, sig: Sig) {
+    if t.sig_disposition(sig) != SignalDisposition::SignalDefault {
+        log!(LogDebug, "Restoring signal handler for {}", sig);
+        let sa: Vec<u8> = t.signal_action(sig);
+        let mut remote = AutoRemoteSyscalls::new(t);
+        let arch = remote.arch();
+        let sigset_size: usize = sigaction_sigset_size(arch);
+        let mut child_sa = AutoRestoreMem::new(&mut remote, Some(&sa), sa.len());
+        let child_sa_addr = child_sa.get().unwrap();
+        rd_infallible_syscall!(
+            child_sa,
+            syscall_number_for_rt_sigaction(arch),
+            sig.as_raw(),
+            child_sa_addr.as_usize(),
+            0,
+            sigset_size
+        );
+    }
 }
 
 /// Restore the blocked-ness and sigaction for |sig| from |t|'s local
