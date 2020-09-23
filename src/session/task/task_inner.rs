@@ -1559,23 +1559,6 @@ impl TaskInner {
         unimplemented!()
     }
 
-    /// Make the OS-level calls to create a new fork or clone that
-    /// will eventually be a copy of this task and return that Task
-    /// metadata.  These methods are used in concert with
-    /// `Task::copy_state()` to create task copies during
-    /// checkpointing.
-    ///
-    /// For `os_fork_into()`, `session` will be tracking the
-    /// returned fork child.
-    ///
-    /// For `os_clone_into()`, `task_leader` is the "main thread"
-    /// in the process into which the copy of this task will be
-    /// created.  `task_leader` will perform the actual OS calls to
-    /// create the new child.
-    pub(in super::super) fn os_fork_into(&self, _session: &dyn Session) -> &TaskInner {
-        unimplemented!()
-    }
-
     /// Return the TraceStream that we're using, if in recording or replay.
     /// Returns `None` if we're not in record or replay.
     pub(in super::super) fn trace_stream(

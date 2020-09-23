@@ -544,35 +544,75 @@ impl<'a> AutoRemoteSyscalls<'a> {
     ///  doing.  *ESPECIALLY* don't call this on a `t` other than
     ///  the one passed to the constructor, unless you really know
     ///  what you're doing.
-    pub fn restore_state_to(&mut self, maybe_other_task: Option<&'a mut dyn Task>) {
-        let some_t = maybe_other_task.unwrap_or(self.t);
-        // Unmap our scratch region if required
-        if self.scratch_mem_was_mapped {
-            let mut remote = AutoRemoteSyscalls::new(some_t);
-            rd_infallible_syscall!(
-                remote,
-                syscall_number_for_munmap(remote.arch()),
-                self.fixed_sp.unwrap().as_usize() - 4096,
-                4096
-            );
-        }
-        if !self.replaced_bytes.is_empty() {
-            // XXX how to clean up if the task died and the address space is shared with live task?
-            write_mem(
-                some_t,
-                self.initial_regs.ip().to_data_ptr(),
-                &self.replaced_bytes,
-                None,
-            );
-        }
+    pub fn restore_state_to(&mut self, maybe_other_task: Option<&mut dyn Task>) {
+        match maybe_other_task {
+            Some(other_t) => {
+                // Unmap our scratch region if required
+                if self.scratch_mem_was_mapped {
+                    let mut remote = AutoRemoteSyscalls::new_with_mem_params(
+                        other_t,
+                        MemParamsEnabled::DisableMemoryParams,
+                    );
 
-        // Make a copy
-        let mut regs = self.initial_regs.clone();
-        regs.set_ip(self.initial_ip);
-        regs.set_sp(self.initial_sp);
-        // Restore stomped registers.
-        some_t.set_regs(&regs);
-        some_t.set_status(self.restore_wait_status);
+                    rd_infallible_syscall!(
+                        remote,
+                        syscall_number_for_munmap(remote.arch()),
+                        self.fixed_sp.unwrap().as_usize() - 4096,
+                        4096
+                    );
+                }
+
+                if !self.replaced_bytes.is_empty() {
+                    // XXX how to clean up if the task died and the address space is shared with live task?
+                    write_mem(
+                        other_t,
+                        self.initial_regs.ip().to_data_ptr(),
+                        &self.replaced_bytes,
+                        None,
+                    );
+                }
+
+                // Make a copy
+                let mut regs = self.initial_regs.clone();
+                regs.set_ip(self.initial_ip);
+                regs.set_sp(self.initial_sp);
+                // Restore stomped registers.
+                other_t.set_regs(&regs);
+                other_t.set_status(self.restore_wait_status);
+            }
+            None => {
+                // Unmap our scratch region if required
+                if self.scratch_mem_was_mapped {
+                    let sp = self.fixed_sp.unwrap().as_usize() - 4096;
+                    let mut remote = AutoRemoteSyscalls::new_with_mem_params(
+                        self.task_mut(),
+                        MemParamsEnabled::DisableMemoryParams,
+                    );
+
+                    rd_infallible_syscall!(
+                        remote,
+                        syscall_number_for_munmap(remote.arch()),
+                        sp,
+                        4096
+                    );
+                }
+
+                if !self.replaced_bytes.is_empty() {
+                    let child_addr = self.initial_regs.ip().to_data_ptr();
+                    let val: &[u8] = &self.replaced_bytes;
+                    // XXX how to clean up if the task died and the address space is shared with live task?
+                    write_mem(self.t, child_addr, val, None);
+                }
+
+                // Make a copy
+                let mut regs = self.initial_regs.clone();
+                regs.set_ip(self.initial_ip);
+                regs.set_sp(self.initial_sp);
+                // Restore stomped registers.
+                self.t.set_regs(&regs);
+                self.t.set_status(self.restore_wait_status);
+            }
+        }
     }
 
     /// @TODO Can get a bit more performance by specializing this method. Leave as is for now.

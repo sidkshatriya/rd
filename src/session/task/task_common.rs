@@ -13,7 +13,7 @@
 
 use crate::{
     arch::Architecture,
-    auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem},
+    auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem, MemParamsEnabled},
     bindings::{
         kernel::{
             user_desc,
@@ -136,6 +136,11 @@ use libc::{
     pread64,
     waitpid,
     CLONE_FILES,
+    CLONE_FS,
+    CLONE_SIGHAND,
+    CLONE_SYSVSEM,
+    CLONE_THREAD,
+    CLONE_VM,
     EAGAIN,
     ECHILD,
     EPERM,
@@ -144,6 +149,7 @@ use libc::{
     PR_SET_SECCOMP,
     SECCOMP_MODE_FILTER,
     SEEK_SET,
+    SIGCHLD,
     SIGTRAP,
     WNOHANG,
     __WALL,
@@ -1059,8 +1065,86 @@ fn cpu_has_knl_string_singlestep_bug() -> bool {
     *CPU_HAS_KNL_STRING_SINGLESTEP_BUG_INIT
 }
 
-pub fn os_clone_into(_state: &CapturedState, _remote: &mut AutoRemoteSyscalls) -> TaskSharedPtr {
-    unimplemented!()
+pub(in super::super) fn os_clone_into(
+    state: &CapturedState,
+    remote: &mut AutoRemoteSyscalls,
+) -> TaskSharedPtr {
+    let session = remote.task().session();
+    os_clone(
+        CloneReason::SessionCloneNonleader,
+        session,
+        remote,
+        state.rec_tid,
+        state.serial,
+        // We don't actually /need/ to specify the
+        // SIGHAND/SYSVMEM flags because those things
+        // are emulated in the tracee.  But we use the
+        // same flags as glibc to be on the safe side
+        // wrt kernel bugs.
+        //
+        // We don't pass CLONE_SETTLS here *only*
+        // because we'll do it later in
+        // |copy_state()|.
+        //
+        // See |os_fork_into()| above for discussion
+        // of the CTID flags.
+        CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD | CLONE_SYSVSEM,
+        Some(state.top_of_stack),
+        None,
+        None,
+        None,
+    )
+}
+
+/// Make the OS-level calls to create a new fork or clone that
+/// will eventually be a copy of this task and return that Task
+/// metadata.  These methods are used in concert with
+/// `Task::copy_state()` to create task copies during
+/// checkpointing.
+///
+/// For `os_fork_into()`, `session` will be tracking the
+/// returned fork child.
+///
+/// For `os_clone_into()`, `task_leader` is the "main thread"
+/// in the process into which the copy of this task will be
+/// created.  `task_leader` will perform the actual OS calls to
+/// create the new child.
+fn os_fork_into(t: &mut dyn Task, session: SessionSharedPtr) -> TaskSharedPtr {
+    let rec_tid = t.rec_tid;
+    let serial = t.serial;
+    let mut remote =
+        AutoRemoteSyscalls::new_with_mem_params(t, MemParamsEnabled::DisableMemoryParams);
+
+    let child: TaskSharedPtr = os_clone(
+        CloneReason::SessionCloneLeader,
+        session,
+        &mut remote,
+        rec_tid,
+        serial,
+        // Most likely, we'll be setting up a
+        // CLEARTID futex.  That's not done
+        // here, but rather later in
+        // |copy_state()|.
+        //
+        // We also don't use any of the SETTID
+        // flags because that earlier work will
+        // be copied by fork()ing the address
+        // space.
+        //
+        // @TODO Does SIGCHLD belong here??
+        SIGCHLD,
+        None,
+        None,
+        None,
+        None,
+    );
+    // When we forked ourselves, the child inherited the setup we
+    // did to make the clone() call.  So we have to "finish" the
+    // remote calls (i.e. undo fudged state) in the child too,
+    // even though we never made any syscalls there.
+    remote.restore_state_to(Some(child.borrow_mut().as_mut()));
+
+    child
 }
 
 fn on_syscall_exit_arch<Arch: Architecture>(t: &mut dyn Task, sys: i32, regs: &Registers) {
@@ -2372,12 +2456,17 @@ fn os_clone(
     remote: &mut AutoRemoteSyscalls,
     rec_child_tid: pid_t,
     new_serial: u32,
-    base_flags: u32,
-    stack: RemotePtr<Void>,
-    ptid: RemotePtr<i32>,
-    tls: RemotePtr<Void>,
-    ctid: RemotePtr<i32>,
+    base_flags: i32,
+    maybe_stack: Option<RemotePtr<Void>>,
+    maybe_ptid: Option<RemotePtr<i32>>,
+    maybe_tls: Option<RemotePtr<Void>>,
+    maybe_ctid: Option<RemotePtr<i32>>,
 ) -> TaskSharedPtr {
+    let stack = maybe_stack.unwrap_or(RemotePtr::null());
+    let ptid = maybe_ptid.unwrap_or(RemotePtr::null());
+    let tls = maybe_tls.unwrap_or(RemotePtr::null());
+    let ctid = maybe_ctid.unwrap_or(RemotePtr::null());
+
     let mut ret: isize;
     loop {
         ret = perform_remote_clone(remote, base_flags, stack, ptid, tls, ctid);
@@ -2397,7 +2486,7 @@ fn os_clone(
     let child = clone_task_common(
         remote.task_mut(),
         reason,
-        clone_flags_to_task_flags(base_flags as i32),
+        clone_flags_to_task_flags(base_flags),
         stack,
         tls,
         ctid,
@@ -2412,7 +2501,7 @@ fn os_clone(
 
 fn perform_remote_clone(
     remote: &mut AutoRemoteSyscalls,
-    base_flags: u32,
+    base_flags: i32,
     stack: RemotePtr<u8>,
     ptid: RemotePtr<i32>,
     tls: RemotePtr<u8>,
@@ -2433,7 +2522,7 @@ fn perform_remote_clone(
 
 fn perform_remote_clone_arch<Arch: Architecture>(
     remote: &mut AutoRemoteSyscalls,
-    base_flags: u32,
+    base_flags: i32,
     stack: RemotePtr<u8>,
     ptid: RemotePtr<i32>,
     tls: RemotePtr<u8>,
