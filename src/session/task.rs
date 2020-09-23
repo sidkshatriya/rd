@@ -31,12 +31,12 @@ use crate::{
     util::{is_zombie_process, to_timeval},
     wait_status::{MaybeStopSignal, WaitStatus},
 };
-use libc::{pid_t, waitpid, EINTR, ENOSYS, SIGSTOP, SIGTRAP};
+use libc::{pid_t, waitpid, EINTR, ENOSYS, SIGSTOP, SIGTRAP, WNOHANG, __WALL};
 use nix::errno::errno;
 use std::{
     cell::RefCell,
     ffi::{CString, OsStr, OsString},
-    io::Write,
+    io::{stderr, Write},
     ops::DerefMut,
     os::unix::ffi::OsStringExt,
     ptr,
@@ -183,8 +183,27 @@ pub trait Task: DerefMut<Target = TaskInner> {
 
     /// Dump attributes of this process, including pending events,
     /// to `out`, which defaults to LOG_FILE.
-    fn dump(&self, _out: Option<&dyn Write>) {
-        unimplemented!()
+    fn dump(&self, maybe_out: Option<&mut dyn Write>) {
+        let err = &mut stderr();
+        let out = maybe_out.unwrap_or(err);
+        write!(
+            out,
+            "  {:?}(tid:{} rec_tid:{} status:{}{})<{:?}>\n",
+            self.prname,
+            self.tid,
+            self.rec_tid,
+            self.wait_status,
+            if self.unstable.get() { " UNSTABLE" } else { "" },
+            self as *const _
+        )
+        .unwrap();
+
+        if self.session().is_recording() {
+            // TODO pending events are currently only meaningful
+            // during recording.  We should change that
+            // eventually, to have more informative output.
+            self.log_pending_events();
+        }
     }
 
     /// We're currently in user-space with registers set up to perform a system
@@ -342,13 +361,40 @@ pub trait Task: DerefMut<Target = TaskInner> {
         r.set_syscallno(syscallno as isize);
         r.set_ip(r.ip() - syscall_instruction_length(r.arch()));
         self.set_regs(&r);
+
         true
     }
 
     /// Return true if the status of this has changed, but don't
     /// block.
-    fn try_wait(&self) -> bool {
-        unimplemented!()
+    fn try_wait(&mut self) -> bool {
+        if self.wait_unexpected_exit() {
+            return true;
+        }
+
+        let mut raw_status: i32 = 0;
+        let ret = unsafe { waitpid(self.tid, &mut raw_status, WNOHANG | __WALL) } as i32;
+        ed_assert!(
+            self,
+            0 <= ret,
+            "waitpid({}, NOHANG) failed with {}",
+            self.tid,
+            ret
+        );
+        log!(
+            LogDebug,
+            "waitpid({}, NOHANG) returns {}, status {}",
+            self.tid,
+            ret,
+            WaitStatus::new(raw_status)
+        );
+
+        if ret == self.tid {
+            self.did_waitpid(WaitStatus::new(raw_status));
+            return true;
+        }
+
+        false
     }
 
     /// Block until the status of self changes. wait() expects the wait to end
