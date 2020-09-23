@@ -35,14 +35,22 @@
 //! The main parameter to the scheduler is `max_ticks`, which controls the
 //! length of each timeslice.
 use crate::{
-    event::Switchable,
-    log::LogWarn,
+    event::{EventType, Switchable, SyscallState},
+    kernel_abi::{is_exit_group_syscall, is_exit_syscall, is_sched_yield_syscall, SupportedArch},
+    log::{LogDebug, LogWarn},
     session::{
         record_session::RecordSession,
-        task::{record_task::RecordTask, TaskSharedPtr, TaskSharedWeakPtr},
+        task::{
+            record_task::{EmulatedStopType, RecordTask},
+            task_inner::{ResumeRequest, TicksRequest, WaitRequest},
+            Task,
+            TaskSharedPtr,
+            TaskSharedWeakPtr,
+        },
         SessionSharedPtr,
         SessionSharedWeakPtr,
     },
+    sig,
     ticks::Ticks,
 };
 use libc::{sysconf, _SC_NPROCESSORS_CONF};
@@ -324,8 +332,94 @@ impl Scheduler {
         unimplemented!()
     }
 
-    fn is_task_runnable(&self, _t: RecordTask, _by_waitpid: &mut bool) {
-        unimplemented!()
+    /// Returns true if we should return t as the runnable task. Otherwise we
+    /// should check the next task. Note that if this returns true get_next_thread
+    /// |must| return t as the runnable task, otherwise we will lose an event and
+    ///  probably deadlock!!!
+    fn is_task_runnable(&mut self, t: &mut RecordTask, by_waitpid: &mut bool) -> bool {
+        ed_assert!(
+            t,
+            self.must_run_task.is_none(),
+            "is_task_runnable called again after it returned a task that must run!"
+        );
+
+        if t.unstable.get() {
+            log!(LogDebug, "  {} is unstable", t.tid);
+            return true;
+        }
+
+        if !t.may_be_blocked() {
+            log!(LogDebug, "  {} isn't blocked", t.tid);
+            return true;
+        }
+
+        if t.emulated_stop_type != EmulatedStopType::NotStopped {
+            if t.is_signal_pending(sig::SIGCONT) {
+                // We have to do this here. RecordTask::signal_delivered can't always
+                // do it because if we don't PTRACE_CONT the task, we'll never see the
+                // SIGCONT.
+                t.emulate_sigcont();
+                // We shouldn't run any user code since there is at least one signal
+                // pending.
+                t.resume_execution(
+                    ResumeRequest::ResumeSyscall,
+                    WaitRequest::ResumeWait,
+                    TicksRequest::ResumeNoTicks,
+                    None,
+                );
+                *by_waitpid = true;
+                self.must_run_task = Some(t.weak_self_ptr());
+                log!(
+                    LogDebug,
+                    "  Got {} out of emulated stop due to pending SIGCONT",
+                    t.tid
+                );
+
+                return true;
+            } else {
+                log!(LogDebug, "  {} is stopped by ptrace or signal", t.tid);
+                // We have no way to detect a SIGCONT coming from outside the tracees.
+                // We just have to poll SigPnd in /proc/<pid>/status.
+                self.enable_poll = true;
+                // We also need to check if the task got killed.
+                t.try_wait();
+                // N.B.: If we supported ptrace exit notifications for killed tracee's
+                // that would need handling here, but we don't at the moment.
+                return t.is_dying();
+            }
+        }
+
+        if EventType::EvSyscall == t.ev().event_type()
+            && SyscallState::ProcessingSyscall == t.ev().syscall().state
+            && treat_syscall_as_nonblocking(t.ev().syscall().number, t.arch())
+        {
+            // These syscalls never really block but the kernel may report that
+            // the task is not stopped yet if we pass WNOHANG. To make them
+            // behave predictably, do a blocking wait.
+            t.wait(None);
+            *by_waitpid = true;
+            self.must_run_task = Some(t.weak_self_ptr());
+            log!(LogDebug, "  sched_yield ready with status {}", t.status());
+            return true;
+        }
+
+        log!(
+            LogDebug,
+            "  {} is blocked on {}; checking status ...",
+            t.tid,
+            t.ev()
+        );
+
+        let did_wait_for_t: bool = t.try_wait();
+        if did_wait_for_t {
+            *by_waitpid = true;
+            self.must_run_task = Some(t.weak_self_ptr());
+            log!(LogDebug, "  ready with status {}", t.status());
+            return true;
+        }
+        log!(LogDebug, "  still blocked");
+        // Try next task
+        false
     }
 
     fn validate_scheduled_task(&self) {
@@ -411,4 +505,10 @@ impl Scheduler {
         }
         self.pretend_affinity_mask_ = pretend_affinity_mask;
     }
+}
+
+fn treat_syscall_as_nonblocking(syscallno: i32, arch: SupportedArch) -> bool {
+    is_sched_yield_syscall(syscallno, arch)
+        || is_exit_syscall(syscallno, arch)
+        || is_exit_group_syscall(syscallno, arch)
 }
