@@ -18,7 +18,7 @@ use crate::{
     kernel_abi::{native_arch, SupportedArch},
     kernel_supplement::SYS_SECCOMP,
     log::{LogDebug, LogError},
-    perf_counters::TicksSemantics,
+    perf_counters::{self, TicksSemantics},
     preload_interface::{
         syscallbuf_hdr,
         SYSCALLBUF_ENABLED_ENV_VAR,
@@ -46,6 +46,7 @@ use crate::{
         find,
         good_random,
         resource_path,
+        signal_bit,
         CPUIDData,
         CPUID_GETEXTENDEDFEATURES,
         CPUID_GETFEATURES,
@@ -489,8 +490,8 @@ impl RecordSession {
         self.asan_active_
     }
 
-    pub fn rd_signal_mask() -> u64 {
-        unimplemented!()
+    pub fn rd_signal_mask(&self) -> u64 {
+        signal_bit(perf_counters::TIME_SLICE_SIGNAL) | signal_bit(self.syscallbuf_desched_sig_)
     }
 
     /// Record some tracee execution.
@@ -513,8 +514,10 @@ impl RecordSession {
 
     /// Close trace output without flushing syscall buffers or writing
     /// task exit/termination records to the trace.
-    pub fn close_trace_writer(_status: CloseStatus) {
-        unimplemented!()
+    pub fn close_trace_writer(&self, status: CloseStatus) {
+        self.trace_out
+            .borrow_mut()
+            .close(status, Some(*self.trace_id));
     }
 
     pub fn trace_writer(&self) -> Ref<'_, TraceWriter> {
