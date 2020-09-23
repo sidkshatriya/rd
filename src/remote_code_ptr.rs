@@ -103,6 +103,12 @@ impl From<usize> for RemoteCodePtr {
     }
 }
 
+impl<T> From<RemotePtr<T>> for RemoteCodePtr {
+    fn from(addr: RemotePtr<T>) -> Self {
+        addr.to_code_ptr()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

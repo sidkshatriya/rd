@@ -70,7 +70,7 @@ use crate::{
         rdcall_init_preload_params,
     },
     rd::RD_RESERVED_ROOT_DIR_FD,
-    record_signal::disarm_desched_event,
+    record_signal::{disarm_desched_event, SIGCHLD_SYNTHETIC},
     registers::{with_converted_registers, Registers},
     remote_code_ptr::RemoteCodePtr,
     remote_ptr::{RemotePtr, Void},
@@ -769,8 +769,6 @@ impl Task for RecordTask {
 }
 
 impl RecordTask {
-    pub const SIGCHLD_SYNTHETIC: i32 = 0xbeadf00du32 as i32;
-
     /// Every Task owned by a RecordSession is a RecordTask. Functionality that
     /// only applies during recording belongs here.
     pub fn new(
@@ -2704,7 +2702,7 @@ fn get_ppid(pid: pid_t) -> Result<pid_t, Box<dyn Error>> {
 fn is_synthetic_SIGCHLD(si: &siginfo_t) -> bool {
     // @TODO is path to sival_int correct?
     si.si_signo == SIGCHLD
-        && unsafe { si._sifields._timer.si_sigval.sival_int } == RecordTask::SIGCHLD_SYNTHETIC
+        && unsafe { si._sifields._timer.si_sigval.sival_int } == SIGCHLD_SYNTHETIC
 }
 
 fn maybe_restore_original_syscall_registers_arch<Arch: Architecture>(

@@ -517,7 +517,7 @@ impl RecordSession {
     pub fn close_trace_writer(&self, status: CloseStatus) {
         self.trace_out
             .borrow_mut()
-            .close(status, Some(*self.trace_id));
+            .close(status, Some(*self.trace_id.clone()));
     }
 
     pub fn trace_writer(&self) -> Ref<'_, TraceWriter> {
