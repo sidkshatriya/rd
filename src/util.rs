@@ -1192,7 +1192,7 @@ pub fn trapped_instruction_len(insn: TrappedInstruction) -> usize {
     }
 }
 
-// XXX this probably needs to be extended to decode ignored prefixes
+/// XXX this probably needs to be extended to decode ignored prefixes
 pub fn trapped_instruction_at<T: Task>(t: &mut T, ip: RemoteCodePtr) -> TrappedInstruction {
     let mut insn: [u8; RDTSCP_INSN.len()] = Default::default();
     let ret = t.read_bytes_fallible(ip.to_data_ptr::<u8>(), &mut insn);
@@ -1219,6 +1219,7 @@ pub fn trapped_instruction_at<T: Task>(t: &mut T, ip: RemoteCodePtr) -> TrappedI
     if len >= PUSHF16_INSN.len() && insn[0..PUSHF16_INSN.len()] == PUSHF16_INSN {
         return TrappedInstruction::Pushf16;
     }
+
     TrappedInstruction::None
 }
 

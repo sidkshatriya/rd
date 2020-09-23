@@ -12,7 +12,6 @@ use crate::{
 
 use crate::{
     arch::Architecture,
-    auto_remote_syscalls::AutoRemoteSyscalls,
     bindings::{
         kernel::{sock_fprog, user, user_desc, CAP_SYS_ADMIN, NT_X86_XSTATE},
         ptrace::{
@@ -1596,28 +1595,6 @@ impl TaskInner {
             });
 
         Some(owning_handle)
-    }
-
-    /// Make the OS-level calls to clone `parent` into `session`
-    /// and return the resulting Task metadata for that new
-    /// process.  This is as opposed to `Task::clone()`, which only
-    /// attaches Task metadata to an /existing/ process.
-    ///
-    /// The new clone will be tracked in `session`.  The other
-    /// arguments are as for `Task::clone()` above.
-    pub(in super::super) fn os_clone(
-        _reason: CloneReason,
-        _session: &dyn Session,
-        _remote: &AutoRemoteSyscalls,
-        _rec_child_tid: pid_t,
-        _new_serial: u32,
-        _base_flags: u32,
-        _stack: RemotePtr<Void>,
-        _ptid: RemotePtr<i32>,
-        _tls: RemotePtr<Void>,
-        _ctid: RemotePtr<i32>,
-    ) {
-        unimplemented!()
     }
 
     /// Fork and exec the initial task. If something goes wrong later

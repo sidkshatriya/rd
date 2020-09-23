@@ -56,11 +56,12 @@ use crate::{
         syscall_number_for_set_thread_area,
         x64,
         x86,
+        CloneParameterOrdering,
         CloneTLSType,
         FcntlOperation,
         SupportedArch,
     },
-    kernel_metadata::ptrace_req_name,
+    kernel_metadata::{errno_name, ptrace_req_name},
     kernel_supplement::ARCH_SET_CPUID,
     log::LogLevel::{LogDebug, LogInfo, LogWarn},
     perf_counters::TIME_SLICE_SIGNAL,
@@ -106,12 +107,13 @@ use crate::{
             TaskSharedPtr,
             PRELOAD_THREAD_LOCALS_SIZE,
         },
-        Session,
+        SessionSharedPtr,
     },
     sig,
     ticks::Ticks,
     util::{
         ceil_page_size,
+        clone_flags_to_task_flags,
         cpuid,
         floor_page_size,
         is_kernel_trap,
@@ -134,6 +136,7 @@ use libc::{
     pread64,
     waitpid,
     CLONE_FILES,
+    EAGAIN,
     ECHILD,
     EPERM,
     ESRCH,
@@ -1529,19 +1532,15 @@ fn do_preload_init<T: Task>(t: &mut T) {
     rd_arch_task_function_selfless!(T, do_preload_init_arch, t.arch(), t);
 }
 
-/// (Note: Methods following this are protected in the rr implementation)
-/// Return a new Task cloned from `p`.  `flags` are a set of
+/// Return a new Task cloned from `clone_this`. `flags` are a set of
 /// CloneFlags (see above) that determine which resources are
 /// shared or copied to the new child.  `new_tid` is the tid
 /// assigned to the new task by the kernel.  `new_rec_tid` is
 /// only relevant to replay, and is the pid that was assigned
 /// to the task during recording.
 ///
-/// NOTE: Called simply Task::clone() in rr.
-///
-/// @TODO Can make a template parameter for T:Task but will need to add a
-/// method to the Task Trait. Since this is a protected method in rr may
-/// want to think about this some more...
+/// NOTE: - Called simply Task::clone() in rr
+///       - Sets the weak_self pointer for the task
 pub(in super::super) fn clone_task_common(
     clone_this: &mut dyn Task,
     reason: CloneReason,
@@ -1552,7 +1551,7 @@ pub(in super::super) fn clone_task_common(
     new_tid: pid_t,
     new_rec_tid: Option<pid_t>,
     new_serial: u32,
-    maybe_other_session: Option<Rc<Box<dyn Session>>>,
+    maybe_other_session: Option<SessionSharedPtr>,
 ) -> TaskSharedPtr {
     let mut new_task_session = clone_this.session();
     match maybe_other_session {
@@ -2355,5 +2354,109 @@ fn copy_tls_arch<Arch: Architecture>(state: &CapturedState, remote: &mut AutoRem
                 addr.as_usize()
             );
         }
+    }
+}
+
+/// Make the OS-level calls to clone `parent` into `session`
+/// and return the resulting Task metadata for that new
+/// process.  This is as opposed to `Task::clone()`, which only
+/// attaches Task metadata to an /existing/ process.
+///
+/// The new clone will be tracked in `session`.  The other
+/// arguments are as for `Task::clone()` above.
+///
+/// NOTE: This method corresponds to static method Task::os_clone() in rr
+fn os_clone(
+    reason: CloneReason,
+    session: SessionSharedPtr,
+    remote: &mut AutoRemoteSyscalls,
+    rec_child_tid: pid_t,
+    new_serial: u32,
+    base_flags: u32,
+    stack: RemotePtr<Void>,
+    ptid: RemotePtr<i32>,
+    tls: RemotePtr<Void>,
+    ctid: RemotePtr<i32>,
+) -> TaskSharedPtr {
+    let mut ret: isize;
+    loop {
+        ret = perform_remote_clone(remote, base_flags, stack, ptid, tls, ctid);
+        if ret != EAGAIN as isize {
+            break;
+        }
+    }
+    ed_assert!(
+        remote.task(),
+        ret >= 0,
+        "remote clone failed with errno {}",
+        errno_name(-ret as i32)
+    );
+
+    // This should have been set in the remote clone syscall made in perform_remote_clone()
+    let new_tid = remote.new_tid().unwrap();
+    let child = clone_task_common(
+        remote.task_mut(),
+        reason,
+        clone_flags_to_task_flags(base_flags as i32),
+        stack,
+        tls,
+        ctid,
+        new_tid,
+        Some(rec_child_tid),
+        new_serial,
+        Some(session),
+    );
+
+    child
+}
+
+fn perform_remote_clone(
+    remote: &mut AutoRemoteSyscalls,
+    base_flags: u32,
+    stack: RemotePtr<u8>,
+    ptid: RemotePtr<i32>,
+    tls: RemotePtr<u8>,
+    ctid: RemotePtr<i32>,
+) -> isize {
+    let arch = remote.arch();
+    rd_arch_function_selfless!(
+        perform_remote_clone_arch,
+        arch,
+        remote,
+        base_flags,
+        stack,
+        ptid,
+        tls,
+        ctid
+    )
+}
+
+fn perform_remote_clone_arch<Arch: Architecture>(
+    remote: &mut AutoRemoteSyscalls,
+    base_flags: u32,
+    stack: RemotePtr<u8>,
+    ptid: RemotePtr<i32>,
+    tls: RemotePtr<u8>,
+    ctid: RemotePtr<i32>,
+) -> isize {
+    match Arch::CLONE_PARAMETER_ORDERING {
+        CloneParameterOrdering::FlagsStackParentTLSChild => rd_syscall!(
+            remote,
+            Arch::CLONE,
+            base_flags,
+            stack.as_usize(),
+            ptid.as_usize(),
+            tls.as_usize(),
+            ctid.as_usize()
+        ),
+        CloneParameterOrdering::FlagsStackParentChildTLS => rd_syscall!(
+            remote,
+            Arch::CLONE,
+            base_flags,
+            stack.as_usize(),
+            ptid.as_usize(),
+            ctid.as_usize(),
+            tls.as_usize()
+        ),
     }
 }
