@@ -1,3 +1,4 @@
+use super::address_space::WatchType;
 use crate::{
     bindings::signal::siginfo_t,
     file_monitor::FileMonitorSharedWeakPtr,
@@ -79,12 +80,27 @@ impl BreakStatus {
     /// True when we stopped because we hit a software or hardware breakpoint at
     /// `task`'s current ip().
     pub fn hardware_or_software_breakpoint_hit(&self) -> bool {
-        unimplemented!()
+        for w in &self.watchpoints_hit {
+            // Hardware execution watchpoints behave like breakpoints: the CPU
+            // stops before the instruction is executed.
+            if w.type_ == WatchType::WatchExec {
+                return true;
+            }
+        }
+
+        self.breakpoint_hit
     }
 
     /// Returns just the data watchpoints hit.
     pub fn data_watchpoints_hit(&self) -> Vec<WatchConfig> {
-        unimplemented!()
+        let mut result = Vec::new();
+        for w in &self.watchpoints_hit {
+            if w.type_ != WatchType::WatchExec {
+                result.push(w.clone());
+            }
+        }
+
+        result
     }
 
     pub fn any_break(&self) -> bool {

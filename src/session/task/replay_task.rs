@@ -466,11 +466,11 @@ impl Task for ReplayTask {
     }
 
     fn as_task_inner(&self) -> &TaskInner {
-        unimplemented!()
+        &self.task_inner
     }
 
     fn as_task_inner_mut(&mut self) -> &mut TaskInner {
-        unimplemented!()
+        &mut self.task_inner
     }
 
     fn as_replay_task(&self) -> Option<&ReplayTask> {
