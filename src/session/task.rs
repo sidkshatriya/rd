@@ -491,6 +491,10 @@ pub trait Task: DerefMut<Target = TaskInner> {
 
     fn read_bytes_helper(&mut self, addr: RemotePtr<Void>, buf: &mut [u8], ok: Option<&mut bool>);
 
+    /// Read bytes from `child_addr` into `buf`, or don't
+    /// return.
+    fn read_bytes(&mut self, child_addr: RemotePtr<Void>, buf: &mut [u8]);
+
     fn read_c_str(&mut self, child_addr: RemotePtr<u8>) -> CString;
 
     fn write_bytes_helper(

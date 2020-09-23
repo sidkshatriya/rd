@@ -505,6 +505,10 @@ impl Task for ReplayTask {
         read_bytes_helper(self, addr, buf, ok)
     }
 
+    fn read_bytes(&mut self, addr: RemotePtr<Void>, buf: &mut [u8]) {
+        read_bytes_helper(self, addr, buf, None)
+    }
+
     /// Forwarded method
     fn read_c_str(&mut self, child_addr: RemotePtr<u8>) -> CString {
         read_c_str(self, child_addr)

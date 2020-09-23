@@ -784,21 +784,9 @@ impl TaskInner {
         &self.prname
     }
 
-    /// Call this method when this task has exited a successful execve() syscall.
-    /// At this point it is safe to make remote syscalls.
-    pub fn post_exec_syscall(&self) {
-        unimplemented!()
-    }
-
     /// Return true if this task has execed.
     pub fn execed(&self) -> bool {
-        unimplemented!()
-    }
-
-    /// Read `N` bytes from `child_addr` into `buf`, or don't
-    /// return.
-    pub fn read_bytes(&self, _child_addr: RemotePtr<Void>, _buf: &mut [u8]) {
-        unimplemented!()
+        self.thread_group().execed
     }
 
     /// Return the current regs of this.
@@ -1028,8 +1016,19 @@ impl TaskInner {
     }
 
     /// @TODO should this be a GdbRegister type?
-    pub fn get_debug_reg(&self, _regno: usize) -> usize {
-        unimplemented!()
+    /// @TODO Better way to indicate failure than return 0?
+    pub fn get_debug_reg(&self, regno: usize) -> usize {
+        Errno::clear();
+        let result = self.fallible_ptrace(
+            PTRACE_PEEKUSER,
+            dr_user_word_offset(regno).into(),
+            PtraceData::None,
+        );
+        if errno() == ESRCH {
+            0
+        } else {
+            result as usize
+        }
     }
 
     pub fn set_debug_reg(&self, regno: usize, value: usize) -> bool {
@@ -2056,7 +2055,7 @@ fn set_up_seccomp_filter(prog: &sock_fprog, err_fd: &ScopedFd) {
         spawned_child_fatal_error(
             err_fd,
             "prctl(SECCOMP) failed, SECCOMP_FILTER is not available: your\n\
-kernel is too old.",
+                  kernel is too old.",
         );
     }
     // anything that happens from this point on gets filtered!
