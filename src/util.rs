@@ -23,7 +23,12 @@ use crate::{
     remote_ptr::{RemotePtr, Void},
     scoped_fd::ScopedFd,
     session::{
-        address_space::{address_space::AddressSpace, kernel_mapping::KernelMapping},
+        address_space::{
+            address_space::AddressSpace,
+            kernel_map_iterator::KernelMapIterator,
+            kernel_mapping::KernelMapping,
+        },
+        session_inner::SessionInner,
         task::{
             task_common::{read_mem, read_val_mem},
             task_inner::CloneFlags,
@@ -1412,7 +1417,7 @@ pub fn get_random_cpu_cgroup() -> io::Result<u32> {
 
 /// If you are specifying multiple strings to match, they must all appear one after another
 /// in `/proc/{}/status`. This is like the behavior in rr.
-/// See below: The matches are cycled in the outer loop. This approach should be revisited later.
+/// @TODO The matches are cycled in the outer loop. This approach should be revisited later.
 pub fn read_proc_status_fields(tid: pid_t, matches_for: &[&[u8]]) -> io::Result<Vec<OsString>> {
     let f = File::open(format!("/proc/{}/status", tid))?;
     let mut buf = BufReader::new(f);
@@ -1532,6 +1537,7 @@ fn cpuid_faulting_works_init() -> bool {
     if unsafe { syscall(SYS_arch_prctl, ARCH_SET_CPUID, 1) } < 0 {
         fatal!("Can't restore ARCH_SET_CPUID");
     }
+
     cpuid_faulting_ok
 }
 
@@ -1645,7 +1651,23 @@ pub fn is_proc_fd_dir(filename_os: &OsStr) -> bool {
 }
 
 pub fn check_for_leaks() {
-    unimplemented!()
+    // Don't do leak checking. The outer rr may have injected maps into our
+    // address space that look like leaks to us.
+    if running_under_rd() {
+        return;
+    }
+
+    let iter = KernelMapIterator::new_from_tid(getpid().as_raw());
+    for km in iter {
+        if find(
+            km.fsname().as_bytes(),
+            SessionInner::rd_mapping_prefix().as_bytes(),
+        )
+        .is_some()
+        {
+            fatal!("Leaked {:?}", km);
+        }
+    }
 }
 
 pub fn signal_bit(sig: Sig) -> sig_set_t {

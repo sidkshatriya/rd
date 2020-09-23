@@ -336,6 +336,7 @@ impl SessionInner {
     pub fn has_cpuid_faulting() -> bool {
         !Flags::get().disable_cpuid_faulting && cpuid_faulting_works()
     }
+
     pub fn rd_mapping_prefix() -> &'static str {
         "/rd-shared-"
     }
@@ -344,6 +345,7 @@ impl SessionInner {
     pub fn tracee_socket_fd(&self) -> Rc<RefCell<ScopedFd>> {
         self.tracee_socket.clone()
     }
+
     pub fn tracee_fd_number(&self) -> i32 {
         self.tracee_socket_fd_number.get()
     }
