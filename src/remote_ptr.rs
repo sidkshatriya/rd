@@ -76,6 +76,10 @@ impl<T> RemotePtr<T> {
     pub fn to_code_ptr(self) -> RemoteCodePtr {
         RemoteCodePtr::from_val(self.ptr)
     }
+
+    pub fn as_rptr_u8(self) -> RemotePtr<u8> {
+        RemotePtr::<u8>::new_from_val(self.ptr)
+    }
 }
 
 impl<T> Display for RemotePtr<T> {

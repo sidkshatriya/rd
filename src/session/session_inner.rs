@@ -137,7 +137,7 @@ pub type AddressSpaceMap = HashMap<AddressSpaceUid, AddressSpaceSharedWeakPtr>;
 pub type TaskMap = BTreeMap<pid_t, TaskSharedPtr>;
 pub type ThreadGroupMap = HashMap<ThreadGroupUid, ThreadGroupSharedWeakPtr>;
 
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum PtraceSyscallSeccompOrdering {
     SyscallBeforeSeccomp,
     SeccompBeforeSyscall,
