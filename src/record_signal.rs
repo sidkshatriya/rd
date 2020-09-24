@@ -7,6 +7,7 @@ use crate::{
     },
     event::{Event, SignalDeterministic},
     kernel_abi::{
+        is_rt_sigprocmask_syscall,
         native_arch,
         sigaction_sigset_size,
         syscall_number_for_rt_sigaction,
@@ -14,7 +15,9 @@ use crate::{
     },
     kernel_supplement::sig_set_t,
     log::LogDebug,
+    preload_interface::syscallbuf_hdr,
     preload_interface_arch::preload_thread_locals,
+    registers::Registers,
     remote_code_ptr::RemoteCodePtr,
     remote_ptr::{RemotePtr, Void},
     session::{
@@ -24,10 +27,10 @@ use crate::{
             task_common::read_val_mem,
         },
     },
-    sig::Sig,
+    sig::{self, Sig},
     util::{ceil_page_size, floor_page_size, page_size, signal_bit},
 };
-use libc::{ioctl, prlimit, rlimit, RLIMIT_STACK, RLIM_INFINITY, SIGSEGV, SIG_BLOCK};
+use libc::{ioctl, prlimit, rlimit, EAGAIN, RLIMIT_STACK, RLIM_INFINITY, SIGSEGV, SIG_BLOCK};
 use nix::sys::mman::MapFlags;
 use std::{
     cmp::{max, min},
@@ -325,8 +328,88 @@ fn get_stub_scratch_1(t: &mut RecordTask) -> RemoteCodePtr {
 /// If it was triggered by one of our breakpoints, we have to call
 /// restore_sighandler_if_not_default(t, SIGTRAP) to make sure the SIGTRAP
 /// handler is properly restored if the kernel cleared it.
-fn handle_syscallbuf_breakpoint(_t: &RecordTask) -> bool {
-    unimplemented!()
+fn handle_syscallbuf_breakpoint(t: &mut RecordTask) -> bool {
+    if t.is_at_syscallbuf_final_instruction_breakpoint() {
+        log!(
+            LogDebug,
+            "Reached final syscallbuf instruction, singlestepping to enable signal dispatch"
+        );
+        // This is a single instruction that jumps to the location stored in
+        // preload_thread_locals::stub_scratch_1. Emulate it.
+        let scratch = get_stub_scratch_1(t);
+        t.emulate_jump(scratch);
+
+        restore_sighandler_if_not_default(t, sig::SIGTRAP);
+        // Now we're back in application code so any pending stashed signals
+        // will be handled.
+        return true;
+    }
+
+    if !t.is_at_syscallbuf_syscall_entry_breakpoint() {
+        return false;
+    }
+
+    let mut r: Registers = t.regs_ref().clone();
+    r.set_ip(r.ip().decrement_by_bkpt_insn_length(t.arch()));
+    t.set_regs(&r);
+
+    if t.is_at_traced_syscall_entry() {
+        // We will automatically dispatch stashed signals now since this is an
+        // allowed place to dispatch signals.
+        log!(
+            LogDebug,
+            "Allowing signal dispatch at traced-syscall breakpoint"
+        );
+        restore_sighandler_if_not_default(t, sig::SIGTRAP);
+        return true;
+    }
+
+    // We're at an untraced-syscall entry point.
+    // To allow an AutoRemoteSyscall, we need to make sure desched signals are
+    // disarmed (and rearmed afterward).
+    let syscallbuf_child = t.syscallbuf_child;
+    let res = read_val_mem(
+        t,
+        RemotePtr::<u8>::cast(syscallbuf_child)
+            + offset_of!(syscallbuf_hdr, desched_signal_may_be_relevant),
+        None,
+    );
+
+    let armed_desched_event = if res != 0 { true } else { false };
+    if armed_desched_event {
+        disarm_desched_event(t);
+    }
+    restore_sighandler_if_not_default(t, sig::SIGTRAP);
+    if armed_desched_event {
+        arm_desched_event(t);
+    }
+
+    // This is definitely a native-arch syscall.
+    if is_rt_sigprocmask_syscall(r.syscallno() as i32, t.arch()) {
+        // Don't proceed with this syscall. Emulate it returning EAGAIN.
+        // Syscallbuf logic will retry using a traced syscall instead.
+        r.set_syscall_result_signed(-EAGAIN as isize);
+        r.set_ip(r.ip().increment_by_syscall_insn_length(t.arch()));
+        t.set_regs(&r);
+        let arch = t.arch();
+        t.canonicalize_regs(arch);
+        log!(
+            LogDebug,
+            "Emulated EAGAIN to avoid untraced sigprocmask with pending stashed signal"
+        );
+        // Leave breakpoints enabled since we want to break at the traced-syscall
+        // fallback for rt_sigprocmask.
+        return true;
+    }
+
+    // We can proceed with the untraced syscall. Either it will complete and
+    // execution will continue until we reach some point where we can deliver our
+    // signal, or it will block at which point we'll be able to deliver our
+    // signal.
+    log!(LogDebug, "Disabling breakpoints at untraced syscalls");
+    t.break_at_syscallbuf_untraced_syscalls = false;
+
+    true
 }
 
 /// Return the event needing to be processed after this desched of |t|.
