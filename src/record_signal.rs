@@ -1,12 +1,13 @@
 use crate::{
     arch::Architecture,
-    auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem},
+    auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem, MemParamsEnabled},
     bindings::{
         perf_event::{PERF_EVENT_IOC_DISABLE, PERF_EVENT_IOC_ENABLE},
         signal::siginfo_t,
     },
-    event::SignalDeterministic,
+    event::{Event, SignalDeterministic},
     kernel_abi::{
+        native_arch,
         sigaction_sigset_size,
         syscall_number_for_rt_sigaction,
         syscall_number_for_rt_sigprocmask,
@@ -15,19 +16,26 @@ use crate::{
     log::LogDebug,
     preload_interface_arch::preload_thread_locals,
     remote_code_ptr::RemoteCodePtr,
-    remote_ptr::RemotePtr,
+    remote_ptr::{RemotePtr, Void},
     session::{
-        address_space::address_space::AddressSpace,
+        address_space::{address_space::AddressSpace, kernel_mapping::KernelMapping},
         task::{
-            record_task::{RecordTask, SignalDisposition},
+            record_task::{FlushSyscallbuf, RecordTask, SignalDisposition},
             task_common::read_val_mem,
         },
     },
     sig::Sig,
-    util::signal_bit,
+    util::{ceil_page_size, floor_page_size, page_size, signal_bit},
 };
-use libc::{ioctl, SIG_BLOCK};
-use std::{intrinsics::copy_nonoverlapping, mem::size_of};
+use libc::{ioctl, prlimit, rlimit, RLIMIT_STACK, RLIM_INFINITY, SIGSEGV, SIG_BLOCK};
+use nix::sys::mman::MapFlags;
+use std::{
+    cmp::{max, min},
+    ffi::OsString,
+    intrinsics::copy_nonoverlapping,
+    mem::{self, size_of},
+    ptr,
+};
 
 pub const SIGCHLD_SYNTHETIC: i32 = 0xbeadf00du32 as i32;
 
@@ -145,8 +153,154 @@ fn try_handle_trapped_instruction(_t: &RecordTask, _si: &siginfo_t) -> bool {
 
 /// Return true if |t| was stopped because of a SIGSEGV and we want to retry
 /// the instruction after emulating MAP_GROWSDOWN.
-fn try_grow_map(_t: &RecordTask, _si: &siginfo_t) -> bool {
-    unimplemented!()
+fn try_grow_map(t: &mut RecordTask, si: &mut siginfo_t) -> bool {
+    ed_assert_eq!(t, si.si_signo, SIGSEGV);
+
+    // Use kernel_abi to avoid odd inconsistencies between distros
+    let arch_si = unsafe { mem::transmute::<&siginfo_t, &native_arch::siginfo_t>(si) };
+    let addr = unsafe { arch_si._sifields._sigfault.si_addr_ }.rptr();
+
+    if t.vm().mapping_of(addr).is_some() {
+        log!(LogDebug, "try_grow_map {}: address already mapped", addr);
+        return false;
+    }
+
+    let it: KernelMapping;
+    let mut new_start = floor_page_size(addr);
+    {
+        let maps = t.vm().maps_starting_at(floor_page_size(addr));
+        let mut maps_iter = maps.into_iter();
+        let kv = maps_iter.next();
+        match kv {
+            None => {
+                log!(
+                    LogDebug,
+                    "try_grow_map {}: no later map to grow downward",
+                    addr
+                );
+
+                return false;
+            }
+            Some((_k, v)) => {
+                if !v.map.flags().contains(MapFlags::MAP_GROWSDOWN) {
+                    log!(
+                        LogDebug,
+                        "try_grow_map {}: map is not MAP_GROWSDOWN ({})",
+                        addr,
+                        v.map
+                    );
+
+                    return false;
+                }
+
+                it = v.map.clone();
+            }
+        }
+
+        if addr.as_usize() >= page_size() && t.vm().mapping_of(addr - page_size()).is_some() {
+            log!(
+                LogDebug,
+                "try_grow_map {}: address would be in guard page",
+                addr
+            );
+            return false;
+        }
+
+        let mut stack_limit: rlimit = rlimit {
+            rlim_cur: 0,
+            rlim_max: 0,
+        };
+        let mut limit_bottom: RemotePtr<Void> = RemotePtr::null();
+        let ret = unsafe { prlimit(t.tid, RLIMIT_STACK, ptr::null(), &mut stack_limit) };
+        if ret >= 0 && stack_limit.rlim_cur != RLIM_INFINITY {
+            limit_bottom = RemotePtr::from(ceil_page_size(
+                it.end().as_usize() - stack_limit.rlim_cur as usize,
+            ));
+            if limit_bottom > addr {
+                log!(LogDebug, "try_grow_map {}: RLIMIT_STACK exceeded", addr);
+                return false;
+            }
+        }
+
+        // Try to grow by 64K at a time to reduce signal frequency.
+        let grow_size: usize = 0x10000;
+        if it.start().as_usize() >= grow_size {
+            let possible_new_start = max(limit_bottom, min(new_start, it.start() - grow_size));
+            // Ensure that no mapping exists between possible_new_start - page_size()
+            // and new_start. If there is, possible_new_start is not valid, in which
+            // case we just abandon the optimization.
+            if possible_new_start.as_usize() >= page_size()
+                && t.vm()
+                    .mapping_of(possible_new_start - page_size())
+                    .is_none()
+                && t.vm()
+                    .maps_starting_at(possible_new_start - page_size())
+                    .into_iter()
+                    .next()
+                    .unwrap()
+                    .1
+                    .map
+                    .start()
+                    == it.start()
+            {
+                new_start = possible_new_start;
+            }
+        }
+
+        log!(LogDebug, "try_grow_map {}: trying to grow map ", it);
+    }
+
+    {
+        let mut remote =
+            AutoRemoteSyscalls::new_with_mem_params(t, MemParamsEnabled::DisableMemoryParams);
+        remote.infallible_mmap_syscall(
+            Some(new_start),
+            it.start() - new_start,
+            it.prot(),
+            (it.flags() & !MapFlags::MAP_GROWSDOWN) | MapFlags::MAP_ANONYMOUS | MapFlags::MAP_FIXED,
+            -1,
+            0,
+        );
+    }
+
+    let km: KernelMapping = t.vm_shr_ptr().map(
+        t,
+        new_start,
+        it.start() - new_start,
+        it.prot(),
+        it.flags() | MapFlags::MAP_ANONYMOUS,
+        0,
+        &OsString::new(),
+        KernelMapping::NO_DEVICE,
+        KernelMapping::NO_INODE,
+        None,
+        None,
+        None,
+        None,
+        None,
+    );
+
+    t.trace_writer_mut()
+        .write_mapped_region(t, &km, &km.fake_stat(), &[], None, None);
+
+    // No need to flush syscallbuf here. It's safe to map these pages "early"
+    // before they're really needed.
+    t.record_event(
+        Some(Event::grow_map()),
+        Some(FlushSyscallbuf::DontFlushSyscallbuf),
+        None,
+        None,
+    );
+
+    t.push_event(Event::noop());
+    log!(
+        LogDebug,
+        "try_grow_map {}: extended map {}",
+        addr,
+        t.vm().mapping_of(addr).unwrap().map
+    );
+
+    true
 }
 
 fn get_stub_scratch_1_arch<Arch: Architecture>(t: &mut RecordTask) -> RemoteCodePtr {

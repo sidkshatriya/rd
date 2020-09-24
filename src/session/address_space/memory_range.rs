@@ -69,9 +69,11 @@ impl MemoryRange {
     pub fn start(&self) -> RemotePtr<Void> {
         self.start_
     }
+
     pub fn end(&self) -> RemotePtr<Void> {
         self.end_
     }
+
     pub fn size(&self) -> usize {
         // Should automatically flag an error in debug mode if size() is negative
         self.end_ - self.start_
