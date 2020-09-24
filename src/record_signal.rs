@@ -16,6 +16,7 @@ use crate::{
     },
     file_monitor::virtual_perf_counter_monitor::VirtualPerfCounterMonitor,
     kernel_abi::{
+        is_rdcall_notify_syscall_hook_exit_syscall,
         is_rt_sigprocmask_syscall,
         native_arch,
         sigaction_sigset_size,
@@ -23,10 +24,10 @@ use crate::{
         syscall_number_for_rt_sigprocmask,
     },
     kernel_metadata::syscall_name,
-    kernel_supplement::sig_set_t,
+    kernel_supplement::{sig_set_t, SYS_SECCOMP},
     log::LogDebug,
     perf_counters,
-    preload_interface::{syscallbuf_hdr, syscallbuf_record},
+    preload_interface::{syscallbuf_hdr, syscallbuf_locked_why, syscallbuf_record},
     preload_interface_arch::preload_thread_locals,
     registers::Registers,
     remote_code_ptr::RemoteCodePtr,
@@ -36,7 +37,7 @@ use crate::{
         session_inner::PtraceSyscallSeccompOrdering,
         task::{
             record_task::{FlushSyscallbuf, RecordTask, SignalDisposition},
-            task_common::read_val_mem,
+            task_common::{read_val_mem, write_val_mem},
             task_inner::{ResumeRequest, TicksRequest, WaitRequest},
             Task,
         },
@@ -63,6 +64,7 @@ use libc::{
     RLIMIT_STACK,
     RLIM_INFINITY,
     SIGSEGV,
+    SIGSYS,
     SIG_BLOCK,
 };
 use nix::sys::mman::MapFlags;
@@ -869,6 +871,121 @@ fn handle_desched_event(t: &mut RecordTask, si: &siginfo_t) {
     );
 }
 
-fn is_safe_to_deliver_signal(_t: &RecordTask, _si: &siginfo_t) -> bool {
-    unimplemented!()
+fn is_safe_to_deliver_signal(t: &mut RecordTask, si: &siginfo_t) -> bool {
+    if !t.is_in_syscallbuf() {
+        // The tracee is outside the syscallbuf code,
+        // so in most cases can't possibly affect
+        // syscallbuf critical sections.  The
+        // exception is signal handlers "re-entering"
+        // desched'd syscalls, which are OK.
+        log!(
+            LogDebug,
+            "Safe to deliver signal at {} because not in syscallbuf",
+            t.ip()
+        );
+
+        return true;
+    }
+
+    if t.is_in_traced_syscall() {
+        log!(
+            LogDebug,
+            "Safe to deliver signal at {} because in traced syscall",
+            t.ip()
+        );
+
+        return true;
+    }
+
+    // Don't deliver signals just before entering rrcall_notify_syscall_hook_exit.
+    // At that point, notify_on_syscall_hook_exit will be set, but we have
+    // passed the point at which syscallbuf code has checked that flag.
+    // Replay will set notify_on_syscall_hook_exit when we replay towards the
+    // rrcall_notify_syscall_hook_exit *after* handling this signal, but
+    // that will be too late for syscallbuf to notice.
+    // It's OK to delay signal delivery until after rrcall_notify_syscall_hook_exit
+    // anyway.
+    if t.is_at_traced_syscall_entry()
+        && !is_rdcall_notify_syscall_hook_exit_syscall(t.regs_ref().syscallno() as i32, t.arch())
+    {
+        log!(
+            LogDebug,
+            "Safe to deliver signal at {} because at entry to traced syscall",
+            t.ip()
+        );
+
+        return true;
+    }
+
+    if t.is_in_untraced_syscall() && !t.desched_rec().is_null() {
+        let desched_rec_addr = t.desched_rec(); // Untraced syscalls always use the architecture of the process
+        log!(
+            LogDebug,
+            "Safe to deliver signal at {} because tracee interrupted by desched of {}",
+            t.ip(),
+            syscall_name(
+                read_val_mem(
+                    t,
+                    RemotePtr::<i32>::cast(
+                        desched_rec_addr.as_rptr_u8() + offset_of!(syscallbuf_record, syscallno)
+                    ),
+                    None
+                ),
+                t.arch()
+            )
+        );
+        return true;
+    }
+
+    if t.is_in_untraced_syscall() && si.si_signo == SIGSYS && si.si_code == SYS_SECCOMP as i32 {
+        log!(
+            LogDebug,
+            "Safe to deliver signal at {} because signal is seccomp trap.",
+            t.ip()
+        );
+
+        return true;
+    }
+
+    // If the syscallbuf buffer hasn't been created yet, just delay the signal
+    // with no need to set notify_on_syscall_hook_exit; the signal will be
+    // delivered when rrcall_init_buffers is called.
+    if !t.syscallbuf_child.is_null() {
+        let syscallbuf_child = t.syscallbuf_child;
+        let locked_why = read_val_mem(
+            t,
+            RemotePtr::<syscallbuf_locked_why>::cast(
+                syscallbuf_child.as_rptr_u8() + offset_of!(syscallbuf_hdr, locked),
+            ),
+            None,
+        );
+
+        if locked_why.contains(syscallbuf_locked_why::SYSCALLBUF_LOCKED_TRACEE) {
+            log!(
+                LogDebug,
+                "Safe to deliver signal at {} because the syscallbuf is locked",
+                t.ip()
+            );
+
+            return true;
+        }
+
+        // A signal (e.g. seccomp SIGSYS) interrupted a untraced syscall in a
+        // non-restartable way. Defer it until SYS_rrcall_notify_syscall_hook_exit.
+        if t.is_in_untraced_syscall() {
+            // Our emulation of SYS_rrcall_notify_syscall_hook_exit clears this flag.
+            let syscallbuf_child = t.syscallbuf_child;
+            write_val_mem(
+                t,
+                syscallbuf_child.as_rptr_u8()
+                    + offset_of!(syscallbuf_hdr, notify_on_syscall_hook_exit),
+                &1u8,
+                None,
+            );
+        }
+    }
+
+    log!(LogDebug, "Not safe to deliver signal at {}", t.ip());
+
+    false
 }
