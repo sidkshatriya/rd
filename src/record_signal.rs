@@ -42,10 +42,29 @@ use crate::{
         },
     },
     sig::{self, Sig},
-    util::{ceil_page_size, floor_page_size, page_size, signal_bit},
+    util::{
+        ceil_page_size,
+        cpuid,
+        floor_page_size,
+        page_size,
+        signal_bit,
+        trapped_instruction_at,
+        trapped_instruction_len,
+        TrappedInstruction,
+    },
     wait_status::WaitStatus,
 };
-use libc::{ioctl, prlimit, rlimit, EAGAIN, RLIMIT_STACK, RLIM_INFINITY, SIGSEGV, SIG_BLOCK};
+use libc::{
+    ioctl,
+    prlimit,
+    rlimit,
+    EAGAIN,
+    PR_TSC_SIGSEGV,
+    RLIMIT_STACK,
+    RLIM_INFINITY,
+    SIGSEGV,
+    SIG_BLOCK,
+};
 use nix::sys::mman::MapFlags;
 use std::{
     cmp::{max, min},
@@ -269,14 +288,65 @@ fn restore_signal_state(t: &mut RecordTask, sig: Sig, signal_was_blocked: Signal
     }
 }
 
-/// Return true if |t| was stopped because of a SIGSEGV resulting
-/// from a disabled instruction and |t| was updated appropriately, false
+/// Return true if `t` was stopped because of a SIGSEGV resulting
+/// from a disabled instruction and `t` was updated appropriately, false
 /// otherwise.
-fn try_handle_trapped_instruction(_t: &RecordTask, _si: &siginfo_t) -> bool {
-    unimplemented!()
+fn try_handle_trapped_instruction(t: &mut RecordTask, si: &siginfo_t) -> bool {
+    ed_assert!(t, si.si_signo == SIGSEGV);
+
+    let trapped_instruction = trapped_instruction_at(t, t.ip());
+    match trapped_instruction {
+        TrappedInstruction::Rdtsc | TrappedInstruction::Rdtscp => {
+            if t.tsc_mode == PR_TSC_SIGSEGV {
+                return false;
+            }
+        }
+        TrappedInstruction::CpuId => {
+            if t.cpuid_mode == 0 {
+                return false;
+            }
+        }
+        _ => return false,
+    }
+
+    let len: usize = trapped_instruction_len(trapped_instruction);
+    ed_assert!(t, len > 0);
+
+    let mut r: Registers = t.regs_ref().clone();
+    if trapped_instruction == TrappedInstruction::Rdtsc
+        || trapped_instruction == TrappedInstruction::Rdtscp
+    {
+        let current_time = rdtsc();
+        r.set_rdtsc_output(current_time);
+
+        log!(LogDebug, " trapped for rdtsc: returning {}", current_time);
+    } else if trapped_instruction == TrappedInstruction::CpuId {
+        let eax = r.syscallno() as u32;
+        let ecx = r.cx() as u32;
+        let mut cpuid_data = cpuid(eax, ecx);
+        t.session()
+            .as_record()
+            .unwrap()
+            .disable_cpuid_features()
+            .amend_cpuid_data(eax, ecx, &mut cpuid_data);
+        r.set_cpuid_output(
+            cpuid_data.eax,
+            cpuid_data.ebx,
+            cpuid_data.ecx,
+            cpuid_data.edx,
+        );
+        log!(LogDebug, " trapped for cpuid: {:#0x}:{:#0x}", eax, ecx);
+    }
+
+    r.set_ip(r.ip() + len);
+    t.set_regs(&r);
+
+    t.push_event(Event::instruction_trap());
+
+    true
 }
 
-/// Return true if |t| was stopped because of a SIGSEGV and we want to retry
+/// Return true if `t` was stopped because of a SIGSEGV and we want to retry
 /// the instruction after emulating MAP_GROWSDOWN.
 fn try_grow_map(t: &mut RecordTask, si: &siginfo_t) -> bool {
     ed_assert_eq!(t, si.si_signo, SIGSEGV);
