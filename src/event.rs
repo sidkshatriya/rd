@@ -542,33 +542,43 @@ impl Event {
     pub fn noop() -> Event {
         Event::new_event(EvNoop)
     }
+
     pub fn trace_termination() -> Event {
         Event::new_event(EvTraceTermination)
     }
+
     pub fn instruction_trap() -> Event {
         Event::new_event(EvInstructionTrap)
     }
+
     pub fn patch_syscall() -> Event {
         Event::new_event(EvPatchSyscall)
     }
+
     pub fn sched() -> Event {
         Event::new_event(EvSched)
     }
+
     pub fn seccomp_trap() -> Event {
         Event::new_event(EvSeccompTrap)
     }
+
     pub fn syscallbuf_abort_commit() -> Event {
         Event::new_event(EvSyscallbufAbortCommit)
     }
+
     pub fn syscallbuf_reset() -> Event {
         Event::new_event(EvSyscallbufReset)
     }
+
     pub fn grow_map() -> Event {
         Event::new_event(EvGrowMap)
     }
+
     pub fn exit() -> Event {
         Event::new_event(EvExit)
     }
+
     pub fn sentinel() -> Event {
         Event::new_event(EvSentinel)
     }
