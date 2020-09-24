@@ -1731,6 +1731,7 @@ impl TaskInner {
             // we haven't reaped its exit code so there's no danger of killing
             // (or PTRACE_SEIZEing) the wrong process.
             let tmp_errno = errno();
+
             // @TODO: Might want to do a proper unwrap after the kill invocation?
             kill(Pid::from_raw(tid), Signal::SIGKILL).unwrap_or(());
             unsafe { *__errno_location() = tmp_errno };
@@ -1795,6 +1796,7 @@ impl TaskInner {
             t.clear_wait_status();
             t.open_mem_fd();
         }
+
         wrapped_t
     }
 

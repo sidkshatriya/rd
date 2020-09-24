@@ -77,6 +77,10 @@ use std::{
     ptr,
 };
 
+extern "C" {
+    fn rdtsc() -> u64;
+}
+
 pub const SIGCHLD_SYNTHETIC: i32 = 0xbeadf00du32 as i32;
 
 pub fn disarm_desched_event(t: &RecordTask) {
@@ -229,10 +233,6 @@ pub fn handle_signal(
     SignalHandled::SignalHandled
 }
 
-fn rdtsc() -> u64 {
-    unimplemented!()
-}
-
 fn restore_sighandler_if_not_default(t: &mut RecordTask, sig: Sig) {
     if t.sig_disposition(sig) != SignalDisposition::SignalDefault {
         log!(LogDebug, "Restoring signal handler for {}", sig);
@@ -318,7 +318,7 @@ fn try_handle_trapped_instruction(t: &mut RecordTask, si: &siginfo_t) -> bool {
     if trapped_instruction == TrappedInstruction::Rdtsc
         || trapped_instruction == TrappedInstruction::Rdtscp
     {
-        let current_time = rdtsc();
+        let current_time = unsafe { rdtsc() };
         r.set_rdtsc_output(current_time);
 
         log!(LogDebug, " trapped for rdtsc: returning {}", current_time);

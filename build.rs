@@ -31,6 +31,8 @@ fn main() {
         .file("src/cpuid_loop.S")
         .compile("cpuid_loop");
 
+    cc::Build::new().file("src/rdtsc.c").compile("rdtsc");
+
     Command::new("scripts/generate_syscalls.py")
         .arg(path.join("syscall_consts_x64_generated.rs"))
         .status()
