@@ -3,6 +3,7 @@
 #![allow(non_snake_case)]
 
 use crate::{
+    arch::Architecture,
     remote_code_ptr::RemoteCodePtr,
     remote_ptr::RemotePtr,
     session::{
@@ -23,8 +24,15 @@ pub enum SupportedArch {
     X64,
 }
 
-pub fn sigaction_sigset_size(_arch: SupportedArch) -> usize {
-    unimplemented!()
+pub fn sigaction_sigset_size(arch: SupportedArch) -> usize {
+    rd_arch_function_selfless!(sigaction_sigset_size_arch, arch)
+}
+
+fn sigaction_sigset_size_arch<Arch: Architecture>() -> usize {
+    match Arch::arch() {
+        SupportedArch::X86 => size_of::<x86::kernel_sigset_t>(),
+        SupportedArch::X64 => size_of::<x64::kernel_sigset_t>(),
+    }
 }
 
 impl Default for SupportedArch {

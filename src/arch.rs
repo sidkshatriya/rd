@@ -1,3 +1,5 @@
+#![allow(non_camel_case_types)]
+
 use crate::{
     kernel_abi::{
         x64,
@@ -542,40 +544,40 @@ pub trait Architecture: 'static {
     const INVALID_SYSCALL_COUNT: i32;
     // End list from generate_syscalls.py. See above.
 
-    #[allow(non_camel_case_types)]
+    type signed_short: Default + Copy + 'static;
+    type unsigned_short: Default + Copy + 'static;
+    type signed_word: Default + Copy + 'static;
+    type ssize_t: Default + Copy + 'static;
+
+    type syscall_slong_t: Default + Copy + 'static;
+    type syscall_ulong_t: Default + Copy + 'static;
+    type time_t: Default + Copy + 'static = Self::syscall_slong_t;
+    type off_t: Default + Copy + 'static = Self::syscall_slong_t;
+    type blkcnt_t: Default + Copy + 'static = Self::syscall_slong_t;
+    type blksize_t: Default + Copy + 'static = Self::syscall_slong_t;
+    type rlim_t: Default + Copy + 'static = Self::syscall_ulong_t;
+    type fsblkcnt_t: Default + Copy + 'static = Self::syscall_ulong_t;
+    type fsfilcnt_t: Default + Copy + 'static = Self::syscall_ulong_t;
+    type ino_t: Default + Copy + 'static = Self::syscall_ulong_t;
+    type nlink_t: Default + Copy + 'static = Self::syscall_ulong_t;
+    type __kernel_ulong_t: Default + Copy + 'static = Self::unsigned_long;
+    type __kernel_long_t: Default + Copy + 'static = Self::signed_long;
+    type __kernel_time_t: Default + Copy + 'static = Self::__kernel_long_t;
+    type __kernel_suseconds_t: Default + Copy + 'static = Self::__kernel_long_t;
+    type clock_t: Default + Copy + 'static = Self::syscall_slong_t;
+
+    type __statfs_word: Default + Copy + 'static;
+    type sigchld_clock_t: Default + Copy + 'static;
     type size_t: Default + Copy + 'static;
-
-    #[allow(non_camel_case_types)]
-    type off_t: Default + Copy + 'static;
-
-    #[allow(non_camel_case_types)]
     type ptr<T: 'static>: Default + Copy + 'static;
-
-    #[allow(non_camel_case_types)]
     type kernel_sigaction: Default + Copy + 'static;
-
-    #[allow(non_camel_case_types)]
     type signed_long: Copy + From<i32> + TryFrom<usize, Error = TryFromIntError> + 'static;
-
-    #[allow(non_camel_case_types)]
     type unsigned_long: Copy + From<u32> + TryFrom<usize, Error = TryFromIntError> + 'static;
-
-    #[allow(non_camel_case_types)]
     type iovec: Copy + Default + 'static;
-
-    #[allow(non_camel_case_types)]
     type msghdr: Copy + Default + 'static;
-
-    #[allow(non_camel_case_types)]
     type cmsghdr: Copy + Default + 'static;
-
-    #[allow(non_camel_case_types)]
     type siginfo_t: 'static;
-
-    #[allow(non_camel_case_types)]
     type sockaddr_un: Copy + 'static;
-
-    #[allow(non_camel_case_types)]
     type unsigned_word: Copy
         + Eq
         + Debug
@@ -584,17 +586,9 @@ pub trait Architecture: 'static {
         + From<u8>
         + TryInto<usize, Error = TryFromIntError>
         + 'static;
-
-    #[allow(non_camel_case_types)]
     type user_regs_struct: Copy + 'static;
-
-    #[allow(non_camel_case_types)]
     type user_fpregs_struct: Copy + 'static;
-
-    #[allow(non_camel_case_types)]
     type user: Copy + 'static;
-
-    #[allow(non_camel_case_types)]
     type mmap_args: Copy + 'static;
 
     fn as_rptr<T: 'static>(p: Self::ptr<T>) -> RemotePtr<T>;
@@ -1084,22 +1078,31 @@ impl Architecture for X86Arch {
     const INVALID_SYSCALL_COUNT: i32 = 17;
     // End list from generate_syscalls.py. See above.
 
+    type signed_short = i16;
+    type unsigned_short = u16;
+    type signed_long = i32;
+    type unsigned_long = u32;
+    type signed_word = i32;
+    type unsigned_word = u32;
+    type ssize_t = i32;
+
+    type syscall_slong_t = i32;
+    type syscall_ulong_t = u32;
     type size_t = u32;
     type off_t = i32;
     type ptr<T: 'static> = Ptr<u32, T>;
     type kernel_sigaction = x86::kernel_sigaction;
-    type signed_long = x86::signed_long;
-    type unsigned_long = x86::unsigned_long;
     type iovec = x86::iovec;
     type msghdr = x86::msghdr;
     type cmsghdr = x86::cmsghdr;
     type siginfo_t = x86::siginfo_t;
     type sockaddr_un = x86::sockaddr_un;
-    type unsigned_word = x86::unsigned_word;
     type user_regs_struct = x86::user_regs_struct;
     type user_fpregs_struct = x86::user_fpregs_struct;
     type user = x86::user;
     type mmap_args = x86::mmap_args;
+    type sigchld_clock_t = i32;
+    type __statfs_word = u32;
 
     fn as_rptr<T: 'static>(p: Self::ptr<T>) -> RemotePtr<T> {
         p.rptr()
@@ -1638,22 +1641,31 @@ impl Architecture for X64Arch {
     const INVALID_SYSCALL_COUNT: i32 = 86;
     // End list from generate_syscalls.py. See above.
 
+    type signed_short = i16;
+    type unsigned_short = u16;
+    type signed_long = i64;
+    type unsigned_long = u64;
+    type signed_word = i64;
+    type unsigned_word = u64;
+    type ssize_t = i64;
+
+    type syscall_slong_t = i64;
+    type syscall_ulong_t = u64;
     type size_t = u64;
     type off_t = i64;
     type ptr<T: 'static> = Ptr<u64, T>;
     type kernel_sigaction = x64::kernel_sigaction;
-    type signed_long = x64::signed_long;
-    type unsigned_long = x64::unsigned_long;
     type iovec = x64::iovec;
     type msghdr = x64::msghdr;
     type cmsghdr = x64::cmsghdr;
     type siginfo_t = x64::siginfo_t;
     type sockaddr_un = x64::sockaddr_un;
-    type unsigned_word = x64::unsigned_word;
     type user_regs_struct = x64::user_regs_struct;
     type user_fpregs_struct = x64::user_fpregs_struct;
     type user = x64::user;
     type mmap_args = x64::mmap_args;
+    type sigchld_clock_t = i64;
+    type __statfs_word = i64;
 
     fn as_rptr<T: 'static>(p: Self::ptr<T>) -> RemotePtr<T> {
         p.rptr()
