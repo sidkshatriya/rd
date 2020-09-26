@@ -323,11 +323,16 @@ impl Scheduler {
                     .collect();
 
                 match maybe_t {
-                    Some(ref t) if t.borrow().as_record_task().unwrap().priority == priority => {
-                        let (lte, gt): (Vec<PriorityPair>, Vec<PriorityPair>) = same_priority_range
-                            .iter()
-                            .cloned()
-                            .partition(|p| *p <= PriorityPair(priority, Rc::downgrade(&t)));
+                    Some(ref t)
+                        if t.borrow().as_record_task().unwrap().priority == priority
+                            && self
+                                .task_priority_set
+                                .contains(&PriorityPair(priority, t.borrow().weak_self_ptr())) =>
+                    {
+                        let (lte, gt): (Vec<PriorityPair>, Vec<PriorityPair>) =
+                            same_priority_range.iter().cloned().partition(|p| {
+                                *p <= PriorityPair(priority, t.borrow().weak_self_ptr())
+                            });
 
                         same_priority_range = gt.iter().chain(lte.iter()).cloned().collect();
                     }
