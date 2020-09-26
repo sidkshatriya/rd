@@ -1975,10 +1975,6 @@ pub(super) fn destroy_buffers<T: Task>(t: &mut T) {
     remote.task_mut().cloned_file_data_fd_child = -1;
 }
 
-/// Takes sess as a param because sess might be in the process of
-/// getting drop()-ed. Calling t.session() will not be a good idea
-/// in this case because the weak point upgrade will fail as the
-/// session is gettng dropped.
 pub(super) fn task_drop_common<T: Task>(t: &T) {
     log!(LogDebug, "task {} (rec:{}) is dying ...", t.tid, t.rec_tid);
 

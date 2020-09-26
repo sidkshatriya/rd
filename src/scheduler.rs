@@ -38,6 +38,7 @@ use crate::{
     event::{EventType, Switchable, SyscallState},
     kernel_abi::{is_exit_group_syscall, is_exit_syscall, is_sched_yield_syscall, SupportedArch},
     log::{LogDebug, LogWarn},
+    priority_pair::PriorityPair,
     session::{
         record_session::RecordSession,
         task::{
@@ -60,13 +61,13 @@ use nix::{
 };
 use rand::{seq::SliceRandom, thread_rng};
 use std::{
-    collections::{BTreeMap, VecDeque},
+    collections::{BTreeSet, VecDeque},
     mem,
-    rc::Weak,
+    rc::{Rc, Weak},
 };
 
 // Tasks sorted by priority.
-type TaskPrioritySet = BTreeMap<i32, TaskSharedWeakPtr>;
+type TaskPrioritySet = BTreeSet<PriorityPair>;
 type TaskQueue = VecDeque<TaskSharedWeakPtr>;
 
 /// DIFF NOTE: In rr we deal with *RecordTasks. Here we are dealing with the
@@ -235,8 +236,18 @@ impl Scheduler {
         unimplemented!()
     }
 
-    pub fn on_create_task(&mut self, _t: TaskSharedPtr) {
-        unimplemented!()
+    pub fn on_create_task(&mut self, t: TaskSharedPtr) {
+        debug_assert!(!t.borrow().as_record_task().unwrap().in_round_robin_queue);
+        if self.enable_chaos {
+            // new tasks get a random priority
+            t.borrow_mut().as_record_task_mut().unwrap().priority =
+                self.choose_random_priority(t.borrow().as_record_task().unwrap());
+        }
+
+        self.task_priority_set.insert(PriorityPair(
+            t.borrow().as_record_task().unwrap().priority,
+            Rc::downgrade(&t),
+        ));
     }
 
     ///  De-register a thread. This function should be called when a thread exits.
@@ -313,7 +324,7 @@ impl Scheduler {
         unimplemented!()
     }
 
-    fn choose_random_priority(self, _t: &RecordTask) {
+    fn choose_random_priority(&self, _t: &RecordTask) -> i32 {
         unimplemented!()
     }
 

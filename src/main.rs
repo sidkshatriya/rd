@@ -52,6 +52,7 @@ mod monitored_shared_memory;
 mod monkey_patcher;
 mod preload_interface;
 mod preload_interface_arch;
+mod priority_pair;
 mod rd;
 mod record_signal;
 mod remote_code_ptr;

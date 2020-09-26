@@ -2591,6 +2591,7 @@ impl Drop for RecordTask {
     fn drop(&mut self) {
         // Important !!
         task_drop_common(self);
+
         match &self.emulated_ptracer {
             Some(weak_emulated_ptracer) => {
                 weak_emulated_ptracer
