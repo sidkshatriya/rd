@@ -63,6 +63,7 @@ use rand::{seq::SliceRandom, thread_rng};
 use std::{
     collections::{BTreeSet, VecDeque},
     mem,
+    ops::Bound::{self, Excluded, Included, Unbounded},
     rc::{Rc, Weak},
 };
 
@@ -298,8 +299,60 @@ impl Scheduler {
     /// be returned by get_next_thread, and is_runnable_task must not be called
     /// on it again until it has run.
     /// Considers only tasks with priority <= priority_threshold.
-    fn find_next_runnable_task(_t: &RecordTask, _by_waitpid: &bool, _priority_threshold: i32) {
-        unimplemented!()
+    fn find_next_runnable_task(
+        &mut self,
+        maybe_t: Option<TaskSharedPtr>,
+        by_waitpid: &mut bool,
+        priority_threshold: i32,
+    ) -> Option<TaskSharedPtr> {
+        *by_waitpid = false;
+        let mut range_start: Bound<PriorityPair> = Unbounded;
+        loop {
+            let mut range = self.task_priority_set.range((range_start, Unbounded));
+            if let Some(PriorityPair(priority, _)) = range.next().cloned() {
+                if priority > priority_threshold {
+                    return None;
+                }
+
+                let start = Included(PriorityPair(priority, Weak::new()));
+                let end = Excluded(PriorityPair(priority + 1, Weak::new()));
+                let mut same_priority_range: Vec<PriorityPair> = self
+                    .task_priority_set
+                    .range((start, end))
+                    .cloned()
+                    .collect();
+
+                match maybe_t {
+                    Some(ref t) if t.borrow().as_record_task().unwrap().priority == priority => {
+                        let (lte, gt): (Vec<PriorityPair>, Vec<PriorityPair>) = same_priority_range
+                            .iter()
+                            .cloned()
+                            .partition(|p| *p <= PriorityPair(priority, Rc::downgrade(&t)));
+
+                        same_priority_range = gt.iter().chain(lte.iter()).cloned().collect();
+                    }
+                    _ => (),
+                }
+
+                for PriorityPair(_, task_weak) in same_priority_range {
+                    if self.is_task_runnable(
+                        task_weak
+                            .upgrade()
+                            .unwrap()
+                            .borrow_mut()
+                            .as_record_task_mut()
+                            .unwrap(),
+                        by_waitpid,
+                    ) {
+                        return Some(task_weak.upgrade().unwrap());
+                    }
+                }
+
+                range_start = Included(PriorityPair(priority + 1, Weak::new()));
+            } else {
+                return None;
+            }
+        }
     }
 
     /// Returns the first task in the round-robin queue or null if it's empty,

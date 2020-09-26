@@ -1,6 +1,7 @@
 use crate::session::task::TaskSharedWeakPtr;
 use std::cmp::Ordering;
 
+#[derive(Clone)]
 pub struct PriorityPair(pub i32, pub TaskSharedWeakPtr);
 
 impl PartialOrd for PriorityPair {
