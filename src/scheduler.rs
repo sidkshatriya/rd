@@ -316,40 +316,58 @@ impl Scheduler {
 
                 let start = Included(PriorityPair(priority, Weak::new()));
                 let end = Excluded(PriorityPair(priority + 1, Weak::new()));
-                let mut same_priority_range: Vec<PriorityPair> = self
-                    .task_priority_set
-                    .range((start, end))
-                    .cloned()
-                    .collect();
+                let same_priority_range = self.task_priority_set.range((start, end));
 
-                match maybe_t {
-                    Some(ref t)
-                        if t.borrow().as_record_task().unwrap().priority == priority
-                            && self
-                                .task_priority_set
-                                .contains(&PriorityPair(priority, t.borrow().weak_self_ptr())) =>
-                    {
-                        let (lte, gt): (Vec<PriorityPair>, Vec<PriorityPair>) =
-                            same_priority_range.iter().cloned().partition(|p| {
-                                *p <= PriorityPair(priority, t.borrow().weak_self_ptr())
-                            });
+                if !self.enable_chaos {
+                    let same_priority_vec = match maybe_t {
+                        Some(ref t)
+                            if t.borrow().as_record_task().unwrap().priority == priority
+                                && self.task_priority_set.contains(&PriorityPair(
+                                    priority,
+                                    t.borrow().weak_self_ptr(),
+                                )) =>
+                        {
+                            let (lte, gt): (Vec<&PriorityPair>, Vec<&PriorityPair>) =
+                                same_priority_range.partition(|p| {
+                                    **p <= PriorityPair(priority, t.borrow().weak_self_ptr())
+                                });
 
-                        same_priority_range = gt.iter().chain(lte.iter()).cloned().collect();
+                            gt.iter().chain(lte.iter()).cloned().cloned().collect()
+                        }
+                        _ => same_priority_range.cloned().collect::<Vec<PriorityPair>>(),
+                    };
+
+                    for PriorityPair(_, task_weak) in same_priority_vec {
+                        if self.is_task_runnable(
+                            task_weak
+                                .upgrade()
+                                .unwrap()
+                                .borrow_mut()
+                                .as_record_task_mut()
+                                .unwrap(),
+                            by_waitpid,
+                        ) {
+                            return Some(task_weak.upgrade().unwrap());
+                        }
                     }
-                    _ => (),
-                }
+                } else {
+                    let mut rg = thread_rng();
+                    let mut same_priority_shuffled =
+                        same_priority_range.cloned().collect::<Vec<PriorityPair>>();
+                    same_priority_shuffled.shuffle(&mut rg);
 
-                for PriorityPair(_, task_weak) in same_priority_range {
-                    if self.is_task_runnable(
-                        task_weak
-                            .upgrade()
-                            .unwrap()
-                            .borrow_mut()
-                            .as_record_task_mut()
-                            .unwrap(),
-                        by_waitpid,
-                    ) {
-                        return Some(task_weak.upgrade().unwrap());
+                    for PriorityPair(_, task_weak) in same_priority_shuffled {
+                        if self.is_task_runnable(
+                            task_weak
+                                .upgrade()
+                                .unwrap()
+                                .borrow_mut()
+                                .as_record_task_mut()
+                                .unwrap(),
+                            by_waitpid,
+                        ) {
+                            return Some(task_weak.upgrade().unwrap());
+                        }
                     }
                 }
 
