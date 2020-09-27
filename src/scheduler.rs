@@ -234,8 +234,39 @@ impl Scheduler {
     /// task to be scheduled.
     /// If the task_round_robin_queue is empty this moves all tasks into it,
     /// putting last_task last.
-    pub fn schedule_one_round_robin(&mut self, _last_task: &RecordTask) {
-        unimplemented!()
+    pub fn schedule_one_round_robin(&mut self, t: &TaskSharedPtr) {
+        log!(
+            LogDebug,
+            "Scheduling round-robin because of task {}",
+            t.borrow().tid
+        );
+
+        ed_assert!(&t.borrow(), Rc::ptr_eq(&self.current_.as_ref().unwrap(), t));
+        self.maybe_pop_round_robin_task(t);
+        ed_assert!(
+            &t.borrow(),
+            !t.borrow().as_record_task().unwrap().in_round_robin_queue
+        );
+
+        for PriorityPair(_, w) in &self.task_priority_set {
+            let tt = w.upgrade().unwrap();
+            if !Rc::ptr_eq(t, &tt) && !tt.borrow().as_record_task().unwrap().in_round_robin_queue {
+                self.task_round_robin_queue.push_back(w.clone());
+                tt.borrow_mut()
+                    .as_record_task_mut()
+                    .unwrap()
+                    .in_round_robin_queue = true;
+            }
+        }
+
+        self.task_priority_set.clear();
+        self.task_round_robin_queue
+            .push_back(t.borrow().weak_self_ptr());
+        t.borrow_mut()
+            .as_record_task_mut()
+            .unwrap()
+            .in_round_robin_queue = true;
+        self.expire_timeslice();
     }
 
     pub fn on_create_task(&mut self, t: TaskSharedPtr) {
@@ -428,6 +459,14 @@ impl Scheduler {
             .ptr_eq(&Rc::downgrade(t))
         {
             self.task_round_robin_queue.pop_front();
+            t.borrow_mut()
+                .as_record_task_mut()
+                .unwrap()
+                .in_round_robin_queue = false;
+            self.task_priority_set.insert(PriorityPair(
+                t.borrow().as_record_task().unwrap().priority,
+                Rc::downgrade(t),
+            ));
         }
     }
 
