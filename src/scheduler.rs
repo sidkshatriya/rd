@@ -53,6 +53,7 @@ use crate::{
     },
     sig,
     ticks::Ticks,
+    util::monotonic_now_sec,
 };
 use libc::{sysconf, _SC_NPROCESSORS_CONF};
 use nix::{
@@ -89,7 +90,7 @@ pub struct Scheduler {
 
     /// The currently scheduled task. This may be `None` if the last scheduled
     /// task has been destroyed.
-    current_: Option<TaskSharedWeakPtr>,
+    current_: Option<TaskSharedPtr>,
     current_timeslice_end_: Ticks,
 
     /// At this time (or later) we should refresh these values.
@@ -256,12 +257,12 @@ impl Scheduler {
         unimplemented!()
     }
 
-    pub fn current(&self) -> &RecordTask {
-        unimplemented!()
+    pub fn current(&self) -> Option<&TaskSharedPtr> {
+        self.current_.as_ref()
     }
 
-    pub fn set_current(&mut self, _t: &RecordTask) {
-        unimplemented!()
+    pub fn set_current(&mut self, t: TaskSharedPtr) {
+        self.current_ = Some(t);
     }
 
     pub fn current_timeslice_end(&self) -> Ticks {
@@ -272,13 +273,42 @@ impl Scheduler {
         self.current_timeslice_end_ = 0;
     }
 
-    pub fn interrupt_after_elapsed_time() -> f64 {
-        unimplemented!()
+    pub fn interrupt_after_elapsed_time(&self) -> f64 {
+        // Where does the 3 seconds come from?  No especially
+        // good reason.  We want this to be pretty high,
+        // because it's a last-ditch recovery mechanism, not a
+        // primary thread scheduler.  Though in theory the
+        // PTRACE_INTERRUPT's shouldn't interfere with other
+        // events, that's hard to test thoroughly so try to
+        // aVoid it.
+        let mut delay: f64 = 3.0;
+        if self.enable_chaos {
+            let now = monotonic_now_sec();
+            if self.high_priority_only_intervals_start != 0.0 {
+                let next_interval_start: f64 = (((now - self.high_priority_only_intervals_start)
+                    / self.high_priority_only_intervals_period)
+                    .floor()
+                    + 1.0)
+                    * self.high_priority_only_intervals_period
+                    + self.high_priority_only_intervals_start;
+                delay = delay.min(next_interval_start - now);
+            }
+
+            if self.high_priority_only_intervals_refresh_time != 0.0 {
+                delay = delay.min(self.high_priority_only_intervals_refresh_time - now);
+            }
+
+            if self.priorities_refresh_time != 0.0 {
+                delay = delay.min(self.priorities_refresh_time - now);
+            }
+        }
+
+        0.001_f64.max(delay)
     }
 
     /// Return the number of cores we should report to applications.
     pub fn pretend_num_cores(&self) -> u32 {
-        unimplemented!()
+        self.pretend_num_cores_
     }
 
     /// Return the processor affinity masks we should report to applications.
@@ -380,12 +410,25 @@ impl Scheduler {
 
     /// Returns the first task in the round-robin queue or null if it's empty,
     /// removing it from the round-robin queue.
-    fn get_round_robin_task(&self) -> &RecordTask {
-        unimplemented!()
+    fn get_round_robin_task(&mut self) -> Option<TaskSharedPtr> {
+        self.task_round_robin_queue
+            .pop_front()
+            .map(|w| w.upgrade().unwrap())
     }
 
-    fn maybe_pop_round_robin_task(_t: &RecordTask) {
-        unimplemented!()
+    fn maybe_pop_round_robin_task(&mut self, t: &TaskSharedPtr) {
+        if self.task_round_robin_queue.is_empty() {
+            return;
+        }
+
+        if self
+            .task_round_robin_queue
+            .front()
+            .unwrap()
+            .ptr_eq(&Rc::downgrade(t))
+        {
+            self.task_round_robin_queue.pop_front();
+        }
     }
 
     fn get_next_task_with_same_priority(&self, _t: &RecordTask) {
