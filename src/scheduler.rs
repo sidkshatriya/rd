@@ -60,6 +60,7 @@ use nix::{
     sched::{sched_getaffinity, CpuSet},
     unistd::Pid,
 };
+use owning_ref::OwningHandle;
 use rand::{seq::SliceRandom, thread_rng};
 use std::{
     collections::{BTreeSet, VecDeque},
@@ -186,12 +187,16 @@ impl Scheduler {
         self.session = weak_ptr;
     }
 
-    fn session_shr_ptr(&self) -> SessionSharedPtr {
+    fn session(&self) -> SessionSharedPtr {
         self.session.upgrade().unwrap()
     }
 
-    pub fn record_session(&self) -> &RecordSession {
-        unimplemented!()
+    pub fn record_session(&self) -> OwningHandle<SessionSharedPtr, &RecordSession> {
+        let sess = self.session();
+        let owning_handle =
+            OwningHandle::new_with_fn(sess, |o| unsafe { (*o).as_record() }.unwrap());
+
+        owning_handle
     }
 
     pub fn set_max_ticks(&mut self, max_ticks: Ticks) {
@@ -207,12 +212,12 @@ impl Scheduler {
         self.always_switch = always_switch;
     }
 
-    pub fn set_enable_chaos(&mut self, _enable_chaos: bool) {
-        unimplemented!()
+    pub fn set_enable_chaos(&mut self, enable_chaos: bool) {
+        self.enable_chaos = enable_chaos;
     }
 
-    pub fn set_num_cores(&mut self, _num_cores: u32) {
-        unimplemented!()
+    pub fn set_num_cores(&mut self, num_cores: u32) {
+        self.pretend_num_cores_ = num_cores;
     }
 
     /// Schedule a new runnable task (which may be the same as current()).
@@ -611,12 +616,7 @@ impl Scheduler {
             Ok(aff) => self.pretend_affinity_mask_ = aff,
         }
 
-        let maybe_cpu: Option<u32> = self
-            .session_shr_ptr()
-            .as_record()
-            .unwrap()
-            .trace_writer()
-            .bound_to_cpu();
+        let maybe_cpu: Option<u32> = self.record_session().trace_writer().bound_to_cpu();
         let cpu = match maybe_cpu {
             None => {
                 // We only run one thread at a time but we're not limiting
