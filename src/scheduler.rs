@@ -61,8 +61,9 @@ use nix::{
     unistd::Pid,
 };
 use owning_ref::OwningHandle;
-use rand::{seq::SliceRandom, thread_rng};
+use rand::{random, seq::SliceRandom, thread_rng};
 use std::{
+    cmp::min,
     collections::{BTreeSet, VecDeque},
     mem,
     ops::Bound::{self, Excluded, Included, Unbounded},
@@ -230,8 +231,10 @@ impl Scheduler {
     }
 
     /// Set the priority of `t` to `value` and update related state.
-    pub fn update_task_priority(&mut self, _t: &RecordTask, _value: i32) {
-        unimplemented!()
+    pub fn update_task_priority(&mut self, t: &TaskSharedPtr, value: i32) {
+        if !self.enable_chaos {
+            self.update_task_priority_internal(t.borrow_mut().as_record_task_mut().unwrap(), value);
+        }
     }
 
     /// Do one round of round-robin scheduling if we're not already doing one.
@@ -479,8 +482,16 @@ impl Scheduler {
         unimplemented!()
     }
 
-    fn setup_new_timeslice() {
-        unimplemented!()
+    fn setup_new_timeslice(&mut self) {
+        let max_timeslice_duration = self.max_ticks_;
+
+        if self.enable_chaos {
+            unimplemented!()
+        }
+
+        let tick_count = self.current().unwrap().borrow().tick_count();
+        self.current_timeslice_end_ =
+            tick_count + (random::<Ticks>() % min(self.max_ticks_, max_timeslice_duration));
     }
 
     fn maybe_reset_priorities(&self, _now: f64) {
@@ -491,8 +502,25 @@ impl Scheduler {
         unimplemented!()
     }
 
-    fn update_task_priority_internal(_t: &RecordTask, _value: i32) {
-        unimplemented!()
+    fn update_task_priority_internal(&mut self, t: &mut RecordTask, mut value: i32) {
+        if t.stable_exit && !self.enable_chaos {
+            // Tasks in a stable exit have the highest priority. We should force them
+            // to complete exiting ASAP to clean up resources. They may not be runnable
+            // due to waiting for PTRACE_EVENT_EXIT to complete.
+            value = -9999;
+        }
+        if t.priority == value {
+            return;
+        }
+        if t.in_round_robin_queue {
+            t.priority = value;
+            return;
+        }
+        self.task_priority_set
+            .remove(&PriorityPair(t.priority, t.weak_self_ptr()));
+        t.priority = value;
+        self.task_priority_set
+            .insert(PriorityPair(t.priority, t.weak_self_ptr()));
     }
 
     fn maybe_reset_high_priority_only_intervals(&self, _now: f64) {
@@ -598,7 +626,27 @@ impl Scheduler {
     }
 
     fn validate_scheduled_task(&self) {
-        unimplemented!()
+        ed_assert!(
+            &self.current().unwrap().borrow(),
+            self.must_run_task.is_none()
+                || Rc::ptr_eq(
+                    &self.must_run_task.as_ref().unwrap().upgrade().unwrap(),
+                    &self.current().unwrap()
+                )
+        );
+        ed_assert!(
+            &self.current().unwrap().borrow(),
+            self.task_round_robin_queue.is_empty()
+                || Rc::ptr_eq(
+                    self.current_.as_ref().unwrap(),
+                    &self
+                        .task_round_robin_queue
+                        .front()
+                        .unwrap()
+                        .upgrade()
+                        .unwrap()
+                )
+        );
     }
 
     /// Compute an affinity mask to report via sched_getaffinity.
