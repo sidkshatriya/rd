@@ -70,7 +70,57 @@ use std::{
     rc::{Rc, Weak},
 };
 
-// Tasks sorted by priority.
+/// Probability of making a thread low priority. Keep this reasonably low
+/// because the goal is to victimize some specific threads
+const LOW_PRIORITY_PROBABILITY: f64 = 0.1;
+/// Give main threads a higher probability of being low priority because
+/// many tests are basically main-thread-only
+const MAIN_THREAD_LOW_PRIORITY_PROBABILITY: f64 = 0.3;
+const VERY_SHORT_TIMESLICE_PROBABILITY: f64 = 0.1;
+const VERY_SHORT_TIMESLICE_MAX_DURATION: Ticks = 100;
+const SHORT_TIMESLICE_PROBABILITY: f64 = 0.1;
+const SHORT_TIMESLICE_MAX_DURATION: Ticks = 10000;
+/// Time between priority refreshes is uniformly distributed from 0 to 20s
+const PRIORITIES_REFRESH_MAX_INTERVAL: Ticks = 20;
+
+/// High-Priority-Only Intervals
+///
+/// We assume that for a test failure we want to reproduce, we will reproduce a
+/// failure if we completely avoid scheduling a certain thread for a period of
+/// D seconds, where the start of that period must fall between S and S+T
+/// seconds since the start of the test. All these constants are unknown to
+/// rr, but we assume 1ms <= D <= 2s.
+///
+/// Since we only need to reproduce any particular bug once, it would be best
+/// to have roughly similar probabilities for reproducing each bug given its
+/// unknown parameters. It's unclear what is the optimal approach here, but
+/// here's ours:
+///
+/// First we have to pick the right thread to treat as low priority --- without
+/// making many other threads low priority, since they might need to run while
+/// our victim thread is being starved. So we give each thread a 0.1 probability
+/// of being low priority, except for the main thread which we make 0.3, since
+/// starving the main thread is often very interesting.
+/// Then we guess a value D' for D. We uniformly choose between 1ms, 2ms, 4ms,
+/// 8ms, ..., 1s, 2s. Out of these 12 possibilities, one is between D and 2xD.
+/// We adopt the goal of high-priority-only intervals consume at most 20% of
+/// running time. Then to maximise the probability of triggering the test
+/// failure, we start high-priority-only intervals as often as possible,
+/// i.e. one for D' seconds starting every 5xD' seconds.
+/// The start time of the first interval is chosen uniformly randomly to be
+/// between 0 and 4xD'.
+/// Then, if we guessed D' and the low-priority thread correctly, the
+/// probability of triggering the test failure is 1 if T >= 4xD', T/4xD'
+/// otherwise, i.e. >= T/8xD. (Higher values of D' than optimal can also trigger
+/// failures, but at reduced probabilities since we can schedule them less
+/// often.)
+const MIN_HIGH_PRIORITY_ONLY_DURATION: f64 = 0.001;
+const HIGH_PRIORITY_ONLY_DURATION_STEPS: i32 = 12;
+const HIGH_PRIORITY_ONLY_DURATION_STEP_FACTOR: f64 = 2.0;
+/// Allow this much of overall runtime to be in the "high priority only" interval
+const HIGH_PRIORITY_ONLY_FRACTION: f64 = 0.2;
+
+/// Tasks sorted by priority.
 type TaskPrioritySet = BTreeSet<PriorityPair>;
 type TaskQueue = VecDeque<TaskSharedWeakPtr>;
 
@@ -78,7 +128,6 @@ type TaskQueue = VecDeque<TaskSharedWeakPtr>;
 /// "superclass" Task (see the various TaskSharedWeakPtr-s). This will mean
 /// that we need to do as_record_task() in various locations. An extra step...
 pub struct Scheduler {
-    /// @TODO Is this what we want?
     session: SessionSharedWeakPtr,
     /// Every task of this session is either in task_priority_set
     /// (when in_round_robin_queue is false), or in task_round_robin_queue
@@ -281,8 +330,7 @@ impl Scheduler {
         debug_assert!(!t.borrow().as_record_task().unwrap().in_round_robin_queue);
         if self.enable_chaos {
             // new tasks get a random priority
-            t.borrow_mut().as_record_task_mut().unwrap().priority =
-                self.choose_random_priority(t.borrow().as_record_task().unwrap());
+            t.borrow_mut().as_record_task_mut().unwrap().priority = self.choose_random_priority(&t);
         }
 
         self.task_priority_set.insert(PriorityPair(
@@ -355,8 +403,8 @@ impl Scheduler {
         self.pretend_affinity_mask_
     }
 
-    pub fn in_stable_exit(&self, _t: &RecordTask) {
-        unimplemented!()
+    pub fn in_stable_exit(&mut self, t: &mut RecordTask) {
+        self.update_task_priority_internal(t, t.priority);
     }
 
     /// Pull a task from the round-robin queue if available. Otherwise,
@@ -494,12 +542,44 @@ impl Scheduler {
             tick_count + (random::<Ticks>() % min(self.max_ticks_, max_timeslice_duration));
     }
 
-    fn maybe_reset_priorities(&self, _now: f64) {
-        unimplemented!()
+    fn maybe_reset_priorities(&mut self, now: f64) {
+        if !self.enable_chaos || self.priorities_refresh_time > now {
+            return;
+        }
+
+        // Reset task priorities again at some point in the future.
+        self.priorities_refresh_time = now + random_frac() * PRIORITIES_REFRESH_MAX_INTERVAL as f64;
+        let mut tasks = Vec::new();
+        for p in &self.task_priority_set {
+            tasks.push(p.1.clone());
+        }
+
+        for p in &self.task_round_robin_queue {
+            tasks.push(p.clone());
+        }
+
+        for t in tasks {
+            let tt = t.upgrade().unwrap();
+            let priority = self.choose_random_priority(&tt);
+            self.update_task_priority_internal(
+                tt.borrow_mut().as_record_task_mut().unwrap(),
+                priority,
+            );
+        }
     }
 
-    fn choose_random_priority(&self, _t: &RecordTask) -> i32 {
-        unimplemented!()
+    fn choose_random_priority(&self, t: &TaskSharedPtr) -> i32 {
+        let prob = if t.borrow().tgid() == t.borrow().tid {
+            MAIN_THREAD_LOW_PRIORITY_PROBABILITY
+        } else {
+            LOW_PRIORITY_PROBABILITY
+        };
+
+        if random_frac() < prob {
+            1
+        } else {
+            0
+        }
     }
 
     fn update_task_priority_internal(&mut self, t: &mut RecordTask, mut value: i32) {
@@ -523,16 +603,40 @@ impl Scheduler {
             .insert(PriorityPair(t.priority, t.weak_self_ptr()));
     }
 
-    fn maybe_reset_high_priority_only_intervals(&self, _now: f64) {
-        unimplemented!()
+    fn maybe_reset_high_priority_only_intervals(&mut self, now: f64) {
+        if !self.enable_chaos || self.high_priority_only_intervals_refresh_time > now {
+            return;
+        }
+        let duration_step = random::<u16>() as i32 % HIGH_PRIORITY_ONLY_DURATION_STEPS;
+        self.high_priority_only_intervals_duration = MIN_HIGH_PRIORITY_ONLY_DURATION
+            * HIGH_PRIORITY_ONLY_DURATION_STEP_FACTOR.powi(duration_step);
+        self.high_priority_only_intervals_period =
+            self.high_priority_only_intervals_duration / HIGH_PRIORITY_ONLY_FRACTION;
+        self.high_priority_only_intervals_start = now
+            + random_frac()
+                * (self.high_priority_only_intervals_period
+                    - self.high_priority_only_intervals_duration);
+        self.high_priority_only_intervals_refresh_time = now
+            + MIN_HIGH_PRIORITY_ONLY_DURATION
+                * HIGH_PRIORITY_ONLY_DURATION_STEP_FACTOR
+                    .powi(HIGH_PRIORITY_ONLY_DURATION_STEPS - 1)
+                / HIGH_PRIORITY_ONLY_FRACTION;
     }
 
-    fn in_high_priority_only_interval(self, _now: f64) {
-        unimplemented!()
+    fn in_high_priority_only_interval(&self, now: f64) -> bool {
+        if now < self.high_priority_only_intervals_start {
+            return false;
+        }
+
+        // @TODO make sure this is what we want
+        let mod_: f64 = (now - self.high_priority_only_intervals_start)
+            % self.high_priority_only_intervals_period;
+
+        mod_ < self.high_priority_only_intervals_duration
     }
 
-    fn treat_as_high_priority(&self, _t: &RecordTask) {
-        unimplemented!()
+    fn treat_as_high_priority(&self, t: &RecordTask) -> bool {
+        self.task_priority_set.len() > 1 && t.priority == 0
     }
 
     /// Returns true if we should return t as the runnable task. Otherwise we
@@ -723,6 +827,10 @@ impl Scheduler {
         }
         self.pretend_affinity_mask_ = pretend_affinity_mask;
     }
+}
+
+fn random_frac() -> f64 {
+    random::<u32>() as f64 / u32::MAX as f64
 }
 
 fn treat_syscall_as_nonblocking(syscallno: i32, arch: SupportedArch) -> bool {
