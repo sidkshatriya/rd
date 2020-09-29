@@ -35,6 +35,10 @@
 //! The main parameter to the scheduler is `max_ticks`, which controls the
 //! length of each timeslice.
 use crate::{
+    bindings::{
+        kernel::{itimerval, setitimer, ITIMER_REAL},
+        ptrace::{PTRACE_EVENT_EXEC, PTRACE_EVENT_EXIT},
+    },
     event::{EventType, Switchable, SyscallState},
     kernel_abi::{is_exit_group_syscall, is_exit_syscall, is_sched_yield_syscall, SupportedArch},
     log::{LogDebug, LogWarn},
@@ -54,9 +58,11 @@ use crate::{
     sig,
     ticks::Ticks,
     util::monotonic_now_sec,
+    wait_status::WaitStatus,
 };
-use libc::{sysconf, _SC_NPROCESSORS_CONF};
+use libc::{nanosleep, pid_t, sysconf, timespec, EINTR, WUNTRACED, _SC_NPROCESSORS_CONF, __WALL};
 use nix::{
+    errno::errno,
     sched::{sched_getaffinity, CpuSet},
     unistd::Pid,
 };
@@ -67,6 +73,7 @@ use std::{
     collections::{BTreeSet, VecDeque},
     mem,
     ops::Bound::{self, Excluded, Included, Unbounded},
+    ptr,
     rc::{Rc, Weak},
 };
 
@@ -201,7 +208,7 @@ pub enum TicksHowMany {
 /// The new current() task is guaranteed to either have already been
 /// runnable, or have been made runnable by a waitpid status change (in
 /// which case, result.by_waitpid will be true.
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Default, Eq, PartialEq)]
 pub struct Rescheduled {
     interrupted_by_signal: bool,
     by_waitpid: bool,
@@ -275,8 +282,299 @@ impl Scheduler {
     /// The new current() task is guaranteed to either have already been
     /// runnable, or have been made runnable by a waitpid status change (in
     /// which case, result.by_waitpid will be true.
-    pub fn reschedule(&mut self, _switchable: Switchable) -> Rescheduled {
-        unimplemented!()
+    pub fn reschedule(&mut self, switchable: Switchable) -> Rescheduled {
+        let mut result = Rescheduled::default();
+        result.interrupted_by_signal = false;
+        result.by_waitpid = false;
+        result.started_new_timeslice = false;
+
+        log!(LogDebug, "Scheduling next task");
+
+        self.must_run_task = None;
+
+        // @TODO Enable poll is always false.
+        // What's the point in the code below then?
+        self.enable_poll = false;
+
+        let mut maybe_now = Some(monotonic_now_sec());
+
+        self.maybe_reset_priorities(maybe_now.unwrap());
+
+        match self.current() {
+            Some(curr) if switchable == Switchable::PreventSwitch => {
+                log!(
+                    LogDebug,
+                    "  ({} is un-switchable at {})",
+                    curr.borrow().tid,
+                    curr.borrow().as_record_task().unwrap().ev()
+                );
+
+                if curr.borrow().is_running() {
+                    log!(LogDebug, "  and running; waiting for state change");
+                    // |current| is un-switchable, but already running. Wait for it to change
+                    // state before "scheduling it", so aVoid busy-waiting with our client. */
+                    curr.borrow_mut()
+                        .wait(Some(self.interrupt_after_elapsed_time()));
+                    // @TODO Monitor unswitchable waits stuff
+                    result.by_waitpid = true;
+                    log!(LogDebug, "  new status is {}", curr.borrow().status());
+                }
+
+                self.validate_scheduled_task();
+                return result;
+            }
+            _ => (),
+        }
+
+        let mut maybe_next: Option<TaskSharedPtr>;
+        loop {
+            self.maybe_reset_high_priority_only_intervals(maybe_now.unwrap());
+            self.last_reschedule_in_high_priority_only_interval =
+                self.in_high_priority_only_interval(maybe_now.unwrap());
+
+            match self.current().cloned() {
+                Some(curr) => {
+                    // Determine if we should run current_ again
+                    let round_robin_task = self.get_round_robin_task();
+                    if round_robin_task.is_none() {
+                        maybe_next = self.find_next_runnable_task(
+                            Some(&curr),
+                            &mut result.by_waitpid,
+                            curr.borrow().as_record_task().unwrap().priority - 1,
+                        );
+
+                        if maybe_next.is_some() {
+                            // There is a runnable higher-priority task (different from current btw). Run it.
+                            break;
+                        }
+                    }
+                    // To run current_ again:
+                    // -- its timeslice must not have expired
+                    // -- it must be high priority if we're in a high-priority-only interval
+                    // -- it must be the head of the round-robin queue or the queue is empty
+                    // (this might not hold if it was at the head of the queue but we
+                    // rejected current_ and popped it in a previous iteration of this loop)
+                    // -- it must be runnable, and not in an unstable exit.
+                    if !curr.borrow().unstable.get()
+                        && !self.always_switch
+                        && (round_robin_task.is_none()
+                            || Rc::ptr_eq(round_robin_task.as_ref().unwrap(), &curr))
+                        && (self.treat_as_high_priority(&curr)
+                            || !self.last_reschedule_in_high_priority_only_interval)
+                        && curr.borrow().tick_count() < self.current_timeslice_end()
+                        && self.is_task_runnable(
+                            curr.borrow_mut().as_record_task_mut().unwrap(),
+                            &mut result.by_waitpid,
+                        )
+                    {
+                        log!(LogDebug, "  Carrying on with task {}", curr.borrow().tid);
+                        self.validate_scheduled_task();
+                        return result;
+                    }
+                    // Having rejected current_, be prepared to run the next task in the
+                    // round-robin queue.
+                    self.maybe_pop_round_robin_task(&curr);
+                }
+                None => (),
+            }
+
+            log!(LogDebug, "  need to reschedule");
+
+            maybe_next = self.get_round_robin_task();
+            match maybe_next.as_ref() {
+                Some(nt) => {
+                    log!(LogDebug, "Trying task {} from yield queue", nt.borrow().tid);
+                    if self.is_task_runnable(
+                        nt.borrow_mut().as_record_task_mut().unwrap(),
+                        &mut result.by_waitpid,
+                    ) {
+                        break;
+                    }
+                    self.maybe_pop_round_robin_task(nt);
+
+                    continue;
+                }
+                None => {
+                    let maybe_t = self.current().cloned();
+                    maybe_next = self.find_next_runnable_task(
+                        maybe_t.as_ref(),
+                        &mut result.by_waitpid,
+                        i32::MAX,
+                    );
+                }
+            }
+
+            // When there's only one thread, treat it as low priority for the
+            // purposes of high-priority-only-intervals. Otherwise single-threaded
+            // workloads mostly don't get any chaos mode effects.
+            match maybe_next.as_ref() {
+                Some(nt)
+                    if !self.treat_as_high_priority(nt)
+                        && self.last_reschedule_in_high_priority_only_interval =>
+                {
+                    if result.by_waitpid {
+                        log!(
+                            LogDebug,
+                            "Waking up low-priority task with by_waitpid; not sleeping"
+                        );
+
+                    // We must run this low-priority task. Fortunately it's just waking
+                    // up from a blocking syscall; we'll record the syscall event and then
+                    // (unless it was an interrupted syscall) we'll return to
+                    // get_next_thread, which will either run a higher priority thread
+                    // or (more likely) reach here again but in the !*by_waitpid case.
+                    } else {
+                        log!(
+                            LogDebug,
+                            "Waking up low-priority task without by_waitpid; sleeping"
+                        );
+                        sleep_time(0.001);
+                        maybe_now = Some(monotonic_now_sec());
+
+                        continue;
+                    }
+                }
+                _ => (),
+            }
+
+            break;
+        }
+
+        match maybe_next.as_ref() {
+            Some(nt) if !nt.borrow().unstable.get() => {
+                log!(LogDebug, "  selecting task {}", nt.borrow().tid)
+            }
+            _ => {
+                // All the tasks are blocked (or we found an unstable-exit task).
+                // Wait for the next one to change state.
+
+                // Clear the round-robin queue since we will no longer be able to service
+                // those tasks in-order.
+                while let Some(t) = self.get_round_robin_task() {
+                    self.maybe_pop_round_robin_task(&t);
+                }
+
+                log!(
+                    LogDebug,
+                    "  all tasks blocked or some unstable, waiting for runnable ({} total)",
+                    self.task_priority_set.len()
+                );
+
+                let mut status: WaitStatus;
+                loop {
+                    let mut raw_status: i32 = 0;
+                    if self.enable_poll {
+                        let mut timer: itimerval = Default::default();
+                        timer.it_value.tv_sec = 1;
+                        if unsafe { setitimer(ITIMER_REAL, &timer, ptr::null_mut()) } < 0 {
+                            fatal!("Failed to set itimer");
+                        }
+
+                        log!(LogDebug, "  Arming one-second timer for polling");
+                    }
+
+                    let tid: pid_t =
+                        unsafe { libc::waitpid(-1, &mut raw_status, __WALL | WUNTRACED) };
+
+                    if self.enable_poll {
+                        let timer: itimerval = Default::default();
+                        if unsafe { setitimer(ITIMER_REAL, &timer, ptr::null_mut()) } < 0 {
+                            fatal!("Failed to set itimer");
+                        }
+
+                        log!(LogDebug, "  Disarming one-second timer for polling");
+                    }
+
+                    status = WaitStatus::new(raw_status);
+                    maybe_now = None; // invalid, don't use
+
+                    if -1 == tid {
+                        if EINTR == errno() {
+                            log!(LogDebug, "  waitpid(-1) interrupted");
+
+                            // @TODO If we were interruped then self.current_ must be Some()
+                            // Is that a fair assumption??
+                            ed_assert!(
+                                &self.current().unwrap().borrow(),
+                                self.must_run_task.is_none()
+                            );
+
+                            result.interrupted_by_signal = true;
+
+                            return result;
+                        }
+
+                        fatal!("Failed to waitpid()");
+                    }
+
+                    log!(LogDebug, "{} changed status to {}", tid, status);
+
+                    maybe_next = self.session().find_task_from_rec_tid(tid);
+
+                    if status.maybe_ptrace_event() == PTRACE_EVENT_EXEC {
+                        match maybe_next.as_ref() {
+                            // Other threads may have unexpectedly died, in which case this
+                            // will be marked as unstable even though it's actually not. There's
+                            // no way to know until we see the EXEC event that we weren't really
+                            // in an unstable exit.
+                            Some(nt) => nt.borrow_mut().unstable.set(false),
+                            None => {
+                                // The thread-group-leader died and now the exec'ing thread has
+                                // changed its thread ID to be thread-group leader.
+                                maybe_next = Some(self.record_session().revive_task_for_exec(tid));
+                            }
+                        }
+                    }
+
+                    match maybe_next.as_ref() {
+                        None => log!(LogDebug, "    ... but it's dead"),
+                        Some(_) => break,
+                    }
+                }
+
+                let nt = maybe_next.as_ref().unwrap();
+                ed_assert!(
+                    &nt.borrow(),
+                    nt.borrow().unstable.get()
+                        // Note the call to did_waitpid() below
+                        || nt.borrow().as_record_task().unwrap().may_be_blocked()
+                        || status.maybe_ptrace_event() == PTRACE_EVENT_EXIT,
+                    "Scheduled task should have been blocked or unstable"
+                );
+
+                nt.borrow_mut().did_waitpid(status);
+                result.by_waitpid = true;
+                self.must_run_task = Some(Rc::downgrade(nt));
+            }
+        }
+
+        let nt = maybe_next.unwrap();
+        match self.current() {
+            Some(curr) if !Rc::ptr_eq(curr, &nt) => log!(
+                LogDebug,
+                "Switching from {}({:?}) to {}({:?}) (priority {} to {}) at {}",
+                curr.borrow().tid,
+                curr.borrow().name(),
+                nt.borrow().tid,
+                nt.borrow().name(),
+                curr.borrow().as_record_task().unwrap().priority,
+                nt.borrow().as_record_task().unwrap().priority,
+                curr.borrow()
+                    .as_record_task()
+                    .unwrap()
+                    .trace_writer()
+                    .time()
+            ),
+            _ => (),
+        }
+
+        self.maybe_reset_high_priority_only_intervals(maybe_now.unwrap());
+        self.current_ = Some(nt);
+        self.validate_scheduled_task();
+        self.setup_new_timeslice();
+        result.started_new_timeslice = true;
+
+        result
     }
 
     /// Set the priority of `t` to `value` and update related state.
@@ -418,7 +716,7 @@ impl Scheduler {
     /// Considers only tasks with priority <= priority_threshold.
     fn find_next_runnable_task(
         &mut self,
-        maybe_t: Option<TaskSharedPtr>,
+        maybe_t: Option<&TaskSharedPtr>,
         by_waitpid: &mut bool,
         priority_threshold: i32,
     ) -> Option<TaskSharedPtr> {
@@ -437,7 +735,7 @@ impl Scheduler {
 
                 if !self.enable_chaos {
                     let same_priority_vec = match maybe_t {
-                        Some(ref t)
+                        Some(t)
                             if t.borrow().as_record_task().unwrap().priority == priority
                                 && self.task_priority_set.contains(&PriorityPair(
                                     priority,
@@ -589,13 +887,16 @@ impl Scheduler {
             // due to waiting for PTRACE_EVENT_EXIT to complete.
             value = -9999;
         }
+
         if t.priority == value {
             return;
         }
+
         if t.in_round_robin_queue {
             t.priority = value;
             return;
         }
+
         self.task_priority_set
             .remove(&PriorityPair(t.priority, t.weak_self_ptr()));
         t.priority = value;
@@ -635,8 +936,9 @@ impl Scheduler {
         mod_ < self.high_priority_only_intervals_duration
     }
 
-    fn treat_as_high_priority(&self, t: &RecordTask) -> bool {
-        self.task_priority_set.len() > 1 && t.priority == 0
+    fn treat_as_high_priority(&self, t: &TaskSharedPtr) -> bool {
+        self.task_priority_set.len() > 1
+            && t.borrow_mut().as_record_task_mut().unwrap().priority == 0
     }
 
     /// Returns true if we should return t as the runnable task. Otherwise we
@@ -827,6 +1129,13 @@ impl Scheduler {
         }
         self.pretend_affinity_mask_ = pretend_affinity_mask;
     }
+}
+
+fn sleep_time(t: f64) {
+    let mut ts: timespec = unsafe { mem::zeroed() };
+    ts.tv_sec = t.floor() as i64;
+    ts.tv_nsec = ((t - t.floor()) * 1e9) as i64;
+    unsafe { nanosleep(&ts, ptr::null_mut()) };
 }
 
 fn random_frac() -> f64 {

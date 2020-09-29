@@ -576,7 +576,7 @@ impl RecordSession {
     /// The task in the thread-group that triggered the successful execve has changed
     /// its tid to |rec_tid|. We mirror that, and emit TraceTaskEvents to make it
     /// look like a new task was spawned and the old task exited.
-    pub fn revive_task_for_exec(&self, _rec_tid: pid_t) -> &RecordTask {
+    pub fn revive_task_for_exec(&self, _rec_tid: pid_t) -> TaskSharedPtr {
         unimplemented!()
     }
 }

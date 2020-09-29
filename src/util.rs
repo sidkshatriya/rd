@@ -1158,7 +1158,7 @@ pub fn clone_flags_to_task_flags(flags_arg: i32) -> CloneFlags {
 
 pub fn to_timeval(t: f64) -> timeval {
     let tv_sec: c_long = t.floor() as c_long;
-    let tv_usec: c_long = ((t - tv_sec as f64) * 1000000.0).floor() as c_long;
+    let tv_usec: c_long = ((t - tv_sec as f64) * 1000_000.0).floor() as c_long;
     timeval { tv_sec, tv_usec }
 }
 
