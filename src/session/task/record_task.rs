@@ -56,7 +56,7 @@ use crate::{
     },
     kernel_metadata::syscall_name,
     kernel_supplement::{sig_set_t, SA_RESETHAND, SA_SIGINFO, _NSIG},
-    log::{LogDebug, LogWarn},
+    log::{LogDebug, LogInfo, LogWarn},
     preload_interface::{
         mprotect_record,
         preload_globals,
@@ -554,6 +554,24 @@ impl DerefMut for RecordTask {
 }
 
 impl Task for RecordTask {
+    fn log_pending_events(&self) {
+        let depth = self.pending_events.len();
+
+        debug_assert!(depth > 0);
+        if 1 == depth {
+            log!(LogInfo, "(no pending events)");
+            return;
+        }
+
+        // The event at depth 0 is the placeholder event, which isn't
+        // useful to log.  Skip it.
+        let mut iter = self.pending_events.iter();
+        iter.next_back();
+        while let Some(it) = iter.next_back() {
+            it.log();
+        }
+    }
+
     /// Forwarded method
     fn detect_syscall_arch(&mut self) -> SupportedArch {
         detect_syscall_arch(self)

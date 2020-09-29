@@ -62,7 +62,7 @@ use nix::{
     unistd::{access, read, AccessFlags},
 };
 use std::{
-    cell::{Ref, RefCell, RefMut},
+    cell::{Cell, Ref, RefCell, RefMut},
     env,
     ffi::{OsStr, OsString},
     fs,
@@ -221,7 +221,7 @@ pub struct RecordSession {
     ignore_sig: Option<Sig>,
     /// DIFF NOTE: In rr, a None is indicated by value 0
     continue_through_sig: Option<Sig>,
-    last_task_switchable: Switchable,
+    last_task_switchable: Cell<Switchable>,
     syscall_buffer_size_: usize,
     syscallbuf_desched_sig_: Sig,
     use_syscall_buffer_: bool,
@@ -283,7 +283,7 @@ impl RecordSession {
             disable_cpuid_features_: flags.disable_cpuid_features.clone(),
             ignore_sig: flags.ignore_sig,
             continue_through_sig: flags.continue_through_sig,
-            last_task_switchable: Switchable::PreventSwitch,
+            last_task_switchable: Cell::new(Switchable::PreventSwitch),
             syscall_buffer_size_: flags.syscall_buffer_size,
             syscallbuf_desched_sig_: flags.syscallbuf_desched_sig,
             use_syscall_buffer_: flags.use_syscall_buffer == SyscallBuffering::EnableSycallBuf,
@@ -503,6 +503,228 @@ impl RecordSession {
     /// stop). In particular, up to one task may be executing user code and any
     /// number of tasks may be blocked in syscalls.
     pub fn record_step(&self) -> RecordResult {
+        let mut result = RecordResult::StepContinue;
+
+        if self.can_end() {
+            result = RecordResult::StepExited(
+                self.initial_thread_group
+                    .as_ref()
+                    .unwrap()
+                    .borrow()
+                    .exit_status,
+            );
+
+            return result;
+        }
+
+        let maybe_prev_task = self.scheduler().current().cloned();
+        let rescheduled = self
+            .scheduler_mut()
+            .reschedule(self.last_task_switchable.get());
+        if rescheduled.interrupted_by_signal {
+            // The scheduler was waiting for some task to become active, but was
+            // interrupted by a signal. Yield to our caller now to give the caller
+            // a chance to do something triggered by the signal
+            // (e.g. terminate the recording).
+            return result;
+        }
+
+        // @TODO This assumes that unwrap() will always succeed
+        let mut t = self.scheduler().current().cloned().unwrap();
+        match maybe_prev_task {
+            Some(prev_task)
+                if prev_task
+                    .borrow()
+                    .as_record_task()
+                    .unwrap()
+                    .ev()
+                    .event_type()
+                    == EventType::EvSched =>
+            {
+                if !Rc::ptr_eq(&prev_task, &t) {
+                    // We did do a context switch, so record the SCHED event. Otherwise
+                    // we'll just discard it.
+                    prev_task
+                        .borrow_mut()
+                        .as_record_task_mut()
+                        .unwrap()
+                        .record_current_event();
+                }
+
+                prev_task
+                    .borrow_mut()
+                    .as_record_task_mut()
+                    .unwrap()
+                    .pop_event(EventType::EvSched);
+            }
+            _ => (),
+        }
+
+        if rescheduled.started_new_timeslice {
+            t.borrow_mut()
+                .as_record_task_mut()
+                .unwrap()
+                .registers_at_start_of_last_timeslice = t.borrow().regs_ref().clone();
+            t.borrow_mut()
+                .as_record_task_mut()
+                .unwrap()
+                .time_at_start_of_last_timeslice = self.trace_writer().time();
+        }
+
+        // Have to disable context-switching until we know it's safe
+        // to allow switching the context.
+        self.last_task_switchable.set(Switchable::PreventSwitch);
+
+        log!(
+            LogDebug,
+            "trace time {}: Active task is {}. Events:",
+            t.borrow().trace_time(),
+            t.borrow().tid
+        );
+
+        if is_logging!(LogDebug) {
+            t.borrow().log_pending_events();
+        }
+
+        if self.handle_ptrace_exit_event(&t) {
+            // t is dead and has been deleted.
+            return result;
+        }
+
+        if t.borrow().unstable.get() {
+            // Do not record non-ptrace-exit events for tasks in
+            // an unstable exit. We can't replay them. This happens in the
+            // signal_deferred test; the signal gets re-reported to us.
+            log!(
+                LogDebug,
+                "Task in unstable exit; refusing to record non-ptrace events"
+            );
+            // Resume the task so hopefully we'll get to its exit.
+            self.last_task_switchable.set(Switchable::AllowSwitch);
+            return result;
+        }
+
+        let mut step_state = StepState {
+            continue_type: ContinueType::Continue,
+        };
+
+        let mut did_enter_syscall: bool = false;
+        if rescheduled.by_waitpid
+            && self.handle_ptrace_event(
+                &mut t,
+                &mut step_state,
+                &mut result,
+                &mut did_enter_syscall,
+            )
+        {
+            if result != RecordResult::StepContinue
+                || step_state.continue_type == ContinueType::DontContinue
+            {
+                return result;
+            }
+
+            if did_enter_syscall
+                && t.borrow().as_record_task().unwrap().ev().event_type() == EventType::EvSyscall
+            {
+                self.syscall_state_changed(&t, &mut step_state);
+            }
+        } else if rescheduled.by_waitpid && self.handle_signal_event(&t, &mut step_state) {
+        } else {
+            self.runnable_state_changed(&t, &mut step_state, &mut result, rescheduled.by_waitpid);
+
+            if result != RecordResult::StepContinue
+                || step_state.continue_type == ContinueType::DontContinue
+            {
+                return result;
+            }
+
+            match t.borrow().as_record_task().unwrap().ev().event_type() {
+                EventType::EvDesched => {
+                    self.desched_state_changed(&t);
+                }
+                EventType::EvSyscall => {
+                    self.syscall_state_changed(&t, &mut step_state);
+                }
+                EventType::EvSignal | EventType::EvSignalDelivery => {
+                    self.signal_state_changed(&t, &mut step_state);
+                }
+                _ => (),
+            }
+        }
+
+        t.borrow_mut()
+            .as_record_task_mut()
+            .unwrap()
+            .verify_signal_states();
+
+        // We try to inject a signal if there's one pending; otherwise we continue
+        // task execution.
+        if !self.prepare_to_inject_signal(&t, &mut step_state)
+            && step_state.continue_type != ContinueType::DontContinue
+        {
+            // Ensure that we aren't allowing switches away from a running task.
+            // Only tasks blocked in a syscall can be switched away from, otherwise
+            // we have races.
+            ed_assert!(
+                &t.borrow(),
+                self.last_task_switchable.get() == Switchable::PreventSwitch
+                    || t.borrow().unstable.get()
+                    || t.borrow().as_record_task().unwrap().may_be_blocked()
+            );
+
+            debug_exec_state("EXEC_START", &t);
+
+            self.task_continue(step_state);
+        }
+
+        return result;
+    }
+
+    fn handle_ptrace_exit_event(&self, _t: &TaskSharedPtr) -> bool {
+        unimplemented!()
+    }
+
+    fn handle_signal_event(&self, _t: &TaskSharedPtr, _step_state: &mut StepState) -> bool {
+        unimplemented!()
+    }
+
+    fn handle_ptrace_event(
+        &self,
+        _t_ptr: &mut TaskSharedPtr,
+        _step_state: &mut StepState,
+        _result: &RecordResult,
+        _did_enter_syscall: &mut bool,
+    ) -> bool {
+        unimplemented!()
+    }
+
+    fn runnable_state_changed(
+        &self,
+        _t: &TaskSharedPtr,
+        _step_state: &mut StepState,
+        _step_result: &mut RecordResult,
+        _can_consume_wait_status: bool,
+    ) {
+        unimplemented!()
+    }
+
+    fn desched_state_changed(&self, _t: &TaskSharedPtr) {
+        unimplemented!()
+    }
+
+    fn syscall_state_changed(&self, _t: &TaskSharedPtr, _step_state: &mut StepState) {
+        unimplemented!()
+    }
+
+    fn signal_state_changed(&self, _t: &TaskSharedPtr, _step_state: &mut StepState) {
+        unimplemented!()
+    }
+
+    fn prepare_to_inject_signal(&self, _t: &TaskSharedPtr, _step_state: &mut StepState) -> bool {
+        unimplemented!()
+    }
+
+    fn task_continue(&self, _step_state: StepState) {
         unimplemented!()
     }
 
@@ -579,6 +801,23 @@ impl RecordSession {
     pub fn revive_task_for_exec(&self, _rec_tid: pid_t) -> TaskSharedPtr {
         unimplemented!()
     }
+
+    fn can_end(&self) -> bool {
+        if self.wait_for_all_ {
+            return self.task_map.borrow().is_empty();
+        }
+
+        self.initial_thread_group
+            .as_ref()
+            .unwrap()
+            .borrow()
+            .task_set()
+            .is_empty()
+    }
+}
+
+fn debug_exec_state(msg: &str, t: &TaskSharedPtr) {
+    log!(LogDebug, "{}: status={}", msg, t.borrow().status());
 }
 
 impl Deref for RecordSession {

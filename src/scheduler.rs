@@ -210,9 +210,9 @@ pub enum TicksHowMany {
 /// which case, result.by_waitpid will be true.
 #[derive(Copy, Clone, Default, Eq, PartialEq)]
 pub struct Rescheduled {
-    interrupted_by_signal: bool,
-    by_waitpid: bool,
-    started_new_timeslice: bool,
+    pub interrupted_by_signal: bool,
+    pub by_waitpid: bool,
+    pub started_new_timeslice: bool,
 }
 
 impl Scheduler {
@@ -293,7 +293,7 @@ impl Scheduler {
         self.must_run_task = None;
 
         // @TODO Enable poll is always false.
-        // What's the point in the code below then?
+        // What's the point in the if self.enable_poll { ... } code below then?
         self.enable_poll = false;
 
         let mut maybe_now = Some(monotonic_now_sec());
@@ -312,7 +312,7 @@ impl Scheduler {
                 if curr.borrow().is_running() {
                     log!(LogDebug, "  and running; waiting for state change");
                     // |current| is un-switchable, but already running. Wait for it to change
-                    // state before "scheduling it", so aVoid busy-waiting with our client. */
+                    // state before "scheduling it", so avoid busy-waiting with our client. */
                     curr.borrow_mut()
                         .wait(Some(self.interrupt_after_elapsed_time()));
                     // @TODO Monitor unswitchable waits stuff
