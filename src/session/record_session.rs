@@ -561,10 +561,11 @@ impl RecordSession {
         }
 
         if rescheduled.started_new_timeslice {
+            let regs = t.borrow().regs_ref().clone();
             t.borrow_mut()
                 .as_record_task_mut()
                 .unwrap()
-                .registers_at_start_of_last_timeslice = t.borrow().regs_ref().clone();
+                .registers_at_start_of_last_timeslice = regs;
             t.borrow_mut()
                 .as_record_task_mut()
                 .unwrap()
