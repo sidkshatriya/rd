@@ -1,6 +1,7 @@
 use super::{
     on_create_task_common,
     session_common::kill_all_tasks,
+    session_inner::PtraceSyscallSeccompOrdering,
     task::{
         record_task::RecordTask,
         task_common::write_val_mem,
@@ -11,12 +12,13 @@ use super::{
 use crate::{
     bindings::{
         audit::{AUDIT_ARCH_I386, AUDIT_ARCH_X86_64},
-        ptrace::PTRACE_EVENT_EXIT,
+        ptrace::{PTRACE_EVENT_EXIT, PTRACE_SINGLESTEP, PTRACE_SYSEMU_SINGLESTEP},
         signal::siginfo_t,
     },
     commands::record_command::RecordCommand,
     event::{Event, EventType, SignalDeterministic, Switchable, SyscallState},
-    kernel_abi::{native_arch, SupportedArch},
+    file_monitor::virtual_perf_counter_monitor::VirtualPerfCounterMonitor,
+    kernel_abi::{is_at_syscall_instruction, native_arch, SupportedArch},
     kernel_supplement::SYS_SECCOMP,
     log::{LogDebug, LogError},
     perf_counters::{self, TicksSemantics},
@@ -38,6 +40,7 @@ use crate::{
     sig::Sig,
     taskish_uid::TaskUid,
     thread_group::ThreadGroupSharedPtr,
+    ticks::Ticks,
     trace::{
         trace_stream::TraceStream,
         trace_writer::{CloseStatus, TraceWriter},
@@ -64,6 +67,7 @@ use nix::{
 };
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
+    cmp::max,
     env,
     ffi::{OsStr, OsString},
     fs,
@@ -757,12 +761,173 @@ impl RecordSession {
         unimplemented!()
     }
 
-    fn prepare_to_inject_signal(&self, _t: &TaskSharedPtr, _step_state: &mut StepState) -> bool {
+    fn prepare_to_inject_signal(&self, _t: &TaskSharedPtr, step_state: &mut StepState) -> bool {
+        if !self.done_initial_exec() || step_state.continue_type != ContinueType::Continue {
+            return false;
+        }
+
         unimplemented!()
     }
 
-    fn task_continue(&self, _step_state: StepState) {
-        unimplemented!()
+    fn task_continue(&self, step_state: StepState) {
+        let t = self.scheduler().current().unwrap().clone();
+
+        ed_assert!(
+            &t.borrow(),
+            step_state.continue_type != ContinueType::DontContinue
+        );
+        // A task in an emulated ptrace-stop must really stay stopped
+        ed_assert!(
+            &t.borrow(),
+            !t.borrow().as_rec_unwrap().emulated_stop_pending
+        );
+
+        let may_restart = t.borrow().as_rec_unwrap().at_may_restart_syscall();
+
+        if may_restart && t.borrow().seccomp_bpf_enabled {
+            log!(
+                LogDebug,
+                "  PTRACE_SYSCALL to possibly-restarted {}",
+                t.borrow().as_rec_unwrap().ev()
+            );
+        }
+
+        if t.borrow().vm().first_run_event() == 0 {
+            let time = self.trace_writer().time();
+            t.borrow().vm().set_first_run_event(time);
+        }
+
+        let mut ticks_request: TicksRequest;
+        let resume: ResumeRequest;
+        if step_state.continue_type == ContinueType::ContinueSyscall {
+            ticks_request = TicksRequest::ResumeNoTicks;
+            resume = ResumeRequest::ResumeSyscall;
+        } else {
+            if t.borrow()
+                .as_rec_unwrap()
+                .has_stashed_sig(perf_counters::TIME_SLICE_SIGNAL)
+            {
+                // timeslice signal already stashed, no point in generating another one
+                // (and potentially slow)
+                ticks_request = TicksRequest::ResumeUnlimitedTicks;
+            } else {
+                let num_ticks_request = max(
+                    0,
+                    self.scheduler().current_timeslice_end() - t.borrow().tick_count(),
+                );
+                debug_assert!(num_ticks_request > 0);
+                ticks_request = TicksRequest::ResumeWithTicksRequest(num_ticks_request);
+            }
+
+            // Clear any lingering state, then see if we need to stop earlier for a
+            // tracee-requested pmc interrupt on the virtualized performance counter.
+            t.borrow_mut()
+                .as_rec_mut_unwrap()
+                .next_pmc_interrupt_is_for_user = false;
+            let maybe_vpmc =
+                VirtualPerfCounterMonitor::interrupting_virtual_pmc_for_task(t.borrow().as_ref());
+
+            match maybe_vpmc {
+                Some(vpmc) => {
+                    ed_assert!(
+                        &t.borrow(),
+                        vpmc.borrow()
+                            .as_virtual_perf_counter_monitor()
+                            .unwrap()
+                            .target_tuid()
+                            == t.borrow().tuid()
+                    );
+
+                    let after: Ticks = max(
+                        vpmc.borrow()
+                            .as_virtual_perf_counter_monitor()
+                            .unwrap()
+                            .target_ticks()
+                            - t.borrow().tick_count(),
+                        0,
+                    );
+
+                    match ticks_request {
+                        TicksRequest::ResumeWithTicksRequest(num_ticks_request)
+                            if after < num_ticks_request =>
+                        {
+                            debug_assert!(after > 0);
+                            let after_ticks_request = TicksRequest::ResumeWithTicksRequest(after);
+                            log!(
+                                LogDebug,
+                                "ticks_request constrained from {:?} to {:?} for vpmc",
+                                ticks_request,
+                                after_ticks_request
+                            );
+                            ticks_request = after_ticks_request;
+                            t.borrow_mut()
+                                .as_rec_mut_unwrap()
+                                .next_pmc_interrupt_is_for_user = true;
+                        }
+                        _ => (),
+                    }
+                }
+                None => (),
+            }
+
+            let mut singlestep = t.borrow().as_rec_unwrap().emulated_ptrace_cont_command
+                == PTRACE_SINGLESTEP
+                || t.borrow().as_rec_unwrap().emulated_ptrace_cont_command
+                    == PTRACE_SYSEMU_SINGLESTEP;
+
+            if singlestep && is_at_syscall_instruction(t.borrow_mut().as_mut(), t.borrow().ip()) {
+                // We're about to singlestep into a syscall instruction.
+                // Act like we're NOT singlestepping since doing a PTRACE_SINGLESTEP would
+                // skip over the system call.
+                log!(
+                    LogDebug,
+                    "Clearing singlestep because we're about to enter a syscall"
+                );
+
+                singlestep = false;
+            }
+
+            if singlestep {
+                resume = ResumeRequest::ResumeSinglestep;
+            } else {
+                // We won't receive PTRACE_EVENT_SECCOMP events until
+                // the seccomp filter is installed by the
+                // syscall_buffer lib in the child, therefore we must
+                // record in the traditional way (with PTRACE_SYSCALL)
+                // until it is installed.
+                // Kernel commit
+                //   https://github.com/torvalds/linux/commit/93e35efb8de45393cf61ed07f7b407629bf698ea
+                //   makes PTRACE_SYSCALL traps be delivered *before* seccomp RET_TRACE
+                //   traps.
+                //   Detect and handle this.
+                if !t.borrow().seccomp_bpf_enabled
+                    || may_restart
+                    || self.syscall_seccomp_ordering_.get()
+                        == PtraceSyscallSeccompOrdering::SyscallBeforeSeccompUnknown
+                {
+                    resume = ResumeRequest::ResumeSyscall;
+                } else {
+                    // When the seccomp filter is on, instead of capturing
+                    // syscalls by using PTRACE_SYSCALL, the filter will
+                    // generate the ptrace events. This means we allow the
+                    // process to run using PTRACE_CONT, and rely on the
+                    // seccomp filter to generate the special
+                    // PTRACE_EVENT_SECCOMP event once a syscall happens.
+                    // This event is handled here by simply allowing the
+                    // process to continue to the actual entry point of
+                    // the syscall (using cont_syscall_block()) and then
+                    // using the same logic as before.
+                    resume = ResumeRequest::ResumeCont;
+                }
+            }
+        }
+
+        t.borrow_mut().resume_execution(
+            resume,
+            WaitRequest::ResumeNonblocking,
+            ticks_request,
+            None,
+        );
     }
 
     fn process_syscall_entry(
