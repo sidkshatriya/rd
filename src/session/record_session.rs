@@ -665,7 +665,8 @@ impl RecordSession {
                 return result;
             }
 
-            match t.borrow().as_record_task().unwrap().ev().event_type() {
+            let event_type = t.borrow().as_rec_unwrap().ev().event_type();
+            match event_type {
                 EventType::EvDesched => {
                     self.desched_state_changed(t.borrow().as_rec_unwrap());
                 }
