@@ -55,6 +55,7 @@ mod preload_interface_arch;
 mod priority_pair;
 mod rd;
 mod record_signal;
+mod record_syscall;
 mod remote_code_ptr;
 mod remote_ptr;
 mod replay_syscall;

@@ -4,7 +4,7 @@ use super::{
     session_common::kill_all_tasks,
     session_inner::PtraceSyscallSeccompOrdering,
     task::{
-        record_task::RecordTask,
+        record_task::{AllowSyscallbufReset, EmulatedStopType, FlushSyscallbuf, RecordTask},
         task_common::write_val_mem,
         task_inner::{ResumeRequest, SaveTraceeFdNumber, TaskInner, TicksRequest, WaitRequest},
     },
@@ -25,15 +25,18 @@ use crate::{
     commands::record_command::RecordCommand,
     event::{Event, EventType, SignalDeterministic, Switchable, SyscallEventData, SyscallState},
     file_monitor::virtual_perf_counter_monitor::VirtualPerfCounterMonitor,
+    flags::Flags,
     kernel_abi::{
         is_at_syscall_instruction,
         is_exit_group_syscall,
+        is_pause_syscall,
         is_rdcall_notify_syscall_hook_exit_syscall,
         is_restart_syscall_syscall,
         is_write_syscall,
         native_arch,
         SupportedArch,
     },
+    kernel_metadata::{is_sigreturn, syscall_name},
     kernel_supplement::SYS_SECCOMP,
     log::{LogDebug, LogError, LogWarn},
     perf_counters::{self, TicksSemantics},
@@ -43,7 +46,9 @@ use crate::{
         SYSCALLBUF_LIB_FILENAME,
         SYSCALLBUF_LIB_FILENAME_PADDED,
     },
-    record_signal::handle_syscallbuf_breakpoint,
+    record_signal::{arm_desched_event, disarm_desched_event, handle_syscallbuf_breakpoint},
+    record_syscall::{rec_prepare_restart_syscall, rec_prepare_syscall, rec_process_syscall},
+    registers::Registers,
     remote_ptr::{RemotePtr, Void},
     scheduler::Scheduler,
     scoped_fd::ScopedFd,
@@ -648,7 +653,7 @@ impl RecordSession {
             if did_enter_syscall
                 && t.borrow().as_record_task().unwrap().ev().event_type() == EventType::EvSyscall
             {
-                self.syscall_state_changed(&t, &mut step_state);
+                self.syscall_state_changed(t.borrow_mut().as_rec_mut_unwrap(), &mut step_state);
             }
         } else if rescheduled.by_waitpid && self.handle_signal_event(&t, &mut step_state) {
         } else {
@@ -662,10 +667,10 @@ impl RecordSession {
 
             match t.borrow().as_record_task().unwrap().ev().event_type() {
                 EventType::EvDesched => {
-                    self.desched_state_changed(&t);
+                    self.desched_state_changed(t.borrow().as_rec_unwrap());
                 }
                 EventType::EvSyscall => {
-                    self.syscall_state_changed(&t, &mut step_state);
+                    self.syscall_state_changed(t.borrow_mut().as_rec_mut_unwrap(), &mut step_state);
                 }
                 EventType::EvSignal | EventType::EvSignalDelivery => {
                     self.signal_state_changed(&t, &mut step_state);
@@ -691,7 +696,7 @@ impl RecordSession {
                     || t.borrow().as_record_task().unwrap().may_be_blocked()
             );
 
-            debug_exec_state("EXEC_START", &t);
+            debug_exec_state("EXEC_START", t.borrow().as_ref());
 
             self.task_continue(step_state);
         }
@@ -797,16 +802,251 @@ impl RecordSession {
         }
     }
 
-    fn desched_state_changed(&self, _t: &TaskSharedPtr) {
-        unimplemented!()
-    }
-
-    fn syscall_state_changed(&self, _t: &TaskSharedPtr, _step_state: &mut StepState) {
+    /// |t| is at a desched event and some relevant aspect of its state
+    /// changed.  (For now, changes except the original desched'd syscall
+    /// being restarted.)
+    fn desched_state_changed(&self, _t: &RecordTask) {
         unimplemented!()
     }
 
     fn signal_state_changed(&self, _t: &TaskSharedPtr, _step_state: &mut StepState) {
         unimplemented!()
+    }
+
+    fn syscall_state_changed(&self, t: &mut RecordTask, step_state: &mut StepState) {
+        match t.ev().syscall().state {
+            SyscallState::EnteringSyscallPtrace => {
+                debug_exec_state("EXEC_SYSCALL_ENTRY_PTRACE", t);
+                step_state.continue_type = ContinueType::DontContinue;
+                self.last_task_switchable.set(Switchable::AllowSwitch);
+                if t.emulated_stop_type != EmulatedStopType::NotStopped {
+                    // Don't go any further.
+                    return;
+                }
+                if t.ev().syscall().in_sysemu {
+                    // We'll have recorded just the SyscallState::EnteringSyscall_PTRACE event and
+                    // nothing else. Resume with an invalid syscall to ensure no real
+                    // syscall runs.
+                    t.pop_syscall();
+                    let mut r = t.regs_ref().clone();
+                    let orig_regs = r.clone();
+                    r.set_original_syscallno(-1);
+                    t.set_regs(&r);
+                    t.resume_execution(
+                        ResumeRequest::ResumeSyscall,
+                        WaitRequest::ResumeWait,
+                        TicksRequest::ResumeNoTicks,
+                        None,
+                    );
+                    ed_assert_eq!(t, t.ip(), r.ip());
+                    t.set_regs(&orig_regs);
+                    maybe_trigger_emulated_ptrace_syscall_exit_stop(t);
+                    return;
+                }
+                self.last_task_switchable.set(Switchable::PreventSwitch);
+                t.ev_mut().syscall_mut().regs = t.regs_ref().clone();
+                t.ev_mut().syscall_mut().state = SyscallState::EnteringSyscall;
+                // The syscallno may have been changed by the ptracer
+                t.ev_mut().syscall_mut().number = t.regs_ref().original_syscallno() as i32;
+                return;
+            }
+            SyscallState::EnteringSyscall => {
+                debug_exec_state("EXEC_SYSCALL_ENTRY", t);
+                ed_assert!(t, !t.emulated_stop_pending);
+
+                self.last_task_switchable.set(rec_prepare_syscall(t));
+                t.ev_mut().syscall_mut().switchable = self.last_task_switchable.get();
+                let regs = t.ev().syscall().regs.clone();
+                let event = t.ev().clone();
+                t.record_event(
+                    Some(event),
+                    Some(FlushSyscallbuf::FlushSyscallbuf),
+                    Some(AllowSyscallbufReset::AllowResetSyscallbuf),
+                    Some(&regs),
+                );
+
+                debug_exec_state("after cont", t);
+                t.ev_mut().syscall_mut().state = SyscallState::ProcessingSyscall;
+
+                if t.emulated_stop_pending {
+                    step_state.continue_type = ContinueType::DontContinue;
+                } else {
+                    // Resume the syscall execution in the kernel context.
+                    step_state.continue_type = ContinueType::ContinueSyscall;
+                }
+
+                if t.session().done_initial_exec() && Flags::get().check_cached_mmaps {
+                    t.vm().verify(t);
+                }
+
+                if !t.desched_rec().is_null()
+                    && t.is_in_untraced_syscall()
+                    && t.has_any_stashed_sig()
+                {
+                    // We have a signal to deliver but we're about to (re?)enter an untraced
+                    // syscall that may block and the desched event has been disarmed.
+                    // Rearm the desched event so if the syscall blocks, it will be
+                    // interrupted and we'll have a chance to deliver our signal.
+                    log!(
+                        LogDebug,
+                        "Rearming desched event so we'll get a chance to deliver stashed signal"
+                    );
+                    arm_desched_event(t);
+                }
+
+                return;
+            }
+
+            SyscallState::ProcessingSyscall => {
+                debug_exec_state("EXEC_IN_SYSCALL", t);
+
+                // Linux kicks tasks out of syscalls before delivering
+                // signals.
+                ed_assert!(
+                    t,
+                    !t.maybe_stop_sig().is_sig(),
+                    "Signal {} pending while in syscall???",
+                    t.maybe_stop_sig()
+                );
+
+                t.ev_mut().syscall_mut().state = SyscallState::ExitingSyscall;
+                step_state.continue_type = ContinueType::DontContinue;
+                return;
+            }
+            SyscallState::ExitingSyscall => {
+                debug_exec_state("EXEC_SYSCALL_DONE", t);
+
+                debug_assert!(!t.maybe_stop_sig().is_sig());
+
+                let syscall_arch = t.ev().syscall().arch();
+                let syscallno = t.ev().syscall().number;
+                let retval = t.regs_ref().syscall_result_signed();
+
+                if !t.desched_rec().is_null() {
+                    // If we enabled the desched event above, disable it.
+                    disarm_desched_event(t);
+                    // Write syscall return value to the syscallbuf now. This lets replay
+                    // get the correct value even though we're aborting the commit. This
+                    // value affects register values in the preload code (which must be
+                    // correct since register values may escape).
+                    save_interrupted_syscall_ret_in_syscallbuf(t, retval);
+                }
+
+                // sigreturn is a special snowflake, because it
+                // doesn't actually return.  Instead, it undoes the
+                // setup for signal delivery, which possibly includes
+                // preparing the tracee for a restart-syscall.  So we
+                // take this opportunity to possibly pop an
+                // interrupted-syscall event.
+                if is_sigreturn(syscallno, syscall_arch) {
+                    ed_assert_eq!(t, t.regs_ref().original_syscallno(), -1);
+                    t.record_current_event();
+                    t.pop_syscall();
+
+                    // We've finished processing this signal now.
+                    t.pop_signal_handler();
+                    t.invalidate_sigmask();
+
+                    maybe_discard_syscall_interruption(t, retval as i32);
+
+                    if EventType::EvSeccompTrap == t.ev().event_type() {
+                        log!(LogDebug, "  exiting seccomp trap");
+                        save_interrupted_syscall_ret_in_syscallbuf(t, retval);
+                        seccomp_trap_done(t);
+                    }
+
+                    if EventType::EvDesched == t.ev().event_type() {
+                        log!(LogDebug, "  exiting desched critical section");
+                        // The signal handler could have modified the apparent syscall
+                        // return handler. Save that value into the syscall buf again so
+                        // replay will pick it up later.
+                        save_interrupted_syscall_ret_in_syscallbuf(t, retval);
+                        self.desched_state_changed(t);
+                    }
+                } else {
+                    log!(
+                        LogDebug,
+                        "  original_syscallno:{} ({}); return val:{:#x}",
+                        t.regs_ref().original_syscallno(),
+                        syscall_name(syscallno, syscall_arch),
+                        t.regs_ref().syscall_result()
+                    );
+
+                    // a syscall_restart ending is equivalent to the
+                    // restarted syscall ending
+                    if t.ev().syscall().is_restart {
+                        log!(
+                            LogDebug,
+                            "  exiting restarted {}",
+                            syscall_name(syscallno, syscall_arch)
+                        );
+                    }
+
+                    // TODO: is there any reason a restart_syscall can't
+                    // be interrupted by a signal and itself restarted?
+                    let may_restart = !is_restart_syscall_syscall(syscallno, t.arch())
+                           // SYS_pause is either interrupted or
+                           // never returns.  It doesn't restart.
+                           && !is_pause_syscall(syscallno, t.arch()) &&
+                           t.regs_ref().syscall_may_restart();
+                    // no need to process the syscall in case its
+                    // restarted this will be done in the exit from the
+                    // restart_syscall
+                    if !may_restart {
+                        rec_process_syscall(t);
+                        if t.session().done_initial_exec() && Flags::get().check_cached_mmaps {
+                            t.vm().verify(t);
+                        }
+                    } else {
+                        log!(
+                            LogDebug,
+                            "  may restart {} (from retval {:#x})",
+                            syscall_name(syscallno, syscall_arch),
+                            retval
+                        );
+
+                        rec_prepare_restart_syscall(t);
+                        // If we may restart this syscall, we've most
+                        // likely fudged some of the argument
+                        // registers with scratch pointers.  We don't
+                        // want to record those fudged registers,
+                        // because scratch doesn't exist in replay.
+                        // So cover our tracks here.
+                        let mut r = t.regs_ref().clone();
+                        copy_syscall_arg_regs(&mut r, &t.ev().syscall().regs);
+                        t.set_regs(&r);
+                    }
+                    t.record_current_event();
+
+                    // If we're not going to restart this syscall, we're
+                    // done with it.  But if we are, "freeze" it on the
+                    // event stack until the execution point where it
+                    // might be restarted.
+                    if !may_restart {
+                        t.pop_syscall();
+                        if EventType::EvDesched == t.ev().event_type() {
+                            log!(LogDebug, "  exiting desched critical section");
+                            self.desched_state_changed(t);
+                        }
+                    } else {
+                        t.ev_mut().transform(EventType::EvSyscallInterruption);
+                        t.ev_mut().syscall_mut().is_restart = true;
+                    }
+
+                    t.canonicalize_regs(syscall_arch);
+                }
+
+                self.last_task_switchable.set(Switchable::AllowSwitch);
+                step_state.continue_type = ContinueType::DontContinue;
+
+                if !is_in_privileged_syscall(t) {
+                    maybe_trigger_emulated_ptrace_syscall_exit_stop(t);
+                }
+                return;
+            }
+
+            _ => fatal!("Unknown exec state {}", t.ev().syscall().state),
+        }
     }
 
     fn prepare_to_inject_signal(&self, _t: &TaskSharedPtr, step_state: &mut StepState) -> bool {
@@ -1189,8 +1429,38 @@ impl RecordSession {
     }
 }
 
-fn debug_exec_state(msg: &str, t: &TaskSharedPtr) {
-    log!(LogDebug, "{}: status={}", msg, t.borrow().status());
+/// Copy the registers used for syscall arguments (not including
+/// syscall number) from |from| to |to|.
+fn copy_syscall_arg_regs(to: &mut Registers, from: &Registers) {
+    to.set_arg1(from.arg1());
+    to.set_arg2(from.arg2());
+    to.set_arg3(from.arg3());
+    to.set_arg4(from.arg4());
+    to.set_arg5(from.arg5());
+    to.set_arg6(from.arg6());
+}
+
+fn seccomp_trap_done(_t: &RecordTask) {
+    unimplemented!()
+}
+
+/// After a SYS_sigreturn "exit" of task |t| with return value |ret|,
+/// check to see if there's an interrupted syscall that /won't/ be
+/// restarted, and if so, pop it off the pending event stack.
+fn maybe_discard_syscall_interruption(_t: &RecordTask, _syscallno: i32) {
+    unimplemented!()
+}
+
+fn save_interrupted_syscall_ret_in_syscallbuf(_t: &RecordTask, _retval: isize) {
+    unimplemented!()
+}
+
+fn maybe_trigger_emulated_ptrace_syscall_exit_stop(_t: &RecordTask) {
+    unimplemented!()
+}
+
+fn debug_exec_state(msg: &str, t: &dyn Task) {
+    log!(LogDebug, "{}: status={}", msg, t.status());
 }
 
 impl Deref for RecordSession {
