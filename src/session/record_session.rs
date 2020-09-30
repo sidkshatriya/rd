@@ -20,7 +20,7 @@ use crate::{
             PTRACE_SYSEMU,
             PTRACE_SYSEMU_SINGLESTEP,
         },
-        signal::siginfo_t,
+        signal::{siginfo_t, SI_KERNEL},
     },
     commands::record_command::RecordCommand,
     event::{Event, EventType, SignalDeterministic, Switchable, SyscallEventData, SyscallState},
@@ -42,6 +42,7 @@ use crate::{
     perf_counters::{self, TicksSemantics},
     preload_interface::{
         syscallbuf_hdr,
+        syscallbuf_record,
         SYSCALLBUF_ENABLED_ENV_VAR,
         SYSCALLBUF_LIB_FILENAME,
         SYSCALLBUF_LIB_FILENAME_PADDED,
@@ -89,6 +90,7 @@ use nix::{
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
     cmp::max,
+    convert::TryInto,
     env,
     ffi::{OsStr, OsString},
     fs,
@@ -655,9 +657,18 @@ impl RecordSession {
             {
                 self.syscall_state_changed(t.borrow_mut().as_rec_mut_unwrap(), &mut step_state);
             }
-        } else if rescheduled.by_waitpid && self.handle_signal_event(&t, &mut step_state) {
+        } else if rescheduled.by_waitpid
+            && self.handle_signal_event(t.borrow_mut().as_rec_mut_unwrap(), &mut step_state)
+        {
+            // @TODO Is this what we want here?
+            // Do nothing
         } else {
-            self.runnable_state_changed(&t, &mut step_state, &mut result, rescheduled.by_waitpid);
+            self.runnable_state_changed(
+                t.borrow_mut().as_rec_mut_unwrap(),
+                &mut step_state,
+                &mut result,
+                rescheduled.by_waitpid,
+            );
 
             if result != RecordResult::StepContinue
                 || step_state.continue_type == ContinueType::DontContinue
@@ -705,8 +716,8 @@ impl RecordSession {
         return result;
     }
 
-    fn handle_signal_event(&self, t: &TaskSharedPtr, _step_state: &mut StepState) -> bool {
-        let maybe_sig = t.borrow().maybe_stop_sig();
+    fn handle_signal_event(&self, t: &mut RecordTask, _step_state: &mut StepState) -> bool {
+        let maybe_sig = t.maybe_stop_sig();
         if !maybe_sig.is_sig() {
             return false;
         }
@@ -726,15 +737,13 @@ impl RecordSession {
             );
 
             // These signals might have effects on the sigmask.
-            t.borrow_mut().as_rec_mut_unwrap().invalidate_sigmask();
+            t.invalidate_sigmask();
             // No events to be recorded, so no syscallbuf updates
             // needed.
             return true;
         }
 
-        if maybe_sig == sig::SIGTRAP
-            && handle_syscallbuf_breakpoint(t.borrow_mut().as_rec_mut_unwrap())
-        {
+        if maybe_sig == sig::SIGTRAP && handle_syscallbuf_breakpoint(t) {
             return true;
         }
 
@@ -770,20 +779,20 @@ impl RecordSession {
 
     fn runnable_state_changed(
         &self,
-        t: &TaskSharedPtr,
+        t: &mut RecordTask,
         step_state: &mut StepState,
         step_result: &mut RecordResult,
         can_consume_wait_status: bool,
     ) {
-        let event_type = t.borrow().as_rec_unwrap().ev().event_type();
+        let event_type = t.ev().event_type();
         match event_type {
             EventType::EvNoop => {
-                t.borrow_mut().as_rec_mut_unwrap().pop_noop();
+                t.pop_noop();
                 return;
             }
             EventType::EvInstructionTrap => {
-                t.borrow_mut().as_rec_mut_unwrap().record_current_event();
-                t.borrow_mut().as_rec_mut_unwrap().pop_event(event_type);
+                t.record_current_event();
+                t.pop_event(event_type);
                 return;
             }
             EventType::EvSentinel
@@ -793,8 +802,8 @@ impl RecordSession {
                     return;
                 }
 
-                let syscall_arch = t.borrow_mut().detect_syscall_arch();
-                t.borrow_mut().canonicalize_regs(syscall_arch);
+                let syscall_arch = t.detect_syscall_arch();
+                t.canonicalize_regs(syscall_arch);
                 self.process_syscall_entry(t, step_state, step_result, syscall_arch);
                 return;
             }
@@ -948,7 +957,7 @@ impl RecordSession {
                     t.pop_signal_handler();
                     t.invalidate_sigmask();
 
-                    maybe_discard_syscall_interruption(t, retval as i32);
+                    maybe_discard_syscall_interruption(t, retval);
 
                     if EventType::EvSeccompTrap == t.ev().event_type() {
                         log!(LogDebug, "  exiting seccomp trap");
@@ -1222,13 +1231,11 @@ impl RecordSession {
     /// Returns false if the task exits during processing
     fn process_syscall_entry(
         &self,
-        ts: &TaskSharedPtr,
+        t: &mut RecordTask,
         step_state: &mut StepState,
         step_result: &mut RecordResult,
         syscall_arch: SupportedArch,
     ) -> bool {
-        let mut tb = ts.borrow_mut();
-        let t: &mut RecordTask = tb.as_rec_mut_unwrap();
         if let Some(si) = t.stashed_sig_not_synthetic_sigchld() {
             // The only four cases where we allow a stashed signal to be pending on
             // syscall entry are:
@@ -1441,23 +1448,103 @@ fn copy_syscall_arg_regs(to: &mut Registers, from: &Registers) {
     to.set_arg6(from.arg6());
 }
 
-fn seccomp_trap_done(_t: &RecordTask) {
-    unimplemented!()
+fn seccomp_trap_done(t: &mut RecordTask) {
+    t.pop_seccomp_trap();
+
+    // It's safe to reset the syscall buffer now.
+    t.delay_syscallbuf_reset_for_seccomp_trap = false;
+
+    let syscallbuf_child = t.syscallbuf_child;
+    write_val_mem(
+        t,
+        syscallbuf_child.as_rptr_u8() + offset_of!(syscallbuf_hdr, failed_during_preparation),
+        &1u8,
+        None,
+    );
+    t.record_local_for(
+        syscallbuf_child.as_rptr_u8() + offset_of!(syscallbuf_hdr, failed_during_preparation),
+        &1u8,
+    );
+
+    if EventType::EvDesched == t.ev().event_type() {
+        // Desched processing will do the rest for us
+        return;
+    }
+
+    // Abort the current syscallbuf record, which corresponds to the syscall that
+    // wasn't actually executed due to seccomp.
+    write_val_mem(
+        t,
+        syscallbuf_child.as_rptr_u8() + offset_of!(syscallbuf_hdr, abort_commit),
+        &1u8,
+        None,
+    );
+    t.record_event(Some(Event::syscallbuf_abort_commit()), None, None, None);
+
+    // In fact, we need to. Running the syscall exit hook will ensure we
+    // reset the buffer before we try to buffer another a syscall.
+    write_val_mem(
+        t,
+        syscallbuf_child.as_rptr_u8() + offset_of!(syscallbuf_hdr, notify_on_syscall_hook_exit),
+        &1u8,
+        None,
+    );
 }
 
 /// After a SYS_sigreturn "exit" of task |t| with return value |ret|,
 /// check to see if there's an interrupted syscall that /won't/ be
 /// restarted, and if so, pop it off the pending event stack.
-fn maybe_discard_syscall_interruption(_t: &RecordTask, _syscallno: i32) {
-    unimplemented!()
+fn maybe_discard_syscall_interruption(t: &mut RecordTask, ret: isize) {
+    let syscallno: i32;
+
+    if EventType::EvSyscallInterruption != t.ev().event_type() {
+        // We currently don't track syscalls interrupted with
+        // ERESTARTSYS or ERESTARTNOHAND, so it's possible for
+        // a sigreturn not to affect the event stack.
+        log!(LogDebug, "  (no interrupted syscall to retire)");
+        return;
+    }
+
+    syscallno = t.ev().syscall().number;
+    if 0 > ret {
+        syscall_not_restarted(t);
+    } else {
+        ed_assert_eq!(
+            t,
+            syscallno as isize,
+            ret,
+            "Interrupted call was {} and sigreturn claims to be restarting {}",
+            t.ev().syscall().syscall_name(),
+            syscall_name(ret.try_into().unwrap(), t.ev().syscall().arch())
+        );
+    }
 }
 
-fn save_interrupted_syscall_ret_in_syscallbuf(_t: &RecordTask, _retval: isize) {
-    unimplemented!()
+fn save_interrupted_syscall_ret_in_syscallbuf(t: &mut RecordTask, retval: isize) {
+    // Record storing the return value in the syscallbuf record, where
+    // we expect to find it during replay.
+    let child_rec = t.next_syscallbuf_record();
+    let ret: i64 = retval as i64;
+    t.record_local_for(
+        RemotePtr::<i64>::cast(child_rec.as_rptr_u8() + offset_of!(syscallbuf_record, ret)),
+        &ret,
+    );
 }
 
-fn maybe_trigger_emulated_ptrace_syscall_exit_stop(_t: &RecordTask) {
-    unimplemented!()
+fn maybe_trigger_emulated_ptrace_syscall_exit_stop(t: &RecordTask) {
+    if t.emulated_ptrace_cont_command == PTRACE_SYSCALL {
+        t.emulate_ptrace_stop(WaitStatus::for_syscall(t), None, None);
+    } else if t.emulated_ptrace_cont_command == PTRACE_SINGLESTEP
+        || t.emulated_ptrace_cont_command == PTRACE_SYSEMU_SINGLESTEP
+    {
+        // Deliver the singlestep trap now that we've finished executing the
+        // syscall.
+        t.emulate_ptrace_stop(
+            WaitStatus::for_stop_sig(sig::SIGTRAP),
+            None,
+            Some(SI_KERNEL as i32),
+        );
+    }
 }
 
 fn debug_exec_state(msg: &str, t: &dyn Task) {
