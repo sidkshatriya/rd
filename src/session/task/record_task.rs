@@ -1440,19 +1440,19 @@ impl RecordTask {
             if is_unstoppable_signal(sig) {
                 ed_assert!(
                     self,
-                    blocked & mask != 0,
+                    blocked & mask == 0,
                     "Expected {} to not be blocked, but it is",
                     sig
                 );
                 ed_assert!(
                     self,
-                    ignored & mask != 0,
+                    ignored & mask == 0,
                     "Expected {} to not be ignored, but it is",
                     sig
                 );
                 ed_assert!(
                     self,
-                    caught & mask != 0,
+                    caught & mask == 0,
                     "Expected {} to not be caught, but it is",
                     sig
                 );

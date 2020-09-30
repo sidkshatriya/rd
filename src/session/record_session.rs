@@ -654,10 +654,7 @@ impl RecordSession {
             }
         }
 
-        t.borrow_mut()
-            .as_record_task_mut()
-            .unwrap()
-            .verify_signal_states();
+        t.borrow_mut().as_rec_mut_unwrap().verify_signal_states();
 
         // We try to inject a signal if there's one pending; otherwise we continue
         // task execution.
