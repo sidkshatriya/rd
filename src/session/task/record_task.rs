@@ -629,6 +629,14 @@ impl Task for RecordTask {
         Some(self)
     }
 
+    fn as_rec_unwrap(&self) -> &RecordTask {
+        self
+    }
+
+    fn as_rec_mut_unwrap(&mut self) -> &mut RecordTask {
+        self
+    }
+
     fn on_syscall_exit(&mut self, syscallno: i32, arch: SupportedArch, regs: &Registers) {
         with_converted_registers(regs, arch, |regs| {
             rd_arch_function!(self, on_syscall_exit_arch, arch, syscallno, regs);

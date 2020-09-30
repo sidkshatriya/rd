@@ -11,6 +11,7 @@ use super::{
 use crate::{
     bindings::{
         audit::{AUDIT_ARCH_I386, AUDIT_ARCH_X86_64},
+        ptrace::PTRACE_EVENT_EXIT,
         signal::siginfo_t,
     },
     commands::record_command::RecordCommand,
@@ -587,7 +588,7 @@ impl RecordSession {
             t.borrow().log_pending_events();
         }
 
-        if self.handle_ptrace_exit_event(&t) {
+        if handle_ptrace_exit_event(&t) {
             // t is dead and has been deleted.
             return result;
         }
@@ -681,32 +682,70 @@ impl RecordSession {
         return result;
     }
 
-    fn handle_ptrace_exit_event(&self, _t: &TaskSharedPtr) -> bool {
-        unimplemented!()
-    }
-
     fn handle_signal_event(&self, _t: &TaskSharedPtr, _step_state: &mut StepState) -> bool {
         unimplemented!()
     }
 
     fn handle_ptrace_event(
         &self,
-        _t_ptr: &mut TaskSharedPtr,
-        _step_state: &mut StepState,
+        t: &mut TaskSharedPtr,
+        step_state: &mut StepState,
         _result: &RecordResult,
-        _did_enter_syscall: &mut bool,
+        did_enter_syscall: &mut bool,
     ) -> bool {
+        *did_enter_syscall = false;
+
+        if t.borrow().status().maybe_group_stop_sig().is_sig()
+            || t.borrow().as_rec_unwrap().has_stashed_group_stop()
+        {
+            t.borrow_mut()
+                .as_rec_mut_unwrap()
+                .clear_stashed_group_stop();
+            self.last_task_switchable.set(Switchable::AllowSwitch);
+            step_state.continue_type = ContinueType::DontContinue;
+            return true;
+        }
+
+        if !t.borrow().maybe_ptrace_event().is_ptrace_event() {
+            return false;
+        }
+
         unimplemented!()
     }
 
     fn runnable_state_changed(
         &self,
-        _t: &TaskSharedPtr,
-        _step_state: &mut StepState,
-        _step_result: &mut RecordResult,
-        _can_consume_wait_status: bool,
+        t: &TaskSharedPtr,
+        step_state: &mut StepState,
+        step_result: &mut RecordResult,
+        can_consume_wait_status: bool,
     ) {
-        unimplemented!()
+        let event_type = t.borrow().as_rec_unwrap().ev().event_type();
+        match event_type {
+            EventType::EvNoop => {
+                t.borrow_mut().as_rec_mut_unwrap().pop_noop();
+                return;
+            }
+            EventType::EvInstructionTrap => {
+                t.borrow_mut().as_rec_mut_unwrap().record_current_event();
+                t.borrow_mut().as_rec_mut_unwrap().pop_event(event_type);
+                return;
+            }
+            EventType::EvSentinel
+            | EventType::EvSignalHandler
+            | EventType::EvSyscallInterruption => {
+                if !can_consume_wait_status {
+                    return;
+                }
+
+                let syscall_arch = t.borrow_mut().detect_syscall_arch();
+                t.borrow_mut().canonicalize_regs(syscall_arch);
+                self.process_syscall_entry(t, step_state, step_result, syscall_arch);
+                return;
+            }
+
+            _ => (),
+        }
     }
 
     fn desched_state_changed(&self, _t: &TaskSharedPtr) {
@@ -726,6 +765,16 @@ impl RecordSession {
     }
 
     fn task_continue(&self, _step_state: StepState) {
+        unimplemented!()
+    }
+
+    fn process_syscall_entry(
+        &self,
+        _t: &TaskSharedPtr,
+        _step_state: &mut StepState,
+        _step_result: &mut RecordResult,
+        _syscall_arch: SupportedArch,
+    ) -> bool {
         unimplemented!()
     }
 
@@ -1183,5 +1232,15 @@ fn note_entering_syscall(_t: &mut RecordTask) {
 }
 
 fn rec_abort_prepared_syscall(_t: &mut RecordTask) {
+    unimplemented!()
+}
+
+/// Return true if we handle a ptrace exit event for task t. When this returns
+/// true, t has been deleted and cannot be referenced again.
+fn handle_ptrace_exit_event(t: &TaskSharedPtr) -> bool {
+    if t.borrow().maybe_ptrace_event() != PTRACE_EVENT_EXIT {
+        return false;
+    }
+
     unimplemented!()
 }

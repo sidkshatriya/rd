@@ -134,13 +134,23 @@ pub trait Task: DerefMut<Target = TaskInner> {
     fn as_record_task(&self) -> Option<&RecordTask> {
         None
     }
+
     fn as_record_task_mut(&mut self) -> Option<&mut RecordTask> {
         None
+    }
+
+    fn as_rec_unwrap(&self) -> &RecordTask {
+        panic!("Not a RecordTask!")
+    }
+
+    fn as_rec_mut_unwrap(&mut self) -> &mut RecordTask {
+        panic!("Not a RecordTask!")
     }
 
     fn as_replay_task(&self) -> Option<&ReplayTask> {
         None
     }
+
     fn as_replay_task_mut(&mut self) -> Option<&mut ReplayTask> {
         None
     }
