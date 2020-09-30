@@ -1700,9 +1700,11 @@ pub mod address_space {
         pub fn mem_fd(&self) -> Ref<ScopedFd> {
             self.child_mem_fd.borrow()
         }
+
         pub fn mem_fd_mut(&self) -> RefMut<ScopedFd> {
             self.child_mem_fd.borrow_mut()
         }
+
         pub fn set_mem_fd(&self, fd: ScopedFd) {
             *self.child_mem_fd.borrow_mut() = fd;
         }

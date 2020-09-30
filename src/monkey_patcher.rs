@@ -102,7 +102,26 @@ impl MonkeyPatcher {
     /// and execution should resume normally to execute the patched code.
     /// Zero or more mapping operations are also recorded to the trace and must
     /// be replayed.
-    pub fn try_patch_syscall(_t: &RecordTask) -> bool {
+    pub fn try_patch_syscall(&self, t: &RecordTask) -> bool {
+        if self.syscall_hooks.is_empty() {
+            // Syscall hooks not set up yet. Don't spew warnings, and don't
+            // fill tried_to_patch_syscall_addresses with addresses that we might be
+            // able to patch later.
+            return false;
+        }
+
+        if t.emulated_ptracer.is_some() {
+            // Syscall patching can confuse ptracers, which may be surprised to see
+            // a syscall instruction at the current IP but then when running
+            // forwards, that the syscall occurs deep in the preload library instead.
+            return false;
+        }
+
+        if t.is_in_traced_syscall() {
+            // Never try to patch the traced-syscall in our preload library!
+            return false;
+        }
+
         unimplemented!()
     }
 

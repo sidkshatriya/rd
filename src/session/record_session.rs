@@ -1,4 +1,5 @@
 use super::{
+    address_space::{address_space::AddressSpace, Privileged},
     on_create_task_common,
     session_common::kill_all_tasks,
     session_inner::PtraceSyscallSeccompOrdering,
@@ -12,13 +13,27 @@ use super::{
 use crate::{
     bindings::{
         audit::{AUDIT_ARCH_I386, AUDIT_ARCH_X86_64},
-        ptrace::{PTRACE_EVENT_EXIT, PTRACE_SINGLESTEP, PTRACE_SYSEMU_SINGLESTEP},
+        ptrace::{
+            PTRACE_EVENT_EXIT,
+            PTRACE_SINGLESTEP,
+            PTRACE_SYSCALL,
+            PTRACE_SYSEMU,
+            PTRACE_SYSEMU_SINGLESTEP,
+        },
         signal::siginfo_t,
     },
     commands::record_command::RecordCommand,
-    event::{Event, EventType, SignalDeterministic, Switchable, SyscallState},
+    event::{Event, EventType, SignalDeterministic, Switchable, SyscallEventData, SyscallState},
     file_monitor::virtual_perf_counter_monitor::VirtualPerfCounterMonitor,
-    kernel_abi::{is_at_syscall_instruction, native_arch, SupportedArch},
+    kernel_abi::{
+        is_at_syscall_instruction,
+        is_exit_group_syscall,
+        is_rdcall_notify_syscall_hook_exit_syscall,
+        is_restart_syscall_syscall,
+        is_write_syscall,
+        native_arch,
+        SupportedArch,
+    },
     kernel_supplement::SYS_SECCOMP,
     log::{LogDebug, LogError, LogWarn},
     perf_counters::{self, TicksSemantics},
@@ -963,14 +978,127 @@ impl RecordSession {
         );
     }
 
+    /// Returns false if the task exits during processing
     fn process_syscall_entry(
         &self,
-        _t: &TaskSharedPtr,
-        _step_state: &mut StepState,
-        _step_result: &mut RecordResult,
-        _syscall_arch: SupportedArch,
+        ts: &TaskSharedPtr,
+        step_state: &mut StepState,
+        step_result: &mut RecordResult,
+        syscall_arch: SupportedArch,
     ) -> bool {
-        unimplemented!()
+        let mut tb = ts.borrow_mut();
+        let t: &mut RecordTask = tb.as_rec_mut_unwrap();
+        if let Some(si) = t.stashed_sig_not_synthetic_sigchld() {
+            // The only four cases where we allow a stashed signal to be pending on
+            // syscall entry are:
+            // -- the signal is a ptrace-related signal, in which case if it's generated
+            // during a blocking syscall, it does not interrupt the syscall
+            // -- rrcall_notify_syscall_hook_exit, which is effectively a noop and
+            // lets us dispatch signals afterward
+            // -- when we're entering a blocking untraced syscall. If it really blocks,
+            // we'll get the desched-signal notification and dispatch our stashed
+            // signal.
+            // -- when we're doing a privileged syscall that's internal to the preload
+            // logic
+            // We do not generally want to have stashed signals pending when we enter
+            // a syscall, because that will execute with a hacked signal mask
+            // (see RecordTask::will_resume_execution) which could make things go wrong.
+            ed_assert!(
+                t,
+                !t.desched_rec().is_null()
+                    || is_rdcall_notify_syscall_hook_exit_syscall(
+                        t.regs_ref().original_syscallno() as i32,
+                        t.arch()
+                    )
+                    || t.ip()
+                        == t.vm()
+                            .privileged_traced_syscall_ip()
+                            // @TODO Not fully sure about unwrap() here
+                            // Is it possible to call this method before the value is filled in?
+                            .unwrap()
+                            .increment_by_syscall_insn_length(t.arch()),
+                "Stashed signal pending on syscall entry when it shouldn't be: {}; IP={}",
+                t.ip(),
+                *si
+            );
+        }
+
+        // We just entered a syscall.
+        if !maybe_restart_syscall(t) {
+            // Emit FLUSH_SYSCALLBUF if necessary before we do any patching work
+            t.maybe_flush_syscallbuf();
+
+            if self.syscall_seccomp_ordering_.get()
+                == PtraceSyscallSeccompOrdering::SyscallBeforeSeccompUnknown
+                && t.seccomp_bpf_enabled
+            {
+                // We received a PTRACE_SYSCALL notification before the seccomp
+                // notification. Ignore it and continue to the seccomp notification.
+                self.syscall_seccomp_ordering_
+                    .set(PtraceSyscallSeccompOrdering::SyscallBeforeSeccomp);
+                step_state.continue_type = ContinueType::Continue;
+                return true;
+            }
+
+            if t.vm().monkeypatcher().unwrap().try_patch_syscall(t) {
+                // Syscall was patched. Emit event and continue execution.
+                t.record_event(Some(Event::patch_syscall()), None, None, None);
+                return true;
+            }
+
+            if t.maybe_ptrace_event() == PTRACE_EVENT_EXIT {
+                // task exited while we were trying to patch it.
+                // Make sure that this exit event gets processed
+                step_state.continue_type = ContinueType::DontContinue;
+                return false;
+            }
+
+            t.push_event(Event::new_syscall_event(SyscallEventData::new(
+                t.regs_ref().original_syscallno() as i32,
+                syscall_arch,
+            )));
+        }
+
+        self.check_initial_task_syscalls(t, step_result);
+        note_entering_syscall(t);
+        if t.emulated_ptrace_cont_command == PTRACE_SYSCALL
+            || t.emulated_ptrace_cont_command == PTRACE_SYSEMU
+            || t.emulated_ptrace_cont_command == PTRACE_SYSEMU_SINGLESTEP
+                && !is_in_privileged_syscall(t)
+        {
+            t.ev_mut().syscall_mut().state = SyscallState::EnteringSyscallPtrace;
+            t.emulate_ptrace_stop(WaitStatus::for_syscall(t), None, None);
+            t.record_current_event();
+
+            t.ev_mut().syscall_mut().in_sysemu = t.emulated_ptrace_cont_command == PTRACE_SYSEMU
+                || t.emulated_ptrace_cont_command == PTRACE_SYSEMU_SINGLESTEP;
+        }
+
+        true
+    }
+
+    /// If the perf counters seem to be working return, otherwise don't return.
+    fn check_initial_task_syscalls(&self, t: &mut RecordTask, step_result: &mut RecordResult) {
+        if self.done_initial_exec() {
+            return;
+        }
+
+        if is_write_syscall(t.ev().syscall().number, t.arch()) && t.regs_ref().arg1_signed() == -1 {
+            let ticks: Ticks = t.tick_count();
+            log!(LogDebug, "ticks on entry to dummy write: {}", ticks);
+            if ticks == 0 {
+                *step_result = RecordResult::StepSpawnFailed(
+                    "rd internal recorder error: Performance counter doesn't seem to \n\
+                     be working. Are you perhaps running rr in a VM but didn't enable \n\
+                     perf-counter virtualization?"
+                        .into(),
+                );
+            }
+        }
+
+        if is_exit_group_syscall(t.ev().syscall().number, t.arch()) {
+            *step_result = RecordResult::StepSpawnFailed(self.read_spawned_task_error());
+        }
     }
 
     /// Flush buffers and write a termination record to the trace. Don't call
@@ -1422,8 +1550,21 @@ fn handle_seccomp_trap(t: &mut RecordTask, step_state: &mut StepState, seccomp_d
     step_state.continue_type = ContinueType::DontContinue;
 }
 
-fn note_entering_syscall(_t: &mut RecordTask) {
-    unimplemented!()
+fn note_entering_syscall(t: &mut RecordTask) {
+    ed_assert_eq!(t, EventType::EvSyscall, t.ev().event_type());
+    t.ev_mut().syscall_mut().state = SyscallState::EnteringSyscall;
+    if !t.ev().syscall().is_restart {
+        // Save a copy of the arg registers so that we
+        // can use them to detect later restarted
+        // syscalls, if this syscall ends up being
+        // restarted.  We have to save the registers
+        // in this rather awkward place because we
+        // need the original registers; the restart
+        // (if it's not a SYS_restart_syscall restart)
+        // will use the original registers.
+        let regs = t.regs_ref().clone();
+        t.ev_mut().syscall_mut().regs = regs;
+    }
 }
 
 fn rec_abort_prepared_syscall(_t: &mut RecordTask) {
@@ -1438,4 +1579,55 @@ fn handle_ptrace_exit_event(t: &TaskSharedPtr) -> bool {
     }
 
     unimplemented!()
+}
+
+/// "Thaw" a frozen interrupted syscall if |t| is restarting it.
+/// Return true if a syscall is indeed restarted.
+///
+/// A postcondition of this function is that |t->ev| is no longer a
+/// syscall interruption, whether or whether not a syscall was
+/// restarted.
+fn maybe_restart_syscall(t: &mut RecordTask) -> bool {
+    let arch = t.arch();
+    if is_restart_syscall_syscall(t.regs_ref().original_syscallno() as i32, arch) {
+        log!(LogDebug, "  {}: SYS_restart_syscall'ing {}", t.tid, t.ev());
+    }
+
+    if t.is_syscall_restart() {
+        t.ev_mut().transform(EventType::EvSyscall);
+        let mut regs = t.regs_ref().clone();
+        regs.set_original_syscallno(t.ev().syscall().regs.original_syscallno());
+        t.set_regs(&regs);
+        t.canonicalize_regs(arch);
+        return true;
+    }
+
+    if EventType::EvSyscallInterruption == t.ev().event_type() {
+        syscall_not_restarted(t);
+    }
+
+    false
+}
+
+fn syscall_not_restarted(t: &mut RecordTask) {
+    log!(
+        LogDebug,
+        "  {}: popping abandoned interrupted {}; pending events:",
+        t.tid,
+        t.ev()
+    );
+
+    if is_logging!(LogDebug) {
+        t.log_pending_events();
+    }
+
+    t.pop_syscall_interruption();
+}
+
+fn is_in_privileged_syscall(t: &RecordTask) -> bool {
+    let maybe_syscall_type = AddressSpace::rd_page_syscall_from_exit_point(t.ip());
+    match maybe_syscall_type {
+        Some(syscall_type) if syscall_type.privileged == Privileged::Privileged => true,
+        _ => false,
+    }
 }
