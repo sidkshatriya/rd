@@ -522,7 +522,7 @@ fn get_stub_scratch_1(t: &mut RecordTask) -> RemoteCodePtr {
 /// If it was triggered by one of our breakpoints, we have to call
 /// restore_sighandler_if_not_default(t, SIGTRAP) to make sure the SIGTRAP
 /// handler is properly restored if the kernel cleared it.
-fn handle_syscallbuf_breakpoint(t: &mut RecordTask) -> bool {
+pub fn handle_syscallbuf_breakpoint(t: &mut RecordTask) -> bool {
     if t.is_at_syscallbuf_final_instruction_breakpoint() {
         log!(
             LogDebug,

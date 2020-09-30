@@ -20,7 +20,7 @@ use crate::{
     file_monitor::virtual_perf_counter_monitor::VirtualPerfCounterMonitor,
     kernel_abi::{is_at_syscall_instruction, native_arch, SupportedArch},
     kernel_supplement::SYS_SECCOMP,
-    log::{LogDebug, LogError},
+    log::{LogDebug, LogError, LogWarn},
     perf_counters::{self, TicksSemantics},
     preload_interface::{
         syscallbuf_hdr,
@@ -28,6 +28,7 @@ use crate::{
         SYSCALLBUF_LIB_FILENAME,
         SYSCALLBUF_LIB_FILENAME_PADDED,
     },
+    record_signal::handle_syscallbuf_breakpoint,
     remote_ptr::{RemotePtr, Void},
     scheduler::Scheduler,
     scoped_fd::ScopedFd,
@@ -37,7 +38,7 @@ use crate::{
         task::{Task, TaskSharedPtr},
         Session,
     },
-    sig::Sig,
+    sig::{self, Sig},
     taskish_uid::TaskUid,
     thread_group::ThreadGroupSharedPtr,
     ticks::Ticks,
@@ -683,7 +684,39 @@ impl RecordSession {
         return result;
     }
 
-    fn handle_signal_event(&self, _t: &TaskSharedPtr, _step_state: &mut StepState) -> bool {
+    fn handle_signal_event(&self, t: &TaskSharedPtr, _step_state: &mut StepState) -> bool {
+        let maybe_sig = t.borrow().maybe_stop_sig();
+        if !maybe_sig.is_sig() {
+            return false;
+        }
+
+        if !self.done_initial_exec() {
+            // If the initial tracee isn't prepared to handle
+            // signals yet, then us ignoring the ptrace
+            // notification here will have the side effect of
+            // declining to deliver the signal.
+            //
+            // This doesn't really occur in practice, only in
+            // tests that force a degenerately low time slice.
+            log!(
+                LogWarn,
+                "Dropping {} because it can't be delivered yet",
+                maybe_sig
+            );
+
+            // These signals might have effects on the sigmask.
+            t.borrow_mut().as_rec_mut_unwrap().invalidate_sigmask();
+            // No events to be recorded, so no syscallbuf updates
+            // needed.
+            return true;
+        }
+
+        if maybe_sig == sig::SIGTRAP
+            && handle_syscallbuf_breakpoint(t.borrow_mut().as_rec_mut_unwrap())
+        {
+            return true;
+        }
+
         unimplemented!()
     }
 
