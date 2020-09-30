@@ -1622,7 +1622,13 @@ fn check_perf_event_paranoid() {
     if fd.is_open() {
         let mut buf = [0u8; 100];
         match read(fd.as_raw(), &mut buf) {
-            Ok(siz) if siz != 0 => {
+            Ok(0) => {
+                clean_fatal!(
+                    "Read 0 bytes from `/proc/sys/kernel/perf_event_paranoid`.\n\
+                     Need to read non-zero number of bytes."
+                );
+            }
+            Ok(siz) => {
                 let int_str = String::from_utf8_lossy(&buf[0..siz]);
                 let maybe_val = int_str.trim().parse::<usize>();
                 match maybe_val {
@@ -1639,14 +1645,6 @@ fn check_perf_event_paranoid() {
                     }
                     _ => (),
                 }
-            }
-            // @TODO This should actually be just Ok(0) but Rust doesn't accept it and says
-            // patterns are not exhaustive.
-            Ok(_) => {
-                clean_fatal!(
-                    "Read 0 bytes from `/proc/sys/kernel/perf_event_paranoid`.\n\
-                             Need to read non-zero number of bytes."
-                );
             }
             Err(e) => {
                 clean_fatal!(
