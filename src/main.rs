@@ -28,6 +28,7 @@ mod arch;
 mod kernel_abi;
 #[macro_use]
 mod auto_remote_syscalls;
+mod arch_structs;
 mod bindings;
 mod flags;
 mod kernel_metadata;
