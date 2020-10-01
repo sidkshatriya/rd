@@ -1077,8 +1077,8 @@ impl RecordTask {
         let syscallno: i32 = syscall_number_for_execve(arch);
         self.registers.set_original_syscallno(syscallno as isize);
         // Fix event architecture and syscall number
-        self.ev_mut().syscall_mut().number = syscallno;
-        self.ev_mut().syscall_mut().set_arch(arch);
+        self.ev_mut().syscall_event_mut().number = syscallno;
+        self.ev_mut().syscall_event_mut().set_arch(arch);
 
         // The signal mask is inherited across execve so we don't need to invalidate.
         let exe_file = exe_path(self);
@@ -1682,7 +1682,7 @@ impl RecordTask {
         }
 
         let mut syscallno = self.regs_ref().original_syscallno() as i32;
-        let syscall_arch = self.ev().syscall().arch();
+        let syscall_arch = self.ev().syscall_event().arch();
         let call_name = syscall_name(syscallno, syscall_arch);
         let mut is_restart = false;
         log!(
@@ -1709,16 +1709,16 @@ impl RecordTask {
         // that it might change the scratch allocation decisions. */
         if is_restart_syscall_syscall(syscallno, syscall_arch) {
             is_restart = true;
-            syscallno = self.ev().syscall().number;
+            syscallno = self.ev().syscall_event().number;
             log!(LogDebug, "  (SYS_restart_syscall)");
         }
 
         let mut skip = false;
-        if self.ev().syscall().number != syscallno {
+        if self.ev().syscall_event().number != syscallno {
             log!(LogDebug, "  interrupted {} != {}", self.ev(), call_name);
             skip = true;
         } else {
-            let old_regs = &self.ev().syscall().regs;
+            let old_regs = &self.ev().syscall_event().regs;
             if !(old_regs.arg1() == self.regs_ref().arg1()
                 && old_regs.arg2() == self.regs_ref().arg2()
                 && old_regs.arg3() == self.regs_ref().arg3()
@@ -1787,7 +1787,7 @@ impl RecordTask {
     /// its execution.
     pub fn may_be_blocked(&self) -> bool {
         (EventType::EvSyscall == self.ev().event_type()
-            && SyscallState::ProcessingSyscall == self.ev().syscall().state)
+            && SyscallState::ProcessingSyscall == self.ev().syscall_event().state)
             || self.emulated_stop_type != EmulatedStopType::NotStopped
     }
 
@@ -1819,7 +1819,7 @@ impl RecordTask {
     /// event stack to find this record
     pub fn desched_rec(&self) -> RemotePtr<syscallbuf_record> {
         if self.ev().is_syscall_event() {
-            self.ev().syscall().desched_rec
+            self.ev().syscall_event().desched_rec
         } else {
             if EventType::EvDesched == self.ev().event_type() {
                 self.ev().desched_event().rec
@@ -2206,7 +2206,7 @@ impl RecordTask {
             checksum_process_memory(self, current_time);
         }
 
-        if ev.is_syscall_event() && ev.syscall().state == SyscallState::ExitingSyscall {
+        if ev.is_syscall_event() && ev.syscall_event().state == SyscallState::ExitingSyscall {
             self.ticks_at_last_recorded_syscall_exit = self.tick_count();
         }
 
@@ -2704,11 +2704,11 @@ impl Drop for RecordTask {
             && (self.pending_events.len() > 2
                 || !(self.ev().event_type() == EventType::EvSyscall
                     && (is_exit_syscall(
-                        self.ev().syscall().number,
-                        self.ev().syscall().regs.arch(),
+                        self.ev().syscall_event().number,
+                        self.ev().syscall_event().regs.arch(),
                     ) || is_exit_group_syscall(
-                        self.ev().syscall().number,
-                        self.ev().syscall().regs.arch(),
+                        self.ev().syscall_event().number,
+                        self.ev().syscall_event().regs.arch(),
                     ))))
         {
             log!(

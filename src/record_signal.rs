@@ -833,13 +833,13 @@ fn handle_desched_event(t: &mut RecordTask, si: &siginfo_t) {
         t.push_event(Event::new_syscall_interruption_event(
             SyscallEventData::new(call, t.arch()),
         ));
-        let ev = t.ev_mut().syscall_mut();
+        let ev = t.ev_mut().syscall_event_mut();
         ev.desched_rec = next_desched_rec;
     }
 
     {
         let regs = t.regs_ref().clone();
-        let ev = t.ev_mut().syscall_mut();
+        let ev = t.ev_mut().syscall_event_mut();
         ev.regs = regs;
     }
     // For some syscalls (at least poll) but not all (at least not read),
@@ -857,12 +857,12 @@ fn handle_desched_event(t: &mut RecordTask, si: &siginfo_t) {
     );
 
     {
-        let ev = t.ev_mut().syscall_mut();
+        let ev = t.ev_mut().syscall_event_mut();
         ev.regs.set_original_syscallno(call as isize);
     }
 
-    let arch = t.ev().syscall().arch();
-    let regs = t.ev().syscall().regs.clone();
+    let arch = t.ev().syscall_event().arch();
+    let regs = t.ev().syscall_event().regs.clone();
     t.set_regs(&regs);
     // runnable_state_changed will observe us entering this syscall and change
     // state to ENTERING_SYSCALL

@@ -447,7 +447,7 @@ impl Event {
     pub fn record_extra_regs(&self) -> bool {
         match self.event_type {
             EventType::EvSyscall => {
-                let sys_ev = self.syscall();
+                let sys_ev = self.syscall_event();
                 // sigreturn/rt_sigreturn restores register state
                 sys_ev.state == SyscallState::ExitingSyscall
                     && (is_sigreturn(sys_ev.number, sys_ev.arch())
@@ -583,25 +583,11 @@ impl Event {
         Event::new_event(EvSentinel)
     }
 
-    pub fn syscall(&self) -> &SyscallEventData {
-        match &self.event_extra_data {
-            EventExtraData::SyscallEvent(s) => s,
-            _ => panic!("Not a SyscallEvent"),
-        }
-    }
-
     /// Note that this is NOT pub
     fn new_event(event_type: EventType) -> Event {
         Event {
             event_type,
             event_extra_data: EventExtraData::NoExtraData,
-        }
-    }
-
-    pub fn syscall_mut(&mut self) -> &mut SyscallEventData {
-        match &mut self.event_extra_data {
-            EventExtraData::SyscallEvent(s) => s,
-            _ => panic!("Not a SyscallEvent"),
         }
     }
 
@@ -636,6 +622,7 @@ impl Event {
             _ => panic!("Not a syscallbuf flush event"),
         }
     }
+
     pub fn signal_event(&self) -> &SignalEventData {
         match &self.event_extra_data {
             EventExtraData::SignalEvent(ev) => ev,
@@ -649,6 +636,7 @@ impl Event {
             _ => panic!("Not a signal event"),
         }
     }
+
     pub fn syscall_event(&self) -> &SyscallEventData {
         match &self.event_extra_data {
             EventExtraData::SyscallEvent(ev) => ev,

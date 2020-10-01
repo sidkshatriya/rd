@@ -1509,7 +1509,12 @@ fn handle_opened_files(t: &mut ReplayTask, flags_raw: i32) {
     // is not recognized here by OFlag::from_bits(flags_raw).unwrap(). Check again?
     let flags = unsafe { OFlag::from_bits_unchecked(flags_raw) };
 
-    let opened = t.current_trace_frame().event().syscall().opened.clone();
+    let opened = t
+        .current_trace_frame()
+        .event()
+        .syscall_event()
+        .opened
+        .clone();
     for o in &opened {
         // This must be kept in sync with record_syscall's handle_opened_file.
         let maybe_emu_file: Option<EmuFileSharedPtr> = t

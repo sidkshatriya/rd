@@ -45,7 +45,7 @@ impl CPUIDBugDetector {
         if t.session().done_initial_exec() {
             return;
         }
-        let sys = t.current_trace_frame().event().syscall().number;
+        let sys = t.current_trace_frame().event().syscall_event().number;
         if !is_geteuid32_syscall(sys, t.arch()) && !is_geteuid_syscall(sys, t.arch()) {
             return;
         }

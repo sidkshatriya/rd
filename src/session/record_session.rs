@@ -6,7 +6,14 @@ use super::{
     task::{
         record_task::{self, AllowSyscallbufReset, EmulatedStopType, FlushSyscallbuf, RecordTask},
         task_common::write_val_mem,
-        task_inner::{ResumeRequest, SaveTraceeFdNumber, TaskInner, TicksRequest, WaitRequest},
+        task_inner::{
+            PtraceData,
+            ResumeRequest,
+            SaveTraceeFdNumber,
+            TaskInner,
+            TicksRequest,
+            WaitRequest,
+        },
     },
     SessionSharedPtr,
 };
@@ -16,6 +23,7 @@ use crate::{
         ptrace::{
             PTRACE_EVENT_EXIT,
             PTRACE_EVENT_SECCOMP,
+            PTRACE_GETEVENTMSG,
             PTRACE_SINGLESTEP,
             PTRACE_SYSCALL,
             PTRACE_SYSEMU,
@@ -73,6 +81,7 @@ use crate::{
     ticks::Ticks,
     trace::{
         trace_stream::TraceStream,
+        trace_task_event::TraceTaskEvent,
         trace_writer::{CloseStatus, TraceWriter},
     },
     util::{
@@ -82,6 +91,7 @@ use crate::{
         is_deterministic_signal,
         resource_path,
         signal_bit,
+        u8_raw_slice_mut,
         CPUIDData,
         CPUID_GETEXTENDEDFEATURES,
         CPUID_GETFEATURES,
@@ -90,7 +100,7 @@ use crate::{
     wait_status::WaitStatus,
 };
 use goblin::elf::Elf;
-use libc::{pid_t, SIGSYS, S_IFREG};
+use libc::{pid_t, ENOSYS, SIGSYS, S_IFREG};
 use nix::{
     fcntl::{open, OFlag},
     sys::stat::{stat, Mode},
@@ -635,7 +645,7 @@ impl RecordSession {
             t.borrow().log_pending_events();
         }
 
-        if handle_ptrace_exit_event(&t) {
+        if handle_ptrace_exit_event(t.borrow_mut().as_rec_mut_unwrap()) {
             // t is dead and has been deleted.
             return result;
         }
@@ -951,7 +961,7 @@ impl RecordSession {
     }
 
     fn syscall_state_changed(&self, t: &mut RecordTask, step_state: &mut StepState) {
-        match t.ev().syscall().state {
+        match t.ev().syscall_event().state {
             SyscallState::EnteringSyscallPtrace => {
                 debug_exec_state("EXEC_SYSCALL_ENTRY_PTRACE", t);
                 step_state.continue_type = ContinueType::DontContinue;
@@ -960,7 +970,7 @@ impl RecordSession {
                     // Don't go any further.
                     return;
                 }
-                if t.ev().syscall().in_sysemu {
+                if t.ev().syscall_event().in_sysemu {
                     // We'll have recorded just the SyscallState::EnteringSyscall_PTRACE event and
                     // nothing else. Resume with an invalid syscall to ensure no real
                     // syscall runs.
@@ -981,10 +991,10 @@ impl RecordSession {
                     return;
                 }
                 self.last_task_switchable.set(Switchable::PreventSwitch);
-                t.ev_mut().syscall_mut().regs = t.regs_ref().clone();
-                t.ev_mut().syscall_mut().state = SyscallState::EnteringSyscall;
+                t.ev_mut().syscall_event_mut().regs = t.regs_ref().clone();
+                t.ev_mut().syscall_event_mut().state = SyscallState::EnteringSyscall;
                 // The syscallno may have been changed by the ptracer
-                t.ev_mut().syscall_mut().number = t.regs_ref().original_syscallno() as i32;
+                t.ev_mut().syscall_event_mut().number = t.regs_ref().original_syscallno() as i32;
                 return;
             }
             SyscallState::EnteringSyscall => {
@@ -992,8 +1002,8 @@ impl RecordSession {
                 ed_assert!(t, !t.emulated_stop_pending);
 
                 self.last_task_switchable.set(rec_prepare_syscall(t));
-                t.ev_mut().syscall_mut().switchable = self.last_task_switchable.get();
-                let regs = t.ev().syscall().regs.clone();
+                t.ev_mut().syscall_event_mut().switchable = self.last_task_switchable.get();
+                let regs = t.ev().syscall_event().regs.clone();
                 let event = t.ev().clone();
                 t.record_event(
                     Some(event),
@@ -1003,7 +1013,7 @@ impl RecordSession {
                 );
 
                 debug_exec_state("after cont", t);
-                t.ev_mut().syscall_mut().state = SyscallState::ProcessingSyscall;
+                t.ev_mut().syscall_event_mut().state = SyscallState::ProcessingSyscall;
 
                 if t.emulated_stop_pending {
                     step_state.continue_type = ContinueType::DontContinue;
@@ -1046,7 +1056,7 @@ impl RecordSession {
                     t.maybe_stop_sig()
                 );
 
-                t.ev_mut().syscall_mut().state = SyscallState::ExitingSyscall;
+                t.ev_mut().syscall_event_mut().state = SyscallState::ExitingSyscall;
                 step_state.continue_type = ContinueType::DontContinue;
                 return;
             }
@@ -1055,8 +1065,8 @@ impl RecordSession {
 
                 debug_assert!(!t.maybe_stop_sig().is_sig());
 
-                let syscall_arch = t.ev().syscall().arch();
-                let syscallno = t.ev().syscall().number;
+                let syscall_arch = t.ev().syscall_event().arch();
+                let syscallno = t.ev().syscall_event().number;
                 let retval = t.regs_ref().syscall_result_signed();
 
                 if !t.desched_rec().is_null() {
@@ -1111,7 +1121,7 @@ impl RecordSession {
 
                     // a syscall_restart ending is equivalent to the
                     // restarted syscall ending
-                    if t.ev().syscall().is_restart {
+                    if t.ev().syscall_event().is_restart {
                         log!(
                             LogDebug,
                             "  exiting restarted {}",
@@ -1150,7 +1160,7 @@ impl RecordSession {
                         // because scratch doesn't exist in replay.
                         // So cover our tracks here.
                         let mut r = t.regs_ref().clone();
-                        copy_syscall_arg_regs(&mut r, &t.ev().syscall().regs);
+                        copy_syscall_arg_regs(&mut r, &t.ev().syscall_event().regs);
                         t.set_regs(&r);
                     }
                     t.record_current_event();
@@ -1167,7 +1177,7 @@ impl RecordSession {
                         }
                     } else {
                         t.ev_mut().transform(EventType::EvSyscallInterruption);
-                        t.ev_mut().syscall_mut().is_restart = true;
+                        t.ev_mut().syscall_event_mut().is_restart = true;
                     }
 
                     t.canonicalize_regs(syscall_arch);
@@ -1182,7 +1192,7 @@ impl RecordSession {
                 return;
             }
 
-            _ => fatal!("Unknown exec state {}", t.ev().syscall().state),
+            _ => fatal!("Unknown exec state {}", t.ev().syscall_event().state),
         }
     }
 
@@ -1441,11 +1451,12 @@ impl RecordSession {
             || t.emulated_ptrace_cont_command == PTRACE_SYSEMU_SINGLESTEP
                 && !is_in_privileged_syscall(t)
         {
-            t.ev_mut().syscall_mut().state = SyscallState::EnteringSyscallPtrace;
+            t.ev_mut().syscall_event_mut().state = SyscallState::EnteringSyscallPtrace;
             t.emulate_ptrace_stop(WaitStatus::for_syscall(t), None, None);
             t.record_current_event();
 
-            t.ev_mut().syscall_mut().in_sysemu = t.emulated_ptrace_cont_command == PTRACE_SYSEMU
+            t.ev_mut().syscall_event_mut().in_sysemu = t.emulated_ptrace_cont_command
+                == PTRACE_SYSEMU
                 || t.emulated_ptrace_cont_command == PTRACE_SYSEMU_SINGLESTEP;
         }
 
@@ -1458,7 +1469,9 @@ impl RecordSession {
             return;
         }
 
-        if is_write_syscall(t.ev().syscall().number, t.arch()) && t.regs_ref().arg1_signed() == -1 {
+        if is_write_syscall(t.ev().syscall_event().number, t.arch())
+            && t.regs_ref().arg1_signed() == -1
+        {
             let ticks: Ticks = t.tick_count();
             log!(LogDebug, "ticks on entry to dummy write: {}", ticks);
             if ticks == 0 {
@@ -1471,7 +1484,7 @@ impl RecordSession {
             }
         }
 
-        if is_exit_group_syscall(t.ev().syscall().number, t.arch()) {
+        if is_exit_group_syscall(t.ev().syscall_event().number, t.arch()) {
             *step_result = RecordResult::StepSpawnFailed(self.read_spawned_task_error());
         }
     }
@@ -1632,7 +1645,7 @@ fn maybe_discard_syscall_interruption(t: &mut RecordTask, ret: isize) {
         return;
     }
 
-    syscallno = t.ev().syscall().number;
+    syscallno = t.ev().syscall_event().number;
     if 0 > ret {
         syscall_not_restarted(t);
     } else {
@@ -1641,8 +1654,8 @@ fn maybe_discard_syscall_interruption(t: &mut RecordTask, ret: isize) {
             syscallno as isize,
             ret,
             "Interrupted call was {} and sigreturn claims to be restarting {}",
-            t.ev().syscall().syscall_name(),
-            syscall_name(ret.try_into().unwrap(), t.ev().syscall().arch())
+            t.ev().syscall_event().syscall_name(),
+            syscall_name(ret.try_into().unwrap(), t.ev().syscall_event().arch())
         );
     }
 }
@@ -1938,7 +1951,7 @@ fn handle_seccomp_trap(t: &mut RecordTask, step_state: &mut StepState, seccomp_d
         // A syscall event was already pushed, probably because we did a
         // PTRACE_SYSCALL to enter the syscall during handle_desched_event. Cancel
         // that event now since the seccomp SIGSYS aborts it completely.
-        ed_assert_eq!(t, t.ev().syscall().number, syscallno);
+        ed_assert_eq!(t, t.ev().syscall_event().number, syscallno);
         // Make sure any prepared syscall state is discarded and any temporary
         // effects (e.g. redirecting pointers to scratch) undone.
         rec_abort_prepared_syscall(t);
@@ -1974,7 +1987,7 @@ fn handle_seccomp_trap(t: &mut RecordTask, step_state: &mut StepState, seccomp_d
     }
 
     t.push_syscall_event(syscallno);
-    t.ev_mut().syscall_mut().failed_during_preparation = true;
+    t.ev_mut().syscall_event_mut().failed_during_preparation = true;
     note_entering_syscall(t);
 
     if t.is_in_untraced_syscall() && !syscall_entry_already_recorded {
@@ -2011,7 +2024,7 @@ fn handle_seccomp_trap(t: &mut RecordTask, step_state: &mut StepState, seccomp_d
 
     if t.is_in_untraced_syscall() {
         // For buffered syscalls, go ahead and record the exit state immediately.
-        t.ev_mut().syscall_mut().state = SyscallState::ExitingSyscall;
+        t.ev_mut().syscall_event_mut().state = SyscallState::ExitingSyscall;
         t.record_current_event();
         t.pop_syscall();
 
@@ -2035,8 +2048,8 @@ fn handle_seccomp_trap(t: &mut RecordTask, step_state: &mut StepState, seccomp_d
 
 fn note_entering_syscall(t: &mut RecordTask) {
     ed_assert_eq!(t, EventType::EvSyscall, t.ev().event_type());
-    t.ev_mut().syscall_mut().state = SyscallState::EnteringSyscall;
-    if !t.ev().syscall().is_restart {
+    t.ev_mut().syscall_event_mut().state = SyscallState::EnteringSyscall;
+    if !t.ev().syscall_event().is_restart {
         // Save a copy of the arg registers so that we
         // can use them to detect later restarted
         // syscalls, if this syscall ends up being
@@ -2046,7 +2059,7 @@ fn note_entering_syscall(t: &mut RecordTask) {
         // (if it's not a SYS_restart_syscall restart)
         // will use the original registers.
         let regs = t.regs_ref().clone();
-        t.ev_mut().syscall_mut().regs = regs;
+        t.ev_mut().syscall_event_mut().regs = regs;
     }
 }
 
@@ -2056,11 +2069,96 @@ fn rec_abort_prepared_syscall(_t: &mut RecordTask) {
 
 /// Return true if we handle a ptrace exit event for task t. When this returns
 /// true, t has been deleted and cannot be referenced again.
-fn handle_ptrace_exit_event(t: &TaskSharedPtr) -> bool {
-    if t.borrow().maybe_ptrace_event() != PTRACE_EVENT_EXIT {
+fn handle_ptrace_exit_event(t: &mut RecordTask) -> bool {
+    if t.maybe_ptrace_event() != PTRACE_EVENT_EXIT {
         return false;
     }
 
+    if t.stable_exit {
+        log!(LogDebug, "stable exit");
+    } else {
+        if !t.may_be_blocked() {
+            // might have been hit by a SIGKILL or a SECCOMP_RET_KILL, in which case
+            // there might be some execution since its last recorded event that we
+            // need to replay.
+            // There's a weird case (in 4.13.5-200.fc26.x86_64 at least) where the
+            // task can enter the kernel but instead of receiving a syscall ptrace
+            // event, we receive a PTRACE_EXIT_EVENT due to a concurrent execve
+            // (and probably a concurrent SIGKILL could do the same). The task state
+            // has been updated to reflect syscall entry. If we record a SCHED in
+            // that state replay of the SCHED will fail. So detect that state and fix
+            // it up.
+            if t.regs_ref().original_syscallno() >= 0
+                && t.regs_ref().syscall_result_signed() == -ENOSYS as isize
+            {
+                // Either we're in a syscall, or we're immediately after a syscall
+                // and it exited with ENOSYS.
+                if t.ticks_at_last_recorded_syscall_exit == t.tick_count() {
+                    log!(LogDebug, "Nothing to record after PTRACE_EVENT_EXIT");
+                // It's the latter case; do nothing.
+                } else {
+                    // It's the former case ... probably. Theoretically we could have
+                    // re-executed a syscall without any ticks in between, but that seems
+                    // highly improbable.
+                    // Record the syscall-entry event that we otherwise failed to record.
+                    let arch = t.arch();
+                    t.canonicalize_regs(arch);
+                    // Assume it's a native-arch syscall. If it isn't, it doesn't matter
+                    // all that much since we aren't actually going to do anything with it
+                    // in this task.
+                    // Avoid calling detect_syscall_arch here since it could fail if the
+                    // task is already completely dead and gone.
+                    let mut event = Event::new_syscall_event(SyscallEventData::new(
+                        t.regs_ref().original_syscallno() as i32,
+                        t.arch(),
+                    ));
+                    event.syscall_event_mut().state = SyscallState::EnteringSyscall;
+                    t.record_event(Some(event), None, None, None);
+                }
+            } else {
+                // Don't try to reset the syscallbuf here. The task may be exiting
+                // while in arbitrary syscallbuf code. And of course, because it's
+                // exiting, it doesn't matter if we don't reset the syscallbuf.
+                // XXX flushing the syscallbuf may be risky too...
+                t.record_event(
+                    Some(Event::sched()),
+                    Some(FlushSyscallbuf::FlushSyscallbuf),
+                    Some(AllowSyscallbufReset::DontResetSyscallbuf),
+                    None,
+                );
+            }
+        }
+        log!(
+            LogWarn,
+            "unstable exit; may misrecord CLONE_CHILD_CLEARTID memory race"
+        );
+        t.thread_group().destabilize();
+    }
+
+    record_robust_futex_changes(t);
+
+    let exit_status: WaitStatus;
+    let mut msg: usize = 0;
+    // We can get ESRCH here if the child was killed by SIGKILL and
+    // we made a synthetic PTRACE_EVENT_EXIT to handle it.
+    if t.ptrace_if_alive(
+        PTRACE_GETEVENTMSG,
+        RemotePtr::null(),
+        PtraceData::WriteInto(u8_raw_slice_mut(&mut msg)),
+    ) {
+        exit_status = WaitStatus::new(msg as i32);
+    } else {
+        exit_status = WaitStatus::for_fatal_sig(sig::SIGKILL);
+    }
+
+    record_exit(t, exit_status);
+    // Delete t. t's destructor writes the final EV_EXIT.
+    t.destroy();
+
+    true
+}
+
+fn record_robust_futex_changes(_t: &mut RecordTask) {
     unimplemented!()
 }
 
@@ -2079,7 +2177,7 @@ fn maybe_restart_syscall(t: &mut RecordTask) -> bool {
     if t.is_syscall_restart() {
         t.ev_mut().transform(EventType::EvSyscall);
         let mut regs = t.regs_ref().clone();
-        regs.set_original_syscallno(t.ev().syscall().regs.original_syscallno());
+        regs.set_original_syscallno(t.ev().syscall_event().regs.original_syscallno());
         t.set_regs(&regs);
         t.canonicalize_regs(arch);
         return true;
@@ -2112,5 +2210,17 @@ fn is_in_privileged_syscall(t: &RecordTask) -> bool {
     match maybe_syscall_type {
         Some(syscall_type) if syscall_type.privileged == Privileged::Privileged => true,
         _ => false,
+    }
+}
+
+fn record_exit(t: &RecordTask, exit_status: WaitStatus) {
+    t.session()
+        .as_record()
+        .unwrap()
+        .trace_writer_mut()
+        .write_task_event(&TraceTaskEvent::for_exit(t.tid, exit_status));
+
+    if t.thread_group().tgid == t.tid {
+        t.thread_group_mut().exit_status = exit_status;
     }
 }

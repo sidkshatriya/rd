@@ -109,7 +109,7 @@ impl TraceFrame {
             self.event()
         )?;
         if self.event().is_syscall_event() {
-            write!(out, "(state:{}) ", self.event().syscall().state)?;
+            write!(out, "(state:{}) ", self.event().syscall_event().state)?;
         }
         write!(out, "tid:{}, ticks:{}\n", self.tid(), self.ticks())?;
         if !self.event().record_regs() {

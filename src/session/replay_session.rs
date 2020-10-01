@@ -973,7 +973,9 @@ impl ReplaySession {
     }
 
     fn revive_task_for_exec(&self, ev: &Event, trace_frame_tid: pid_t) -> TaskSharedPtr {
-        if !ev.is_syscall_event() || !is_execve_syscall(ev.syscall().number, ev.syscall().arch()) {
+        if !ev.is_syscall_event()
+            || !is_execve_syscall(ev.syscall_event().number, ev.syscall_event().arch())
+        {
             fatal!("Can't find task, but we're not in an execve");
         }
 

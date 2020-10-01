@@ -92,7 +92,7 @@ impl<'b, 'a: 'b> LazyOffset<'b, 'a> {
                 .unwrap()
                 .current_trace_frame()
                 .event()
-                .syscall()
+                .syscall_event()
                 .write_offset;
         }
         // DIFF NOTE: This is an i64 in rr
@@ -102,7 +102,7 @@ impl<'b, 'a: 'b> LazyOffset<'b, 'a> {
                 .as_record_task_mut()
                 .unwrap()
                 .ev_mut()
-                .syscall_mut()
+                .syscall_event_mut()
                 .write_offset = maybe_offset;
         }
 

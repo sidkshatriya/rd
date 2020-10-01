@@ -1618,7 +1618,7 @@ pub fn should_checksum(event: &Event, time: FrameTime) -> bool {
 
     let checksum = Flags::get().checksum;
     let is_syscall_exit = EventType::EvSyscall == event.event_type()
-        && SyscallState::ExitingSyscall == event.syscall().state;
+        && SyscallState::ExitingSyscall == event.syscall_event().state;
 
     match checksum {
         Checksum::ChecksumNone => false,

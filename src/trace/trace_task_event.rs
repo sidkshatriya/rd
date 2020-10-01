@@ -29,17 +29,50 @@ impl TraceTaskEvent {
             _ => panic!("Not a TraceTaskEventTypeClone"),
         }
     }
+
     pub fn exec_variant(&self) -> &TraceTaskEventExec {
         match &self.variant {
             TraceTaskEventVariant::Exec(v) => v,
             _ => panic!("Not a TraceTaskEventTypeExec"),
         }
     }
+
     pub fn exit_variant(&self) -> &TraceTaskEventExit {
         match &self.variant {
             TraceTaskEventVariant::Exit(v) => v,
             _ => panic!("Not a TraceTaskEventTypeExit"),
         }
+    }
+
+    pub fn for_clone(
+        tid: pid_t,
+        parent_tid: pid_t,
+        own_ns_tid: pid_t,
+        clone_flags: i32,
+    ) -> TraceTaskEvent {
+        let variant = TraceTaskEventVariant::Clone(TraceTaskEventClone {
+            parent_tid_: parent_tid,
+            own_ns_tid_: own_ns_tid,
+            clone_flags_: clone_flags,
+        });
+
+        TraceTaskEvent { variant, tid_: tid }
+    }
+
+    pub fn for_exec(tid: pid_t, file_name: &OsStr, cmd_line: &[OsString]) -> TraceTaskEvent {
+        let variant = TraceTaskEventVariant::Exec(TraceTaskEventExec {
+            file_name_: file_name.to_owned(),
+            cmd_line_: cmd_line.to_owned(),
+            exe_base_: RemotePtr::null(),
+        });
+        TraceTaskEvent { variant, tid_: tid }
+    }
+
+    pub fn for_exit(tid: pid_t, exit_status: WaitStatus) -> TraceTaskEvent {
+        let variant = TraceTaskEventVariant::Exit(TraceTaskEventExit {
+            exit_status_: exit_status,
+        });
+        TraceTaskEvent { variant, tid_: tid }
     }
 }
 
@@ -101,9 +134,11 @@ impl TraceTaskEvent {
     pub fn tid(&self) -> pid_t {
         self.tid_
     }
+
     pub fn event_variant(&self) -> &TraceTaskEventVariant {
         &self.variant
     }
+
     pub fn event_type(&self) -> TraceTaskEventType {
         match &self.variant {
             TraceTaskEventVariant::Clone(_) => TraceTaskEventType::Clone,

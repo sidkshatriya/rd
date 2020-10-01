@@ -999,8 +999,8 @@ impl Scheduler {
         }
 
         if EventType::EvSyscall == t.ev().event_type()
-            && SyscallState::ProcessingSyscall == t.ev().syscall().state
-            && treat_syscall_as_nonblocking(t.ev().syscall().number, t.arch())
+            && SyscallState::ProcessingSyscall == t.ev().syscall_event().state
+            && treat_syscall_as_nonblocking(t.ev().syscall_event().number, t.arch())
         {
             // These syscalls never really block but the kernel may report that
             // the task is not stopped yet if we pass WNOHANG. To make them
