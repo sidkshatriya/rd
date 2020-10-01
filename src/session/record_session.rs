@@ -5,7 +5,7 @@ use super::{
     session_inner::PtraceSyscallSeccompOrdering,
     task::{
         record_task::{self, AllowSyscallbufReset, EmulatedStopType, FlushSyscallbuf, RecordTask},
-        task_common::write_val_mem,
+        task_common::{read_val_mem, write_val_mem},
         task_inner::{
             PtraceData,
             ResumeRequest,
@@ -18,8 +18,11 @@ use super::{
     SessionSharedPtr,
 };
 use crate::{
+    arch::Architecture,
+    arch_structs::{robust_list, robust_list_head},
     bindings::{
         audit::{AUDIT_ARCH_I386, AUDIT_ARCH_X86_64},
+        kernel::{FUTEX_OWNER_DIED, FUTEX_TID_MASK, FUTEX_WAITERS},
         ptrace::{
             PTRACE_EVENT_EXIT,
             PTRACE_EVENT_SECCOMP,
@@ -101,6 +104,7 @@ use crate::{
 };
 use goblin::elf::Elf;
 use libc::{pid_t, ENOSYS, SIGSYS, S_IFREG};
+use mem::size_of;
 use nix::{
     fcntl::{open, OFlag},
     sys::stat::{stat, Mode},
@@ -2158,8 +2162,78 @@ fn handle_ptrace_exit_event(t: &mut RecordTask) -> bool {
     true
 }
 
-fn record_robust_futex_changes(_t: &mut RecordTask) {
-    unimplemented!()
+fn record_robust_futex_changes(t: &mut RecordTask) {
+    rd_arch_function_selfless!(record_robust_futex_changes_arch, t.arch(), t);
+}
+
+/// Any user-space writes performed by robust futex handling are captured here.
+/// They must be emulated during replay; the kernel will not do it for us
+/// during replay because the TID value in each futex is the recorded
+/// TID, not the actual TID of the dying task.
+fn record_robust_futex_changes_arch<Arch: Architecture>(t: &mut RecordTask) {
+    if t.did_record_robust_futex_changes {
+        return;
+    }
+    t.did_record_robust_futex_changes = true;
+
+    let head_ptr = RemotePtr::<robust_list_head<Arch>>::cast(t.robust_list());
+    if head_ptr.is_null() {
+        return;
+    }
+
+    ed_assert_eq!(t, t.robust_list_len(), size_of::<robust_list_head<Arch>>());
+    let mut ok = true;
+    let head = read_val_mem(t, head_ptr, Some(&mut ok));
+    if !ok {
+        return;
+    }
+    record_robust_futex_change::<Arch>(t, head, mask_low_bit(Arch::as_rptr(head.list_op_pending)));
+
+    let mut current = mask_low_bit(Arch::as_rptr(head.list.next));
+    loop {
+        if current.as_usize() == head_ptr.as_usize() {
+            break;
+        }
+        record_robust_futex_change::<Arch>(t, head, current);
+        let next = read_val_mem(t, current, Some(&mut ok));
+        if !ok {
+            return;
+        }
+        current = mask_low_bit(Arch::as_rptr(next.next));
+    }
+}
+
+fn record_robust_futex_change<Arch: Architecture>(
+    t: &mut RecordTask,
+    head: robust_list_head<Arch>,
+    base: RemotePtr<robust_list<Arch>>,
+) {
+    if base.is_null() {
+        return;
+    }
+    let futex_void_ptr: RemotePtr<Void> =
+        RemotePtr::<Void>::cast(base) + Arch::long_as_isize(head.futex_offset);
+    let futex_ptr = RemotePtr::<u32>::cast(futex_void_ptr);
+    // We can't just record the current futex value because at this point
+    // in task exit the robust futex handling has not happened yet. So we have
+    // to emulate what the kernel will do!
+    let mut ok = true;
+    let mut val: u32 = read_val_mem(t, futex_ptr, Some(&mut ok));
+    if !ok {
+        return;
+    }
+    if val & FUTEX_TID_MASK != t.own_namespace_rec_tid as u32 {
+        return;
+    }
+    val = (val & FUTEX_WAITERS) | FUTEX_OWNER_DIED;
+    // Update memory now so that the kernel doesn't decide to do it later, at
+    // a time that might race with other tracee execution.
+    write_val_mem(t, futex_ptr, &val, None);
+    t.record_local_for(futex_ptr, &val);
+}
+
+fn mask_low_bit<T>(p: RemotePtr<T>) -> RemotePtr<T> {
+    RemotePtr::from(p.as_usize() & !1usize)
 }
 
 /// "Thaw" a frozen interrupted syscall if |t| is restarting it.
