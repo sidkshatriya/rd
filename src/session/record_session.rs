@@ -46,10 +46,17 @@ use crate::{
         is_restart_syscall_syscall,
         is_write_syscall,
         native_arch,
+        syscall_number_for_restart_syscall,
         SupportedArch,
     },
     kernel_metadata::{is_sigreturn, syscall_name},
-    kernel_supplement::SYS_SECCOMP,
+    kernel_supplement::{
+        ERESTARTNOHAND,
+        ERESTARTNOINTR,
+        ERESTARTSYS,
+        ERESTART_RESTARTBLOCK,
+        SYS_SECCOMP,
+    },
     log::{LogDebug, LogError, LogWarn},
     perf_counters::{self, TicksSemantics},
     preload_interface::{
@@ -95,6 +102,7 @@ use crate::{
         resource_path,
         signal_bit,
         u8_raw_slice_mut,
+        xsave_area_size,
         CPUIDData,
         CPUID_GETEXTENDEDFEATURES,
         CPUID_GETFEATURES,
@@ -113,7 +121,7 @@ use nix::{
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
     cmp::max,
-    convert::TryInto,
+    convert::{TryFrom, TryInto},
     env,
     ffi::{OsStr, OsString},
     fs,
@@ -719,7 +727,7 @@ impl RecordSession {
                     self.syscall_state_changed(t.borrow_mut().as_rec_mut_unwrap(), &mut step_state);
                 }
                 EventType::EvSignal | EventType::EvSignalDelivery => {
-                    self.signal_state_changed(&t, &mut step_state);
+                    self.signal_state_changed(t.borrow_mut().as_rec_mut_unwrap(), &mut step_state);
                 }
                 _ => (),
             }
@@ -960,8 +968,168 @@ impl RecordSession {
         unimplemented!()
     }
 
-    fn signal_state_changed(&self, _t: &TaskSharedPtr, _step_state: &mut StepState) {
-        unimplemented!()
+    /// |t| is being delivered a signal, and its state changed.
+    /// Must call t->stashed_signal_processed() once we're ready to unmask signals.
+    fn signal_state_changed(&self, t: &mut RecordTask, step_state: &mut StepState) {
+        let sig = Sig::try_from(t.ev().signal_event().siginfo.si_signo).unwrap();
+
+        match t.ev().event_type() {
+            EventType::EvSignal => {
+                // This event is used by the replayer to advance to
+                // the point of signal delivery.
+                t.record_current_event();
+                t.ev_mut().transform(EventType::EvSignalDelivery);
+                let mut sigframe_size = 0;
+
+                let has_handler = t.signal_has_user_handler(sig);
+                let mut done = false;
+                if has_handler {
+                    log!(LogDebug, "  {}: {} has user handler", t.tid, sig);
+
+                    if !inject_handled_signal(t) {
+                        // Signal delivery isn't happening. Prepare to process the new
+                        // signal that aborted signal delivery.
+                        t.signal_delivered(sig);
+                        t.pop_signal_delivery();
+                        step_state.continue_type = ContinueType::DontContinue;
+                        self.last_task_switchable.set(Switchable::PreventSwitch);
+                        done = true;
+                    } else {
+                        // It's somewhat difficult engineering-wise to
+                        // compute the sigframe size at compile time,
+                        // and it can vary across kernel versions and CPU
+                        // microarchitectures. So this size is an overestimate
+                        // of the real size(s).
+                        //
+                        // If this size becomes too small in the
+                        // future, and unit tests that use sighandlers
+                        // are run with checksumming enabled, then
+                        // they can catch errors here.
+                        sigframe_size = 1152 /* Overestimate of kernel sigframe */ +
+                        128 /* Redzone */ +
+                        /* this returns 512 when XSAVE unsupported */
+                        xsave_area_size();
+
+                        t.ev_mut().transform(EventType::EvSignalHandler);
+                        t.signal_delivered(sig);
+                        // We already continued! Don't continue now, and allow switching.
+                        step_state.continue_type = ContinueType::DontContinue;
+                        self.last_task_switchable.set(Switchable::AllowSwitch);
+                    }
+                } else {
+                    t.stashed_signal_processed();
+                    log!(LogDebug, "  {}: no user handler for {}", t.tid, sig);
+                    // Don't do another task continue. We want to deliver the signal
+                    // as the next thing that the task does.
+                    step_state.continue_type = ContinueType::DontContinue;
+                    // If we didn't set up the sighandler frame, we need
+                    // to ensure that this tracee is scheduled next so
+                    // that we can deliver the signal normally.  We have
+                    // to do that because setting up the sighandler frame
+                    // is synchronous, but delivery otherwise is async.
+                    // But right after this, we may have to process some
+                    // syscallbuf state, so we can't let the tracee race
+                    // with us.
+                    self.last_task_switchable.set(Switchable::PreventSwitch);
+                }
+
+                if !done {
+                    // We record this data even if sigframe_size is zero to simplify replay.
+                    // Stop recording data if we run off the end of a writable mapping.
+                    // Our sigframe size is conservative so we need to do this.
+                    t.record_remote_writable(t.regs_ref().sp(), sigframe_size);
+
+                    // This event is used by the replayer to set up the signal handler frame.
+                    // But if we don't have a handler, we don't want to record the event
+                    // until we deal with the EV_SIGNAL_DELIVERY.
+                    if has_handler {
+                        t.record_current_event();
+                    }
+                }
+            }
+            EventType::EvSignalDelivery => {
+                // A fatal signal or SIGSTOP requires us to allow switching to another
+                // task.
+                let is_fatal = t.is_fatal_signal(sig, t.ev().signal_event().deterministic);
+                let mut can_switch: Switchable = if is_fatal || sig == sig::SIGSTOP {
+                    Switchable::AllowSwitch
+                } else {
+                    Switchable::PreventSwitch
+                };
+
+                // We didn't record this event above, so do that now.
+                // NB: If there is no handler, and we interrupted a syscall, and there are
+                // no more actionable signals, the kernel sets us up for a syscall
+                // restart. But it does that *after* the ptrace trap. To replay this
+                // correctly we need to fake those changes here. But we don't do this
+                // if we're going to switch away at the ptrace trap, and for the moment,
+                // 'can_switch' is actually 'will_switch'.
+                // This is essentially copied from do_signal in arch/x86/kernel/signal.c
+                let has_other_signals = t.has_any_actionable_signal();
+                let mut r = t.regs_ref().clone();
+                if can_switch == Switchable::PreventSwitch
+                    && !has_other_signals
+                    && r.original_syscallno() >= 0
+                    && r.syscall_may_restart()
+                {
+                    // @TODO Check this
+                    match -r.syscall_result_signed() as u32 {
+                        ERESTARTNOHAND | ERESTARTSYS | ERESTARTNOINTR => {
+                            r.set_syscallno(r.original_syscallno());
+                            r.set_ip(r.ip().decrement_by_syscall_insn_length(t.arch()));
+                        }
+                        ERESTART_RESTARTBLOCK => {
+                            r.set_syscallno(syscall_number_for_restart_syscall(t.arch()) as isize);
+                            r.set_ip(r.ip().decrement_by_syscall_insn_length(t.arch()));
+                        }
+                        _ => (),
+                    }
+
+                // Now that we've mucked with the registers, we can't switch tasks. That
+                // could allow more signals to be generated, breaking our assumption
+                // that we are the last signal.
+                } else {
+                    // But if we didn't touch the registers switching here is ok.
+                    can_switch = Switchable::AllowSwitch;
+                }
+
+                let event = t.ev().clone();
+                t.record_event(
+                    Some(event),
+                    Some(FlushSyscallbuf::FlushSyscallbuf),
+                    Some(AllowSyscallbufReset::AllowResetSyscallbuf),
+                    Some(&r),
+                );
+                // Don't actually set_regs(r), the kernel does these modifications.
+
+                // Only inject fatal signals. Non-fatal signals with signal handlers
+                // were taken care of above; for non-fatal signals without signal
+                // handlers, there is no need to deliver the signal at all. In fact,
+                // there is really no way to inject a non-fatal, non-handled signal
+                // without letting the task execute at least one instruction, which
+                // we don't want to do here.
+                if is_fatal && Some(sig) != self.get_continue_through_sig() {
+                    preinject_signal(t);
+                    t.resume_execution(
+                        ResumeRequest::ResumeCont,
+                        WaitRequest::ResumeNonblocking,
+                        TicksRequest::ResumeNoTicks,
+                        Some(sig),
+                    );
+                    log!(LogWarn,   "Delivered core-dumping signal; may misrecord CLONE_CHILD_CLEARTID memory race");
+                    t.thread_group().destabilize();
+                }
+
+                t.signal_delivered(sig);
+                t.pop_signal_delivery();
+                self.last_task_switchable.set(can_switch);
+                step_state.continue_type = ContinueType::DontContinue;
+            }
+
+            _ => {
+                fatal!("Unhandled signal state {}", t.ev().event_type());
+            }
+        }
     }
 
     fn syscall_state_changed(&self, t: &mut RecordTask, step_state: &mut StepState) {
@@ -1579,6 +1747,19 @@ impl RecordSession {
             .task_set()
             .is_empty()
     }
+}
+
+/// Get t into a state where resume_execution with a signal will actually work.
+fn preinject_signal(_t: &mut RecordTask) -> bool {
+    unimplemented!()
+}
+
+/// Returns true if the signal should be delivered.
+/// Returns false if this signal should not be delivered because another signal
+/// occurred during delivery.
+/// Must call t->stashed_signal_processed() once we're ready to unmask signals.
+fn inject_handled_signal(_t: &RecordTask) -> bool {
+    unimplemented!()
 }
 
 /// Copy the registers used for syscall arguments (not including
