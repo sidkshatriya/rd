@@ -4,7 +4,7 @@ use super::{
     session_common::kill_all_tasks,
     session_inner::PtraceSyscallSeccompOrdering,
     task::{
-        record_task::{AllowSyscallbufReset, EmulatedStopType, FlushSyscallbuf, RecordTask},
+        record_task::{self, AllowSyscallbufReset, EmulatedStopType, FlushSyscallbuf, RecordTask},
         task_common::write_val_mem,
         task_inner::{ResumeRequest, SaveTraceeFdNumber, TaskInner, TicksRequest, WaitRequest},
     },
@@ -15,12 +15,13 @@ use crate::{
         audit::{AUDIT_ARCH_I386, AUDIT_ARCH_X86_64},
         ptrace::{
             PTRACE_EVENT_EXIT,
+            PTRACE_EVENT_SECCOMP,
             PTRACE_SINGLESTEP,
             PTRACE_SYSCALL,
             PTRACE_SYSEMU,
             PTRACE_SYSEMU_SINGLESTEP,
         },
-        signal::{siginfo_t, SI_KERNEL},
+        signal::{siginfo_t, POLL_IN, SI_KERNEL},
     },
     commands::record_command::RecordCommand,
     event::{Event, EventType, SignalDeterministic, Switchable, SyscallEventData, SyscallState},
@@ -47,7 +48,14 @@ use crate::{
         SYSCALLBUF_LIB_FILENAME,
         SYSCALLBUF_LIB_FILENAME_PADDED,
     },
-    record_signal::{arm_desched_event, disarm_desched_event, handle_syscallbuf_breakpoint},
+    record_signal::{
+        arm_desched_event,
+        disarm_desched_event,
+        handle_signal,
+        handle_syscallbuf_breakpoint,
+        SignalBlocked,
+        SignalHandled,
+    },
     record_syscall::{rec_prepare_restart_syscall, rec_prepare_syscall, rec_process_syscall},
     registers::Registers,
     remote_ptr::{RemotePtr, Void},
@@ -71,6 +79,7 @@ use crate::{
         choose_cpu,
         find,
         good_random,
+        is_deterministic_signal,
         resource_path,
         signal_bit,
         CPUIDData,
@@ -270,7 +279,18 @@ pub struct RecordSession {
 
 impl Drop for RecordSession {
     fn drop(&mut self) {
-        unimplemented!()
+        // @TODO Make sure no more stuff needs to go in here
+        // Compare with impl Drop for ReplaySession
+        self.kill_all_tasks();
+        // DIFF NOTE: These debug_asserts!() not present in rr
+        // However they are present in rr ~ReplaySession()
+        debug_assert!(self.task_map.borrow().is_empty());
+        debug_assert!(self.vm_map.borrow().is_empty());
+        log!(
+            LogDebug,
+            "RecordSession {:?} destroyed",
+            self as *const Self
+        );
     }
 }
 
@@ -558,7 +578,7 @@ impl RecordSession {
         }
 
         // @TODO This assumes that unwrap() will always succeed
-        let mut t = self.scheduler().current().cloned().unwrap();
+        let t = self.scheduler().current().cloned().unwrap();
         match maybe_prev_task {
             Some(prev_task)
                 if prev_task
@@ -640,7 +660,7 @@ impl RecordSession {
         let mut did_enter_syscall: bool = false;
         if rescheduled.by_waitpid
             && self.handle_ptrace_event(
-                &mut t,
+                t.borrow_mut().as_rec_mut_unwrap(),
                 &mut step_state,
                 &mut result,
                 &mut did_enter_syscall,
@@ -716,11 +736,13 @@ impl RecordSession {
         return result;
     }
 
-    fn handle_signal_event(&self, t: &mut RecordTask, _step_state: &mut StepState) -> bool {
+    fn handle_signal_event(&self, t: &mut RecordTask, step_state: &mut StepState) -> bool {
         let maybe_sig = t.maybe_stop_sig();
         if !maybe_sig.is_sig() {
             return false;
         }
+
+        let sig = maybe_sig.unwrap_sig();
 
         if !self.done_initial_exec() {
             // If the initial tracee isn't prepared to handle
@@ -747,30 +769,135 @@ impl RecordSession {
             return true;
         }
 
-        unimplemented!()
+        let deterministic: SignalDeterministic = is_deterministic_signal(t);
+        // The kernel might have forcibly unblocked the signal. Check whether it
+        // was blocked now, before we update our cached sigmask.
+        let signal_was_blocked = if t.is_sig_blocked(sig) {
+            SignalBlocked::SigBlocked
+        } else {
+            SignalBlocked::SigUnblocked
+        };
+
+        if deterministic == SignalDeterministic::DeterministicSig
+            || sig == t.session().as_record().unwrap().syscallbuf_desched_sig()
+        {
+            // Don't stash these signals; deliver them immediately.
+            // We don't want them to be reordered around other signals.
+            // invalidate_sigmask() must not be called before we reach handle_signal!
+            match handle_signal(
+                t,
+                t.get_siginfo().clone(),
+                deterministic,
+                signal_was_blocked,
+            ) {
+                (SignalHandled::SignalPtraceStop, new_si) => {
+                    t.pending_siginfo = new_si;
+                    // Emulated ptrace-stop. Don't run the task again yet.
+                    self.last_task_switchable.set(Switchable::AllowSwitch);
+                    step_state.continue_type = ContinueType::DontContinue;
+                    return true;
+                }
+                (SignalHandled::DeferSignal, new_si) => {
+                    t.pending_siginfo = new_si;
+                    ed_assert!(
+                        t,
+                        false,
+                        "Can't defer deterministic or internal signal {} at ip {}",
+                        t.get_siginfo(),
+                        t.ip()
+                    );
+                }
+                (SignalHandled::SignalHandled, new_si) => {
+                    t.pending_siginfo = new_si;
+                    if t.maybe_ptrace_event() == PTRACE_EVENT_SECCOMP {
+                        // `handle_desched_event` detected a spurious desched followed
+                        // by a SECCOMP event, which it left pending. Handle that SECCOMP
+                        // event now.
+                        let mut dummy_did_enter_syscall = false;
+
+                        // DIFF NOTE: handle_ptrace_event() in rr passes in a nullptr
+                        // @TODO Use an option?
+                        let mut dummy_result_ignore = RecordResult::StepContinue;
+                        self.handle_ptrace_event(
+                            t,
+                            step_state,
+                            &mut dummy_result_ignore,
+                            &mut dummy_did_enter_syscall,
+                        );
+                        ed_assert!(t, !dummy_did_enter_syscall);
+                    }
+                }
+            }
+
+            return false;
+        }
+        // Conservatively invalidate the sigmask in case just accepting a signal has
+        // sigmask effects.
+        t.invalidate_sigmask();
+        if sig == perf_counters::TIME_SLICE_SIGNAL {
+            if t.next_pmc_interrupt_is_for_user {
+                let maybe_vpmc = VirtualPerfCounterMonitor::interrupting_virtual_pmc_for_task(t);
+                ed_assert!(t, maybe_vpmc.is_some());
+
+                // Synthesize the requested signal.
+                maybe_vpmc
+                    .unwrap()
+                    .borrow_mut()
+                    .as_virtual_perf_counter_monitor_mut()
+                    .unwrap()
+                    .synthesize_signal(t);
+
+                t.next_pmc_interrupt_is_for_user = false;
+                return true;
+            }
+
+            let si = t.get_siginfo();
+            // This implementation will of course fall over if rr tries to
+            // record itself.
+            //
+            // NB: we can't check that the ticks is >= the programmed
+            // target, because this signal may have become pending before
+            // we reset the HPC counters.  There be a way to handle that
+            // more elegantly, but bridge will be crossed in due time.
+            //
+            // We can't check that the fd matches t.hpc.ticks_fd() because this
+            // signal could have been queued quite a long time ago and the PerfCounters
+            // might have been stopped (and restarted!), perhaps even more than once,
+            // since the signal was queued. possibly changing its fd. We could check
+            // against all fds the PerfCounters have ever used, but that seems like
+            // overkill.
+            ed_assert!(
+                t,
+                perf_counters::TIME_SLICE_SIGNAL.as_raw() == si.si_signo
+                    && (record_task::SYNTHETIC_TIME_SLICE_SI_CODE == si.si_code
+                        || POLL_IN as i32 == si.si_code),
+                "Tracee is using SIGSTKFLT??? (code={}, fd={})",
+                si.si_code,
+                unsafe { si._sifields._sigpoll.si_fd }
+            );
+        }
+        t.stash_sig();
+
+        true
     }
 
     fn handle_ptrace_event(
         &self,
-        t: &mut TaskSharedPtr,
+        t: &mut RecordTask,
         step_state: &mut StepState,
-        _result: &RecordResult,
+        _result: &mut RecordResult,
         did_enter_syscall: &mut bool,
     ) -> bool {
         *did_enter_syscall = false;
 
-        if t.borrow().status().maybe_group_stop_sig().is_sig()
-            || t.borrow().as_rec_unwrap().has_stashed_group_stop()
-        {
-            t.borrow_mut()
-                .as_rec_mut_unwrap()
-                .clear_stashed_group_stop();
+        if t.status().maybe_group_stop_sig().is_sig() || t.has_stashed_group_stop() {
+            t.clear_stashed_group_stop();
             self.last_task_switchable.set(Switchable::AllowSwitch);
             step_state.continue_type = ContinueType::DontContinue;
             return true;
         }
 
-        if !t.borrow().maybe_ptrace_event().is_ptrace_event() {
+        if !t.maybe_ptrace_event().is_ptrace_event() {
             return false;
         }
 

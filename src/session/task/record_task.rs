@@ -181,6 +181,8 @@ use std::{
     slice,
 };
 
+pub const SYNTHETIC_TIME_SLICE_SI_CODE: i32 = -9999;
+
 #[derive(Clone)]
 pub struct Sighandlers {
     /// Keep as opaque for now. Need to ensure correct visibility.
@@ -1154,7 +1156,7 @@ impl RecordTask {
     /// Note that we can't set the correct siginfo when we send the signal, because
     /// it requires us to set information only the kernel has permission to set.
     /// Returns false if this signal should be deferred.
-    pub fn set_siginfo_for_synthetic_sigchld(&self, _si: &siginfo_t) -> bool {
+    pub fn set_siginfo_for_synthetic_sigchld(&self, _si: &mut siginfo_t) -> bool {
         unimplemented!()
     }
 

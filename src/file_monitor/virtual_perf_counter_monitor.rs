@@ -81,7 +81,7 @@ impl VirtualPerfCounterMonitor {
         self.target_tuid_
     }
 
-    pub fn synthesize_signal(&self, _t: &RecordTask) {
+    pub fn synthesize_signal(&mut self, _t: &mut RecordTask) {
         unimplemented!()
     }
 
