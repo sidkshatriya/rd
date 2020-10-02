@@ -1646,6 +1646,8 @@ impl RecordTask {
             .map(|sig| &**sig as *const StashedSignal)
     }
 
+    /// @TODO Instead of searching by pointer address which can have its issues why not
+    /// store a unique id in a StashedSignal structure or some other approach?
     pub fn pop_stash_sig(&mut self, stashed: *const StashedSignal) {
         for (pos, it) in self.stashed_signals.iter().enumerate() {
             if ptr::eq(&**it as *const StashedSignal, stashed) {

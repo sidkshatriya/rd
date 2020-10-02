@@ -122,7 +122,7 @@ use crate::{
         CPUID_GETFEATURES,
         CPUID_GETXSAVE,
     },
-    wait_status::WaitStatus,
+    wait_status::{MaybeStopSignal, WaitStatus},
 };
 use goblin::elf::Elf;
 use libc::{pid_t, ENOSYS, SIGSYS, S_IFREG};
@@ -733,7 +733,7 @@ impl RecordSession {
             let event_type = t.borrow().as_rec_unwrap().ev().event_type();
             match event_type {
                 EventType::EvDesched => {
-                    self.desched_state_changed(t.borrow().as_rec_unwrap());
+                    self.desched_state_changed(t.borrow_mut().as_rec_mut_unwrap());
                 }
                 EventType::EvSyscall => {
                     self.syscall_state_changed(t.borrow_mut().as_rec_mut_unwrap(), &mut step_state);
@@ -1148,8 +1148,39 @@ impl RecordSession {
     /// |t| is at a desched event and some relevant aspect of its state
     /// changed.  (For now, changes except the original desched'd syscall
     /// being restarted.)
-    fn desched_state_changed(&self, _t: &RecordTask) {
-        unimplemented!()
+    fn desched_state_changed(&self, t: &mut RecordTask) {
+        log!(LogDebug, "desched: IN_SYSCALL");
+        // We need to ensure that the syscallbuf code doesn't
+        // try to commit the current record; we've already
+        // recorded that syscall.  The following event sets
+        // the abort-commit bit.
+        let syscallbuf_child = t.syscallbuf_child;
+        write_val_mem(
+            t,
+            RemotePtr::<u8>::cast(syscallbuf_child) + offset_of!(syscallbuf_hdr, abort_commit),
+            &1u8,
+            None,
+        );
+        t.record_event(Some(Event::syscallbuf_abort_commit()), None, None, None);
+
+        advance_to_disarm_desched_syscall(t);
+
+        t.pop_desched();
+
+        // The tracee has just finished sanity-checking the
+        // aborted record, and won't touch the syscallbuf
+        // during this (aborted) transaction again.  So now
+        // is a good time for us to reset the record counter.
+        t.delay_syscallbuf_reset_for_desched = false;
+        // Run the syscallbuf exit hook. This ensures we'll be able to reset
+        // the syscallbuf before trying to buffer another syscall.
+        write_val_mem(
+            t,
+            RemotePtr::<u8>::cast(syscallbuf_child)
+                + offset_of!(syscallbuf_hdr, notify_on_syscall_hook_exit),
+            &1u8,
+            None,
+        );
     }
 
     /// |t| is being delivered a signal, and its state changed.
@@ -2776,4 +2807,76 @@ fn record_exit(t: &RecordTask, exit_status: WaitStatus) {
     if t.thread_group().tgid == t.tid {
         t.thread_group_mut().exit_status = exit_status;
     }
+}
+
+/// Step |t| forward until the tracee syscall that disarms the desched
+/// event. If a signal becomes pending in the interim, we stash it.
+/// This allows the caller to deliver the signal after this returns.
+/// (In reality the desched event will already have been disarmed before we
+/// enter this function.)
+fn advance_to_disarm_desched_syscall(t: &mut RecordTask) {
+    let mut old_maybe_sig = MaybeStopSignal::new_sig(0);
+    let desched_sig =
+        MaybeStopSignal::new(t.session().as_record().unwrap().syscallbuf_desched_sig());
+
+    log!(LogDebug, "desched: DISARMING_DESCHED_EVENT");
+    // TODO: send this through main loop.
+    // TODO: mask off signals and avoid this loop.
+    loop {
+        t.resume_execution(
+            ResumeRequest::ResumeSyscall,
+            WaitRequest::ResumeWait,
+            TicksRequest::ResumeUnlimitedTicks,
+            None,
+        );
+
+        // We can safely ignore TIME_SLICE_SIGNAL while trying to
+        // reach the disarm-desched ioctl: once we reach it,
+        // the desched'd syscall will be "done" and the tracee
+        // will be at a preemption point.  In fact, we *want*
+        // to ignore this signal.  Syscalls like read() can
+        // have large buffers passed to them, and we have to
+        // copy-out the buffered out data to the user's
+        // buffer.  This happens in the interval where we're
+        // reaching the disarm-desched ioctl, so that code is
+        // susceptible to receiving TIME_SLICE_SIGNAL. */
+        let maybe_sig = t.maybe_stop_sig();
+        if MaybeStopSignal::new(perf_counters::TIME_SLICE_SIGNAL) == maybe_sig {
+            continue;
+        }
+
+        // We should not receive SYSCALLBUF_DESCHED_SIGNAL since it should already
+        // have been disarmed. However, we observe these being received here when
+        // we arm the desched signal before we restart a blocking syscall, which
+        // completes successfully, then we disarm, then we see a desched signal
+        // here.
+        if desched_sig == maybe_sig {
+            continue;
+        }
+
+        if maybe_sig.is_sig() && maybe_sig == old_maybe_sig {
+            log!(LogDebug, "  coalescing pending {}", maybe_sig);
+            continue;
+        }
+
+        if maybe_sig.is_sig() {
+            log!(LogDebug, "  {} now pending", maybe_sig);
+            t.stash_sig();
+        }
+
+        // DIFF NOTE: @TODO Not sure about this
+        old_maybe_sig = maybe_sig;
+
+        if t.is_disarm_desched_event_syscall() {
+            break;
+        }
+    }
+
+    // Exit the syscall.
+    t.resume_execution(
+        ResumeRequest::ResumeSyscall,
+        WaitRequest::ResumeWait,
+        TicksRequest::ResumeNoTicks,
+        None,
+    );
 }

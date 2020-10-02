@@ -336,6 +336,10 @@ impl MaybeStopSignal {
     pub fn new_sig(sig: i32) -> MaybeStopSignal {
         MaybeStopSignal(Sig::try_from(sig).ok())
     }
+
+    pub fn new(sig: Sig) -> MaybeStopSignal {
+        MaybeStopSignal(Some(sig))
+    }
 }
 
 impl PartialEq<i32> for MaybeStopSignal {
