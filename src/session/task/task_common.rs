@@ -26,7 +26,6 @@ use crate::{
         prctl::{ARCH_GET_FS, ARCH_GET_GS, ARCH_SET_FS, ARCH_SET_GS},
         ptrace::{
             PTRACE_ARCH_PRCTL,
-            PTRACE_DETACH,
             PTRACE_EVENT_EXIT,
             PTRACE_GETREGS,
             PTRACE_GETSIGINFO,
@@ -1976,10 +1975,6 @@ pub(super) fn destroy_buffers<T: Task>(t: &mut T) {
 }
 
 pub(super) fn task_drop_common<T: Task>(t: &T) {
-    log!(LogDebug, "task {} (rec:{}) is dying ...", t.tid, t.rec_tid);
-
-    t.fallible_ptrace(PTRACE_DETACH, RemotePtr::null(), PtraceData::None);
-
     if t.unstable.get() {
         log!(
             LogWarn,

@@ -207,7 +207,7 @@ pub fn default_action(sig: Sig) -> SignalAction {
     }
 }
 
-// 0 means XSAVE not detected
+/// 0 means XSAVE not detected
 pub fn xsave_area_size() -> usize {
     xsave_native_layout().full_size
 }

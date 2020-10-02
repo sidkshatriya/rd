@@ -1,7 +1,7 @@
 use crate::{
     bindings::{
         kernel::{itimerval, setitimer, user_desc, ITIMER_REAL},
-        ptrace::{PTRACE_EVENT_EXIT, PTRACE_INTERRUPT},
+        ptrace::{PTRACE_DETACH, PTRACE_EVENT_EXIT, PTRACE_INTERRUPT},
     },
     kernel_abi::{syscall_instruction_length, syscall_number_for_gettid, SupportedArch},
     kernel_metadata::syscall_name,
@@ -72,11 +72,24 @@ pub trait Task: DerefMut<Target = TaskInner> {
     /// which is to remove the corresponding TaskSharedPtr entry from the
     /// task_map. See kill_all_tasks() for an example where the task map
     /// is being pop-ed from.
-    fn destroy(&mut self) {
-        debug_assert!(self.session().tasks().get(&self.rec_tid).is_some());
+    fn destroy(&mut self, maybe_detach: Option<bool>) {
+        let detach = maybe_detach.unwrap_or(true);
+        if detach {
+            debug_assert!(self.session().tasks().get(&self.rec_tid).is_some());
+            log!(
+                LogDebug,
+                "task {} (rec:{}) is dying ...",
+                self.tid,
+                self.rec_tid
+            );
+
+            self.fallible_ptrace(PTRACE_DETACH, RemotePtr::null(), PtraceData::None);
+        }
+
         // Removing the entry from the HashMap causes the drop() to happen
         self.session().tasks_mut().remove(&self.rec_tid);
     }
+
     /// Destroy in the tracee task the scratch buffer and syscallbuf (if
     /// syscallbuf_child is non-null).
     /// This task must already be at a state in which remote syscalls can be

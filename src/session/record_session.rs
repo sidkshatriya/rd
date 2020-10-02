@@ -24,6 +24,7 @@ use crate::{
         audit::{AUDIT_ARCH_I386, AUDIT_ARCH_X86_64},
         kernel::{FUTEX_OWNER_DIED, FUTEX_TID_MASK, FUTEX_WAITERS},
         ptrace::{
+            PTRACE_EVENT_EXEC,
             PTRACE_EVENT_EXIT,
             PTRACE_EVENT_SECCOMP,
             PTRACE_GETEVENTMSG,
@@ -49,12 +50,18 @@ use crate::{
         syscall_number_for_restart_syscall,
         SupportedArch,
     },
-    kernel_metadata::{is_sigreturn, syscall_name},
+    kernel_metadata::{errno_name, is_sigreturn, ptrace_event_name, syscall_name},
     kernel_supplement::{
         ERESTARTNOHAND,
         ERESTARTNOINTR,
         ERESTARTSYS,
         ERESTART_RESTARTBLOCK,
+        PTRACE_EVENT_SECCOMP_OBSOLETE,
+        SECCOMP_RET_ACTION,
+        SECCOMP_RET_DATA,
+        SECCOMP_RET_ERRNO,
+        SECCOMP_RET_KILL,
+        SECCOMP_RET_TRAP,
         SYS_SECCOMP,
     },
     log::{LogDebug, LogError, LogWarn},
@@ -348,7 +355,7 @@ impl RecordSession {
             )),
             scheduler_: RefCell::new(sched),
             initial_thread_group: Default::default(),
-            seccomp_filter_rewriter_: SeccompFilterRewriter,
+            seccomp_filter_rewriter_: SeccompFilterRewriter::default(),
             trace_id: flags.trace_id.clone(),
             disable_cpuid_features_: flags.disable_cpuid_features.clone(),
             ignore_sig: flags.ignore_sig,
@@ -600,7 +607,7 @@ impl RecordSession {
         }
 
         // @TODO This assumes that unwrap() will always succeed
-        let t = self.scheduler().current().cloned().unwrap();
+        let mut t = self.scheduler().current().cloned().unwrap();
         match maybe_prev_task {
             Some(prev_task)
                 if prev_task
@@ -682,7 +689,7 @@ impl RecordSession {
         let mut did_enter_syscall: bool = false;
         if rescheduled.by_waitpid
             && self.handle_ptrace_event(
-                t.borrow_mut().as_rec_mut_unwrap(),
+                &mut t,
                 &mut step_state,
                 &mut result,
                 &mut did_enter_syscall,
@@ -699,9 +706,7 @@ impl RecordSession {
             {
                 self.syscall_state_changed(t.borrow_mut().as_rec_mut_unwrap(), &mut step_state);
             }
-        } else if rescheduled.by_waitpid
-            && self.handle_signal_event(t.borrow_mut().as_rec_mut_unwrap(), &mut step_state)
-        {
+        } else if rescheduled.by_waitpid && self.handle_signal_event(&mut t, &mut step_state) {
             // @TODO Is this what we want here?
             // Do nothing
         } else {
@@ -758,8 +763,8 @@ impl RecordSession {
         return result;
     }
 
-    fn handle_signal_event(&self, t: &mut RecordTask, step_state: &mut StepState) -> bool {
-        let maybe_sig = t.maybe_stop_sig();
+    fn handle_signal_event(&self, mut t: &mut TaskSharedPtr, step_state: &mut StepState) -> bool {
+        let maybe_sig = t.borrow().maybe_stop_sig();
         if !maybe_sig.is_sig() {
             return false;
         }
@@ -781,57 +786,66 @@ impl RecordSession {
             );
 
             // These signals might have effects on the sigmask.
-            t.invalidate_sigmask();
+            t.borrow_mut().as_rec_mut_unwrap().invalidate_sigmask();
             // No events to be recorded, so no syscallbuf updates
             // needed.
             return true;
         }
 
-        if maybe_sig == sig::SIGTRAP && handle_syscallbuf_breakpoint(t) {
+        if maybe_sig == sig::SIGTRAP
+            && handle_syscallbuf_breakpoint(t.borrow_mut().as_rec_mut_unwrap())
+        {
             return true;
         }
 
-        let deterministic: SignalDeterministic = is_deterministic_signal(t);
+        let deterministic: SignalDeterministic = is_deterministic_signal(t.borrow_mut().as_mut());
         // The kernel might have forcibly unblocked the signal. Check whether it
         // was blocked now, before we update our cached sigmask.
-        let signal_was_blocked = if t.is_sig_blocked(sig) {
+        let signal_was_blocked = if t.borrow_mut().as_rec_mut_unwrap().is_sig_blocked(sig) {
             SignalBlocked::SigBlocked
         } else {
             SignalBlocked::SigUnblocked
         };
 
         if deterministic == SignalDeterministic::DeterministicSig
-            || sig == t.session().as_record().unwrap().syscallbuf_desched_sig()
+            || sig
+                == t.borrow()
+                    .session()
+                    .as_record()
+                    .unwrap()
+                    .syscallbuf_desched_sig()
         {
             // Don't stash these signals; deliver them immediately.
             // We don't want them to be reordered around other signals.
             // invalidate_sigmask() must not be called before we reach handle_signal!
-            match handle_signal(
-                t,
-                t.get_siginfo().clone(),
+            let si = t.borrow().get_siginfo().clone();
+            let res = handle_signal(
+                t.borrow_mut().as_rec_mut_unwrap(),
+                si,
                 deterministic,
                 signal_was_blocked,
-            ) {
+            );
+            match res {
                 (SignalHandled::SignalPtraceStop, new_si) => {
-                    t.pending_siginfo = new_si;
+                    t.borrow_mut().pending_siginfo = new_si;
                     // Emulated ptrace-stop. Don't run the task again yet.
                     self.last_task_switchable.set(Switchable::AllowSwitch);
                     step_state.continue_type = ContinueType::DontContinue;
                     return true;
                 }
                 (SignalHandled::DeferSignal, new_si) => {
-                    t.pending_siginfo = new_si;
+                    t.borrow_mut().pending_siginfo = new_si;
                     ed_assert!(
-                        t,
+                        &t.borrow(),
                         false,
                         "Can't defer deterministic or internal signal {} at ip {}",
-                        t.get_siginfo(),
-                        t.ip()
+                        t.borrow().get_siginfo(),
+                        t.borrow().ip()
                     );
                 }
                 (SignalHandled::SignalHandled, new_si) => {
-                    t.pending_siginfo = new_si;
-                    if t.maybe_ptrace_event() == PTRACE_EVENT_SECCOMP {
+                    t.borrow_mut().pending_siginfo = new_si;
+                    if t.borrow().maybe_ptrace_event() == PTRACE_EVENT_SECCOMP {
                         // `handle_desched_event` detected a spurious desched followed
                         // by a SECCOMP event, which it left pending. Handle that SECCOMP
                         // event now.
@@ -841,25 +855,28 @@ impl RecordSession {
                         // @TODO Use an option?
                         let mut dummy_result_ignore = RecordResult::StepContinue;
                         self.handle_ptrace_event(
-                            t,
+                            &mut t,
                             step_state,
                             &mut dummy_result_ignore,
                             &mut dummy_did_enter_syscall,
                         );
-                        ed_assert!(t, !dummy_did_enter_syscall);
+                        ed_assert!(&t.borrow(), !dummy_did_enter_syscall);
                     }
                 }
             }
 
             return false;
         }
+
+        let mut tb = t.borrow_mut();
+        let rt = tb.as_rec_mut_unwrap();
         // Conservatively invalidate the sigmask in case just accepting a signal has
         // sigmask effects.
-        t.invalidate_sigmask();
+        rt.invalidate_sigmask();
         if sig == perf_counters::TIME_SLICE_SIGNAL {
-            if t.next_pmc_interrupt_is_for_user {
-                let maybe_vpmc = VirtualPerfCounterMonitor::interrupting_virtual_pmc_for_task(t);
-                ed_assert!(t, maybe_vpmc.is_some());
+            if rt.next_pmc_interrupt_is_for_user {
+                let maybe_vpmc = VirtualPerfCounterMonitor::interrupting_virtual_pmc_for_task(rt);
+                ed_assert!(rt, maybe_vpmc.is_some());
 
                 // Synthesize the requested signal.
                 maybe_vpmc
@@ -867,13 +884,13 @@ impl RecordSession {
                     .borrow_mut()
                     .as_virtual_perf_counter_monitor_mut()
                     .unwrap()
-                    .synthesize_signal(t);
+                    .synthesize_signal(rt);
 
-                t.next_pmc_interrupt_is_for_user = false;
+                rt.next_pmc_interrupt_is_for_user = false;
                 return true;
             }
 
-            let si = t.get_siginfo();
+            let si = rt.get_siginfo();
             // This implementation will of course fall over if rr tries to
             // record itself.
             //
@@ -889,7 +906,7 @@ impl RecordSession {
             // against all fds the PerfCounters have ever used, but that seems like
             // overkill.
             ed_assert!(
-                t,
+                rt,
                 perf_counters::TIME_SLICE_SIGNAL.as_raw() == si.si_signo
                     && (record_task::SYNTHETIC_TIME_SLICE_SI_CODE == si.si_code
                         || POLL_IN as i32 == si.si_code),
@@ -898,32 +915,192 @@ impl RecordSession {
                 unsafe { si._sifields._sigpoll.si_fd }
             );
         }
-        t.stash_sig();
+        rt.stash_sig();
 
         true
     }
 
     fn handle_ptrace_event(
         &self,
-        t: &mut RecordTask,
+        t: &mut TaskSharedPtr,
         step_state: &mut StepState,
-        _result: &mut RecordResult,
+        result: &mut RecordResult,
         did_enter_syscall: &mut bool,
     ) -> bool {
         *did_enter_syscall = false;
-
-        if t.status().maybe_group_stop_sig().is_sig() || t.has_stashed_group_stop() {
-            t.clear_stashed_group_stop();
+        if t.borrow().status().maybe_group_stop_sig().is_sig()
+            || t.borrow().as_rec_unwrap().has_stashed_group_stop()
+        {
+            t.borrow_mut()
+                .as_rec_mut_unwrap()
+                .clear_stashed_group_stop();
             self.last_task_switchable.set(Switchable::AllowSwitch);
             step_state.continue_type = ContinueType::DontContinue;
             return true;
         }
 
-        if !t.maybe_ptrace_event().is_ptrace_event() {
+        if !t.borrow().maybe_ptrace_event().is_ptrace_event() {
             return false;
         }
 
-        unimplemented!()
+        log!(
+            LogDebug,
+            "  {}: handle_ptrace_event {}: event {}",
+            t.borrow().tid,
+            t.borrow().maybe_ptrace_event(),
+            t.borrow().as_rec_unwrap().ev()
+        );
+        let event = t.borrow().maybe_ptrace_event().unwrap_event();
+
+        match event {
+            PTRACE_EVENT_SECCOMP_OBSOLETE | PTRACE_EVENT_SECCOMP => {
+                if self.syscall_seccomp_ordering()
+                    == PtraceSyscallSeccompOrdering::SyscallBeforeSeccompUnknown
+                {
+                    self.syscall_seccomp_ordering_
+                        .set(PtraceSyscallSeccompOrdering::SeccompBeforeSyscall);
+                }
+
+                let seccomp_data: u16 = t
+                    .borrow()
+                    .as_rec_unwrap()
+                    .get_ptrace_eventmsg_seccomp_data();
+                let syscallno = t.borrow().regs_ref().original_syscallno() as i32;
+                if seccomp_data as u32 == SECCOMP_RET_DATA {
+                    log!(
+                        LogDebug,
+                        "  traced syscall entered: {}",
+                        syscall_name(syscallno, t.borrow().arch())
+                    );
+                    handle_seccomp_traced_syscall(
+                        t.borrow_mut().as_rec_mut_unwrap(),
+                        step_state,
+                        result,
+                        did_enter_syscall,
+                    );
+                } else {
+                    // Note that we make no attempt to patch the syscall site when the
+                    // user handle does not return ALLOW. Apart from the ERRNO case,
+                    // handling these syscalls is necessarily slow anyway.
+                    let mut real_result: u32 = 0;
+                    if !self
+                        .seccomp_filter_rewriter()
+                        .map_filter_data_to_real_result(
+                            t.borrow_mut().as_rec_mut_unwrap(),
+                            seccomp_data,
+                            &mut real_result,
+                        )
+                    {
+                        log!(
+                            LogDebug,
+                            "Process terminated unexpectedly during PTRACE_GETEVENTMSG"
+                        );
+                        step_state.continue_type = ContinueType::Continue;
+                    } else {
+                        let real_result_data: u16 = (real_result & SECCOMP_RET_DATA) as u16;
+                        match real_result & SECCOMP_RET_ACTION {
+                            SECCOMP_RET_TRAP => {
+                                log!(
+                                    LogDebug,
+                                    "  seccomp trap for syscall: {}",
+                                    syscall_name(syscallno, t.borrow().arch())
+                                );
+                                handle_seccomp_trap(
+                                    t.borrow_mut().as_rec_mut_unwrap(),
+                                    step_state,
+                                    real_result_data,
+                                );
+                            }
+                            SECCOMP_RET_ERRNO => {
+                                log!(
+                                    LogDebug,
+                                    "  seccomp errno {} for syscall: {}",
+                                    errno_name(real_result_data as i32),
+                                    syscall_name(syscallno, t.borrow().arch())
+                                );
+                                handle_seccomp_errno(
+                                    t.borrow_mut().as_rec_mut_unwrap(),
+                                    step_state,
+                                    real_result_data,
+                                );
+                            }
+                            SECCOMP_RET_KILL => {
+                                log!(
+                                    LogDebug,
+                                    "  seccomp kill for syscall: {}",
+                                    syscall_name(syscallno, t.borrow().arch())
+                                );
+
+                                for tt in
+                                    t.borrow().thread_group_shr_ptr().borrow().task_set().iter()
+                                {
+                                    // Record robust futex changes now in case the taskgroup dies
+                                    // synchronously without a regular PTRACE_EVENT_EXIT (as seems
+                                    // to happen on Ubuntu 4.2.0-42-generic)
+                                    record_robust_futex_changes(
+                                        tt.borrow_mut().as_rec_mut_unwrap(),
+                                    );
+                                }
+                                t.borrow().as_rec_unwrap().tgkill(sig::SIGKILL);
+                                step_state.continue_type = ContinueType::Continue;
+                            }
+                            _ => ed_assert!(&t.borrow(), false, "Seccomp result not handled"),
+                        }
+                    }
+                }
+            }
+
+            PTRACE_EVENT_EXEC => {
+                if t.borrow().thread_group_shr_ptr().borrow().task_set().len() > 1 {
+                    // All tasks but the task that did the execve should have exited by
+                    // now and notified us of their exits. However, it's possible that
+                    // while running the thread-group leader, our PTRACE_CONT raced with its
+                    // PTRACE_EVENT_EXIT and it exited, and the next event we got is this
+                    // PTRACE_EVENT_EXEC after the exec'ing task changed its tid to the
+                    // leader's tid. Or maybe there are kernel bugs; on
+                    // 4.2.0-42-generic running exec_from_other_thread, we reproducibly
+                    // enter PTRACE_EVENT_EXEC for the thread-group leader without seeing
+                    // its PTRACE_EVENT_EXIT.
+
+                    // So, record this task's exit and destroy it.
+                    // XXX We can't do record_robust_futex_changes here because the address
+                    // space has already gone. That would only matter if some of them were
+                    // in memory accessible to another process even after exec, i.e. a
+                    // shared-memory mapping or two different thread-groups sharing the same
+                    // address space.
+                    let tid = t.borrow().rec_tid;
+                    let status: WaitStatus = t.borrow().status();
+                    // Mark task as unstable so we don't wait on its futex. This matches
+                    // what the kernel would do.
+                    t.borrow().unstable.set(true);
+                    record_exit(t.borrow().as_rec_unwrap(), WaitStatus::default());
+                    // DIFF NOTE: OK to call destroy(). We just ask it to skip PTRACE_DETACH.
+                    t.borrow_mut().destroy(Some(false));
+                    // Steal the exec'ing task and make it the thread-group leader, and
+                    // carry on!
+                    *t = self.revive_task_for_exec(tid);
+                    self.scheduler_mut().set_current(t.clone());
+                    // Tell t that it is actually stopped, because the stop we got is really
+                    // for this task, not the old dead task.
+                    t.borrow_mut().did_waitpid(status);
+                }
+
+                t.borrow_mut().as_rec_mut_unwrap().post_exec();
+
+                // Skip past the ptrace event.
+                step_state.continue_type = ContinueType::ContinueSyscall;
+            }
+
+            _ => ed_assert!(
+                &t.borrow(),
+                false,
+                "Unhandled ptrace event {}({})",
+                event,
+                ptrace_event_name(event)
+            ),
+        }
+
+        true
     }
 
     fn runnable_state_changed(
@@ -2118,6 +2295,19 @@ union USiginfo {
     linux_api: siginfo_t,
 }
 
+fn handle_seccomp_errno(_t: &mut RecordTask, _step_state: &mut StepState, _seccomp_data: u16) {
+    unimplemented!()
+}
+
+fn handle_seccomp_traced_syscall(
+    _t: &mut RecordTask,
+    _step_state: &mut StepState,
+    _result: &mut RecordResult,
+    _did_enter_syscall: &mut bool,
+) {
+    unimplemented!()
+}
+
 fn handle_seccomp_trap(t: &mut RecordTask, step_state: &mut StepState, seccomp_data: u16) {
     // The architecture may be wrong, but that's ok, because an actual syscall
     // entry did happen, so the registers are already updated according to the
@@ -2338,7 +2528,7 @@ fn handle_ptrace_exit_event(t: &mut RecordTask) -> bool {
 
     record_exit(t, exit_status);
     // Delete t. t's destructor writes the final EV_EXIT.
-    t.destroy();
+    t.destroy(None);
 
     true
 }

@@ -2066,7 +2066,7 @@ fn end_task(t: &mut ReplayTask) {
     ed_assert_eq!(t, t.maybe_ptrace_event(), PTRACE_EVENT_EXIT);
 
     t.stable_exit = true;
-    t.destroy();
+    t.destroy(None);
 }
 
 impl Deref for ReplaySession {

@@ -1,3 +1,7 @@
+use std::collections::HashMap;
+
+use crate::session::task::record_task::RecordTask;
+
 /// When seccomp decides not to execute a syscall the kernel returns to userspace
 /// without modifying the registers. There is no negative return value to
 /// indicate that whatever side effects the syscall would happen did not take
@@ -15,4 +19,39 @@
 /// kernel itself.
 pub const SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO: isize = -2;
 
-pub struct SeccompFilterRewriter;
+/// Start numbering custom data values from here. This avoids overlapping
+/// values that might be returned from a PTRACE_EVENT_EXIT, so we can
+/// distinguish unexpected exits from real results of PTRACE_GETEVENTMSG.
+pub const BASE_CUSTOM_DATA: usize = 0x100;
+
+#[derive(Default)]
+pub struct SeccompFilterRewriter {
+    /// Seccomp filters can return 32-bit result values. We need to map all of
+    /// them into a single 16 bit data field. Fortunately (so far) all the
+    /// filters we've seen return constants, so there aren't too many distinct
+    /// values we need to deal with. For each constant value that gets returned,
+    /// we'll add it as the key in |result_map|, with the corresponding value
+    /// being the 16-bit data value that our rewritten filter returns.
+    result_to_index: HashMap<u32, u16>,
+    index_to_result: Vec<u32>,
+}
+
+impl SeccompFilterRewriter {
+    /// Assuming |t| is set up for a prctl or seccomp syscall that
+    /// installs a seccomp-bpf filter, patch the filter to signal the tracer
+    /// instead of silently delivering an errno, and install it.
+    pub fn install_patched_seccomp_filtert(&self, _t: &mut RecordTask) {
+        unimplemented!()
+    }
+
+    /// Returns false if the input value is not valid. In this case a
+    /// PTRACE_EVENT_EXIT probably got in the way.
+    pub fn map_filter_data_to_real_result(
+        &self,
+        _t: &mut RecordTask,
+        _value: u16,
+        _result: &mut u32,
+    ) -> bool {
+        unimplemented!()
+    }
+}
