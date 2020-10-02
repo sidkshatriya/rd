@@ -1119,6 +1119,7 @@ impl TaskInner {
     }
 
     /// Use thread_group() and thread_group_mut() in preference to this
+    /// But could be useful in place for borrow related purposes
     pub fn thread_group_shr_ptr(&self) -> ThreadGroupSharedPtr {
         self.tg.as_ref().unwrap().clone()
     }

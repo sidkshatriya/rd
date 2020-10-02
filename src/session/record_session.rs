@@ -4,7 +4,14 @@ use super::{
     session_common::kill_all_tasks,
     session_inner::PtraceSyscallSeccompOrdering,
     task::{
-        record_task::{self, AllowSyscallbufReset, EmulatedStopType, FlushSyscallbuf, RecordTask},
+        record_task::{
+            self,
+            AllowSyscallbufReset,
+            EmulatedStopType,
+            FlushSyscallbuf,
+            RecordTask,
+            StashedSignal,
+        },
         task_common::{read_val_mem, write_val_mem},
         task_inner::{
             PtraceData,
@@ -50,7 +57,7 @@ use crate::{
         syscall_number_for_restart_syscall,
         SupportedArch,
     },
-    kernel_metadata::{errno_name, is_sigreturn, ptrace_event_name, syscall_name},
+    kernel_metadata::{errno_name, is_sigreturn, ptrace_event_name, signal_name, syscall_name},
     kernel_supplement::{
         ERESTARTNOHAND,
         ERESTARTNOINTR,
@@ -1031,9 +1038,8 @@ impl RecordSession {
                                     syscall_name(syscallno, t.borrow().arch())
                                 );
 
-                                for tt in
-                                    t.borrow().thread_group_shr_ptr().borrow().task_set().iter()
-                                {
+                                let tg = t.borrow().thread_group_shr_ptr();
+                                for tt in tg.borrow().task_set().iter() {
                                     // Record robust futex changes now in case the taskgroup dies
                                     // synchronously without a regular PTRACE_EVENT_EXIT (as seems
                                     // to happen on Ubuntu 4.2.0-42-generic)
@@ -1051,7 +1057,8 @@ impl RecordSession {
             }
 
             PTRACE_EVENT_EXEC => {
-                if t.borrow().thread_group_shr_ptr().borrow().task_set().len() > 1 {
+                let thread_group_len = t.borrow().thread_group().task_set().len();
+                if thread_group_len > 1 {
                     // All tasks but the task that did the execve should have exited by
                     // now and notified us of their exits. However, it's possible that
                     // while running the thread-group leader, our PTRACE_CONT raced with its
@@ -1545,12 +1552,107 @@ impl RecordSession {
         }
     }
 
-    fn prepare_to_inject_signal(&self, _t: &TaskSharedPtr, step_state: &mut StepState) -> bool {
+    fn prepare_to_inject_signal(&self, t_shr: &TaskSharedPtr, step_state: &mut StepState) -> bool {
         if !self.done_initial_exec() || step_state.continue_type != ContinueType::Continue {
             return false;
         }
 
-        unimplemented!()
+        let mut si: USiginfo = unsafe { mem::zeroed() };
+        let mut ssig: StashedSignal;
+        let mut sig: Sig;
+
+        {
+            let mut tb = t_shr.borrow_mut();
+            let t = tb.as_rec_mut_unwrap();
+            loop {
+                match t.peek_stashed_sig_to_deliver().cloned() {
+                    Some(ssig_obtained) => {
+                        ssig = ssig_obtained;
+                        si.linux_api = ssig.siginfo;
+                        sig = Sig::try_from(unsafe { si.linux_api.si_signo }).unwrap();
+                        if Some(sig) == self.get_ignore_sig() {
+                            log!(LogDebug, "Declining to deliver {} by user request", sig);
+                            t.pop_stash_sig(&ssig);
+                            t.stashed_signal_processed();
+                        } else {
+                            break;
+                        }
+                    }
+                    None => return false,
+                }
+            }
+
+            if ssig.deterministic == SignalDeterministic::DeterministicSig
+                && ssig.siginfo.si_signo == SIGSYS
+                && t.is_sig_blocked(sig::SIGSYS)
+            {
+                // Our synthesized deterministic SIGSYS (seccomp trap) needs to match the
+                // kernel behavior of unblocking the signal and resetting disposition to
+                // default.
+                t.unblock_signal(sig::SIGSYS);
+                t.set_sig_handler_default(sig::SIGSYS);
+            }
+        }
+
+        let res = handle_signal(
+            t_shr.borrow_mut().as_rec_mut_unwrap(),
+            unsafe { si.linux_api },
+            ssig.deterministic,
+            SignalBlocked::SigUnblocked,
+        );
+        match res {
+            (SignalHandled::SignalPtraceStop, new_si) => {
+                si.linux_api = new_si;
+                // Emulated ptrace-stop. Don't run the task again yet.
+                self.last_task_switchable.set(Switchable::AllowSwitch);
+                log!(LogDebug, "{}, emulating ptrace stop", sig);
+            }
+            (SignalHandled::DeferSignal, new_si) => {
+                si.linux_api = new_si;
+                log!(
+                    LogDebug,
+                    "{} deferred",
+                    signal_name(unsafe { si.linux_api.si_signo })
+                );
+                // Leave signal on the stack and continue task execution. We'll try again
+                // later.
+                return false;
+            }
+            (SignalHandled::SignalHandled, new_si) => {
+                si.linux_api = new_si;
+                log!(
+                    LogDebug,
+                    "{} handled",
+                    signal_name(unsafe { si.linux_api.si_signo })
+                );
+                // Signal is now a pending event on |t|'s event stack
+
+                if t_shr.borrow().as_rec_unwrap().ev().event_type() == EventType::EvSched {
+                    if t_shr.borrow().as_rec_unwrap().maybe_in_spinlock() {
+                        // So that we can provide a shared pointer to the scheduler
+                        log!(
+                            LogDebug,
+                            "Detected possible spinlock, forcing one round-robin"
+                        );
+                        self.scheduler_mut().schedule_one_round_robin(t_shr);
+                    }
+                    // Allow switching after a SCHED. We'll flush the SCHED if and only
+                    // if we really do a switch.
+                    self.last_task_switchable.set(Switchable::AllowSwitch);
+                }
+            }
+        }
+
+        step_state.continue_type = ContinueType::DontContinue;
+        t_shr.borrow_mut().as_rec_mut_unwrap().pop_stash_sig(&ssig);
+        if t_shr.borrow().as_rec_unwrap().ev().event_type() != EventType::EvSignal {
+            t_shr
+                .borrow_mut()
+                .as_rec_mut_unwrap()
+                .stashed_signal_processed();
+        }
+
+        true
     }
 
     fn task_continue(&self, step_state: StepState) {

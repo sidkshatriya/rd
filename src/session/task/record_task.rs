@@ -381,9 +381,10 @@ pub enum SignalDisposition {
     SignalHandler,
 }
 
+#[derive(Copy, Clone)]
 pub struct StashedSignal {
-    siginfo: siginfo_t,
-    deterministic: SignalDeterministic,
+    pub siginfo: siginfo_t,
+    pub deterministic: SignalDeterministic,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -393,6 +394,7 @@ pub enum FlushSyscallbuf {
     /// syscallbuf records.
     DontFlushSyscallbuf,
 }
+
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub enum AllowSyscallbufReset {
     AllowResetSyscallbuf,
