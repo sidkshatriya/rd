@@ -1560,14 +1560,16 @@ impl RecordSession {
         let mut si: USiginfo = unsafe { mem::zeroed() };
         let mut ssig: StashedSignal;
         let mut sig: Sig;
+        let mut ssig_addr: *const StashedSignal;
 
         {
             let mut tb = t_shr.borrow_mut();
             let t = tb.as_rec_mut_unwrap();
             loop {
-                match t.peek_stashed_sig_to_deliver().cloned() {
+                match t.peek_stashed_sig_to_deliver() {
                     Some(ssig_obtained) => {
-                        ssig = ssig_obtained;
+                        ssig_addr = ssig_obtained;
+                        ssig = unsafe { (*ssig_obtained).clone() };
                         si.linux_api = ssig.siginfo;
                         sig = Sig::try_from(unsafe { si.linux_api.si_signo }).unwrap();
                         if Some(sig) == self.get_ignore_sig() {
@@ -1600,6 +1602,7 @@ impl RecordSession {
             ssig.deterministic,
             SignalBlocked::SigUnblocked,
         );
+
         match res {
             (SignalHandled::SignalPtraceStop, new_si) => {
                 si.linux_api = new_si;
@@ -1644,7 +1647,10 @@ impl RecordSession {
         }
 
         step_state.continue_type = ContinueType::DontContinue;
-        t_shr.borrow_mut().as_rec_mut_unwrap().pop_stash_sig(&ssig);
+        t_shr
+            .borrow_mut()
+            .as_rec_mut_unwrap()
+            .pop_stash_sig(ssig_addr);
         if t_shr.borrow().as_rec_unwrap().ev().event_type() != EventType::EvSignal {
             t_shr
                 .borrow_mut()

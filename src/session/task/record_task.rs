@@ -529,7 +529,7 @@ pub struct RecordTask {
     pub pending_events: VecDeque<Event>,
     /// Stashed signal-delivery state, ready to be delivered at
     /// next opportunity.
-    pub stashed_signals: VecDeque<StashedSignal>,
+    pub stashed_signals: VecDeque<Box<StashedSignal>>,
     pub stashed_signals_blocking_more_signals: bool,
     pub stashed_group_stop: bool,
     pub break_at_syscallbuf_traced_syscalls: bool,
@@ -1547,10 +1547,10 @@ impl RecordTask {
         }
         let deterministic = is_deterministic_signal(self);
         let siginfo = self.get_siginfo().clone();
-        self.stashed_signals.push_back(StashedSignal {
+        self.stashed_signals.push_back(Box::new(StashedSignal {
             siginfo,
             deterministic,
-        });
+        }));
         // Once we've stashed a signal, stop at the next traced/untraced syscall to
         // check whether we need to process the signal before it runs.
         self.stashed_signals_blocking_more_signals = true;
@@ -1595,10 +1595,10 @@ impl RecordTask {
 
         self.stashed_signals.insert(
             0,
-            StashedSignal {
+            Box::new(StashedSignal {
                 siginfo: si.clone(),
                 deterministic,
-            },
+            }),
         );
         self.stashed_signals_blocking_more_signals = true;
         self.break_at_syscallbuf_final_instruction = true;
@@ -1629,7 +1629,8 @@ impl RecordTask {
         false
     }
 
-    pub fn peek_stashed_sig_to_deliver(&self) -> Option<&StashedSignal> {
+    /// Deliberately returning a *const StashedSignal as we need an addr in pop_stash_sig()
+    pub fn peek_stashed_sig_to_deliver(&self) -> Option<*const StashedSignal> {
         if self.stashed_signals.is_empty() {
             return None;
         }
@@ -1637,19 +1638,22 @@ impl RecordTask {
         // be interrupted, we'll interrupt it.
         for sig in &self.stashed_signals {
             if !is_synthetic_SIGCHLD(&sig.siginfo) {
-                return Some(sig);
+                return Some(&**sig as *const StashedSignal);
             }
         }
-        self.stashed_signals.get(0)
+        self.stashed_signals
+            .get(0)
+            .map(|sig| &**sig as *const StashedSignal)
     }
 
-    pub fn pop_stash_sig(&mut self, stashed: &StashedSignal) {
+    pub fn pop_stash_sig(&mut self, stashed: *const StashedSignal) {
         for (pos, it) in self.stashed_signals.iter().enumerate() {
-            if ptr::eq(it, stashed) {
+            if ptr::eq(&**it as *const StashedSignal, stashed) {
                 self.stashed_signals.remove(pos);
                 return;
             }
         }
+
         ed_assert!(self, false, "signal not found");
     }
 
