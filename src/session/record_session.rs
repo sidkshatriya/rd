@@ -31,6 +31,7 @@ use crate::{
         audit::{AUDIT_ARCH_I386, AUDIT_ARCH_X86_64},
         kernel::{FUTEX_OWNER_DIED, FUTEX_TID_MASK, FUTEX_WAITERS},
         ptrace::{
+            ptrace,
             PTRACE_EVENT_EXEC,
             PTRACE_EVENT_EXIT,
             PTRACE_EVENT_SECCOMP,
@@ -125,7 +126,18 @@ use crate::{
     wait_status::{MaybeStopSignal, WaitStatus},
 };
 use goblin::elf::Elf;
-use libc::{pid_t, ENOSYS, SIGSYS, S_IFREG};
+use libc::{
+    pid_t,
+    CLONE_FILES,
+    CLONE_FS,
+    CLONE_SIGHAND,
+    CLONE_SYSVSEM,
+    CLONE_THREAD,
+    CLONE_VM,
+    ENOSYS,
+    SIGSYS,
+    S_IFREG,
+};
 use mem::size_of;
 use nix::{
     fcntl::{open, OFlag},
@@ -1081,6 +1093,7 @@ impl RecordSession {
                     // what the kernel would do.
                     t.borrow().unstable.set(true);
                     record_exit(t.borrow().as_rec_unwrap(), WaitStatus::default());
+
                     // DIFF NOTE: OK to call destroy(). We just ask it to skip PTRACE_DETACH.
                     t.borrow_mut().destroy(Some(false));
                     // Steal the exec'ing task and make it the thread-group leader, and
@@ -2058,8 +2071,50 @@ impl RecordSession {
     /// The task in the thread-group that triggered the successful execve has changed
     /// its tid to |rec_tid|. We mirror that, and emit TraceTaskEvents to make it
     /// look like a new task was spawned and the old task exited.
-    pub fn revive_task_for_exec(&self, _rec_tid: pid_t) -> TaskSharedPtr {
-        unimplemented!()
+    pub fn revive_task_for_exec(&self, rec_tid: pid_t) -> TaskSharedPtr {
+        let mut msg: usize = 0;
+        let ret = unsafe { ptrace(PTRACE_GETEVENTMSG, rec_tid, 0, &mut msg) } as i32;
+        if ret < 0 {
+            fatal!("Can't get old tid for execve (leader={})", rec_tid);
+        }
+
+        let maybe_t = self.find_task_from_rec_tid(msg as pid_t);
+        if maybe_t.is_none() {
+            fatal!("Can't find old task for execve");
+        }
+
+        let t = maybe_t.unwrap();
+        let tid = t.borrow().tid;
+        ed_assert_eq!(&t.borrow(), rec_tid, t.borrow().tgid());
+        let own_namespace_tid = t.borrow().thread_group().real_tgid_own_namespace;
+
+        log!(LogDebug, "Changing task tid from {} to {}", tid, rec_tid);
+
+        // Pretend the old task cloned a new task with the right tid, and then exited
+        self.trace_writer_mut()
+            .write_task_event(&TraceTaskEvent::for_clone(
+                rec_tid,
+                tid,
+                own_namespace_tid,
+                CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD | CLONE_SYSVSEM,
+            ));
+
+        self.trace_writer_mut()
+            .write_task_event(&TraceTaskEvent::for_exit(tid, WaitStatus::for_exit_code(0)));
+
+        // Account for tid change
+        self.task_map.borrow_mut().remove(&tid);
+        self.task_map.borrow_mut().insert(rec_tid, t.clone());
+        // t probably would have been marked for unstable-exit when the old
+        // thread-group leader died.
+        t.borrow().unstable.set(false);
+        // Update the serial as if this task was really created by cloning the old
+        // task.
+        t.borrow_mut()
+            .as_rec_mut_unwrap()
+            .set_tid_and_update_serial(rec_tid, own_namespace_tid);
+
+        t
     }
 
     fn can_end(&self) -> bool {

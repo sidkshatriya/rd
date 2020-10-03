@@ -81,6 +81,7 @@ pub(super) fn kill_all_tasks<S: Session>(sess: &S) {
             }
         }
     }
+
     while !sess.task_map.borrow().is_empty() {
         let (_, t) = sess.task_map.borrow_mut().pop_last().unwrap();
         if !t.borrow().unstable.get() {
@@ -114,6 +115,7 @@ pub(super) fn kill_all_tasks<S: Session>(sess: &S) {
     for vm_uid in vm_uids {
         sess.on_destroy_vm(vm_uid);
     }
+
     let tg_uids: Vec<ThreadGroupUid> = sess.thread_group_map().keys().map(|k| *k).collect();
     for tg_uid in tg_uids {
         sess.on_destroy_tg(tg_uid);
