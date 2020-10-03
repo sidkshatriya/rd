@@ -2143,7 +2143,7 @@ fn preinject_signal(t: &mut RecordTask) -> bool {
     // us of them.
     // So, first we check if we're in a signal-stop that we can use to inject
     // a signal. Some (all?) SIGTRAP stops are *not* usable for signal injection.
-    if t.maybe_stop_sig().is_sig() && t.maybe_stop_sig().unwrap_sig() != sig::SIGTRAP {
+    if t.maybe_stop_sig().is_sig() && t.maybe_stop_sig() != sig::SIGTRAP {
         log!(LogDebug, "    in signal-stop for {}", t.maybe_stop_sig());
     } else {
         // We're not in a usable signal-stop. Force a signal-stop by sending
@@ -2183,7 +2183,7 @@ fn preinject_signal(t: &mut RecordTask) -> bool {
 
             // Ignore any pending TIME_SLICE_SIGNALs and continue until we get our
             // SYSCALLBUF_DESCHED_SIGNAL.
-            if t.maybe_stop_sig().get_raw_repr() != Some(perf_counters::TIME_SLICE_SIGNAL) {
+            if t.maybe_stop_sig() != perf_counters::TIME_SLICE_SIGNAL {
                 break;
             }
         }
@@ -2195,8 +2195,8 @@ fn preinject_signal(t: &mut RecordTask) -> bool {
 
         ed_assert_eq!(
             t,
-            t.maybe_stop_sig().get_raw_repr(),
-            Some(desched_sig),
+            t.maybe_stop_sig(),
+            desched_sig,
             "Expected SYSCALLBUF_DESCHED_SIGNAL, got {}",
             t.status()
         );
@@ -2217,7 +2217,90 @@ fn preinject_signal(t: &mut RecordTask) -> bool {
 /// Returns false if this signal should not be delivered because another signal
 /// occurred during delivery.
 /// Must call t->stashed_signal_processed() once we're ready to unmask signals.
-fn inject_handled_signal(_t: &RecordTask) -> bool {
+fn inject_handled_signal(t: &mut RecordTask) -> bool {
+    if !preinject_signal(t) {
+        // Task prematurely exited.
+        return false;
+    }
+    // If there aren't any more stashed signals, it's OK to stop blocking all
+    // signals.
+    t.stashed_signal_processed();
+    let desched_sig = t.session().as_record().unwrap().syscallbuf_desched_sig();
+    let sig = Sig::try_from(t.ev().signal_event().siginfo.si_signo).unwrap();
+    loop {
+        // We are ready to inject our signal.
+        // XXX we assume the kernel won't respond by notifying us of a different
+        // signal. We don't want to do this with signals blocked because that will
+        // save a bogus signal mask in the signal frame.
+        t.resume_execution(
+            ResumeRequest::ResumeSinglestep,
+            WaitRequest::ResumeWait,
+            TicksRequest::ResumeNoTicks,
+            Some(sig),
+        );
+        // Signal injection can change the sigmask due to sa_mask effects, lack of
+        // SA_NODEFER, and signal frame construction triggering a synchronous
+        // SIGSEGV.
+        t.invalidate_sigmask();
+        // Repeat injection if we got a desched signal. We observe in Linux 4.14.12
+        // that we get SYSCALLBUF_DESCHED_SIGNAL here once in a while.
+
+        if t.maybe_stop_sig() != desched_sig {
+            break;
+        }
+    }
+
+    if t.maybe_stop_sig() == sig::SIGSEGV {
+        // Constructing the signal handler frame must have failed. The kernel will
+        // kill the process after this. Stash the signal and make sure
+        // we know to treat it as fatal when we inject it. Also disable the
+        // signal handler to match what the kernel does.
+        t.did_set_sig_handler_default(sig::SIGSEGV);
+        t.stash_sig();
+        t.thread_group_mut().received_sigframe_sigsegv = true;
+        return false;
+    }
+
+    // We stepped into a user signal handler.
+    ed_assert_eq!(
+        t,
+        t.maybe_stop_sig(),
+        sig::SIGTRAP,
+        "Got unexpected status {}",
+        t.status()
+    );
+    ed_assert_eq!(
+        t,
+        t.get_signal_user_handler(sig),
+        Some(t.ip()),
+        "Expected handler IP {:?}, got {}; actual signal mask={} (cached {})",
+        t.get_signal_user_handler(sig),
+        t.ip(),
+        t.read_sigmask_from_process(),
+        t.get_sigmask(),
+    );
+
+    if t.signal_handler_takes_siginfo(sig) {
+        // The kernel copied siginfo into userspace so it can pass a pointer to
+        // the signal handler. Replace the contents of that siginfo with
+        // the exact data we want to deliver. (We called Task::set_siginfo
+        // above to set that data, but the kernel sanitizes the passed-in data
+        // which wipes out certain fields; e.g. we can't set SI_KERNEL in si_code.)
+        setup_sigframe_siginfo(t, t.ev().signal_event().siginfo);
+    }
+
+    // The kernel clears the FPU state on entering the signal handler, but prior
+    // to 4.7 or thereabouts ptrace can still return stale values. Fix that here.
+    // This also sets bit 0 of the XINUSE register to 1 to avoid issues where it
+    // get set to 1 nondeterministically.
+    let mut e = t.extra_regs_ref().clone();
+    e.reset();
+    t.set_extra_regs(&e);
+
+    true
+}
+
+fn setup_sigframe_siginfo(_t: &mut RecordTask, _siginfo: siginfo_t) {
     unimplemented!()
 }
 

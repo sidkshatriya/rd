@@ -2625,6 +2625,13 @@ fn is_unstoppable_signal(sig: Sig) -> bool {
 
 impl Drop for RecordTask {
     fn drop(&mut self) {
+        // DIFF NOTE: This is a bit different from rr
+        // The main issue is that record task related cleanup often requires session()
+        // When the parent session is being drop-ped upgrading the weak session
+        // shared pointer to a normal shared pointer does not succeed
+        //
+        // In normal situations this `if` statement wont trigger as a session will be
+        // available while a task is being drop-ed.
         if self.try_session().is_none() {
             log!(
                 LogWarn,
