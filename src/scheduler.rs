@@ -197,10 +197,10 @@ pub enum TicksHowMany {
     /// (fair amount of pointer chasing), that implies for a nominal 2GHz CPU
     /// 50,000 ticks per millisecond. We choose the default max ticks to give us
     /// 10ms timeslices, i.e. 500,000 ticks.
-    DefaultMaxTicks = 500000,
+    DefaultMaxTicks = 500_000,
 
     /// Don't allow max_ticks to get above this value.
-    MaxMaxTicks = 1000000000,
+    MaxMaxTicks = 1000_000_000,
 }
 
 /// Schedule a new runnable task (which may be the same as current()).
@@ -838,15 +838,24 @@ impl Scheduler {
         }
     }
 
-    fn get_next_task_with_same_priority(&self, _t: &RecordTask) {
-        unimplemented!()
-    }
-
     fn setup_new_timeslice(&mut self) {
-        let max_timeslice_duration = self.max_ticks_;
+        let mut max_timeslice_duration = self.max_ticks_;
 
         if self.enable_chaos {
-            unimplemented!()
+            // Hypothesis: some bugs require short timeslices to expose. But we don't
+            // want the average timeslice to be too small. So make 10% of timeslices
+            // very short, 10% short-ish, and the rest uniformly distributed between 0
+            // and |max_ticks_|.
+            let timeslice_kind_frac = random_frac();
+            if timeslice_kind_frac < VERY_SHORT_TIMESLICE_PROBABILITY {
+                max_timeslice_duration = VERY_SHORT_TIMESLICE_MAX_DURATION;
+            } else if timeslice_kind_frac
+                < VERY_SHORT_TIMESLICE_PROBABILITY + SHORT_TIMESLICE_PROBABILITY
+            {
+                max_timeslice_duration = SHORT_TIMESLICE_MAX_DURATION;
+            } else {
+                max_timeslice_duration = self.max_ticks_;
+            }
         }
 
         let tick_count = self.current().unwrap().borrow().tick_count();
@@ -1120,10 +1129,12 @@ impl Scheduler {
         if np < 0 {
             fatal!("Error while obtaining the number of CPUs");
         }
+
         let mut faked_num_cpus: u32 = np as u32;
         if faked_num_cpus < self.pretend_num_cores_ {
             faked_num_cpus = self.pretend_num_cores_;
         }
+
         let mut pretend_affinity_mask = CpuSet::new();
         // DIFF NOTE: rr swallows any error. We don't for now.
         pretend_affinity_mask.set(cpu as usize).unwrap();
@@ -1142,6 +1153,7 @@ impl Scheduler {
                 pretend_affinity_mask.set(other_cpus[i] as usize).unwrap();
             }
         }
+
         self.pretend_affinity_mask_ = pretend_affinity_mask;
     }
 }
