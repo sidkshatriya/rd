@@ -55,6 +55,7 @@ use crate::{
         is_restart_syscall_syscall,
         is_write_syscall,
         native_arch,
+        syscall_number_for_gettid,
         syscall_number_for_restart_syscall,
         SupportedArch,
     },
@@ -990,7 +991,7 @@ impl RecordSession {
                         "  traced syscall entered: {}",
                         syscall_name(syscallno, t.borrow().arch())
                     );
-                    handle_seccomp_traced_syscall(
+                    self.handle_seccomp_traced_syscall(
                         t.borrow_mut().as_rec_mut_unwrap(),
                         step_state,
                         result,
@@ -2128,6 +2129,97 @@ impl RecordSession {
             .task_set()
             .is_empty()
     }
+
+    fn handle_seccomp_traced_syscall(
+        &self,
+        t: &mut RecordTask,
+        step_state: &mut StepState,
+        result: &mut RecordResult,
+        did_enter_syscall: &mut bool,
+    ) {
+        *did_enter_syscall = false;
+        let syscallno = t.regs_ref().original_syscallno() as i32;
+        if syscallno < 0 {
+            // negative syscall numbers after a SECCOMP event
+            // are treated as "skip this syscall". There will be one syscall event
+            // reported instead of two. So fake an enter-syscall event now.
+            // It doesn't really matter what the syscall-arch is.
+            let arch = t.arch();
+            t.canonicalize_regs(arch);
+            if self.syscall_seccomp_ordering_.get()
+                == PtraceSyscallSeccompOrdering::SeccompBeforeSyscall
+            {
+                // If the ptrace entry stop hasn't happened yet, we're at a weird
+                // intermediate state where the behavior of the next PTRACE_SYSCALL
+                // will depend on the register state (i.e. whether we see an entry
+                // trap or proceed right to the exit trap). To make things easier
+                // on the rest of the system, do a fake syscall entry, then reset
+                // the register state.
+                let orig_regs: Registers = t.regs_ref().clone();
+                let mut r: Registers = orig_regs.clone();
+                r.set_original_syscallno(syscall_number_for_gettid(arch) as isize);
+                t.set_regs(&r);
+                t.resume_execution(
+                    ResumeRequest::ResumeSyscall,
+                    WaitRequest::ResumeWait,
+                    TicksRequest::ResumeNoTicks,
+                    None,
+                );
+                t.set_regs(&orig_regs);
+            }
+
+            // Don't continue yet. At the next iteration of record_step, we'll
+            // enter syscall_state_changed and that will trigger a continue to
+            // the syscall exit.
+            step_state.continue_type = ContinueType::DontContinue;
+            if !self.process_syscall_entry(t, step_state, result, arch) {
+                return;
+            }
+
+            *did_enter_syscall = true;
+            return;
+        }
+
+        if self.syscall_seccomp_ordering_.get()
+            == PtraceSyscallSeccompOrdering::SeccompBeforeSyscall
+        {
+            // The next continue needs to be a PTRACE_SYSCALL to observe
+            // the enter-syscall event.
+            step_state.continue_type = ContinueType::ContinueSyscall;
+        } else {
+            ed_assert_eq!(
+                t,
+                self.syscall_seccomp_ordering_.get(),
+                PtraceSyscallSeccompOrdering::SyscallBeforeSeccomp
+            );
+            if t.ev().is_syscall_event()
+                && t.ev().syscall_event().state == SyscallState::ProcessingSyscall
+            {
+                // We did PTRACE_SYSCALL and already saw a syscall trap. Just ignore this.
+                log!(
+                    LogDebug,
+                    "Ignoring SECCOMP syscall trap since we already got a PTRACE_SYSCALL trap"
+                );
+                // The next continue needs to be a PTRACE_SYSCALL to observe
+                // the exit-syscall event.
+                step_state.continue_type = ContinueType::ContinueSyscall;
+                // Need to restore last_task_switchable since it will have been
+                // reset to Switchable::PreventSwitch
+                self.last_task_switchable
+                    .set(t.ev().syscall_event().switchable);
+            } else {
+                // We've already passed the PTRACE_SYSCALL trap for syscall entry, so
+                // we need to handle that now.
+                let syscall_arch: SupportedArch = t.detect_syscall_arch();
+                t.canonicalize_regs(syscall_arch);
+                if !self.process_syscall_entry(t, step_state, result, syscall_arch) {
+                    step_state.continue_type = ContinueType::DontContinue;
+                    return;
+                }
+                *did_enter_syscall = true;
+            }
+        }
+    }
 }
 
 /// Get `t` into a state where resume_execution with a signal will actually work.
@@ -2659,17 +2751,30 @@ union USiginfo {
     linux_api: siginfo_t,
 }
 
-fn handle_seccomp_errno(_t: &mut RecordTask, _step_state: &mut StepState, _seccomp_data: u16) {
-    unimplemented!()
-}
+fn handle_seccomp_errno(t: &mut RecordTask, step_state: &mut StepState, seccomp_data: u16) {
+    let arch = t.detect_syscall_arch();
+    t.canonicalize_regs(arch);
 
-fn handle_seccomp_traced_syscall(
-    _t: &mut RecordTask,
-    _step_state: &mut StepState,
-    _result: &mut RecordResult,
-    _did_enter_syscall: &mut bool,
-) {
-    unimplemented!()
+    let mut r: Registers = t.regs_ref().clone();
+    let syscallno = r.original_syscallno() as i32;
+    // Cause kernel processing to skip the syscall
+    r.set_original_syscallno(SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO);
+    t.set_regs(&r);
+
+    if !t.is_in_untraced_syscall() {
+        t.push_syscall_event(syscallno);
+        // Note that the syscall failed. prepare_clone() needs to know
+        // this during replay of the syscall entry.
+        t.ev_mut().syscall_event_mut().failed_during_preparation = true;
+        note_entering_syscall(t);
+    }
+
+    r.set_syscall_result_signed(-(seccomp_data as isize));
+    t.set_regs(&r);
+    // Don't continue yet. At the next iteration of record_step, if we
+    // recorded the syscall-entry we'll enter syscall_state_changed and
+    // that will trigger a continue to the syscall exit.
+    step_state.continue_type = ContinueType::DontContinue;
 }
 
 fn handle_seccomp_trap(t: &mut RecordTask, step_state: &mut StepState, seccomp_data: u16) {
