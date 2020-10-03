@@ -2131,9 +2131,86 @@ impl RecordSession {
     }
 }
 
-/// Get t into a state where resume_execution with a signal will actually work.
-fn preinject_signal(_t: &mut RecordTask) -> bool {
-    unimplemented!()
+/// Get `t` into a state where resume_execution with a signal will actually work.
+fn preinject_signal(t: &mut RecordTask) -> bool {
+    let sig = Sig::try_from(t.ev().signal_event().siginfo.si_signo).unwrap();
+    let desched_sig = t.session().as_record().unwrap().syscallbuf_desched_sig();
+
+    // Signal injection is tricky. Per the ptrace(2) man page, injecting
+    // a signal while the task is not in a signal-stop is not guaranteed to work
+    // (and indeed, we see that the kernel sometimes ignores such signals).
+    // But some signals must be delayed until after the signal-stop thatSome( notified
+    // us of them.
+    // So, first we check if we're in a signal-stop that we can use to inject
+    // a signal. Some (all?) SIGTRAP stops are *not* usable for signal injection.
+    if t.maybe_stop_sig().is_sig() && t.maybe_stop_sig().unwrap_sig() != sig::SIGTRAP {
+        log!(LogDebug, "    in signal-stop for {}", t.maybe_stop_sig());
+    } else {
+        // We're not in a usable signal-stop. Force a signal-stop by sending
+        // a new signal with tgkill (as the ptrace(2) man page recommends).
+        log!(
+            LogDebug,
+            "    maybe not in signal-stop (status {}); doing tgkill(SYSCALLBUF_DESCHED_SIGNAL)",
+            t.status()
+        );
+
+        // Always send SYSCALLBUF_DESCHED_SIGNAL because other signals (except
+        // TIME_SLICE_SIGNAL) will be blocked by
+        // RecordTask::will_resume_execution().
+        t.tgkill(desched_sig);
+
+        // Now singlestep the task until we're in a signal-stop for the signal
+        // we've just sent. We must absorb and forget that signal here since we
+        // don't want it delivered to the task for real.
+        let old_ip = t.ip();
+        loop {
+            t.resume_execution(
+                ResumeRequest::ResumeSinglestep,
+                WaitRequest::ResumeWait,
+                TicksRequest::ResumeNoTicks,
+                None,
+            );
+
+            ed_assert_eq!(
+                t,
+                old_ip,
+                t.ip(),
+                "Singlestep actually advanced when we just expected a signal; was at {} now at {} with status {}",
+                old_ip,
+                t.ip(),
+                t.status()
+            );
+
+            // Ignore any pending TIME_SLICE_SIGNALs and continue until we get our
+            // SYSCALLBUF_DESCHED_SIGNAL.
+            if t.maybe_stop_sig().get_raw_repr() != Some(perf_counters::TIME_SLICE_SIGNAL) {
+                break;
+            }
+        }
+
+        if t.status().maybe_ptrace_event() == PTRACE_EVENT_EXIT {
+            // We raced with an exit (e.g. due to a pending SIGKILL)
+            return false;
+        }
+
+        ed_assert_eq!(
+            t,
+            t.maybe_stop_sig().get_raw_repr(),
+            Some(desched_sig),
+            "Expected SYSCALLBUF_DESCHED_SIGNAL, got {}",
+            t.status()
+        );
+
+        // We're now in a signal-stop
+    }
+
+    // Now that we're in a signal-stop, we can inject our signal and advance
+    // to the signal handler with one single-step.
+    log!(LogDebug, "    injecting signal {}", sig);
+    let si = t.ev().signal_event().siginfo;
+    t.set_siginfo(&si);
+
+    true
 }
 
 /// Returns true if the signal should be delivered.
