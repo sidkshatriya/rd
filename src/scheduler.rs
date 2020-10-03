@@ -148,7 +148,7 @@ pub struct Scheduler {
 
     /// The currently scheduled task. This may be `None` if the last scheduled
     /// task has been destroyed.
-    current_: Option<TaskSharedPtr>,
+    current_: Option<TaskSharedWeakPtr>,
     current_timeslice_end_: Ticks,
 
     /// At this time (or later) we should refresh these values.
@@ -332,7 +332,7 @@ impl Scheduler {
             self.last_reschedule_in_high_priority_only_interval =
                 self.in_high_priority_only_interval(maybe_now.unwrap());
 
-            match self.current().cloned() {
+            match self.current() {
                 Some(curr) => {
                     // Determine if we should run current_ again
                     let round_robin_task = self.get_round_robin_task();
@@ -395,7 +395,7 @@ impl Scheduler {
                     continue;
                 }
                 None => {
-                    let maybe_t = self.current().cloned();
+                    let maybe_t = self.current();
                     maybe_next = self.find_next_runnable_task(
                         maybe_t.as_ref(),
                         &mut result.by_waitpid,
@@ -491,13 +491,10 @@ impl Scheduler {
                     if -1 == tid {
                         if EINTR == errno() {
                             log!(LogDebug, "  waitpid(-1) interrupted");
-
+                            let curr = self.current().unwrap();
                             // @TODO If we were interruped then self.current_ must be Some()
                             // Is that a fair assumption??
-                            ed_assert!(
-                                &self.current().unwrap().borrow(),
-                                self.must_run_task.is_none()
-                            );
+                            ed_assert!(&curr.borrow(), self.must_run_task.is_none());
 
                             result.interrupted_by_signal = true;
 
@@ -550,7 +547,7 @@ impl Scheduler {
 
         let nt = maybe_next.unwrap();
         match self.current() {
-            Some(curr) if !Rc::ptr_eq(curr, &nt) => log!(
+            Some(curr) if !Rc::ptr_eq(&curr, &nt) => log!(
                 LogDebug,
                 "Switching from {}({:?}) to {}({:?}) (priority {} to {}) at {}",
                 curr.borrow().tid,
@@ -569,7 +566,7 @@ impl Scheduler {
         }
 
         self.maybe_reset_high_priority_only_intervals(maybe_now.unwrap());
-        self.current_ = Some(nt);
+        self.current_ = Some(Rc::downgrade(&nt));
         self.validate_scheduled_task();
         self.setup_new_timeslice();
         result.started_new_timeslice = true;
@@ -596,7 +593,7 @@ impl Scheduler {
             t.borrow().tid
         );
 
-        ed_assert!(&t.borrow(), Rc::ptr_eq(&self.current_.as_ref().unwrap(), t));
+        ed_assert!(&t.borrow(), Rc::ptr_eq(&self.current().unwrap(), t));
         self.maybe_pop_round_robin_task(t);
         ed_assert!(
             &t.borrow(),
@@ -642,12 +639,12 @@ impl Scheduler {
         unimplemented!()
     }
 
-    pub fn current(&self) -> Option<&TaskSharedPtr> {
-        self.current_.as_ref()
+    pub fn current(&self) -> Option<TaskSharedPtr> {
+        self.current_.as_ref().map(|p| p.upgrade().unwrap())
     }
 
-    pub fn set_current(&mut self, t: TaskSharedPtr) {
-        self.current_ = Some(t);
+    pub fn set_current(&mut self, maybe_t: Option<TaskSharedWeakPtr>) {
+        self.current_ = maybe_t;
     }
 
     pub fn current_timeslice_end(&self) -> Ticks {
@@ -1032,19 +1029,20 @@ impl Scheduler {
     }
 
     fn validate_scheduled_task(&self) {
+        let curr = self.current().unwrap();
         ed_assert!(
-            &self.current().unwrap().borrow(),
+            &curr.borrow(),
             self.must_run_task.is_none()
                 || Rc::ptr_eq(
                     &self.must_run_task.as_ref().unwrap().upgrade().unwrap(),
-                    &self.current().unwrap()
+                    &curr
                 )
         );
         ed_assert!(
-            &self.current().unwrap().borrow(),
+            &curr.borrow(),
             self.task_round_robin_queue.is_empty()
                 || Rc::ptr_eq(
-                    self.current_.as_ref().unwrap(),
+                    &curr,
                     &self
                         .task_round_robin_queue
                         .front()

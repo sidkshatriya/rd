@@ -71,7 +71,7 @@ use crate::{
         SECCOMP_RET_TRAP,
         SYS_SECCOMP,
     },
-    log::{LogDebug, LogError, LogWarn},
+    log::{LogDebug, LogError, LogInfo, LogWarn},
     perf_counters::{self, TicksSemantics},
     preload_interface::{
         syscallbuf_hdr,
@@ -601,7 +601,7 @@ impl RecordSession {
             return result;
         }
 
-        let maybe_prev_task = self.scheduler().current().cloned();
+        let maybe_prev_task = self.scheduler().current();
         let rescheduled = self
             .scheduler_mut()
             .reschedule(self.last_task_switchable.get());
@@ -614,7 +614,7 @@ impl RecordSession {
         }
 
         // @TODO This assumes that unwrap() will always succeed
-        let mut t = self.scheduler().current().cloned().unwrap();
+        let mut t = self.scheduler().current().unwrap();
         match maybe_prev_task {
             Some(prev_task)
                 if prev_task
@@ -1086,7 +1086,7 @@ impl RecordSession {
                     // Steal the exec'ing task and make it the thread-group leader, and
                     // carry on!
                     *t = self.revive_task_for_exec(tid);
-                    self.scheduler_mut().set_current(t.clone());
+                    self.scheduler_mut().set_current(Some(Rc::downgrade(&t)));
                     // Tell t that it is actually stopped, because the stop we got is really
                     // for this task, not the old dead task.
                     t.borrow_mut().did_waitpid(status);
@@ -1980,7 +1980,18 @@ impl RecordSession {
     /// Flush buffers and write a termination record to the trace. Don't call
     /// record_step() after this.
     pub fn terminate_recording(&self) {
-        unimplemented!()
+        match self.scheduler().current() {
+            Some(t) => {
+                t.borrow_mut().as_rec_mut_unwrap().maybe_flush_syscallbuf();
+            }
+            None => (),
+        }
+
+        log!(LogInfo, "Processing termination request ...");
+
+        // This will write unstable exit events for all tasks.
+        self.kill_all_tasks();
+        self.close_trace_writer(CloseStatus::CloseOk);
     }
 
     /// Close trace output without flushing syscall buffers or writing
