@@ -2628,6 +2628,14 @@ impl Drop for RecordTask {
         // Important !!
         task_drop_common(self);
 
+        if self.try_session().is_none() {
+            log!(
+                LogWarn,
+                "parent session is being drop-ped. Skipping various RecordTask related cleanups..."
+            );
+            return;
+        }
+
         match &self.emulated_ptracer {
             Some(weak_emulated_ptracer) => {
                 weak_emulated_ptracer

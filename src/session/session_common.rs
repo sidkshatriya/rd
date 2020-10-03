@@ -2,6 +2,7 @@ use crate::{
     bindings::ptrace::PTRACE_DETACH,
     kernel_abi::syscall_number_for_exit,
     log::LogDebug,
+    remote_code_ptr::RemoteCodePtr,
     remote_ptr::RemotePtr,
     session::{task::task_inner::PtraceData, Session},
     taskish_uid::{AddressSpaceUid, ThreadGroupUid},
@@ -47,7 +48,16 @@ pub(super) fn kill_all_tasks<S: Session>(sess: &S) {
         // but that leaves a runaway process if something happens to kill rd
         // after detaching but before we get a chance to SIGKILL the tracee.
         let mut r = t.borrow().regs_ref().clone();
-        r.set_ip(t.borrow().vm().privileged_traced_syscall_ip().unwrap());
+
+        // @TODO The privileged_traced_syscall_ip may not have been set yet
+        // so the best we can do here is set it to ip 0x0. Need to see what
+        // problems if any this may create in practice.
+        r.set_ip(
+            t.borrow()
+                .vm()
+                .privileged_traced_syscall_ip()
+                .unwrap_or(RemoteCodePtr::null()),
+        );
         r.set_syscallno(syscall_number_for_exit(r.arch()) as isize);
         r.set_arg1(0);
         t.borrow_mut().set_regs(&r);
