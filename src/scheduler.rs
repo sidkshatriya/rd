@@ -56,7 +56,6 @@ use crate::{
         SessionSharedWeakPtr,
     },
     sig,
-    taskish_uid::TaskUid,
     ticks::Ticks,
     util::monotonic_now_sec,
     wait_status::WaitStatus,
@@ -636,15 +635,14 @@ impl Scheduler {
     }
 
     ///  De-register a thread. This function should be called when a thread exits.
-    pub fn on_destroy_task(&mut self, tuid: TaskUid) {
-        let t = self.session().find_task_from_task_uid(tuid).unwrap();
-        match self.current() {
-            Some(curr) if Rc::ptr_eq(&curr, &t) => self.current_ = None,
+    pub fn on_destroy_task(&mut self, t: &mut RecordTask) {
+        let weak = t.weak_self_ptr();
+        match self.current_.as_ref() {
+            Some(curr) if curr.ptr_eq(&weak) => self.current_ = None,
             _ => (),
         }
 
-        let weak = Rc::downgrade(&t);
-        let in_rrq = t.borrow().as_rec_unwrap().in_round_robin_queue;
+        let in_rrq = t.in_round_robin_queue;
         if in_rrq {
             for (i, it) in self.task_round_robin_queue.iter().enumerate() {
                 if it.ptr_eq(&weak) {
@@ -654,7 +652,7 @@ impl Scheduler {
             }
         } else {
             self.task_priority_set
-                .remove(&PriorityPair(t.borrow().as_rec_unwrap().priority, weak));
+                .remove(&PriorityPair(t.priority, weak));
         }
     }
 

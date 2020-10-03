@@ -1,6 +1,7 @@
 use super::{
     task_common::{
         at_preload_init_common,
+        destroy,
         post_vm_clone_common,
         read_mem,
         read_val_mem,
@@ -558,6 +559,11 @@ impl DerefMut for RecordTask {
 }
 
 impl Task for RecordTask {
+    /// Forwarded method
+    fn destroy(&mut self, maybe_detach: Option<bool>) {
+        destroy(self, maybe_detach)
+    }
+
     fn log_pending_events(&self) {
         let depth = self.pending_events.len();
 

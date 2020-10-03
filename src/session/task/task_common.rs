@@ -26,6 +26,7 @@ use crate::{
         prctl::{ARCH_GET_FS, ARCH_GET_GS, ARCH_SET_FS, ARCH_SET_GS},
         ptrace::{
             PTRACE_ARCH_PRCTL,
+            PTRACE_DETACH,
             PTRACE_EVENT_EXIT,
             PTRACE_GETREGS,
             PTRACE_GETSIGINFO,
@@ -2004,9 +2005,6 @@ pub(super) fn task_drop_common<T: Task>(t: &T) {
         }
     }
 
-    // Session Rc may be getting drop()-ed so we may not have access to it
-    // via weak pointer
-    t.try_session().map(|sess| sess.on_destroy_task(t.tuid()));
     t.thread_group_shr_ptr()
         .borrow_mut()
         .task_set_mut()
@@ -2539,4 +2537,22 @@ fn perform_remote_clone_arch<Arch: Architecture>(
             tls.as_usize()
         ),
     }
+}
+
+/// Forwarded method
+///
+pub(super) fn destroy<T: Task>(t: &mut T, maybe_detach: Option<bool>) {
+    let detach = maybe_detach.unwrap_or(true);
+    if detach {
+        debug_assert!(t.session().tasks().get(&t.rec_tid).is_some());
+        log!(LogDebug, "task {} (rec:{}) is dying ...", t.tid, t.rec_tid);
+
+        t.fallible_ptrace(PTRACE_DETACH, RemotePtr::null(), PtraceData::None);
+    }
+
+    // DIFF NOTE: Call to on_destroy_task() happens in the destroy() method rather than in drop.
+    t.session().on_destroy_task(t);
+
+    // Removing the entry from the HashMap causes the drop() to happen
+    t.session().tasks_mut().remove(&t.rec_tid);
 }

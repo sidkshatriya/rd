@@ -53,8 +53,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
     fn as_session_inner_mut(&mut self) -> &mut SessionInner;
 
     /// DIFF NOTE: Simply called on_destroy() in rr.
-    /// Also takes a TaskUid instead of a &dyn Task
-    fn on_destroy_task(&self, _tuid: TaskUid) {
+    fn on_destroy_task(&self, _t: &mut dyn Task) {
         // DIFF NOTE: Don't need to remove task from task
         // map like in rr. This is done in kill_all_tasks() or
         // Task::destroy() already.

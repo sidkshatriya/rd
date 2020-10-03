@@ -101,7 +101,6 @@ use crate::{
         Session,
     },
     sig::{self, Sig},
-    taskish_uid::TaskUid,
     thread_group::ThreadGroupSharedPtr,
     ticks::Ticks,
     trace::{
@@ -2446,8 +2445,8 @@ impl Session for RecordSession {
         kill_all_tasks(self)
     }
 
-    fn on_destroy_task(&self, t: TaskUid) {
-        self.scheduler_mut().on_destroy_task(t)
+    fn on_destroy_task(&self, t: &mut dyn Task) {
+        self.scheduler_mut().on_destroy_task(t.as_rec_mut_unwrap())
     }
 
     fn as_session_inner(&self) -> &SessionInner {
