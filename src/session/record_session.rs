@@ -2446,8 +2446,8 @@ impl Session for RecordSession {
         kill_all_tasks(self)
     }
 
-    fn on_destroy_task(&self, _t: TaskUid) {
-        unimplemented!()
+    fn on_destroy_task(&self, t: TaskUid) {
+        self.scheduler_mut().on_destroy_task(t)
     }
 
     fn as_session_inner(&self) -> &SessionInner {
