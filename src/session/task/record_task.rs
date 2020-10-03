@@ -2625,14 +2625,13 @@ fn is_unstoppable_signal(sig: Sig) -> bool {
 
 impl Drop for RecordTask {
     fn drop(&mut self) {
-        // Important !!
-        task_drop_common(self);
-
         if self.try_session().is_none() {
             log!(
                 LogWarn,
-                "parent session is being drop-ped. Skipping various RecordTask related cleanups..."
+                "parent session is being drop-ped. Doing basic task cleanup but skipping various RecordTask specific cleanups."
             );
+
+            task_drop_common(self);
             return;
         }
 
@@ -2734,6 +2733,9 @@ impl Drop for RecordTask {
             );
             self.log_pending_events();
         }
+
+        // Important !!
+        task_drop_common(self);
     }
 }
 
