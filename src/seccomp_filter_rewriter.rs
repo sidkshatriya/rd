@@ -172,8 +172,8 @@ fn install_patched_seccomp_filter_arch<Arch: Architecture>(
         let code_ptr: RemotePtr<Void> = mem.get().unwrap();
 
         let data = unsafe {
-            slice::from_raw_parts_mut(
-                f.filters.as_mut_ptr() as *mut u8,
+            slice::from_raw_parts(
+                f.filters.as_ptr() as *const u8,
                 f.filters.len() * size_of::<sock_filter>(),
             )
         };

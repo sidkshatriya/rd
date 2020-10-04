@@ -49,7 +49,7 @@ assert_eq_align!(kernel::robust_list_head, robust_list_head<NativeArch>);
 #[derive(Copy, Clone, Default)]
 pub struct sock_fprog<Arch: Architecture> {
     pub len: u16,
-    pub _padding: Arch::STD_PAD_ARR,
+    pub _padding: Arch::FPROG_PAD_ARR,
     pub filter: Arch::ptr<sock_filter>,
 }
 
