@@ -1,6 +1,26 @@
-use std::collections::HashMap;
-
-use crate::session::task::record_task::RecordTask;
+use crate::{
+    arch::Architecture,
+    arch_structs::sock_fprog,
+    auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem},
+    bindings::kernel::{sock_filter, BPF_K, BPF_RET},
+    kernel_abi::is_seccomp_syscall,
+    kernel_supplement::{
+        SECCOMP_FILTER_FLAG_TSYNC,
+        SECCOMP_RET_ALLOW,
+        SECCOMP_RET_DATA,
+        SECCOMP_RET_TRACE,
+    },
+    remote_ptr::{RemotePtr, Void},
+    seccomp_bpf::SeccompFilter,
+    session::{
+        address_space::{address_space::AddressSpace, Privileged},
+        task::{
+            record_task::RecordTask,
+            task_common::{read_mem, read_val_mem, write_mem, write_val_mem},
+        },
+    },
+};
+use std::{collections::HashMap, convert::TryInto, mem::size_of, slice};
 
 /// When seccomp decides not to execute a syscall the kernel returns to userspace
 /// without modifying the registers. There is no negative return value to
@@ -22,7 +42,7 @@ pub const SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO: isize = -2;
 /// Start numbering custom data values from here. This avoids overlapping
 /// values that might be returned from a PTRACE_EVENT_EXIT, so we can
 /// distinguish unexpected exits from real results of PTRACE_GETEVENTMSG.
-pub const BASE_CUSTOM_DATA: usize = 0x100;
+pub const BASE_CUSTOM_DATA: u32 = 0x100;
 
 #[derive(Default)]
 pub struct SeccompFilterRewriter {
@@ -40,8 +60,15 @@ impl SeccompFilterRewriter {
     /// Assuming |t| is set up for a prctl or seccomp syscall that
     /// installs a seccomp-bpf filter, patch the filter to signal the tracer
     /// instead of silently delivering an errno, and install it.
-    pub fn install_patched_seccomp_filtert(&self, _t: &mut RecordTask) {
-        unimplemented!()
+    pub fn install_patched_seccomp_filter(&mut self, t: &mut RecordTask) {
+        let arch = t.arch();
+        rd_arch_function_selfless!(
+            install_patched_seccomp_filter_arch,
+            arch,
+            t,
+            &mut self.result_to_index,
+            &mut self.index_to_result
+        )
     }
 
     /// Returns false if the input value is not valid. In this case a
@@ -54,4 +81,130 @@ impl SeccompFilterRewriter {
     ) -> bool {
         unimplemented!()
     }
+}
+
+#[allow(non_snake_case)]
+const fn BPF_CLASS(code: u16) -> u32 {
+    code as u32 & 0x07
+}
+
+#[allow(non_snake_case)]
+const fn BPF_RVAL(code: u16) -> u32 {
+    code as u32 & 0x18
+}
+
+fn install_patched_seccomp_filter_arch<Arch: Architecture>(
+    t: &mut RecordTask,
+    result_to_index: &mut HashMap<u32, u16>,
+    index_to_result: &mut Vec<u32>,
+) {
+    // Take advantage of the fact that the filter program is arg3() in both
+    // prctl and seccomp syscalls.
+    let mut ok = true;
+    let child_addr = RemotePtr::<sock_fprog<Arch>>::from(t.regs_ref().arg3());
+    let mut prog = read_val_mem(t, child_addr, Some(&mut ok));
+    if !ok {
+        // We'll probably return EFAULT but a kernel that doesn't support
+        // seccomp(2) should return ENOSYS instead, so just run the original
+        // system call to get the correct error.
+        pass_through_seccomp_filter(t);
+        return;
+    }
+
+    // Assuming struct sock_filter is architecture independent
+    let mut code: Vec<sock_filter> = read_mem(
+        t,
+        Arch::as_rptr(prog.filter),
+        prog.len as usize,
+        Some(&mut ok),
+    );
+
+    if !ok {
+        pass_through_seccomp_filter(t);
+        return;
+    }
+    // Convert all returns to TRACE returns so that rr can handle them.
+    // See handle_ptrace_event in RecordSession.
+    for u in &mut code {
+        if BPF_CLASS(u.code) == BPF_RET {
+            ed_assert_eq!(
+                t,
+                BPF_RVAL(u.code),
+                BPF_K,
+                "seccomp-bpf program uses BPF_RET with A/X register, not supported"
+            );
+            if u.k != SECCOMP_RET_ALLOW {
+                if result_to_index.get(&u.k).is_none() {
+                    ed_assert!(
+                        t,
+                        BASE_CUSTOM_DATA as usize + index_to_result.len()
+                            < SECCOMP_RET_DATA as usize,
+                        "Too many distinct constants used in seccomp-bpf programs"
+                    );
+                    result_to_index.insert(u.k, index_to_result.len().try_into().unwrap());
+                    index_to_result.push(u.k);
+                }
+                u.k = (BASE_CUSTOM_DATA + result_to_index[&u.k] as u32) | SECCOMP_RET_TRACE;
+            }
+        }
+    }
+
+    let mut f = SeccompFilter::new();
+    for e in AddressSpace::rd_page_syscalls() {
+        if e.privileged == Privileged::Privileged {
+            let ip = AddressSpace::rd_page_syscall_exit_point(e.traced, e.privileged, e.enabled);
+            f.allow_syscalls_from_callsite(ip);
+        }
+    }
+    f.filters.extend_from_slice(&code);
+
+    let orig_syscallno = t.regs_ref().original_syscallno() as i32;
+    let arg2 = t.regs_ref().arg2();
+    let ret: isize;
+    {
+        let arg1 = t.regs_ref().arg1();
+        let mut remote = AutoRemoteSyscalls::new(t);
+        let mut mem = AutoRestoreMem::new(
+            &mut remote,
+            None,
+            size_of::<sock_fprog<Arch>>() + f.filters.len() * size_of::<sock_filter>(),
+        );
+        let code_ptr: RemotePtr<Void> = mem.get().unwrap();
+
+        let data = unsafe {
+            slice::from_raw_parts_mut(
+                f.filters.as_mut_ptr() as *mut u8,
+                f.filters.len() * size_of::<sock_filter>(),
+            )
+        };
+        write_mem(mem.task_mut(), RemotePtr::<u8>::cast(code_ptr), data, None);
+
+        prog.len = f.filters.len().try_into().unwrap();
+        prog.filter = Arch::from_remote_ptr(RemotePtr::cast(code_ptr));
+        let prog_ptr = RemotePtr::<sock_fprog<Arch>>::cast(code_ptr + f.filters.len());
+        write_val_mem(mem.task_mut(), prog_ptr, &prog, None);
+
+        ret = mem.syscall(orig_syscallno, &[arg1, arg2, prog_ptr.as_usize()]);
+    }
+
+    set_syscall_result(t, ret);
+
+    if !t.regs_ref().syscall_failed() {
+        t.prctl_seccomp_status = 2;
+        if is_seccomp_syscall(orig_syscallno, t.arch())
+            && (arg2 & SECCOMP_FILTER_FLAG_TSYNC as usize != 0)
+        {
+            for tt in t.thread_group().task_set().iter_except(t.weak_self_ptr()) {
+                tt.borrow_mut().as_rec_mut_unwrap().prctl_seccomp_status = 2;
+            }
+        }
+    }
+}
+
+fn set_syscall_result(_t: &mut RecordTask, _ret: isize) {
+    unimplemented!()
+}
+
+fn pass_through_seccomp_filter(_t: &mut RecordTask) {
+    unimplemented!()
 }

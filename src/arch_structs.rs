@@ -2,7 +2,7 @@
 
 use crate::{
     arch::{Architecture, NativeArch},
-    bindings::kernel,
+    bindings::{kernel, kernel::sock_filter},
 };
 
 pub struct robust_list<Arch: Architecture> {
@@ -44,3 +44,14 @@ impl<Arch: Architecture> Copy for robust_list_head<Arch> {}
 
 assert_eq_size!(kernel::robust_list_head, robust_list_head<NativeArch>);
 assert_eq_align!(kernel::robust_list_head, robust_list_head<NativeArch>);
+
+#[repr(C)]
+#[derive(Copy, Clone, Default)]
+pub struct sock_fprog<Arch: Architecture> {
+    pub len: u16,
+    pub _padding: Arch::STD_PAD_ARR,
+    pub filter: Arch::ptr<sock_filter>,
+}
+
+assert_eq_size!(kernel::sock_fprog, sock_fprog<NativeArch>);
+assert_eq_align!(kernel::sock_fprog, sock_fprog<NativeArch>);

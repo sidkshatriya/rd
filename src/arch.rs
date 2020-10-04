@@ -544,6 +544,7 @@ pub trait Architecture: 'static {
     const INVALID_SYSCALL_COUNT: i32;
     // End list from generate_syscalls.py. See above.
 
+    type STD_PAD_ARR: Default + Copy + 'static;
     type signed_short: Default + Copy + 'static;
     type unsigned_short: Default + Copy + 'static;
     type signed_word: Default + Copy + 'static;
@@ -1078,6 +1079,7 @@ impl Architecture for X86Arch {
     const INVALID_SYSCALL_COUNT: i32 = 17;
     // End list from generate_syscalls.py. See above.
 
+    type STD_PAD_ARR = [u8; 0];
     type signed_short = i16;
     type unsigned_short = u16;
     type signed_long = i32;
@@ -1641,6 +1643,7 @@ impl Architecture for X64Arch {
     const INVALID_SYSCALL_COUNT: i32 = 86;
     // End list from generate_syscalls.py. See above.
 
+    type STD_PAD_ARR = [u8; 4];
     type signed_short = i16;
     type unsigned_short = u16;
     type signed_long = i64;
