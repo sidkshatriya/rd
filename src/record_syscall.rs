@@ -5,14 +5,18 @@ use crate::{
     remote_ptr::{RemotePtr, Void},
     session::task::{
         record_task::RecordTask,
-        task_common::read_val_mem,
+        task_common::{read_val_mem, write_val_mem},
         Task,
         TaskSharedPtr,
         TaskSharedWeakPtr,
     },
     trace::trace_task_event::TraceTaskEvent,
 };
-use std::{cmp::min, convert::TryInto, mem::size_of};
+use std::{
+    cmp::{max, min},
+    convert::TryInto,
+    mem::size_of,
+};
 
 pub fn rec_prepare_syscall(_t: &RecordTask) -> Switchable {
     unimplemented!()
@@ -288,7 +292,7 @@ impl TaskSyscallState {
     /// and relocates it to the parameter's location in scratch memory.
     pub fn relocate_pointer_to_scratch(&self, ptr: RemotePtr<Void>) -> RemotePtr<Void> {
         let mut num_relocations: usize = 0;
-        let mut result: = RemotePtr::<Void>::null();
+        let mut result = RemotePtr::<Void>::null();
         for param in &self.param_list {
             if param.dest <= ptr && ptr < param.dest + param.num_bytes.incoming_size {
                 result = param.scratch + (ptr - param.dest);
@@ -394,6 +398,59 @@ impl From<usize> for ParamSize {
     }
 }
 
+impl ParamSize {
+    fn eval(&self, t: &mut dyn Task, already_consumed: usize) -> usize {
+        let mut s: usize = self.incoming_size;
+        if !self.mem_ptr.is_null() {
+            let mem_size: usize;
+            match self.read_size {
+                4 => {
+                    mem_size = read_val_mem(t, RemotePtr::<u32>::cast(self.mem_ptr), None) as usize
+                }
+                8 => {
+                    mem_size = read_val_mem(t, RemotePtr::<u64>::cast(self.mem_ptr), None)
+                        .try_into()
+                        .unwrap();
+                }
+                _ => {
+                    ed_assert!(t, false, "Unknown read_size");
+                    return 0;
+                }
+            }
+            ed_assert!(t, already_consumed <= mem_size);
+            s = min(s, mem_size - already_consumed);
+        }
+
+        if self.from_syscall {
+            let syscall_size: usize = max(0isize, t.regs_ref().syscall_result_signed()) as usize;
+            match self.read_size {
+                4 | 8 => (),
+                _ => {
+                    ed_assert!(t, false, "Unknown read_size");
+                    return 0;
+                }
+            }
+
+            ed_assert!(t, already_consumed <= syscall_size);
+            s = min(s, syscall_size - already_consumed);
+        }
+
+        s
+    }
+
+    /// Return true if 'other' takes its dynamic size from the same source as
+    /// this.
+    /// When multiple syscall memory parameters take their dynamic size from the
+    /// same source, the source size is distributed among them, with the first
+    /// registered parameter taking up to its max_size bytes, followed by the next,
+    /// etc. This lets us efficiently record iovec buffers.
+    fn is_same_source(&self, other: &ParamSize) -> bool {
+        ((!self.mem_ptr.is_null() && other.mem_ptr == self.mem_ptr)
+            || (self.from_syscall && other.from_syscall))
+            && (self.read_size == other.read_size)
+    }
+}
+
 /// Modes used to register syscall memory parameter with TaskSyscallState.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 enum ArgMode {
@@ -415,6 +472,25 @@ impl Default for ArgMode {
     fn default() -> Self {
         Self::Out
     }
+}
+
+fn set_remote_ptr_arch<Arch: Architecture>(
+    t: &mut dyn Task,
+    addr: RemotePtr<Void>,
+    value: RemotePtr<Void>,
+) {
+    let typed_addr = RemotePtr::<Arch::unsigned_word>::cast(addr);
+    write_val_mem(
+        t,
+        typed_addr,
+        &Arch::as_unsigned_word(value.as_usize()),
+        None,
+    );
+}
+
+fn set_remote_ptr(t: &mut dyn Task, addr: RemotePtr<Void>, value: RemotePtr<Void>) {
+    let arch = t.arch();
+    rd_arch_function_selfless!(set_remote_ptr_arch, arch, t, addr, value);
 }
 
 fn get_remote_ptr_arch<Arch: Architecture>(
