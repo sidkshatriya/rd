@@ -10,6 +10,7 @@ use crate::{
         SECCOMP_RET_DATA,
         SECCOMP_RET_TRACE,
     },
+    registers::Registers,
     remote_ptr::{RemotePtr, Void},
     seccomp_bpf::SeccompFilter,
     session::{
@@ -75,11 +76,21 @@ impl SeccompFilterRewriter {
     /// PTRACE_EVENT_EXIT probably got in the way.
     pub fn map_filter_data_to_real_result(
         &self,
-        _t: &mut RecordTask,
-        _value: u16,
-        _result: &mut u32,
+        t: &mut RecordTask,
+        value: u16,
+        result: &mut u32,
     ) -> bool {
-        unimplemented!()
+        if (value as u32) < BASE_CUSTOM_DATA {
+            return false;
+        }
+        ed_assert!(
+            t,
+            (value as usize) < (BASE_CUSTOM_DATA as usize) + self.index_to_result.len()
+        );
+
+        *result = self.index_to_result[value as usize - BASE_CUSTOM_DATA as usize];
+
+        true
     }
 }
 
@@ -158,7 +169,7 @@ fn install_patched_seccomp_filter_arch<Arch: Architecture>(
     }
     f.filters.extend_from_slice(&code);
 
-    let orig_syscallno = t.regs_ref().original_syscallno() as i32;
+    let orig_syscallno = t.regs_ref().original_syscallno().try_into().unwrap();
     let arg2 = t.regs_ref().arg2();
     let ret: isize;
     {
@@ -201,10 +212,22 @@ fn install_patched_seccomp_filter_arch<Arch: Architecture>(
     }
 }
 
-fn set_syscall_result(_t: &mut RecordTask, _ret: isize) {
-    unimplemented!()
+fn set_syscall_result(t: &mut RecordTask, ret: isize) {
+    let mut r: Registers = t.regs_ref().clone();
+    r.set_syscall_result_signed(ret);
+    t.set_regs(&r);
 }
 
-fn pass_through_seccomp_filter(_t: &mut RecordTask) {
-    unimplemented!()
+fn pass_through_seccomp_filter(t: &mut RecordTask) {
+    let ret: isize;
+    {
+        let arg1 = t.regs_ref().arg1();
+        let arg2 = t.regs_ref().arg2();
+        let arg3 = t.regs_ref().arg3();
+        let orig_syscallno: i32 = t.regs_ref().original_syscallno().try_into().unwrap();
+        let mut remote = AutoRemoteSyscalls::new(t);
+        ret = remote.syscall(orig_syscallno, &[arg1, arg2, arg3]);
+    }
+    set_syscall_result(t, ret);
+    ed_assert!(t, t.regs_ref().syscall_failed());
 }

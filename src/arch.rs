@@ -18,6 +18,7 @@ use crate::{
 use std::{
     convert::{TryFrom, TryInto},
     fmt::Debug,
+    mem::size_of,
     num::TryFromIntError,
     ops::Add,
 };
@@ -545,6 +546,8 @@ pub trait Architecture: 'static {
     // End list from generate_syscalls.py. See above.
 
     type FPROG_PAD_ARR: Default + Copy + 'static;
+    type STD_PAD_ARR: Default + Copy + 'static;
+
     type signed_short: Default + Copy + 'static;
     type unsigned_short: Default + Copy + 'static;
     type signed_word: Default + Copy + 'static;
@@ -1079,7 +1082,9 @@ impl Architecture for X86Arch {
     const INVALID_SYSCALL_COUNT: i32 = 17;
     // End list from generate_syscalls.py. See above.
 
-    type FPROG_PAD_ARR = [u8; 2];
+    type FPROG_PAD_ARR = [u8; size_of::<Self::ptr<Void>>() - size_of::<u16>()];
+    type STD_PAD_ARR = [u8; size_of::<Self::unsigned_long>() - size_of::<i32>()];
+
     type signed_short = i16;
     type unsigned_short = u16;
     type signed_long = i32;
@@ -1643,7 +1648,9 @@ impl Architecture for X64Arch {
     const INVALID_SYSCALL_COUNT: i32 = 86;
     // End list from generate_syscalls.py. See above.
 
-    type FPROG_PAD_ARR = [u8; 6];
+    type FPROG_PAD_ARR = [u8; size_of::<Self::ptr<Void>>() - size_of::<u16>()];
+    type STD_PAD_ARR = [u8; size_of::<Self::unsigned_long>() - size_of::<i32>()];
+
     type signed_short = i16;
     type unsigned_short = u16;
     type signed_long = i64;
