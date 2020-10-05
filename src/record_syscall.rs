@@ -12,7 +12,7 @@ use crate::{
     },
     trace::trace_task_event::TraceTaskEvent,
 };
-use std::convert::TryInto;
+use std::{cmp::min, convert::TryInto, mem::size_of};
 
 pub fn rec_prepare_syscall(_t: &RecordTask) -> Switchable {
     unimplemented!()
@@ -129,11 +129,17 @@ impl TaskSyscallState {
     /// or null if parameters have already been prepared (the syscall is
     /// resuming).
     pub fn reg_parameter<T>(
-        _arg: i32,
-        _maybe_mode: Option<ArgMode>,
-        _maybe_mutator: Option<ArgMutator>,
+        &mut self,
+        arg: i32,
+        maybe_mode: Option<ArgMode>,
+        maybe_mutator: Option<ArgMutator>,
     ) -> RemotePtr<T> {
-        unimplemented!()
+        RemotePtr::<T>::cast(self.reg_parameter_with_size(
+            arg,
+            ParamSize::from(size_of::<T>()),
+            maybe_mode,
+            maybe_mutator,
+        ))
     }
 
     /// Identify a syscall memory parameter whose address is in register 'arg'
@@ -142,12 +148,42 @@ impl TaskSyscallState {
     /// or null if parameters have already been prepared (the syscall is
     /// resuming).
     pub fn reg_parameter_with_size(
-        _arg: i32,
-        _size: &ParamSize,
-        _maybe_mode: Option<ArgMode>,
-        _maybe_mutator: Option<ArgMutator>,
+        &mut self,
+        arg: i32,
+        param_size: ParamSize,
+        maybe_mode: Option<ArgMode>,
+        maybe_mutator: Option<ArgMutator>,
     ) -> RemotePtr<Void> {
-        unimplemented!()
+        let mode = maybe_mode.unwrap_or(ArgMode::Out);
+        if self.preparation_done {
+            return RemotePtr::null();
+        }
+
+        let mut param = MemoryParam::default();
+        let dest = RemotePtr::from(self.syscall_entry_registers.arg(arg));
+        if dest.is_null() {
+            return RemotePtr::null();
+        }
+        param.dest = dest;
+        param.num_bytes = param_size;
+        param.mode = mode;
+        param.maybe_mutator = maybe_mutator;
+        {
+            let t = self.task();
+            ed_assert!(
+                &t.borrow(),
+                param.maybe_mutator.is_none() || mode == ArgMode::In
+            );
+        }
+        if mode != ArgMode::InOutNoScratch {
+            param.scratch = self.scratch;
+            self.scratch += param.num_bytes.incoming_size;
+            align_scratch(&mut self.scratch, None);
+            param.ptr_in_reg = arg;
+        }
+        self.param_list.push(param);
+
+        dest
     }
 
     /// Identify a syscall memory parameter whose address is in memory at
@@ -158,11 +194,17 @@ impl TaskSyscallState {
     /// addr_of_buf_ptr must be in a buffer identified by some init_..._parameter
     /// call.
     pub fn mem_ptr_parameter<T>(
-        _addr_of_buf_ptr: RemotePtr<Void>,
-        _maybe_mode: Option<ArgMode>,
-        _maybe_mutator: Option<ArgMutator>,
+        &mut self,
+        addr_of_buf_ptr: RemotePtr<Void>,
+        maybe_mode: Option<ArgMode>,
+        maybe_mutator: Option<ArgMutator>,
     ) -> RemotePtr<T> {
-        unimplemented!()
+        RemotePtr::<T>::cast(self.mem_ptr_parameter_with_size(
+            addr_of_buf_ptr,
+            ParamSize::from(size_of::<T>()),
+            maybe_mode,
+            maybe_mutator,
+        ))
     }
 
     /// Identify a syscall memory parameter whose address is in memory at
@@ -173,11 +215,17 @@ impl TaskSyscallState {
     /// addr_of_buf_ptr must be in a buffer identified by some init_..._parameter
     /// call.
     pub fn mem_ptr_parameter_inferred<Arch: Architecture, T>(
-        _addr_of_buf_ptr: RemotePtr<Arch::ptr<T>>,
-        _maybe_mode: Option<ArgMode>,
-        _maybe_mutator: Option<ArgMutator>,
+        &mut self,
+        addr_of_buf_ptr: RemotePtr<Arch::ptr<T>>,
+        maybe_mode: Option<ArgMode>,
+        maybe_mutator: Option<ArgMutator>,
     ) -> RemotePtr<T> {
-        unimplemented!()
+        RemotePtr::<T>::cast(self.mem_ptr_parameter_with_size(
+            RemotePtr::<Void>::cast(addr_of_buf_ptr),
+            ParamSize::from(size_of::<T>()),
+            maybe_mode,
+            maybe_mutator,
+        ))
     }
 
     /// Identify a syscall memory parameter whose address is in memory at
@@ -190,7 +238,7 @@ impl TaskSyscallState {
     pub fn mem_ptr_parameter_with_size(
         &mut self,
         addr_of_buf_ptr: RemotePtr<Void>,
-        size: ParamSize,
+        param_size: ParamSize,
         maybe_mode: Option<ArgMode>,
         maybe_mutator: Option<ArgMutator>,
     ) -> RemotePtr<Void> {
@@ -206,7 +254,7 @@ impl TaskSyscallState {
             return RemotePtr::null();
         }
         param.dest = dest;
-        param.num_bytes = size;
+        param.num_bytes = param_size;
         param.mode = mode;
         param.maybe_mutator = maybe_mutator;
         ed_assert!(
@@ -224,18 +272,41 @@ impl TaskSyscallState {
         dest
     }
 
-    pub fn after_syscall_action(_action: AfterSyscallAction) {
-        unimplemented!()
+    pub fn after_syscall_action(&mut self, action: AfterSyscallAction) {
+        self.after_syscall_actions.push(action)
     }
 
-    pub fn emulate_result(_result: u64) {
-        unimplemented!()
+    pub fn emulate_result(&mut self, result: u64) {
+        let t = self.task();
+        ed_assert!(&t.borrow(), !self.preparation_done);
+        ed_assert!(&t.borrow(), !self.should_emulate_result);
+        self.should_emulate_result = true;
+        self.emulated_result = result;
     }
 
     /// Internal method that takes 'ptr', an address within some memory parameter,
     /// and relocates it to the parameter's location in scratch memory.
-    pub fn relocate_pointer_to_scratch(_ptr: RemotePtr<Void>) -> RemotePtr<Void> {
-        unimplemented!()
+    pub fn relocate_pointer_to_scratch(&self, ptr: RemotePtr<Void>) -> RemotePtr<Void> {
+        let mut num_relocations: usize = 0;
+        let mut result: = RemotePtr::<Void>::null();
+        for param in &self.param_list {
+            if param.dest <= ptr && ptr < param.dest + param.num_bytes.incoming_size {
+                result = param.scratch + (ptr - param.dest);
+                num_relocations += 1;
+            }
+        }
+        // DIFF NOTE: These are debug_asserts in rr
+        assert!(
+            num_relocations > 0,
+            "Pointer in non-scratch memory being updated to point to scratch?"
+        );
+
+        assert!(
+            num_relocations <= 1,
+            "Overlapping buffers containing relocated pointer?"
+        );
+
+        result
     }
 
     /// Internal method that takes the index of a MemoryParam and a vector
@@ -310,6 +381,17 @@ struct ParamSize {
     read_size: usize,
     /// If true, the size is limited by the value of the syscall result. */
     from_syscall: bool,
+}
+
+impl From<usize> for ParamSize {
+    fn from(siz: usize) -> Self {
+        ParamSize {
+            incoming_size: min(i32::MAX as usize, siz),
+            mem_ptr: 0usize.into(),
+            read_size: 0,
+            from_syscall: false,
+        }
+    }
 }
 
 /// Modes used to register syscall memory parameter with TaskSyscallState.
