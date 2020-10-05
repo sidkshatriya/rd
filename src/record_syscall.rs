@@ -381,9 +381,9 @@ struct ParamSize {
     /// If non-null, the size is limited by the value at this location after
     /// the syscall.
     mem_ptr: RemotePtr<Void>,
-    /// Size of the value at mem_ptr or in the syscall result register. */
+    /// Size of the value at mem_ptr or in the syscall result register.
     read_size: usize,
-    /// If true, the size is limited by the value of the syscall result. */
+    /// If true, the size is limited by the value of the syscall result.
     from_syscall: bool,
 }
 
@@ -399,6 +399,66 @@ impl From<usize> for ParamSize {
 }
 
 impl ParamSize {
+    /// p points to a tracee location that is already initialized with a
+    /// "maximum buffer size" passed in by the tracee, and which will be filled
+    /// in with the size of the data by the kernel when the syscall exits.
+    pub fn from_initialized_mem<T>(t: &mut dyn Task, p: RemotePtr<T>) -> ParamSize {
+        let mut r = ParamSize::from(if p.is_null() {
+            0
+        } else {
+            match size_of::<T>() {
+                4 => read_val_mem(t, RemotePtr::<u32>::cast(p), None) as usize,
+                8 => read_val_mem(t, RemotePtr::<u64>::cast(p), None)
+                    .try_into()
+                    .unwrap(),
+                _ => {
+                    ed_assert!(t, false, "Unknown read_size");
+                    0
+                }
+            }
+        });
+        r.mem_ptr = RemotePtr::cast(p);
+        r.read_size = size_of::<T>();
+
+        r
+    }
+
+    /// p points to a tracee location which will be filled in with the size of
+    /// the data by the kernel when the syscall exits, but the location
+    /// is uninitialized before the syscall.
+    pub fn from_mem<T>(p: RemotePtr<T>) -> ParamSize {
+        let mut r = ParamSize::default();
+        r.mem_ptr = RemotePtr::cast(p);
+        r.read_size = size_of::<T>();
+
+        r
+    }
+
+    /// When the syscall exits, the syscall result will be of type T and contain
+    /// the size of the data. 'incoming_size', if present, is a bound on the size
+    /// of the data.
+    pub fn from_syscall_result<T>() -> ParamSize {
+        let mut r = ParamSize::default();
+        r.from_syscall = true;
+        r.read_size = size_of::<T>();
+        r
+    }
+
+    pub fn from_syscall_result_with_incoming_size<T>(incoming_size: usize) -> ParamSize {
+        let mut r = ParamSize::from(incoming_size);
+        r.from_syscall = true;
+        r.read_size = size_of::<T>();
+        r
+    }
+
+    /// Indicate that the size will be at most 'max'.
+    pub fn limit_size(&self, max: usize) -> ParamSize {
+        let mut r = self.clone();
+        r.incoming_size = min(r.incoming_size, max);
+
+        r
+    }
+
     fn eval(&self, t: &mut dyn Task, already_consumed: usize) -> usize {
         let mut s: usize = self.incoming_size;
         if !self.mem_ptr.is_null() {
