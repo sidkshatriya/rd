@@ -3,9 +3,10 @@ use crate::{
     event::Switchable,
     registers::Registers,
     remote_ptr::{RemotePtr, Void},
-    session::task::{record_task::RecordTask, TaskSharedWeakPtr},
+    session::task::{record_task::RecordTask, task_common::read_val_mem, TaskSharedWeakPtr},
     trace::trace_task_event::TraceTaskEvent,
 };
+use std::convert::TryInto;
 
 pub fn rec_prepare_syscall(_t: &RecordTask) -> Switchable {
     unimplemented!()
@@ -292,4 +293,23 @@ impl Default for ArgMode {
     fn default() -> Self {
         Self::Out
     }
+}
+
+fn get_remote_ptr_arch<Arch: Architecture>(
+    t: &mut RecordTask,
+    addr: RemotePtr<Void>,
+) -> RemotePtr<Void> {
+    let typed_addr = RemotePtr::<Arch::unsigned_word>::cast(addr);
+    let old = read_val_mem(t, typed_addr, None);
+    RemotePtr::from(old.try_into().unwrap())
+}
+
+fn get_remote_ptr(t: &mut RecordTask, addr: RemotePtr<Void>) -> RemotePtr<Void> {
+    let arch = t.arch();
+    rd_arch_function_selfless!(get_remote_ptr_arch, arch, t, addr)
+}
+
+fn align_scratch(scratch: &mut RemotePtr<Void>, maybe_amount: Option<usize>) {
+    let amount = maybe_amount.unwrap_or(8);
+    *scratch = RemotePtr::from((scratch.as_usize() + amount - 1) & !(amount - 1));
 }
