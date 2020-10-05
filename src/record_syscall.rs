@@ -3,7 +3,13 @@ use crate::{
     event::Switchable,
     registers::Registers,
     remote_ptr::{RemotePtr, Void},
-    session::task::{record_task::RecordTask, task_common::read_val_mem, TaskSharedWeakPtr},
+    session::task::{
+        record_task::RecordTask,
+        task_common::read_val_mem,
+        Task,
+        TaskSharedPtr,
+        TaskSharedWeakPtr,
+    },
     trace::trace_task_event::TraceTaskEvent,
 };
 use std::convert::TryInto;
@@ -109,6 +115,10 @@ struct TaskSyscallState {
 }
 
 impl TaskSyscallState {
+    fn task(&self) -> TaskSharedPtr {
+        self.t.upgrade().unwrap()
+    }
+
     pub fn init(_t: &RecordTask) {
         unimplemented!()
     }
@@ -178,12 +188,40 @@ impl TaskSyscallState {
     /// addr_of_buf_ptr must be in a buffer identified by some init_..._parameter
     /// call.
     pub fn mem_ptr_parameter_with_size(
-        _addr_of_buf_ptr: RemotePtr<Void>,
-        _size: &ParamSize,
-        _maybe_mode: Option<ArgMode>,
-        _maybe_mutator: Option<ArgMutator>,
+        &mut self,
+        addr_of_buf_ptr: RemotePtr<Void>,
+        size: ParamSize,
+        maybe_mode: Option<ArgMode>,
+        maybe_mutator: Option<ArgMutator>,
     ) -> RemotePtr<Void> {
-        unimplemented!()
+        let mode = maybe_mode.unwrap_or(ArgMode::Out);
+        if self.preparation_done || addr_of_buf_ptr.is_null() {
+            return RemotePtr::null();
+        }
+
+        let mut param = MemoryParam::default();
+        let t = self.task();
+        let dest = get_remote_ptr(t.borrow_mut().as_mut(), addr_of_buf_ptr);
+        if dest.is_null() {
+            return RemotePtr::null();
+        }
+        param.dest = dest;
+        param.num_bytes = size;
+        param.mode = mode;
+        param.maybe_mutator = maybe_mutator;
+        ed_assert!(
+            &t.borrow(),
+            param.maybe_mutator.is_none() || mode == ArgMode::In
+        );
+        if mode != ArgMode::InOutNoScratch {
+            param.scratch = self.scratch;
+            self.scratch += param.num_bytes.incoming_size;
+            align_scratch(&mut self.scratch, None);
+            param.ptr_in_memory = addr_of_buf_ptr;
+        }
+        self.param_list.push(param);
+
+        dest
     }
 
     pub fn after_syscall_action(_action: AfterSyscallAction) {
@@ -239,6 +277,7 @@ impl TaskSyscallState {
 /// remote_dest. If ptr_in_reg is greater than zero, updates the task's
 /// ptr_in_reg register with 'remote_dest'. If ptr_in_memory is non-null,
 /// updates the ptr_in_memory location with the value 'remote_dest'.
+#[derive(Default)]
 struct MemoryParam {
     dest: RemotePtr<Void>,
     scratch: RemotePtr<Void>,
@@ -246,7 +285,7 @@ struct MemoryParam {
     ptr_in_memory: RemotePtr<Void>,
     ptr_in_reg: i32,
     mode: ArgMode,
-    mutator: Option<ArgMutator>,
+    maybe_mutator: Option<ArgMutator>,
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -261,6 +300,7 @@ enum WriteBack {
 /// with an optional final size taken from the syscall result or a specific
 /// memory location after the syscall has executed. The minimum of the incoming
 /// and final sizes is used, if both are present.
+#[derive(Default, Copy, Clone)]
 struct ParamSize {
     incoming_size: usize,
     /// If non-null, the size is limited by the value at this location after
@@ -296,7 +336,7 @@ impl Default for ArgMode {
 }
 
 fn get_remote_ptr_arch<Arch: Architecture>(
-    t: &mut RecordTask,
+    t: &mut dyn Task,
     addr: RemotePtr<Void>,
 ) -> RemotePtr<Void> {
     let typed_addr = RemotePtr::<Arch::unsigned_word>::cast(addr);
@@ -304,7 +344,7 @@ fn get_remote_ptr_arch<Arch: Architecture>(
     RemotePtr::from(old.try_into().unwrap())
 }
 
-fn get_remote_ptr(t: &mut RecordTask, addr: RemotePtr<Void>) -> RemotePtr<Void> {
+fn get_remote_ptr(t: &mut dyn Task, addr: RemotePtr<Void>) -> RemotePtr<Void> {
     let arch = t.arch();
     rd_arch_function_selfless!(get_remote_ptr_arch, arch, t, addr)
 }
