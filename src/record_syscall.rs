@@ -1,4 +1,5 @@
 use crate::{
+    arch::Architecture,
     event::Switchable,
     registers::Registers,
     remote_ptr::{RemotePtr, Void},
@@ -106,6 +107,131 @@ struct TaskSyscallState {
     saved_data: Vec<u8>,
 }
 
+impl TaskSyscallState {
+    pub fn init(_t: &RecordTask) {
+        unimplemented!()
+    }
+
+    /// Identify a syscall memory parameter whose address is in register 'arg'
+    /// with type T.
+    /// Returns a RemotePtr to the data in the child (before scratch relocation)
+    /// or null if parameters have already been prepared (the syscall is
+    /// resuming).
+    pub fn reg_parameter<T>(
+        _arg: i32,
+        _maybe_mode: Option<ArgMode>,
+        _maybe_mutator: Option<ArgMutator>,
+    ) -> RemotePtr<T> {
+        unimplemented!()
+    }
+
+    /// Identify a syscall memory parameter whose address is in register 'arg'
+    /// with size 'size'.
+    /// Returns a RemotePtr to the data in the child (before scratch relocation)
+    /// or null if parameters have already been prepared (the syscall is
+    /// resuming).
+    pub fn reg_parameter_with_size(
+        _arg: i32,
+        _size: &ParamSize,
+        _maybe_mode: Option<ArgMode>,
+        _maybe_mutator: Option<ArgMutator>,
+    ) -> RemotePtr<Void> {
+        unimplemented!()
+    }
+
+    /// Identify a syscall memory parameter whose address is in memory at
+    /// location 'addr_of_buf_ptr' with type T.
+    /// Returns a RemotePtr to the data in the child (before scratch relocation)
+    /// or null if parameters have already been prepared (the syscall is
+    /// resuming).
+    /// addr_of_buf_ptr must be in a buffer identified by some init_..._parameter
+    /// call.
+    pub fn mem_ptr_parameter<T>(
+        _addr_of_buf_ptr: RemotePtr<Void>,
+        _maybe_mode: Option<ArgMode>,
+        _maybe_mutator: Option<ArgMutator>,
+    ) -> RemotePtr<T> {
+        unimplemented!()
+    }
+
+    /// Identify a syscall memory parameter whose address is in memory at
+    /// location 'addr_of_buf_ptr' with type T.
+    /// Returns a RemotePtr to the data in the child (before scratch relocation)
+    /// or null if parameters have already been prepared (the syscall is
+    /// resuming).
+    /// addr_of_buf_ptr must be in a buffer identified by some init_..._parameter
+    /// call.
+    pub fn mem_ptr_parameter_inferred<Arch: Architecture, T>(
+        _addr_of_buf_ptr: RemotePtr<Arch::ptr<T>>,
+        _maybe_mode: Option<ArgMode>,
+        _maybe_mutator: Option<ArgMutator>,
+    ) -> RemotePtr<T> {
+        unimplemented!()
+    }
+
+    /// Identify a syscall memory parameter whose address is in memory at
+    /// location 'addr_of_buf_ptr' with size 'size'.
+    /// Returns a RemotePtr to the data in the child (before scratch relocation)
+    /// or null if parameters have already been prepared (the syscall is
+    /// resuming).
+    /// addr_of_buf_ptr must be in a buffer identified by some init_..._parameter
+    /// call.
+    pub fn mem_ptr_parameter_with_size(
+        _addr_of_buf_ptr: RemotePtr<Void>,
+        _size: &ParamSize,
+        _maybe_mode: Option<ArgMode>,
+        _maybe_mutator: Option<ArgMutator>,
+    ) -> RemotePtr<Void> {
+        unimplemented!()
+    }
+
+    pub fn after_syscall_action(_action: AfterSyscallAction) {
+        unimplemented!()
+    }
+
+    pub fn emulate_result(_result: u64) {
+        unimplemented!()
+    }
+
+    /// Internal method that takes 'ptr', an address within some memory parameter,
+    /// and relocates it to the parameter's location in scratch memory.
+    pub fn relocate_pointer_to_scratch(_ptr: RemotePtr<Void>) -> RemotePtr<Void> {
+        unimplemented!()
+    }
+
+    /// Internal method that takes the index of a MemoryParam and a vector
+    /// containing the actual sizes assigned to each param < param_index, and
+    /// computes the actual size to use for parameter param_index.
+    pub fn eval_param_size(_param_index: usize, _actual_sizes: &[usize]) -> usize {
+        unimplemented!()
+    }
+
+    /// Called when all memory parameters have been identified. If 'sw' is
+    /// Switchable::AllowSwitch, sets up scratch memory and updates registers etc as
+    /// necessary.
+    /// If scratch can't be used for some reason, returns Switchable::PreventSwitch,
+    /// otherwise returns 'sw'.
+    pub fn done_preparing(_sw: Switchable) -> Switchable {
+        unimplemented!()
+    }
+
+    pub fn done_preparing_internal(_sw: Switchable) -> Switchable {
+        unimplemented!()
+    }
+
+    /// Called when a syscall exits to copy results from scratch memory to their
+    /// original destinations, update registers, etc.
+    pub fn process_syscall_results() {
+        unimplemented!()
+    }
+
+    /// Called when a syscall has been completely aborted to undo any changes we
+    /// made.
+    pub fn abort_syscall_results() {
+        unimplemented!()
+    }
+}
+
 /// Upon successful syscall completion, each RestoreAndRecordScratch record
 /// in param_list consumes num_bytes from the t->scratch_ptr
 /// buffer, copying the data to remote_dest and recording the data at
@@ -119,7 +245,7 @@ struct MemoryParam {
     ptr_in_memory: RemotePtr<Void>,
     ptr_in_reg: i32,
     mode: ArgMode,
-    mutator: ArgMutator,
+    mutator: Option<ArgMutator>,
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -160,4 +286,10 @@ enum ArgMode {
     /// Syscall memory parameter is an in-out parameter but we must not use
     /// scratch (e.g. for futexes, we must use the actual memory word).
     InOutNoScratch,
+}
+
+impl Default for ArgMode {
+    fn default() -> Self {
+        Self::Out
+    }
 }
