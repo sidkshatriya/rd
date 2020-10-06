@@ -46,7 +46,7 @@ use std::{
 /// block and PreventSwitch otherwise.
 /// Note that even if a system call uses PreventSwitch, as soon as we've
 /// recorded the completion of the system call, we can switch to another task.
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Switchable {
     PreventSwitch,
     AllowSwitch,

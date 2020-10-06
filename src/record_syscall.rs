@@ -16,6 +16,7 @@ use std::{
     cmp::{max, min},
     convert::TryInto,
     mem::size_of,
+    ptr,
 };
 
 pub fn rec_prepare_syscall(_t: &RecordTask) -> Switchable {
@@ -31,7 +32,7 @@ pub fn rec_process_syscall(_t: &RecordTask) {
 }
 
 type AfterSyscallAction = Box<dyn Fn(&RecordTask) -> ()>;
-type ArgMutator = Box<dyn Fn(&RecordTask, RemotePtr<Void>, *const u8) -> ()>;
+type ArgMutator = Box<dyn Fn(&RecordTask, RemotePtr<Void>, *mut u8) -> bool>;
 
 /// When tasks enter syscalls that may block and so must be
 /// prepared for a context-switch, and the syscall params
@@ -377,11 +378,50 @@ impl TaskSyscallState {
     /// necessary.
     /// If scratch can't be used for some reason, returns Switchable::PreventSwitch,
     /// otherwise returns 'sw'.
-    pub fn done_preparing(_sw: Switchable) -> Switchable {
-        unimplemented!()
+    pub fn done_preparing(&mut self, mut sw: Switchable) -> Switchable {
+        if self.preparation_done {
+            return self.switchable;
+        }
+
+        let t = self.task();
+        sw = self.done_preparing_internal(sw);
+        ed_assert_eq!(&t.borrow(), sw, self.switchable);
+
+        // Step 3: Execute mutators. This must run even if the scratch steps do not.
+        for param in &mut self.param_list {
+            if param.maybe_mutator.is_some() {
+                // Mutated parameters must be IN. If we have scratch space, we don't need
+                // to save anything.
+                let mut saved_data_loc: *mut u8 = ptr::null_mut();
+                if !self.scratch_enabled {
+                    let prev_size = self.saved_data.len();
+                    self.saved_data
+                        .resize(prev_size + param.num_bytes.incoming_size, 0);
+                    saved_data_loc = unsafe { self.saved_data.as_mut_ptr().add(prev_size) };
+                }
+                if !param.maybe_mutator.as_ref().unwrap()(
+                    t.borrow().as_rec_unwrap(),
+                    if self.scratch_enabled {
+                        param.scratch
+                    } else {
+                        param.dest
+                    },
+                    saved_data_loc,
+                ) {
+                    // Nothing was modified, no need to clean up when we unwind.
+                    param.maybe_mutator = None;
+                    if !self.scratch_enabled {
+                        self.saved_data
+                            .resize(self.saved_data.len() - param.num_bytes.incoming_size, 0);
+                    }
+                }
+            }
+        }
+
+        self.switchable
     }
 
-    pub fn done_preparing_internal(_sw: Switchable) -> Switchable {
+    pub fn done_preparing_internal(&self, _sw: Switchable) -> Switchable {
         unimplemented!()
     }
 
@@ -460,7 +500,12 @@ impl TaskSyscallState {
                 if param.maybe_mutator.is_some() {
                     let size: usize = param.num_bytes.incoming_size;
                     ed_assert!(&t.borrow(), self.saved_data.len() >= size);
-                    write_mem(t.borrow_mut().as_mut(), param.dest, &self.saved_data, None);
+                    write_mem(
+                        t.borrow_mut().as_mut(),
+                        param.dest,
+                        &self.saved_data[0..size],
+                        None,
+                    );
                     self.saved_data.drain(0..size);
                 }
             }
@@ -488,8 +533,37 @@ impl TaskSyscallState {
 
     /// Called when a syscall has been completely aborted to undo any changes we
     /// made.
-    pub fn abort_syscall_results() {
-        unimplemented!()
+    pub fn abort_syscall_results(&mut self) {
+        let t = self.task();
+        ed_assert!(&t.borrow(), self.preparation_done);
+
+        if self.scratch_enabled {
+            let mut r: Registers = t.borrow().regs_ref().clone();
+            // restore modified in-memory pointers and registers
+            for param in &self.param_list {
+                if param.ptr_in_reg != 0 {
+                    r.set_arg(param.ptr_in_reg, param.dest.as_usize());
+                }
+                if !param.ptr_in_memory.is_null() {
+                    set_remote_ptr(t.borrow_mut().as_mut(), param.ptr_in_memory, param.dest);
+                }
+            }
+            t.borrow_mut().set_regs(&r);
+        } else {
+            for param in &self.param_list {
+                if param.maybe_mutator.is_some() {
+                    let size: usize = param.num_bytes.incoming_size;
+                    ed_assert!(&t.borrow(), self.saved_data.len() >= size);
+                    write_mem(
+                        t.borrow_mut().as_mut(),
+                        param.dest,
+                        &self.saved_data[0..size],
+                        None,
+                    );
+                    self.saved_data.drain(0..size);
+                }
+            }
+        }
     }
 }
 
