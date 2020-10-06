@@ -5,7 +5,7 @@ use crate::{
     remote_ptr::{RemotePtr, Void},
     session::task::{
         record_task::RecordTask,
-        task_common::{read_val_mem, write_val_mem},
+        task_common::{read_mem, read_val_mem, write_mem, write_val_mem},
         Task,
         TaskSharedPtr,
         TaskSharedWeakPtr,
@@ -36,9 +36,9 @@ type ArgMutator = Box<dyn Fn(&RecordTask, RemotePtr<Void>, *const u8) -> ()>;
 /// When tasks enter syscalls that may block and so must be
 /// prepared for a context-switch, and the syscall params
 /// include (in)outparams that point to buffers, we need to
-/// redirect those arguments to scratch memory.  This allows rr
+/// redirect those arguments to scratch memory.  This allows rd
 /// to serialize execution of what may be multiple blocked
-/// syscalls completing "simultaneously" (from rr's
+/// syscalls completing "simultaneously" (from rd's
 /// perspective).  After the syscall exits, we restore the data
 /// saved in scratch memory to the original buffers.
 ///
@@ -79,9 +79,10 @@ struct TaskSyscallState {
 
     after_syscall_actions: Vec<AfterSyscallAction>,
 
-    exec_saved_event: Box<TraceTaskEvent>,
-
-    emulate_wait_for_child: TaskSharedWeakPtr,
+    /// DIFF NOTE: Made into an Option<>
+    exec_saved_event: Option<Box<TraceTaskEvent>>,
+    /// DIFF NOTE: Made into an Option<>
+    emulate_wait_for_child: Option<TaskSharedWeakPtr>,
 
     /// Saved syscall-entry registers, used by code paths that modify the
     /// registers temporarily.
@@ -95,7 +96,8 @@ struct TaskSyscallState {
     /// When should_emulate_result is true, syscall result should be adjusted to
     /// be emulated_result.
     should_emulate_result: bool,
-    emulated_result: u64,
+    /// DIFF NOTE: In rr this is a u64
+    emulated_result: usize,
 
     /// Records whether the syscall is switchable. Only valid when
     /// preparation_done is true.
@@ -114,7 +116,7 @@ struct TaskSyscallState {
     /// Only valid when preparation_done is true.
     scratch_enabled: bool,
 
-    /// Miscellaneous saved data that can be used by particular syscalls */
+    /// Miscellaneous saved data that can be used by particular syscalls
     saved_data: Vec<u8>,
 }
 
@@ -123,8 +125,36 @@ impl TaskSyscallState {
         self.t.upgrade().unwrap()
     }
 
-    pub fn init(_t: &RecordTask) {
-        unimplemented!()
+    // DIFF NOTE: Unlike rr, you need to specify `t` right from the beginning
+    pub fn new(t: TaskSharedWeakPtr) -> Self {
+        Self {
+            t,
+            param_list: Default::default(),
+            scratch: Default::default(),
+            after_syscall_actions: Default::default(),
+            exec_saved_event: Default::default(),
+            emulate_wait_for_child: Default::default(),
+            syscall_entry_registers: Default::default(),
+            expect_errno: 0,
+            should_emulate_result: false,
+            emulated_result: 0,
+            // Arbitrarily chosen
+            switchable: Switchable::PreventSwitch,
+            // Arbitrarily chosen
+            write_back: WriteBack::NoWriteBack,
+            preparation_done: false,
+            scratch_enabled: false,
+            saved_data: Default::default(),
+        }
+    }
+
+    /// DIFF NOTE: Unlike rr does not take the task as function parameter
+    pub fn init(&mut self) {
+        if self.preparation_done {
+            return;
+        }
+
+        self.scratch = self.task().borrow().scratch_ptr;
     }
 
     /// Identify a syscall memory parameter whose address is in register 'arg'
@@ -134,7 +164,7 @@ impl TaskSyscallState {
     /// resuming).
     pub fn reg_parameter<T>(
         &mut self,
-        arg: i32,
+        arg: usize,
         maybe_mode: Option<ArgMode>,
         maybe_mutator: Option<ArgMutator>,
     ) -> RemotePtr<T> {
@@ -153,7 +183,7 @@ impl TaskSyscallState {
     /// resuming).
     pub fn reg_parameter_with_size(
         &mut self,
-        arg: i32,
+        arg: usize,
         param_size: ParamSize,
         maybe_mode: Option<ArgMode>,
         maybe_mutator: Option<ArgMutator>,
@@ -168,6 +198,7 @@ impl TaskSyscallState {
         if dest.is_null() {
             return RemotePtr::null();
         }
+
         param.dest = dest;
         param.num_bytes = param_size;
         param.mode = mode;
@@ -179,12 +210,14 @@ impl TaskSyscallState {
                 param.maybe_mutator.is_none() || mode == ArgMode::In
             );
         }
+
         if mode != ArgMode::InOutNoScratch {
             param.scratch = self.scratch;
             self.scratch += param.num_bytes.incoming_size;
             align_scratch(&mut self.scratch, None);
             param.ptr_in_reg = arg;
         }
+
         self.param_list.push(param);
 
         dest
@@ -257,6 +290,7 @@ impl TaskSyscallState {
         if dest.is_null() {
             return RemotePtr::null();
         }
+
         param.dest = dest;
         param.num_bytes = param_size;
         param.mode = mode;
@@ -280,7 +314,7 @@ impl TaskSyscallState {
         self.after_syscall_actions.push(action)
     }
 
-    pub fn emulate_result(&mut self, result: u64) {
+    pub fn emulate_result(&mut self, result: usize) {
         let t = self.task();
         ed_assert!(&t.borrow(), !self.preparation_done);
         ed_assert!(&t.borrow(), !self.should_emulate_result);
@@ -314,10 +348,28 @@ impl TaskSyscallState {
     }
 
     /// Internal method that takes the index of a MemoryParam and a vector
-    /// containing the actual sizes assigned to each param < param_index, and
+    /// containing the actual sizes assigned to each param < i, and
     /// computes the actual size to use for parameter param_index.
-    pub fn eval_param_size(_param_index: usize, _actual_sizes: &[usize]) -> usize {
-        unimplemented!()
+    fn eval_param_size(&self, i: usize, actual_sizes: &mut Vec<usize>) -> usize {
+        assert_eq!(actual_sizes.len(), i);
+
+        let mut already_consumed: usize = 0;
+        for j in 0usize..i {
+            if self.param_list[j]
+                .num_bytes
+                .is_same_source(&self.param_list[i].num_bytes)
+            {
+                already_consumed += actual_sizes[j];
+            }
+        }
+
+        let size: usize = self.param_list[i]
+            .num_bytes
+            .eval(self.task().borrow_mut().as_mut(), already_consumed);
+
+        actual_sizes.push(size);
+
+        size
     }
 
     /// Called when all memory parameters have been identified. If 'sw' is
@@ -335,8 +387,103 @@ impl TaskSyscallState {
 
     /// Called when a syscall exits to copy results from scratch memory to their
     /// original destinations, update registers, etc.
-    pub fn process_syscall_results() {
-        unimplemented!()
+    pub fn process_syscall_results(&mut self) {
+        let t = self.task();
+        ed_assert!(&t.borrow(), self.preparation_done);
+
+        // XXX what's the best way to handle failed syscalls? Currently we just
+        // record everything as if it succeeded. That handles failed syscalls that
+        // wrote partial results, but doesn't handle syscalls that failed with
+        // EFAULT.
+        let mut actual_sizes: Vec<usize> = Vec::new();
+        if self.scratch_enabled {
+            let scratch_num_bytes: usize = self.scratch - t.borrow().scratch_ptr;
+            let child_addr = RemotePtr::<u8>::cast(t.borrow().scratch_ptr);
+            let data = read_mem(t.borrow_mut().as_mut(), child_addr, scratch_num_bytes, None);
+            let mut r: Registers = t.borrow().regs_ref().clone();
+            // Step 1: compute actual sizes of all buffers and copy outputs
+            // from scratch back to their origin
+            for (i, param) in self.param_list.iter().enumerate() {
+                let size: usize = self.eval_param_size(i, &mut actual_sizes);
+                if self.write_back == WriteBack::WriteBack
+                    && (param.mode == ArgMode::InOut || param.mode == ArgMode::Out)
+                {
+                    let offset = param.scratch.as_usize() - t.borrow().scratch_ptr.as_usize();
+                    let d = &data[offset..offset + size];
+                    write_mem(t.borrow_mut().as_mut(), param.dest, d, None);
+                }
+            }
+
+            let mut memory_cleaned_up: bool = false;
+            // Step 2: restore modified in-memory pointers and registers
+            for param in &self.param_list {
+                if param.ptr_in_reg > 0 {
+                    r.set_arg(param.ptr_in_reg, param.dest.as_usize());
+                }
+                if !param.ptr_in_memory.is_null() {
+                    memory_cleaned_up = true;
+                    set_remote_ptr(t.borrow_mut().as_mut(), param.ptr_in_memory, param.dest);
+                }
+            }
+            if self.write_back == WriteBack::WriteBack {
+                // Step 3: record all output memory areas
+                for (i, param) in self.param_list.iter().enumerate() {
+                    let size: usize = actual_sizes[i];
+                    if param.mode == ArgMode::InOutNoScratch {
+                        t.borrow_mut()
+                            .as_rec_mut_unwrap()
+                            .record_remote(param.dest, size);
+                    } else if param.mode == ArgMode::InOut || param.mode == ArgMode::Out {
+                        // If pointers in memory were fixed up in step 2, then record
+                        // from tracee memory to ensure we record such fixes. Otherwise we
+                        // can record from our local data.
+                        // XXX This optimization can be improved if necessary...
+                        if memory_cleaned_up {
+                            t.borrow_mut()
+                                .as_rec_mut_unwrap()
+                                .record_remote(param.dest, size);
+                        } else {
+                            let offset =
+                                param.scratch.as_usize() - t.borrow().scratch_ptr.as_usize();
+                            let d = &data[offset..offset + size];
+                            t.borrow_mut()
+                                .as_rec_mut_unwrap()
+                                .record_local(param.dest, d);
+                        }
+                    }
+                }
+            }
+            t.borrow_mut().set_regs(&r);
+        } else {
+            // Step 1: restore all mutated memory
+            for param in &self.param_list {
+                if param.maybe_mutator.is_some() {
+                    let size: usize = param.num_bytes.incoming_size;
+                    ed_assert!(&t.borrow(), self.saved_data.len() >= size);
+                    write_mem(t.borrow_mut().as_mut(), param.dest, &self.saved_data, None);
+                    self.saved_data.drain(0..size);
+                }
+            }
+
+            ed_assert!(&t.borrow(), self.saved_data.is_empty());
+            // Step 2: record all output memory areas
+            for (i, param) in self.param_list.iter().enumerate() {
+                let size: usize = self.eval_param_size(i, &mut actual_sizes);
+                t.borrow_mut()
+                    .as_rec_mut_unwrap()
+                    .record_remote(param.dest, size);
+            }
+        }
+
+        if self.should_emulate_result {
+            let mut r: Registers = t.borrow().regs_ref().clone();
+            r.set_syscall_result(self.emulated_result);
+            t.borrow_mut().set_regs(&r);
+        }
+
+        for action in &self.after_syscall_actions {
+            action(t.borrow().as_rec_unwrap());
+        }
     }
 
     /// Called when a syscall has been completely aborted to undo any changes we
@@ -358,7 +505,8 @@ struct MemoryParam {
     scratch: RemotePtr<Void>,
     num_bytes: ParamSize,
     ptr_in_memory: RemotePtr<Void>,
-    ptr_in_reg: i32,
+    /// DIFF NOTE: This is an i32 in rr
+    ptr_in_reg: usize,
     mode: ArgMode,
     maybe_mutator: Option<ArgMutator>,
 }
@@ -477,19 +625,24 @@ impl ParamSize {
                     return 0;
                 }
             }
+
             ed_assert!(t, already_consumed <= mem_size);
             s = min(s, mem_size - already_consumed);
         }
 
         if self.from_syscall {
-            let syscall_size: usize = max(0isize, t.regs_ref().syscall_result_signed()) as usize;
-            match self.read_size {
-                4 | 8 => (),
+            let mut syscall_size: usize =
+                max(0isize, t.regs_ref().syscall_result_signed()) as usize;
+            syscall_size = match self.read_size {
+                // @TODO Is this what we want?
+                4 => syscall_size as u32 as usize,
+                // @TODO Is this what we want?
+                8 => syscall_size as u64 as usize,
                 _ => {
                     ed_assert!(t, false, "Unknown read_size");
                     return 0;
                 }
-            }
+            };
 
             ed_assert!(t, already_consumed <= syscall_size);
             s = min(s, syscall_size - already_consumed);

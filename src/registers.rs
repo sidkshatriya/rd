@@ -771,7 +771,8 @@ impl Registers {
         rd_set_reg!(self, ebp, r9, value.as_usize());
     }
 
-    pub fn arg(&self, index: i32) -> usize {
+    /// NOTE: Arg count starts from 1 and NOT 0
+    pub fn arg(&self, index: usize) -> usize {
         match index {
             1 => self.arg1(),
             2 => self.arg2(),
@@ -787,6 +788,7 @@ impl Registers {
         }
     }
 
+    /// NOTE: Arg count starts from 1 and NOT 0
     pub fn set_arg(&mut self, index: usize, value: usize) {
         match index {
             1 => self.set_arg1(value),
@@ -802,6 +804,7 @@ impl Registers {
         }
     }
 
+    /// NOTE: Arg count starts from 1 and NOT 0
     pub fn set_arg_from_remote_ptr<T>(&mut self, index: i32, value: RemotePtr<T>) {
         match index {
             1 => self.set_arg1_from_remote_ptr(value),
