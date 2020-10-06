@@ -1,6 +1,7 @@
 use crate::{
     arch::Architecture,
     event::Switchable,
+    log::LogWarn,
     registers::Registers,
     remote_ptr::{RemotePtr, Void},
     session::task::{
@@ -16,7 +17,6 @@ use std::{
     cmp::{max, min},
     convert::TryInto,
     mem::size_of,
-    ptr,
 };
 
 pub fn rec_prepare_syscall(_t: &RecordTask) -> Switchable {
@@ -31,8 +31,8 @@ pub fn rec_process_syscall(_t: &RecordTask) {
     unimplemented!()
 }
 
-type AfterSyscallAction = Box<dyn Fn(&RecordTask) -> ()>;
-type ArgMutator = Box<dyn Fn(&RecordTask, RemotePtr<Void>, *mut u8) -> bool>;
+type AfterSyscallAction = Box<dyn Fn(&mut RecordTask) -> ()>;
+type ArgMutator = Box<dyn Fn(&mut RecordTask, RemotePtr<Void>, Option<&mut [u8]>) -> bool>;
 
 /// When tasks enter syscalls that may block and so must be
 /// prepared for a context-switch, and the syscall params
@@ -392,15 +392,17 @@ impl TaskSyscallState {
             if param.maybe_mutator.is_some() {
                 // Mutated parameters must be IN. If we have scratch space, we don't need
                 // to save anything.
-                let mut saved_data_loc: *mut u8 = ptr::null_mut();
+                let mut saved_data_loc: Option<&mut [u8]> = None;
                 if !self.scratch_enabled {
                     let prev_size = self.saved_data.len();
                     self.saved_data
                         .resize(prev_size + param.num_bytes.incoming_size, 0);
-                    saved_data_loc = unsafe { self.saved_data.as_mut_ptr().add(prev_size) };
+                    saved_data_loc = Some(
+                        &mut self.saved_data[prev_size..prev_size + param.num_bytes.incoming_size],
+                    );
                 }
                 if !param.maybe_mutator.as_ref().unwrap()(
-                    t.borrow().as_rec_unwrap(),
+                    t.borrow_mut().as_rec_mut_unwrap(),
                     if self.scratch_enabled {
                         param.scratch
                     } else {
@@ -421,8 +423,84 @@ impl TaskSyscallState {
         self.switchable
     }
 
-    pub fn done_preparing_internal(&self, _sw: Switchable) -> Switchable {
-        unimplemented!()
+    pub fn done_preparing_internal(&mut self, sw: Switchable) -> Switchable {
+        let t = self.task();
+        ed_assert!(&t.borrow(), !self.preparation_done);
+
+        self.preparation_done = true;
+        self.write_back = WriteBack::WriteBack;
+        self.switchable = sw;
+
+        if t.borrow().scratch_ptr.is_null() {
+            return self.switchable;
+        }
+
+        ed_assert!(&t.borrow(), self.scratch >= t.borrow().scratch_ptr);
+
+        if sw == Switchable::AllowSwitch
+            && self.scratch > t.borrow().scratch_ptr + t.borrow().usable_scratch_size()
+        {
+            log!(LogWarn,
+         "`{}' needed a scratch buffer of size {}, but only {} was available.  Disabling context switching: deadlock may follow.",
+             t.borrow().as_rec_unwrap().ev().syscall_event().syscall_name(),
+        self.scratch.as_usize() - t.borrow().scratch_ptr.as_usize(),
+        t.borrow().usable_scratch_size());
+
+            self.switchable = Switchable::PreventSwitch;
+        }
+        if self.switchable == Switchable::PreventSwitch || self.param_list.is_empty() {
+            return self.switchable;
+        }
+
+        self.scratch_enabled = true;
+
+        // Step 1: Copy all IN/IN_OUT parameters to their scratch areas
+        for param in &self.param_list {
+            if param.mode == ArgMode::InOut || param.mode == ArgMode::In {
+                // Initialize scratch buffer with input data
+                let buf = read_mem(
+                    t.borrow_mut().as_mut(),
+                    param.dest,
+                    param.num_bytes.incoming_size,
+                    None,
+                );
+                write_mem(t.borrow_mut().as_mut(), param.scratch, &buf, None);
+            }
+        }
+        // Step 2: Update pointers in registers/memory to point to scratch areas
+        {
+            let mut r: Registers = t.borrow().regs_ref().clone();
+            let mut to_adjust = Vec::<(usize, RemotePtr<Void>)>::new();
+            for (i, param) in self.param_list.iter().enumerate() {
+                if param.ptr_in_reg != 0 {
+                    r.set_arg(param.ptr_in_reg, param.scratch.as_usize());
+                }
+                if !param.ptr_in_memory.is_null() {
+                    // Pointers being relocated must themselves be in scratch memory.
+                    // We don't want to modify non-scratch memory. Find the pointer's
+                    // location
+                    // in scratch memory.
+                    let p = self.relocate_pointer_to_scratch(param.ptr_in_memory);
+                    // Update pointer to point to scratch.
+                    // Note that this can only happen after step 1 is complete and all
+                    // parameter data has been copied to scratch memory.
+                    set_remote_ptr(t.borrow_mut().as_mut(), p, param.scratch);
+                }
+                // If the number of bytes to record is coming from a memory location,
+                // update that location to scratch.
+                if !param.num_bytes.mem_ptr.is_null() {
+                    to_adjust.push((i, self.relocate_pointer_to_scratch(param.num_bytes.mem_ptr)));
+                }
+            }
+
+            for (i, rptr) in to_adjust {
+                self.param_list[i].num_bytes.mem_ptr = rptr;
+            }
+
+            t.borrow_mut().set_regs(&r);
+        }
+
+        self.switchable
     }
 
     /// Called when a syscall exits to copy results from scratch memory to their
@@ -527,7 +605,7 @@ impl TaskSyscallState {
         }
 
         for action in &self.after_syscall_actions {
-            action(t.borrow().as_rec_unwrap());
+            action(t.borrow_mut().as_rec_mut_unwrap());
         }
     }
 
