@@ -38,6 +38,7 @@ use crate::{
     kernel_abi::SupportedArch,
     kernel_metadata::{errno_name, is_sigreturn, syscall_name},
     log::{LogDebug, LogWarn},
+    monitored_shared_memory::MonitoredSharedMemory,
     preload_interface::syscallbuf_record,
     registers::{with_converted_registers, Registers},
     remote_ptr::{RemotePtr, Void},
@@ -292,8 +293,38 @@ pub fn rec_prepare_restart_syscall(_t: &RecordTask) {
     unimplemented!()
 }
 
-pub fn rec_process_syscall(_t: &RecordTask) {
-    unimplemented!()
+pub fn rec_process_syscall(t: &mut RecordTask) {
+    let sys_ev_arch = t.ev().syscall_event().arch();
+    let sys_ev_number = t.ev().syscall_event().number;
+    if sys_ev_arch != t.arch() {
+        // @TODO Make this static
+        let mut did_warn = false;
+        if !did_warn {
+            log!(
+                LogWarn,
+                "Cross architecture syscall detected. Support is best effort"
+            );
+            did_warn = true;
+        }
+    }
+    rec_process_syscall_internal(t, sys_ev_arch);
+    t.syscall_state_unwrap()
+        .borrow_mut()
+        .process_syscall_results(t);
+    let regs = t.regs_ref().clone();
+    t.on_syscall_exit(sys_ev_number, sys_ev_arch, &regs);
+    t.syscall_state = None;
+
+    // @TODO Uncomment
+    // MonitoredSharedMemory::check_all(t);
+}
+
+/// N.B.: `arch` is the the architecture of the syscall, which may be different
+///         from the architecture of the call (e.g. x86_64 may invoke x86 syscalls)
+///
+/// DIFF NOTE: Does not have param syscall_state as that can be obtained from t
+pub fn rec_process_syscall_internal(t: &mut RecordTask, arch: SupportedArch) {
+    rd_arch_function_selfless!(rec_process_syscall_arch, arch, t)
 }
 
 /// DIFF NOTE: Don't need syscall_state param as we can get it from param t
