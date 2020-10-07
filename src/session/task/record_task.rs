@@ -72,6 +72,7 @@ use crate::{
     },
     rd::RD_RESERVED_ROOT_DIR_FD,
     record_signal::{disarm_desched_event, SIGCHLD_SYNTHETIC},
+    record_syscall::TaskSyscallState,
     registers::{with_converted_registers, Registers},
     remote_code_ptr::RemoteCodePtr,
     remote_ptr::{RemotePtr, Void},
@@ -542,6 +543,11 @@ pub struct RecordTask {
     pub next_pmc_interrupt_is_for_user: bool,
 
     pub did_record_robust_futex_changes: bool,
+
+    /// DIFF NOTE: This field does not exist in rr
+    /// Since the property system is not used intensively in rr its
+    /// simpler just to add this single field instead.
+    pub syscall_state: Option<TaskSyscallState>,
 }
 
 impl Deref for RecordTask {
@@ -864,7 +870,9 @@ impl RecordTask {
             robust_futex_list: Default::default(),
             tid_futex: Default::default(),
             pending_events: Default::default(),
+            syscall_state: Default::default(),
         };
+
         rt.push_event(Event::sentinel());
         if session.tasks().is_empty() {
             // Initial tracee. It inherited its state from this process, so set it up.

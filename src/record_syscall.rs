@@ -1,9 +1,12 @@
 use crate::{
     arch::Architecture,
     event::Switchable,
-    log::LogWarn,
-    registers::Registers,
+    kernel_abi::SupportedArch,
+    kernel_metadata::{is_sigreturn, syscall_name},
+    log::{LogDebug, LogWarn},
+    registers::{with_converted_registers, Registers},
     remote_ptr::{RemotePtr, Void},
+    seccomp_filter_rewriter::SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO,
     session::task::{
         record_task::RecordTask,
         task_common::{read_mem, read_val_mem, write_mem, write_val_mem},
@@ -13,14 +16,100 @@ use crate::{
     },
     trace::trace_task_event::TraceTaskEvent,
 };
+use libc::ENOSYS;
 use std::{
     cmp::{max, min},
     convert::TryInto,
     mem::size_of,
 };
 
-pub fn rec_prepare_syscall(_t: &RecordTask) -> Switchable {
-    unimplemented!()
+/// Prepare |t| to enter its current syscall event.  Return ALLOW_SWITCH if
+/// a context-switch is allowed for |t|, PREVENT_SWITCH if not.
+pub fn rec_prepare_syscall(t: &mut RecordTask) -> Switchable {
+    if t.syscall_state.is_none() {
+        let mut new_ts = TaskSyscallState::new(t.weak_self_ptr());
+        new_ts.init();
+        t.syscall_state = Some(new_ts);
+    }
+
+    let s = rec_prepare_syscall_internal(t);
+    let syscallno = t.ev().syscall_event().number;
+    if is_sigreturn(syscallno, t.ev().syscall_event().arch()) {
+        // There isn't going to be an exit event for this syscall, so remove
+        // syscall_state now.
+        t.syscall_state = None;
+        return s;
+    }
+
+    t.syscall_state.as_mut().unwrap().done_preparing(s)
+}
+
+/// DIFF NOTE: Does not take separate TaskSyscallState param
+/// as that can be gotten from t directly
+fn rec_prepare_syscall_internal(t: &mut RecordTask) -> Switchable {
+    let arch: SupportedArch = t.ev().syscall_event().arch();
+    let regs = t.regs_ref().clone();
+    with_converted_registers(&regs, arch, |converted_regs| {
+        rd_arch_function_selfless!(rec_prepare_syscall_arch, arch, t, converted_regs)
+    })
+}
+
+/// DIFF NOTE: Does not take separate TaskSyscallState param
+/// as that can be gotten from t directly
+fn rec_prepare_syscall_arch<Arch: Architecture>(
+    t: &mut RecordTask,
+    regs: &Registers,
+) -> Switchable {
+    let syscallno = t.ev().syscall_event().number;
+
+    if t.regs_ref().original_syscallno() == SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO {
+        // rd vetoed this syscall. Don't do any pre-processing.
+        return Switchable::PreventSwitch;
+    }
+
+    t.syscall_state.as_mut().unwrap().syscall_entry_registers = regs.clone();
+
+    if !t.desched_rec().is_null() {
+        // |t| was descheduled while in a buffered syscall.  We normally don't
+        // use scratch memory for the call, because the syscallbuf itself
+        // is serving that purpose. More importantly, we *can't* set up
+        // scratch for |t|, because it's already in the syscall. Instead, we will
+        // record the syscallbuf memory in rec_process_syscall_arch.
+        //
+        // However there is one case where we use scratch memory: when
+        // sys_read's block-cloning path is interrupted. In that case, record
+        // the scratch memory.
+        if syscallno == Arch::READ && regs.arg2() == t.scratch_ptr.as_usize() {
+            t.syscall_state.as_mut().unwrap().reg_parameter_with_size(
+                2,
+                ParamSize::from_syscall_result_with_size::<Arch::ssize_t>(regs.arg3()),
+                Some(ArgMode::InOutNoScratch),
+                None,
+            );
+        }
+
+        return Switchable::AllowSwitch;
+    }
+
+    if syscallno < 0 {
+        // Invalid syscall. Don't let it accidentally match a
+        // syscall number below that's for an undefined syscall.
+        t.syscall_state.as_mut().unwrap().expect_errno = ENOSYS;
+        return Switchable::PreventSwitch;
+    }
+
+    log!(
+        LogDebug,
+        "=====> Preparing {}",
+        syscall_name(syscallno, Arch::arch())
+    );
+
+    // @TODO
+    match syscallno {
+        _ => {
+            return Switchable::AllowSwitch;
+        }
+    }
 }
 
 pub fn rec_prepare_restart_syscall(_t: &RecordTask) {
@@ -70,7 +159,9 @@ type ArgMutator = Box<dyn Fn(&mut RecordTask, RemotePtr<Void>, Option<&mut [u8]>
 /// replay, we have to restore them like we restore the
 /// non-buffered-syscall scratch data. This is done by recording
 /// the relevant syscallbuf record data in rec_process_syscall_arch.
-struct TaskSyscallState {
+///
+/// DIFF NOTE: The struct is pub
+pub struct TaskSyscallState {
     t: TaskSharedWeakPtr,
 
     param_list: Vec<MemoryParam>,
@@ -163,7 +254,7 @@ impl TaskSyscallState {
     /// Returns a RemotePtr to the data in the child (before scratch relocation)
     /// or null if parameters have already been prepared (the syscall is
     /// resuming).
-    pub fn reg_parameter<T>(
+    fn reg_parameter<T>(
         &mut self,
         arg: usize,
         maybe_mode: Option<ArgMode>,
@@ -182,7 +273,7 @@ impl TaskSyscallState {
     /// Returns a RemotePtr to the data in the child (before scratch relocation)
     /// or null if parameters have already been prepared (the syscall is
     /// resuming).
-    pub fn reg_parameter_with_size(
+    fn reg_parameter_with_size(
         &mut self,
         arg: usize,
         param_size: ParamSize,
@@ -231,7 +322,7 @@ impl TaskSyscallState {
     /// resuming).
     /// addr_of_buf_ptr must be in a buffer identified by some init_..._parameter
     /// call.
-    pub fn mem_ptr_parameter<T>(
+    fn mem_ptr_parameter<T>(
         &mut self,
         addr_of_buf_ptr: RemotePtr<Void>,
         maybe_mode: Option<ArgMode>,
@@ -252,7 +343,7 @@ impl TaskSyscallState {
     /// resuming).
     /// addr_of_buf_ptr must be in a buffer identified by some init_..._parameter
     /// call.
-    pub fn mem_ptr_parameter_inferred<Arch: Architecture, T>(
+    fn mem_ptr_parameter_inferred<Arch: Architecture, T>(
         &mut self,
         addr_of_buf_ptr: RemotePtr<Arch::ptr<T>>,
         maybe_mode: Option<ArgMode>,
@@ -273,7 +364,7 @@ impl TaskSyscallState {
     /// resuming).
     /// addr_of_buf_ptr must be in a buffer identified by some init_..._parameter
     /// call.
-    pub fn mem_ptr_parameter_with_size(
+    fn mem_ptr_parameter_with_size(
         &mut self,
         addr_of_buf_ptr: RemotePtr<Void>,
         param_size: ParamSize,
@@ -311,11 +402,11 @@ impl TaskSyscallState {
         dest
     }
 
-    pub fn after_syscall_action(&mut self, action: AfterSyscallAction) {
+    fn after_syscall_action(&mut self, action: AfterSyscallAction) {
         self.after_syscall_actions.push(action)
     }
 
-    pub fn emulate_result(&mut self, result: usize) {
+    fn emulate_result(&mut self, result: usize) {
         let t = self.task();
         ed_assert!(&t.borrow(), !self.preparation_done);
         ed_assert!(&t.borrow(), !self.should_emulate_result);
@@ -325,7 +416,7 @@ impl TaskSyscallState {
 
     /// Internal method that takes 'ptr', an address within some memory parameter,
     /// and relocates it to the parameter's location in scratch memory.
-    pub fn relocate_pointer_to_scratch(&self, ptr: RemotePtr<Void>) -> RemotePtr<Void> {
+    fn relocate_pointer_to_scratch(&self, ptr: RemotePtr<Void>) -> RemotePtr<Void> {
         let mut num_relocations: usize = 0;
         let mut result = RemotePtr::<Void>::null();
         for param in &self.param_list {
@@ -378,7 +469,7 @@ impl TaskSyscallState {
     /// necessary.
     /// If scratch can't be used for some reason, returns Switchable::PreventSwitch,
     /// otherwise returns 'sw'.
-    pub fn done_preparing(&mut self, mut sw: Switchable) -> Switchable {
+    fn done_preparing(&mut self, mut sw: Switchable) -> Switchable {
         if self.preparation_done {
             return self.switchable;
         }
@@ -423,7 +514,7 @@ impl TaskSyscallState {
         self.switchable
     }
 
-    pub fn done_preparing_internal(&mut self, sw: Switchable) -> Switchable {
+    fn done_preparing_internal(&mut self, sw: Switchable) -> Switchable {
         let t = self.task();
         ed_assert!(&t.borrow(), !self.preparation_done);
 
@@ -505,7 +596,7 @@ impl TaskSyscallState {
 
     /// Called when a syscall exits to copy results from scratch memory to their
     /// original destinations, update registers, etc.
-    pub fn process_syscall_results(&mut self) {
+    fn process_syscall_results(&mut self) {
         let t = self.task();
         ed_assert!(&t.borrow(), self.preparation_done);
 
@@ -611,7 +702,7 @@ impl TaskSyscallState {
 
     /// Called when a syscall has been completely aborted to undo any changes we
     /// made.
-    pub fn abort_syscall_results(&mut self) {
+    fn abort_syscall_results(&mut self) {
         let t = self.task();
         ed_assert!(&t.borrow(), self.preparation_done);
 
@@ -702,7 +793,7 @@ impl ParamSize {
     /// p points to a tracee location that is already initialized with a
     /// "maximum buffer size" passed in by the tracee, and which will be filled
     /// in with the size of the data by the kernel when the syscall exits.
-    pub fn from_initialized_mem<T>(t: &mut dyn Task, p: RemotePtr<T>) -> ParamSize {
+    fn from_initialized_mem<T>(t: &mut dyn Task, p: RemotePtr<T>) -> ParamSize {
         let mut r = ParamSize::from(if p.is_null() {
             0
         } else {
@@ -726,7 +817,7 @@ impl ParamSize {
     /// p points to a tracee location which will be filled in with the size of
     /// the data by the kernel when the syscall exits, but the location
     /// is uninitialized before the syscall.
-    pub fn from_mem<T>(p: RemotePtr<T>) -> ParamSize {
+    fn from_mem<T>(p: RemotePtr<T>) -> ParamSize {
         let mut r = ParamSize::default();
         r.mem_ptr = RemotePtr::cast(p);
         r.read_size = size_of::<T>();
@@ -737,14 +828,14 @@ impl ParamSize {
     /// When the syscall exits, the syscall result will be of type T and contain
     /// the size of the data. 'incoming_size', if present, is a bound on the size
     /// of the data.
-    pub fn from_syscall_result<T>() -> ParamSize {
+    fn from_syscall_result<T>() -> ParamSize {
         let mut r = ParamSize::default();
         r.from_syscall = true;
         r.read_size = size_of::<T>();
         r
     }
 
-    pub fn from_syscall_result_with_incoming_size<T>(incoming_size: usize) -> ParamSize {
+    fn from_syscall_result_with_size<T>(incoming_size: usize) -> ParamSize {
         let mut r = ParamSize::from(incoming_size);
         r.from_syscall = true;
         r.read_size = size_of::<T>();
@@ -752,7 +843,7 @@ impl ParamSize {
     }
 
     /// Indicate that the size will be at most 'max'.
-    pub fn limit_size(&self, max: usize) -> ParamSize {
+    fn limit_size(&self, max: usize) -> ParamSize {
         let mut r = self.clone();
         r.incoming_size = min(r.incoming_size, max);
 
