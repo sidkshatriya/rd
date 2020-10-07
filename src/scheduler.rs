@@ -355,13 +355,15 @@ impl Scheduler {
                     // (this might not hold if it was at the head of the queue but we
                     // rejected current_ and popped it in a previous iteration of this loop)
                     // -- it must be runnable, and not in an unstable exit.
-                    if !curr.borrow().unstable.get()
+                    let tick_count = curr.borrow().tick_count();
+                    let is_unstable = curr.borrow().unstable.get();
+                    if !is_unstable
                         && !self.always_switch
                         && (round_robin_task.is_none()
                             || Rc::ptr_eq(round_robin_task.as_ref().unwrap(), &curr))
                         && (self.treat_as_high_priority(&curr)
                             || !self.last_reschedule_in_high_priority_only_interval)
-                        && curr.borrow().tick_count() < self.current_timeslice_end()
+                        && tick_count < self.current_timeslice_end()
                         && self.is_task_runnable(
                             curr.borrow_mut().as_record_task_mut().unwrap(),
                             &mut result.by_waitpid,
