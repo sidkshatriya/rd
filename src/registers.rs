@@ -687,6 +687,11 @@ impl Registers {
         rd_set_reg!(self, ebx, rdi, value);
     }
 
+    /// @TODO Check this
+    pub fn set_arg1_signed(&mut self, value: isize) {
+        rd_set_reg!(self, ebx, rdi, value);
+    }
+
     pub fn set_arg1_from_remote_ptr<T>(&mut self, value: RemotePtr<T>) {
         rd_set_reg!(self, ebx, rdi, value.as_usize());
     }

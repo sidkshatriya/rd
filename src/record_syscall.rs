@@ -1,5 +1,39 @@
 use crate::{
     arch::Architecture,
+    bindings::prctl::{
+        PR_CAPBSET_DROP,
+        PR_CAPBSET_READ,
+        PR_CAP_AMBIENT,
+        PR_GET_CHILD_SUBREAPER,
+        PR_GET_DUMPABLE,
+        PR_GET_ENDIAN,
+        PR_GET_FPEMU,
+        PR_GET_FPEXC,
+        PR_GET_KEEPCAPS,
+        PR_GET_NAME,
+        PR_GET_NO_NEW_PRIVS,
+        PR_GET_PDEATHSIG,
+        PR_GET_SECCOMP,
+        PR_GET_SPECULATION_CTRL,
+        PR_GET_TIMERSLACK,
+        PR_GET_TSC,
+        PR_GET_UNALIGN,
+        PR_MCE_KILL,
+        PR_MCE_KILL_GET,
+        PR_SET_CHILD_SUBREAPER,
+        PR_SET_DUMPABLE,
+        PR_SET_KEEPCAPS,
+        PR_SET_NAME,
+        PR_SET_NO_NEW_PRIVS,
+        PR_SET_PDEATHSIG,
+        PR_SET_PTRACER,
+        PR_SET_SECCOMP,
+        PR_SET_SPECULATION_CTRL,
+        PR_SET_TIMERSLACK,
+        PR_SET_TSC,
+        PR_TSC_ENABLE,
+        PR_TSC_SIGSEGV,
+    },
     event::Switchable,
     kernel_abi::SupportedArch,
     kernel_metadata::{is_sigreturn, syscall_name},
@@ -16,7 +50,7 @@ use crate::{
     taskish_uid::TaskUid,
     trace::trace_task_event::TraceTaskEvent,
 };
-use libc::ENOSYS;
+use libc::{EINVAL, ENOSYS, SECCOMP_MODE_FILTER, SECCOMP_MODE_STRICT};
 use std::{
     cell::RefCell,
     cmp::{max, min},
@@ -104,18 +138,153 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         return Switchable::PreventSwitch;
     }
 
+    // int prctl(int option, unsigned long arg2, unsigned long arg3, unsigned
+    // long arg4, unsigned long arg5);
+    if syscallno == Arch::PRCTL {
+        // @TODO This is a arg1_signed() as i32 in rr
+        match regs.arg1() as u32 {
+            PR_GET_CHILD_SUBREAPER
+            | PR_GET_ENDIAN
+            | PR_GET_FPEMU
+            | PR_GET_FPEXC
+            | PR_GET_PDEATHSIG
+            | PR_GET_UNALIGN => {
+                t.syscall_state_unwrap()
+                    .borrow_mut()
+                    .reg_parameter::<i32>(2, None, None);
+            }
+
+            PR_GET_KEEPCAPS
+            | PR_GET_NO_NEW_PRIVS
+            | PR_GET_TIMERSLACK
+            | PR_MCE_KILL
+            | PR_MCE_KILL_GET
+            | PR_SET_CHILD_SUBREAPER
+            | PR_SET_KEEPCAPS
+            | PR_SET_NAME
+            | PR_SET_PDEATHSIG
+            | PR_SET_TIMERSLACK
+            | PR_CAP_AMBIENT
+            | PR_CAPBSET_DROP
+            | PR_CAPBSET_READ
+            | PR_GET_SPECULATION_CTRL
+            | PR_SET_SPECULATION_CTRL => (),
+
+            PR_SET_DUMPABLE => {
+                if regs.arg2() == 0 {
+                    // Don't let processes make themselves undumpable. If a process
+                    // becomes undumpable, calling perf_event_open on it fails.
+                    let mut r: Registers = regs.clone();
+                    r.set_arg1_signed(-1);
+                    t.set_regs(&r);
+                    t.syscall_state_unwrap().borrow_mut().emulate_result(0);
+                    t.thread_group_mut().dumpable = false;
+                } else if regs.arg2() == 1 {
+                    t.thread_group_mut().dumpable = true;
+                }
+            }
+
+            PR_GET_DUMPABLE => {
+                t.syscall_state_unwrap()
+                    .borrow_mut()
+                    .emulate_result(if t.thread_group().dumpable { 1 } else { 0 });
+            }
+
+            PR_GET_SECCOMP => {
+                t.syscall_state_unwrap()
+                    .borrow_mut()
+                    .emulate_result(t.prctl_seccomp_status as usize);
+            }
+
+            PR_GET_TSC => {
+                // Prevent the actual GET_TSC call and return our emulated state.
+                let mut r: Registers = regs.clone();
+                r.set_arg1_signed(-1);
+                t.set_regs(&r);
+                t.syscall_state_unwrap().borrow_mut().emulate_result(0);
+                let child_addr = t.syscall_state_unwrap().borrow_mut().reg_parameter::<i32>(
+                    2,
+                    Some(ArgMode::InOutNoScratch),
+                    None,
+                );
+                let tsc_mode = t.tsc_mode;
+                write_val_mem(t, child_addr, &tsc_mode, None);
+            }
+
+            PR_SET_TSC => {
+                // Prevent the actual SET_TSC call.
+                let mut r: Registers = regs.clone();
+                r.set_arg1_signed(-1);
+                t.set_regs(&r);
+                let val = regs.arg2() as i32;
+                if val != PR_TSC_ENABLE as i32 && val != PR_TSC_SIGSEGV as i32 {
+                    t.syscall_state_unwrap()
+                        .borrow_mut()
+                        .emulate_result_signed(-EINVAL as isize);
+                } else {
+                    t.syscall_state_unwrap().borrow_mut().emulate_result(0);
+                    t.tsc_mode = val;
+                }
+            }
+
+            PR_GET_NAME => {
+                t.syscall_state_unwrap()
+                    .borrow_mut()
+                    .reg_parameter_with_size(2, ParamSize::from(16), None, None);
+            }
+
+            PR_SET_NO_NEW_PRIVS => {
+                // @TODO in rr there is a cast to unsigned long
+                if regs.arg2() != 1 {
+                    t.syscall_state_unwrap().borrow_mut().expect_errno = EINVAL;
+                }
+            }
+
+            PR_SET_SECCOMP => {
+                // Allow all known seccomp calls. We must allow the seccomp call
+                // that rr triggers when spawning the initial tracee.
+                match regs.arg2() as u32 {
+                    SECCOMP_MODE_STRICT => (),
+                    SECCOMP_MODE_FILTER => {
+                        // If we're bootstrapping then this must be rr's own syscall
+                        // filter, so just install it normally now.
+                        if t.session().done_initial_exec() {
+                            // Prevent the actual prctl call. We'll fix this up afterwards.
+                            let mut r: Registers = regs.clone();
+                            r.set_arg1_signed(-1);
+                            t.set_regs(&r);
+                        }
+                    }
+                    _ => {
+                        t.syscall_state_unwrap().borrow_mut().expect_errno = EINVAL;
+                    }
+                }
+            }
+
+            PR_SET_PTRACER => {
+                // Prevent any PR_SET_PTRACER call, but pretend it succeeded, since
+                // we don't want any interference with our ptracing.
+                let mut r: Registers = regs.clone();
+                r.set_arg1_signed(-1);
+                t.set_regs(&r);
+                t.syscall_state_unwrap().borrow_mut().emulate_result(0);
+            }
+
+            _ => {
+                t.syscall_state_unwrap().borrow_mut().expect_errno = EINVAL;
+            }
+        }
+
+        return Switchable::PreventSwitch;
+    }
+
     log!(
         LogDebug,
         "=====> Preparing {}",
         syscall_name(syscallno, Arch::arch())
     );
 
-    // @TODO
-    match syscallno {
-        _ => {
-            return Switchable::AllowSwitch;
-        }
-    }
+    unimplemented!()
 }
 
 pub fn rec_prepare_restart_syscall(_t: &RecordTask) {
@@ -418,6 +587,13 @@ impl TaskSyscallState {
         assert!(!self.should_emulate_result);
         self.should_emulate_result = true;
         self.emulated_result = result;
+    }
+
+    fn emulate_result_signed(&mut self, result: isize) {
+        assert!(!self.preparation_done);
+        assert!(!self.should_emulate_result);
+        self.should_emulate_result = true;
+        self.emulated_result = result as usize;
     }
 
     /// Internal method that takes 'ptr', an address within some memory parameter,
