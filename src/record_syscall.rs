@@ -36,8 +36,9 @@ use crate::{
     },
     event::Switchable,
     kernel_abi::SupportedArch,
-    kernel_metadata::{is_sigreturn, syscall_name},
+    kernel_metadata::{errno_name, is_sigreturn, syscall_name},
     log::{LogDebug, LogWarn},
+    preload_interface::syscallbuf_record,
     registers::{with_converted_registers, Registers},
     remote_ptr::{RemotePtr, Void},
     seccomp_filter_rewriter::SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO,
@@ -50,7 +51,7 @@ use crate::{
     taskish_uid::TaskUid,
     trace::trace_task_event::TraceTaskEvent,
 };
-use libc::{EINVAL, ENOSYS, SECCOMP_MODE_FILTER, SECCOMP_MODE_STRICT};
+use libc::{EINVAL, ENOSYS, ENOTTY, SECCOMP_MODE_FILTER, SECCOMP_MODE_STRICT};
 use std::{
     cell::RefCell,
     cmp::{max, min},
@@ -293,6 +294,92 @@ pub fn rec_prepare_restart_syscall(_t: &RecordTask) {
 
 pub fn rec_process_syscall(_t: &RecordTask) {
     unimplemented!()
+}
+
+/// DIFF NOTE: Don't need syscall_state param as we can get it from param t
+pub fn rec_process_syscall_arch<Arch: Architecture>(t: &mut RecordTask) {
+    let syscallno: i32 = t.ev().syscall_event().number;
+
+    if t.regs_ref().original_syscallno() == SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO {
+        // rr vetoed this syscall. Don't do any post-processing.
+        return;
+    }
+
+    log!(
+        LogDebug,
+        "{}: processing: {} -- time: {}",
+        t.tid,
+        t.ev(),
+        t.trace_time()
+    );
+
+    let rec = t.desched_rec();
+    if !rec.is_null() {
+        // If the syscallbuf has already been unmapped, there's no need to record
+        // the entry.
+        if !t.syscallbuf_child.is_null() {
+            let num_bytes = read_val_mem(
+                t,
+                RemotePtr::<u32>::cast(rec.as_rptr_u8() + offset_of!(syscallbuf_record, size)),
+                None,
+            ) as usize;
+            t.record_remote(
+                rec.as_rptr_u8() + offset_of!(syscallbuf_record, extra_data),
+                num_bytes - size_of::<syscallbuf_record>(),
+            );
+        }
+        return;
+    }
+    let expect_errno = t.syscall_state_unwrap().borrow().expect_errno;
+    if expect_errno != 0 {
+        if expect_errno == EINVAL
+            && syscallno == Arch::IOCTL
+            && t.regs_ref().syscall_result_signed() == -ENOTTY as isize
+        {
+            // Unsupported ioctl was called, but is not supported for this device,
+            // so we can safely ignore it.
+            return;
+        }
+        ed_assert_eq!(
+            t,
+            t.regs_ref().syscall_result_signed(),
+            -t.syscall_state_unwrap().borrow().expect_errno as isize,
+            "Expected {} for '{}' but got result {} (errno {}) {}",
+            errno_name(expect_errno),
+            syscall_name(syscallno, Arch::arch()),
+            t.regs_ref().syscall_result_signed(),
+            errno_name((-t.regs_ref().syscall_result_signed()).try_into().unwrap()),
+            extra_expected_errno_info::<Arch>(t)
+        );
+        return;
+    }
+
+    // Here we handle syscalls that need work that can only happen after the
+    // syscall completes --- and that our TaskSyscallState infrastructure can't
+    // handle.
+
+    if syscallno == Arch::PRCTL {
+        // Restore arg1 in case we modified it to disable the syscall
+        let mut r: Registers = t.regs_ref().clone();
+        r.set_arg1(
+            t.syscall_state_unwrap()
+                .borrow()
+                .syscall_entry_registers
+                .arg1(),
+        );
+        t.set_regs(&r);
+        if t.regs_ref().arg1() as u32 == PR_SET_SECCOMP {
+            if t.session().done_initial_exec() {
+                t.session()
+                    .as_record()
+                    .unwrap()
+                    .seccomp_filter_rewriter_mut()
+                    .install_patched_seccomp_filter(t);
+            }
+        }
+
+        return;
+    }
 }
 
 type AfterSyscallAction = Box<dyn Fn(&mut RecordTask) -> ()>;
@@ -1135,4 +1222,9 @@ fn get_remote_ptr(t: &mut dyn Task, addr: RemotePtr<Void>) -> RemotePtr<Void> {
 fn align_scratch(scratch: &mut RemotePtr<Void>, maybe_amount: Option<usize>) {
     let amount = maybe_amount.unwrap_or(8);
     *scratch = RemotePtr::from((scratch.as_usize() + amount - 1) & !(amount - 1));
+}
+
+/// DIFF NOTE: Does not take syscall_state as param as that can be obtained from t
+fn extra_expected_errno_info<Arch: Architecture>(_t: &RecordTask) -> String {
+    unimplemented!()
 }

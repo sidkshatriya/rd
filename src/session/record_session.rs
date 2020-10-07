@@ -299,7 +299,7 @@ pub struct RecordSession {
     trace_out: RefCell<TraceWriter>,
     scheduler_: RefCell<Scheduler>,
     initial_thread_group: Option<ThreadGroupSharedPtr>,
-    seccomp_filter_rewriter_: SeccompFilterRewriter,
+    seccomp_filter_rewriter_: RefCell<SeccompFilterRewriter>,
     trace_id: Box<TraceUuid>,
     disable_cpuid_features_: DisableCPUIDFeatures,
     /// DIFF NOTE: In rr, a None is indicated by value 0
@@ -374,7 +374,7 @@ impl RecordSession {
             )),
             scheduler_: RefCell::new(sched),
             initial_thread_group: Default::default(),
-            seccomp_filter_rewriter_: SeccompFilterRewriter::default(),
+            seccomp_filter_rewriter_: Default::default(),
             trace_id: flags.trace_id.clone(),
             disable_cpuid_features_: flags.disable_cpuid_features.clone(),
             ignore_sig: flags.ignore_sig,
@@ -2031,8 +2031,12 @@ impl RecordSession {
         self.scheduler_.borrow_mut()
     }
 
-    pub fn seccomp_filter_rewriter(&self) -> &SeccompFilterRewriter {
-        &self.seccomp_filter_rewriter_
+    pub fn seccomp_filter_rewriter(&self) -> Ref<'_, SeccompFilterRewriter> {
+        self.seccomp_filter_rewriter_.borrow()
+    }
+
+    pub fn seccomp_filter_rewriter_mut(&self) -> RefMut<'_, SeccompFilterRewriter> {
+        self.seccomp_filter_rewriter_.borrow_mut()
     }
 
     pub fn set_enable_chaos(&mut self, enable_chaos: bool) {
