@@ -311,6 +311,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
             ed_assert!(self, self.session().is_recording());
             self.as_record_task_mut().unwrap().stash_sig();
         }
+
         true
     }
 

@@ -1,5 +1,6 @@
 use super::{
     task_common::{
+        self,
         at_preload_init_common,
         destroy,
         post_vm_clone_common,
@@ -743,6 +744,7 @@ impl Task for RecordTask {
 
     fn on_syscall_exit(&mut self, syscallno: i32, arch: SupportedArch, regs: &Registers) {
         with_converted_registers(regs, arch, |regs| {
+            task_common::on_syscall_exit(self, syscallno, arch, regs);
             rd_arch_function!(self, on_syscall_exit_arch, arch, syscallno, regs);
         })
     }
