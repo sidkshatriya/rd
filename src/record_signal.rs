@@ -340,7 +340,7 @@ fn try_handle_trapped_instruction(t: &mut RecordTask, si: &siginfo_t) -> bool {
             cpuid_data.ecx,
             cpuid_data.edx,
         );
-        log!(LogDebug, " trapped for cpuid: {:#0x}:{:#0x}", eax, ecx);
+        log!(LogDebug, " trapped for cpuid: {:#x}:{:#x}", eax, ecx);
     }
 
     r.set_ip(r.ip() + len);

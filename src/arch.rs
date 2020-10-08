@@ -594,6 +594,7 @@ pub trait Architecture: 'static {
     type user_fpregs_struct: Copy + 'static;
     type user: Copy + 'static;
     type mmap_args: Copy + 'static;
+    type winsize: Copy + 'static;
 
     fn as_rptr<T: 'static>(p: Self::ptr<T>) -> RemotePtr<T>;
 
@@ -1108,6 +1109,8 @@ impl Architecture for X86Arch {
     type user_fpregs_struct = x86::user_fpregs_struct;
     type user = x86::user;
     type mmap_args = x86::mmap_args;
+    type winsize = x86::winsize;
+
     type sigchld_clock_t = i32;
     type __statfs_word = u32;
 
@@ -1674,6 +1677,8 @@ impl Architecture for X64Arch {
     type user_fpregs_struct = x64::user_fpregs_struct;
     type user = x64::user;
     type mmap_args = x64::mmap_args;
+    type winsize = x64::winsize;
+
     type sigchld_clock_t = i64;
     type __statfs_word = i64;
 

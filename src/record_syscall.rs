@@ -1,38 +1,47 @@
 use crate::{
     arch::Architecture,
-    bindings::prctl::{
-        PR_CAPBSET_DROP,
-        PR_CAPBSET_READ,
-        PR_CAP_AMBIENT,
-        PR_GET_CHILD_SUBREAPER,
-        PR_GET_DUMPABLE,
-        PR_GET_ENDIAN,
-        PR_GET_FPEMU,
-        PR_GET_FPEXC,
-        PR_GET_KEEPCAPS,
-        PR_GET_NAME,
-        PR_GET_NO_NEW_PRIVS,
-        PR_GET_PDEATHSIG,
-        PR_GET_SECCOMP,
-        PR_GET_SPECULATION_CTRL,
-        PR_GET_TIMERSLACK,
-        PR_GET_TSC,
-        PR_GET_UNALIGN,
-        PR_MCE_KILL,
-        PR_MCE_KILL_GET,
-        PR_SET_CHILD_SUBREAPER,
-        PR_SET_DUMPABLE,
-        PR_SET_KEEPCAPS,
-        PR_SET_NAME,
-        PR_SET_NO_NEW_PRIVS,
-        PR_SET_PDEATHSIG,
-        PR_SET_PTRACER,
-        PR_SET_SECCOMP,
-        PR_SET_SPECULATION_CTRL,
-        PR_SET_TIMERSLACK,
-        PR_SET_TSC,
-        PR_TSC_ENABLE,
-        PR_TSC_SIGSEGV,
+    bindings::{
+        kernel::TIOCGWINSZ,
+        prctl::{
+            ARCH_GET_CPUID,
+            ARCH_GET_FS,
+            ARCH_GET_GS,
+            ARCH_SET_CPUID,
+            ARCH_SET_FS,
+            ARCH_SET_GS,
+            PR_CAPBSET_DROP,
+            PR_CAPBSET_READ,
+            PR_CAP_AMBIENT,
+            PR_GET_CHILD_SUBREAPER,
+            PR_GET_DUMPABLE,
+            PR_GET_ENDIAN,
+            PR_GET_FPEMU,
+            PR_GET_FPEXC,
+            PR_GET_KEEPCAPS,
+            PR_GET_NAME,
+            PR_GET_NO_NEW_PRIVS,
+            PR_GET_PDEATHSIG,
+            PR_GET_SECCOMP,
+            PR_GET_SPECULATION_CTRL,
+            PR_GET_TIMERSLACK,
+            PR_GET_TSC,
+            PR_GET_UNALIGN,
+            PR_MCE_KILL,
+            PR_MCE_KILL_GET,
+            PR_SET_CHILD_SUBREAPER,
+            PR_SET_DUMPABLE,
+            PR_SET_KEEPCAPS,
+            PR_SET_NAME,
+            PR_SET_NO_NEW_PRIVS,
+            PR_SET_PDEATHSIG,
+            PR_SET_PTRACER,
+            PR_SET_SECCOMP,
+            PR_SET_SPECULATION_CTRL,
+            PR_SET_TIMERSLACK,
+            PR_SET_TSC,
+            PR_TSC_ENABLE,
+            PR_TSC_SIGSEGV,
+        },
     },
     event::Switchable,
     kernel_abi::SupportedArch,
@@ -43,26 +52,36 @@ use crate::{
     registers::{with_converted_registers, Registers},
     remote_ptr::{RemotePtr, Void},
     seccomp_filter_rewriter::SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO,
-    session::task::{
-        record_task::RecordTask,
-        task_common::{read_mem, read_val_mem, write_mem, write_val_mem},
-        Task,
-        TaskSharedWeakPtr,
+    session::{
+        session_inner::SessionInner,
+        task::{
+            record_task::RecordTask,
+            task_common::{read_mem, read_val_mem, write_mem, write_val_mem},
+            Task,
+            TaskSharedWeakPtr,
+        },
     },
     taskish_uid::TaskUid,
     trace::trace_task_event::TraceTaskEvent,
 };
 use libc::{EINVAL, ENOSYS, ENOTTY, SECCOMP_MODE_FILTER, SECCOMP_MODE_STRICT};
 use std::{
-    cell::RefCell,
+    cell::{RefCell, RefMut},
     cmp::{max, min},
     convert::TryInto,
     ffi::OsString,
     mem::size_of,
-    os::unix::ffi::OsStringExt,
+    os::{raw::c_uint, unix::ffi::OsStringExt},
     rc::Rc,
     sync::atomic::{AtomicBool, Ordering},
 };
+
+extern "C" {
+    fn ioctl_type(nr: c_uint) -> c_uint;
+    fn ioctl_size(nr: c_uint) -> c_uint;
+    fn ioctl_dir(nr: c_uint) -> c_uint;
+    fn ioctl_nr(nr: c_uint) -> c_uint;
+}
 
 /// Prepare |t| to enter its current syscall event.  Return ALLOW_SWITCH if
 /// a context-switch is allowed for |t|, PREVENT_SWITCH if not.
@@ -145,6 +164,14 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         return Switchable::PreventSwitch;
     }
 
+    if sys == Arch::SET_TID_ADDRESS {
+        return Switchable::PreventSwitch;
+    }
+
+    if sys == Arch::IOCTL {
+        return prepare_ioctl::<Arch>(t, &mut syscall_state);
+    }
+
     if sys == Arch::EXECVE {
         let mut cmd_line = Vec::new();
         let mut argv = RemotePtr::<Arch::unsigned_word>::from(regs.arg2());
@@ -176,6 +203,51 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         return t.fd_table().will_write(t, fd);
     }
 
+    if sys == Arch::EXIT_GROUP {
+        if t.thread_group().task_set().len() == 1 {
+            prepare_exit(t, regs.arg1() as i32);
+            return Switchable::AllowSwitch;
+        }
+        return Switchable::PreventSwitch;
+    }
+
+    if sys == Arch::ARCH_PRCTL {
+        match regs.arg1_signed() as u32 {
+            ARCH_SET_FS | ARCH_SET_GS => (),
+
+            ARCH_GET_FS | ARCH_GET_GS => {
+                syscall_state.reg_parameter::<Arch::unsigned_long>(2, None, None);
+            }
+
+            ARCH_SET_CPUID => {
+                if SessionInner::has_cpuid_faulting() {
+                    // Prevent the actual SET_CPUID call.
+                    let mut r: Registers = t.regs_ref().clone();
+                    r.set_arg1_signed(-1);
+                    t.set_regs(&r);
+                    let val = t.regs_ref().arg2() as i32;
+                    t.cpuid_mode = !!val;
+                    syscall_state.emulate_result(0);
+                }
+            }
+
+            ARCH_GET_CPUID => {
+                if SessionInner::has_cpuid_faulting() {
+                    // Prevent the actual GET_CPUID call and return our emulated state.
+                    let mut r: Registers = t.regs_ref().clone();
+                    r.set_arg1_signed(-1);
+                    t.set_regs(&r);
+                    syscall_state.emulate_result_signed(t.cpuid_mode as isize);
+                }
+            }
+
+            _ => {
+                syscall_state.expect_errno = EINVAL;
+            }
+        }
+
+        return Switchable::PreventSwitch;
+    }
     // int prctl(int option, unsigned long arg2, unsigned long arg3, unsigned
     // long arg4, unsigned long arg5);
     if sys == Arch::PRCTL {
@@ -309,6 +381,15 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         syscall_name(sys, Arch::arch())
     );
 
+    unimplemented!()
+}
+
+/// At thread exit time, undo the work that init_buffers() did.
+///
+/// Call this when the tracee has already entered SYS_exit/SYS_exit_group. The
+/// tracee will be returned at a state in which it has entered (or
+/// re-entered) SYS_exit/SYS_exit_group.
+fn prepare_exit(_t: &mut RecordTask, _exit_code: i32) {
     unimplemented!()
 }
 
@@ -729,6 +810,7 @@ impl TaskSyscallState {
         self.emulated_result = result;
     }
 
+    /// DIFF NOTE: This method is not there in rr
     fn emulate_result_signed(&mut self, result: isize) {
         assert!(!self.preparation_done);
         assert!(!self.should_emulate_result);
@@ -1279,5 +1361,55 @@ fn align_scratch(scratch: &mut RemotePtr<Void>, maybe_amount: Option<usize>) {
 
 /// DIFF NOTE: Does not take syscall_state as param as that can be obtained from t
 fn extra_expected_errno_info<Arch: Architecture>(_t: &RecordTask) -> String {
+    unimplemented!()
+}
+
+fn prepare_ioctl<Arch: Architecture>(
+    t: &mut RecordTask,
+    syscall_state: &mut RefMut<TaskSyscallState>,
+) -> Switchable {
+    let fd = t.regs_ref().arg1() as i32;
+    let mut result: u64 = 0;
+    if t.fd_table().emulate_ioctl(fd, t, &mut result) {
+        // Don't perform this syscall.
+        let mut r: Registers = t.regs_ref().clone();
+        r.set_arg1_signed(-1);
+        t.set_regs(&r);
+        syscall_state.emulate_result(result.try_into().unwrap());
+        return Switchable::PreventSwitch;
+    }
+
+    let request = t.regs_ref().arg2() as u32;
+    let type_: u32 = unsafe { ioctl_type(request) };
+    let nr: u32 = unsafe { ioctl_nr(request) };
+    let dir: u32 = unsafe { ioctl_dir(request) };
+    let size: u32 = unsafe { ioctl_size(request) };
+
+    log!(
+        LogDebug,
+        "handling ioctl({:#x}): type:{:#x} nr:{:#x} dir:{:#x} size:{}",
+        request,
+        type_,
+        nr,
+        dir,
+        size
+    );
+
+    ed_assert!(
+        t,
+        !t.is_desched_event_syscall(),
+        "Failed to skip past desched ioctl()"
+    );
+
+    // Some ioctl()s are irregular and don't follow the _IOC()
+    // conventions.  Special case them here.
+    match request {
+        TIOCGWINSZ => {
+            syscall_state.reg_parameter::<Arch::winsize>(3, None, None);
+            return Switchable::PreventSwitch;
+        }
+        _ => (),
+    }
+
     unimplemented!()
 }
