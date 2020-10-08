@@ -296,9 +296,9 @@ impl Scheduler {
         // What's the point in the if self.enable_poll { ... } code below then?
         self.enable_poll = false;
 
-        let mut maybe_now = Some(monotonic_now_sec());
+        let mut now = monotonic_now_sec();
 
-        self.maybe_reset_priorities(maybe_now.unwrap());
+        self.maybe_reset_priorities(now);
 
         match self.current() {
             Some(curr) if switchable == Switchable::PreventSwitch => {
@@ -328,9 +328,9 @@ impl Scheduler {
 
         let mut maybe_next: Option<TaskSharedPtr>;
         loop {
-            self.maybe_reset_high_priority_only_intervals(maybe_now.unwrap());
+            self.maybe_reset_high_priority_only_intervals(now);
             self.last_reschedule_in_high_priority_only_interval =
-                self.in_high_priority_only_interval(maybe_now.unwrap());
+                self.in_high_priority_only_interval(now);
 
             match self.current() {
                 Some(curr) => {
@@ -431,7 +431,7 @@ impl Scheduler {
                             "Waking up low-priority task without by_waitpid; sleeping"
                         );
                         sleep_time(0.001);
-                        maybe_now = Some(monotonic_now_sec());
+                        now = monotonic_now_sec();
 
                         continue;
                     }
@@ -488,7 +488,7 @@ impl Scheduler {
                     }
 
                     status = WaitStatus::new(raw_status);
-                    maybe_now = None; // invalid, don't use
+                    now = -1.0; // invalid, don't use
 
                     if -1 == tid {
                         if EINTR == errno() {
@@ -567,7 +567,7 @@ impl Scheduler {
             _ => (),
         }
 
-        self.maybe_reset_high_priority_only_intervals(maybe_now.unwrap());
+        self.maybe_reset_high_priority_only_intervals(now);
         self.current_ = Some(Rc::downgrade(&nt));
         self.validate_scheduled_task();
         self.setup_new_timeslice();
