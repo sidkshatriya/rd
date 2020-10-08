@@ -57,7 +57,9 @@ use std::{
     cell::RefCell,
     cmp::{max, min},
     convert::TryInto,
+    ffi::OsString,
     mem::size_of,
+    os::unix::ffi::OsStringExt,
     rc::Rc,
     sync::atomic::{AtomicBool, Ordering},
 };
@@ -99,7 +101,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
     t: &mut RecordTask,
     regs: &Registers,
 ) -> Switchable {
-    let syscallno = t.ev().syscall_event().number;
+    let sys = t.ev().syscall_event().number;
 
     if t.regs_ref().original_syscallno() == SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO {
         // rd vetoed this syscall. Don't do any pre-processing.
@@ -120,7 +122,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         // However there is one case where we use scratch memory: when
         // sys_read's block-cloning path is interrupted. In that case, record
         // the scratch memory.
-        if syscallno == Arch::READ && regs.arg2() == t.scratch_ptr.as_usize() {
+        if sys == Arch::READ && regs.arg2() == t.scratch_ptr.as_usize() {
             syscall_state.reg_parameter_with_size(
                 2,
                 ParamSize::from_syscall_result_with_size::<Arch::ssize_t>(regs.arg3()),
@@ -132,16 +134,51 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         return Switchable::AllowSwitch;
     }
 
-    if syscallno < 0 {
+    if sys < 0 {
         // Invalid syscall. Don't let it accidentally match a
         // syscall number below that's for an undefined syscall.
         syscall_state.expect_errno = ENOSYS;
         return Switchable::PreventSwitch;
     }
 
+    if sys == Arch::GETEUID {
+        return Switchable::PreventSwitch;
+    }
+
+    if sys == Arch::EXECVE {
+        let mut cmd_line = Vec::new();
+        let mut argv = RemotePtr::<Arch::unsigned_word>::from(regs.arg2());
+        loop {
+            let p = read_val_mem(t, argv, None);
+            if p == 0.into() {
+                break;
+            }
+            let component = t.read_c_str(RemotePtr::new_from_val(p.try_into().unwrap()));
+            cmd_line.push(OsString::from_vec(component.into_bytes()));
+            argv += 1;
+        }
+
+        // Save the event. We can't record it here because the exec might fail.
+        let raw_filename = t.read_c_str(RemotePtr::from(regs.arg1()));
+        syscall_state.exec_saved_event = Some(Box::new(TraceTaskEvent::for_exec(
+            t.tid,
+            &OsString::from_vec(raw_filename.into_bytes()),
+            &cmd_line,
+        )));
+
+        // This can trigger unstable exits of non-main threads, so we have to
+        // allow them to be handled.
+        return Switchable::AllowSwitch;
+    }
+
+    if sys == Arch::WRITE || sys == Arch::WRITEV {
+        let fd = regs.arg1_signed() as i32;
+        return t.fd_table().will_write(t, fd);
+    }
+
     // int prctl(int option, unsigned long arg2, unsigned long arg3, unsigned
     // long arg4, unsigned long arg5);
-    if syscallno == Arch::PRCTL {
+    if sys == Arch::PRCTL {
         // @TODO This is a arg1_signed() as i32 in rr
         match regs.arg1() as u32 {
             PR_GET_CHILD_SUBREAPER
@@ -269,7 +306,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
     log!(
         LogDebug,
         "=====> Preparing {}",
-        syscall_name(syscallno, Arch::arch())
+        syscall_name(sys, Arch::arch())
     );
 
     unimplemented!()

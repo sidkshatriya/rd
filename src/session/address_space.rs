@@ -3301,12 +3301,9 @@ fn thread_group_in_exec(t: &dyn Task) -> bool {
     if !t.session().is_recording() {
         return false;
     }
-    for tt in t.thread_group().task_set().iter() {
+
+    for tt in t.thread_group().task_set().iter_except(t.weak_self_ptr()) {
         let rf = tt.borrow();
-        // @TODO Is this comparison what we really want?
-        if rf.tuid() == t.tuid() {
-            continue;
-        }
         let rt = rf.as_record_task().unwrap();
         let ev: &Event = rt.ev();
         if ev.is_syscall_event()
