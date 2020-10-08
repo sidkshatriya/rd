@@ -42,10 +42,19 @@ use crate::{
             PR_TSC_ENABLE,
             PR_TSC_SIGSEGV,
         },
+        ptrace::{PTRACE_EVENT_EXIT, PTRACE_O_TRACEEXIT},
     },
     event::Switchable,
-    kernel_abi::SupportedArch,
+    kernel_abi::{
+        is_at_syscall_instruction,
+        is_exit_group_syscall,
+        is_exit_syscall,
+        syscall_instruction_length,
+        syscall_number_for_rt_sigprocmask,
+        SupportedArch,
+    },
     kernel_metadata::{errno_name, is_sigreturn, syscall_name},
+    kernel_supplement::sig_set_t,
     log::{LogDebug, LogWarn},
     monitored_shared_memory::MonitoredSharedMemory,
     preload_interface::syscallbuf_record,
@@ -53,6 +62,7 @@ use crate::{
     remote_ptr::{RemotePtr, Void},
     seccomp_filter_rewriter::SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO,
     session::{
+        address_space::address_space::AddressSpace,
         session_inner::SessionInner,
         task::{
             record_task::RecordTask,
@@ -63,8 +73,18 @@ use crate::{
     },
     taskish_uid::TaskUid,
     trace::trace_task_event::TraceTaskEvent,
+    wait_status::WaitStatus,
 };
-use libc::{EINVAL, ENOSYS, ENOTTY, SECCOMP_MODE_FILTER, SECCOMP_MODE_STRICT};
+use libc::{
+    EINVAL,
+    ENOSYS,
+    ENOTTY,
+    SECCOMP_MODE_FILTER,
+    SECCOMP_MODE_STRICT,
+    SIGKILL,
+    SIGSTOP,
+    SIG_BLOCK,
+};
 use std::{
     cell::{RefCell, RefMut},
     cmp::{max, min},
@@ -389,8 +409,129 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
 /// Call this when the tracee has already entered SYS_exit/SYS_exit_group. The
 /// tracee will be returned at a state in which it has entered (or
 /// re-entered) SYS_exit/SYS_exit_group.
-fn prepare_exit(_t: &mut RecordTask, _exit_code: i32) {
-    unimplemented!()
+fn prepare_exit(t: &mut RecordTask, exit_code: i32) {
+    // RecordSession is responsible for ensuring we don't get here with
+    // pending signals.
+    ed_assert!(t, !t.has_any_stashed_sig());
+
+    t.stable_exit = true;
+    t.exit_code = exit_code;
+    t.session()
+        .as_record()
+        .unwrap()
+        .scheduler_mut()
+        .in_stable_exit(t);
+
+    let mut r: Registers = t.regs_ref().clone();
+    let mut exit_regs: Registers = r.clone();
+    ed_assert!(
+        t,
+        is_exit_syscall(
+            exit_regs.original_syscallno() as i32,
+            t.ev().syscall_event().arch()
+        ) || is_exit_group_syscall(
+            exit_regs.original_syscallno() as i32,
+            t.ev().syscall_event().arch()
+        ),
+        "Tracee should have been at exit/exit_group, but instead at {}",
+        t.ev().syscall_event().syscall_name()
+    );
+
+    // The first thing we need to do is to block all signals to prevent
+    // a signal being delivered to the thread (since it's going to exit and
+    // won't be able to handle any more signals).
+    //
+    // The tracee is at the entry to SYS_exit/SYS_exit_group, but hasn't started
+    // the call yet.  We can't directly start injecting syscalls
+    // because the tracee is still in the kernel.  And obviously,
+    // if we finish the SYS_exit/SYS_exit_group syscall, the tracee isn't around
+    // anymore.
+    //
+    // So hijack this SYS_exit call and rewrite it into a SYS_rt_sigprocmask.
+    r.set_original_syscallno(syscall_number_for_rt_sigprocmask(t.arch()) as isize);
+    r.set_arg1(SIG_BLOCK as usize);
+    r.set_arg2(AddressSpace::rd_page_ff_bytes().as_usize());
+    r.set_arg3(0);
+    r.set_arg4(size_of::<sig_set_t>());
+    t.set_regs(&r);
+    // This exits the SYS_rt_sigprocmask.  Now the tracee is ready to do our
+    // bidding.
+    t.exit_syscall();
+    check_signals_while_exiting(t);
+
+    // Do the actual buffer and fd cleanup.
+    t.destroy_buffers();
+
+    check_signals_while_exiting(t);
+
+    // Restore these regs to what they would have been just before
+    // the tracee trapped at SYS_exit/SYS_exit_group.  When we've finished
+    // cleanup, we'll restart the call.
+    exit_regs.set_syscallno(exit_regs.original_syscallno());
+    exit_regs.set_original_syscallno(-1);
+    exit_regs.set_ip(exit_regs.ip() - syscall_instruction_length(t.arch()));
+    let is_at_syscall_instruction = is_at_syscall_instruction(t, exit_regs.ip());
+    ed_assert!(
+        t,
+        is_at_syscall_instruction,
+        "Tracee should have entered through int $0x80."
+    );
+    // Restart the SYS_exit call.
+    t.set_regs(&exit_regs);
+    t.enter_syscall();
+    check_signals_while_exiting(t);
+
+    if t.emulated_ptrace_options & PTRACE_O_TRACEEXIT != 0 {
+        // Ensure that do_ptrace_exit_stop can run later.
+        t.emulated_ptrace_queued_exit_stop = true;
+        t.emulate_ptrace_stop(WaitStatus::for_ptrace_event(PTRACE_EVENT_EXIT), None, None);
+    } else {
+        // Only allow one stop at a time. After the PTRACE_EVENT_EXIT has been
+        // processed, PTRACE_CONT will call do_ptrace_exit_stop for us.
+        do_ptrace_exit_stop(t);
+    }
+}
+
+fn check_signals_while_exiting(t: &mut RecordTask) {
+    let maybe_s = t.peek_stashed_sig_to_deliver();
+    match maybe_s {
+        Some(s) => {
+            // An unblockable signal (SIGKILL, SIGSTOP) might be received
+            // and stashed. Since these signals are unblockable they take
+            // effect no matter what and we don't need to deliver them to an exiting
+            // thread.
+            let siginfo = unsafe { (*s).siginfo };
+            let sig = siginfo.si_signo;
+            ed_assert!(
+                t,
+                sig == SIGKILL || sig == SIGSTOP,
+                "Got unexpected signal {} (should have been blocked)",
+                siginfo
+            );
+        }
+        None => (),
+    }
+}
+
+fn do_ptrace_exit_stop(t: &mut RecordTask) {
+    // Notify ptracer of the exit if it's not going to receive it from the
+    // kernel because it's not the parent. (The kernel has similar logic to
+    // deliver two stops in this case.)
+    t.emulated_ptrace_queued_exit_stop = false;
+    if t.emulated_ptracer.is_some()
+        && (t.is_clone_child()
+            || t.get_parent_pid()
+                != t.emulated_ptracer
+                    .as_ref()
+                    .unwrap()
+                    .upgrade()
+                    .unwrap()
+                    .borrow()
+                    .real_tgid())
+    {
+        // This is a bit wrong; this is an exit stop, not a signal/ptrace stop.
+        t.emulate_ptrace_stop(WaitStatus::for_exit_code(t.exit_code), None, None);
+    }
 }
 
 pub fn rec_prepare_restart_syscall(_t: &RecordTask) {
