@@ -670,8 +670,7 @@ impl Task for RecordTask {
 
         // The event at depth 0 is the placeholder event, which isn't
         // useful to log.  Skip it.
-        let mut iter = self.pending_events.iter();
-        iter.next_back();
+        let mut iter = self.pending_events.iter().skip(1);
         while let Some(it) = iter.next_back() {
             it.log();
         }
