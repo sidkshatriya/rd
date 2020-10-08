@@ -565,6 +565,95 @@ impl DerefMut for RecordTask {
 }
 
 impl Task for RecordTask {
+    fn will_resume_execution(
+        &mut self,
+        _resume_req: ResumeRequest,
+        _wait_req: WaitRequest,
+        ticks_request: TicksRequest,
+        maybe_sig: Option<Sig>,
+    ) {
+        // We may execute user code, which could lead to an RDTSC or grow-map
+        // operation which unblocks SIGSEGV, and we'll need to know whether to
+        // re-block it. So we need our cached sigmask to be up to date.
+        // We don't need to this if we're not going to execute user code
+        // (i.e. ticks_request == TicksRequest::ResumeNoTicks) except that did_wait can't
+        // easily check for that and may restore blocked_sigs so it had better be
+        // accurate.
+        self.get_sigmask();
+
+        if self.stashed_signals_blocking_more_signals {
+            // A stashed signal we have already accepted for this task may
+            // have a sigaction::sa_mask that would block the next signal to be
+            // delivered and cause it to be delivered to a different task. If we allow
+            // such a signal to be delivered to this task then we run the risk of never
+            // being able to process the signal (if it stays blocked indefinitely).
+            // To prevent this, block any further signal delivery as long as there are
+            // stashed signals.
+            // We assume the kernel can't report a new signal of the same number
+            // in response to us injecting a signal. XXX is this true??? We don't
+            // have much choice, signal injection won't work if we block the signal.
+            // We leave rr signals unblocked. TIME_SLICE_SIGNAL has to be unblocked
+            // because blocking it seems to cause problems for some hardware/kernel
+            // configurations (see https://github.com/mozilla/rr/issues/1979),
+            // causing them to stop counting events.
+            let mut sigset = !self.session().as_record().unwrap().rd_signal_mask();
+            match maybe_sig {
+                // We're injecting a signal, so make sure that signal is unblocked.
+                Some(sig) => sigset = sigset & !signal_bit(sig),
+                None => (),
+            }
+            let ret = self.fallible_ptrace(
+                PTRACE_SETSIGMASK,
+                RemotePtr::<Void>::from(8usize),
+                PtraceData::WriteInto(u8_raw_slice_mut(&mut sigset)),
+            );
+            if ret < 0 {
+                if errno() == EIO {
+                    fatal!("PTRACE_SETSIGMASK not supported; rd requires Linux kernel >= 3.11");
+                }
+                ed_assert_eq!(self, errno(), EINVAL);
+            } else {
+                log!(LogDebug,  "Set signal mask to block all signals (bar SYSCALLBUF_DESCHED_SIGNAL/TIME_SLICE_SIGNAL) while we \
+                       have a stashed signal");
+            }
+        }
+
+        // TicksRequest::ResumeNoTicks means that tracee code is not going to run so there's no
+        // need to set breakpoints and in fact they might interfere with rr
+        // processing.
+        if ticks_request != TicksRequest::ResumeNoTicks {
+            if !self.at_may_restart_syscall() {
+                // If the tracee has SIGTRAP blocked or ignored and we hit one of these
+                // breakpoints, the kernel will automatically unblock the signal and set
+                // its disposition to DFL, effects which we ought to undo to keep these
+                // SIGTRAPs invisible to tracees. Fixing the sigmask happens
+                // automatically in did_wait(). Restoring the signal-ignored status is
+                // handled in `handle_syscallbuf_breakpoint`.
+
+                // Set breakpoints at untraced syscalls to catch us entering an untraced
+                // syscall. We don't need to do this (and shouldn't do this) if the
+                // execution requestor wants to stop inside untraced syscalls.
+                // If we have an interrupted syscall that we may restart, don't
+                // set the breakpoints because we should restart the syscall instead
+                // of breaking and delivering signals. The syscallbuf code doesn't
+                // (and must not) perform more than one blocking syscall for any given
+                // buffered syscall.
+                for p in self.syscallbuf_syscall_entry_breakpoints() {
+                    self.vm_shr_ptr()
+                        .add_breakpoint(self, p, BreakpointType::BkptInternal);
+                }
+            }
+            let addr = self
+                .syscallbuf_code_layout
+                .syscallbuf_final_exit_instruction;
+
+            if self.break_at_syscallbuf_final_instruction {
+                self.vm_shr_ptr()
+                    .add_breakpoint(self, addr, BreakpointType::BkptInternal);
+            }
+        }
+    }
+
     /// Forwarded method
     fn destroy(&mut self, maybe_detach: Option<bool>) {
         destroy(self, maybe_detach)

@@ -165,7 +165,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
 
     /// Hook called by `resume_execution`.
     fn will_resume_execution(
-        &self,
+        &mut self,
         _resume_req: ResumeRequest,
         _wait_req: WaitRequest,
         _ticks_req: TicksRequest,

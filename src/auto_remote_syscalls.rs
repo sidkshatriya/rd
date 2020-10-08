@@ -464,9 +464,9 @@ impl<'a> AutoRemoteSyscalls<'a> {
         // us they're also untraced by the outer rr.
         // Use the slow path if SIGTRAP is blocked or ignored because otherwise
         // the PTRACE_SINGLESTEP will cause the kernel to unblock it.
-        let is_sigtrap_default_and_unblocked = is_sigtrap_default_and_unblocked(remote.task_mut());
-        let enable_singlestep_path =
-            remote.vm().has_rd_page() && !running_under_rd() && is_sigtrap_default_and_unblocked;
+        let enable_singlestep_path = remote.vm().has_rd_page()
+            && !running_under_rd()
+            && is_sigtrap_default_and_unblocked(remote.task_mut());
         remote.setup_path(enable_singlestep_path);
         if enable_mem_params == MemParamsEnabled::EnableMemoryParams {
             remote.maybe_fix_stack_pointer();
