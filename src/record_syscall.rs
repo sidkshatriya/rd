@@ -59,6 +59,7 @@ use std::{
     convert::TryInto,
     mem::size_of,
     rc::Rc,
+    sync::atomic::{AtomicBool, Ordering},
 };
 
 /// Prepare |t| to enter its current syscall event.  Return ALLOW_SWITCH if
@@ -105,9 +106,9 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         return Switchable::PreventSwitch;
     }
 
-    t.syscall_state_unwrap()
-        .borrow_mut()
-        .syscall_entry_registers = regs.clone();
+    let syscall_state_shr = t.syscall_state_unwrap();
+    let mut syscall_state = syscall_state_shr.borrow_mut();
+    syscall_state.syscall_entry_registers = regs.clone();
 
     if !t.desched_rec().is_null() {
         // |t| was descheduled while in a buffered syscall.  We normally don't
@@ -120,14 +121,12 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         // sys_read's block-cloning path is interrupted. In that case, record
         // the scratch memory.
         if syscallno == Arch::READ && regs.arg2() == t.scratch_ptr.as_usize() {
-            t.syscall_state_unwrap()
-                .borrow_mut()
-                .reg_parameter_with_size(
-                    2,
-                    ParamSize::from_syscall_result_with_size::<Arch::ssize_t>(regs.arg3()),
-                    Some(ArgMode::InOutNoScratch),
-                    None,
-                );
+            syscall_state.reg_parameter_with_size(
+                2,
+                ParamSize::from_syscall_result_with_size::<Arch::ssize_t>(regs.arg3()),
+                Some(ArgMode::InOutNoScratch),
+                None,
+            );
         }
 
         return Switchable::AllowSwitch;
@@ -136,7 +135,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
     if syscallno < 0 {
         // Invalid syscall. Don't let it accidentally match a
         // syscall number below that's for an undefined syscall.
-        t.syscall_state_unwrap().borrow_mut().expect_errno = ENOSYS;
+        syscall_state.expect_errno = ENOSYS;
         return Switchable::PreventSwitch;
     }
 
@@ -151,9 +150,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
             | PR_GET_FPEXC
             | PR_GET_PDEATHSIG
             | PR_GET_UNALIGN => {
-                t.syscall_state_unwrap()
-                    .borrow_mut()
-                    .reg_parameter::<i32>(2, None, None);
+                syscall_state.reg_parameter::<i32>(2, None, None);
             }
 
             PR_GET_KEEPCAPS
@@ -179,7 +176,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
                     let mut r: Registers = regs.clone();
                     r.set_arg1_signed(-1);
                     t.set_regs(&r);
-                    t.syscall_state_unwrap().borrow_mut().emulate_result(0);
+                    syscall_state.emulate_result(0);
                     t.thread_group_mut().dumpable = false;
                 } else if regs.arg2() == 1 {
                     t.thread_group_mut().dumpable = true;
@@ -187,15 +184,11 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
             }
 
             PR_GET_DUMPABLE => {
-                t.syscall_state_unwrap()
-                    .borrow_mut()
-                    .emulate_result(if t.thread_group().dumpable { 1 } else { 0 });
+                syscall_state.emulate_result(if t.thread_group().dumpable { 1 } else { 0 });
             }
 
             PR_GET_SECCOMP => {
-                t.syscall_state_unwrap()
-                    .borrow_mut()
-                    .emulate_result(t.prctl_seccomp_status as usize);
+                syscall_state.emulate_result(t.prctl_seccomp_status as usize);
             }
 
             PR_GET_TSC => {
@@ -203,12 +196,9 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
                 let mut r: Registers = regs.clone();
                 r.set_arg1_signed(-1);
                 t.set_regs(&r);
-                t.syscall_state_unwrap().borrow_mut().emulate_result(0);
-                let child_addr = t.syscall_state_unwrap().borrow_mut().reg_parameter::<i32>(
-                    2,
-                    Some(ArgMode::InOutNoScratch),
-                    None,
-                );
+                syscall_state.emulate_result(0);
+                let child_addr =
+                    syscall_state.reg_parameter::<i32>(2, Some(ArgMode::InOutNoScratch), None);
                 let tsc_mode = t.tsc_mode;
                 write_val_mem(t, child_addr, &tsc_mode, None);
             }
@@ -220,25 +210,21 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
                 t.set_regs(&r);
                 let val = regs.arg2() as i32;
                 if val != PR_TSC_ENABLE as i32 && val != PR_TSC_SIGSEGV as i32 {
-                    t.syscall_state_unwrap()
-                        .borrow_mut()
-                        .emulate_result_signed(-EINVAL as isize);
+                    syscall_state.emulate_result_signed(-EINVAL as isize);
                 } else {
-                    t.syscall_state_unwrap().borrow_mut().emulate_result(0);
+                    syscall_state.emulate_result(0);
                     t.tsc_mode = val;
                 }
             }
 
             PR_GET_NAME => {
-                t.syscall_state_unwrap()
-                    .borrow_mut()
-                    .reg_parameter_with_size(2, ParamSize::from(16), None, None);
+                syscall_state.reg_parameter_with_size(2, ParamSize::from(16), None, None);
             }
 
             PR_SET_NO_NEW_PRIVS => {
                 // @TODO in rr there is a cast to unsigned long
                 if regs.arg2() != 1 {
-                    t.syscall_state_unwrap().borrow_mut().expect_errno = EINVAL;
+                    syscall_state.expect_errno = EINVAL;
                 }
             }
 
@@ -258,7 +244,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
                         }
                     }
                     _ => {
-                        t.syscall_state_unwrap().borrow_mut().expect_errno = EINVAL;
+                        syscall_state.expect_errno = EINVAL;
                     }
                 }
             }
@@ -269,11 +255,11 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
                 let mut r: Registers = regs.clone();
                 r.set_arg1_signed(-1);
                 t.set_regs(&r);
-                t.syscall_state_unwrap().borrow_mut().emulate_result(0);
+                syscall_state.emulate_result(0);
             }
 
             _ => {
-                t.syscall_state_unwrap().borrow_mut().expect_errno = EINVAL;
+                syscall_state.expect_errno = EINVAL;
             }
         }
 
@@ -297,14 +283,13 @@ pub fn rec_process_syscall(t: &mut RecordTask) {
     let sys_ev_arch = t.ev().syscall_event().arch();
     let sys_ev_number = t.ev().syscall_event().number;
     if sys_ev_arch != t.arch() {
-        // @TODO Make this static
-        let mut did_warn = false;
-        if !did_warn {
+        static DID_WARN: AtomicBool = AtomicBool::new(false);
+        if !DID_WARN.load(Ordering::SeqCst) {
             log!(
                 LogWarn,
                 "Cross architecture syscall detected. Support is best effort"
             );
-            did_warn = true;
+            DID_WARN.store(true, Ordering::SeqCst);
         }
     }
     rec_process_syscall_internal(t, sys_ev_arch);
