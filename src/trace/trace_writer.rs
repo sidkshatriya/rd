@@ -63,15 +63,10 @@ use capnp::{
     serialize_packed::write_message,
 };
 use libc::{dev_t, ino_t, ioctl, pid_t, EEXIST, STDOUT_FILENO};
-use nix::{
-    errno::errno,
-    fcntl::{flock, readlink, FlockArg::LockExclusiveNonblock, OFlag},
-    sys::{
-        mman::{MapFlags, ProtFlags},
-        stat::Mode,
-    },
-    unistd::unlink,
-};
+use nix::{errno::errno, fcntl::{flock, readlink, FlockArg::LockExclusiveNonblock, OFlag}, sys::{
+    mman::{MapFlags, ProtFlags},
+    stat::Mode,
+}, unistd::unlink, Error};
 use std::{
     collections::HashMap,
     convert::TryInto,
@@ -88,6 +83,7 @@ use std::{
     path::Path,
     slice,
 };
+use nix::errno::Errno;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum RecordInTrace {
@@ -757,6 +753,7 @@ impl TraceWriter {
         //
         // DIFF NOTE: rr swallows any error on unlink. We don't for now.
         match unlink(link_name.as_os_str()) {
+            Err(Error::Sys(Errno::ENOENT)) => (),
             Err(e) => fatal!("Unable to unlink {:?}: {:?}", link_name, e),
             Ok(_) => (),
         }

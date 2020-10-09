@@ -96,6 +96,7 @@ impl CompressedWriter {
     pub fn good(&self) -> bool {
         self.error
     }
+
     pub fn new(filename: &OsStr, block_size: usize, num_threads: usize) -> CompressedWriter {
         let fd = ScopedFd::open_path_with_mode(
             filename,
@@ -112,14 +113,6 @@ impl CompressedWriter {
         let mut thread_pos: Vec<Option<u64>> = Vec::with_capacity(num_threads);
         thread_pos.resize(num_threads, None);
 
-        let next_thread_pos: u64 = 0;
-        let next_thread_end_pos: u64 = 0;
-        let closing = false;
-        let write_error = false;
-
-        let producer_reserved_pos: u64 = 0;
-        let producer_reserved_write_pos: u64 = 0;
-        let producer_reserved_upto_pos: u64 = 0;
         let mut error = false;
         if !fd.is_open() {
             error = true;
@@ -130,17 +123,17 @@ impl CompressedWriter {
             block_size,
             mutex: Arc::new(Mutex::new(CompressedWriterData {
                 thread_pos,
-                next_thread_pos,
-                next_thread_end_pos,
-                closing,
-                write_error,
+                next_thread_pos: 0,
+                next_thread_end_pos: 0,
+                closing: false,
+                write_error: false,
             })),
             cond_var: Arc::new(Condvar::new()),
             threads: Vec::new(),
-            producer_reserved_pos,
-            producer_reserved_write_pos,
-            producer_reserved_upto_pos,
-            error,
+            producer_reserved_pos: 0,
+            producer_reserved_write_pos: 0,
+            producer_reserved_upto_pos: 0,
+            error: false,
             buffer,
         };
 
@@ -153,8 +146,8 @@ impl CompressedWriter {
         {
             let _mg = cw.mutex.lock().unwrap();
             for i in 0..num_threads {
-                let mutex = cw.mutex.clone();
-                let cond_var = cw.cond_var.clone();
+                let mutex = Arc::clone(&cw.mutex);
+                let cond_var = Arc::clone(&cw.cond_var);
                 let shared_buffer = SharedBuf(cw.buffer.as_mut_ptr(), cw.buffer.len());
                 let fd_raw = cw.fd.as_raw();
                 cw.threads.push(
@@ -180,12 +173,12 @@ impl CompressedWriter {
                                     && g.next_thread_pos < g.next_thread_end_pos
                                     && (g.closing
                                         || g.next_thread_pos + block_size as u64
-                                            <= next_thread_end_pos)
+                                            <= g.next_thread_end_pos)
                                 {
                                     g.thread_pos[thread_index] = Some(g.next_thread_pos);
                                     g.next_thread_pos = min(
-                                        next_thread_end_pos,
-                                        next_thread_pos + block_size as u64,
+                                        g.next_thread_end_pos,
+                                        g.next_thread_pos + block_size as u64,
                                     );
                                     // header.uncompressed_length must be <= block_size,
                                     // therefore fits in a size_t.
@@ -231,9 +224,11 @@ impl CompressedWriter {
                                                 other_thread_write_first = true;
                                             }
                                         }
+
                                         if !other_thread_write_first {
                                             break;
                                         }
+
                                         g = cond_var.wait(g).unwrap();
                                     }
 
@@ -280,10 +275,11 @@ impl CompressedWriter {
 
         self.update_reservation(WaitFlag::NoWait);
 
-        let mut g = self.mutex.lock().unwrap();
-        g.closing = true;
-        self.cond_var.notify_all();
-        drop(g);
+        {
+            let mut g = self.mutex.lock().unwrap();
+            g.closing = true;
+            self.cond_var.notify_all();
+        }
 
         while let Some(handle) = self.threads.pop() {
             handle.join().unwrap();
@@ -295,9 +291,11 @@ impl CompressedWriter {
             }
         }
 
-        g = self.mutex.lock().unwrap();
-        if g.write_error {
-            self.error = true;
+        {
+            let g = self.mutex.lock().unwrap();
+            if g.write_error {
+                self.error = true;
+            }
         }
 
         self.fd.close();
@@ -351,13 +349,7 @@ impl Write for CompressedWriter {
             let buf_offset: usize =
                 (self.producer_reserved_write_pos % self.buffer.len() as u64) as usize;
             let amount: usize = min(self.buffer.len() - buf_offset, min(reservation_size, size));
-            unsafe {
-                copy_nonoverlapping(
-                    data.as_ptr(),
-                    &mut self.buffer[buf_offset] as *mut u8,
-                    amount,
-                );
-            }
+            self.buffer[buf_offset..buf_offset + amount].copy_from_slice(&data[0..amount]);
             self.producer_reserved_write_pos += amount as u64;
             data = &data[amount..];
             size -= amount;
@@ -374,6 +366,7 @@ impl Write for CompressedWriter {
         if self.error {
             return Err(Error::new(ErrorKind::Other, "CompressedWriter error"));
         }
+
         Ok(data_to_write.len())
     }
 
