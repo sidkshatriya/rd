@@ -103,7 +103,7 @@ use std::{
     cmp::{max, min},
     convert::TryInto,
     ffi::OsString,
-    mem::size_of,
+    mem::{self, size_of},
     os::{raw::c_uint, unix::ffi::OsStringExt},
     rc::Rc,
     sync::atomic::{AtomicBool, Ordering},
@@ -721,6 +721,7 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
     // @TODO This method is incomplete
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 enum ScratchAddrType {
     FixedAddress,
     DynamicAddress,
@@ -953,9 +954,73 @@ fn process_execve(t: &mut RecordTask, syscall_state: &mut RefMut<TaskSyscallStat
 
     init_scratch_memory(t, Some(ScratchAddrType::FixedAddress));
 }
+/// Pointer used when running in WINE. Memory below this address is
+/// unmapped by WINE immediately after exec, so start the scratch buffer
+/// here.
+const FIXED_SCRATCH_PTR: usize = 0x68000000;
 
-fn init_scratch_memory(_t: &mut RecordTask, _maybe_addr_type: Option<ScratchAddrType>) {
-    unimplemented!()
+fn init_scratch_memory(t: &mut RecordTask, maybe_addr_type: Option<ScratchAddrType>) {
+    let addr_type = maybe_addr_type.unwrap_or(ScratchAddrType::DynamicAddress);
+    let scratch_size = 512 * page_size();
+    // The PROT_EXEC looks scary, and it is, but it's to prevent
+    // this region from being coalesced with another anonymous
+    // segment mapped just after this one.  If we named this
+    // segment, we could remove this hack.
+    let prot = ProtFlags::PROT_READ | ProtFlags::PROT_WRITE | ProtFlags::PROT_EXEC;
+    let flags = MapFlags::MAP_PRIVATE | MapFlags::MAP_ANONYMOUS;
+    {
+        // initialize the scratchpad for blocking system calls
+        let mut remote = AutoRemoteSyscalls::new(t);
+
+        if addr_type == ScratchAddrType::DynamicAddress {
+            remote.task_mut().scratch_ptr =
+                remote.infallible_mmap_syscall(None, scratch_size, prot, flags, -1, 0);
+        } else {
+            remote.task_mut().scratch_ptr = remote.infallible_mmap_syscall(
+                Some(RemotePtr::from(FIXED_SCRATCH_PTR)),
+                scratch_size,
+                prot,
+                flags | MapFlags::MAP_FIXED,
+                -1,
+                0,
+            );
+        }
+        remote.task_mut().scratch_size = scratch_size;
+    }
+
+    t.setup_preload_thread_locals();
+
+    // record this mmap for the replay
+    let mut r: Registers = t.regs_ref().clone();
+    let saved_result = r.syscall_result();
+    r.set_syscall_result(t.scratch_ptr.as_usize());
+    t.set_regs(&r);
+
+    let km = t.vm_shr_ptr().map(
+        t,
+        t.scratch_ptr,
+        scratch_size,
+        prot,
+        flags,
+        0,
+        &OsString::new(),
+        KernelMapping::NO_DEVICE,
+        KernelMapping::NO_INODE,
+        None,
+        None,
+        None,
+        None,
+        None,
+    );
+    let stat: libc::stat = unsafe { mem::zeroed() };
+    let record_in_trace = t
+        .trace_writer_mut()
+        .write_mapped_region(t, &km, &stat, &[], None, None);
+
+    ed_assert_eq!(t, record_in_trace, RecordInTrace::DontRecordInTrace);
+
+    r.set_syscall_result(saved_result);
+    t.set_regs(&r);
 }
 
 fn check_privileged_exe(_t: &mut RecordTask) {
