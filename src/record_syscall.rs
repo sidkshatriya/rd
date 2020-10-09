@@ -1,5 +1,6 @@
 use crate::{
     arch::Architecture,
+    auto_remote_syscalls::{AutoRemoteSyscalls, MemParamsEnabled},
     bindings::{
         kernel::TIOCGWINSZ,
         prctl::{
@@ -50,6 +51,7 @@ use crate::{
         is_exit_group_syscall,
         is_exit_syscall,
         syscall_instruction_length,
+        syscall_number_for_munmap,
         syscall_number_for_rt_sigprocmask,
         Ptr,
         SupportedArch,
@@ -63,7 +65,7 @@ use crate::{
     remote_ptr::{RemotePtr, Void},
     seccomp_filter_rewriter::SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO,
     session::{
-        address_space::address_space::AddressSpace,
+        address_space::{address_space::AddressSpace, kernel_mapping::KernelMapping},
         session_inner::SessionInner,
         task::{
             record_task::RecordTask,
@@ -74,7 +76,11 @@ use crate::{
     },
     sig,
     taskish_uid::TaskUid,
-    trace::trace_task_event::TraceTaskEvent,
+    trace::{
+        trace_task_event::TraceTaskEvent,
+        trace_writer::{MappingOrigin, RecordInTrace},
+    },
+    util::page_size,
     wait_status::WaitStatus,
 };
 use libc::{
@@ -86,6 +92,10 @@ use libc::{
     SIGKILL,
     SIGSTOP,
     SIG_BLOCK,
+};
+use nix::sys::{
+    mman::{MapFlags, ProtFlags},
+    stat,
 };
 use std::{
     cell::{RefCell, RefMut},
@@ -716,7 +726,248 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
     unimplemented!()
 }
 
-fn process_execve(_t: &mut RecordTask, _syscall_state: &mut RefMut<TaskSyscallState>) {
+enum ScratchAddrType {
+    FixedAddress,
+    DynamicAddress,
+}
+
+fn process_execve(t: &mut RecordTask, syscall_state: &mut RefMut<TaskSyscallState>) {
+    if t.regs_ref().syscall_failed() {
+        return;
+    }
+
+    t.post_exec_syscall();
+    t.ev_mut().syscall_event_mut().exec_fds_to_close =
+        t.fd_table_shr_ptr().borrow_mut().fds_to_close_after_exec(t);
+
+    check_privileged_exe(t);
+
+    let rd_page_mapping: KernelMapping = t
+        .vm()
+        .mapping_of(AddressSpace::rd_page_start())
+        .unwrap()
+        .map
+        .clone();
+
+    let mut mode = t.trace_writer_mut().write_mapped_region(
+        t,
+        &rd_page_mapping,
+        &rd_page_mapping.fake_stat(),
+        &[],
+        Some(MappingOrigin::RdBufferMapping),
+        None,
+    );
+    ed_assert_eq!(t, mode, RecordInTrace::DontRecordInTrace);
+
+    let preload_thread_locals_mapping: KernelMapping = t
+        .vm()
+        .mapping_of(AddressSpace::preload_thread_locals_start())
+        .unwrap()
+        .map
+        .clone();
+
+    mode = t.trace_writer_mut().write_mapped_region(
+        t,
+        &preload_thread_locals_mapping,
+        &preload_thread_locals_mapping.fake_stat(),
+        &[],
+        Some(MappingOrigin::RdBufferMapping),
+        None,
+    );
+    ed_assert_eq!(t, mode, RecordInTrace::DontRecordInTrace);
+
+    let mut maybe_vvar: Option<KernelMapping> = None;
+
+    // get the remote executable entry point
+    // with the pointer, we find out which mapping is the executable
+    let exe_entry: RemotePtr<Void> = get_exe_entry(t);
+    ed_assert!(t, !exe_entry.is_null(), "AT_ENTRY not found");
+
+    // Write out stack mappings first since during replay we need to set up the
+    // stack before any files get mapped.
+    let mut stacks: Vec<KernelMapping> = Vec::new();
+    for (_, m) in &t.vm().maps() {
+        let km = m.map.clone();
+        // if true, this mapping is our executable
+        if km.start() <= exe_entry && exe_entry < km.end() {
+            ed_assert!(
+                t,
+                km.prot().contains(ProtFlags::PROT_EXEC),
+                "Entry point not in executable code?"
+            );
+            syscall_state
+                .exec_saved_event
+                .as_mut()
+                .unwrap()
+                .exec_variant_mut()
+                .set_exe_base(km.start());
+
+            if km.is_stack() {
+                stacks.push(km);
+            } else if km.is_vvar() {
+                maybe_vvar = Some(km);
+            }
+        }
+    }
+    ed_assert!(
+        t,
+        !syscall_state
+            .exec_saved_event
+            .as_ref()
+            .unwrap()
+            .exec_variant()
+            .exe_base()
+            .is_null()
+    );
+
+    t.trace_writer_mut()
+        .write_task_event(syscall_state.exec_saved_event.as_ref().unwrap());
+
+    {
+        let mut remote =
+            AutoRemoteSyscalls::new_with_mem_params(t, MemParamsEnabled::DisableMemoryParams);
+
+        match maybe_vvar {
+            Some(vvar) => {
+                // We're not going to map [vvar] during replay --- that wouldn't
+                // make sense, since it contains data from the kernel that isn't correct
+                // for replay, and we patch out the vdso syscalls that would use it.
+                // Unmapping it now makes recording look more like replay.
+                // Also note that under 4.0.7-300.fc22.x86_64 (at least) /proc/<pid>/mem
+                // can't read the contents of [vvar].
+                let munmap_no: i32 = syscall_number_for_munmap(remote.arch());
+                rd_infallible_syscall!(remote, munmap_no, vvar.start().as_usize(), vvar.size());
+                remote
+                    .task()
+                    .vm_shr_ptr()
+                    .unmap(remote.task(), vvar.start(), vvar.size());
+            }
+            None => (),
+        }
+
+        for km in &stacks {
+            mode = remote
+                .task()
+                .as_rec_unwrap()
+                .trace_writer_mut()
+                .write_mapped_region(
+                    remote.task().as_rec_unwrap(),
+                    km,
+                    &km.fake_stat(),
+                    &[],
+                    Some(MappingOrigin::ExecMapping),
+                    None,
+                );
+            ed_assert_eq!(remote.task(), mode, RecordInTrace::RecordInTrace);
+            let buf = read_mem(remote.task_mut(), km.start(), km.size(), None);
+            remote.task().as_rec_unwrap().trace_writer_mut().write_raw(
+                remote.task().rec_tid,
+                &buf,
+                km.start(),
+            );
+
+            // Remove MAP_GROWSDOWN from stacks by remapping the memory and
+            // writing the contents back.
+            let flags = (km.flags() & !MapFlags::MAP_GROWSDOWN) | MapFlags::MAP_ANONYMOUS;
+            let munmap_no: i32 = syscall_number_for_munmap(remote.arch());
+            rd_infallible_syscall!(remote, munmap_no, km.start().as_usize(), km.size());
+            if !remote
+                .task()
+                .vm()
+                .mapping_of(km.start() - page_size())
+                .is_some()
+            {
+                // Unmap an extra page at the start; this seems to be necessary
+                // to properly wipe out the growsdown mapping. Doing it as a separate
+                // munmap call also seems to be necessary.
+                rd_infallible_syscall!(
+                    remote,
+                    munmap_no,
+                    km.start().as_usize() - page_size(),
+                    page_size()
+                );
+            }
+            remote.infallible_mmap_syscall(Some(km.start()), km.size(), km.prot(), flags, -1, 0);
+            write_mem(remote.task_mut(), km.start(), &buf, None);
+        }
+    }
+
+    // The kernel may zero part of the last page in each data mapping according
+    // to ELF BSS metadata. So we record the last page of each data mapping in
+    // the trace.
+    let mut pages_to_record: Vec<RemotePtr<Void>> = Vec::new();
+
+    for (_, m) in &t.vm_shr_ptr().maps() {
+        let km = m.map.clone();
+        if km.start() == AddressSpace::rd_page_start()
+            || km.start() == AddressSpace::preload_thread_locals_start()
+        {
+            continue;
+        }
+        if km.is_stack() || km.is_vsyscall() {
+            // [stack] has already been handled.
+            // [vsyscall] can't be read via /proc/<pid>/mem, *should*
+            // be the same across all execs, and can't be munmapped so we can't fix
+            // it even if it does vary. Plus no-one should be using it anymore.
+            continue;
+        }
+        let maybe_stat = stat::stat(km.fsname());
+        let st = match maybe_stat {
+            Err(_) => {
+                let mut fake_st = km.fake_stat();
+                // Size is not real. Don't confuse the logic below
+                fake_st.st_size = 0;
+                fake_st
+            }
+            Ok(st) => st,
+        };
+
+        if t.trace_writer_mut().write_mapped_region(
+            t,
+            &km,
+            &st,
+            &[],
+            Some(MappingOrigin::ExecMapping),
+            None,
+        ) == RecordInTrace::RecordInTrace
+        {
+            if st.st_size > 0 {
+                let end = st.st_size as u64 - km.file_offset_bytes();
+                t.record_remote(km.start(), min(end.try_into().unwrap(), km.size()));
+            } else {
+                // st_size is not valid. Some device files are mmappable but have zero
+                // size. We also take this path if there's no file at all (vdso etc).
+                t.record_remote(km.start(), km.size());
+            }
+        } else {
+            // See https://github.com/mozilla/rr/issues/1568; in some cases
+            // after exec we have memory areas that are rwx. These areas have
+            // a trailing page that may be partially zeroed by the kernel. Record the
+            // trailing page of every mapping just to be simple and safe.
+            pages_to_record.push(km.end() - page_size());
+        }
+    }
+
+    for p in pages_to_record {
+        t.record_remote(p, page_size());
+    }
+
+    // Patch LD_PRELOAD and VDSO after saving the mappings. Replay will apply
+    // patches to the saved mappings.
+    t.vm().monkeypatcher().unwrap().patch_after_exec(t);
+
+    init_scratch_memory(t, Some(ScratchAddrType::FixedAddress));
+}
+
+fn init_scratch_memory(_t: &mut RecordTask, _maybe_addr_type: Option<ScratchAddrType>) {
+    unimplemented!()
+}
+
+fn check_privileged_exe(_t: &mut RecordTask) {
+    unimplemented!()
+}
+
+fn get_exe_entry(_t: &mut RecordTask) -> RemotePtr<Void> {
     unimplemented!()
 }
 

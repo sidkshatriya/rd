@@ -44,6 +44,27 @@ impl TraceTaskEvent {
         }
     }
 
+    pub fn clone_variant_mut(&mut self) -> &mut TraceTaskEventClone {
+        match &mut self.variant {
+            TraceTaskEventVariant::Clone(v) => v,
+            _ => panic!("Not a TraceTaskEventTypeClone"),
+        }
+    }
+
+    pub fn exec_variant_mut(&mut self) -> &mut TraceTaskEventExec {
+        match &mut self.variant {
+            TraceTaskEventVariant::Exec(v) => v,
+            _ => panic!("Not a TraceTaskEventTypeExec"),
+        }
+    }
+
+    pub fn exit_variant_mut(&mut self) -> &mut TraceTaskEventExit {
+        match &mut self.variant {
+            TraceTaskEventVariant::Exit(v) => v,
+            _ => panic!("Not a TraceTaskEventTypeExit"),
+        }
+    }
+
     pub fn for_clone(
         tid: pid_t,
         parent_tid: pid_t,
@@ -106,11 +127,17 @@ impl TraceTaskEventExec {
     pub fn file_name(&self) -> &OsStr {
         &self.file_name_
     }
+
     pub fn cmd_line(&self) -> &[OsString] {
         &self.cmd_line_
     }
+
     pub fn exe_base(&self) -> RemotePtr<Void> {
         self.exe_base_
+    }
+
+    pub fn set_exe_base(&mut self, ptr: RemotePtr<Void>) {
+        self.exe_base_ = ptr;
     }
 }
 
