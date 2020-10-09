@@ -258,7 +258,10 @@ pub struct aligned_u64 {
 /// PhantomData
 pub struct Ptr<ValT, ReferentT> {
     val: ValT,
-    referent: PhantomData<ReferentT>,
+    /// Since this struct does not "own" a `ReferentT`, upon recommendation of the Rust PhantomData docs,
+    /// there is a `PhantomData<*const ReferentT>` here and not simply a `PhantomData<ReferentT>`.
+    /// This also makes sense because this struct is a kind of pointer to `ReferentT`.
+    referent: PhantomData<*const ReferentT>,
 }
 
 impl<ValT: Copy, ReferentT> Clone for Ptr<ValT, ReferentT> {

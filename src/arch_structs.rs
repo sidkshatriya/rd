@@ -3,10 +3,12 @@
 use crate::{
     arch::{Architecture, NativeArch},
     bindings::{kernel, kernel::sock_filter},
+    kernel_abi::Ptr,
 };
 
+#[repr(C)]
 pub struct robust_list<Arch: Architecture> {
-    pub next: Arch::ptr<robust_list<Arch>>,
+    pub next: Ptr<Arch::unsigned_word, robust_list<Arch>>,
 }
 
 /// Had to manually derive Copy and Clone
@@ -22,10 +24,11 @@ impl<Arch: Architecture> Copy for robust_list<Arch> {}
 assert_eq_size!(kernel::robust_list, robust_list<NativeArch>);
 assert_eq_align!(kernel::robust_list, robust_list<NativeArch>);
 
+#[repr(C)]
 pub struct robust_list_head<Arch: Architecture> {
     pub list: robust_list<Arch>,
     pub futex_offset: Arch::signed_long,
-    pub list_op_pending: Arch::ptr<robust_list<Arch>>,
+    pub list_op_pending: Ptr<Arch::unsigned_word, robust_list<Arch>>,
 }
 
 /// Had to manually derive Copy and Clone
@@ -50,7 +53,7 @@ assert_eq_align!(kernel::robust_list_head, robust_list_head<NativeArch>);
 pub struct sock_fprog<Arch: Architecture> {
     pub len: u16,
     pub _padding: Arch::FPROG_PAD_ARR,
-    pub filter: Arch::ptr<sock_filter>,
+    pub filter: Ptr<Arch::unsigned_word, sock_filter>,
 }
 
 assert_eq_size!(kernel::sock_fprog, sock_fprog<NativeArch>);

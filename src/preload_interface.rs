@@ -183,7 +183,7 @@ pub struct preload_globals {
 /// The syscall buffer comprises an array of these variable-length
 /// records, along with the header below.
 #[repr(C)]
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Default, Debug)]
 pub struct syscallbuf_record {
     /// Return value from the syscall.  This can be a memory
     /// address, so must be as big as a memory address can be.

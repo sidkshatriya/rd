@@ -1,5 +1,6 @@
 use crate::{
     arch::Architecture,
+    kernel_abi::Ptr,
     preload_interface::{preload_globals, syscall_patch_hook},
 };
 
@@ -28,15 +29,15 @@ pub struct preload_thread_locals<Arch: Architecture> {
     /// assembly_templates.py.
     /// Pointer to alt-stack used by syscallbuf stubs (allocated at the end of
     /// the scratch buffer.
-    pub syscallbuf_stub_alt_stack: Arch::ptr<u8>,
+    pub syscallbuf_stub_alt_stack: Ptr<Arch::unsigned_word, u8>,
     /// The offset of this field MUST NOT CHANGE, it is part of the preload ABI
     /// tools can depend on.
     /// Where syscall result will be (or during replay, has been) saved.
-    pub pending_untraced_syscall_result: Arch::ptr<i64>,
+    pub pending_untraced_syscall_result: Ptr<Arch::unsigned_word, i64>,
     /// The offset of this field MUST NOT CHANGE, it is part of the preload ABI
     /// rd depends on.
     /// Scratch space used by stub code.
-    pub stub_scratch_1: Arch::ptr<u8>,
+    pub stub_scratch_1: Ptr<Arch::unsigned_word, u8>,
     /// The offset of this field MUST NOT CHANGE, it is part of the preload ABI
     /// rd depends on.
     pub alt_stack_nesting_level: i32,
@@ -48,7 +49,7 @@ pub struct preload_thread_locals<Arch: Architecture> {
     /// existing during replay, some traces with SYSCALLBUF_PROTOCOL_VERSION 0
     /// don't have it.
     // @TODO Is this OK?
-    pub original_syscall_parameters: Arch::ptr<syscall_info<Arch>>,
+    pub original_syscall_parameters: Ptr<Arch::unsigned_word, syscall_info<Arch>>,
 
     /// Nonzero when thread-local state like the syscallbuf has been
     /// initialized.
@@ -58,7 +59,7 @@ pub struct preload_thread_locals<Arch: Architecture> {
     /// segment.  At the start of the segment is an object of type |struct
     /// syscallbuf_hdr|, so `buffer` is also a pointer to the buffer
     /// header.
-    pub buffer: Arch::ptr<u8>,
+    pub buffer: Ptr<Arch::unsigned_word, u8>,
     pub buffer_size: Arch::size_t,
     /// This is used to support the buffering of "may-block" system calls.
     /// The problem that needs to be addressed can be introduced with a
@@ -97,10 +98,10 @@ pub struct preload_thread_locals<Arch: Architecture> {
     pub desched_counter_fd: i32,
     pub cloned_file_data_fd: i32,
     pub cloned_file_data_offset: Arch::off_t,
-    pub scratch_buf: Arch::ptr<u8>,
+    pub scratch_buf: Ptr<Arch::unsigned_word, u8>,
     pub usable_scratch_size: Arch::size_t,
 
-    pub notify_control_msg: Arch::ptr<Arch::msghdr>,
+    pub notify_control_msg: Ptr<Arch::unsigned_word, Arch::msghdr>,
 }
 
 /// Packs up the parameters passed to `SYS_rdcall_init_preload`.
@@ -114,20 +115,20 @@ pub struct rdcall_init_preload_params<Arch: Architecture> {
     /// replay the same decision that was recorded.
     pub syscallbuf_enabled: i32,
     pub syscall_patch_hook_count: i32,
-    pub syscall_patch_hooks: Arch::ptr<syscall_patch_hook>,
-    pub syscallhook_vsyscall_entry: Arch::ptr<u8>,
-    pub syscallbuf_code_start: Arch::ptr<u8>,
-    pub syscallbuf_code_end: Arch::ptr<u8>,
-    pub get_pc_thunks_start: Arch::ptr<u8>,
-    pub get_pc_thunks_end: Arch::ptr<u8>,
-    pub syscallbuf_final_exit_instruction: Arch::ptr<u8>,
-    pub globals: Arch::ptr<preload_globals>,
+    pub syscall_patch_hooks: Ptr<Arch::unsigned_word, syscall_patch_hook>,
+    pub syscallhook_vsyscall_entry: Ptr<Arch::unsigned_word, u8>,
+    pub syscallbuf_code_start: Ptr<Arch::unsigned_word, u8>,
+    pub syscallbuf_code_end: Ptr<Arch::unsigned_word, u8>,
+    pub get_pc_thunks_start: Ptr<Arch::unsigned_word, u8>,
+    pub get_pc_thunks_end: Ptr<Arch::unsigned_word, u8>,
+    pub syscallbuf_final_exit_instruction: Ptr<Arch::unsigned_word, u8>,
+    pub globals: Ptr<Arch::unsigned_word, preload_globals>,
     /// Address of the first entry of the breakpoint table.
     /// After processing a sycallbuf record (and unlocking the syscallbuf),
     /// we call a function in this table corresponding to the record processed.
     /// rd can set a breakpoint in this table to break on the completion of a
     /// particular syscallbuf record.
-    pub breakpoint_table: Arch::ptr<u8>,
+    pub breakpoint_table: Ptr<Arch::unsigned_word, u8>,
     pub breakpoint_table_entry_size: i32,
 }
 
@@ -143,9 +144,9 @@ pub struct rdcall_init_buffers_params<Arch: Architecture> {
     pub cloned_file_data_fd: i32,
     /// Returned pointer to and size of the shared syscallbuf
     /// segment.
-    pub syscallbuf_ptr: Arch::ptr<u8>,
+    pub syscallbuf_ptr: Ptr<Arch::unsigned_word, u8>,
     /// Returned pointer to rd's syscall scratch buffer
-    pub scratch_buf: Arch::ptr<u8>,
+    pub scratch_buf: Ptr<Arch::unsigned_word, u8>,
     pub syscallbuf_size: u32,
     pub usable_scratch_size: u32,
 }

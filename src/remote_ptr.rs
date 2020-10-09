@@ -14,7 +14,10 @@ pub type Void = u8;
 /// Manually derive Copy, Clone due to quirks with PhantomData
 pub struct RemotePtr<T> {
     ptr: usize,
-    phantom: PhantomData<T>,
+    /// Since this struct does not "own" a `T`, upon recommendation of the Rust PhantomData docs,
+    /// there is a `PhantomData<*const T>` here and not simply a `PhantomData<T>`.
+    /// This also makes sense because this struct is a kind of pointer to `T`.
+    phantom: PhantomData<*const T>,
 }
 
 impl<T> Clone for RemotePtr<T> {

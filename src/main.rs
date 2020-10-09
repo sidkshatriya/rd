@@ -4,7 +4,6 @@
 #![feature(llvm_asm)]
 #![feature(raw_ref_op)]
 #![feature(termination_trait_lib)]
-#![feature(generic_associated_types)]
 #![feature(associated_type_defaults)]
 // @TODO To many results for "never used". Disable for now.
 #![allow(dead_code)]

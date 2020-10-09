@@ -573,10 +573,13 @@ pub trait Architecture: 'static {
     type __statfs_word: Default + Copy + 'static;
     type sigchld_clock_t: Default + Copy + 'static;
     type size_t: Default + Copy + 'static;
-    type ptr<T: 'static>: Default + Copy + 'static;
     type kernel_sigaction: Default + Copy + 'static;
-    type signed_long: Copy + From<i32> + TryFrom<usize, Error = TryFromIntError> + 'static;
-    type unsigned_long: Copy + From<u32> + TryFrom<usize, Error = TryFromIntError> + 'static;
+    type signed_long: Default + Copy + From<i32> + TryFrom<usize, Error = TryFromIntError> + 'static;
+    type unsigned_long: Default
+        + Copy
+        + From<u32>
+        + TryFrom<usize, Error = TryFromIntError>
+        + 'static;
     type iovec: Copy + Default + 'static;
     type msghdr: Copy + Default + 'static;
     type cmsghdr: Copy + Default + 'static;
@@ -596,9 +599,9 @@ pub trait Architecture: 'static {
     type mmap_args: Copy + 'static;
     type winsize: Copy + 'static;
 
-    fn as_rptr<T: 'static>(p: Self::ptr<T>) -> RemotePtr<T>;
+    fn as_rptr<T>(p: Ptr<Self::unsigned_word, T>) -> RemotePtr<T>;
 
-    fn from_remote_ptr<T: 'static>(p: RemotePtr<T>) -> Self::ptr<T>;
+    fn from_remote_ptr<T>(p: RemotePtr<T>) -> Ptr<Self::unsigned_word, T>;
 
     fn get_mmap_args(k: &Self::mmap_args) -> (usize, i32, i32, i32, usize);
 
@@ -1083,7 +1086,7 @@ impl Architecture for X86Arch {
     const INVALID_SYSCALL_COUNT: i32 = 17;
     // End list from generate_syscalls.py. See above.
 
-    type FPROG_PAD_ARR = [u8; size_of::<Self::ptr<Void>>() - size_of::<u16>()];
+    type FPROG_PAD_ARR = [u8; size_of::<Ptr<Self::unsigned_word, Void>>() - size_of::<u16>()];
     type STD_PAD_ARR = [u8; size_of::<Self::unsigned_long>() - size_of::<i32>()];
 
     type signed_short = i16;
@@ -1098,7 +1101,6 @@ impl Architecture for X86Arch {
     type syscall_ulong_t = u32;
     type size_t = u32;
     type off_t = i32;
-    type ptr<T: 'static> = Ptr<u32, T>;
     type kernel_sigaction = x86::kernel_sigaction;
     type iovec = x86::iovec;
     type msghdr = x86::msghdr;
@@ -1114,12 +1116,12 @@ impl Architecture for X86Arch {
     type sigchld_clock_t = i32;
     type __statfs_word = u32;
 
-    fn as_rptr<T: 'static>(p: Self::ptr<T>) -> RemotePtr<T> {
+    fn as_rptr<T>(p: Ptr<u32, T>) -> RemotePtr<T> {
         p.rptr()
     }
 
-    fn from_remote_ptr<T: 'static>(p: RemotePtr<T>) -> Self::ptr<T> {
-        Self::ptr::<T>::from_remote_ptr(p)
+    fn from_remote_ptr<T>(p: RemotePtr<T>) -> Ptr<u32, T> {
+        Ptr::<u32, T>::from_remote_ptr(p)
     }
 
     fn get_mmap_args(k: &Self::mmap_args) -> (usize, i32, i32, i32, usize) {
@@ -1651,7 +1653,7 @@ impl Architecture for X64Arch {
     const INVALID_SYSCALL_COUNT: i32 = 86;
     // End list from generate_syscalls.py. See above.
 
-    type FPROG_PAD_ARR = [u8; size_of::<Self::ptr<Void>>() - size_of::<u16>()];
+    type FPROG_PAD_ARR = [u8; size_of::<Ptr<Self::unsigned_word, Void>>() - size_of::<u16>()];
     type STD_PAD_ARR = [u8; size_of::<Self::unsigned_long>() - size_of::<i32>()];
 
     type signed_short = i16;
@@ -1666,7 +1668,6 @@ impl Architecture for X64Arch {
     type syscall_ulong_t = u64;
     type size_t = u64;
     type off_t = i64;
-    type ptr<T: 'static> = Ptr<u64, T>;
     type kernel_sigaction = x64::kernel_sigaction;
     type iovec = x64::iovec;
     type msghdr = x64::msghdr;
@@ -1682,12 +1683,12 @@ impl Architecture for X64Arch {
     type sigchld_clock_t = i64;
     type __statfs_word = i64;
 
-    fn as_rptr<T: 'static>(p: Self::ptr<T>) -> RemotePtr<T> {
+    fn as_rptr<T>(p: Ptr<u64, T>) -> RemotePtr<T> {
         p.rptr()
     }
 
-    fn from_remote_ptr<T: 'static>(p: RemotePtr<T>) -> Self::ptr<T> {
-        Self::ptr::<T>::from_remote_ptr(p)
+    fn from_remote_ptr<T>(p: RemotePtr<T>) -> Ptr<u64, T> {
+        Ptr::<u64, T>::from_remote_ptr(p)
     }
 
     fn get_mmap_args(k: &Self::mmap_args) -> (usize, i32, i32, i32, usize) {

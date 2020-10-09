@@ -51,6 +51,7 @@ use crate::{
         is_exit_syscall,
         syscall_instruction_length,
         syscall_number_for_rt_sigprocmask,
+        Ptr,
         SupportedArch,
     },
     kernel_metadata::{errno_name, is_sigreturn, syscall_name},
@@ -881,7 +882,7 @@ impl TaskSyscallState {
     fn mem_ptr_parameter_inferred<Arch: Architecture, T>(
         &mut self,
         t: &mut RecordTask,
-        addr_of_buf_ptr: RemotePtr<Arch::ptr<T>>,
+        addr_of_buf_ptr: RemotePtr<Ptr<Arch::unsigned_word, T>>,
         maybe_mode: Option<ArgMode>,
         maybe_mutator: Option<ArgMutator>,
     ) -> RemotePtr<T> {
