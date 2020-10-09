@@ -624,9 +624,8 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
         }
         return;
     }
-    let expect_errno = t.syscall_state_unwrap().borrow().expect_errno;
-    if expect_errno != 0 {
-        if expect_errno == EINVAL
+    if syscall_state.expect_errno != 0 {
+        if syscall_state.expect_errno == EINVAL
             && sys == Arch::IOCTL
             && t.regs_ref().syscall_result_signed() == -ENOTTY as isize
         {
@@ -637,9 +636,9 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
         ed_assert_eq!(
             t,
             t.regs_ref().syscall_result_signed(),
-            -t.syscall_state_unwrap().borrow().expect_errno as isize,
+            -syscall_state.expect_errno as isize,
             "Expected {} for '{}' but got result {} (errno {}) {}",
-            errno_name(expect_errno),
+            errno_name(syscall_state.expect_errno),
             syscall_name(sys, Arch::arch()),
             t.regs_ref().syscall_result_signed(),
             errno_name((-t.regs_ref().syscall_result_signed()).try_into().unwrap()),
@@ -667,12 +666,7 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
     if sys == Arch::PRCTL {
         // Restore arg1 in case we modified it to disable the syscall
         let mut r: Registers = t.regs_ref().clone();
-        r.set_arg1(
-            t.syscall_state_unwrap()
-                .borrow()
-                .syscall_entry_registers
-                .arg1(),
-        );
+        r.set_arg1(syscall_state.syscall_entry_registers.arg1());
         t.set_regs(&r);
         if t.regs_ref().arg1() as u32 == PR_SET_SECCOMP {
             if t.session().done_initial_exec() {
@@ -723,7 +717,7 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
         return;
     }
 
-    unimplemented!()
+    // @TODO This method is incomplete
 }
 
 enum ScratchAddrType {
