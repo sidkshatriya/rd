@@ -2,7 +2,7 @@
 use libc::{REG_EAX, REG_EIP};
 
 #[cfg(target_arch = "x86_64")]
-use crate::kernel_supplement::ARCH_SET_CPUID;
+use crate::{kernel_abi::SupportedArch, kernel_supplement::ARCH_SET_CPUID};
 
 #[cfg(target_arch = "x86_64")]
 use libc::{syscall, SYS_arch_prctl, REG_RAX, REG_RIP};
@@ -157,6 +157,22 @@ pub enum SignalAction {
     Continue,
     Stop,
     Ignore,
+}
+
+pub fn word_size_arch<Arch: Architecture>() -> usize {
+    size_of::<Arch::signed_long>()
+}
+
+pub fn word_size(arch: SupportedArch) -> usize {
+    rd_arch_function_selfless!(word_size_arch, arch)
+}
+
+pub fn word_at(buf: &[u8]) -> u64 {
+    let mut temp_buf = [0u8; 8];
+    let wsize = buf.len();
+
+    temp_buf[0..wsize].copy_from_slice(&buf);
+    u64::from_le_bytes(temp_buf)
 }
 
 pub fn default_action(sig: Sig) -> SignalAction {

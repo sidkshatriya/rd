@@ -80,10 +80,11 @@ use crate::{
         trace_task_event::TraceTaskEvent,
         trace_writer::{MappingOrigin, RecordInTrace},
     },
-    util::page_size,
+    util::{page_size, read_auxv, word_at, word_size},
     wait_status::WaitStatus,
 };
 use libc::{
+    AT_ENTRY,
     EINVAL,
     ENOSYS,
     ENOTTY,
@@ -961,8 +962,23 @@ fn check_privileged_exe(_t: &mut RecordTask) {
     unimplemented!()
 }
 
-fn get_exe_entry(_t: &mut RecordTask) -> RemotePtr<Void> {
-    unimplemented!()
+fn get_exe_entry(t: &mut RecordTask) -> RemotePtr<Void> {
+    let v = read_auxv(t);
+    let mut i: usize = 0;
+    let wsize: usize = word_size(t.arch());
+    while (i + 1) * wsize * 2 <= v.len() {
+        if word_at(&v[i * 2 * wsize..i * 2 * wsize + wsize]) == AT_ENTRY {
+            // @TODO Instead of try_into() should this just be `as usize` ?
+            return RemotePtr::new_from_val(
+                word_at(&v[(i * 2 + 1) * wsize..(i * 2 + 1) * wsize + wsize])
+                    .try_into()
+                    .unwrap(),
+            );
+        }
+        i += 1;
+    }
+
+    RemotePtr::null()
 }
 
 type AfterSyscallAction = Box<dyn Fn(&mut RecordTask) -> ()>;
