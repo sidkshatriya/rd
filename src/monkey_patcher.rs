@@ -85,7 +85,7 @@ impl MonkeyPatcher {
     /// In this hook we patch everything that doesn't depend on the preload
     /// library being loaded.
     pub fn patch_after_exec(&self, _t: &RecordTask) {
-        unimplemented!()
+        // @TODO PENDING!
     }
 
     pub fn patch_at_preload_init(&self, t: &RecordTask) {
