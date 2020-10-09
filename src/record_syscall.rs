@@ -42,7 +42,7 @@ use crate::{
             PR_TSC_ENABLE,
             PR_TSC_SIGSEGV,
         },
-        ptrace::{PTRACE_EVENT_EXIT, PTRACE_O_TRACEEXIT},
+        ptrace::{PTRACE_EVENT_EXEC, PTRACE_EVENT_EXIT, PTRACE_O_TRACEEXEC, PTRACE_O_TRACEEXIT},
     },
     event::Switchable,
     kernel_abi::{
@@ -72,6 +72,7 @@ use crate::{
             TaskSharedWeakPtr,
         },
     },
+    sig,
     taskish_uid::TaskUid,
     trace::trace_task_event::TraceTaskEvent,
     wait_status::WaitStatus,
@@ -540,6 +541,8 @@ pub fn rec_prepare_restart_syscall(_t: &RecordTask) {
 }
 
 pub fn rec_process_syscall(t: &mut RecordTask) {
+    let syscall_state_shr = t.syscall_state_unwrap();
+    let mut syscall_state = syscall_state_shr.borrow_mut();
     let sys_ev_arch = t.ev().syscall_event().arch();
     let sys_ev_number = t.ev().syscall_event().number;
     if sys_ev_arch != t.arch() {
@@ -552,10 +555,8 @@ pub fn rec_process_syscall(t: &mut RecordTask) {
             DID_WARN.store(true, Ordering::SeqCst);
         }
     }
-    rec_process_syscall_internal(t, sys_ev_arch);
-    t.syscall_state_unwrap()
-        .borrow_mut()
-        .process_syscall_results(t);
+    rec_process_syscall_internal(t, sys_ev_arch, &mut syscall_state);
+    syscall_state.process_syscall_results(t);
     let regs = t.regs_ref().clone();
     t.on_syscall_exit(sys_ev_number, sys_ev_arch, &regs);
     t.syscall_state = None;
@@ -568,13 +569,20 @@ pub fn rec_process_syscall(t: &mut RecordTask) {
 ///         from the architecture of the call (e.g. x86_64 may invoke x86 syscalls)
 ///
 /// DIFF NOTE: Does not have param syscall_state as that can be obtained from t
-pub fn rec_process_syscall_internal(t: &mut RecordTask, arch: SupportedArch) {
-    rd_arch_function_selfless!(rec_process_syscall_arch, arch, t)
+pub fn rec_process_syscall_internal(
+    t: &mut RecordTask,
+    arch: SupportedArch,
+    syscall_state: &mut RefMut<TaskSyscallState>,
+) {
+    rd_arch_function_selfless!(rec_process_syscall_arch, arch, t, syscall_state)
 }
 
 /// DIFF NOTE: Don't need syscall_state param as we can get it from param t
-pub fn rec_process_syscall_arch<Arch: Architecture>(t: &mut RecordTask) {
-    let syscallno: i32 = t.ev().syscall_event().number;
+pub fn rec_process_syscall_arch<Arch: Architecture>(
+    t: &mut RecordTask,
+    syscall_state: &mut RefMut<TaskSyscallState>,
+) {
+    let sys: i32 = t.ev().syscall_event().number;
 
     if t.regs_ref().original_syscallno() == SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO {
         // rr vetoed this syscall. Don't do any post-processing.
@@ -609,7 +617,7 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(t: &mut RecordTask) {
     let expect_errno = t.syscall_state_unwrap().borrow().expect_errno;
     if expect_errno != 0 {
         if expect_errno == EINVAL
-            && syscallno == Arch::IOCTL
+            && sys == Arch::IOCTL
             && t.regs_ref().syscall_result_signed() == -ENOTTY as isize
         {
             // Unsupported ioctl was called, but is not supported for this device,
@@ -622,7 +630,7 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(t: &mut RecordTask) {
             -t.syscall_state_unwrap().borrow().expect_errno as isize,
             "Expected {} for '{}' but got result {} (errno {}) {}",
             errno_name(expect_errno),
-            syscall_name(syscallno, Arch::arch()),
+            syscall_name(sys, Arch::arch()),
             t.regs_ref().syscall_result_signed(),
             errno_name((-t.regs_ref().syscall_result_signed()).try_into().unwrap()),
             extra_expected_errno_info::<Arch>(t)
@@ -633,8 +641,20 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(t: &mut RecordTask) {
     // Here we handle syscalls that need work that can only happen after the
     // syscall completes --- and that our TaskSyscallState infrastructure can't
     // handle.
+    if sys == Arch::EXECVE {
+        process_execve(t, syscall_state);
+        if t.emulated_ptracer.is_some() {
+            if t.emulated_ptrace_options & PTRACE_O_TRACEEXEC != 0 {
+                t.emulate_ptrace_stop(WaitStatus::for_ptrace_event(PTRACE_EVENT_EXEC), None, None);
+            } else if !t.emulated_ptrace_seized {
+                // Inject legacy SIGTRAP-after-exec
+                t.tgkill(sig::SIGTRAP);
+            }
+        }
+        return;
+    }
 
-    if syscallno == Arch::PRCTL {
+    if sys == Arch::PRCTL {
         // Restore arg1 in case we modified it to disable the syscall
         let mut r: Registers = t.regs_ref().clone();
         r.set_arg1(
@@ -656,6 +676,48 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(t: &mut RecordTask) {
 
         return;
     }
+
+    if sys == Arch::ARCH_PRCTL {
+        // Restore arg1 in case we modified it to disable the syscall
+        let mut r: Registers = t.regs_ref().clone();
+        r.set_arg1(syscall_state.syscall_entry_registers.arg1());
+        t.set_regs(&r);
+        return;
+    }
+
+    if sys == Arch::CLOSE
+        || sys == Arch::DUP2
+        || sys == Arch::DUP3
+        || sys == Arch::FCNTL
+        || sys == Arch::FCNTL64
+        || sys == Arch::FUTEX_TIME64
+        || sys == Arch::FUTEX
+        || sys == Arch::IOCTL
+        || sys == Arch::IO_SETUP
+        || sys == Arch::MADVISE
+        || sys == Arch::MEMFD_CREATE
+        || sys == Arch::PREAD64
+        || sys == Arch::PREADV
+        || sys == Arch::PTRACE
+        || sys == Arch::READ
+        || sys == Arch::READV
+        || sys == Arch::SCHED_SETAFFINITY
+        || sys == Arch::MPROTECT
+    {
+        // Restore the registers that we may have altered.
+        let mut r: Registers = t.regs_ref().clone();
+        r.set_arg1(syscall_state.syscall_entry_registers.arg1());
+        r.set_arg2(syscall_state.syscall_entry_registers.arg2());
+        r.set_arg3(syscall_state.syscall_entry_registers.arg3());
+        t.set_regs(&r);
+        return;
+    }
+
+    unimplemented!()
+}
+
+fn process_execve(_t: &mut RecordTask, _syscall_state: &mut RefMut<TaskSyscallState>) {
+    unimplemented!()
 }
 
 type AfterSyscallAction = Box<dyn Fn(&mut RecordTask) -> ()>;
