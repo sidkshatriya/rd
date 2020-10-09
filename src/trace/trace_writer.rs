@@ -63,10 +63,16 @@ use capnp::{
     serialize_packed::write_message,
 };
 use libc::{dev_t, ino_t, ioctl, pid_t, EEXIST, STDOUT_FILENO};
-use nix::{errno::errno, fcntl::{flock, readlink, FlockArg::LockExclusiveNonblock, OFlag}, sys::{
-    mman::{MapFlags, ProtFlags},
-    stat::Mode,
-}, unistd::unlink, Error};
+use nix::{
+    errno::{errno, Errno},
+    fcntl::{flock, readlink, FlockArg::LockExclusiveNonblock, OFlag},
+    sys::{
+        mman::{MapFlags, ProtFlags},
+        stat::Mode,
+    },
+    unistd::unlink,
+    Error,
+};
 use std::{
     collections::HashMap,
     convert::TryInto,
@@ -83,7 +89,6 @@ use std::{
     path::Path,
     slice,
 };
-use nix::errno::Errno;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum RecordInTrace {

@@ -797,12 +797,12 @@ fn process_execve(t: &mut RecordTask, syscall_state: &mut RefMut<TaskSyscallStat
                 .unwrap()
                 .exec_variant_mut()
                 .set_exe_base(km.start());
+        }
 
-            if km.is_stack() {
-                stacks.push(km);
-            } else if km.is_vvar() {
-                maybe_vvar = Some(km);
-            }
+        if km.is_stack() {
+            stacks.push(km);
+        } else if km.is_vvar() {
+            maybe_vvar = Some(km);
         }
     }
     ed_assert!(
@@ -1024,7 +1024,7 @@ fn init_scratch_memory(t: &mut RecordTask, maybe_addr_type: Option<ScratchAddrTy
 }
 
 fn check_privileged_exe(_t: &mut RecordTask) {
-    unimplemented!()
+    // @TODO PENDING!
 }
 
 fn get_exe_entry(t: &mut RecordTask) -> RemotePtr<Void> {
