@@ -381,18 +381,13 @@ impl RdCommand for RecordCommand {
             WaitType::FatalSignal => {
                 let sig = status.fatal_sig().unwrap();
                 unsafe {
-                    signal(sig.as_nix_signal(), SigHandler::SigDfl).unwrap();
+                    // Swallow any error
+                    signal(sig.as_nix_signal(), SigHandler::SigDfl).unwrap_or(SigHandler::SigDfl);
                     prctl(PR_SET_DUMPABLE, 0);
                 }
-                // @TODO Ok to swallow any error on kill?
+                // Swallow any error
                 kill(getpid(), Some(sig.as_nix_signal())).unwrap_or(());
-                ExitResult::err_from(
-                    io::Error::new(
-                        io::ErrorKind::Other,
-                        format!("tracee exited due to fatal signal {}", sig),
-                    ),
-                    1,
-                )
+                unreachable!();
             }
             _ => {
                 fatal!("Don't know why we exited: WaitStatus is `{}`", status);
