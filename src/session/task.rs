@@ -36,6 +36,7 @@ use nix::errno::errno;
 use std::{
     cell::RefCell,
     ffi::{CString, OsStr, OsString},
+    fmt::{self, Debug, Formatter},
     io::{stderr, Write},
     ops::DerefMut,
     os::unix::ffi::OsStringExt,
@@ -51,6 +52,17 @@ pub mod task_inner;
 
 pub type TaskSharedPtr = Rc<RefCell<Box<dyn Task>>>;
 pub type TaskSharedWeakPtr = Weak<RefCell<Box<dyn Task>>>;
+
+impl Debug for &dyn Task {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str(&format!(
+            "Task(tid: {} rec_tid:{}, serial:{})",
+            self.tid,
+            self.rec_tid,
+            self.tuid().serial()
+        ))
+    }
+}
 
 pub trait Task: DerefMut<Target = TaskInner> {
     /// Lock or unlock the syscallbuf to prevent the preload library from using it.

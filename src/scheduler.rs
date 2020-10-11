@@ -72,7 +72,6 @@ use std::{
     cmp::min,
     collections::{BTreeSet, VecDeque},
     mem,
-    ops::Bound::{self, Excluded, Included, Unbounded},
     ptr,
     rc::{Rc, Weak},
 };
@@ -738,17 +737,17 @@ impl Scheduler {
         priority_threshold: i32,
     ) -> Option<TaskSharedPtr> {
         *by_waitpid = false;
-        let mut range_start: Bound<PriorityTup> = Unbounded;
+        let mut range = self.task_priority_set.range(..);
         loop {
-            let mut range = self.task_priority_set.range((range_start, Unbounded));
-            if let Some(PriorityTup(priority, _, _)) = range.next().cloned() {
+            if let Some(PriorityTup(priority_ref, _, _)) = range.next() {
+                let priority = *priority_ref;
                 if priority > priority_threshold {
                     return None;
                 }
 
-                let start = Included(PriorityTup(priority, 0, Weak::new()));
-                let end = Excluded(PriorityTup(priority + 1, 0, Weak::new()));
-                let same_priority_range = self.task_priority_set.range((start, end));
+                let start = PriorityTup(priority, 0, Weak::new());
+                let end = PriorityTup(priority + 1, 0, Weak::new());
+                let same_priority_range = self.task_priority_set.range(start..end);
 
                 if !self.enable_chaos {
                     let same_priority_vec = match maybe_t {
@@ -810,7 +809,8 @@ impl Scheduler {
                     }
                 }
 
-                range_start = Included(PriorityTup(priority + 1, 0, Weak::new()));
+                let range_start = PriorityTup(priority + 1, 0, Weak::new());
+                range = self.task_priority_set.range(range_start..);
             } else {
                 return None;
             }
