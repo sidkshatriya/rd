@@ -2,30 +2,31 @@ use crate::session::task::TaskSharedWeakPtr;
 use std::cmp::Ordering;
 
 #[derive(Clone)]
-pub struct PriorityPair(pub i32, pub TaskSharedWeakPtr);
+/// priority, task serial and task weak ptr
+pub struct PriorityTup(pub i32, pub u32, pub TaskSharedWeakPtr);
 
-impl PartialOrd for PriorityPair {
+impl PartialOrd for PriorityTup {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(Ord::cmp(self, other))
     }
 }
 
-impl PartialEq for PriorityPair {
+impl PartialEq for PriorityTup {
     fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0 && (self.1.as_ptr() as usize) == (other.1.as_ptr() as usize)
+        self.0 == other.0 && self.1 == other.1
     }
 }
 
-impl Eq for PriorityPair {}
+impl Eq for PriorityTup {}
 
-impl Ord for PriorityPair {
+impl Ord for PriorityTup {
     fn cmp(&self, other: &Self) -> Ordering {
         if self.0 < other.0 {
             Ordering::Less
         } else if self.0 == other.0 {
-            if (self.1.as_ptr() as usize) < (other.1.as_ptr() as usize) {
+            if self.1 < other.1 {
                 Ordering::Less
-            } else if self.1.as_ptr() as usize > other.1.as_ptr() as usize {
+            } else if self.1 > other.1 {
                 Ordering::Greater
             } else {
                 Ordering::Equal

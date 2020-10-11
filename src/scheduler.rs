@@ -42,7 +42,7 @@ use crate::{
     event::{EventType, Switchable, SyscallState},
     kernel_abi::{is_exit_group_syscall, is_exit_syscall, is_sched_yield_syscall, SupportedArch},
     log::{LogDebug, LogWarn},
-    priority_pair::PriorityPair,
+    priority_tup::PriorityTup,
     session::{
         record_session::RecordSession,
         task::{
@@ -128,7 +128,7 @@ const HIGH_PRIORITY_ONLY_DURATION_STEP_FACTOR: f64 = 2.0;
 const HIGH_PRIORITY_ONLY_FRACTION: f64 = 0.2;
 
 /// Tasks sorted by priority.
-type TaskPrioritySet = BTreeSet<PriorityPair>;
+type TaskPrioritySet = BTreeSet<PriorityTup>;
 type TaskQueue = VecDeque<TaskSharedWeakPtr>;
 
 /// DIFF NOTE: In rr we deal with *RecordTasks. Here we are dealing with the
@@ -602,7 +602,7 @@ impl Scheduler {
             !t.borrow().as_record_task().unwrap().in_round_robin_queue
         );
 
-        for PriorityPair(_, w) in &self.task_priority_set {
+        for PriorityTup(_, _, w) in &self.task_priority_set {
             let tt = w.upgrade().unwrap();
             if !Rc::ptr_eq(t, &tt) && !tt.borrow().as_record_task().unwrap().in_round_robin_queue {
                 self.task_round_robin_queue.push_back(w.clone());
@@ -630,8 +630,9 @@ impl Scheduler {
             t.borrow_mut().as_record_task_mut().unwrap().priority = self.choose_random_priority(&t);
         }
 
-        self.task_priority_set.insert(PriorityPair(
+        self.task_priority_set.insert(PriorityTup(
             t.borrow().as_record_task().unwrap().priority,
+            t.borrow().tuid().serial(),
             Rc::downgrade(&t),
         ));
     }
@@ -654,7 +655,7 @@ impl Scheduler {
             }
         } else {
             self.task_priority_set
-                .remove(&PriorityPair(t.priority, weak));
+                .remove(&PriorityTup(t.priority, t.tuid().serial(), weak));
         }
     }
 
@@ -737,38 +738,45 @@ impl Scheduler {
         priority_threshold: i32,
     ) -> Option<TaskSharedPtr> {
         *by_waitpid = false;
-        let mut range_start: Bound<PriorityPair> = Unbounded;
+        let mut range_start: Bound<PriorityTup> = Unbounded;
         loop {
             let mut range = self.task_priority_set.range((range_start, Unbounded));
-            if let Some(PriorityPair(priority, _)) = range.next().cloned() {
+            if let Some(PriorityTup(priority, _, _)) = range.next().cloned() {
                 if priority > priority_threshold {
                     return None;
                 }
 
-                let start = Included(PriorityPair(priority, Weak::new()));
-                let end = Excluded(PriorityPair(priority + 1, Weak::new()));
+                let start = Included(PriorityTup(priority, 0, Weak::new()));
+                let end = Excluded(PriorityTup(priority + 1, 0, Weak::new()));
                 let same_priority_range = self.task_priority_set.range((start, end));
 
                 if !self.enable_chaos {
                     let same_priority_vec = match maybe_t {
                         Some(t)
                             if t.borrow().as_record_task().unwrap().priority == priority
-                                && self.task_priority_set.contains(&PriorityPair(
+                                && self.task_priority_set.contains(&PriorityTup(
                                     priority,
+                                    t.borrow().tuid().serial(),
                                     t.borrow().weak_self_ptr(),
                                 )) =>
                         {
-                            let (lte, gt): (Vec<&PriorityPair>, Vec<&PriorityPair>) =
+                            let (lte, gt): (Vec<&PriorityTup>, Vec<&PriorityTup>) =
                                 same_priority_range.partition(|p| {
-                                    **p <= PriorityPair(priority, t.borrow().weak_self_ptr())
+                                    // Its not important to exactly specify the weak ptr as its
+                                    // ignored anyways in the cmp
+                                    **p <= PriorityTup(
+                                        priority,
+                                        t.borrow().tuid().serial(),
+                                        Weak::new(),
+                                    )
                                 });
 
                             gt.iter().chain(lte.iter()).cloned().cloned().collect()
                         }
-                        _ => same_priority_range.cloned().collect::<Vec<PriorityPair>>(),
+                        _ => same_priority_range.cloned().collect::<Vec<PriorityTup>>(),
                     };
 
-                    for PriorityPair(_, task_weak) in same_priority_vec {
+                    for PriorityTup(_, _, task_weak) in same_priority_vec {
                         if self.is_task_runnable(
                             task_weak
                                 .upgrade()
@@ -784,10 +792,10 @@ impl Scheduler {
                 } else {
                     let mut rg = thread_rng();
                     let mut same_priority_shuffled =
-                        same_priority_range.cloned().collect::<Vec<PriorityPair>>();
+                        same_priority_range.cloned().collect::<Vec<PriorityTup>>();
                     same_priority_shuffled.shuffle(&mut rg);
 
-                    for PriorityPair(_, task_weak) in same_priority_shuffled {
+                    for PriorityTup(_, _, task_weak) in same_priority_shuffled {
                         if self.is_task_runnable(
                             task_weak
                                 .upgrade()
@@ -802,7 +810,7 @@ impl Scheduler {
                     }
                 }
 
-                range_start = Included(PriorityPair(priority + 1, Weak::new()));
+                range_start = Included(PriorityTup(priority + 1, 0, Weak::new()));
             } else {
                 return None;
             }
@@ -833,8 +841,9 @@ impl Scheduler {
                 .as_record_task_mut()
                 .unwrap()
                 .in_round_robin_queue = false;
-            self.task_priority_set.insert(PriorityPair(
+            self.task_priority_set.insert(PriorityTup(
                 t.borrow().as_record_task().unwrap().priority,
+                t.borrow().tuid().serial(),
                 Rc::downgrade(t),
             ));
         }
@@ -874,7 +883,7 @@ impl Scheduler {
         self.priorities_refresh_time = now + random_frac() * PRIORITIES_REFRESH_MAX_INTERVAL as f64;
         let mut tasks = Vec::new();
         for p in &self.task_priority_set {
-            tasks.push(p.1.clone());
+            tasks.push(p.2.clone());
         }
 
         for p in &self.task_round_robin_queue {
@@ -922,11 +931,17 @@ impl Scheduler {
             return;
         }
 
-        self.task_priority_set
-            .remove(&PriorityPair(t.priority, t.weak_self_ptr()));
+        self.task_priority_set.remove(&PriorityTup(
+            t.priority,
+            t.tuid().serial(),
+            t.weak_self_ptr(),
+        ));
         t.priority = value;
-        self.task_priority_set
-            .insert(PriorityPair(t.priority, t.weak_self_ptr()));
+        self.task_priority_set.insert(PriorityTup(
+            t.priority,
+            t.tuid().serial(),
+            t.weak_self_ptr(),
+        ));
     }
 
     fn maybe_reset_high_priority_only_intervals(&mut self, now: f64) {
