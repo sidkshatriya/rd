@@ -708,6 +708,11 @@ impl Registers {
         rd_set_reg!(self, ecx, rsi, value);
     }
 
+    /// @TODO Check this
+    pub fn set_arg2_signed(&mut self, value: isize) {
+        rd_set_reg!(self, ecx, rsi, value);
+    }
+
     pub fn set_arg2_from_remote_ptr<T>(&mut self, value: RemotePtr<T>) {
         rd_set_reg!(self, ecx, rsi, value.as_usize());
     }
@@ -721,6 +726,11 @@ impl Registers {
     }
 
     pub fn set_arg3(&mut self, value: usize) {
+        rd_set_reg!(self, edx, rdx, value);
+    }
+
+    // @TODO Check this
+    pub fn set_arg3_signed(&mut self, value: isize) {
         rd_set_reg!(self, edx, rdx, value);
     }
 
@@ -740,6 +750,11 @@ impl Registers {
         rd_set_reg!(self, esi, r10, value);
     }
 
+    // @TODO Check this
+    pub fn set_arg4_signed(&mut self, value: isize) {
+        rd_set_reg!(self, esi, r10, value);
+    }
+
     pub fn set_arg4_from_remote_ptr<T>(&mut self, value: RemotePtr<T>) {
         rd_set_reg!(self, esi, r10, value.as_usize());
     }
@@ -756,6 +771,11 @@ impl Registers {
         rd_set_reg!(self, edi, r8, value);
     }
 
+    // @TODO Check this
+    pub fn set_arg5_signed(&mut self, value: isize) {
+        rd_set_reg!(self, edi, r8, value);
+    }
+
     pub fn set_arg5_from_remote_ptr<T>(&mut self, value: RemotePtr<T>) {
         rd_set_reg!(self, edi, r8, value.as_usize());
     }
@@ -769,6 +789,11 @@ impl Registers {
     }
 
     pub fn set_arg6(&mut self, value: usize) {
+        rd_set_reg!(self, ebp, r9, value);
+    }
+
+    // @TODO Check this
+    pub fn set_arg6_signed(&mut self, value: isize) {
         rd_set_reg!(self, ebp, r9, value);
     }
 

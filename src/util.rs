@@ -2,7 +2,7 @@
 use libc::{REG_EAX, REG_EIP};
 
 #[cfg(target_arch = "x86_64")]
-use crate::{kernel_abi::SupportedArch, kernel_supplement::ARCH_SET_CPUID};
+use crate::kernel_supplement::ARCH_SET_CPUID;
 
 #[cfg(target_arch = "x86_64")]
 use libc::{syscall, SYS_arch_prctl, REG_RAX, REG_RIP};
@@ -15,7 +15,7 @@ use crate::{
     },
     event::{Event, EventType, SignalDeterministic, SyscallState},
     flags::{Checksum, DumpOn, Flags},
-    kernel_abi::{native_arch, CloneParameterOrdering},
+    kernel_abi::{native_arch, CloneParameterOrdering, SupportedArch},
     kernel_supplement::sig_set_t,
     log::LogLevel::{LogDebug, LogWarn},
     registers::Registers,

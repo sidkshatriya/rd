@@ -53,6 +53,7 @@ use crate::{
         syscall_instruction_length,
         syscall_number_for_munmap,
         syscall_number_for_rt_sigprocmask,
+        MmapCallingSemantics,
         Ptr,
         SupportedArch,
     },
@@ -88,6 +89,21 @@ use libc::{
     EINVAL,
     ENOSYS,
     ENOTTY,
+    FUTEX_CMD_MASK,
+    FUTEX_CMP_REQUEUE,
+    FUTEX_CMP_REQUEUE_PI,
+    FUTEX_LOCK_PI,
+    FUTEX_TRYLOCK_PI,
+    FUTEX_UNLOCK_PI,
+    FUTEX_WAIT,
+    FUTEX_WAIT_BITSET,
+    FUTEX_WAIT_REQUEUE_PI,
+    FUTEX_WAKE,
+    FUTEX_WAKE_BITSET,
+    FUTEX_WAKE_OP,
+    MAP_32BIT,
+    MAP_FIXED,
+    MAP_GROWSDOWN,
     SECCOMP_MODE_FILTER,
     SECCOMP_MODE_STRICT,
     SIGKILL,
@@ -421,6 +437,52 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         return Switchable::PreventSwitch;
     }
 
+    // futex parameters are in-out but they can't be moved to scratch
+    // addresses.
+    if sys == Arch::FUTEX_TIME64 || sys == Arch::FUTEX {
+        let op = regs.arg2_signed() as i32;
+        match op & FUTEX_CMD_MASK {
+            FUTEX_WAIT | FUTEX_WAIT_BITSET => return Switchable::AllowSwitch,
+
+            FUTEX_CMP_REQUEUE | FUTEX_WAKE_OP => {
+                syscall_state.reg_parameter::<i32>(5, Some(ArgMode::InOutNoScratch), None);
+            }
+
+            FUTEX_WAKE | FUTEX_WAKE_BITSET => (),
+
+            FUTEX_LOCK_PI
+            | FUTEX_UNLOCK_PI
+            | FUTEX_TRYLOCK_PI
+            | FUTEX_CMP_REQUEUE_PI
+            | FUTEX_WAIT_REQUEUE_PI => {
+                let mut r: Registers = regs.clone();
+                r.set_arg2_signed(-1);
+                t.set_regs(&r);
+                syscall_state.emulate_result_signed(-ENOSYS as isize);
+            }
+
+            _ => {
+                syscall_state.expect_errno = EINVAL;
+            }
+        }
+        return Switchable::PreventSwitch;
+    }
+
+    if sys == Arch::MMAP {
+        match Arch::MMAP_SEMANTICS {
+            MmapCallingSemantics::StructArguments => {
+                let args = read_val_mem(t, RemotePtr::<Arch::mmap_args>::from(regs.arg1()), None);
+                let mmap_flags = Arch::get_mmap_args(&args).2;
+                // XXX fix this
+                ed_assert!(t, mmap_flags & MAP_GROWSDOWN == 0);
+            }
+            MmapCallingSemantics::RegisterArguments => {
+                prepare_mmap_register_params(t);
+            }
+        }
+        return Switchable::PreventSwitch;
+    }
+
     log!(
         LogDebug,
         "=====> Preparing {}",
@@ -428,6 +490,30 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
     );
 
     unimplemented!()
+}
+
+fn prepare_mmap_register_params(t: &mut RecordTask) {
+    let mut r: Registers = t.regs_ref().clone();
+    if t.session().as_record().unwrap().enable_chaos()
+        && (r.arg4_signed() & (MAP_FIXED as isize | MAP_32BIT as isize) == 0)
+        && r.arg1() == 0
+    {
+        // No address hint was provided. Randomize the allocation address.
+        let mut len: usize = r.arg2();
+        if r.arg4_signed() & MAP_GROWSDOWN as isize != 0 {
+            // Ensure stacks can grow to the minimum size we choose
+            len = max(AddressSpace::chaos_mode_min_stack_size(), len);
+        }
+        let addr: RemotePtr<Void> = t.vm_shr_ptr().chaos_mode_find_free_memory(t, len);
+        if !addr.is_null() {
+            r.set_arg1(addr.as_usize() + len - r.arg2());
+            // Note that we don't set MapFlags::MAP_FIXED here. If anything goes wrong (e.g.
+            // we pick a hint address that actually can't be used on this system), the
+            // kernel will pick a valid address instead.
+        }
+    }
+    r.set_arg4_signed(r.arg4_signed() & !(MAP_GROWSDOWN as isize));
+    t.set_regs(&r);
 }
 
 /// At thread exit time, undo the work that init_buffers() did.

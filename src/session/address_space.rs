@@ -1898,11 +1898,11 @@ pub mod address_space {
             read_kernel_mapping(getpid().as_raw(), RemotePtr::new_from_val(addr as usize))
         }
 
-        pub fn chaos_mode_min_stack_size() -> u32 {
+        pub fn chaos_mode_min_stack_size() -> usize {
             8 * 1024 * 1024
         }
 
-        pub fn chaos_mode_find_free_memory(_t: &RecordTask, _len: usize) -> RemotePtr<Void> {
+        pub fn chaos_mode_find_free_memory(&self, _t: &RecordTask, _len: usize) -> RemotePtr<Void> {
             unimplemented!()
         }
 
