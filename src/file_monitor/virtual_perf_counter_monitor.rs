@@ -136,13 +136,7 @@ impl FileMonitor for VirtualPerfCounterMonitor {
         unimplemented!()
     }
 
-    fn emulate_read(
-        &self,
-        _t: &RecordTask,
-        _vr: &Vec<Range>,
-        _o: &LazyOffset,
-        _l: &mut u64,
-    ) -> bool {
+    fn emulate_read(&self, _vr: &[Range], _o: &LazyOffset, _l: &mut usize) -> bool {
         unimplemented!()
     }
 }

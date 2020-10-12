@@ -65,49 +65,56 @@ impl FdTable {
         self.fds.insert(fd, rc);
         self.update_syscallbuf_fds_disabled(fd, t);
     }
+
     pub fn emulate_ioctl(&self, fd: i32, t: &RecordTask, result: &mut u64) -> bool {
         match self.fds.get(&fd) {
             Some(f) => f.borrow_mut().emulate_ioctl(t, result),
             None => false,
         }
     }
+
     pub fn emulate_fcntl(&self, fd: i32, t: &RecordTask, result: &mut u64) -> bool {
         match self.fds.get(&fd) {
             Some(f) => f.borrow_mut().emulate_fcntl(t, result),
             None => false,
         }
     }
+
+    /// DIFF NOTE: We don't need to pass in task param because we have that in offset itself
     pub fn emulate_read(
         &self,
         fd: i32,
-        t: &RecordTask,
-        ranges: &Vec<Range>,
+        ranges: &[Range],
         offset: &LazyOffset,
-        result: &mut u64,
+        result: &mut usize,
     ) -> bool {
         match self.fds.get(&fd) {
-            Some(f) => f.borrow().emulate_read(t, ranges, offset, result),
+            Some(f) => f.borrow().emulate_read(ranges, offset, result),
             None => false,
         }
     }
+
     pub fn filter_getdents(&self, fd: i32, t: &RecordTask) {
         match self.fds.get(&fd) {
             Some(f) => f.borrow_mut().filter_getdents(t),
             None => (),
         }
     }
+
     pub fn is_rd_fd(&self, fd: i32) -> bool {
         match self.fds.get(&fd) {
             Some(f) => f.borrow().is_rd_fd(),
             None => false,
         }
     }
+
     pub fn will_write(&self, t: &dyn Task, fd: i32) -> Switchable {
         match self.fds.get(&fd) {
             Some(f) => f.borrow().will_write(t),
             None => Switchable::AllowSwitch,
         }
     }
+
     /// @TODO Do we want offset to be a move?
     pub fn did_write(&self, fd: i32, ranges: Vec<Range>, offset: &mut LazyOffset) {
         match self.fds.get(&fd) {
@@ -168,6 +175,7 @@ impl FdTable {
     pub fn is_monitoring(&self, fd: i32) -> bool {
         self.fds.contains_key(&fd)
     }
+
     pub fn count_beyond_limit(&self) -> u32 {
         self.fd_count_beyond_limit
     }

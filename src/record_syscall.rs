@@ -46,6 +46,7 @@ use crate::{
         ptrace::{PTRACE_EVENT_EXEC, PTRACE_EVENT_EXIT, PTRACE_O_TRACEEXEC, PTRACE_O_TRACEEXIT},
     },
     event::Switchable,
+    file_monitor::{self, LazyOffset},
     kernel_abi::{
         is_at_syscall_instruction,
         is_exit_group_syscall,
@@ -472,8 +473,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         match Arch::MMAP_SEMANTICS {
             MmapCallingSemantics::StructArguments => {
                 let args = read_val_mem(t, RemotePtr::<Arch::mmap_args>::from(regs.arg1()), None);
-                let mmap_flags = Arch::get_mmap_args(&args).2;
-                // XXX fix this
+                let mmap_flags = Arch::get_mmap_args(&args).2; // XXX fix this
                 ed_assert!(t, mmap_flags & MAP_GROWSDOWN == 0);
             }
             MmapCallingSemantics::RegisterArguments => {
@@ -483,6 +483,69 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         return Switchable::PreventSwitch;
     }
 
+    if sys == Arch::MPROTECT {
+        // Since we're stripping MAP_GROWSDOWN from kernel mmap calls, we need
+        // to implement PROT_GROWSDOWN ourselves.
+        t.vm_shr_ptr().fixup_mprotect_growsdown_parameters(t);
+        return Switchable::PreventSwitch;
+    }
+
+    // Various syscalls that can block but don't otherwise have behavior we need
+    // to record.
+    if sys == Arch::FDATASYNC
+        || sys == Arch::FSYNC
+        || sys == Arch::MSGSND
+        || sys == Arch::MSYNC
+        || sys == Arch::OPEN
+        || sys == Arch::OPENAT
+        || sys == Arch::SEMOP
+        || sys == Arch::SEMTIMEDOP_TIME64
+        || sys == Arch::SEMTIMEDOP
+        || sys == Arch::SYNC
+        || sys == Arch::SYNC_FILE_RANGE
+        || sys == Arch::SYNCFS
+    {
+        return Switchable::AllowSwitch;
+    }
+
+    if sys ==  Arch::PREAD64||
+    /* ssize_t read(int fd, void *buf, size_t count); */
+    sys == Arch::READ
+    {
+        let fd = regs.arg1() as i32;
+        let mut result: usize = 0;
+        let mut ranges = Vec::<file_monitor::Range>::new();
+        ranges.push(file_monitor::Range::new(
+            RemotePtr::from(regs.arg2()),
+            regs.arg3(),
+        ));
+        let offset = LazyOffset::new(t, regs, sys);
+        if offset
+            .task()
+            .fd_table_shr_ptr()
+            .borrow()
+            .emulate_read(fd, &ranges, &offset, &mut result)
+        {
+            // Don't perform this syscall.
+            let mut r: Registers = regs.clone();
+            r.set_arg1_signed(-1);
+            t.set_regs(&r);
+            record_ranges(t, &ranges, result);
+            syscall_state.emulate_result(result);
+
+            return Switchable::PreventSwitch;
+        }
+
+        syscall_state.reg_parameter_with_size(
+            2,
+            ParamSize::from_syscall_result_with_size::<Arch::ssize_t>(regs.arg3()),
+            None,
+            None,
+        );
+
+        return Switchable::AllowSwitch;
+    }
+
     log!(
         LogDebug,
         "=====> Preparing {}",
@@ -490,6 +553,17 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
     );
 
     unimplemented!()
+}
+
+fn record_ranges(t: &mut RecordTask, ranges: &[file_monitor::Range], size: usize) {
+    let mut s = size;
+    for r in ranges {
+        let bytes = min(s, r.length);
+        if bytes > 0 {
+            t.record_remote(r.data, bytes);
+            s -= bytes;
+        }
+    }
 }
 
 fn prepare_mmap_register_params(t: &mut RecordTask) {

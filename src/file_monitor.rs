@@ -74,9 +74,14 @@ impl<'b, 'a: 'b> LazyOffset<'b, 'a> {
         self.t
     }
 
+    pub fn task(&self) -> &dyn Task {
+        self.t
+    }
+
     pub fn new(t: &'a mut dyn Task, regs: &'b Registers, syscallno: i32) -> LazyOffset<'b, 'a> {
         LazyOffset { t, regs, syscallno }
     }
+
     /// DIFF NOTE: In rr this returns an i64. We return a Option<u64>.
     /// Need to be careful with the logic here
     pub fn retrieve(&mut self, needed_for_replay: bool) -> Option<u64> {
@@ -232,13 +237,10 @@ pub trait FileMonitor {
     /// result is stored in the last parameter. The emulation should write to the
     /// task's memory ranges.
     /// Only called during recording.
-    fn emulate_read(
-        &self,
-        _t: &RecordTask,
-        _vr: &Vec<Range>,
-        _o: &LazyOffset,
-        _l: &mut u64,
-    ) -> bool {
+    ///
+    /// DIFF NOTE: - param `l` is a usize instead of a u64
+    ///            - We don't need task as that is already there in LazyOffset
+    fn emulate_read(&self, _vr: &[Range], _o: &LazyOffset, _l: &mut usize) -> bool {
         false
     }
 
