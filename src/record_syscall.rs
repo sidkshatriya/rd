@@ -559,12 +559,12 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
     }
 
     if sys == Arch::SIGACTION || sys == Arch::RT_SIGACTION {
-        syscall_state.reg_parameter::<Arch::kernel_sigaction>(
+        syscall_state.reg_parameter::<kernel_sigaction<Arch>>(
             2,
             Some(ArgMode::In),
             Some(Box::new(protect_rd_sigs_sa_mask)),
         );
-        syscall_state.reg_parameter::<Arch::kernel_sigaction>(3, Some(ArgMode::Out), None);
+        syscall_state.reg_parameter::<kernel_sigaction<Arch>>(3, Some(ArgMode::Out), None);
         return Switchable::PreventSwitch;
     }
 

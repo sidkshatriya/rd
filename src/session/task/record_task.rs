@@ -16,6 +16,7 @@ use super::{
 };
 use crate::{
     arch::{Architecture, NativeArch},
+    arch_structs::kernel_sigaction,
     auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem},
     bindings::{
         kernel::user_desc,
@@ -46,7 +47,6 @@ use crate::{
         is_exit_group_syscall,
         is_exit_syscall,
         is_restart_syscall_syscall,
-        native_arch,
         sigaction_sigset_size,
         syscall_number_for_close,
         syscall_number_for_dup3,
@@ -223,7 +223,7 @@ impl Sighandlers {
         for i in 1.._NSIG as usize {
             let h = &mut self.handlers[i];
 
-            let mut sa = native_arch::kernel_sigaction::default();
+            let mut sa: kernel_sigaction<NativeArch> = Default::default();
             if 0 != unsafe {
                 libc::syscall(
                     syscall_number_for_rt_sigaction(NativeArch::arch()) as _,
@@ -283,23 +283,23 @@ impl Sighandler {
         Self::default()
     }
 
-    pub fn init_arch<Arch: Architecture>(&mut self, ksa: &Arch::kernel_sigaction) {
-        self.k_sa_handler = Arch::get_k_sa_handler(ksa);
-        self.sa.resize(size_of::<Arch::kernel_sigaction>(), 0);
+    pub fn init_arch<Arch: Architecture>(&mut self, ksa: &kernel_sigaction<Arch>) {
+        self.k_sa_handler = Arch::as_rptr(ksa.k_sa_handler);
+        self.sa.resize(size_of::<kernel_sigaction<Arch>>(), 0);
         unsafe {
             copy_nonoverlapping(
                 // @TODO does this cast of an associated type reference work as expected?
                 &raw const ksa as *const u8,
                 self.sa.as_mut_ptr() as *mut u8,
-                size_of::<Arch::kernel_sigaction>(),
+                size_of::<kernel_sigaction<Arch>>(),
             );
         }
-        self.resethand = Arch::get_sa_flags(ksa) & SA_RESETHAND as usize != 0;
-        self.takes_siginfo = Arch::get_sa_flags(ksa) & SA_SIGINFO as usize != 0;
+        self.resethand = Arch::ulong_as_usize(ksa.sa_flags) & SA_RESETHAND as usize != 0;
+        self.takes_siginfo = Arch::ulong_as_usize(ksa.sa_flags) & SA_SIGINFO as usize != 0;
     }
 
     pub fn reset_arch<Arch: Architecture>(&mut self) {
-        let ksa = Arch::kernel_sigaction::default();
+        let ksa = kernel_sigaction::<Arch>::default();
         self.init_arch::<Arch>(&ksa);
     }
 
@@ -2683,14 +2683,14 @@ impl RecordTask {
     /// Helper function for update_sigaction.
     fn update_sigaction_arch<Arch: Architecture>(&mut self, regs: &Registers) {
         let sig = Sig::try_from(regs.arg1_signed() as i32).unwrap();
-        let new_sigaction_addr = RemotePtr::<Arch::kernel_sigaction>::new_from_val(regs.arg2());
+        let new_sigaction_addr = RemotePtr::<kernel_sigaction<Arch>>::new_from_val(regs.arg2());
         if 0 == regs.syscall_result() && !new_sigaction_addr.is_null() {
             // A new sighandler was installed.  Update our
             // sighandler table.
             // TODO: discard attempts to handle or ignore signals
             // that can't be by POSIX
-            let mut sa: Arch::kernel_sigaction = Arch::kernel_sigaction::default();
-            read_bytes_helper_for::<Self, Arch::kernel_sigaction>(
+            let mut sa: kernel_sigaction<Arch> = kernel_sigaction::<Arch>::default();
+            read_bytes_helper_for::<Self, kernel_sigaction<Arch>>(
                 self,
                 new_sigaction_addr,
                 &mut sa,

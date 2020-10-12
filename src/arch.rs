@@ -24,9 +24,11 @@ use std::{
 };
 
 /// This type will impl Architecture
+#[derive(Default)]
 pub struct X86Arch;
 
 /// This type will impl Archiecture
+#[derive(Default)]
 pub struct X64Arch;
 
 #[cfg(target_arch = "x86_64")]
@@ -95,7 +97,7 @@ const_assert_eq!(
     X86Arch::VALID_SYSCALL_COUNT + X86Arch::INVALID_SYSCALL_COUNT
 );
 
-pub trait Architecture: 'static {
+pub trait Architecture: 'static + Default {
     const MMAP_SEMANTICS: MmapCallingSemantics;
     const CLONE_TLS_TYPE: CloneTLSType;
     const CLONE_PARAMETER_ORDERING: CloneParameterOrdering;
@@ -573,7 +575,6 @@ pub trait Architecture: 'static {
     type __statfs_word: Default + Copy + 'static;
     type sigchld_clock_t: Default + Copy + 'static;
     type size_t: Default + Copy + 'static;
-    type kernel_sigaction: Default + Copy + 'static;
     type signed_long: Default + Copy + From<i32> + TryFrom<usize, Error = TryFromIntError> + 'static;
     type unsigned_long: Default
         + Copy
@@ -586,6 +587,7 @@ pub trait Architecture: 'static {
     type siginfo_t: 'static;
     type sockaddr_un: Copy + 'static;
     type unsigned_word: Copy
+        + Default
         + Eq
         + Debug
         + PartialEq
@@ -606,10 +608,6 @@ pub trait Architecture: 'static {
 
     fn get_mmap_args(k: &Self::mmap_args) -> (usize, i32, i32, i32, usize);
 
-    fn get_k_sa_handler(k: &Self::kernel_sigaction) -> RemotePtr<Void>;
-
-    fn get_sa_flags(k: &Self::kernel_sigaction) -> usize;
-
     fn arch() -> SupportedArch;
 
     fn set_iovec(msgdata: &mut Self::iovec, iov_base: RemotePtr<Void>, iov_len: usize);
@@ -619,6 +617,8 @@ pub trait Architecture: 'static {
     fn long_as_usize(sl: Self::signed_long) -> usize;
 
     fn long_as_isize(sl: Self::signed_long) -> isize;
+
+    fn ulong_as_usize(sl: Self::unsigned_long) -> usize;
 
     fn as_unsigned_word(u: usize) -> Self::unsigned_word;
 
@@ -1102,7 +1102,6 @@ impl Architecture for X86Arch {
     type syscall_ulong_t = u32;
     type size_t = u32;
     type off_t = i32;
-    type kernel_sigaction = x86::kernel_sigaction;
     type iovec = x86::iovec;
     type msghdr = x86::msghdr;
     type cmsghdr = x86::cmsghdr;
@@ -1132,14 +1131,6 @@ impl Architecture for X86Arch {
         (k.len as usize, k.prot, k.flags, k.fd, k.offset as usize)
     }
 
-    fn get_k_sa_handler(k: &Self::kernel_sigaction) -> RemotePtr<Void> {
-        k.k_sa_handler.rptr()
-    }
-
-    fn get_sa_flags(k: &Self::kernel_sigaction) -> usize {
-        k.sa_flags as usize
-    }
-
     fn arch() -> SupportedArch {
         SupportedArch::X86
     }
@@ -1155,6 +1146,10 @@ impl Architecture for X86Arch {
 
     fn long_as_usize(sl: Self::signed_long) -> usize {
         sl as usize
+    }
+
+    fn ulong_as_usize(usl: Self::unsigned_long) -> usize {
+        usl as usize
     }
 
     fn long_as_isize(sl: Self::signed_long) -> isize {
@@ -1671,7 +1666,6 @@ impl Architecture for X64Arch {
     type syscall_ulong_t = u64;
     type size_t = u64;
     type off_t = i64;
-    type kernel_sigaction = x64::kernel_sigaction;
     type iovec = x64::iovec;
     type msghdr = x64::msghdr;
     type cmsghdr = x64::cmsghdr;
@@ -1701,14 +1695,6 @@ impl Architecture for X64Arch {
         (k.len as usize, k.prot, k.flags, k.fd, k.offset as usize)
     }
 
-    fn get_k_sa_handler(k: &Self::kernel_sigaction) -> RemotePtr<Void> {
-        k.k_sa_handler.rptr()
-    }
-
-    fn get_sa_flags(k: &Self::kernel_sigaction) -> usize {
-        k.sa_flags as usize
-    }
-
     fn arch() -> SupportedArch {
         SupportedArch::X64
     }
@@ -1724,6 +1710,10 @@ impl Architecture for X64Arch {
 
     fn long_as_usize(sl: Self::signed_long) -> usize {
         sl as usize
+    }
+
+    fn ulong_as_usize(usl: Self::unsigned_long) -> usize {
+        usl as usize
     }
 
     fn long_as_isize(sl: Self::signed_long) -> isize {
