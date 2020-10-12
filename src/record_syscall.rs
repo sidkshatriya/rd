@@ -1,5 +1,6 @@
 use crate::{
     arch::Architecture,
+    arch_structs::kernel_sigaction,
     auto_remote_syscalls::{AutoRemoteSyscalls, MemParamsEnabled},
     bindings::{
         kernel::TIOCGWINSZ,
@@ -62,7 +63,12 @@ use crate::{
     kernel_supplement::sig_set_t,
     log::{LogDebug, LogWarn},
     monitored_shared_memory::MonitoredSharedMemory,
-    preload_interface::{syscallbuf_record, SYS_rdcall_notify_syscall_hook_exit},
+    preload_interface::{
+        syscallbuf_record,
+        SYS_rdcall_init_preload,
+        SYS_rdcall_notify_control_msg,
+        SYS_rdcall_notify_syscall_hook_exit,
+    },
     registers::{with_converted_registers, Registers},
     remote_ptr::{RemotePtr, Void},
     seccomp_filter_rewriter::SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO,
@@ -120,6 +126,7 @@ use std::{
     cmp::{max, min},
     convert::TryInto,
     ffi::OsString,
+    intrinsics::copy_nonoverlapping,
     mem::{self, size_of},
     os::{raw::c_uint, unix::ffi::OsStringExt},
     rc::Rc,
@@ -546,6 +553,21 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         return Switchable::AllowSwitch;
     }
 
+    if sys == SYS_rdcall_notify_control_msg as i32 || sys == SYS_rdcall_init_preload as i32 {
+        syscall_state.emulate_result(0);
+        return Switchable::PreventSwitch;
+    }
+
+    if sys == Arch::SIGACTION || sys == Arch::RT_SIGACTION {
+        syscall_state.reg_parameter::<Arch::kernel_sigaction>(
+            2,
+            Some(ArgMode::In),
+            Some(Box::new(protect_rd_sigs_sa_mask)),
+        );
+        syscall_state.reg_parameter::<Arch::kernel_sigaction>(3, Some(ArgMode::Out), None);
+        return Switchable::PreventSwitch;
+    }
+
     log!(
         LogDebug,
         "=====> Preparing {}",
@@ -553,6 +575,51 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
     );
 
     unimplemented!()
+}
+
+fn protect_rd_sigs_sa_mask(
+    t: &mut RecordTask,
+    p: RemotePtr<Void>,
+    maybe_save: Option<&mut [u8]>,
+) -> bool {
+    let arch = t.arch();
+    rd_arch_function_selfless!(protect_rd_sigs_sa_mask_arch, arch, t, p, maybe_save)
+}
+
+fn protect_rd_sigs_sa_mask_arch<Arch: Architecture>(
+    t: &mut RecordTask,
+    p: RemotePtr<Void>,
+    maybe_save: Option<&mut [u8]>,
+) -> bool {
+    let sap = RemotePtr::<kernel_sigaction<Arch>>::cast(p);
+    if sap.is_null() {
+        return false;
+    }
+
+    let mut sa = read_val_mem(t, sap, None);
+    let mut new_sig_set = sa.sa_mask;
+    // Don't let the tracee block TIME_SLICE_SIGNAL or
+    // SYSCALLBUF_DESCHED_SIGNAL.
+    new_sig_set &= !t.session().as_record().unwrap().rd_signal_mask();
+
+    if sa.sa_mask == new_sig_set {
+        return false;
+    }
+
+    sa.sa_mask = new_sig_set;
+    write_val_mem(t, sap, &sa, None);
+    match maybe_save {
+        Some(save) => unsafe {
+            copy_nonoverlapping(
+                &raw const sa as *const u8,
+                save.as_mut_ptr(),
+                size_of::<kernel_sigaction<Arch>>(),
+            );
+        },
+        None => (),
+    }
+
+    true
 }
 
 fn record_ranges(t: &mut RecordTask, ranges: &[file_monitor::Range], size: usize) {

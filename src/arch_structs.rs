@@ -58,3 +58,15 @@ pub struct sock_fprog<Arch: Architecture> {
 
 assert_eq_size!(kernel::sock_fprog, sock_fprog<NativeArch>);
 assert_eq_align!(kernel::sock_fprog, sock_fprog<NativeArch>);
+
+#[repr(C)]
+#[derive(Copy, Clone, Default)]
+/// @TODO Any align and size asserts?
+pub struct kernel_sigaction<Arch: Architecture> {
+    pub k_sa_handler: Ptr<Arch::unsigned_word, u8>,
+    pub sa_flags: Arch::unsigned_long,
+    pub sa_restorer: Ptr<Arch::unsigned_word, u8>,
+    /// This is what it is for x86 and x64 to make things simple
+    /// Might this definition cause problems elsewhere e.g. for AArch64?
+    pub sa_mask: u64,
+}
