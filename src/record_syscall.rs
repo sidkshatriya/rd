@@ -60,7 +60,7 @@ use crate::{
     kernel_supplement::sig_set_t,
     log::{LogDebug, LogWarn},
     monitored_shared_memory::MonitoredSharedMemory,
-    preload_interface::syscallbuf_record,
+    preload_interface::{syscallbuf_record, SYS_rdcall_notify_syscall_hook_exit},
     registers::{with_converted_registers, Registers},
     remote_ptr::{RemotePtr, Void},
     seccomp_filter_rewriter::SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO,
@@ -193,11 +193,12 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         return Switchable::PreventSwitch;
     }
 
-    if sys == Arch::GETEUID {
+    if sys == Arch::GETEUID || sys == Arch::ACCESS || sys == Arch::SET_TID_ADDRESS {
         return Switchable::PreventSwitch;
     }
 
-    if sys == Arch::SET_TID_ADDRESS {
+    if sys == Arch::FSTAT {
+        syscall_state.reg_parameter::<Arch::stat>(2, None, None);
         return Switchable::PreventSwitch;
     }
 
@@ -405,6 +406,18 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
             }
         }
 
+        return Switchable::PreventSwitch;
+    }
+
+    if sys == Arch::BRK
+        || sys == Arch::MUNMAP
+        || sys == Arch::PROCESS_VM_READV
+        || sys == Arch::PROCESS_VM_WRITEV
+        || sys == SYS_rdcall_notify_syscall_hook_exit as i32
+        || sys == Arch::MREMAP
+        || sys == Arch::SHMAT
+        || sys == Arch::SHMDT
+    {
         return Switchable::PreventSwitch;
     }
 

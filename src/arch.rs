@@ -598,6 +598,7 @@ pub trait Architecture: 'static {
     type user: Copy + 'static;
     type mmap_args: Copy + 'static;
     type winsize: Copy + 'static;
+    type stat: Copy + 'static;
 
     fn as_rptr<T>(p: Ptr<Self::unsigned_word, T>) -> RemotePtr<T>;
 
@@ -1115,6 +1116,8 @@ impl Architecture for X86Arch {
 
     type sigchld_clock_t = i32;
     type __statfs_word = u32;
+
+    type stat = x86::stat;
 
     fn as_rptr<T>(p: Ptr<u32, T>) -> RemotePtr<T> {
         p.rptr()
@@ -1682,6 +1685,8 @@ impl Architecture for X64Arch {
 
     type sigchld_clock_t = i64;
     type __statfs_word = i64;
+
+    type stat = x64::stat;
 
     fn as_rptr<T>(p: Ptr<u64, T>) -> RemotePtr<T> {
         p.rptr()

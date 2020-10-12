@@ -418,6 +418,26 @@ pub mod x64 {
 
     #[repr(C)]
     #[derive(Copy, Clone, Default)]
+    pub struct stat {
+        pub st_dev: dev_t,
+        pub st_ino: ino_t,
+        pub st_nlink: nlink_t,
+        pub st_mode: mode_t,
+        pub st_uid: uid_t,
+        pub st_gid: gid_t,
+        pub __pad0: int,
+        pub st_rdev: dev_t,
+        pub st_size: off_t,
+        pub st_blksize: blksize_t,
+        pub st_blocks: blkcnt_t,
+        pub st_atim: timespec,
+        pub st_mtim: timespec,
+        pub st_ctim: timespec,
+        pub __rd_unused: [syscall_slong_t; 3],
+    }
+
+    #[repr(C)]
+    #[derive(Copy, Clone, Default)]
     struct stat64 {
         pub st_dev: dev_t,
         pub st_ino: ino_t,
@@ -560,6 +580,9 @@ pub mod x64 {
         use super::*;
         use crate::bindings::kernel;
 
+        assert_eq_align!(kernel::stat, stat);
+        assert_eq_size!(kernel::stat, stat);
+
         assert_eq_align!(kernel::stat64, stat64);
         assert_eq_size!(kernel::stat64, stat64);
 
@@ -642,9 +665,8 @@ pub mod x64 {
         assert_eq_size!(kernel::seminfo, seminfo);
         assert_eq_align!(kernel::seminfo, seminfo);
 
-        // @TODO.
-        // assert_eq_size!(kernel::user_desc, user_desc);
-        // assert_eq_align!(kernel::user_desc, user_desc);
+        assert_eq_size!(kernel::user_desc, user_desc);
+        assert_eq_align!(kernel::user_desc, user_desc);
 
         assert_eq_size!(kernel::__user_cap_header_struct, __user_cap_header_struct);
         assert_eq_align!(kernel::__user_cap_header_struct, __user_cap_header_struct);
@@ -865,6 +887,28 @@ pub mod x86 {
     // IMPORTANT ! ////////////////////////
     include!("include/base_arch_defns.rs");
 
+    #[repr(C)]
+    #[derive(Copy, Clone, Default)]
+    pub struct stat {
+        st_dev: dev_t,
+        __unused5: unsigned_short,
+        __pad1: ino_t,
+        st_ino: mode_t,
+        st_mode: nlink_t,
+        st_nlink: uid_t,
+        st_uid: gid_t,
+        st_gid: dev_t,
+        st_rdev: unsigned_short,
+        __pad2: off_t,
+        st_size: blksize_t,
+        st_blksize: blkcnt_t,
+        st_blocks: timespec,
+        st_atim: timespec,
+        st_mtim: timespec,
+        st_ctim: unsigned_long,
+        __unused4: unsigned_long,
+    }
+
     /// @TODO Check this in x86
     #[repr(C, packed)]
     pub struct stat64 {
@@ -1001,6 +1045,9 @@ pub mod x86 {
         use super::*;
         use crate::bindings::kernel;
 
+        assert_eq_align!(kernel::stat, stat);
+        assert_eq_size!(kernel::stat, stat);
+
         // @TODO
         // assert_eq_align!(kernel::stat64, stat64);
         assert_eq_size!(kernel::stat64, stat64);
@@ -1087,9 +1134,8 @@ pub mod x86 {
         assert_eq_size!(kernel::seminfo, seminfo);
         assert_eq_align!(kernel::seminfo, seminfo);
 
-        // @TODO.
-        // assert_eq_size!(kernel::user_desc, user_desc);
-        // assert_eq_align!(kernel::user_desc, user_desc);
+        assert_eq_size!(kernel::user_desc, user_desc);
+        assert_eq_align!(kernel::user_desc, user_desc);
 
         assert_eq_size!(kernel::__user_cap_header_struct, __user_cap_header_struct);
         assert_eq_align!(kernel::__user_cap_header_struct, __user_cap_header_struct);
