@@ -217,7 +217,16 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         return Switchable::PreventSwitch;
     }
 
-    if sys == Arch::GETEUID || sys == Arch::ACCESS || sys == Arch::SET_TID_ADDRESS {
+    if sys == Arch::GETEUID
+        || sys == Arch::ACCESS
+        || sys == Arch::SET_TID_ADDRESS
+        || sys == Arch::SET_ROBUST_LIST
+    {
+        return Switchable::PreventSwitch;
+    }
+
+    if sys == Arch::UNAME {
+        syscall_state.reg_parameter::<Arch::utsname>(1, None, None);
         return Switchable::PreventSwitch;
     }
 
