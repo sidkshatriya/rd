@@ -70,3 +70,16 @@ pub struct kernel_sigaction<Arch: Architecture> {
     /// Might this definition cause problems elsewhere e.g. for AArch64?
     pub sa_mask: u64,
 }
+
+#[repr(C)]
+#[derive(Copy, Clone, Default)]
+/// @TODO Any align and size asserts?
+pub struct mmap_args<Arch: Architecture> {
+    pub addr: Ptr<Arch::unsigned_word, u8>,
+    pub len: Arch::size_t,
+    pub prot: i32,
+    pub flags: i32,
+    pub fd: i32,
+    pub __pad: Arch::STD_PAD_ARR,
+    pub offset: Arch::off_t,
+}

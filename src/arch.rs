@@ -619,6 +619,12 @@ pub trait Architecture: 'static + Default {
 
     fn long_as_isize(sl: Self::signed_long) -> isize;
 
+    fn size_t_as_usize(s: Self::size_t) -> usize;
+
+    fn ssize_t_as_isize(ss: Self::ssize_t) -> isize;
+
+    fn off_t_as_isize(o: Self::off_t) -> isize;
+
     fn ulong_as_usize(sl: Self::unsigned_long) -> usize;
 
     fn as_unsigned_word(u: usize) -> Self::unsigned_word;
@@ -1156,6 +1162,18 @@ impl Architecture for X86Arch {
 
     fn long_as_isize(sl: Self::signed_long) -> isize {
         sl as isize
+    }
+
+    fn size_t_as_usize(s: Self::size_t) -> usize {
+        s as usize
+    }
+
+    fn ssize_t_as_isize(ss: Self::ssize_t) -> isize {
+        ss as isize
+    }
+
+    fn off_t_as_isize(ss: Self::off_t) -> isize {
+        ss as isize
     }
 
     fn as_unsigned_word(u: usize) -> Self::unsigned_word {
@@ -1721,6 +1739,18 @@ impl Architecture for X64Arch {
 
     fn long_as_isize(sl: Self::signed_long) -> isize {
         sl as isize
+    }
+
+    fn size_t_as_usize(s: Self::size_t) -> usize {
+        s as usize
+    }
+
+    fn ssize_t_as_isize(ss: Self::ssize_t) -> isize {
+        ss as isize
+    }
+
+    fn off_t_as_isize(ss: Self::off_t) -> isize {
+        ss as isize
     }
 
     fn as_unsigned_word(u: usize) -> Self::unsigned_word {

@@ -1,6 +1,6 @@
 use crate::{
     arch::Architecture,
-    arch_structs::kernel_sigaction,
+    arch_structs::{kernel_sigaction, mmap_args},
     auto_remote_syscalls::{AutoRemoteSyscalls, MemParamsEnabled},
     bindings::{
         kernel::TIOCGWINSZ,
@@ -88,7 +88,7 @@ use crate::{
         trace_task_event::TraceTaskEvent,
         trace_writer::{MappingOrigin, RecordInTrace},
     },
-    util::{page_size, read_auxv, word_at, word_size},
+    util::{ceil_page_size, page_size, read_auxv, word_at, word_size},
     wait_status::WaitStatus,
 };
 use libc::{
@@ -967,7 +967,75 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
         return;
     }
 
+    if sys == Arch::BRK {
+        let old_brk: RemotePtr<Void> = ceil_page_size(t.vm().current_brk());
+        let new_brk: RemotePtr<Void> = ceil_page_size(t.regs_ref().syscall_result().into());
+        let km: KernelMapping;
+        if old_brk < new_brk {
+            // Read the kernel's mapping. There doesn't seem to be any other way to
+            // get the correct prot bits for heaps. Usually it's READ|WRITE but
+            // there seem to be exceptions depending on system settings.
+            let kernel_info: KernelMapping = AddressSpace::read_kernel_mapping(t, old_brk);
+            // @TODO Check this
+            ed_assert_eq!(t, kernel_info.device(), KernelMapping::NO_DEVICE);
+            ed_assert_eq!(t, kernel_info.inode(), KernelMapping::NO_INODE);
+            km = kernel_info.subrange(old_brk, new_brk);
+        } else {
+            // Write a dummy KernelMapping that indicates an unmap
+            km = KernelMapping::new_with_opts(
+                new_brk,
+                old_brk,
+                &OsString::new(),
+                KernelMapping::NO_DEVICE,
+                KernelMapping::NO_INODE,
+                ProtFlags::empty(),
+                MapFlags::empty(),
+                0,
+            );
+        }
+        let d = t
+            .trace_writer_mut()
+            .write_mapped_region(t, &km, &km.fake_stat(), &[], None, None);
+        ed_assert_eq!(t, d, RecordInTrace::DontRecordInTrace);
+        let addr = t.regs_ref().syscall_result().into();
+        t.vm_shr_ptr().brk(t, addr, km.prot());
+        return;
+    }
+
+    if sys == Arch::MMAP {
+        match Arch::MMAP_SEMANTICS {
+            MmapCallingSemantics::StructArguments => {
+                let child_addr = RemotePtr::<mmap_args<Arch>>::from(t.regs_ref().arg1());
+                let args = read_val_mem(t, child_addr, None);
+                process_mmap(
+                    t,
+                    Arch::size_t_as_usize(args.len),
+                    args.prot,
+                    args.flags,
+                    args.fd,
+                    Arch::off_t_as_isize(args.offset) as usize / 4096,
+                );
+            }
+            MmapCallingSemantics::RegisterArguments => {
+                prepare_mmap_register_params(t);
+            }
+        }
+        return;
+    }
+
     // @TODO This method is incomplete
+}
+
+fn process_mmap(
+    _t: &mut RecordTask,
+    _len: usize,
+    _prot: i32,
+    _flags: i32,
+    _fd: i32,
+    // Ok to assume offset is always positive?
+    _offset: usize,
+) -> () {
+    unimplemented!()
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
