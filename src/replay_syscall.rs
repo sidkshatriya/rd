@@ -163,8 +163,9 @@ fn __ptrace_cont(
     maybe_new_tid: Option<pid_t>,
 ) {
     maybe_expect_syscallno2.map(|n| debug_assert!(n >= 0));
-    maybe_new_tid.map(|n| assert!(n > 0));
     let new_tid = maybe_new_tid.unwrap_or(-1);
+    let wait_for: pid_t = if new_tid >= 0 { -1 as pid_t } else { t.tid };
+
     let expect_syscallno2 = maybe_expect_syscallno2.unwrap_or(-1);
     t.resume_execution(
         resume_how,
@@ -183,7 +184,7 @@ fn __ptrace_cont(
         // don't know which tid to wait for.
         // Passing the original tid seems to cause a hang in some kernels
         // (e.g. 4.10.0-19-generic) if the tid change races with our waitpid
-        let ret = unsafe { libc::waitpid(new_tid, &mut raw_status, libc::__WALL) };
+        let ret = unsafe { libc::waitpid(wait_for, &mut raw_status, libc::__WALL) };
         ed_assert!(t, ret >= 0);
         if ret == new_tid {
             // Check that we only do this once
