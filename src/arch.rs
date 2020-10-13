@@ -598,7 +598,6 @@ pub trait Architecture: 'static + Default {
     type user_regs_struct: Copy + 'static;
     type user_fpregs_struct: Copy + 'static;
     type user: Copy + 'static;
-    type mmap_args: Copy + 'static;
     type winsize: Copy + 'static;
     type stat: Copy + 'static;
     type utsname: Copy + 'static;
@@ -606,8 +605,6 @@ pub trait Architecture: 'static + Default {
     fn as_rptr<T>(p: Ptr<Self::unsigned_word, T>) -> RemotePtr<T>;
 
     fn from_remote_ptr<T>(p: RemotePtr<T>) -> Ptr<Self::unsigned_word, T>;
-
-    fn get_mmap_args(k: &Self::mmap_args) -> (usize, i32, i32, i32, usize);
 
     fn arch() -> SupportedArch;
 
@@ -1117,7 +1114,6 @@ impl Architecture for X86Arch {
     type user_regs_struct = x86::user_regs_struct;
     type user_fpregs_struct = x86::user_fpregs_struct;
     type user = x86::user;
-    type mmap_args = x86::mmap_args;
     type winsize = x86::winsize;
 
     type sigchld_clock_t = i32;
@@ -1132,11 +1128,6 @@ impl Architecture for X86Arch {
 
     fn from_remote_ptr<T>(p: RemotePtr<T>) -> Ptr<u32, T> {
         Ptr::<u32, T>::from_remote_ptr(p)
-    }
-
-    fn get_mmap_args(k: &Self::mmap_args) -> (usize, i32, i32, i32, usize) {
-        // @TODO OK to cast offset to usize?
-        (k.len as usize, k.prot, k.flags, k.fd, k.offset as usize)
     }
 
     fn arch() -> SupportedArch {
@@ -1694,7 +1685,6 @@ impl Architecture for X64Arch {
     type user_regs_struct = x64::user_regs_struct;
     type user_fpregs_struct = x64::user_fpregs_struct;
     type user = x64::user;
-    type mmap_args = x64::mmap_args;
     type winsize = x64::winsize;
 
     type sigchld_clock_t = i64;
@@ -1709,11 +1699,6 @@ impl Architecture for X64Arch {
 
     fn from_remote_ptr<T>(p: RemotePtr<T>) -> Ptr<u64, T> {
         Ptr::<u64, T>::from_remote_ptr(p)
-    }
-
-    fn get_mmap_args(k: &Self::mmap_args) -> (usize, i32, i32, i32, usize) {
-        // @TODO OK to cast offset to usize?
-        (k.len as usize, k.prot, k.flags, k.fd, k.offset as usize)
     }
 
     fn arch() -> SupportedArch {

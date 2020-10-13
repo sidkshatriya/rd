@@ -488,8 +488,9 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
     if sys == Arch::MMAP {
         match Arch::MMAP_SEMANTICS {
             MmapCallingSemantics::StructArguments => {
-                let args = read_val_mem(t, RemotePtr::<Arch::mmap_args>::from(regs.arg1()), None);
-                let mmap_flags = Arch::get_mmap_args(&args).2; // XXX fix this
+                let args = read_val_mem(t, RemotePtr::<mmap_args<Arch>>::from(regs.arg1()), None);
+                let mmap_flags = args.flags;
+                // XXX fix this
                 ed_assert!(t, mmap_flags & MAP_GROWSDOWN == 0);
             }
             MmapCallingSemantics::RegisterArguments => {

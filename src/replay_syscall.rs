@@ -5,6 +5,7 @@ include!(concat!(
 ));
 use crate::{
     arch::Architecture,
+    arch_structs::mmap_args,
     auto_remote_syscalls::{
         AutoRemoteSyscalls,
         AutoRestoreMem,
@@ -688,9 +689,16 @@ fn rep_process_syscall_arch<Arch: Architecture>(
     if nsys == Arch::MMAP {
         match Arch::MMAP_SEMANTICS {
             MmapCallingSemantics::StructArguments => {
-                let args = read_val_mem::<Arch::mmap_args>(t, trace_regs.arg1().into(), None);
-                let (len, prot, flags, fd, offset) = Arch::get_mmap_args(&args);
-                process_mmap(t, len, prot, flags, fd, offset / page_size(), step)
+                let args = read_val_mem::<mmap_args<Arch>>(t, trace_regs.arg1().into(), None);
+                process_mmap(
+                    t,
+                    Arch::size_t_as_usize(args.len),
+                    args.prot,
+                    args.flags,
+                    args.fd,
+                    Arch::off_t_as_isize(args.offset) as usize / page_size(),
+                    step,
+                )
             }
             MmapCallingSemantics::RegisterArguments => process_mmap(
                 t,
