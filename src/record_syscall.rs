@@ -75,6 +75,7 @@ use crate::{
     monitored_shared_memory::MonitoredSharedMemory,
     preload_interface::{
         syscallbuf_record,
+        SYS_rdcall_init_buffers,
         SYS_rdcall_init_preload,
         SYS_rdcall_notify_control_msg,
         SYS_rdcall_notify_syscall_hook_exit,
@@ -929,6 +930,15 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
         return;
     }
 
+    if sys == Arch::FORK || sys == Arch::VFORK || sys == Arch::CLONE {
+        // On a 3.19.0-39-generic #44-Ubuntu kernel we have observed clone()
+        // clearing the parity flag internally.
+        let mut r: Registers = t.regs_ref().clone();
+        r.set_flags(syscall_state.syscall_entry_registers.flags());
+        t.set_regs(&r);
+        return;
+    }
+
     // Here we handle syscalls that need work that can only happen after the
     // syscall completes --- and that our TaskSyscallState infrastructure can't
     // handle.
@@ -943,6 +953,90 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
             }
         }
         return;
+    }
+
+    if sys == Arch::MREMAP {
+        unimplemented!()
+    }
+
+    if sys == Arch::SHMAT {
+        unimplemented!()
+    }
+
+    if sys == Arch::IPC {
+        unimplemented!()
+    }
+
+    if sys == Arch::CLOCK_NANOSLEEP || sys == Arch::NANOSLEEP {
+        unimplemented!()
+    }
+
+    if sys == Arch::PERF_EVENT_OPEN {
+        unimplemented!()
+    }
+
+    if sys == Arch::CONNECT {
+        unimplemented!()
+    }
+
+    if sys == SYS_rdcall_notify_control_msg as i32 {
+        unimplemented!()
+    }
+
+    if sys == Arch::RECVMSG {
+        unimplemented!()
+    }
+
+    if sys == Arch::RECVMMSG_TIME64 || sys == Arch::RECVMMSG {
+        unimplemented!()
+    }
+
+    if sys == Arch::SCHED_GETAFFINITY {
+        unimplemented!()
+    }
+
+    if sys == Arch::SETSOCKOPT {
+        unimplemented!()
+    }
+
+    if sys == Arch::SOCKETCALL {
+        unimplemented!()
+    }
+
+    if sys == Arch::PROCESS_VM_READV {
+        unimplemented!()
+    }
+
+    if sys == Arch::PROCESS_VM_WRITEV {
+        unimplemented!()
+    }
+
+    if sys == Arch::GETDENTS || sys == Arch::GETDENTS64 {
+        unimplemented!()
+    }
+
+    if sys == Arch::WAITPID || sys == Arch::WAIT4 || sys == Arch::WAITID {
+        unimplemented!()
+    }
+
+    if sys == Arch::QUOTACTL {
+        unimplemented!()
+    }
+
+    if sys == Arch::SECCOMP {
+        unimplemented!()
+    }
+
+    if sys == SYS_rdcall_init_buffers as i32 {
+        unimplemented!()
+    }
+
+    if sys == SYS_rdcall_init_preload as i32 {
+        unimplemented!()
+    }
+
+    if sys == SYS_rdcall_notify_syscall_hook_exit as i32 {
+        unimplemented!()
     }
 
     if sys == Arch::PRCTL {
@@ -1055,6 +1149,22 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
         return;
     }
 
+    if sys == Arch::MMAP2 {
+        let mut r: Registers = t.regs_ref().clone();
+        r.set_arg1(syscall_state.syscall_entry_registers.arg1());
+        r.set_arg4(syscall_state.syscall_entry_registers.arg4());
+        t.set_regs(&r);
+        process_mmap(
+            t,
+            r.arg2(),
+            r.arg3_signed() as i32,
+            r.arg4_signed() as i32,
+            r.arg5_signed() as i32,
+            // DIFF NOTE: In rr this is signed but offsets always greater than 0?
+            r.arg6(),
+        );
+    }
+
     if sys == Arch::OPEN || sys == Arch::OPENAT {
         let mut r: Registers = t.regs_ref().clone();
         if r.syscall_failed() {
@@ -1094,8 +1204,6 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
         }
         return;
     }
-
-    // @TODO This method is incomplete
 }
 
 fn fake_gcrypt_file(_t: &mut RecordTask, _r: &mut Registers) {
