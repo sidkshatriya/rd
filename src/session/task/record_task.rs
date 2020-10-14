@@ -57,7 +57,7 @@ use crate::{
         SupportedArch,
     },
     kernel_metadata::syscall_name,
-    kernel_supplement::{sig_set_t, SA_RESETHAND, SA_SIGINFO, _NSIG},
+    kernel_supplement::{sig_set_t, SA_RESETHAND, SA_SIGINFO},
     log::{LogDebug, LogInfo, LogWarn},
     preload_interface::{
         mprotect_record,
@@ -185,6 +185,8 @@ use std::{
 };
 
 pub const SYNTHETIC_TIME_SLICE_SI_CODE: i32 = -9999;
+// @TODO This needs to come from a system header binding
+pub const _NSIG: u32 = 65;
 
 #[derive(Clone)]
 pub struct Sighandlers {

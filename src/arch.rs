@@ -601,6 +601,7 @@ pub trait Architecture: 'static + Default {
     type winsize: Copy + 'static;
     type stat: Copy + 'static;
     type utsname: Copy + 'static;
+    type kernel_sigset_t: Default + Copy + 'static;
 
     fn as_rptr<T>(p: Ptr<Self::unsigned_word, T>) -> RemotePtr<T>;
 
@@ -1121,6 +1122,7 @@ impl Architecture for X86Arch {
 
     type stat = x86::stat;
     type utsname = x86::utsname;
+    type kernel_sigset_t = x86::kernel_sigset_t;
 
     fn as_rptr<T>(p: Ptr<u32, T>) -> RemotePtr<T> {
         p.rptr()
@@ -1692,6 +1694,7 @@ impl Architecture for X64Arch {
 
     type stat = x64::stat;
     type utsname = x64::utsname;
+    type kernel_sigset_t = x64::kernel_sigset_t;
 
     fn as_rptr<T>(p: Ptr<u64, T>) -> RemotePtr<T> {
         p.rptr()

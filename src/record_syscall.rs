@@ -300,6 +300,17 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         return Switchable::AllowSwitch;
     }
 
+    if sys == Arch::RT_SIGPROCMASK || sys == Arch::SIGPROCMASK {
+        syscall_state.reg_parameter::<Arch::kernel_sigset_t>(3, None, None);
+        syscall_state.reg_parameter::<Arch::kernel_sigset_t>(
+            2,
+            Some(ArgMode::In),
+            Some(Box::new(protect_rd_sigs)),
+        );
+
+        return Switchable::PreventSwitch;
+    }
+
     if sys == Arch::WRITE || sys == Arch::WRITEV {
         let fd = regs.arg1_signed() as i32;
         return t.fd_table().will_write(t, fd);
@@ -672,6 +683,37 @@ fn protect_rd_sigs_sa_mask_arch<Arch: Architecture>(
                 &raw const sa as *const u8,
                 save.as_mut_ptr(),
                 size_of::<kernel_sigaction<Arch>>(),
+            );
+        },
+        None => (),
+    }
+
+    true
+}
+
+fn protect_rd_sigs(t: &mut RecordTask, p: RemotePtr<Void>, maybe_save: Option<&mut [u8]>) -> bool {
+    let setp = RemotePtr::<sig_set_t>::cast(p);
+    if setp.is_null() {
+        return false;
+    }
+
+    let sig_set = read_val_mem(t, setp, None);
+    let mut new_sig_set = sig_set;
+    // Don't let the tracee block TIME_SLICE_SIGNAL or
+    // SYSCALLBUF_DESCHED_SIGNAL.
+    new_sig_set &= !t.session().as_record().unwrap().rd_signal_mask();
+
+    if sig_set == new_sig_set {
+        return false;
+    }
+
+    write_val_mem(t, setp, &new_sig_set, None);
+    match maybe_save {
+        Some(save) => unsafe {
+            copy_nonoverlapping(
+                &raw const sig_set as *const u8,
+                save.as_mut_ptr(),
+                size_of::<sig_set_t>(),
             );
         },
         None => (),
