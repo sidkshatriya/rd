@@ -46,13 +46,23 @@ use crate::{
         },
         ptrace::{PTRACE_EVENT_EXEC, PTRACE_EVENT_EXIT, PTRACE_O_TRACEEXEC, PTRACE_O_TRACEEXIT},
     },
-    event::Switchable,
-    file_monitor::{self, LazyOffset},
+    event::{OpenedFd, Switchable},
+    file_monitor::{
+        self,
+        base_file_monitor::BaseFileMonitor,
+        mmapped_file_monitor::MmappedFileMonitor,
+        proc_fd_dir_monitor::ProcFdDirMonitor,
+        proc_mem_monitor::ProcMemMonitor,
+        stdio_monitor::StdioMonitor,
+        FileMonitor,
+        LazyOffset,
+    },
     kernel_abi::{
         is_at_syscall_instruction,
         is_exit_group_syscall,
         is_exit_syscall,
         syscall_instruction_length,
+        syscall_number_for_close,
         syscall_number_for_munmap,
         syscall_number_for_rt_sigprocmask,
         MmapCallingSemantics,
@@ -61,7 +71,7 @@ use crate::{
     },
     kernel_metadata::{errno_name, is_sigreturn, syscall_name},
     kernel_supplement::sig_set_t,
-    log::{LogDebug, LogWarn},
+    log::{LogDebug, LogInfo, LogWarn},
     monitored_shared_memory::MonitoredSharedMemory,
     preload_interface::{
         syscallbuf_record,
@@ -88,12 +98,21 @@ use crate::{
         trace_task_event::TraceTaskEvent,
         trace_writer::{MappingOrigin, RecordInTrace},
     },
-    util::{ceil_page_size, page_size, read_auxv, word_at, word_size},
+    util::{
+        ceil_page_size,
+        is_proc_fd_dir,
+        is_proc_mem_file,
+        page_size,
+        read_auxv,
+        word_at,
+        word_size,
+    },
     wait_status::WaitStatus,
 };
 use libc::{
     AT_ENTRY,
     EINVAL,
+    ENOENT,
     ENOSYS,
     ENOTTY,
     FUTEX_CMD_MASK,
@@ -111,24 +130,36 @@ use libc::{
     MAP_32BIT,
     MAP_FIXED,
     MAP_GROWSDOWN,
+    O_DIRECT,
     SECCOMP_MODE_FILTER,
     SECCOMP_MODE_STRICT,
     SIGKILL,
     SIGSTOP,
     SIG_BLOCK,
+    STDERR_FILENO,
+    STDIN_FILENO,
+    STDOUT_FILENO,
+    S_IWUSR,
 };
-use nix::sys::{
-    mman::{MapFlags, ProtFlags},
-    stat,
+use nix::{
+    fcntl::{open, OFlag},
+    sys::{
+        mman::{MapFlags, ProtFlags},
+        stat::{self, Mode},
+    },
+    unistd::ttyname,
 };
 use std::{
     cell::{RefCell, RefMut},
     cmp::{max, min},
     convert::TryInto,
-    ffi::OsString,
+    ffi::{OsStr, OsString},
     intrinsics::copy_nonoverlapping,
     mem::{self, size_of},
-    os::{raw::c_uint, unix::ffi::OsStringExt},
+    os::{
+        raw::c_uint,
+        unix::ffi::{OsStrExt, OsStringExt},
+    },
     rc::Rc,
     sync::atomic::{AtomicBool, Ordering},
 };
@@ -1024,7 +1055,165 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
         return;
     }
 
+    if sys == Arch::OPEN || sys == Arch::OPENAT {
+        let mut r: Registers = t.regs_ref().clone();
+        if r.syscall_failed() {
+            let path = if sys == Arch::OPENAT {
+                r.arg2()
+            } else {
+                r.arg1()
+            };
+            let cpathname = t.read_c_str(RemotePtr::<u8>::from(path));
+            let pathname = OsString::from_vec(cpathname.into_bytes());
+            if is_gcrypt_deny_file(&pathname) {
+                fake_gcrypt_file(t, &mut r);
+                t.set_regs(&r);
+            }
+        } else {
+            let fd = r.syscall_result_signed() as i32;
+            let flags = if sys == Arch::OPENAT {
+                r.arg3() as i32
+            } else {
+                r.arg2() as i32
+            };
+            let pathname = handle_opened_file(t, fd, flags);
+            let gcrypt = is_gcrypt_deny_file(&pathname);
+            if gcrypt || is_blacklisted_filename(&pathname) {
+                {
+                    let mut remote = AutoRemoteSyscalls::new(t);
+                    rd_infallible_syscall!(remote, syscall_number_for_close(remote.arch()), fd);
+                }
+                if gcrypt {
+                    fake_gcrypt_file(t, &mut r);
+                } else {
+                    log!(LogWarn, "Cowardly refusing to open {:?}", pathname);
+                    r.set_syscall_result_signed(-ENOENT as isize);
+                }
+                t.set_regs(&r);
+            }
+        }
+        return;
+    }
+
     // @TODO This method is incomplete
+}
+
+fn fake_gcrypt_file(_t: &mut RecordTask, _r: &mut Registers) {
+    unimplemented!()
+}
+
+fn is_blacklisted_filename(_c_str: &OsStr) -> bool {
+    // @TODO PENDING Return hardcoded resulf for now
+    false
+}
+
+fn is_gcrypt_deny_file(_c_str: &OsStr) -> bool {
+    // @TODO PENDING Return hardcoded resulf for now
+    false
+}
+
+fn handle_opened_file(t: &mut RecordTask, fd: i32, flags: i32) -> OsString {
+    let mut pathname = t.file_name_of_fd(fd);
+    let st = t.stat_fd(fd);
+
+    // This must be kept in sync with replay_syscall's handle_opened_files.
+    let mut file_monitor: Option<Box<dyn FileMonitor>> = None;
+    if is_mapped_shared(t, &st) && is_writable(t, fd) {
+        log!(LogInfo, "Installing MmappedFileMonitor for {}", fd);
+        file_monitor = Some(Box::new(MmappedFileMonitor::new(t, fd)));
+    } else if is_rd_terminal(&pathname) {
+        // This will let rd event annotations echo to the terminal. It will also
+        // ensure writes to this fd are not syscall-buffered.
+        log!(LogInfo, "Installing StdioMonitor for {}", fd);
+        file_monitor = Some(Box::new(StdioMonitor::new(dev_tty_fd())));
+        pathname = "terminal".into();
+    } else if is_proc_mem_file(&pathname) {
+        log!(LogInfo, "Installing ProcMemMonitor for {}", fd);
+        file_monitor = Some(Box::new(ProcMemMonitor::new(t, &pathname)));
+    } else if is_proc_fd_dir(&pathname) {
+        log!(LogInfo, "Installing ProcFdDirMonitor for {}", fd);
+        file_monitor = Some(Box::new(ProcFdDirMonitor::new(t, &pathname)));
+    } else if flags & O_DIRECT != 0 {
+        // O_DIRECT can impose unknown alignment requirements, in which case
+        // syscallbuf records will not be properly aligned and will cause I/O
+        // to fail. Disable syscall buffering for O_DIRECT files.
+        log!(LogInfo, "Installing FileMonitor for O_DIRECT {}", fd);
+        file_monitor = Some(Box::new(BaseFileMonitor::new()));
+    }
+
+    match file_monitor {
+        Some(mon) => {
+            // Write absolute file name
+            {
+                let syscall = t.ev_mut().syscall_event_mut();
+                syscall.opened.push(OpenedFd {
+                    path: pathname.clone(),
+                    fd,
+                    device: st.st_dev,
+                    inode: st.st_ino,
+                });
+            }
+            t.fd_table_shr_ptr().borrow_mut().add_monitor(t, fd, mon);
+        }
+        None => (),
+    }
+
+    pathname
+}
+
+fn init_dev_tty_fd() -> i32 {
+    open("/dev/tty", OFlag::O_WRONLY, Mode::empty()).unwrap()
+}
+
+fn dev_tty_fd() -> i32 {
+    *DEV_TTY_FD
+}
+
+lazy_static! {
+    static ref DEV_TTY_FD: i32 = init_dev_tty_fd();
+}
+
+fn is_rd_terminal(pathname: &OsStr) -> bool {
+    if pathname.as_bytes() == b"/dev/tty" {
+        // XXX the tracee's /dev/tty could refer to a tty other than
+        // the recording tty, in which case output should not be
+        // redirected. That's not too bad, replay will still work, just
+        // with some spurious echoes.
+        return true;
+    }
+
+    is_rd_fd_terminal(STDIN_FILENO, pathname)
+        || is_rd_fd_terminal(STDOUT_FILENO, pathname)
+        || is_rd_fd_terminal(STDERR_FILENO, pathname)
+}
+
+fn is_rd_fd_terminal(fd: i32, pathname: &OsStr) -> bool {
+    match ttyname(fd) {
+        Err(_) => false,
+        Ok(name) => name == pathname,
+    }
+}
+
+fn is_writable(t: &mut dyn Task, fd: i32) -> bool {
+    let lst = t.lstat_fd(fd);
+    (lst.st_mode & S_IWUSR) != 0
+}
+
+fn is_mapped_shared(t: &dyn Task, st: &libc::stat) -> bool {
+    for vm in &t.session().vms() {
+        for (_, m) in &vm.maps() {
+            if m.map.flags().contains(MapFlags::MAP_SHARED) {
+                match m.mapped_file_stat {
+                    Some(mstat) if mstat.st_dev == st.st_dev && mstat.st_ino == st.st_ino => {
+                        return true;
+                    }
+                    _ => (),
+                }
+            }
+        }
+    }
+
+    false
 }
 
 fn process_mmap(
