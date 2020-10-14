@@ -883,7 +883,6 @@ pub fn rec_process_syscall_internal(
     rd_arch_function_selfless!(rec_process_syscall_arch, arch, t, syscall_state)
 }
 
-/// DIFF NOTE: Don't need syscall_state param as we can get it from param t
 pub fn rec_process_syscall_arch<Arch: Architecture>(
     t: &mut RecordTask,
     syscall_state: &mut RefMut<TaskSyscallState>,
@@ -1156,7 +1155,19 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
                 );
             }
             MmapCallingSemantics::RegisterArguments => {
-                prepare_mmap_register_params(t);
+                let mut r: Registers = t.regs_ref().clone();
+                r.set_arg1(syscall_state.syscall_entry_registers.arg1());
+                r.set_arg4(syscall_state.syscall_entry_registers.arg4());
+                t.set_regs(&r);
+                process_mmap(
+                    t,
+                    r.arg2(),
+                    r.arg3_signed() as i32,
+                    r.arg4_signed() as i32,
+                    r.arg5_signed() as i32,
+                    // NOTE: Assuming offset always positive
+                    r.arg6() / 4096,
+                );
             }
         }
         return;
