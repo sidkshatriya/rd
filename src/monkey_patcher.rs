@@ -151,7 +151,8 @@ impl MonkeyPatcher {
         _child_fd: i32,
         _mode: MmapMode,
     ) {
-        unimplemented!()
+        // @TODO PENDING
+        // Skip this for now
     }
 
     pub fn is_jump_stub_instruction(_p: RemoteCodePtr) -> bool {
