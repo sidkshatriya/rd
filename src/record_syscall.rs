@@ -867,7 +867,7 @@ pub fn rec_process_syscall(t: &mut RecordTask) {
     t.on_syscall_exit(sys_ev_number, sys_ev_arch, &regs);
     t.syscall_state = None;
 
-    // @TODO Uncomment
+    // @TODO PENDING
     // MonitoredSharedMemory::check_all(t);
 }
 

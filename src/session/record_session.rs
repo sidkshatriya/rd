@@ -1513,10 +1513,11 @@ impl RecordSession {
                 } else {
                     log!(
                         LogDebug,
-                        "  original_syscallno:{} ({}); return val:{:#x}",
+                        "  original_syscallno:{} ({}); return val:{:#x} ({})",
                         t.regs_ref().original_syscallno(),
                         syscall_name(syscallno, syscall_arch),
-                        t.regs_ref().syscall_result()
+                        t.regs_ref().syscall_result(),
+                        t.regs_ref().syscall_result_signed()
                     );
 
                     // a syscall_restart ending is equivalent to the
