@@ -2625,7 +2625,7 @@ fn check_perf_event_paranoid() {
 }
 
 fn find_helper_library<T: AsRef<OsStr>>(basepath: T) -> Option<OsString> {
-    for suffix in &["lib64/rd/", "lib64/rr/", "lib/rd/", "lib/rr"] {
+    for suffix in &["lib64/rd/", "lib64/rr/", "lib/rd/", "lib/rr/"] {
         let mut lib_path = OsString::from(resource_path());
         lib_path.push(suffix);
         let mut file_name = OsString::from(lib_path.clone());
