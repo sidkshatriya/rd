@@ -1268,7 +1268,18 @@ impl RecordTask {
     /// Note that we can't set the correct siginfo when we send the signal, because
     /// it requires us to set information only the kernel has permission to set.
     /// Returns false if this signal should be deferred.
-    pub fn set_siginfo_for_synthetic_sigchld(&self, _si: &mut siginfo_t) -> bool {
+    pub fn set_siginfo_for_synthetic_sigchld(&self, si: &mut siginfo_t) -> bool {
+        if !is_synthetic_SIGCHLD(si) {
+            return true;
+        }
+
+        if self.is_syscall_restart() {
+            // ptrace generated signals don't interrupt syscalls such as wait.
+            // Return false to tell the caller to defer the signal and resume
+            // the syscall.
+            return false;
+        }
+
         unimplemented!()
     }
 

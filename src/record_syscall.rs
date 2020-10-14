@@ -262,7 +262,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         return Switchable::PreventSwitch;
     }
 
-    if sys == Arch::FSTAT {
+    if sys == Arch::FSTAT || sys == Arch::STAT || sys == Arch::LSTAT {
         syscall_state.reg_parameter::<Arch::stat>(2, None, None);
         return Switchable::PreventSwitch;
     }
@@ -610,10 +610,23 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         return Switchable::PreventSwitch;
     }
 
+    if sys == Arch::CLOSE {
+        if t.fd_table().is_rd_fd(regs.arg1() as i32) {
+            // Don't let processes close this fd. Abort with EBADF by setting
+            // oldfd to -1, as if the fd is already closed.
+            let mut r: Registers = regs.clone();
+            r.set_arg1_signed(-1);
+            t.set_regs(&r);
+        }
+
+        return Switchable::PreventSwitch;
+    }
+
     log!(
         LogDebug,
-        "=====> Preparing {}",
-        syscall_name(sys, Arch::arch())
+        "=====> Preparing {} ({})",
+        syscall_name(sys, Arch::arch()),
+        sys
     );
 
     unimplemented!()

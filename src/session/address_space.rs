@@ -1611,8 +1611,9 @@ pub mod address_space {
             );
             let num_bytes = ceil_page_size(num_bytes);
 
-            // DIFF NOTE: @TODO rr allows num_bytes to be 0 and simply returns
-            debug_assert!(num_bytes > 0);
+            if num_bytes == 0 {
+                return;
+            }
 
             remove_range(
                 &mut self.dont_fork.borrow_mut(),
