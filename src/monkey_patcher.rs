@@ -143,6 +143,7 @@ impl MonkeyPatcher {
     /// Apply any necessary patching immediately after an mmap. We use this to
     /// patch libpthread.so.
     pub fn patch_after_mmap(
+        &self,
         _t: &RecordTask,
         _start: RemotePtr<Void>,
         _size: usize,

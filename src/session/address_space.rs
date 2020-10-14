@@ -2106,6 +2106,7 @@ pub mod address_space {
             for km in iter {
                 out += &format!("{}\n", km);
             }
+
             out
         }
 
@@ -3438,7 +3439,7 @@ fn read_kernel_mapping(tid: pid_t, addr: RemotePtr<Void>) -> KernelMapping {
     }
 
     // Assume this method always is able to find the mapping
-    unreachable!()
+    panic!("Unable to find any mapping at {:#x}", addr.as_usize());
 }
 
 /// Just a place that rd's AutoSyscall functionality can use as a syscall

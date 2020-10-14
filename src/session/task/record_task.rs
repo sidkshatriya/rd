@@ -2061,6 +2061,7 @@ impl RecordTask {
             nread = self.read_bytes_fallible(addr, &mut buf)?;
             buf.truncate(nread);
         }
+
         self.trace_writer_mut().write_raw(self.rec_tid, &buf, addr);
 
         Ok(nread)

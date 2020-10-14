@@ -73,6 +73,7 @@ use crate::{
     kernel_supplement::sig_set_t,
     log::{LogDebug, LogInfo, LogWarn},
     monitored_shared_memory::MonitoredSharedMemory,
+    monkey_patcher::MmapMode,
     preload_interface::{
         syscallbuf_record,
         SYS_rdcall_init_buffers,
@@ -96,6 +97,7 @@ use crate::{
     sig,
     taskish_uid::TaskUid,
     trace::{
+        trace_stream::TraceRemoteFd,
         trace_task_event::TraceTaskEvent,
         trace_writer::{MappingOrigin, RecordInTrace},
     },
@@ -140,6 +142,7 @@ use libc::{
     STDERR_FILENO,
     STDIN_FILENO,
     STDOUT_FILENO,
+    S_IFREG,
     S_IWUSR,
 };
 use nix::{
@@ -1349,14 +1352,192 @@ fn is_mapped_shared(t: &dyn Task, st: &libc::stat) -> bool {
 }
 
 fn process_mmap(
-    _t: &mut RecordTask,
-    _len: usize,
-    _prot: i32,
-    _flags: i32,
-    _fd: i32,
+    t: &mut RecordTask,
+    length: usize,
+    prot_raw: i32,
+    flags_raw: i32,
+    fd: i32,
     // Ok to assume offset is always positive?
-    _offset: usize,
-) -> () {
+    offset_pages: usize,
+) {
+    let prot = ProtFlags::from_bits(prot_raw).unwrap();
+    let flags = MapFlags::from_bits(flags_raw).unwrap();
+    if t.regs_ref().syscall_failed() {
+        // We purely emulate failed mmaps.
+        return;
+    }
+
+    let size = ceil_page_size(length);
+    let offset: u64 = offset_pages as u64 * 4096;
+    let addr: RemotePtr<Void> = t.regs_ref().syscall_result().into();
+    if flags.contains(MapFlags::MAP_ANONYMOUS) {
+        let km: KernelMapping;
+        if !flags.contains(MapFlags::MAP_SHARED) {
+            // Anonymous mappings are by definition not backed by any file-like
+            // object, and are initialized to zero, so there's no nondeterminism to
+            // record.
+            km = t.vm_shr_ptr().map(
+                t,
+                addr,
+                size,
+                prot,
+                flags,
+                0,
+                &OsString::new(),
+                KernelMapping::NO_DEVICE,
+                KernelMapping::NO_INODE,
+                None,
+                None,
+                None,
+                None,
+                None,
+            );
+        } else {
+            ed_assert!(t, !flags.contains(MapFlags::MAP_GROWSDOWN));
+            // Read the kernel's mapping. There doesn't seem to be any other way to
+            // get the correct device/inode numbers. Fortunately anonymous shared
+            // mappings are rare.
+            let kernel_info = AddressSpace::read_kernel_mapping(t, addr);
+            km = t.vm().map(
+                t,
+                addr,
+                size,
+                prot,
+                flags,
+                0,
+                kernel_info.fsname(),
+                kernel_info.device(),
+                kernel_info.inode(),
+                None,
+                None,
+                None,
+                None,
+                None,
+            );
+        }
+        let d = t
+            .trace_writer_mut()
+            .write_mapped_region(t, &km, &km.fake_stat(), &[], None, None);
+        ed_assert_eq!(t, d, RecordInTrace::DontRecordInTrace);
+        return;
+    }
+
+    ed_assert!(t, fd >= 0, "Valid fd required for file mapping");
+    ed_assert!(t, !flags.contains(MapFlags::MAP_GROWSDOWN));
+
+    let mut effectively_anonymous: bool = false;
+    let mut st = t.stat_fd(fd);
+    let mut file_name = t.file_name_of_fd(fd);
+    if file_name.as_bytes() == b"/dev/zero" {
+        // mmapping /dev/zero is equivalent to MapFlags::MAP_ANONYMOUS, just more annoying.
+        // grab the device/inode from the kernel mapping so that it will be unique.
+        let kernel_synthetic_info: KernelMapping = AddressSpace::read_kernel_mapping(t, addr);
+        st.st_dev = kernel_synthetic_info.device();
+        st.st_ino = kernel_synthetic_info.inode();
+        file_name = kernel_synthetic_info.fsname().to_owned();
+        effectively_anonymous = true;
+    }
+
+    let km = t.vm_shr_ptr().map(
+        t,
+        addr,
+        size,
+        prot,
+        flags,
+        offset,
+        &file_name,
+        st.st_dev,
+        st.st_ino,
+        Some(st),
+        None,
+        None,
+        None,
+        None,
+    );
+
+    let mut adjusted_size = false;
+    // @TODO Check this
+    if st.st_size == 0 && st.st_mode & S_IFREG != S_IFREG {
+        // Some device files are mmappable but have zero size. Increasing the
+        // size here is safe even if the mapped size is greater than the real size.
+        st.st_size = (offset + size as u64).try_into().unwrap();
+        adjusted_size = true;
+    }
+
+    let mut extra_fds: Vec<TraceRemoteFd> = Vec::new();
+    let mut monitor_this_fd = false;
+    if flags.contains(MapFlags::MAP_SHARED) && !effectively_anonymous {
+        monitor_this_fd = monitor_fd_for_mapping(t, fd, &st, &mut extra_fds);
+    }
+
+    if t.trace_writer_mut().write_mapped_region(
+        t,
+        &km,
+        &st,
+        &extra_fds,
+        Some(MappingOrigin::SyscallMapping),
+        Some(!monitor_this_fd),
+    ) == RecordInTrace::RecordInTrace
+    {
+        let end = st.st_size as u64 - km.file_offset_bytes();
+        let nbytes = min(end, km.size() as u64);
+        let nread = t
+            .record_remote_fallible(addr, nbytes.try_into().unwrap())
+            .unwrap();
+
+        if !adjusted_size && nread as u64 != nbytes {
+            // If we adjusted the size, we're not guaranteed that the bytes we're
+            // reading are actually valid (it could actually have been a zero-sized
+            // file).
+            let st2 = t.stat_fd(fd);
+            AddressSpace::dump_process_maps(t);
+            // @TODO run df -h here to show to user
+            ed_assert!(
+                t,
+                false,
+                "Failed to read expected mapped data at {}; expected {} bytes, got {} bytes, \n\
+              got file size {} before and {} after; is filesystem full?",
+                km,
+                nbytes,
+                nread,
+                st.st_size,
+                st2.st_size
+            );
+        }
+    }
+
+    if flags.contains(MapFlags::MAP_SHARED) && !effectively_anonymous {
+        unimplemented!()
+    }
+
+    // We don't want to patch MapFlags::MAP_SHARED files. In the best case we'd end crashing
+    // at an assertion, in the worst case, we'd end up modifying the underlying
+    // file.
+    if !flags.contains(MapFlags::MAP_SHARED) {
+        t.vm().monkeypatcher().unwrap().patch_after_mmap(
+            t,
+            addr,
+            size,
+            offset_pages,
+            fd,
+            MmapMode::MmapSyscall,
+        );
+    }
+
+    if (prot & (ProtFlags::PROT_WRITE | ProtFlags::PROT_READ)) == ProtFlags::PROT_READ
+        && flags.contains(MapFlags::MAP_SHARED)
+        && !effectively_anonymous
+    {
+        unimplemented!()
+    }
+}
+
+fn monitor_fd_for_mapping(
+    _t: &mut RecordTask,
+    _fd: i32,
+    _st: &libc::stat,
+    _extra_fds: &mut Vec<TraceRemoteFd>,
+) -> bool {
     unimplemented!()
 }
 
