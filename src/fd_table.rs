@@ -206,7 +206,16 @@ impl FdTable {
         // It's possible that some tasks in this address space have a different
         // FdTable. We need to disable syscallbuf for an fd if any tasks for this
         // address space are monitoring the fd.
-        for vm_t in rt.vm().task_set().iter() {
+        for &fd in rt.fd_table().fds.keys() {
+            debug_assert!(fd >= 0);
+            let mut adjusted_fd = fd;
+            if fd >= SYSCALLBUF_FDS_DISABLED_SIZE {
+                adjusted_fd = SYSCALLBUF_FDS_DISABLED_SIZE - 1;
+            }
+            disabled[adjusted_fd as usize] = 1;
+        }
+
+        for vm_t in rt.vm().task_set().iter_except(rt.weak_self_ptr()) {
             for &fd in vm_t.borrow().fd_table().fds.keys() {
                 debug_assert!(fd >= 0);
                 let mut adjusted_fd = fd;

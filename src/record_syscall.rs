@@ -270,6 +270,11 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         return Switchable::PreventSwitch;
     }
 
+    if sys == Arch::PRLIMIT64 {
+        syscall_state.reg_parameter::<Arch::rlimit64>(4, None, None);
+        return Switchable::PreventSwitch;
+    }
+
     if sys == Arch::IOCTL {
         return prepare_ioctl::<Arch>(t, &mut syscall_state);
     }
@@ -1089,7 +1094,7 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
     }
 
     if sys == SYS_rdcall_init_preload as i32 {
-        unimplemented!()
+        t.at_preload_init();
     }
 
     if sys == SYS_rdcall_notify_syscall_hook_exit as i32 {
