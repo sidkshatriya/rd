@@ -673,10 +673,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
             FcntlOperation::OFD_GETLK | FcntlOperation::GETLK64 => {
                 // flock and flock64 better be different on 32-bit architectures,
                 // but on 64-bit architectures, it's OK if they're the same.
-                //static_assert(
-                //    sizeof(Arch::_flock) < sizeof(Arch::flock64) ||
-                //        Arch::elfclass == ELFCLASS64,
-                //    "struct flock64 not declared differently from struct flock");
+                // @TODO assertion here
                 syscall_state.reg_parameter::<Arch::flock64>(3, Some(ArgMode::InOut), None);
             }
 
@@ -701,6 +698,17 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
             }
         }
 
+        return Switchable::PreventSwitch;
+    }
+
+    if sys == Arch::DUP2 || sys == Arch::DUP3 {
+        if t.fd_table().is_rd_fd(regs.arg2() as i32) {
+            // Don't let processes dup over this fd. Abort with EBADF by setting
+            // oldfd to -1.
+            let mut r: Registers = regs.clone();
+            r.set_arg1_signed(-1);
+            t.set_regs(&r);
+        }
         return Switchable::PreventSwitch;
     }
 

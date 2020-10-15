@@ -1747,11 +1747,15 @@ impl RecordSession {
                 // (and potentially slow)
                 ticks_request = TicksRequest::ResumeUnlimitedTicks;
             } else {
-                let num_ticks_request = max(
-                    0,
-                    self.scheduler().current_timeslice_end() - t.borrow().tick_count(),
-                );
-                debug_assert!(num_ticks_request > 0);
+                let end = self.scheduler().current_timeslice_end();
+                let tick_count = t.borrow().tick_count();
+                // @TODO What about stipulation that ResumeWithTicksRequest must have > 0 as
+                // request?? Its possible for end to be less than tick_count.
+                let num_ticks_request = if tick_count > end {
+                    0
+                } else {
+                    end - tick_count
+                };
                 ticks_request = TicksRequest::ResumeWithTicksRequest(num_ticks_request);
             }
 
