@@ -30,10 +30,13 @@ fn main() {
     cc::Build::new()
         .file("src/cpuid_loop.S")
         .compile("cpuid_loop");
+    println!("cargo:rerun-if-changed=src/cpuid_loop.S");
 
     cc::Build::new().file("src/rdtsc.c").compile("rdtsc");
+    println!("cargo:rerun-if-changed=src/rdtsc.c");
 
     cc::Build::new().file("src/ioctl.c").compile("ioctl");
+    println!("cargo:rerun-if-changed=src/ioctl.c");
 
     Command::new("scripts/generate_syscalls.py")
         .arg(path.join("syscall_consts_x64_generated.rs"))
@@ -102,6 +105,7 @@ fn main() {
         .derive_default(true)
         .generate()
         .unwrap();
+    println!("cargo:rerun-if-changed=bindgen/signal_wrapper.h");
 
     signal_bindings
         .write_to_file(path.join("signal_bindings_generated.rs"))
@@ -113,6 +117,7 @@ fn main() {
         .derive_default(true)
         .generate()
         .unwrap();
+    println!("cargo:rerun-if-changed=bindgen/audit_wrapper.h");
 
     audit_bindings
         .write_to_file(path.join("audit_bindings_generated.rs"))
@@ -124,6 +129,7 @@ fn main() {
         .header("bindgen/ptrace_wrapper.h")
         .generate()
         .unwrap();
+    println!("cargo:rerun-if-changed=bindgen/ptrace_wrapper.h");
 
     ptrace_bindings
         .write_to_file(path.join("ptrace_bindings_generated.rs"))
@@ -141,6 +147,7 @@ fn main() {
         .header("bindgen/perf_event_wrapper.h")
         .generate()
         .unwrap();
+    println!("cargo:rerun-if-changed=bindgen/perf_event_wrapper.h");
 
     perf_event_bindings
         .write_to_file(path.join("perf_event_bindings_generated.rs"))
@@ -152,6 +159,7 @@ fn main() {
         .header("bindgen/fcntl_wrapper.h")
         .generate()
         .unwrap();
+    println!("cargo:rerun-if-changed=bindgen/fcntl_wrapper.h");
 
     fcntl_bindings
         .write_to_file(path.join("fcntl_bindings_generated.rs"))
@@ -163,6 +171,7 @@ fn main() {
         .header("bindgen/sysexits_wrapper.h")
         .generate()
         .unwrap();
+    println!("cargo:rerun-if-changed=bindgen/sysexits_wrapper.h");
 
     sysexits_bindings
         .write_to_file(path.join("sysexits_bindings_generated.rs"))
@@ -174,6 +183,7 @@ fn main() {
         .header("bindgen/prctl_wrapper.h")
         .generate()
         .unwrap();
+    println!("cargo:rerun-if-changed=bindgen/prctl_wrapper.h");
 
     prctl_bindings
         .write_to_file(path.join("prctl_bindings_generated.rs"))
@@ -186,6 +196,7 @@ fn main() {
         .header("bindgen/kernel_wrapper.h")
         .generate()
         .unwrap();
+    println!("cargo:rerun-if-changed=bindgen/kernel_wrapper.h");
 
     kernel_abi_bindings
         .write_to_file(path.join("kernel_bindings_generated.rs"))
@@ -197,6 +208,7 @@ fn main() {
         .header("bindgen/gdb_register_wrapper.h")
         .generate()
         .unwrap();
+    println!("cargo:rerun-if-changed=bindgen/gdb_register_wrapper.h");
 
     gdb_register_bindings
         .write_to_file(path.join("gdb_register_bindings_generated.rs"))
@@ -208,6 +220,7 @@ fn main() {
         .header("bindgen/gdb_request_wrapper.h")
         .generate()
         .unwrap();
+    println!("cargo:rerun-if-changed=bindgen/gdb_register_wrapper.h");
 
     gdb_request_bindings
         .write_to_file(path.join("gdb_request_bindings_generated.rs"))
@@ -220,6 +233,7 @@ fn main() {
         .header("bindgen/kernel_supplement_wrapper.h")
         .generate()
         .unwrap();
+    println!("cargo:rerun-if-changed=bindgen/kernel_supplement_wrapper.h");
 
     kernel_supplement_bindings
         .write_to_file(path.join("kernel_supplement_bindings_generated.rs"))
@@ -229,4 +243,5 @@ fn main() {
         .file("schema/trace.capnp")
         .run()
         .unwrap();
+    println!("cargo:rerun-if-changed=schema/trace.capnp");
 }
