@@ -136,12 +136,11 @@ use libc::{
     CLONE_VM,
     ENOSYS,
     SIGSYS,
-    S_IFREG,
 };
 use mem::size_of;
 use nix::{
     fcntl::{open, OFlag},
-    sys::stat::{stat, Mode},
+    sys::stat::{stat, Mode, SFlag},
     unistd::{access, read, AccessFlags},
 };
 use std::{
@@ -2708,7 +2707,7 @@ fn lookup_by_path<T: AsRef<OsStr>>(file: T) -> OsString {
                 full_path.extend_from_slice(file_ostr.as_bytes());
 
                 match stat(full_path.as_slice()) {
-                    Ok(st) if st.st_mode & S_IFREG == S_IFREG => {
+                    Ok(st) if SFlag::from_bits_truncate(st.st_mode).contains(SFlag::S_IFREG) => {
                         if access(full_path.as_slice(), AccessFlags::X_OK).is_ok() {
                             return OsString::from_vec(full_path);
                         } else {

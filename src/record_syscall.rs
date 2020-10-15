@@ -143,14 +143,13 @@ use libc::{
     STDERR_FILENO,
     STDIN_FILENO,
     STDOUT_FILENO,
-    S_IFREG,
     S_IWUSR,
 };
 use nix::{
     fcntl::{open, OFlag},
     sys::{
         mman::{MapFlags, ProtFlags},
-        stat::{self, Mode},
+        stat::{self, Mode, SFlag},
     },
     unistd::ttyname,
 };
@@ -1567,8 +1566,7 @@ fn process_mmap(
     );
 
     let mut adjusted_size = false;
-    // @TODO Check this
-    if st.st_size == 0 && st.st_mode & S_IFREG != S_IFREG {
+    if st.st_size == 0 && !SFlag::from_bits_truncate(st.st_mode).contains(SFlag::S_IFREG) {
         // Some device files are mmappable but have zero size. Increasing the
         // size here is safe even if the mapped size is greater than the real size.
         st.st_size = (offset + size as u64).try_into().unwrap();

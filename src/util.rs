@@ -60,8 +60,6 @@ use libc::{
     SIGSEGV,
     SIGTRAP,
     STDERR_FILENO,
-    S_IFDIR,
-    S_IFREG,
     _SC_NPROCESSORS_ONLN,
 };
 use nix::{
@@ -70,7 +68,7 @@ use nix::{
     sys::{
         mman::{MapFlags, ProtFlags},
         signal::{sigaction, SaFlags, SigAction, SigHandler, SigSet, Signal},
-        stat::{stat, FileStat, Mode},
+        stat::{stat, FileStat, Mode, SFlag},
         statfs::{statfs, TMPFS_MAGIC},
         uio::pread,
     },
@@ -602,7 +600,7 @@ pub fn ensure_dir(dir: &OsStr, dir_type: &str, mode: Mode) {
         Ok(st) => st,
     };
 
-    if !(S_IFDIR & st.st_mode == S_IFDIR) {
+    if !SFlag::from_bits_truncate(st.st_mode).contains(SFlag::S_IFDIR) {
         fatal!("{:?} exists but isn't a directory.", dir);
     }
 
@@ -689,8 +687,8 @@ pub fn monotonic_now_sec() -> f64 {
 }
 
 pub fn should_copy_mmap_region(mapping: &KernelMapping, stat: &libc::stat) -> bool {
-    let v = env::var("RD_COPY_ALL_FILES");
-    if v.is_err() || v.unwrap().is_empty() {
+    let v = env::var_os("RD_COPY_ALL_FILES");
+    if v.is_some() {
         return true;
     }
 
@@ -707,7 +705,7 @@ pub fn should_copy_mmap_region(mapping: &KernelMapping, stat: &libc::stat) -> bo
         log!(LogDebug, "  copying unlinked/inaccessible file");
         return true;
     }
-    if !(stat.st_mode & S_IFREG != S_IFREG) {
+    if !SFlag::from_bits_truncate(stat.st_mode).contains(SFlag::S_IFREG) {
         log!(LogDebug, "  copying non-regular-file");
         return true;
     }
@@ -830,16 +828,19 @@ pub fn has_fs_name(path: &OsStr) -> bool {
 }
 
 pub fn is_tmp_file(path: &OsStr) -> bool {
-    let v = env::var("RD_TRUST_TEMP_FILES");
-    if v.is_err() || v.unwrap().is_empty() {
-        return true;
+    let v = env::var_os("RD_TRUST_TEMP_FILES");
+    if v.is_some() {
+        return false;
     }
 
-    // DIFF NOTE: rr assumes the call always succeeds but we dont for now.
-    let sfs = statfs(path).unwrap();
-    // In observed configurations of Ubuntu 13.10, /tmp is
-    // a folder in the / fs, not a separate tmpfs.
-    TMPFS_MAGIC == sfs.filesystem_type() || path.as_bytes().starts_with(b"/tmp/")
+    match statfs(path) {
+        Ok(sfs) => {
+            // In observed configurations of Ubuntu 13.10, /tmp is
+            // a folder in the / fs, not a separate tmpfs.
+            TMPFS_MAGIC == sfs.filesystem_type() || path.as_bytes().starts_with(b"/tmp/")
+        }
+        Err(_) => false,
+    }
 }
 
 pub fn copy_file(dest_fd: i32, src_fd: i32) -> bool {

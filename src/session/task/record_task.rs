@@ -353,7 +353,7 @@ pub enum WaitType {
 }
 
 /// Reasons why we simulate stopping of a task (see ptrace(2) man page).
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum EmulatedStopType {
     NotStopped,
     /// stopped by a signal. This applies to non-ptracees too.
@@ -1255,6 +1255,11 @@ impl RecordTask {
         _siginfo: Option<&siginfo_t>,
         _si_code: Option<i32>,
     ) -> bool {
+        ed_assert_eq!(self, self.emulated_stop_type, EmulatedStopType::NotStopped);
+        if self.emulated_ptracer.is_none() {
+            return false;
+        }
+
         unimplemented!()
     }
 
