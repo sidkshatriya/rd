@@ -79,7 +79,7 @@ lazy_static! {
 
         let (default_level, level_map) = match env::var("RD_LOG") {
             Ok(rd_log) => init_log_levels(&rd_log),
-            Err(_) => (LogWarn, HashMap::new())
+            Err(_) => (LogError, HashMap::new())
         };
 
         Mutex::new(LogGlobals {
@@ -107,7 +107,7 @@ fn log_level_string_to_level(log_level_string: &str) -> LogLevel {
 fn init_log_levels(rd_log: &str) -> (LogLevel, HashMap<String, LogLevel>) {
     let mut hm: HashMap<String, LogLevel> = HashMap::new();
     let mod_colon_levels = rd_log.split(',');
-    let mut default_level = LogWarn;
+    let mut default_level = LogDebug;
     for mod_colon_level in mod_colon_levels {
         let res: Vec<&str> = mod_colon_level.splitn(2, ':').collect();
         if res.len() == 2 {
