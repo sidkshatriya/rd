@@ -58,6 +58,11 @@ fn main() {
         .status()
         .unwrap();
 
+    Command::new("scripts/generate_syscalls.py")
+        .arg(path.join("syscall_record_case_generated.rs"))
+        .status()
+        .unwrap();
+
     // These are typically not needed. Uncomment and use when necessary e.g. there are new syscalls
     /*
     Command::new("scripts/generate_syscalls.py")

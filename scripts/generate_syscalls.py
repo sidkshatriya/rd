@@ -87,15 +87,20 @@ def write_syscall_record_cases(f):
     def write_recorder_for_arg(syscall, arg):
         arg_descriptor = getattr(syscall, 'arg' + str(arg), None)
         if isinstance(arg_descriptor, str):
-            f.write("    syscall_state.reg_parameter<%s>(%d);\n"
+            f.write("        syscall_state.reg_parameter::<%s>(%d, None, None);\n"
                     % (arg_descriptor, arg))
+    f.write("{\n")
+    f.write("    use crate::kernel_abi::common;\n")
+    f.write("    use crate::kernel_abi::x64;\n")
     for name, obj in syscalls.all():
         # Irregular syscalls will be handled by hand-written code elsewhere.
         if isinstance(obj, syscalls.RegularSyscall):
-            f.write("  case Arch::%s:\n" % name)
+            f.write("    if sys == Arch::%s {\n" % name.upper())
             for arg in range(1,6):
                 write_recorder_for_arg(obj, arg)
-            f.write("    return PREVENT_SWITCH;\n")
+            f.write("        return Switchable::PreventSwitch;\n")
+            f.write("    }\n")
+    f.write("}\n")
 
 has_syscall = string.Template("""${no_snake_case}
 pub fn has_${syscall}_syscall(arch: SupportedArch) -> bool {
@@ -183,7 +188,7 @@ generators_for = {
     'syscall_consts_for_tests_x64_generated': lambda f: write_syscall_consts_for_tests(f, 'x64'),
     'syscall_name_arch_x86_generated': lambda f: write_syscallname_arch(f, 'x86'),
     'syscall_name_arch_x64_generated': lambda f: write_syscallname_arch(f, 'x64'),
-    'SyscallRecordCase': write_syscall_record_cases,
+    'syscall_record_case_generated': write_syscall_record_cases,
     'syscall_helper_functions_generated': write_syscall_helper_functions,
 }
 
