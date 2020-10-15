@@ -765,9 +765,8 @@ pub mod x64 {
         assert_eq_size!(kernel::utsname, utsname);
         assert_eq_align!(kernel::utsname, utsname);
 
-        // @TODO.
-        // assert_eq_size!(kernel::sched_param, sched_param);
-        // assert_eq_align!(kernel::sched_param, sched_param);
+        assert_eq_size!(kernel::sched_param, sched_param);
+        assert_eq_align!(kernel::sched_param, sched_param);
 
         assert_eq_size!(kernel::v4l2_timecode, v4l2_timecode);
         assert_eq_align!(kernel::v4l2_timecode, v4l2_timecode);
@@ -1245,9 +1244,8 @@ pub mod x86 {
         assert_eq_size!(kernel::utsname, utsname);
         assert_eq_align!(kernel::utsname, utsname);
 
-        // @TODO.
-        // assert_eq_size!(kernel::sched_param, sched_param);
-        // assert_eq_align!(kernel::sched_param, sched_param);
+        assert_eq_size!(kernel::sched_param, sched_param);
+        assert_eq_align!(kernel::sched_param, sched_param);
 
         assert_eq_size!(kernel::v4l2_timecode, v4l2_timecode);
         assert_eq_align!(kernel::v4l2_timecode, v4l2_timecode);

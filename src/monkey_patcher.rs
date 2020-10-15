@@ -59,7 +59,7 @@ impl ExtendedJumpPage {
 /// tasks:
 ///
 /// 1) Patch the VDSO's user-space-only implementation of certain system calls
-/// (e.g. gettimeofday) to do a proper kernel system call instead, so rr can
+/// (e.g. gettimeofday) to do a proper kernel system call instead, so rd can
 /// trap and record it (x86-64 only).
 ///
 /// 2) Patch the VDSO __kernel_vsyscall fast-system-call stub to redirect to
@@ -135,7 +135,6 @@ impl MonkeyPatcher {
 
     /// Try to allocate a stub from the sycall patching stub buffer. Returns null
     /// if there's no buffer or we've run out of free stubs.
-
     pub fn allocate_stub(_t: &RecordTask, _bytes: usize) -> RemotePtr<u8> {
         unimplemented!()
     }

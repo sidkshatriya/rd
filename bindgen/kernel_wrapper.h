@@ -45,3 +45,5 @@
 #include <sys/utsname.h>
 #include <sys/vfs.h>
 #include <termios.h>
+/// DIFF NOTE: This is not present in rr
+#include <sched.h>
