@@ -2646,7 +2646,8 @@ impl RecordTask {
     /// sent for them.
     /// May queue signals for specific tasks.
     fn send_synthetic_sigchld_if_necessary(&self) {
-        unimplemented!()
+        // @TODO Pending
+        // Do nothing for now
     }
 
     /// Call this when SYS_sigaction is finishing with `regs`.

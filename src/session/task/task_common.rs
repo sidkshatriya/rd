@@ -120,7 +120,6 @@ use crate::{
         pwrite_all_fallible,
         trapped_instruction_at,
         trapped_instruction_len,
-        u8_raw_slice,
         u8_raw_slice_mut,
         xsave_layout_from_trace,
         xsave_native_layout,
@@ -1014,7 +1013,7 @@ pub(super) fn resume_execution<T: Task>(
                 task.ptrace_if_alive(
                     how as u32,
                     RemotePtr::null(),
-                    PtraceData::ReadFrom(u8_raw_slice(&sig)),
+                    PtraceData::ReadWord(sig.as_raw() as usize),
                 );
             }
         }

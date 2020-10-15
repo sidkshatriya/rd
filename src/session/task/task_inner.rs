@@ -1249,7 +1249,7 @@ impl TaskInner {
             self.tid,
             addr,
             data.get_data_slice(),
-            errno()
+            errno_name(errno())
         );
         return true;
     }
