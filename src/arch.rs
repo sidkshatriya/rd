@@ -623,6 +623,10 @@ pub trait Architecture: 'static + Default {
     type legacy_uid_t: Default + Copy + 'static;
     type legacy_gid_t: Default + Copy + 'static;
 
+    type _flock: Default + Copy + 'static;
+    type flock64: Default + Copy + 'static;
+    type f_owner_ex: Default + Copy + 'static;
+
     fn as_rptr<T>(p: Ptr<Self::unsigned_word, T>) -> RemotePtr<T>;
 
     fn from_remote_ptr<T>(p: RemotePtr<T>) -> Ptr<Self::unsigned_word, T>;
@@ -1163,6 +1167,10 @@ impl Architecture for X86Arch {
     type statx = x86::statx;
     type legacy_uid_t = x86::legacy_uid_t;
     type legacy_gid_t = x86::legacy_gid_t;
+
+    type _flock = x86::_flock;
+    type flock64 = x86::flock64;
+    type f_owner_ex = x86::f_owner_ex;
 
     fn as_rptr<T>(p: Ptr<u32, T>) -> RemotePtr<T> {
         p.rptr()
@@ -1755,6 +1763,10 @@ impl Architecture for X64Arch {
     type statx = x64::statx;
     type legacy_uid_t = x64::legacy_uid_t;
     type legacy_gid_t = x64::legacy_gid_t;
+
+    type _flock = x64::_flock;
+    type flock64 = x64::flock64;
+    type f_owner_ex = x64::f_owner_ex;
 
     fn as_rptr<T>(p: Ptr<u64, T>) -> RemotePtr<T> {
         p.rptr()

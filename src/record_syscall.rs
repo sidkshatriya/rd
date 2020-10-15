@@ -65,6 +65,7 @@ use crate::{
         syscall_number_for_close,
         syscall_number_for_munmap,
         syscall_number_for_rt_sigprocmask,
+        FcntlOperation,
         MmapCallingSemantics,
         Ptr,
         SupportedArch,
@@ -158,7 +159,7 @@ use std::{
     cmp::{max, min},
     convert::TryInto,
     ffi::{OsStr, OsString},
-    intrinsics::copy_nonoverlapping,
+    intrinsics::{copy_nonoverlapping, transmute},
     mem::{self, size_of},
     os::{
         raw::c_uint,
@@ -618,6 +619,87 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
             let mut r: Registers = regs.clone();
             r.set_arg1_signed(-1);
             t.set_regs(&r);
+        }
+
+        return Switchable::PreventSwitch;
+    }
+
+    if sys == Arch::FCNTL || sys == Arch::FCNTL64 {
+        let fd = regs.arg1() as i32;
+        let mut result: usize = 0;
+        if t.fd_table().emulate_fcntl(fd, t, &mut result) {
+            // Don't perform this syscall.
+            let mut r: Registers = regs.clone();
+            r.set_arg1_signed(-1);
+            t.set_regs(&r);
+            syscall_state.emulate_result(result);
+            return Switchable::PreventSwitch;
+        }
+
+        let operation = unsafe { transmute(regs.arg2_signed() as i32) };
+        match operation {
+            FcntlOperation::DUPFD
+            | FcntlOperation::DUPFD_CLOEXEC
+            | FcntlOperation::GETFD
+            | FcntlOperation::GETFL
+            | FcntlOperation::SETFL
+            | FcntlOperation::SETLK
+            | FcntlOperation::SETLK64
+            | FcntlOperation::OFD_SETLK
+            | FcntlOperation::SETOWN
+            | FcntlOperation::SETOWN_EX
+            | FcntlOperation::GETSIG
+            | FcntlOperation::SETSIG
+            | FcntlOperation::SETPIPE_SZ
+            | FcntlOperation::GETPIPE_SZ
+            | FcntlOperation::ADD_SEALS
+            | FcntlOperation::SET_RW_HINT
+            | FcntlOperation::SET_FILE_RW_HINT => (),
+
+            FcntlOperation::SETFD => {
+                if t.fd_table().is_rd_fd(fd) {
+                    // Don't let tracee set FD_CLOEXEC on this fd. Disable the syscall,
+                    // but emulate a successful return.
+                    let mut r: Registers = regs.clone();
+                    r.set_arg1_signed(-1);
+                    t.set_regs(&r);
+                    syscall_state.emulate_result(0);
+                }
+            }
+
+            FcntlOperation::GETLK => {
+                syscall_state.reg_parameter::<Arch::_flock>(3, Some(ArgMode::InOut), None);
+            }
+
+            FcntlOperation::OFD_GETLK | FcntlOperation::GETLK64 => {
+                // flock and flock64 better be different on 32-bit architectures,
+                // but on 64-bit architectures, it's OK if they're the same.
+                //static_assert(
+                //    sizeof(Arch::_flock) < sizeof(Arch::flock64) ||
+                //        Arch::elfclass == ELFCLASS64,
+                //    "struct flock64 not declared differently from struct flock");
+                syscall_state.reg_parameter::<Arch::flock64>(3, Some(ArgMode::InOut), None);
+            }
+
+            FcntlOperation::GETOWN_EX => {
+                syscall_state.reg_parameter::<Arch::f_owner_ex>(3, None, None);
+            }
+
+            FcntlOperation::SETLKW | FcntlOperation::SETLKW64 | FcntlOperation::OFD_SETLKW => {
+                // SETLKW blocks, but doesn't write any
+                // outparam data to the |struct flock|
+                // argument, so no need for scratch.
+                return Switchable::AllowSwitch;
+            }
+
+            FcntlOperation::GET_RW_HINT | FcntlOperation::GET_FILE_RW_HINT => {
+                syscall_state.reg_parameter::<i64>(3, None, None);
+            }
+
+            _ => {
+                // Unknown command should trigger EINVAL.
+                syscall_state.expect_errno = EINVAL;
+            }
         }
 
         return Switchable::PreventSwitch;
@@ -2748,13 +2830,13 @@ fn prepare_ioctl<Arch: Architecture>(
     syscall_state: &mut RefMut<TaskSyscallState>,
 ) -> Switchable {
     let fd = t.regs_ref().arg1() as i32;
-    let mut result: u64 = 0;
+    let mut result: usize = 0;
     if t.fd_table().emulate_ioctl(fd, t, &mut result) {
         // Don't perform this syscall.
         let mut r: Registers = t.regs_ref().clone();
         r.set_arg1_signed(-1);
         t.set_regs(&r);
-        syscall_state.emulate_result(result.try_into().unwrap());
+        syscall_state.emulate_result(result);
         return Switchable::PreventSwitch;
     }
 

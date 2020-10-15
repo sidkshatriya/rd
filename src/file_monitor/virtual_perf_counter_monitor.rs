@@ -128,11 +128,11 @@ impl FileMonitor for VirtualPerfCounterMonitor {
         FileMonitorType::VirtualPerfCounter
     }
 
-    fn emulate_ioctl(&mut self, _t: &RecordTask, _r: &mut u64) -> bool {
+    fn emulate_ioctl(&mut self, _t: &RecordTask, _r: &mut usize) -> bool {
         unimplemented!()
     }
 
-    fn emulate_fcntl(&self, _t: &RecordTask, _r: &mut u64) -> bool {
+    fn emulate_fcntl(&self, _t: &RecordTask, _r: &mut usize) -> bool {
         unimplemented!()
     }
 
