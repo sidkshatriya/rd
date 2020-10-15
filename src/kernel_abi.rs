@@ -352,7 +352,8 @@ pub mod common {
     pub type socklen_t = uint32_t;
     pub type dev_t = uint64_t;
     pub type mode_t = uint32_t;
-    pub type __kernel_timer_t = int32_t;
+    pub type __kernel_timer_t = i32;
+    pub type __kernel_loff_t = i64;
     pub type int = int32_t;
     pub type signed_int = int32_t;
     pub type unsigned_int = uint32_t;
@@ -441,7 +442,7 @@ pub mod x64 {
 
     #[repr(C)]
     #[derive(Copy, Clone, Default)]
-    struct stat64 {
+    pub struct stat64 {
         pub st_dev: dev_t,
         pub st_ino: ino_t,
         pub st_nlink: nlink_t,
@@ -905,22 +906,22 @@ pub mod x86 {
     #[derive(Copy, Clone, Default)]
     pub struct stat {
         st_dev: dev_t,
-        __unused5: unsigned_short,
-        __pad1: ino_t,
-        st_ino: mode_t,
-        st_mode: nlink_t,
-        st_nlink: uid_t,
-        st_uid: gid_t,
-        st_gid: dev_t,
-        st_rdev: unsigned_short,
-        __pad2: off_t,
-        st_size: blksize_t,
-        st_blksize: blkcnt_t,
-        st_blocks: timespec,
+        __pad1: unsigned_short,
+        st_ino: ino_t,
+        st_mode: mode_t,
+        st_nlink: nlink_t,
+        st_uid: uid_t,
+        st_gid: gid_t,
+        st_rdev: dev_t,
+        __pad2: unsigned_short,
+        st_size: off_t,
+        st_blksize: blksize_t,
+        st_blocks: blkcnt_t,
         st_atim: timespec,
         st_mtim: timespec,
-        st_ctim: unsigned_long,
+        st_ctim: timespec,
         __unused4: unsigned_long,
+        __unused5: unsigned_long,
     }
 
     /// @TODO Check this in x86

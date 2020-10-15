@@ -26,7 +26,6 @@ pub type __kernel_long_t = signed_long;
 pub type __kernel_time_t = __kernel_long_t;
 pub type __kernel_suseconds_t = __kernel_long_t;
 pub type __kernel_pid_t = signed_int;
-pub type __kernel_loff_t = int64_t;
 
 pub const STD_PAD: usize = size_of::<unsigned_long>() - size_of::<int>();
 pub const KERNEL_SIGSET_SIZE: usize = 64 / (8 * size_of::<unsigned_long>());
@@ -1321,6 +1320,8 @@ pub struct timex {
     pub i_11: u32,
 }
 
+#[repr(C)]
+#[derive(Copy, Clone, Default)]
 pub struct statx_timestamp {
     pub tv_sec: int64_t,
     pub tv_nsec: uint32_t,
@@ -1328,6 +1329,8 @@ pub struct statx_timestamp {
 }
 // statx_timestamp not yet widely available in system headers
 
+#[repr(C)]
+#[derive(Copy, Clone, Default)]
 pub struct statx {
     pub stx_mask: uint32_t,
     pub stx_blksize: uint32_t,

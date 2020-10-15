@@ -603,6 +603,25 @@ pub trait Architecture: 'static + Default {
     type utsname: Copy + 'static;
     type kernel_sigset_t: Default + Copy + 'static;
     type rlimit64: Default + Copy + 'static;
+    type tms: Default + Copy + 'static;
+    type rlimit: Default + Copy + 'static;
+    type rusage: Default + Copy + 'static;
+    type timeval: Default + Copy + 'static;
+    type timezone: Default + Copy + 'static;
+    type statfs: Default + Copy + 'static;
+    type itimerval: Default + Copy + 'static;
+    type sysinfo: Default + Copy + 'static;
+    type timex: Default + Copy + 'static;
+    type sched_param: Default + Copy + 'static;
+    type stack_t: Default + Copy + 'static;
+    type stat64: 'static;
+    type itimerspec: Default + Copy + 'static;
+    type timespec: Default + Copy + 'static;
+    type statfs64: Default + Copy + 'static;
+    type mq_attr: Default + Copy + 'static;
+    type statx: Default + Copy + 'static;
+    type legacy_uid_t: Default + Copy + 'static;
+    type legacy_gid_t: Default + Copy + 'static;
 
     fn as_rptr<T>(p: Ptr<Self::unsigned_word, T>) -> RemotePtr<T>;
 
@@ -1125,6 +1144,25 @@ impl Architecture for X86Arch {
     type utsname = x86::utsname;
     type kernel_sigset_t = x86::kernel_sigset_t;
     type rlimit64 = x86::rlimit64;
+    type tms = x86::tms;
+    type rlimit = x86::rlimit;
+    type rusage = x86::rusage;
+    type timeval = x86::timeval;
+    type timezone = x86::timezone;
+    type statfs = x86::statfs;
+    type itimerval = x86::itimerval;
+    type sysinfo = x86::sysinfo;
+    type timex = x86::timex;
+    type sched_param = x86::sched_param;
+    type stack_t = x86::stack_t;
+    type stat64 = x86::stat64;
+    type itimerspec = x86::itimerspec;
+    type timespec = x86::timespec;
+    type statfs64 = x86::statfs64;
+    type mq_attr = x86::mq_attr;
+    type statx = x86::statx;
+    type legacy_uid_t = x86::legacy_uid_t;
+    type legacy_gid_t = x86::legacy_gid_t;
 
     fn as_rptr<T>(p: Ptr<u32, T>) -> RemotePtr<T> {
         p.rptr()
@@ -1698,6 +1736,25 @@ impl Architecture for X64Arch {
     type utsname = x64::utsname;
     type kernel_sigset_t = x64::kernel_sigset_t;
     type rlimit64 = x64::rlimit64;
+    type tms = x64::tms;
+    type rlimit = x64::rlimit;
+    type rusage = x64::rusage;
+    type timeval = x64::timeval;
+    type timezone = x64::timezone;
+    type statfs = x64::statfs;
+    type itimerval = x64::itimerval;
+    type sysinfo = x64::sysinfo;
+    type timex = x64::timex;
+    type sched_param = x64::sched_param;
+    type stack_t = x64::stack_t;
+    type stat64 = x64::stat64;
+    type itimerspec = x64::itimerspec;
+    type timespec = x64::timespec;
+    type statfs64 = x64::statfs64;
+    type mq_attr = x64::mq_attr;
+    type statx = x64::statx;
+    type legacy_uid_t = x64::legacy_uid_t;
+    type legacy_gid_t = x64::legacy_gid_t;
 
     fn as_rptr<T>(p: Ptr<u64, T>) -> RemotePtr<T> {
         p.rptr()
