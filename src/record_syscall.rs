@@ -252,28 +252,10 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         return Switchable::PreventSwitch;
     }
 
-    if sys == Arch::GETEUID
-        || sys == Arch::ACCESS
-        || sys == Arch::SET_TID_ADDRESS
-        || sys == Arch::SET_ROBUST_LIST
-    {
-        return Switchable::PreventSwitch;
-    }
-
-    if sys == Arch::UNAME {
-        syscall_state.reg_parameter::<Arch::utsname>(1, None, None);
-        return Switchable::PreventSwitch;
-    }
-
-    if sys == Arch::FSTAT || sys == Arch::STAT || sys == Arch::LSTAT {
-        syscall_state.reg_parameter::<Arch::stat>(2, None, None);
-        return Switchable::PreventSwitch;
-    }
-
-    if sys == Arch::PRLIMIT64 {
-        syscall_state.reg_parameter::<Arch::rlimit64>(4, None, None);
-        return Switchable::PreventSwitch;
-    }
+    include!(concat!(
+        env!("OUT_DIR"),
+        "/syscall_record_case_generated.rs"
+    ));
 
     if sys == Arch::IOCTL {
         return prepare_ioctl::<Arch>(t, &mut syscall_state);
