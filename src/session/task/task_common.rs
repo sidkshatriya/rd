@@ -161,7 +161,7 @@ use nix::{
 use sig::Sig;
 use std::{
     cell::RefCell,
-    cmp::min,
+    cmp::{max, min},
     convert::TryInto,
     ffi::{c_void, CStr, CString, OsStr},
     mem::{size_of, size_of_val, zeroed},
@@ -912,10 +912,9 @@ pub(super) fn resume_execution<T: Task>(
             task.activate_preload_thread_locals(None);
         }
         TicksRequest::ResumeWithTicksRequest(tr) => {
-            // DIFF NOTE: rr ensures that that ticks requested is at least 1 through a max
-            // We assert for it.
-            ed_assert!(task, tr >= 1 && tr <= MAX_TICKS_REQUEST);
-            task.hpc.reset(tr);
+            ed_assert!(task, tr <= MAX_TICKS_REQUEST);
+            let adjusted_tr = max(1, tr);
+            task.hpc.reset(adjusted_tr);
             task.activate_preload_thread_locals(None);
         }
     }
