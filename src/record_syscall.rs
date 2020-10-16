@@ -792,9 +792,10 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         return Switchable::PreventSwitch;
     }
 
-    log!(
-        LogDebug,
-        "=====> Preparing {} ({})",
+    ed_assert!(
+        t,
+        false,
+        "=====> Was trying to prepare {} ({})",
         syscall_name(sys, Arch::arch()),
         sys
     );
