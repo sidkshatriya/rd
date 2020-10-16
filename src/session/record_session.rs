@@ -1618,7 +1618,7 @@ impl RecordSession {
                         sig = Sig::try_from(unsafe { si.linux_api.si_signo }).unwrap();
                         if Some(sig) == self.get_ignore_sig() {
                             log!(LogDebug, "Declining to deliver {} by user request", sig);
-                            t.pop_stash_sig(&ssig);
+                            t.pop_stash_sig(ssig_addr);
                             t.stashed_signal_processed();
                         } else {
                             break;
