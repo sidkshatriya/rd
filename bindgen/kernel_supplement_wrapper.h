@@ -340,3 +340,7 @@ enum {
   BPF_MAP_GET_NEXT_KEY,
   BPF_PROG_LOAD,
 };
+
+/// Manually get these
+const unsigned int _HCIGETDEVLIST = HCIGETDEVLIST;
+const unsigned int _HCIGETDEVINFO = HCIGETDEVINFO;

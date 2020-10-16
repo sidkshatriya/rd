@@ -45,5 +45,10 @@
 #include <sys/utsname.h>
 #include <sys/vfs.h>
 #include <termios.h>
+
 /// DIFF NOTE: This is not present in rr
 #include <sched.h>
+
+/// Need to manually define these
+const unsigned int _SNDRV_CTL_IOCTL_PVERSION = SNDRV_CTL_IOCTL_PVERSION;
+const unsigned int _SNDRV_CTL_IOCTL_CARD_INFO = SNDRV_CTL_IOCTL_CARD_INFO;
