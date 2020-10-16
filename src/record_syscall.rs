@@ -117,6 +117,7 @@ use crate::{
         LazyOffset,
     },
     kernel_abi::{
+        common,
         is_at_syscall_instruction,
         is_exit_group_syscall,
         is_exit_syscall,
@@ -2940,12 +2941,121 @@ fn prepare_ioctl<Arch: Architecture>(
     // Some ioctl()s are irregular and don't follow the _IOC()
     // conventions.  Special case them here.
     match request {
+        SIOCETHTOOL => unimplemented!(),
+
+        SIOCGIFCONF => unimplemented!(),
+
+        // Privileged ioctls
+        SIOCSIFADDR | SIOCSIFDSTADDR | SIOCSIFBRDADDR | SIOCSIFHWADDR | SIOCSIFFLAGS
+        | SIOCSIFPFLAGS | SIOCSIFTXQLEN | SIOCSIFMTU | SIOCSIFNAME | SIOCSIFNETMASK
+        | SIOCSIFMETRIC | SIOCSIFHWBROADCAST | SIOCSIFMAP | SIOCADDMULTI | SIOCDELMULTI => {
+            return Switchable::PreventSwitch;
+        }
+
+        // Bridge ioctls
+        SIOCBRADDBR | SIOCBRDELBR | SIOCBRADDIF | SIOCBRDELIF => {
+            return Switchable::PreventSwitch;
+        }
+
+        // Routing iocts
+        SIOCADDRT | SIOCDELRT => {
+            return Switchable::PreventSwitch;
+        }
+
+        SIOCBONDINFOQUERY => unimplemented!(),
+
+        SIOCGIFADDR | SIOCGIFDSTADDR | SIOCGIFBRDADDR | SIOCGIFHWADDR | SIOCGIFFLAGS
+        | SIOCGIFPFLAGS | SIOCGIFTXQLEN | SIOCGIFINDEX | SIOCGIFMTU | SIOCGIFNAME
+        | SIOCGIFNETMASK | SIOCGIFMETRIC | SIOCGIFMAP => {
+            syscall_state.reg_parameter::<Arch::ifreq>(3, None, None);
+            syscall_state.after_syscall_action(Box::new(record_page_below_stack_ptr));
+            return Switchable::PreventSwitch;
+        }
+
+        // These haven't been observed to write beyond
+        // tracees' stacks, but we record a stack page here
+        // just in the behavior is driver-dependent.
+        SIOCGIWFREQ | SIOCGIWMODE | SIOCGIWNAME | SIOCGIWRATE | SIOCGIWSENS => {
+            syscall_state.reg_parameter::<Arch::iwreq>(3, None, None);
+            syscall_state.after_syscall_action(Box::new(record_page_below_stack_ptr));
+            return Switchable::PreventSwitch;
+        }
+
+        SIOCGIWESSID => unimplemented!(),
+
+        SIOCGSTAMP => {
+            syscall_state.reg_parameter::<Arch::timeval>(3, None, None);
+            return Switchable::PreventSwitch;
+        }
+
+        SIOCGSTAMPNS => {
+            syscall_state.reg_parameter::<Arch::timespec>(3, None, None);
+            return Switchable::PreventSwitch;
+        }
+
+        TCGETS | TIOCGLCKTRMIOS => {
+            syscall_state.reg_parameter::<Arch::termios>(3, None, None);
+            return Switchable::PreventSwitch;
+        }
+
+        TCGETA => {
+            syscall_state.reg_parameter::<Arch::termio>(3, None, None);
+            return Switchable::PreventSwitch;
+        }
+
+        TIOCINQ | TIOCOUTQ | TIOCGETD => {
+            syscall_state.reg_parameter::<i32>(3, None, None);
+            return Switchable::PreventSwitch;
+        }
+
         TIOCGWINSZ => {
             syscall_state.reg_parameter::<Arch::winsize>(3, None, None);
             return Switchable::PreventSwitch;
         }
+
+        TIOCGPGRP | TIOCGSID => {
+            syscall_state.reg_parameter::<common::pid_t>(3, None, None);
+            return Switchable::PreventSwitch;
+        }
+
+        _SNDRV_CTL_IOCTL_PVERSION => {
+            syscall_state.reg_parameter::<i32>(3, None, None);
+            return Switchable::PreventSwitch;
+        }
+
+        _SNDRV_CTL_IOCTL_CARD_INFO => {
+            syscall_state.reg_parameter::<Arch::snd_ctl_card_info>(3, None, None);
+            return Switchable::PreventSwitch;
+        }
+
+        _HCIGETDEVINFO => {
+            syscall_state.reg_parameter::<Arch::hci_dev_info>(3, None, None);
+            return Switchable::PreventSwitch;
+        }
+
+        _HCIGETDEVLIST => {
+            syscall_state.reg_parameter::<Arch::hci_dev_list_req>(3, None, None);
+            return Switchable::PreventSwitch;
+        }
+
+        SG_GET_VERSION_NUM => {
+            syscall_state.reg_parameter::<i32>(3, None, None);
+            return Switchable::PreventSwitch;
+        }
+
+        SG_IO => unimplemented!(),
+
         _ => (),
     }
 
     unimplemented!()
+}
+
+fn record_page_below_stack_ptr(t: &mut RecordTask) {
+    // Record.the page above the top of |t|'s stack.  The SIOC* ioctls
+    // have been observed to write beyond the end of tracees' stacks, as
+    // if they had allocated scratch space for themselves.  All we can do
+    // for now is try to record the scratch data.
+    let child_addr = t.regs_ref().sp() - page_size();
+    t.record_remote(child_addr, page_size());
 }

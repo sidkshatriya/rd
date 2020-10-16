@@ -628,6 +628,14 @@ pub trait Architecture: 'static + Default {
     type f_owner_ex: Default + Copy + 'static;
     type user_desc: Default + Copy + 'static;
 
+    type ifreq: Copy + 'static;
+    type iwreq: Copy + 'static;
+    type termios: Copy + 'static;
+    type termio: Copy + 'static;
+    type snd_ctl_card_info: Copy + 'static;
+    type hci_dev_info: Copy + 'static;
+    type hci_dev_list_req: Copy + 'static;
+
     fn as_rptr<T>(p: Ptr<Self::unsigned_word, T>) -> RemotePtr<T>;
 
     fn from_remote_ptr<T>(p: RemotePtr<T>) -> Ptr<Self::unsigned_word, T>;
@@ -1173,6 +1181,14 @@ impl Architecture for X86Arch {
     type flock64 = x86::flock64;
     type f_owner_ex = x86::f_owner_ex;
     type user_desc = x86::user_desc;
+
+    type ifreq = x86::ifreq;
+    type iwreq = x86::iwreq;
+    type termios = x86::termios;
+    type termio = x86::termio;
+    type snd_ctl_card_info = x86::snd_ctl_card_info;
+    type hci_dev_info = x86::hci_dev_info;
+    type hci_dev_list_req = x86::hci_dev_list_req;
 
     fn as_rptr<T>(p: Ptr<u32, T>) -> RemotePtr<T> {
         p.rptr()
@@ -1770,6 +1786,14 @@ impl Architecture for X64Arch {
     type flock64 = x64::flock64;
     type f_owner_ex = x64::f_owner_ex;
     type user_desc = x64::user_desc;
+
+    type ifreq = x64::ifreq;
+    type iwreq = x64::iwreq;
+    type termios = x64::termios;
+    type termio = x64::termio;
+    type snd_ctl_card_info = x64::snd_ctl_card_info;
+    type hci_dev_info = x64::hci_dev_info;
+    type hci_dev_list_req = x64::hci_dev_list_req;
 
     fn as_rptr<T>(p: Ptr<u64, T>) -> RemotePtr<T> {
         p.rptr()
