@@ -782,6 +782,16 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         return Switchable::PreventSwitch;
     }
 
+    if sys == Arch::SIGSUSPEND || sys == Arch::RT_SIGSUSPEND {
+        t.invalidate_sigmask();
+        return Switchable::AllowSwitch;
+    }
+
+    if sys == Arch::SIGRETURN || sys == Arch::RT_SIGRETURN {
+        t.invalidate_sigmask();
+        return Switchable::PreventSwitch;
+    }
+
     log!(
         LogDebug,
         "=====> Preparing {} ({})",
