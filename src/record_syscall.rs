@@ -3173,17 +3173,17 @@ fn prepare_clone<Arch: Architecture>(t: &mut RecordTask, syscall_state: &mut Tas
     let mut r: Registers = t.regs_ref().clone();
     let original_syscall = r.original_syscallno() as i32;
     let ptrace_event;
-    let mut termination_signal = sig::SIGCHLD;
+    let mut maybe_termination_signal = Some(sig::SIGCHLD);
 
     if is_clone_syscall(original_syscall, r.arch()) {
         params = extract_clone_parameters(t);
         flags = r.arg1() as i32;
         r.set_arg1((flags & !CLONE_UNTRACED) as usize);
         t.set_regs(&r);
-        termination_signal = Sig::try_from(flags & 0xff).unwrap();
+        maybe_termination_signal = Sig::try_from(flags & 0xff).ok();
         if flags & CLONE_VFORK != 0 {
             ptrace_event = PTRACE_EVENT_VFORK;
-        } else if termination_signal == sig::SIGCHLD {
+        } else if maybe_termination_signal == Some(sig::SIGCHLD) {
             ptrace_event = PTRACE_EVENT_FORK;
         } else {
             ptrace_event = PTRACE_EVENT_CLONE;
@@ -3277,7 +3277,7 @@ fn prepare_clone<Arch: Architecture>(t: &mut RecordTask, syscall_state: &mut Tas
     let arch = new_task.arch();
     new_task.set_regs(&new_r);
     new_task.canonicalize_regs(arch);
-    new_task.set_termination_signal(Some(termination_signal));
+    new_task.set_termination_signal(maybe_termination_signal);
 
     // record child id here
     if is_clone_syscall(original_syscall, r.arch()) {
