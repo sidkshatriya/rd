@@ -403,13 +403,13 @@ pub struct seminfo {
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
-struct user_desc {
-    entry_number: unsigned_int,
-    base_addr: unsigned_int,
-    limit: unsigned_int,
+pub struct user_desc {
+    pub entry_number: unsigned_int,
+    pub base_addr: unsigned_int,
+    pub limit: unsigned_int,
     /// There are bitfields here
     /// Just made it an unsigned int
-    data: unsigned_int,
+    pub data: unsigned_int,
 }
 
 #[repr(C)]

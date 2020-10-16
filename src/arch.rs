@@ -626,6 +626,7 @@ pub trait Architecture: 'static + Default {
     type _flock: Default + Copy + 'static;
     type flock64: Default + Copy + 'static;
     type f_owner_ex: Default + Copy + 'static;
+    type user_desc: Default + Copy + 'static;
 
     fn as_rptr<T>(p: Ptr<Self::unsigned_word, T>) -> RemotePtr<T>;
 
@@ -1171,6 +1172,7 @@ impl Architecture for X86Arch {
     type _flock = x86::_flock;
     type flock64 = x86::flock64;
     type f_owner_ex = x86::f_owner_ex;
+    type user_desc = x86::user_desc;
 
     fn as_rptr<T>(p: Ptr<u32, T>) -> RemotePtr<T> {
         p.rptr()
@@ -1767,6 +1769,7 @@ impl Architecture for X64Arch {
     type _flock = x64::_flock;
     type flock64 = x64::flock64;
     type f_owner_ex = x64::f_owner_ex;
+    type user_desc = x64::user_desc;
 
     fn as_rptr<T>(p: Ptr<u64, T>) -> RemotePtr<T> {
         p.rptr()

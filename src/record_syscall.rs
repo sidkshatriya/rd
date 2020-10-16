@@ -712,6 +712,16 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         return Switchable::PreventSwitch;
     }
 
+    if sys == Arch::MMAP2 {
+        prepare_mmap_register_params(t);
+        return Switchable::PreventSwitch;
+    }
+
+    if sys == Arch::GET_THREAD_AREA || sys == Arch::SET_THREAD_AREA {
+        syscall_state.reg_parameter::<Arch::user_desc>(1, Some(ArgMode::InOut), None);
+        return Switchable::PreventSwitch;
+    }
+
     log!(
         LogDebug,
         "=====> Preparing {} ({})",
