@@ -137,6 +137,7 @@ use crate::{
         syscall_instruction_length,
         syscall_number_for_close,
         syscall_number_for_munmap,
+        syscall_number_for_pause,
         syscall_number_for_rt_sigprocmask,
         CloneTLSType,
         FcntlOperation,
@@ -163,10 +164,11 @@ use crate::{
         address_space::{address_space::AddressSpace, kernel_mapping::KernelMapping},
         session_inner::SessionInner,
         task::{
-            record_task::RecordTask,
+            record_task::{RecordTask, WaitType},
             task_common::{read_mem, read_val_mem, write_mem, write_val_mem},
             task_inner::{ResumeRequest, TicksRequest, WaitRequest},
             Task,
+            TaskSharedPtr,
             TaskSharedWeakPtr,
         },
     },
@@ -230,6 +232,7 @@ use libc::{
     STDIN_FILENO,
     STDOUT_FILENO,
     S_IWUSR,
+    WNOHANG,
 };
 use nix::{
     fcntl::{open, OFlag},
@@ -3339,4 +3342,32 @@ fn ptrace_option_for_event(ptrace_event: u32) -> u32 {
             fatal!("Unsupported ptrace event {}", ptrace_event);
         }
     }
+}
+
+fn maybe_pause_instead_of_waiting(t: &mut RecordTask, options: i32) {
+    if t.in_wait_type != WaitType::WaitTypePid || (options & WNOHANG != 0) {
+        return;
+    }
+
+    let maybe_child: Option<TaskSharedPtr> = t.session().find_task_from_rec_tid(t.in_wait_pid);
+    match maybe_child {
+        Some(child)
+            if !t.is_waiting_for_ptrace(child.borrow_mut().as_rec_mut_unwrap())
+                || t.is_waiting_for(child.borrow_mut().as_rec_mut_unwrap()) =>
+        {
+            return;
+        }
+        _ => (),
+    }
+    // OK, t is waiting for a ptrace child by tid, but since t is not really
+    // ptracing child, entering a real wait syscall will not actually wait for
+    // the child, so the kernel may error out with ECHILD (non-ptracers can't
+    // wait on specific threads of another process, or for non-child processes).
+    // To avoid this problem, we'll replace the wait syscall with a pause()
+    // syscall.
+    // It would be nice if we didn't have to do this, but I can't see a better
+    // way.
+    let mut r: Registers = t.regs_ref().clone();
+    r.set_original_syscallno(syscall_number_for_pause(t.arch()) as isize);
+    t.set_regs(&r);
 }

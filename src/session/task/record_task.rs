@@ -1317,7 +1317,8 @@ impl RecordTask {
     /// Returns true if this task is in a waitpid or similar that would return
     /// when t's status changes due to a ptrace event.
     pub fn is_waiting_for_ptrace(&self, _t: &RecordTask) -> bool {
-        unimplemented!()
+        // @TODO PENDING
+        false
     }
 
     /// Returns true if `self` task is in a waitpid or similar that would return
