@@ -792,6 +792,70 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         return Switchable::PreventSwitch;
     }
 
+    if sys == Arch::ACCEPT || sys == Arch::ACCEPT4 {
+        let addrlen_ptr =
+            syscall_state.reg_parameter::<common::socklen_t>(3, Some(ArgMode::InOut), None);
+        syscall_state.reg_parameter_with_size(
+            2,
+            ParamSize::from_initialized_mem(t, addrlen_ptr),
+            None,
+            None,
+        );
+        return Switchable::AllowSwitch;
+    }
+
+    if sys == Arch::GETCWD {
+        syscall_state.reg_parameter_with_size(
+            1,
+            ParamSize::from_syscall_result_with_size::<Arch::ssize_t>(regs.arg2()),
+            None,
+            None,
+        );
+        return Switchable::PreventSwitch;
+    }
+
+    if sys == Arch::GETDENTS || sys == Arch::GETDENTS64 {
+        syscall_state.reg_parameter_with_size(
+            2,
+            // @TODO Is the cast to u32 neccessary?
+            ParamSize::from_syscall_result_with_size::<i32>(regs.arg3() as u32 as usize),
+            None,
+            None,
+        );
+        return Switchable::PreventSwitch;
+    }
+
+    if sys == Arch::READLINK {
+        syscall_state.reg_parameter_with_size(
+            2,
+            ParamSize::from_syscall_result_with_size::<Arch::ssize_t>(regs.arg3()),
+            None,
+            None,
+        );
+        return Switchable::PreventSwitch;
+    }
+
+    if sys == Arch::READLINKAT {
+        syscall_state.reg_parameter_with_size(
+            3,
+            ParamSize::from_syscall_result_with_size::<Arch::ssize_t>(regs.arg4()),
+            None,
+            None,
+        );
+        return Switchable::PreventSwitch;
+    }
+
+    if sys == Arch::IO_SETUP {
+        // Prevent the io_setup from running and fake an ENOSYS return. We want
+        // to discourage applications from using this API because the async
+        // reads are writes by the kernel that can race with userspace execution.
+        let mut r: Registers = regs.clone();
+        r.set_arg2(0);
+        t.set_regs(&r);
+        syscall_state.emulate_result_signed(-ENOSYS as isize);
+        return Switchable::PreventSwitch;
+    }
+
     ed_assert!(
         t,
         false,
