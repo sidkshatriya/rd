@@ -195,6 +195,8 @@ use crate::{
     wait_status::WaitStatus,
 };
 use libc::{
+    id_t,
+    idtype_t,
     pid_t,
     AT_ENTRY,
     CLONE_PARENT,
@@ -222,6 +224,9 @@ use libc::{
     MAP_FIXED,
     MAP_GROWSDOWN,
     O_DIRECT,
+    P_ALL,
+    P_PGID,
+    P_PID,
     SECCOMP_MODE_FILTER,
     SECCOMP_MODE_STRICT,
     SIGCHLD,
@@ -890,6 +895,69 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         return Switchable::AllowSwitch;
     }
 
+    // pid_t waitpid(pid_t pid, int *status, int options);
+    // pid_t wait4(pid_t pid, int *status, int options, struct rusage
+    // *rusage);
+    //
+    if sys == Arch::WAITPID || sys == Arch::WAIT4 {
+        syscall_state.reg_parameter::<i32>(2, Some(ArgMode::InOut), None);
+        if sys == Arch::WAIT4 {
+            syscall_state.reg_parameter::<Arch::rusage>(4, None, None);
+        }
+        let pid: pid_t = regs.arg1_signed() as pid_t;
+        if pid < -1 {
+            t.in_wait_type = WaitType::WaitTypePgid;
+            t.in_wait_pid = -pid;
+        } else if pid == -1 {
+            t.in_wait_type = WaitType::WaitTypeAny;
+        } else if pid == 0 {
+            t.in_wait_type = WaitType::WaitTypeSamePgid;
+        } else {
+            t.in_wait_type = WaitType::WaitTypePid;
+            t.in_wait_pid = pid;
+        }
+        let options = regs.arg3() as i32;
+        if maybe_emulate_wait(t, &mut syscall_state, options) {
+            let mut r: Registers = regs.clone();
+            // Set options to an invalid value to force syscall to fail
+            r.set_arg3(0xffffffff);
+            t.set_regs(&r);
+            return Switchable::PreventSwitch;
+        }
+        maybe_pause_instead_of_waiting(t, options);
+        return Switchable::AllowSwitch;
+    }
+
+    if sys == Arch::WAITID {
+        syscall_state.reg_parameter::<Arch::siginfo_t>(3, Some(ArgMode::InOut), None);
+        // Kludge
+        t.in_wait_pid = regs.arg2() as id_t as pid_t;
+        match regs.arg1() as idtype_t {
+            P_ALL => {
+                t.in_wait_type = WaitType::WaitTypeAny;
+            }
+            P_PID => {
+                t.in_wait_type = WaitType::WaitTypePid;
+            }
+            P_PGID => {
+                t.in_wait_type = WaitType::WaitTypePgid;
+            }
+            _ => {
+                syscall_state.expect_errno = EINVAL;
+            }
+        }
+        let options: i32 = regs.arg4() as i32;
+        if maybe_emulate_wait(t, &mut syscall_state, options) {
+            let mut r: Registers = regs.clone();
+            // Set options to an invalid value to force syscall to fail
+            r.set_arg4(0xffffffff);
+            t.set_regs(&r);
+            return Switchable::PreventSwitch;
+        }
+        maybe_pause_instead_of_waiting(t, options);
+        return Switchable::AllowSwitch;
+    }
+
     ed_assert!(
         t,
         false,
@@ -899,6 +967,15 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
     );
 
     unimplemented!()
+}
+
+fn maybe_emulate_wait(
+    _t: &mut RecordTask,
+    _syscall_state: &mut TaskSyscallState,
+    _options: i32,
+) -> bool {
+    // @TODO PENDING
+    false
 }
 
 fn protect_rd_sigs_sa_mask(
@@ -1328,7 +1405,21 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
     }
 
     if sys == Arch::WAITPID || sys == Arch::WAIT4 || sys == Arch::WAITID {
-        unimplemented!()
+        t.in_wait_type = WaitType::WaitTypeNone;
+        // Restore possibly-modified registers
+        let mut r: Registers = t.regs_ref().clone();
+        r.set_arg1(syscall_state.syscall_entry_registers.arg1());
+        r.set_arg2(syscall_state.syscall_entry_registers.arg2());
+        r.set_arg3(syscall_state.syscall_entry_registers.arg3());
+        r.set_arg4(syscall_state.syscall_entry_registers.arg4());
+        r.set_original_syscallno(syscall_state.syscall_entry_registers.original_syscallno());
+        t.set_regs(&r);
+
+        let tracee = &syscall_state.emulate_wait_for_child;
+        if tracee.is_some() {
+            unimplemented!()
+        }
+        return;
     }
 
     if sys == Arch::QUOTACTL {
