@@ -1239,7 +1239,7 @@ impl RecordTask {
     }
 
     /// Emulate 'tracer' ptracing this task.
-    pub fn set_emulated_ptracer(&self, _tracer: &RecordTask) {
+    pub fn set_emulated_ptracer(&mut self, _tracer: Option<TaskSharedWeakPtr>) {
         unimplemented!()
     }
 

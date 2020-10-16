@@ -103,7 +103,18 @@ use crate::{
             PR_TSC_ENABLE,
             PR_TSC_SIGSEGV,
         },
-        ptrace::{PTRACE_EVENT_EXEC, PTRACE_EVENT_EXIT, PTRACE_O_TRACEEXEC, PTRACE_O_TRACEEXIT},
+        ptrace::{
+            PTRACE_EVENT_CLONE,
+            PTRACE_EVENT_EXEC,
+            PTRACE_EVENT_EXIT,
+            PTRACE_EVENT_FORK,
+            PTRACE_EVENT_VFORK,
+            PTRACE_O_TRACECLONE,
+            PTRACE_O_TRACEEXEC,
+            PTRACE_O_TRACEEXIT,
+            PTRACE_O_TRACEFORK,
+            PTRACE_O_TRACEVFORK,
+        },
     },
     event::{OpenedFd, Switchable},
     file_monitor::{
@@ -119,12 +130,15 @@ use crate::{
     kernel_abi::{
         common,
         is_at_syscall_instruction,
+        is_clone_syscall,
         is_exit_group_syscall,
         is_exit_syscall,
+        is_vfork_syscall,
         syscall_instruction_length,
         syscall_number_for_close,
         syscall_number_for_munmap,
         syscall_number_for_rt_sigprocmask,
+        CloneTLSType,
         FcntlOperation,
         MmapCallingSemantics,
         Ptr,
@@ -151,11 +165,13 @@ use crate::{
         task::{
             record_task::RecordTask,
             task_common::{read_mem, read_val_mem, write_mem, write_val_mem},
+            task_inner::{ResumeRequest, TicksRequest, WaitRequest},
             Task,
             TaskSharedWeakPtr,
         },
     },
     sig,
+    sig::Sig,
     taskish_uid::TaskUid,
     trace::{
         trace_stream::TraceRemoteFd,
@@ -164,17 +180,26 @@ use crate::{
     },
     util::{
         ceil_page_size,
+        clone_flags_to_task_flags,
+        extract_clone_parameters,
         is_proc_fd_dir,
         is_proc_mem_file,
         page_size,
         read_auxv,
         word_at,
         word_size,
+        CloneParameters,
     },
     wait_status::WaitStatus,
 };
 use libc::{
+    pid_t,
     AT_ENTRY,
+    CLONE_PARENT,
+    CLONE_THREAD,
+    CLONE_UNTRACED,
+    CLONE_VFORK,
+    CLONE_VM,
     EINVAL,
     ENOENT,
     ENOSYS,
@@ -197,6 +222,7 @@ use libc::{
     O_DIRECT,
     SECCOMP_MODE_FILTER,
     SECCOMP_MODE_STRICT,
+    SIGCHLD,
     SIGKILL,
     SIGSTOP,
     SIG_BLOCK,
@@ -216,7 +242,7 @@ use nix::{
 use std::{
     cell::{RefCell, RefMut},
     cmp::{max, min},
-    convert::TryInto,
+    convert::{TryFrom, TryInto},
     ffi::{OsStr, OsString},
     intrinsics::{copy_nonoverlapping, transmute},
     mem::{self, size_of},
@@ -854,6 +880,11 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         t.set_regs(&r);
         syscall_state.emulate_result_signed(-ENOSYS as isize);
         return Switchable::PreventSwitch;
+    }
+
+    if sys == Arch::FORK || sys == Arch::VFORK || sys == Arch::CLONE {
+        prepare_clone::<Arch>(t, &mut syscall_state);
+        return Switchable::AllowSwitch;
     }
 
     ed_assert!(
@@ -3133,4 +3164,179 @@ fn record_page_below_stack_ptr(t: &mut RecordTask) {
     // for now is try to record the scratch data.
     let child_addr = t.regs_ref().sp() - page_size();
     t.record_remote(child_addr, page_size());
+}
+
+fn prepare_clone<Arch: Architecture>(t: &mut RecordTask, syscall_state: &mut TaskSyscallState) {
+    // DIFF NOTE: rr uses a usize here
+    let flags: i32;
+    let mut params: CloneParameters = Default::default();
+    let mut r: Registers = t.regs_ref().clone();
+    let original_syscall = r.original_syscallno() as i32;
+    let ptrace_event;
+    let mut termination_signal = sig::SIGCHLD;
+
+    if is_clone_syscall(original_syscall, r.arch()) {
+        params = extract_clone_parameters(t);
+        flags = r.arg1() as i32;
+        r.set_arg1((flags & !CLONE_UNTRACED) as usize);
+        t.set_regs(&r);
+        termination_signal = Sig::try_from(flags & 0xff).unwrap();
+        if flags & CLONE_VFORK != 0 {
+            ptrace_event = PTRACE_EVENT_VFORK;
+        } else if termination_signal == sig::SIGCHLD {
+            ptrace_event = PTRACE_EVENT_FORK;
+        } else {
+            ptrace_event = PTRACE_EVENT_CLONE;
+        }
+    } else if is_vfork_syscall(original_syscall, r.arch()) {
+        ptrace_event = PTRACE_EVENT_VFORK;
+        flags = CLONE_VM | CLONE_VFORK | SIGCHLD;
+    } else {
+        ptrace_event = PTRACE_EVENT_FORK;
+        flags = SIGCHLD;
+    }
+
+    loop {
+        t.resume_execution(
+            ResumeRequest::ResumeSyscall,
+            WaitRequest::ResumeWait,
+            TicksRequest::ResumeNoTicks,
+            None,
+        );
+        // XXX handle stray signals?
+        if t.maybe_ptrace_event().is_ptrace_event() {
+            break;
+        }
+        ed_assert!(t, !t.maybe_stop_sig().is_sig());
+        ed_assert!(t, t.regs_ref().syscall_result_signed() < 0);
+        if !t.regs_ref().syscall_may_restart() {
+            log!(
+                LogDebug,
+                "clone failed, returning {}",
+                errno_name(-t.regs_ref().syscall_result_signed() as i32)
+            );
+            syscall_state.emulate_result(t.regs_ref().syscall_result());
+            // clone failed and we're existing the syscall with an error. Reenter
+            // the syscall so that we're in the same state as the normal execution
+            // path.
+            t.ev_mut().syscall_event_mut().failed_during_preparation = true;
+            // Restore register we might have changed
+            r.set_arg1(syscall_state.syscall_entry_registers.arg1());
+            r.set_syscallno(Arch::GETTID as isize);
+            r.set_ip(r.ip().decrement_by_syscall_insn_length(r.arch()));
+            t.set_regs(&r);
+            t.enter_syscall();
+            r.set_ip(t.regs_ref().ip());
+            r.set_original_syscallno(original_syscall as isize);
+            t.set_regs(&r);
+            let arch = t.arch();
+            t.canonicalize_regs(arch);
+            return;
+        }
+        // Reenter the syscall. If we try to return an ERESTART* error using the
+        // code path above, our set_syscallno(SYS_gettid) fails to take effect and
+        // we actually do the clone, and things get horribly confused.
+        r.set_syscallno(r.original_syscallno());
+        r.set_ip(r.ip().decrement_by_syscall_insn_length(r.arch()));
+        t.set_regs(&r);
+        t.enter_syscall();
+    }
+
+    ed_assert_eq!(t, t.maybe_ptrace_event(), ptrace_event);
+
+    // Ideally we'd just use t.get_ptrace_eventmsg_pid() here, but
+    // kernels failed to translate that value from other pid namespaces to
+    // our pid namespace until June 2014:
+    // https://github.com/torvalds/linux/commit/4e52365f279564cef0ddd41db5237f0471381093
+    let new_tid: pid_t;
+    if flags & CLONE_THREAD != 0 {
+        new_tid = t.find_newborn_thread();
+    } else {
+        new_tid = t.find_newborn_process(if flags & CLONE_PARENT != 0 {
+            t.get_parent_pid()
+        } else {
+            t.real_tgid()
+        });
+    }
+    let new_task_shr_ptr = t.session().clone_task(
+        t,
+        clone_flags_to_task_flags(flags),
+        params.stack,
+        params.tls,
+        params.ctid,
+        new_tid,
+        None,
+    );
+    let mut new_task_b = new_task_shr_ptr.borrow_mut();
+    let new_task = new_task_b.as_rec_mut_unwrap();
+
+    // Restore modified registers in cloned task
+    let mut new_r: Registers = new_task.regs_ref().clone();
+    new_r.set_original_syscallno(syscall_state.syscall_entry_registers.original_syscallno());
+    new_r.set_arg1(syscall_state.syscall_entry_registers.arg1());
+    let arch = new_task.arch();
+    new_task.set_regs(&new_r);
+    new_task.canonicalize_regs(arch);
+    new_task.set_termination_signal(Some(termination_signal));
+
+    // record child id here
+    if is_clone_syscall(original_syscall, r.arch()) {
+        let child_params: CloneParameters = extract_clone_parameters(new_task);
+        t.record_remote_even_if_null_for(params.ptid);
+
+        if Arch::CLONE_TLS_TYPE == CloneTLSType::UserDescPointer {
+            t.record_remote_even_if_null_for(RemotePtr::<Arch::user_desc>::cast(params.tls));
+            new_task.record_remote_even_if_null_for(RemotePtr::<Arch::user_desc>::cast(params.tls));
+        } else {
+            debug_assert_eq!(Arch::CLONE_TLS_TYPE, CloneTLSType::PthreadStructurePointer);
+        }
+        new_task.record_remote_even_if_null_for(child_params.ptid);
+        new_task.record_remote_even_if_null_for(child_params.ctid);
+    }
+    t.trace_writer_mut()
+        .write_task_event(&TraceTaskEvent::for_clone(
+            new_task.tid,
+            t.tid,
+            new_task.own_namespace_rec_tid,
+            flags,
+        ));
+
+    init_scratch_memory(new_task, None);
+
+    if t.emulated_ptrace_options & ptrace_option_for_event(ptrace_event) != 0
+        && (flags & CLONE_UNTRACED == 0)
+    {
+        new_task.set_emulated_ptracer(t.emulated_ptracer.clone());
+        new_task.emulated_ptrace_seized = t.emulated_ptrace_seized;
+        new_task.emulated_ptrace_options = t.emulated_ptrace_options;
+        t.emulated_ptrace_event_msg = new_task.rec_tid as usize;
+        t.emulate_ptrace_stop(WaitStatus::for_ptrace_event(ptrace_event), None, None);
+        // ptrace(2) man page says that SIGSTOP is used here, but it's really
+        // SIGTRAP (in 4.4.4-301.fc23.x86_64 anyway).
+        new_task.apply_group_stop(sig::SIGTRAP);
+    }
+
+    // Restore our register modifications now, so that the emulated ptracer will
+    // see the original registers without our modifications if it inspects them
+    // in the ptrace event.
+    r = t.regs_ref().clone();
+    r.set_arg1(syscall_state.syscall_entry_registers.arg1());
+    r.set_original_syscallno(syscall_state.syscall_entry_registers.original_syscallno());
+    t.set_regs(&r);
+    let arch = t.arch();
+    t.canonicalize_regs(arch);
+
+    // We're in a PTRACE_EVENT_FORK/VFORK/CLONE so the next PTRACE_SYSCALL for
+    // |t| will go to the exit of the syscall, as expected.
+}
+
+fn ptrace_option_for_event(ptrace_event: u32) -> u32 {
+    match ptrace_event {
+        PTRACE_EVENT_FORK => PTRACE_O_TRACEFORK,
+        PTRACE_EVENT_CLONE => PTRACE_O_TRACECLONE,
+        PTRACE_EVENT_VFORK => PTRACE_O_TRACEVFORK,
+        _ => {
+            fatal!("Unsupported ptrace event {}", ptrace_event);
+        }
+    }
 }

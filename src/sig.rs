@@ -78,6 +78,21 @@ impl TryFrom<i32> for Sig {
     }
 }
 
+impl TryFrom<usize> for Sig {
+    type Error = io::Error;
+
+    fn try_from(sig: usize) -> Result<Self, Self::Error> {
+        if sig < 0x80 {
+            Ok(Sig(sig as i32))
+        } else {
+            Err(io::Error::new(
+                ErrorKind::Other,
+                format!("Invalid signal `{}`", sig),
+            ))
+        }
+    }
+}
+
 impl Display for Sig {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.as_str())
