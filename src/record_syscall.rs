@@ -220,6 +220,23 @@ use libc::{
     FUTEX_WAKE,
     FUTEX_WAKE_BITSET,
     FUTEX_WAKE_OP,
+    MADV_DODUMP,
+    MADV_DOFORK,
+    MADV_DONTDUMP,
+    MADV_DONTFORK,
+    MADV_DONTNEED,
+    MADV_FREE,
+    MADV_HUGEPAGE,
+    MADV_HWPOISON,
+    MADV_MERGEABLE,
+    MADV_NOHUGEPAGE,
+    MADV_NORMAL,
+    MADV_RANDOM,
+    MADV_REMOVE,
+    MADV_SEQUENTIAL,
+    MADV_SOFT_OFFLINE,
+    MADV_UNMERGEABLE,
+    MADV_WILLNEED,
     MAP_32BIT,
     MAP_FIXED,
     MAP_GROWSDOWN,
@@ -403,6 +420,11 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
             return Switchable::AllowSwitch;
         }
         return Switchable::PreventSwitch;
+    }
+
+    if sys == Arch::EXIT {
+        prepare_exit(t, regs.arg1() as i32);
+        return Switchable::AllowSwitch;
     }
 
     if sys == Arch::ARCH_PRCTL {
@@ -956,6 +978,31 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         }
         maybe_pause_instead_of_waiting(t, options);
         return Switchable::AllowSwitch;
+    }
+
+    if sys == Arch::CLOCK_NANOSLEEP {
+        syscall_state.reg_parameter::<Arch::timespec>(4, None, None);
+        return Switchable::AllowSwitch;
+    }
+
+    if sys == Arch::MADVISE {
+        match regs.arg3() as i32 {
+            MADV_NORMAL | MADV_RANDOM | MADV_SEQUENTIAL | MADV_WILLNEED | MADV_DONTNEED
+            | MADV_REMOVE | MADV_DONTFORK | MADV_DOFORK | MADV_SOFT_OFFLINE | MADV_HWPOISON
+            | MADV_MERGEABLE | MADV_UNMERGEABLE | MADV_HUGEPAGE | MADV_NOHUGEPAGE
+            | MADV_DONTDUMP | MADV_DODUMP => (),
+            MADV_FREE => {
+                // MADV_FREE introduces nondeterminism --- the kernel zeroes the
+                // pages when under memory pressure. So we don't allow it.
+                let mut r: Registers = regs.clone();
+                r.set_arg3_signed(-1);
+                t.set_regs(&r);
+            }
+            _ => {
+                syscall_state.expect_errno = EINVAL;
+            }
+        }
+        return Switchable::PreventSwitch;
     }
 
     ed_assert!(
@@ -1616,6 +1663,16 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
                 }
                 t.set_regs(&r);
             }
+        }
+        return;
+    }
+
+    if sys == Arch::CLOCK_NANOSLEEP || sys == Arch::NANOSLEEP {
+        // If the sleep completes, the kernel doesn't
+        // write back to the remaining-time
+        // argument.
+        if t.regs_ref().syscall_result_signed() as i32 == 0 {
+            syscall_state.write_back = WriteBack::NoWriteBack;
         }
         return;
     }
