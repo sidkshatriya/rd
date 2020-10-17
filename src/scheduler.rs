@@ -69,6 +69,7 @@ use nix::{
 use owning_ref::OwningHandle;
 use rand::{random, seq::SliceRandom, thread_rng};
 use std::{
+    cell::{Cell, RefCell},
     cmp::min,
     collections::{BTreeSet, VecDeque},
     mem,
@@ -134,7 +135,7 @@ type TaskQueue = VecDeque<TaskSharedWeakPtr>;
 /// "superclass" Task (see the various TaskSharedWeakPtr-s). This will mean
 /// that we need to do as_record_task() in various locations. An extra step...
 pub struct Scheduler {
-    session: SessionSharedWeakPtr,
+    session: RefCell<SessionSharedWeakPtr>,
     /// Every task of this session is either in task_priority_set
     /// (when in_round_robin_queue is false), or in task_round_robin_queue
     /// (when in_round_robin_queue is true).
@@ -142,39 +143,39 @@ pub struct Scheduler {
     /// task_priority_set is a set of pairs of (task->priority, task). This
     /// lets us efficiently iterate over the tasks with a given priority, or
     /// all tasks in priority order.
-    task_priority_set: TaskPrioritySet,
-    task_round_robin_queue: TaskQueue,
+    task_priority_set: RefCell<TaskPrioritySet>,
+    task_round_robin_queue: RefCell<TaskQueue>,
 
     /// The currently scheduled task. This may be `None` if the last scheduled
     /// task has been destroyed.
-    current_: Option<TaskSharedWeakPtr>,
-    current_timeslice_end_: Ticks,
+    current_: RefCell<Option<TaskSharedWeakPtr>>,
+    current_timeslice_end_: Cell<Ticks>,
 
     /// At this time (or later) we should refresh these values.
-    high_priority_only_intervals_refresh_time: f64,
-    high_priority_only_intervals_start: f64,
-    high_priority_only_intervals_duration: f64,
-    high_priority_only_intervals_period: f64,
+    high_priority_only_intervals_refresh_time: Cell<f64>,
+    high_priority_only_intervals_start: Cell<f64>,
+    high_priority_only_intervals_duration: Cell<f64>,
+    high_priority_only_intervals_period: Cell<f64>,
     /// At this time (or later) we should rerandomize RecordTask priorities.
-    priorities_refresh_time: f64,
+    priorities_refresh_time: Cell<f64>,
 
-    max_ticks_: Ticks,
+    max_ticks_: Cell<Ticks>,
 
-    must_run_task: Option<TaskSharedWeakPtr>,
+    must_run_task: RefCell<Option<TaskSharedWeakPtr>>,
 
-    pretend_affinity_mask_: CpuSet,
+    pretend_affinity_mask_: Cell<CpuSet>,
 
     /// @TODO Is this what we want?
-    pretend_num_cores_: u32,
+    pretend_num_cores_: Cell<u32>,
 
     /// When true, context switch at every possible point.
-    always_switch: bool,
+    always_switch: Cell<bool>,
     /// When true, make random scheduling decisions to try to increase the
     /// probability of finding buggy schedules.
-    enable_chaos: bool,
+    enable_chaos: Cell<bool>,
 
-    enable_poll: bool,
-    last_reschedule_in_high_priority_only_interval: bool,
+    enable_poll: Cell<bool>,
+    last_reschedule_in_high_priority_only_interval: Cell<bool>,
 }
 
 #[repr(u64)]
@@ -218,7 +219,7 @@ impl Scheduler {
     /// DIFF This constructor does NOT call regenerate_affinity_mask() like in rr.
     pub fn new(max_ticks: Ticks, always_switch: bool) -> Scheduler {
         Scheduler {
-            session: Weak::new(),
+            session: RefCell::new(Weak::new()),
             task_priority_set: Default::default(),
             task_round_robin_queue: Default::default(),
             current_: Default::default(),
@@ -228,23 +229,23 @@ impl Scheduler {
             high_priority_only_intervals_duration: Default::default(),
             high_priority_only_intervals_period: Default::default(),
             priorities_refresh_time: Default::default(),
-            max_ticks_: max_ticks,
+            max_ticks_: Cell::new(max_ticks),
             must_run_task: Default::default(),
             pretend_affinity_mask_: unsafe { mem::zeroed() },
-            pretend_num_cores_: 1,
-            always_switch,
+            pretend_num_cores_: Cell::new(1),
+            always_switch: Cell::new(always_switch),
             enable_chaos: Default::default(),
             enable_poll: Default::default(),
             last_reschedule_in_high_priority_only_interval: Default::default(),
         }
     }
 
-    pub fn set_session_weak_ptr(&mut self, weak_ptr: SessionSharedWeakPtr) {
-        self.session = weak_ptr;
+    pub fn set_session_weak_ptr(&self, weak_ptr: SessionSharedWeakPtr) {
+        *self.session.borrow_mut() = weak_ptr;
     }
 
     fn session(&self) -> SessionSharedPtr {
-        self.session.upgrade().unwrap()
+        self.session.borrow().upgrade().unwrap()
     }
 
     pub fn record_session(&self) -> OwningHandle<SessionSharedPtr, &RecordSession> {
@@ -255,25 +256,25 @@ impl Scheduler {
         owning_handle
     }
 
-    pub fn set_max_ticks(&mut self, max_ticks: Ticks) {
+    pub fn set_max_ticks(&self, max_ticks: Ticks) {
         debug_assert!(max_ticks <= TicksHowMany::MaxMaxTicks as u64);
-        self.max_ticks_ = max_ticks;
+        self.max_ticks_.set(max_ticks);
     }
 
     pub fn max_ticks(&self) -> Ticks {
-        self.max_ticks_
+        self.max_ticks_.get()
     }
 
-    pub fn set_always_switch(&mut self, always_switch: bool) {
-        self.always_switch = always_switch;
+    pub fn set_always_switch(&self, always_switch: bool) {
+        self.always_switch.set(always_switch);
     }
 
-    pub fn set_enable_chaos(&mut self, enable_chaos: bool) {
-        self.enable_chaos = enable_chaos;
+    pub fn set_enable_chaos(&self, enable_chaos: bool) {
+        self.enable_chaos.set(enable_chaos);
     }
 
-    pub fn set_num_cores(&mut self, num_cores: u32) {
-        self.pretend_num_cores_ = num_cores;
+    pub fn set_num_cores(&self, num_cores: u32) {
+        self.pretend_num_cores_.set(num_cores);
     }
 
     /// Schedule a new runnable task (which may be the same as current()).
@@ -281,7 +282,7 @@ impl Scheduler {
     /// The new current() task is guaranteed to either have already been
     /// runnable, or have been made runnable by a waitpid status change (in
     /// which case, result.by_waitpid will be true.
-    pub fn reschedule(&mut self, switchable: Switchable) -> Rescheduled {
+    pub fn reschedule(&self, switchable: Switchable) -> Rescheduled {
         let mut result = Rescheduled::default();
         result.interrupted_by_signal = false;
         result.by_waitpid = false;
@@ -289,11 +290,11 @@ impl Scheduler {
 
         log!(LogDebug, "Scheduling next task");
 
-        self.must_run_task = None;
+        *self.must_run_task.borrow_mut() = None;
 
         // @TODO Enable poll is always false.
         // What's the point in the if self.enable_poll { ... } code below then?
-        self.enable_poll = false;
+        self.enable_poll.set(false);
 
         let mut now = monotonic_now_sec();
 
@@ -328,8 +329,8 @@ impl Scheduler {
         let mut maybe_next: Option<TaskSharedPtr>;
         loop {
             self.maybe_reset_high_priority_only_intervals(now);
-            self.last_reschedule_in_high_priority_only_interval =
-                self.in_high_priority_only_interval(now);
+            self.last_reschedule_in_high_priority_only_interval
+                .set(self.in_high_priority_only_interval(now));
 
             match self.current() {
                 Some(curr) => {
@@ -357,11 +358,11 @@ impl Scheduler {
                     let tick_count = curr.borrow().tick_count();
                     let is_unstable = curr.borrow().unstable.get();
                     if !is_unstable
-                        && !self.always_switch
+                        && !self.always_switch.get()
                         && (round_robin_task.is_none()
                             || Rc::ptr_eq(round_robin_task.as_ref().unwrap(), &curr))
                         && (self.treat_as_high_priority(&curr)
-                            || !self.last_reschedule_in_high_priority_only_interval)
+                            || !self.last_reschedule_in_high_priority_only_interval.get())
                         && tick_count < self.current_timeslice_end()
                         && self.is_task_runnable(
                             curr.borrow_mut().as_record_task_mut().unwrap(),
@@ -411,7 +412,7 @@ impl Scheduler {
             match maybe_next.as_ref() {
                 Some(nt)
                     if !self.treat_as_high_priority(nt)
-                        && self.last_reschedule_in_high_priority_only_interval =>
+                        && self.last_reschedule_in_high_priority_only_interval.get() =>
                 {
                     if result.by_waitpid {
                         log!(
@@ -458,13 +459,13 @@ impl Scheduler {
                 log!(
                     LogDebug,
                     "  all tasks blocked or some unstable, waiting for runnable ({} total)",
-                    self.task_priority_set.len()
+                    self.task_priority_set.borrow().len()
                 );
 
                 let mut status: WaitStatus;
                 loop {
                     let mut raw_status: i32 = 0;
-                    if self.enable_poll {
+                    if self.enable_poll.get() {
                         let mut timer: itimerval = Default::default();
                         timer.it_value.tv_sec = 1;
                         if unsafe { setitimer(ITIMER_REAL, &timer, ptr::null_mut()) } < 0 {
@@ -477,7 +478,7 @@ impl Scheduler {
                     let tid: pid_t =
                         unsafe { libc::waitpid(-1, &mut raw_status, __WALL | WUNTRACED) };
 
-                    if self.enable_poll {
+                    if self.enable_poll.get() {
                         let timer: itimerval = Default::default();
                         if unsafe { setitimer(ITIMER_REAL, &timer, ptr::null_mut()) } < 0 {
                             fatal!("Failed to set itimer");
@@ -495,7 +496,7 @@ impl Scheduler {
                             let curr = self.current().unwrap();
                             // @TODO If we were interruped then self.current_ must be Some()
                             // Is that a fair assumption??
-                            ed_assert!(&curr.borrow(), self.must_run_task.is_none());
+                            ed_assert!(&curr.borrow(), self.must_run_task.borrow().is_none());
 
                             result.interrupted_by_signal = true;
 
@@ -542,7 +543,7 @@ impl Scheduler {
 
                 nt.borrow_mut().did_waitpid(status);
                 result.by_waitpid = true;
-                self.must_run_task = Some(Rc::downgrade(nt));
+                *self.must_run_task.borrow_mut() = Some(Rc::downgrade(nt));
             }
         }
 
@@ -567,7 +568,7 @@ impl Scheduler {
         }
 
         self.maybe_reset_high_priority_only_intervals(now);
-        self.current_ = Some(Rc::downgrade(&nt));
+        *self.current_.borrow_mut() = Some(Rc::downgrade(&nt));
         self.validate_scheduled_task();
         self.setup_new_timeslice();
         result.started_new_timeslice = true;
@@ -576,8 +577,8 @@ impl Scheduler {
     }
 
     /// Set the priority of `t` to `value` and update related state.
-    pub fn update_task_priority(&mut self, t: &TaskSharedPtr, value: i32) {
-        if !self.enable_chaos {
+    pub fn update_task_priority(&self, t: &TaskSharedPtr, value: i32) {
+        if !self.enable_chaos.get() {
             self.update_task_priority_internal(t.borrow_mut().as_record_task_mut().unwrap(), value);
         }
     }
@@ -587,7 +588,7 @@ impl Scheduler {
     /// task to be scheduled.
     /// If the task_round_robin_queue is empty this moves all tasks into it,
     /// putting last_task last.
-    pub fn schedule_one_round_robin(&mut self, t: &TaskSharedPtr) {
+    pub fn schedule_one_round_robin(&self, t: &TaskSharedPtr) {
         log!(
             LogDebug,
             "Scheduling round-robin because of task {}",
@@ -601,10 +602,12 @@ impl Scheduler {
             !t.borrow().as_record_task().unwrap().in_round_robin_queue
         );
 
-        for PriorityTup(_, _, w) in &self.task_priority_set {
+        for PriorityTup(_, _, w) in self.task_priority_set.borrow().iter() {
             let tt = w.upgrade().unwrap();
             if !Rc::ptr_eq(t, &tt) && !tt.borrow().as_record_task().unwrap().in_round_robin_queue {
-                self.task_round_robin_queue.push_back(w.clone());
+                self.task_round_robin_queue
+                    .borrow_mut()
+                    .push_back(w.clone());
                 tt.borrow_mut()
                     .as_record_task_mut()
                     .unwrap()
@@ -612,8 +615,9 @@ impl Scheduler {
             }
         }
 
-        self.task_priority_set.clear();
+        self.task_priority_set.borrow_mut().clear();
         self.task_round_robin_queue
+            .borrow_mut()
             .push_back(t.borrow().weak_self_ptr());
         t.borrow_mut()
             .as_record_task_mut()
@@ -622,14 +626,14 @@ impl Scheduler {
         self.expire_timeslice();
     }
 
-    pub fn on_create_task(&mut self, t: TaskSharedPtr) {
+    pub fn on_create_task(&self, t: TaskSharedPtr) {
         debug_assert!(!t.borrow().as_record_task().unwrap().in_round_robin_queue);
-        if self.enable_chaos {
+        if self.enable_chaos.get() {
             // new tasks get a random priority
             t.borrow_mut().as_record_task_mut().unwrap().priority = self.choose_random_priority(&t);
         }
 
-        self.task_priority_set.insert(PriorityTup(
+        self.task_priority_set.borrow_mut().insert(PriorityTup(
             t.borrow().as_record_task().unwrap().priority,
             t.borrow().tuid().serial(),
             Rc::downgrade(&t),
@@ -637,41 +641,47 @@ impl Scheduler {
     }
 
     ///  De-register a thread. This function should be called when a thread exits.
-    pub fn on_destroy_task(&mut self, t: &mut RecordTask) {
+    pub fn on_destroy_task(&self, t: &mut RecordTask) {
         let weak = t.weak_self_ptr();
-        match self.current_.as_ref() {
-            Some(curr) if curr.ptr_eq(&weak) => self.current_ = None,
+        match self.current_.borrow().as_ref() {
+            Some(curr) if curr.ptr_eq(&weak) => *self.current_.borrow_mut() = None,
             _ => (),
         }
 
         let in_rrq = t.in_round_robin_queue;
         if in_rrq {
-            for (i, it) in self.task_round_robin_queue.iter().enumerate() {
+            for (i, it) in self.task_round_robin_queue.borrow().iter().enumerate() {
                 if it.ptr_eq(&weak) {
-                    self.task_round_robin_queue.remove(i);
+                    self.task_round_robin_queue.borrow_mut().remove(i);
                     break;
                 }
             }
         } else {
-            self.task_priority_set
-                .remove(&PriorityTup(t.priority, t.tuid().serial(), weak));
+            self.task_priority_set.borrow_mut().remove(&PriorityTup(
+                t.priority,
+                t.tuid().serial(),
+                weak,
+            ));
         }
     }
 
     pub fn current(&self) -> Option<TaskSharedPtr> {
-        self.current_.as_ref().map(|p| p.upgrade().unwrap())
+        self.current_
+            .borrow()
+            .as_ref()
+            .map(|p| p.upgrade().unwrap())
     }
 
-    pub fn set_current(&mut self, maybe_t: Option<TaskSharedWeakPtr>) {
-        self.current_ = maybe_t;
+    pub fn set_current(&self, maybe_t: Option<TaskSharedWeakPtr>) {
+        *self.current_.borrow_mut() = maybe_t;
     }
 
     pub fn current_timeslice_end(&self) -> Ticks {
-        self.current_timeslice_end_
+        self.current_timeslice_end_.get()
     }
 
-    pub fn expire_timeslice(&mut self) {
-        self.current_timeslice_end_ = 0;
+    pub fn expire_timeslice(&self) {
+        self.current_timeslice_end_.set(0);
     }
 
     pub fn interrupt_after_elapsed_time(&self) -> f64 {
@@ -683,24 +693,25 @@ impl Scheduler {
         // events, that's hard to test thoroughly so try to
         // aVoid it.
         let mut delay: f64 = 3.0;
-        if self.enable_chaos {
+        if self.enable_chaos.get() {
             let now = monotonic_now_sec();
-            if self.high_priority_only_intervals_start != 0.0 {
-                let next_interval_start: f64 = (((now - self.high_priority_only_intervals_start)
-                    / self.high_priority_only_intervals_period)
-                    .floor()
+            if self.high_priority_only_intervals_start.get() != 0.0 {
+                let next_interval_start: f64 = (((now
+                    - self.high_priority_only_intervals_start.get())
+                    / self.high_priority_only_intervals_period.get())
+                .floor()
                     + 1.0)
-                    * self.high_priority_only_intervals_period
-                    + self.high_priority_only_intervals_start;
+                    * self.high_priority_only_intervals_period.get()
+                    + self.high_priority_only_intervals_start.get();
                 delay = delay.min(next_interval_start - now);
             }
 
-            if self.high_priority_only_intervals_refresh_time != 0.0 {
-                delay = delay.min(self.high_priority_only_intervals_refresh_time - now);
+            if self.high_priority_only_intervals_refresh_time.get() != 0.0 {
+                delay = delay.min(self.high_priority_only_intervals_refresh_time.get() - now);
             }
 
-            if self.priorities_refresh_time != 0.0 {
-                delay = delay.min(self.priorities_refresh_time - now);
+            if self.priorities_refresh_time.get() != 0.0 {
+                delay = delay.min(self.priorities_refresh_time.get() - now);
             }
         }
 
@@ -709,15 +720,15 @@ impl Scheduler {
 
     /// Return the number of cores we should report to applications.
     pub fn pretend_num_cores(&self) -> u32 {
-        self.pretend_num_cores_
+        self.pretend_num_cores_.get()
     }
 
     /// Return the processor affinity masks we should report to applications.
     pub fn pretend_affinity_mask(&self) -> CpuSet {
-        self.pretend_affinity_mask_
+        self.pretend_affinity_mask_.get()
     }
 
-    pub fn in_stable_exit(&mut self, t: &mut RecordTask) {
+    pub fn in_stable_exit(&self, t: &mut RecordTask) {
         self.update_task_priority_internal(t, t.priority);
     }
 
@@ -731,13 +742,14 @@ impl Scheduler {
     /// on it again until it has run.
     /// Considers only tasks with priority <= priority_threshold.
     fn find_next_runnable_task(
-        &mut self,
+        &self,
         maybe_t: Option<&TaskSharedPtr>,
         by_waitpid: &mut bool,
         priority_threshold: i32,
     ) -> Option<TaskSharedPtr> {
         *by_waitpid = false;
-        let mut range = self.task_priority_set.range(..);
+        let task_priority_setb = self.task_priority_set.borrow();
+        let mut range = task_priority_setb.range(..);
         loop {
             if let Some(PriorityTup(priority_ref, _, _)) = range.next() {
                 let priority = *priority_ref;
@@ -747,13 +759,13 @@ impl Scheduler {
 
                 let start = PriorityTup(priority, 0, Weak::new());
                 let end = PriorityTup(priority + 1, 0, Weak::new());
-                let same_priority_range = self.task_priority_set.range(start..end);
+                let same_priority_range = task_priority_setb.range(start..end);
 
-                if !self.enable_chaos {
+                if !self.enable_chaos.get() {
                     let same_priority_vec = match maybe_t {
                         Some(t)
                             if t.borrow().as_record_task().unwrap().priority == priority
-                                && self.task_priority_set.contains(&PriorityTup(
+                                && task_priority_setb.contains(&PriorityTup(
                                     priority,
                                     t.borrow().tuid().serial(),
                                     t.borrow().weak_self_ptr(),
@@ -810,7 +822,7 @@ impl Scheduler {
                 }
 
                 let range_start = PriorityTup(priority + 1, 0, Weak::new());
-                range = self.task_priority_set.range(range_start..);
+                range = task_priority_setb.range(range_start..);
             } else {
                 return None;
             }
@@ -819,29 +831,31 @@ impl Scheduler {
 
     /// Returns the first task in the round-robin queue or null if it's empty,
     /// removing it from the round-robin queue.
-    fn get_round_robin_task(&mut self) -> Option<TaskSharedPtr> {
+    fn get_round_robin_task(&self) -> Option<TaskSharedPtr> {
         self.task_round_robin_queue
+            .borrow_mut()
             .pop_front()
             .map(|w| w.upgrade().unwrap())
     }
 
-    fn maybe_pop_round_robin_task(&mut self, t: &TaskSharedPtr) {
-        if self.task_round_robin_queue.is_empty() {
+    fn maybe_pop_round_robin_task(&self, t: &TaskSharedPtr) {
+        if self.task_round_robin_queue.borrow().is_empty() {
             return;
         }
 
         if self
             .task_round_robin_queue
+            .borrow()
             .front()
             .unwrap()
             .ptr_eq(&Rc::downgrade(t))
         {
-            self.task_round_robin_queue.pop_front();
+            self.task_round_robin_queue.borrow_mut().pop_front();
             t.borrow_mut()
                 .as_record_task_mut()
                 .unwrap()
                 .in_round_robin_queue = false;
-            self.task_priority_set.insert(PriorityTup(
+            self.task_priority_set.borrow_mut().insert(PriorityTup(
                 t.borrow().as_record_task().unwrap().priority,
                 t.borrow().tuid().serial(),
                 Rc::downgrade(t),
@@ -849,10 +863,10 @@ impl Scheduler {
         }
     }
 
-    fn setup_new_timeslice(&mut self) {
-        let mut max_timeslice_duration = self.max_ticks_;
+    fn setup_new_timeslice(&self) {
+        let mut max_timeslice_duration = self.max_ticks_.get();
 
-        if self.enable_chaos {
+        if self.enable_chaos.get() {
             // Hypothesis: some bugs require short timeslices to expose. But we don't
             // want the average timeslice to be too small. So make 10% of timeslices
             // very short, 10% short-ish, and the rest uniformly distributed between 0
@@ -865,28 +879,30 @@ impl Scheduler {
             {
                 max_timeslice_duration = SHORT_TIMESLICE_MAX_DURATION;
             } else {
-                max_timeslice_duration = self.max_ticks_;
+                max_timeslice_duration = self.max_ticks_.get();
             }
         }
 
         let tick_count = self.current().unwrap().borrow().tick_count();
-        self.current_timeslice_end_ =
-            tick_count + (random::<Ticks>() % min(self.max_ticks_, max_timeslice_duration));
+        self.current_timeslice_end_.set(
+            tick_count + (random::<Ticks>() % min(self.max_ticks_.get(), max_timeslice_duration)),
+        );
     }
 
-    fn maybe_reset_priorities(&mut self, now: f64) {
-        if !self.enable_chaos || self.priorities_refresh_time > now {
+    fn maybe_reset_priorities(&self, now: f64) {
+        if !self.enable_chaos.get() || self.priorities_refresh_time.get() > now {
             return;
         }
 
         // Reset task priorities again at some point in the future.
-        self.priorities_refresh_time = now + random_frac() * PRIORITIES_REFRESH_MAX_INTERVAL as f64;
+        self.priorities_refresh_time
+            .set(now + random_frac() * PRIORITIES_REFRESH_MAX_INTERVAL as f64);
         let mut tasks = Vec::new();
-        for p in &self.task_priority_set {
+        for p in self.task_priority_set.borrow().iter() {
             tasks.push(p.2.clone());
         }
 
-        for p in &self.task_round_robin_queue {
+        for p in self.task_round_robin_queue.borrow().iter() {
             tasks.push(p.clone());
         }
 
@@ -914,8 +930,8 @@ impl Scheduler {
         }
     }
 
-    fn update_task_priority_internal(&mut self, t: &mut RecordTask, mut value: i32) {
-        if t.stable_exit && !self.enable_chaos {
+    fn update_task_priority_internal(&self, t: &mut RecordTask, mut value: i32) {
+        if t.stable_exit && !self.enable_chaos.get() {
             // Tasks in a stable exit have the highest priority. We should force them
             // to complete exiting ASAP to clean up resources. They may not be runnable
             // due to waiting for PTRACE_EVENT_EXIT to complete.
@@ -931,53 +947,57 @@ impl Scheduler {
             return;
         }
 
-        self.task_priority_set.remove(&PriorityTup(
+        self.task_priority_set.borrow_mut().remove(&PriorityTup(
             t.priority,
             t.tuid().serial(),
             t.weak_self_ptr(),
         ));
         t.priority = value;
-        self.task_priority_set.insert(PriorityTup(
+        self.task_priority_set.borrow_mut().insert(PriorityTup(
             t.priority,
             t.tuid().serial(),
             t.weak_self_ptr(),
         ));
     }
 
-    fn maybe_reset_high_priority_only_intervals(&mut self, now: f64) {
-        if !self.enable_chaos || self.high_priority_only_intervals_refresh_time > now {
+    fn maybe_reset_high_priority_only_intervals(&self, now: f64) {
+        if !self.enable_chaos.get() || self.high_priority_only_intervals_refresh_time.get() > now {
             return;
         }
         let duration_step = random::<u16>() as i32 % HIGH_PRIORITY_ONLY_DURATION_STEPS;
-        self.high_priority_only_intervals_duration = MIN_HIGH_PRIORITY_ONLY_DURATION
-            * HIGH_PRIORITY_ONLY_DURATION_STEP_FACTOR.powi(duration_step);
-        self.high_priority_only_intervals_period =
-            self.high_priority_only_intervals_duration / HIGH_PRIORITY_ONLY_FRACTION;
-        self.high_priority_only_intervals_start = now
-            + random_frac()
-                * (self.high_priority_only_intervals_period
-                    - self.high_priority_only_intervals_duration);
-        self.high_priority_only_intervals_refresh_time = now
-            + MIN_HIGH_PRIORITY_ONLY_DURATION
+        self.high_priority_only_intervals_duration.set(
+            MIN_HIGH_PRIORITY_ONLY_DURATION
+                * HIGH_PRIORITY_ONLY_DURATION_STEP_FACTOR.powi(duration_step),
+        );
+        self.high_priority_only_intervals_period
+            .set(self.high_priority_only_intervals_duration.get() / HIGH_PRIORITY_ONLY_FRACTION);
+        self.high_priority_only_intervals_start.set(
+            now + random_frac()
+                * (self.high_priority_only_intervals_period.get()
+                    - self.high_priority_only_intervals_duration.get()),
+        );
+        self.high_priority_only_intervals_refresh_time.set(
+            now + MIN_HIGH_PRIORITY_ONLY_DURATION
                 * HIGH_PRIORITY_ONLY_DURATION_STEP_FACTOR
                     .powi(HIGH_PRIORITY_ONLY_DURATION_STEPS - 1)
-                / HIGH_PRIORITY_ONLY_FRACTION;
+                / HIGH_PRIORITY_ONLY_FRACTION,
+        );
     }
 
     fn in_high_priority_only_interval(&self, now: f64) -> bool {
-        if now < self.high_priority_only_intervals_start {
+        if now < self.high_priority_only_intervals_start.get() {
             return false;
         }
 
         // @TODO make sure this is what we want
-        let mod_: f64 = (now - self.high_priority_only_intervals_start)
-            % self.high_priority_only_intervals_period;
+        let mod_: f64 = (now - self.high_priority_only_intervals_start.get())
+            % self.high_priority_only_intervals_period.get();
 
-        mod_ < self.high_priority_only_intervals_duration
+        mod_ < self.high_priority_only_intervals_duration.get()
     }
 
     fn treat_as_high_priority(&self, t: &TaskSharedPtr) -> bool {
-        self.task_priority_set.len() > 1
+        self.task_priority_set.borrow().len() > 1
             && t.borrow_mut().as_record_task_mut().unwrap().priority == 0
     }
 
@@ -985,10 +1005,10 @@ impl Scheduler {
     /// should check the next task. Note that if this returns true get_next_thread
     /// |must| return t as the runnable task, otherwise we will lose an event and
     ///  probably deadlock!!!
-    fn is_task_runnable(&mut self, t: &mut RecordTask, by_waitpid: &mut bool) -> bool {
+    fn is_task_runnable(&self, t: &mut RecordTask, by_waitpid: &mut bool) -> bool {
         ed_assert!(
             t,
-            self.must_run_task.is_none(),
+            self.must_run_task.borrow().is_none(),
             "is_task_runnable called again after it returned a task that must run!"
         );
 
@@ -1017,7 +1037,7 @@ impl Scheduler {
                     None,
                 );
                 *by_waitpid = true;
-                self.must_run_task = Some(t.weak_self_ptr());
+                *self.must_run_task.borrow_mut() = Some(t.weak_self_ptr());
                 log!(
                     LogDebug,
                     "  Got {} out of emulated stop due to pending SIGCONT",
@@ -1029,7 +1049,7 @@ impl Scheduler {
                 log!(LogDebug, "  {} is stopped by ptrace or signal", t.tid);
                 // We have no way to detect a SIGCONT coming from outside the tracees.
                 // We just have to poll SigPnd in /proc/<pid>/status.
-                self.enable_poll = true;
+                self.enable_poll.set(true);
                 // We also need to check if the task got killed.
                 t.try_wait();
                 // N.B.: If we supported ptrace exit notifications for killed tracee's
@@ -1047,7 +1067,7 @@ impl Scheduler {
             // behave predictably, do a blocking wait.
             t.wait(None);
             *by_waitpid = true;
-            self.must_run_task = Some(t.weak_self_ptr());
+            *self.must_run_task.borrow_mut() = Some(t.weak_self_ptr());
             log!(LogDebug, "  sched_yield ready with status {}", t.status());
             return true;
         }
@@ -1062,7 +1082,7 @@ impl Scheduler {
         let did_wait_for_t: bool = t.try_wait();
         if did_wait_for_t {
             *by_waitpid = true;
-            self.must_run_task = Some(t.weak_self_ptr());
+            *self.must_run_task.borrow_mut() = Some(t.weak_self_ptr());
             log!(LogDebug, "  ready with status {}", t.status());
             return true;
         }
@@ -1075,19 +1095,26 @@ impl Scheduler {
         let curr = self.current().unwrap();
         ed_assert!(
             &curr.borrow(),
-            self.must_run_task.is_none()
+            self.must_run_task.borrow().is_none()
                 || Rc::ptr_eq(
-                    &self.must_run_task.as_ref().unwrap().upgrade().unwrap(),
+                    &self
+                        .must_run_task
+                        .borrow()
+                        .as_ref()
+                        .unwrap()
+                        .upgrade()
+                        .unwrap(),
                     &curr
                 )
         );
         ed_assert!(
             &curr.borrow(),
-            self.task_round_robin_queue.is_empty()
+            self.task_round_robin_queue.borrow().is_empty()
                 || Rc::ptr_eq(
                     &curr,
                     &self
                         .task_round_robin_queue
+                        .borrow()
                         .front()
                         .unwrap()
                         .upgrade()
@@ -1104,11 +1131,11 @@ impl Scheduler {
     ///
     /// DIFF NOTE: This is a private method in rr.
     /// In rd this need to be pub because of the way things are being constructed.
-    pub fn regenerate_affinity_mask(&mut self) {
+    pub fn regenerate_affinity_mask(&self) {
         let ret = sched_getaffinity(Pid::from_raw(0));
         match ret {
             Err(e) => fatal!("Failed sched_getaffinity {:?}", e),
-            Ok(aff) => self.pretend_affinity_mask_ = aff,
+            Ok(aff) => self.pretend_affinity_mask_.set(aff),
         }
 
         let maybe_cpu: Option<u32> = self.record_session().trace_writer().bound_to_cpu();
@@ -1122,7 +1149,7 @@ impl Scheduler {
                 return;
             }
             Some(cpu) => {
-                match self.pretend_affinity_mask_.is_set(cpu as usize) {
+                match self.pretend_affinity_mask_.get().is_set(cpu as usize) {
                     Err(e) => {
                         log!(LogWarn, "Bound CPU {} not in affinity mask: {:?}", cpu, e);
                         // Use the original affinity mask since something strange is
@@ -1148,14 +1175,14 @@ impl Scheduler {
         }
 
         let mut faked_num_cpus: u32 = np as u32;
-        if faked_num_cpus < self.pretend_num_cores_ {
-            faked_num_cpus = self.pretend_num_cores_;
+        if faked_num_cpus < self.pretend_num_cores_.get() {
+            faked_num_cpus = self.pretend_num_cores_.get();
         }
 
         let mut pretend_affinity_mask = CpuSet::new();
         // DIFF NOTE: rr swallows any error. We don't for now.
         pretend_affinity_mask.set(cpu as usize).unwrap();
-        if self.pretend_num_cores_ > 1 {
+        if self.pretend_num_cores_.get() > 1 {
             // generate random CPU numbers that fit into the CPU mask
             let mut other_cpus = Vec::<u32>::new();
             for i in 0..faked_num_cpus {
@@ -1165,13 +1192,13 @@ impl Scheduler {
             }
             let mut rg = thread_rng();
             other_cpus.shuffle(&mut rg);
-            for i in 0..self.pretend_num_cores_ as usize - 1 {
+            for i in 0..self.pretend_num_cores_.get() as usize - 1 {
                 // DIFF NOTE: rr swallows any error. We don't for now.
                 pretend_affinity_mask.set(other_cpus[i] as usize).unwrap();
             }
         }
 
-        self.pretend_affinity_mask_ = pretend_affinity_mask;
+        self.pretend_affinity_mask_.set(pretend_affinity_mask);
     }
 }
 

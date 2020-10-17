@@ -1151,7 +1151,7 @@ fn prepare_exit(t: &mut RecordTask, exit_code: i32) {
     t.session()
         .as_record()
         .unwrap()
-        .scheduler_mut()
+        .scheduler()
         .in_stable_exit(t);
 
     let mut r: Registers = t.regs_ref().clone();
@@ -1299,6 +1299,7 @@ fn rec_prepare_restart_syscall_arch<Arch: Architecture>(t: &mut RecordTask) {
     {
         t.invalidate_sigmask();
     }
+
     if sys == Arch::WAIT4 || sys == Arch::WAITID || sys == Arch::WAITPID {
         let mut r: Registers = t.regs_ref().clone();
         let original_syscallno = t

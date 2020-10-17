@@ -296,7 +296,7 @@ pub struct StepState {
 pub struct RecordSession {
     session_inner: SessionInner,
     trace_out: RefCell<TraceWriter>,
-    scheduler_: RefCell<Scheduler>,
+    scheduler_: Scheduler,
     initial_thread_group: Option<ThreadGroupSharedPtr>,
     seccomp_filter_rewriter_: RefCell<SeccompFilterRewriter>,
     trace_id: Box<TraceUuid>,
@@ -371,7 +371,7 @@ impl RecordSession {
                 flags.output_trace_dir.as_deref(),
                 TicksSemantics::default(),
             )),
-            scheduler_: RefCell::new(sched),
+            scheduler_: sched,
             initial_thread_group: Default::default(),
             seccomp_filter_rewriter_: Default::default(),
             trace_id: flags.trace_id.clone(),
@@ -425,20 +425,20 @@ impl RecordSession {
             s.as_record_mut().unwrap()
         };
 
-        rs.scheduler_mut().set_session_weak_ptr(weak_self);
+        rs.scheduler().set_session_weak_ptr(weak_self);
 
         if flags.chaos {
-            rs.scheduler_mut().set_enable_chaos(flags.chaos);
+            rs.scheduler().set_enable_chaos(flags.chaos);
         }
 
         match flags.num_cores {
             Some(num_cores) => {
                 // Set the number of cores reported, possibly overriding the chaos mode
                 // setting.
-                rs.scheduler_mut().set_num_cores(num_cores);
+                rs.scheduler().set_num_cores(num_cores);
             }
             // This is necessary for the default case
-            None => rs.scheduler_mut().regenerate_affinity_mask(),
+            None => rs.scheduler().regenerate_affinity_mask(),
         }
 
         let t = TaskInner::spawn(
@@ -613,9 +613,7 @@ impl RecordSession {
         }
 
         let maybe_prev_task = self.scheduler().current();
-        let rescheduled = self
-            .scheduler_mut()
-            .reschedule(self.last_task_switchable.get());
+        let rescheduled = self.scheduler().reschedule(self.last_task_switchable.get());
         if rescheduled.interrupted_by_signal {
             // The scheduler was waiting for some task to become active, but was
             // interrupted by a signal. Yield to our caller now to give the caller
@@ -1098,7 +1096,7 @@ impl RecordSession {
                     // Steal the exec'ing task and make it the thread-group leader, and
                     // carry on!
                     *t = self.revive_task_for_exec(tid);
-                    self.scheduler_mut().set_current(Some(Rc::downgrade(&t)));
+                    self.scheduler().set_current(Some(Rc::downgrade(&t)));
                     // Tell t that it is actually stopped, because the stop we got is really
                     // for this task, not the old dead task.
                     t.borrow_mut().did_waitpid(status);
@@ -1681,7 +1679,7 @@ impl RecordSession {
                             LogDebug,
                             "Detected possible spinlock, forcing one round-robin"
                         );
-                        self.scheduler_mut().schedule_one_round_robin(t_shr);
+                        self.scheduler().schedule_one_round_robin(t_shr);
                     }
                     // Allow switching after a SCHED. We'll flush the SCHED if and only
                     // if we really do a switch.
@@ -2027,12 +2025,8 @@ impl RecordSession {
         self.trace_out.borrow_mut()
     }
 
-    pub fn scheduler(&self) -> Ref<'_, Scheduler> {
-        self.scheduler_.borrow()
-    }
-
-    pub fn scheduler_mut(&self) -> RefMut<'_, Scheduler> {
-        self.scheduler_.borrow_mut()
+    pub fn scheduler(&self) -> &Scheduler {
+        &self.scheduler_
     }
 
     pub fn seccomp_filter_rewriter(&self) -> Ref<'_, SeccompFilterRewriter> {
@@ -2044,7 +2038,7 @@ impl RecordSession {
     }
 
     pub fn set_enable_chaos(&mut self, enable_chaos: bool) {
-        self.scheduler_mut().set_enable_chaos(enable_chaos);
+        self.scheduler().set_enable_chaos(enable_chaos);
         self.enable_chaos_ = enable_chaos;
     }
 
@@ -2053,7 +2047,7 @@ impl RecordSession {
     }
 
     pub fn set_num_cores(&mut self, num_cores: u32) {
-        self.scheduler_mut().set_num_cores(num_cores);
+        self.scheduler().set_num_cores(num_cores);
     }
 
     pub fn set_use_read_cloning(&mut self, enable: bool) {
@@ -2546,7 +2540,7 @@ impl Session for RecordSession {
     }
 
     fn on_destroy_task(&self, t: &mut dyn Task) {
-        self.scheduler_mut().on_destroy_task(t.as_rec_mut_unwrap())
+        self.scheduler().on_destroy_task(t.as_rec_mut_unwrap())
     }
 
     fn as_session_inner(&self) -> &SessionInner {
@@ -2569,7 +2563,7 @@ impl Session for RecordSession {
 
     fn on_create_task(&self, t: TaskSharedPtr) {
         on_create_task_common(self, t.clone());
-        self.scheduler_mut().on_create_task(t);
+        self.scheduler().on_create_task(t);
     }
 
     fn trace_stream(&self) -> Option<Ref<'_, TraceStream>> {

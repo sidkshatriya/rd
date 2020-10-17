@@ -698,7 +698,7 @@ pub(super) fn did_waitpid<T: Task>(task: &mut T, mut status: WaitStatus) {
                 task.session()
                     .as_record()
                     .unwrap()
-                    .scheduler_mut()
+                    .scheduler()
                     .expire_timeslice();
             }
             status = WaitStatus::for_stop_sig(TIME_SLICE_SIGNAL);
