@@ -247,6 +247,7 @@ use libc::{
     MAP_FIXED,
     MAP_GROWSDOWN,
     O_DIRECT,
+    PRIO_PROCESS,
     P_ALL,
     P_PGID,
     P_PID,
@@ -1031,6 +1032,52 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
             }
             _ => {
                 syscall_state.expect_errno = EINVAL;
+            }
+        }
+        return Switchable::PreventSwitch;
+    }
+
+    if sys == Arch::SETPRIORITY {
+        // The syscall might fail due to insufficient
+        // permissions (e.g. while trying to decrease the nice value
+        // while not root).
+        // We'll choose to honor the new value anyway since we'd like
+        // to be able to test configurations where a child thread
+        // has a lower nice value than its parent, which requires
+        // lowering the child's nice value.
+        if regs.arg1() as u32 == PRIO_PROCESS {
+            let tid = regs.arg2_signed() as pid_t;
+            let found_rc: TaskSharedPtr;
+            let mut found_b;
+            let maybe_target = if tid == t.rec_tid || tid == 0 {
+                Some(t)
+            } else {
+                match t.session().find_task_from_rec_tid(tid) {
+                    Some(found) => {
+                        found_rc = found;
+                        found_b = found_rc.borrow_mut();
+                        Some(found_b.as_rec_mut_unwrap())
+                    }
+                    None => None,
+                }
+            };
+
+            match maybe_target {
+                Some(target) => {
+                    log!(
+                        LogDebug,
+                        "Setting nice value for tid {} to {}",
+                        target.tid,
+                        regs.arg3()
+                    );
+                    target
+                        .session()
+                        .as_record()
+                        .unwrap()
+                        .scheduler()
+                        .update_task_priority(target, regs.arg3_signed() as i32);
+                }
+                None => (),
             }
         }
         return Switchable::PreventSwitch;

@@ -577,9 +577,9 @@ impl Scheduler {
     }
 
     /// Set the priority of `t` to `value` and update related state.
-    pub fn update_task_priority(&self, t: &TaskSharedPtr, value: i32) {
+    pub fn update_task_priority(&self, t: &mut RecordTask, value: i32) {
         if !self.enable_chaos.get() {
-            self.update_task_priority_internal(t.borrow_mut().as_record_task_mut().unwrap(), value);
+            self.update_task_priority_internal(t, value);
         }
     }
 
