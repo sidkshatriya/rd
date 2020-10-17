@@ -1266,8 +1266,52 @@ fn do_ptrace_exit_stop(t: &mut RecordTask) {
     }
 }
 
-pub fn rec_prepare_restart_syscall(_t: &RecordTask) {
-    unimplemented!()
+pub fn rec_prepare_restart_syscall(t: &mut RecordTask) {
+    let arch = t.arch();
+    rd_arch_function_selfless!(rec_prepare_restart_syscall_arch, arch, t);
+}
+
+fn rec_prepare_restart_syscall_arch<Arch: Architecture>(t: &mut RecordTask) {
+    let sys: i32 = t.ev().syscall_event().number;
+    if sys == Arch::NANOSLEEP || sys == Arch::CLOCK_NANOSLEEP || sys == Arch::CLOCK_NANOSLEEP_TIME64
+    {
+        // Hopefully uniquely among syscalls, nanosleep()/clock_nanosleep()
+        // requires writing to its remaining-time outparam
+        // *only if* the syscall fails with -EINTR.  When a
+        // nanosleep() is interrupted by a signal, we don't
+        // know a priori whether it's going to be eventually
+        // restarted or not.  (Not easily, anyway.)  So we
+        // don't know whether it will eventually return -EINTR
+        // and would need the outparam written.  To resolve
+        // that, we do what the kernel does, and update the
+        // outparam at the -ERESTART_RESTART interruption
+        // regardless.
+        t.syscall_state_unwrap()
+            .borrow_mut()
+            .process_syscall_results(t);
+    }
+    if sys == Arch::PPOLL
+        || sys == Arch::PPOLL_TIME64
+        || sys == Arch::PSELECT6
+        || sys == Arch::PSELECT6_TIME64
+        || sys == Arch::SIGSUSPEND
+        || sys == Arch::RT_SIGSUSPEND
+    {
+        t.invalidate_sigmask();
+    }
+    if sys == Arch::WAIT4 || sys == Arch::WAITID || sys == Arch::WAITPID {
+        let mut r: Registers = t.regs_ref().clone();
+        let original_syscallno = t
+            .syscall_state_unwrap()
+            .borrow()
+            .syscall_entry_registers
+            .original_syscallno();
+        r.set_original_syscallno(original_syscallno);
+        t.set_regs(&r);
+        let arch = t.arch();
+        t.canonicalize_regs(arch);
+        t.in_wait_type = WaitType::WaitTypeNone;
+    }
 }
 
 pub fn rec_process_syscall(t: &mut RecordTask) {
