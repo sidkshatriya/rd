@@ -231,7 +231,7 @@ impl Scheduler {
             priorities_refresh_time: Default::default(),
             max_ticks_: Cell::new(max_ticks),
             must_run_task: Default::default(),
-            pretend_affinity_mask_: unsafe { mem::zeroed() },
+            pretend_affinity_mask_: Cell::new(CpuSet::new()),
             pretend_num_cores_: Cell::new(1),
             always_switch: Cell::new(always_switch),
             enable_chaos: Default::default(),
@@ -635,7 +635,8 @@ impl Scheduler {
     ///  De-register a thread. This function should be called when a thread exits.
     pub fn on_destroy_task(&self, t: &mut RecordTask) {
         let weak = t.weak_self_ptr();
-        match self.current_.borrow().as_ref() {
+        let maybe_curr = self.current_.borrow().clone();
+        match maybe_curr {
             Some(curr) if curr.ptr_eq(&weak) => *self.current_.borrow_mut() = None,
             _ => (),
         }
