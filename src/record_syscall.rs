@@ -146,7 +146,13 @@ use crate::{
         SupportedArch,
     },
     kernel_metadata::{errno_name, is_sigreturn, syscall_name},
-    kernel_supplement::{sig_set_t, _HCIGETDEVINFO, _HCIGETDEVLIST},
+    kernel_supplement::{
+        sig_set_t,
+        SECCOMP_SET_MODE_FILTER,
+        SECCOMP_SET_MODE_STRICT,
+        _HCIGETDEVINFO,
+        _HCIGETDEVLIST,
+    },
     log::{LogDebug, LogInfo, LogWarn},
     monitored_shared_memory::MonitoredSharedMemory,
     monkey_patcher::MmapMode,
@@ -1014,6 +1020,22 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         return Switchable::AllowSwitch;
     }
 
+    if sys == Arch::SECCOMP {
+        match regs.arg1() as u32 {
+            SECCOMP_SET_MODE_STRICT => (),
+            SECCOMP_SET_MODE_FILTER => {
+                // Prevent the actual seccomp call. We'll fix this up afterwards.
+                let mut r: Registers = regs.clone();
+                r.set_arg1_signed(-1);
+                t.set_regs(&r);
+            }
+            _ => {
+                syscall_state.expect_errno = EINVAL;
+            }
+        }
+        return Switchable::PreventSwitch;
+    }
+
     ed_assert!(
         t,
         false,
@@ -1528,7 +1550,23 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
     }
 
     if sys == Arch::SECCOMP {
-        unimplemented!()
+        // Restore arg1 in case we modified it to disable the syscall
+        let mut r: Registers = t.regs_ref().clone();
+        r.set_arg1(syscall_state.syscall_entry_registers.arg1());
+        t.set_regs(&r);
+        if t.regs_ref().arg1() == SECCOMP_SET_MODE_FILTER as usize {
+            ed_assert!(
+                t,
+                t.session().done_initial_exec(),
+                "no seccomp calls during spawn"
+            );
+            t.session()
+                .as_record()
+                .unwrap()
+                .seccomp_filter_rewriter_mut()
+                .install_patched_seccomp_filter(t);
+        }
+        return;
     }
 
     if sys == SYS_rdcall_init_buffers as i32 {
