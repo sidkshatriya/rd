@@ -1005,6 +1005,15 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         return Switchable::PreventSwitch;
     }
 
+    if sys == Arch::SCHED_YIELD {
+        t.session()
+            .as_record()
+            .unwrap()
+            .scheduler()
+            .schedule_one_round_robin(t);
+        return Switchable::AllowSwitch;
+    }
+
     ed_assert!(
         t,
         false,

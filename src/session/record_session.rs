@@ -1679,7 +1679,8 @@ impl RecordSession {
                             LogDebug,
                             "Detected possible spinlock, forcing one round-robin"
                         );
-                        self.scheduler().schedule_one_round_robin(t_shr);
+                        self.scheduler()
+                            .schedule_one_round_robin(t_shr.borrow_mut().as_rec_mut_unwrap());
                     }
                     // Allow switching after a SCHED. We'll flush the SCHED if and only
                     // if we really do a switch.

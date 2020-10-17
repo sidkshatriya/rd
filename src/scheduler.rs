@@ -375,7 +375,7 @@ impl Scheduler {
                     }
                     // Having rejected current_, be prepared to run the next task in the
                     // round-robin queue.
-                    self.maybe_pop_round_robin_task(&curr);
+                    self.maybe_pop_round_robin_task(curr.borrow_mut().as_rec_mut_unwrap());
                 }
                 None => (),
             }
@@ -392,7 +392,7 @@ impl Scheduler {
                     ) {
                         break;
                     }
-                    self.maybe_pop_round_robin_task(nt);
+                    self.maybe_pop_round_robin_task(nt.borrow_mut().as_rec_mut_unwrap());
 
                     continue;
                 }
@@ -453,7 +453,7 @@ impl Scheduler {
                 // Clear the round-robin queue since we will no longer be able to service
                 // those tasks in-order.
                 while let Some(t) = self.get_round_robin_task() {
-                    self.maybe_pop_round_robin_task(&t);
+                    self.maybe_pop_round_robin_task(t.borrow_mut().as_rec_mut_unwrap());
                 }
 
                 log!(
@@ -588,23 +588,18 @@ impl Scheduler {
     /// task to be scheduled.
     /// If the task_round_robin_queue is empty this moves all tasks into it,
     /// putting last_task last.
-    pub fn schedule_one_round_robin(&self, t: &TaskSharedPtr) {
-        log!(
-            LogDebug,
-            "Scheduling round-robin because of task {}",
-            t.borrow().tid
-        );
+    pub fn schedule_one_round_robin(&self, t: &mut RecordTask) {
+        log!(LogDebug, "Scheduling round-robin because of task {}", t.tid);
 
-        ed_assert!(&t.borrow(), Rc::ptr_eq(&self.current().unwrap(), t));
+        let rc_t = t.weak_self_ptr().upgrade().unwrap();
+        ed_assert!(t, Rc::ptr_eq(&self.current().unwrap(), &rc_t));
         self.maybe_pop_round_robin_task(t);
-        ed_assert!(
-            &t.borrow(),
-            !t.borrow().as_record_task().unwrap().in_round_robin_queue
-        );
-
+        ed_assert!(t, !t.in_round_robin_queue);
         for PriorityTup(_, _, w) in self.task_priority_set.borrow().iter() {
             let tt = w.upgrade().unwrap();
-            if !Rc::ptr_eq(t, &tt) && !tt.borrow().as_record_task().unwrap().in_round_robin_queue {
+            if !Rc::ptr_eq(&rc_t, &tt)
+                && !tt.borrow().as_record_task().unwrap().in_round_robin_queue
+            {
                 self.task_round_robin_queue
                     .borrow_mut()
                     .push_back(w.clone());
@@ -618,11 +613,8 @@ impl Scheduler {
         self.task_priority_set.borrow_mut().clear();
         self.task_round_robin_queue
             .borrow_mut()
-            .push_back(t.borrow().weak_self_ptr());
-        t.borrow_mut()
-            .as_record_task_mut()
-            .unwrap()
-            .in_round_robin_queue = true;
+            .push_back(t.weak_self_ptr());
+        t.in_round_robin_queue = true;
         self.expire_timeslice();
     }
 
@@ -838,7 +830,7 @@ impl Scheduler {
             .map(|w| w.upgrade().unwrap())
     }
 
-    fn maybe_pop_round_robin_task(&self, t: &TaskSharedPtr) {
+    fn maybe_pop_round_robin_task(&self, t: &mut RecordTask) {
         if self.task_round_robin_queue.borrow().is_empty() {
             return;
         }
@@ -848,17 +840,14 @@ impl Scheduler {
             .borrow()
             .front()
             .unwrap()
-            .ptr_eq(&Rc::downgrade(t))
+            .ptr_eq(&t.weak_self_ptr())
         {
             self.task_round_robin_queue.borrow_mut().pop_front();
-            t.borrow_mut()
-                .as_record_task_mut()
-                .unwrap()
-                .in_round_robin_queue = false;
+            t.in_round_robin_queue = false;
             self.task_priority_set.borrow_mut().insert(PriorityTup(
-                t.borrow().as_record_task().unwrap().priority,
-                t.borrow().tuid().serial(),
-                Rc::downgrade(t),
+                t.priority,
+                t.tuid().serial(),
+                t.weak_self_ptr(),
             ));
         }
     }
