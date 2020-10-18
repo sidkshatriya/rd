@@ -2435,6 +2435,7 @@ union UASiginfo {
     linux_api: siginfo_t,
 }
 
+/// DIFF NOTE: Does not take the dest_size argument as in rr
 unsafe fn set_arch_siginfo_arch<Arch: Architecture>(
     src: &siginfo_t,
     si: &mut arch_siginfo_t<Arch>,

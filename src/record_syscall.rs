@@ -1527,7 +1527,13 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
     }
 
     if sys == Arch::CLOCK_NANOSLEEP || sys == Arch::NANOSLEEP {
-        unimplemented!()
+        // If the sleep completes, the kernel doesn't
+        // write back to the remaining-time
+        // argument.
+        if t.regs_ref().syscall_result_signed() as i32 == 0 {
+            syscall_state.write_back = WriteBack::NoWriteBack;
+        }
+        return;
     }
 
     if sys == Arch::PERF_EVENT_OPEN {
@@ -1802,16 +1808,6 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
                 }
                 t.set_regs(&r);
             }
-        }
-        return;
-    }
-
-    if sys == Arch::CLOCK_NANOSLEEP || sys == Arch::NANOSLEEP {
-        // If the sleep completes, the kernel doesn't
-        // write back to the remaining-time
-        // argument.
-        if t.regs_ref().syscall_result_signed() as i32 == 0 {
-            syscall_state.write_back = WriteBack::NoWriteBack;
         }
         return;
     }
