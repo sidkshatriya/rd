@@ -3,7 +3,7 @@
 use crate::{
     arch::{Architecture, NativeArch},
     bindings::{kernel, kernel::sock_filter},
-    kernel_abi::Ptr,
+    kernel_abi::{common, Ptr},
 };
 
 #[repr(C)]
@@ -83,3 +83,194 @@ pub struct mmap_args<Arch: Architecture> {
     pub __pad: Arch::STD_PAD_ARR,
     pub offset: Arch::off_t,
 }
+
+#[repr(C)]
+pub union sigval_t<Arch: Architecture> {
+    pub sival_int: i32,
+    pub sival_ptr: Ptr<Arch::unsigned_word, u8>,
+}
+
+impl<Arch: Architecture> Clone for sigval_t<Arch> {
+    fn clone(&self) -> Self {
+        unsafe {
+            sigval_t {
+                sival_ptr: self.sival_ptr,
+            }
+        }
+    }
+}
+
+impl<Arch: Architecture> Copy for sigval_t<Arch> {}
+
+#[repr(C)]
+#[derive(Copy, Clone, Default)]
+pub struct siginfo_kill {
+    pub si_pid_: common::pid_t,
+    pub si_uid_: common::uid_t,
+}
+
+#[repr(C)]
+pub struct siginfo_timer<Arch: Architecture> {
+    pub si_tid_: i32,
+    pub si_overrun_: i32,
+    pub si_sigval_: sigval_t<Arch>,
+}
+
+impl<Arch: Architecture> Clone for siginfo_timer<Arch> {
+    fn clone(&self) -> Self {
+        siginfo_timer {
+            si_tid_: self.si_tid_,
+            si_overrun_: self.si_overrun_,
+            si_sigval_: self.si_sigval_,
+        }
+    }
+}
+
+impl<Arch: Architecture> Copy for siginfo_timer<Arch> {}
+
+#[repr(C)]
+pub struct siginfo_rt<Arch: Architecture> {
+    pub si_pid_: common::pid_t,
+    pub si_uid_: common::uid_t,
+    pub si_sigval_: sigval_t<Arch>,
+}
+
+impl<Arch: Architecture> Clone for siginfo_rt<Arch> {
+    fn clone(&self) -> Self {
+        siginfo_rt {
+            si_pid_: self.si_pid_,
+            si_uid_: self.si_uid_,
+            si_sigval_: self.si_sigval_,
+        }
+    }
+}
+
+impl<Arch: Architecture> Copy for siginfo_rt<Arch> {}
+
+#[repr(C)]
+#[derive(Default)]
+pub struct siginfo_sigchld<Arch: Architecture> {
+    pub si_pid_: common::pid_t,
+    pub si_uid_: common::uid_t,
+    pub si_status_: i32,
+    pub si_utime_: Arch::sigchld_clock_t,
+    pub si_stime_: Arch::sigchld_clock_t,
+}
+
+impl<Arch: Architecture> Clone for siginfo_sigchld<Arch> {
+    fn clone(&self) -> Self {
+        siginfo_sigchld {
+            si_pid_: self.si_pid_,
+            si_uid_: self.si_uid_,
+            si_status_: self.si_status_,
+            si_utime_: self.si_utime_,
+            si_stime_: self.si_stime_,
+        }
+    }
+}
+
+impl<Arch: Architecture> Copy for siginfo_sigchld<Arch> {}
+
+#[repr(C)]
+#[derive(Default)]
+pub struct siginfo_sigfault<Arch: Architecture> {
+    pub si_addr_: Ptr<Arch::unsigned_word, u8>,
+    pub si_addr_lsb_: Arch::signed_short,
+}
+
+impl<Arch: Architecture> Clone for siginfo_sigfault<Arch> {
+    fn clone(&self) -> Self {
+        siginfo_sigfault {
+            si_addr_: self.si_addr_,
+            si_addr_lsb_: self.si_addr_lsb_,
+        }
+    }
+}
+
+impl<Arch: Architecture> Copy for siginfo_sigfault<Arch> {}
+
+#[repr(C)]
+#[derive(Default)]
+pub struct siginfo_sigpoll<Arch: Architecture> {
+    pub si_band_: Arch::signed_long,
+    pub si_fd_: i32,
+}
+
+impl<Arch: Architecture> Clone for siginfo_sigpoll<Arch> {
+    fn clone(&self) -> Self {
+        siginfo_sigpoll {
+            si_band_: self.si_band_,
+            si_fd_: self.si_fd_,
+        }
+    }
+}
+
+impl<Arch: Architecture> Copy for siginfo_sigpoll<Arch> {}
+
+#[repr(C)]
+#[derive(Default)]
+pub struct siginfo_sigsys<Arch: Architecture> {
+    pub _call_addr: Ptr<Arch::unsigned_word, u8>,
+    pub _syscall: i32,
+    pub _arch: u32,
+}
+
+impl<Arch: Architecture> Clone for siginfo_sigsys<Arch> {
+    fn clone(&self) -> Self {
+        siginfo_sigsys {
+            _call_addr: self._call_addr,
+            _syscall: self._syscall,
+            _arch: self._arch,
+        }
+    }
+}
+
+impl<Arch: Architecture> Copy for siginfo_sigsys<Arch> {}
+
+#[repr(C)]
+pub union siginfo_sifields<Arch: Architecture> {
+    pub padding: Arch::SIGINFO_PADDING_ARR,
+    pub _kill: siginfo_kill,
+    pub _timer: siginfo_timer<Arch>,
+    pub _rt: siginfo_rt<Arch>,
+    pub _sigchld: siginfo_sigchld<Arch>,
+    pub _sigfault: siginfo_sigfault<Arch>,
+    pub _sigpoll: siginfo_sigpoll<Arch>,
+    pub _sigsys: siginfo_sigsys<Arch>,
+}
+
+impl<Arch: Architecture> Clone for siginfo_sifields<Arch> {
+    fn clone(&self) -> Self {
+        unsafe {
+            siginfo_sifields {
+                padding: self.padding,
+            }
+        }
+    }
+}
+
+impl<Arch: Architecture> Copy for siginfo_sifields<Arch> {}
+
+#[repr(C)]
+pub struct siginfo_t<Arch: Architecture> {
+    pub si_signo: i32,
+    pub si_errno: i32,
+    pub si_code: i32,
+    pub _sifields: siginfo_sifields<Arch>,
+}
+
+impl<Arch: Architecture> Clone for siginfo_t<Arch> {
+    fn clone(&self) -> Self {
+        siginfo_t {
+            si_signo: self.si_signo,
+            si_errno: self.si_errno,
+            si_code: self.si_code,
+            _sifields: self._sifields,
+        }
+    }
+}
+
+impl<Arch: Architecture> Copy for siginfo_t<Arch> {}
+
+assert_eq_size!(kernel::siginfo_t, siginfo_t<NativeArch>);
+assert_eq_align!(kernel::siginfo_t, siginfo_t<NativeArch>);

@@ -549,6 +549,7 @@ pub trait Architecture: 'static + Default {
 
     type FPROG_PAD_ARR: Default + Copy + 'static;
     type STD_PAD_ARR: Default + Copy + 'static;
+    type SIGINFO_PADDING_ARR: Default + Copy + 'static;
 
     type signed_short: Default + Copy + 'static;
     type unsigned_short: Default + Copy + 'static;
@@ -644,7 +645,13 @@ pub trait Architecture: 'static + Default {
 
     fn set_iovec(msgdata: &mut Self::iovec, iov_base: RemotePtr<Void>, iov_len: usize);
 
+    fn as_signed_short(ss: i16) -> Self::signed_short;
+
     fn as_signed_long(ul: Self::unsigned_long) -> Self::signed_long;
+
+    fn as_signed_long_truncated(l: i64) -> Self::signed_long;
+
+    fn as_sigchld_clock_t_truncated(l: i64) -> Self::sigchld_clock_t;
 
     fn long_as_usize(sl: Self::signed_long) -> usize;
 
@@ -1127,6 +1134,7 @@ impl Architecture for X86Arch {
 
     type FPROG_PAD_ARR = [u8; size_of::<Ptr<Self::unsigned_word, Void>>() - size_of::<u16>()];
     type STD_PAD_ARR = [u8; size_of::<Self::unsigned_long>() - size_of::<i32>()];
+    type SIGINFO_PADDING_ARR = [i32; x86::SIGINFO_PADDING];
 
     type signed_short = i16;
     type unsigned_short = u16;
@@ -1207,8 +1215,20 @@ impl Architecture for X86Arch {
         msgdata.iov_len = iov_len.try_into().unwrap();
     }
 
+    fn as_signed_short(ss: i16) -> Self::signed_short {
+        ss as Self::signed_short
+    }
+
     fn as_signed_long(ul: Self::unsigned_long) -> Self::signed_long {
         ul as Self::signed_long
+    }
+
+    fn as_signed_long_truncated(l: i64) -> Self::signed_long {
+        l as Self::signed_long
+    }
+
+    fn as_sigchld_clock_t_truncated(l: i64) -> Self::sigchld_clock_t {
+        l as Self::sigchld_clock_t
     }
 
     fn long_as_usize(sl: Self::signed_long) -> usize {
@@ -1732,6 +1752,7 @@ impl Architecture for X64Arch {
 
     type FPROG_PAD_ARR = [u8; size_of::<Ptr<Self::unsigned_word, Void>>() - size_of::<u16>()];
     type STD_PAD_ARR = [u8; size_of::<Self::unsigned_long>() - size_of::<i32>()];
+    type SIGINFO_PADDING_ARR = [i32; x64::SIGINFO_PADDING];
 
     type signed_short = i16;
     type unsigned_short = u16;
@@ -1812,8 +1833,20 @@ impl Architecture for X64Arch {
         msgdata.iov_len = iov_len as _;
     }
 
+    fn as_signed_short(ss: i16) -> Self::signed_short {
+        ss as Self::signed_short
+    }
+
     fn as_signed_long(ul: Self::unsigned_long) -> Self::signed_long {
         ul as Self::signed_long
+    }
+
+    fn as_signed_long_truncated(l: i64) -> Self::signed_long {
+        l as Self::signed_long
+    }
+
+    fn as_sigchld_clock_t_truncated(l: i64) -> Self::sigchld_clock_t {
+        l as Self::sigchld_clock_t
     }
 
     fn long_as_usize(sl: Self::signed_long) -> usize {

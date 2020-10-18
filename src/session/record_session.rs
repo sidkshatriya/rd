@@ -25,8 +25,9 @@ use super::{
     SessionSharedPtr,
 };
 use crate::{
-    arch::Architecture,
-    arch_structs::{robust_list, robust_list_head},
+    arch::{Architecture, NativeArch},
+    arch_structs,
+    arch_structs::{robust_list, robust_list_head, siginfo_t as arch_siginfo_t},
     bindings::{
         audit::{AUDIT_ARCH_I386, AUDIT_ARCH_X86_64},
         kernel::{FUTEX_OWNER_DIED, FUTEX_TID_MASK, FUTEX_WAITERS},
@@ -41,7 +42,7 @@ use crate::{
             PTRACE_SYSEMU,
             PTRACE_SYSEMU_SINGLESTEP,
         },
-        signal::{siginfo_t, POLL_IN, SI_KERNEL},
+        signal::{siginfo_t, POLL_IN, SI_KERNEL, SI_MESGQ, SI_QUEUE, SI_TIMER, SI_TKILL, SI_USER},
     },
     commands::record_command::RecordCommand,
     event::{Event, EventType, SignalDeterministic, Switchable, SyscallEventData, SyscallState},
@@ -135,7 +136,14 @@ use libc::{
     CLONE_THREAD,
     CLONE_VM,
     ENOSYS,
+    SIGBUS,
+    SIGCHLD,
+    SIGFPE,
+    SIGILL,
+    SIGIO,
+    SIGSEGV,
     SIGSYS,
+    SIGTRAP,
 };
 use mem::size_of;
 use nix::{
@@ -2380,7 +2388,9 @@ fn inject_handled_signal(t: &mut RecordTask) -> bool {
         // the exact data we want to deliver. (We called Task::set_siginfo
         // above to set that data, but the kernel sanitizes the passed-in data
         // which wipes out certain fields; e.g. we can't set SI_KERNEL in si_code.)
-        setup_sigframe_siginfo(t, t.ev().signal_event().siginfo);
+        let mut siginfo = t.ev().signal_event().siginfo;
+        setup_sigframe_siginfo(t, &mut siginfo);
+        t.ev_mut().signal_event_mut().siginfo = siginfo;
     }
 
     // The kernel clears the FPU state on entering the signal handler, but prior
@@ -2394,8 +2404,103 @@ fn inject_handled_signal(t: &mut RecordTask) -> bool {
     true
 }
 
-fn setup_sigframe_siginfo(_t: &mut RecordTask, _siginfo: siginfo_t) {
-    unimplemented!()
+fn setup_sigframe_siginfo(t: &mut RecordTask, siginfo: &mut siginfo_t) {
+    let arch = t.arch();
+    rd_arch_function_selfless!(setup_sigframe_siginfo_arch, arch, t, siginfo)
+}
+
+fn setup_sigframe_siginfo_arch<Arch: Architecture>(t: &mut RecordTask, siginfo: &siginfo_t) {
+    let dest: RemotePtr<arch_siginfo_t<Arch>>;
+    match Arch::arch() {
+        SupportedArch::X86 => {
+            let sp = t.regs_ref().sp();
+            let p = RemotePtr::<Arch::unsigned_word>::cast(sp) + 2usize;
+            dest = read_val_mem(t, RemotePtr::cast(p), None);
+        }
+        SupportedArch::X64 => {
+            dest = RemotePtr::new_from_val(t.regs_ref().si());
+        }
+    }
+    let mut si: arch_siginfo_t<Arch> = read_val_mem(t, dest, None);
+    set_arch_siginfo::<Arch>(siginfo, &mut si);
+    write_val_mem(t, dest, &si, None);
+}
+
+fn set_arch_siginfo<Arch: Architecture>(siginfo: &siginfo_t, si: &mut arch_siginfo_t<Arch>) {
+    unsafe { set_arch_siginfo_arch::<Arch>(siginfo, si) }
+}
+
+union UASiginfo {
+    native_api: arch_siginfo_t<NativeArch>,
+    linux_api: siginfo_t,
+}
+
+unsafe fn set_arch_siginfo_arch<Arch: Architecture>(
+    src: &siginfo_t,
+    si: &mut arch_siginfo_t<Arch>,
+) {
+    // Copying this structure field-by-field instead of just memcpy'ing
+    // siginfo into si serves two purposes: performs 64.32 conversion if
+    // necessary, and ensures garbage in any holes in siginfo isn't copied to the
+    // tracee.
+    let mut u: UASiginfo = mem::zeroed();
+    u.linux_api = *src;
+    let siginfo = &mut u.native_api;
+
+    si.si_signo = siginfo.si_signo;
+    si.si_errno = siginfo.si_errno;
+    si.si_code = siginfo.si_code;
+    match siginfo.si_code {
+        SI_USER | SI_TKILL => {
+            si._sifields._kill.si_pid_ = siginfo._sifields._kill.si_pid_;
+            si._sifields._kill.si_uid_ = siginfo._sifields._kill.si_uid_;
+        }
+        SI_QUEUE | SI_MESGQ => {
+            si._sifields._rt.si_pid_ = siginfo._sifields._rt.si_pid_;
+            si._sifields._rt.si_uid_ = siginfo._sifields._rt.si_uid_;
+            assign_sigval::<Arch>(
+                si._sifields._rt.si_sigval_,
+                siginfo._sifields._rt.si_sigval_,
+            );
+        }
+        SI_TIMER => {
+            si._sifields._timer.si_overrun_ = siginfo._sifields._timer.si_overrun_;
+            si._sifields._timer.si_tid_ = siginfo._sifields._timer.si_tid_;
+            assign_sigval::<Arch>(
+                si._sifields._timer.si_sigval_,
+                siginfo._sifields._timer.si_sigval_,
+            );
+        }
+        _ => match siginfo.si_signo {
+            SIGCHLD => {
+                si._sifields._sigchld.si_pid_ = siginfo._sifields._sigchld.si_pid_;
+                si._sifields._sigchld.si_uid_ = siginfo._sifields._sigchld.si_uid_;
+                si._sifields._sigchld.si_status_ = siginfo._sifields._sigchld.si_status_;
+                si._sifields._sigchld.si_utime_ =
+                    Arch::as_sigchld_clock_t_truncated(siginfo._sifields._sigchld.si_utime_ as i64);
+                si._sifields._sigchld.si_stime_ =
+                    Arch::as_sigchld_clock_t_truncated(siginfo._sifields._sigchld.si_stime_ as i64);
+            }
+            SIGILL | SIGBUS | SIGFPE | SIGSEGV | SIGTRAP => {
+                si._sifields._sigfault.si_addr_ =
+                    Arch::from_remote_ptr(siginfo._sifields._sigfault.si_addr_.rptr());
+                si._sifields._sigfault.si_addr_lsb_ =
+                    Arch::as_signed_short(siginfo._sifields._sigfault.si_addr_lsb_);
+            }
+            SIGIO => {
+                si._sifields._sigpoll.si_band_ =
+                    Arch::as_signed_long_truncated(siginfo._sifields._sigpoll.si_band_ as i64);
+                si._sifields._sigpoll.si_fd_ = siginfo._sifields._sigpoll.si_fd_;
+            }
+            SIGSYS => {
+                si._sifields._sigsys._call_addr =
+                    Arch::from_remote_ptr(siginfo._sifields._sigsys._call_addr.rptr());
+                si._sifields._sigsys._syscall = siginfo._sifields._sigsys._syscall;
+                si._sifields._sigsys._arch = siginfo._sifields._sigsys._arch;
+            }
+            _ => (),
+        },
+    }
 }
 
 /// Copy the registers used for syscall arguments (not including
@@ -3212,4 +3317,11 @@ fn advance_to_disarm_desched_syscall(t: &mut RecordTask) {
         TicksRequest::ResumeNoTicks,
         None,
     );
+}
+
+fn assign_sigval<Arch: Architecture>(
+    _si_sigval_dest: arch_structs::sigval_t<Arch>,
+    _si_sigval_src: arch_structs::sigval_t<NativeArch>,
+) {
+    unimplemented!()
 }
