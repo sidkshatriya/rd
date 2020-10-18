@@ -172,7 +172,7 @@ use crate::{
         task::{
             record_task::{RecordTask, WaitType},
             task_common::{read_mem, read_val_mem, write_mem, write_val_mem},
-            task_inner::{ResumeRequest, TicksRequest, WaitRequest},
+            task_inner::{ResumeRequest, TicksRequest, WaitRequest, WriteFlags},
             Task,
             TaskSharedPtr,
             TaskSharedWeakPtr,
@@ -201,6 +201,7 @@ use crate::{
     wait_status::WaitStatus,
 };
 use libc::{
+    cpu_set_t,
     id_t,
     idtype_t,
     pid_t,
@@ -275,7 +276,7 @@ use std::{
     cell::{RefCell, RefMut},
     cmp::{max, min},
     convert::{TryFrom, TryInto},
-    ffi::{OsStr, OsString},
+    ffi::{CStr, OsStr, OsString},
     intrinsics::{copy_nonoverlapping, transmute},
     mem::{self, size_of},
     os::{
@@ -919,6 +920,44 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         return Switchable::PreventSwitch;
     }
 
+    if sys == Arch::MEMFD_CREATE {
+        let name = t.read_c_str(regs.arg1().into());
+        if is_blacklisted_memfd(&name) {
+            log!(LogWarn, "Cowardly refusing to memfd_create {:?}", name);
+            let mut r: Registers = regs.clone();
+            r.set_arg1(0);
+            t.set_regs(&r);
+            syscall_state.emulate_result_signed(-ENOSYS as isize);
+        }
+        return Switchable::PreventSwitch;
+    }
+
+    if sys == Arch::GETGROUPS {
+        // We could record a little less data by restricting the recorded data
+        // to the syscall result * sizeof(Arch::legacy_gid_t), but that would
+        // require more infrastructure and it's not worth worrying about.
+        syscall_state.reg_parameter_with_size(
+            2,
+            ParamSize::from(regs.arg1_signed() as u32 as usize * size_of::<Arch::legacy_gid_t>()),
+            None,
+            None,
+        );
+        return Switchable::PreventSwitch;
+    }
+
+    if sys == Arch::GETGROUPS32 {
+        // We could record a little less data by restricting the recorded data
+        // to the syscall result * sizeof(Arch::gid_t), but that would
+        // require more infrastructure and it's not worth worrying about.
+        syscall_state.reg_parameter_with_size(
+            2,
+            ParamSize::from(regs.arg1_signed() as u32 as usize * size_of::<common::gid_t>()),
+            None,
+            None,
+        );
+        return Switchable::PreventSwitch;
+    }
+
     if sys == Arch::FORK || sys == Arch::VFORK || sys == Arch::CLONE {
         prepare_clone::<Arch>(t, &mut syscall_state);
         return Switchable::AllowSwitch;
@@ -1032,6 +1071,47 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         return Switchable::AllowSwitch;
     }
 
+    if sys == Arch::GETXATTR || sys == Arch::LGETXATTR || sys == Arch::FGETXATTR {
+        syscall_state.reg_parameter_with_size(
+            3,
+            ParamSize::from_syscall_result_with_size::<isize>(regs.arg4()),
+            None,
+            None,
+        );
+        return Switchable::PreventSwitch;
+    }
+
+    if sys == Arch::LISTXATTR || sys == Arch::LLISTXATTR || sys == Arch::FLISTXATTR {
+        syscall_state.reg_parameter_with_size(
+            2,
+            ParamSize::from_syscall_result_with_size::<isize>(regs.arg3()),
+            None,
+            None,
+        );
+        return Switchable::PreventSwitch;
+    }
+
+    if sys == Arch::SCHED_GETATTR {
+        syscall_state.reg_parameter_with_size(2, ParamSize::from(regs.arg3()), None, None);
+        return Switchable::PreventSwitch;
+    }
+
+    if sys == Arch::SCHED_SETAFFINITY {
+        // Ignore all sched_setaffinity syscalls. They might interfere
+        // with our own affinity settings.
+        let mut r: Registers = regs.clone();
+        // Set arg1 to an invalid PID to ensure this syscall is ignored.
+        r.set_arg1_signed(-1);
+        t.set_regs(&r);
+        syscall_state.emulate_result(0);
+        return Switchable::PreventSwitch;
+    }
+
+    if sys == Arch::SCHED_GETAFFINITY {
+        syscall_state.reg_parameter_with_size(3, ParamSize::from(regs.arg2()), None, None);
+        return Switchable::PreventSwitch;
+    }
+
     if sys == Arch::SECCOMP {
         match regs.arg1() as u32 {
             SECCOMP_SET_MODE_STRICT => (),
@@ -1103,6 +1183,13 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
     );
 
     unimplemented!()
+}
+
+fn is_blacklisted_memfd(name: &CStr) -> bool {
+    match name.to_str() {
+        Ok(name_str) if name_str == "pulseaudio" => true,
+        _ => false,
+    }
 }
 
 fn maybe_emulate_wait(
@@ -1568,7 +1655,29 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
     }
 
     if sys == Arch::SCHED_GETAFFINITY {
-        unimplemented!()
+        let pid = t.regs_ref().arg1() as pid_t;
+        if !t.regs_ref().syscall_failed() && (pid == 0 || pid == t.rec_tid) {
+            if t.regs_ref().syscall_result() > size_of::<cpu_set_t>() {
+                log!(
+                    LogWarn,
+                    "Don't understand kernel's sched_getaffinity result"
+                );
+            } else {
+                let cpu_set = t
+                    .session()
+                    .as_record()
+                    .unwrap()
+                    .scheduler()
+                    .pretend_affinity_mask();
+                let siz = t.regs_ref().syscall_result();
+
+                let buf =
+                    unsafe { std::slice::from_raw_parts(&raw const cpu_set as *const u8, siz) };
+                let child_addr = t.regs_ref().arg3().into();
+                t.write_bytes_helper(child_addr, buf, None, WriteFlags::empty());
+            }
+        }
+        return;
     }
 
     if sys == Arch::SETSOCKOPT {
