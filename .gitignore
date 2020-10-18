@@ -1,4 +1,5 @@
 /target
+/Testing/**
 **/*.rs.bk
 .vscode
 **/*generated.rs
