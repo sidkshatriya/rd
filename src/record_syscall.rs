@@ -987,6 +987,17 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         return Switchable::AllowSwitch;
     }
 
+    // The following two syscalls enable context switching not for
+    // liveness/correctness reasons, but rather because if we
+    // didn't context-switch away, rr might end up busy-waiting
+    // needlessly.  In addition, albeit far less likely, the
+    // client program may have carefully optimized its own context
+    // switching and we should take the hint.
+    if sys == Arch::NANOSLEEP {
+        syscall_state.reg_parameter::<Arch::timespec>(2, None, None);
+        return Switchable::AllowSwitch;
+    }
+
     if sys == Arch::CLOCK_NANOSLEEP {
         syscall_state.reg_parameter::<Arch::timespec>(4, None, None);
         return Switchable::AllowSwitch;
