@@ -2459,16 +2459,16 @@ unsafe fn set_arch_siginfo_arch<Arch: Architecture>(
             si._sifields._rt.si_pid_ = siginfo._sifields._rt.si_pid_;
             si._sifields._rt.si_uid_ = siginfo._sifields._rt.si_uid_;
             assign_sigval::<Arch>(
-                si._sifields._rt.si_sigval_,
-                siginfo._sifields._rt.si_sigval_,
+                &mut si._sifields._rt.si_sigval_,
+                &siginfo._sifields._rt.si_sigval_,
             );
         }
         SI_TIMER => {
             si._sifields._timer.si_overrun_ = siginfo._sifields._timer.si_overrun_;
             si._sifields._timer.si_tid_ = siginfo._sifields._timer.si_tid_;
             assign_sigval::<Arch>(
-                si._sifields._timer.si_sigval_,
-                siginfo._sifields._timer.si_sigval_,
+                &mut si._sifields._timer.si_sigval_,
+                &siginfo._sifields._timer.si_sigval_,
             );
         }
         _ => match siginfo.si_signo {
@@ -3319,9 +3319,14 @@ fn advance_to_disarm_desched_syscall(t: &mut RecordTask) {
     );
 }
 
-fn assign_sigval<Arch: Architecture>(
-    _si_sigval_dest: arch_structs::sigval_t<Arch>,
-    _si_sigval_src: arch_structs::sigval_t<NativeArch>,
+unsafe fn assign_sigval<Arch: Architecture>(
+    to: &mut arch_structs::sigval_t<Arch>,
+    from: &arch_structs::sigval_t<NativeArch>,
 ) {
-    unimplemented!()
+    // si_ptr/si_int are a union and we don't know which part is valid.
+    // The only case where it matters is when we're mapping 64->32, in which
+    // case we can just assign the ptr first (which is bigger) and then the
+    // int (to be endian-independent).
+    to.sival_ptr = Arch::from_remote_ptr(from.sival_ptr.rptr());
+    to.sival_int = from.sival_int;
 }
