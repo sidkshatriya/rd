@@ -1617,7 +1617,13 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
     }
 
     if sys == Arch::MREMAP {
-        unimplemented!()
+        process_mremap(
+            t,
+            t.regs_ref().arg1().into(),
+            t.regs_ref().arg2(),
+            t.regs_ref().arg3(),
+        );
+        return;
     }
 
     if sys == Arch::SHMAT {
@@ -3885,4 +3891,71 @@ fn maybe_pause_instead_of_waiting(t: &mut RecordTask, options: i32) {
     let mut r: Registers = t.regs_ref().clone();
     r.set_original_syscallno(syscall_number_for_pause(t.arch()) as isize);
     t.set_regs(&r);
+}
+
+fn process_mremap(
+    t: &mut RecordTask,
+    old_addr: RemotePtr<Void>,
+    old_length: usize,
+    new_length: usize,
+) {
+    if t.regs_ref().syscall_failed() {
+        // We purely emulate failed mremaps.
+        return;
+    }
+
+    let old_size: usize = ceil_page_size(old_length);
+    let new_size: usize = ceil_page_size(new_length);
+    let new_addr: RemotePtr<Void> = t.regs_ref().syscall_result().into();
+
+    t.vm().remap(t, old_addr, old_size, new_addr, new_size);
+    let m = t.vm().mapping_of(new_addr).unwrap().clone();
+    let mut km = m.map.subrange(new_addr, new_addr + min(new_size, old_size));
+    let mut st = match m.mapped_file_stat {
+        Some(st) => st,
+        None => km.fake_stat(),
+    };
+
+    // Make sure that the trace records the mapping at the new location, even
+    // if the mapping didn't grow.
+    let r = t.trace_writer_mut().write_mapped_region(
+        t,
+        &km,
+        &st,
+        &[],
+        Some(MappingOrigin::RemapMapping),
+        None,
+    );
+    ed_assert_eq!(t, r, RecordInTrace::DontRecordInTrace);
+    if old_size >= new_size {
+        return;
+    }
+
+    // Now record the new part of the mapping.
+    km = m.map.subrange(new_addr + old_size, new_addr + new_size);
+    if st.st_size == 0 {
+        // Some device files are mmappable but have zero size. Increasing the
+        // size here is safe even if the mapped size is greater than the real size.
+        st.st_size = (m.map.file_offset_bytes() + new_size as u64)
+            .try_into()
+            .unwrap();
+    }
+
+    if t.trace_writer_mut()
+        .write_mapped_region(t, &km, &st, &[], None, None)
+        == RecordInTrace::RecordInTrace
+    {
+        let end = if km.file_offset_bytes() > st.st_size as u64 {
+            0
+        } else {
+            st.st_size as u64 - km.file_offset_bytes()
+        };
+        // Allow failure; the underlying file may have true zero size, in which
+        // case this may try to record unmapped memory.
+        t.record_remote_fallible(km.start(), min(end.try_into().unwrap(), km.size()))
+            .unwrap_or(0);
+    }
+
+    // If the original mapping was monitored, we'll continue monitoring it
+    // automatically.
 }
