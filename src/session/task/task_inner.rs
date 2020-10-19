@@ -556,6 +556,10 @@ impl TaskInner {
         self.weak_self.clone()
     }
 
+    pub fn weak_self_ptr_ref(&self) -> &TaskSharedWeakPtr {
+        &self.weak_self
+    }
+
     /// Called after the first exec in a session, when the session first
     /// enters a consistent state. Prior to that, the task state
     /// can vary based on how rd set up the child process. We have to flush

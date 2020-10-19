@@ -117,6 +117,7 @@ use crate::{
         },
     },
     event::{OpenedFd, Switchable},
+    fd_table::FdTable,
     file_monitor::{
         self,
         base_file_monitor::BaseFileMonitor,
@@ -199,7 +200,9 @@ use crate::{
         CloneParameters,
     },
     wait_status::WaitStatus,
+    weak_ptr_set::WeakPtrSet,
 };
+use file_monitor::FileMonitorType;
 use libc::{
     cpu_set_t,
     id_t,
@@ -277,6 +280,7 @@ use std::{
     cmp::{max, min},
     convert::{TryFrom, TryInto},
     ffi::{CStr, OsStr, OsString},
+    fs::read_dir,
     intrinsics::{copy_nonoverlapping, transmute},
     mem::{self, size_of},
     os::{
@@ -2029,7 +2033,7 @@ fn is_rd_fd_terminal(fd: i32, pathname: &OsStr) -> bool {
     }
 }
 
-fn is_writable(t: &mut dyn Task, fd: i32) -> bool {
+fn is_writable(t: &dyn Task, fd: i32) -> bool {
     let lst = t.lstat_fd(fd);
     (lst.st_mode & S_IWUSR) != 0
 }
@@ -2206,7 +2210,46 @@ fn process_mmap(
     }
 
     if flags.contains(MapFlags::MAP_SHARED) && !effectively_anonymous {
-        unimplemented!()
+        // Setting up MmappedFileMonitor may trigger updates to syscallbuf_fds_disabled
+        // in the tracee, recording memory records. Those should be recorded now, after the
+        // memory region data itself. Needs to be consistent with replay_syscall.
+        if monitor_this_fd {
+            extra_fds.push(TraceRemoteFd { tid: t.tid, fd });
+        }
+        for f in &extra_fds {
+            let rc_t;
+            let mut tb;
+            let tt: &mut dyn Task = if f.tid == t.tid {
+                t
+            } else {
+                rc_t = t.session().find_task_from_rec_tid(f.tid).unwrap();
+                tb = rc_t.borrow_mut();
+                tb.as_mut()
+            };
+
+            if tt.fd_table().is_monitoring(f.fd) {
+                let file_mon_shr_ptr = tt.fd_table().get_monitor(f.fd).unwrap();
+                ed_assert!(
+                    tt,
+                    file_mon_shr_ptr.borrow().file_monitor_type() == FileMonitorType::Mmapped
+                );
+                file_mon_shr_ptr
+                    .borrow_mut()
+                    .as_mmapped_file_monitor_mut()
+                    .unwrap()
+                    .revive();
+            } else {
+                let mon = Box::new(MmappedFileMonitor::new(tt, f.fd));
+                tt.fd_table_shr_ptr()
+                    .borrow_mut()
+                    .add_monitor(tt, f.fd, mon);
+            }
+        }
+
+        if prot.contains(ProtFlags::PROT_WRITE) {
+            log!(LogDebug, "{:?} is SHARED|writable; that's not handled correctly yet. Optimistically hoping it's not \n\
+                            written by programs outside the rr tracee tree.", file_name);
+        }
     }
 
     // We don't want to patch MapFlags::MAP_SHARED files. In the best case we'd end crashing
@@ -2232,12 +2275,76 @@ fn process_mmap(
 }
 
 fn monitor_fd_for_mapping(
-    _t: &mut RecordTask,
-    _fd: i32,
-    _st: &libc::stat,
-    _extra_fds: &mut Vec<TraceRemoteFd>,
+    mapped_t: &mut dyn Task,
+    mapped_fd: i32,
+    file: &libc::stat,
+    extra_fds: &mut Vec<TraceRemoteFd>,
 ) -> bool {
-    unimplemented!()
+    let mut tables: WeakPtrSet<FdTable> = WeakPtrSet::new();
+    let mut found_our_mapping = false;
+    let mut our_mapping_writable = false;
+    let mapped_table = Rc::downgrade(&mapped_t.fd_table_shr_ptr());
+    let mapped_t_weak = mapped_t.weak_self_ptr();
+    for (_, ts) in mapped_t.session().tasks().iter() {
+        let tb;
+        let t: &dyn Task = if mapped_t_weak.ptr_eq(&Rc::downgrade(ts)) {
+            mapped_t
+        } else {
+            tb = ts.borrow();
+            tb.as_ref()
+        };
+        if t.unstable.get() {
+            // This task isn't a problem because it's exiting and won't write to its
+            // fds. (Well in theory there could be a write in progress I suppose, but
+            // let's ignore that for now :-().) Anyway, reading its /proc/.../fd will
+            // probably fail.
+            continue;
+        }
+        let table = Rc::downgrade(&t.fd_table_shr_ptr());
+        if !tables.insert(table.clone()) {
+            continue;
+        }
+
+        let dir_path = format!("/proc/{}/fd", t.tid);
+
+        let dir = match read_dir(&dir_path) {
+            Ok(dir) => dir,
+            Err(e) => fatal!("Can't open fd dir {}: {:?}", dir_path, e),
+        };
+
+        for maybe_entry in dir {
+            if maybe_entry.is_err() {
+                continue;
+            }
+            let entry = maybe_entry.unwrap();
+            let fd: i32 = match entry.file_name().to_str() {
+                Some(s) => match s.parse::<i32>() {
+                    Ok(fd) if fd >= 0 => fd,
+                    _ => continue,
+                },
+                None => continue,
+            };
+            let fd_stat = t.stat_fd(fd);
+            if fd_stat.st_dev != file.st_dev || fd_stat.st_ino != file.st_ino {
+                // Not our file
+                continue;
+            }
+            let writable = is_writable(t, fd);
+            if table.ptr_eq(&mapped_table) && fd == mapped_fd {
+                // This is what we're using to do the mmap. Don't put it in extra_fds.
+                found_our_mapping = true;
+                our_mapping_writable = writable;
+                continue;
+            }
+            if !writable {
+                // Ignore non-writable fds since they can't modify memory
+                continue;
+            }
+            extra_fds.push(TraceRemoteFd { tid: t.tid, fd });
+        }
+    }
+    ed_assert!(mapped_t, found_our_mapping, "Can't find fd for mapped file");
+    our_mapping_writable
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
