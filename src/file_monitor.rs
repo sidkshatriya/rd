@@ -30,7 +30,7 @@ pub type FileMonitorSharedWeakPtr = Weak<RefCell<Box<dyn FileMonitor>>>;
 /// This should NOT impl the FileMonitor trait
 pub struct FileMonitorInner;
 
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum FileMonitorType {
     Base,
     MagicSaveData,

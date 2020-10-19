@@ -2229,9 +2229,10 @@ fn process_mmap(
 
             if tt.fd_table().is_monitoring(f.fd) {
                 let file_mon_shr_ptr = tt.fd_table().get_monitor(f.fd).unwrap();
-                ed_assert!(
+                ed_assert_eq!(
                     tt,
-                    file_mon_shr_ptr.borrow().file_monitor_type() == FileMonitorType::Mmapped
+                    file_mon_shr_ptr.borrow().file_monitor_type(),
+                    FileMonitorType::Mmapped
                 );
                 file_mon_shr_ptr
                     .borrow_mut()
@@ -2317,6 +2318,10 @@ fn monitor_fd_for_mapping(
                 continue;
             }
             let entry = maybe_entry.unwrap();
+            match entry.file_type() {
+                Ok(file_type) if !file_type.is_dir() => (),
+                _ => continue,
+            }
             let fd: i32 = match entry.file_name().to_str() {
                 Some(s) => match s.parse::<i32>() {
                     Ok(fd) if fd >= 0 => fd,
