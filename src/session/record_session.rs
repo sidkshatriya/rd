@@ -1937,7 +1937,12 @@ impl RecordSession {
                 return true;
             }
 
-            if t.vm().monkeypatcher().unwrap().try_patch_syscall(t) {
+            if t.vm()
+                .monkeypatcher()
+                .unwrap()
+                .borrow()
+                .try_patch_syscall(t)
+            {
                 // Syscall was patched. Emit event and continue execution.
                 t.record_event(Some(Event::patch_syscall()), None, None, None);
                 return true;

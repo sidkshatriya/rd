@@ -2263,7 +2263,7 @@ fn process_mmap(
     // at an assertion, in the worst case, we'd end up modifying the underlying
     // file.
     if !flags.contains(MapFlags::MAP_SHARED) {
-        t.vm().monkeypatcher().unwrap().patch_after_mmap(
+        t.vm().monkeypatcher().unwrap().borrow().patch_after_mmap(
             t,
             addr,
             size,
@@ -2587,7 +2587,11 @@ fn process_execve(t: &mut RecordTask, syscall_state: &mut RefMut<TaskSyscallStat
 
     // Patch LD_PRELOAD and VDSO after saving the mappings. Replay will apply
     // patches to the saved mappings.
-    t.vm().monkeypatcher().unwrap().patch_after_exec(t);
+    t.vm_shr_ptr()
+        .monkeypatcher()
+        .unwrap()
+        .borrow_mut()
+        .patch_after_exec(t);
 
     init_scratch_memory(t, Some(ScratchAddrType::FixedAddress));
 }

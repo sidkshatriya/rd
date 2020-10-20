@@ -1,13 +1,25 @@
 use crate::{
-    arch::Architecture,
+    arch::{Architecture, X64Arch},
+    kernel_abi::SupportedArch,
+    log::LogDebug,
     preload_interface::syscall_patch_hook,
     remote_code_ptr::RemoteCodePtr,
     remote_ptr::{RemotePtr, Void},
-    session::{address_space::address_space, task::record_task::RecordTask},
+    session::{
+        address_space::address_space,
+        task::{record_task::RecordTask, task_inner::WriteFlags, Task},
+    },
+    util::page_size,
+};
+use goblin::{
+    elf::Elf,
+    elf64::section_header::{SHF_ALLOC, SHT_NOBITS},
 };
 use std::{
     collections::{HashMap, HashSet},
+    convert::TryInto,
     ffi::OsStr,
+    mem::size_of,
 };
 
 const MAX_VDSO_SIZE: usize = 16384;
@@ -84,8 +96,12 @@ impl MonkeyPatcher {
     /// Apply any necessary patching immediately after exec.
     /// In this hook we patch everything that doesn't depend on the preload
     /// library being loaded.
-    pub fn patch_after_exec(&self, _t: &RecordTask) {
-        // @TODO PENDING!
+    pub fn patch_after_exec(&mut self, t: &mut RecordTask) {
+        let arch = t.arch();
+        match arch {
+            SupportedArch::X86 => unimplemented!(),
+            SupportedArch::X64 => patch_after_exec_arch_x64arch(t, self),
+        }
     }
 
     pub fn patch_at_preload_init(&self, t: &RecordTask) {
@@ -163,14 +179,14 @@ fn patch_at_preload_init_arch<Arch: Architecture>(_t: &RecordTask, _patcher: &Mo
     unimplemented!()
 }
 
-struct VdsoReader;
 /// @TODO Remove
 struct ElfReader;
 /// @TODO Remove
 struct SymbolTable;
 
-fn write_and_record_bytes(_t: &RecordTask, _child_addr: RemotePtr<Void>, _buf: &[u8]) {
-    unimplemented!()
+fn write_and_record_bytes(t: &mut RecordTask, child_addr: RemotePtr<Void>, buf: &[u8]) {
+    t.write_bytes_helper(child_addr, buf, None, WriteFlags::empty());
+    t.record_local(child_addr, buf);
 }
 
 fn write_and_record_mem<T>(_t: &RecordTask, _child_addr: RemotePtr<T>, _vals: &[T]) {
@@ -202,11 +218,8 @@ fn setup_library_path_arch<Arch: Architecture>(
 }
 
 fn setup_preload_library_path<Arch: Architecture>(_t: &RecordTask) {
-    unimplemented!()
-}
-
-fn setup_audit_library_path<Arch: Architecture>(_t: &RecordTask) {
-    unimplemented!()
+    // @TODO PENDING
+    // Skip for now
 }
 
 fn patch_syscall_with_hook_arch<Arch: Architecture>(
@@ -314,17 +327,13 @@ fn patch_after_exec_arch<Arch: Architecture>(_t: &RecordTask, _patcher: &MonkeyP
     unimplemented!()
 }
 
-struct NamedSyscall<'a> {
-    pub name: &'a OsStr,
-    pub syscall_number: i32,
-}
-
-fn erase_section(_t: &RecordTask, _reader: &VdsoReader, _name: &OsStr) {
+fn erase_section(_t: &RecordTask, _name: &OsStr) {
     unimplemented!()
 }
 
-fn obliterate_debug_info(_t: &RecordTask, _reader: &VdsoReader) {
-    unimplemented!()
+fn obliterate_debug_info(_t: &RecordTask) {
+    // @TODO Pending
+    // Skip for now
 }
 
 fn resolve_address(
@@ -368,3 +377,186 @@ fn patch_dl_runtime_resolve(
 fn file_may_need_instrumentation(_map: &address_space::Mapping) -> bool {
     unimplemented!()
 }
+
+struct NamedSyscall {
+    name: &'static str,
+    syscall_number: i32,
+}
+
+const SYSCALLS_TO_MONKEYPATCH: [NamedSyscall; 5] = [
+    NamedSyscall {
+        name: "__vdso_clock_gettime",
+        syscall_number: X64Arch::CLOCK_GETTIME,
+    },
+    NamedSyscall {
+        name: "__vdso_clock_getres",
+        syscall_number: X64Arch::CLOCK_GETRES,
+    },
+    NamedSyscall {
+        name: "__vdso_gettimeofday",
+        syscall_number: X64Arch::GETTIMEOFDAY,
+    },
+    NamedSyscall {
+        name: "__vdso_time",
+        syscall_number: X64Arch::TIME,
+    },
+    NamedSyscall {
+        name: "__vdso_getcpu",
+        syscall_number: X64Arch::GETCPU,
+    },
+];
+
+fn addr_to_offset<'a>(elf_file: &Elf<'a>, addr: u64, offset: &mut u64) -> bool {
+    for section in &elf_file.section_headers {
+        // Skip the section if it either "occupies no space in the file" or
+        // doesn't have a valid address because it does not "occupy memory
+        // during process execution".
+        if section.sh_type == SHT_NOBITS || (section.sh_flags & SHF_ALLOC as u64 == 0) {
+            continue;
+        }
+        if addr >= section.sh_addr && addr - section.sh_addr < section.sh_size {
+            *offset = addr - section.sh_addr + section.sh_offset;
+            return true;
+        }
+    }
+
+    false
+}
+
+// Monkeypatch x86-64 vdso syscalls immediately after exec. The vdso syscalls
+// will cause replay to fail if called by the dynamic loader or some library's
+// static constructors, so we can't wait for our preload library to be
+// initialized. Fortunately we're just replacing the vdso code with real
+// syscalls so there is no dependency on the preload library at all.
+//
+// DIFF NOTE: The rr version of this x64 architecture specific function call uses u64
+// and usize in a few places. It makes sense to simply use usize consistently.
+// @TODO Need to make sure if there was any deliberate intent there.
+fn patch_after_exec_arch_x64arch(t: &mut RecordTask, patcher: &mut MonkeyPatcher) {
+    setup_preload_library_path::<X64Arch>(t);
+
+    let vdso_start = t.vm().vdso().start();
+    let vdso_size = t.vm().vdso().size();
+
+    let size = t.vm().vdso().size();
+    let mut data = Vec::new();
+    data.resize(size, 0u8);
+    t.read_bytes_helper(t.vm().vdso().start(), &mut data, None);
+    let elf_file = match Elf::parse(&data) {
+        Ok(elf_file) => elf_file,
+        Err(e) => fatal!("Error in parsing vdso: {:?}", e),
+    };
+
+    for syscall in &SYSCALLS_TO_MONKEYPATCH {
+        for s in elf_file.dynsyms.iter() {
+            match elf_file.dynstrtab.get(s.st_name) {
+                Some(name_res) => match name_res {
+                    Ok(name) if name == syscall.name => {
+                        let mut file_offset_64: u64 = 0;
+                        if !addr_to_offset(&elf_file, s.st_value, &mut file_offset_64) {
+                            log!(LogDebug, "Can't convert address {} to offset", s.st_value);
+
+                            continue;
+                        }
+                        // Addr is a usize so we just just use that
+                        let file_offset = file_offset_64 as usize;
+                        // Absolutely-addressed symbols in the VDSO claim to start here.
+                        const VDSO_STATIC_BASE: usize = 0xffffffffff700000;
+                        const VDSO_MAX_SIZE: usize = 0xffff;
+                        let sym_offset: usize = file_offset & VDSO_MAX_SIZE;
+
+                        // In 4.4.6-301.fc23.x86_64 we occasionally see a grossly invalid
+                        // address, se.g. 0x11c6970 for __vdso_getcpu. :-(
+                        if file_offset >= VDSO_STATIC_BASE
+                            && file_offset < VDSO_STATIC_BASE + vdso_size
+                            || file_offset < vdso_size
+                        {
+                            let absolute_address: usize = vdso_start.as_usize() + sym_offset;
+
+                            let mut patch = [0u8; X64VsyscallMonkeypatch::SIZE];
+                            let syscall_number: i32 = syscall.syscall_number;
+                            X64VsyscallMonkeypatch::substitute(&mut patch, syscall_number);
+
+                            write_and_record_bytes(t, absolute_address.into(), &patch);
+                            // Record the location of the syscall instruction, skipping the
+                            // "mov $syscall_number,%eax".
+                            patcher
+                                .patched_vdso_syscalls
+                                .insert(RemoteCodePtr::from(absolute_address + 5));
+                            log!(
+                                LogDebug,
+                                "monkeypatched {} to syscall {} at {:#x} ({:#x})",
+                                syscall.name,
+                                syscall.syscall_number,
+                                absolute_address,
+                                file_offset
+                            );
+
+                            // With 4.4.6-301.fc23.x86_64, once in a while we see a VDSO symbol
+                            // with an incorrect file offset (a small integer) in it
+                            // which is a duplicate of a previous symbol. Bizzarro. So, stop once
+                            // we see a valid value for the symbol.
+                            break;
+                        } else {
+                            log!(
+                        LogDebug,
+                        "Ignoring odd file offset {:#x}; vdso_static_base={:#x}, size={:#x}",
+                        VDSO_STATIC_BASE,
+                        file_offset,
+                        vdso_size
+                    );
+                        }
+                    }
+                    _ => (),
+                },
+                None => {}
+            }
+        }
+    }
+
+    obliterate_debug_info(t);
+
+    for (_, m) in &t.vm().maps() {
+        let km = &m.map;
+        patcher.patch_after_mmap(
+            t,
+            km.start(),
+            km.size(),
+            (km.file_offset_bytes() / page_size() as u64) as usize,
+            -1,
+            MmapMode::MmapExec,
+        );
+    }
+}
+
+impl X64VsyscallMonkeypatch {
+    fn matchp(buffer: &[u8], syscall_number: &mut u32) -> bool {
+        if buffer[0] != X64VsyscallMonkeypatch_bytes[0] {
+            return false;
+        }
+        *syscall_number = u32::from_le_bytes(buffer[1..1 + size_of::<u32>()].try_into().unwrap());
+        if buffer[Self::SYSCALL_NUMBER_END..Self::SIZE]
+            != X64VsyscallMonkeypatch_bytes[Self::SYSCALL_NUMBER_END..Self::SIZE]
+        {
+            return false;
+        }
+
+        true
+    }
+
+    fn substitute(buffer: &mut [u8], syscall_number: i32) {
+        buffer[0] = X64VsyscallMonkeypatch_bytes[0];
+        buffer[1..1 + size_of::<i32>()].copy_from_slice(&syscall_number.to_le_bytes());
+        buffer[Self::SYSCALL_NUMBER_END..Self::SIZE]
+            .copy_from_slice(&X64VsyscallMonkeypatch_bytes[Self::SYSCALL_NUMBER_END..Self::SIZE]);
+    }
+
+    const SYSCALL_NUMBER_END: usize = 5;
+
+    const SIZE: usize = X64VsyscallMonkeypatch_bytes.len();
+}
+
+struct X64VsyscallMonkeypatch;
+
+const X64VsyscallMonkeypatch_bytes: [u8; 11] =
+    [0xb8, 0x0, 0x0, 0x0, 0x0, 0xf, 0x5, 0x90, 0x90, 0x90, 0xc3];

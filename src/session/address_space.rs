@@ -648,7 +648,7 @@ pub mod address_space {
         /// First mapped byte of the vdso.
         vdso_start_addr: Cell<RemotePtr<Void>>,
         /// The monkeypatcher that's handling this address space.
-        monkeypatch_state: Option<MonkeyPatcher>,
+        monkeypatch_state: Option<Rc<RefCell<MonkeyPatcher>>>,
         /// The watchpoints set for tasks in this VM.  Watchpoints are
         /// programmed per Task, but we track them per address space on
         /// behalf of debuggers that assume that model.
@@ -1710,8 +1710,8 @@ pub mod address_space {
             *self.child_mem_fd.borrow_mut() = fd;
         }
 
-        pub fn monkeypatcher(&self) -> Option<&MonkeyPatcher> {
-            self.monkeypatch_state.as_ref()
+        pub fn monkeypatcher(&self) -> Option<Rc<RefCell<MonkeyPatcher>>> {
+            self.monkeypatch_state.clone()
         }
 
         pub fn at_preload_init(&self, t: &mut dyn Task) {
@@ -2120,7 +2120,7 @@ pub mod address_space {
             exec_count: u32,
         ) -> AddressSpace {
             let patcher = if t.session().is_recording() {
-                Some(MonkeyPatcher::new())
+                Some(Rc::new(RefCell::new(MonkeyPatcher::new())))
             } else {
                 None
             };
@@ -2986,6 +2986,7 @@ pub mod address_space {
                 self.monkeypatch_state
                     .as_ref()
                     .unwrap()
+                    .borrow()
                     .patch_at_preload_init(t.as_record_task().unwrap());
             }
         }
