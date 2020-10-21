@@ -1202,6 +1202,7 @@ fn maybe_emulate_wait(
     _options: i32,
 ) -> bool {
     // @TODO PENDING
+    log!(LogWarn, "@TODO PENDING maybe_emulate_wait()");
     false
 }
 
@@ -1517,6 +1518,7 @@ pub fn rec_process_syscall(t: &mut RecordTask) {
     t.syscall_state = None;
 
     // @TODO PENDING
+    log!(LogWarn, "@TODO PENDING MonitoredSharedMemory::check_all(t)");
     // MonitoredSharedMemory::check_all(t);
 }
 
@@ -1949,11 +1951,13 @@ fn fake_gcrypt_file(_t: &mut RecordTask, _r: &mut Registers) {
 
 fn is_blacklisted_filename(_c_str: &OsStr) -> bool {
     // @TODO PENDING Return hardcoded resulf for now
+    log!(LogWarn, "@TODO PENDING is_blacklisted_filename()");
     false
 }
 
 fn is_gcrypt_deny_file(_c_str: &OsStr) -> bool {
     // @TODO PENDING Return hardcoded resulf for now
+    log!(LogWarn, "@TODO PENDING is_gcrypt_deny_file()");
     false
 }
 
@@ -2666,6 +2670,7 @@ fn init_scratch_memory(t: &mut RecordTask, maybe_addr_type: Option<ScratchAddrTy
 
 fn check_privileged_exe(_t: &mut RecordTask) {
     // @TODO PENDING!
+    log!(LogWarn, "@TODO PENDING check_privileged_exe()");
 }
 
 fn get_exe_entry(t: &mut RecordTask) -> RemotePtr<Void> {

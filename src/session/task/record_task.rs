@@ -1318,6 +1318,7 @@ impl RecordTask {
     /// when t's status changes due to a ptrace event.
     pub fn is_waiting_for_ptrace(&self, _t: &RecordTask) -> bool {
         // @TODO PENDING
+        log!(LogWarn, "@TODO PENDING is_waiting_for_ptrace()");
         false
     }
 

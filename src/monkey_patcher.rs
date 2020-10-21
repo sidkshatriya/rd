@@ -212,8 +212,6 @@ impl MonkeyPatcher {
             // there is a debuglink.  For example, on Fedora 26, the .symtab and
             // .strtab sections are stripped from the debuginfo file for
             // libpthread.so.
-            //
-            // @TODO Fail more elegantly??
             let elf_file = match Elf::parse(elf_map.map) {
                 Ok(elf_file) => elf_file,
                 Err(_) => return,
@@ -222,7 +220,7 @@ impl MonkeyPatcher {
             if elf_file.syms.len() == 0 {
                 log!(
                     LogWarn,
-                    "@TODO try to get symbols for patch_after_mmap() from debug"
+                    "@TODO PENDING try to get symbols for patch_after_mmap() from debug"
                 )
             }
             for sym in &elf_file.syms {
@@ -269,7 +267,7 @@ impl MonkeyPatcher {
                         || has_name(&elf_file.strtab, sym.st_name, "_dl_runtime_resolve_xsave")
                         || has_name(&elf_file.strtab, sym.st_name, "_dl_runtime_resolve_xsavec"))
                 {
-                    log!(LogWarn, "@TODO patch_dl_runtime_resolve()");
+                    log!(LogWarn, "@TODO PENDING patch_dl_runtime_resolve()");
                 }
             }
         }
@@ -331,6 +329,7 @@ fn setup_library_path_arch<Arch: Architecture>(
 
 fn setup_preload_library_path<Arch: Architecture>(_t: &RecordTask) {
     // @TODO PENDING
+    log!(LogWarn, "@TODO PENDING setup_preload_library_path()");
     // Skip for now
 }
 
@@ -453,7 +452,9 @@ fn erase_section<'a>(elf_file: &Elf<'a>, t: &mut RecordTask, section_name: &str)
             zeroes.resize(offsets.end - offsets.start, 0);
             write_and_record_bytes(t, t.vm().vdso().start() + offsets.start, &zeroes);
         }
-        None => (),
+        None => {
+            log!(LogDebug, "Could not find section {} to erase", section_name);
+        }
     }
 }
 
