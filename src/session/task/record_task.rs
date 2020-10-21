@@ -1591,9 +1591,10 @@ impl RecordTask {
                 );
             } else {
                 let is_sig_blocked = self.is_sig_blocked(sig);
-                ed_assert!(
+                ed_assert_eq!(
                     self,
-                    (blocked & mask != 0) == is_sig_blocked,
+                    blocked & mask != 0,
+                    is_sig_blocked,
                     "{} {}",
                     sig,
                     if blocked & mask != 0 {
@@ -1603,9 +1604,10 @@ impl RecordTask {
                     }
                 );
                 let disposition = self.sighandlers.borrow().get(sig).disposition();
-                ed_assert!(
+                ed_assert_eq!(
                     self,
-                    (ignored & mask != 0) == (disposition == SignalDisposition::SignalIgnore),
+                    ignored & mask != 0,
+                    disposition == SignalDisposition::SignalIgnore,
                     "{} {}",
                     sig,
                     if ignored & mask != 0 {
@@ -1614,9 +1616,10 @@ impl RecordTask {
                         " is not ignored"
                     }
                 );
-                ed_assert!(
+                ed_assert_eq!(
                     self,
-                    (caught & mask != 0) == (disposition == SignalDisposition::SignalHandler),
+                    caught & mask != 0,
+                    disposition == SignalDisposition::SignalHandler,
                     "{} {}",
                     sig,
                     if caught & mask != 0 {
