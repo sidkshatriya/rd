@@ -1591,6 +1591,9 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
         return;
     }
 
+    // Here we handle syscalls that need work that can only happen after the
+    // syscall completes --- and that our TaskSyscallState infrastructure can't
+    // handle.
     if sys == Arch::FORK || sys == Arch::VFORK || sys == Arch::CLONE {
         // On a 3.19.0-39-generic #44-Ubuntu kernel we have observed clone()
         // clearing the parity flag internally.
@@ -1600,9 +1603,6 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
         return;
     }
 
-    // Here we handle syscalls that need work that can only happen after the
-    // syscall completes --- and that our TaskSyscallState infrastructure can't
-    // handle.
     if sys == Arch::EXECVE {
         process_execve(t, syscall_state);
         if t.emulated_ptracer.is_some() {
