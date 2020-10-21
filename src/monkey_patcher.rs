@@ -1,7 +1,7 @@
 use crate::{
     arch::{Architecture, X64Arch},
     kernel_abi::SupportedArch,
-    log::LogDebug,
+    log::{LogDebug, LogWarn},
     preload_interface::syscall_patch_hook,
     remote_code_ptr::RemoteCodePtr,
     remote_ptr::{RemotePtr, Void},
@@ -10,7 +10,7 @@ use crate::{
         address_space::address_space,
         task::{record_task::RecordTask, task_inner::WriteFlags, Task},
     },
-    util::page_size,
+    util::{find, page_size},
 };
 use goblin::{
     elf::Elf,
@@ -26,6 +26,8 @@ use std::{
     ffi::OsStr,
     mem::size_of,
     ops::Range,
+    os::unix::ffi::OsStrExt,
+    path::Path,
     ptr,
     slice,
 };
@@ -359,28 +361,6 @@ fn obliterate_debug_info<'a>(elf_file: &Elf<'a>, t: &mut RecordTask) {
     erase_section(elf_file, t, ".note");
 }
 
-fn resolve_address(
-    _reader: &ElfReader,
-    _elf_addr: usize,
-    _map_start: RemotePtr<Void>,
-    _map_size: usize,
-    _map_offset_pages: usize,
-) -> RemotePtr<Void> {
-    unimplemented!()
-}
-
-fn set_and_record_bytes(
-    _t: &RecordTask,
-    _reader: &ElfReader,
-    _elf_addr: usize,
-    _bytes: &[u8],
-    _map_start: RemotePtr<Void>,
-    _map_size: usize,
-    _map_offset_pages: usize,
-) {
-    unimplemented!()
-}
-
 /// Patch _dl_runtime_resolve_(fxsave,xsave,xsavec) to clear "FDP Data Pointer"
 /// register so that CPU-specific behaviors involving that register don't leak
 /// into stack memory.
@@ -397,8 +377,21 @@ fn patch_dl_runtime_resolve(
     unimplemented!()
 }
 
-fn file_may_need_instrumentation(_map: &address_space::Mapping) -> bool {
-    unimplemented!()
+fn file_may_need_instrumentation(map: &address_space::Mapping) -> bool {
+    let file_path = Path::new(map.map.fsname());
+
+    match file_path.file_name() {
+        Some(file_name) => {
+            if find(file_name.as_bytes(), b"ld").is_some()
+                || find(file_name.as_bytes(), b"libpthread").is_some()
+            {
+                true
+            } else {
+                false
+            }
+        }
+        None => false,
+    }
 }
 
 struct NamedSyscall {
@@ -429,7 +422,8 @@ const SYSCALLS_TO_MONKEYPATCH: [NamedSyscall; 5] = [
     },
 ];
 
-fn addr_to_offset<'a>(elf_file: &Elf<'a>, addr: u64, offset: &mut u64) -> bool {
+/// @TODO Could offsets need a u64? rr uses a usize like here though
+fn addr_to_offset<'a>(elf_file: &Elf<'a>, addr: usize, offset: &mut usize) -> bool {
     for section in &elf_file.section_headers {
         // Skip the section if it either "occupies no space in the file" or
         // doesn't have a valid address because it does not "occupy memory
@@ -437,8 +431,10 @@ fn addr_to_offset<'a>(elf_file: &Elf<'a>, addr: u64, offset: &mut u64) -> bool {
         if section.sh_type == SHT_NOBITS || (section.sh_flags & SHF_ALLOC as u64 == 0) {
             continue;
         }
-        if addr >= section.sh_addr && addr - section.sh_addr < section.sh_size {
-            *offset = addr - section.sh_addr + section.sh_offset;
+        if addr >= (section.sh_addr as usize)
+            && addr - (section.sh_addr as usize) < (section.sh_size as usize)
+        {
+            *offset = addr - (section.sh_addr as usize) + (section.sh_offset as usize);
             return true;
         }
     }
@@ -492,14 +488,13 @@ fn patch_after_exec_arch_x64arch(t: &mut RecordTask, patcher: &mut MonkeyPatcher
             match elf_file.dynstrtab.get(s.st_name) {
                 Some(name_res) => match name_res {
                     Ok(name) if name == syscall.name => {
-                        let mut file_offset_64: u64 = 0;
-                        if !addr_to_offset(&elf_file, s.st_value, &mut file_offset_64) {
+                        let mut file_offset: usize = 0;
+                        if !addr_to_offset(&elf_file, s.st_value as usize, &mut file_offset) {
                             log!(LogDebug, "Can't convert address {} to offset", s.st_value);
 
                             continue;
                         }
-                        // Addr is a usize so we just just use that
-                        let file_offset = file_offset_64 as usize;
+
                         // Absolutely-addressed symbols in the VDSO claim to start here.
                         const VDSO_STATIC_BASE: usize = 0xffffffffff700000;
                         const VDSO_MAX_SIZE: usize = 0xffff;
@@ -647,5 +642,50 @@ impl Drop for ElfMap {
                 e
             ),
         }
+    }
+}
+
+fn resolve_address<'a>(
+    elf_file: &Elf<'a>,
+    elf_addr: usize,
+    map_start: RemotePtr<Void>,
+    map_size: usize,
+    map_offset_pages: usize,
+) -> RemotePtr<Void> {
+    let mut file_offset: usize = 0;
+    if !addr_to_offset(elf_file, elf_addr, &mut file_offset) {
+        log!(LogWarn, "ELF address {:#x} not in file", elf_addr);
+    }
+    let map_offset = map_offset_pages * page_size();
+    if file_offset < map_offset || file_offset + 32 > map_offset + map_size {
+        // The value(s) to be set are outside the mapped range. This happens
+        // because code and data can be mapped in separate, partial mmaps in which
+        // case some symbols will be outside the mapped range.
+        return RemotePtr::null();
+    }
+
+    map_start + file_offset - map_offset
+}
+
+fn set_and_record_bytes<'a>(
+    t: &mut RecordTask,
+    elf_file: &Elf<'a>,
+    elf_addr: usize,
+    bytes: &[u8],
+    map_start: RemotePtr<Void>,
+    map_size: usize,
+    map_offset_pages: usize,
+) {
+    let addr: RemotePtr<Void> =
+        resolve_address(elf_file, elf_addr, map_start, map_size, map_offset_pages);
+    if addr.is_null() {
+        return;
+    }
+    let mut ok = true;
+    t.write_bytes_helper(addr, bytes, Some(&mut ok), WriteFlags::empty());
+    // Writing can fail when the value appears to be in the mapped range, but it
+    // actually is beyond the file length.
+    if ok {
+        t.record_local(addr, bytes);
     }
 }
