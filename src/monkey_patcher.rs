@@ -15,10 +15,14 @@ use crate::{
 use goblin::{
     elf::Elf,
     elf64::section_header::{SHF_ALLOC, SHT_NOBITS},
+    strtab::Strtab,
 };
-use nix::sys::{
-    mman::{mmap, munmap, MapFlags, ProtFlags},
-    stat::fstat,
+use nix::{
+    fcntl::{readlink, OFlag},
+    sys::{
+        mman::{mmap, munmap, MapFlags, ProtFlags},
+        stat::fstat,
+    },
 };
 use std::{
     collections::{HashMap, HashSet},
@@ -59,6 +63,7 @@ pub struct MonkeyPatcher {
     tried_to_patch_syscall_addresses: HashSet<RemoteCodePtr>,
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum MmapMode {
     MmapExec,
     MmapSyscall,
@@ -169,19 +174,116 @@ impl MonkeyPatcher {
     /// patch libpthread.so.
     pub fn patch_after_mmap(
         &self,
-        _t: &RecordTask,
-        _start: RemotePtr<Void>,
-        _size: usize,
-        _offset_pages: usize,
-        _child_fd: i32,
-        _mode: MmapMode,
+        t: &mut RecordTask,
+        start: RemotePtr<Void>,
+        size: usize,
+        offset_pages: usize,
+        child_fd: i32,
+        mode: MmapMode,
     ) {
-        // @TODO PENDING
-        // Skip this for now
+        if file_may_need_instrumentation(&t.vm().mapping_of(start).unwrap())
+            && (t.arch() == SupportedArch::X86 || t.arch() == SupportedArch::X64)
+        {
+            let open_fd: ScopedFd;
+            if child_fd >= 0 {
+                open_fd = t.open_fd(child_fd, OFlag::O_RDONLY);
+                ed_assert!(t, open_fd.is_open(), "Failed to open child fd {}", child_fd);
+            } else {
+                let buf = format!(
+                    "/proc/{}/map_files/{:x}-{:x}",
+                    t.tid,
+                    start.as_usize(),
+                    start.as_usize() + size
+                );
+                // Reading these directly requires CAP_SYS_ADMIN, so open the link target
+                // instead.
+                match readlink(buf.as_str()) {
+                    Ok(link) => {
+                        open_fd = ScopedFd::open_path(link.as_os_str(), OFlag::O_RDONLY);
+                        if !open_fd.is_open() {
+                            return;
+                        }
+                    }
+                    Err(_) => return,
+                }
+            }
+            let elf_map = ElfMap::new(&open_fd);
+            // Check for symbols first in the library itself, regardless of whether
+            // there is a debuglink.  For example, on Fedora 26, the .symtab and
+            // .strtab sections are stripped from the debuginfo file for
+            // libpthread.so.
+            //
+            // @TODO Fail more elegantly??
+            let elf_file = match Elf::parse(elf_map.map) {
+                Ok(elf_file) => elf_file,
+                Err(_) => return,
+            };
+
+            if elf_file.syms.len() == 0 {
+                log!(
+                    LogWarn,
+                    "@TODO try to get symbols for patch_after_mmap() from debug"
+                )
+            }
+            for sym in &elf_file.syms {
+                if has_name(&elf_file.strtab, sym.st_name, "__elision_aconf") {
+                    log!(LogDebug, "Found __elision_conf for patching");
+                    const ZERO: i32 = 0;
+                    // Setting __elision_aconf.retry_try_xbegin to zero means that
+                    // pthread rwlocks don't try to use elision at all. See ELIDE_LOCK
+                    // in glibc's elide.h.
+                    set_and_record_bytes(
+                        t,
+                        &elf_file,
+                        sym.st_value as usize + 8,
+                        &ZERO.to_le_bytes(),
+                        start,
+                        size,
+                        offset_pages,
+                    );
+                }
+                if has_name(&elf_file.strtab, sym.st_name, "elision_init") {
+                    log!(LogDebug, "Found elision_init for patching");
+                    // Make elision_init return without doing anything. This means
+                    // the __elision_available and __pthread_force_elision flags will
+                    // remain zero, disabling elision for mutexes. See glibc's
+                    // elision-conf.c.
+                    const RET: [u8; 1] = [0xC3];
+                    set_and_record_bytes(
+                        t,
+                        &elf_file,
+                        sym.st_value as usize,
+                        &RET,
+                        start,
+                        size,
+                        offset_pages,
+                    );
+                }
+                // The following operations can only be applied once because after the
+                // patch is applied the code no longer matches the expected template.
+                // For replaying a replay to work, we need to only apply these changes
+                // during a real exec, not during the mmap operations performed when rr
+                // replays an exec.
+                if mode == MmapMode::MmapExec
+                    && (has_name(&elf_file.strtab, sym.st_name, "_dl_runtime_resolve_fxsave")
+                        || has_name(&elf_file.strtab, sym.st_name, "_dl_runtime_resolve_xsave")
+                        || has_name(&elf_file.strtab, sym.st_name, "_dl_runtime_resolve_xsavec"))
+                {
+                    log!(LogWarn, "@TODO patch_dl_runtime_resolve()");
+                }
+            }
+        }
     }
 
     pub fn is_jump_stub_instruction(_p: RemoteCodePtr) -> bool {
         unimplemented!()
+    }
+}
+
+fn has_name(tab: &Strtab, index: usize, name: &str) -> bool {
+    match tab.get(index) {
+        Some(Ok(found_name)) if found_name == name => true,
+        _ => false,
     }
 }
 
@@ -551,7 +653,7 @@ fn patch_after_exec_arch_x64arch(t: &mut RecordTask, patcher: &mut MonkeyPatcher
 
     obliterate_debug_info(&elf_file, t);
 
-    for (_, m) in &t.vm().maps() {
+    for (_, m) in &t.vm_shr_ptr().maps() {
         let km = &m.map;
         patcher.patch_after_mmap(
             t,
@@ -678,9 +780,12 @@ fn set_and_record_bytes<'a>(
 ) {
     let addr: RemotePtr<Void> =
         resolve_address(elf_file, elf_addr, map_start, map_size, map_offset_pages);
+
     if addr.is_null() {
         return;
     }
+
+    log!(LogDebug, "  resolved at address: {:#x}", addr.as_usize());
     let mut ok = true;
     t.write_bytes_helper(addr, bytes, Some(&mut ok), WriteFlags::empty());
     // Writing can fail when the value appears to be in the mapped range, but it
