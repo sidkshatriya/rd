@@ -5,6 +5,7 @@ use crate::{
     preload_interface::syscall_patch_hook,
     remote_code_ptr::RemoteCodePtr,
     remote_ptr::{RemotePtr, Void},
+    scoped_fd::ScopedFd,
     session::{
         address_space::address_space,
         task::{record_task::RecordTask, task_inner::WriteFlags, Task},
@@ -15,12 +16,18 @@ use goblin::{
     elf::Elf,
     elf64::section_header::{SHF_ALLOC, SHT_NOBITS},
 };
+use nix::sys::{
+    mman::{mmap, munmap, MapFlags, ProtFlags},
+    stat::fstat,
+};
 use std::{
     collections::{HashMap, HashSet},
     convert::TryInto,
     ffi::OsStr,
     mem::size_of,
     ops::Range,
+    ptr,
+    slice,
 };
 
 const MAX_VDSO_SIZE: usize = 16384;
@@ -593,3 +600,52 @@ struct X64VsyscallMonkeypatch;
 
 const X64_VSYSCALL_MONKEYPATCH_BYTES: [u8; 11] =
     [0xb8, 0x0, 0x0, 0x0, 0x0, 0xf, 0x5, 0x90, 0x90, 0x90, 0xc3];
+
+struct ElfMap {
+    map: &'static mut [u8],
+}
+
+impl ElfMap {
+    fn new(fd: &ScopedFd) -> ElfMap {
+        let st = match fstat(fd.as_raw()) {
+            Err(e) => fatal!("Can't stat fd {}: {:?}", fd.as_raw(), e),
+            Ok(st) => st,
+        };
+
+        assert!(st.st_size > 0);
+
+        let map_res = unsafe {
+            mmap(
+                ptr::null_mut(),
+                st.st_size as usize,
+                ProtFlags::PROT_READ,
+                MapFlags::MAP_PRIVATE,
+                fd.as_raw(),
+                0,
+            )
+        };
+
+        match map_res {
+            Err(e) => {
+                fatal!("Can't map fd {}: {:?}", fd.as_raw(), e);
+            }
+            Ok(addr) => ElfMap {
+                map: unsafe { slice::from_raw_parts_mut(addr as *mut u8, st.st_size as usize) },
+            },
+        }
+    }
+}
+
+impl Drop for ElfMap {
+    fn drop(&mut self) {
+        match unsafe { munmap(self.map.as_mut_ptr() as *mut _, self.map.len()) } {
+            Ok(_) => (),
+            Err(e) => fatal!(
+                "Could not munmap Elfmap at {:?} (len: {}): {:?}",
+                self.map.as_ptr(),
+                self.map.len(),
+                e
+            ),
+        }
+    }
+}
