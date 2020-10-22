@@ -551,7 +551,7 @@ impl Scheduler {
         match self.current() {
             Some(curr) if !Rc::ptr_eq(&curr, &nt) => log!(
                 LogDebug,
-                "Switching from {}({:?}) to {}({:?}) (priority {} to {}) at {}",
+                "Switching from {} ({:?}) to {} ({:?}) (priority {} to {}) at {}",
                 curr.borrow().tid,
                 curr.borrow().name(),
                 nt.borrow().tid,

@@ -9,6 +9,7 @@ use super::{
         post_exec_for_exe,
         post_exec_syscall,
         post_vm_clone_common,
+        post_wait_clone_common,
         read_val_mem,
         reset_syscallbuf,
         set_syscallbuf_locked,
@@ -425,6 +426,10 @@ impl DerefMut for ReplayTask {
 }
 
 impl Task for ReplayTask {
+    fn post_wait_clone(&mut self, clone_from: &dyn Task, flags: CloneFlags) {
+        post_wait_clone_common(self, clone_from, flags)
+    }
+
     /// Forwarded method
     fn destroy(&mut self, maybe_detach: Option<bool>) {
         destroy(self, maybe_detach)

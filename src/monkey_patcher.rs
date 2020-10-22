@@ -225,7 +225,10 @@ impl MonkeyPatcher {
             }
             for sym in &elf_file.syms {
                 if has_name(&elf_file.strtab, sym.st_name, "__elision_aconf") {
-                    log!(LogDebug, "Found __elision_conf for patching");
+                    log!(
+                        LogDebug,
+                        "Found __elision_conf for possible patching in memory"
+                    );
                     const ZERO: i32 = 0;
                     // Setting __elision_aconf.retry_try_xbegin to zero means that
                     // pthread rwlocks don't try to use elision at all. See ELIDE_LOCK
@@ -241,7 +244,10 @@ impl MonkeyPatcher {
                     );
                 }
                 if has_name(&elf_file.strtab, sym.st_name, "elision_init") {
-                    log!(LogDebug, "Found elision_init for patching");
+                    log!(
+                        LogDebug,
+                        "Found elision_init for possible patching in memory"
+                    );
                     // Make elision_init return without doing anything. This means
                     // the __elision_available and __pthread_force_elision flags will
                     // remain zero, disabling elision for mutexes. See glibc's
@@ -786,7 +792,11 @@ fn set_and_record_bytes<'a>(
         return;
     }
 
-    log!(LogDebug, "  resolved at address: {:#x}", addr.as_usize());
+    log!(
+        LogDebug,
+        "  resolved at address: {:#x}. Will be patched.",
+        addr.as_usize()
+    );
     let mut ok = true;
     t.write_bytes_helper(addr, bytes, Some(&mut ok), WriteFlags::empty());
     // Writing can fail when the value appears to be in the mapped range, but it

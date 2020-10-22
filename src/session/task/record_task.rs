@@ -4,6 +4,7 @@ use super::{
         at_preload_init_common,
         destroy,
         post_vm_clone_common,
+        post_wait_clone_common,
         read_mem,
         read_val_mem,
         reset_syscallbuf,
@@ -568,6 +569,30 @@ impl DerefMut for RecordTask {
 }
 
 impl Task for RecordTask {
+    fn own_namespace_tid(&self) -> pid_t {
+        self.own_namespace_rec_tid
+    }
+
+    fn post_wait_clone(&mut self, clone_from: &dyn Task, flags: CloneFlags) {
+        post_wait_clone_common(self, clone_from, flags);
+
+        let rt = clone_from.as_rec_unwrap();
+        self.priority = rt.priority;
+        self.syscallbuf_code_layout = rt.syscallbuf_code_layout.clone();
+        self.prctl_seccomp_status = rt.prctl_seccomp_status;
+        self.robust_futex_list = rt.robust_futex_list;
+        self.robust_futex_list_len = rt.robust_futex_list_len;
+        self.tsc_mode = rt.tsc_mode;
+        self.cpuid_mode = rt.cpuid_mode;
+        if flags.contains(CloneFlags::CLONE_SHARE_SIGHANDLERS) {
+            self.sighandlers = rt.sighandlers.clone();
+        } else {
+            self.sighandlers = Rc::new(RefCell::new(rt.sighandlers.borrow().clone()));
+        }
+
+        self.update_own_namespace_tid();
+    }
+
     fn will_resume_execution(
         &mut self,
         _resume_req: ResumeRequest,

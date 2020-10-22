@@ -648,6 +648,7 @@ pub mod address_space {
         /// First mapped byte of the vdso.
         vdso_start_addr: Cell<RemotePtr<Void>>,
         /// The monkeypatcher that's handling this address space.
+        /// @TODO Try avoiding the Rc??
         monkeypatch_state: Option<Rc<RefCell<MonkeyPatcher>>>,
         /// The watchpoints set for tasks in this VM.  Watchpoints are
         /// programmed per Task, but we track them per address space on

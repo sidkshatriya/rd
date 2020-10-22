@@ -104,9 +104,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
     /// DIFF NOTE: @TODO method is protected in rr
     ///
     /// Internal method called after the first wait() during a clone().
-    fn post_wait_clone(&self, _t: &dyn Task, _flags: CloneFlags) {
-        // Do nothing by default. Can be overridden in trait impl-s.
-    }
+    fn post_wait_clone(&mut self, clone_from: &dyn Task, flags: CloneFlags);
 
     /// DIFF NOTE: @TODO method is protected in rr
     ///
@@ -183,7 +181,8 @@ pub trait Task: DerefMut<Target = TaskInner> {
         _ticks_req: TicksRequest,
         _sig: Option<Sig>,
     ) {
-        // Do nothing by default. Trait impl-s can override.
+        // Do nothing by default.
+        // Trait impl-s can override. See for example RecordTask::will_resume_execution()
     }
 
     /// Hook called by `did_waitpid`.

@@ -2554,3 +2554,14 @@ pub(super) fn destroy<T: Task>(t: &mut T, maybe_detach: Option<bool>) {
     // Removing the entry from the HashMap causes the drop() to happen
     t.session().tasks_mut().remove(&t.rec_tid);
 }
+
+/// Forwarded method definition
+///
+/// Currently does nothing
+pub(super) fn post_wait_clone_common<T: Task>(
+    _clone_to: &mut T,
+    _clone_from: &dyn Task,
+    _flags: CloneFlags,
+) {
+    // Do nothing
+}
