@@ -3279,7 +3279,7 @@ impl TaskSyscallState {
     /// made.
     ///
     /// DIFF NOTE: Takes t as param
-    fn abort_syscall_results(&mut self, t: &mut RecordTask) {
+    pub fn abort_syscall_results(&mut self, t: &mut RecordTask) {
         assert!(self.tuid == t.tuid());
         ed_assert!(t, self.preparation_done);
 

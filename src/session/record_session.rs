@@ -3021,8 +3021,14 @@ fn note_entering_syscall(t: &mut RecordTask) {
     }
 }
 
-fn rec_abort_prepared_syscall(_t: &mut RecordTask) {
-    unimplemented!()
+fn rec_abort_prepared_syscall(t: &mut RecordTask) {
+    match t.syscall_state.clone() {
+        Some(state) => {
+            state.borrow_mut().abort_syscall_results(t);
+            t.syscall_state = None;
+        }
+        None => (),
+    }
 }
 
 /// Return true if we handle a ptrace exit event for task t. When this returns
