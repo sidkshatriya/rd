@@ -70,26 +70,38 @@ impl FileMonitor for ProcMemMonitor {
         if self.maybe_tuid.is_none() {
             return;
         }
+
+        let tuid = self.maybe_tuid.unwrap();
         if lazy_offset.t.session().is_replaying() || ranges.is_empty() {
             return;
         }
 
-        let session_rc = lazy_offset.t.session();
-
-        let maybe_target = session_rc.find_task_from_task_uid(self.maybe_tuid.unwrap());
-
-        match maybe_target {
-            None => return,
-            Some(target) => {
-                let mut t = target.borrow_mut();
-                let record_task = t.as_record_task_mut().unwrap();
-                let mut offset = lazy_offset.retrieve(false).unwrap();
-                for r in ranges {
-                    record_task.record_remote(
-                        RemotePtr::new_from_val(offset.try_into().unwrap()),
-                        r.length,
-                    );
-                    offset += r.length as u64;
+        if lazy_offset.t.tuid() == tuid {
+            let mut offset = lazy_offset.retrieve(false).unwrap();
+            let record_task = lazy_offset.t.as_record_task_mut().unwrap();
+            for r in ranges {
+                record_task.record_remote(
+                    RemotePtr::new_from_val(offset.try_into().unwrap()),
+                    r.length,
+                );
+                offset += r.length as u64;
+            }
+        } else {
+            let session_rc = lazy_offset.t.session();
+            let maybe_target = session_rc.find_task_from_task_uid(tuid);
+            match maybe_target {
+                None => return,
+                Some(target) => {
+                    let mut t = target.borrow_mut();
+                    let record_task = t.as_record_task_mut().unwrap();
+                    let mut offset = lazy_offset.retrieve(false).unwrap();
+                    for r in ranges {
+                        record_task.record_remote(
+                            RemotePtr::new_from_val(offset.try_into().unwrap()),
+                            r.length,
+                        );
+                        offset += r.length as u64;
+                    }
                 }
             }
         }
