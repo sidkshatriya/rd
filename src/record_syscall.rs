@@ -1448,6 +1448,11 @@ fn do_ptrace_exit_stop(t: &mut RecordTask) {
 }
 
 pub fn rec_prepare_restart_syscall(t: &mut RecordTask) {
+    rec_prepare_restart_syscall_internal(t);
+    t.syscall_state = None;
+}
+
+pub fn rec_prepare_restart_syscall_internal(t: &mut RecordTask) {
     let arch = t.arch();
     rd_arch_function_selfless!(rec_prepare_restart_syscall_arch, arch, t);
 }

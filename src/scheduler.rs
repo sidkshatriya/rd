@@ -291,9 +291,6 @@ impl Scheduler {
         log!(LogDebug, "Scheduling next task");
 
         *self.must_run_task.borrow_mut() = None;
-
-        // @TODO Enable poll is always false.
-        // What's the point in the if self.enable_poll { ... } code below then?
         self.enable_poll.set(false);
 
         let mut now = monotonic_now_sec();
