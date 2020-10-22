@@ -384,9 +384,7 @@ impl Drop for ReplaySession {
         // resources.
         self.kill_all_tasks();
         // Drop any AddressSpace
-        {
-            self.syscall_bp_vm.borrow_mut().take();
-        }
+        *self.syscall_bp_vm.borrow_mut() = None;
         debug_assert!(self.task_map.borrow().is_empty());
         debug_assert!(self.vm_map.borrow().is_empty());
         debug_assert_eq!(self.emufs().size(), 0);
@@ -1974,8 +1972,8 @@ impl ReplaySession {
                 active_task,
             )
         });
+        *maybe_bp_vm = None;
         self.syscall_bp_addr.set(RemoteCodePtr::null());
-        maybe_bp_vm.take();
     }
 }
 
