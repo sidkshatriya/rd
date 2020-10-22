@@ -144,18 +144,34 @@ impl FileMonitor for MmappedFileMonitor {
                             // wrong.
                             // Make sure we use a task for this address space. `t` might have
                             // a different address space.
-                            for t_rc in v.task_set().iter() {
-                                // If the task here has execed, we may not be able to record its
-                                // memory any longer, so loop through all tasks in this address
-                                // space in turn in case any *didn't* exec.
-                                let mut rt_ref = t_rc.borrow_mut();
-                                let result = rt_ref
+                            let mut done = false;
+                            if v.uid() == offset.t.vm().uid() {
+                                let result = offset
+                                    .t
                                     .as_record_task_mut()
                                     .unwrap()
                                     .record_remote_range_fallible(km.intersect(&mr));
                                 if let Ok(nread) = result {
                                     if nread > 0 {
-                                        break;
+                                        done = true;
+                                    }
+                                }
+                            }
+
+                            if !done {
+                                for t_rc in v.task_set().iter_except(offset.t.weak_self_ptr()) {
+                                    // If the task here has execed, we may not be able to record its
+                                    // memory any longer, so loop through all tasks in this address
+                                    // space in turn in case any *didn't* exec.
+                                    let mut rt_ref = t_rc.borrow_mut();
+                                    let result = rt_ref
+                                        .as_record_task_mut()
+                                        .unwrap()
+                                        .record_remote_range_fallible(km.intersect(&mr));
+                                    if let Ok(nread) = result {
+                                        if nread > 0 {
+                                            break;
+                                        }
                                     }
                                 }
                             }
