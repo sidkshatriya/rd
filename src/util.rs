@@ -1758,6 +1758,7 @@ pub fn get_fd_offset(tid: pid_t, fd: i32) -> u64 {
         let s = buf.trim();
         let maybe_loc = s.find("pos:\t");
         if maybe_loc.is_none() {
+            buf.clear();
             continue;
         }
         // 5 is length of str "pos:\t"
@@ -1768,11 +1769,13 @@ pub fn get_fd_offset(tid: pid_t, fd: i32) -> u64 {
         match maybe_res {
             Ok(res) => maybe_offset = Some(res),
             Err(e) => fatal!(
-                "Unable to parse file offset from `{}': {:?}",
+                "Unable to parse file offset from `{}'. String was '{}': {:?}",
                 fdinfo_path,
+                s,
                 e
             ),
         }
+        buf.clear();
     }
 
     match maybe_offset {
