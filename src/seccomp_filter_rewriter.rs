@@ -10,8 +10,9 @@ use crate::{
         SECCOMP_RET_DATA,
         SECCOMP_RET_TRACE,
     },
+    log::LogDebug,
     registers::Registers,
-    remote_ptr::{RemotePtr, Void},
+    remote_ptr::RemotePtr,
     seccomp_bpf::SeccompFilter,
     session::{
         address_space::{address_space::AddressSpace, Privileged},
@@ -21,7 +22,7 @@ use crate::{
         },
     },
 };
-use std::{collections::HashMap, convert::TryInto, mem::size_of, slice};
+use std::{collections::HashMap, convert::TryInto, mem::size_of};
 
 /// When seccomp decides not to execute a syscall the kernel returns to userspace
 /// without modifying the registers. There is no negative return value to
@@ -134,7 +135,7 @@ fn install_patched_seccomp_filter_arch<Arch: Architecture>(
         pass_through_seccomp_filter(t);
         return;
     }
-    // Convert all returns to TRACE returns so that rr can handle them.
+    // Convert all returns to TRACE returns so that rd can handle them.
     // See handle_ptrace_event in RecordSession.
     for u in &mut code {
         if BPF_CLASS(u.code) == BPF_RET {
@@ -180,21 +181,16 @@ fn install_patched_seccomp_filter_arch<Arch: Architecture>(
             None,
             size_of::<sock_fprog<Arch>>() + f.filters.len() * size_of::<sock_filter>(),
         );
-        let code_ptr: RemotePtr<Void> = mem.get().unwrap();
+        let code_ptr: RemotePtr<sock_filter> = RemotePtr::cast(mem.get().unwrap());
 
-        let data = unsafe {
-            slice::from_raw_parts(
-                f.filters.as_ptr() as *const u8,
-                f.filters.len() * size_of::<sock_filter>(),
-            )
-        };
-        write_mem(mem.task_mut(), RemotePtr::<u8>::cast(code_ptr), data, None);
+        write_mem(mem.task_mut(), code_ptr, &f.filters, None);
 
         prog.len = f.filters.len().try_into().unwrap();
-        prog.filter = Arch::from_remote_ptr(RemotePtr::cast(code_ptr));
+        prog.filter = Arch::from_remote_ptr(code_ptr);
         let prog_ptr = RemotePtr::<sock_fprog<Arch>>::cast(code_ptr + f.filters.len());
         write_val_mem(mem.task_mut(), prog_ptr, &prog, None);
 
+        log!(LogDebug, "About to install seccomp filter");
         ret = mem.syscall(orig_syscallno, &[arg1, arg2, prog_ptr.as_usize()]);
     }
 
