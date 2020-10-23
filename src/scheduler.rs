@@ -640,11 +640,18 @@ impl Scheduler {
 
         let in_rrq = t.in_round_robin_queue;
         if in_rrq {
+            let mut maybe_remove = None;
             for (i, it) in self.task_round_robin_queue.borrow().iter().enumerate() {
                 if it.ptr_eq(&weak) {
-                    self.task_round_robin_queue.borrow_mut().remove(i);
+                    maybe_remove = Some(i);
                     break;
                 }
+            }
+            match maybe_remove {
+                Some(i) => {
+                    self.task_round_robin_queue.borrow_mut().remove(i);
+                }
+                None => (),
             }
         } else {
             self.task_priority_set.borrow_mut().remove(&PriorityTup(
