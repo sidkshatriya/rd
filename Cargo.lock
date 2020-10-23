@@ -118,9 +118,9 @@ dependencies = [
 
 [[package]]
 name = "capnp"
-version = "0.13.5"
+version = "0.13.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "394f9ad87764d43d41c8d3ea270fd03def2f455011f3ada86c9f01d88592105d"
+checksum = "4e76a319e55a4ef27c8c383215fa3160167bd8a883e8d27c0ecd57ed81bca2af"
 
 [[package]]
 name = "capnpc"
@@ -311,11 +311,11 @@ checksum = "2448f6066e80e3bfc792e9c98bf705b4b0fc6e8ef5b43e5889aff0eaa9c58743"
 
 [[package]]
 name = "libloading"
-version = "0.6.4"
+version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3557c9384f7f757f6d139cd3a4c62ef4e850696c16bf27924a5538c8a09717a1"
+checksum = "1090080fe06ec2648d0da3881d9453d97e71a45f00eb179af7fdd7e3f686fdb0"
 dependencies = [
- "cfg-if 0.1.10",
+ "cfg-if 1.0.0",
  "winapi",
 ]
 
@@ -593,9 +593,9 @@ dependencies = [
 
 [[package]]
 name = "scroll_derive"
-version = "0.10.3"
+version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6dfde5d1531034db129e95c76ac857e2baecea3443579d493d02224950b0fb6d"
+checksum = "b12bd20b94c7cdfda8c7ba9b92ad0d9a56e3fa018c25fca83b51aa664c9b4c0d"
 dependencies = [
  "proc-macro2",
  "quote",
