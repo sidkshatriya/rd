@@ -1024,7 +1024,14 @@ pub mod address_space {
 
         /// If the given memory region is mapped into the local address space, obtain
         /// the local address from which the `size` bytes at `addr` can be accessed.
-        pub fn local_mapping_mut(&self, addr: RemotePtr<Void>, size: usize) -> Option<&mut [u8]> {
+        ///
+        /// NOTE: The return is a static lifetime as we can always construct an arbitrary slice
+        /// from raw parts if we just had local_addr
+        pub fn local_mapping_mut(
+            &self,
+            addr: RemotePtr<Void>,
+            size: usize,
+        ) -> Option<&'static mut [u8]> {
             let maybe_map = self.mapping_of(addr);
             if let Some(found_map) = maybe_map {
                 // Fall back to the slow path if we can't get the entire region
@@ -1048,7 +1055,7 @@ pub mod address_space {
 
         /// If the given memory region is mapped into the local address space, obtain
         /// the local address from which the `size` bytes at `addr` can be accessed.
-        pub fn local_mapping(&self, addr: RemotePtr<Void>, size: usize) -> Option<&[u8]> {
+        pub fn local_mapping(&self, addr: RemotePtr<Void>, size: usize) -> Option<&'static [u8]> {
             self.local_mapping_mut(addr, size).map(|data| &*data)
         }
 

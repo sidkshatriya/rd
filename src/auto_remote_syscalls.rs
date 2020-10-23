@@ -1194,7 +1194,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         // segment as it's scratch space, reevaluate that choice
         let mut remote2 = AutoRemoteSyscalls::new(self.task_mut());
 
-        let new_m = remote2.steal_mapping(&m, None);
+        let new_m = remote2.steal_mapping(m, None);
 
         // And copy over the contents. Since we can't just call memcpy in the
         // inferior, just copy directly from the remote private into the local
@@ -1295,7 +1295,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
     /// If None is provided for `monitored` it is assumed that there is no memory monitor.
     pub fn steal_mapping(
         &mut self,
-        m: &Mapping,
+        m: Mapping,
         monitored: Option<MonitoredSharedMemorySharedPtr>,
     ) -> Mapping {
         // We will include the name of the full path of the original mapping in the

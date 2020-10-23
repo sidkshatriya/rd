@@ -1522,9 +1522,7 @@ pub fn rec_process_syscall(t: &mut RecordTask) {
     t.on_syscall_exit(sys_ev_number, sys_ev_arch, &regs);
     t.syscall_state = None;
 
-    // @TODO PENDING
-    log!(LogWarn, "@TODO PENDING MonitoredSharedMemory::check_all(t)");
-    // MonitoredSharedMemory::check_all(t);
+    MonitoredSharedMemory::check_all(t);
 }
 
 /// N.B.: `arch` is the the architecture of the syscall, which may be different
@@ -2286,7 +2284,8 @@ fn process_mmap(
         && flags.contains(MapFlags::MAP_SHARED)
         && !effectively_anonymous
     {
-        unimplemented!()
+        let m = t.vm().mapping_of(addr).unwrap().clone();
+        MonitoredSharedMemory::maybe_monitor(t, file_name.as_os_str(), m, fd, offset);
     }
 }
 
