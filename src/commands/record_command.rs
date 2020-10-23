@@ -39,7 +39,7 @@ use std::{
 pub struct RecordCommand {
     pub extra_env: Vec<(OsString, OsString)>,
 
-    /// Max counter value before the scheduler interrupts a tracee. */
+    /// Max counter value before the scheduler interrupts a tracee.
     pub max_ticks: Ticks,
 
     /// Whenever `ignore_sig` is pending for a tracee, decline to deliver it.

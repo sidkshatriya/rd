@@ -824,7 +824,7 @@ impl Scheduler {
     fn get_round_robin_task(&self) -> Option<TaskSharedPtr> {
         self.task_round_robin_queue
             .borrow_mut()
-            .pop_front()
+            .front()
             .map(|w| w.upgrade().unwrap())
     }
 
