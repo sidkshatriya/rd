@@ -931,7 +931,7 @@ pub type SyscallStateSharedPtr = Rc<RefCell<TaskSyscallState>>;
 
 impl RecordTask {
     pub fn syscall_state_unwrap(&self) -> SyscallStateSharedPtr {
-        self.syscall_state.as_ref().unwrap().clone()
+        self.syscall_state.clone().unwrap()
     }
 
     /// Every Task owned by a RecordSession is a RecordTask. Functionality that

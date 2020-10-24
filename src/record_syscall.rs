@@ -305,6 +305,8 @@ pub fn rec_prepare_syscall(t: &mut RecordTask) -> Switchable {
         let mut new_ts = TaskSyscallState::new(t.tuid());
         new_ts.init(t);
         t.syscall_state = Some(Rc::new(RefCell::new(new_ts)));
+    } else {
+        t.syscall_state_unwrap().borrow_mut().init(t);
     }
 
     let s = rec_prepare_syscall_internal(t);
