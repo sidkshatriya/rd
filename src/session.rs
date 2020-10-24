@@ -27,7 +27,7 @@ use std::{
     rc::{Rc, Weak},
 };
 use task::task_inner::CloneReason;
-use task_common::{clone_task_common, copy_state};
+use task_common::copy_state;
 
 pub mod address_space;
 pub mod diversion_session;
@@ -194,8 +194,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
         new_rec_tid: Option<pid_t>,
     ) -> TaskSharedPtr {
         self.assert_fully_initialized();
-        let c = clone_task_common(
-            p,
+        let c = p.clone_task(
             CloneReason::TraceeClone,
             flags,
             stack,

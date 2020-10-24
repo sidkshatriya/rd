@@ -2,6 +2,7 @@ use super::{
     task_common::{
         self,
         at_preload_init_common,
+        clone_task_common,
         destroy,
         post_vm_clone_common,
         post_wait_clone_common,
@@ -13,6 +14,7 @@ use super::{
         write_val_mem,
     },
     task_inner::PtraceData,
+    TaskSharedPtr,
     TaskSharedWeakPtr,
 };
 use crate::{
@@ -569,6 +571,47 @@ impl DerefMut for RecordTask {
 }
 
 impl Task for RecordTask {
+    fn clone_task(
+        &mut self,
+        reason: CloneReason,
+        flags: CloneFlags,
+        stack: RemotePtr<Void>,
+        tls: RemotePtr<Void>,
+        cleartid_addr: RemotePtr<i32>,
+        new_tid: pid_t,
+        new_rec_tid: Option<pid_t>,
+        new_serial: u32,
+        maybe_other_session: Option<SessionSharedPtr>,
+    ) -> TaskSharedPtr {
+        ed_assert_eq!(self, reason, CloneReason::TraceeClone);
+        let t = clone_task_common(
+            self,
+            reason,
+            flags,
+            stack,
+            tls,
+            cleartid_addr,
+            new_tid,
+            new_rec_tid,
+            new_serial,
+            maybe_other_session,
+        );
+        if t.borrow().session().is_recording() {
+            if flags.contains(CloneFlags::CLONE_CLEARTID) {
+                log!(
+                    LogDebug,
+                    "cleartid futex is {:#x}",
+                    cleartid_addr.as_usize()
+                );
+                ed_assert!(self, !cleartid_addr.is_null());
+                t.borrow_mut().as_rec_mut_unwrap().tid_futex = cleartid_addr;
+            } else {
+                log!(LogDebug, "(clone child not enabling CLEARTID)");
+            }
+        }
+        t
+    }
+
     fn own_namespace_tid(&self) -> pid_t {
         self.own_namespace_rec_tid
     }

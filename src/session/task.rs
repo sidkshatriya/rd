@@ -45,6 +45,8 @@ use std::{
 };
 use task_inner::TrapReasons;
 
+use super::SessionSharedPtr;
+
 pub mod record_task;
 pub mod replay_task;
 pub mod task_common;
@@ -65,6 +67,28 @@ impl Debug for &dyn Task {
 }
 
 pub trait Task: DerefMut<Target = TaskInner> {
+    /// Return a new Task cloned from `clone_this`. `flags` are a set of
+    /// CloneFlags (see above) that determine which resources are
+    /// shared or copied to the new child.  `new_tid` is the tid
+    /// assigned to the new task by the kernel.  `new_rec_tid` is
+    /// only relevant to replay, and is the pid that was assigned
+    /// to the task during recording.
+    ///
+    /// NOTE: - Called simply Task::clone() in rr
+    ///       - Sets the weak_self pointer for the task
+    fn clone_task(
+        &mut self,
+        reason: CloneReason,
+        flags: CloneFlags,
+        stack: RemotePtr<Void>,
+        tls: RemotePtr<Void>,
+        _cleartid_addr: RemotePtr<i32>,
+        new_tid: pid_t,
+        new_rec_tid: Option<pid_t>,
+        new_serial: u32,
+        maybe_other_session: Option<SessionSharedPtr>,
+    ) -> TaskSharedPtr;
+
     /// Lock or unlock the syscallbuf to prevent the preload library from using it.
     /// Only has an effect if the syscallbuf has been initialized.
     fn set_syscallbuf_locked(&mut self, locked: bool);

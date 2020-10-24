@@ -1614,15 +1614,6 @@ fn do_preload_init<T: Task>(t: &mut T) {
     rd_arch_task_function_selfless!(T, do_preload_init_arch, t.arch(), t);
 }
 
-/// Return a new Task cloned from `clone_this`. `flags` are a set of
-/// CloneFlags (see above) that determine which resources are
-/// shared or copied to the new child.  `new_tid` is the tid
-/// assigned to the new task by the kernel.  `new_rec_tid` is
-/// only relevant to replay, and is the pid that was assigned
-/// to the task during recording.
-///
-/// NOTE: - Called simply Task::clone() in rr
-///       - Sets the weak_self pointer for the task
 pub(in super::super) fn clone_task_common(
     clone_this: &mut dyn Task,
     reason: CloneReason,
@@ -2470,8 +2461,7 @@ fn os_clone(
 
     // This should have been set in the remote clone syscall made in perform_remote_clone()
     let new_tid = remote.new_tid().unwrap();
-    let child = clone_task_common(
-        remote.task_mut(),
+    let child = remote.task_mut().clone_task(
         reason,
         clone_flags_to_task_flags(base_flags),
         stack,

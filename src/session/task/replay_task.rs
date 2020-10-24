@@ -1,6 +1,7 @@
 use super::{
     task_common::{
         at_preload_init_common,
+        clone_task_common,
         compute_trap_reasons,
         destroy,
         destroy_buffers,
@@ -16,6 +17,7 @@ use super::{
         task_drop_common,
     },
     task_inner::{CloneFlags, CloneReason, TrapReasons},
+    TaskSharedPtr,
 };
 use crate::{
     arch::Architecture,
@@ -426,6 +428,32 @@ impl DerefMut for ReplayTask {
 }
 
 impl Task for ReplayTask {
+    fn clone_task(
+        &mut self,
+        reason: CloneReason,
+        flags: CloneFlags,
+        stack: RemotePtr<Void>,
+        tls: RemotePtr<Void>,
+        cleartid_addr: RemotePtr<i32>,
+        new_tid: pid_t,
+        new_rec_tid: Option<pid_t>,
+        new_serial: u32,
+        maybe_other_session: Option<SessionSharedPtr>,
+    ) -> TaskSharedPtr {
+        clone_task_common(
+            self,
+            reason,
+            flags,
+            stack,
+            tls,
+            cleartid_addr,
+            new_tid,
+            new_rec_tid,
+            new_serial,
+            maybe_other_session,
+        )
+    }
+
     fn post_wait_clone(&mut self, clone_from: &dyn Task, flags: CloneFlags) {
         post_wait_clone_common(self, clone_from, flags)
     }
