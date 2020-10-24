@@ -1129,15 +1129,13 @@ fn extract_clone_parameters_arch<Arch: Architecture>(regs: &Registers) -> CloneP
     let flags: i32 = regs.arg1() as i32;
     // If these flags aren't set, the corresponding clone parameters may be
     // invalid pointers, so make sure they're ignored.
-    if !(flags & CLONE_PARENT_SETTID == CLONE_PARENT_SETTID) {
+    if flags & CLONE_PARENT_SETTID == 0 {
         result.ptid = RemotePtr::null();
     }
-    if !(flags & (CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID)
-        == (CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID))
-    {
+    if flags & (CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID) == 0 {
         result.ctid = RemotePtr::null();
     }
-    if !(flags & CLONE_SETTLS == CLONE_SETTLS) {
+    if flags & CLONE_SETTLS == 0 {
         result.tls = RemotePtr::null();
     }
     result
