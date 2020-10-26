@@ -171,7 +171,7 @@ use crate::{
         address_space::{address_space::AddressSpace, kernel_mapping::KernelMapping},
         session_inner::SessionInner,
         task::{
-            record_task::{RecordTask, WaitType},
+            record_task::{EmulatedStopType, RecordTask, WaitType},
             task_common::{read_mem, read_val_mem, write_mem, write_val_mem},
             task_inner::{ResumeRequest, TicksRequest, WaitRequest, WriteFlags},
             Task,
@@ -266,6 +266,7 @@ use libc::{
     STDOUT_FILENO,
     S_IWUSR,
     WNOHANG,
+    WUNTRACED,
 };
 use nix::{
     fcntl::{open, OFlag},
@@ -1199,12 +1200,34 @@ fn is_blacklisted_memfd(name: &CStr) -> bool {
 }
 
 fn maybe_emulate_wait(
-    _t: &mut RecordTask,
-    _syscall_state: &mut TaskSyscallState,
-    _options: i32,
+    t: &mut RecordTask,
+    syscall_state: &mut TaskSyscallState,
+    options: i32,
 ) -> bool {
-    // @TODO PENDING
-    log!(LogWarn, "@TODO PENDING maybe_emulate_wait()");
+    for child in &t.emulated_ptrace_tracees {
+        let rt_childb = child.borrow();
+        let rt_child = rt_childb.as_rec_unwrap();
+        if t.is_waiting_for_ptrace(rt_child) && rt_child.emulated_stop_pending {
+            syscall_state.emulate_wait_for_child = Some(Rc::downgrade(&child));
+            return true;
+        }
+    }
+    if options & WUNTRACED != 0 {
+        for child_process in t.thread_group().children() {
+            for child in child_process.borrow().task_set() {
+                let rchildb = child.borrow();
+                let rchild = rchildb.as_rec_unwrap();
+                if rchild.emulated_stop_type == EmulatedStopType::GroupStop
+                    && rchild.emulated_stop_pending
+                    && t.is_waiting_for(rchild)
+                {
+                    syscall_state.emulate_wait_for_child = Some(Rc::downgrade(&child));
+                    return true;
+                }
+            }
+        }
+    }
+
     false
 }
 
