@@ -3911,12 +3911,12 @@ fn maybe_pause_instead_of_waiting(t: &mut RecordTask, options: i32) {
     let maybe_child: Option<TaskSharedPtr> = t.session().find_task_from_rec_tid(t.in_wait_pid);
     match maybe_child {
         Some(child)
-            if !t.is_waiting_for_ptrace(child.borrow_mut().as_rec_mut_unwrap())
-                || t.is_waiting_for(child.borrow_mut().as_rec_mut_unwrap()) =>
+            if t.is_waiting_for_ptrace(child.borrow_mut().as_rec_mut_unwrap())
+                && !t.is_waiting_for(child.borrow_mut().as_rec_mut_unwrap()) =>
         {
-            return;
+            ();
         }
-        _ => (),
+        _ => return,
     }
     // OK, t is waiting for a ptrace child by tid, but since t is not really
     // ptracing child, entering a real wait syscall will not actually wait for
