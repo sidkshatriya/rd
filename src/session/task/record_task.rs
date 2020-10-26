@@ -223,9 +223,7 @@ impl Sighandlers {
     }
 
     pub fn init_from_current_process(&mut self) {
-        for i in 1..NUM_SIGNALS as usize {
-            let h = &mut self.handlers[i];
-
+        for (i, h) in self.handlers.iter_mut().enumerate().skip(1) {
             let mut sa: kernel_sigaction<NativeArch> = Default::default();
             if 0 != unsafe {
                 libc::syscall(
@@ -255,13 +253,12 @@ impl Sighandlers {
     /// this is the operation required by POSIX to initialize that
     /// table copy.)
     pub fn reset_user_handlers(&mut self, arch: SupportedArch) {
-        for i in 1..NUM_SIGNALS as usize {
-            let mut h = &mut self.handlers[i];
+        for h in self.handlers.iter_mut().skip(1) {
             // If the handler was a user handler, reset to
             // default.  If it was SIG_IGN or SIG_DFL,
             // leave it alone.
             if h.disposition() == SignalDisposition::SignalHandler {
-                reset_handler(&mut h, arch);
+                reset_handler(h, arch);
             }
         }
     }
