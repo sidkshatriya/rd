@@ -2,7 +2,7 @@ use crate::{
     commands::rerun_command::TraceFields,
     flags::{Checksum, DumpOn},
     kernel_metadata::signal_name,
-    kernel_supplement::_NSIG,
+    kernel_supplement::NUM_SIGNALS,
     scheduler::TicksHowMany,
     session::record_session::TraceUuid,
     sig::Sig,
@@ -671,7 +671,7 @@ fn parse_signal_name(maybe_signal_name: &str) -> Result<Sig, Box<dyn Error>> {
         let sig = Sig::try_from(sig_num)?;
         return Ok(sig);
     } else {
-        for i in 1i32.._NSIG as i32 {
+        for i in 1i32..NUM_SIGNALS as i32 {
             let sig_name = signal_name(i);
             if maybe_sig_trimmed == &sig_name {
                 let sig = Sig::try_from(i)?;

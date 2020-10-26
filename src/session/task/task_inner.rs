@@ -260,14 +260,6 @@ pub enum PtraceData {
 }
 
 impl PtraceData {
-    fn get_addr(self) -> *const u8 {
-        match self {
-            PtraceData::WriteInto(s) => s.cast(),
-            PtraceData::ReadFrom(s) => s.cast(),
-            PtraceData::ReadWord(w) => w as *const u8,
-            PtraceData::None => ptr::null(),
-        }
-    }
     pub fn get_data_slice(&self) -> Vec<u8> {
         match *self {
             PtraceData::WriteInto(s) => unsafe { s.as_ref() }.unwrap().to_vec(),
@@ -1446,8 +1438,21 @@ impl TaskInner {
         addr: RemotePtr<Void>,
         data: PtraceData,
     ) -> isize {
-        let res = unsafe { ptrace(request, self.tid, addr.as_usize(), data.get_addr()) } as isize;
-        res
+        let res = match data {
+            PtraceData::WriteInto(data) => unsafe {
+                ptrace(request, self.tid, addr.as_usize(), data.as_mut_ptr())
+            },
+            PtraceData::ReadFrom(data) => unsafe {
+                ptrace(request, self.tid, addr.as_usize(), data.as_ptr())
+            },
+            PtraceData::ReadWord(data) => unsafe {
+                ptrace(request, self.tid, addr.as_usize(), data as *const u8)
+            },
+            PtraceData::None => unsafe {
+                ptrace(request, self.tid, addr.as_usize(), ptr::null() as *const u8)
+            },
+        };
+        res as isize
     }
 
     /// Like `fallible_ptrace()` but completely infallible.

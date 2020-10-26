@@ -6,3 +6,6 @@ include!(concat!(
     env!("OUT_DIR"),
     "/kernel_supplement_bindings_generated.rs"
 ));
+
+/// @TODO Manually specifying this as _NSIG does not give correct value
+pub const NUM_SIGNALS: usize = 65;

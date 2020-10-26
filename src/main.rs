@@ -5,6 +5,7 @@
 #![feature(raw_ref_op)]
 #![feature(termination_trait_lib)]
 #![feature(associated_type_defaults)]
+#![feature(slice_ptr_get)]
 // @TODO To many results for "never used". Disable for now.
 #![allow(dead_code)]
 

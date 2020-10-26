@@ -60,7 +60,7 @@ use crate::{
         SupportedArch,
     },
     kernel_metadata::syscall_name,
-    kernel_supplement::{sig_set_t, SA_RESETHAND, SA_SIGINFO},
+    kernel_supplement::{sig_set_t, NUM_SIGNALS, SA_RESETHAND, SA_SIGINFO},
     log::{LogDebug, LogInfo, LogWarn},
     preload_interface::{
         mprotect_record,
@@ -188,13 +188,11 @@ use std::{
 };
 
 pub const SYNTHETIC_TIME_SLICE_SI_CODE: i32 = -9999;
-// @TODO This needs to come from a system header binding
-pub const _NSIG: u32 = 65;
 
 #[derive(Clone)]
 pub struct Sighandlers {
     /// Keep as opaque for now. Need to ensure correct visibility.
-    handlers: [Sighandler; _NSIG as usize],
+    handlers: [Sighandler; NUM_SIGNALS as usize],
 }
 
 impl Default for Sighandlers {
@@ -225,7 +223,7 @@ impl Sighandlers {
     }
 
     pub fn init_from_current_process(&mut self) {
-        for i in 1.._NSIG as usize {
+        for i in 1..NUM_SIGNALS as usize {
             let h = &mut self.handlers[i];
 
             let mut sa: kernel_sigaction<NativeArch> = Default::default();
@@ -257,7 +255,7 @@ impl Sighandlers {
     /// this is the operation required by POSIX to initialize that
     /// table copy.)
     pub fn reset_user_handlers(&mut self, arch: SupportedArch) {
-        for i in 1.._NSIG as usize {
+        for i in 1..NUM_SIGNALS as usize {
             let mut h = &mut self.handlers[i];
             // If the handler was a user handler, reset to
             // default.  If it was SIG_IGN or SIG_DFL,
@@ -291,14 +289,7 @@ impl Sighandler {
     pub fn init_arch<Arch: Architecture>(&mut self, ksa: &kernel_sigaction<Arch>) {
         self.k_sa_handler = Arch::as_rptr(ksa.k_sa_handler);
         self.sa.resize(size_of::<kernel_sigaction<Arch>>(), 0);
-        unsafe {
-            copy_nonoverlapping(
-                // @TODO does this cast of an associated type reference work as expected?
-                &raw const ksa as *const u8,
-                self.sa.as_mut_ptr() as *mut u8,
-                size_of::<kernel_sigaction<Arch>>(),
-            );
-        }
+        self.sa.copy_from_slice(u8_slice(ksa));
         self.resethand = Arch::ulong_as_usize(ksa.sa_flags) & SA_RESETHAND as usize != 0;
         self.takes_siginfo = Arch::ulong_as_usize(ksa.sa_flags) & SA_SIGINFO as usize != 0;
     }
@@ -676,7 +667,7 @@ impl Task for RecordTask {
             let ret = self.fallible_ptrace(
                 PTRACE_SETSIGMASK,
                 RemotePtr::<Void>::from(8usize),
-                PtraceData::WriteInto(u8_raw_slice_mut(&mut sigset)),
+                PtraceData::ReadFrom(u8_raw_slice(&sigset)),
             );
             if ret < 0 {
                 if errno() == EIO {
@@ -1636,7 +1627,7 @@ impl RecordTask {
         let blocked =
             u64::from_str_radix(&results.pop().unwrap().into_string().unwrap(), 16).unwrap();
 
-        for sigi in 1.._NSIG as i32 {
+        for sigi in 1..NUM_SIGNALS as i32 {
             let sig = Sig::try_from(sigi).unwrap();
             let mask = signal_bit(sig);
             if is_unstoppable_signal(sig) {
