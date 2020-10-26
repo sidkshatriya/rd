@@ -1,5 +1,7 @@
 use std::{error::Error, process::Termination};
 
+use crate::flags::Flags;
+
 pub enum ExitResult<T: Termination> {
     Ok(T),
     Err(Box<dyn Error>, i32),
@@ -16,7 +18,9 @@ impl<T: Termination> Termination for ExitResult<T> {
         match self {
             ExitResult::Ok(t) => t.report(),
             ExitResult::Err(b, c) => {
-                eprintln!("Error: {:?}", b);
+                if !Flags::get().extra_compat {
+                    eprintln!("Error: {:?}", b);
+                }
                 c
             }
         }
