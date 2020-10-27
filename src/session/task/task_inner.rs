@@ -426,7 +426,7 @@ pub struct TaskInner {
     pub(in super::super) expecting_ptrace_interrupt_stop: u32,
 
     /// Important. Weak dyn Task pointer to self.
-    pub(in super::super) weak_self: TaskSharedWeakPtr,
+    pub weak_self: TaskSharedWeakPtr,
 }
 
 pub type DebugRegs = Vec<WatchConfig>;

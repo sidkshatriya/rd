@@ -1411,7 +1411,7 @@ impl RecordTask {
     /// when t's status changes due to a regular event (exit).
     pub fn is_waiting_for(&self, t: &RecordTask) -> bool {
         // t must be a child of this task.
-        if t.thread_group().parent().map_or(false, |parent| {
+        if !t.thread_group().parent().map_or(false, |parent| {
             Rc::ptr_eq(&parent, &self.thread_group_shr_ptr())
         }) {
             return false;
