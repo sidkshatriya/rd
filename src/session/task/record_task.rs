@@ -19,7 +19,7 @@ use super::{
 };
 use crate::{
     arch::{Architecture, NativeArch},
-    arch_structs::kernel_sigaction,
+    arch_structs::{kernel_sigaction, siginfo_t as siginfo_t_arch},
     auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem},
     bindings::{
         kernel::user_desc,
@@ -158,6 +158,8 @@ use libc::{
     SYS_rt_sigqueueinfo,
     SYS_rt_tgsigqueueinfo,
     SYS_tgkill,
+    CLD_STOPPED,
+    CLD_TRAPPED,
     EINVAL,
     EIO,
     ENOENT,
@@ -1349,15 +1351,24 @@ impl RecordTask {
         unimplemented!()
     }
 
-    pub fn set_siginfo_for_waited_task<Arch: Architecture>(&self, si: &mut Arch::siginfo_t) {
-        match Arch::arch() {
-            SupportedArch::X86 => {
-                Arch::set_siginfo_for_waited_task(self, si);
-            }
-            SupportedArch::X64 => {
-                Arch::set_siginfo_for_waited_task(self, si);
-            }
+    pub fn set_siginfo_for_waited_task<Arch: Architecture>(&self, si: &mut siginfo_t_arch<Arch>) {
+        // XXX handle CLD_EXITED here
+        if self.emulated_stop_type == EmulatedStopType::GroupStop {
+            si.si_code = CLD_STOPPED as _;
+            // @TODO Is the unwrap approach what we want?
+            si._sifields._sigchld.si_status_ = self
+                .emulated_stop_code
+                .maybe_stop_sig()
+                .unwrap_sig()
+                .as_raw();
+        } else {
+            si.si_code = CLD_TRAPPED as _;
+            // @TODO Is the unwrap approach what we want?
+            si._sifields._sigchld.si_status_ =
+                self.emulated_stop_code.ptrace_signal().unwrap().as_raw();
         }
+        si._sifields._sigchld.si_pid_ = self.tgid();
+        si._sifields._sigchld.si_uid_ = self.getuid();
     }
 
     /// Return a reference to the saved siginfo record for the stop-signal
@@ -1454,7 +1465,7 @@ impl RecordTask {
                     Some(t) => t
                         .borrow_mut()
                         .as_rec_mut_unwrap()
-                        .send_synthetic_sigchld_if_necessary(),
+                        .send_synthetic_sigchld_if_necessary(Some(self)),
                     None => (),
                 }
             }
@@ -1503,7 +1514,7 @@ impl RecordTask {
             }
         }
 
-        self.send_synthetic_sigchld_if_necessary();
+        self.send_synthetic_sigchld_if_necessary(None);
     }
 
     /// Return true if `sig` is pending but hasn't been reported to ptrace yet
@@ -2734,7 +2745,7 @@ impl RecordTask {
     /// SIGCHLD to the task if there are still tasks that need a SIGCHLD
     /// sent for them.
     /// May queue signals for specific tasks.
-    fn send_synthetic_sigchld_if_necessary(&mut self) {
+    fn send_synthetic_sigchld_if_necessary(&mut self, maybe_active_child: Option<&RecordTask>) {
         let mut need_signal = false;
         let mut wake_task = None;
         for tracee in &self.emulated_ptrace_tracees {
@@ -2770,7 +2781,42 @@ impl RecordTask {
         }
         if !need_signal {
             for child_tg in self.thread_group_shr_ptr().borrow().children() {
-                for child in child_tg.borrow().task_set() {
+                // Convoluted logic to prevent already borrowed issues. @TODO Improve
+                let except = match maybe_active_child {
+                    Some(active_child) if active_child.emulated_sigchld_pending => {
+                        need_signal = true;
+                        // check to see if any thread in the ptracer process is in a waitpid
+                        // that
+                        // could read the status of 'tracee'. If it is, we should wake up that
+                        // thread. Otherwise we send SIGCHLD to the ptracer thread.
+                        if self.is_waiting_for(active_child) {
+                            wake_task =
+                                Some((self.tgid(), self.tid, self.is_sig_blocked(sig::SIGCHLD)));
+                            break;
+                        } else {
+                            for t in self
+                                .thread_group()
+                                .task_set()
+                                .iter_except(self.weak_self_ptr())
+                            {
+                                let mut rtb = t.borrow_mut();
+                                let rt = rtb.as_rec_mut_unwrap();
+                                if rt.is_waiting_for(active_child) {
+                                    wake_task =
+                                        Some((rt.tgid(), rt.tid, rt.is_sig_blocked(sig::SIGCHLD)));
+                                    break;
+                                }
+                            }
+                        }
+                        if wake_task.is_some() {
+                            break;
+                        } else {
+                            active_child.weak_self_ptr()
+                        }
+                    }
+                    _ => Weak::new(),
+                };
+                for child in child_tg.borrow().task_set().iter_except(except) {
                     let rchildb = child.borrow();
                     let rchild = rchildb.as_rec_unwrap();
                     if rchild.emulated_sigchld_pending {

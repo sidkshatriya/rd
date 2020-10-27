@@ -1,6 +1,6 @@
 use crate::{
     arch::Architecture,
-    arch_structs::{kernel_sigaction, mmap_args},
+    arch_structs::{kernel_sigaction, mmap_args, siginfo_t},
     auto_remote_syscalls::{AutoRemoteSyscalls, MemParamsEnabled},
     bindings::{
         kernel::{
@@ -116,7 +116,7 @@ use crate::{
             PTRACE_O_TRACEVFORK,
         },
     },
-    event::{OpenedFd, Switchable},
+    event::{OpenedFd, Switchable, SyscallState},
     fd_table::FdTable,
     file_monitor::{
         self,
@@ -266,6 +266,7 @@ use libc::{
     STDOUT_FILENO,
     S_IWUSR,
     WNOHANG,
+    WNOWAIT,
     WUNTRACED,
 };
 use nix::{
@@ -1751,9 +1752,77 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
         r.set_original_syscallno(syscall_state.syscall_entry_registers.original_syscallno());
         t.set_regs(&r);
 
-        let tracee = &syscall_state.emulate_wait_for_child;
-        if tracee.is_some() {
-            unimplemented!()
+        let maybe_tracee = &syscall_state.emulate_wait_for_child;
+        match maybe_tracee {
+            Some(tracee_weak) => {
+                let tracee_rc = tracee_weak.upgrade().unwrap();
+                let mut traceeb = tracee_rc.borrow_mut();
+                let tracee = traceeb.as_rec_mut_unwrap();
+                // Finish emulation of ptrace result or stop-signal
+                let mut r: Registers = t.regs_ref().clone();
+                r.set_syscall_result(tracee.tid as usize);
+                t.set_regs(&r);
+                if sys == Arch::WAITID {
+                    let sip: RemotePtr<siginfo_t<Arch>> = r.arg3().into();
+                    if !sip.is_null() {
+                        let mut si: siginfo_t<Arch> = unsafe { mem::zeroed() };
+                        si.si_signo = SIGCHLD;
+                        tracee.set_siginfo_for_waited_task::<Arch>(&mut si);
+
+                        write_val_mem(t, sip, &si, None);
+                    }
+                } else {
+                    let statusp: RemotePtr<i32> = r.arg2().into();
+                    if !statusp.is_null() {
+                        write_val_mem(t, statusp, &tracee.emulated_stop_code.get(), None);
+                    }
+                }
+                if sys == Arch::WAITID && (r.arg4() & WNOWAIT as usize != 0) {
+                    // Leave the child in a waitable state
+                } else {
+                    if tracee.emulated_stop_code.exit_code().is_some() {
+                        // If we stopped the tracee to deliver this notification,
+                        // now allow it to continue to exit properly and notify its
+                        // real parent.
+                        ed_assert!(
+                            t,
+                            tracee.ev().is_syscall_event()
+                                && SyscallState::ProcessingSyscall
+                                    == tracee.ev().syscall_event().state
+                                && tracee.stable_exit
+                        );
+                        // Continue the task since we didn't in enter_syscall
+                        tracee.resume_execution(
+                            ResumeRequest::ResumeSyscall,
+                            WaitRequest::ResumeNonblocking,
+                            TicksRequest::ResumeNoTicks,
+                            None,
+                        );
+                    }
+
+                    // @TODO Check this code again
+                    if tracee
+                        .emulated_ptracer
+                        .as_ref()
+                        .map_or(false, |w| w.ptr_eq(&t.weak_self))
+                    {
+                        tracee.emulated_stop_pending = false;
+                    } else {
+                        tracee.emulated_stop_pending = false;
+                        for thread in tracee
+                            .thread_group()
+                            .task_set()
+                            .iter_except(tracee.weak_self_ptr())
+                        {
+                            thread
+                                .borrow_mut()
+                                .as_rec_mut_unwrap()
+                                .emulated_stop_pending = false;
+                        }
+                    }
+                }
+            }
+            None => (),
         }
         return;
     }
