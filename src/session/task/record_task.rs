@@ -34,7 +34,7 @@ use crate::{
             PTRACE_SETSIGINFO,
             PTRACE_SETSIGMASK,
         },
-        signal::{siginfo_t, __SIGRTMIN},
+        signal::{siginfo_t, SI_QUEUE, __SIGRTMIN},
     },
     event::{
         Event,
@@ -62,6 +62,7 @@ use crate::{
     kernel_metadata::syscall_name,
     kernel_supplement::{sig_set_t, NUM_SIGNALS, SA_RESETHAND, SA_SIGINFO},
     log::{LogDebug, LogInfo, LogWarn},
+    perf_counters,
     preload_interface::{
         mprotect_record,
         preload_globals,
@@ -154,6 +155,8 @@ use crate::{
 use libc::{
     pid_t,
     syscall,
+    SYS_rt_sigqueueinfo,
+    SYS_rt_tgsigqueueinfo,
     SYS_tgkill,
     EINVAL,
     EIO,
@@ -1372,10 +1375,36 @@ impl RecordTask {
 
     /// Returns true if this task is in a waitpid or similar that would return
     /// when t's status changes due to a ptrace event.
-    pub fn is_waiting_for_ptrace(&self, _t: &RecordTask) -> bool {
-        // @TODO PENDING
-        log!(LogWarn, "@TODO PENDING is_waiting_for_ptrace()");
-        false
+    pub fn is_waiting_for_ptrace(&self, t: &RecordTask) -> bool {
+        match t.emulated_ptracer.as_ref() {
+            Some(ptracer)
+                if Rc::ptr_eq(
+                    &ptracer.upgrade().unwrap().borrow().thread_group_shr_ptr(),
+                    &self.thread_group_shr_ptr(),
+                ) =>
+            {
+                ()
+            }
+            _ => return false,
+        }
+        // XXX need to check |options| to make sure this task is eligible!!
+        match self.in_wait_type {
+            WaitType::WaitTypeNone => false,
+            WaitType::WaitTypeAny => true,
+            WaitType::WaitTypeSamePgid => {
+                getpgid(Some(Pid::from_raw(t.tgid()))).unwrap()
+                    == getpgid(Some(Pid::from_raw(self.tgid()))).unwrap()
+            }
+            WaitType::WaitTypePgid => {
+                getpgid(Some(Pid::from_raw(t.tgid()))).unwrap().as_raw() == self.in_wait_pid
+            }
+            WaitType::WaitTypePid =>
+            // When waiting for a ptracee, a specific pid is interpreted as the
+            // exact tid.
+            {
+                t.tid == self.in_wait_pid
+            }
+        }
     }
 
     /// Returns true if `self` task is in a waitpid or similar that would return
@@ -1423,9 +1452,8 @@ impl RecordTask {
                     .find_task_from_rec_tid(get_ppid(self.tid).unwrap())
                 {
                     Some(t) => t
-                        .borrow()
-                        .as_record_task()
-                        .unwrap()
+                        .borrow_mut()
+                        .as_rec_mut_unwrap()
                         .send_synthetic_sigchld_if_necessary(),
                     None => (),
                 }
@@ -2706,9 +2734,126 @@ impl RecordTask {
     /// SIGCHLD to the task if there are still tasks that need a SIGCHLD
     /// sent for them.
     /// May queue signals for specific tasks.
-    fn send_synthetic_sigchld_if_necessary(&self) {
-        // @TODO Pending
-        // Do nothing for now
+    fn send_synthetic_sigchld_if_necessary(&mut self) {
+        let mut need_signal = false;
+        let mut wake_task = None;
+        for tracee in &self.emulated_ptrace_tracees {
+            if tracee
+                .borrow()
+                .as_rec_unwrap()
+                .emulated_ptrace_sigchld_pending
+            {
+                need_signal = true;
+                // check to see if any thread in the ptracer process is in a waitpid that
+                // could read the status of 'tracee'. If it is, we should wake up that
+                // thread. Otherwise we send SIGCHLD to the ptracer thread.
+                if self.is_waiting_for_ptrace(tracee.borrow().as_rec_unwrap()) {
+                    wake_task = Some((self.tgid(), self.tid, self.is_sig_blocked(sig::SIGCHLD)));
+                    break;
+                }
+                for t in self
+                    .thread_group()
+                    .task_set()
+                    .iter_except(self.weak_self_ptr())
+                {
+                    let mut rtb = t.borrow_mut();
+                    let rt = rtb.as_rec_mut_unwrap();
+                    if rt.is_waiting_for_ptrace(tracee.borrow().as_rec_unwrap()) {
+                        wake_task = Some((rt.tgid(), rt.tid, rt.is_sig_blocked(sig::SIGCHLD)));
+                        break;
+                    }
+                }
+                if wake_task.is_some() {
+                    break;
+                }
+            }
+        }
+        if !need_signal {
+            for child_tg in self.thread_group_shr_ptr().borrow().children() {
+                for child in child_tg.borrow().task_set() {
+                    let rchildb = child.borrow();
+                    let rchild = rchildb.as_rec_unwrap();
+                    if rchild.emulated_sigchld_pending {
+                        need_signal = true;
+                        // check to see if any thread in the ptracer process is in a waitpid
+                        // that
+                        // could read the status of 'tracee'. If it is, we should wake up that
+                        // thread. Otherwise we send SIGCHLD to the ptracer thread.
+                        if self.is_waiting_for(rchild) {
+                            wake_task =
+                                Some((self.tgid(), self.tid, self.is_sig_blocked(sig::SIGCHLD)));
+                            break;
+                        }
+                        for t in self
+                            .thread_group()
+                            .task_set()
+                            .iter_except(self.weak_self_ptr())
+                        {
+                            let mut rtb = t.borrow_mut();
+                            let rt = rtb.as_rec_mut_unwrap();
+                            if rt.is_waiting_for(rchild) {
+                                wake_task =
+                                    Some((rt.tgid(), rt.tid, rt.is_sig_blocked(sig::SIGCHLD)));
+                                break;
+                            }
+                        }
+                        if wake_task.is_some() {
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if !need_signal {
+                return;
+            }
+        }
+
+        // ptrace events trigger SIGCHLD in the ptracer's wake_task.
+        // We can't set all the siginfo values to their correct values here, so
+        // we'll patch this up when the signal is received.
+        // If there's already a pending SIGCHLD, this signal will be ignored,
+        // but at some point the pending SIGCHLD will be delivered and then
+        // send_synthetic_SIGCHLD_if_necessary will be called again to deliver a new
+        // SIGCHLD if necessary.
+        let mut si = siginfo_t::default();
+        si.si_code = SI_QUEUE;
+        si._sifields._rt.si_sigval.sival_int = SIGCHLD_SYNTHETIC;
+        match wake_task {
+            Some((tgid, tid, sigchld_blocked)) => {
+                log!(LogDebug, "Sending synthetic SIGCHLD to tid {}", tid);
+                // We must use the raw SYS_rt_tgsigqueueinfo syscall here to ensure the
+                // signal is sent to the correct thread by tid.
+                let ret = unsafe { syscall(SYS_rt_tgsigqueueinfo, tgid, tid, SIGCHLD, &si) };
+                ed_assert_eq!(self, ret, 0);
+                if sigchld_blocked {
+                    // Just sending SIGCHLD won't wake it up. Send it a TIME_SLICE_SIGNAL
+                    // as well to make sure it exits a blocking syscall. We ensure those
+                    // can never be blocked.
+                    // We have to send a negative code here because only the kernel can set
+                    // positive codes. We set a magic number so we can recognize it
+                    // when received.
+                    si.si_code = SYNTHETIC_TIME_SLICE_SI_CODE;
+                    let ret = unsafe {
+                        syscall(
+                            SYS_rt_tgsigqueueinfo,
+                            tgid,
+                            tid,
+                            perf_counters::TIME_SLICE_SIGNAL.as_raw(),
+                            &si,
+                        )
+                    };
+                    ed_assert_eq!(self, ret, 0);
+                }
+            }
+            None => {
+                // Send the signal to the process as a whole and let the kernel
+                // decide which thread gets it.
+                let ret = unsafe { syscall(SYS_rt_sigqueueinfo, self.tgid(), SIGCHLD, &si) };
+                ed_assert_eq!(self, ret, 0);
+                log!(LogDebug, "Sending synthetic SIGCHLD to pid {}", self.tgid());
+            }
+        }
     }
 
     /// Call this when SYS_sigaction is finishing with `regs`.
@@ -2945,9 +3090,7 @@ fn get_ppid(pid: pid_t) -> Result<pid_t, Box<dyn Error>> {
 
 #[allow(non_snake_case)]
 fn is_synthetic_SIGCHLD(si: &siginfo_t) -> bool {
-    // @TODO is path to sival_int correct?
-    si.si_signo == SIGCHLD
-        && unsafe { si._sifields._timer.si_sigval.sival_int } == SIGCHLD_SYNTHETIC
+    si.si_signo == SIGCHLD && unsafe { si._sifields._rt.si_sigval.sival_int } == SIGCHLD_SYNTHETIC
 }
 
 fn maybe_restore_original_syscall_registers_arch<Arch: Architecture>(
