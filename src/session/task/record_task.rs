@@ -1573,8 +1573,26 @@ impl RecordTask {
     }
 
     /// Get all threads out of an emulated GROUP_STOP
-    pub fn emulate_sigcont(&self) {
-        unimplemented!()
+    pub fn emulate_sigcont(&mut self) {
+        // All threads in the process are resumed.
+        log!(
+            LogDebug,
+            "setting {} to NOT_STOPPED due to SIGCONT",
+            self.tid
+        );
+        self.emulated_stop_pending = false;
+        self.emulated_stop_type = EmulatedStopType::NotStopped;
+        for t in self
+            .thread_group()
+            .task_set()
+            .iter_except(self.weak_self_ptr())
+        {
+            let mut tb = t.borrow_mut();
+            let rt = tb.as_rec_mut_unwrap();
+            log!(LogDebug, "setting {} to NOT_STOPPED due to SIGCONT", rt.tid);
+            rt.emulated_stop_pending = false;
+            rt.emulated_stop_type = EmulatedStopType::NotStopped;
+        }
     }
 
     /// Return true if the disposition of `sig` in `table` isn't
