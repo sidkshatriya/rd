@@ -263,7 +263,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
         if self.weak_self.ptr_eq(tg.borrow().session_weak_ptr()) {
             ThreadGroup::new(
                 self.weak_self.clone(),
-                tg.borrow().parent_weak_ptr(),
+                Some(Rc::downgrade(&tg)),
                 t.rec_tid,
                 t.tid,
                 t.own_namespace_tid(),
