@@ -95,7 +95,7 @@ unsafe impl Send for SharedBuf {}
 
 impl CompressedWriter {
     pub fn good(&self) -> bool {
-        self.error
+        !self.error
     }
 
     pub fn new(filename: &OsStr, block_size: usize, num_threads: usize) -> CompressedWriter {
@@ -134,7 +134,7 @@ impl CompressedWriter {
             producer_reserved_pos: 0,
             producer_reserved_write_pos: 0,
             producer_reserved_upto_pos: 0,
-            error: false,
+            error,
             buffer,
         };
 
@@ -251,7 +251,7 @@ impl CompressedWriter {
                                     // do a broadcast because we might need to unblock
                                     // the producer thread or a compressor thread waiting
                                     // for us to write.
-                                    cond_var.notify_one();
+                                    cond_var.notify_all();
                                     continue;
                                 }
 
