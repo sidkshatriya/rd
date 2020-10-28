@@ -1129,7 +1129,6 @@ fn os_fork_into(t: &mut dyn Task, session: SessionSharedPtr) -> TaskSharedPtr {
         // be copied by fork()ing the address
         // space.
         //
-        // @TODO Does SIGCHLD belong here??
         SIGCHLD,
         None,
         None,
