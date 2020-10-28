@@ -94,7 +94,10 @@ use commands::{
     record_command::RecordCommand,
     replay_command::ReplayCommand,
 };
-use nix::sys::utsname::uname;
+use nix::sys::{
+    signal::{sigaction, SaFlags, SigAction, SigHandler, SigSet, Signal},
+    utsname::uname,
+};
 use rand::random;
 use std::os::raw::c_uint;
 use structopt::StructOpt;
@@ -125,6 +128,11 @@ pub fn assert_prerequisites(maybe_use_syscall_buffer: Option<bool>) {
 }
 
 fn main() -> ExitResult<()> {
+    // In rust SIGPIPE is ignored. See https://github.com/rust-lang/rust/issues/62569
+    // Undo this.
+    let sa = SigAction::new(SigHandler::SigDfl, SaFlags::empty(), SigSet::empty());
+    unsafe { sigaction(Signal::SIGPIPE, &sa) }.unwrap();
+
     // Seed the PRNG
     unsafe { libc::srand(random::<c_uint>()) };
 
