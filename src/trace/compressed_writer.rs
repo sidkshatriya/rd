@@ -15,6 +15,7 @@ use std::{
     ffi::OsStr,
     io::{Error, ErrorKind, Result, Write},
     mem::size_of,
+    path::Path,
     ptr,
     ptr::copy_nonoverlapping,
     slice,
@@ -150,9 +151,13 @@ impl CompressedWriter {
                 let cond_var = Arc::clone(&cw.cond_var);
                 let shared_buffer = SharedBuf(cw.buffer.as_mut_ptr(), cw.buffer.len());
                 let fd_raw = cw.fd.as_raw();
+                let path = Path::new(filename);
                 cw.threads.push(
                     thread::Builder::new()
-                        .name("@TODO".into())
+                        .name(format!(
+                            "compress-{}",
+                            path.file_name().unwrap().to_string_lossy()
+                        ))
                         .spawn(move || {
                             let mut g = mutex.lock().unwrap();
                             let thread_index = i;
