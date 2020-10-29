@@ -259,6 +259,7 @@ use libc::{
     MAP_32BIT,
     MAP_FIXED,
     MAP_GROWSDOWN,
+    MSG_DONTWAIT,
     O_DIRECT,
     PRIO_PROCESS,
     P_ALL,
@@ -1318,6 +1319,38 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
 
     if sys == Arch::CONNECT {
         return maybe_blacklist_connect::<Arch>(t, regs.arg2().into(), regs.arg3() as socklen_t);
+    }
+
+    if sys == Arch::RECVFROM {
+        syscall_state.reg_parameter_with_size(
+            2,
+            ParamSize::from_syscall_result_with_size::<Arch::ssize_t>(regs.arg3()),
+            None,
+            None,
+        );
+        let addrlen_ptr =
+            syscall_state.reg_parameter::<common::socklen_t>(6, Some(ArgMode::InOut), None);
+        syscall_state.reg_parameter_with_size(
+            5,
+            ParamSize::from_initialized_mem(t, addrlen_ptr),
+            None,
+            None,
+        );
+        return Switchable::AllowSwitch;
+    }
+
+    if sys == Arch::SENDTO {
+        if regs.arg4() as i32 & MSG_DONTWAIT == 0 {
+            return Switchable::AllowSwitch;
+        }
+        return Switchable::PreventSwitch;
+    }
+
+    if sys == Arch::SENDMSG {
+        if regs.arg3() as i32 & MSG_DONTWAIT == 0 {
+            return Switchable::AllowSwitch;
+        }
+        return Switchable::PreventSwitch;
     }
 
     ed_assert!(
