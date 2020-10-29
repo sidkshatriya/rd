@@ -197,6 +197,7 @@ use crate::{
         is_proc_mem_file,
         page_size,
         read_auxv,
+        u8_slice_mut,
         word_at,
         word_size,
         CloneParameters,
@@ -210,13 +211,17 @@ use libc::{
     id_t,
     idtype_t,
     pid_t,
+    sockaddr_un,
+    socklen_t,
     SYS_tgkill,
+    AF_UNIX,
     AT_ENTRY,
     CLONE_PARENT,
     CLONE_THREAD,
     CLONE_UNTRACED,
     CLONE_VFORK,
     CLONE_VM,
+    EACCES,
     EINVAL,
     ENOENT,
     ENOSYS,
@@ -273,6 +278,7 @@ use libc::{
     WNOWAIT,
     WUNTRACED,
 };
+use mem::size_of_val;
 use nix::{
     fcntl::{open, OFlag},
     sys::{
@@ -1310,6 +1316,10 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         return Switchable::AllowSwitch;
     }
 
+    if sys == Arch::CONNECT {
+        return maybe_blacklist_connect::<Arch>(t, regs.arg2().into(), regs.arg3() as socklen_t);
+    }
+
     ed_assert!(
         t,
         false,
@@ -1326,6 +1336,41 @@ fn is_blacklisted_memfd(name: &CStr) -> bool {
         Ok(name_str) if name_str == "pulseaudio" => true,
         _ => false,
     }
+}
+
+fn maybe_blacklist_connect<Arch: Architecture>(
+    t: &mut RecordTask,
+    addr_ptr: RemotePtr<Void>,
+    addrlen: socklen_t,
+) -> Switchable {
+    let mut addr: sockaddr_un = unsafe { mem::zeroed() };
+    let len = min(size_of_val(&addr), addrlen as usize);
+    // DIFF NOTE: In rr there is no check for error. Here we unwrap().
+    t.read_bytes_fallible(addr_ptr, &mut u8_slice_mut(&mut addr)[0..len])
+        .unwrap();
+    // Ensure null termination;
+    addr.sun_path[size_of_val(&addr.sun_path) - 1] = 0;
+    if addr.sun_family as i32 == AF_UNIX && is_blacklisted_socket(&addr.sun_path) {
+        log!(
+            LogWarn,
+            "Cowardly refusing to connect to {:?}",
+            addr.sun_path
+        );
+        // Hijack the syscall.
+        let mut r: Registers = t.regs_ref().clone();
+        r.set_original_syscallno(Arch::GETTID as isize);
+        t.set_regs(&r);
+    }
+
+    return Switchable::PreventSwitch;
+}
+
+fn is_blacklisted_socket(filename_in: &[i8; 108]) -> bool {
+    let filename: &[u8; 108] = unsafe { mem::transmute(filename_in) };
+    // Blacklist the nscd socket because glibc communicates with the daemon over
+    // shared memory rr can't handle.
+    let nsd = b"/var/run/nscd/socket\0";
+    &filename[0..nsd.len()] == nsd
 }
 
 fn maybe_emulate_wait(
@@ -1809,7 +1854,15 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
     }
 
     if sys == Arch::CONNECT {
-        unimplemented!()
+        // Restore the registers that we may have altered.
+        let mut r: Registers = t.regs_ref().clone();
+        if r.original_syscallno() == Arch::GETTID as isize {
+            // We hijacked this call to deal with blacklisted sockets
+            r.set_original_syscallno(Arch::CONNECT as isize);
+            r.set_syscall_result_signed(-EACCES as isize);
+            t.set_regs(&r);
+        }
+        return;
     }
 
     if sys == SYS_rdcall_notify_control_msg as i32 {
