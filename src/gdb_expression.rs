@@ -88,8 +88,6 @@ impl GdbExpressionValue {
 /// in a remote target. This class implements evaluation of such expressions.
 /// See https://sourceware.org/gdb/current/onlinedocs/gdb/Agent-Expressions.html
 pub struct GdbExpression {
-    /// To work around gdb bugs, we may generate and evaluate multiple versions of
-    /// the same expression program.
     bytecode_variants: Vec<Vec<u8>>,
 }
 

@@ -2784,6 +2784,33 @@ impl RecordTask {
         Ok(())
     }
 
+    fn send_synthetic_sigchld_wake_task(
+        &mut self,
+        rchild: &RecordTask,
+    ) -> Option<(i32, i32, bool)> {
+        // check to see if any thread in the ptracer process is in a waitpid
+        // that
+        // could read the status of 'tracee'. If it is, we should wake up that
+        // thread. Otherwise we send SIGCHLD to the ptracer thread.
+        if self.is_waiting_for(rchild) {
+            return Some((self.tgid(), self.tid, self.is_sig_blocked(sig::SIGCHLD)));
+        }
+
+        for t in self
+            .thread_group()
+            .task_set()
+            .iter_except(self.weak_self_ptr())
+        {
+            let mut rtb = t.borrow_mut();
+            let rt = rtb.as_rec_mut_unwrap();
+            if rt.is_waiting_for(rchild) {
+                return Some((rt.tgid(), rt.tid, rt.is_sig_blocked(sig::SIGCHLD)));
+            }
+        }
+
+        None
+    }
+
     /// Called when this task is able to receive a SIGCHLD (e.g. because
     /// we completed delivery of a signal). Sends a new synthetic
     /// SIGCHLD to the task if there are still tasks that need a SIGCHLD
@@ -2827,31 +2854,15 @@ impl RecordTask {
             for child_tg in self.thread_group_shr_ptr().borrow().children() {
                 // Convoluted logic to prevent already borrowed issues. @TODO Improve
                 let except = match maybe_active_child {
-                    Some(active_child) if active_child.emulated_sigchld_pending => {
+                    Some(active_child)
+                        if child_tg
+                            .borrow()
+                            .task_set()
+                            .has(active_child.weak_self_ptr())
+                            && active_child.emulated_sigchld_pending =>
+                    {
                         need_signal = true;
-                        // check to see if any thread in the ptracer process is in a waitpid
-                        // that
-                        // could read the status of 'tracee'. If it is, we should wake up that
-                        // thread. Otherwise we send SIGCHLD to the ptracer thread.
-                        if self.is_waiting_for(active_child) {
-                            wake_task =
-                                Some((self.tgid(), self.tid, self.is_sig_blocked(sig::SIGCHLD)));
-                            break;
-                        } else {
-                            for t in self
-                                .thread_group()
-                                .task_set()
-                                .iter_except(self.weak_self_ptr())
-                            {
-                                let mut rtb = t.borrow_mut();
-                                let rt = rtb.as_rec_mut_unwrap();
-                                if rt.is_waiting_for(active_child) {
-                                    wake_task =
-                                        Some((rt.tgid(), rt.tid, rt.is_sig_blocked(sig::SIGCHLD)));
-                                    break;
-                                }
-                            }
-                        }
+                        let wake_task = self.send_synthetic_sigchld_wake_task(active_child);
                         if wake_task.is_some() {
                             break;
                         } else {
@@ -2865,28 +2876,7 @@ impl RecordTask {
                     let rchild = rchildb.as_rec_unwrap();
                     if rchild.emulated_sigchld_pending {
                         need_signal = true;
-                        // check to see if any thread in the ptracer process is in a waitpid
-                        // that
-                        // could read the status of 'tracee'. If it is, we should wake up that
-                        // thread. Otherwise we send SIGCHLD to the ptracer thread.
-                        if self.is_waiting_for(rchild) {
-                            wake_task =
-                                Some((self.tgid(), self.tid, self.is_sig_blocked(sig::SIGCHLD)));
-                            break;
-                        }
-                        for t in self
-                            .thread_group()
-                            .task_set()
-                            .iter_except(self.weak_self_ptr())
-                        {
-                            let mut rtb = t.borrow_mut();
-                            let rt = rtb.as_rec_mut_unwrap();
-                            if rt.is_waiting_for(rchild) {
-                                wake_task =
-                                    Some((rt.tgid(), rt.tid, rt.is_sig_blocked(sig::SIGCHLD)));
-                                break;
-                            }
-                        }
+                        let wake_task = self.send_synthetic_sigchld_wake_task(rchild);
                         if wake_task.is_some() {
                             break;
                         }
