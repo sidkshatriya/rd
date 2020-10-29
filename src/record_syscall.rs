@@ -164,6 +164,7 @@ use crate::{
         SYS_rdcall_notify_control_msg,
         SYS_rdcall_notify_syscall_hook_exit,
     },
+    preload_interface_arch::rdcall_init_buffers_params,
     registers::{with_converted_registers, Registers},
     remote_ptr::{RemotePtr, Void},
     seccomp_filter_rewriter::SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO,
@@ -208,6 +209,7 @@ use libc::{
     id_t,
     idtype_t,
     pid_t,
+    SYS_tgkill,
     AT_ENTRY,
     CLONE_PARENT,
     CLONE_THREAD,
@@ -282,6 +284,7 @@ use std::{
     cell::{RefCell, RefMut},
     cmp::{max, min},
     convert::{TryFrom, TryInto},
+    env,
     ffi::{CStr, OsStr, OsString},
     fs::read_dir,
     intrinsics::{copy_nonoverlapping, transmute},
@@ -1259,6 +1262,23 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         return Switchable::AllowSwitch;
     }
 
+    if sys == Arch::PAUSE {
+        return Switchable::AllowSwitch;
+    }
+
+    if sys == SYS_rdcall_init_buffers as i32 {
+        // This is purely for testing purposes. See signal_during_preload_init.
+        if send_signal_during_init_buffers() {
+            unsafe { libc::syscall(SYS_tgkill, t.tgid(), t.tid, SIGCHLD) };
+        }
+        syscall_state.reg_parameter::<rdcall_init_buffers_params<Arch>>(
+            1,
+            Some(ArgMode::InOut),
+            None,
+        );
+        return Switchable::PreventSwitch;
+    }
+
     ed_assert!(
         t,
         false,
@@ -1676,6 +1696,7 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
         }
         return;
     }
+
     if syscall_state.expect_errno != 0 {
         if syscall_state.expect_errno == EINVAL
             && sys == Arch::IOCTL
@@ -1929,11 +1950,13 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
     }
 
     if sys == SYS_rdcall_init_buffers as i32 {
-        unimplemented!()
+        t.init_buffers();
+        return;
     }
 
     if sys == SYS_rdcall_init_preload as i32 {
         t.at_preload_init();
+        return;
     }
 
     if sys == SYS_rdcall_notify_syscall_hook_exit as i32 {
@@ -2076,6 +2099,7 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
             // DIFF NOTE: In rr this is signed but offsets always greater than 0?
             r.arg6(),
         );
+        return;
     }
 
     if sys == Arch::OPEN || sys == Arch::OPENAT {
@@ -4142,4 +4166,8 @@ fn process_mremap(
 
     // If the original mapping was monitored, we'll continue monitoring it
     // automatically.
+}
+
+fn send_signal_during_init_buffers() -> bool {
+    env::var_os("RD_INIT_BUFFERS_SEND_SIGNAL").is_some()
 }
