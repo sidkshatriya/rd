@@ -1187,6 +1187,10 @@ pub fn u8_slice<D: Sized>(data: &D) -> &[u8] {
     unsafe { slice::from_raw_parts(data as *const D as *const u8, size_of::<D>()) }
 }
 
+pub fn u8_slice_mut<D: Sized>(data: &mut D) -> &mut [u8] {
+    unsafe { slice::from_raw_parts_mut(data as *mut D as *mut u8, size_of::<D>()) }
+}
+
 pub fn u8_raw_slice<D: Sized>(data: &D) -> *const [u8] {
     unsafe { slice::from_raw_parts(data as *const D as *const u8, size_of::<D>()) }
 }

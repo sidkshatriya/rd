@@ -1,15 +1,3 @@
-#[cfg(target_arch = "x86")]
-use crate::{
-    bindings::ptrace::{PTRACE_GETFPXREGS, PTRACE_SETFPXREGS},
-    kernel_abi::x86,
-};
-
-#[cfg(target_arch = "x86_64")]
-use crate::{
-    bindings::ptrace::{PTRACE_GETFPREGS, PTRACE_SETFPREGS},
-    kernel_abi::x64,
-};
-
 use crate::{
     arch::Architecture,
     bindings::{
@@ -98,8 +86,8 @@ use crate::{
         set_cpu_affinity,
         to_cstr_array,
         to_cstring_array,
-        u8_raw_slice,
-        u8_raw_slice_mut,
+        u8_slice,
+        u8_slice_mut,
         write_all,
         xsave_area_size,
         BindCPU,
@@ -158,6 +146,18 @@ use std::{
     ptr,
     ptr::{copy_nonoverlapping, NonNull},
     rc::{Rc, Weak},
+};
+
+#[cfg(target_arch = "x86")]
+use crate::{
+    bindings::ptrace::{PTRACE_GETFPXREGS, PTRACE_SETFPXREGS},
+    kernel_abi::x86,
+};
+
+#[cfg(target_arch = "x86_64")]
+use crate::{
+    bindings::ptrace::{PTRACE_GETFPREGS, PTRACE_SETFPREGS},
+    kernel_abi::x64,
 };
 
 const NUM_X86_DEBUG_REGS: usize = 8;
@@ -251,20 +251,20 @@ pub struct TrapReasons {
     pub breakpoint: bool,
 }
 
-#[derive(Copy, Clone, Debug)]
-pub enum PtraceData {
-    WriteInto(*mut [u8]),
-    ReadFrom(*const [u8]),
+#[derive(Debug)]
+pub enum PtraceData<'a> {
+    WriteInto(&'a mut [u8]),
+    ReadFrom(&'a [u8]),
     ReadWord(usize),
     None,
 }
 
-impl PtraceData {
+impl PtraceData<'_> {
     pub fn get_data_slice(&self) -> Vec<u8> {
-        match *self {
-            PtraceData::WriteInto(s) => unsafe { s.as_ref() }.unwrap().to_vec(),
-            PtraceData::ReadFrom(s) => unsafe { s.as_ref() }.unwrap().to_vec(),
-            PtraceData::ReadWord(w) => w.to_le_bytes().into(),
+        match self {
+            PtraceData::WriteInto(s) => s.to_vec(),
+            PtraceData::ReadFrom(s) => s.to_vec(),
+            PtraceData::ReadWord(w) => (*w).to_le_bytes().into(),
             PtraceData::None => Vec::new(),
         }
     }
@@ -681,7 +681,7 @@ impl TaskInner {
         self.xptrace(
             PTRACE_GETEVENTMSG,
             RemotePtr::from(0usize),
-            PtraceData::WriteInto(u8_raw_slice_mut(&mut pid)),
+            &mut PtraceData::WriteInto(u8_slice_mut(&mut pid)),
         );
         pid
     }
@@ -814,7 +814,7 @@ impl TaskInner {
                 self.xptrace(
                     PTRACE_GETREGSET,
                     RemotePtr::new_from_val(NT_X86_XSTATE as usize),
-                    PtraceData::WriteInto(u8_raw_slice_mut(&mut vec)),
+                    &mut PtraceData::WriteInto(u8_slice_mut(&mut vec)),
                 );
                 data_.resize(vec.iov_len, 0u8);
 
@@ -848,7 +848,7 @@ impl TaskInner {
                     self.xptrace(
                         PTRACE_GETFPREGS,
                         0usize.into(),
-                        PtraceData::WriteInto(data_.as_mut_slice()),
+                        &mut PtraceData::WriteInto(data_.as_mut_slice()),
                     );
                 }
                 er = ExtraRegisters {
@@ -875,7 +875,7 @@ impl TaskInner {
         self.fallible_ptrace(
             PTRACE_PEEKUSER,
             RemotePtr::new_from_val(dr_user_word_offset(6)),
-            PtraceData::None,
+            &mut PtraceData::None,
         ) as usize
     }
 
@@ -910,7 +910,7 @@ impl TaskInner {
             self.ptrace_if_alive(
                 PTRACE_SETREGS,
                 0usize.into(),
-                PtraceData::ReadFrom(u8_raw_slice(&ptrace_regs)),
+                &mut PtraceData::ReadFrom(u8_slice(&ptrace_regs)),
             );
             self.registers_dirty = false;
         }
@@ -933,11 +933,10 @@ impl TaskInner {
                         iov_len: er.data_.len(),
                     };
 
-                    let d = PtraceData::ReadFrom(u8_raw_slice(&vec));
                     self.ptrace_if_alive(
                         PTRACE_SETREGSET,
                         RemotePtr::new_from_val(NT_X86_XSTATE as usize),
-                        d,
+                        &mut PtraceData::ReadFrom(u8_slice(&vec)),
                     );
                 } else {
                     #[cfg(target_arch = "x86")]
@@ -959,7 +958,7 @@ impl TaskInner {
                         self.ptrace_if_alive(
                             PTRACE_SETFPREGS,
                             RemotePtr::null(),
-                            PtraceData::ReadFrom(er.data_.as_slice() as *const _),
+                            &mut PtraceData::ReadFrom(&er.data_),
                         );
                     }
                 }
@@ -1017,7 +1016,7 @@ impl TaskInner {
         let result = self.fallible_ptrace(
             PTRACE_PEEKUSER,
             dr_user_word_offset(regno).into(),
-            PtraceData::None,
+            &mut PtraceData::None,
         );
         if errno() == ESRCH {
             0
@@ -1031,7 +1030,7 @@ impl TaskInner {
         self.fallible_ptrace(
             PTRACE_POKEUSER,
             dr_user_word_offset(regno).into(),
-            PtraceData::ReadWord(value),
+            &mut PtraceData::ReadWord(value),
         );
         errno() == 0 || errno() == ESRCH
     }
@@ -1044,7 +1043,7 @@ impl TaskInner {
         self.fallible_ptrace(
             PTRACE_SET_THREAD_AREA,
             RemotePtr::from(idx as usize),
-            PtraceData::ReadFrom(u8_raw_slice(&desc)),
+            &mut PtraceData::ReadFrom(u8_slice(&desc)),
         );
         if errno() != 0 {
             return errno();
@@ -1063,7 +1062,7 @@ impl TaskInner {
             PTRACE_GET_THREAD_AREA,
             // @TODO Is the cast `idx as usize` what we want?
             RemotePtr::from(idx as usize),
-            PtraceData::WriteInto(u8_raw_slice_mut(desc)),
+            &mut PtraceData::WriteInto(u8_slice_mut(desc)),
         );
         errno()
     }
@@ -1230,7 +1229,12 @@ impl TaskInner {
     /// Errors other than ESRCH are treated as fatal. Returns false if
     /// we got ESRCH. This can happen any time during recording when the
     /// task gets a SIGKILL from outside.
-    pub fn ptrace_if_alive(&self, request: u32, addr: RemotePtr<Void>, data: PtraceData) -> bool {
+    pub fn ptrace_if_alive(
+        &self,
+        request: u32,
+        addr: RemotePtr<Void>,
+        data: &mut PtraceData,
+    ) -> bool {
         Errno::clear();
         self.fallible_ptrace(request, addr, data);
         if errno() == ESRCH {
@@ -1436,17 +1440,17 @@ impl TaskInner {
         &self,
         request: u32,
         addr: RemotePtr<Void>,
-        data: PtraceData,
+        data: &mut PtraceData,
     ) -> isize {
         let res = match data {
             PtraceData::WriteInto(data) => unsafe {
-                ptrace(request, self.tid, addr.as_usize(), data.as_mut_ptr())
+                ptrace(request, self.tid, addr.as_usize(), (*data).as_mut_ptr())
             },
             PtraceData::ReadFrom(data) => unsafe {
-                ptrace(request, self.tid, addr.as_usize(), data.as_ptr())
+                ptrace(request, self.tid, addr.as_usize(), (*data).as_ptr())
             },
             PtraceData::ReadWord(data) => unsafe {
-                ptrace(request, self.tid, addr.as_usize(), data as *const u8)
+                ptrace(request, self.tid, addr.as_usize(), (*data) as *const u8)
             },
             PtraceData::None => unsafe {
                 ptrace(request, self.tid, addr.as_usize(), ptr::null() as *const u8)
@@ -1457,7 +1461,12 @@ impl TaskInner {
 
     /// Like `fallible_ptrace()` but completely infallible.
     /// All errors are treated as fatal.
-    pub(in super::super) fn xptrace(&self, request: u32, addr: RemotePtr<Void>, data: PtraceData) {
+    pub(in super::super) fn xptrace(
+        &self,
+        request: u32,
+        addr: RemotePtr<Void>,
+        data: &mut PtraceData,
+    ) {
         Errno::clear();
         self.fallible_ptrace(request, addr, data);
         let errno = errno();
@@ -1497,7 +1506,7 @@ impl TaskInner {
             let v = self.fallible_ptrace(
                 PTRACE_PEEKDATA,
                 RemotePtr::from(start_word),
-                PtraceData::None,
+                &mut PtraceData::None,
             );
             if errno() != 0 {
                 break;
@@ -1538,7 +1547,7 @@ impl TaskInner {
                 v = self.fallible_ptrace(
                     PTRACE_PEEKDATA,
                     RemotePtr::from(start_word),
-                    PtraceData::None,
+                    &mut PtraceData::None,
                 );
                 if errno() != 0 {
                     break;
@@ -1555,7 +1564,7 @@ impl TaskInner {
             self.fallible_ptrace(
                 PTRACE_POKEDATA,
                 RemotePtr::from(start_word),
-                PtraceData::ReadWord(v as usize),
+                &mut PtraceData::ReadWord(v as usize),
             );
             nwritten += length;
         }

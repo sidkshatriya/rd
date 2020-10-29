@@ -120,7 +120,7 @@ use crate::{
         pwrite_all_fallible,
         trapped_instruction_at,
         trapped_instruction_len,
-        u8_raw_slice_mut,
+        u8_slice_mut,
         xsave_layout_from_trace,
         xsave_native_layout,
         TrappedInstruction,
@@ -716,7 +716,7 @@ pub(super) fn did_waitpid<T: Task>(task: &mut T, mut status: WaitStatus) {
         if !task.ptrace_if_alive(
             PTRACE_GETSIGINFO,
             RemotePtr::null(),
-            PtraceData::WriteInto(u8_raw_slice_mut(&mut local_pending_siginfo)),
+            &mut PtraceData::WriteInto(u8_slice_mut(&mut local_pending_siginfo)),
         ) {
             log!(LogDebug, "Unexpected process death for {}", task.tid);
             status = WaitStatus::for_ptrace_event(PTRACE_EVENT_EXIT);
@@ -746,7 +746,7 @@ pub(super) fn did_waitpid<T: Task>(task: &mut T, mut status: WaitStatus) {
         if task.ptrace_if_alive(
             PTRACE_GETREGS,
             RemotePtr::null(),
-            PtraceData::WriteInto(u8_raw_slice_mut(&mut ptrace_regs)),
+            &mut PtraceData::WriteInto(u8_slice_mut(&mut ptrace_regs)),
         ) {
             task.registers.set_from_ptrace(&ptrace_regs);
             // @TODO rr does an if-defined here. However that may not be neccessary as there are
@@ -1006,13 +1006,13 @@ pub(super) fn resume_execution<T: Task>(
     } else {
         match maybe_sig {
             None => {
-                task.ptrace_if_alive(how as u32, RemotePtr::null(), PtraceData::None);
+                task.ptrace_if_alive(how as u32, RemotePtr::null(), &mut PtraceData::None);
             }
             Some(sig) => {
                 task.ptrace_if_alive(
                     how as u32,
                     RemotePtr::null(),
-                    PtraceData::ReadWord(sig.as_raw() as usize),
+                    &mut PtraceData::ReadWord(sig.as_raw() as usize),
                 );
             }
         }
@@ -2180,7 +2180,7 @@ fn process_ptrace<Arch: Architecture>(regs: &Registers, t: &mut dyn Task) {
                         tracee.ptrace_if_alive(
                             PTRACE_ARCH_PRCTL,
                             regs.arg3().into(),
-                            PtraceData::ReadWord(regs.arg4()),
+                            &mut PtraceData::ReadWord(regs.arg4()),
                         );
                     }
                     if code == ARCH_SET_FS {
@@ -2534,7 +2534,7 @@ pub(super) fn destroy<T: Task>(t: &mut T, maybe_detach: Option<bool>) {
         debug_assert!(t.session().tasks().get(&t.rec_tid).is_some());
         log!(LogDebug, "task {} (rec:{}) is dying ...", t.tid, t.rec_tid);
 
-        t.fallible_ptrace(PTRACE_DETACH, RemotePtr::null(), PtraceData::None);
+        t.fallible_ptrace(PTRACE_DETACH, RemotePtr::null(), &mut PtraceData::None);
     }
 
     // DIFF NOTE: Call to on_destroy_task() happens in the destroy() method rather than in drop.

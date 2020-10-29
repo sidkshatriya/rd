@@ -117,7 +117,7 @@ use crate::{
         is_deterministic_signal,
         resource_path,
         signal_bit,
-        u8_raw_slice_mut,
+        u8_slice_mut,
         xsave_area_size,
         CPUIDData,
         CPUID_GETEXTENDEDFEATURES,
@@ -3108,7 +3108,7 @@ fn handle_ptrace_exit_event(t: &mut RecordTask) -> bool {
     if t.ptrace_if_alive(
         PTRACE_GETEVENTMSG,
         RemotePtr::null(),
-        PtraceData::WriteInto(u8_raw_slice_mut(&mut msg)),
+        &mut PtraceData::WriteInto(u8_slice_mut(&mut msg)),
     ) {
         exit_status = WaitStatus::new(msg as i32);
     } else {

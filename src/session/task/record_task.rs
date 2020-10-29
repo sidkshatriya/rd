@@ -144,9 +144,8 @@ use crate::{
         should_checksum,
         should_dump_memory,
         signal_bit,
-        u8_raw_slice,
-        u8_raw_slice_mut,
         u8_slice,
+        u8_slice_mut,
         SignalAction,
     },
     wait_status::WaitStatus,
@@ -669,7 +668,7 @@ impl Task for RecordTask {
             let ret = self.fallible_ptrace(
                 PTRACE_SETSIGMASK,
                 RemotePtr::<Void>::from(8usize),
-                PtraceData::ReadFrom(u8_raw_slice(&sigset)),
+                &mut PtraceData::ReadFrom(u8_slice(&sigset)),
             );
             if ret < 0 {
                 if errno() == EIO {
@@ -834,7 +833,7 @@ impl Task for RecordTask {
             self.xptrace(
                 PTRACE_SETSIGMASK,
                 RemotePtr::<Void>::from(size_of::<sig_set_t>()),
-                PtraceData::ReadFrom(u8_raw_slice(&self.blocked_sigs)),
+                &mut PtraceData::ReadFrom(u8_slice(&self.blocked_sigs)),
             );
         } else if !self.syscallbuf_child.is_null() {
             // The syscallbuf struct is only 32 bytes currently so read the whole thing
@@ -1672,7 +1671,7 @@ impl RecordTask {
         self.ptrace_if_alive(
             PTRACE_SETSIGINFO,
             RemotePtr::null(),
-            PtraceData::ReadFrom(u8_raw_slice(si)),
+            &mut PtraceData::ReadFrom(u8_slice(si)),
         );
     }
 
@@ -2130,7 +2129,7 @@ impl RecordTask {
         self.xptrace(
             PTRACE_GETEVENTMSG,
             RemotePtr::null(),
-            PtraceData::WriteInto(u8_raw_slice_mut(&mut data)),
+            &mut PtraceData::WriteInto(u8_slice_mut(&mut data)),
         );
 
         data as u16
@@ -2669,7 +2668,7 @@ impl RecordTask {
             let ret = self.fallible_ptrace(
                 PTRACE_GETSIGMASK,
                 RemotePtr::<Void>::from(size_of::<sig_set_t>()),
-                PtraceData::WriteInto(u8_raw_slice_mut(&mut mask)),
+                &mut PtraceData::WriteInto(u8_slice_mut(&mut mask)),
             );
             if ret >= 0 {
                 return mask;
@@ -2690,7 +2689,7 @@ impl RecordTask {
         let ret = self.fallible_ptrace(
             PTRACE_SETSIGMASK,
             RemotePtr::<Void>::from(size_of::<sig_set_t>()),
-            PtraceData::ReadFrom(u8_raw_slice(&mask)),
+            &mut PtraceData::ReadFrom(u8_slice(&mask)),
         );
         if ret < 0 {
             if errno() == EIO {
