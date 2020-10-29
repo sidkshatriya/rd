@@ -97,6 +97,12 @@ const_assert_eq!(
     X86Arch::VALID_SYSCALL_COUNT + X86Arch::INVALID_SYSCALL_COUNT
 );
 
+pub type off64_t = i64;
+pub type loff_t = i64;
+pub type rlim64_t = u64;
+pub type ino64_t = u64;
+pub type blkcnt64_t = i64;
+
 pub trait Architecture: 'static + Default {
     const MMAP_SEMANTICS: MmapCallingSemantics;
     const CLONE_TLS_TYPE: CloneTLSType;

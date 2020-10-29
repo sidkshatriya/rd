@@ -1,5 +1,5 @@
 use crate::{
-    arch::Architecture,
+    arch::{loff_t, off64_t, Architecture},
     arch_structs::{kernel_sigaction, mmap_args, siginfo_t},
     auto_remote_syscalls::{AutoRemoteSyscalls, MemParamsEnabled},
     bindings::{
@@ -230,6 +230,7 @@ use libc::{
     FUTEX_WAKE,
     FUTEX_WAKE_BITSET,
     FUTEX_WAKE_OP,
+    GRND_NONBLOCK,
     MADV_DODUMP,
     MADV_DOFORK,
     MADV_DONTDUMP,
@@ -1180,6 +1181,82 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
             }
         }
         return Switchable::PreventSwitch;
+    }
+
+    if sys == Arch::SPLICE {
+        syscall_state.reg_parameter::<loff_t>(2, Some(ArgMode::InOut), None);
+        syscall_state.reg_parameter::<loff_t>(4, Some(ArgMode::InOut), None);
+        return Switchable::AllowSwitch;
+    }
+
+    if sys == Arch::SENDFILE {
+        syscall_state.reg_parameter::<Arch::off_t>(3, Some(ArgMode::InOut), None);
+        return Switchable::AllowSwitch;
+    }
+
+    if sys == Arch::SENDFILE64 {
+        syscall_state.reg_parameter::<off64_t>(3, Some(ArgMode::InOut), None);
+        return Switchable::AllowSwitch;
+    }
+
+    if sys == Arch::GETRANDOM {
+        syscall_state.reg_parameter_with_size(
+            1,
+            ParamSize::from_syscall_result_with_size::<i32>(regs.arg2()),
+            None,
+            None,
+        );
+        return if GRND_NONBLOCK as usize & regs.arg3() != 0 {
+            Switchable::PreventSwitch
+        } else {
+            Switchable::AllowSwitch
+        };
+    }
+
+    if sys == Arch::SYSFS {
+        let option = regs.arg1() as i32;
+        match option {
+            1 | 3 => (),
+            2 => {
+                let remote_buf = RemotePtr::<u8>::from(regs.arg3());
+                // Assume no filesystem type name is more than 1K
+                let mut buf = Vec::<u8>::with_capacity(1024);
+                buf.resize(1024, 0);
+                match t.read_bytes_fallible(remote_buf, &mut buf) {
+                    Ok(nread) if nread > 0 => {
+                        syscall_state.reg_parameter_with_size(
+                            3,
+                            ParamSize::from(nread),
+                            None,
+                            None,
+                        );
+                    }
+                    _ => (),
+                }
+            }
+            _ => {
+                syscall_state.expect_errno = EINVAL;
+            }
+        }
+        return Switchable::PreventSwitch;
+    }
+
+    if sys == Arch::COPY_FILE_RANGE {
+        syscall_state.reg_parameter::<loff_t>(2, Some(ArgMode::InOut), None);
+        syscall_state.reg_parameter::<loff_t>(4, Some(ArgMode::InOut), None);
+        let in_fd = regs.arg1_signed() as i32;
+        let out_fd = regs.arg3_signed() as i32;
+        ed_assert!(
+            t,
+            !t.fd_table().is_monitoring(in_fd),
+            "copy_file_range for monitored fds not supported yet"
+        );
+        ed_assert!(
+            t,
+            !t.fd_table().is_monitoring(out_fd),
+            "copy_file_range for monitored fds not supported yet"
+        );
+        return Switchable::AllowSwitch;
     }
 
     ed_assert!(
