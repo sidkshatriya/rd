@@ -140,6 +140,7 @@ use crate::{
         syscall_number_for_munmap,
         syscall_number_for_pause,
         syscall_number_for_rt_sigprocmask,
+        x64,
         CloneTLSType,
         FcntlOperation,
         MmapCallingSemantics,
@@ -1277,6 +1278,36 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
             None,
         );
         return Switchable::PreventSwitch;
+    }
+
+    if sys == Arch::PPOLL_TIME64 || sys == Arch::PPOLL {
+        // The raw syscall modifies this with the time remaining. The libc
+        // does not expose this functionality however
+        if sys == Arch::PPOLL {
+            syscall_state.reg_parameter::<Arch::timespec>(3, Some(ArgMode::InOut), None);
+        } else {
+            syscall_state.reg_parameter::<x64::timespec>(3, Some(ArgMode::InOut), None);
+        }
+        syscall_state.reg_parameter::<Arch::kernel_sigset_t>(
+            4,
+            Some(ArgMode::In),
+            Some(Box::new(protect_rd_sigs)),
+        );
+        t.invalidate_sigmask();
+
+        // This needs to fall through to the next if
+    }
+
+    if sys == Arch::PPOLL_TIME64 || sys == Arch::PPOLL || sys == Arch::POLL {
+        let nfds = regs.arg2();
+        syscall_state.reg_parameter_with_size(
+            1,
+            ParamSize::from(size_of::<Arch::pollfd>() * nfds),
+            Some(ArgMode::InOut),
+            None,
+        );
+
+        return Switchable::AllowSwitch;
     }
 
     ed_assert!(
