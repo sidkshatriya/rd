@@ -378,3 +378,10 @@ pub fn cmsg_space<Arch: Architecture>(len: usize) -> usize {
 pub fn cmsg_len<Arch: Architecture>(len: usize) -> usize {
     cmsg_align::<Arch>(size_of::<cmsghdr<Arch>>()) + len
 }
+
+#[repr(C)]
+#[derive(Copy, Clone, Default)]
+pub struct pselect6_arg6<Arch: Architecture> {
+    pub ss: Ptr<Arch::unsigned_word, Arch::kernel_sigset_t>,
+    pub ss_len: Arch::size_t,
+}

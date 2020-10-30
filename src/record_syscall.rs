@@ -8,6 +8,7 @@ use crate::{
         mmap_args,
         mmsghdr,
         msghdr,
+        pselect6_arg6,
         siginfo_t,
     },
     auto_remote_syscalls::{AutoRemoteSyscalls, MemParamsEnabled},
@@ -1362,6 +1363,43 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
             return Switchable::AllowSwitch;
         }
         return Switchable::PreventSwitch;
+    }
+
+    if sys == Arch::SENDMMSG {
+        let vlen = regs.arg3() as u32 as usize;
+        syscall_state.reg_parameter_with_size(
+            2,
+            ParamSize::from(size_of::<mmsghdr<Arch>>() * vlen),
+            Some(ArgMode::InOut),
+            None,
+        );
+        if regs.arg4() as i32 & MSG_DONTWAIT == 0 {
+            return Switchable::AllowSwitch;
+        }
+        return Switchable::PreventSwitch;
+    }
+
+    if sys == Arch::PSELECT6_TIME64 || sys == Arch::PSELECT6 {
+        syscall_state.reg_parameter::<Arch::fd_set>(2, Some(ArgMode::InOut), None);
+        syscall_state.reg_parameter::<Arch::fd_set>(3, Some(ArgMode::InOut), None);
+        syscall_state.reg_parameter::<Arch::fd_set>(4, Some(ArgMode::InOut), None);
+        if sys == Arch::PSELECT6 {
+            syscall_state.reg_parameter::<Arch::timespec>(5, Some(ArgMode::InOut), None);
+        } else {
+            syscall_state.reg_parameter::<x64::timespec>(5, Some(ArgMode::InOut), None);
+        }
+        let arg6p = syscall_state.reg_parameter::<pselect6_arg6<Arch>>(6, Some(ArgMode::In), None);
+        let child_addr = RemotePtr::<Ptr<Arch::unsigned_word, Arch::kernel_sigset_t>>::cast(
+            arg6p.as_rptr_u8() + offset_of!(pselect6_arg6<Arch>, ss),
+        );
+        syscall_state.mem_ptr_parameter_inferred::<Arch, Arch::kernel_sigset_t>(
+            t,
+            child_addr,
+            Some(ArgMode::In),
+            Some(Box::new(protect_rd_sigs)),
+        );
+        t.invalidate_sigmask();
+        return Switchable::AllowSwitch;
     }
 
     if sys == Arch::RECVMSG {
