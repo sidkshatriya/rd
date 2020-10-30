@@ -9,6 +9,7 @@ use crate::{
         mmsghdr,
         msghdr,
         pselect6_arg6,
+        select_args,
         siginfo_t,
     },
     auto_remote_syscalls::{AutoRemoteSyscalls, MemParamsEnabled},
@@ -155,6 +156,7 @@ use crate::{
         FcntlOperation,
         MmapCallingSemantics,
         Ptr,
+        SelectCallingSemantics,
         SupportedArch,
     },
     kernel_metadata::{errno_name, is_sigreturn, syscall_name},
@@ -1399,6 +1401,46 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
             Some(Box::new(protect_rd_sigs)),
         );
         t.invalidate_sigmask();
+        return Switchable::AllowSwitch;
+    }
+
+    if sys == Arch::SELECT || sys == Arch::_NEWSELECT {
+        if sys == Arch::SELECT
+            && Arch::SELECT_SEMANTICS == SelectCallingSemantics::SelectStructArguments
+        {
+            let argsp =
+                syscall_state.reg_parameter::<select_args<Arch>>(1, Some(ArgMode::In), None);
+
+            syscall_state.mem_ptr_parameter_inferred::<Arch, Arch::fd_set>(
+                t,
+                RemotePtr::cast(remote_ptr_field!(argsp, select_args<Arch>, read_fds)),
+                Some(ArgMode::InOut),
+                None,
+            );
+            syscall_state.mem_ptr_parameter_inferred::<Arch, Arch::fd_set>(
+                t,
+                RemotePtr::cast(remote_ptr_field!(argsp, select_args<Arch>, write_fds)),
+                Some(ArgMode::InOut),
+                None,
+            );
+            syscall_state.mem_ptr_parameter_inferred::<Arch, Arch::fd_set>(
+                t,
+                RemotePtr::cast(remote_ptr_field!(argsp, select_args<Arch>, except_fds)),
+                Some(ArgMode::InOut),
+                None,
+            );
+            syscall_state.mem_ptr_parameter_inferred::<Arch, Arch::timeval>(
+                t,
+                RemotePtr::cast(remote_ptr_field!(argsp, select_args<Arch>, timeout)),
+                Some(ArgMode::InOut),
+                None,
+            );
+        } else {
+            syscall_state.reg_parameter::<Arch::fd_set>(2, Some(ArgMode::InOut), None);
+            syscall_state.reg_parameter::<Arch::fd_set>(3, Some(ArgMode::InOut), None);
+            syscall_state.reg_parameter::<Arch::fd_set>(4, Some(ArgMode::InOut), None);
+            syscall_state.reg_parameter::<Arch::timeval>(5, Some(ArgMode::InOut), None);
+        }
         return Switchable::AllowSwitch;
     }
 

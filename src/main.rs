@@ -28,6 +28,8 @@ mod arch;
 mod kernel_abi;
 #[macro_use]
 mod auto_remote_syscalls;
+#[macro_use]
+mod remote_ptr;
 mod arch_structs;
 mod bindings;
 mod flags;
@@ -58,7 +60,6 @@ mod rd;
 mod record_signal;
 mod record_syscall;
 mod remote_code_ptr;
-mod remote_ptr;
 mod replay_syscall;
 mod replay_timeline;
 mod scheduler;

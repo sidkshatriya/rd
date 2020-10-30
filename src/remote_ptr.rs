@@ -10,6 +10,12 @@ use std::{
 /// Useful alias.
 pub type Void = u8;
 
+macro_rules! remote_ptr_field {
+    ($remote_ptr:expr, $struct_name:path, $struct_member:ident) => {
+        $remote_ptr.as_rptr_u8() + offset_of!($struct_name, $struct_member)
+    };
+}
+
 #[derive(Hash, Debug)]
 /// Manually derive Copy, Clone due to quirks with PhantomData
 pub struct RemotePtr<T> {

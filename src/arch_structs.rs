@@ -385,3 +385,14 @@ pub struct pselect6_arg6<Arch: Architecture> {
     pub ss: Ptr<Arch::unsigned_word, Arch::kernel_sigset_t>,
     pub ss_len: Arch::size_t,
 }
+
+#[repr(C)]
+#[derive(Copy, Clone, Default)]
+pub struct select_args<Arch: Architecture> {
+    pub n_fds: i32,
+    pub __pad: Arch::STD_PAD_ARR,
+    pub read_fds: Ptr<Arch::unsigned_word, Arch::fd_set>,
+    pub write_fds: Ptr<Arch::unsigned_word, Arch::fd_set>,
+    pub except_fds: Ptr<Arch::unsigned_word, Arch::fd_set>,
+    pub timeout: Ptr<Arch::unsigned_word, Arch::timeval>,
+}
