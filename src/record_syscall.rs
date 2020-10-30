@@ -1,6 +1,15 @@
 use crate::{
     arch::{loff_t, off64_t, Architecture},
-    arch_structs::{iovec, kernel_sigaction, mmap_args, mmsghdr, msghdr, siginfo_t},
+    arch_structs::{
+        cmsg_align,
+        cmsghdr,
+        iovec,
+        kernel_sigaction,
+        mmap_args,
+        mmsghdr,
+        msghdr,
+        siginfo_t,
+    },
     auto_remote_syscalls::{AutoRemoteSyscalls, MemParamsEnabled},
     bindings::{
         kernel::{
@@ -265,12 +274,14 @@ use libc::{
     P_ALL,
     P_PGID,
     P_PID,
+    SCM_RIGHTS,
     SECCOMP_MODE_FILTER,
     SECCOMP_MODE_STRICT,
     SIGCHLD,
     SIGKILL,
     SIGSTOP,
     SIG_BLOCK,
+    SOL_SOCKET,
     STDERR_FILENO,
     STDIN_FILENO,
     STDOUT_FILENO,
@@ -1932,11 +1943,24 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
     }
 
     if sys == Arch::RECVMSG {
-        unimplemented!()
+        if !t.regs_ref().syscall_failed() {
+            let child_addr = RemotePtr::<msghdr<Arch>>::from(t.regs_ref().arg2());
+            let msg = read_val_mem(t, child_addr, None);
+            check_scm_rights_fd::<Arch>(t, &msg);
+        }
+        return;
     }
 
     if sys == Arch::RECVMMSG_TIME64 || sys == Arch::RECVMMSG {
-        unimplemented!()
+        if !t.regs_ref().syscall_failed() {
+            let child_addr = RemotePtr::<mmsghdr<Arch>>::from(t.regs_ref().arg2());
+            let msg_count = t.regs_ref().syscall_result_signed() as i32 as usize;
+            let msgs = read_mem(t, child_addr, msg_count, None);
+            for m in &msgs {
+                check_scm_rights_fd::<Arch>(t, &m.msg_hdr);
+            }
+        }
+        return;
     }
 
     if sys == Arch::SCHED_GETAFFINITY {
@@ -4385,5 +4409,42 @@ fn prepare_recvmmsg<Arch: Architecture>(
                 msgp.as_rptr_u8() + offset_of!(mmsghdr<Arch>, msg_len),
             )),
         );
+    }
+}
+
+fn check_scm_rights_fd<Arch: Architecture>(t: &mut RecordTask, msg: &msghdr<Arch>) {
+    if Arch::size_t_as_usize(msg.msg_controllen) < size_of::<cmsghdr<Arch>>() {
+        return;
+    }
+    let data: Vec<u8> = read_mem(
+        t,
+        Arch::as_rptr(msg.msg_control).as_rptr_u8(),
+        Arch::size_t_as_usize(msg.msg_controllen),
+        None,
+    );
+    let mut index: usize = 0;
+    loop {
+        let cmsg: cmsghdr<Arch> =
+            unsafe { mem::transmute_copy(data.as_ptr().add(index).as_ref().unwrap()) };
+        let cmsg_len = Arch::size_t_as_usize(cmsg.cmsg_len);
+        if cmsg_len < size_of_val(&cmsg) || index + cmsg_align::<Arch>(cmsg_len) > data.len() {
+            break;
+        }
+        if cmsg.cmsg_level == SOL_SOCKET && cmsg.cmsg_type == SCM_RIGHTS {
+            let fd_count = (cmsg_len - size_of_val(&cmsg)) / size_of::<i32>();
+            let base = &data[index + size_of_val(&cmsg)..];
+            for i in 0..fd_count {
+                let fd = i32::from_le_bytes(
+                    base[i * size_of::<i32>()..(i + 1) * size_of::<i32>()]
+                        .try_into()
+                        .unwrap(),
+                );
+                handle_opened_file(t, fd, 0);
+            }
+        }
+        index += cmsg_align::<Arch>(cmsg_len);
+        if index + size_of_val(&cmsg) > data.len() {
+            break;
+        }
     }
 }

@@ -5,6 +5,7 @@ use crate::{
     bindings::{kernel, kernel::sock_filter, signal},
     kernel_abi::{common, Ptr},
 };
+use std::mem::size_of;
 
 #[repr(C)]
 pub struct robust_list<Arch: Architecture> {
@@ -299,7 +300,7 @@ assert_eq_size!(kernel::iovec, iovec<NativeArch>);
 assert_eq_align!(kernel::iovec, iovec<NativeArch>);
 
 #[repr(C)]
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Default)]
 pub struct msghdr<Arch: Architecture> {
     pub msg_name: Ptr<Arch::unsigned_word, u8>,
     pub msg_namelen: common::socklen_t,
@@ -314,15 +315,66 @@ pub struct msghdr<Arch: Architecture> {
     pub msg_flags: i32,
 }
 
+impl<Arch: Architecture> Clone for msghdr<Arch> {
+    fn clone(&self) -> Self {
+        Self {
+            msg_name: self.msg_name,
+            msg_namelen: self.msg_namelen,
+            _padding: self._padding,
+            msg_iov: self.msg_iov,
+            msg_iovlen: self.msg_iovlen,
+            msg_control: self.msg_control,
+            msg_controllen: self.msg_controllen,
+            msg_flags: self.msg_flags,
+        }
+    }
+}
+
 assert_eq_size!(kernel::msghdr, msghdr<NativeArch>);
 assert_eq_align!(kernel::msghdr, msghdr<NativeArch>);
 
 #[repr(C)]
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Default)]
 pub struct mmsghdr<Arch: Architecture> {
     pub msg_hdr: msghdr<Arch>,
     pub msg_len: u32,
 }
 
+impl<Arch: Architecture> Clone for mmsghdr<Arch> {
+    fn clone(&self) -> Self {
+        Self {
+            msg_hdr: self.msg_hdr.clone(),
+            msg_len: self.msg_len,
+        }
+    }
+}
+
 assert_eq_size!(kernel::mmsghdr, mmsghdr<NativeArch>);
 assert_eq_align!(kernel::mmsghdr, mmsghdr<NativeArch>);
+
+#[repr(C)]
+#[derive(Copy, Clone, Default)]
+pub struct cmsghdr<Arch: Architecture> {
+    pub cmsg_len: Arch::size_t,
+    pub cmsg_level: i32,
+    pub cmsg_type: i32,
+}
+
+assert_eq_size!(kernel::cmsghdr, cmsghdr<NativeArch>);
+assert_eq_align!(kernel::cmsghdr, cmsghdr<NativeArch>);
+
+pub fn cmsg_data_offset<Arch: Architecture>() -> usize {
+    cmsg_align::<Arch>(size_of::<cmsghdr<Arch>>())
+}
+
+pub fn cmsg_align<Arch: Architecture>(len: usize) -> usize {
+    (len + size_of::<Arch::size_t>() - 1) & !(size_of::<Arch::size_t>() - 1)
+}
+
+pub fn cmsg_space<Arch: Architecture>(len: usize) -> usize {
+    cmsg_align::<Arch>(size_of::<cmsghdr<Arch>>()) + cmsg_align::<Arch>(len)
+}
+
+pub fn cmsg_len<Arch: Architecture>(len: usize) -> usize {
+    cmsg_align::<Arch>(size_of::<cmsghdr<Arch>>()) + len
+}
