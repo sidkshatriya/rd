@@ -6,7 +6,7 @@ The port is  _in progress_ but many things work already (see below).
 
 ## Installing
 
-rd requires a nightly version of the rust x86_64-unknown-linux-gnu toolchain to compile.
+rd requires a nightly version of the rust `x86_64-unknown-linux-gnu` toolchain to compile.
 
 ```bash
 git clone git@github.com:sidkshatriya/rd.git
