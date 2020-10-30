@@ -3702,7 +3702,7 @@ enum WriteBack {
 /// with an optional final size taken from the syscall result or a specific
 /// memory location after the syscall has executed. The minimum of the incoming
 /// and final sizes is used, if both are present.
-#[derive(Default, Copy, Clone)]
+#[derive(Copy, Clone)]
 struct ParamSize {
     incoming_size: usize,
     /// If non-null, the size is limited by the value at this location after
@@ -3712,6 +3712,17 @@ struct ParamSize {
     read_size: usize,
     /// If true, the size is limited by the value of the syscall result.
     from_syscall: bool,
+}
+
+impl Default for ParamSize {
+    fn default() -> Self {
+        Self {
+            incoming_size: i32::MAX as usize,
+            mem_ptr: Default::default(),
+            read_size: 0,
+            from_syscall: false,
+        }
+    }
 }
 
 impl From<usize> for ParamSize {

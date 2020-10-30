@@ -306,7 +306,7 @@ pub struct msghdr<Arch: Architecture> {
     pub msg_namelen: common::socklen_t,
     pub _padding: Arch::STD_PAD_ARR,
 
-    pub msg_iov: Ptr<Arch::unsigned_word, Arch::iovec>,
+    pub msg_iov: Ptr<Arch::unsigned_word, iovec<Arch>>,
     pub msg_iovlen: Arch::size_t,
 
     pub msg_control: Ptr<Arch::unsigned_word, u8>,
