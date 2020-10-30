@@ -11,9 +11,7 @@ use crate::{
         SelectCallingSemantics,
         SupportedArch,
     },
-    kernel_supplement::{CLD_STOPPED, CLD_TRAPPED},
     remote_ptr::{RemotePtr, Void},
-    session::task::record_task::{EmulatedStopType, RecordTask},
 };
 use std::{
     convert::{TryFrom, TryInto},
@@ -685,8 +683,6 @@ pub trait Architecture: 'static + Default {
     );
 
     fn set_csmsghdr(msg: &mut Self::cmsghdr, cmsg_len: usize, cmsg_level: i32, cmsg_type: i32);
-
-    fn set_siginfo_for_waited_task(r: &RecordTask, si: &mut Self::siginfo_t);
 }
 
 impl Architecture for X86Arch {
@@ -1289,23 +1285,6 @@ impl Architecture for X86Arch {
         cmsghdr.cmsg_level = cmsg_level;
         cmsghdr.cmsg_type = cmsg_type;
     }
-
-    fn set_siginfo_for_waited_task(r: &RecordTask, si: &mut x86::siginfo_t) {
-        // XXX handle CLD_EXITED here
-        if r.emulated_stop_type == EmulatedStopType::GroupStop {
-            si.si_code = CLD_STOPPED as _;
-            // @TODO Is the unwrap approach what we want?
-            si._sifields._sigchld.si_status_ =
-                r.emulated_stop_code.maybe_stop_sig().unwrap_sig().as_raw();
-        } else {
-            si.si_code = CLD_TRAPPED as _;
-            // @TODO Is the unwrap approach what we want?
-            si._sifields._sigchld.si_status_ =
-                r.emulated_stop_code.ptrace_signal().unwrap().as_raw();
-        }
-        si._sifields._sigchld.si_pid_ = r.tgid();
-        si._sifields._sigchld.si_uid_ = r.getuid();
-    }
 }
 
 impl Architecture for X64Arch {
@@ -1907,22 +1886,5 @@ impl Architecture for X64Arch {
         cmsghdr.cmsg_len = cmsg_len as _;
         cmsghdr.cmsg_level = cmsg_level;
         cmsghdr.cmsg_type = cmsg_type;
-    }
-
-    fn set_siginfo_for_waited_task(r: &RecordTask, si: &mut x64::siginfo_t) {
-        // XXX handle CLD_EXITED here
-        if r.emulated_stop_type == EmulatedStopType::GroupStop {
-            si.si_code = CLD_STOPPED as _;
-            // @TODO Is the unwrap approach what we want?
-            si._sifields._sigchld.si_status_ =
-                r.emulated_stop_code.maybe_stop_sig().unwrap_sig().as_raw();
-        } else {
-            si.si_code = CLD_TRAPPED as _;
-            // @TODO Is the unwrap approach what we want?
-            si._sifields._sigchld.si_status_ =
-                r.emulated_stop_code.ptrace_signal().unwrap().as_raw();
-        }
-        si._sifields._sigchld.si_pid_ = r.tgid();
-        si._sifields._sigchld.si_uid_ = r.getuid();
     }
 }
