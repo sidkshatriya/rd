@@ -280,10 +280,19 @@ assert_eq_size!(signal::siginfo_t, siginfo_t<NativeArch>);
 assert_eq_align!(signal::siginfo_t, siginfo_t<NativeArch>);
 
 #[repr(C)]
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Default)]
 pub struct iovec<Arch: Architecture> {
     pub iov_base: Ptr<Arch::unsigned_word, u8>,
     pub iov_len: Arch::size_t,
+}
+
+impl<Arch: Architecture> Clone for iovec<Arch> {
+    fn clone(&self) -> Self {
+        Self {
+            iov_base: self.iov_base,
+            iov_len: self.iov_len,
+        }
+    }
 }
 
 assert_eq_size!(kernel::iovec, iovec<NativeArch>);

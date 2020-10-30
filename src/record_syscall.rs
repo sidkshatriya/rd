@@ -1,6 +1,6 @@
 use crate::{
     arch::{loff_t, off64_t, Architecture},
-    arch_structs::{kernel_sigaction, mmap_args, siginfo_t},
+    arch_structs::{iovec, kernel_sigaction, mmap_args, mmsghdr, msghdr, siginfo_t},
     auto_remote_syscalls::{AutoRemoteSyscalls, MemParamsEnabled},
     bindings::{
         kernel::{
@@ -1348,6 +1348,35 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
 
     if sys == Arch::SENDMSG {
         if regs.arg3() as i32 & MSG_DONTWAIT == 0 {
+            return Switchable::AllowSwitch;
+        }
+        return Switchable::PreventSwitch;
+    }
+
+    if sys == Arch::RECVMSG {
+        let msgp = syscall_state.reg_parameter::<msghdr<Arch>>(2, Some(ArgMode::InOut), None);
+        prepare_recvmsg::<Arch>(
+            t,
+            &mut syscall_state,
+            msgp,
+            ParamSize::from_syscall_result::<Arch::ssize_t>(),
+        );
+        if regs.arg3() as i32 & MSG_DONTWAIT == 0 {
+            return Switchable::AllowSwitch;
+        }
+        return Switchable::PreventSwitch;
+    }
+
+    if sys == Arch::RECVMMSG_TIME64 || sys == Arch::RECVMMSG {
+        let vlen = regs.arg3() as u32 as usize;
+        let mmsgp = RemotePtr::<mmsghdr<Arch>>::cast(syscall_state.reg_parameter_with_size(
+            2,
+            ParamSize::from(size_of::<mmsghdr<Arch>>() * vlen),
+            Some(ArgMode::InOut),
+            None,
+        ));
+        prepare_recvmmsg::<Arch>(t, &mut syscall_state, mmsgp, vlen);
+        if regs.arg4() as i32 & MSG_DONTWAIT == 0 {
             return Switchable::AllowSwitch;
         }
         return Switchable::PreventSwitch;
@@ -4287,4 +4316,74 @@ fn process_mremap(
 
 fn send_signal_during_init_buffers() -> bool {
     env::var_os("RD_INIT_BUFFERS_SEND_SIGNAL").is_some()
+}
+
+fn prepare_recvmsg<Arch: Architecture>(
+    t: &mut RecordTask,
+    syscall_state: &mut TaskSyscallState,
+    msgp: RemotePtr<msghdr<Arch>>,
+    io_size: ParamSize,
+) {
+    let namelen_ptr = RemotePtr::<common::socklen_t>::cast(
+        msgp.as_rptr_u8() + offset_of!(msghdr<Arch>, msg_namelen),
+    );
+    let param_size = ParamSize::from_initialized_mem(t, namelen_ptr);
+    syscall_state.mem_ptr_parameter_with_size(
+        t,
+        msgp.as_rptr_u8() + offset_of!(msghdr<Arch>, msg_name),
+        param_size,
+        None,
+        None,
+    );
+
+    let msg = read_val_mem(t, msgp, None);
+    let iovecsp_void: RemotePtr<Void> = syscall_state.mem_ptr_parameter_with_size(
+        t,
+        msgp.as_rptr_u8() + offset_of!(msghdr<Arch>, msg_iov),
+        ParamSize::from(size_of::<iovec<Arch>>() * Arch::size_t_as_usize(msg.msg_iovlen)),
+        Some(ArgMode::In),
+        None,
+    );
+    let iovecsp = RemotePtr::<iovec<Arch>>::cast(iovecsp_void);
+    let iovecs = read_mem(t, iovecsp, Arch::size_t_as_usize(msg.msg_iovlen), None);
+    for i in 0..Arch::size_t_as_usize(msg.msg_iovlen) {
+        syscall_state.mem_ptr_parameter_with_size(
+            t,
+            (iovecsp + i).as_rptr_u8() + offset_of!(iovec<Arch>, iov_base),
+            io_size.limit_size(Arch::size_t_as_usize(iovecs[i].iov_len)),
+            None,
+            None,
+        );
+    }
+
+    let controllen_ptr = RemotePtr::<Arch::size_t>::cast(
+        msgp.as_rptr_u8() + offset_of!(msghdr<Arch>, msg_controllen),
+    );
+    let param_size = ParamSize::from_initialized_mem(t, controllen_ptr);
+    syscall_state.mem_ptr_parameter_with_size(
+        t,
+        msgp.as_rptr_u8() + offset_of!(msghdr<Arch>, msg_control),
+        param_size,
+        None,
+        None,
+    );
+}
+
+fn prepare_recvmmsg<Arch: Architecture>(
+    t: &mut RecordTask,
+    syscall_state: &mut TaskSyscallState,
+    mmsgp: RemotePtr<mmsghdr<Arch>>,
+    vlen: usize,
+) {
+    for i in 0..vlen {
+        let msgp: RemotePtr<mmsghdr<Arch>> = mmsgp + i;
+        prepare_recvmsg::<Arch>(
+            t,
+            syscall_state,
+            RemotePtr::<msghdr<Arch>>::cast(msgp.as_rptr_u8() + offset_of!(mmsghdr<Arch>, msg_hdr)),
+            ParamSize::from_mem(RemotePtr::<u32>::cast(
+                msgp.as_rptr_u8() + offset_of!(mmsghdr<Arch>, msg_len),
+            )),
+        );
+    }
 }
