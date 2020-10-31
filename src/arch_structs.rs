@@ -396,3 +396,24 @@ pub struct select_args<Arch: Architecture> {
     pub except_fds: Ptr<Arch::unsigned_word, Arch::fd_set>,
     pub timeout: Ptr<Arch::unsigned_word, Arch::timeval>,
 }
+
+#[repr(C)]
+#[derive(Copy, Clone, Default)]
+pub struct __user_cap_header_struct {
+    pub version: u32,
+    pub pid: i32,
+}
+
+assert_eq_size!(kernel::__user_cap_header_struct, __user_cap_header_struct);
+assert_eq_align!(kernel::__user_cap_header_struct, __user_cap_header_struct);
+
+#[repr(C)]
+#[derive(Copy, Clone, Default)]
+pub struct __user_cap_data_struct {
+    pub effective: u32,
+    pub permitted: u32,
+    pub inheritable: u32,
+}
+
+assert_eq_size!(kernel::__user_cap_data_struct, __user_cap_data_struct);
+assert_eq_align!(kernel::__user_cap_data_struct, __user_cap_data_struct);

@@ -642,6 +642,7 @@ pub trait Architecture: 'static + Default {
     type hci_dev_list_req: Copy + 'static;
     type pollfd: Copy + 'static;
     type fd_set: Copy + 'static;
+    type epoll_event: 'static;
 
     fn as_rptr<T>(p: Ptr<Self::unsigned_word, T>) -> RemotePtr<T>;
 
@@ -1203,6 +1204,7 @@ impl Architecture for X86Arch {
     type hci_dev_list_req = x86::hci_dev_list_req;
     type pollfd = x86::pollfd;
     type fd_set = x86::fd_set;
+    type epoll_event = x86::epoll_event;
 
     fn as_rptr<T>(p: Ptr<u32, T>) -> RemotePtr<T> {
         p.rptr()
@@ -1806,6 +1808,7 @@ impl Architecture for X64Arch {
     type hci_dev_list_req = x64::hci_dev_list_req;
     type pollfd = x64::pollfd;
     type fd_set = x64::fd_set;
+    type epoll_event = x64::epoll_event;
 
     fn as_rptr<T>(p: Ptr<u64, T>) -> RemotePtr<T> {
         p.rptr()

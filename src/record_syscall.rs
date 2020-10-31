@@ -1,6 +1,7 @@
 use crate::{
     arch::{loff_t, off64_t, Architecture},
     arch_structs::{
+        self,
         cmsg_align,
         cmsghdr,
         iovec,
@@ -71,6 +72,12 @@ use crate::{
             TIOCGWINSZ,
             TIOCINQ,
             TIOCOUTQ,
+            _LINUX_CAPABILITY_U32S_1,
+            _LINUX_CAPABILITY_U32S_2,
+            _LINUX_CAPABILITY_U32S_3,
+            _LINUX_CAPABILITY_VERSION_1,
+            _LINUX_CAPABILITY_VERSION_2,
+            _LINUX_CAPABILITY_VERSION_3,
             _SNDRV_CTL_IOCTL_CARD_INFO,
             _SNDRV_CTL_IOCTL_PVERSION,
         },
@@ -1470,6 +1477,64 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         if regs.arg4() as i32 & MSG_DONTWAIT == 0 {
             return Switchable::AllowSwitch;
         }
+        return Switchable::PreventSwitch;
+    }
+
+    // int epoll_wait(int epfd, struct epoll_event *events, int maxevents, int timeout);
+    if sys == Arch::EPOLL_WAIT {
+        // DIFF NOTE: This is arg3_signed in rr
+        syscall_state.reg_parameter_with_size(
+            2,
+            ParamSize::from(size_of::<Arch::epoll_event>() * regs.arg3()),
+            None,
+            None,
+        );
+        return Switchable::AllowSwitch;
+    }
+
+    if sys == Arch::EPOLL_PWAIT {
+        // DIFF NOTE: This is arg3_signed() in rr
+        syscall_state.reg_parameter_with_size(
+            2,
+            ParamSize::from(size_of::<Arch::epoll_event>() * regs.arg3()),
+            None,
+            None,
+        );
+        t.invalidate_sigmask();
+        return Switchable::AllowSwitch;
+    }
+
+    if sys == Arch::CAPGET {
+        let child_addr = syscall_state.reg_parameter::<arch_structs::__user_cap_header_struct>(
+            1,
+            Some(ArgMode::InOut),
+            None,
+        );
+        let hdr = read_val_mem(t, child_addr, None);
+        let struct_count: usize;
+        match hdr.version {
+            _LINUX_CAPABILITY_VERSION_1 => {
+                struct_count = _LINUX_CAPABILITY_U32S_1 as usize;
+            }
+            _LINUX_CAPABILITY_VERSION_2 => {
+                struct_count = _LINUX_CAPABILITY_U32S_2 as usize;
+            }
+            _LINUX_CAPABILITY_VERSION_3 => {
+                struct_count = _LINUX_CAPABILITY_U32S_3 as usize;
+            }
+            _ => {
+                struct_count = 0;
+            }
+        }
+        if struct_count > 0 {
+            syscall_state.reg_parameter_with_size(
+                2,
+                ParamSize::from(size_of::<arch_structs::__user_cap_data_struct>() * struct_count),
+                Some(ArgMode::Out),
+                None,
+            );
+        }
+
         return Switchable::PreventSwitch;
     }
 
