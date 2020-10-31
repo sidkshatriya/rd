@@ -104,42 +104,6 @@ fn main() {
     println!("cargo:rerun-if-changed=scripts/generate_syscalls.py");
     println!("cargo:rerun-if-changed=scripts/syscalls.py");
 
-    let signal_bindings = Builder::default()
-        .parse_callbacks(Box::new(CargoCallbacks))
-        .header("bindgen/signal_wrapper.h")
-        .derive_default(true)
-        .generate()
-        .unwrap();
-    println!("cargo:rerun-if-changed=bindgen/signal_wrapper.h");
-
-    signal_bindings
-        .write_to_file(path.join("signal_bindings_generated.rs"))
-        .unwrap();
-
-    let audit_bindings = Builder::default()
-        .parse_callbacks(Box::new(CargoCallbacks))
-        .header("bindgen/audit_wrapper.h")
-        .derive_default(true)
-        .generate()
-        .unwrap();
-    println!("cargo:rerun-if-changed=bindgen/audit_wrapper.h");
-
-    audit_bindings
-        .write_to_file(path.join("audit_bindings_generated.rs"))
-        .unwrap();
-
-    let ptrace_bindings = Builder::default()
-        .parse_callbacks(Box::new(CargoCallbacks))
-        .prepend_enum_name(false)
-        .header("bindgen/ptrace_wrapper.h")
-        .generate()
-        .unwrap();
-    println!("cargo:rerun-if-changed=bindgen/ptrace_wrapper.h");
-
-    ptrace_bindings
-        .write_to_file(path.join("ptrace_bindings_generated.rs"))
-        .unwrap();
-
     let perf_event_bindings = Builder::default()
         .parse_callbacks(Box::new(CargoCallbacks))
         .derive_default(true)
@@ -156,42 +120,6 @@ fn main() {
 
     perf_event_bindings
         .write_to_file(path.join("perf_event_bindings_generated.rs"))
-        .unwrap();
-
-    let fcntl_bindings = Builder::default()
-        .parse_callbacks(Box::new(CargoCallbacks))
-        .prepend_enum_name(false)
-        .header("bindgen/fcntl_wrapper.h")
-        .generate()
-        .unwrap();
-    println!("cargo:rerun-if-changed=bindgen/fcntl_wrapper.h");
-
-    fcntl_bindings
-        .write_to_file(path.join("fcntl_bindings_generated.rs"))
-        .unwrap();
-
-    let sysexits_bindings = Builder::default()
-        .parse_callbacks(Box::new(CargoCallbacks))
-        .prepend_enum_name(false)
-        .header("bindgen/sysexits_wrapper.h")
-        .generate()
-        .unwrap();
-    println!("cargo:rerun-if-changed=bindgen/sysexits_wrapper.h");
-
-    sysexits_bindings
-        .write_to_file(path.join("sysexits_bindings_generated.rs"))
-        .unwrap();
-
-    let prctl_bindings = Builder::default()
-        .parse_callbacks(Box::new(CargoCallbacks))
-        .prepend_enum_name(false)
-        .header("bindgen/prctl_wrapper.h")
-        .generate()
-        .unwrap();
-    println!("cargo:rerun-if-changed=bindgen/prctl_wrapper.h");
-
-    prctl_bindings
-        .write_to_file(path.join("prctl_bindings_generated.rs"))
         .unwrap();
 
     let kernel_abi_bindings = Builder::default()
@@ -219,42 +147,33 @@ fn main() {
         .write_to_file(path.join("gdb_register_bindings_generated.rs"))
         .unwrap();
 
-    let gdb_request_bindings = Builder::default()
-        .parse_callbacks(Box::new(CargoCallbacks))
-        .prepend_enum_name(false)
-        .header("bindgen/gdb_request_wrapper.h")
-        .generate()
-        .unwrap();
-    println!("cargo:rerun-if-changed=bindgen/gdb_register_wrapper.h");
+    let names = [
+        "signal",
+        "audit",
+        "fcntl",
+        "ptrace",
+        "sysexits",
+        "prctl",
+        "gdb_request",
+        "kernel_supplement",
+        "packet",
+        "personality",
+    ];
 
-    gdb_request_bindings
-        .write_to_file(path.join("gdb_request_bindings_generated.rs"))
-        .unwrap();
+    for &name in &names {
+        let bindings = Builder::default()
+            .parse_callbacks(Box::new(CargoCallbacks))
+            .header(format!("bindgen/{}_wrapper.h", name))
+            .prepend_enum_name(false)
+            .derive_default(true)
+            .generate()
+            .unwrap();
+        println!("cargo:rerun-if-changed=bindgen/{}_wrapper.h", name);
 
-    let kernel_supplement_bindings = Builder::default()
-        .parse_callbacks(Box::new(CargoCallbacks))
-        .derive_default(true)
-        .prepend_enum_name(false)
-        .header("bindgen/kernel_supplement_wrapper.h")
-        .generate()
-        .unwrap();
-    println!("cargo:rerun-if-changed=bindgen/kernel_supplement_wrapper.h");
-
-    kernel_supplement_bindings
-        .write_to_file(path.join("kernel_supplement_bindings_generated.rs"))
-        .unwrap();
-
-    let packet_bindings = Builder::default()
-        .parse_callbacks(Box::new(CargoCallbacks))
-        .prepend_enum_name(false)
-        .header("bindgen/packet_wrapper.h")
-        .generate()
-        .unwrap();
-    println!("cargo:rerun-if-changed=bindgen/packet_wrapper.h");
-
-    packet_bindings
-        .write_to_file(path.join("packet_bindings_generated.rs"))
-        .unwrap();
+        bindings
+            .write_to_file(path.join(format!("{}_bindings_generated.rs", name)))
+            .unwrap();
+    }
 
     capnpc::CompilerCommand::new()
         .file("schema/trace.capnp")

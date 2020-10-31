@@ -84,6 +84,7 @@ use crate::{
             _SNDRV_CTL_IOCTL_PVERSION,
         },
         packet::{PACKET_RX_RING, PACKET_TX_RING},
+        personality::{PER_LINUX, PER_LINUX32},
         prctl::{
             ARCH_GET_CPUID,
             ARCH_GET_FS,
@@ -238,6 +239,10 @@ use libc::{
     sockaddr_un,
     socklen_t,
     SYS_tgkill,
+    ADDR_COMPAT_LAYOUT,
+    ADDR_LIMIT_32BIT,
+    ADDR_LIMIT_3GB,
+    ADDR_NO_RANDOMIZE,
     AF_UNIX,
     AT_ENTRY,
     CLONE_PARENT,
@@ -253,6 +258,7 @@ use libc::{
     ENOSYS,
     ENOTBLK,
     ENOTTY,
+    FDPIC_FUNCPTRS,
     FUTEX_CMD_MASK,
     FUTEX_CMP_REQUEUE,
     FUTEX_CMP_REQUEUE_PI,
@@ -311,6 +317,7 @@ use libc::{
     MAP_32BIT,
     MAP_FIXED,
     MAP_GROWSDOWN,
+    MMAP_PAGE_ZERO,
     MSG_DONTWAIT,
     O_DIRECT,
     PRIO_PROCESS,
@@ -325,9 +332,11 @@ use libc::{
     Q_SETINFO,
     Q_SETQUOTA,
     Q_SYNC,
+    READ_IMPLIES_EXEC,
     SCM_RIGHTS,
     SECCOMP_MODE_FILTER,
     SECCOMP_MODE_STRICT,
+    SHORT_INODE,
     SIGCHLD,
     SIGKILL,
     SIGSTOP,
@@ -337,7 +346,10 @@ use libc::{
     STDERR_FILENO,
     STDIN_FILENO,
     STDOUT_FILENO,
+    STICKY_TIMEOUTS,
     S_IWUSR,
+    UNAME26,
+    WHOLE_SECONDS,
     WNOHANG,
     WNOWAIT,
     WUNTRACED,
@@ -1746,6 +1758,51 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
             _ => (),
         }
 
+        return Switchable::PreventSwitch;
+    }
+
+    if sys == Arch::PERSONALITY {
+        // DIFF NOTE: This cast to i32 is not present in rr
+        let p = regs.arg1_signed() as i32;
+        if p == -1 {
+            // A special argument that only returns the existing personality.
+            return Switchable::PreventSwitch;
+        }
+
+        match (p as u8) as u32 {
+            // The default personality requires no handling.
+            PER_LINUX32 | PER_LINUX => (),
+            _ => {
+                syscall_state.expect_errno = EINVAL;
+            }
+        }
+
+        if t.session().as_record().unwrap().enable_chaos() {
+            // XXX fix this to actually disable chaos mode ASLR?
+            ed_assert_eq!(
+                t,
+                p & (ADDR_COMPAT_LAYOUT | ADDR_NO_RANDOMIZE | ADDR_LIMIT_32BIT | ADDR_LIMIT_3GB),
+                0,
+                "Personality value {:#x} not compatible with chaos mode addres-space randomization",
+                p
+            );
+        }
+        if (((p as u32 & 0xffffff00) as i32)
+            & !(ADDR_COMPAT_LAYOUT
+                | ADDR_NO_RANDOMIZE
+                | ADDR_LIMIT_32BIT
+                | ADDR_LIMIT_3GB
+                | FDPIC_FUNCPTRS
+                | MMAP_PAGE_ZERO
+                | SHORT_INODE
+                | STICKY_TIMEOUTS
+                | UNAME26
+                | WHOLE_SECONDS
+                | READ_IMPLIES_EXEC))
+            != 0
+        {
+            syscall_state.expect_errno = EINVAL;
+        }
         return Switchable::PreventSwitch;
     }
 
