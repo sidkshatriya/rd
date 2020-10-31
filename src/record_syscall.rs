@@ -64,6 +64,7 @@ use crate::{
             SIOCSIFNETMASK,
             SIOCSIFPFLAGS,
             SIOCSIFTXQLEN,
+            SUBCMDSHIFT,
             TCGETA,
             TCGETS,
             TIOCGETD,
@@ -246,9 +247,11 @@ use libc::{
     CLONE_VM,
     EACCES,
     EINVAL,
+    ENODEV,
     ENOENT,
     ENOPROTOOPT,
     ENOSYS,
+    ENOTBLK,
     ENOTTY,
     FUTEX_CMD_MASK,
     FUTEX_CMP_REQUEUE,
@@ -314,6 +317,14 @@ use libc::{
     P_ALL,
     P_PGID,
     P_PID,
+    Q_GETFMT,
+    Q_GETINFO,
+    Q_GETQUOTA,
+    Q_QUOTAOFF,
+    Q_QUOTAON,
+    Q_SETINFO,
+    Q_SETQUOTA,
+    Q_SYNC,
     SCM_RIGHTS,
     SECCOMP_MODE_FILTER,
     SECCOMP_MODE_STRICT,
@@ -1714,6 +1725,30 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         return Switchable::PreventSwitch;
     }
 
+    if sys == Arch::QUOTACTL {
+        match (regs.arg1() >> SUBCMDSHIFT) as i32 {
+            Q_GETQUOTA => {
+                syscall_state.reg_parameter::<Arch::dqblk>(4, None, None);
+            }
+            Q_GETINFO => {
+                syscall_state.reg_parameter::<Arch::dqinfo>(4, None, None);
+            }
+            Q_GETFMT => {
+                syscall_state.reg_parameter::<i32>(4, None, None);
+            }
+            Q_SETQUOTA => {
+                fatal!("Trying to set disk quota usage, this may interfere with rd recording");
+            }
+
+            Q_QUOTAON | Q_QUOTAOFF | Q_SETINFO | Q_SYNC => (),
+            // Don't set expect_errno here because quotactl can fail with
+            // various error codes before checking the command
+            _ => (),
+        }
+
+        return Switchable::PreventSwitch;
+    }
+
     ed_assert!(
         t,
         false,
@@ -2421,7 +2456,20 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
     }
 
     if sys == Arch::QUOTACTL {
-        unimplemented!()
+        match (t.regs_ref().arg1() >> SUBCMDSHIFT) as i32 {
+            Q_GETQUOTA | Q_GETINFO | Q_GETFMT | Q_SETQUOTA | Q_QUOTAON | Q_QUOTAOFF | Q_SETINFO
+            | Q_SYNC => (),
+            _ => {
+                let ret = t.regs_ref().syscall_result_signed() as i32;
+                ed_assert!(
+                    t,
+                    ret == -ENOENT || ret == -ENODEV || ret == -ENOTBLK || ret == -EINVAL,
+                    " unknown quotactl({:#x})",
+                    (t.regs_ref().arg1() >> SUBCMDSHIFT)
+                );
+            }
+        }
+        return;
     }
 
     if sys == Arch::SECCOMP {

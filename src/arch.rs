@@ -643,6 +643,8 @@ pub trait Architecture: 'static + Default {
     type pollfd: Copy + 'static;
     type fd_set: Copy + 'static;
     type epoll_event: 'static;
+    type dqblk: Copy + 'static;
+    type dqinfo: Copy + 'static;
 
     fn as_rptr<T>(p: Ptr<Self::unsigned_word, T>) -> RemotePtr<T>;
 
@@ -1207,6 +1209,8 @@ impl Architecture for X86Arch {
     type pollfd = x86::pollfd;
     type fd_set = x86::fd_set;
     type epoll_event = x86::epoll_event;
+    type dqblk = x86::dqblk;
+    type dqinfo = x86::dqinfo;
 
     fn as_rptr<T>(p: Ptr<u32, T>) -> RemotePtr<T> {
         p.rptr()
@@ -1815,6 +1819,8 @@ impl Architecture for X64Arch {
     type pollfd = x64::pollfd;
     type fd_set = x64::fd_set;
     type epoll_event = x64::epoll_event;
+    type dqblk = x86::dqblk;
+    type dqinfo = x86::dqinfo;
 
     fn as_rptr<T>(p: Ptr<u64, T>) -> RemotePtr<T> {
         p.rptr()
