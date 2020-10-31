@@ -265,6 +265,29 @@ use libc::{
     GRND_NONBLOCK,
     IPPROTO_IP,
     IPPROTO_IPV6,
+    KEYCTL_ASSUME_AUTHORITY,
+    KEYCTL_CHOWN,
+    KEYCTL_CLEAR,
+    KEYCTL_DESCRIBE,
+    KEYCTL_DH_COMPUTE,
+    KEYCTL_GET_KEYRING_ID,
+    KEYCTL_GET_SECURITY,
+    KEYCTL_INSTANTIATE,
+    KEYCTL_INSTANTIATE_IOV,
+    KEYCTL_INVALIDATE,
+    KEYCTL_JOIN_SESSION_KEYRING,
+    KEYCTL_LINK,
+    KEYCTL_NEGATE,
+    KEYCTL_READ,
+    KEYCTL_REJECT,
+    KEYCTL_REVOKE,
+    KEYCTL_SEARCH,
+    KEYCTL_SESSION_TO_PARENT,
+    KEYCTL_SETPERM,
+    KEYCTL_SET_REQKEY_KEYRING,
+    KEYCTL_SET_TIMEOUT,
+    KEYCTL_UNLINK,
+    KEYCTL_UPDATE,
     MADV_DODUMP,
     MADV_DOFORK,
     MADV_DONTDUMP,
@@ -1649,6 +1672,45 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
             None,
             None,
         );
+        return Switchable::PreventSwitch;
+    }
+
+    if sys == Arch::KEYCTL {
+        match regs.arg1() as u32 {
+            KEYCTL_GET_KEYRING_ID
+            | KEYCTL_JOIN_SESSION_KEYRING
+            | KEYCTL_UPDATE
+            | KEYCTL_REVOKE
+            | KEYCTL_CHOWN
+            | KEYCTL_SETPERM
+            | KEYCTL_CLEAR
+            | KEYCTL_LINK
+            | KEYCTL_UNLINK
+            | KEYCTL_SEARCH
+            | KEYCTL_INSTANTIATE
+            | KEYCTL_INSTANTIATE_IOV
+            | KEYCTL_NEGATE
+            | KEYCTL_REJECT
+            | KEYCTL_SET_REQKEY_KEYRING
+            | KEYCTL_SET_TIMEOUT
+            | KEYCTL_ASSUME_AUTHORITY
+            | KEYCTL_SESSION_TO_PARENT
+            | KEYCTL_INVALIDATE => (),
+
+            KEYCTL_DESCRIBE | KEYCTL_READ | KEYCTL_GET_SECURITY | KEYCTL_DH_COMPUTE => {
+                syscall_state.reg_parameter_with_size(
+                    3,
+                    ParamSize::from_syscall_result_with_size::<Arch::signed_long>(regs.arg4()),
+                    None,
+                    None,
+                );
+            }
+
+            _ => {
+                syscall_state.expect_errno = EINVAL;
+            }
+        }
+
         return Switchable::PreventSwitch;
     }
 
