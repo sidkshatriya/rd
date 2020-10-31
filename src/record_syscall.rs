@@ -1628,6 +1628,30 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         return prepare_setsockopt::<Arch>(t, &mut syscall_state, &args);
     }
 
+    if sys == Arch::GETSOCKNAME || sys == Arch::GETPEERNAME {
+        let addrlen_ptr =
+            syscall_state.reg_parameter::<common::socklen_t>(3, Some(ArgMode::InOut), None);
+        syscall_state.reg_parameter_with_size(
+            2,
+            ParamSize::from_initialized_mem(t, addrlen_ptr),
+            None,
+            None,
+        );
+        return Switchable::PreventSwitch;
+    }
+
+    if sys == Arch::GETSOCKOPT {
+        let optlen_ptr =
+            syscall_state.reg_parameter::<common::socklen_t>(5, Some(ArgMode::InOut), None);
+        syscall_state.reg_parameter_with_size(
+            4,
+            ParamSize::from_initialized_mem(t, optlen_ptr),
+            None,
+            None,
+        );
+        return Switchable::PreventSwitch;
+    }
+
     ed_assert!(
         t,
         false,
@@ -2225,7 +2249,11 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
     }
 
     if sys == Arch::SETSOCKOPT {
-        unimplemented!()
+        // restore possibly-modified regs
+        let mut r: Registers = t.regs_ref().clone();
+        r.set_arg1(syscall_state.syscall_entry_registers.arg1());
+        t.set_regs(&r);
+        return;
     }
 
     if sys == Arch::SOCKETCALL {
