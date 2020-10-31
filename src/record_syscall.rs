@@ -15,6 +15,7 @@ use crate::{
     },
     auto_remote_syscalls::{AutoRemoteSyscalls, MemParamsEnabled},
     bindings::{
+        fcntl,
         kernel::{
             SG_GET_VERSION_NUM,
             SG_IO,
@@ -1535,6 +1536,77 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
             );
         }
 
+        return Switchable::PreventSwitch;
+    }
+
+    if sys == Arch::MQ_TIMEDRECEIVE_TIME64 || sys == Arch::MQ_TIMEDRECEIVE {
+        syscall_state.reg_parameter_with_size(
+            2,
+            ParamSize::from_syscall_result_with_size::<Arch::ssize_t>(regs.arg3()),
+            None,
+            None,
+        );
+        syscall_state.reg_parameter::<u32>(4, None, None);
+        return Switchable::AllowSwitch;
+    }
+
+    if sys == Arch::MODIFY_LDT {
+        let func = regs.arg1() as i32;
+        if func == 0 || func == 2 {
+            syscall_state.reg_parameter_with_size(
+                2,
+                ParamSize::from_syscall_result_with_size::<i32>(regs.arg3()),
+                None,
+                None,
+            );
+        }
+        // N.B. Unlike set_thread_area, the entry number is not written
+        // for (func == 1 || func == 0x11)
+        return Switchable::AllowSwitch;
+    }
+
+    if sys == Arch::NAME_TO_HANDLE_AT {
+        syscall_state.reg_parameter_with_size(
+            3,
+            ParamSize::from(size_of::<fcntl::file_handle>() + fcntl::MAX_HANDLE_SZ as usize),
+            None,
+            None,
+        );
+        syscall_state.reg_parameter::<i32>(4, None, None);
+        return Switchable::AllowSwitch;
+    }
+
+    if sys == Arch::MINCORE {
+        syscall_state.reg_parameter_with_size(
+            3,
+            ParamSize::from((regs.arg2() + page_size() - 1) / page_size()),
+            None,
+            None,
+        );
+        return Switchable::PreventSwitch;
+    }
+
+    if sys == Arch::CLOCK_NANOSLEEP_TIME64 {
+        syscall_state.reg_parameter::<x64::timespec>(4, None, None);
+        return Switchable::AllowSwitch;
+    }
+
+    if sys == Arch::RT_SIGPENDING {
+        syscall_state.reg_parameter_with_size(1, ParamSize::from(regs.arg2()), None, None);
+        return Switchable::PreventSwitch;
+    }
+
+    if sys == Arch::RT_SIGTIMEDWAIT_TIME64 || sys == Arch::RT_SIGTIMEDWAIT {
+        syscall_state.reg_parameter::<Arch::siginfo_t>(2, None, None);
+        return Switchable::AllowSwitch;
+    }
+
+    if sys == Arch::GET_MEMPOLICY {
+        syscall_state.reg_parameter::<i32>(1, None, None);
+        let maxnode = t.regs_ref().arg3();
+        let align_mask = 8 * size_of::<Arch::unsigned_long>() - 1;
+        let aligned_maxnode = (maxnode + align_mask) & !align_mask;
+        syscall_state.reg_parameter_with_size(2, ParamSize::from(aligned_maxnode / 8), None, None);
         return Switchable::PreventSwitch;
     }
 
