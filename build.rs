@@ -244,6 +244,18 @@ fn main() {
         .write_to_file(path.join("kernel_supplement_bindings_generated.rs"))
         .unwrap();
 
+    let packet_bindings = Builder::default()
+        .parse_callbacks(Box::new(CargoCallbacks))
+        .prepend_enum_name(false)
+        .header("bindgen/packet_wrapper.h")
+        .generate()
+        .unwrap();
+    println!("cargo:rerun-if-changed=bindgen/packet_wrapper.h");
+
+    packet_bindings
+        .write_to_file(path.join("packet_bindings_generated.rs"))
+        .unwrap();
+
     capnpc::CompilerCommand::new()
         .file("schema/trace.capnp")
         .run()

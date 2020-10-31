@@ -417,3 +417,37 @@ pub struct __user_cap_data_struct {
 
 assert_eq_size!(kernel::__user_cap_data_struct, __user_cap_data_struct);
 assert_eq_align!(kernel::__user_cap_data_struct, __user_cap_data_struct);
+
+#[repr(C)]
+#[derive(Copy, Clone, Default)]
+pub struct xt_counters {
+    pub pcnt: u64,
+    pub bcnt: u64,
+}
+
+assert_eq_size!(kernel::xt_counters, xt_counters);
+assert_eq_align!(kernel::xt_counters, xt_counters);
+
+#[repr(C)]
+#[derive(Copy, Clone, Default)]
+pub struct setsockopt_args<Arch: Architecture> {
+    pub sockfd: Arch::signed_long,
+    pub level: Arch::signed_long,
+    pub optname: Arch::signed_long,
+    pub optval: Ptr<Arch::unsigned_word, u8>,
+    pub optlen: Arch::signed_long,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Default)]
+pub struct ipt_replace<Arch: Architecture> {
+    pub name: [u8; 32],
+    pub valid_hook: u32,
+    pub num_entries: u32,
+    pub size: u32,
+    pub hook_entry: [u32; 5],
+    pub underflow: [u32; 5],
+    pub num_counters: u32,
+    pub counters: Ptr<Arch::unsigned_word, xt_counters>,
+    // Plus hangoff here
+}

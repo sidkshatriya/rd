@@ -672,6 +672,8 @@ pub trait Architecture: 'static + Default {
 
     fn ulong_as_usize(sl: Self::unsigned_long) -> usize;
 
+    fn usize_as_signed_long(v: usize) -> Self::signed_long;
+
     fn as_unsigned_word(u: usize) -> Self::unsigned_word;
 
     fn get_iovec(msgdata: &Self::iovec) -> (RemotePtr<Void>, usize);
@@ -1269,6 +1271,10 @@ impl Architecture for X86Arch {
 
     fn get_iovec(msgdata: &Self::iovec) -> (RemotePtr<Void>, usize) {
         (msgdata.iov_base.rptr(), msgdata.iov_len as usize)
+    }
+
+    fn usize_as_signed_long(v: usize) -> Self::signed_long {
+        v as Self::signed_long
     }
 
     fn set_msghdr(
@@ -1873,6 +1879,10 @@ impl Architecture for X64Arch {
 
     fn get_iovec(msgdata: &Self::iovec) -> (RemotePtr<Void>, usize) {
         (msgdata.iov_base.rptr(), msgdata.iov_len as usize)
+    }
+
+    fn usize_as_signed_long(v: usize) -> Self::signed_long {
+        v as Self::signed_long
     }
 
     fn set_msghdr(

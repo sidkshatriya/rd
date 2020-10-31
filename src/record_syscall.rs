@@ -82,6 +82,7 @@ use crate::{
             _SNDRV_CTL_IOCTL_CARD_INFO,
             _SNDRV_CTL_IOCTL_PVERSION,
         },
+        packet::{PACKET_RX_RING, PACKET_TX_RING},
         prctl::{
             ARCH_GET_CPUID,
             ARCH_GET_FS,
@@ -172,6 +173,7 @@ use crate::{
         sig_set_t,
         SECCOMP_SET_MODE_FILTER,
         SECCOMP_SET_MODE_STRICT,
+        SO_SET_REPLACE,
         _HCIGETDEVINFO,
         _HCIGETDEVLIST,
     },
@@ -225,6 +227,7 @@ use crate::{
     wait_status::WaitStatus,
     weak_ptr_set::WeakPtrSet,
 };
+use arch_structs::{ipt_replace, setsockopt_args};
 use file_monitor::FileMonitorType;
 use libc::{
     cpu_set_t,
@@ -244,6 +247,7 @@ use libc::{
     EACCES,
     EINVAL,
     ENOENT,
+    ENOPROTOOPT,
     ENOSYS,
     ENOTTY,
     FUTEX_CMD_MASK,
@@ -259,6 +263,8 @@ use libc::{
     FUTEX_WAKE_BITSET,
     FUTEX_WAKE_OP,
     GRND_NONBLOCK,
+    IPPROTO_IP,
+    IPPROTO_IPV6,
     MADV_DODUMP,
     MADV_DOFORK,
     MADV_DONTDUMP,
@@ -292,6 +298,7 @@ use libc::{
     SIGKILL,
     SIGSTOP,
     SIG_BLOCK,
+    SOL_PACKET,
     SOL_SOCKET,
     STDERR_FILENO,
     STDIN_FILENO,
@@ -1608,6 +1615,17 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         let aligned_maxnode = (maxnode + align_mask) & !align_mask;
         syscall_state.reg_parameter_with_size(2, ParamSize::from(aligned_maxnode / 8), None, None);
         return Switchable::PreventSwitch;
+    }
+
+    if sys == Arch::SETSOCKOPT {
+        let args = setsockopt_args::<Arch> {
+            sockfd: Arch::usize_as_signed_long(regs.arg1()),
+            level: Arch::usize_as_signed_long(regs.arg2()),
+            optname: Arch::usize_as_signed_long(regs.arg3()),
+            optval: Arch::from_remote_ptr(RemotePtr::from(regs.arg4())),
+            optlen: Arch::usize_as_signed_long(regs.arg5()),
+        };
+        return prepare_setsockopt::<Arch>(t, &mut syscall_state, &args);
     }
 
     ed_assert!(
@@ -4675,4 +4693,67 @@ fn check_scm_rights_fd<Arch: Architecture>(t: &mut RecordTask, msg: &msghdr<Arch
             break;
         }
     }
+}
+
+fn block_sock_opt(level: i32, optname: u32, syscall_state: &mut TaskSyscallState) -> bool {
+    match level {
+        SOL_PACKET => match optname {
+            PACKET_RX_RING | PACKET_TX_RING => {
+                syscall_state.emulate_result_signed(-ENOPROTOOPT as isize);
+                return true;
+            }
+            _ => (),
+        },
+        _ => (),
+    }
+
+    false
+}
+
+fn prepare_setsockopt<Arch: Architecture>(
+    t: &mut RecordTask,
+    syscall_state: &mut TaskSyscallState,
+    args: &setsockopt_args<Arch>,
+) -> Switchable {
+    let level = Arch::long_as_usize(args.level) as i32;
+    let optname = Arch::long_as_usize(args.optname) as u32;
+    if block_sock_opt(level, optname, syscall_state) {
+        let mut r: Registers = t.regs_ref().clone();
+        r.set_arg1_signed(-1);
+        t.set_regs(&r);
+    } else {
+        match level {
+            IPPROTO_IP | IPPROTO_IPV6 => match optname {
+                SO_SET_REPLACE => {
+                    if Arch::long_as_usize(args.optlen) < size_of::<ipt_replace<Arch>>() {
+                        return Switchable::PreventSwitch;
+                    }
+                    let repl_ptr = RemotePtr::<ipt_replace<Arch>>::cast(Arch::as_rptr(args.optval));
+                    let param_size = ParamSize::from(
+                        read_val_mem(
+                            t,
+                            RemotePtr::<u32>::cast(remote_ptr_field!(
+                                repl_ptr,
+                                ipt_replace<Arch>,
+                                num_counters
+                            )),
+                            None,
+                        ) as usize
+                            * size_of::<arch_structs::xt_counters>(),
+                    );
+                    syscall_state.mem_ptr_parameter_with_size(
+                        t,
+                        remote_ptr_field!(repl_ptr, ipt_replace<Arch>, counters),
+                        param_size,
+                        None,
+                        None,
+                    );
+                }
+                _ => (),
+            },
+            _ => (),
+        }
+    }
+
+    Switchable::PreventSwitch
 }
