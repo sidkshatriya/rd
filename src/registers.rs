@@ -607,7 +607,6 @@ impl Registers {
     }
 
     /// DIFF NOTE: This method does not exist in rr.
-    /// @TODO Check this.
     pub fn set_syscall_result_signed(&mut self, syscall_result: isize) {
         rd_set_reg!(self, eax, rax, syscall_result);
     }
@@ -687,7 +686,6 @@ impl Registers {
         rd_set_reg!(self, ebx, rdi, value);
     }
 
-    /// @TODO Check this
     pub fn set_arg1_signed(&mut self, value: isize) {
         rd_set_reg!(self, ebx, rdi, value);
     }
@@ -708,7 +706,6 @@ impl Registers {
         rd_set_reg!(self, ecx, rsi, value);
     }
 
-    /// @TODO Check this
     pub fn set_arg2_signed(&mut self, value: isize) {
         rd_set_reg!(self, ecx, rsi, value);
     }
@@ -729,7 +726,6 @@ impl Registers {
         rd_set_reg!(self, edx, rdx, value);
     }
 
-    // @TODO Check this
     pub fn set_arg3_signed(&mut self, value: isize) {
         rd_set_reg!(self, edx, rdx, value);
     }
@@ -750,7 +746,6 @@ impl Registers {
         rd_set_reg!(self, esi, r10, value);
     }
 
-    // @TODO Check this
     pub fn set_arg4_signed(&mut self, value: isize) {
         rd_set_reg!(self, esi, r10, value);
     }
@@ -771,7 +766,6 @@ impl Registers {
         rd_set_reg!(self, edi, r8, value);
     }
 
-    // @TODO Check this
     pub fn set_arg5_signed(&mut self, value: isize) {
         rd_set_reg!(self, edi, r8, value);
     }
@@ -792,7 +786,6 @@ impl Registers {
         rd_set_reg!(self, ebp, r9, value);
     }
 
-    // @TODO Check this
     pub fn set_arg6_signed(&mut self, value: isize) {
         rd_set_reg!(self, ebp, r9, value);
     }

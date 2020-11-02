@@ -940,7 +940,6 @@ pub fn dir_exists<P: ?Sized + NixPath>(dir: &P) -> bool {
 }
 
 pub fn real_path(path: &OsStr) -> OsString {
-    // @TODO does canonicalize do what realpath does exactly?
     match Path::new(&path).canonicalize() {
         Ok(p) => p.as_os_str().to_os_string(),
         Err(e) => fatal!("Could not retreive path {:?}: {:?}", path, e),
