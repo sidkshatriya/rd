@@ -52,7 +52,7 @@ The `rd` project is grateful to all the contributors of the `mozilla/rr` project
 
 Contributions to the Record and Debug Tool (`rd`) are welcome and encouraged!
 
-By contributing to `rd` you agree to license your contributions under the MIT license without any further terms and conditions.
+By contributing to `rd` you agree to license your contributions under the MIT license without any additional terms or conditions.
 
 ## What works
 
