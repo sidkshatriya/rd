@@ -58,12 +58,17 @@ By contributing to `rd` you agree to license your contributions under the MIT li
 
 The port is currently in progress and not ready for end-user usage. However developers interested in contributing to this project will find there is a lot to work with and build upon. The project already contains 40k+ lines of ported over Rust code.
 
-The port is currently capable of only replaying traces recorded previously by [mozilla/rr](https://github.com/mozilla/rr). `rd` is not yet capable of recording traces of its own but this will come in the future as the port progresses.
+`rd` can now record program runs (i.e. traces) on its own now (just like `rr`). See below for details.
 
 The following work:
 * `rd rerun`
 * `rd replay -a`
-  * This means that interactive replay (which uses a debugger like gdb) is not yet supported 
+  * Interactive replay (which uses a debugger like gdb) is not yet supported
+  * In other words, non-interative replay (`-a` flag) is currently supported
+* `rd record -n`
+  * Syscall buffering which improves performance is not supported currently during recording (The `-n` flag disables syscall buffering).
+  * Some system calls are still unsupported
+  * In general the recording functionality is still incomplete but substantial progress has been made and this feature is ready to experiment with
 * `rd buildid`
 * `rd cpufeatures`
 * `rd dump`
@@ -90,13 +95,17 @@ The various logging levels are `debug`, `info`, `warn`, `info` and `fatal`. To l
 $ RD_LOG=all:warn,auto_remote_syscalls:debug rd <etc params>
 ```
 
-### Recording traces
+### Recording program runs (i.e. traces)
 
-`rd` cannot record its own traces at this point in time. It can, however, process traces previously recorded by `rr`. `rd` will support making its own recordings in the future.
+`rd` can now record program runs (i.e. traces) on its own now (just like `rr`). Some system calls are not yet supported during recording. Also, the syscallbuf optimization is not supported currently during recording. In general the recording functionality is incomplete but subtantial progress has been made and it is ready to experiment with.
 
 ```bash
-rr record <program to be recorded>
+rd record -n <program to be recorded>
 ```
+
+The `-n` disables the syscallbuf. 
+
+Note that syscallbuf functionality _is_ supported during `rd replay -a`. This would be relevant if you used `rr` to make a recording with syscallbuf enabled.
 
 ### _RR_TRACE environment variable
 
