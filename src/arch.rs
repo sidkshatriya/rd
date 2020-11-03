@@ -668,6 +668,8 @@ pub trait Architecture: 'static + Default {
 
     fn size_t_as_usize(s: Self::size_t) -> usize;
 
+    fn usize_as_size_t(s: usize) -> Self::size_t;
+
     fn ssize_t_as_isize(ss: Self::ssize_t) -> isize;
 
     fn off_t_as_isize(o: Self::off_t) -> isize;
@@ -1259,6 +1261,10 @@ impl Architecture for X86Arch {
 
     fn size_t_as_usize(s: Self::size_t) -> usize {
         s as usize
+    }
+
+    fn usize_as_size_t(s: usize) -> Self::size_t {
+        s as Self::size_t
     }
 
     fn ssize_t_as_isize(ss: Self::ssize_t) -> isize {
@@ -1869,6 +1875,10 @@ impl Architecture for X64Arch {
 
     fn size_t_as_usize(s: Self::size_t) -> usize {
         s as usize
+    }
+
+    fn usize_as_size_t(s: usize) -> Self::size_t {
+        s as Self::size_t
     }
 
     fn ssize_t_as_isize(ss: Self::ssize_t) -> isize {

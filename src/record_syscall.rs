@@ -135,6 +135,7 @@ use crate::{
             PTRACE_O_TRACEEXEC,
             PTRACE_O_TRACEEXIT,
             PTRACE_O_TRACEFORK,
+            PTRACE_O_TRACESYSGOOD,
             PTRACE_O_TRACEVFORK,
         },
     },
@@ -260,6 +261,7 @@ use libc::{
     CLONE_VM,
     EACCES,
     EINVAL,
+    EIO,
     ENODEV,
     ENOENT,
     ENOPROTOOPT,
@@ -5083,4 +5085,65 @@ fn prepare_ptrace_cont(tracee: &mut RecordTask, maybe_sig: Option<Sig>, command:
     if tracee.emulated_ptrace_queued_exit_stop {
         do_ptrace_exit_stop(tracee);
     }
+}
+
+fn ptrace_get_reg_set<Arch: Architecture>(
+    t: &mut RecordTask,
+    syscall_state: &mut TaskSyscallState,
+    regs: &[u8],
+) {
+    let piov = syscall_state.reg_parameter::<iovec<Arch>>(4, Some(ArgMode::InOut), None);
+    let mut iov = read_val_mem(t, piov, None);
+    iov.iov_len = Arch::usize_as_size_t(min(Arch::size_t_as_usize(iov.iov_len), regs.len()));
+    write_val_mem(t, piov, &iov, None);
+    let child_addr = remote_ptr_field!(piov, iovec<Arch>, iov_base);
+    let data = syscall_state.mem_ptr_parameter_with_size(
+        t,
+        child_addr,
+        ParamSize::from(Arch::size_t_as_usize(iov.iov_len)),
+        None,
+        None,
+    );
+    t.write_bytes_helper(
+        data,
+        &regs[0..Arch::size_t_as_usize(iov.iov_len)],
+        None,
+        WriteFlags::empty(),
+    );
+    syscall_state.emulate_result(0);
+}
+
+fn ptrace_verify_set_reg_set<Arch: Architecture>(
+    t: &mut RecordTask,
+    min_size: usize,
+    syscall_state: &mut TaskSyscallState,
+) {
+    let child_addr = RemotePtr::<iovec<Arch>>::from(t.regs_ref().arg4());
+    let iov = read_val_mem(t, child_addr, None);
+    if Arch::size_t_as_usize(iov.iov_len) < min_size {
+        syscall_state.emulate_result_signed(-EIO as isize);
+    } else {
+        syscall_state.emulate_result(0);
+    }
+}
+
+fn verify_ptrace_options(t: &mut RecordTask, syscall_state: &mut TaskSyscallState) -> bool {
+    // We "support" PTRACE_O_SYSGOOD because we don't support PTRACE_SYSCALL yet
+    let supported_ptrace_options = PTRACE_O_TRACESYSGOOD
+        | PTRACE_O_TRACEEXIT
+        | PTRACE_O_TRACEFORK
+        | PTRACE_O_TRACECLONE
+        | PTRACE_O_TRACEEXEC;
+
+    if t.regs_ref().arg4() as u32 & !supported_ptrace_options != 0 {
+        log!(
+            LogDebug,
+            "Unsupported ptrace options {:#x}",
+            t.regs_ref().arg4()
+        );
+        syscall_state.emulate_result_signed(-EINVAL as isize);
+        return false;
+    }
+
+    true
 }
