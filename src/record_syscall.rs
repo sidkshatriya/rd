@@ -4649,7 +4649,16 @@ fn prepare_clone<Arch: Architecture>(t: &mut RecordTask, syscall_state: &mut Tas
     if t.emulated_ptrace_options & ptrace_option_for_event(ptrace_event) != 0
         && (flags & CLONE_UNTRACED == 0)
     {
-        new_task.set_emulated_ptracer(t.emulated_ptracer.clone());
+        {
+            match t.emulated_ptracer.as_ref() {
+                Some(w) => {
+                    new_task.set_emulated_ptracer(Some(
+                        w.upgrade().unwrap().borrow_mut().as_rec_mut_unwrap(),
+                    ));
+                }
+                None => (),
+            }
+        }
         new_task.emulated_ptrace_seized = t.emulated_ptrace_seized;
         new_task.emulated_ptrace_options = t.emulated_ptrace_options;
         t.emulated_ptrace_event_msg = new_task.rec_tid as usize;
