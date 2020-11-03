@@ -1353,8 +1353,32 @@ impl RecordTask {
     }
 
     /// Force the ptrace-stop state no matter what state the task is currently in.
-    pub fn force_emulate_ptrace_stopstatus(&self) -> WaitStatus {
-        unimplemented!()
+    pub fn force_emulate_ptrace_stop(&mut self, status: WaitStatus) {
+        self.emulated_stop_type = if status.maybe_group_stop_sig().is_sig() {
+            EmulatedStopType::GroupStop
+        } else {
+            EmulatedStopType::SignalDeliveryStop
+        };
+        self.emulated_stop_code = status;
+        self.emulated_stop_pending = true;
+        self.emulated_ptrace_sigchld_pending = true;
+
+        self.emulated_ptracer
+            .as_ref()
+            .unwrap()
+            .upgrade()
+            .unwrap()
+            .borrow_mut()
+            .as_rec_mut_unwrap()
+            .send_synthetic_sigchld_if_necessary(Some(self));
+        // The SIGCHLD will eventually be reported to rr via a ptrace stop,
+        // interrupting wake_task's syscall (probably a waitpid) if necessary. At
+        // that point, we'll fix up the siginfo data with values that match what
+        // the kernel would have delivered for a real ptracer's SIGCHLD. When the
+        // signal handler (if any) returns, if wake_task was in a blocking wait that
+        // wait will be resumed, at which point rec_prepare_syscall_arch will
+        // discover the pending ptrace result and emulate the wait syscall to
+        // return that result immediately.
     }
 
     /// Called when we're about to deliver a signal to this task. If it's a
@@ -2661,8 +2685,15 @@ impl RecordTask {
     /// When a signal triggers an emulated a ptrace-stop for this task,
     /// save the siginfo so a later emulated ptrace-continue with this signal
     /// number can use it.
-    pub fn save_ptrace_signal_siginfo(&self, _si: &siginfo_t) {
-        unimplemented!()
+    pub fn save_ptrace_signal_siginfo(&mut self, si: &siginfo_t) {
+        for (i, it) in self.saved_ptrace_siginfos.iter().enumerate() {
+            if it.si_signo == si.si_signo {
+                self.saved_ptrace_siginfos.remove(i);
+                break;
+            }
+        }
+
+        self.saved_ptrace_siginfos.push(*si);
     }
 
     /// Tasks normally can't change their tid. There is one very special situation
