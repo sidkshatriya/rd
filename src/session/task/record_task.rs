@@ -1299,8 +1299,37 @@ impl RecordTask {
     }
 
     /// Emulate 'tracer' ptracing this task.
-    pub fn set_emulated_ptracer(&mut self, _tracer: Option<TaskSharedWeakPtr>) {
-        unimplemented!()
+    pub fn set_emulated_ptracer(&mut self, maybe_tracer: Option<TaskSharedWeakPtr>) {
+        match maybe_tracer {
+            Some(tracer) => {
+                ed_assert!(self, self.emulated_ptracer.is_none());
+                tracer
+                    .upgrade()
+                    .unwrap()
+                    .borrow_mut()
+                    .as_rec_mut_unwrap()
+                    .emulated_ptrace_tracees
+                    .insert(self.weak_self_ptr());
+                self.emulated_ptracer = Some(tracer);
+            }
+            None => {
+                ed_assert!(self, self.emulated_ptracer.is_some());
+                ed_assert!(
+                    self,
+                    self.emulated_stop_type == EmulatedStopType::NotStopped
+                        || self.emulated_stop_type == EmulatedStopType::GroupStop
+                );
+                self.emulated_ptracer
+                    .take()
+                    .unwrap()
+                    .upgrade()
+                    .unwrap()
+                    .borrow_mut()
+                    .as_rec_mut_unwrap()
+                    .emulated_ptrace_tracees
+                    .erase(self.weak_self_ptr());
+            }
+        }
     }
 
     /// Call this when an event occurs that should stop a ptraced task.
