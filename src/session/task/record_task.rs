@@ -429,6 +429,7 @@ pub struct RecordTask {
     pub emulated_ptracer: Option<TaskSharedWeakPtr>,
     pub emulated_ptrace_tracees: WeakPtrSet<Box<dyn Task>>,
     pub emulated_ptrace_event_msg: usize,
+    /// @TODO Do we want to make this a queue?
     /// Saved emulated-ptrace signals
     pub saved_ptrace_siginfos: Vec<siginfo_t>,
     /// Code to deliver to ptracer/waiter when it waits. Note that zero can be a
@@ -1483,14 +1484,26 @@ impl RecordTask {
             }
         }
         ed_assert!(self, false, "No saved siginfo found for stop-signal???");
+
         unreachable!()
     }
 
     /// When emulating a ptrace-continue with a signal number, extract the siginfo
     /// that was saved by `save_ptrace_signal_siginfo`. If no such siginfo was
     /// saved, make one up.
-    pub fn take_ptrace_signal_siginfo(&self, _sig: Sig) -> siginfo_t {
-        unimplemented!()
+    pub fn take_ptrace_signal_siginfo(&mut self, sig: Sig) -> siginfo_t {
+        for (i, it) in self.saved_ptrace_siginfos.iter().enumerate() {
+            if it.si_signo == sig.as_raw() {
+                let si = *it;
+                self.saved_ptrace_siginfos.remove(i);
+                return si;
+            }
+        }
+
+        let mut si = siginfo_t::default();
+        si.si_signo = sig.as_raw();
+
+        si
     }
 
     /// Returns true if this task is in a waitpid or similar that would return
