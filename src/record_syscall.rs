@@ -138,7 +138,15 @@ use crate::{
             PTRACE_O_TRACEVFORK,
         },
     },
-    event::{OpenedFd, Switchable, SyscallState},
+    event::{
+        Event,
+        EventType,
+        OpenedFd,
+        SignalDeterministic,
+        SignalEventData,
+        Switchable,
+        SyscallState,
+    },
     fd_table::FdTable,
     file_monitor::{
         self,
@@ -360,7 +368,7 @@ use nix::{
     fcntl::{open, OFlag},
     sys::{
         mman::{MapFlags, ProtFlags},
-        stat::{self, Mode, SFlag},
+        stat::{self, stat, Mode, SFlag},
     },
     unistd::ttyname,
 };
@@ -4994,4 +5002,85 @@ fn verify_ptrace_target(
     syscall_state.emulate_result_signed(-ESRCH as isize);
 
     None
+}
+
+fn path_inode_number(path: &OsStr) -> u64 {
+    // DIFF NOTE: Only in debug mode in rr is a successful result ensured via a debug_assert.
+    // Here the unwrap() happens regardless of debug/release.
+    let st = stat(path).unwrap();
+
+    st.st_ino
+}
+
+fn is_same_namespace(name: &str, tid1: pid_t, tid2: pid_t) -> bool {
+    let path1 = format!("/proc/{}/ns/{}", tid1, name);
+    let path2 = format!("/proc/{}/ns/{}", tid2, name);
+
+    path_inode_number(OsStr::new(&path1)) == path_inode_number(OsStr::new(&path2))
+}
+
+fn widen_buffer_unsigned(buf: &[u8]) -> u64 {
+    match buf.len() {
+        1 => u8::from_le_bytes(buf.try_into().unwrap()) as u64,
+        2 => u16::from_le_bytes(buf.try_into().unwrap()) as u64,
+        4 => u32::from_le_bytes(buf.try_into().unwrap()) as u64,
+        8 => u64::from_le_bytes(buf.try_into().unwrap()) as u64,
+        s => {
+            assert!(false, "Unsupported register size: {}", s);
+            unreachable!();
+        }
+    }
+}
+
+fn widen_buffer_signed(buf: &[u8]) -> i64 {
+    match buf.len() {
+        1 => i8::from_le_bytes(buf.try_into().unwrap()) as i64,
+        2 => i16::from_le_bytes(buf.try_into().unwrap()) as i64,
+        4 => i32::from_le_bytes(buf.try_into().unwrap()) as i64,
+        8 => i64::from_le_bytes(buf.try_into().unwrap()) as i64,
+        s => {
+            assert!(false, "Unsupported register size: {}", s);
+            unreachable!();
+        }
+    }
+}
+
+// DIFF NOTE: command is an i32 in rr
+fn prepare_ptrace_cont(tracee: &mut RecordTask, maybe_sig: Option<Sig>, command: u32) {
+    match maybe_sig {
+        Some(sig) => {
+            let si = tracee.take_ptrace_signal_siginfo(sig);
+            log!(LogDebug, "Doing ptrace resume with signal {}", sig);
+            // Treat signal as nondeterministic; it won't happen just by
+            // replaying the tracee.
+            let disposition =
+                tracee.sig_resolved_disposition(sig, SignalDeterministic::NondeterministicSig);
+            tracee.push_event(Event::new_signal_event(
+                EventType::EvSignal,
+                SignalEventData::new(&si, SignalDeterministic::NondeterministicSig, disposition),
+            ));
+        }
+        None => (),
+    }
+
+    tracee.emulated_stop_type = EmulatedStopType::NotStopped;
+    tracee.emulated_stop_pending = false;
+    tracee.emulated_stop_code = WaitStatus::default();
+    tracee.emulated_ptrace_cont_command = command;
+
+    if tracee.ev().is_syscall_event()
+        && SyscallState::ProcessingSyscall == tracee.ev().syscall_event().state
+    {
+        // Continue the task since we didn't in enter_syscall
+        tracee.resume_execution(
+            ResumeRequest::ResumeSyscall,
+            WaitRequest::ResumeNonblocking,
+            TicksRequest::ResumeNoTicks,
+            None,
+        );
+    }
+
+    if tracee.emulated_ptrace_queued_exit_stop {
+        do_ptrace_exit_stop(tracee);
+    }
 }
