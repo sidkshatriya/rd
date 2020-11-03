@@ -2603,7 +2603,7 @@ fn save_interrupted_syscall_ret_in_syscallbuf(t: &mut RecordTask, retval: isize)
     );
 }
 
-fn maybe_trigger_emulated_ptrace_syscall_exit_stop(t: &RecordTask) {
+fn maybe_trigger_emulated_ptrace_syscall_exit_stop(t: &mut RecordTask) {
     if t.emulated_ptrace_cont_command == PTRACE_SYSCALL {
         t.emulate_ptrace_stop(WaitStatus::for_syscall(t), None, None);
     } else if t.emulated_ptrace_cont_command == PTRACE_SINGLESTEP

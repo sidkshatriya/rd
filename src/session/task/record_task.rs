@@ -1339,17 +1339,41 @@ impl RecordTask {
     /// make one up based on the status (unless the status is an exit code).
     /// Returns true if the task is stopped-for-emulated-ptrace, false otherwise.
     pub fn emulate_ptrace_stop(
-        &self,
-        _status: WaitStatus,
-        _siginfo: Option<&siginfo_t>,
-        _si_code: Option<i32>,
+        &mut self,
+        status: WaitStatus,
+        maybe_siginfo: Option<&siginfo_t>,
+        maybe_si_code: Option<i32>,
     ) -> bool {
+        let si_code = maybe_si_code.unwrap_or(0);
         ed_assert_eq!(self, self.emulated_stop_type, EmulatedStopType::NotStopped);
         if self.emulated_ptracer.is_none() {
             return false;
         }
+        // @TODO Check this logic again
+        match maybe_siginfo {
+            Some(siginfo) => {
+                ed_assert_eq!(
+                    self,
+                    status.ptrace_signal().unwrap().as_raw(),
+                    siginfo.si_signo
+                );
+                self.save_ptrace_signal_siginfo(siginfo);
+            }
+            None => {
+                let mut si: siginfo_t = siginfo_t::default();
+                si.si_signo = status.ptrace_signal().unwrap().as_raw();
+                if status.maybe_ptrace_event().is_ptrace_event() || status.is_syscall() {
+                    si.si_code = status.get() >> 8;
+                } else {
+                    si.si_code = si_code;
+                }
+                self.save_ptrace_signal_siginfo(&si);
+            }
+        }
 
-        unimplemented!()
+        self.force_emulate_ptrace_stop(status);
+
+        true
     }
 
     /// Force the ptrace-stop state no matter what state the task is currently in.
@@ -1389,7 +1413,7 @@ impl RecordTask {
     /// it requires us to set information only the kernel has permission to set.
     /// Returns false if this signal should be deferred.
     pub fn set_siginfo_for_synthetic_sigchld(&self, si: &mut siginfo_t) -> bool {
-        if !is_synthetic_SIGCHLD(si) {
+        if !is_synthetic_sigchld(si) {
             return true;
         }
 
@@ -1452,7 +1476,14 @@ impl RecordTask {
     /// Return a reference to the saved siginfo record for the stop-signal
     /// that we're currently in a ptrace-stop for.
     pub fn get_saved_ptrace_siginfo(&self) -> &siginfo_t {
-        unimplemented!()
+        let sig = self.emulated_stop_code.ptrace_signal().unwrap();
+        for it in &self.saved_ptrace_siginfos {
+            if it.si_signo == sig.as_raw() {
+                return it;
+            }
+        }
+        ed_assert!(self, false, "No saved siginfo found for stop-signal???");
+        unreachable!()
     }
 
     /// When emulating a ptrace-continue with a signal number, extract the siginfo
@@ -1937,7 +1968,7 @@ impl RecordTask {
 
     pub fn stashed_sig_not_synthetic_sigchld(&self) -> Option<&siginfo_t> {
         for it in &self.stashed_signals {
-            if !is_synthetic_SIGCHLD(&it.siginfo) {
+            if !is_synthetic_sigchld(&it.siginfo) {
                 return Some(&it.siginfo);
             }
         }
@@ -1961,7 +1992,7 @@ impl RecordTask {
         // Choose the first non-synthetic-SIGCHLD signal so that if a syscall should
         // be interrupted, we'll interrupt it.
         for sig in &self.stashed_signals {
-            if !is_synthetic_SIGCHLD(&sig.siginfo) {
+            if !is_synthetic_sigchld(&sig.siginfo) {
                 return Some(&**sig as *const StashedSignal);
             }
         }
@@ -3228,7 +3259,7 @@ fn get_ppid(pid: pid_t) -> Result<pid_t, Box<dyn Error>> {
 }
 
 #[allow(non_snake_case)]
-fn is_synthetic_SIGCHLD(si: &siginfo_t) -> bool {
+fn is_synthetic_sigchld(si: &siginfo_t) -> bool {
     si.si_signo == SIGCHLD && unsafe { si._sifields._rt.si_sigval.sival_int } == SIGCHLD_SYNTHETIC
 }
 

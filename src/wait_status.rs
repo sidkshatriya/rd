@@ -171,7 +171,7 @@ impl WaitStatus {
     /// returns the signal involved.
     pub fn ptrace_signal(&self) -> Option<Sig> {
         if WIFSTOPPED(self.status) {
-            Some(Sig::try_from(WSTOPSIG(self.status) & 0x7f).unwrap())
+            Sig::try_from(WSTOPSIG(self.status) & 0x7f).ok()
         } else {
             None
         }
