@@ -258,6 +258,7 @@ use libc::{
     ENOSYS,
     ENOTBLK,
     ENOTTY,
+    ESRCH,
     FDPIC_FUNCPTRS,
     FUTEX_CMD_MASK,
     FUTEX_CMP_REQUEUE,
@@ -4960,4 +4961,37 @@ fn prepare_setsockopt<Arch: Architecture>(
     }
 
     Switchable::PreventSwitch
+}
+
+fn verify_ptrace_target(
+    tracer: &mut RecordTask,
+    syscall_state: &mut TaskSyscallState,
+    pid: pid_t,
+) -> Option<TaskSharedPtr> {
+    if tracer.rec_tid != pid {
+        match tracer.session().find_task_from_rec_tid(pid) {
+            Some(rc_tracee) => {
+                {
+                    let mut rc_traceeb = rc_tracee.borrow_mut();
+                    let tracee = rc_traceeb.as_rec_mut_unwrap();
+                    if tracee
+                        .emulated_ptracer
+                        .as_ref()
+                        .map_or(true, |ep| !ep.ptr_eq(&tracer.weak_self))
+                        || tracee.emulated_stop_type == EmulatedStopType::NotStopped
+                    {
+                        syscall_state.emulate_result_signed(-ESRCH as isize);
+                        return None;
+                    }
+                }
+
+                return Some(rc_tracee);
+            }
+            None => (),
+        }
+    }
+
+    syscall_state.emulate_result_signed(-ESRCH as isize);
+
+    None
 }
