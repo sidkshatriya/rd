@@ -17,6 +17,9 @@ use crate::{
     bindings::{
         fcntl,
         kernel::{
+            NT_FPREGSET,
+            NT_PRSTATUS,
+            NT_X86_XSTATE,
             SG_GET_VERSION_NUM,
             SG_IO,
             SIOCADDMULTI,
@@ -179,6 +182,7 @@ use crate::{
         Switchable,
         SyscallState,
     },
+    extra_registers::Format,
     fd_table::FdTable,
     file_monitor::{
         self,
@@ -5444,7 +5448,54 @@ fn prepare_ptrace<Arch: Architecture>(
                 }
             }
         }
-        PTRACE_GETREGSET => unimplemented!(),
+        PTRACE_GETREGSET => match t.regs_ref().arg3() as u32 {
+            NT_PRSTATUS => {
+                let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
+                match maybe_tracee {
+                    Some(tracee_rc) => {
+                        let mut traceeb = tracee_rc.borrow_mut();
+                        let tracee = traceeb.as_rec_mut_unwrap();
+                        let regs = tracee.regs_ref().get_ptrace_for_arch(Arch::arch());
+                        ptrace_get_reg_set::<Arch>(t, syscall_state, &regs);
+                    }
+                    None => (),
+                }
+            }
+            NT_FPREGSET => {
+                let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
+                match maybe_tracee {
+                    Some(tracee_rc) => {
+                        let mut traceeb = tracee_rc.borrow_mut();
+                        let tracee = traceeb.as_rec_mut_unwrap();
+                        let regs = tracee.extra_regs_ref().get_user_fpregs_struct(Arch::arch());
+                        ptrace_get_reg_set::<Arch>(t, syscall_state, &regs);
+                    }
+                    None => (),
+                }
+            }
+            NT_X86_XSTATE => {
+                let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
+                match maybe_tracee {
+                    Some(tracee_rc) => {
+                        let mut traceeb = tracee_rc.borrow_mut();
+                        let tracee = traceeb.as_rec_mut_unwrap();
+                        match tracee.extra_regs_ref().format() {
+                            Format::XSave => ptrace_get_reg_set::<Arch>(
+                                t,
+                                syscall_state,
+                                tracee.extra_regs_ref().data_bytes(),
+                            ),
+                            _ => syscall_state.emulate_result_signed(-EINVAL as isize),
+                        }
+                    }
+                    None => (),
+                }
+            }
+            _ => {
+                syscall_state.expect_errno = EINVAL;
+                emulate = false;
+            }
+        },
         PTRACE_SETREGS => {
             let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
             if maybe_tracee.is_some() {
