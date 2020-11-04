@@ -138,6 +138,7 @@ use crate::{
             PTRACE_O_TRACESYSGOOD,
             PTRACE_O_TRACEVFORK,
         },
+        signal::{siginfo_t as siginfo_t_signal, SI_USER},
     },
     event::{
         Event,
@@ -268,6 +269,7 @@ use libc::{
     ENOSYS,
     ENOTBLK,
     ENOTTY,
+    EPERM,
     ESRCH,
     FDPIC_FUNCPTRS,
     FUTEX_CMD_MASK,
@@ -372,7 +374,7 @@ use nix::{
         mman::{MapFlags, ProtFlags},
         stat::{self, stat, Mode, SFlag},
     },
-    unistd::ttyname,
+    unistd::{getpid, ttyname},
 };
 use std::{
     cell::{RefCell, RefMut},
@@ -5146,4 +5148,81 @@ fn verify_ptrace_options(t: &mut RecordTask, syscall_state: &mut TaskSyscallStat
     }
 
     true
+}
+
+fn prepare_ptrace_attach(
+    t: &RecordTask,
+    pid: pid_t,
+    syscall_state: &mut TaskSyscallState,
+) -> Option<TaskSharedPtr> {
+    let maybe_tracee: Option<TaskSharedPtr> = get_ptrace_partner(t, pid);
+    match maybe_tracee {
+        None => {
+            syscall_state.emulate_result_signed(-ESRCH as isize);
+            return None;
+        }
+        Some(tracee) if !check_ptracer_compatible(t, tracee.borrow().as_rec_unwrap()) => {
+            syscall_state.emulate_result_signed(-EPERM as isize);
+            return None;
+        }
+        Some(tracee) => Some(tracee),
+    }
+}
+
+fn check_ptracer_compatible(tracer: &RecordTask, tracee: &RecordTask) -> bool {
+    // Don't allow a 32-bit process to trace a 64-bit process. That doesn't
+    // make much sense (manipulating registers gets crazy), and would be hard to
+    // support.
+    if tracee.emulated_ptracer.is_some()
+        || tracee.tgid() == tracer.tgid()
+        || (tracer.arch() == SupportedArch::X86 && tracee.arch() == SupportedArch::X64)
+    {
+        return false;
+    }
+
+    true
+}
+
+fn get_ptrace_partner(t: &RecordTask, pid: pid_t) -> Option<TaskSharedPtr> {
+    // To simplify things, require that a ptracer be in the same pid
+    // namespace as rd itself. I.e., tracee tasks sandboxed in a pid
+    // namespace can't use ptrace. This is normally a requirement of
+    // sandboxes anyway.
+    // This could be supported, but would require some work to translate
+    // rd's pids to/from the ptracer's pid namespace.
+    ed_assert!(t, is_same_namespace("pid", t.tid, getpid().as_raw()));
+    // NOTE for the case when find_task_from_rec_tid() returns `None`:
+    //   XXX This prevents a tracee from attaching to a process which isn't
+    //   under rd's control. We could support this but it would complicate
+    //   things.
+    t.session().find_task_from_rec_tid(pid)
+}
+
+fn prepare_ptrace_traceme(
+    t: &RecordTask,
+    syscall_state: &mut TaskSyscallState,
+) -> Option<TaskSharedPtr> {
+    let maybe_tracer = get_ptrace_partner(t, t.get_parent_pid());
+    match maybe_tracer {
+        None => {
+            syscall_state.emulate_result_signed(-ESRCH as isize);
+            None
+        }
+        Some(tracer) if !check_ptracer_compatible(tracer.borrow().as_rec_unwrap(), t) => {
+            syscall_state.emulate_result_signed(-EPERM as isize);
+            None
+        }
+        Some(tracer) => Some(tracer),
+    }
+}
+
+fn ptrace_attach_to_already_stopped_task(t: &mut RecordTask) {
+    ed_assert_eq!(t, t.emulated_stop_type, EmulatedStopType::GroupStop);
+    // tracee is already stopped because of a group-stop signal.
+    // Sending a SIGSTOP won't work, but we don't need to.
+    t.force_emulate_ptrace_stop(WaitStatus::for_stop_sig(sig::SIGSTOP));
+    let mut si = siginfo_t_signal::default();
+    si.si_signo = SIGSTOP;
+    si.si_code = SI_USER;
+    t.save_ptrace_signal_siginfo(&si);
 }
