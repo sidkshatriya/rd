@@ -2431,7 +2431,7 @@ fn setup_sigframe_siginfo_arch<Arch: Architecture>(t: &mut RecordTask, siginfo: 
     write_val_mem(t, dest, &si, None);
 }
 
-fn set_arch_siginfo<Arch: Architecture>(siginfo: &siginfo_t, si: &mut arch_siginfo_t<Arch>) {
+pub fn set_arch_siginfo<Arch: Architecture>(siginfo: &siginfo_t, si: &mut arch_siginfo_t<Arch>) {
     unsafe { set_arch_siginfo_arch::<Arch>(siginfo, si) }
 }
 

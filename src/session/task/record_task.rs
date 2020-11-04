@@ -1505,10 +1505,13 @@ impl RecordTask {
     pub fn is_waiting_for_ptrace(&self, t: &RecordTask) -> bool {
         match t.emulated_ptracer.as_ref() {
             Some(ptracer)
-                if Rc::ptr_eq(
-                    &ptracer.upgrade().unwrap().borrow().thread_group_shr_ptr(),
-                    &self.thread_group_shr_ptr(),
-                ) =>
+                // DIFF NOTE: First check the more specific condition and then check if they are part of same thread group
+                // This is there in rd to prevent already borrowed issues
+                if ptracer.ptr_eq(&self.weak_self)
+                    || Rc::ptr_eq(
+                        &ptracer.upgrade().unwrap().borrow().thread_group_shr_ptr(),
+                        &self.thread_group_shr_ptr(),
+                    ) =>
             {
                 ()
             }

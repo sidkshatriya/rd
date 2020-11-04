@@ -126,17 +126,47 @@ use crate::{
             PR_TSC_SIGSEGV,
         },
         ptrace::{
+            PTRACE_ARCH_PRCTL,
+            PTRACE_ATTACH,
+            PTRACE_CONT,
+            PTRACE_DETACH,
             PTRACE_EVENT_CLONE,
             PTRACE_EVENT_EXEC,
             PTRACE_EVENT_EXIT,
             PTRACE_EVENT_FORK,
             PTRACE_EVENT_VFORK,
+            PTRACE_GETEVENTMSG,
+            PTRACE_GETFPREGS,
+            PTRACE_GETFPXREGS,
+            PTRACE_GETREGS,
+            PTRACE_GETREGSET,
+            PTRACE_GETSIGINFO,
+            PTRACE_GET_THREAD_AREA,
+            PTRACE_KILL,
             PTRACE_O_TRACECLONE,
             PTRACE_O_TRACEEXEC,
             PTRACE_O_TRACEEXIT,
             PTRACE_O_TRACEFORK,
             PTRACE_O_TRACESYSGOOD,
             PTRACE_O_TRACEVFORK,
+            PTRACE_PEEKDATA,
+            PTRACE_PEEKTEXT,
+            PTRACE_PEEKUSER,
+            PTRACE_POKEDATA,
+            PTRACE_POKETEXT,
+            PTRACE_POKEUSER,
+            PTRACE_SEIZE,
+            PTRACE_SETFPREGS,
+            PTRACE_SETFPXREGS,
+            PTRACE_SETOPTIONS,
+            PTRACE_SETREGS,
+            PTRACE_SETREGSET,
+            PTRACE_SET_THREAD_AREA,
+            PTRACE_SINGLESTEP,
+            PTRACE_SYSCALL,
+            PTRACE_SYSEMU,
+            PTRACE_SYSEMU_SINGLESTEP,
+            PTRACE_TRACEME,
         },
         signal::{siginfo_t as siginfo_t_signal, SI_USER},
     },
@@ -173,6 +203,7 @@ use crate::{
         syscall_number_for_pause,
         syscall_number_for_rt_sigprocmask,
         x64,
+        x86,
         CloneTLSType,
         FcntlOperation,
         MmapCallingSemantics,
@@ -183,6 +214,8 @@ use crate::{
     kernel_metadata::{errno_name, is_sigreturn, syscall_name},
     kernel_supplement::{
         sig_set_t,
+        NUM_SIGNALS,
+        PTRACE_OLDSETOPTIONS,
         SECCOMP_SET_MODE_FILTER,
         SECCOMP_SET_MODE_STRICT,
         SO_SET_REPLACE,
@@ -205,6 +238,7 @@ use crate::{
     seccomp_filter_rewriter::SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO,
     session::{
         address_space::{address_space::AddressSpace, kernel_mapping::KernelMapping},
+        record_session::set_arch_siginfo,
         session_inner::SessionInner,
         task::{
             record_task::{EmulatedStopType, RecordTask, WaitType},
@@ -1817,6 +1851,10 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
             syscall_state.expect_errno = EINVAL;
         }
         return Switchable::PreventSwitch;
+    }
+
+    if sys == Arch::PTRACE {
+        return prepare_ptrace::<Arch>(t, &mut syscall_state);
     }
 
     ed_assert!(
@@ -4713,11 +4751,12 @@ fn maybe_pause_instead_of_waiting(t: &mut RecordTask, options: i32) {
 
     let maybe_child: Option<TaskSharedPtr> = t.session().find_task_from_rec_tid(t.in_wait_pid);
     match maybe_child {
-        Some(child)
-            if t.is_waiting_for_ptrace(child.borrow_mut().as_rec_mut_unwrap())
-                && !t.is_waiting_for(child.borrow_mut().as_rec_mut_unwrap()) =>
-        {
-            ();
+        Some(child_rc) => {
+            let mut childb = child_rc.borrow_mut();
+            let child = childb.as_rec_mut_unwrap();
+            if !t.is_waiting_for_ptrace(child) || t.is_waiting_for(child) {
+                return;
+            }
         }
         _ => return,
     }
@@ -5225,4 +5264,341 @@ fn ptrace_attach_to_already_stopped_task(t: &mut RecordTask) {
     si.si_signo = SIGSTOP;
     si.si_code = SI_USER;
     t.save_ptrace_signal_siginfo(&si);
+}
+
+fn prepare_ptrace<Arch: Architecture>(
+    t: &mut RecordTask,
+    syscall_state: &mut TaskSyscallState,
+) -> Switchable {
+    let pid = t.regs_ref().arg2_signed() as pid_t;
+    let mut emulate = true;
+    let command: u32 = t.regs_ref().arg1() as u32;
+    match command {
+        PTRACE_ATTACH => {
+            let maybe_tracee = prepare_ptrace_attach(t, pid, syscall_state);
+            match maybe_tracee {
+                Some(tracee_rc) => {
+                    let mut traceeb = tracee_rc.borrow_mut();
+                    let tracee = traceeb.as_rec_mut_unwrap();
+                    tracee.set_emulated_ptracer(Some(t));
+                    tracee.emulated_ptrace_seized = false;
+                    tracee.emulated_ptrace_options = 0;
+                    syscall_state.emulate_result(0);
+                    if tracee.emulated_stop_type == EmulatedStopType::NotStopped {
+                        // Send SIGSTOP to this specific thread. Otherwise the kernel might
+                        // deliver SIGSTOP to some other thread of the process, and we won't
+                        // generate any ptrace event if that thread isn't being ptraced.
+                        tracee.tgkill(sig::SIGSTOP);
+                    } else {
+                        ptrace_attach_to_already_stopped_task(tracee);
+                    }
+                }
+                None => (),
+            }
+        }
+        PTRACE_TRACEME => {
+            let maybe_tracer = prepare_ptrace_traceme(t, syscall_state);
+            match maybe_tracer {
+                Some(tracer_rc) => {
+                    let mut tracerb = tracer_rc.borrow_mut();
+                    let tracer = tracerb.as_rec_mut_unwrap();
+                    t.set_emulated_ptracer(Some(tracer));
+                    t.emulated_ptrace_seized = false;
+                    t.emulated_ptrace_options = 0;
+                    syscall_state.emulate_result(0);
+                }
+                None => (),
+            }
+        }
+        PTRACE_SEIZE => {
+            let maybe_tracee = prepare_ptrace_attach(t, pid, syscall_state);
+            match maybe_tracee {
+                Some(tracee_rc) => {
+                    if t.regs_ref().arg3() != 0 {
+                        syscall_state.emulate_result_signed(-EIO as isize);
+                    } else {
+                        if verify_ptrace_options(t, syscall_state) {
+                            let mut traceeb = tracee_rc.borrow_mut();
+                            let tracee = traceeb.as_rec_mut_unwrap();
+                            tracee.set_emulated_ptracer(Some(t));
+                            tracee.emulated_ptrace_seized = true;
+                            tracee.emulated_ptrace_options = t.regs_ref().arg4() as u32;
+                            if tracee.emulated_stop_type == EmulatedStopType::GroupStop {
+                                ptrace_attach_to_already_stopped_task(tracee);
+                            }
+                            syscall_state.emulate_result(0);
+                        }
+                    }
+                }
+                None => (),
+            }
+        }
+        PTRACE_OLDSETOPTIONS | PTRACE_SETOPTIONS => {
+            let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
+            match maybe_tracee {
+                Some(tracee_rc) => {
+                    let mut traceeb = tracee_rc.borrow_mut();
+                    let tracee = traceeb.as_rec_mut_unwrap();
+                    if verify_ptrace_options(t, syscall_state) {
+                        tracee.emulated_ptrace_options = t.regs_ref().arg4() as u32;
+                        syscall_state.emulate_result(0);
+                    }
+                }
+                None => (),
+            }
+        }
+        PTRACE_GETEVENTMSG => {
+            let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
+            match maybe_tracee {
+                Some(tracee_rc) => {
+                    let mut traceeb = tracee_rc.borrow_mut();
+                    let tracee = traceeb.as_rec_mut_unwrap();
+                    let datap = syscall_state.reg_parameter::<Arch::unsigned_long>(4, None, None);
+                    write_val_mem(
+                        t,
+                        datap,
+                        &Arch::usize_as_ulong(tracee.emulated_ptrace_event_msg),
+                        None,
+                    );
+                    syscall_state.emulate_result(0);
+                }
+                None => (),
+            }
+        }
+        PTRACE_GETSIGINFO => {
+            let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
+            match maybe_tracee {
+                Some(tracee_rc) => {
+                    let mut traceeb = tracee_rc.borrow_mut();
+                    let tracee = traceeb.as_rec_mut_unwrap();
+                    let datap = syscall_state.reg_parameter::<siginfo_t<Arch>>(4, None, None);
+                    let mut dest: siginfo_t<Arch> = unsafe { mem::zeroed() };
+                    set_arch_siginfo(tracee.get_saved_ptrace_siginfo(), &mut dest);
+                    write_val_mem(t, datap, &dest, None);
+                    syscall_state.emulate_result(0);
+                }
+                None => (),
+            }
+        }
+        PTRACE_GETREGS => {
+            let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
+            let data = syscall_state.reg_parameter::<Arch::user_regs_struct>(4, None, None);
+            match maybe_tracee {
+                Some(tracee_rc) => {
+                    let mut traceeb = tracee_rc.borrow_mut();
+                    let tracee = traceeb.as_rec_mut_unwrap();
+                    let regs: Vec<u8> = tracee.regs_ref().get_ptrace_for_arch(Arch::arch());
+                    ed_assert_eq!(t, regs.len(), data.referent_size());
+                    t.write_bytes_helper(
+                        RemotePtr::<u8>::cast(data),
+                        &regs,
+                        None,
+                        WriteFlags::empty(),
+                    );
+                    syscall_state.emulate_result(0);
+                }
+                None => (),
+            }
+        }
+        PTRACE_GETFPREGS => {
+            let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
+            match maybe_tracee {
+                Some(tracee_rc) => {
+                    let mut traceeb = tracee_rc.borrow_mut();
+                    let tracee = traceeb.as_rec_mut_unwrap();
+                    let data =
+                        syscall_state.reg_parameter::<Arch::user_fpregs_struct>(4, None, None);
+                    let regs: Vec<u8> =
+                        tracee.extra_regs_ref().get_user_fpregs_struct(Arch::arch());
+                    ed_assert_eq!(t, regs.len(), data.referent_size());
+                    t.write_bytes_helper(
+                        RemotePtr::<u8>::cast(data),
+                        &regs,
+                        None,
+                        WriteFlags::empty(),
+                    );
+                    syscall_state.emulate_result(0);
+                }
+                None => (),
+            }
+        }
+        PTRACE_GETFPXREGS => {
+            if Arch::arch() != SupportedArch::X86 {
+                // GETFPXREGS is x86-32 only
+                syscall_state.expect_errno = EIO;
+            } else {
+                let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
+                match maybe_tracee {
+                    Some(tracee_rc) => {
+                        let mut traceeb = tracee_rc.borrow_mut();
+                        let tracee = traceeb.as_rec_mut_unwrap();
+                        let data =
+                            syscall_state.reg_parameter::<x86::user_fpxregs_struct>(4, None, None);
+                        let regs = tracee.extra_regs_ref().get_user_fpxregs_struct();
+                        write_val_mem(t, data, &regs, None);
+                        syscall_state.emulate_result(0);
+                    }
+                    None => (),
+                }
+            }
+        }
+        PTRACE_GETREGSET => unimplemented!(),
+        PTRACE_SETREGS => {
+            let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
+            if maybe_tracee.is_some() {
+                // The actual register effects are performed by
+                // Task::on_syscall_exit_arch
+                syscall_state.emulate_result(0);
+            }
+        }
+        PTRACE_SETFPREGS => {
+            let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
+            if maybe_tracee.is_some() {
+                // The actual register effects are performed by
+                // Task::on_syscall_exit_arch
+                syscall_state.emulate_result(0);
+            }
+        }
+        PTRACE_SETFPXREGS => {
+            if Arch::arch() != SupportedArch::X86 {
+                // SETFPXREGS is x86-32 only
+                syscall_state.expect_errno = EIO;
+            } else {
+                let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
+                if maybe_tracee.is_some() {
+                    // The actual register effects are performed by
+                    // Task::on_syscall_exit_arch
+                    syscall_state.emulate_result(0);
+                }
+            }
+        }
+        PTRACE_SETREGSET => unimplemented!(),
+        PTRACE_PEEKTEXT | PTRACE_PEEKDATA => {
+            let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
+            match maybe_tracee {
+                Some(tracee_rc) => {
+                    // The actual syscall returns the data via the 'data' out-parameter.
+                    // The behavior of returning the data as the system call result is
+                    // provided by the glibc wrapper.
+                    let datap = syscall_state.reg_parameter::<Arch::unsigned_word>(4, None, None);
+                    let addr = RemotePtr::<Arch::unsigned_word>::from(t.regs_ref().arg3());
+                    let mut ok = true;
+                    let mut traceeb = tracee_rc.borrow_mut();
+                    let tracee = traceeb.as_rec_mut_unwrap();
+                    let v = read_val_mem(tracee, addr, Some(&mut ok));
+                    if ok {
+                        write_val_mem(t, datap, &v, None);
+                        syscall_state.emulate_result(0);
+                    } else {
+                        syscall_state.emulate_result_signed(-EIO as isize);
+                    }
+                }
+                None => (),
+            }
+        }
+        PTRACE_POKETEXT | PTRACE_POKEDATA => {
+            let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
+            match maybe_tracee {
+                Some(tracee_rc) => {
+                    let mut traceeb = tracee_rc.borrow_mut();
+                    let tracee = traceeb.as_rec_mut_unwrap();
+                    let addr = RemotePtr::<Arch::unsigned_word>::from(t.regs_ref().arg3());
+                    let data = Arch::as_unsigned_word(t.regs_ref().arg4());
+                    let mut ok = true;
+                    write_val_mem(tracee, addr, &data, Some(&mut ok));
+                    if ok {
+                        // Since we're recording data that might not be for |t|, we have to
+                        // handle this specially during replay.
+                        tracee.record_local_for(addr, &data);
+                        syscall_state.emulate_result(0);
+                    } else {
+                        syscall_state.emulate_result_signed(-EIO as isize);
+                    }
+                }
+                None => (),
+            }
+        }
+        PTRACE_PEEKUSER => unimplemented!(),
+        PTRACE_POKEUSER => unimplemented!(),
+        PTRACE_SYSCALL
+        | PTRACE_SINGLESTEP
+        | PTRACE_SYSEMU
+        | PTRACE_SYSEMU_SINGLESTEP
+        | PTRACE_CONT => {
+            let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
+            // If the tracer wants to observe syscall entries, we can't use the
+            // syscallbuf, because the tracer may want to change syscall numbers
+            // which the syscallbuf code is not prepared to handle. Aditionally,
+            // we also lock the syscallbuf for PTRACE_SINGLESTEP, since we usually
+            // try to avoid delivering signals (e.g. PTRACE_SINGLESTEP's SIGTRAP)
+            // inside syscallbuf code. However, if the syscallbuf if locked, doing
+            // so should be safe.
+            match maybe_tracee {
+                Some(tracee_rc) => {
+                    if t.regs_ref().arg4() as u32 >= NUM_SIGNALS as u32 {
+                        // Invalid signals in ptrace resume cause EIO
+                        syscall_state.emulate_result_signed(-EIO as isize);
+                    } else {
+                        let mut traceeb = tracee_rc.borrow_mut();
+                        let tracee = traceeb.as_rec_mut_unwrap();
+                        tracee.set_syscallbuf_locked(command != PTRACE_CONT);
+                        prepare_ptrace_cont(
+                            tracee,
+                            Sig::try_from(t.regs_ref().arg4() as i32).ok(),
+                            command,
+                        );
+                        syscall_state.emulate_result(0);
+                    }
+                }
+                None => (),
+            }
+        }
+        PTRACE_DETACH => {
+            let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
+            match maybe_tracee {
+                Some(tracee_rc) => {
+                    let mut traceeb = tracee_rc.borrow_mut();
+                    let tracee = traceeb.as_rec_mut_unwrap();
+                    tracee.set_syscallbuf_locked(false);
+                    tracee.emulated_ptrace_options = 0;
+                    tracee.emulated_ptrace_cont_command = 0;
+                    tracee.emulated_stop_pending = false;
+                    tracee.emulated_ptrace_queued_exit_stop = false;
+                    prepare_ptrace_cont(tracee, Sig::try_from(t.regs_ref().arg4() as i32).ok(), 0);
+                    tracee.set_emulated_ptracer(None);
+                    syscall_state.emulate_result(0);
+                }
+                None => (),
+            }
+        }
+        PTRACE_KILL => {
+            let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
+            match maybe_tracee {
+                Some(tracee_rc) => {
+                    let mut traceeb = tracee_rc.borrow_mut();
+                    let tracee = traceeb.as_rec_mut_unwrap();
+                    // The tracee could already be dead, in which case sending it a signal
+                    // would move it out of the exit stop, preventing us from doing our
+                    // clean up work.
+                    tracee.try_wait();
+                    tracee.kill_if_alive();
+                    syscall_state.emulate_result(0);
+                }
+                None => (),
+            }
+        }
+        PTRACE_GET_THREAD_AREA | PTRACE_SET_THREAD_AREA => unimplemented!(),
+        PTRACE_ARCH_PRCTL => unimplemented!(),
+        _ => {
+            syscall_state.expect_errno = EIO;
+            emulate = false;
+        }
+    }
+    if emulate {
+        let mut r: Registers = t.regs_ref().clone();
+        r.set_arg1_signed(-1);
+        t.set_regs(&r);
+    }
+
+    Switchable::PreventSwitch
 }

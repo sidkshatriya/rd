@@ -26,11 +26,15 @@
 #ifndef PTRACE_EVENT_STOP
 #define PTRACE_EVENT_STOP 128
 #endif
+*/
 
+// @TODO Manually uncommented this for now
+// Need to look at this again in greater detail
 #ifndef PTRACE_OLDSETOPTIONS
 #define PTRACE_OLDSETOPTIONS 21
 #endif
 
+/*
 #ifndef PTRACE_GET_THREAD_AREA
 #define PTRACE_GET_THREAD_AREA 25
 #endif
