@@ -1854,7 +1854,9 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
     }
 
     if sys == Arch::PTRACE {
-        return prepare_ptrace::<Arch>(t, &mut syscall_state);
+        unimplemented!()
+        // Various issues. Disable for now
+        // return prepare_ptrace::<Arch>(t, &mut syscall_state);
     }
 
     ed_assert!(
