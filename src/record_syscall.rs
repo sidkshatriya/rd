@@ -5641,7 +5641,48 @@ fn prepare_ptrace<Arch: Architecture>(
             }
         }
         PTRACE_GET_THREAD_AREA | PTRACE_SET_THREAD_AREA => unimplemented!(),
-        PTRACE_ARCH_PRCTL => unimplemented!(),
+        PTRACE_ARCH_PRCTL => {
+            let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
+            match maybe_tracee {
+                None => (),
+                Some(tracee_rc) => {
+                    let mut traceeb = tracee_rc.borrow_mut();
+                    let tracee = traceeb.as_rec_mut_unwrap();
+                    if tracee.arch() != SupportedArch::X64 {
+                        // This syscall should fail if the tracee is not
+                        // x86_64
+                        syscall_state.expect_errno = EIO;
+                        emulate = false;
+                    } else {
+                        let code = t.regs_ref().arg4() as u32;
+                        match code {
+                            ARCH_GET_FS | ARCH_GET_GS => {
+                                let mut ok = true;
+                                let addr = RemotePtr::<u64>::from(t.regs_ref().arg3());
+                                let data = if code == ARCH_GET_FS {
+                                    tracee.regs_ref().fs_base()
+                                } else {
+                                    tracee.regs_ref().gs_base()
+                                };
+                                write_val_mem(t, addr, &data, Some(&mut ok));
+                                if ok {
+                                    t.record_local_for(addr, &data);
+                                    syscall_state.emulate_result(0);
+                                } else {
+                                    syscall_state.emulate_result_signed(-EIO as isize);
+                                }
+                            }
+                            ARCH_SET_FS | ARCH_SET_GS => {
+                                syscall_state.emulate_result(0);
+                            }
+                            _ => {
+                                syscall_state.emulate_result_signed(-EINVAL as isize);
+                            }
+                        }
+                    }
+                }
+            }
+        }
         _ => {
             syscall_state.expect_errno = EIO;
             emulate = false;
