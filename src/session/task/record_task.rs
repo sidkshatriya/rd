@@ -1341,38 +1341,45 @@ impl RecordTask {
     ) -> bool {
         let si_code = maybe_si_code.unwrap_or(0);
         ed_assert_eq!(self, self.emulated_stop_type, EmulatedStopType::NotStopped);
-        if self.emulated_ptracer.is_none() {
-            return false;
-        }
-        // @TODO Check this logic again
-        match maybe_siginfo {
-            Some(siginfo) => {
-                ed_assert_eq!(
-                    self,
-                    status.ptrace_signal().unwrap().as_raw(),
-                    siginfo.si_signo
-                );
-                self.save_ptrace_signal_siginfo(siginfo);
-            }
-            None => {
-                let mut si: siginfo_t = siginfo_t::default();
-                si.si_signo = status.ptrace_signal().unwrap().as_raw();
-                if status.maybe_ptrace_event().is_ptrace_event() || status.is_syscall() {
-                    si.si_code = status.get() >> 8;
-                } else {
-                    si.si_code = si_code;
+        let maybe_emulated_ptracer = self.emulated_ptracer.as_ref().map(|p| p.upgrade().unwrap());
+        match maybe_emulated_ptracer {
+            None => false,
+            Some(emulated_ptracer) => {
+                // @TODO Check this logic again
+                match maybe_siginfo {
+                    Some(siginfo) => {
+                        ed_assert_eq!(
+                            self,
+                            status.ptrace_signal().unwrap().as_raw(),
+                            siginfo.si_signo
+                        );
+                        self.save_ptrace_signal_siginfo(siginfo);
+                    }
+                    None => {
+                        let mut si: siginfo_t = siginfo_t::default();
+                        si.si_signo = status.ptrace_signal().unwrap().as_raw();
+                        if status.maybe_ptrace_event().is_ptrace_event() || status.is_syscall() {
+                            si.si_code = status.get() >> 8;
+                        } else {
+                            si.si_code = si_code;
+                        }
+                        self.save_ptrace_signal_siginfo(&si);
+                    }
                 }
-                self.save_ptrace_signal_siginfo(&si);
+
+                self.force_emulate_ptrace_stop(
+                    status,
+                    emulated_ptracer.borrow_mut().as_rec_mut_unwrap(),
+                );
+
+                true
             }
         }
-
-        self.force_emulate_ptrace_stop(status);
-
-        true
     }
 
     /// Force the ptrace-stop state no matter what state the task is currently in.
-    pub fn force_emulate_ptrace_stop(&mut self, status: WaitStatus) {
+    /// DIFF NOTE: Extra param `tracer` to solve already borrowed possibility
+    pub fn force_emulate_ptrace_stop(&mut self, status: WaitStatus, tracer: &mut RecordTask) {
         self.emulated_stop_type = if status.maybe_group_stop_sig().is_sig() {
             EmulatedStopType::GroupStop
         } else {
@@ -1382,15 +1389,15 @@ impl RecordTask {
         self.emulated_stop_pending = true;
         self.emulated_ptrace_sigchld_pending = true;
 
-        self.emulated_ptracer
-            .as_ref()
-            .unwrap()
-            .upgrade()
-            .unwrap()
-            .borrow_mut()
-            .as_rec_mut_unwrap()
-            .send_synthetic_sigchld_if_necessary(Some(self));
-        // The SIGCHLD will eventually be reported to rr via a ptrace stop,
+        ed_assert!(
+            self,
+            self.emulated_ptracer
+                .as_ref()
+                .unwrap()
+                .ptr_eq(&tracer.weak_self)
+        );
+        tracer.send_synthetic_sigchld_if_necessary(Some(self));
+        // The SIGCHLD will eventually be reported to rd via a ptrace stop,
         // interrupting wake_task's syscall (probably a waitpid) if necessary. At
         // that point, we'll fix up the siginfo data with values that match what
         // the kernel would have delivered for a real ptracer's SIGCHLD. When the

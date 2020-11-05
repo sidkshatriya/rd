@@ -5261,11 +5261,11 @@ fn prepare_ptrace_traceme(
     }
 }
 
-fn ptrace_attach_to_already_stopped_task(t: &mut RecordTask) {
+fn ptrace_attach_to_already_stopped_task(t: &mut RecordTask, tracer: &mut RecordTask) {
     ed_assert_eq!(t, t.emulated_stop_type, EmulatedStopType::GroupStop);
     // tracee is already stopped because of a group-stop signal.
     // Sending a SIGSTOP won't work, but we don't need to.
-    t.force_emulate_ptrace_stop(WaitStatus::for_stop_sig(sig::SIGSTOP));
+    t.force_emulate_ptrace_stop(WaitStatus::for_stop_sig(sig::SIGSTOP), tracer);
     let mut si = siginfo_t_signal::default();
     si.si_signo = SIGSTOP;
     si.si_code = SI_USER;
@@ -5296,7 +5296,7 @@ fn prepare_ptrace<Arch: Architecture>(
                         // generate any ptrace event if that thread isn't being ptraced.
                         tracee.tgkill(sig::SIGSTOP);
                     } else {
-                        ptrace_attach_to_already_stopped_task(tracee);
+                        ptrace_attach_to_already_stopped_task(tracee, t);
                     }
                 }
                 None => (),
@@ -5330,7 +5330,7 @@ fn prepare_ptrace<Arch: Architecture>(
                             tracee.emulated_ptrace_seized = true;
                             tracee.emulated_ptrace_options = t.regs_ref().arg4() as u32;
                             if tracee.emulated_stop_type == EmulatedStopType::GroupStop {
-                                ptrace_attach_to_already_stopped_task(tracee);
+                                ptrace_attach_to_already_stopped_task(tracee, t);
                             }
                             syscall_state.emulate_result(0);
                         }
