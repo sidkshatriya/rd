@@ -1858,9 +1858,8 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
     }
 
     if sys == Arch::PTRACE {
-        unimplemented!()
         // Various issues. Disable for now
-        // return prepare_ptrace::<Arch>(t, &mut syscall_state);
+        return prepare_ptrace::<Arch>(t, &mut syscall_state);
     }
 
     ed_assert!(
@@ -4709,9 +4708,10 @@ fn prepare_clone<Arch: Architecture>(t: &mut RecordTask, syscall_state: &mut Tas
         {
             match t.emulated_ptracer.as_ref() {
                 Some(w) => {
-                    new_task.set_emulated_ptracer(Some(
-                        w.upgrade().unwrap().borrow_mut().as_rec_mut_unwrap(),
-                    ));
+                    new_task.set_emulated_ptracer(
+                        Some(w.upgrade().unwrap().borrow_mut().as_rec_mut_unwrap()),
+                        None,
+                    );
                 }
                 None => (),
             }
@@ -5286,7 +5286,7 @@ fn prepare_ptrace<Arch: Architecture>(
                 Some(tracee_rc) => {
                     let mut traceeb = tracee_rc.borrow_mut();
                     let tracee = traceeb.as_rec_mut_unwrap();
-                    tracee.set_emulated_ptracer(Some(t));
+                    tracee.set_emulated_ptracer(Some(t), None);
                     tracee.emulated_ptrace_seized = false;
                     tracee.emulated_ptrace_options = 0;
                     syscall_state.emulate_result(0);
@@ -5308,7 +5308,7 @@ fn prepare_ptrace<Arch: Architecture>(
                 Some(tracer_rc) => {
                     let mut tracerb = tracer_rc.borrow_mut();
                     let tracer = tracerb.as_rec_mut_unwrap();
-                    t.set_emulated_ptracer(Some(tracer));
+                    t.set_emulated_ptracer(Some(tracer), None);
                     t.emulated_ptrace_seized = false;
                     t.emulated_ptrace_options = 0;
                     syscall_state.emulate_result(0);
@@ -5326,7 +5326,7 @@ fn prepare_ptrace<Arch: Architecture>(
                         if verify_ptrace_options(t, syscall_state) {
                             let mut traceeb = tracee_rc.borrow_mut();
                             let tracee = traceeb.as_rec_mut_unwrap();
-                            tracee.set_emulated_ptracer(Some(t));
+                            tracee.set_emulated_ptracer(Some(t), None);
                             tracee.emulated_ptrace_seized = true;
                             tracee.emulated_ptrace_options = t.regs_ref().arg4() as u32;
                             if tracee.emulated_stop_type == EmulatedStopType::GroupStop {
@@ -5618,7 +5618,7 @@ fn prepare_ptrace<Arch: Architecture>(
                     tracee.emulated_stop_pending = false;
                     tracee.emulated_ptrace_queued_exit_stop = false;
                     prepare_ptrace_cont(tracee, Sig::try_from(t.regs_ref().arg4() as i32).ok(), 0);
-                    tracee.set_emulated_ptracer(None);
+                    tracee.set_emulated_ptracer(None, Some(t));
                     syscall_state.emulate_result(0);
                 }
                 None => (),

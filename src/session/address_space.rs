@@ -1488,7 +1488,7 @@ pub mod address_space {
         }
 
         /// DIFF NOTE: Additional param `active_task` and `maybe_cloned_from_thread`
-        /// To solve already borrowed issue in the task.
+        /// To solve already borrowed possibility in the task.
         pub fn remove_all_watchpoints(
             &self,
             active_task: &mut dyn Task,
@@ -2655,7 +2655,7 @@ pub mod address_space {
         /// in this address space.
         /// DIFF NOTE: Additional param `active_task` and `cloned_from_thread`.
         /// In most situations `cloned_from_thread` can be set to None.
-        /// To solve already borrowed issues for the tasks
+        /// To solve already borrowed possibility for the tasks
         fn allocate_watchpoints(
             &self,
             active_task: &mut dyn Task,

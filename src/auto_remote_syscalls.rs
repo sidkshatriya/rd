@@ -1168,7 +1168,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
 
     /// Replace a MAP_PRIVATE segment by one that is shared between rd and the
     /// tracee. Returns true on success
-    /// NOTE: Takes a Mapping instead of &Mapping to avoid already borrowed issue.
+    /// NOTE: Takes a Mapping instead of &Mapping to avoid already borrowed possibility
     pub fn make_private_shared(&mut self, m: Mapping) -> bool {
         if !m.map.flags().contains(MapFlags::MAP_PRIVATE) {
             return false;
