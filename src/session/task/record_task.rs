@@ -178,7 +178,7 @@ use nix::{
 use owning_ref::OwningHandle;
 use ptr::NonNull;
 use std::{
-    cell::{Ref, RefCell, RefMut},
+    cell::{Cell, Ref, RefCell, RefMut},
     cmp::min,
     collections::VecDeque,
     convert::{TryFrom, TryInto},
@@ -470,10 +470,10 @@ pub struct RecordTask {
     /// of stop.
     pub emulated_stop_type: EmulatedStopType,
     /// True if the task sigmask may have changed and we need to refetch it.
-    pub blocked_sigs_dirty: bool,
+    pub blocked_sigs_dirty: Cell<bool>,
     /// Most accesses to this should use set_sigmask and get_sigmask to ensure
     /// the mirroring to syscallbuf is correct.
-    pub blocked_sigs: sig_set_t,
+    pub blocked_sigs: Cell<sig_set_t>,
     pub syscallbuf_blocked_sigs_generation: u32,
 
     /// Syscallbuf state
@@ -830,7 +830,7 @@ impl Task for RecordTask {
             // Saved 'blocked_sigs' must still be correct regardless of syscallbuf
             // state, because we do not allow stashed_signals_blocking_more_signals
             // to hold across syscalls (traced or untraced) that change the signal mask.
-            ed_assert!(self, !self.blocked_sigs_dirty);
+            ed_assert!(self, !self.blocked_sigs_dirty.get());
             self.xptrace(
                 PTRACE_SETSIGMASK,
                 RemotePtr::<Void>::from(size_of::<sig_set_t>()),
@@ -851,7 +851,7 @@ impl Task for RecordTask {
                 let syscallbuf_generation = syscallbuf.blocked_sigs_generation;
                 if syscallbuf_generation > self.syscallbuf_blocked_sigs_generation {
                     self.syscallbuf_blocked_sigs_generation = syscallbuf_generation;
-                    self.blocked_sigs = syscallbuf.blocked_sigs;
+                    self.blocked_sigs.set(syscallbuf.blocked_sigs);
                 }
             }
         }
@@ -996,7 +996,7 @@ impl RecordTask {
             in_wait_type: WaitType::WaitTypeNone,
             in_wait_pid: 0,
             emulated_stop_type: EmulatedStopType::NotStopped,
-            blocked_sigs_dirty: true,
+            blocked_sigs_dirty: Cell::new(true),
             syscallbuf_blocked_sigs_generation: 0,
             flushed_num_rec_bytes: 0,
             flushed_syscallbuf: false,
@@ -1023,7 +1023,7 @@ impl RecordTask {
             saved_ptrace_siginfos: vec![],
             emulated_stop_code: Default::default(),
             sighandlers: Rc::new(RefCell::new(Default::default())),
-            blocked_sigs: 0,
+            blocked_sigs: Cell::new(0),
             syscallbuf_code_layout: Default::default(),
             desched_fd: Default::default(),
             robust_futex_list: Default::default(),
@@ -1379,7 +1379,7 @@ impl RecordTask {
 
     /// Force the ptrace-stop state no matter what state the task is currently in.
     /// DIFF NOTE: Extra param `tracer` to solve already borrowed possibility
-    pub fn force_emulate_ptrace_stop(&mut self, status: WaitStatus, tracer: &mut RecordTask) {
+    pub fn force_emulate_ptrace_stop(&mut self, status: WaitStatus, tracer: &RecordTask) {
         self.emulated_stop_type = if status.maybe_group_stop_sig().is_sig() {
             EmulatedStopType::GroupStop
         } else {
@@ -1722,7 +1722,7 @@ impl RecordTask {
     }
 
     /// Return true iff `sig` is blocked for this.
-    pub fn is_sig_blocked(&mut self, sig: Sig) -> bool {
+    pub fn is_sig_blocked(&self, sig: Sig) -> bool {
         if is_unstoppable_signal(sig) {
             // These can never be blocked
             return false;
@@ -1753,7 +1753,7 @@ impl RecordTask {
     /// Return the resolved disposition --- what this signal will actually do,
     /// taking into account the default behavior.
     pub fn sig_resolved_disposition(
-        &mut self,
+        &self,
         sig: Sig,
         deterministic: SignalDeterministic,
     ) -> SignalResolvedDisposition {
@@ -1777,8 +1777,8 @@ impl RecordTask {
     }
 
     /// Note that the task sigmask needs to be refetched.
-    pub fn invalidate_sigmask(&mut self) {
-        self.blocked_sigs_dirty = true;
+    pub fn invalidate_sigmask(&self) {
+        self.blocked_sigs_dirty.set(true);
     }
 
     /// Reset the signal handler for this signal to the default.
@@ -1790,7 +1790,7 @@ impl RecordTask {
 
     /// Check that our status for `sig` matches what's in /proc/<pid>/status.
     #[cfg(debug_assertions)]
-    pub fn verify_signal_states(&mut self) {
+    pub fn verify_signal_states(&self) {
         if self.ev().is_syscall_event() {
             // If the syscall event is on the event stack with PROCESSING or EXITING
             // states, we won't have applied the signal-state updates yet while the
@@ -1873,7 +1873,7 @@ impl RecordTask {
     }
 
     #[cfg(not(debug_assertions))]
-    pub fn verify_signal_states(&mut self) {
+    pub fn verify_signal_states(&self) {
         // Do nothing
     }
 
@@ -2756,13 +2756,17 @@ impl RecordTask {
     }
 
     /// Return our cached copy of the signal mask, updating it if necessary.
-    pub fn get_sigmask(&mut self) -> sig_set_t {
-        if self.blocked_sigs_dirty {
-            self.blocked_sigs = self.read_sigmask_from_process();
-            log!(LogDebug, "Refreshed sigmask, now {:#x}", self.blocked_sigs);
-            self.blocked_sigs_dirty = false;
+    pub fn get_sigmask(&self) -> sig_set_t {
+        if self.blocked_sigs_dirty.get() {
+            self.blocked_sigs.set(self.read_sigmask_from_process());
+            log!(
+                LogDebug,
+                "Refreshed sigmask, now {:#x}",
+                self.blocked_sigs.get()
+            );
+            self.blocked_sigs_dirty.set(false);
         }
-        self.blocked_sigs
+        self.blocked_sigs.get()
     }
 
     /// Just get the signal mask of the process.
@@ -2891,10 +2895,7 @@ impl RecordTask {
         Ok(())
     }
 
-    fn send_synthetic_sigchld_wake_task(
-        &mut self,
-        rchild: &RecordTask,
-    ) -> Option<(i32, i32, bool)> {
+    fn send_synthetic_sigchld_wake_task(&self, rchild: &RecordTask) -> Option<(i32, i32, bool)> {
         // check to see if any thread in the ptracer process is in a waitpid
         // that
         // could read the status of 'tracee'. If it is, we should wake up that
@@ -2924,7 +2925,7 @@ impl RecordTask {
     /// sent for them.
     /// May queue signals for specific tasks.
     /// DIFF NOTE: maybe_active_child extra param to deal with already borrowed possibility
-    fn send_synthetic_sigchld_if_necessary(&mut self, maybe_active_child: Option<&RecordTask>) {
+    fn send_synthetic_sigchld_if_necessary(&self, maybe_active_child: Option<&RecordTask>) {
         let mut need_signal = false;
         let mut wake_task = None;
         for tracee_rc in &self.emulated_ptrace_tracees {
@@ -2950,8 +2951,8 @@ impl RecordTask {
                     .task_set()
                     .iter_except(self.weak_self_ptr())
                 {
-                    let mut rtb = t.borrow_mut();
-                    let rt = rtb.as_rec_mut_unwrap();
+                    let rtb = t.borrow();
+                    let rt = rtb.as_rec_unwrap();
                     if rt.is_waiting_for_ptrace(tracee) {
                         wake_task = Some((rt.tgid(), rt.tid, rt.is_sig_blocked(sig::SIGCHLD)));
                         break;

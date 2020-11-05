@@ -466,7 +466,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         // the PTRACE_SINGLESTEP will cause the kernel to unblock it.
         let enable_singlestep_path = remote.vm().has_rd_page()
             && !running_under_rd()
-            && is_sigtrap_default_and_unblocked(remote.task_mut());
+            && is_sigtrap_default_and_unblocked(remote.task());
         remote.setup_path(enable_singlestep_path);
         if enable_mem_params == MemParamsEnabled::EnableMemoryParams {
             remote.maybe_fix_stack_pointer();
@@ -1599,11 +1599,11 @@ fn extract_name(name: &OsStr) -> Option<&OsStr> {
     None
 }
 
-fn is_sigtrap_default_and_unblocked(t: &mut dyn Task) -> bool {
+fn is_sigtrap_default_and_unblocked(t: &dyn Task) -> bool {
     if !t.session().is_recording() {
         return true;
     }
-    let rt = t.as_record_task_mut().unwrap();
+    let rt = t.as_rec_unwrap();
     rt.sig_disposition(sig::SIGTRAP) == SignalDisposition::SignalDefault
         && !rt.is_sig_blocked(sig::SIGTRAP)
 }
