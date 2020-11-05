@@ -1822,7 +1822,8 @@ impl RecordSession {
                 || t.borrow().as_rec_unwrap().emulated_ptrace_cont_command
                     == PTRACE_SYSEMU_SINGLESTEP;
 
-            if singlestep && is_at_syscall_instruction(t.borrow_mut().as_mut(), t.borrow().ip()) {
+            let t_at_ip = t.borrow().ip();
+            if singlestep && is_at_syscall_instruction(t.borrow_mut().as_mut(), t_at_ip) {
                 // We're about to singlestep into a syscall instruction.
                 // Act like we're NOT singlestepping since doing a PTRACE_SINGLESTEP would
                 // skip over the system call.
