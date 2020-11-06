@@ -1359,8 +1359,10 @@ impl RecordTask {
                     }
                     None => {
                         let mut si: siginfo_t = siginfo_t::default();
-                        si.si_signo = status.ptrace_signal().unwrap().as_raw();
-                        if status.maybe_ptrace_event().is_ptrace_event() || status.is_syscall() {
+                        if status.maybe_ptrace_event().is_ptrace_event() {
+                            si.si_signo = status.ptrace_signal().unwrap().as_raw();
+                            si.si_code = status.get() >> 8;
+                        } else if status.is_syscall() {
                             si.si_code = status.get() >> 8;
                         } else {
                             si.si_code = si_code;
@@ -1468,17 +1470,20 @@ impl RecordTask {
         // XXX handle CLD_EXITED here
         if self.emulated_stop_type == EmulatedStopType::GroupStop {
             si.si_code = CLD_STOPPED;
-            // @TODO Is the unwrap approach what we want?
-            si._sifields._sigchld.si_status_ = self
-                .emulated_stop_code
-                .maybe_stop_sig()
-                .unwrap_sig()
-                .as_raw();
+            // @TODO Do we want just a maybe_stop_sig().unwrap_sig().as_raw() approach here?
+            let maybe_stop_sig = self.emulated_stop_code.maybe_stop_sig();
+            if maybe_stop_sig.is_sig() {
+                si._sifields._sigchld.si_status_ = maybe_stop_sig.unwrap_sig().as_raw();
+            } else {
+                si._sifields._sigchld.si_status_ = 0;
+            }
         } else {
             si.si_code = CLD_TRAPPED;
-            // @TODO Is the unwrap approach what we want?
-            si._sifields._sigchld.si_status_ =
-                self.emulated_stop_code.ptrace_signal().unwrap().as_raw();
+            // @TODO Is this approach what we want? Or do we want ptrace_signal().unwrap().as_raw() ?
+            si._sifields._sigchld.si_status_ = self
+                .emulated_stop_code
+                .ptrace_signal()
+                .map_or(0, |sig| sig.as_raw());
         }
         si._sifields._sigchld.si_pid_ = self.tgid();
         si._sifields._sigchld.si_uid_ = self.getuid();
@@ -1493,7 +1498,7 @@ impl RecordTask {
                 return it;
             }
         }
-        ed_assert!(self, false, "No saved siginfo found for stop-signal???");
+        ed_assert!(self, false, "No saved siginfo found for stop-signal ???");
 
         unreachable!()
     }
