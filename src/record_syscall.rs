@@ -2135,19 +2135,26 @@ fn prepare_exit(t: &mut RecordTask, exit_code: i32) {
     t.enter_syscall();
     check_signals_while_exiting(t);
 
-    if t.emulated_ptrace_options & PTRACE_O_TRACEEXIT != 0 {
-        // Ensure that do_ptrace_exit_stop can run later.
-        t.emulated_ptrace_queued_exit_stop = true;
-        t.emulate_ptrace_stop(
-            WaitStatus::for_ptrace_event(PTRACE_EVENT_EXIT),
-            None,
-            None,
-            None,
-        );
-    } else {
-        // Only allow one stop at a time. After the PTRACE_EVENT_EXIT has been
-        // processed, PTRACE_CONT will call do_ptrace_exit_stop for us.
-        do_ptrace_exit_stop(t);
+    let emulated_ptracer = t.emulated_ptracer.as_ref().map(|w| w.upgrade().unwrap());
+    match emulated_ptracer {
+        Some(tracer_rc) => {
+            if t.emulated_ptrace_options & PTRACE_O_TRACEEXIT != 0 {
+                // Ensure that do_ptrace_exit_stop can run later.
+                t.emulated_ptrace_queued_exit_stop = true;
+                t.emulate_ptrace_stop(
+                    WaitStatus::for_ptrace_event(PTRACE_EVENT_EXIT),
+                    tracer_rc.borrow().as_rec_unwrap(),
+                    None,
+                    None,
+                    None,
+                );
+            } else {
+                do_ptrace_exit_stop(t, Some(tracer_rc.borrow().as_rec_unwrap()));
+            }
+        }
+        None => {
+            do_ptrace_exit_stop(t, None);
+        }
     }
 }
 
@@ -2172,24 +2179,24 @@ fn check_signals_while_exiting(t: &mut RecordTask) {
     }
 }
 
-fn do_ptrace_exit_stop(t: &mut RecordTask) {
+/// DIFF NOTE: Takes the extra param `maybe_tracer` unlike rr.
+fn do_ptrace_exit_stop(t: &mut RecordTask, maybe_tracer: Option<&RecordTask>) {
     // Notify ptracer of the exit if it's not going to receive it from the
     // kernel because it's not the parent. (The kernel has similar logic to
     // deliver two stops in this case.)
     t.emulated_ptrace_queued_exit_stop = false;
-    if t.emulated_ptracer.is_some()
-        && (t.is_clone_child()
-            || t.get_parent_pid()
-                != t.emulated_ptracer
-                    .as_ref()
-                    .unwrap()
-                    .upgrade()
-                    .unwrap()
-                    .borrow()
-                    .real_tgid())
-    {
-        // This is a bit wrong; this is an exit stop, not a signal/ptrace stop.
-        t.emulate_ptrace_stop(WaitStatus::for_exit_code(t.exit_code), None, None, None);
+    match maybe_tracer {
+        Some(tracer) if t.is_clone_child() || t.get_parent_pid() != tracer.real_tgid() => {
+            // This is a bit wrong; this is an exit stop, not a signal/ptrace stop.
+            t.emulate_ptrace_stop(
+                WaitStatus::for_exit_code(t.exit_code),
+                tracer,
+                None,
+                None,
+                None,
+            );
+        }
+        _ => (),
     }
 }
 
@@ -2357,18 +2364,23 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
 
     if sys == Arch::EXECVE {
         process_execve(t, syscall_state);
-        if t.emulated_ptracer.is_some() {
-            if t.emulated_ptrace_options & PTRACE_O_TRACEEXEC != 0 {
-                t.emulate_ptrace_stop(
-                    WaitStatus::for_ptrace_event(PTRACE_EVENT_EXEC),
-                    None,
-                    None,
-                    None,
-                );
-            } else if !t.emulated_ptrace_seized {
-                // Inject legacy SIGTRAP-after-exec
-                t.tgkill(sig::SIGTRAP);
+        let emulated_ptracer = t.emulated_ptracer.as_ref().map(|w| w.upgrade().unwrap());
+        match emulated_ptracer {
+            Some(tracer_rc) => {
+                if t.emulated_ptrace_options & PTRACE_O_TRACEEXEC != 0 {
+                    t.emulate_ptrace_stop(
+                        WaitStatus::for_ptrace_event(PTRACE_EVENT_EXEC),
+                        tracer_rc.borrow().as_rec_unwrap(),
+                        None,
+                        None,
+                        None,
+                    );
+                } else if !t.emulated_ptrace_seized {
+                    // Inject legacy SIGTRAP-after-exec
+                    t.tgkill(sig::SIGTRAP);
+                }
             }
+            None => (),
         }
         return;
     }
@@ -4715,22 +4727,18 @@ fn prepare_clone<Arch: Architecture>(t: &mut RecordTask, syscall_state: &mut Tas
     if t.emulated_ptrace_options & ptrace_option_for_event(ptrace_event) != 0
         && (flags & CLONE_UNTRACED == 0)
     {
-        {
-            match t.emulated_ptracer.as_ref() {
-                Some(w) => {
-                    new_task.set_emulated_ptracer(
-                        Some(w.upgrade().unwrap().borrow_mut().as_rec_mut_unwrap()),
-                        None,
-                    );
-                }
-                None => (),
-            }
-        }
+        // There MUST be a ptracer present. Hence the unwrap().
+        let emulated_ptracer = t.emulated_ptracer.as_ref().unwrap().upgrade().unwrap();
+        new_task.set_emulated_ptracer(
+            Some(emulated_ptracer.borrow_mut().as_rec_mut_unwrap()),
+            None,
+        );
         new_task.emulated_ptrace_seized = t.emulated_ptrace_seized;
         new_task.emulated_ptrace_options = t.emulated_ptrace_options;
         t.emulated_ptrace_event_msg = new_task.rec_tid as usize;
         t.emulate_ptrace_stop(
             WaitStatus::for_ptrace_event(ptrace_event),
+            emulated_ptracer.borrow().as_rec_unwrap(),
             None,
             None,
             Some(new_task),
@@ -5109,8 +5117,14 @@ fn widen_buffer_signed(buf: &[u8]) -> i64 {
     }
 }
 
-// DIFF NOTE: command is an i32 in rr
-fn prepare_ptrace_cont(tracee: &mut RecordTask, maybe_sig: Option<Sig>, command: u32) {
+/// DIFF NOTE: Has an extra param `tracer`
+/// DIFF NOTE: command is an i32 in rr
+fn prepare_ptrace_cont(
+    tracee: &mut RecordTask,
+    maybe_sig: Option<Sig>,
+    command: u32,
+    tracer: &RecordTask,
+) {
     match maybe_sig {
         Some(sig) => {
             let si = tracee.take_ptrace_signal_siginfo(sig);
@@ -5145,7 +5159,7 @@ fn prepare_ptrace_cont(tracee: &mut RecordTask, maybe_sig: Option<Sig>, command:
     }
 
     if tracee.emulated_ptrace_queued_exit_stop {
-        do_ptrace_exit_stop(tracee);
+        do_ptrace_exit_stop(tracee, Some(tracer));
     }
 }
 
@@ -5614,6 +5628,7 @@ fn prepare_ptrace<Arch: Architecture>(
                             tracee,
                             Sig::try_from(t.regs_ref().arg4() as i32).ok(),
                             command,
+                            t,
                         );
                         syscall_state.emulate_result(0);
                     }
@@ -5632,7 +5647,12 @@ fn prepare_ptrace<Arch: Architecture>(
                     tracee.emulated_ptrace_cont_command = 0;
                     tracee.emulated_stop_pending = false;
                     tracee.emulated_ptrace_queued_exit_stop = false;
-                    prepare_ptrace_cont(tracee, Sig::try_from(t.regs_ref().arg4() as i32).ok(), 0);
+                    prepare_ptrace_cont(
+                        tracee,
+                        Sig::try_from(t.regs_ref().arg4() as i32).ok(),
+                        0,
+                        t,
+                    );
                     tracee.set_emulated_ptracer(None, Some(t));
                     syscall_state.emulate_result(0);
                 }

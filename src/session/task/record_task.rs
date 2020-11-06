@@ -1333,53 +1333,45 @@ impl RecordTask {
     /// ptracer. If siginfo is non-null, we'll report that siginfo, otherwise we'll
     /// make one up based on the status (unless the status is an exit code).
     /// Returns true if the task is stopped-for-emulated-ptrace, false otherwise.
+    /// DIFF NOTE: Additional param `tracer`.
+    /// DIFF NOTE: We ONLY call this function if there is an emulate tracer. There is no boolean
+    /// return value unlike rr.
     /// DIFF NOTE: Additional param `maybe_active_sibling` to solve already borrowed possibility
     pub fn emulate_ptrace_stop(
         &mut self,
         status: WaitStatus,
+        tracer: &RecordTask,
         maybe_siginfo: Option<&siginfo_t>,
         maybe_si_code: Option<i32>,
         maybe_active_sibling: Option<&RecordTask>,
-    ) -> bool {
+    ) {
         let si_code = maybe_si_code.unwrap_or(0);
         ed_assert_eq!(self, self.emulated_stop_type, EmulatedStopType::NotStopped);
-        let maybe_emulated_ptracer = self.emulated_ptracer.as_ref().map(|p| p.upgrade().unwrap());
-        match maybe_emulated_ptracer {
-            None => false,
-            Some(emulated_ptracer) => {
-                // @TODO Check this logic again
-                match maybe_siginfo {
-                    Some(siginfo) => {
-                        ed_assert_eq!(
-                            self,
-                            status.ptrace_signal().unwrap().as_raw(),
-                            siginfo.si_signo
-                        );
-                        self.save_ptrace_signal_siginfo(siginfo);
-                    }
-                    None => {
-                        let mut si: siginfo_t = siginfo_t::default();
-                        if status.maybe_ptrace_event().is_ptrace_event() {
-                            si.si_signo = status.ptrace_signal().unwrap().as_raw();
-                            si.si_code = status.get() >> 8;
-                        } else if status.is_syscall() {
-                            si.si_code = status.get() >> 8;
-                        } else {
-                            si.si_code = si_code;
-                        }
-                        self.save_ptrace_signal_siginfo(&si);
-                    }
-                }
-
-                self.force_emulate_ptrace_stop(
-                    status,
-                    emulated_ptracer.borrow_mut().as_rec_mut_unwrap(),
-                    maybe_active_sibling,
+        // @TODO Check this logic again
+        match maybe_siginfo {
+            Some(siginfo) => {
+                ed_assert_eq!(
+                    self,
+                    status.ptrace_signal().unwrap().as_raw(),
+                    siginfo.si_signo
                 );
-
-                true
+                self.save_ptrace_signal_siginfo(siginfo);
+            }
+            None => {
+                let mut si: siginfo_t = siginfo_t::default();
+                if status.maybe_ptrace_event().is_ptrace_event() {
+                    si.si_signo = status.ptrace_signal().unwrap().as_raw();
+                    si.si_code = status.get() >> 8;
+                } else if status.is_syscall() {
+                    si.si_code = status.get() >> 8;
+                } else {
+                    si.si_code = si_code;
+                }
+                self.save_ptrace_signal_siginfo(&si);
             }
         }
+
+        self.force_emulate_ptrace_stop(status, tracer, maybe_active_sibling);
     }
 
     /// Force the ptrace-stop state no matter what state the task is currently in.
@@ -1594,20 +1586,34 @@ impl RecordTask {
                 sig
             );
             let status: WaitStatus = WaitStatus::for_group_sig(sig, self);
-            if !self.emulate_ptrace_stop(status, None, None, maybe_active_sibling) {
-                self.emulated_stop_type = EmulatedStopType::GroupStop;
-                self.emulated_stop_code = status;
-                self.emulated_stop_pending = true;
-                self.emulated_sigchld_pending = true;
-                match self
-                    .session()
-                    .find_task_from_rec_tid(get_ppid(self.tid).unwrap())
-                {
-                    Some(t) => t
-                        .borrow_mut()
-                        .as_rec_mut_unwrap()
-                        .send_synthetic_sigchld_if_necessary(Some(self), maybe_active_sibling),
-                    None => (),
+            ed_assert_eq!(self, self.emulated_stop_type, EmulatedStopType::NotStopped);
+            let maybe_emulated_ptrace =
+                self.emulated_ptracer.as_ref().map(|w| w.upgrade().unwrap());
+            match maybe_emulated_ptrace {
+                None => {
+                    self.emulated_stop_type = EmulatedStopType::GroupStop;
+                    self.emulated_stop_code = status;
+                    self.emulated_stop_pending = true;
+                    self.emulated_sigchld_pending = true;
+                    match self
+                        .session()
+                        .find_task_from_rec_tid(get_ppid(self.tid).unwrap())
+                    {
+                        Some(t) => t
+                            .borrow_mut()
+                            .as_rec_mut_unwrap()
+                            .send_synthetic_sigchld_if_necessary(Some(self), maybe_active_sibling),
+                        None => (),
+                    }
+                }
+                Some(tracer) => {
+                    self.emulate_ptrace_stop(
+                        status,
+                        tracer.borrow().as_rec_unwrap(),
+                        None,
+                        None,
+                        maybe_active_sibling,
+                    );
                 }
             }
         }

@@ -1969,8 +1969,16 @@ impl RecordSession {
             || t.emulated_ptrace_cont_command == PTRACE_SYSEMU_SINGLESTEP
                 && !is_in_privileged_syscall(t)
         {
+            // There MUST be an emulated ptracer
+            let emulated_ptracer = t.emulated_ptracer.as_ref().unwrap().upgrade().unwrap();
             t.ev_mut().syscall_event_mut().state = SyscallState::EnteringSyscallPtrace;
-            t.emulate_ptrace_stop(WaitStatus::for_syscall(t), None, None, None);
+            t.emulate_ptrace_stop(
+                WaitStatus::for_syscall(t),
+                emulated_ptracer.borrow().as_rec_unwrap(),
+                None,
+                None,
+                None,
+            );
             t.record_current_event();
 
             t.ev_mut().syscall_event_mut().in_sysemu = t.emulated_ptrace_cont_command
@@ -2606,14 +2614,25 @@ fn save_interrupted_syscall_ret_in_syscallbuf(t: &mut RecordTask, retval: isize)
 
 fn maybe_trigger_emulated_ptrace_syscall_exit_stop(t: &mut RecordTask) {
     if t.emulated_ptrace_cont_command == PTRACE_SYSCALL {
-        t.emulate_ptrace_stop(WaitStatus::for_syscall(t), None, None, None);
+        // We MUST have an emulated ptracer
+        let emulated_ptracer = t.emulated_ptracer.as_ref().unwrap().upgrade().unwrap();
+        t.emulate_ptrace_stop(
+            WaitStatus::for_syscall(t),
+            emulated_ptracer.borrow().as_rec_unwrap(),
+            None,
+            None,
+            None,
+        );
     } else if t.emulated_ptrace_cont_command == PTRACE_SINGLESTEP
         || t.emulated_ptrace_cont_command == PTRACE_SYSEMU_SINGLESTEP
     {
+        // We MUST have an emulated ptracer
+        let emulated_ptracer = t.emulated_ptracer.as_ref().unwrap().upgrade().unwrap();
         // Deliver the singlestep trap now that we've finished executing the
         // syscall.
         t.emulate_ptrace_stop(
             WaitStatus::for_stop_sig(sig::SIGTRAP),
+            emulated_ptracer.borrow().as_rec_unwrap(),
             None,
             Some(SI_KERNEL as i32),
             None,
