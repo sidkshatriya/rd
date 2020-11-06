@@ -1359,10 +1359,8 @@ impl RecordTask {
             }
             None => {
                 let mut si: siginfo_t = siginfo_t::default();
-                if status.maybe_ptrace_event().is_ptrace_event() {
+                if status.maybe_ptrace_event().is_ptrace_event() || status.is_syscall() {
                     si.si_signo = status.ptrace_signal().unwrap().as_raw();
-                    si.si_code = status.get() >> 8;
-                } else if status.is_syscall() {
                     si.si_code = status.get() >> 8;
                 } else {
                     si.si_code = si_code;
