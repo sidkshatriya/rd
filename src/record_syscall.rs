@@ -2138,7 +2138,12 @@ fn prepare_exit(t: &mut RecordTask, exit_code: i32) {
     if t.emulated_ptrace_options & PTRACE_O_TRACEEXIT != 0 {
         // Ensure that do_ptrace_exit_stop can run later.
         t.emulated_ptrace_queued_exit_stop = true;
-        t.emulate_ptrace_stop(WaitStatus::for_ptrace_event(PTRACE_EVENT_EXIT), None, None);
+        t.emulate_ptrace_stop(
+            WaitStatus::for_ptrace_event(PTRACE_EVENT_EXIT),
+            None,
+            None,
+            None,
+        );
     } else {
         // Only allow one stop at a time. After the PTRACE_EVENT_EXIT has been
         // processed, PTRACE_CONT will call do_ptrace_exit_stop for us.
@@ -2184,7 +2189,7 @@ fn do_ptrace_exit_stop(t: &mut RecordTask) {
                     .real_tgid())
     {
         // This is a bit wrong; this is an exit stop, not a signal/ptrace stop.
-        t.emulate_ptrace_stop(WaitStatus::for_exit_code(t.exit_code), None, None);
+        t.emulate_ptrace_stop(WaitStatus::for_exit_code(t.exit_code), None, None, None);
     }
 }
 
@@ -2354,7 +2359,12 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
         process_execve(t, syscall_state);
         if t.emulated_ptracer.is_some() {
             if t.emulated_ptrace_options & PTRACE_O_TRACEEXEC != 0 {
-                t.emulate_ptrace_stop(WaitStatus::for_ptrace_event(PTRACE_EVENT_EXEC), None, None);
+                t.emulate_ptrace_stop(
+                    WaitStatus::for_ptrace_event(PTRACE_EVENT_EXEC),
+                    None,
+                    None,
+                    None,
+                );
             } else if !t.emulated_ptrace_seized {
                 // Inject legacy SIGTRAP-after-exec
                 t.tgkill(sig::SIGTRAP);
@@ -4719,10 +4729,15 @@ fn prepare_clone<Arch: Architecture>(t: &mut RecordTask, syscall_state: &mut Tas
         new_task.emulated_ptrace_seized = t.emulated_ptrace_seized;
         new_task.emulated_ptrace_options = t.emulated_ptrace_options;
         t.emulated_ptrace_event_msg = new_task.rec_tid as usize;
-        t.emulate_ptrace_stop(WaitStatus::for_ptrace_event(ptrace_event), None, None);
+        t.emulate_ptrace_stop(
+            WaitStatus::for_ptrace_event(ptrace_event),
+            None,
+            None,
+            Some(new_task),
+        );
         // ptrace(2) man page says that SIGSTOP is used here, but it's really
         // SIGTRAP (in 4.4.4-301.fc23.x86_64 anyway).
-        new_task.apply_group_stop(sig::SIGTRAP);
+        new_task.apply_group_stop(sig::SIGTRAP, Some(t));
     }
 
     // Restore our register modifications now, so that the emulated ptracer will
@@ -5265,7 +5280,7 @@ fn ptrace_attach_to_already_stopped_task(t: &mut RecordTask, tracer: &mut Record
     ed_assert_eq!(t, t.emulated_stop_type, EmulatedStopType::GroupStop);
     // tracee is already stopped because of a group-stop signal.
     // Sending a SIGSTOP won't work, but we don't need to.
-    t.force_emulate_ptrace_stop(WaitStatus::for_stop_sig(sig::SIGSTOP), tracer);
+    t.force_emulate_ptrace_stop(WaitStatus::for_stop_sig(sig::SIGSTOP), tracer, None);
     let mut si = siginfo_t_signal::default();
     si.si_signo = SIGSTOP;
     si.si_code = SI_USER;

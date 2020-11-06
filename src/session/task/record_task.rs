@@ -1333,11 +1333,13 @@ impl RecordTask {
     /// ptracer. If siginfo is non-null, we'll report that siginfo, otherwise we'll
     /// make one up based on the status (unless the status is an exit code).
     /// Returns true if the task is stopped-for-emulated-ptrace, false otherwise.
+    /// DIFF NOTE: Additional param `maybe_active_sibling` to solve already borrowed possibility
     pub fn emulate_ptrace_stop(
         &mut self,
         status: WaitStatus,
         maybe_siginfo: Option<&siginfo_t>,
         maybe_si_code: Option<i32>,
+        maybe_active_sibling: Option<&RecordTask>,
     ) -> bool {
         let si_code = maybe_si_code.unwrap_or(0);
         ed_assert_eq!(self, self.emulated_stop_type, EmulatedStopType::NotStopped);
@@ -1370,6 +1372,7 @@ impl RecordTask {
                 self.force_emulate_ptrace_stop(
                     status,
                     emulated_ptracer.borrow_mut().as_rec_mut_unwrap(),
+                    maybe_active_sibling,
                 );
 
                 true
@@ -1379,7 +1382,13 @@ impl RecordTask {
 
     /// Force the ptrace-stop state no matter what state the task is currently in.
     /// DIFF NOTE: Extra param `tracer` to solve already borrowed possibility
-    pub fn force_emulate_ptrace_stop(&mut self, status: WaitStatus, tracer: &RecordTask) {
+    /// DIFF NOTE: Extra param `maybe_active_sibling` to solve already borrowed possibility
+    pub fn force_emulate_ptrace_stop(
+        &mut self,
+        status: WaitStatus,
+        tracer: &RecordTask,
+        maybe_active_sibling: Option<&RecordTask>,
+    ) {
         self.emulated_stop_type = if status.maybe_group_stop_sig().is_sig() {
             EmulatedStopType::GroupStop
         } else {
@@ -1396,7 +1405,7 @@ impl RecordTask {
                 .unwrap()
                 .ptr_eq(&tracer.weak_self)
         );
-        tracer.send_synthetic_sigchld_if_necessary(Some(self));
+        tracer.send_synthetic_sigchld_if_necessary(Some(self), maybe_active_sibling);
         // The SIGCHLD will eventually be reported to rd via a ptrace stop,
         // interrupting wake_task's syscall (probably a waitpid) if necessary. At
         // that point, we'll fix up the siginfo data with values that match what
@@ -1570,7 +1579,8 @@ impl RecordTask {
 
     /// Call this to force a group stop for this task with signal 'sig',
     /// notifying ptracer if necessary.
-    pub fn apply_group_stop(&mut self, sig: Sig) {
+    /// DIFF NOTE: Additional param `maybe_active_sibling` to deal with already borrowed possibility.
+    pub fn apply_group_stop(&mut self, sig: Sig, maybe_active_sibling: Option<&RecordTask>) {
         if self.emulated_stop_type == EmulatedStopType::NotStopped {
             log!(
                 LogDebug,
@@ -1579,7 +1589,7 @@ impl RecordTask {
                 sig
             );
             let status: WaitStatus = WaitStatus::for_group_sig(sig, self);
-            if !self.emulate_ptrace_stop(status, None, None) {
+            if !self.emulate_ptrace_stop(status, None, None, maybe_active_sibling) {
                 self.emulated_stop_type = EmulatedStopType::GroupStop;
                 self.emulated_stop_code = status;
                 self.emulated_stop_pending = true;
@@ -1591,7 +1601,7 @@ impl RecordTask {
                     Some(t) => t
                         .borrow_mut()
                         .as_rec_mut_unwrap()
-                        .send_synthetic_sigchld_if_necessary(Some(self)),
+                        .send_synthetic_sigchld_if_necessary(Some(self), maybe_active_sibling),
                     None => (),
                 }
             }
@@ -1624,7 +1634,7 @@ impl RecordTask {
                 || sig == sig::SIGSTOP
             {
                 // All threads in the process are stopped.
-                self.apply_group_stop(sig);
+                self.apply_group_stop(sig, None);
                 for t in self
                     .thread_group()
                     .task_set()
@@ -1633,14 +1643,14 @@ impl RecordTask {
                     t.borrow_mut()
                         .as_record_task_mut()
                         .unwrap()
-                        .apply_group_stop(sig);
+                        .apply_group_stop(sig, None);
                 }
             } else if sig == sig::SIGCONT {
                 self.emulate_sigcont();
             }
         }
 
-        self.send_synthetic_sigchld_if_necessary(None);
+        self.send_synthetic_sigchld_if_necessary(None, None);
     }
 
     /// Return true if `sig` is pending but hasn't been reported to ptrace yet
@@ -2924,18 +2934,27 @@ impl RecordTask {
     /// SIGCHLD to the task if there are still tasks that need a SIGCHLD
     /// sent for them.
     /// May queue signals for specific tasks.
-    /// DIFF NOTE: maybe_active_child extra param to deal with already borrowed possibility
-    fn send_synthetic_sigchld_if_necessary(&self, maybe_active_child: Option<&RecordTask>) {
+    /// DIFF NOTE: `maybe_active_child` extra param to deal with already borrowed possibility
+    /// DIFF NOTE: `maybe_active_sibling` extra param to deal with already borrowed possibility
+    fn send_synthetic_sigchld_if_necessary(
+        &self,
+        maybe_active_child: Option<&RecordTask>,
+        maybe_active_sibling: Option<&RecordTask>,
+    ) {
         let mut need_signal = false;
         let mut wake_task = None;
         for tracee_rc in &self.emulated_ptrace_tracees {
+            let tracee_rc_weak = Rc::downgrade(&tracee_rc);
             let traceeb;
             let tracee = match maybe_active_child {
-                Some(task) if task.weak_self.ptr_eq(&Rc::downgrade(&tracee_rc)) => task,
-                _ => {
-                    traceeb = tracee_rc.borrow();
-                    traceeb.as_rec_unwrap()
-                }
+                Some(task) if task.weak_self.ptr_eq(&tracee_rc_weak) => task,
+                _ => match maybe_active_sibling {
+                    Some(task) if task.weak_self.ptr_eq(&tracee_rc_weak) => task,
+                    _ => {
+                        traceeb = tracee_rc.borrow();
+                        traceeb.as_rec_unwrap()
+                    }
+                },
             };
             if tracee.emulated_ptrace_sigchld_pending {
                 need_signal = true;
@@ -2966,13 +2985,17 @@ impl RecordTask {
         if !need_signal {
             for child_tg in self.thread_group_shr_ptr().borrow().children() {
                 for child_rc in child_tg.borrow().task_set().iter() {
+                    let child_rc_weak = Rc::downgrade(&child_rc);
                     let rchildb;
                     let rchild = match maybe_active_child {
-                        Some(task) if task.weak_self.ptr_eq(&Rc::downgrade(&child_rc)) => task,
-                        _ => {
-                            rchildb = child_rc.borrow();
-                            rchildb.as_rec_unwrap()
-                        }
+                        Some(task) if task.weak_self.ptr_eq(&child_rc_weak) => task,
+                        _ => match maybe_active_sibling {
+                            Some(task) if task.weak_self.ptr_eq(&child_rc_weak) => task,
+                            _ => {
+                                rchildb = child_rc.borrow();
+                                rchildb.as_rec_unwrap()
+                            }
+                        },
                     };
                     if rchild.emulated_sigchld_pending {
                         need_signal = true;

@@ -1970,7 +1970,7 @@ impl RecordSession {
                 && !is_in_privileged_syscall(t)
         {
             t.ev_mut().syscall_event_mut().state = SyscallState::EnteringSyscallPtrace;
-            t.emulate_ptrace_stop(WaitStatus::for_syscall(t), None, None);
+            t.emulate_ptrace_stop(WaitStatus::for_syscall(t), None, None, None);
             t.record_current_event();
 
             t.ev_mut().syscall_event_mut().in_sysemu = t.emulated_ptrace_cont_command
@@ -2606,7 +2606,7 @@ fn save_interrupted_syscall_ret_in_syscallbuf(t: &mut RecordTask, retval: isize)
 
 fn maybe_trigger_emulated_ptrace_syscall_exit_stop(t: &mut RecordTask) {
     if t.emulated_ptrace_cont_command == PTRACE_SYSCALL {
-        t.emulate_ptrace_stop(WaitStatus::for_syscall(t), None, None);
+        t.emulate_ptrace_stop(WaitStatus::for_syscall(t), None, None, None);
     } else if t.emulated_ptrace_cont_command == PTRACE_SINGLESTEP
         || t.emulated_ptrace_cont_command == PTRACE_SYSEMU_SINGLESTEP
     {
@@ -2616,6 +2616,7 @@ fn maybe_trigger_emulated_ptrace_syscall_exit_stop(t: &mut RecordTask) {
             WaitStatus::for_stop_sig(sig::SIGTRAP),
             None,
             Some(SI_KERNEL as i32),
+            None,
         );
     }
 }
