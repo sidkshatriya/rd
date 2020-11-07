@@ -2,7 +2,7 @@
 
 `rd` is a Rust language port of the [mozilla/rr](https://github.com/mozilla/rr) debugger. 
 
-The port is  _in progress_ but many things work already (see below).
+The port is  _in progress_ but many things work already (see [below](https://github.com/sidkshatriya/rd#what-works)).
 
 ## Installing
 
