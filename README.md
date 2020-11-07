@@ -24,16 +24,16 @@ In general, run in release mode as the debug mode can be much slower. Run `rd` i
 
 The program has been tested to compile and run properly on a 64-bit Ubuntu 20.04 installation at the moment only. 
 
-Please file a ticket if rd does not work properly for your specific Linux distribution. In general, if `rr` compiles and runs properly in your Linux distro, `rd` should do the same.
+Please file a ticket if `rd` does not work properly for your specific Linux distribution. In general, if `rr` compiles and runs properly in your Linux distro, `rd` should do the same.
 
 ## Running `rd`
 
-Invoking rd without any parameters will give you help.
+Invoking `rd` without any parameters will give you help.
 ```bash
 $ rd
 ```
 
-To get help on specific rd sub-command:
+To get help on specific `rd` sub-command:
 ```
 $ rd rerun --help
 ```
