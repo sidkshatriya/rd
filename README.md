@@ -9,15 +9,15 @@ The port is  _in progress_ but many things work already (see below).
 rd requires a nightly version of the rust `x86_64-unknown-linux-gnu` toolchain to compile.
 
 ```bash
-git clone git@github.com:sidkshatriya/rd.git
-cd rd
-cargo install --locked --force --path .
+$ git clone git@github.com:sidkshatriya/rd.git
+$ cd rd
+$ cargo install --locked --force --path .
 ```
 
 Alternatively, use `--debug` like below. Things will run much more slowly as the code will be compiled with lower compiler optimizations, extra debug-mode assertions etc. 
 
 ```bash
-cargo install --debug --locked --force --path .
+$ cargo install --debug --locked --force --path .
 ```
 
 In general, run in release mode as the debug mode can be much slower. Run `rd` in debug mode if you run into issues or are working on developing `rd`.
@@ -82,7 +82,7 @@ After installing `rd` add an alias like this in your bash (or other shell):
 Assuming you have a local source build of `mozilla/rr` at `/home/abcxyz/rr/build` 
 
 ```bash
-alias rd="rd --resource-path=/home/abcxyz/rr/build"
+$ alias rd="rd --resource-path=/home/abcxyz/rr/build"
 ```
 
 This will avoid constantly specifying the resource path on every `rd` invocation.
@@ -100,7 +100,7 @@ $ RD_LOG=all:warn,auto_remote_syscalls:debug rd <etc params>
 `rd` can now record program runs (i.e. traces) on its own now (just like `rr`). Some system calls are not yet supported during recording. Also, the syscallbuf optimization is not supported currently during recording. In general the recording functionality is incomplete but subtantial progress has been made and it is ready to experiment with.
 
 ```bash
-rd record -n <program to be recorded>
+$ rd record -n <program to be recorded>
 ```
 
 The `-n` disables the syscallbuf. 
