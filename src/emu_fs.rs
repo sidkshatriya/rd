@@ -293,7 +293,6 @@ impl EmuFs {
     /// Return the EmuFile for `recorded_map`, which must exist or this won't
     /// return.
     pub fn at(&self, recorded_map: &KernelMapping) -> Option<EmuFileSharedPtr> {
-        // @TODO Assuming upgrade() always works.
         self.files
             .get(&FileId::from_kernel_mapping(recorded_map))
             .map(|val| val.upgrade().unwrap())
@@ -340,7 +339,7 @@ impl EmuFs {
     }
 
     /// Return an already-existing emulated file for the given device/inode.
-    /// Returns null if not found.
+    /// Returns `None` if not found.
     pub fn find(&self, device: dev_t, inode: ino_t) -> Option<EmuFileSharedPtr> {
         let file_id = FileId::new(device, inode);
         let maybe_file_weak_ptr = self.files.get(&file_id);
