@@ -2496,11 +2496,40 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
     }
 
     if sys == Arch::PROCESS_VM_READV {
-        unimplemented!()
+        record_iovec_output::<Arch>(
+            t,
+            None,
+            RemotePtr::<iovec<Arch>>::from(t.regs_ref().arg2()),
+            t.regs_ref().arg3() as u32,
+        );
+        return;
     }
 
     if sys == Arch::PROCESS_VM_WRITEV {
-        unimplemented!()
+        let tid = t.regs_ref().arg1() as i32;
+        let task_rc: TaskSharedPtr;
+        let mut taskb;
+        let dest_task;
+        let maybe_dest = if tid == t.tid {
+            None
+        } else {
+            match t.session().find_task_from_rec_tid(tid) {
+                None => return,
+                Some(rc) => {
+                    task_rc = rc;
+                    taskb = task_rc.borrow_mut();
+                    dest_task = taskb.as_rec_mut_unwrap();
+                    Some(dest_task)
+                }
+            }
+        };
+        record_iovec_output::<Arch>(
+            t,
+            maybe_dest,
+            RemotePtr::<iovec<Arch>>::from(t.regs_ref().arg4()),
+            t.regs_ref().arg5() as u32,
+        );
+        return;
     }
 
     if sys == Arch::GETDENTS || sys == Arch::GETDENTS64 {
@@ -5921,4 +5950,26 @@ fn prepare_ptrace<Arch: Architecture>(
     }
 
     Switchable::PreventSwitch
+}
+
+/// if `maybe_dest` is `None` then this is interpreted to mean that dest is `t` also
+fn record_iovec_output<Arch: Architecture>(
+    t: &mut RecordTask,
+    maybe_dest: Option<&mut RecordTask>,
+    piov: RemotePtr<iovec<Arch>>,
+    iov_cnt: u32,
+) {
+    // Ignore the syscall result, the kernel may have written more data than that.
+    // See https://bugzilla.kernel.org/show_bug.cgi?id=113541
+    let iovs = read_mem(t, piov, iov_cnt as usize, None);
+    let dest = match maybe_dest {
+        Some(dest) => dest,
+        None => t,
+    };
+    for iov in &iovs {
+        dest.record_remote_writable(
+            Arch::as_rptr(iov.iov_base),
+            Arch::size_t_as_usize(iov.iov_len),
+        );
+    }
 }
