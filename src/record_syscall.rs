@@ -237,6 +237,7 @@ use crate::{
         SYS_rdcall_notify_syscall_hook_exit,
     },
     preload_interface_arch::rdcall_init_buffers_params,
+    registers,
     registers::{with_converted_registers, Registers},
     remote_ptr::{RemotePtr, Void},
     seccomp_filter_rewriter::SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO,
@@ -5554,7 +5555,57 @@ fn prepare_ptrace<Arch: Architecture>(
                 }
             }
         }
-        PTRACE_SETREGSET => unimplemented!(),
+        PTRACE_SETREGSET => {
+            // The actual register effects are performed by
+            // Task::on_syscall_exit_arch
+            match t.regs_ref().arg3() as u32 {
+                NT_PRSTATUS => {
+                    let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
+                    if maybe_tracee.is_some() {
+                        ptrace_verify_set_reg_set::<Arch>(
+                            t,
+                            size_of::<Arch::user_regs_struct>(),
+                            syscall_state,
+                        );
+                    }
+                }
+                NT_FPREGSET => {
+                    let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
+                    if maybe_tracee.is_some() {
+                        ptrace_verify_set_reg_set::<Arch>(
+                            t,
+                            size_of::<Arch::user_fpregs_struct>(),
+                            syscall_state,
+                        );
+                    }
+                }
+                NT_X86_XSTATE => {
+                    let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
+                    match maybe_tracee {
+                        Some(tracee_rc) => {
+                            let format = tracee_rc.borrow_mut().extra_regs_ref().format();
+                            match format {
+                                Format::XSave => {
+                                    ptrace_verify_set_reg_set::<Arch>(
+                                        t,
+                                        tracee_rc.borrow_mut().extra_regs_ref().data_size(),
+                                        syscall_state,
+                                    );
+                                }
+                                _ => {
+                                    syscall_state.emulate_result_signed(-EINVAL as isize);
+                                }
+                            }
+                        }
+                        None => (),
+                    }
+                }
+                _ => {
+                    syscall_state.expect_errno = EINVAL;
+                    emulate = false;
+                }
+            }
+        }
         PTRACE_PEEKTEXT | PTRACE_PEEKDATA => {
             let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
             match maybe_tracee {
@@ -5600,8 +5651,103 @@ fn prepare_ptrace<Arch: Architecture>(
                 None => (),
             }
         }
-        PTRACE_PEEKUSER => unimplemented!(),
-        PTRACE_POKEUSER => unimplemented!(),
+        PTRACE_PEEKUSER => {
+            let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
+            match maybe_tracee {
+                Some(tracee_rc) => {
+                    let tracee = tracee_rc.borrow();
+                    // The actual syscall returns the data via the 'data' out-parameter.
+                    // The behavior of returning the data as the system call result is
+                    // provided by the glibc wrapper.
+                    let addr = t.regs_ref().arg3();
+                    let mut data: Arch::unsigned_word = 0u8.into();
+                    if (addr & (size_of_val(&data) - 1) != 0) || addr >= size_of::<Arch::user>() {
+                        syscall_state.emulate_result_signed(-EIO as isize);
+                    } else {
+                        let datap =
+                            syscall_state.reg_parameter::<Arch::unsigned_word>(4, None, None);
+                        if addr < size_of::<Arch::user_regs_struct>() {
+                            let mut buf = [0u8; registers::MAX_REG_SIZE_BYTES];
+                            let res = tracee
+                                .regs_ref()
+                                .read_register_by_user_offset(&mut buf, addr);
+                            match res {
+                                Some(size) => {
+                                    // For unclear reasons, all 32-bit user_regs_struct members are
+                                    // signed while all 64-bit user_regs_struct members are unsigned.
+                                    match Arch::arch() {
+                                        SupportedArch::X86 => {
+                                            data = Arch::as_unsigned_word(widen_buffer_signed(
+                                                &buf[0..size],
+                                            )
+                                                as usize);
+                                        }
+                                        SupportedArch::X64 => {
+                                            data = Arch::as_unsigned_word(widen_buffer_unsigned(
+                                                &buf[0..size],
+                                            )
+                                                as usize);
+                                        }
+                                    }
+                                }
+                                None => {
+                                    data = 0u8.into();
+                                }
+                            }
+                        } else {
+                            match Arch::arch() {
+                                SupportedArch::X86
+                                    if addr >= offset_of!(x86::user, u_debugreg)
+                                        && addr
+                                            < offset_of!(x86::user, u_debugreg)
+                                                + 8 * size_of_val(&data) =>
+                                {
+                                    let regno = (addr - offset_of!(x86::user, u_debugreg))
+                                        / size_of_val(&data);
+                                    data = Arch::as_unsigned_word(tracee.get_debug_reg(regno));
+                                }
+                                SupportedArch::X64
+                                    if addr >= offset_of!(x64::user, u_debugreg)
+                                        && addr
+                                            < offset_of!(x64::user, u_debugreg)
+                                                + 8 * size_of_val(&data) =>
+                                {
+                                    let regno = (addr - offset_of!(x64::user, u_debugreg))
+                                        / size_of_val(&data);
+                                    data = Arch::as_unsigned_word(tracee.get_debug_reg(regno));
+                                }
+                                _ => {
+                                    data = 0u8.into();
+                                }
+                            }
+                        }
+
+                        write_val_mem(t, datap, &data, None);
+                        syscall_state.emulate_result(0);
+                    }
+                }
+                None => (),
+            }
+        }
+        PTRACE_POKEUSER => {
+            let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
+            match maybe_tracee {
+                Some(_tracee_rc) => {
+                    // The actual syscall returns the data via the 'data' out-parameter.
+                    // The behavior of returning the data as the system call result is
+                    // provided by the glibc wrapper.
+                    let addr = t.regs_ref().arg3();
+                    if addr & (size_of::<Arch::unsigned_word>() - 1) != 0
+                        || addr >= size_of::<Arch::user>()
+                    {
+                        syscall_state.emulate_result_signed(-EIO as isize);
+                    } else {
+                        syscall_state.emulate_result(0);
+                    }
+                }
+                None => (),
+            }
+        }
         PTRACE_SYSCALL
         | PTRACE_SINGLESTEP
         | PTRACE_SYSEMU

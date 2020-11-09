@@ -417,7 +417,7 @@ impl Registers {
     /// Return the size of the register in bytes as an Option. If None
     /// is returned it indicates that no value was written to `buf`.
     /// `offset` is the offset of the register within a user_regs_struct.
-    pub fn read_registers_by_user_offset(&self, buf: &mut [u8], offset: usize) -> Option<usize> {
+    pub fn read_register_by_user_offset(&self, buf: &mut [u8], offset: usize) -> Option<usize> {
         let regs = self.get_regs_info();
         for (regno, rv) in regs.iter() {
             if rv.offset == offset {
