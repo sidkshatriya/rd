@@ -328,8 +328,12 @@ impl Registers {
         if let Some(rv) = regs.get(&regno) {
             match rv.nbytes {
                 0 => None,
-                4 => {
+                4 if self.arch() == SupportedArch::X86 => {
                     buf[0..rv.nbytes].copy_from_slice(&rv.u32_into_x86(self.x86()).to_le_bytes());
+                    Some(rv.nbytes)
+                }
+                4 if self.arch() == SupportedArch::X64 => {
+                    buf[0..rv.nbytes].copy_from_slice(&rv.u32_into_x64(self.x64()).to_le_bytes());
                     Some(rv.nbytes)
                 }
                 8 => {
