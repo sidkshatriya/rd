@@ -1036,7 +1036,8 @@ impl TaskInner {
     }
 
     /// Set the thread area at index `idx` to desc and reflect this
-    /// into the OS task. Returns 0 on success, errno otherwise.
+    /// into the OS task. Returns 0 on success, errno otherwise
+    /// DIFF NOTE: idx is a i32 in rr
     pub fn emulate_set_thread_area(&mut self, idx: u32, mut desc: user_desc) -> i32 {
         Errno::clear();
         // @TODO Is the cast `idx as usize` what we want?
@@ -1055,7 +1056,8 @@ impl TaskInner {
 
     /// Get the thread area from the remote process.
     /// Returns 0 on success, errno otherwise.
-    pub fn emulate_get_thread_area(&self, idx: i32, desc: &mut user_desc) -> i32 {
+    /// DIFF NOTE: idx is a i32 in rr
+    pub fn emulate_get_thread_area(&self, idx: u32, desc: &mut user_desc) -> i32 {
         log!(LogDebug, "Emulating PTRACE_GET_THREAD_AREA");
         Errno::clear();
         self.fallible_ptrace(

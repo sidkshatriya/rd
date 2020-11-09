@@ -17,6 +17,7 @@ use crate::{
     bindings::{
         fcntl,
         kernel::{
+            user_desc,
             NT_FPREGSET,
             NT_PRSTATUS,
             NT_X86_XSTATE,
@@ -300,6 +301,7 @@ use libc::{
     CLONE_VFORK,
     CLONE_VM,
     EACCES,
+    EFAULT,
     EINVAL,
     EIO,
     ENODEV,
@@ -5821,7 +5823,50 @@ fn prepare_ptrace<Arch: Architecture>(
                 None => (),
             }
         }
-        PTRACE_GET_THREAD_AREA | PTRACE_SET_THREAD_AREA => unimplemented!(),
+        PTRACE_GET_THREAD_AREA | PTRACE_SET_THREAD_AREA => {
+            let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
+            match maybe_tracee {
+                Some(tracee_rc) => {
+                    let mut tracee = tracee_rc.borrow_mut();
+                    if tracee.arch() != SupportedArch::X86 {
+                        // This syscall should fail if the tracee is not x86
+                        syscall_state.expect_errno = EIO;
+                        emulate = false;
+                    } else {
+                        let remote_addr = RemotePtr::<user_desc>::from(t.regs_ref().arg4());
+                        let mut ok = true;
+                        let mut desc = user_desc::default();
+                        // Do the ptrace request ourselves
+                        if command == PTRACE_GET_THREAD_AREA {
+                            let ret = -tracee
+                                .emulate_get_thread_area(t.regs_ref().arg3() as u32, &mut desc);
+                            if ret == 0 {
+                                write_val_mem(t, remote_addr, &desc, Some(&mut ok));
+                                if !ok {
+                                    syscall_state.emulate_result_signed(-EFAULT as isize);
+                                } else {
+                                    t.record_local_for(remote_addr, &desc);
+                                }
+                            } else {
+                                syscall_state.emulate_result_signed(ret as isize);
+                            }
+                        } else {
+                            desc = read_val_mem(t, remote_addr, Some(&mut ok));
+                            if !ok {
+                                syscall_state.emulate_result_signed(-EFAULT as isize);
+                            } else {
+                                syscall_state.emulate_result_signed(
+                                    -tracee
+                                        .emulate_set_thread_area(t.regs_ref().arg3() as u32, desc)
+                                        as isize,
+                                );
+                            }
+                        }
+                    }
+                }
+                None => (),
+            }
+        }
         PTRACE_ARCH_PRCTL => {
             let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
             match maybe_tracee {
