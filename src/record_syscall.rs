@@ -325,6 +325,10 @@ use libc::{
     FUTEX_WAKE_BITSET,
     FUTEX_WAKE_OP,
     GRND_NONBLOCK,
+    IPC_INFO,
+    IPC_RMID,
+    IPC_SET,
+    IPC_STAT,
     IPPROTO_IP,
     IPPROTO_IPV6,
     KEYCTL_ASSUME_AUTHORITY,
@@ -372,6 +376,8 @@ use libc::{
     MAP_GROWSDOWN,
     MMAP_PAGE_ZERO,
     MSG_DONTWAIT,
+    MSG_INFO,
+    MSG_STAT,
     O_DIRECT,
     PRIO_PROCESS,
     P_ALL,
@@ -1860,8 +1866,23 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
     }
 
     if sys == Arch::PTRACE {
-        // Various issues. Disable for now
         return prepare_ptrace::<Arch>(t, &mut syscall_state);
+    }
+
+    if sys == Arch::MSGCTL {
+        return prepare_msgctl::<Arch>(&mut syscall_state, regs.arg2_signed() as i32, 3);
+    }
+
+    if sys == Arch::MSGRCV {
+        let msgsize = regs.arg3();
+        syscall_state.reg_parameter_with_size(
+            2,
+            ParamSize::from(size_of::<Arch::signed_long>() + msgsize),
+            None,
+            None,
+        );
+
+        return Switchable::AllowSwitch;
     }
 
     ed_assert!(
@@ -5973,4 +5994,25 @@ fn record_iovec_output<Arch: Architecture>(
             Arch::size_t_as_usize(iov.iov_len),
         );
     }
+}
+
+fn prepare_msgctl<Arch: Architecture>(
+    syscall_state: &mut TaskSyscallState,
+    cmd: i32,
+    ptr_reg: usize,
+) -> Switchable {
+    match cmd {
+        IPC_STAT | MSG_STAT => {
+            syscall_state.reg_parameter::<Arch::msqid64_ds>(ptr_reg, None, None);
+        }
+        IPC_INFO | MSG_INFO => {
+            syscall_state.reg_parameter::<Arch::msginfo>(ptr_reg, None, None);
+        }
+        IPC_SET | IPC_RMID => (),
+        _ => {
+            syscall_state.expect_errno = EINVAL;
+        }
+    }
+
+    Switchable::PreventSwitch
 }
