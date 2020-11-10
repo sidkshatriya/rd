@@ -467,3 +467,164 @@ pub struct __sysctl_args<Arch: Architecture> {
 
 assert_eq_size!(kernel::__sysctl_args, __sysctl_args<NativeArch>);
 assert_eq_align!(kernel::__sysctl_args, __sysctl_args<NativeArch>);
+
+#[repr(C)]
+pub struct sockaddr<Arch: Architecture> {
+    pub sa_family: Arch::unsigned_short,
+    pub sa_data: [u8; 14],
+}
+
+assert_eq_size!(kernel::sockaddr, sockaddr<NativeArch>);
+assert_eq_align!(kernel::sockaddr, sockaddr<NativeArch>);
+
+impl<Arch: Architecture> Clone for sockaddr<Arch> {
+    fn clone(&self) -> Self {
+        Self {
+            sa_family: self.sa_family,
+            sa_data: self.sa_data,
+        }
+    }
+}
+
+impl<Arch: Architecture> Copy for sockaddr<Arch> {}
+
+#[repr(C)]
+pub struct ifmap<Arch: Architecture> {
+    pub mem_start: Arch::unsigned_long,
+    pub mem_end: Arch::unsigned_long,
+    pub base_addr: Arch::unsigned_short,
+    pub irq: u8,
+    pub dma: u8,
+    pub port: u8,
+}
+
+assert_eq_size!(kernel::ifmap, ifmap<NativeArch>);
+assert_eq_align!(kernel::ifmap, ifmap<NativeArch>);
+
+impl<Arch: Architecture> Clone for ifmap<Arch> {
+    fn clone(&self) -> Self {
+        Self {
+            mem_start: self.mem_start,
+            mem_end: self.mem_end,
+            base_addr: self.base_addr,
+            irq: self.irq,
+            dma: self.dma,
+            port: self.dma,
+        }
+    }
+}
+
+impl<Arch: Architecture> Copy for ifmap<Arch> {}
+
+#[repr(C)]
+pub union ifs_ifsu<Arch: Architecture> {
+    pub raw_hdlc: Ptr<Arch::unsigned_word, u8>,
+    pub cisco: Ptr<Arch::unsigned_word, u8>,
+    pub fr: Ptr<Arch::unsigned_word, u8>,
+    pub fr_pvc: Ptr<Arch::unsigned_word, u8>,
+    pub fr_pvc_info: Ptr<Arch::unsigned_word, u8>,
+    pub sync: Ptr<Arch::unsigned_word, u8>,
+    pub tel: Ptr<Arch::unsigned_word, u8>,
+}
+
+impl<Arch: Architecture> Clone for ifs_ifsu<Arch> {
+    fn clone(&self) -> Self {
+        Self {
+            tel: unsafe { self.tel },
+        }
+    }
+}
+
+impl<Arch: Architecture> Copy for ifs_ifsu<Arch> {}
+
+#[repr(C)]
+pub struct if_settings<Arch: Architecture> {
+    pub type_: u32,
+    pub size: u32,
+    pub ifs_ifsu: ifs_ifsu<Arch>,
+}
+
+assert_eq_size!(kernel::if_settings, if_settings<NativeArch>);
+assert_eq_align!(kernel::if_settings, if_settings<NativeArch>);
+
+impl<Arch: Architecture> Clone for if_settings<Arch> {
+    fn clone(&self) -> Self {
+        Self {
+            type_: self.type_,
+            size: self.size,
+            ifs_ifsu: self.ifs_ifsu,
+        }
+    }
+}
+
+impl<Arch: Architecture> Copy for if_settings<Arch> {}
+
+#[repr(C)]
+pub union ifr_ifru<Arch: Architecture> {
+    pub ifru_addr: sockaddr<Arch>,
+    pub ifru_dstaddr: sockaddr<Arch>,
+    pub ifru_broadaddr: sockaddr<Arch>,
+    pub ifru_netmask: sockaddr<Arch>,
+    pub ifru_hwaddr: sockaddr<Arch>,
+    pub ifru_flags: Arch::signed_short,
+    pub ifru_ivalue: i32,
+    pub ifru_mtu: i32,
+    pub ifru_map: ifmap<Arch>,
+    pub ifru_slave: [u8; 16],
+    pub ifru_newname: [u8; 16],
+    pub ifru_data: Ptr<Arch::unsigned_word, u8>,
+    pub ifru_settings: if_settings<Arch>,
+}
+
+impl<Arch: Architecture> Clone for ifr_ifru<Arch> {
+    fn clone(&self) -> Self {
+        Self {
+            ifru_slave: unsafe { self.ifru_slave },
+        }
+    }
+}
+
+impl<Arch: Architecture> Copy for ifr_ifru<Arch> {}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub union ifr_ifrn {
+    pub ifrn_name: [u8; 16],
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct ifreq<Arch: Architecture> {
+    pub ifr_ifrn: ifr_ifrn,
+    pub ifr_ifru: ifr_ifru<Arch>,
+}
+
+assert_eq_size!(kernel::ifreq, ifreq<NativeArch>);
+assert_eq_align!(kernel::ifreq, ifreq<NativeArch>);
+
+#[repr(C)]
+pub union ifc_ifcu<Arch: Architecture> {
+    pub ifcu_buf: Ptr<Arch::unsigned_word, u8>,
+    pub ifcu_req: Ptr<Arch::unsigned_word, ifreq<Arch>>,
+}
+
+impl<Arch: Architecture> Clone for ifc_ifcu<Arch> {
+    fn clone(&self) -> Self {
+        Self {
+            ifcu_buf: unsafe { self.ifcu_buf },
+        }
+    }
+}
+
+impl<Arch: Architecture> Copy for ifc_ifcu<Arch> {}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct ifconf<Arch: Architecture> {
+    pub ifc_len: i32,
+    pub __pad: Arch::STD_PAD_ARR,
+    pub ifc_ifcu: ifc_ifcu<Arch>,
+}
+
+assert_eq_size!(kernel::ifconf, ifconf<NativeArch>);
+assert_eq_align!(kernel::ifconf, ifconf<NativeArch>);

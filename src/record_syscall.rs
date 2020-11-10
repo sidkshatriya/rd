@@ -1905,6 +1905,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         return Switchable::PreventSwitch;
     }
 
+    // For debugging. Remove later
     ed_assert!(
         t,
         false,
