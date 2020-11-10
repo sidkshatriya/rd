@@ -624,7 +624,7 @@ impl Scheduler {
 
         self.task_priority_set.borrow_mut().insert(PriorityTup(
             t.borrow().as_record_task().unwrap().priority,
-            t.borrow().tuid().serial(),
+            t.borrow().stable_serial(),
             Rc::downgrade(&t),
         ));
     }
@@ -656,7 +656,7 @@ impl Scheduler {
         } else {
             self.task_priority_set.borrow_mut().remove(&PriorityTup(
                 t.priority,
-                t.tuid().serial(),
+                t.stable_serial(),
                 weak,
             ));
         }
@@ -764,7 +764,7 @@ impl Scheduler {
                             if t.borrow().as_record_task().unwrap().priority == priority
                                 && task_priority_setb.contains(&PriorityTup(
                                     priority,
-                                    t.borrow().tuid().serial(),
+                                    t.borrow().stable_serial(),
                                     t.borrow().weak_self_ptr(),
                                 )) =>
                         {
@@ -774,7 +774,7 @@ impl Scheduler {
                                     // ignored anyways in the cmp
                                     **p <= PriorityTup(
                                         priority,
-                                        t.borrow().tuid().serial(),
+                                        t.borrow().stable_serial(),
                                         Weak::new(),
                                     )
                                 });
@@ -851,7 +851,7 @@ impl Scheduler {
             t.in_round_robin_queue = false;
             self.task_priority_set.borrow_mut().insert(PriorityTup(
                 t.priority,
-                t.tuid().serial(),
+                t.stable_serial(),
                 t.weak_self_ptr(),
             ));
         }
@@ -943,13 +943,13 @@ impl Scheduler {
 
         self.task_priority_set.borrow_mut().remove(&PriorityTup(
             t.priority,
-            t.tuid().serial(),
+            t.stable_serial(),
             t.weak_self_ptr(),
         ));
         t.priority = value;
         self.task_priority_set.borrow_mut().insert(PriorityTup(
             t.priority,
-            t.tuid().serial(),
+            t.stable_serial(),
             t.weak_self_ptr(),
         ));
     }

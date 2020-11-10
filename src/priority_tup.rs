@@ -2,7 +2,7 @@ use crate::session::task::TaskSharedWeakPtr;
 use std::cmp::Ordering;
 
 #[derive(Clone)]
-/// priority, task serial and task weak ptr
+/// priority, task `stable_serial` (not `serial` which is slightly different) and task weak ptr
 pub struct PriorityTup(pub i32, pub u32, pub TaskSharedWeakPtr);
 
 impl PartialOrd for PriorityTup {

@@ -277,6 +277,15 @@ impl SessionInner {
         val
     }
 
+    /// DIFF NOTE: next_task_stable_serial is not present in rr
+    /// This is different from next_task_serial.
+    /// Only incremented when a new task is created
+    pub fn next_task_stable_serial(&self) -> u32 {
+        let val = self.next_task_stable_serial_.get();
+        self.next_task_stable_serial_.set(val + 1);
+        val
+    }
+
     /// Call these functions from the objects' drop impl in order
     /// to notify this session that the objects are dying.
     /// DIFF NOTE: Method is simply called on_Session::on_destroy() in rr.
@@ -384,6 +393,7 @@ impl SessionInner {
             tracee_socket: Default::default(),
             tracee_socket_fd_number: Cell::new(-1),
             next_task_serial_: Cell::new(1),
+            next_task_stable_serial_: Cell::new(1),
             spawned_task_error_fd_: Default::default(),
             syscall_seccomp_ordering_: Default::default(),
             ticks_semantics_: PerfCounters::default_ticks_semantics(),
@@ -570,7 +580,10 @@ pub struct SessionInner {
     pub(super) tracee_socket: Rc<RefCell<ScopedFd>>,
     pub(super) tracee_socket_fd_number: Cell<i32>,
     pub(super) next_task_serial_: Cell<u32>,
-    // @TODO Should this be an Option?
+    /// DIFF NOTE: Not present in rr
+    /// This serial number is only incremented when a new task is created
+    pub(super) next_task_stable_serial_: Cell<u32>,
+    /// @TODO Should this be an Option?
     pub(super) spawned_task_error_fd_: RefCell<ScopedFd>,
 
     pub(super) syscall_seccomp_ordering_: Cell<PtraceSyscallSeccompOrdering>,
