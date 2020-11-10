@@ -2,6 +2,7 @@ use crate::{
     arch::{loff_t, off64_t, Architecture},
     arch_structs::{
         self,
+        __sysctl_args,
         cmsg_align,
         cmsghdr,
         iovec,
@@ -1883,6 +1884,25 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         );
 
         return Switchable::AllowSwitch;
+    }
+
+    if sys == Arch::_SYSCTL {
+        let argsp = syscall_state.reg_parameter::<__sysctl_args<Arch>>(1, Some(ArgMode::In), None);
+        let oldlenp_buf_ptr = RemotePtr::<Ptr<Arch::unsigned_word, Arch::size_t>>::cast(
+            remote_ptr_field!(argsp, __sysctl_args<Arch>, oldlenp),
+        );
+        let oldlenp = syscall_state.mem_ptr_parameter_inferred::<Arch, Arch::size_t>(
+            t,
+            oldlenp_buf_ptr,
+            Some(ArgMode::InOut),
+            None,
+        );
+        let oldval_buf_ptr =
+            RemotePtr::<u8>::cast(remote_ptr_field!(argsp, __sysctl_args<Arch>, oldval));
+        let param_size = ParamSize::from_initialized_mem(t, oldlenp);
+        syscall_state.mem_ptr_parameter_with_size(t, oldval_buf_ptr, param_size, None, None);
+
+        return Switchable::PreventSwitch;
     }
 
     ed_assert!(

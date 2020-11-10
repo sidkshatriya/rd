@@ -451,3 +451,19 @@ pub struct ipt_replace<Arch: Architecture> {
     pub counters: Ptr<Arch::unsigned_word, xt_counters>,
     // Plus hangoff here
 }
+
+#[repr(C)]
+#[derive(Copy, Clone, Default)]
+pub struct __sysctl_args<Arch: Architecture> {
+    pub name: Ptr<Arch::unsigned_word, i32>,
+    pub nlen: i32,
+    pub __pad: Arch::STD_PAD_ARR,
+    pub oldval: Ptr<Arch::unsigned_word, u8>,
+    pub oldlenp: Ptr<Arch::unsigned_word, Arch::size_t>,
+    pub newval: Ptr<Arch::unsigned_word, u8>,
+    pub newlen: Ptr<Arch::unsigned_word, Arch::size_t>,
+    pub __rd_unused: [Arch::unsigned_long; 4],
+}
+
+assert_eq_size!(kernel::__sysctl_args, __sysctl_args<NativeArch>);
+assert_eq_align!(kernel::__sysctl_args, __sysctl_args<NativeArch>);
