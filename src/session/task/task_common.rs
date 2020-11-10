@@ -588,7 +588,7 @@ pub(super) fn syscallbuf_data_size<T: Task>(task: &mut T) -> usize {
 /// Forwarded method definition
 ///
 /// Write `N` bytes from `buf` to `child_addr`, or don't return.
-pub(super) fn write_bytes<T: Task>(task: &mut T, child_addr: RemotePtr<Void>, buf: &[u8]) {
+pub(super) fn write_bytes_common<T: Task>(task: &mut T, child_addr: RemotePtr<Void>, buf: &[u8]) {
     write_bytes_helper(task, child_addr, buf, None, WriteFlags::empty())
 }
 
@@ -1358,7 +1358,7 @@ fn on_syscall_exit_arch<Arch: Architecture>(t: &mut dyn Task, sys: i32, regs: &R
 /// attributes need to be updated based on the finishing syscall.
 /// Use 'regs' instead of this->regs() because some registers may not be
 /// set properly in the task yet.
-pub(super) fn on_syscall_exit(
+pub(super) fn on_syscall_exit_common(
     t: &mut dyn Task,
     syscallno: i32,
     arch: SupportedArch,
@@ -1371,7 +1371,7 @@ pub(super) fn on_syscall_exit(
 
 /// Call this method when this task has exited a successful execve() syscall.
 /// At this point it is safe to make remote syscalls.
-pub(super) fn post_exec_syscall(t: &mut dyn Task) {
+pub(super) fn post_exec_syscall_common(t: &mut dyn Task) {
     let arch = t.arch();
     t.canonicalize_regs(arch);
     t.vm_shr_ptr().post_exec_syscall(t);

@@ -102,7 +102,7 @@ use crate::{
                 next_syscallbuf_record,
                 open_mem_fd,
                 post_exec_for_exe,
-                post_exec_syscall,
+                post_exec_syscall_common,
                 read_bytes_fallible,
                 read_bytes_helper,
                 read_bytes_helper_for,
@@ -111,7 +111,7 @@ use crate::{
                 set_thread_area,
                 stored_record_size,
                 syscallbuf_data_size,
-                write_bytes,
+                write_bytes_common,
                 write_bytes_helper,
             },
             task_inner::{
@@ -807,7 +807,7 @@ impl Task for RecordTask {
 
     fn on_syscall_exit(&mut self, syscallno: i32, arch: SupportedArch, regs: &Registers) {
         with_converted_registers(regs, arch, |regs| {
-            task_common::on_syscall_exit(self, syscallno, arch, regs);
+            task_common::on_syscall_exit_common(self, syscallno, arch, regs);
             rd_arch_function!(self, on_syscall_exit_arch, arch, syscallno, regs);
         })
     }
@@ -904,11 +904,11 @@ impl Task for RecordTask {
 
     /// Forwarded method
     fn write_bytes(&mut self, child_addr: RemotePtr<u8>, buf: &[u8]) {
-        write_bytes(self, child_addr, buf);
+        write_bytes_common(self, child_addr, buf);
     }
     // Forwarded method
     fn post_exec_syscall(&mut self) {
-        post_exec_syscall(self)
+        post_exec_syscall_common(self)
     }
 
     // Forwarded method

@@ -6,9 +6,9 @@ use super::{
         destroy,
         destroy_buffers,
         detect_syscall_arch,
-        on_syscall_exit,
+        on_syscall_exit_common,
         post_exec_for_exe,
-        post_exec_syscall,
+        post_exec_syscall_common,
         post_vm_clone_common,
         post_wait_clone_common,
         read_val_mem,
@@ -50,7 +50,7 @@ use crate::{
                 set_thread_area,
                 stored_record_size,
                 syscallbuf_data_size,
-                write_bytes,
+                write_bytes_common,
                 write_bytes_helper,
             },
             task_inner::{ResumeRequest, TaskInner, TicksRequest, WaitRequest, WriteFlags},
@@ -148,7 +148,7 @@ impl ReplayTask {
         // regular stack instead of having to search the address space for usable
         // pages (which is error prone, e.g. if we happen to find the scratch space
         // allocated by an rd recorder under which we're running).
-        post_exec_syscall(self);
+        post_exec_syscall_common(self);
 
         // Delay setting the replay_regs until here so the original registers
         // are set while we populate AddressSpace. We need that for the kernel
@@ -521,7 +521,7 @@ impl Task for ReplayTask {
     }
 
     fn on_syscall_exit(&mut self, syscallno: i32, arch: SupportedArch, regs: &Registers) {
-        on_syscall_exit(self, syscallno, arch, regs)
+        on_syscall_exit_common(self, syscallno, arch, regs)
     }
 
     // Forwarded method
@@ -571,12 +571,12 @@ impl Task for ReplayTask {
 
     /// Forwarded method
     fn write_bytes(&mut self, child_addr: RemotePtr<u8>, buf: &[u8]) {
-        write_bytes(self, child_addr, buf);
+        write_bytes_common(self, child_addr, buf);
     }
 
     /// Forwarded method
     fn post_exec_syscall(&mut self) {
-        post_exec_syscall(self)
+        post_exec_syscall_common(self)
     }
 
     // Forwarded method
