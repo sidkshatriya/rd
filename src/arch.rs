@@ -647,6 +647,8 @@ pub trait Architecture: 'static + Default {
     type dqinfo: Copy + 'static;
     type msqid64_ds: Copy + 'static;
     type msginfo: Copy + 'static;
+    type ethtool_cmd: Copy + 'static;
+    type ifbond: Copy + 'static;
 
     fn as_rptr<T>(p: Ptr<Self::unsigned_word, T>) -> RemotePtr<T>;
 
@@ -1219,6 +1221,8 @@ impl Architecture for X86Arch {
     type dqinfo = x86::dqinfo;
     type msqid64_ds = x86::msqid64_ds;
     type msginfo = x86::msginfo;
+    type ethtool_cmd = x86::ethtool_cmd;
+    type ifbond = x86::ifbond;
 
     fn as_rptr<T>(p: Ptr<u32, T>) -> RemotePtr<T> {
         p.rptr()
@@ -1839,6 +1843,8 @@ impl Architecture for X64Arch {
     type dqinfo = x64::dqinfo;
     type msqid64_ds = x64::msqid64_ds;
     type msginfo = x64::msginfo;
+    type ethtool_cmd = x64::ethtool_cmd;
+    type ifbond = x64::ifbond;
 
     fn as_rptr<T>(p: Ptr<u64, T>) -> RemotePtr<T> {
         p.rptr()

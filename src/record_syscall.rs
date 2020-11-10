@@ -5,6 +5,8 @@ use crate::{
         __sysctl_args,
         cmsg_align,
         cmsghdr,
+        ifconf,
+        ifreq,
         iovec,
         kernel_sigaction,
         mmap_args,
@@ -4543,9 +4545,27 @@ fn prepare_ioctl<Arch: Architecture>(
     // Some ioctl()s are irregular and don't follow the _IOC()
     // conventions.  Special case them here.
     match request {
-        SIOCETHTOOL => unimplemented!(),
+        SIOCETHTOOL => {
+            let ifrp = syscall_state.reg_parameter::<ifreq<Arch>>(3, Some(ArgMode::In), None);
 
-        SIOCGIFCONF => unimplemented!(),
+            let addr_of_buf_ptr: RemotePtr<u8> = remote_ptr_field!(ifrp, ifreq<Arch>, ifr_ifru);
+            syscall_state.mem_ptr_parameter::<Arch::ethtool_cmd>(t, addr_of_buf_ptr, None, None);
+            syscall_state.after_syscall_action(Box::new(record_page_below_stack_ptr));
+            return Switchable::PreventSwitch;
+        }
+
+        SIOCGIFCONF => {
+            let ifconfp =
+                syscall_state.reg_parameter::<ifconf<Arch>>(3, Some(ArgMode::InOut), None);
+            let addr_of_buf_ptr = remote_ptr_field!(ifconfp, ifconf<Arch>, ifc_ifcu);
+            let param_size = ParamSize::from_initialized_mem(
+                t,
+                RemotePtr::<i32>::cast(remote_ptr_field!(ifconfp, ifconf<Arch>, ifc_len)),
+            );
+            syscall_state.mem_ptr_parameter_with_size(t, addr_of_buf_ptr, param_size, None, None);
+            syscall_state.after_syscall_action(Box::new(record_page_below_stack_ptr));
+            return Switchable::PreventSwitch;
+        }
 
         // Privileged ioctls
         SIOCSIFADDR | SIOCSIFDSTADDR | SIOCSIFBRDADDR | SIOCSIFHWADDR | SIOCSIFFLAGS
@@ -4564,7 +4584,13 @@ fn prepare_ioctl<Arch: Architecture>(
             return Switchable::PreventSwitch;
         }
 
-        SIOCBONDINFOQUERY => unimplemented!(),
+        SIOCBONDINFOQUERY => {
+            let ifrp = syscall_state.reg_parameter::<ifreq<Arch>>(3, Some(ArgMode::In), None);
+            let addr_of_buf_ptr = remote_ptr_field!(ifrp, ifreq<Arch>, ifr_ifru);
+            syscall_state.mem_ptr_parameter::<Arch::ifbond>(t, addr_of_buf_ptr, None, None);
+            syscall_state.after_syscall_action(Box::new(record_page_below_stack_ptr));
+            return Switchable::PreventSwitch;
+        }
 
         SIOCGIFADDR | SIOCGIFDSTADDR | SIOCGIFBRDADDR | SIOCGIFHWADDR | SIOCGIFFLAGS
         | SIOCGIFPFLAGS | SIOCGIFTXQLEN | SIOCGIFINDEX | SIOCGIFMTU | SIOCGIFNAME
