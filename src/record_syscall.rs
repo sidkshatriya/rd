@@ -14,6 +14,7 @@ use crate::{
         msghdr,
         pselect6_arg6,
         select_args,
+        sg_io_hdr,
         siginfo_t,
     },
     auto_remote_syscalls::{AutoRemoteSyscalls, MemParamsEnabled},
@@ -4671,7 +4672,30 @@ fn prepare_ioctl<Arch: Architecture>(
             return Switchable::PreventSwitch;
         }
 
-        SG_IO => unimplemented!(),
+        SG_IO => {
+            let argsp =
+                syscall_state.reg_parameter::<sg_io_hdr<Arch>>(3, Some(ArgMode::InOut), None);
+            let args = read_val_mem(t, argsp, None);
+            syscall_state.mem_ptr_parameter_with_size(
+                t,
+                remote_ptr_field!(argsp, sg_io_hdr<Arch>, dxferp),
+                ParamSize::from(args.dxfer_len as usize),
+                None,
+                None,
+            );
+            // cmdp: The user memory pointed to is only read (not written to).
+
+            syscall_state.mem_ptr_parameter_with_size(
+                t,
+                remote_ptr_field!(argsp, sg_io_hdr<Arch>, sbp),
+                ParamSize::from(args.mx_sb_len as usize),
+                None,
+                None,
+            );
+            // usr_ptr: This value is not acted upon by the sg driver.
+
+            return Switchable::PreventSwitch;
+        }
 
         _ => (),
     }

@@ -628,3 +628,33 @@ pub struct ifconf<Arch: Architecture> {
 
 assert_eq_size!(kernel::ifconf, ifconf<NativeArch>);
 assert_eq_align!(kernel::ifconf, ifconf<NativeArch>);
+
+#[repr(C)]
+#[derive(Copy, Clone, Default)]
+pub struct sg_io_hdr<Arch: Architecture> {
+    pub interface_id: i32,
+    pub dxfer_direction: i32,
+    pub cmd_len: u8,
+    pub mx_sb_len: u8,
+    pub iovec_count: Arch::unsigned_short,
+    pub dxfer_len: u32,
+    pub dxferp: Ptr<Arch::unsigned_word, u8>,
+    pub cmdp: Ptr<Arch::unsigned_word, u8>,
+    pub sbp: Ptr<Arch::unsigned_word, u8>,
+    pub timeout: u32,
+    pub flags: u32,
+    pub pack_id: i32,
+    pub usr_ptr: Ptr<Arch::unsigned_word, u8>,
+    pub status: u8,
+    pub masked_status: u8,
+    pub msg_status: u8,
+    pub sb_len_wr: u8,
+    pub host_status: Arch::unsigned_short,
+    pub driver_status: Arch::unsigned_short,
+    pub resid: i32,
+    pub duration: u32,
+    pub info: u32,
+}
+
+assert_eq_size!(kernel::sg_io_hdr, sg_io_hdr<NativeArch>);
+assert_eq_align!(kernel::sg_io_hdr, sg_io_hdr<NativeArch>);
