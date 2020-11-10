@@ -257,7 +257,6 @@ use crate::{
     },
     sig,
     sig::Sig,
-    taskish_uid::TaskUid,
     trace::{
         trace_stream::TraceRemoteFd,
         trace_task_event::TraceTaskEvent,
@@ -445,7 +444,7 @@ extern "C" {
 /// a context-switch is allowed for |t|, PREVENT_SWITCH if not.
 pub fn rec_prepare_syscall(t: &mut RecordTask) -> Switchable {
     if t.syscall_state.is_none() {
-        let mut new_ts = TaskSyscallState::new(t.tuid());
+        let mut new_ts = TaskSyscallState::new(t);
         new_ts.init(t);
         t.syscall_state = Some(Rc::new(RefCell::new(new_ts)));
     } else {
@@ -3643,8 +3642,10 @@ type ArgMutator = Box<dyn Fn(&mut RecordTask, RemotePtr<Void>, Option<&mut [u8]>
 ///
 /// DIFF NOTE: The struct is pub
 pub struct TaskSyscallState {
-    /// DIFF NOTE: In rr a pointer to the RecordTask is stored
-    tuid: TaskUid,
+    /// NOTE: The task is passed explicity as a parameter in TaskSyscallState methods
+    /// This is there only to verify that the correct task was passed in
+    /// We can't use TaskUid as that can change during an exec
+    weak_task: TaskSharedWeakPtr,
 
     param_list: Vec<MemoryParam>,
     /// Tracks the position in t's scratch_ptr buffer where we should allocate
@@ -3696,9 +3697,9 @@ pub struct TaskSyscallState {
 
 impl TaskSyscallState {
     // DIFF NOTE: Unlike rr, you need to specify `t` (but as a tuid) right from the beginning
-    pub fn new(tuid: TaskUid) -> Self {
+    pub fn new(task: &dyn Task) -> Self {
         Self {
-            tuid,
+            weak_task: task.weak_self_ptr(),
             param_list: Default::default(),
             scratch: Default::default(),
             after_syscall_actions: Default::default(),
@@ -3719,7 +3720,7 @@ impl TaskSyscallState {
     }
 
     pub fn init(&mut self, t: &RecordTask) {
-        assert!(self.tuid == t.tuid());
+        assert!(self.weak_task.ptr_eq(&t.weak_self));
 
         if self.preparation_done {
             return;
@@ -3855,7 +3856,7 @@ impl TaskSyscallState {
         maybe_mode: Option<ArgMode>,
         maybe_mutator: Option<ArgMutator>,
     ) -> RemotePtr<Void> {
-        assert!(self.tuid == t.tuid());
+        assert!(self.weak_task.ptr_eq(&t.weak_self));
 
         let mode = maybe_mode.unwrap_or(ArgMode::Out);
         if self.preparation_done || addr_of_buf_ptr.is_null() {
@@ -3940,7 +3941,7 @@ impl TaskSyscallState {
         actual_sizes: &mut Vec<usize>,
     ) -> usize {
         assert_eq!(actual_sizes.len(), i);
-        assert!(self.tuid == t.tuid());
+        assert!(self.weak_task.ptr_eq(&t.weak_self));
 
         let mut already_consumed: usize = 0;
         for j in 0usize..i {
@@ -3967,7 +3968,7 @@ impl TaskSyscallState {
     ///
     /// DIFF NOTE: Takes t as param
     fn done_preparing(&mut self, t: &mut RecordTask, mut sw: Switchable) -> Switchable {
-        assert!(self.tuid == t.tuid());
+        assert!(self.weak_task.ptr_eq(&t.weak_self));
 
         if self.preparation_done {
             return self.switchable;
@@ -4090,7 +4091,7 @@ impl TaskSyscallState {
     ///
     /// DIFF NOTE: Takes t as param
     fn process_syscall_results(&mut self, t: &mut RecordTask) {
-        assert!(self.tuid == t.tuid());
+        assert!(self.weak_task.ptr_eq(&t.weak_self));
         ed_assert!(t, self.preparation_done);
 
         // XXX what's the best way to handle failed syscalls? Currently we just
@@ -4184,7 +4185,7 @@ impl TaskSyscallState {
     ///
     /// DIFF NOTE: Takes t as param
     pub fn abort_syscall_results(&mut self, t: &mut RecordTask) {
-        assert!(self.tuid == t.tuid());
+        assert!(self.weak_task.ptr_eq(&t.weak_self));
         ed_assert!(t, self.preparation_done);
 
         if self.scratch_enabled {
