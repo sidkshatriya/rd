@@ -658,3 +658,105 @@ pub struct sg_io_hdr<Arch: Architecture> {
 
 assert_eq_size!(kernel::sg_io_hdr, sg_io_hdr<NativeArch>);
 assert_eq_align!(kernel::sg_io_hdr, sg_io_hdr<NativeArch>);
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct iw_param {
+    pub value: i32,
+    pub fixed: u8,
+    pub disabled: u8,
+    pub flags: u16,
+}
+
+assert_eq_size!(kernel::iw_param, iw_param);
+assert_eq_align!(kernel::iw_param, iw_param);
+
+#[repr(C)]
+pub struct iw_point<Arch: Architecture> {
+    pub pointer: Ptr<Arch::unsigned_word, u8>,
+    pub length: u16,
+    pub flags: u16,
+}
+
+assert_eq_size!(kernel::iw_point, iw_point<NativeArch>);
+assert_eq_align!(kernel::iw_point, iw_point<NativeArch>);
+
+impl<Arch: Architecture> Clone for iw_point<Arch> {
+    fn clone(&self) -> Self {
+        Self {
+            pointer: self.pointer,
+            length: self.length,
+            flags: self.flags,
+        }
+    }
+}
+
+impl<Arch: Architecture> Copy for iw_point<Arch> {}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct iw_freq {
+    pub m: i32,
+    pub e: i16,
+    pub i: u8,
+    pub flags: u8,
+}
+
+assert_eq_size!(kernel::iw_freq, iw_freq);
+assert_eq_align!(kernel::iw_freq, iw_freq);
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct iw_quality {
+    pub qual: u8,
+    pub level: u8,
+    pub noise: u8,
+    pub updated: u8,
+}
+assert_eq_size!(kernel::iw_quality, iw_quality);
+assert_eq_align!(kernel::iw_quality, iw_quality);
+
+#[repr(C)]
+pub union iwreq_data<Arch: Architecture> {
+    pub name: [u8; 16],
+    pub essid: iw_point<Arch>,
+    pub nwid: iw_param,
+    pub freq: iw_freq,
+    pub sens: iw_param,
+    pub bitrate: iw_param,
+    pub txpower: iw_param,
+    pub rts: iw_param,
+    pub frag: iw_param,
+    pub mode: u32,
+    pub retry: iw_param,
+    pub encoding: iw_point<Arch>,
+    pub power: iw_param,
+    pub qual: iw_quality,
+    pub ap_addr: sockaddr<Arch>,
+    pub addr: sockaddr<Arch>,
+    pub param: iw_param,
+    pub data: iw_point<Arch>,
+}
+
+assert_eq_size!(kernel::iwreq_data, iwreq_data<NativeArch>);
+assert_eq_align!(kernel::iwreq_data, iwreq_data<NativeArch>);
+
+impl<Arch: Architecture> Clone for iwreq_data<Arch> {
+    fn clone(&self) -> Self {
+        Self {
+            name: unsafe { self.name },
+        }
+    }
+}
+
+impl<Arch: Architecture> Copy for iwreq_data<Arch> {}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct iwreq<Arch: Architecture> {
+    pub ifr_ifrn: ifr_ifrn,
+    pub u: iwreq_data<Arch>,
+}
+
+assert_eq_size!(kernel::iwreq, iwreq<NativeArch>);
+assert_eq_align!(kernel::iwreq, iwreq<NativeArch>);
