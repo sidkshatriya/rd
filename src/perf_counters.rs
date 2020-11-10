@@ -105,9 +105,9 @@ impl Default for TicksSemantics {
 use TicksSemantics::*;
 
 /// Find out the cpu model using the cpuid instruction.
-/// Full list of CPUIDs at http://sandpile.org/x86/cpuid.htm
+/// Full list of CPUIDs at <http://sandpile.org/x86/cpuid.htm>
 /// Another list at
-/// http://software.intel.com/en-us/articles/intel-architecture-and-processor-identification-with-cpuid-model-and-family-numbers
+/// <http://software.intel.com/en-us/articles/intel-architecture-and-processor-identification-with-cpuid-model-and-family-numbers>
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 enum CpuMicroarch {
     UnknownCpu,

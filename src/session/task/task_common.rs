@@ -406,7 +406,7 @@ pub(super) fn read_c_str<T: Task>(task: &mut T, child_addr: RemotePtr<u8>) -> CS
 /// This is NOT a forwarded method
 ///
 /// This function exists to work around
-/// https://bugzilla.kernel.org/show_bug.cgi?id=99101.
+/// <https://bugzilla.kernel.org/show_bug.cgi?id=99101>
 /// On some kernels pwrite() to /proc/.../mem fails when writing to a region
 /// that's PROT_NONE.
 /// Also, writing through MAP_SHARED readonly mappings fails (even if the

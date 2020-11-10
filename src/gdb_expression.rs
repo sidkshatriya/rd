@@ -1,7 +1,7 @@
 use crate::{remote_ptr::RemotePtr, session::task::Task};
 
 /// Extracted from
-/// https://sourceware.org/gdb/current/onlinedocs/gdb/Bytecode-Descriptions.html
+/// <https://sourceware.org/gdb/current/onlinedocs/gdb/Bytecode-Descriptions.html>
 #[allow(non_camel_case_types)]
 #[repr(u8)]
 enum Opcode {
@@ -86,7 +86,7 @@ impl GdbExpressionValue {
 
 /// gdb has a simple bytecode language for writing expressions to be evaluated
 /// in a remote target. This class implements evaluation of such expressions.
-/// See https://sourceware.org/gdb/current/onlinedocs/gdb/Agent-Expressions.html
+/// See <https://sourceware.org/gdb/current/onlinedocs/gdb/Agent-Expressions.html>
 pub struct GdbExpression {
     bytecode_variants: Vec<Vec<u8>>,
 }

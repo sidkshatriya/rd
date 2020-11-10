@@ -381,7 +381,7 @@ impl Write for CompressedWriter {
     }
 }
 
-/// See http://robert.ocallahan.org/2017/07/selecting-compression-algorithm-for-rr.html
+/// See <http://robert.ocallahan.org/2017/07/selecting-compression-algorithm-for-rr.html>
 const RD_BROTLI_LEVEL: u32 = 5;
 
 unsafe fn do_compress(

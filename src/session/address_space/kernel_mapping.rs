@@ -37,7 +37,7 @@ pub struct KernelMapping {
     fsname_: OsString,
     /// Note that btrfs has weird behavior and /proc/.../maps can show a different
     /// device number to the device from stat()ing the file that was mapped.
-    /// https://www.mail-archive.com/linux-btrfs@vger.kernel.org/msg57667.html
+    /// <https://www.mail-archive.com/linux-btrfs@vger.kernel.org/msg57667.html>
     /// We store here the device number obtained from fstat()ing the file.
     /// This also seems to be consistent with what we read from populate_address_space
     /// for the initial post-exec mappings. It is NOT consistent with what we get

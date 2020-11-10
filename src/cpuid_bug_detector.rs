@@ -7,10 +7,10 @@ use crate::{
 use std::os::raw::c_int;
 
 /// Helper to detect when the "CPUID can cause rcbs to be lost" bug is present.
-/// See http://robert.ocallahan.org/2014/09/vmware-cpuid-conditional-branch.html
+/// See <http://robert.ocallahan.org/2014/09/vmware-cpuid-conditional-branch.html>
 ///
 /// This bug is caused by VMM optimizations described in
-/// https://www.usenix.org/system/files/conference/atc12/atc12-final158.pdf
+/// <https://www.usenix.org/system/files/conference/atc12/atc12-final158.pdf>
 /// that cause instruction sequences related to CPUID to be optimized,
 /// eliminating the user-space execution of a conditional branch between two
 /// CPUID instructions (in some circumstances).
