@@ -79,7 +79,7 @@ impl FileMonitor for ProcMemMonitor {
         let mut offset = lazy_offset.retrieve(false).unwrap();
         let target_rc;
         let mut targetb;
-        let lazy_offset_t = if lazy_offset.t.tuid() == tuid {
+        let task = if lazy_offset.t.tuid() == tuid {
             &mut *lazy_offset.t
         } else {
             let maybe_target = lazy_offset.t.session().find_task_from_task_uid(tuid);
@@ -93,7 +93,7 @@ impl FileMonitor for ProcMemMonitor {
             }
         };
 
-        let record_task = lazy_offset_t.as_record_task_mut().unwrap();
+        let record_task = task.as_record_task_mut().unwrap();
         for r in ranges {
             record_task.record_remote(
                 RemotePtr::new_from_val(offset.try_into().unwrap()),
