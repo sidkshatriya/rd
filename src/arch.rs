@@ -651,6 +651,9 @@ pub trait Architecture: 'static + Default {
     type ifbond: Copy + 'static;
     type dirent: Copy + 'static;
     type dirent64: Copy + 'static;
+    type shmid64_ds: Copy + 'static;
+    type shminfo64: Copy + 'static;
+    type shm_info: Copy + 'static;
 
     fn as_rptr<T>(p: Ptr<Self::unsigned_word, T>) -> RemotePtr<T>;
 
@@ -1227,6 +1230,9 @@ impl Architecture for X86Arch {
     type ifbond = x86::ifbond;
     type dirent = x86::dirent;
     type dirent64 = x86::dirent64;
+    type shmid64_ds = x86::shmid64_ds;
+    type shminfo64 = x86::shminfo64;
+    type shm_info = x86::shm_info;
 
     fn as_rptr<T>(p: Ptr<u32, T>) -> RemotePtr<T> {
         p.rptr()
@@ -1851,6 +1857,9 @@ impl Architecture for X64Arch {
     type ifbond = x64::ifbond;
     type dirent = x64::dirent;
     type dirent64 = x64::dirent64;
+    type shmid64_ds = x64::shmid64_ds;
+    type shminfo64 = x64::shminfo64;
+    type shm_info = x64::shm_info;
 
     fn as_rptr<T>(p: Ptr<u64, T>) -> RemotePtr<T> {
         p.rptr()

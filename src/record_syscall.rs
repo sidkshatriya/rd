@@ -22,11 +22,14 @@ use crate::{
         fcntl,
         kernel::{
             user_desc,
+            IPC_64,
             NT_FPREGSET,
             NT_PRSTATUS,
             NT_X86_XSTATE,
             SG_GET_VERSION_NUM,
             SG_IO,
+            SHM_INFO,
+            SHM_STAT,
             SIOCADDMULTI,
             SIOCADDRT,
             SIOCBONDINFOQUERY,
@@ -399,6 +402,8 @@ use libc::{
     SCM_RIGHTS,
     SECCOMP_MODE_FILTER,
     SECCOMP_MODE_STRICT,
+    SHM_LOCK,
+    SHM_UNLOCK,
     SHORT_INODE,
     SIGCHLD,
     SIGKILL,
@@ -1906,6 +1911,11 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         syscall_state.mem_ptr_parameter_with_size(t, oldval_buf_ptr, param_size, None, None);
 
         return Switchable::PreventSwitch;
+    }
+
+    if sys == Arch::SHMCTL {
+        let cmd = regs.arg3_signed() as i32 & !(IPC_64 as i32);
+        return prepare_shmctl::<Arch>(&mut syscall_state, cmd, 5);
     }
 
     // For debugging. Remove later
@@ -6082,6 +6092,36 @@ fn prepare_msgctl<Arch: Architecture>(
             syscall_state.reg_parameter::<Arch::msginfo>(ptr_reg, None, None);
         }
         IPC_SET | IPC_RMID => (),
+        _ => {
+            syscall_state.expect_errno = EINVAL;
+        }
+    }
+
+    Switchable::PreventSwitch
+}
+
+fn prepare_shmctl<Arch: Architecture>(
+    syscall_state: &mut TaskSyscallState,
+    cmd: i32,
+    ptr_reg: usize,
+) -> Switchable {
+    const _SHM_INFO: i32 = SHM_INFO as i32;
+    const _SHM_STAT: i32 = SHM_STAT as i32;
+    match cmd {
+        IPC_SET | IPC_RMID | SHM_LOCK | SHM_UNLOCK => (),
+
+        IPC_STAT | _SHM_STAT => {
+            syscall_state.reg_parameter::<Arch::shmid64_ds>(ptr_reg, None, None);
+        }
+
+        IPC_INFO => {
+            syscall_state.reg_parameter::<Arch::shminfo64>(ptr_reg, None, None);
+        }
+
+        _SHM_INFO => {
+            syscall_state.reg_parameter::<Arch::shm_info>(ptr_reg, None, None);
+        }
+
         _ => {
             syscall_state.expect_errno = EINVAL;
         }
