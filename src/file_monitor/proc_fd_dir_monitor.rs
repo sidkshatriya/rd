@@ -98,6 +98,10 @@ fn filter_dirent_structs<Arch: Architecture>(t: &RecordTask, buf: &mut Vec<u8>) 
             break;
         }
 
+        // @TODO Is this transmute_copy totally fail safe? The buffer consists of variable length linux_dirent
+        // entries. However dirent<Arch> has a fixed 256 char buffer at the end. What if while reading this
+        // extra buffer we hit the end of the page boundary and the next page is not allocated? Would that raise
+        // a SIGSEGV?
         let current_struct: dirent<Arch> =
             unsafe { mem::transmute_copy(buf.as_ptr().add(current_offset).as_ref().unwrap()) };
         let mut next_off = current_offset + current_struct.d_reclen as usize;
