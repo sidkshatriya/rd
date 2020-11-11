@@ -22,7 +22,6 @@ use crate::{
         fcntl,
         kernel::{
             user_desc,
-            IPC_64,
             NT_FPREGSET,
             NT_PRSTATUS,
             NT_X86_XSTATE,
@@ -1914,8 +1913,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
     }
 
     if sys == Arch::SHMCTL {
-        let cmd = regs.arg3_signed() as i32 & !(IPC_64 as i32);
-        return prepare_shmctl::<Arch>(&mut syscall_state, cmd, 5);
+        return prepare_shmctl::<Arch>(&mut syscall_state, regs.arg2_signed() as i32, 3);
     }
 
     // For debugging. Remove later
