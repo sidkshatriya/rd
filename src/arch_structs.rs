@@ -1,6 +1,7 @@
 #![allow(non_camel_case_types)]
 
 use crate::{
+    arch,
     arch::{Architecture, NativeArch},
     bindings::{kernel, kernel::sock_filter, signal},
     kernel_abi::{common, Ptr},
@@ -760,3 +761,29 @@ pub struct iwreq<Arch: Architecture> {
 
 assert_eq_size!(kernel::iwreq, iwreq<NativeArch>);
 assert_eq_align!(kernel::iwreq, iwreq<NativeArch>);
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct dirent<Arch: Architecture> {
+    pub d_ino: Arch::ino_t,
+    pub d_off: Arch::off_t,
+    pub d_reclen: u16,
+    pub d_type: u8,
+    pub d_name: [u8; 256],
+}
+
+assert_eq_size!(kernel::dirent, dirent<NativeArch>);
+assert_eq_align!(kernel::dirent, dirent<NativeArch>);
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct dirent64 {
+    pub d_ino: arch::ino64_t,
+    pub d_off: arch::off64_t,
+    pub d_reclen: u16,
+    pub d_type: u8,
+    pub d_name: [u8; 256],
+}
+
+assert_eq_size!(kernel::dirent64, dirent64);
+assert_eq_align!(kernel::dirent64, dirent64);

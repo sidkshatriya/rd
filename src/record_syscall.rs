@@ -2577,7 +2577,9 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
     }
 
     if sys == Arch::GETDENTS || sys == Arch::GETDENTS64 {
-        unimplemented!()
+        let fd = t.regs_ref().arg1() as i32;
+        t.fd_table_shr_ptr().borrow().filter_getdents(fd, t);
+        return;
     }
 
     if sys == Arch::WAITPID || sys == Arch::WAIT4 || sys == Arch::WAITID {

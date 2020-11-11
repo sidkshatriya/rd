@@ -1152,7 +1152,7 @@ pub struct dirent {
     pub d_ino: ino_t,
     pub d_off: off_t,
     pub d_reclen: uint16_t,
-    //    pub d_type : uint8_t,
+    pub d_type: uint8_t,
     pub d_name: [uint8_t; 256],
 }
 

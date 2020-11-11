@@ -246,5 +246,7 @@ pub trait FileMonitor {
 
     /// Allows the FileMonitor to rewrite the output of a getdents/getdents64 call
     /// if desired.
-    fn filter_getdents(&self, _t: &RecordTask) {}
+    fn filter_getdents(&self, _t: &mut RecordTask) {
+        // Do nothing by default
+    }
 }
