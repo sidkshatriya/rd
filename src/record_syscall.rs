@@ -432,7 +432,7 @@ use nix::{
     unistd::{getpid, ttyname},
 };
 use std::{
-    cell::{RefCell, RefMut},
+    cell::RefCell,
     cmp::{max, min},
     convert::{TryFrom, TryInto},
     env,
@@ -2337,19 +2337,17 @@ pub fn rec_process_syscall(t: &mut RecordTask) {
 
 /// N.B.: `arch` is the the architecture of the syscall, which may be different
 ///         from the architecture of the call (e.g. x86_64 may invoke x86 syscalls)
-///
-/// DIFF NOTE: Does not have param syscall_state as that can be obtained from t
 pub fn rec_process_syscall_internal(
     t: &mut RecordTask,
     arch: SupportedArch,
-    syscall_state: &mut RefMut<TaskSyscallState>,
+    syscall_state: &mut TaskSyscallState,
 ) {
     rd_arch_function_selfless!(rec_process_syscall_arch, arch, t, syscall_state)
 }
 
 pub fn rec_process_syscall_arch<Arch: Architecture>(
     t: &mut RecordTask,
-    syscall_state: &mut RefMut<TaskSyscallState>,
+    syscall_state: &mut TaskSyscallState,
 ) {
     let sys: i32 = t.ev().syscall_event().number;
 
@@ -2402,7 +2400,7 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
             syscall_name(sys, Arch::arch()),
             t.regs_ref().syscall_result_signed(),
             errno_name((-t.regs_ref().syscall_result_signed()).try_into().unwrap()),
-            extra_expected_errno_info::<Arch>(t)
+            extra_expected_errno_info::<Arch>(t, syscall_state)
         );
         return;
     }
@@ -3333,7 +3331,7 @@ enum ScratchAddrType {
     DynamicAddress,
 }
 
-fn process_execve(t: &mut RecordTask, syscall_state: &mut RefMut<TaskSyscallState>) {
+fn process_execve(t: &mut RecordTask, syscall_state: &mut TaskSyscallState) {
     if t.regs_ref().syscall_failed() {
         return;
     }
@@ -4513,14 +4511,16 @@ fn align_scratch(scratch: &mut RemotePtr<Void>, maybe_amount: Option<usize>) {
     *scratch = RemotePtr::from((scratch.as_usize() + amount - 1) & !(amount - 1));
 }
 
-/// DIFF NOTE: Does not take syscall_state as param as that can be obtained from t
-fn extra_expected_errno_info<Arch: Architecture>(_t: &RecordTask) -> String {
+fn extra_expected_errno_info<Arch: Architecture>(
+    _t: &RecordTask,
+    _syscall_state: &mut TaskSyscallState,
+) -> String {
     unimplemented!()
 }
 
 fn prepare_ioctl<Arch: Architecture>(
     t: &mut RecordTask,
-    syscall_state: &mut RefMut<TaskSyscallState>,
+    syscall_state: &mut TaskSyscallState,
 ) -> Switchable {
     let fd = t.regs_ref().arg1() as i32;
     let mut result: usize = 0;
