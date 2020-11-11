@@ -332,10 +332,8 @@ pub struct TaskInner {
     pub scratch_size: usize,
 
     /// The child's desched counter event fd number
-    /// @TODO Make this into an option??
     pub desched_fd_child: i32,
     /// The child's cloned_file_data_fd
-    /// @TODO Make this into an option??
     pub cloned_file_data_fd_child: i32,
 
     pub hpc: PerfCounters,
@@ -691,7 +689,6 @@ impl TaskInner {
 
     /// Return the siginfo at the signal-stop of `self`.
     /// Not meaningful unless this is actually at a signal stop.
-    /// @TODO Should this be an Option??
     pub fn get_siginfo(&self) -> &siginfo_t {
         &self.pending_siginfo
     }

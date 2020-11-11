@@ -271,7 +271,7 @@ impl CompressedReader {
         if !do_decompress(compressed_buf.as_slice(), &mut self.buffer) {
             return Err(io::Error::new(
                 io::ErrorKind::Other,
-                "Decompression Error. @TODO",
+                "There was a Decompression Error",
             ));
         }
 

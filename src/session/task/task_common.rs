@@ -301,7 +301,6 @@ pub(super) fn read_bytes_fallible<T: Task>(
         if 0 == nread && 0 == all_read && 0 == errno() {
             // If we couldn't open the mem fd, then report 0 bytes read
             if !task.open_mem_fd() {
-                // @TODO is this a wise decision?
                 // Hmmm.. given that errno is 0 it seems logical.
                 return Ok(0);
             }
@@ -601,7 +600,7 @@ pub(super) fn next_syscallbuf_record<T: Task>(task: &mut T) -> RemotePtr<syscall
         RemotePtr::<u8>::cast(task.syscallbuf_child) + offset_of!(syscallbuf_hdr, num_rec_bytes);
 
     // @TODO: Here we have used our knowledge that `num_rec_bytes` is a u32.
-    // There does not seem to be a generic way to get that information -- explore more later.
+    // Explore if there a generic way to get that information
     let num_rec_bytes = read_val_mem(task, RemotePtr::<u32>::cast(num_rec_bytes_addr), None);
     RemotePtr::cast(addr + num_rec_bytes)
 }
@@ -615,8 +614,8 @@ pub(super) fn stored_record_size<T: Task>(
     let size_field_addr: RemotePtr<u8> =
         RemotePtr::cast(record) + offset_of!(syscallbuf_record, size);
 
-    // @TODO: Here we have used our knowledge that `size` is a u32.
-    // There does not seem to be a generic way to get that information -- explore more later.
+    // @TODO Here we have used our knowledge that `size` is a u32.
+    // Explore a  generic way to get that information automatically
     preload_interface::stored_record_size(read_val_mem::<u32>(
         task,
         RemotePtr::cast(size_field_addr),
@@ -749,9 +748,7 @@ pub(super) fn did_waitpid<T: Task>(task: &mut T, mut status: WaitStatus) {
             &mut PtraceData::WriteInto(u8_slice_mut(&mut ptrace_regs)),
         ) {
             task.registers.set_from_ptrace(&ptrace_regs);
-            // @TODO rr does an if-defined here. However that may not be neccessary as there are
-            // only 2 architectures that likely to be supported by this code-base in the future
-            //
+            // @TODO rr does an if-defined here
             // Check the architecture of the task by looking at the
             // cs segment register and checking if that segment is a long mode segment
             // (Linux always uses GDT entries for this, which are globally the same).

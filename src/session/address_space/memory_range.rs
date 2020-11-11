@@ -118,8 +118,7 @@ impl Ord for MemoryRangeKey {
 impl PartialEq for MemoryRangeKey {
     fn eq(&self, other: &Self) -> bool {
         if !self.0.intersects(&other.0) {
-            // @TODO This needs to be checked. Tricky. For single points?
-            // What about putting a panic here??
+            // Tricky
             self.0.start_ == other.0.start_
         } else {
             true

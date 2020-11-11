@@ -111,7 +111,7 @@ pub struct RdOptions {
     #[structopt(
     short = "D",
     long="dump-on",
-    help = "Where <dump_on> := `ALL` | `RDTSC` | <syscall-no> | -<signal number> \n\n@TODO more details",
+    help = "Where <dump_on> := `ALL` | `RDTSC` | <syscall-no> | -<signal number> \n\n",
     parse(try_from_str = parse_dump_on)
     )]
     pub dump_on: Option<DumpOn>,

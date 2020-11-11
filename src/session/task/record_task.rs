@@ -2262,9 +2262,6 @@ impl RecordTask {
     /// record it.
     ///
     /// If 'addr' is null then no record is written.
-    ///
-    /// DIFF NOTE: @TODO In the rr implementation ssize_t is being used instead of size_t
-    /// for the record_* methods in many places. Why?
     pub fn record_local(&mut self, addr: RemotePtr<Void>, data: &[u8]) {
         self.maybe_flush_syscallbuf();
 
@@ -3087,7 +3084,6 @@ impl RecordTask {
             return;
         }
 
-        // @TODO match statement not allowed on associated constants
         if sys == Arch::SET_ROBUST_LIST {
             self.set_robust_list(RemotePtr::from(regs.arg1()), regs.arg2());
             return;

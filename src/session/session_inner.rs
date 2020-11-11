@@ -366,7 +366,6 @@ impl SessionInner {
         "/rd-shared-"
     }
 
-    /// @TODO is the return type what we really want?
     pub fn tracee_socket_fd(&self) -> Rc<RefCell<ScopedFd>> {
         self.tracee_socket.clone()
     }
@@ -572,7 +571,6 @@ pub struct SessionInner {
 
     /// If non-None, data required to finish initializing the tasks of this
     /// session.
-    /// @TODO is a Box required here?
     pub(super) clone_completion: RefCell<Option<Box<CloneCompletion>>>,
 
     pub(super) statistics_: RefCell<Statistics>,
