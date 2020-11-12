@@ -48,9 +48,7 @@ impl KernelMapIterator {
         ed_assert!(
             task,
             !thread_group_in_exec(task),
-            "Task-group in execve, so reading\n\
-         /proc/.../maps may trigger kernel\n\
-         deadlock!"
+            "Task-group in execve, so reading /proc/.../maps may trigger kernel deadlock!"
         );
         let tid = task.tid;
         KernelMapIterator {

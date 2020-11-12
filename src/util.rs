@@ -1,12 +1,3 @@
-#[cfg(target_arch = "x86")]
-use libc::{REG_EAX, REG_EIP};
-
-#[cfg(target_arch = "x86_64")]
-use crate::kernel_supplement::ARCH_SET_CPUID;
-
-#[cfg(target_arch = "x86_64")]
-use libc::{syscall, SYS_arch_prctl, REG_RAX, REG_RIP};
-
 use crate::{
     arch::Architecture,
     bindings::{
@@ -18,19 +9,21 @@ use crate::{
     kernel_abi::{native_arch, CloneParameterOrdering, SupportedArch},
     kernel_supplement::sig_set_t,
     log::LogLevel::{LogDebug, LogWarn},
+    preload_interface::preload_globals,
     registers::Registers,
     remote_code_ptr::RemoteCodePtr,
     remote_ptr::{RemotePtr, Void},
     scoped_fd::ScopedFd,
     session::{
         address_space::{
-            address_space::AddressSpace,
+            address_space::{AddressSpace, Mapping},
             kernel_map_iterator::KernelMapIterator,
             kernel_mapping::KernelMapping,
+            memory_range::MemoryRange,
         },
         session_inner::SessionInner,
         task::{
-            task_common::{read_mem, read_val_mem},
+            task_common::{read_mem, read_val_mem, write_val_mem},
             task_inner::CloneFlags,
             Task,
         },
@@ -96,7 +89,7 @@ use std::{
     ffi::{c_void, CStr, CString, OsStr, OsString},
     fs::File,
     io,
-    io::{BufRead, BufReader, Error, ErrorKind, Read},
+    io::{BufRead, BufReader, BufWriter, Error, ErrorKind, Read, Write},
     mem,
     mem::{size_of, size_of_val, zeroed},
     os::{
@@ -105,9 +98,19 @@ use std::{
     },
     path::Path,
     ptr::copy_nonoverlapping,
+    rc::Rc,
     slice,
     sync::Mutex,
 };
+
+#[cfg(target_arch = "x86")]
+use libc::{REG_EAX, REG_EIP};
+
+#[cfg(target_arch = "x86_64")]
+use crate::kernel_supplement::ARCH_SET_CPUID;
+
+#[cfg(target_arch = "x86_64")]
+use libc::{syscall, SYS_arch_prctl, REG_RAX, REG_RIP};
 
 const RDTSC_INSN: [u8; 2] = [0x0f, 0x31];
 const RDTSCP_INSN: [u8; 3] = [0x0f, 0x01, 0xf9];
@@ -1783,4 +1786,249 @@ pub fn get_fd_offset(tid: pid_t, fd: i32) -> u64 {
         None => fatal!("Failed to read position"),
         Some(offset) => offset,
     }
+}
+
+fn checksum_segment_filter(m: &Mapping) -> bool {
+    let may_diverge;
+
+    if m.map.fsname().as_bytes() == b"[vsyscall]" {
+        // This can't be read/checksummed.
+        return false;
+    }
+
+    let maybe_st = stat(m.map.fsname());
+
+    if maybe_st.is_err() {
+        // If there's no persistent resource backing this
+        // mapping, we should expect it to change.
+        log!(LogDebug, "CHECKSUMMING unlinked {:?}", m.map.fsname());
+        return true;
+    }
+
+    let st = maybe_st.unwrap();
+
+    // If we're pretty sure the backing resource is effectively
+    // immutable, skip checksumming, it's a waste of time.  Except
+    // if the mapping is mutable, for example the rw data segment
+    // of a system library, then it's interesting.
+    may_diverge = !m.map.fsname().as_bytes().starts_with(b"mmap_clone_")
+        && (should_copy_mmap_region(&m.map, &st) || m.map.prot().contains(ProtFlags::PROT_WRITE));
+
+    if may_diverge {
+        log!(LogDebug, "CHECKSUMMING {:?}", m.map.fsname());
+    } else {
+        log!(LogDebug, "  skipping {:?}", m.map.fsname());
+    }
+
+    may_diverge
+}
+
+enum ChecksumMode {
+    StoreChecksums,
+    ValidateChecksums,
+}
+
+enum ChecksumData {
+    ValidateChecksums(BufReader<File>),
+    StoreChecksums(BufWriter<File>),
+}
+
+struct ParsedChecksumLine {
+    start: RemotePtr<Void>,
+    end: RemotePtr<Void>,
+    checksum: u32,
+}
+
+const IGNORED_CHECKSUM: u32 = 0x98765432;
+const SIGBUS_CHECKSUM: u32 = 0x23456789;
+
+/// Either create and store checksums for each segment mapped in |t|'s
+/// address space, or validate an existing computed checksum.  Behavior
+/// is selected by |mode|.
+fn iterate_checksums(t: &mut dyn Task, mode: ChecksumMode, global_time: FrameTime) {
+    let mut filename_vec: Vec<u8> = t.trace_dir().into_vec();
+    let append = format!("/{}_{}", global_time, t.rec_tid);
+    filename_vec.extend_from_slice(append.as_bytes());
+    let filename = OsString::from_vec(filename_vec);
+    let mut checksum_data = match mode {
+        ChecksumMode::StoreChecksums => {
+            let maybe_file = File::create(filename.clone());
+            match maybe_file {
+                Ok(file) => ChecksumData::StoreChecksums(BufWriter::new(file)),
+                Err(e) => fatal!(
+                    "Failed to open checksum file {:?}: error was {:?}",
+                    filename,
+                    e
+                ),
+            }
+        }
+        ChecksumMode::ValidateChecksums => {
+            let maybe_file = File::open(filename.clone());
+            match maybe_file {
+                Ok(file) => ChecksumData::ValidateChecksums(BufReader::new(file)),
+                Err(e) => fatal!(
+                    "Failed to open checksum file {:?}: error was {:?}",
+                    filename,
+                    e
+                ),
+            }
+        }
+    };
+
+    let mut in_replay: u8 = 0;
+    let mut in_replay_flag = RemotePtr::null();
+    if !t.preload_globals.unwrap_or(RemotePtr::null()).is_null() {
+        in_replay_flag = remote_ptr_field!(t.preload_globals.unwrap(), preload_globals, in_replay);
+        in_replay = read_val_mem(t, in_replay_flag, None);
+        write_val_mem(t, in_replay_flag, &0u8, None);
+    }
+
+    let mut checksums = Vec::<ParsedChecksumLine>::new();
+    match &mut checksum_data {
+        ChecksumData::ValidateChecksums(file) => loop {
+            let mut buf = Vec::<u8>::new();
+            let nread = match file.read_until(b'\n', &mut buf) {
+                Ok(0) | Err(_) => break,
+                Ok(nread) => nread,
+            };
+
+            let startparen = find(&buf, b"(").unwrap();
+            let endparen = find(&buf, b")").unwrap();
+            let space = find(&buf, b" ").unwrap();
+            let dash = find(&buf, b"-").unwrap();
+            ed_assert!(t, nread > dash + 1);
+
+            let checksum = String::from_utf8_lossy(&buf[startparen + 1..endparen])
+                .parse::<u32>()
+                .unwrap();
+            let rec_start = RemotePtr::from(
+                String::from_utf8_lossy(&buf[space + 1..dash])
+                    .parse::<usize>()
+                    .unwrap(),
+            );
+            let rec_end = RemotePtr::from(
+                String::from_utf8_lossy(&buf[dash + 1..])
+                    .parse::<usize>()
+                    .unwrap(),
+            );
+            checksums.push(ParsedChecksumLine {
+                start: rec_start,
+                end: rec_end,
+                checksum,
+            });
+
+            let mem_range = MemoryRange::from_range(rec_start, rec_end);
+            t.vm_shr_ptr()
+                .ensure_replay_matches_single_recorded_mapping(t, mem_range);
+        },
+        ChecksumData::StoreChecksums(_) => (),
+    }
+
+    {
+        let mut checksum_iter = checksums.iter();
+        let maps = t.vm().maps();
+        let mut maps_iter = maps.into_iter();
+        while let Some((_, mp)) = maps_iter.next() {
+            let mut m = mp;
+            let raw_map_line = format!("{}", m.map);
+            let mut rec_checksum: u32 = 0;
+
+            match &mut checksum_data {
+                ChecksumData::ValidateChecksums(_) => {
+                    let parsed = checksum_iter.next().unwrap();
+                    while m.map.start() != parsed.start {
+                        if is_task_buffer(t.vm(), m) {
+                            // This region corresponds to a task scratch or syscall buffer. We
+                            // tear these down a little later during replay so just skip it for
+                            // now.
+                            match maps_iter.next() {
+                                Some((_, mp)) => {
+                                    m = mp;
+                                    continue;
+                                }
+                                None => {
+                                    fatal!("Maps iterator unexpectedly came to an end");
+                                }
+                            }
+                        } else {
+                            fatal!(
+                                "Segment {}-{} changed to {}??",
+                                parsed.start,
+                                parsed.end,
+                                m.map
+                            );
+                        }
+                    }
+                    ed_assert_eq!(
+                        t,
+                        m.map.end(),
+                        parsed.end,
+                        "Segment {}-{} changed to {}??",
+                        parsed.start,
+                        parsed.end,
+                        m.map
+                    );
+                    if is_start_of_scratch_region(t, parsed.start) {
+                        // Replay doesn't touch scratch regions, so
+                        // their contents are allowed to diverge.
+                        // Tracees can't observe those segments unless
+                        // they do something sneaky (or disastrously
+                        // buggy).
+                        log!(
+                            LogDebug,
+                            "Not validating scratch starting at {}",
+                            parsed.start
+                        );
+                        continue;
+                    }
+                    if parsed.checksum == IGNORED_CHECKSUM {
+                        log!(LogDebug, "Checksum not computed during recording");
+                        continue;
+                    } else if parsed.checksum == SIGBUS_CHECKSUM {
+                        continue;
+                    } else {
+                        rec_checksum = parsed.checksum;
+                    }
+                }
+                ChecksumData::StoreChecksums(checksums_file) => {
+                    if !checksum_segment_filter(m) {
+                        write!(checksums_file, "({}) {}\n", IGNORED_CHECKSUM, raw_map_line)
+                            .unwrap();
+                        continue;
+                    }
+                }
+            }
+
+            unimplemented!()
+        }
+    }
+
+    if !in_replay_flag.is_null() {
+        write_val_mem(t, in_replay_flag, &in_replay, None);
+    }
+}
+
+fn is_task_buffer(_vm: &AddressSpace, _m: &Mapping) -> bool {
+    unimplemented!()
+}
+
+/// FIXME this function assumes that there's only one address space.
+/// Should instead only look at the address space of the task in
+/// question.
+fn is_start_of_scratch_region(t: &dyn Task, start_addr: RemotePtr<Void>) -> bool {
+    if start_addr == t.scratch_ptr {
+        return true;
+    }
+
+    let t_rc = t.weak_self_ptr().upgrade().unwrap();
+    for (_, tt_rc) in t.session().tasks().iter() {
+        if Rc::ptr_eq(tt_rc, &t_rc) {
+            continue;
+        }
+        if start_addr == tt_rc.borrow().scratch_ptr {
+            return true;
+        }
+    }
+
+    false
 }
