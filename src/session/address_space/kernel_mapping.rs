@@ -229,25 +229,41 @@ impl KernelMapping {
 
     /// Dump a representation of `self` to a string in a format
     /// similar to the former part of /proc/{tid}/maps.
-    fn str(&self) -> String {
+    pub fn str(&self, hex_prefix: bool) -> String {
         let map_shared = if self.flags_.contains(MapFlags::MAP_SHARED) {
             's'
         } else {
             'p'
         };
 
-        let s = format!(
-            "{:#8x}-{:#8x} {}{} {:08x} {:02x}:{:02x} {:<10} {:?}",
-            self.start().as_usize(),
-            self.end().as_usize(),
-            self.prot_string(),
-            map_shared,
-            self.offset,
-            major(self.device()),
-            minor(self.device()),
-            self.inode(),
-            self.fsname()
-        );
+        let s = if hex_prefix {
+            format!(
+                "{:#8x}-{:#8x} {}{} {:08x} {:02x}:{:02x} {:<10} {:?}",
+                self.start().as_usize(),
+                self.end().as_usize(),
+                self.prot_string(),
+                map_shared,
+                self.offset,
+                major(self.device()),
+                minor(self.device()),
+                self.inode(),
+                self.fsname()
+            )
+        } else {
+            format!(
+                "{:8x}-{:8x} {}{} {:08x} {:02x}:{:02x} {:<10} {:?}",
+                self.start().as_usize(),
+                self.end().as_usize(),
+                self.prot_string(),
+                map_shared,
+                self.offset,
+                major(self.device()),
+                minor(self.device()),
+                self.inode(),
+                self.fsname()
+            )
+        };
+
         s
     }
 
@@ -307,6 +323,6 @@ impl DerefMut for KernelMapping {
 
 impl Display for KernelMapping {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        write!(f, "{}", self.str())
+        write!(f, "{}", self.str(true))
     }
 }

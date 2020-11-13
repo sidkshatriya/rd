@@ -9,7 +9,7 @@ use crate::{
     kernel_abi::{native_arch, CloneParameterOrdering, SupportedArch},
     kernel_supplement::sig_set_t,
     log::LogLevel::{LogDebug, LogWarn},
-    preload_interface::preload_globals,
+    preload_interface::{preload_globals, syscallbuf_hdr, syscallbuf_record},
     registers::Registers,
     remote_code_ptr::RemoteCodePtr,
     remote_ptr::{RemotePtr, Void},
@@ -20,9 +20,11 @@ use crate::{
             kernel_map_iterator::KernelMapIterator,
             kernel_mapping::KernelMapping,
             memory_range::MemoryRange,
+            MappingFlags,
         },
         session_inner::SessionInner,
         task::{
+            replay_task::ReplayTask,
             task_common::{read_mem, read_val_mem, write_val_mem},
             task_inner::CloneFlags,
             Task,
@@ -46,6 +48,7 @@ use libc::{
     CLONE_VM,
     EEXIST,
     EINVAL,
+    EIO,
     ENOENT,
     SIGBUS,
     SIGFPE,
@@ -1652,14 +1655,14 @@ pub fn should_checksum(event: &Event, time: FrameTime) -> bool {
 /// Write a checksum of each mapped region in `t`'s address space to a
 /// special log, where it can be read by `validate_process_memory()`
 /// during replay
-pub fn checksum_process_memory(_t: &dyn Task, _global_time: FrameTime) {
-    unimplemented!()
+pub fn checksum_process_memory(t: &mut dyn Task, global_time: FrameTime) {
+    iterate_checksums(t, ChecksumMode::StoreChecksums, global_time);
 }
 
 /// Validate the checksum of `t`'s address space that was written
 /// during recording
-fn validate_process_memory(_t: &dyn Task, _global_time: FrameTime) {
-    unimplemented!()
+pub fn validate_process_memory(t: &mut dyn Task, global_time: FrameTime) {
+    iterate_checksums(t, ChecksumMode::ValidateChecksums, global_time);
 }
 
 pub fn is_proc_mem_file(filename_os: &OsStr) -> bool {
@@ -1887,6 +1890,7 @@ fn iterate_checksums(t: &mut dyn Task, mode: ChecksumMode, global_time: FrameTim
     match &mut checksum_data {
         ChecksumData::ValidateChecksums(file) => loop {
             let mut buf = Vec::<u8>::new();
+
             let nread = match file.read_until(b'\n', &mut buf) {
                 Ok(0) | Err(_) => break,
                 Ok(nread) => nread,
@@ -1896,19 +1900,17 @@ fn iterate_checksums(t: &mut dyn Task, mode: ChecksumMode, global_time: FrameTim
             let endparen = find(&buf, b")").unwrap();
             let space = find(&buf, b" ").unwrap();
             let dash = find(&buf, b"-").unwrap();
+            let space2 = find(&buf[dash + 1..], b" ").unwrap() + dash + 1;
             ed_assert!(t, nread > dash + 1);
 
             let checksum = String::from_utf8_lossy(&buf[startparen + 1..endparen])
                 .parse::<u32>()
                 .unwrap();
             let rec_start = RemotePtr::from(
-                String::from_utf8_lossy(&buf[space + 1..dash])
-                    .parse::<usize>()
-                    .unwrap(),
+                usize::from_str_radix(&String::from_utf8_lossy(&buf[space + 1..dash]), 16).unwrap(),
             );
             let rec_end = RemotePtr::from(
-                String::from_utf8_lossy(&buf[dash + 1..])
-                    .parse::<usize>()
+                usize::from_str_radix(&String::from_utf8_lossy(&buf[dash + 1..space2]), 16)
                     .unwrap(),
             );
             checksums.push(ParsedChecksumLine {
@@ -1926,24 +1928,26 @@ fn iterate_checksums(t: &mut dyn Task, mode: ChecksumMode, global_time: FrameTim
 
     {
         let mut checksum_iter = checksums.iter();
-        let maps = t.vm().maps();
+        let vm = t.vm_shr_ptr();
+        let maps = vm.maps();
         let mut maps_iter = maps.into_iter();
         while let Some((_, mp)) = maps_iter.next() {
             let mut m = mp;
-            let raw_map_line = format!("{}", m.map);
+            let mut raw_map_line = format!("{}", m.map.str(false));
             let mut rec_checksum: u32 = 0;
 
             match &mut checksum_data {
                 ChecksumData::ValidateChecksums(_) => {
                     let parsed = checksum_iter.next().unwrap();
                     while m.map.start() != parsed.start {
-                        if is_task_buffer(t.vm(), m) {
+                        if is_task_buffer(t, m) {
                             // This region corresponds to a task scratch or syscall buffer. We
                             // tear these down a little later during replay so just skip it for
                             // now.
                             match maps_iter.next() {
                                 Some((_, mp)) => {
                                     m = mp;
+                                    raw_map_line = format!("{}", m.map.str(false));
                                     continue;
                                 }
                                 None => {
@@ -1991,15 +1995,67 @@ fn iterate_checksums(t: &mut dyn Task, mode: ChecksumMode, global_time: FrameTim
                     }
                 }
                 ChecksumData::StoreChecksums(checksums_file) => {
-                    if !checksum_segment_filter(m) {
+                    if !checksum_segment_filter(&m) {
                         write!(checksums_file, "({}) {}\n", IGNORED_CHECKSUM, raw_map_line)
                             .unwrap();
                         continue;
                     }
                 }
             }
+            let mut mem = Vec::<u8>::new();
+            mem.resize(m.map.size(), 0);
+            let maybe_valid_mem_len = t.read_bytes_fallible(m.map.start(), &mut mem);
+            // Areas not read are treated as zero. We have to do this because
+            // mappings not backed by valid file data are not readable during
+            // recording but are read as 0 during replay.
+            if maybe_valid_mem_len.is_err() {
+                // It is possible for whole mappings to be beyond the extent of the
+                // backing file, in which case read_bytes_fallible will return an error.
+                ed_assert_eq!(t, errno(), EIO);
+            }
 
-            unimplemented!()
+            if m.flags.contains(MappingFlags::IS_SYSCALLBUF) {
+                // The syscallbuf consists of a region that's written
+                // deterministically wrt the trace events, and a
+                // region that's written nondeterministically in the
+                // same way as trace scratch buffers.  The
+                // deterministic region comprises committed syscallbuf
+                // records, and possibly the one pending record
+                // metadata.  The nondeterministic region starts at
+                // the "extra data" for the possibly one pending
+                // record.
+                //
+                // So here, we set things up so that we only checksum
+                // the deterministic region.
+                let child_hdr = RemotePtr::<syscallbuf_hdr>::cast(m.map.start());
+                let hdr = read_val_mem(t, child_hdr, None);
+                mem.resize(
+                    size_of_val(&hdr) + hdr.num_rec_bytes as usize + size_of::<syscallbuf_record>(),
+                    0,
+                );
+            }
+
+            let checksum = compute_checksum(&mem);
+
+            match &mut checksum_data {
+                ChecksumData::StoreChecksums(file) => {
+                    write!(file, "({}) {}\n", checksum, raw_map_line).unwrap();
+                }
+                ChecksumData::ValidateChecksums(_file) => {
+                    ed_assert!(t, t.session().is_replaying());
+
+                    // Ignore checksums when valid_mem_len == 0
+                    if checksum != rec_checksum {
+                        notify_checksum_error(
+                            t.as_replay_task().unwrap(),
+                            global_time,
+                            checksum,
+                            rec_checksum,
+                            &raw_map_line,
+                        );
+                    }
+                }
+            }
         }
     }
 
@@ -2008,8 +2064,37 @@ fn iterate_checksums(t: &mut dyn Task, mode: ChecksumMode, global_time: FrameTim
     }
 }
 
-fn is_task_buffer(_vm: &AddressSpace, _m: &Mapping) -> bool {
+fn notify_checksum_error(
+    _t: &ReplayTask,
+    _global_time: u64,
+    _checksum: u32,
+    _rec_checksum: u32,
+    _raw_map_line: &str,
+) {
     unimplemented!()
+}
+
+/// DIFF NOTE: Takes `t` instead of the address space as param
+fn is_task_buffer(t: &dyn Task, m: &Mapping) -> bool {
+    if RemotePtr::cast(t.syscallbuf_child) == m.map.start() && t.syscallbuf_size == m.map.size() {
+        return true;
+    }
+    if t.scratch_ptr == m.map.start() && t.scratch_size == m.map.size() {
+        return true;
+    }
+    for t_rc in t.vm().task_set().iter_except(t.weak_self_ptr()) {
+        let tt = t_rc.borrow();
+        if RemotePtr::cast(tt.syscallbuf_child) == m.map.start()
+            && tt.syscallbuf_size == m.map.size()
+        {
+            return true;
+        }
+        if tt.scratch_ptr == m.map.start() && tt.scratch_size == m.map.size() {
+            return true;
+        }
+    }
+
+    false
 }
 
 /// FIXME this function assumes that there's only one address space.
@@ -2031,4 +2116,25 @@ fn is_start_of_scratch_region(t: &dyn Task, start_addr: RemotePtr<Void>) -> bool
     }
 
     false
+}
+
+fn compute_checksum(data: &[u8]) -> u32 {
+    assert_eq!(data.len() % size_of::<u32>(), 0);
+    assert_eq!(data.as_ptr() as usize % size_of::<u32>(), 0);
+
+    let mut checksum: u32 = data.len().try_into().unwrap();
+    let words = data.len() / size_of::<u32>();
+    let data_as_u32: &[u32] = unsafe { slice::from_raw_parts(data.as_ptr().cast(), words) };
+
+    for d in data_as_u32 {
+        checksum = checksum
+            .overflowing_shl(4)
+            .0
+            .overflowing_add(checksum)
+            .0
+            .overflowing_add(*d)
+            .0;
+    }
+
+    checksum
 }

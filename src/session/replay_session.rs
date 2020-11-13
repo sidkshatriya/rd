@@ -78,9 +78,11 @@ use crate::{
         default_action,
         find_cpuid_record,
         running_under_rd,
+        should_checksum,
         should_dump_memory,
         trapped_instruction_at,
         trapped_instruction_len,
+        validate_process_memory,
         xcr0,
         xsave_enabled,
         CPUIDData,
@@ -2315,10 +2317,18 @@ fn has_deterministic_ticks(ev: &Event, step: ReplayTraceStep) -> bool {
     ReplayTraceStepType::TstepProgramAsyncSignalInterrupt != step.action
 }
 
-fn debug_memory(t: &ReplayTask) {
+fn debug_memory(t: &mut ReplayTask) {
     let current_time = t.current_frame_time();
     if should_dump_memory(t.current_trace_frame().event(), current_time) {
         unimplemented!()
+    }
+
+    if t.session().done_initial_exec()
+        && should_checksum(t.current_trace_frame().event(), current_time)
+    {
+        // Validate the checksum we computed during the
+        // recording phase
+        validate_process_memory(t, current_time);
     }
 }
 
