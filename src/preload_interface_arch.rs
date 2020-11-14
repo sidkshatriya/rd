@@ -56,8 +56,8 @@ pub struct preload_thread_locals<Arch: Architecture> {
     pub thread_inited: i32,
     /// The offset of this field MUST NOT CHANGE, it is part of the ABI tools
     /// depend on. When buffering is enabled, points at the thread's mapped buffer
-    /// segment.  At the start of the segment is an object of type |struct
-    /// syscallbuf_hdr|, so `buffer` is also a pointer to the buffer
+    /// segment.  At the start of the segment is an object of type `struct
+    /// syscallbuf_hdr`, so `buffer` is also a pointer to the buffer
     /// header.
     pub buffer: Ptr<Arch::unsigned_word, u8>,
     pub buffer_size: Arch::size_t,

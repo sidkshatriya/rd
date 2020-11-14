@@ -1046,10 +1046,10 @@ impl<'a> AutoRemoteSyscalls<'a> {
         rd_arch_function!(self, retrieve_fd_arch, self.arch(), fd)
     }
 
-    /// If None is provided for |tracee_prot`, PROT_READ ` PROT_WRITE is assumed.
-    /// If None is provided for `tracee_flags`, 0 is assumed
-    /// If None is provided for `monitored` it is assumed that there is no memory monitor.
-    /// If None is provided for `map_hint` it is assumed that we DONT use MAP_FIXED
+    /// If `None` is provided for `maybe_tracee_prot`, `PROT_READ|PROT_WRITE` is assumed.
+    /// If `None` is provided for `maybe_tracee_flags`, `MapFlags::empty()` is assumed
+    /// If `None` is provided for `monitored` it is assumed that there is no memory monitor.
+    /// If `None` is provided for `map_hint` it is assumed that we DONT use MAP_FIXED
     pub fn create_shared_mmap(
         &mut self,
         size: usize,

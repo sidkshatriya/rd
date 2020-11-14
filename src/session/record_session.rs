@@ -1163,7 +1163,7 @@ impl RecordSession {
         }
     }
 
-    /// |t| is at a desched event and some relevant aspect of its state
+    /// `t` is at a desched event and some relevant aspect of its state
     /// changed.  (For now, changes except the original desched'd syscall
     /// being restarted.)
     fn desched_state_changed(&self, t: &mut RecordTask) {
@@ -1201,8 +1201,8 @@ impl RecordSession {
         );
     }
 
-    /// |t| is being delivered a signal, and its state changed.
-    /// Must call t->stashed_signal_processed() once we're ready to unmask signals.
+    /// `t` is being delivered a signal, and its state changed.
+    /// Must call t.stashed_signal_processed() once we're ready to unmask signals.
     fn signal_state_changed(&self, t: &mut RecordTask, step_state: &mut StepState) {
         let sig = Sig::try_from(t.ev().signal_event().siginfo.si_signo).unwrap();
 
@@ -1678,7 +1678,7 @@ impl RecordSession {
                     "{} handled",
                     signal_name(unsafe { si.linux_api.si_signo })
                 );
-                // Signal is now a pending event on |t|'s event stack
+                // Signal is now a pending event on `t`'s event stack
 
                 if t_shr.borrow().as_rec_unwrap().ev().event_type() == EventType::EvSched {
                     if t_shr.borrow().as_rec_unwrap().maybe_in_spinlock() {
@@ -2094,7 +2094,7 @@ impl RecordSession {
     /// ptrace" for the horrid details.
     ///
     /// The task in the thread-group that triggered the successful execve has changed
-    /// its tid to |rec_tid|. We mirror that, and emit TraceTaskEvents to make it
+    /// its tid to `rec_tid`. We mirror that, and emit TraceTaskEvents to make it
     /// look like a new task was spawned and the old task exited.
     pub fn revive_task_for_exec(&self, rec_tid: pid_t) -> TaskSharedPtr {
         let mut msg: usize = 0;
@@ -2519,7 +2519,7 @@ unsafe fn set_arch_siginfo_arch<Arch: Architecture>(
 }
 
 /// Copy the registers used for syscall arguments (not including
-/// syscall number) from |from| to |to|.
+/// syscall number) from `from` to `to`.
 fn copy_syscall_arg_regs(to: &mut Registers, from: &Registers) {
     to.set_arg1(from.arg1());
     to.set_arg2(from.arg2());
@@ -2572,7 +2572,7 @@ fn seccomp_trap_done(t: &mut RecordTask) {
     );
 }
 
-/// After a SYS_sigreturn "exit" of task |t| with return value |ret|,
+/// After a SYS_sigreturn "exit" of task `t` with return value `ret`,
 /// check to see if there's an interrupted syscall that /won't/ be
 /// restarted, and if so, pop it off the pending event stack.
 fn maybe_discard_syscall_interruption(t: &mut RecordTask, ret: isize) {
@@ -3217,10 +3217,10 @@ fn mask_low_bit<T>(p: RemotePtr<T>) -> RemotePtr<T> {
     RemotePtr::from(p.as_usize() & !1usize)
 }
 
-/// "Thaw" a frozen interrupted syscall if |t| is restarting it.
+/// "Thaw" a frozen interrupted syscall if `t` is restarting it.
 /// Return true if a syscall is indeed restarted.
 ///
-/// A postcondition of this function is that |t->ev| is no longer a
+/// A postcondition of this function is that `t.ev()` is no longer a
 /// syscall interruption, whether or whether not a syscall was
 /// restarted.
 fn maybe_restart_syscall(t: &mut RecordTask) -> bool {
@@ -3280,7 +3280,7 @@ fn record_exit(t: &RecordTask, exit_status: WaitStatus) {
     }
 }
 
-/// Step |t| forward until the tracee syscall that disarms the desched
+/// Step `t` forward until the tracee syscall that disarms the desched
 /// event. If a signal becomes pending in the interim, we stash it.
 /// This allows the caller to deliver the signal after this returns.
 /// (In reality the desched event will already have been disarmed before we

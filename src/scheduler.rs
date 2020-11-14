@@ -309,7 +309,7 @@ impl Scheduler {
                 if curr.borrow().is_running() {
                     log!(LogDebug, "  and running; waiting for state change");
                     // |current| is un-switchable, but already running. Wait for it to change
-                    // state before "scheduling it", so avoid busy-waiting with our client. */
+                    // state before "scheduling it", so avoid busy-waiting with our client
                     curr.borrow_mut()
                         .wait(Some(self.interrupt_after_elapsed_time()));
                     // @TODO Monitor unswitchable waits stuff
@@ -864,7 +864,7 @@ impl Scheduler {
             // Hypothesis: some bugs require short timeslices to expose. But we don't
             // want the average timeslice to be too small. So make 10% of timeslices
             // very short, 10% short-ish, and the rest uniformly distributed between 0
-            // and |max_ticks_|.
+            // and `max_ticks_`.
             let timeslice_kind_frac = random_frac();
             if timeslice_kind_frac < VERY_SHORT_TIMESLICE_PROBABILITY {
                 max_timeslice_duration = VERY_SHORT_TIMESLICE_MAX_DURATION;
@@ -997,7 +997,7 @@ impl Scheduler {
 
     /// Returns true if we should return t as the runnable task. Otherwise we
     /// should check the next task. Note that if this returns true get_next_thread
-    /// |must| return t as the runnable task, otherwise we will lose an event and
+    /// _must_ return t as the runnable task, otherwise we will lose an event and
     ///  probably deadlock!!!
     fn is_task_runnable(&self, t: &mut RecordTask, by_waitpid: &mut bool) -> bool {
         ed_assert!(

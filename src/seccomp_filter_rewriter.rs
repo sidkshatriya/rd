@@ -52,14 +52,14 @@ pub struct SeccompFilterRewriter {
     /// them into a single 16 bit data field. Fortunately (so far) all the
     /// filters we've seen return constants, so there aren't too many distinct
     /// values we need to deal with. For each constant value that gets returned,
-    /// we'll add it as the key in |result_map|, with the corresponding value
+    /// we'll add it as the key in `result_to_index`, with the corresponding value
     /// being the 16-bit data value that our rewritten filter returns.
     result_to_index: HashMap<u32, u16>,
     index_to_result: Vec<u32>,
 }
 
 impl SeccompFilterRewriter {
-    /// Assuming |t| is set up for a prctl or seccomp syscall that
+    /// Assuming `t` is set up for a prctl or seccomp syscall that
     /// installs a seccomp-bpf filter, patch the filter to signal the tracer
     /// instead of silently delivering an errno, and install it.
     pub fn install_patched_seccomp_filter(&mut self, t: &mut RecordTask) {

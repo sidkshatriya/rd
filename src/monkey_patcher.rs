@@ -126,7 +126,7 @@ impl MonkeyPatcher {
         rd_arch_function_selfless!(patch_at_preload_init_arch, t.arch(), t, self);
     }
 
-    /// Try to patch the syscall instruction that |t| just entered. If this
+    /// Try to patch the syscall instruction that `t` just entered. If this
     /// returns false, patching failed and the syscall should be processed
     /// as normal. If this returns true, patching succeeded and the syscall
     /// was aborted; ip() has been reset to the start of the patched syscall,
@@ -421,14 +421,14 @@ fn safe_for_syscall_patching(_start: RemoteCodePtr, _end: RemoteCodePtr, _exclud
     unimplemented!()
 }
 
-/// Return true iff |addr| points to a known |__kernel_vsyscall()|
+/// Return true iff `addr` points to a known `__kernel_vsyscall()`
 /// implementation.
 fn is_kernel_vsyscall(_t: &RecordTask, _addr: RemotePtr<Void>) -> bool {
     unimplemented!()
 }
 
-/// Return the address of a recognized |__kernel_vsyscall()|
-/// implementation in |t|'s address space.
+/// Return the address of a recognized `__kernel_vsyscall()`
+/// implementation in `t`'s address space.
 fn locate_and_verify_kernel_vsyscall(
     _t: &RecordTask,
     _reader: &ElfReader,

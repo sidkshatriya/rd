@@ -112,7 +112,7 @@ pub enum SignalHandled {
     DeferSignal,
 }
 
-/// Handle the given signal for |t|.
+/// Handle the given signal for `t`.
 /// Returns SIGNAL_HANDLED if we handled the signal, SIGNAL_PTRACE_STOP if we
 /// didn't handle the signal due to an emulated ptrace-stop, and SIGNAL_DEFER
 /// if we can't handle the signal right now and should try calling
@@ -267,7 +267,7 @@ fn restore_sighandler_if_not_default(t: &mut RecordTask, sig: Sig) {
     }
 }
 
-/// Restore the blocked-ness and sigaction for |sig| from |t|'s local
+/// Restore the blocked-ness and sigaction for `sig` from `t`'s local
 /// copy.
 fn restore_signal_state(t: &mut RecordTask, sig: Sig, signal_was_blocked: SignalBlocked) {
     restore_sighandler_if_not_default(t, sig);
@@ -620,8 +620,8 @@ pub fn handle_syscallbuf_breakpoint(t: &mut RecordTask) -> bool {
     true
 }
 
-/// Return the event needing to be processed after this desched of |t|.
-/// The tracee's execution may be advanced, and if so |regs| is updated
+/// Return the event needing to be processed after this desched of `t`.
+/// The tracee's execution may be advanced, and if so `regs` is updated
 /// to the tracee's latest state.
 fn handle_desched_event(t: &mut RecordTask, si: &siginfo_t) {
     let desched_sig = t.session().as_record().unwrap().syscallbuf_desched_sig();
@@ -663,7 +663,7 @@ fn handle_desched_event(t: &mut RecordTask, si: &siginfo_t) {
         return;
     }
 
-    /* TODO: how can signals interrupt us here? */
+    // TODO: how can signals interrupt us here?
 
     // The desched event just fired.  That implies that the
     // arm-desched ioctl went into effect, and that the

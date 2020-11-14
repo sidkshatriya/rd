@@ -844,7 +844,7 @@ impl Task for RecordTask {
             let child_addr = self.syscallbuf_child;
             let syscallbuf = read_val_mem(self, child_addr, None);
             if syscallbuf.in_sigprocmask_critical_section != 0 {
-                // |blocked_sigs| may have been updated but the syscall not yet issued.
+                // `blocked_sigs` may have been updated but the syscall not yet issued.
                 // Use the kernel's value.
                 self.invalidate_sigmask();
             } else {
@@ -1234,7 +1234,7 @@ impl RecordTask {
         write_val_mem(remote.task_mut(), child_args, &args, None);
 
         // The tracee doesn't need this addr returned, because it's
-        // already written to the inout |args| param, but we stash it
+        // already written to the inout `args` param, but we stash it
         // away in the return value slot so that we can easily check
         // that we map the segment at the same addr during replay.
         let syscallbuf_child = remote.task().syscallbuf_child;

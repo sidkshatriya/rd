@@ -454,8 +454,8 @@ extern "C" {
     fn ioctl_nr(nr: c_uint) -> c_uint;
 }
 
-/// Prepare |t| to enter its current syscall event.  Return ALLOW_SWITCH if
-/// a context-switch is allowed for |t|, PREVENT_SWITCH if not.
+/// Prepare `t` to enter its current syscall event.  Return Switchable::AllowSwitch if
+/// a context-switch is allowed for `t`, Switchable::PreventSwitch if not.
 pub fn rec_prepare_syscall(t: &mut RecordTask) -> Switchable {
     if t.syscall_state.is_none() {
         let mut new_ts = TaskSyscallState::new(t);
@@ -505,10 +505,10 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
     syscall_state.syscall_entry_registers = regs.clone();
 
     if !t.desched_rec().is_null() {
-        // |t| was descheduled while in a buffered syscall.  We normally don't
+        // `t` was descheduled while in a buffered syscall.  We normally don't
         // use scratch memory for the call, because the syscallbuf itself
         // is serving that purpose. More importantly, we *can't* set up
-        // scratch for |t|, because it's already in the syscall. Instead, we will
+        // scratch for `t`, because it's already in the syscall. Instead, we will
         // record the syscallbuf memory in rec_process_syscall_arch.
         //
         // However there is one case where we use scratch memory: when
@@ -969,7 +969,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
 
             FcntlOperation::SETLKW | FcntlOperation::SETLKW64 | FcntlOperation::OFD_SETLKW => {
                 // SETLKW blocks, but doesn't write any
-                // outparam data to the |struct flock|
+                // outparam data to the `struct flock`
                 // argument, so no need for scratch.
                 return Switchable::AllowSwitch;
             }
@@ -2788,7 +2788,6 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
             // get the correct prot bits for heaps. Usually it's READ|WRITE but
             // there seem to be exceptions depending on system settings.
             let kernel_info: KernelMapping = AddressSpace::read_kernel_mapping(t, old_brk);
-            // @TODO Check this
             ed_assert_eq!(t, kernel_info.device(), KernelMapping::NO_DEVICE);
             ed_assert_eq!(t, kernel_info.inode(), KernelMapping::NO_INODE);
             km = kernel_info.subrange(old_brk, new_brk);
@@ -4714,7 +4713,7 @@ fn prepare_ioctl<Arch: Architecture>(
 }
 
 fn record_page_below_stack_ptr(t: &mut RecordTask) {
-    // Record.the page above the top of |t|'s stack.  The SIOC* ioctls
+    // Record.the page above the top of `t`'s stack.  The SIOC* ioctls
     // have been observed to write beyond the end of tracees' stacks, as
     // if they had allocated scratch space for themselves.  All we can do
     // for now is try to record the scratch data.
@@ -4894,7 +4893,7 @@ fn prepare_clone<Arch: Architecture>(t: &mut RecordTask, syscall_state: &mut Tas
     t.canonicalize_regs(arch);
 
     // We're in a PTRACE_EVENT_FORK/VFORK/CLONE so the next PTRACE_SYSCALL for
-    // |t| will go to the exit of the syscall, as expected.
+    // `t` will go to the exit of the syscall, as expected.
 }
 
 fn ptrace_option_for_event(ptrace_event: u32) -> u32 {
@@ -5774,7 +5773,7 @@ fn prepare_ptrace<Arch: Architecture>(
                     let mut ok = true;
                     write_val_mem(tracee, addr, &data, Some(&mut ok));
                     if ok {
-                        // Since we're recording data that might not be for |t|, we have to
+                        // Since we're recording data that might not be for `t`, we have to
                         // handle this specially during replay.
                         tracee.record_local_for(addr, &data);
                         syscall_state.emulate_result(0);

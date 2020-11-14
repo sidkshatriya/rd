@@ -1845,9 +1845,9 @@ struct ParsedChecksumLine {
 const IGNORED_CHECKSUM: u32 = 0x98765432;
 const SIGBUS_CHECKSUM: u32 = 0x23456789;
 
-/// Either create and store checksums for each segment mapped in |t|'s
+/// Either create and store checksums for each segment mapped in `t`'s
 /// address space, or validate an existing computed checksum.  Behavior
-/// is selected by |mode|.
+/// is selected by `mode`.
 fn iterate_checksums(t: &mut dyn Task, mode: ChecksumMode, global_time: FrameTime) {
     let mut filename_vec: Vec<u8> = t.trace_dir().into_vec();
     let append = format!("/{}_{}", global_time, t.rec_tid);

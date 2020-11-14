@@ -1276,7 +1276,7 @@ impl ReplaySession {
         // Apply robust-futex updates captured during recording.
         t.apply_all_data_records_from_trace();
         end_task(t);
-        // |t| is dead now.
+        // `t` is dead now.
         Completion::Complete
     }
 
@@ -1645,10 +1645,10 @@ impl ReplaySession {
                     pending_SIGTRAP = false;
                     t.move_ip_before_breakpoint();
                     // We just backed up the $ip, but
-                    // rewound it over an |int $3|
+                    // rewound it over an `int $3`
                     // instruction, which couldn't have
                     // retired a branch.  So we don't need
-                    // to adjust |tick_count()|.
+                    // to adjust `tick_count()`.
                     continue;
                 }
 

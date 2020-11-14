@@ -1079,9 +1079,9 @@ pub(in super::super) fn os_clone_into(
         //
         // We don't pass CLONE_SETTLS here *only*
         // because we'll do it later in
-        // |copy_state()|.
+        // `copy_state()`.
         //
-        // See |os_fork_into()| above for discussion
+        // See `os_fork_into()` above for discussion
         // of the CTID flags.
         CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD | CLONE_SYSVSEM,
         Some(state.top_of_stack),
