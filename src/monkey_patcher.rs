@@ -369,8 +369,9 @@ fn setup_library_path_arch<Arch: Architecture>(
             }
             Some(lib_pos) => lib_pos,
         };
-        match find(&env, b":") {
-            Some(mut next_colon) => {
+        match find(&env[lib_pos..], b":") {
+            Some(next) => {
+                let mut next_colon = next + lib_pos;
                 // DIFF NOTE: There is a env[next_colon + 1] == 0 check in rr
                 // Don't need it in rd as there is no terminating nul in the `env` var
                 while next_colon + 1 < env.len() && env[next_colon + 1] == b':' {
