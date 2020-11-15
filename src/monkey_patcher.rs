@@ -1,14 +1,19 @@
 use crate::{
-    arch::{Architecture, X64Arch},
+    arch::{Architecture, X64Arch, X86Arch},
     kernel_abi::SupportedArch,
     log::{LogDebug, LogWarn},
-    preload_interface::syscall_patch_hook,
+    preload_interface::{
+        syscall_patch_hook,
+        SYSCALLBUF_LIB_FILENAME_32,
+        SYSCALLBUF_LIB_FILENAME_BASE,
+        SYSCALLBUF_LIB_FILENAME_PADDED,
+    },
     remote_code_ptr::RemoteCodePtr,
     remote_ptr::{RemotePtr, Void},
     scoped_fd::ScopedFd,
     session::{
         address_space::address_space,
-        task::{record_task::RecordTask, task_inner::WriteFlags, Task},
+        task::{record_task::RecordTask, task_common::read_val_mem, task_inner::WriteFlags, Task},
     },
     util::{find, page_size},
 };
@@ -322,21 +327,97 @@ fn write_and_record_mem<T>(_t: &RecordTask, _child_addr: RemotePtr<T>, _vals: &[
 /// failing isn't necessarily fatal; a tracee might not rely on the functions
 /// overridden by the preload library, or might override them itself (e.g.
 /// because we're recording an rr replay).
-////
 fn setup_library_path_arch<Arch: Architecture>(
-    _t: &RecordTask,
-    _env_var: &OsStr,
-    _soname_base: &OsStr,
-    _soname_padded: &OsStr,
-    _soname_32: &OsStr,
+    t: &mut RecordTask,
+    env_var: &OsStr,
+    soname_base: &OsStr,
+    soname_padded: &OsStr,
+    soname_32: &OsStr,
 ) {
-    unimplemented!()
+    let lib_name = if size_of::<Arch::unsigned_word>() < size_of::<usize>() {
+        soname_32
+    } else {
+        soname_padded
+    };
+    let mut env_assignment = Vec::<u8>::new();
+    env_assignment.extend_from_slice(env_var.as_bytes());
+    env_assignment.push(b'=');
+
+    let mut p = RemotePtr::<Arch::unsigned_word>::cast(t.regs_ref().sp());
+    let argc: usize = read_val_mem(t, p, None).try_into().unwrap();
+
+    // skip argc, argc parameters, and trailing NULL
+    p += 1usize + argc + 1usize;
+    loop {
+        let envp = read_val_mem(t, p, None);
+        if envp == 0u8.into() {
+            log!(LogDebug, "{:?} not found", env_var);
+            return;
+        }
+        // NOTE: Will not contain a nul at the end of Vec<u8>
+        let env = t
+            .read_c_str(RemotePtr::new_from_val(envp.try_into().unwrap()))
+            .into_bytes();
+        if find(&env, &env_assignment) != Some(0) {
+            p += 1usize;
+            continue;
+        }
+        let lib_pos = match find(&env, soname_base.as_bytes()) {
+            None => {
+                log!(LogDebug, "{:?} not found in {:?}", soname_base, env_var);
+                return;
+            }
+            Some(lib_pos) => lib_pos,
+        };
+        match find(&env, b":") {
+            Some(mut next_colon) => {
+                // DIFF NOTE: There is a env[next_colon + 1] == 0 check in rr
+                // Don't need it in rd as there is no terminating nul in the `env` var
+                while next_colon + 1 < env.len() && env[next_colon + 1] == b':' {
+                    next_colon += 1;
+                }
+                if next_colon < lib_pos + soname_padded.len() - 1 {
+                    log!(
+                        LogDebug,
+                        "Insufficient space for {:?} in {:?} before next ':'",
+                        lib_name,
+                        env_var
+                    );
+                    return;
+                }
+            }
+            None => (),
+        }
+        if env.len() - 1 < lib_pos + soname_padded.len() - 1 {
+            log!(
+                LogDebug,
+                "Insufficient space for {:?} in {:?} before end of string",
+                lib_name,
+                env_var
+            );
+            return;
+        }
+        let dest = envp.try_into().unwrap() + lib_pos;
+        write_and_record_bytes(
+            t,
+            RemotePtr::<Void>::from(dest),
+            &lib_name.as_bytes()[0..soname_padded.len()],
+        );
+        return;
+    }
 }
 
-fn setup_preload_library_path<Arch: Architecture>(_t: &RecordTask) {
-    // @TODO PENDING
-    log!(LogWarn, "@TODO PENDING setup_preload_library_path()");
-    // Skip for now
+fn setup_preload_library_path<Arch: Architecture>(t: &mut RecordTask) {
+    let soname_base = OsStr::new(SYSCALLBUF_LIB_FILENAME_BASE);
+    let soname_padded = OsStr::new(SYSCALLBUF_LIB_FILENAME_PADDED);
+    let soname_32 = OsStr::new(SYSCALLBUF_LIB_FILENAME_32);
+    setup_library_path_arch::<Arch>(
+        t,
+        OsStr::new("LD_PRELOAD"),
+        soname_base,
+        soname_padded,
+        soname_32,
+    );
 }
 
 fn patch_syscall_with_hook_arch<Arch: Architecture>(
@@ -560,8 +641,9 @@ fn addr_to_offset<'a>(elf_file: &Elf<'a>, addr: usize, offset: &mut usize) -> bo
 /// static constructors, so we can't wait for our preload library to be
 /// initialized. Fortunately we're just replacing the vdso code with real
 ///  syscalls so there is no dependency on the preload library at all.
-fn patch_after_exec_arch_x86arch(_t: &mut RecordTask, _patcher: &mut MonkeyPatcher) {
-    unimplemented!()
+fn patch_after_exec_arch_x86arch(t: &mut RecordTask, _patcher: &mut MonkeyPatcher) {
+    setup_preload_library_path::<X86Arch>(t);
+    log!(LogWarn, "@TODO PENDING patch_after_exec_arch_x86arch()");
 }
 
 /// VDSOs are filled with overhead critical functions related to getting the
