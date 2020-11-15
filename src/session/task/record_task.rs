@@ -103,16 +103,16 @@ use crate::{
                 open_mem_fd,
                 post_exec_for_exe,
                 post_exec_syscall_common,
-                read_bytes_fallible,
-                read_bytes_helper,
+                read_bytes_fallible_common,
+                read_bytes_helper_common,
                 read_bytes_helper_for,
-                read_c_str,
+                read_c_str_common,
                 resume_execution,
                 set_thread_area,
                 stored_record_size,
                 syscallbuf_data_size,
                 write_bytes_common,
-                write_bytes_helper,
+                write_bytes_helper_common,
             },
             task_inner::{
                 CloneFlags,
@@ -869,21 +869,21 @@ impl Task for RecordTask {
 
     /// Forwarded method
     fn read_bytes_fallible(&mut self, addr: RemotePtr<Void>, buf: &mut [u8]) -> Result<usize, ()> {
-        read_bytes_fallible(self, addr, buf)
+        read_bytes_fallible_common(self, addr, buf)
     }
 
     /// Forwarded method
     fn read_bytes_helper(&mut self, addr: RemotePtr<Void>, buf: &mut [u8], ok: Option<&mut bool>) {
-        read_bytes_helper(self, addr, buf, ok)
+        read_bytes_helper_common(self, addr, buf, ok)
     }
 
     fn read_bytes(&mut self, addr: RemotePtr<Void>, buf: &mut [u8]) {
-        read_bytes_helper(self, addr, buf, None)
+        read_bytes_helper_common(self, addr, buf, None)
     }
 
     /// Forwarded method
     fn read_c_str(&mut self, child_addr: RemotePtr<u8>) -> CString {
-        read_c_str(self, child_addr)
+        read_c_str_common(self, child_addr)
     }
 
     /// Forwarded method
@@ -894,7 +894,7 @@ impl Task for RecordTask {
         ok: Option<&mut bool>,
         flags: WriteFlags,
     ) {
-        write_bytes_helper(self, addr, buf, ok, flags)
+        write_bytes_helper_common(self, addr, buf, ok, flags)
     }
 
     /// Forwarded method

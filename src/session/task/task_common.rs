@@ -253,7 +253,7 @@ pub(super) fn open_mem_fd<T: Task>(task: &mut T) -> bool {
 /// - Returns Err(()) if No bytes could be read at all AND there was an error
 /// - Returns Ok(usize) if 0 or more bytes could be read. All bytes requested may not have been
 /// read.
-pub(super) fn read_bytes_fallible<T: Task>(
+pub(super) fn read_bytes_fallible_common<T: Task>(
     task: &mut T,
     addr: RemotePtr<Void>,
     buf: &mut [u8],
@@ -327,7 +327,7 @@ pub(super) fn read_bytes_fallible<T: Task>(
 ///
 /// If the data can't all be read, then if `maybe_ok` is None, asserts otherwise
 /// sets the inner mutable bool to false.
-pub(super) fn read_bytes_helper<T: Task>(
+pub(super) fn read_bytes_helper_common<T: Task>(
     task: &mut T,
     addr: RemotePtr<Void>,
     buf: &mut [u8],
@@ -375,7 +375,7 @@ pub fn read_bytes_helper_for<T: Task, D>(
 ///
 /// Read and return the C string located at `child_addr` in
 /// this address space.
-pub(super) fn read_c_str<T: Task>(task: &mut T, child_addr: RemotePtr<u8>) -> CString {
+pub(super) fn read_c_str_common<T: Task>(task: &mut T, child_addr: RemotePtr<u8>) -> CString {
     // XXX handle invalid C strings
     // e.g. c-strings that don't end even when an unmapped region of memory
     // is reached.
@@ -468,7 +468,7 @@ pub(super) fn safe_pwrite64(
 /// Forwarded method definition
 ///
 /// `flags` is bits from WriteFlags.
-pub(super) fn write_bytes_helper<T: Task>(
+pub(super) fn write_bytes_helper_common<T: Task>(
     task: &mut T,
     addr: RemotePtr<Void>,
     buf: &[u8],
@@ -588,7 +588,7 @@ pub(super) fn syscallbuf_data_size<T: Task>(task: &mut T) -> usize {
 ///
 /// Write `N` bytes from `buf` to `child_addr`, or don't return.
 pub(super) fn write_bytes_common<T: Task>(task: &mut T, child_addr: RemotePtr<Void>, buf: &[u8]) {
-    write_bytes_helper(task, child_addr, buf, None, WriteFlags::empty())
+    write_bytes_helper_common(task, child_addr, buf, None, WriteFlags::empty())
 }
 
 /// Forwarded method definition
