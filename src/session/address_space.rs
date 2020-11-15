@@ -2165,7 +2165,7 @@ pub mod address_space {
             };
 
             // TODO: this is a workaround of
-            // https://github.com/mozilla/rr/issues/1113 .
+            // https://github.com/rr-debugger/rr/issues/1113 .
             if addr_space.session().done_initial_exec() {
                 addr_space.populate_address_space(t);
                 debug_assert!(!addr_space.vdso_start_addr.get().is_null());

@@ -5,7 +5,7 @@ use crate::{
 };
 use std::convert::TryInto;
 
-// Copyright notice as in rr's `src/seccomp-bpf.h` (see https://github.com/mozilla/rr)
+// Copyright notice as in rr's `src/seccomp-bpf.h` (see https://github.com/rr-debugger/rr)
 /*
  * seccomp example for x86 (32-bit and 64-bit) with BPF macros
  *

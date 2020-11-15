@@ -187,7 +187,7 @@ fn get_cpu_microarch() -> CpuMicroarch {
                      retired-conditional-branches hardware\n\
                      performance counter is not accurate enough; rd will\n\
                      be unreliable.\n\
-                     See https://github.com/mozilla/rr/issues/2034."
+                     See https://github.com/rr-debugger/rr/issues/2034."
                     );
                 }
                 return AMDRyzen;
@@ -199,7 +199,7 @@ fn get_cpu_microarch() -> CpuMicroarch {
     if vendor_info_string == "AuthenticAMD" {
         clean_fatal!(
             "AMD CPUs not supported.\n\
-             For Ryzen, see https://github.com/mozilla/rr/issues/2034.\n\
+             For Ryzen, see https://github.com/rr-debugger/rr/issues/2034.\n\
              For post-Ryzen CPUs, please file a Github issue."
         );
     } else {

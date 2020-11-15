@@ -1,6 +1,6 @@
 # `rd` The Record & Debug Tool
 
-`rd` is a Rust language port of the [mozilla/rr](https://github.com/mozilla/rr) debugger. 
+`rd` is a Rust language port of the [rr-debugger/rr](https://github.com/rr-debugger/rr) debugger.
 
 The port is  _in progress_ but many things work already (see [below](https://github.com/sidkshatriya/rd#what-works)).
 
@@ -40,13 +40,13 @@ $ rd rerun --help
 
 ## Credits
 
-The `rd` project would not have been possible without the work done in the [mozilla/rr](https://github.com/mozilla/rr) project. Many human-years of development effort have gone into making `rr` the truly amazing piece of software that it is. 
+The `rd` project would not have been possible without the work done in the [rr-debugger/rr](https://github.com/rr-debugger/rr) project. Many human-years of development effort have gone into making `rr` the truly amazing piece of software that it is.
 
-The `rd` project is grateful to all the contributors of the `mozilla/rr` project.
+The `rd` project is grateful to all the contributors of the `rr-debugger/rr` project.
 
 ## Background 
 
-`rd` works on the same principles as `rr`. Please see [mozilla/rr](https://github.com/mozilla/rr) where you will find further information. More specifically, an excellent technical overview of `rr` can be found at [arXiv:1705.05937](https://arxiv.org/abs/1705.05937). 
+`rd` works on the same principles as `rr`. Please see [rr-debugger/rr](https://github.com/rr-debugger/rr) where you will find further information. More specifically, an excellent technical overview of `rr` can be found at [arXiv:1705.05937](https://arxiv.org/abs/1705.05937).
 
 ## Contributions
 
@@ -79,7 +79,7 @@ The following work:
 ### Add an alias
 After installing `rd` add an alias like this in your bash (or other shell):
 
-Assuming you have a local source build of `mozilla/rr` at `/home/abcxyz/rr/build` 
+Assuming you have a local source build of `rr-debugger/rr` at `/home/abcxyz/rr/build`
 
 ```bash
 $ alias rd="rd --resource-path=/home/abcxyz/rr/build"

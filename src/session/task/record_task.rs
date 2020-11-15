@@ -658,7 +658,7 @@ impl Task for RecordTask {
             // have much choice, signal injection won't work if we block the signal.
             // We leave rr signals unblocked. TIME_SLICE_SIGNAL has to be unblocked
             // because blocking it seems to cause problems for some hardware/kernel
-            // configurations (see https://github.com/mozilla/rr/issues/1979),
+            // configurations (see https://github.com/rr-debugger/rr/issues/1979),
             // causing them to stop counting events.
             let mut sigset = !self.session().as_record().unwrap().rd_signal_mask();
             match maybe_sig {

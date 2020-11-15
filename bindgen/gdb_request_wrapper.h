@@ -1,5 +1,5 @@
-// enum from mozilla/rr ( https://github.com/mozilla/rr ) src/GdbConnection.h
-// enum as of mozilla/rr git revision abd344288878c9b4046e0b8664927992947a46eb
+// enum from rr-debugger/rr ( https://github.com/rr-debugger/rr ) src/GdbConnection.h
+// enum as of rr-debugger/rr git revision abd344288878c9b4046e0b8664927992947a46eb
 enum GdbRequestType {
   DREQ_NONE = 0,
 
