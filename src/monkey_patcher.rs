@@ -505,18 +505,50 @@ fn safe_for_syscall_patching(_start: RemoteCodePtr, _end: RemoteCodePtr, _exclud
 
 /// Return true iff `addr` points to a known `__kernel_vsyscall()`
 /// implementation.
-fn is_kernel_vsyscall(_t: &RecordTask, _addr: RemotePtr<Void>) -> bool {
-    unimplemented!()
+fn is_kernel_vsyscall(t: &mut RecordTask, addr: RemotePtr<Void>) -> bool {
+    let mut impl_buf = [0u8; X86SysenterVsyscallImplementationAMD::SIZE];
+    t.read_bytes(addr, &mut impl_buf);
+    X86SysenterVsyscallImplementation::matchp(&impl_buf[0..X86SysenterVsyscallImplementation::SIZE])
+        || X86SysenterVsyscallImplementationAMD::matchp(&impl_buf)
 }
 
-/// Return the address of a recognized `__kernel_vsyscall()`
-/// implementation in `t`'s address space.
-fn locate_and_verify_kernel_vsyscall(
-    _t: &RecordTask,
-    _reader: &ElfReader,
-    _syms: &SymbolTable,
-) -> RemotePtr<Void> {
-    unimplemented!()
+const X86_SYSENTER_VSYSCALL_IMPLEMENTATION_BYTES: [u8; 7] =
+    [0x51, 0x52, 0x55, 0x89, 0xe5, 0xf, 0x34];
+const X86_SYSENTER_VSYSCALL_IMPLEMENTATION_AMD_BYTES: [u8; 9] =
+    [0x51, 0x52, 0x55, 0x89, 0xcd, 0xf, 0x5, 0xcd, 0x80];
+
+struct X86SysenterVsyscallImplementation;
+
+impl X86SysenterVsyscallImplementation {
+    pub fn matchp(buffer: &[u8]) -> bool {
+        if buffer[0..Self::SIZE] != X86_SYSENTER_VSYSCALL_IMPLEMENTATION_BYTES {
+            return false;
+        }
+        true
+    }
+
+    pub fn substitute(buffer: &mut [u8]) {
+        buffer[0..Self::SIZE].copy_from_slice(&X86_SYSENTER_VSYSCALL_IMPLEMENTATION_BYTES);
+    }
+
+    pub const SIZE: usize = X86_SYSENTER_VSYSCALL_IMPLEMENTATION_BYTES.len();
+}
+
+struct X86SysenterVsyscallImplementationAMD;
+
+impl X86SysenterVsyscallImplementationAMD {
+    pub fn matchp(buffer: &[u8]) -> bool {
+        if buffer[0..Self::SIZE] != X86_SYSENTER_VSYSCALL_IMPLEMENTATION_AMD_BYTES {
+            return false;
+        }
+        true
+    }
+
+    pub fn substitute(buffer: &mut [u8]) {
+        buffer[0..Self::SIZE].copy_from_slice(&X86_SYSENTER_VSYSCALL_IMPLEMENTATION_AMD_BYTES);
+    }
+
+    pub const SIZE: usize = X86_SYSENTER_VSYSCALL_IMPLEMENTATION_AMD_BYTES.len();
 }
 
 fn find_section_file_offsets<'a>(elf_file: &Elf<'a>, section_name: &str) -> Option<Range<usize>> {
@@ -590,7 +622,7 @@ struct NamedSyscall {
     syscall_number: i32,
 }
 
-const SYSCALLS_TO_MONKEYPATCH: [NamedSyscall; 5] = [
+const X64_SYSCALLS_TO_MONKEYPATCH: [NamedSyscall; 5] = [
     NamedSyscall {
         name: "__vdso_clock_gettime",
         syscall_number: X64Arch::CLOCK_GETTIME,
@@ -610,6 +642,29 @@ const SYSCALLS_TO_MONKEYPATCH: [NamedSyscall; 5] = [
     NamedSyscall {
         name: "__vdso_getcpu",
         syscall_number: X64Arch::GETCPU,
+    },
+];
+
+const X86_SYSCALLS_TO_MONKEYPATCH: [NamedSyscall; 5] = [
+    NamedSyscall {
+        name: "__vdso_clock_gettime",
+        syscall_number: X86Arch::CLOCK_GETTIME,
+    },
+    NamedSyscall {
+        name: "__vdso_gettimeofday",
+        syscall_number: X86Arch::GETTIMEOFDAY,
+    },
+    NamedSyscall {
+        name: "__vdso_time",
+        syscall_number: X86Arch::TIME,
+    },
+    NamedSyscall {
+        name: "__vdso_clock_getres",
+        syscall_number: X86Arch::CLOCK_GETRES,
+    },
+    NamedSyscall {
+        name: "__vdso_clock_gettime64",
+        syscall_number: X86Arch::CLOCK_GETTIME64,
     },
 ];
 
@@ -642,9 +697,155 @@ fn addr_to_offset<'a>(elf_file: &Elf<'a>, addr: usize, offset: &mut usize) -> bo
 /// static constructors, so we can't wait for our preload library to be
 /// initialized. Fortunately we're just replacing the vdso code with real
 ///  syscalls so there is no dependency on the preload library at all.
-fn patch_after_exec_arch_x86arch(t: &mut RecordTask, _patcher: &mut MonkeyPatcher) {
+fn patch_after_exec_arch_x86arch(t: &mut RecordTask, patcher: &mut MonkeyPatcher) {
     setup_preload_library_path::<X86Arch>(t);
-    log!(LogWarn, "@TODO PENDING patch_after_exec_arch_x86arch()");
+    let vdso_start = t.vm().vdso().start();
+    let vdso_size = t.vm().vdso().size();
+
+    let mut data = Vec::new();
+    data.resize(vdso_size, 0u8);
+    t.read_bytes_helper(vdso_start, &mut data, None);
+    let elf_file = match Elf::parse(&data) {
+        Ok(elf_file) => elf_file,
+        Err(e) => fatal!("Error in parsing vdso: {:?}", e),
+    };
+
+    patcher.x86_vsyscall = locate_and_verify_kernel_vsyscall(t, &elf_file);
+    if patcher.x86_vsyscall.is_null() {
+        fatal!(
+            "Failed to monkeypatch vdso: your __kernel_vsyscall() wasn't recognized.\n\
+               Syscall buffering is now effectively disabled.  If you're OK with\n\
+               running rd without syscallbuf, then run the recorder passing the\n\
+               --no-syscall-buffer arg.\n\
+               If you're *not* OK with that, file an issue."
+        );
+    }
+    // Patch __kernel_vsyscall to use int 80 instead of sysenter.
+    // During replay we may remap the VDSO to a new address, and the sysenter
+    // instruction would return to the old address, so we must make sure sysenter
+    // is never used.
+    let mut patch = [0u8; X86SysenterVsyscallUseInt80::SIZE];
+    X86SysenterVsyscallUseInt80::substitute(&mut patch);
+    write_and_record_bytes(t, patcher.x86_vsyscall, &patch);
+    log!(LogDebug, "monkeypatched __kernel_vsyscall to use int $80");
+
+    for syscall in &X86_SYSCALLS_TO_MONKEYPATCH {
+        for s in elf_file.dynsyms.iter() {
+            match elf_file.dynstrtab.get(s.st_name) {
+                Some(name_res) => match name_res {
+                    Ok(name) if name == syscall.name => {
+                        let mut file_offset: usize = 0;
+                        if !addr_to_offset(&elf_file, s.st_value as usize, &mut file_offset) {
+                            log!(LogDebug, "Can't convert address {} to offset", s.st_value);
+
+                            continue;
+                        }
+                        if file_offset > MAX_VDSO_SIZE {
+                            // With 4.3.3-301.fc23.x86_64, once in a while we
+                            // see a VDSO symbol with a crazy file offset in it which is a
+                            // duplicate of another symbol. Bizzarro. Ignore it.
+                            continue;
+                        }
+
+                        let absolute_address = vdso_start + file_offset;
+
+                        let mut patch = [0u8; X86VsyscallMonkeypatch::SIZE];
+                        X86VsyscallMonkeypatch::substitute(&mut patch, syscall.syscall_number);
+
+                        write_and_record_bytes(t, absolute_address, &patch);
+                        // Record the location of the syscall instruction, skipping the
+                        // "push %ebx; mov $syscall_number,%eax".
+                        patcher
+                            .patched_vdso_syscalls
+                            .insert(RemoteCodePtr::from(absolute_address.as_usize() + 6));
+                        log!(
+                            LogDebug,
+                            "monkeypatched {} to syscall {}",
+                            syscall.name,
+                            syscall.syscall_number
+                        );
+                    }
+                    _ => (),
+                },
+                None => {}
+            }
+        }
+    }
+
+    obliterate_debug_info(&elf_file, t);
+}
+
+struct X86SysenterVsyscallUseInt80;
+
+impl X86SysenterVsyscallUseInt80 {
+    pub fn matchp(buffer: &[u8]) -> bool {
+        if buffer[0..Self::SIZE] != X86_SYSENTER_VSYSCALL_USE_INT80_BYTES[0..Self::SIZE] {
+            return false;
+        }
+
+        true
+    }
+
+    pub fn substitute(buffer: &mut [u8]) {
+        buffer[0..Self::SIZE]
+            .copy_from_slice(&X86_SYSENTER_VSYSCALL_USE_INT80_BYTES[0..Self::SIZE]);
+    }
+
+    pub const SIZE: usize = X86_SYSENTER_VSYSCALL_USE_INT80_BYTES.len();
+}
+
+const X86_SYSENTER_VSYSCALL_USE_INT80_BYTES: [u8; 3] = [0xcd, 0x80, 0xc3];
+
+/// Return the address of a recognized `__kernel_vsyscall()`
+/// implementation in `t`'s address space.
+fn locate_and_verify_kernel_vsyscall(t: &mut RecordTask, elf_file: &Elf) -> RemotePtr<Void> {
+    let mut kernel_vsyscall = RemotePtr::null();
+    // It is unlikely but possible that multiple, versioned __kernel_vsyscall
+    // symbols will exist.  But we can't rely on setting |kernel_vsyscall| to
+    // catch that case, because only one of the versioned symbols will
+    // actually match what we expect to see, and the matching one might be
+    // the last one.  Therefore, we have this separate flag to alert us to
+    // this possibility.
+    let mut seen_kernel_vsyscall = false;
+    for s in elf_file.dynsyms.iter() {
+        match elf_file.dynstrtab.get(s.st_name) {
+            Some(name_res) => match name_res {
+                Ok(name) if name == "__kernel_vsyscall" => {
+                    let mut file_offset: usize = 0;
+                    if !addr_to_offset(&elf_file, s.st_value as usize, &mut file_offset) {
+                        log!(LogDebug, "Can't convert address {} to offset", s.st_value);
+                        continue;
+                    }
+                    // The symbol values can be absolute or relative addresses.
+                    if file_offset >= VDSO_ABSOLUTE_ADDRESS {
+                        file_offset -= VDSO_ABSOLUTE_ADDRESS;
+                    }
+                    if file_offset > MAX_VDSO_SIZE {
+                        // With 4.2.8-300.fc23.x86_64, execve_loop_32 seems to once in a while
+                        // see a VDSO with a crazy file offset in it which is a duplicate
+                        // __kernel_vsyscall. Bizzarro. Ignore it.
+                        continue;
+                    }
+                    ed_assert!(t, !seen_kernel_vsyscall);
+                    seen_kernel_vsyscall = true;
+                    // The ELF information in the VDSO assumes that the VDSO
+                    // is always loaded at a particular address.  The kernel,
+                    // however, subjects the VDSO to ASLR, which means that
+                    // we have to adjust the offsets properly.
+                    let vdso_start = t.vm().vdso().start();
+                    let candidate = vdso_start + file_offset;
+
+                    if is_kernel_vsyscall(t, candidate) {
+                        kernel_vsyscall = candidate;
+                    }
+                }
+                _ => (),
+            },
+            None => {}
+        }
+    }
+
+    kernel_vsyscall
 }
 
 /// VDSOs are filled with overhead critical functions related to getting the
@@ -675,7 +876,7 @@ fn patch_after_exec_arch_x64arch(t: &mut RecordTask, patcher: &mut MonkeyPatcher
         Err(e) => fatal!("Error in parsing vdso: {:?}", e),
     };
 
-    for syscall in &SYSCALLS_TO_MONKEYPATCH {
+    for syscall in &X64_SYSCALLS_TO_MONKEYPATCH {
         for s in elf_file.dynsyms.iter() {
             match elf_file.dynstrtab.get(s.st_name) {
                 Some(name_res) => match name_res {
@@ -757,7 +958,7 @@ fn patch_after_exec_arch_x64arch(t: &mut RecordTask, patcher: &mut MonkeyPatcher
 }
 
 impl X64VsyscallMonkeypatch {
-    fn matchp(buffer: &[u8], syscall_number: &mut u32) -> bool {
+    pub fn matchp(buffer: &[u8], syscall_number: &mut u32) -> bool {
         if buffer[0] != X64_VSYSCALL_MONKEYPATCH_BYTES[0] {
             return false;
         }
@@ -771,16 +972,16 @@ impl X64VsyscallMonkeypatch {
         true
     }
 
-    fn substitute(buffer: &mut [u8], syscall_number: i32) {
+    pub fn substitute(buffer: &mut [u8], syscall_number: i32) {
         buffer[0] = X64_VSYSCALL_MONKEYPATCH_BYTES[0];
         buffer[1..1 + size_of::<i32>()].copy_from_slice(&syscall_number.to_le_bytes());
         buffer[Self::SYSCALL_NUMBER_END..Self::SIZE]
             .copy_from_slice(&X64_VSYSCALL_MONKEYPATCH_BYTES[Self::SYSCALL_NUMBER_END..Self::SIZE]);
     }
 
-    const SYSCALL_NUMBER_END: usize = 5;
+    pub const SYSCALL_NUMBER_END: usize = 5;
 
-    const SIZE: usize = X64_VSYSCALL_MONKEYPATCH_BYTES.len();
+    pub const SIZE: usize = X64_VSYSCALL_MONKEYPATCH_BYTES.len();
 }
 
 struct X64VsyscallMonkeypatch;
@@ -791,6 +992,40 @@ const X64_VSYSCALL_MONKEYPATCH_BYTES: [u8; 11] =
 struct ElfMap {
     map: &'static mut [u8],
 }
+
+struct X86VsyscallMonkeypatch;
+
+impl X86VsyscallMonkeypatch {
+    pub fn matchp(buffer: &[u8], syscall_number: &mut u32) -> bool {
+        if buffer[0..2] != X86_VSYSCALL_MONKEYPATCH_BYTES[0..2] {
+            return false;
+        }
+        *syscall_number = u32::from_le_bytes(buffer[2..2 + size_of::<u32>()].try_into().unwrap());
+        if buffer[Self::SYSCALL_NUMBER_END..Self::SIZE]
+            != X86_VSYSCALL_MONKEYPATCH_BYTES[Self::SYSCALL_NUMBER_END..Self::SIZE]
+        {
+            return false;
+        }
+
+        true
+    }
+
+    pub fn substitute(buffer: &mut [u8], syscall_number: i32) {
+        buffer[0..2].copy_from_slice(&X86_VSYSCALL_MONKEYPATCH_BYTES[0..2]);
+        buffer[2..Self::SYSCALL_NUMBER_END].copy_from_slice(&syscall_number.to_le_bytes());
+        buffer[Self::SYSCALL_NUMBER_END..Self::SIZE]
+            .copy_from_slice(&X86_VSYSCALL_MONKEYPATCH_BYTES[Self::SYSCALL_NUMBER_END..Self::SIZE]);
+    }
+
+    pub const SYSCALL_NUMBER_END: usize = 6;
+
+    pub const SIZE: usize = X86_VSYSCALL_MONKEYPATCH_BYTES.len();
+}
+
+const X86_VSYSCALL_MONKEYPATCH_BYTES: [u8; 21] = [
+    0x53, 0xb8, 0x0, 0x0, 0x0, 0x0, 0x8b, 0x5c, 0x24, 0x8, 0x8b, 0x4c, 0x24, 0xc, 0xcd, 0x80, 0x90,
+    0x90, 0x90, 0x5b, 0xc3,
+];
 
 impl ElfMap {
     fn new(fd: &ScopedFd) -> ElfMap {
