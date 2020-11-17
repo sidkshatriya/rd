@@ -2429,7 +2429,7 @@ fn setup_sigframe_siginfo_arch<Arch: Architecture>(t: &mut RecordTask, siginfo: 
         SupportedArch::X86 => {
             let sp = t.regs_ref().sp();
             let p = RemotePtr::<Arch::unsigned_word>::cast(sp) + 2usize;
-            dest = read_val_mem(t, RemotePtr::cast(p), None);
+            dest = RemotePtr::from(read_val_mem(t, p, None).try_into().unwrap());
         }
         SupportedArch::X64 => {
             dest = RemotePtr::new_from_val(t.regs_ref().si());
