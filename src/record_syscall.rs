@@ -3,8 +3,13 @@ use crate::{
     arch_structs::{
         self,
         __sysctl_args,
+        accept4_args,
+        accept_args,
         cmsg_align,
         cmsghdr,
+        connect_args,
+        getsockname_args,
+        getsockopt_args,
         ifconf,
         ifreq,
         iovec,
@@ -13,9 +18,16 @@ use crate::{
         mmsghdr,
         msghdr,
         pselect6_arg6,
+        recv_args,
+        recvfrom_args,
+        recvmmsg_args,
+        recvmsg_args,
         select_args,
+        sendmmsg_args,
+        sendmsg_args,
         sg_io_hdr,
         siginfo_t,
+        socketpair_args,
     },
     auto_remote_syscalls::{AutoRemoteSyscalls, MemParamsEnabled},
     bindings::{
@@ -75,6 +87,26 @@ use crate::{
             SIOCSIFPFLAGS,
             SIOCSIFTXQLEN,
             SUBCMDSHIFT,
+            SYS_ACCEPT,
+            SYS_ACCEPT4,
+            SYS_BIND,
+            SYS_CONNECT,
+            SYS_GETPEERNAME,
+            SYS_GETSOCKNAME,
+            SYS_GETSOCKOPT,
+            SYS_LISTEN,
+            SYS_RECV,
+            SYS_RECVFROM,
+            SYS_RECVMMSG,
+            SYS_RECVMSG,
+            SYS_SEND,
+            SYS_SENDMMSG,
+            SYS_SENDMSG,
+            SYS_SENDTO,
+            SYS_SETSOCKOPT,
+            SYS_SHUTDOWN,
+            SYS_SOCKET,
+            SYS_SOCKETPAIR,
             TCGETA,
             TCGETS,
             TIOCGETD,
@@ -6117,6 +6149,265 @@ fn prepare_shmctl<Arch: Architecture>(
 
         _SHM_INFO => {
             syscall_state.reg_parameter::<Arch::shm_info>(ptr_reg, None, None);
+        }
+
+        _ => {
+            syscall_state.expect_errno = EINVAL;
+        }
+    }
+
+    Switchable::PreventSwitch
+}
+
+fn prepare_socketcall<Arch: Architecture>(
+    t: &mut RecordTask,
+    syscall_state: &mut TaskSyscallState,
+) -> Switchable {
+    // int socketcall(int call, unsigned long *args) {
+    //   long a[6];
+    //   copy_from_user(a,args);
+    //   sys_recv(a0, (void __user *)a1, a[2], a[3]);
+    // }
+    //
+    // (from http://lxr.linux.no/#linux+v3.6.3/net/socket.c#L2354)
+    match t.regs_ref().arg1() as u32 {
+        // int socket(int domain, int type, int protocol);
+        // int bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen);
+        // int listen(int sockfd, int backlog)
+        // int shutdown(int socket, int how)
+        SYS_SOCKET | SYS_BIND | SYS_LISTEN | SYS_SHUTDOWN => (),
+
+        // int connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen);
+        SYS_CONNECT => {
+            let argsp =
+                syscall_state.reg_parameter::<connect_args<Arch>>(2, Some(ArgMode::In), None);
+            let args = read_val_mem(t, argsp, None);
+            return maybe_blacklist_connect::<Arch>(t, Arch::as_rptr(args.addr), args.addrlen);
+        }
+
+        // ssize_t send(int sockfd, const void *buf, usize len, int flags)
+        // ssize_t sendto(int sockfd, const void *buf, usize len, int flags, const struct sockaddr *dest_addr, socklen_t addrlen);
+        SYS_SEND | SYS_SENDTO => {
+            // These can block when socket buffers are full.
+            return Switchable::AllowSwitch;
+        }
+
+        // int setsockopt(int sockfd, int level, int optname, const void *optval, socklen_t optlen);
+        SYS_SETSOCKOPT => {
+            let argsp =
+                syscall_state.reg_parameter::<setsockopt_args<Arch>>(2, Some(ArgMode::In), None);
+            let args = read_val_mem(t, argsp, None);
+            return prepare_setsockopt::<Arch>(t, syscall_state, &args);
+        }
+
+        // int getsockopt(int sockfd, int level, int optname, const void *optval, socklen_t* optlen);
+        SYS_GETSOCKOPT => {
+            let argsp =
+                syscall_state.reg_parameter::<getsockopt_args<Arch>>(2, Some(ArgMode::In), None);
+            let optlen_ptr = syscall_state.mem_ptr_parameter_inferred::<Arch, common::socklen_t>(
+                t,
+                RemotePtr::cast(remote_ptr_field!(argsp, getsockopt_args<Arch>, optlen)),
+                Some(ArgMode::InOut),
+                None,
+            );
+            let param_size = ParamSize::from_initialized_mem(t, optlen_ptr);
+            syscall_state.mem_ptr_parameter_with_size(
+                t,
+                remote_ptr_field!(argsp, getsockopt_args<Arch>, optval),
+                param_size,
+                None,
+                None,
+            );
+        }
+
+        // int socketpair(int domain, int type, int protocol, int sv[2]);
+        //
+        // values returned in sv
+        SYS_SOCKETPAIR => {
+            let argsp =
+                syscall_state.reg_parameter::<socketpair_args<Arch>>(2, Some(ArgMode::In), None);
+            syscall_state.mem_ptr_parameter_with_size(
+                t,
+                remote_ptr_field!(argsp, socketpair_args<Arch>, sv),
+                ParamSize::from(size_of::<i32>() * 2),
+                None,
+                None,
+            );
+        }
+
+        // int getpeername(int sockfd, struct sockaddr *addr, socklen_t *addrlen);
+        // int getsockname(int sockfd, struct sockaddr *addr, socklen_t *addrlen);
+        SYS_GETPEERNAME | SYS_GETSOCKNAME => {
+            let argsp =
+                syscall_state.reg_parameter::<getsockname_args<Arch>>(2, Some(ArgMode::In), None);
+            let addrlen_ptr = syscall_state.mem_ptr_parameter_inferred::<Arch, common::socklen_t>(
+                t,
+                RemotePtr::cast(remote_ptr_field!(argsp, getsockname_args<Arch>, addrlen)),
+                Some(ArgMode::InOut),
+                None,
+            );
+            let param_size = ParamSize::from_initialized_mem(t, addrlen_ptr);
+            syscall_state.mem_ptr_parameter_with_size(
+                t,
+                remote_ptr_field!(argsp, getsockname_args<Arch>, addr),
+                param_size,
+                None,
+                None,
+            );
+        }
+
+        // ssize_t recv([int sockfd, void *buf, usize len, int flags])
+        SYS_RECV => {
+            let argsp = syscall_state.reg_parameter::<recv_args<Arch>>(2, Some(ArgMode::In), None);
+            let args = read_val_mem(t, argsp, None);
+            syscall_state.mem_ptr_parameter_with_size(
+                t,
+                remote_ptr_field!(argsp, recv_args<Arch>, buf),
+                ParamSize::from_syscall_result_with_size::<Arch::ssize_t>(Arch::size_t_as_usize(
+                    args.len,
+                )),
+                None,
+                None,
+            );
+            return Switchable::AllowSwitch;
+        }
+
+        // int accept([int sockfd, struct sockaddr *addr, socklen_t *addrlen])
+        SYS_ACCEPT => {
+            let argsp =
+                syscall_state.reg_parameter::<accept_args<Arch>>(2, Some(ArgMode::In), None);
+            let addrlen_ptr = syscall_state.mem_ptr_parameter_inferred::<Arch, common::socklen_t>(
+                t,
+                RemotePtr::cast(remote_ptr_field!(argsp, accept_args<Arch>, addrlen)),
+                Some(ArgMode::InOut),
+                None,
+            );
+            let param_size = ParamSize::from_initialized_mem(t, addrlen_ptr);
+            syscall_state.mem_ptr_parameter_with_size(
+                t,
+                remote_ptr_field!(argsp, accept_args<Arch>, addr),
+                param_size,
+                None,
+                None,
+            );
+
+            return Switchable::AllowSwitch;
+        }
+
+        // int accept4([int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags])
+        SYS_ACCEPT4 => {
+            let argsp =
+                syscall_state.reg_parameter::<accept4_args<Arch>>(2, Some(ArgMode::In), None);
+            let addrlen_ptr = syscall_state.mem_ptr_parameter_inferred::<Arch, common::socklen_t>(
+                t,
+                RemotePtr::cast(remote_ptr_field!(argsp, accept4_args<Arch>, addrlen)),
+                Some(ArgMode::InOut),
+                None,
+            );
+            let param_size = ParamSize::from_initialized_mem(t, addrlen_ptr);
+            syscall_state.mem_ptr_parameter_with_size(
+                t,
+                remote_ptr_field!(argsp, accept4_args<Arch>, addr),
+                param_size,
+                None,
+                None,
+            );
+            return Switchable::AllowSwitch;
+        }
+
+        SYS_RECVFROM => {
+            let argsp =
+                syscall_state.reg_parameter::<recvfrom_args<Arch>>(2, Some(ArgMode::In), None);
+            let args = read_val_mem(t, argsp, None);
+            syscall_state.mem_ptr_parameter_with_size(
+                t,
+                remote_ptr_field!(argsp, recvfrom_args<Arch>, buf),
+                ParamSize::from_syscall_result_with_size::<Arch::ssize_t>(Arch::size_t_as_usize(
+                    args.len,
+                )),
+                None,
+                None,
+            );
+            let addrlen_ptr = syscall_state.mem_ptr_parameter_inferred::<Arch, common::socklen_t>(
+                t,
+                RemotePtr::cast(remote_ptr_field!(argsp, recvfrom_args<Arch>, addrlen)),
+                Some(ArgMode::InOut),
+                None,
+            );
+            let param_size = ParamSize::from_initialized_mem(t, addrlen_ptr);
+            syscall_state.mem_ptr_parameter_with_size(
+                t,
+                remote_ptr_field!(argsp, recvfrom_args<Arch>, src_addr),
+                param_size,
+                None,
+                None,
+            );
+            return Switchable::AllowSwitch;
+        }
+
+        SYS_RECVMSG => {
+            let argsp =
+                syscall_state.reg_parameter::<recvmsg_args<Arch>>(2, Some(ArgMode::In), None);
+            let msgp = syscall_state.mem_ptr_parameter_inferred::<Arch, msghdr<Arch>>(
+                t,
+                RemotePtr::cast(remote_ptr_field!(argsp, recvmsg_args<Arch>, msg)),
+                Some(ArgMode::InOut),
+                None,
+            );
+            prepare_recvmsg::<Arch>(
+                t,
+                syscall_state,
+                msgp,
+                ParamSize::from_syscall_result::<Arch::ssize_t>(),
+            );
+
+            let args = read_val_mem(t, argsp, None);
+            if args.flags & MSG_DONTWAIT == 0 {
+                return Switchable::AllowSwitch;
+            }
+        }
+
+        SYS_RECVMMSG => {
+            let argsp =
+                syscall_state.reg_parameter::<recvmmsg_args<Arch>>(2, Some(ArgMode::In), None);
+            let args = read_val_mem(t, argsp, None);
+            let mmsgp_void: RemotePtr<Void> = syscall_state.mem_ptr_parameter_with_size(
+                t,
+                remote_ptr_field!(argsp, recvmmsg_args<Arch>, msgvec),
+                ParamSize::from(size_of::<mmsghdr<Arch>>() * args.vlen as usize),
+                Some(ArgMode::InOut),
+                None,
+            );
+            let mmsgp = RemotePtr::<mmsghdr<Arch>>::cast(mmsgp_void);
+            prepare_recvmmsg::<Arch>(t, syscall_state, mmsgp, args.vlen as usize);
+            if args.flags as i32 & MSG_DONTWAIT == 0 {
+                return Switchable::AllowSwitch;
+            }
+        }
+
+        // ssize_t sendmsg(int sockfd, const struct msghdr *msg, int flags)
+        SYS_SENDMSG => {
+            let argsp = RemotePtr::<sendmsg_args<Arch>>::from(t.regs_ref().arg2());
+            let args = read_val_mem(t, argsp, None);
+            if args.flags & MSG_DONTWAIT == 0 {
+                return Switchable::AllowSwitch;
+            }
+        }
+
+        SYS_SENDMMSG => {
+            let argsp =
+                syscall_state.reg_parameter::<sendmmsg_args<Arch>>(2, Some(ArgMode::In), None);
+            let args = read_val_mem(t, argsp, None);
+            syscall_state.mem_ptr_parameter_with_size(
+                t,
+                remote_ptr_field!(argsp, sendmmsg_args<Arch>, msgvec),
+                ParamSize::from(size_of::<mmsghdr<Arch>>() * args.vlen as usize),
+                Some(ArgMode::InOut),
+                None,
+            );
+            if args.flags as i32 & MSG_DONTWAIT == 0 {
+                return Switchable::AllowSwitch;
+            }
         }
 
         _ => {

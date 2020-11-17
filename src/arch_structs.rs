@@ -787,3 +787,108 @@ pub struct dirent64 {
 
 assert_eq_size!(kernel::dirent64, dirent64);
 assert_eq_align!(kernel::dirent64, dirent64);
+
+#[repr(C)]
+pub struct connect_args<Arch: Architecture> {
+    pub sockfd: Arch::signed_long,
+    pub addr: Ptr<Arch::unsigned_word, u8>,
+    pub addrlen: common::socklen_t,
+}
+
+#[repr(C)]
+pub struct getsockopt_args<Arch: Architecture> {
+    pub sockfd: i32,
+    pub level: i32,
+    pub optname: i32,
+    pub __pad: Arch::STD_PAD_ARR,
+    pub optval: Ptr<Arch::unsigned_word, u8>,
+    pub optlen: Ptr<Arch::unsigned_word, common::socklen_t>,
+}
+
+#[repr(C)]
+pub struct socketpair_args<Arch: Architecture> {
+    pub domain: i32,
+    pub type_: i32,
+    pub protocol: i32,
+    pub __pad: Arch::STD_PAD_ARR,
+    pub sv: Ptr<Arch::unsigned_word, i32>, // int sv[2]
+}
+
+#[repr(C)]
+pub struct getsockname_args<Arch: Architecture> {
+    pub sockfd: i32,
+    pub __pad: Arch::STD_PAD_ARR,
+    pub addr: Ptr<Arch::unsigned_word, sockaddr<Arch>>,
+    pub addrlen: Ptr<Arch::unsigned_word, common::socklen_t>,
+}
+
+#[repr(C)]
+pub struct recv_args<Arch: Architecture> {
+    pub sockfd: i32,
+    pub __pad: Arch::STD_PAD_ARR,
+    pub buf: Ptr<Arch::unsigned_word, u8>,
+    pub len: Arch::size_t,
+    pub flags: i32,
+}
+
+#[repr(C)]
+pub struct recvfrom_args<Arch: Architecture> {
+    pub sockfd: Arch::signed_long,
+    pub buf: Ptr<Arch::unsigned_word, u8>,
+    pub len: Arch::size_t,
+    pub flags: Arch::signed_long,
+    pub src_addr: Ptr<Arch::unsigned_word, sockaddr<Arch>>,
+    pub addrlen: Ptr<Arch::unsigned_word, common::socklen_t>,
+}
+
+#[repr(C)]
+pub struct accept_args<Arch: Architecture> {
+    pub sockfd: i32,
+    pub __pad: Arch::STD_PAD_ARR,
+    pub addr: Ptr<Arch::unsigned_word, sockaddr<Arch>>,
+    pub addrlen: Ptr<Arch::unsigned_word, common::socklen_t>,
+}
+
+#[repr(C)]
+pub struct accept4_args<Arch: Architecture> {
+    pub sockfd: i32,
+    pub __pad: Arch::STD_PAD_ARR,
+    pub addr: Ptr<Arch::unsigned_word, sockaddr<Arch>>,
+    pub addrlen: Ptr<Arch::unsigned_word, common::socklen_t>,
+    pub flags: Arch::signed_long,
+}
+
+#[repr(C)]
+pub struct sendmsg_args<Arch: Architecture> {
+    pub fd: i32,
+    pub __pad: Arch::STD_PAD_ARR,
+    pub msg: Ptr<Arch::unsigned_word, msghdr<Arch>>,
+    pub flags: i32,
+}
+
+#[repr(C)]
+pub struct sendmmsg_args<Arch: Architecture> {
+    pub sockfd: i32,
+    pub __pad: Arch::STD_PAD_ARR,
+    pub msgvec: Ptr<Arch::unsigned_word, mmsghdr<Arch>>,
+    pub vlen: u32,
+    pub flags: u32,
+}
+
+#[repr(C)]
+pub struct recvmsg_args<Arch: Architecture> {
+    pub fd: i32,
+    pub __pad: Arch::STD_PAD_ARR,
+    pub msg: Ptr<Arch::unsigned_word, msghdr<Arch>>,
+    pub flags: i32,
+}
+
+#[repr(C)]
+pub struct recvmmsg_args<Arch: Architecture> {
+    pub sockfd: i32,
+    pub __pad: Arch::STD_PAD_ARR,
+    pub msgvec: Ptr<Arch::unsigned_word, mmsghdr<Arch>>,
+    pub vlen: u32,
+    pub flags: u32,
+    pub timeout: Ptr<Arch::unsigned_word, Arch::timespec>,
+}
