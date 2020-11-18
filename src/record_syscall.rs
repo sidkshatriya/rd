@@ -1948,6 +1948,10 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         return prepare_shmctl::<Arch>(&mut syscall_state, regs.arg2_signed() as i32, 3);
     }
 
+    if sys == Arch::SOCKETCALL {
+        return prepare_socketcall::<Arch>(t, &mut syscall_state);
+    }
+
     // For debugging. Remove later
     ed_assert!(
         t,
@@ -2574,7 +2578,37 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
     }
 
     if sys == Arch::SOCKETCALL {
-        unimplemented!()
+        // restore possibly-modified regs
+        let mut r: Registers = t.regs_ref().clone();
+        if r.original_syscallno() == Arch::GETTID as isize {
+            // `connect` was suppressed
+            r.set_syscall_result_signed(-EACCES as isize);
+        }
+        r.set_arg1(syscall_state.syscall_entry_registers.arg1());
+        r.set_original_syscallno(syscall_state.syscall_entry_registers.original_syscallno());
+        t.set_regs(&r);
+
+        if !t.regs_ref().syscall_failed() {
+            match t.regs_ref().arg1() as u32 {
+                SYS_RECVMSG => {
+                    let child_addr = RemotePtr::<recvmsg_args<Arch>>::from(t.regs_ref().arg2());
+                    let args = read_val_mem(t, child_addr, None);
+                    let msg = read_val_mem(t, Arch::as_rptr(args.msg), None);
+                    check_scm_rights_fd::<Arch>(t, &msg);
+                }
+                SYS_RECVMMSG => {
+                    let child_addr = RemotePtr::<recvmmsg_args<Arch>>::from(t.regs_ref().arg2());
+                    let args = read_val_mem(t, child_addr, None);
+                    let msg_count = t.regs_ref().syscall_result_signed() as u32 as usize;
+                    let msgs = read_mem(t, Arch::as_rptr(args.msgvec), msg_count, None);
+                    for m in msgs {
+                        check_scm_rights_fd::<Arch>(t, &m.msg_hdr);
+                    }
+                }
+                // @TODO Is this what we want?
+                _ => (),
+            }
+        }
     }
 
     if sys == Arch::PROCESS_VM_READV {
