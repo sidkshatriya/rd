@@ -2868,7 +2868,7 @@ fn inject_ld_helper_library(env: &mut Vec<(OsString, OsString)>, name: &OsStr, v
             let mut new_value = Vec::new();
             new_value.extend_from_slice(&val);
             new_value.push(b':');
-            new_value.extend_from_slice(&val);
+            new_value.extend_from_slice(curr_value.as_bytes());
             curr_value.clear();
             curr_value.push(OsStr::from_bytes(&new_value));
             found = true;
