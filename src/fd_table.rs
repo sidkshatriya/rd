@@ -67,7 +67,7 @@ impl FdTable {
     }
 
     /// DIFF NOTE: @TODO Changed this from u64 to usize
-    pub fn emulate_ioctl(&self, fd: i32, t: &RecordTask, result: &mut usize) -> bool {
+    pub fn emulate_ioctl(&self, fd: i32, t: &mut RecordTask, result: &mut usize) -> bool {
         match self.fds.get(&fd) {
             Some(f) => f.borrow_mut().emulate_ioctl(t, result),
             None => false,
@@ -75,7 +75,7 @@ impl FdTable {
     }
 
     /// DIFF NOTE: @TODO Changed this from u64 to usize
-    pub fn emulate_fcntl(&self, fd: i32, t: &RecordTask, result: &mut usize) -> bool {
+    pub fn emulate_fcntl(&mut self, fd: i32, t: &mut RecordTask, result: &mut usize) -> bool {
         match self.fds.get(&fd) {
             Some(f) => f.borrow_mut().emulate_fcntl(t, result),
             None => false,
@@ -87,7 +87,7 @@ impl FdTable {
         &self,
         fd: i32,
         ranges: &[Range],
-        offset: &LazyOffset,
+        offset: &mut LazyOffset,
         result: &mut usize,
     ) -> bool {
         match self.fds.get(&fd) {

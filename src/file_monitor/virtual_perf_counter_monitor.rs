@@ -1,5 +1,15 @@
 use crate::{
-    bindings::{perf_event::perf_event_attr, signal::siginfo_t},
+    bindings::{
+        fcntl::{f_owner_ex, F_OWNER_TID, F_SETFL, F_SETOWN_EX, F_SETSIG},
+        perf_event::{
+            perf_event_attr,
+            PERF_EVENT_IOC_DISABLE,
+            PERF_EVENT_IOC_ENABLE,
+            PERF_EVENT_IOC_PERIOD,
+            PERF_EVENT_IOC_RESET,
+        },
+        signal::siginfo_t,
+    },
     file_monitor::{
         FileMonitor,
         FileMonitorSharedPtr,
@@ -9,15 +19,17 @@ use crate::{
         Range,
     },
     perf_counters::PerfCounters,
+    remote_ptr::RemotePtr,
     session::{
-        task::{record_task::RecordTask, Task},
+        task::{record_task::RecordTask, task_common::read_val_mem, task_inner::WriteFlags, Task},
         SessionSharedWeakPtr,
     },
     sig::Sig,
     taskish_uid::TaskUid,
     ticks::Ticks,
 };
-use libc::pid_t;
+use libc::{pid_t, EINVAL, O_ASYNC};
+use std::{cmp::min, convert::TryFrom};
 
 const VIRTUAL_PERF_COUNTER_SIGNAL_SI_ERRNO: i32 = -1337;
 
@@ -128,15 +140,131 @@ impl FileMonitor for VirtualPerfCounterMonitor {
         FileMonitorType::VirtualPerfCounter
     }
 
-    fn emulate_ioctl(&mut self, _t: &RecordTask, _r: &mut usize) -> bool {
-        unimplemented!()
+    fn emulate_ioctl(&mut self, t: &mut RecordTask, result: &mut usize) -> bool {
+        match t.regs_ref().arg2() as _ {
+            PERF_EVENT_IOC_ENABLE => {
+                *result = 0;
+                self.enabled = true;
+            }
+            PERF_EVENT_IOC_DISABLE => {
+                *result = 0;
+                self.enabled = false;
+            }
+            PERF_EVENT_IOC_RESET => {
+                *result = 0;
+                let target_tid = self.target_tuid().tid();
+                if target_tid == t.tid {
+                    self.initial_ticks = t.tick_count();
+                } else {
+                    let target = t.session().find_task_from_rec_tid(target_tid).unwrap();
+                    self.initial_ticks = target.borrow().tick_count();
+                }
+            }
+            PERF_EVENT_IOC_PERIOD => {
+                *result = 0;
+                let child_addr = RemotePtr::<u64>::from(t.regs_ref().arg3());
+                let after = read_val_mem(t, child_addr, None);
+                self.maybe_enable_interrupt(t, after);
+            }
+            _ => {
+                ed_assert!(
+                    t,
+                    false,
+                    "Unsupported perf event ioctl {:#x}",
+                    t.regs_ref().arg2() as u32
+                );
+            }
+        }
+
+        true
     }
 
-    fn emulate_fcntl(&self, _t: &RecordTask, _r: &mut usize) -> bool {
-        unimplemented!()
+    fn emulate_fcntl(&mut self, t: &mut RecordTask, result: &mut usize) -> bool {
+        *result = (-EINVAL as isize) as usize;
+        match t.regs_ref().arg2() as u32 {
+            F_SETOWN_EX => {
+                let child_addr = RemotePtr::<f_owner_ex>::from(t.regs_ref().arg3());
+                let owner = read_val_mem(t, child_addr, None);
+                ed_assert_eq!(
+                    t,
+                    owner.type_,
+                    F_OWNER_TID,
+                    "Unsupported perf event F_SETOWN_EX type {}",
+                    owner.type_
+                );
+                ed_assert_eq!(
+                    t,
+                    owner.pid,
+                    self.target_tuid().tid(),
+                    "Perf event F_SETOWN_EX is only supported to the target tid"
+                );
+                self.owner_tid = owner.pid;
+                *result = 0;
+            }
+            F_SETFL => {
+                ed_assert_eq!(
+                    t,
+                    t.regs_ref().arg3() as i32 & !O_ASYNC,
+                    0,
+                    "Unsupported perf event flags {}",
+                    t.regs_ref().arg3() as i32
+                );
+                self.flags = t.regs_ref().arg3() as i32;
+                *result = 0;
+            }
+            F_SETSIG => {
+                self.sig = Sig::try_from(t.regs_ref().arg3() as i32).ok();
+                *result = 0;
+            }
+            _ => {
+                ed_assert!(
+                    t,
+                    false,
+                    "Unsupported perf event fnctl {}",
+                    t.regs_ref().arg2() as i32
+                );
+            }
+        }
+        true
     }
 
-    fn emulate_read(&self, _vr: &[Range], _o: &LazyOffset, _l: &mut usize) -> bool {
-        unimplemented!()
+    fn emulate_read(
+        &self,
+        ranges: &[Range],
+        lazy_offset: &mut LazyOffset,
+        result: &mut usize,
+    ) -> bool {
+        let maybe_target = lazy_offset
+            .t
+            .session()
+            .find_task_from_task_uid(self.target_tuid());
+        match maybe_target {
+            Some(target) => {
+                let val = if lazy_offset.t.tid == self.target_tuid().tid() {
+                    lazy_offset.t.tick_count() - self.initial_ticks
+                } else {
+                    target.borrow().tick_count() - self.initial_ticks
+                };
+                *result = write_ranges(lazy_offset.t, ranges, &val.to_le_bytes());
+            }
+            None => {
+                *result = 0;
+            }
+        }
+
+        true
     }
+}
+
+fn write_ranges(t: &mut dyn Task, ranges: &[Range], p: &[u8]) -> usize {
+    let mut s: usize = p.len();
+    let mut result: usize = 0;
+    for r in ranges {
+        let bytes = min(s, r.length);
+        t.write_bytes_helper(r.data, &p[0..bytes], None, WriteFlags::empty());
+        s -= bytes;
+        result += bytes;
+    }
+
+    result
 }

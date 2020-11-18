@@ -222,14 +222,14 @@ pub trait FileMonitor {
     /// Return true if the ioctl should be fully emulated. If so the result
     /// is stored in the last parameter.
     /// Only called during recording.
-    fn emulate_ioctl(&mut self, _t: &RecordTask, _r: &mut usize) -> bool {
+    fn emulate_ioctl(&mut self, _t: &mut RecordTask, _r: &mut usize) -> bool {
         false
     }
 
     /// Return true if the fcntl should should be fully emulated. If so the
     /// result is stored in the last parameter.
     /// Only called during recording.
-    fn emulate_fcntl(&self, _t: &RecordTask, _r: &mut usize) -> bool {
+    fn emulate_fcntl(&mut self, _t: &mut RecordTask, _r: &mut usize) -> bool {
         false
     }
 
@@ -240,7 +240,7 @@ pub trait FileMonitor {
     ///
     /// DIFF NOTE: - param `l` is a usize instead of a u64
     ///            - We don't need task as that is already there in LazyOffset
-    fn emulate_read(&self, _vr: &[Range], _o: &LazyOffset, _l: &mut usize) -> bool {
+    fn emulate_read(&self, _vr: &[Range], _o: &mut LazyOffset, _l: &mut usize) -> bool {
         false
     }
 

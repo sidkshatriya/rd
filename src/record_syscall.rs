@@ -126,6 +126,7 @@ use crate::{
             _SNDRV_CTL_IOCTL_PVERSION,
         },
         packet::{PACKET_RX_RING, PACKET_TX_RING},
+        perf_event::perf_event_attr,
         personality::{PER_LINUX, PER_LINUX32},
         prctl::{
             ARCH_GET_CPUID,
@@ -230,6 +231,7 @@ use crate::{
         proc_fd_dir_monitor::ProcFdDirMonitor,
         proc_mem_monitor::ProcMemMonitor,
         stdio_monitor::StdioMonitor,
+        virtual_perf_counter_monitor::VirtualPerfCounterMonitor,
         FileMonitor,
         LazyOffset,
     },
@@ -887,13 +889,13 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
             RemotePtr::from(regs.arg2()),
             regs.arg3(),
         ));
-        let offset = LazyOffset::new(t, regs, sys);
-        if offset
-            .task()
-            .fd_table_shr_ptr()
-            .borrow()
-            .emulate_read(fd, &ranges, &offset, &mut result)
-        {
+        let mut offset = LazyOffset::new(t, regs, sys);
+        if offset.task().fd_table_shr_ptr().borrow().emulate_read(
+            fd,
+            &ranges,
+            &mut offset,
+            &mut result,
+        ) {
             // Don't perform this syscall.
             let mut r: Registers = regs.clone();
             r.set_arg1_signed(-1);
@@ -944,7 +946,10 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
     if sys == Arch::FCNTL || sys == Arch::FCNTL64 {
         let fd = regs.arg1() as i32;
         let mut result: usize = 0;
-        if t.fd_table().emulate_fcntl(fd, t, &mut result) {
+        if t.fd_table_shr_ptr()
+            .borrow_mut()
+            .emulate_fcntl(fd, t, &mut result)
+        {
             // Don't perform this syscall.
             let mut r: Registers = regs.clone();
             r.set_arg1_signed(-1);
@@ -1952,6 +1957,25 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         return prepare_socketcall::<Arch>(t, &mut syscall_state);
     }
 
+    if sys == Arch::PERF_EVENT_OPEN {
+        let tid: pid_t = regs.arg2_signed() as pid_t;
+        let target = t.session().find_task_from_rec_tid(tid);
+        let cpu = regs.arg3_signed() as i32;
+        let flags = regs.arg5();
+        if target.is_some() && cpu == -1 && flags == 0 {
+            let attr = read_val_mem(t, RemotePtr::<perf_event_attr>::from(regs.arg1()), None);
+            if VirtualPerfCounterMonitor::should_virtualize(&attr) {
+                let mut r = regs.clone();
+                // Turn this into an inotify_init() syscall. This just gives us an
+                // allocated fd. Syscalls using this fd will be emulated (except for
+                // close()).
+                r.set_original_syscallno(Arch::INOTIFY_INIT as isize);
+                t.set_regs(&r);
+            }
+        }
+        return Switchable::PreventSwitch;
+    }
+
     // For debugging. Remove later
     ed_assert!(
         t,
@@ -2503,7 +2527,32 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
     }
 
     if sys == Arch::PERF_EVENT_OPEN {
-        unimplemented!()
+        if t.regs_ref().original_syscallno() == Arch::INOTIFY_INIT as isize {
+            ed_assert!(t, !t.regs_ref().syscall_failed());
+            let fd = t.regs_ref().syscall_result_signed() as i32;
+            let mut r: Registers = t.regs_ref().clone();
+            r.set_original_syscallno(syscall_state.syscall_entry_registers.original_syscallno());
+            t.set_regs(&r);
+            let child_addr = RemotePtr::<perf_event_attr>::from(t.regs_ref().arg1());
+            let attr = read_val_mem(t, child_addr, None);
+            let tid = t.regs_ref().arg2_signed() as pid_t;
+            let monitor = if t.tid != tid {
+                Box::new(VirtualPerfCounterMonitor::new(
+                    t,
+                    t.session()
+                        .find_task_from_rec_tid(tid)
+                        .unwrap()
+                        .borrow()
+                        .as_ref(),
+                    &attr,
+                ))
+            } else {
+                Box::new(VirtualPerfCounterMonitor::new(t, t, &attr))
+            };
+            t.fd_table_shr_ptr()
+                .borrow_mut()
+                .add_monitor(t, fd, monitor);
+        }
     }
 
     if sys == Arch::CONNECT {
@@ -4587,7 +4636,10 @@ fn prepare_ioctl<Arch: Architecture>(
 ) -> Switchable {
     let fd = t.regs_ref().arg1() as i32;
     let mut result: usize = 0;
-    if t.fd_table().emulate_ioctl(fd, t, &mut result) {
+    if t.fd_table_shr_ptr()
+        .borrow_mut()
+        .emulate_ioctl(fd, t, &mut result)
+    {
         // Don't perform this syscall.
         let mut r: Registers = t.regs_ref().clone();
         r.set_arg1_signed(-1);
