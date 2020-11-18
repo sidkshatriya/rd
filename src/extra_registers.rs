@@ -328,9 +328,8 @@ impl ExtraRegisters {
                 }
 
                 let result = convert_fxsave_to_x86_fpregs(&regs);
-                let l = std::mem::size_of::<x64::user_fpregs_struct>();
+                let l = std::mem::size_of::<x86::user_fpregs_struct>();
                 let mut new_vec: Vec<u8> = Vec::with_capacity(l);
-                // @TODO This could be made more efficient by avoiding resize and simply using set_len?
                 new_vec.resize(l, 0);
                 unsafe {
                     copy_nonoverlapping(&raw const result as *const u8, new_vec.as_mut_ptr(), l);
