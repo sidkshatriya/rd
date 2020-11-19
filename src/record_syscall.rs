@@ -6095,6 +6095,7 @@ fn prepare_ptrace<Arch: Architecture>(
                                     syscall_state.emulate_result_signed(-EFAULT as isize);
                                 } else {
                                     t.record_local_for(remote_addr, &desc);
+                                    syscall_state.emulate_result_signed(0);
                                 }
                             } else {
                                 syscall_state.emulate_result_signed(ret as isize);
