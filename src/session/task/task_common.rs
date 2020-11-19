@@ -1141,7 +1141,7 @@ fn os_fork_into(t: &mut dyn Task, session: SessionSharedPtr) -> TaskSharedPtr {
     child
 }
 
-fn on_syscall_exit_arch<Arch: Architecture>(t: &mut dyn Task, sys: i32, regs: &Registers) {
+fn on_syscall_exit_common_arch<Arch: Architecture>(t: &mut dyn Task, sys: i32, regs: &Registers) {
     t.session().accumulate_syscall_performed();
 
     if regs.original_syscallno() == SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO {
@@ -1353,7 +1353,7 @@ fn on_syscall_exit_arch<Arch: Architecture>(t: &mut dyn Task, sys: i32, regs: &R
 ///
 /// Call this hook just before exiting a syscall.  Often Task
 /// attributes need to be updated based on the finishing syscall.
-/// Use 'regs' instead of this->regs() because some registers may not be
+/// Use 'regs' instead of t.regs_ref() because some registers may not be
 /// set properly in the task yet.
 pub(super) fn on_syscall_exit_common(
     t: &mut dyn Task,
@@ -1362,7 +1362,7 @@ pub(super) fn on_syscall_exit_common(
     regs: &Registers,
 ) {
     with_converted_registers(regs, arch, |regs| {
-        rd_arch_function_selfless!(on_syscall_exit_arch, arch, t, syscallno, regs);
+        rd_arch_function_selfless!(on_syscall_exit_common_arch, arch, t, syscallno, regs);
     })
 }
 
@@ -2005,7 +2005,8 @@ pub(super) fn task_drop_common<T: Task>(t: &T) {
 
 /// Forwarded method definition
 ///
-pub(super) fn set_thread_area<T: Task>(t: &mut T, tls: RemotePtr<user_desc>) {
+pub(super) fn set_thread_area_common<T: Task>(t: &mut T, tls: RemotePtr<user_desc>) {
+    // We rely on the fact that user_desc is word-size-independent.
     let desc: user_desc = read_val_mem(t, tls, None);
     set_thread_area_core(&mut t.thread_areas_, desc)
 }

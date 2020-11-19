@@ -47,7 +47,7 @@ use crate::{
                 read_bytes_helper_common,
                 read_c_str_common,
                 resume_execution,
-                set_thread_area,
+                set_thread_area_common,
                 stored_record_size,
                 syscallbuf_data_size,
                 write_bytes_common,
@@ -613,7 +613,7 @@ impl Task for ReplayTask {
 
     // Forwarded method
     fn set_thread_area(&mut self, tls: RemotePtr<user_desc>) {
-        set_thread_area(self, tls)
+        set_thread_area_common(self, tls)
     }
 
     /// Forwarded method
