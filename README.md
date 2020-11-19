@@ -70,7 +70,6 @@ The following work:
   * Some system calls are still unsupported
   * In general the recording functionality is still incomplete but substantial progress has been made and this feature is ready to experiment with
 * `rd buildid`
-* `rd cpufeatures`
 * `rd dump`
 * `rd traceinfo`
 
