@@ -234,6 +234,7 @@ use crate::{
         virtual_perf_counter_monitor::VirtualPerfCounterMonitor,
         FileMonitor,
         LazyOffset,
+        Range,
     },
     kernel_abi::{
         common,
@@ -1974,6 +1975,56 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
             }
         }
         return Switchable::PreventSwitch;
+    }
+
+    // ssize_t readv(int fd, const struct iovec *iov, int iovcnt);
+    // ssize_t preadv(int fd, const struct iovec *iov, int iovcnt, off_t offset);
+    if sys == Arch::READV || sys == Arch::PREADV {
+        let fd = regs.arg1_signed() as i32;
+        let iovcnt = regs.arg3() as u32 as usize;
+        let iovecsp_void = syscall_state.reg_parameter_with_size(
+            2,
+            ParamSize::from(size_of::<iovec<Arch>>() * iovcnt),
+            Some(ArgMode::In),
+            None,
+        );
+        let iovecsp = RemotePtr::<iovec<Arch>>::cast(iovecsp_void);
+        let iovecs = read_mem(t, iovecsp, iovcnt, None);
+        let mut result: usize = 0;
+        let mut ranges = Vec::<Range>::new();
+        for i in 0..iovcnt {
+            ranges.push(Range::new(
+                Arch::as_rptr(iovecs[i].iov_base),
+                Arch::size_t_as_usize(iovecs[i].iov_len),
+            ));
+        }
+        let mut offset = LazyOffset::new(t, regs, sys);
+        if offset.task().fd_table_shr_ptr().borrow().emulate_read(
+            fd,
+            &ranges,
+            &mut offset,
+            &mut result,
+        ) {
+            // Don't perform this syscall.
+            let mut r: Registers = regs.clone();
+            r.set_arg1_signed(-1);
+            t.set_regs(&r);
+            record_ranges(t, &ranges, result);
+            syscall_state.emulate_result(result);
+            return Switchable::PreventSwitch;
+        }
+        let io_size = ParamSize::from_syscall_result::<Arch::ssize_t>();
+        for i in 0..iovcnt {
+            syscall_state.mem_ptr_parameter_with_size(
+                t,
+                remote_ptr_field!(iovecsp + i, iovec<Arch>, iov_base),
+                ParamSize::from(io_size.limit_size(Arch::size_t_as_usize(iovecs[i].iov_len))),
+                None,
+                None,
+            );
+        }
+
+        return Switchable::AllowSwitch;
     }
 
     // For debugging. Remove later
