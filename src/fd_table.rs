@@ -13,35 +13,33 @@ use crate::{
 };
 use nix::sys::stat::lstat;
 use std::{
-    cell::{Ref, RefCell, RefMut},
+    cell::{Cell, Ref, RefCell, RefMut},
     collections::{HashMap, HashSet},
     rc::{Rc, Weak},
 };
 
-pub type FdTableRef<'a> = Ref<'a, FdTable>;
-pub type FdTableRefMut<'a> = RefMut<'a, FdTable>;
-pub type FdTableSharedPtr = Rc<RefCell<FdTable>>;
-pub type FdTableSharedWeakPtr = Weak<RefCell<FdTable>>;
+pub type FdTableSharedPtr = Rc<FdTable>;
+pub type FdTableSharedWeakPtr = Weak<FdTable>;
 
 #[derive(Clone)]
 pub struct FdTable {
-    tasks: WeakPtrSet<Box<dyn Task>>,
-    fds: HashMap<i32, FileMonitorSharedPtr>,
+    tasks: RefCell<WeakPtrSet<Box<dyn Task>>>,
+    fds: RefCell<HashMap<i32, FileMonitorSharedPtr>>,
     /// Number of elements of `fds` that are >= SYSCALLBUF_FDS_DISABLED_SIZE
-    fd_count_beyond_limit: u32,
+    fd_count_beyond_limit: Cell<u32>,
 }
 
 /// We DO NOT want Copy or Clone traits
 impl FdTable {
-    pub fn task_set(&self) -> &WeakPtrSet<Box<dyn Task>> {
-        &self.tasks
+    pub fn task_set(&self) -> Ref<'_, WeakPtrSet<Box<dyn Task>>> {
+        self.tasks.borrow()
     }
 
-    pub fn task_set_mut(&mut self) -> &mut WeakPtrSet<Box<dyn Task>> {
-        &mut self.tasks
+    pub fn task_set_mut(&self) -> RefMut<'_, WeakPtrSet<Box<dyn Task>>> {
+        self.tasks.borrow_mut()
     }
 
-    pub fn add_monitor(&mut self, t: &mut dyn Task, fd: i32, monitor: Box<dyn FileMonitor>) {
+    pub fn add_monitor(&self, t: &mut dyn Task, fd: i32, monitor: Box<dyn FileMonitor>) {
         // In the future we could support multiple monitors on an fd, but we don't
         // need to yet.
         ed_assert!(
@@ -51,8 +49,9 @@ impl FdTable {
             t.rec_tid,
             fd
         );
-        if fd >= SYSCALLBUF_FDS_DISABLED_SIZE && !self.fds.contains_key(&fd) {
-            self.fd_count_beyond_limit += 1;
+        if fd >= SYSCALLBUF_FDS_DISABLED_SIZE && !self.fds.borrow().contains_key(&fd) {
+            self.fd_count_beyond_limit
+                .set(self.fd_count_beyond_limit.get() + 1);
         }
 
         let rc = Rc::new(RefCell::new(monitor));
@@ -62,21 +61,21 @@ impl FdTable {
             Some(v) => v.weak_self = weak,
         }
 
-        self.fds.insert(fd, rc);
+        self.fds.borrow_mut().insert(fd, rc);
         self.update_syscallbuf_fds_disabled(fd, t);
     }
 
     /// DIFF NOTE: @TODO Changed this from u64 to usize
     pub fn emulate_ioctl(&self, fd: i32, t: &mut RecordTask, result: &mut usize) -> bool {
-        match self.fds.get(&fd) {
+        match self.fds.borrow().get(&fd) {
             Some(f) => f.borrow_mut().emulate_ioctl(t, result),
             None => false,
         }
     }
 
     /// DIFF NOTE: @TODO Changed this from u64 to usize
-    pub fn emulate_fcntl(&mut self, fd: i32, t: &mut RecordTask, result: &mut usize) -> bool {
-        match self.fds.get(&fd) {
+    pub fn emulate_fcntl(&self, fd: i32, t: &mut RecordTask, result: &mut usize) -> bool {
+        match self.fds.borrow().get(&fd) {
             Some(f) => f.borrow_mut().emulate_fcntl(t, result),
             None => false,
         }
@@ -90,28 +89,28 @@ impl FdTable {
         offset: &mut LazyOffset,
         result: &mut usize,
     ) -> bool {
-        match self.fds.get(&fd) {
+        match self.fds.borrow().get(&fd) {
             Some(f) => f.borrow().emulate_read(ranges, offset, result),
             None => false,
         }
     }
 
     pub fn filter_getdents(&self, fd: i32, t: &mut RecordTask) {
-        match self.fds.get(&fd) {
+        match self.fds.borrow().get(&fd) {
             Some(f) => f.borrow().filter_getdents(t),
             None => (),
         }
     }
 
     pub fn is_rd_fd(&self, fd: i32) -> bool {
-        match self.fds.get(&fd) {
+        match self.fds.borrow().get(&fd) {
             Some(f) => f.borrow().is_rd_fd(),
             None => false,
         }
     }
 
     pub fn will_write(&self, t: &dyn Task, fd: i32) -> Switchable {
-        match self.fds.get(&fd) {
+        match self.fds.borrow().get(&fd) {
             Some(f) => f.borrow().will_write(t),
             None => Switchable::AllowSwitch,
         }
@@ -119,71 +118,77 @@ impl FdTable {
 
     /// @TODO Do we want offset to be a move?
     pub fn did_write(&self, fd: i32, ranges: Vec<Range>, offset: &mut LazyOffset) {
-        match self.fds.get(&fd) {
+        match self.fds.borrow().get(&fd) {
             Some(f) => f.borrow_mut().did_write(&ranges, offset),
             None => (),
         }
     }
 
     /// DIFF NOTE: Additional param `active_task` to solve borrow issues.
-    pub fn did_dup(&mut self, from: i32, to: i32, active_task: &mut dyn Task) {
-        if self.fds.contains_key(&from) {
-            if to >= SYSCALLBUF_FDS_DISABLED_SIZE && !self.fds.contains_key(&to) {
-                self.fd_count_beyond_limit += 1;
+    pub fn did_dup(&self, from: i32, to: i32, active_task: &mut dyn Task) {
+        if self.fds.borrow().contains_key(&from) {
+            if to >= SYSCALLBUF_FDS_DISABLED_SIZE && !self.fds.borrow().contains_key(&to) {
+                self.fd_count_beyond_limit
+                    .set(self.fd_count_beyond_limit.get() + 1);
             }
-            self.fds.insert(to, self.fds[&from].clone());
+            let val = self.fds.borrow()[&from].clone();
+            self.fds
+                .borrow_mut()
+                .insert(to, val);
         } else {
-            if to >= SYSCALLBUF_FDS_DISABLED_SIZE && self.fds.contains_key(&to) {
-                self.fd_count_beyond_limit -= 1;
+            if to >= SYSCALLBUF_FDS_DISABLED_SIZE && self.fds.borrow().contains_key(&to) {
+                self.fd_count_beyond_limit
+                    .set(self.fd_count_beyond_limit.get() - 1);
             }
-            self.fds.remove(&to);
+            self.fds.borrow_mut().remove(&to);
         }
         self.update_syscallbuf_fds_disabled(to, active_task);
     }
 
     /// DIFF NOTE: Additional param `active_task` to solve borrow issues.
-    pub fn did_close(&mut self, fd: i32, active_task: &mut dyn Task) {
+    pub fn did_close(&self, fd: i32, active_task: &mut dyn Task) {
         log!(LogDebug, "Close fd {}", fd);
-        if fd >= SYSCALLBUF_FDS_DISABLED_SIZE && self.fds.contains_key(&fd) {
-            self.fd_count_beyond_limit -= 1;
+        if fd >= SYSCALLBUF_FDS_DISABLED_SIZE && self.fds.borrow().contains_key(&fd) {
+            self.fd_count_beyond_limit
+                .set(self.fd_count_beyond_limit.get() - 1);
         }
-        self.fds.remove(&fd);
+        self.fds.borrow_mut().remove(&fd);
         self.update_syscallbuf_fds_disabled(fd, active_task);
     }
 
     /// Method is called clone() in rr
     pub fn clone_into_task(&self, t: &mut dyn Task) -> FdTableSharedPtr {
-        let mut file_mon = FdTable {
-            tasks: WeakPtrSet::new(),
-            fds: self.fds.clone(),
-            fd_count_beyond_limit: self.fd_count_beyond_limit,
+        let file_mon = FdTable {
+            tasks: Default::default(),
+            fds: RefCell::new(self.fds.borrow().clone()),
+            fd_count_beyond_limit: Cell::new(self.fd_count_beyond_limit.get()),
         };
 
-        file_mon.tasks.insert(t.weak_self_ptr());
-        Rc::new(RefCell::new(file_mon))
+        file_mon.tasks.borrow_mut().insert(t.weak_self_ptr());
+        Rc::new(file_mon)
     }
 
     pub fn create(wt: TaskSharedWeakPtr) -> FdTableSharedPtr {
-        let mut file_mon = FdTable {
-            tasks: WeakPtrSet::new(),
+        let file_mon = FdTable {
+            tasks: RefCell::new(WeakPtrSet::new()),
             fds: Default::default(),
-            fd_count_beyond_limit: 0,
+            fd_count_beyond_limit: Cell::new(0),
         };
 
-        file_mon.tasks.insert(wt);
-        Rc::new(RefCell::new(file_mon))
+        file_mon.tasks.borrow_mut().insert(wt);
+        Rc::new(file_mon)
     }
 
     pub fn is_monitoring(&self, fd: i32) -> bool {
-        self.fds.contains_key(&fd)
+        self.fds.borrow().contains_key(&fd)
     }
 
     pub fn count_beyond_limit(&self) -> u32 {
-        self.fd_count_beyond_limit
+        self.fd_count_beyond_limit.get()
     }
 
     pub fn get_monitor(&self, fd: i32) -> Option<FileMonitorSharedPtr> {
-        self.fds.get(&fd).map(|f| f.clone())
+        self.fds.borrow().get(&fd).map(|f| f.clone())
     }
 
     /// Regenerate syscallbuf_fds_disabled in task `t`.
@@ -208,7 +213,7 @@ impl FdTable {
         // It's possible that some tasks in this address space have a different
         // FdTable. We need to disable syscallbuf for an fd if any tasks for this
         // address space are monitoring the fd.
-        for &fd in rt.fd_table().fds.keys() {
+        for &fd in rt.fd_table().fds.borrow().keys() {
             debug_assert!(fd >= 0);
             let mut adjusted_fd = fd;
             if fd >= SYSCALLBUF_FDS_DISABLED_SIZE {
@@ -218,7 +223,7 @@ impl FdTable {
         }
 
         for vm_t in rt.vm().task_set().iter_except(rt.weak_self_ptr()) {
-            for &fd in vm_t.borrow().fd_table().fds.keys() {
+            for &fd in vm_t.borrow().fd_table().fds.borrow().keys() {
                 debug_assert!(fd >= 0);
                 let mut adjusted_fd = fd;
                 if fd >= SYSCALLBUF_FDS_DISABLED_SIZE {
@@ -239,11 +244,11 @@ impl FdTable {
     /// scan /proc/<pid>/fd during recording and note any monitored fds that have
     /// been closed.
     /// This also updates our table to match reality.
-    pub fn fds_to_close_after_exec(&mut self, t: &mut RecordTask) -> Vec<i32> {
+    pub fn fds_to_close_after_exec(&self, t: &mut RecordTask) -> Vec<i32> {
         ed_assert!(t, self.task_set().has(t.weak_self_ptr()));
 
         let mut fds_to_close: Vec<i32> = Vec::new();
-        for &fd in self.fds.keys() {
+        for &fd in self.fds.borrow().keys() {
             if !is_fd_open(t, fd) {
                 fds_to_close.push(fd);
             }
@@ -256,7 +261,7 @@ impl FdTable {
     }
 
     /// Close fds in list after an exec.
-    pub fn close_after_exec(&mut self, t: &mut ReplayTask, fds_to_close: &[i32]) {
+    pub fn close_after_exec(&self, t: &mut ReplayTask, fds_to_close: &[i32]) {
         ed_assert!(t, self.task_set().has(t.weak_self_ptr()));
 
         for &fd in fds_to_close {
@@ -268,7 +273,7 @@ impl FdTable {
         FdTable {
             tasks: Default::default(),
             fds: Default::default(),
-            fd_count_beyond_limit: 0,
+            fd_count_beyond_limit: Cell::new(0),
         }
     }
 
@@ -307,14 +312,13 @@ impl FdTable {
             }
         };
 
+        // It's possible for tasks with different VMs to share this fd table.
+        // But tasks with the same VM might have different fd tables...
         if active_task.session().is_recording() {
             process(active_task.as_record_task_mut().unwrap());
         } else {
             return;
         }
-
-        // It's possible for tasks with different VMs to share this fd table.
-        // But tasks with the same VM might have different fd tables...
         for t in self.task_set().iter_except(active_task.weak_self_ptr()) {
             ed_assert!(active_task, t.borrow().session().is_recording());
 

@@ -1260,11 +1260,8 @@ fn on_syscall_exit_common_arch<Arch: Architecture>(t: &mut dyn Task, sys: i32, r
     }
 
     if sys == Arch::DUP || sys == Arch::DUP2 || sys == Arch::DUP3 {
-        t.fd_table_shr_ptr().borrow_mut().did_dup(
-            regs.arg1() as i32,
-            regs.syscall_result() as i32,
-            t,
-        );
+        t.fd_table_shr_ptr()
+            .did_dup(regs.arg1() as i32, regs.syscall_result() as i32, t);
         return;
     }
 
@@ -1272,26 +1269,21 @@ fn on_syscall_exit_common_arch<Arch: Architecture>(t: &mut dyn Task, sys: i32, r
         if regs.arg2() == FcntlOperation::DUPFD as usize
             || regs.arg2() == FcntlOperation::DUPFD_CLOEXEC as usize
         {
-            t.fd_table_shr_ptr().borrow_mut().did_dup(
-                regs.arg1() as i32,
-                regs.syscall_result() as i32,
-                t,
-            );
+            t.fd_table_shr_ptr()
+                .did_dup(regs.arg1() as i32, regs.syscall_result() as i32, t);
         }
         return;
     }
 
     if sys == Arch::CLOSE {
-        t.fd_table_shr_ptr()
-            .borrow_mut()
-            .did_close(regs.arg1() as i32, t);
+        t.fd_table_shr_ptr().did_close(regs.arg1() as i32, t);
         return;
     }
 
     if sys == Arch::UNSHARE {
         if regs.arg1() & CLONE_FILES as usize != 0 {
-            t.fd_table_mut().task_set_mut().erase(t.weak_self_ptr());
-            t.fds = Some(t.fd_table_shr_ptr().borrow().clone_into_task(t));
+            t.fd_table().task_set_mut().erase(t.weak_self_ptr());
+            t.fds = Some(t.fd_table_shr_ptr().clone_into_task(t));
         }
         return;
     }
@@ -1310,7 +1302,6 @@ fn on_syscall_exit_common_arch<Arch: Architecture>(t: &mut dyn Task, sys: i32, r
         offset
             .task_mut()
             .fd_table_shr_ptr()
-            .borrow_mut()
             .did_write(fd, ranges, &mut offset);
         return;
     }
@@ -1338,7 +1329,6 @@ fn on_syscall_exit_common_arch<Arch: Architecture>(t: &mut dyn Task, sys: i32, r
         offset
             .task_mut()
             .fd_table_shr_ptr()
-            .borrow_mut()
             .did_write(fd, ranges, &mut offset);
         return;
     }
@@ -1437,7 +1427,7 @@ pub(super) fn post_exec_for_exe<T: Task>(t: &mut T, exe_file: &OsStr) {
     t.session().post_exec(t);
 
     t.vm().task_set_mut().erase(t.weak_self_ptr());
-    t.fd_table_mut().task_set_mut().erase(t.weak_self_ptr());
+    t.fd_table().task_set_mut().erase(t.weak_self_ptr());
 
     t.extra_registers = None;
     let mut e = t.extra_regs_ref().clone();
@@ -1457,7 +1447,7 @@ pub(super) fn post_exec_for_exe<T: Task>(t: &mut T, exe_file: &OsStr) {
     let exec_count = t.vm().uid().exec_count() + 1;
     t.as_ = Some(t.session().create_vm(t, Some(exe_file), Some(exec_count)));
     // It's barely-documented, but Linux unshares the fd table on exec
-    t.fds = Some(t.fd_table_shr_ptr().borrow().clone_into_task(t));
+    t.fds = Some(t.fd_table_shr_ptr().clone_into_task(t));
     let prname = prname_from_exe_image(t.vm().exe_image());
     t.prname = prname.to_owned();
 }
@@ -1575,9 +1565,7 @@ pub(super) fn at_preload_init_common<T: Task>(t: &mut T) {
     t.vm_shr_ptr().at_preload_init(t);
     do_preload_init(t);
 
-    t.fd_table_shr_ptr()
-        .borrow()
-        .init_syscallbuf_fds_disabled(t);
+    t.fd_table_shr_ptr().init_syscallbuf_fds_disabled(t);
 }
 
 fn do_preload_init_arch<Arch: Architecture, T: Task>(t: &mut T) {
@@ -1699,8 +1687,7 @@ pub(in super::super) fn clone_task_common(
     if flags.contains(CloneFlags::CLONE_SHARE_FILES) {
         ref_t.fds = clone_this.fds.clone();
         ref_t
-            .fd_table_shr_ptr()
-            .borrow_mut()
+            .fd_table()
             .task_set_mut()
             .insert(weak_self_ptr.clone());
     } else {
@@ -1882,11 +1869,9 @@ pub fn close_buffers_for(
             None => remote
                 .task_mut()
                 .fd_table_shr_ptr()
-                .borrow_mut()
                 .did_close(other_desched_fd_child, remote.task_mut()),
             Some(ref mut context) => context
                 .fd_table_shr_ptr()
-                .borrow_mut()
                 .did_close(other_desched_fd_child, *context),
         }
     }
@@ -1900,11 +1885,9 @@ pub fn close_buffers_for(
             None => remote
                 .task_mut()
                 .fd_table_shr_ptr()
-                .borrow_mut()
                 .did_close(other_cloned_file_data_fd_child, remote.task_mut()),
             Some(ref mut context) => context
                 .fd_table_shr_ptr()
-                .borrow_mut()
                 .did_close(other_cloned_file_data_fd_child, *context),
         }
     }
@@ -1995,10 +1978,7 @@ pub(super) fn task_drop_common<T: Task>(t: &T) {
         .task_set_mut()
         .erase(t.weak_self_ptr());
     t.vm_shr_ptr().task_set_mut().erase(t.weak_self_ptr());
-    t.fd_table_shr_ptr()
-        .borrow_mut()
-        .task_set_mut()
-        .erase(t.weak_self_ptr());
+    t.fd_table().task_set_mut().erase(t.weak_self_ptr());
 
     log!(LogDebug, "  dead");
 }

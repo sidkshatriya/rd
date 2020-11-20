@@ -833,9 +833,7 @@ fn rep_process_syscall_arch<Arch: Architecture>(
                     maybe_target.unwrap().borrow().as_ref(),
                     &attr,
                 ));
-                t.fd_table_shr_ptr()
-                    .borrow_mut()
-                    .add_monitor(t, fd, monitor);
+                t.fd_table_shr_ptr().add_monitor(t, fd, monitor);
             }
         }
     }
@@ -1275,9 +1273,7 @@ pub fn process_execve(t: &mut ReplayTask, step: &mut ReplayTraceStep) {
         .syscall_event()
         .exec_fds_to_close
         .clone();
-    t.fd_table_shr_ptr()
-        .borrow_mut()
-        .close_after_exec(t, &fds_to_close);
+    t.fd_table_shr_ptr().close_after_exec(t, &fds_to_close);
 
     {
         let arch = t.arch();
@@ -1550,9 +1546,7 @@ fn handle_opened_files(t: &mut ReplayTask, flags_raw: i32) {
             ed_assert!(t, false, "Why did we write filename {:?}", o.path);
             unreachable!();
         }
-        t.fd_table_shr_ptr()
-            .borrow_mut()
-            .add_monitor(t, o.fd, file_monitor);
+        t.fd_table_shr_ptr().add_monitor(t, o.fd, file_monitor);
     }
 }
 
@@ -1822,9 +1816,7 @@ fn finish_shared_mmap<'a>(
             }
             None => {
                 let fm = Box::new(MmappedFileMonitor::new_from_emufile(rt, emufile.clone()));
-                rt.fd_table_shr_ptr()
-                    .borrow_mut()
-                    .add_monitor(rt, fd.fd, fm);
+                rt.fd_table_shr_ptr().add_monitor(rt, fd.fd, fm);
             }
         };
     };

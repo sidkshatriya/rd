@@ -351,15 +351,11 @@ impl ReplayTask {
             remote.init_syscall_buffer(map_hint);
             remote.task_mut().desched_fd_child = desched_counter_fd;
             // Prevent the child from closing this fd
-            remote
-                .task_mut()
-                .fd_table_shr_ptr()
-                .borrow_mut()
-                .add_monitor(
-                    remote.task_mut(),
-                    desched_counter_fd,
-                    Box::new(PreserveFileMonitor::new()),
-                );
+            remote.task_mut().fd_table_shr_ptr().add_monitor(
+                remote.task_mut(),
+                desched_counter_fd,
+                Box::new(PreserveFileMonitor::new()),
+            );
 
             // Skip mmap record. It exists mainly to inform non-replay code
             // (e.g. RemixModule) that this memory will be mapped.
@@ -402,15 +398,11 @@ impl ReplayTask {
                     ed_assert_eq!(remote.task(), ret, cloned_file_data_fd);
                     rd_infallible_syscall!(remote, syscall_number_for_close(arch), fd);
                 }
-                remote
-                    .task_mut()
-                    .fd_table_shr_ptr()
-                    .borrow_mut()
-                    .add_monitor(
-                        remote.task_mut(),
-                        cloned_file_data_fd,
-                        Box::new(PreserveFileMonitor::new()),
-                    );
+                remote.task_mut().fd_table_shr_ptr().add_monitor(
+                    remote.task_mut(),
+                    cloned_file_data_fd,
+                    Box::new(PreserveFileMonitor::new()),
+                );
             }
         }
 

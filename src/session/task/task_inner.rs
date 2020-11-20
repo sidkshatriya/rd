@@ -38,7 +38,7 @@ use crate::{
     },
     cpuid_bug_detector::CPUIDBugDetector,
     extra_registers::{ExtraRegisters, Format},
-    fd_table::{FdTable, FdTableRef, FdTableRefMut, FdTableSharedPtr},
+    fd_table::{FdTable, FdTableSharedPtr},
     file_monitor::{
         magic_save_data_monitor::MagicSaveDataMonitor,
         preserve_file_monitor::PreserveFileMonitor,
@@ -1166,16 +1166,10 @@ impl TaskInner {
         self.as_.as_ref().unwrap().clone()
     }
 
-    pub fn fd_table(&self) -> FdTableRef {
-        self.fds.as_ref().unwrap().borrow()
+    pub fn fd_table(&self) -> &FdTable {
+        self.fds.as_ref().unwrap()
     }
 
-    pub fn fd_table_mut(&self) -> FdTableRefMut {
-        self.fds.as_ref().unwrap().borrow_mut()
-    }
-
-    /// Useful for tricky situations when we need to pass a reference to task to
-    /// the FdTable methods for instance
     pub fn fd_table_shr_ptr(&self) -> FdTableSharedPtr {
         self.fds.as_ref().unwrap().clone()
     }
@@ -1788,7 +1782,7 @@ impl TaskInner {
         {
             let mut ref_task = wrapped_t.borrow_mut();
             let fds: FdTableSharedPtr = ref_task.fds.as_ref().unwrap().clone();
-            setup_fd_table(ref_task.as_mut(), &mut fds.borrow_mut(), fd_number);
+            setup_fd_table(ref_task.as_mut(), &fds, fd_number);
         }
 
         // Install signal handler here, so that when creating the first RecordTask
@@ -1907,7 +1901,7 @@ fn create_seccomp_filter() -> SeccompFilter {
 // waitpid to return EINTR and that's all we need.
 extern "C" fn handle_alarm_signal(_sig: c_int) {}
 
-fn setup_fd_table(t: &mut dyn Task, fds: &mut FdTable, tracee_socket_fd_number: i32) {
+fn setup_fd_table(t: &mut dyn Task, fds: &FdTableSharedPtr, tracee_socket_fd_number: i32) {
     fds.add_monitor(t, STDOUT_FILENO, Box::new(StdioMonitor::new(STDOUT_FILENO)));
     fds.add_monitor(t, STDERR_FILENO, Box::new(StdioMonitor::new(STDERR_FILENO)));
     fds.add_monitor(

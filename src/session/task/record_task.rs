@@ -1130,7 +1130,7 @@ impl RecordTask {
                 Arch::from_remote_ptr(RemotePtr::<u8>::cast(remote.task().syscallbuf_child));
             remote.task_mut().desched_fd_child = args.desched_counter_fd;
             // Prevent the child from closing this fd
-            remote.task().fd_table_shr_ptr().borrow_mut().add_monitor(
+            remote.task().fd_table_shr_ptr().add_monitor(
                 remote.task_mut(),
                 args.desched_counter_fd,
                 Box::new(PreserveFileMonitor::new()),
@@ -1209,7 +1209,7 @@ impl RecordTask {
                         // Prevent the child from closing this fd. We're going to close it
                         // ourselves and we don't want the child closing it and then reopening
                         // its own file with this fd.
-                        name.task().fd_table_shr_ptr().borrow_mut().add_monitor(
+                        name.task().fd_table_shr_ptr().add_monitor(
                             name.task_mut(),
                             cloned_file_data_fd_child,
                             Box::new(PreserveFileMonitor::new()),
