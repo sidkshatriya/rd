@@ -13,6 +13,7 @@ use crate::{
         ifconf,
         ifreq,
         iovec,
+        ipc_kludge_args,
         kernel_sigaction,
         mmap_args,
         mmsghdr,
@@ -34,13 +35,34 @@ use crate::{
         fcntl,
         kernel::{
             user_desc,
+            IPC_64,
+            IPC_INFO,
+            IPC_RMID,
+            IPC_SET,
+            IPC_STAT,
+            MSGCTL,
+            MSGGET,
+            MSGRCV,
+            MSGSND,
+            MSG_INFO,
+            MSG_STAT,
             NT_FPREGSET,
             NT_PRSTATUS,
             NT_X86_XSTATE,
+            SEMCTL,
+            SEMGET,
+            SEMOP,
+            SEMTIMEDOP,
             SG_GET_VERSION_NUM,
             SG_IO,
+            SHMAT,
+            SHMCTL,
+            SHMDT,
+            SHMGET,
             SHM_INFO,
+            SHM_LOCK,
             SHM_STAT,
+            SHM_UNLOCK,
             SIOCADDMULTI,
             SIOCADDRT,
             SIOCBONDINFOQUERY,
@@ -366,10 +388,6 @@ use libc::{
     FUTEX_WAKE_BITSET,
     FUTEX_WAKE_OP,
     GRND_NONBLOCK,
-    IPC_INFO,
-    IPC_RMID,
-    IPC_SET,
-    IPC_STAT,
     IPPROTO_IP,
     IPPROTO_IPV6,
     KEYCTL_ASSUME_AUTHORITY,
@@ -417,8 +435,6 @@ use libc::{
     MAP_GROWSDOWN,
     MMAP_PAGE_ZERO,
     MSG_DONTWAIT,
-    MSG_INFO,
-    MSG_STAT,
     O_DIRECT,
     PRIO_PROCESS,
     P_ALL,
@@ -436,8 +452,6 @@ use libc::{
     SCM_RIGHTS,
     SECCOMP_MODE_FILTER,
     SECCOMP_MODE_STRICT,
-    SHM_LOCK,
-    SHM_UNLOCK,
     SHORT_INODE,
     SIGCHLD,
     SIGKILL,
@@ -1916,7 +1930,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
     }
 
     if sys == Arch::MSGCTL {
-        return prepare_msgctl::<Arch>(&mut syscall_state, regs.arg2_signed() as i32, 3);
+        return prepare_msgctl::<Arch>(&mut syscall_state, regs.arg2() as u32, 3);
     }
 
     if sys == Arch::MSGRCV {
@@ -1951,7 +1965,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
     }
 
     if sys == Arch::SHMCTL {
-        return prepare_shmctl::<Arch>(&mut syscall_state, regs.arg2_signed() as i32, 3);
+        return prepare_shmctl::<Arch>(&mut syscall_state, regs.arg2() as u32, 3);
     }
 
     if sys == Arch::SOCKETCALL {
@@ -2032,7 +2046,56 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
     }
 
     if sys == Arch::IPC {
-        unimplemented!()
+        match regs.arg1() as u32 {
+            MSGGET | SHMDT | SHMGET | SEMGET => (),
+
+            MSGCTL => {
+                let cmd = regs.arg3() as u32 & !IPC_64;
+                return prepare_msgctl::<Arch>(&mut syscall_state, cmd, 5);
+            }
+
+            MSGSND | SEMOP | SEMTIMEDOP => {
+                return Switchable::AllowSwitch;
+            }
+
+            MSGRCV => {
+                let msgsize = regs.arg3();
+                let kluge_args = syscall_state.reg_parameter::<ipc_kludge_args<Arch>>(
+                    5,
+                    Some(ArgMode::In),
+                    None,
+                );
+                syscall_state.mem_ptr_parameter_with_size(
+                    t,
+                    remote_ptr_field!(kluge_args, ipc_kludge_args<Arch>, msgbuf),
+                    ParamSize::from(size_of::<Arch::signed_long>() + msgsize),
+                    None,
+                    None,
+                );
+                return Switchable::AllowSwitch;
+            }
+
+            SHMAT => {
+                // Insane legacy feature: ipc SHMAT returns its pointer via an
+                // in-memory out parameter.
+                syscall_state.reg_parameter::<Arch::unsigned_long>(4, None, None);
+                return Switchable::PreventSwitch;
+            }
+
+            SHMCTL => {
+                let cmd = regs.arg3() as u32 & !IPC_64;
+                return prepare_shmctl::<Arch>(&mut syscall_state, cmd, 5);
+            }
+
+            SEMCTL => {
+                unimplemented!()
+            }
+
+            _ => {
+                syscall_state.expect_errno = EINVAL;
+            }
+        }
+        return Switchable::PreventSwitch;
     }
 
     if sys == Arch::SEMCTL {
@@ -6257,7 +6320,7 @@ fn record_iovec_output<Arch: Architecture>(
 
 fn prepare_msgctl<Arch: Architecture>(
     syscall_state: &mut TaskSyscallState,
-    cmd: i32,
+    cmd: u32,
     ptr_reg: usize,
 ) -> Switchable {
     match cmd {
@@ -6278,15 +6341,13 @@ fn prepare_msgctl<Arch: Architecture>(
 
 fn prepare_shmctl<Arch: Architecture>(
     syscall_state: &mut TaskSyscallState,
-    cmd: i32,
+    cmd: u32,
     ptr_reg: usize,
 ) -> Switchable {
-    const _SHM_INFO: i32 = SHM_INFO as i32;
-    const _SHM_STAT: i32 = SHM_STAT as i32;
     match cmd {
         IPC_SET | IPC_RMID | SHM_LOCK | SHM_UNLOCK => (),
 
-        IPC_STAT | _SHM_STAT => {
+        IPC_STAT | SHM_STAT => {
             syscall_state.reg_parameter::<Arch::shmid64_ds>(ptr_reg, None, None);
         }
 
@@ -6294,7 +6355,7 @@ fn prepare_shmctl<Arch: Architecture>(
             syscall_state.reg_parameter::<Arch::shminfo64>(ptr_reg, None, None);
         }
 
-        _SHM_INFO => {
+        SHM_INFO => {
             syscall_state.reg_parameter::<Arch::shm_info>(ptr_reg, None, None);
         }
 

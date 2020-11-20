@@ -892,3 +892,11 @@ pub struct recvmmsg_args<Arch: Architecture> {
     pub flags: u32,
     pub timeout: Ptr<Arch::unsigned_word, Arch::timespec>,
 }
+
+///  Some ipc calls require 7 params, so two of them are stashed into
+///  one of these structs and a pointer to this is passed instead.
+///
+pub struct ipc_kludge_args<Arch: Architecture> {
+    pub msgbuf: Ptr<Arch::unsigned_word, u8>,
+    pub msgtype: Arch::signed_long,
+}
