@@ -492,6 +492,7 @@ use std::{
         raw::c_uint,
         unix::ffi::{OsStrExt, OsStringExt},
     },
+    path::Path,
     rc::Rc,
     sync::atomic::{AtomicBool, Ordering},
 };
@@ -3155,16 +3156,29 @@ fn fake_gcrypt_file(_t: &mut RecordTask, _r: &mut Registers) {
     unimplemented!()
 }
 
-fn is_blacklisted_filename(_c_str: &OsStr) -> bool {
-    // @TODO PENDING Return hardcoded resulf for now
-    log!(LogWarn, "@TODO PENDING is_blacklisted_filename()");
-    false
+fn is_blacklisted_filename(filename_os: &OsStr) -> bool {
+    let filename = filename_os.as_bytes();
+    if filename.starts_with(b"/dev/dri/")
+        || filename == b"/dev/nvidiactl"
+        || filename == b"/usr/share/alsa/alsa.conf"
+        || filename == b"/dev/nvidia-uvm"
+    {
+        return true;
+    }
+    let maybe_f = Path::new(filename_os).file_name();
+    match maybe_f {
+        Some(f_os) => {
+            let f = f_os.as_bytes();
+            f.starts_with(b"rr-test-blacklist-file_name")
+                || f.starts_with(b"rd-test-blacklist-file_name")
+                || f.starts_with(b"pulse-shm-")
+        }
+        None => false,
+    }
 }
 
-fn is_gcrypt_deny_file(_c_str: &OsStr) -> bool {
-    // @TODO PENDING Return hardcoded resulf for now
-    log!(LogWarn, "@TODO PENDING is_gcrypt_deny_file()");
-    false
+fn is_gcrypt_deny_file(f: &OsStr) -> bool {
+    f.as_bytes() == b"/etc/gcrypt/hwf.deny"
 }
 
 fn handle_opened_file(t: &mut RecordTask, fd: i32, flags: i32) -> OsString {
@@ -5173,13 +5187,13 @@ fn maybe_pause_instead_of_waiting(t: &mut RecordTask, options: i32) {
         }
         _ => return,
     }
-    // OK, t is waiting for a ptrace child by tid, but since t is not really
+    // OK, `t` is waiting for a ptrace child by tid, but since `t` is not really
     // ptracing child, entering a real wait syscall will not actually wait for
     // the child, so the kernel may error out with ECHILD (non-ptracers can't
     // wait on specific threads of another process, or for non-child processes).
     // To avoid this problem, we'll replace the wait syscall with a pause()
     // syscall.
-    // It would be nice if we didn't have to do this, but I can't see a better
+    // It would be nice if we didn't have to do this, but can't see a better
     // way.
     let mut r: Registers = t.regs_ref().clone();
     r.set_original_syscallno(syscall_number_for_pause(t.arch()) as isize);
@@ -5502,7 +5516,6 @@ fn widen_buffer_signed(buf: &[u8]) -> i64 {
 }
 
 /// DIFF NOTE: Has an extra param `tracer`
-/// DIFF NOTE: command is an i32 in rr
 fn prepare_ptrace_cont(
     tracee: &mut RecordTask,
     maybe_sig: Option<Sig>,
@@ -6305,7 +6318,7 @@ fn prepare_ptrace<Arch: Architecture>(
     Switchable::PreventSwitch
 }
 
-/// if `maybe_dest` is `None` then this is interpreted to mean that dest is `t` also
+/// if `maybe_dest` is `None` then this is interpreted to mean that `dest` is `t` also
 fn record_iovec_output<Arch: Architecture>(
     t: &mut RecordTask,
     maybe_dest: Option<&mut RecordTask>,
