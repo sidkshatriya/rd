@@ -2322,16 +2322,24 @@ impl RecordTask {
         }
 
         let mut buf = Vec::new();
-        let mut nread = 0;
+        let mut ret = Ok(0);
         if !addr.is_null() {
             buf.resize(num_bytes, 0u8);
-            nread = self.read_bytes_fallible(addr, &mut buf)?;
-            buf.truncate(nread);
+            ret = match self.read_bytes_fallible(addr, &mut buf) {
+                Ok(nread) => {
+                    buf.truncate(nread);
+                    Ok(nread)
+                }
+                Err(()) => {
+                    buf.truncate(0);
+                    Err(())
+                }
+            }
         }
 
         self.trace_writer_mut().write_raw(self.rec_tid, &buf, addr);
 
-        Ok(nread)
+        ret
     }
 
     /// Record as much as we can of the bytes in this range. Will record only
