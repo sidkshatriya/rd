@@ -2027,16 +2027,25 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         return Switchable::AllowSwitch;
     }
 
-    // For debugging. Remove later
-    ed_assert!(
-        t,
-        false,
-        "=====> Was trying to prepare {} ({})",
-        syscall_name(sys, Arch::arch()),
-        sys
-    );
+    if sys == Arch::BPF {
+        unimplemented!()
+    }
 
-    unimplemented!()
+    if sys == Arch::IPC {
+        unimplemented!()
+    }
+
+    if sys == Arch::SEMCTL {
+        unimplemented!()
+    }
+
+    // Invalid syscalls return -ENOSYS. Assume any such
+    // result means the syscall was completely ignored by the
+    // kernel so it's OK for us to not do anything special.
+    // Other results mean we probably need to understand this
+    // syscall, but we don't.
+    syscall_state.expect_errno = ENOSYS;
+    Switchable::PreventSwitch
 }
 
 fn is_blacklisted_memfd(name: &CStr) -> bool {
