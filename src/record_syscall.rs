@@ -2636,7 +2636,16 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
     }
 
     if sys == Arch::IPC {
-        unimplemented!()
+        match t.regs_ref().arg1() as u32 {
+            SHMAT => {
+                // DIFF NOTE: Arch::unsigned_long in rr
+                let child_addr = RemotePtr::<Arch::unsigned_word>::from(t.regs_ref().arg4());
+                let out_ptr = read_val_mem(t, child_addr, None);
+                let out_rptr = RemotePtr::<Void>::new_from_val(out_ptr.try_into().unwrap());
+                unimplemented!()
+            }
+            _ => (),
+        }
     }
 
     if sys == Arch::CLOCK_NANOSLEEP || sys == Arch::NANOSLEEP {
