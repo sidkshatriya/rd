@@ -349,9 +349,8 @@ impl RdCommand for RecordCommand {
             // Add up to one page worth of random padding to the environment to induce
             // a variety of possible stack pointer offsets
             let mut chars = Vec::<u8>::new();
-            chars.resize(random::<usize>() % page_size(), 0);
             // chars should contain at least 1 u8.
-            chars.push(0);
+            chars.resize(random::<usize>() % page_size() + 1, b'a');
             self.extra_env.push((
                 OsString::from("RD_CHAOS_PADDING"),
                 OsString::from_vec(chars),
