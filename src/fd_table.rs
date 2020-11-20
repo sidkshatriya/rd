@@ -291,7 +291,7 @@ impl FdTable {
                     if fd >= SYSCALLBUF_FDS_DISABLED_SIZE {
                         fd = SYSCALLBUF_FDS_DISABLED_SIZE - 1;
                     }
-                    let disable: u8 = if is_fd_monitored_in_any_task(&rt.vm(), fd) {
+                    let disable: u8 = if is_fd_monitored_in_any_task(&rt.vm(), fd, rt) {
                         1
                     } else {
                         0
@@ -330,8 +330,14 @@ fn is_fd_open(t: &dyn Task, fd: i32) -> bool {
     lstat(path.as_str()).is_ok()
 }
 
-fn is_fd_monitored_in_any_task(vm: &AddressSpace, fd: i32) -> bool {
-    for rc in vm.task_set().iter() {
+/// DIFF NOTE: Extra param `vm_task` to solve already borrowed possibility
+fn is_fd_monitored_in_any_task(vm: &AddressSpace, fd: i32, vm_task: &dyn Task) -> bool {
+    if vm_task.fd_table().is_monitoring(fd)
+        || (fd >= SYSCALLBUF_FDS_DISABLED_SIZE - 1 && vm_task.fd_table().count_beyond_limit() > 0)
+    {
+        return true;
+    }
+    for rc in vm.task_set().iter_except(vm_task.weak_self_ptr()) {
         let t = rc.borrow();
         if t.fd_table().is_monitoring(fd)
             || (fd >= SYSCALLBUF_FDS_DISABLED_SIZE - 1 && t.fd_table().count_beyond_limit() > 0)
