@@ -281,7 +281,7 @@ impl FdTable {
 
         let mut process = |rt: &mut RecordTask| -> () {
             let vm_uid = rt.vm().uid();
-            if !vms_updated.contains(&vm_uid) {
+            if vms_updated.contains(&vm_uid) {
                 return;
             }
             vms_updated.insert(vm_uid);
@@ -297,9 +297,9 @@ impl FdTable {
                         0
                     };
 
-                    let addr: RemotePtr<u8> = RemotePtr::cast(pg)
-                        + offset_of!(preload_globals, syscallbuf_fds_disabled)
-                        + fd as usize;
+                    let addr: RemotePtr<u8> =
+                        remote_ptr_field!(pg, preload_globals, syscallbuf_fds_disabled)
+                            + fd as usize;
                     rt.write_bytes(addr, &disable.to_le_bytes());
                     rt.record_local(addr, &disable.to_le_bytes());
                 }
