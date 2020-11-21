@@ -35,6 +35,8 @@ use crate::{
         fcntl,
         kernel::{
             user_desc,
+            vfs_cap_data,
+            CAP_SYS_ADMIN,
             IPC_64,
             IPC_INFO,
             IPC_RMID,
@@ -129,6 +131,8 @@ use crate::{
             SYS_SHUTDOWN,
             SYS_SOCKET,
             SYS_SOCKETPAIR,
+            S_ISGID,
+            S_ISUID,
             TCGETA,
             TCGETS,
             TIOCGETD,
@@ -335,6 +339,7 @@ use crate::{
         copy_file,
         create_temporary_file,
         extract_clone_parameters,
+        has_effective_caps,
         is_proc_fd_dir,
         is_proc_mem_file,
         page_size,
@@ -352,8 +357,10 @@ use arch_structs::{ipt_replace, setsockopt_args};
 use file_monitor::FileMonitorType;
 use libc::{
     cpu_set_t,
+    getxattr,
     id_t,
     idtype_t,
+    memcmp,
     pid_t,
     sockaddr_un,
     socklen_t,
@@ -373,11 +380,13 @@ use libc::{
     EFAULT,
     EINVAL,
     EIO,
+    ENODATA,
     ENODEV,
     ENOENT,
     ENOPROTOOPT,
     ENOSYS,
     ENOTBLK,
+    ENOTSUP,
     ENOTTY,
     EPERM,
     ESRCH,
@@ -480,6 +489,7 @@ use libc::{
 };
 use mem::size_of_val;
 use nix::{
+    errno::errno,
     fcntl::{open, OFlag},
     sys::{
         mman::{MapFlags, ProtFlags},
@@ -3949,9 +3959,45 @@ fn init_scratch_memory(t: &mut RecordTask, maybe_addr_type: Option<ScratchAddrTy
     t.set_regs(&r);
 }
 
-fn check_privileged_exe(_t: &mut RecordTask) {
-    // @TODO PENDING!
-    log!(LogWarn, "@TODO PENDING check_privileged_exe()");
+fn check_privileged_exe(t: &mut RecordTask) {
+    // Check if the executable we just execed has setuid bits or file capabilities
+    // If so (and rd doesn't have CAP_SYS_ADMIN, which would have let us avoid,
+    // no_new privs), they may have been ignored, due to our no_new_privs setting
+    // in the tracee. That's most likely not what the user intended (and setuid
+    // applications may not handle not being root particularly gracefully - after
+    // all under usual circumstances, it would be an exec-time error). Give a loud
+    // warning to tell the user what happened, but continue anyway.
+    static DID_WARN: AtomicBool = AtomicBool::new(false);
+    if !in_same_mount_namespace_as(t) {
+        // We could try to enter the mount namespace and perform the below check
+        // there, but don't bother. We know we must have privileges over the mount
+        // namespaces (either because it's an unprivileged user namespace, in which
+        // case we have full privileges, or because at some point one of our
+        // tracees had to have CAP_SYS_ADMIN/CAP_SETUID to create the mount
+        // namespace - as a result we must have at least as much privilege).
+        // Nevertheless, we still need to stop the hpc counters, since
+        // the executable may be privileged with respect to its namespace.
+        t.hpc.stop();
+    } else if is_privileged_executable(t, t.vm().exe_image()) {
+        if has_effective_caps(1 << CAP_SYS_ADMIN) {
+            // perf_events may have decided to stop counting for security reasons.
+            // To be safe, close all perf counters now, to force re-opening the
+            // perf file descriptors the next time we resume the task.
+            t.hpc.stop();
+        } else {
+            // Only issue the warning once. If it's a problem, the user will likely
+            // find out soon enough. If not, no need to keep bothering them.
+            if !DID_WARN.load(Ordering::SeqCst) {
+                eprintln!(
+                    "[WARNING] rd: Executed file with setuid or file capabilities set.\n\
+                        Capabilities did not take effect. Errors may follow.\n\
+                        To record this execution faithfully, re-run rd as:\n\n\
+                           sudo -EP rd record --setuid-sudo\n\n"
+                );
+                DID_WARN.store(true, Ordering::SeqCst);
+            }
+        }
+    }
 }
 
 fn get_exe_entry(t: &mut RecordTask) -> RemotePtr<Void> {
@@ -6702,4 +6748,44 @@ fn prepare_socketcall<Arch: Architecture>(
     }
 
     Switchable::PreventSwitch
+}
+
+fn is_privileged_executable(t: &RecordTask, path: &OsStr) -> bool {
+    let mut actual = vfs_cap_data::default();
+    let empty = vfs_cap_data::default();
+    let s = b"security.capability\0";
+    if -1
+        != unsafe {
+            getxattr(
+                path.as_bytes().as_ptr() as _,
+                s.as_ptr() as _,
+                &raw mut actual as _,
+                size_of::<vfs_cap_data>(),
+            )
+        }
+    {
+        let res = unsafe {
+            memcmp(
+                &raw const actual as _,
+                &raw const empty as _,
+                size_of_val(&actual.data),
+            )
+        };
+        res != 0
+    } else {
+        ed_assert!(t, errno() == ENODATA || errno() == ENOTSUP);
+
+        let maybe_buf = stat(path);
+        match maybe_buf {
+            Ok(buf) if buf.st_mode & (S_ISUID | S_ISGID) != 0 => true,
+            _ => false,
+        }
+    }
+}
+
+fn in_same_mount_namespace_as(t: &RecordTask) -> bool {
+    let proc_ns_mount = format!("/proc/{}/ns/mnt", t.tid);
+    let my_buf = stat("/proc/self/ns/mnt").unwrap();
+    let their_buf = stat(proc_ns_mount.as_str()).unwrap();
+    my_buf.st_ino == their_buf.st_ino
 }
