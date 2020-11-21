@@ -295,6 +295,7 @@ use crate::{
     monitored_shared_memory::MonitoredSharedMemory,
     monkey_patcher::MmapMode,
     preload_interface::{
+        syscallbuf_hdr,
         syscallbuf_record,
         SYS_rdcall_init_buffers,
         SYS_rdcall_init_preload,
@@ -509,6 +510,12 @@ extern "C" {
     fn ioctl_size(nr: c_uint) -> c_uint;
     fn ioctl_dir(nr: c_uint) -> c_uint;
     fn ioctl_nr(nr: c_uint) -> c_uint;
+}
+
+#[allow(non_camel_case_types)]
+struct rdcall_params<Arch: Architecture> {
+    result: Arch::unsigned_word,
+    original_syscallno: Arch::unsigned_word,
 }
 
 /// Prepare `t` to enter its current syscall event.  Return Switchable::AllowSwitch if
@@ -2701,7 +2708,10 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
     }
 
     if sys == SYS_rdcall_notify_control_msg as i32 {
-        unimplemented!()
+        let child_addr = RemotePtr::<msghdr<Arch>>::from(t.regs_ref().arg1());
+        let msg = read_val_mem(t, child_addr, None);
+        check_scm_rights_fd::<Arch>(t, &msg);
+        return;
     }
 
     if sys == Arch::RECVMSG {
@@ -2970,7 +2980,21 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
     }
 
     if sys == SYS_rdcall_notify_syscall_hook_exit as i32 {
-        unimplemented!()
+        let child_addr = remote_ptr_field!(
+            t.syscallbuf_child,
+            syscallbuf_hdr,
+            notify_on_syscall_hook_exit
+        );
+        write_val_mem(t, child_addr, &0u8, None);
+        t.record_remote_for(child_addr);
+
+        let mut r: Registers = t.regs_ref().clone();
+        let params_ptr = r.sp() + size_of::<Arch::unsigned_word>();
+        let params = read_val_mem(t, RemotePtr::<rdcall_params<Arch>>::cast(params_ptr), None);
+        r.set_syscall_result(params.result.try_into().unwrap());
+        r.set_original_syscallno(params.original_syscallno.try_into().unwrap() as isize);
+        t.set_regs(&r);
+        return;
     }
 
     if sys == Arch::PRCTL {
@@ -4146,7 +4170,7 @@ impl TaskSyscallState {
     /// addr_of_buf_ptr must be in a buffer identified by some init_..._parameter
     /// call.
     ///
-    /// DIFF NOTE: Takes t as param
+    /// DIFF NOTE: Takes `t` as param
     fn mem_ptr_parameter<T>(
         &mut self,
         t: &mut RecordTask,
@@ -4171,7 +4195,7 @@ impl TaskSyscallState {
     /// addr_of_buf_ptr must be in a buffer identified by some init_..._parameter
     /// call.
     ///
-    /// DIFF NOTE: Take t as param
+    /// DIFF NOTE: Takes `t` as param
     fn mem_ptr_parameter_inferred<Arch: Architecture, T>(
         &mut self,
         t: &mut RecordTask,
@@ -4196,7 +4220,7 @@ impl TaskSyscallState {
     /// addr_of_buf_ptr must be in a buffer identified by some init_..._parameter
     /// call.
     ///
-    /// DIFF NOTE: Take t as param
+    /// DIFF NOTE: Takes `t` as param
     fn mem_ptr_parameter_with_size(
         &mut self,
         t: &mut RecordTask,
@@ -4264,13 +4288,12 @@ impl TaskSyscallState {
                 num_relocations += 1;
             }
         }
-        // DIFF NOTE: These are debug_asserts in rr
-        assert!(
+        debug_assert!(
             num_relocations > 0,
             "Pointer in non-scratch memory being updated to point to scratch?"
         );
 
-        assert!(
+        debug_assert!(
             num_relocations <= 1,
             "Overlapping buffers containing relocated pointer?"
         );
