@@ -50,6 +50,7 @@ use libc::{
     EINVAL,
     EIO,
     ENOENT,
+    PATH_MAX,
     SIGBUS,
     SIGFPE,
     SIGILL,
@@ -74,6 +75,7 @@ use nix::{
         getpid,
         isatty,
         mkdir,
+        mkstemp,
         read,
         sysconf,
         write,
@@ -2137,4 +2139,24 @@ fn compute_checksum(data: &[u8]) -> u32 {
     }
 
     checksum
+}
+
+/// `pattern` is an mkstemp pattern minus any leading path. We'll choose the
+/// temp directory ourselves. The file is not automatically deleted, the caller
+/// must take care of that.
+pub fn create_temporary_file(pattern: &[u8]) -> TempFile {
+    let mut buf = tmp_dir().into_vec();
+    buf.push(b'/');
+    buf.extend_from_slice(pattern);
+    buf.truncate(PATH_MAX as usize);
+    let res = mkstemp(OsString::from_vec(buf).as_os_str()).unwrap();
+    TempFile {
+        name: res.1.into_os_string(),
+        fd: ScopedFd::from_raw(res.0),
+    }
+}
+
+pub struct TempFile {
+    pub name: OsString,
+    pub fd: ScopedFd,
 }

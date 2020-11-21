@@ -30,7 +30,7 @@ use crate::{
         siginfo_t,
         socketpair_args,
     },
-    auto_remote_syscalls::{AutoRemoteSyscalls, MemParamsEnabled},
+    auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem, MemParamsEnabled},
     bindings::{
         fcntl,
         kernel::{
@@ -268,6 +268,7 @@ use crate::{
         syscall_instruction_length,
         syscall_number_for_close,
         syscall_number_for_munmap,
+        syscall_number_for_openat,
         syscall_number_for_pause,
         syscall_number_for_rt_sigprocmask,
         x64,
@@ -301,9 +302,11 @@ use crate::{
         SYS_rdcall_notify_syscall_hook_exit,
     },
     preload_interface_arch::rdcall_init_buffers_params,
+    rd::RD_RESERVED_ROOT_DIR_FD,
     registers,
     registers::{with_converted_registers, Registers},
     remote_ptr::{RemotePtr, Void},
+    scoped_fd::ScopedFd,
     seccomp_filter_rewriter::SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO,
     session::{
         address_space::{address_space::AddressSpace, kernel_mapping::KernelMapping},
@@ -328,6 +331,8 @@ use crate::{
     util::{
         ceil_page_size,
         clone_flags_to_task_flags,
+        copy_file,
+        create_temporary_file,
         extract_clone_parameters,
         is_proc_fd_dir,
         is_proc_mem_file,
@@ -336,6 +341,7 @@ use crate::{
         u8_slice_mut,
         word_at,
         word_size,
+        write_all,
         CloneParameters,
     },
     wait_status::WaitStatus,
@@ -436,6 +442,7 @@ use libc::{
     MMAP_PAGE_ZERO,
     MSG_DONTWAIT,
     O_DIRECT,
+    O_RDONLY,
     PRIO_PROCESS,
     P_ALL,
     P_PGID,
@@ -477,7 +484,7 @@ use nix::{
         mman::{MapFlags, ProtFlags},
         stat::{self, stat, Mode, SFlag},
     },
-    unistd::{getpid, ttyname},
+    unistd::{getpid, ttyname, unlink},
 };
 use std::{
     cell::RefCell,
@@ -3145,8 +3152,46 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
     }
 }
 
-fn fake_gcrypt_file(_t: &mut RecordTask, _r: &mut Registers) {
-    unimplemented!()
+fn fake_gcrypt_file(t: &mut RecordTask, r: &mut Registers) {
+    // We hijacked this call to deal with /etc/gcrypt/hwf.deny.
+    let file = create_temporary_file(b"rd-gcrypt-hwf-deny-XXXXXX");
+
+    if stat("/etc/gcrypt/hwf.deny").is_ok() {
+        // Copy the contents into our temporary file
+        let existing = ScopedFd::open_path("/etc/gcrypt/hwf.deny", OFlag::O_RDONLY);
+        if !copy_file(file.fd.as_raw(), existing.as_raw()) {
+            fatal!(
+                "Can't copy file \"/etc/gcrypt/hwf.deny\" into temporary file {:?}",
+                file.name
+            );
+        }
+    }
+
+    let disable_rdrand = b"\nintel-rdrand\n";
+    write_all(file.fd.as_raw(), disable_rdrand);
+
+    // Now open the file in the child.
+    let child_fd: i32;
+    {
+        let sys = syscall_number_for_openat(t.arch());
+        let mut remote = AutoRemoteSyscalls::new(t);
+        let mut child_str = AutoRestoreMem::push_cstr(&mut remote, file.name.as_os_str());
+        let child_addr = child_str.get().unwrap().as_usize();
+        child_fd = rd_infallible_syscall!(
+            child_str,
+            sys,
+            RD_RESERVED_ROOT_DIR_FD,
+            child_addr,
+            O_RDONLY
+        ) as i32;
+    }
+
+    // Unlink it now that the child has opened it.
+    // DIFF NOTE: rr does not ensure this happens. We do an unwrap().
+    unlink(file.name.as_os_str()).unwrap();
+
+    // And hand out our fake file.
+    r.set_syscall_result_signed(child_fd as isize);
 }
 
 fn is_blacklisted_filename(filename_os: &OsStr) -> bool {
