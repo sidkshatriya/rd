@@ -222,6 +222,7 @@ pub mod address_space {
                 task_inner::WriteFlags,
                 Task,
                 TaskSharedPtr,
+                WeakTaskPtrSet,
             },
             SessionSharedPtr,
             SessionSharedWeakPtr,
@@ -229,7 +230,6 @@ pub mod address_space {
         taskish_uid::{AddressSpaceUid, TaskUid},
         trace::trace_frame::FrameTime,
         util::{ceil_page_size, floor_page_size, page_size, read_auxv, uses_invisible_guard_page},
-        weak_ptr_set::WeakPtrSet,
     };
     use core::ffi::c_void;
     use libc::{
@@ -616,7 +616,7 @@ pub mod address_space {
     /// of mapped pages, and the resources those mappings refer to.
     pub struct AddressSpace {
         /// The struct Deref-s and DerefMut-s to task_set.
-        task_set: RefCell<WeakPtrSet<RefCell<Box<dyn Task>>>>,
+        task_set: RefCell<WeakTaskPtrSet>,
         /// All breakpoints set in this VM.
         breakpoints: RefCell<BreakpointMap>,
         /// Path of the real executable image this address space was
@@ -679,10 +679,10 @@ pub mod address_space {
     }
 
     impl AddressSpace {
-        pub fn task_set(&self) -> Ref<WeakPtrSet<RefCell<Box<dyn Task>>>> {
+        pub fn task_set(&self) -> Ref<WeakTaskPtrSet> {
             self.task_set.borrow()
         }
-        pub fn task_set_mut(&self) -> RefMut<WeakPtrSet<RefCell<Box<dyn Task>>>> {
+        pub fn task_set_mut(&self) -> RefMut<WeakTaskPtrSet> {
             self.task_set.borrow_mut()
         }
         /// Call this after a new task has been cloned within this

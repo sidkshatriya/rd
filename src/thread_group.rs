@@ -1,6 +1,10 @@
 use crate::{
     log::LogLevel::LogDebug,
-    session::{task::Task, SessionSharedPtr, SessionSharedWeakPtr},
+    session::{
+        task::{Task, WeakTaskPtrSet},
+        SessionSharedPtr,
+        SessionSharedWeakPtr,
+    },
     taskish_uid::ThreadGroupUid,
     wait_status::WaitStatus,
     weak_ptr_set::WeakPtrSet,
@@ -25,7 +29,7 @@ pub type ThreadGroupRefMut<'a> = RefMut<'a, ThreadGroup>;
 pub struct ThreadGroup {
     /// These are the various tasks (dyn Task) that are part of the
     /// thread group.
-    tasks: WeakPtrSet<RefCell<Box<dyn Task>>>,
+    tasks: WeakTaskPtrSet,
     pub tgid: pid_t,
     pub real_tgid: pid_t,
     pub real_tgid_own_namespace: pid_t,
@@ -89,11 +93,11 @@ impl Drop for ThreadGroup {
 /// the ancestor of all other threads in the group.  Each constituent
 /// task must own a reference to this.
 impl ThreadGroup {
-    pub fn task_set(&self) -> &WeakPtrSet<RefCell<Box<dyn Task>>> {
+    pub fn task_set(&self) -> &WeakTaskPtrSet {
         &self.tasks
     }
 
-    pub fn task_set_mut(&mut self) -> &mut WeakPtrSet<RefCell<Box<dyn Task>>> {
+    pub fn task_set_mut(&mut self) -> &mut WeakTaskPtrSet {
         &mut self.tasks
     }
 

@@ -125,6 +125,7 @@ use crate::{
                 WriteFlags,
             },
             Task,
+            WeakTaskPtrSet,
         },
         Session,
         SessionSharedPtr,
@@ -149,7 +150,6 @@ use crate::{
         SignalAction,
     },
     wait_status::WaitStatus,
-    weak_ptr_set::WeakPtrSet,
 };
 use libc::{
     pid_t,
@@ -427,7 +427,7 @@ pub struct RecordTask {
     ///
     /// Task for which we're emulating ptrace of this task, or None
     pub emulated_ptracer: Option<TaskSharedWeakPtr>,
-    pub emulated_ptrace_tracees: WeakPtrSet<RefCell<Box<dyn Task>>>,
+    pub emulated_ptrace_tracees: WeakTaskPtrSet,
     pub emulated_ptrace_event_msg: usize,
     /// @TODO Do we want to make this a queue?
     /// Saved emulated-ptrace signals

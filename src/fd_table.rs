@@ -6,7 +6,13 @@ use crate::{
     remote_ptr::RemotePtr,
     session::{
         address_space::address_space::AddressSpace,
-        task::{record_task::RecordTask, replay_task::ReplayTask, Task, TaskSharedWeakPtr},
+        task::{
+            record_task::RecordTask,
+            replay_task::ReplayTask,
+            Task,
+            TaskSharedWeakPtr,
+            WeakTaskPtrSet,
+        },
     },
     taskish_uid::AddressSpaceUid,
     weak_ptr_set::WeakPtrSet,
@@ -23,7 +29,7 @@ pub type FdTableSharedWeakPtr = Weak<FdTable>;
 
 #[derive(Clone)]
 pub struct FdTable {
-    tasks: RefCell<WeakPtrSet<RefCell<Box<dyn Task>>>>,
+    tasks: RefCell<WeakTaskPtrSet>,
     fds: RefCell<HashMap<i32, FileMonitorSharedPtr>>,
     /// Number of elements of `fds` that are >= SYSCALLBUF_FDS_DISABLED_SIZE
     fd_count_beyond_limit: Cell<u32>,
@@ -31,11 +37,11 @@ pub struct FdTable {
 
 /// We DO NOT want Copy or Clone traits
 impl FdTable {
-    pub fn task_set(&self) -> Ref<'_, WeakPtrSet<RefCell<Box<dyn Task>>>> {
+    pub fn task_set(&self) -> Ref<'_, WeakTaskPtrSet> {
         self.tasks.borrow()
     }
 
-    pub fn task_set_mut(&self) -> RefMut<'_, WeakPtrSet<RefCell<Box<dyn Task>>>> {
+    pub fn task_set_mut(&self) -> RefMut<'_, WeakTaskPtrSet> {
         self.tasks.borrow_mut()
     }
 
@@ -132,9 +138,7 @@ impl FdTable {
                     .set(self.fd_count_beyond_limit.get() + 1);
             }
             let val = self.fds.borrow()[&from].clone();
-            self.fds
-                .borrow_mut()
-                .insert(to, val);
+            self.fds.borrow_mut().insert(to, val);
         } else {
             if to >= SYSCALLBUF_FDS_DISABLED_SIZE && self.fds.borrow().contains_key(&to) {
                 self.fd_count_beyond_limit

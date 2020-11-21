@@ -46,6 +46,7 @@ use std::{
 use task_inner::TrapReasons;
 
 use super::SessionSharedPtr;
+use crate::weak_ptr_set::WeakPtrSet;
 
 pub mod record_task;
 pub mod replay_task;
@@ -54,6 +55,7 @@ pub mod task_inner;
 
 pub type TaskSharedPtr = Rc<RefCell<Box<dyn Task>>>;
 pub type TaskSharedWeakPtr = Weak<RefCell<Box<dyn Task>>>;
+pub type WeakTaskPtrSet = WeakPtrSet<RefCell<Box<dyn Task>>>;
 
 impl Debug for &dyn Task {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
