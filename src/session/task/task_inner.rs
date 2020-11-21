@@ -84,7 +84,6 @@ use crate::{
         restore_initial_resource_limits,
         running_under_rd,
         set_cpu_affinity,
-        to_cstr_array,
         to_cstring_array,
         u8_slice,
         u8_slice_mut,
@@ -1718,8 +1717,8 @@ impl TaskInner {
                 &sock,
                 fd_number,
                 &CString::new(exe_path.as_bytes()).unwrap(),
-                &to_cstr_array(&argv_array),
-                &to_cstr_array(&envp_array),
+                &argv_array,
+                &envp_array,
                 &prog,
             );
             // run_initial_child never returns
@@ -1833,8 +1832,8 @@ fn run_initial_child(
     sock_fd: &ScopedFd,
     sock_fd_number: i32,
     exe_path_cstr: &CStr,
-    argv_array: &[&CStr],
-    envp_array: &[&CStr],
+    argv_array: &[CString],
+    envp_array: &[CString],
     seccomp_prog: &sock_fprog,
 ) {
     let pid = getpid();
