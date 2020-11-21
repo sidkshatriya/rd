@@ -56,7 +56,7 @@ impl RemoteCodePtr {
     }
 
     pub fn to_data_ptr<T>(self) -> RemotePtr<T> {
-        RemotePtr::<T>::new_from_val(self.as_usize())
+        RemotePtr::<T>::new(self.as_usize())
     }
 
     pub fn register_value(&self) -> usize {

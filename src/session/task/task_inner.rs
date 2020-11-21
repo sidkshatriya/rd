@@ -812,7 +812,7 @@ impl TaskInner {
                 };
                 self.xptrace(
                     PTRACE_GETREGSET,
-                    RemotePtr::new_from_val(NT_X86_XSTATE as usize),
+                    RemotePtr::new(NT_X86_XSTATE as usize),
                     &mut PtraceData::WriteInto(u8_slice_mut(&mut vec)),
                 );
                 data_.resize(vec.iov_len, 0u8);
@@ -873,7 +873,7 @@ impl TaskInner {
     pub fn debug_status(&self) -> usize {
         self.fallible_ptrace(
             PTRACE_PEEKUSER,
-            RemotePtr::new_from_val(dr_user_word_offset(6)),
+            RemotePtr::new(dr_user_word_offset(6)),
             &mut PtraceData::None,
         ) as usize
     }
@@ -934,7 +934,7 @@ impl TaskInner {
 
                     self.ptrace_if_alive(
                         PTRACE_SETREGSET,
-                        RemotePtr::new_from_val(NT_X86_XSTATE as usize),
+                        RemotePtr::new(NT_X86_XSTATE as usize),
                         &mut PtraceData::ReadFrom(u8_slice(&vec)),
                     );
                 } else {

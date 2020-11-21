@@ -162,7 +162,7 @@ impl TraceReader {
         let mut it = mem_writes.iter();
         while let Some(w) = it.next_back() {
             self.raw_recs.push(RawDataMetadata {
-                addr: RemotePtr::new_from_val(w.get_addr().try_into().unwrap()),
+                addr: RemotePtr::new(w.get_addr().try_into().unwrap()),
                 size: w.get_size().try_into().unwrap(),
                 rec_tid: w.get_tid(),
             });

@@ -3125,7 +3125,7 @@ impl RecordTask {
     /// Helper function for update_sigaction.
     fn update_sigaction_arch<Arch: Architecture>(&mut self, regs: &Registers) {
         let sig = Sig::try_from(regs.arg1_signed() as i32).unwrap();
-        let new_sigaction_addr = RemotePtr::<kernel_sigaction<Arch>>::new_from_val(regs.arg2());
+        let new_sigaction_addr = RemotePtr::<kernel_sigaction<Arch>>::new(regs.arg2());
         if 0 == regs.syscall_result() && !new_sigaction_addr.is_null() {
             // A new sighandler was installed.  Update our
             // sighandler table.

@@ -356,7 +356,7 @@ fn setup_library_path_arch<Arch: Architecture>(
         }
         // NOTE: Will not contain a nul at the end of Vec<u8>
         let env = t
-            .read_c_str(RemotePtr::new_from_val(envp.try_into().unwrap()))
+            .read_c_str(RemotePtr::new(envp.try_into().unwrap()))
             .into_bytes();
         if find(&env, &env_assignment) != Some(0) {
             p += 1usize;

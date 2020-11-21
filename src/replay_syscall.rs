@@ -1587,7 +1587,7 @@ fn process_mmap(
                 .syscall_result();
             finish_anonymous_mmap(
                 &mut remote,
-                RemotePtr::new_from_val(syscall_result),
+                RemotePtr::new(syscall_result),
                 length,
                 prot,
                 flags,

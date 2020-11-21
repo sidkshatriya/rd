@@ -2432,7 +2432,7 @@ fn setup_sigframe_siginfo_arch<Arch: Architecture>(t: &mut RecordTask, siginfo: 
             dest = RemotePtr::from(read_val_mem(t, p, None).try_into().unwrap());
         }
         SupportedArch::X64 => {
-            dest = RemotePtr::new_from_val(t.regs_ref().si());
+            dest = RemotePtr::new(t.regs_ref().si());
         }
     }
     let mut si: arch_siginfo_t<Arch> = read_val_mem(t, dest, None);

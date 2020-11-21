@@ -490,7 +490,7 @@ impl ReRunCommand {
         let t = diversion_ref.find_task_from_task_uid(task.tuid()).unwrap();
         let mut regs = t.borrow().regs_ref().clone();
         // align stack;
-        let sp = RemotePtr::<usize>::new_from_val((regs.sp().as_usize() & !0xf) - 1);
+        let sp = RemotePtr::<usize>::new((regs.sp().as_usize() & !0xf) - 1);
         write_val_mem(t.borrow_mut().as_mut(), sp, &SENTINEL_RET_ADDRESS, None);
         regs.set_sp(RemotePtr::cast(sp));
         // If we've called this method then we assume that there is always an address in self.function

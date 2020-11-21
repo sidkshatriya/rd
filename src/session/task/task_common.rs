@@ -1311,7 +1311,7 @@ fn on_syscall_exit_common_arch<Arch: Architecture>(t: &mut dyn Task, sys: i32, r
         let mut ranges: Vec<file_monitor::Range> = Vec::new();
         let iovecs = read_mem(
             t,
-            RemotePtr::<Arch::iovec>::new_from_val(regs.arg2()),
+            RemotePtr::<Arch::iovec>::new(regs.arg2()),
             regs.arg3(),
             None,
         );
@@ -1572,7 +1572,7 @@ fn do_preload_init_arch<Arch: Architecture, T: Task>(t: &mut T) {
     let addr_val = t.regs_ref().arg1();
     let params = read_val_mem(
         t,
-        RemotePtr::<rdcall_init_preload_params<Arch>>::new_from_val(addr_val),
+        RemotePtr::<rdcall_init_preload_params<Arch>>::new(addr_val),
         None,
     );
 

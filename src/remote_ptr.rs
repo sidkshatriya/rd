@@ -54,7 +54,7 @@ impl<T> RemotePtr<T> {
         }
     }
 
-    pub fn new_from_val(val: usize) -> RemotePtr<T> {
+    pub fn new(val: usize) -> RemotePtr<T> {
         RemotePtr {
             ptr: val,
             phantom: PhantomData,
@@ -79,7 +79,7 @@ impl<T> RemotePtr<T> {
     }
 
     pub fn cast<U>(r: RemotePtr<U>) -> RemotePtr<T> {
-        RemotePtr::<T>::new_from_val(r.ptr)
+        RemotePtr::<T>::new(r.ptr)
     }
 
     pub fn to_code_ptr(self) -> RemoteCodePtr {
@@ -87,7 +87,7 @@ impl<T> RemotePtr<T> {
     }
 
     pub fn as_rptr_u8(self) -> RemotePtr<u8> {
-        RemotePtr::<u8>::new_from_val(self.ptr)
+        RemotePtr::<u8>::new(self.ptr)
     }
 }
 
@@ -103,7 +103,7 @@ impl<T> Add<usize> for RemotePtr<T> {
     fn add(self, delta: usize) -> Self::Output {
         // Will automatically deal with underflow in debug mode.
         let result: usize = self.as_usize() + delta * std::mem::size_of::<T>();
-        Self::new_from_val(result)
+        Self::new(result)
     }
 }
 
@@ -113,7 +113,7 @@ impl<T> Add<u32> for RemotePtr<T> {
     fn add(self, delta: u32) -> Self::Output {
         // Will automatically deal with overflow in debug mode.
         let result: usize = self.as_usize() + (delta as usize) * std::mem::size_of::<T>();
-        Self::new_from_val(result)
+        Self::new(result)
     }
 }
 
@@ -125,7 +125,7 @@ impl<T> Add<isize> for RemotePtr<T> {
             return Sub::<usize>::sub(self, delta.abs() as usize);
         }
         let result: usize = self.as_usize() + (delta as usize) * std::mem::size_of::<T>();
-        Self::new_from_val(result)
+        Self::new(result)
     }
 }
 
@@ -135,7 +135,7 @@ impl<T> Sub<usize> for RemotePtr<T> {
     fn sub(self, delta: usize) -> Self::Output {
         // Will automatically deal with underflow in debug mode.
         let result: usize = self.as_usize() - delta * std::mem::size_of::<T>();
-        Self::new_from_val(result)
+        Self::new(result)
     }
 }
 
@@ -145,7 +145,7 @@ impl<T> Sub<u32> for RemotePtr<T> {
     fn sub(self, delta: u32) -> Self::Output {
         // Will automatically deal with underflow in debug mode.
         let result: usize = self.as_usize() - (delta as usize) * std::mem::size_of::<T>();
-        Self::new_from_val(result)
+        Self::new(result)
     }
 }
 
@@ -190,7 +190,7 @@ impl<T> Eq for RemotePtr<T> {}
 
 impl<T> From<usize> for RemotePtr<T> {
     fn from(addr: usize) -> Self {
-        RemotePtr::<T>::new_from_val(addr)
+        RemotePtr::<T>::new(addr)
     }
 }
 
@@ -198,7 +198,7 @@ impl<T> From<usize> for RemotePtr<T> {
 /// However this should be OK in almost all cases.
 impl<T> From<u64> for RemotePtr<T> {
     fn from(addr: u64) -> Self {
-        RemotePtr::<T>::new_from_val(addr.try_into().unwrap())
+        RemotePtr::<T>::new(addr.try_into().unwrap())
     }
 }
 
@@ -263,7 +263,7 @@ mod tests {
     #[test]
     fn cast_test() {
         struct S(u64, u64);
-        let a = RemotePtr::<u64>::new_from_val(8);
+        let a = RemotePtr::<u64>::new(8);
         let b = RemotePtr::<S>::cast(a);
         assert_eq!(16, b.referent_size());
         assert_eq!(8, a.referent_size());
@@ -272,9 +272,9 @@ mod tests {
     #[test]
     fn comparison_test() {
         struct S(u64, u64);
-        let a = RemotePtr::<u64>::new_from_val(8);
-        let c = RemotePtr::<S>::new_from_val(0);
-        let d = RemotePtr::<S>::new_from_val(16);
+        let a = RemotePtr::<u64>::new(8);
+        let c = RemotePtr::<S>::new(0);
+        let d = RemotePtr::<S>::new(16);
         assert_eq!(a, a);
         assert_eq!(a, a.clone());
         assert!(c < d);

@@ -1744,7 +1744,7 @@ pub mod address_space {
         /// We'll map a page of memory here into every exec'ed process for our own
         /// use.
         pub fn rd_page_start() -> RemotePtr<Void> {
-            RemotePtr::<Void>::new_from_val(RD_PAGE_ADDR)
+            RemotePtr::<Void>::new(RD_PAGE_ADDR)
         }
 
         /// This might not be the length of an actual system page, but we allocate
@@ -1903,7 +1903,7 @@ pub mod address_space {
 
         /// Same as read_kernel_mapping, but reads rd's own memory map.
         pub fn read_local_kernel_mapping(addr: *const u8) -> KernelMapping {
-            read_kernel_mapping(getpid().as_raw(), RemotePtr::new_from_val(addr as usize))
+            read_kernel_mapping(getpid().as_raw(), RemotePtr::new(addr as usize))
         }
 
         pub fn chaos_mode_min_stack_size() -> usize {
@@ -2955,7 +2955,7 @@ pub mod address_space {
             let addr = t.regs_ref().arg1();
             let params = read_val_mem(
                 t,
-                RemotePtr::<rdcall_init_preload_params<Arch>>::new_from_val(addr),
+                RemotePtr::<rdcall_init_preload_params<Arch>>::new(addr),
                 None,
             );
 
@@ -3051,9 +3051,8 @@ fn configure_watch_registers(
         } else {
             align = 8;
         }
-        let aligned_start = RemotePtr::new_from_val(range.start().as_usize() & !(align - 1));
-        let aligned_end =
-            RemotePtr::new_from_val((range.end().as_usize() + (align - 1)) & !(align - 1));
+        let aligned_start = RemotePtr::new(range.start().as_usize() & !(align - 1));
+        let aligned_end = RemotePtr::new((range.end().as_usize() + (align - 1)) & !(align - 1));
         let split = split_range(&MemoryRange::from_range(aligned_start, aligned_end));
         // If the aligned range doesn't reduce register usage, use the original
         // split to avoid spurious triggerings

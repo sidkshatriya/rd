@@ -95,10 +95,7 @@ impl FileMonitor for ProcMemMonitor {
 
         let record_task = task.as_record_task_mut().unwrap();
         for r in ranges {
-            record_task.record_remote(
-                RemotePtr::new_from_val(offset.try_into().unwrap()),
-                r.length,
-            );
+            record_task.record_remote(RemotePtr::new(offset.try_into().unwrap()), r.length);
             offset += r.length as u64;
         }
     }

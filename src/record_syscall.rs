@@ -600,7 +600,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
             if p == 0.into() {
                 break;
             }
-            let component = t.read_c_str(RemotePtr::new_from_val(p.try_into().unwrap()));
+            let component = t.read_c_str(RemotePtr::new(p.try_into().unwrap()));
             cmd_line.push(OsString::from_vec(component.into_bytes()));
             argv += 1;
         }
@@ -2637,7 +2637,7 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
                 // DIFF NOTE: Arch::unsigned_long in rr
                 let child_addr = RemotePtr::<Arch::unsigned_word>::from(t.regs_ref().arg4());
                 let out_ptr = read_val_mem(t, child_addr, None);
-                let out_rptr = RemotePtr::<Void>::new_from_val(out_ptr.try_into().unwrap());
+                let out_rptr = RemotePtr::<Void>::new(out_ptr.try_into().unwrap());
                 unimplemented!()
             }
             _ => (),
@@ -3892,7 +3892,7 @@ fn get_exe_entry(t: &mut RecordTask) -> RemotePtr<Void> {
     while (i + 1) * wsize * 2 <= v.len() {
         if word_at(&v[i * 2 * wsize..i * 2 * wsize + wsize]) == AT_ENTRY {
             // @TODO Instead of try_into() should this just be `as usize` ?
-            return RemotePtr::new_from_val(
+            return RemotePtr::new(
                 word_at(&v[(i * 2 + 1) * wsize..(i * 2 + 1) * wsize + wsize])
                     .try_into()
                     .unwrap(),

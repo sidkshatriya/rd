@@ -659,7 +659,7 @@ impl Registers {
 
     pub fn sp(&self) -> RemotePtr<Void> {
         let addr = rd_get_reg!(self, esp, rsp);
-        RemotePtr::<u8>::new_from_val(addr)
+        RemotePtr::<u8>::new(addr)
     }
 
     pub fn set_sp(&mut self, addr: RemotePtr<Void>) {

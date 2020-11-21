@@ -292,7 +292,7 @@ impl<ValT: Copy, ReferentT> Ptr<ValT, ReferentT> {
 
 impl<ReferentT> Ptr<u32, ReferentT> {
     pub fn rptr(&self) -> RemotePtr<ReferentT> {
-        RemotePtr::new_from_val(self.val as usize)
+        RemotePtr::new(self.val as usize)
     }
 
     pub fn from_remote_ptr<T>(r: RemotePtr<T>) -> Ptr<u32, T> {
@@ -318,7 +318,7 @@ impl<T> From<RemotePtr<T>> for Ptr<u64, T> {
 
 impl<ReferentT> Ptr<u64, ReferentT> {
     pub fn rptr(&self) -> RemotePtr<ReferentT> {
-        RemotePtr::new_from_val(self.val as usize)
+        RemotePtr::new(self.val as usize)
     }
 
     pub fn from_remote_ptr<T>(r: RemotePtr<T>) -> Ptr<u64, T> {

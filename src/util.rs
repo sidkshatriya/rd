@@ -1007,7 +1007,7 @@ fn read_env_arch<Arch: Architecture>(t: &mut dyn Task) -> Vec<CString> {
         if p == 0.into() {
             break;
         }
-        result.push(t.read_c_str(RemotePtr::new_from_val(p.try_into().unwrap())));
+        result.push(t.read_c_str(RemotePtr::new(p.try_into().unwrap())));
     }
     result
 }
