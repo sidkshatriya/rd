@@ -1,13 +1,12 @@
 use crate::log::LogLevel::LogDebug;
 use std::{
-    cell::RefCell,
     collections::{hash_set::Iter, HashSet},
     hash::{Hash, Hasher},
     ops::Deref,
     rc::{Rc, Weak},
 };
 
-pub struct WeakPtrWrap<T>(pub Weak<RefCell<T>>);
+pub struct WeakPtrWrap<T>(pub Weak<T>);
 
 impl<T> Clone for WeakPtrWrap<T> {
     fn clone(&self) -> Self {
@@ -38,7 +37,7 @@ impl<T> Hash for WeakPtrWrap<T> {
 }
 
 impl<T> Deref for WeakPtrWrap<T> {
-    type Target = Weak<RefCell<T>>;
+    type Target = Weak<T>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -74,39 +73,39 @@ impl<T> WeakPtrSet<T> {
         self.into_iter()
     }
 
-    pub fn iter_except(&self, tw: Weak<RefCell<T>>) -> ExceptSetIterator<T> {
+    pub fn iter_except(&self, tw: Weak<T>) -> ExceptSetIterator<T> {
         ExceptSetIterator {
             hash_set_iterator: self.0.iter(),
             except: tw,
         }
     }
 
-    pub fn iter_except_vec(&self, tw_vec: Vec<Weak<RefCell<T>>>) -> ExceptVecSetIterator<T> {
+    pub fn iter_except_vec(&self, tw_vec: Vec<Weak<T>>) -> ExceptVecSetIterator<T> {
         ExceptVecSetIterator {
             hash_set_iterator: self.0.iter(),
             except: tw_vec,
         }
     }
 
-    pub fn insert(&mut self, t: Weak<RefCell<T>>) -> bool {
+    pub fn insert(&mut self, t: Weak<T>) -> bool {
         // Make this message more specific e.g. are we dealing with a task or thread group etc.
         log!(LogDebug, "adding an item to set {:?}", t.as_ptr());
         self.0.insert(WeakPtrWrap(t))
     }
 
-    pub fn erase(&mut self, t: Weak<RefCell<T>>) -> bool {
+    pub fn erase(&mut self, t: Weak<T>) -> bool {
         // Make this message more specific e.g. are we dealing with a task or thread group etc.
         log!(LogDebug, "removing an item from set {:?}", t.as_ptr());
         self.0.remove(&WeakPtrWrap(t))
     }
 
-    pub fn has(&self, t: Weak<RefCell<T>>) -> bool {
+    pub fn has(&self, t: Weak<T>) -> bool {
         self.0.contains(&WeakPtrWrap(t))
     }
 }
 
 impl<'a, T> IntoIterator for &'a WeakPtrSet<T> {
-    type Item = Rc<RefCell<T>>;
+    type Item = Rc<T>;
     type IntoIter = SetIterator<'a, T>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -122,16 +121,16 @@ pub struct SetIterator<'a, T> {
 
 pub struct ExceptSetIterator<'a, T> {
     hash_set_iterator: Iter<'a, WeakPtrWrap<T>>,
-    except: Weak<RefCell<T>>,
+    except: Weak<T>,
 }
 
 pub struct ExceptVecSetIterator<'a, T> {
     hash_set_iterator: Iter<'a, WeakPtrWrap<T>>,
-    except: Vec<Weak<RefCell<T>>>,
+    except: Vec<Weak<T>>,
 }
 
 impl<T> Iterator for SetIterator<'_, T> {
-    type Item = Rc<RefCell<T>>;
+    type Item = Rc<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.hash_set_iterator.next().map(|t| t.upgrade().unwrap())
@@ -139,7 +138,7 @@ impl<T> Iterator for SetIterator<'_, T> {
 }
 
 impl<T> Iterator for ExceptSetIterator<'_, T> {
-    type Item = Rc<RefCell<T>>;
+    type Item = Rc<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(WeakPtrWrap(it)) = self.hash_set_iterator.next() {
@@ -154,7 +153,7 @@ impl<T> Iterator for ExceptSetIterator<'_, T> {
 }
 
 impl<T> Iterator for ExceptVecSetIterator<'_, T> {
-    type Item = Rc<RefCell<T>>;
+    type Item = Rc<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(WeakPtrWrap(it)) = self.hash_set_iterator.next() {

@@ -25,7 +25,7 @@ pub type ThreadGroupRefMut<'a> = RefMut<'a, ThreadGroup>;
 pub struct ThreadGroup {
     /// These are the various tasks (dyn Task) that are part of the
     /// thread group.
-    tasks: WeakPtrSet<Box<dyn Task>>,
+    tasks: WeakPtrSet<RefCell<Box<dyn Task>>>,
     pub tgid: pid_t,
     pub real_tgid: pid_t,
     pub real_tgid_own_namespace: pid_t,
@@ -53,7 +53,7 @@ pub struct ThreadGroup {
     /// DIFF NOTE: Different from rr where nullptr is used.
     parent_: Option<ThreadGroupSharedWeakPtr>,
 
-    children_: WeakPtrSet<ThreadGroup>,
+    children_: WeakPtrSet<RefCell<ThreadGroup>>,
 
     serial: u32,
     weak_self: ThreadGroupSharedWeakPtr,
@@ -89,11 +89,11 @@ impl Drop for ThreadGroup {
 /// the ancestor of all other threads in the group.  Each constituent
 /// task must own a reference to this.
 impl ThreadGroup {
-    pub fn task_set(&self) -> &WeakPtrSet<Box<dyn Task>> {
+    pub fn task_set(&self) -> &WeakPtrSet<RefCell<Box<dyn Task>>> {
         &self.tasks
     }
 
-    pub fn task_set_mut(&mut self) -> &mut WeakPtrSet<Box<dyn Task>> {
+    pub fn task_set_mut(&mut self) -> &mut WeakPtrSet<RefCell<Box<dyn Task>>> {
         &mut self.tasks
     }
 
@@ -237,11 +237,11 @@ impl ThreadGroup {
         self.parent_.clone()
     }
 
-    pub fn children(&self) -> &WeakPtrSet<ThreadGroup> {
+    pub fn children(&self) -> &WeakPtrSet<RefCell<ThreadGroup>> {
         &self.children_
     }
 
-    pub fn children_mut(&mut self) -> &mut WeakPtrSet<ThreadGroup> {
+    pub fn children_mut(&mut self) -> &mut WeakPtrSet<RefCell<ThreadGroup>> {
         &mut self.children_
     }
 

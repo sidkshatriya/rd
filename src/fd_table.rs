@@ -23,7 +23,7 @@ pub type FdTableSharedWeakPtr = Weak<FdTable>;
 
 #[derive(Clone)]
 pub struct FdTable {
-    tasks: RefCell<WeakPtrSet<Box<dyn Task>>>,
+    tasks: RefCell<WeakPtrSet<RefCell<Box<dyn Task>>>>,
     fds: RefCell<HashMap<i32, FileMonitorSharedPtr>>,
     /// Number of elements of `fds` that are >= SYSCALLBUF_FDS_DISABLED_SIZE
     fd_count_beyond_limit: Cell<u32>,
@@ -31,11 +31,11 @@ pub struct FdTable {
 
 /// We DO NOT want Copy or Clone traits
 impl FdTable {
-    pub fn task_set(&self) -> Ref<'_, WeakPtrSet<Box<dyn Task>>> {
+    pub fn task_set(&self) -> Ref<'_, WeakPtrSet<RefCell<Box<dyn Task>>>> {
         self.tasks.borrow()
     }
 
-    pub fn task_set_mut(&self) -> RefMut<'_, WeakPtrSet<Box<dyn Task>>> {
+    pub fn task_set_mut(&self) -> RefMut<'_, WeakPtrSet<RefCell<Box<dyn Task>>>> {
         self.tasks.borrow_mut()
     }
 

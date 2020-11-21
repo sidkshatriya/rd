@@ -427,7 +427,7 @@ pub struct RecordTask {
     ///
     /// Task for which we're emulating ptrace of this task, or None
     pub emulated_ptracer: Option<TaskSharedWeakPtr>,
-    pub emulated_ptrace_tracees: WeakPtrSet<Box<dyn Task>>,
+    pub emulated_ptrace_tracees: WeakPtrSet<RefCell<Box<dyn Task>>>,
     pub emulated_ptrace_event_msg: usize,
     /// @TODO Do we want to make this a queue?
     /// Saved emulated-ptrace signals

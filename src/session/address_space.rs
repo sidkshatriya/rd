@@ -616,7 +616,7 @@ pub mod address_space {
     /// of mapped pages, and the resources those mappings refer to.
     pub struct AddressSpace {
         /// The struct Deref-s and DerefMut-s to task_set.
-        task_set: RefCell<WeakPtrSet<Box<dyn Task>>>,
+        task_set: RefCell<WeakPtrSet<RefCell<Box<dyn Task>>>>,
         /// All breakpoints set in this VM.
         breakpoints: RefCell<BreakpointMap>,
         /// Path of the real executable image this address space was
@@ -679,10 +679,10 @@ pub mod address_space {
     }
 
     impl AddressSpace {
-        pub fn task_set(&self) -> Ref<WeakPtrSet<Box<dyn Task>>> {
+        pub fn task_set(&self) -> Ref<WeakPtrSet<RefCell<Box<dyn Task>>>> {
             self.task_set.borrow()
         }
-        pub fn task_set_mut(&self) -> RefMut<WeakPtrSet<Box<dyn Task>>> {
+        pub fn task_set_mut(&self) -> RefMut<WeakPtrSet<RefCell<Box<dyn Task>>>> {
             self.task_set.borrow_mut()
         }
         /// Call this after a new task has been cloned within this

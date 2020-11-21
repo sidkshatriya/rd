@@ -76,7 +76,6 @@ mod trace_capnp;
 mod util;
 mod wait_status;
 mod weak_ptr_set;
-mod weak_set;
 
 use crate::{
     commands::{

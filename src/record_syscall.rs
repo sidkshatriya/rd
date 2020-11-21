@@ -339,7 +339,7 @@ use crate::{
         CloneParameters,
     },
     wait_status::WaitStatus,
-    weak_set::WeakSet,
+    weak_ptr_set::WeakPtrSet,
 };
 use arch_structs::{ipt_replace, setsockopt_args};
 use file_monitor::FileMonitorType;
@@ -3503,7 +3503,7 @@ fn monitor_fd_for_mapping(
     file: &libc::stat,
     extra_fds: &mut Vec<TraceRemoteFd>,
 ) -> bool {
-    let mut tables: WeakSet<FdTable> = WeakSet::new();
+    let mut tables: WeakPtrSet<FdTable> = WeakPtrSet::new();
     let mut found_our_mapping = false;
     let mut our_mapping_writable = false;
     let mapped_table = Rc::downgrade(&mapped_t.fd_table_shr_ptr());
