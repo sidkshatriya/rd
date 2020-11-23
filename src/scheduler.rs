@@ -302,7 +302,7 @@ impl Scheduler {
                 log!(
                     LogDebug,
                     "  ({} is un-switchable at {})",
-                    curr.tid,
+                    curr.tid(),
                     curr.as_rec_unwrap().ev()
                 );
 
@@ -365,7 +365,7 @@ impl Scheduler {
                             &mut result.by_waitpid,
                         )
                     {
-                        log!(LogDebug, "  Carrying on with task {}", curr.tid);
+                        log!(LogDebug, "  Carrying on with task {}", curr.tid());
                         self.validate_scheduled_task();
                         return result;
                     }
@@ -381,7 +381,7 @@ impl Scheduler {
             maybe_next = self.get_round_robin_task();
             match maybe_next.as_ref() {
                 Some(nt) => {
-                    log!(LogDebug, "Trying task {} from yield queue", nt.tid);
+                    log!(LogDebug, "Trying task {} from yield queue", nt.tid());
                     if self.is_task_runnable(nt.as_record_task().unwrap(), &mut result.by_waitpid) {
                         break;
                     }
@@ -437,7 +437,7 @@ impl Scheduler {
 
         match maybe_next.as_ref() {
             Some(nt) if !nt.unstable.get() => {
-                log!(LogDebug, "  selecting task {}", nt.tid)
+                log!(LogDebug, "  selecting task {}", nt.tid())
             }
             _ => {
                 // All the tasks are blocked (or we found an unstable-exit task).
@@ -545,9 +545,9 @@ impl Scheduler {
             Some(curr) if !Rc::ptr_eq(&curr, &nt) => log!(
                 LogDebug,
                 "Switching from {} ({:?}) to {} ({:?}) (priority {} to {}) at {}",
-                curr.tid,
+                curr.tid(),
                 curr.name(),
-                nt.tid,
+                nt.tid(),
                 nt.name(),
                 curr.as_record_task().unwrap().priority,
                 nt.as_record_task().unwrap().priority,
@@ -578,7 +578,11 @@ impl Scheduler {
     /// If the task_round_robin_queue is empty this moves all tasks into it,
     /// putting last_task last.
     pub fn schedule_one_round_robin(&self, t: &RecordTask) {
-        log!(LogDebug, "Scheduling round-robin because of task {}", t.tid);
+        log!(
+            LogDebug,
+            "Scheduling round-robin because of task {}",
+            t.tid()
+        );
 
         let rc_t = t.weak_self_ptr().upgrade().unwrap();
         ed_assert!(t, Rc::ptr_eq(&self.current().unwrap(), &rc_t));
@@ -881,7 +885,7 @@ impl Scheduler {
     }
 
     fn choose_random_priority(&self, t: &TaskSharedPtr) -> i32 {
-        let prob = if t.tgid() == t.tid {
+        let prob = if t.tgid() == t.tid() {
             MAIN_THREAD_LOW_PRIORITY_PROBABILITY
         } else {
             LOW_PRIORITY_PROBABILITY
@@ -895,7 +899,7 @@ impl Scheduler {
     }
 
     fn update_task_priority_internal(&self, t: &RecordTask, mut value: i32) {
-        if t.stable_exit && !self.enable_chaos.get() {
+        if t.stable_exit.get() && !self.enable_chaos.get() {
             // Tasks in a stable exit have the highest priority. We should force them
             // to complete exiting ASAP to clean up resources. They may not be runnable
             // due to waiting for PTRACE_EVENT_EXIT to complete.
@@ -976,12 +980,12 @@ impl Scheduler {
         );
 
         if t.unstable.get() {
-            log!(LogDebug, "  {} is unstable", t.tid);
+            log!(LogDebug, "  {} is unstable", t.tid());
             return true;
         }
 
         if !t.may_be_blocked() {
-            log!(LogDebug, "  {} isn't blocked", t.tid);
+            log!(LogDebug, "  {} isn't blocked", t.tid());
             return true;
         }
 
@@ -1004,12 +1008,12 @@ impl Scheduler {
                 log!(
                     LogDebug,
                     "  Got {} out of emulated stop due to pending SIGCONT",
-                    t.tid
+                    t.tid()
                 );
 
                 return true;
             } else {
-                log!(LogDebug, "  {} is stopped by ptrace or signal", t.tid);
+                log!(LogDebug, "  {} is stopped by ptrace or signal", t.tid());
                 // We have no way to detect a SIGCONT coming from outside the tracees.
                 // We just have to poll SigPnd in /proc/<pid>/status.
                 self.enable_poll.set(true);
@@ -1038,7 +1042,7 @@ impl Scheduler {
         log!(
             LogDebug,
             "  {} is blocked on {}; checking status ...",
-            t.tid,
+            t.tid(),
             t.ev()
         );
 

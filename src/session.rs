@@ -258,8 +258,8 @@ pub trait Session: DerefMut<Target = SessionInner> {
             ThreadGroup::new(
                 self.weak_self.clone(),
                 Some(Rc::downgrade(&tg)),
-                t.rec_tid,
-                t.tid,
+                t.rec_tid(),
+                t.tid(),
                 t.own_namespace_tid(),
                 t.tuid().serial(),
             )

@@ -922,8 +922,8 @@ impl<'a> AutoRemoteSyscalls<'a> {
     ///
     /// DIFF NOTE: This method in rr is in the task.
     pub fn init_syscall_buffer(&mut self, map_hint: RemotePtr<Void>) -> KernelMapping {
-        let name = format!("syscallbuf.{}", self.task().rec_tid);
-        let syscallbuf_size = self.task().syscallbuf_size;
+        let name = format!("syscallbuf.{}", self.task().rec_tid());
+        let syscallbuf_size = self.task().syscallbuf_size.get();
         let km: KernelMapping = self.create_shared_mmap(
             syscallbuf_size,
             Some(map_hint),
@@ -945,14 +945,14 @@ impl<'a> AutoRemoteSyscalls<'a> {
                 .cast::<syscallbuf_hdr>()
                 .as_mut() = mem::zeroed()
         };
-        let syscallbuf_child = self.task().syscallbuf_child;
+        let syscallbuf_child = self.task().syscallbuf_child.get();
         ed_assert!(
             self.task(),
             syscallbuf_child.is_null(),
             "Should not already have syscallbuf initialized!"
         );
 
-        self.task_mut().syscallbuf_child = RemotePtr::cast(km.start());
+        self.t.syscallbuf_child.set(RemotePtr::cast(km.start()));
 
         km
     }

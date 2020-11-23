@@ -164,7 +164,7 @@ fn __ptrace_cont(
 ) {
     maybe_expect_syscallno2.map(|n| debug_assert!(n >= 0));
     let new_tid = maybe_new_tid.unwrap_or(-1);
-    let wait_for: pid_t = if new_tid >= 0 { -1 as pid_t } else { t.tid };
+    let wait_for: pid_t = if new_tid >= 0 { -1 as pid_t } else { t.tid() };
 
     let expect_syscallno2 = maybe_expect_syscallno2.unwrap_or(-1);
     t.resume_execution(
@@ -188,11 +188,11 @@ fn __ptrace_cont(
         ed_assert!(t, ret >= 0);
         if ret == new_tid {
             // Check that we only do this once
-            ed_assert_ne!(t, t.tid, new_tid);
+            ed_assert_ne!(t, t.tid(), new_tid);
             // Update the serial as if this task was really created by cloning the old task.
             t.set_real_tid_and_update_serial(new_tid);
         }
-        ed_assert_eq!(t, ret, t.tid);
+        ed_assert_eq!(t, ret, t.tid());
         t.did_waitpid(WaitStatus::new(raw_status));
 
         // DIFF NOTE: @TODO The `if` statement logic may create a slight divergence from rr.
@@ -250,10 +250,10 @@ fn maybe_dump_written_string(t: &ReplayTask) -> Option<OsString> {
 fn init_scratch_memory(t: &ReplayTask, km: &KernelMapping, data: &trace_stream::MappedData) {
     ed_assert_eq!(t, data.source, trace_stream::MappedDataSource::SourceZero);
 
-    t.scratch_ptr = km.start();
-    t.scratch_size = km.size();
-    let sz = t.scratch_size;
-    let scratch_ptr = t.scratch_ptr;
+    t.scratch_ptr.set(km.start());
+    t.scratch_size.set(km.size());
+    let sz = t.scratch_size.get();
+    let scratch_ptr = t.scratch_ptr.get();
     // Make the scratch buffer read/write during replay so that
     // preload's sys_read can use it to buffer cloned data.
     ed_assert!(
@@ -281,7 +281,7 @@ fn init_scratch_memory(t: &ReplayTask, km: &KernelMapping, data: &trace_stream::
         }
         t.vm().map(
             t,
-            t.scratch_ptr,
+            t.scratch_ptr.get(),
             sz,
             km.prot(),
             km.flags(),
@@ -465,9 +465,9 @@ fn prepare_clone<Arch: Architecture>(t: &ReplayTask) {
     let tte = read_task_trace_event(t, TraceTaskEventType::Clone);
     ed_assert!(
         t,
-        tte.clone_variant().parent_tid() == t.rec_tid,
+        tte.clone_variant().parent_tid() == t.rec_tid(),
         "Expected tid {}, got {}",
-        t.rec_tid,
+        t.rec_tid(),
         tte.clone_variant().parent_tid()
     );
     let rec_tid = tte.tid();
@@ -589,8 +589,8 @@ pub fn rep_prepare_run_to_syscall(t: &ReplayTask, step: &mut ReplayTraceStep) {
     // system call that we assigned a negative number because it doesn't
     // exist in this architecture.
     if is_rdcall_notify_syscall_hook_exit_syscall(sys_num, sys_arch) {
-        ed_assert!(t, !t.syscallbuf_child.is_null());
-        let child_addr: RemotePtr<u8> = RemotePtr::<u8>::cast(t.syscallbuf_child)
+        ed_assert!(t, !t.syscallbuf_child.get().is_null());
+        let child_addr: RemotePtr<u8> = RemotePtr::<u8>::cast(t.syscallbuf_child.get())
             + offset_of!(syscallbuf_hdr, notify_on_syscall_hook_exit);
         write_val_mem(t, child_addr, &1u8, None);
     }
@@ -868,7 +868,7 @@ fn rep_process_syscall_arch<Arch: Architecture>(
         let dest_pid = t.regs_ref().arg1() as pid_t;
         let iov_cnt = t.regs_ref().arg5();
         let t_rc: TaskSharedPtr;
-        let maybe_dest = if dest_pid == t.rec_tid {
+        let maybe_dest = if dest_pid == t.rec_tid() {
             Some(t)
         } else {
             // Recorded data records may be for another process.
@@ -892,10 +892,11 @@ fn rep_process_syscall_arch<Arch: Architecture>(
     }
 
     if nsys == Arch::READ {
-        if t.cloned_file_data_fd_child >= 0 {
+        if t.cloned_file_data_fd_child.get() >= 0 {
             let fd: i32 = t.regs_ref().arg1() as i32;
             let file_name = t.file_name_of_fd(fd);
-            if !file_name.is_empty() && file_name == t.file_name_of_fd(t.cloned_file_data_fd_child)
+            if !file_name.is_empty()
+                && file_name == t.file_name_of_fd(t.cloned_file_data_fd_child.get())
             {
                 // This is a read of the cloned-data file. Replay logic depends on
                 // this file's offset actually advancing.
@@ -940,10 +941,10 @@ fn process_init_buffers(t: &ReplayTask, step: &mut ReplayTraceStep) {
 
     ed_assert!(
         t,
-        RemotePtr::cast(t.syscallbuf_child) == rec_child_map_addr,
+        RemotePtr::cast(t.syscallbuf_child.get()) == rec_child_map_addr,
         "Should have mapped syscallbuf at {}, but it's at {}",
         rec_child_map_addr,
-        t.syscallbuf_child
+        t.syscallbuf_child.get()
     );
     t.validate_regs(ReplayTaskIgnore::default());
 }
@@ -1028,7 +1029,7 @@ fn rep_after_enter_syscall_arch<Arch: Architecture>(t: &ReplayTask) {
     if sys == Arch::PTRACE {
         let pid: pid_t = t.regs_ref().arg2_signed() as pid_t;
         // DIFF NOTE: This assertion is not there in rr.
-        ed_assert_ne!(t, pid, t.rec_tid);
+        ed_assert_ne!(t, pid, t.rec_tid());
         let maybe_target = t.session().find_task_from_rec_tid(pid);
         match maybe_target {
             None => (),
@@ -1163,7 +1164,7 @@ pub fn process_execve(t: &ReplayTask, step: &mut ReplayTraceStep) {
         t.arch(),
         expect_syscallno,
         Some(syscall_number_for_execve(frame_arch)),
-        if tgid == t.tid { None } else { Some(tgid) },
+        if tgid == t.tid() { None } else { Some(tgid) },
     );
     if t.regs_ref().syscall_result() != 0 {
         // @TODO check this. Is this what we want -- especially the cast to i32?
@@ -1644,7 +1645,7 @@ fn process_mmap(
                 if flags.contains(MapFlags::MAP_SHARED) {
                     if !skip_monitoring_mapped_fd {
                         extra_fds.push(TraceRemoteFd {
-                            tid: remote.task().rec_tid,
+                            tid: remote.task().rec_tid(),
                             fd,
                         });
                     }
@@ -1811,7 +1812,7 @@ fn finish_shared_mmap<'a>(
     };
 
     for fd in fds {
-        if remote.task().rec_tid == fd.tid {
+        if remote.task().rec_tid == fd.tid() {
             process(remote.task_mut(), fd);
         } else {
             match remote.task().session().find_task_from_rec_tid(fd.tid) {

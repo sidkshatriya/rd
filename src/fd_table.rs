@@ -52,7 +52,7 @@ impl FdTable {
             t,
             !self.is_monitoring(fd),
             "Task {} already monitoring fd {}",
-            t.rec_tid,
+            t.rec_tid(),
             fd
         );
         if fd >= SYSCALLBUF_FDS_DISABLED_SIZE && !self.fds.borrow().contains_key(&fd) {
@@ -316,7 +316,7 @@ impl FdTable {
 }
 
 fn is_fd_open(t: &dyn Task, fd: i32) -> bool {
-    let path = format!("/proc/{}/fd/{}", t.tid, fd);
+    let path = format!("/proc/{}/fd/{}", t.tid(), fd);
     lstat(path.as_str()).is_ok()
 }
 

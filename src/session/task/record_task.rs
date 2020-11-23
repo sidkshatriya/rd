@@ -421,7 +421,7 @@ pub struct RecordTask {
     pub priority: i32,
     /// Tasks with in_round_robin_queue set are in the session's
     /// in_round_robin_queue instead of its task_priority_set.
-    pub in_round_robin_queue: bool,
+    pub in_round_robin_queue: Cell<bool>,
 
     /// ptrace emulation state
     ///
@@ -434,25 +434,25 @@ pub struct RecordTask {
     pub saved_ptrace_siginfos: Vec<siginfo_t>,
     /// Code to deliver to ptracer/waiter when it waits. Note that zero can be a
     /// valid code! Reset to zero when leaving the stop due to PTRACE_CONT etc.
-    pub emulated_stop_code: WaitStatus,
+    pub emulated_stop_code: Cell<WaitStatus>,
     /// Always zero while no ptracer is attached.
-    pub emulated_ptrace_options: u32,
+    pub emulated_ptrace_options: Cell<u32>,
     /// One of PTRACE_CONT, PTRACE_SYSCALL --- or 0 if the tracee has not been
     /// continued by its ptracer yet, or has no ptracer.
-    pub emulated_ptrace_cont_command: u32,
+    pub emulated_ptrace_cont_command: Cell<u32>,
     /// true when a ptracer/waiter wait() can return `emulated_stop_code`.
-    pub emulated_stop_pending: bool,
+    pub emulated_stop_pending: Cell<bool>,
     /// true if this task needs to send a SIGCHLD to its ptracer for its
     /// emulated ptrace stop
-    pub emulated_ptrace_sigchld_pending: bool,
+    pub emulated_ptrace_sigchld_pending: Cell<bool>,
     /// true if this task needs to send a SIGCHLD to its parent for its
     /// emulated stop
-    pub emulated_sigchld_pending: bool,
+    pub emulated_sigchld_pending: Cell<bool>,
     /// tracer attached via PTRACE_SEIZE
-    pub emulated_ptrace_seized: bool,
-    pub emulated_ptrace_queued_exit_stop: bool,
-    pub in_wait_type: WaitType,
-    pub in_wait_pid: pid_t,
+    pub emulated_ptrace_seized: Cell<bool>,
+    pub emulated_ptrace_queued_exit_stop: Cell<bool>,
+    pub in_wait_type: Cell<WaitType>,
+    pub in_wait_pid: Cell<pid_t>,
 
     /// Signal handler state
     ///
@@ -512,7 +512,7 @@ pub struct RecordTask {
     pub tid_futex: RemotePtr<i32>,
     /// This is the recorded tid of the tracee *in its own pid namespace*.
     pub own_namespace_rec_tid: pid_t,
-    pub exit_code: i32,
+    pub exit_code: Cell<i32>,
     /// Signal delivered by the kernel when this task terminates
     /// DIFF NOTE: We have an Option<> here which is different from rr.
     /// In rr None is indicated by 0
@@ -1322,18 +1322,12 @@ impl RecordTask {
             }
         }
 
-        self.force_emulate_ptrace_stop(status, tracer, maybe_active_sibling);
+        self.force_emulate_ptrace_stop(status, tracer);
     }
 
     /// Force the ptrace-stop state no matter what state the task is currently in.
     /// DIFF NOTE: Extra param `tracer` to solve already borrowed possibility
-    /// DIFF NOTE: Extra param `maybe_active_sibling` to solve already borrowed possibility
-    pub fn force_emulate_ptrace_stop(
-        &self,
-        status: WaitStatus,
-        tracer: &RecordTask,
-        maybe_active_sibling: Option<&RecordTask>,
-    ) {
+    pub fn force_emulate_ptrace_stop(&self, status: WaitStatus, tracer: &RecordTask) {
         self.emulated_stop_type = if status.maybe_group_stop_sig().is_sig() {
             EmulatedStopType::GroupStop
         } else {

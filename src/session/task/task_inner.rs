@@ -280,7 +280,7 @@ pub struct TaskInner {
     pub unstable: Cell<bool>,
     /// exit(), or exit_group() with one task, has been called, so
     /// the exit can be treated as stable.
-    pub stable_exit: bool,
+    pub stable_exit: Cell<bool>,
 
     /// Imagine that task A passes buffer `b` to the read()
     /// syscall.  Imagine that, after A is switched out for task B,
@@ -322,31 +322,31 @@ pub struct TaskInner {
     ///
     /// `scratch_ptr` points at the mapped address in the child,
     /// and `size` is the total available space.
-    pub scratch_ptr: RemotePtr<Void>,
+    pub scratch_ptr: Cell<RemotePtr<Void>>,
     /// The full size of the scratch buffer.
     /// The last page of the scratch buffer is used as an alternate stack
     /// for the syscallbuf code. So the usable size is less than this.
     ///
     /// DIFF NOTE: In rr this is a signed value i.e. isize
-    pub scratch_size: usize,
+    pub scratch_size: Cell<usize>,
 
     /// The child's desched counter event fd number
-    pub desched_fd_child: i32,
+    pub desched_fd_child: Cell<i32>,
     /// The child's cloned_file_data_fd
-    pub cloned_file_data_fd_child: i32,
+    pub cloned_file_data_fd_child: Cell<i32>,
 
     pub hpc: PerfCounters,
 
     /// This is always the "real" tid of the tracee.
-    pub tid: pid_t,
+    pub tid: Cell<pid_t>,
     /// This is always the recorded tid of the tracee.  During
     /// recording, it's synonymous with `tid`, and during replay
     /// it's the tid that was recorded.
-    pub rec_tid: pid_t,
+    pub rec_tid: Cell<pid_t>,
 
-    pub syscallbuf_size: usize,
+    pub syscallbuf_size: Cell<usize>,
     /// Points at the tracee's mapping of the buffer.
-    pub syscallbuf_child: RemotePtr<syscallbuf_hdr>,
+    pub syscallbuf_child: Cell<RemotePtr<syscallbuf_hdr>>,
     /// XXX Move these fields to ReplayTask
     pub stopping_breakpoint_table: RemoteCodePtr,
     pub stopping_breakpoint_table_entry_size: usize,
@@ -365,36 +365,36 @@ pub struct TaskInner {
     pub(in super::super) prname: OsString,
     /// Count of all ticks seen by this task since tracees became
     /// consistent and the task last wait()ed.
-    pub(in super::super) ticks: Ticks,
+    pub(in super::super) ticks: Cell<Ticks>,
     /// When `is_stopped`, these are our child registers.
     pub(in super::super) registers: Registers,
     /// Where we last resumed execution
-    pub(in super::super) address_of_last_execution_resume: RemoteCodePtr,
-    pub(in super::super) how_last_execution_resumed: ResumeRequest,
+    pub(in super::super) address_of_last_execution_resume: Cell<RemoteCodePtr>,
+    pub(in super::super) how_last_execution_resumed: Cell<ResumeRequest>,
     /// In certain circumstances, due to hardware bugs, we need to fudge the
     /// cx register. If so, we record the orginal value here. See comments in
     /// Task.cc
     /// DIFF NOTE: In rr this is a u64. We use usize.
-    pub(in super::super) last_resume_orig_cx: usize,
+    pub(in super::super) last_resume_orig_cx: Cell<usize>,
     /// The instruction type we're singlestepping through.
-    pub(in super::super) singlestepping_instruction: TrappedInstruction,
+    pub(in super::super) singlestepping_instruction: Cell<TrappedInstruction>,
     /// True if we set a breakpoint after a singlestepped CPUID instruction.
     /// We need this in addition to `singlestepping_instruction` because that
     /// might be CPUID but we failed to set the breakpoint.
-    pub(in super::super) did_set_breakpoint_after_cpuid: bool,
+    pub(in super::super) did_set_breakpoint_after_cpuid: Cell<bool>,
     /// True when we know via waitpid() that the task is stopped and we haven't
     /// resumed it.
-    pub(in super::super) is_stopped: bool,
+    pub(in super::super) is_stopped: Cell<bool>,
     /// True when the seccomp filter has been enabled via prctl(). This happens
     /// in the first system call issued by the initial tracee (after it returns
     /// from kill(SIGSTOP) to synchronize with the tracer).
-    pub(in super::super) seccomp_bpf_enabled: bool,
+    pub(in super::super) seccomp_bpf_enabled: Cell<bool>,
     /// True when we consumed a PTRACE_EVENT_EXIT that was about to race with
     /// a resume_execution, that was issued while stopped (i.e. SIGKILL).
-    pub(in super::super) detected_unexpected_exit: bool,
+    pub(in super::super) detected_unexpected_exit: Cell<bool>,
     /// True when 'registers' has changes that haven't been flushed back to the
     /// task yet.
-    pub(in super::super) registers_dirty: bool,
+    pub(in super::super) registers_dirty: Cell<bool>,
     /// DIFF NOTE: This is an option in rd. In rr there is `extra_registers_known`
     /// which we don't need.
     pub(in super::super) extra_registers: Option<ExtraRegisters>,
@@ -408,19 +408,19 @@ pub struct TaskInner {
     pub(in super::super) thread_areas_: Vec<user_desc>,
     /// The `stack` argument passed to `clone()`, which for
     /// "threads" is the top of the user-allocated stack.
-    pub(in super::super) top_of_stack: RemotePtr<Void>,
+    pub(in super::super) top_of_stack: Cell<RemotePtr<Void>>,
     /// The most recent status of this task as returned by
     /// waitpid().
-    pub(in super::super) wait_status: WaitStatus,
+    pub(in super::super) wait_status: Cell<WaitStatus>,
     /// The most recent siginfo (captured when wait_status shows pending_sig())
     /// @TODO Should this be an Option??
     pub(in super::super) pending_siginfo: siginfo_t,
     /// True when a PTRACE_EXIT_EVENT has been observed in the wait_status
     /// for this task.
-    pub(in super::super) seen_ptrace_exit_event: bool,
+    pub(in super::super) seen_ptrace_exit_event: Cell<bool>,
     /// A counter for the number of stops for which the stop may have been caused
     /// by PTRACE_INTERRUPT. See description in do_waitpid
-    pub(in super::super) expecting_ptrace_interrupt_stop: u32,
+    pub(in super::super) expecting_ptrace_interrupt_stop: Cell<u32>,
 
     /// Important. Weak dyn Task pointer to self.
     pub weak_self: TaskSharedWeakPtr,
@@ -544,8 +544,14 @@ impl DebugControl {
 }
 
 impl TaskInner {
+    #[inline]
     pub fn tid(&self) -> pid_t {
-        self.tid
+        self.tid.get()
+    }
+
+    #[inline]
+    pub fn rec_tid(&self) -> pid_t {
+        self.rec_tid.get()
     }
 
     pub fn weak_self_ptr(&self) -> TaskSharedWeakPtr {

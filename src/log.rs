@@ -389,7 +389,7 @@ macro_rules! ed_assert {
                     );
                     match maybe_stream {
                        Some(mut stream) => {
-                           write!(stream, "\n (task {} (rec: {}) at time {})\n", t.tid, t.rec_tid, t.trace_time()).unwrap();
+                           write!(stream, "\n (task {} (rec: {}) at time {})\n", t.tid(), t.rec_tid(), t.trace_time()).unwrap();
                            write!(stream, " -> Assertion `{}' failed to hold. ", stringify!($cond)).unwrap();
                        },
                        None => ()
@@ -418,7 +418,7 @@ macro_rules! ed_assert {
                     );
                     match maybe_stream {
                        Some(mut stream) => {
-                           write!(stream, "\n (task {} (rec: {}) at time {})\n", t.tid, t.rec_tid, t.trace_time()).unwrap();
+                           write!(stream, "\n (task {} (rec: {}) at time {})\n", t.tid(), t.rec_tid(), t.trace_time()).unwrap();
                            write!(stream, " -> Assertion `{}' failed to hold. ", stringify!($cond)).unwrap();
                            write!(stream, $($args)+).unwrap();
                        },
@@ -454,7 +454,7 @@ macro_rules! ed_assert_eq {
                     );
                     match maybe_stream {
                        Some(mut stream) => {
-                           write!(stream, "\n (task {} (rec: {}) at time {})\n", t.tid, t.rec_tid, t.trace_time()).unwrap();
+                           write!(stream, "\n (task {} (rec: {}) at time {})\n", t.tid(), t.rec_tid(), t.trace_time()).unwrap();
                            write!(
                                stream, " -> Assertion `{} == {}` failed to hold.\n    Left: `{:?}`, Right: `{:?}`\n",
                                stringify!($cond1), stringify!($cond2), val1, val2).unwrap();
@@ -487,7 +487,7 @@ macro_rules! ed_assert_eq {
                     );
                     match maybe_stream {
                        Some(mut stream) => {
-                           write!(stream, "\n (task {} (rec: {}) at time {})\n", t.tid, t.rec_tid, t.trace_time()).unwrap();
+                           write!(stream, "\n (task {} (rec: {}) at time {})\n", t.tid(), t.rec_tid(), t.trace_time()).unwrap();
                            write!(
                                stream, " -> Assertion `{} == {}` failed to hold.\n    Left: `{:?}`, Right: `{:?}`\n",
                                stringify!($cond1), stringify!($cond2), val1, val2).unwrap();
@@ -525,7 +525,7 @@ macro_rules! ed_assert_ne {
                     );
                     match maybe_stream {
                        Some(mut stream) => {
-                           write!(stream, "\n (task {} (rec: {}) at time {})\n", t.tid, t.rec_tid, t.trace_time()).unwrap();
+                           write!(stream, "\n (task {} (rec: {}) at time {})\n", t.tid(), t.rec_tid(), t.trace_time()).unwrap();
                            write!(
                                stream, " -> Assertion `{} != {}` failed to hold.\n    Left: `{:?}`, Right: `{:?}`\n",
                                stringify!($cond1), stringify!($cond2), val1, val2).unwrap();

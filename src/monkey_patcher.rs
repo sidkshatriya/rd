@@ -196,7 +196,7 @@ impl MonkeyPatcher {
             } else {
                 let buf = format!(
                     "/proc/{}/map_files/{:x}-{:x}",
-                    t.tid,
+                    t.tid(),
                     start.as_usize(),
                     start.as_usize() + size
                 );

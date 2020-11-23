@@ -131,7 +131,7 @@ pub fn handle_signal(
     log!(
         LogDebug,
         "{}: handling signal {} (pevent: {}, event: {}",
-        t.tid,
+        t.tid(),
         sig,
         t.maybe_ptrace_event(),
         t.ev()
@@ -422,7 +422,7 @@ fn try_grow_map(t: &RecordTask, si: &siginfo_t) -> bool {
             rlim_max: 0,
         };
         let mut limit_bottom: RemotePtr<Void> = RemotePtr::null();
-        let ret = unsafe { prlimit(t.tid, RLIMIT_STACK, ptr::null(), &mut stack_limit) };
+        let ret = unsafe { prlimit(t.tid(), RLIMIT_STACK, ptr::null(), &mut stack_limit) };
         if ret >= 0 && stack_limit.rlim_cur != RLIM_INFINITY {
             limit_bottom = RemotePtr::from(ceil_page_size(
                 it.end().as_usize() - stack_limit.rlim_cur as usize,
@@ -575,7 +575,7 @@ pub fn handle_syscallbuf_breakpoint(t: &RecordTask) -> bool {
     // We're at an untraced-syscall entry point.
     // To allow an AutoRemoteSyscall, we need to make sure desched signals are
     // disarmed (and rearmed afterward).
-    let syscallbuf_child = t.syscallbuf_child;
+    let syscallbuf_child = t.syscallbuf_child.get();
     let res = read_val_mem(
         t,
         RemotePtr::<u8>::cast(syscallbuf_child)
@@ -646,7 +646,7 @@ fn handle_desched_event(t: &RecordTask, si: &siginfo_t) {
     // system call, never do anything here. Syscall buffering is disabled and
     // the desched_signal_may_be_relevant was set by the outermost syscallbuf
     // invocation.
-    let syscallbuf_child = t.syscallbuf_child;
+    let syscallbuf_child = t.syscallbuf_child.get();
     if 0 == read_val_mem(
         t,
         RemotePtr::<u8>::cast(syscallbuf_child)
@@ -964,8 +964,8 @@ fn is_safe_to_deliver_signal(t: &RecordTask, si: &siginfo_t) -> bool {
     // If the syscallbuf buffer hasn't been created yet, just delay the signal
     // with no need to set notify_on_syscall_hook_exit; the signal will be
     // delivered when rrcall_init_buffers is called.
-    if !t.syscallbuf_child.is_null() {
-        let syscallbuf_child = t.syscallbuf_child;
+    if !t.syscallbuf_child.get().is_null() {
+        let syscallbuf_child = t.syscallbuf_child.get();
         let locked_why = read_val_mem(
             t,
             RemotePtr::<syscallbuf_locked_why>::cast(
@@ -988,7 +988,7 @@ fn is_safe_to_deliver_signal(t: &RecordTask, si: &siginfo_t) -> bool {
         // non-restartable way. Defer it until SYS_rrcall_notify_syscall_hook_exit.
         if t.is_in_untraced_syscall() {
             // Our emulation of SYS_rrcall_notify_syscall_hook_exit clears this flag.
-            let syscallbuf_child = t.syscallbuf_child;
+            let syscallbuf_child = t.syscallbuf_child.get();
             write_val_mem(
                 t,
                 syscallbuf_child.as_rptr_u8()
