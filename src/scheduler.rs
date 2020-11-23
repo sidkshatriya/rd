@@ -568,7 +568,7 @@ impl Scheduler {
     }
 
     /// Set the priority of `t` to `value` and update related state.
-    pub fn update_task_priority(&self, t: &mut RecordTask, value: i32) {
+    pub fn update_task_priority(&self, t: &RecordTask, value: i32) {
         if !self.enable_chaos.get() {
             self.update_task_priority_internal(t, value);
         }
@@ -579,7 +579,7 @@ impl Scheduler {
     /// task to be scheduled.
     /// If the task_round_robin_queue is empty this moves all tasks into it,
     /// putting last_task last.
-    pub fn schedule_one_round_robin(&self, t: &mut RecordTask) {
+    pub fn schedule_one_round_robin(&self, t: &RecordTask) {
         log!(LogDebug, "Scheduling round-robin because of task {}", t.tid);
 
         let rc_t = t.weak_self_ptr().upgrade().unwrap();
@@ -619,7 +619,7 @@ impl Scheduler {
     }
 
     ///  De-register a thread. This function should be called when a thread exits.
-    pub fn on_destroy_task(&self, t: &mut RecordTask) {
+    pub fn on_destroy_task(&self, t: &RecordTask) {
         let weak = t.weak_self_ptr();
         let maybe_curr = self.current_.borrow().clone();
         match maybe_curr {
@@ -714,7 +714,7 @@ impl Scheduler {
         self.pretend_affinity_mask_.get()
     }
 
-    pub fn in_stable_exit(&self, t: &mut RecordTask) {
+    pub fn in_stable_exit(&self, t: &RecordTask) {
         self.update_task_priority_internal(t, t.priority);
     }
 
@@ -810,7 +810,7 @@ impl Scheduler {
             .map(|w| w.upgrade().unwrap())
     }
 
-    fn maybe_pop_round_robin_task(&self, t: &mut RecordTask) {
+    fn maybe_pop_round_robin_task(&self, t: &RecordTask) {
         if self.task_round_robin_queue.borrow().is_empty() {
             return;
         }
@@ -896,7 +896,7 @@ impl Scheduler {
         }
     }
 
-    fn update_task_priority_internal(&self, t: &mut RecordTask, mut value: i32) {
+    fn update_task_priority_internal(&self, t: &RecordTask, mut value: i32) {
         if t.stable_exit && !self.enable_chaos.get() {
             // Tasks in a stable exit have the highest priority. We should force them
             // to complete exiting ASAP to clean up resources. They may not be runnable
@@ -970,7 +970,7 @@ impl Scheduler {
     /// should check the next task. Note that if this returns true get_next_thread
     /// _must_ return t as the runnable task, otherwise we will lose an event and
     ///  probably deadlock!!!
-    fn is_task_runnable(&self, t: &mut RecordTask, by_waitpid: &mut bool) -> bool {
+    fn is_task_runnable(&self, t: &RecordTask, by_waitpid: &mut bool) -> bool {
         ed_assert!(
             t,
             self.must_run_task.borrow().is_none(),

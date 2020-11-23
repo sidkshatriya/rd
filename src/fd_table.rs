@@ -72,7 +72,7 @@ impl FdTable {
     }
 
     /// DIFF NOTE: @TODO Changed this from u64 to usize
-    pub fn emulate_ioctl(&self, fd: i32, t: &mut RecordTask, result: &mut usize) -> bool {
+    pub fn emulate_ioctl(&self, fd: i32, t: &RecordTask, result: &mut usize) -> bool {
         match self.fds.borrow().get(&fd) {
             Some(f) => f.borrow_mut().emulate_ioctl(t, result),
             None => false,
@@ -80,7 +80,7 @@ impl FdTable {
     }
 
     /// DIFF NOTE: @TODO Changed this from u64 to usize
-    pub fn emulate_fcntl(&self, fd: i32, t: &mut RecordTask, result: &mut usize) -> bool {
+    pub fn emulate_fcntl(&self, fd: i32, t: &RecordTask, result: &mut usize) -> bool {
         match self.fds.borrow().get(&fd) {
             Some(f) => f.borrow_mut().emulate_fcntl(t, result),
             None => false,
@@ -101,7 +101,7 @@ impl FdTable {
         }
     }
 
-    pub fn filter_getdents(&self, fd: i32, t: &mut RecordTask) {
+    pub fn filter_getdents(&self, fd: i32, t: &RecordTask) {
         match self.fds.borrow().get(&fd) {
             Some(f) => f.borrow().filter_getdents(t),
             None => (),
@@ -239,7 +239,7 @@ impl FdTable {
     /// scan /proc/<pid>/fd during recording and note any monitored fds that have
     /// been closed.
     /// This also updates our table to match reality.
-    pub fn fds_to_close_after_exec(&self, t: &mut RecordTask) -> Vec<i32> {
+    pub fn fds_to_close_after_exec(&self, t: &RecordTask) -> Vec<i32> {
         ed_assert!(t, self.task_set().has(t.weak_self_ptr()));
 
         let mut fds_to_close: Vec<i32> = Vec::new();
@@ -256,7 +256,7 @@ impl FdTable {
     }
 
     /// Close fds in list after an exec.
-    pub fn close_after_exec(&self, t: &mut ReplayTask, fds_to_close: &[i32]) {
+    pub fn close_after_exec(&self, t: &ReplayTask, fds_to_close: &[i32]) {
         ed_assert!(t, self.task_set().has(t.weak_self_ptr()));
 
         for &fd in fds_to_close {

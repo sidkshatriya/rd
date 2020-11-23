@@ -34,7 +34,7 @@ impl FileMonitor for ProcFdDirMonitor {
         FileMonitorType::ProcFd
     }
 
-    fn filter_getdents(&self, t: &mut RecordTask) {
+    fn filter_getdents(&self, t: &RecordTask) {
         ed_assert!(t, !t.session().is_replaying());
         match self.maybe_tuid {
             None => (),
@@ -146,7 +146,7 @@ fn filter_dirent_structs<Arch: Architecture>(t: &RecordTask, buf: &mut Vec<u8>) 
     bytes
 }
 
-fn filter_dirents_arch<Arch: Architecture>(t: &mut RecordTask) {
+fn filter_dirents_arch<Arch: Architecture>(t: &RecordTask) {
     let mut regs = t.regs_ref().clone();
     let ptr = RemotePtr::<u8>::from(regs.arg2());
     let len: usize = regs.arg3();
@@ -203,7 +203,7 @@ fn filter_dirents_arch<Arch: Architecture>(t: &mut RecordTask) {
     }
 }
 
-fn filter_dirents(t: &mut RecordTask) {
+fn filter_dirents(t: &RecordTask) {
     let arch = t.arch();
     rd_arch_function_selfless!(filter_dirents_arch, arch, t);
 }

@@ -1027,7 +1027,7 @@ impl RecordSession {
                                     // Record robust futex changes now in case the taskgroup dies
                                     // synchronously without a regular PTRACE_EVENT_EXIT (as seems
                                     // to happen on Ubuntu 4.2.0-42-generic)
-                                    record_robust_futex_changes(tt.borrow_mut().as_rec_unwrap());
+                                    record_robust_futex_changes(tt.as_rec_unwrap());
                                 }
                                 t.as_rec_unwrap().tgkill(sig::SIGKILL);
                                 step_state.continue_type = ContinueType::Continue;
@@ -1095,7 +1095,7 @@ impl RecordSession {
 
     fn runnable_state_changed(
         &self,
-        t: &mut RecordTask,
+        t: &RecordTask,
         step_state: &mut StepState,
         step_result: &mut RecordResult,
         can_consume_wait_status: bool,
@@ -1131,7 +1131,7 @@ impl RecordSession {
     /// `t` is at a desched event and some relevant aspect of its state
     /// changed.  (For now, changes except the original desched'd syscall
     /// being restarted.)
-    fn desched_state_changed(&self, t: &mut RecordTask) {
+    fn desched_state_changed(&self, t: &RecordTask) {
         log!(LogDebug, "desched: IN_SYSCALL");
         // We need to ensure that the syscallbuf code doesn't
         // try to commit the current record; we've already
@@ -1168,7 +1168,7 @@ impl RecordSession {
 
     /// `t` is being delivered a signal, and its state changed.
     /// Must call t.stashed_signal_processed() once we're ready to unmask signals.
-    fn signal_state_changed(&self, t: &mut RecordTask, step_state: &mut StepState) {
+    fn signal_state_changed(&self, t: &RecordTask, step_state: &mut StepState) {
         let sig = Sig::try_from(t.ev().signal_event().siginfo.si_signo).unwrap();
 
         match t.ev().event_type() {
@@ -1330,7 +1330,7 @@ impl RecordSession {
         }
     }
 
-    fn syscall_state_changed(&self, t: &mut RecordTask, step_state: &mut StepState) {
+    fn syscall_state_changed(&self, t: &RecordTask, step_state: &mut StepState) {
         match t.ev().syscall_event().state {
             SyscallState::EnteringSyscallPtrace => {
                 debug_exec_state("EXEC_SYSCALL_ENTRY_PTRACE", t);
@@ -1793,7 +1793,7 @@ impl RecordSession {
                 //   makes PTRACE_SYSCALL traps be delivered *before* seccomp RET_TRACE
                 //   traps.
                 //   Detect and handle this.
-                if !t.borrow().seccomp_bpf_enabled
+                if !t.seccomp_bpf_enabled
                     || may_restart
                     || self.syscall_seccomp_ordering_.get()
                         == PtraceSyscallSeccompOrdering::SyscallBeforeSeccompUnknown
@@ -1815,18 +1815,13 @@ impl RecordSession {
             }
         }
 
-        t.borrow_mut().resume_execution(
-            resume,
-            WaitRequest::ResumeNonblocking,
-            ticks_request,
-            None,
-        );
+        t.resume_execution(resume, WaitRequest::ResumeNonblocking, ticks_request, None);
     }
 
     /// Returns false if the task exits during processing
     fn process_syscall_entry(
         &self,
-        t: &mut RecordTask,
+        t: &RecordTask,
         step_state: &mut StepState,
         step_result: &mut RecordResult,
         syscall_arch: SupportedArch,
@@ -1919,7 +1914,7 @@ impl RecordSession {
             t.ev_mut().syscall_event_mut().state = SyscallState::EnteringSyscallPtrace;
             t.emulate_ptrace_stop(
                 WaitStatus::for_syscall(t),
-                emulated_ptracer.borrow().as_rec_unwrap(),
+                emulated_ptracer.as_rec_unwrap(),
                 None,
                 None,
                 None,
@@ -1935,7 +1930,7 @@ impl RecordSession {
     }
 
     /// If the perf counters seem to be working return, otherwise don't return.
-    fn check_initial_task_syscalls(&self, t: &mut RecordTask, step_result: &mut RecordResult) {
+    fn check_initial_task_syscalls(&self, t: &RecordTask, step_result: &mut RecordResult) {
         if self.done_initial_exec() {
             return;
         }
@@ -1965,7 +1960,7 @@ impl RecordSession {
     pub fn terminate_recording(&self) {
         match self.scheduler().current() {
             Some(t) => {
-                t.borrow_mut().as_rec_unwrap().maybe_flush_syscallbuf();
+                t.as_rec_unwrap().maybe_flush_syscallbuf();
             }
             None => (),
         }
@@ -2054,9 +2049,9 @@ impl RecordSession {
         }
 
         let t = maybe_t.unwrap();
-        let tid = t.borrow().tid;
-        ed_assert_eq!(&t.borrow(), rec_tid, t.borrow().tgid());
-        let own_namespace_tid = t.borrow().thread_group().real_tgid_own_namespace;
+        let tid = t.tid;
+        ed_assert_eq!(&**t, rec_tid, t.tgid());
+        let own_namespace_tid = t.thread_group().real_tgid_own_namespace;
 
         log!(LogDebug, "Changing task tid from {} to {}", tid, rec_tid);
 
@@ -2077,11 +2072,10 @@ impl RecordSession {
         self.task_map.borrow_mut().insert(rec_tid, t.clone());
         // t probably would have been marked for unstable-exit when the old
         // thread-group leader died.
-        t.borrow().unstable.set(false);
+        t.unstable.set(false);
         // Update the serial as if this task was really created by cloning the old
         // task.
-        t.borrow_mut()
-            .as_rec_unwrap()
+        t.as_rec_unwrap()
             .set_tid_and_update_serial(rec_tid, own_namespace_tid);
 
         t
@@ -2102,7 +2096,7 @@ impl RecordSession {
 
     fn handle_seccomp_traced_syscall(
         &self,
-        t: &mut RecordTask,
+        t: &RecordTask,
         step_state: &mut StepState,
         result: &mut RecordResult,
         did_enter_syscall: &mut bool,
@@ -2193,7 +2187,7 @@ impl RecordSession {
 }
 
 /// Get `t` into a state where resume_execution with a signal will actually work.
-fn preinject_signal(t: &mut RecordTask) -> bool {
+fn preinject_signal(t: &RecordTask) -> bool {
     let sig = Sig::try_from(t.ev().signal_event().siginfo.si_signo).unwrap();
     let desched_sig = t.session().as_record().unwrap().syscallbuf_desched_sig();
 
@@ -2278,7 +2272,7 @@ fn preinject_signal(t: &mut RecordTask) -> bool {
 /// Returns false if this signal should not be delivered because another signal
 /// occurred during delivery.
 /// Must call t->stashed_signal_processed() once we're ready to unmask signals.
-fn inject_handled_signal(t: &mut RecordTask) -> bool {
+fn inject_handled_signal(t: &RecordTask) -> bool {
     if !preinject_signal(t) {
         // Task prematurely exited.
         return false;
@@ -2363,12 +2357,12 @@ fn inject_handled_signal(t: &mut RecordTask) -> bool {
     true
 }
 
-fn setup_sigframe_siginfo(t: &mut RecordTask, siginfo: &mut siginfo_t) {
+fn setup_sigframe_siginfo(t: &RecordTask, siginfo: &mut siginfo_t) {
     let arch = t.arch();
     rd_arch_function_selfless!(setup_sigframe_siginfo_arch, arch, t, siginfo)
 }
 
-fn setup_sigframe_siginfo_arch<Arch: Architecture>(t: &mut RecordTask, siginfo: &siginfo_t) {
+fn setup_sigframe_siginfo_arch<Arch: Architecture>(t: &RecordTask, siginfo: &siginfo_t) {
     let dest: RemotePtr<arch_siginfo_t<Arch>>;
     match Arch::arch() {
         SupportedArch::X86 => {
@@ -2474,7 +2468,7 @@ fn copy_syscall_arg_regs(to: &mut Registers, from: &Registers) {
     to.set_arg6(from.arg6());
 }
 
-fn seccomp_trap_done(t: &mut RecordTask) {
+fn seccomp_trap_done(t: &RecordTask) {
     t.pop_seccomp_trap();
 
     // It's safe to reset the syscall buffer now.
@@ -2520,7 +2514,7 @@ fn seccomp_trap_done(t: &mut RecordTask) {
 /// After a SYS_sigreturn "exit" of task `t` with return value `ret`,
 /// check to see if there's an interrupted syscall that /won't/ be
 /// restarted, and if so, pop it off the pending event stack.
-fn maybe_discard_syscall_interruption(t: &mut RecordTask, ret: isize) {
+fn maybe_discard_syscall_interruption(t: &RecordTask, ret: isize) {
     let syscallno: i32;
 
     if EventType::EvSyscallInterruption != t.ev().event_type() {
@@ -2546,7 +2540,7 @@ fn maybe_discard_syscall_interruption(t: &mut RecordTask, ret: isize) {
     }
 }
 
-fn save_interrupted_syscall_ret_in_syscallbuf(t: &mut RecordTask, retval: isize) {
+fn save_interrupted_syscall_ret_in_syscallbuf(t: &RecordTask, retval: isize) {
     // Record storing the return value in the syscallbuf record, where
     // we expect to find it during replay.
     let child_rec = t.next_syscallbuf_record();
@@ -2557,13 +2551,13 @@ fn save_interrupted_syscall_ret_in_syscallbuf(t: &mut RecordTask, retval: isize)
     );
 }
 
-fn maybe_trigger_emulated_ptrace_syscall_exit_stop(t: &mut RecordTask) {
+fn maybe_trigger_emulated_ptrace_syscall_exit_stop(t: &RecordTask) {
     if t.emulated_ptrace_cont_command == PTRACE_SYSCALL {
         // We MUST have an emulated ptracer
         let emulated_ptracer = t.emulated_ptracer.as_ref().unwrap().upgrade().unwrap();
         t.emulate_ptrace_stop(
             WaitStatus::for_syscall(t),
-            emulated_ptracer.borrow().as_rec_unwrap(),
+            emulated_ptracer.as_rec_unwrap(),
             None,
             None,
             None,
@@ -2831,7 +2825,7 @@ union USiginfo {
     linux_api: siginfo_t,
 }
 
-fn handle_seccomp_errno(t: &mut RecordTask, step_state: &mut StepState, seccomp_data: u16) {
+fn handle_seccomp_errno(t: &RecordTask, step_state: &mut StepState, seccomp_data: u16) {
     let arch = t.detect_syscall_arch();
     t.canonicalize_regs(arch);
 
@@ -2857,7 +2851,7 @@ fn handle_seccomp_errno(t: &mut RecordTask, step_state: &mut StepState, seccomp_
     step_state.continue_type = ContinueType::DontContinue;
 }
 
-fn handle_seccomp_trap(t: &mut RecordTask, step_state: &mut StepState, seccomp_data: u16) {
+fn handle_seccomp_trap(t: &RecordTask, step_state: &mut StepState, seccomp_data: u16) {
     // The architecture may be wrong, but that's ok, because an actual syscall
     // entry did happen, so the registers are already updated according to the
     // architecture of the system call.
@@ -2970,7 +2964,7 @@ fn handle_seccomp_trap(t: &mut RecordTask, step_state: &mut StepState, seccomp_d
     step_state.continue_type = ContinueType::DontContinue;
 }
 
-fn note_entering_syscall(t: &mut RecordTask) {
+fn note_entering_syscall(t: &RecordTask) {
     ed_assert_eq!(t, EventType::EvSyscall, t.ev().event_type());
     t.ev_mut().syscall_event_mut().state = SyscallState::EnteringSyscall;
     if !t.ev().syscall_event().is_restart {
@@ -2987,7 +2981,7 @@ fn note_entering_syscall(t: &mut RecordTask) {
     }
 }
 
-fn rec_abort_prepared_syscall(t: &mut RecordTask) {
+fn rec_abort_prepared_syscall(t: &RecordTask) {
     match t.syscall_state.clone() {
         Some(state) => {
             state.borrow_mut().abort_syscall_results(t);
@@ -3088,7 +3082,7 @@ fn handle_ptrace_exit_event(t: &RecordTask) -> bool {
     true
 }
 
-fn record_robust_futex_changes(t: &mut RecordTask) {
+fn record_robust_futex_changes(t: &RecordTask) {
     rd_arch_function_selfless!(record_robust_futex_changes_arch, t.arch(), t);
 }
 
@@ -3096,7 +3090,7 @@ fn record_robust_futex_changes(t: &mut RecordTask) {
 /// They must be emulated during replay; the kernel will not do it for us
 /// during replay because the TID value in each futex is the recorded
 /// TID, not the actual TID of the dying task.
-fn record_robust_futex_changes_arch<Arch: Architecture>(t: &mut RecordTask) {
+fn record_robust_futex_changes_arch<Arch: Architecture>(t: &RecordTask) {
     if t.did_record_robust_futex_changes {
         return;
     }
@@ -3130,7 +3124,7 @@ fn record_robust_futex_changes_arch<Arch: Architecture>(t: &mut RecordTask) {
 }
 
 fn record_robust_futex_change<Arch: Architecture>(
-    t: &mut RecordTask,
+    t: &RecordTask,
     head: robust_list_head<Arch>,
     base: RemotePtr<robust_list<Arch>>,
 ) {
@@ -3168,7 +3162,7 @@ fn mask_low_bit<T>(p: RemotePtr<T>) -> RemotePtr<T> {
 /// A postcondition of this function is that `t.ev()` is no longer a
 /// syscall interruption, whether or whether not a syscall was
 /// restarted.
-fn maybe_restart_syscall(t: &mut RecordTask) -> bool {
+fn maybe_restart_syscall(t: &RecordTask) -> bool {
     let arch = t.arch();
     if is_restart_syscall_syscall(t.regs_ref().original_syscallno() as i32, arch) {
         log!(LogDebug, "  {}: SYS_restart_syscall'ing {}", t.tid, t.ev());
@@ -3190,7 +3184,7 @@ fn maybe_restart_syscall(t: &mut RecordTask) -> bool {
     false
 }
 
-fn syscall_not_restarted(t: &mut RecordTask) {
+fn syscall_not_restarted(t: &RecordTask) {
     log!(
         LogDebug,
         "  {}: popping abandoned interrupted {}; pending events:",
@@ -3230,7 +3224,7 @@ fn record_exit(t: &RecordTask, exit_status: WaitStatus) {
 /// This allows the caller to deliver the signal after this returns.
 /// (In reality the desched event will already have been disarmed before we
 /// enter this function.)
-fn advance_to_disarm_desched_syscall(t: &mut RecordTask) {
+fn advance_to_disarm_desched_syscall(t: &RecordTask) {
     let mut old_maybe_sig = MaybeStopSignal::new_sig(0);
     let desched_sig =
         MaybeStopSignal::new(t.session().as_record().unwrap().syscallbuf_desched_sig());

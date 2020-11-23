@@ -793,7 +793,7 @@ impl Task for RecordTask {
         Some(self)
     }
 
-    fn as_record_task_mut(&mut self) -> Option<&mut RecordTask> {
+    fn as_record_task_mut(&mut self) -> Option<&RecordTask> {
         Some(self)
     }
 
@@ -1294,8 +1294,8 @@ impl RecordTask {
     /// DIFF NOTE: Slightly odd old_maybe_tracer param to solve borrow issues
     pub fn set_emulated_ptracer(
         &mut self,
-        new_maybe_tracer: Option<&mut RecordTask>,
-        old_maybe_tracer: Option<&mut RecordTask>,
+        new_maybe_tracer: Option<&RecordTask>,
+        old_maybe_tracer: Option<&RecordTask>,
     ) {
         match new_maybe_tracer {
             Some(tracer) => {
@@ -3301,7 +3301,7 @@ fn is_synthetic_sigchld(si: &siginfo_t) -> bool {
 }
 
 fn maybe_restore_original_syscall_registers_arch<Arch: Architecture>(
-    t: &mut RecordTask,
+    t: &RecordTask,
     maybe_local_addr: Option<NonNull<c_void>>,
 ) {
     if maybe_local_addr.is_none() {
@@ -3331,11 +3331,11 @@ fn maybe_restore_original_syscall_registers_arch<Arch: Architecture>(
     t.set_regs(&r);
 }
 
-fn do_preload_init(t: &mut RecordTask) {
+fn do_preload_init(t: &RecordTask) {
     rd_arch_function_selfless!(do_preload_init_arch, t.arch(), t);
 }
 
-fn do_preload_init_arch<Arch: Architecture>(t: &mut RecordTask) {
+fn do_preload_init_arch<Arch: Architecture>(t: &RecordTask) {
     let child_addr = t.regs_ref().arg1();
     let params = read_val_mem(
         t,

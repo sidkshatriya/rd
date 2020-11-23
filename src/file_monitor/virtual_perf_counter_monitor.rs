@@ -93,7 +93,7 @@ impl VirtualPerfCounterMonitor {
         self.target_tuid_
     }
 
-    pub fn synthesize_signal(&mut self, _t: &mut RecordTask) {
+    pub fn synthesize_signal(&mut self, _t: &RecordTask) {
         unimplemented!()
     }
 
@@ -140,7 +140,7 @@ impl FileMonitor for VirtualPerfCounterMonitor {
         FileMonitorType::VirtualPerfCounter
     }
 
-    fn emulate_ioctl(&mut self, t: &mut RecordTask, result: &mut usize) -> bool {
+    fn emulate_ioctl(&mut self, t: &RecordTask, result: &mut usize) -> bool {
         match t.regs_ref().arg2() as _ {
             PERF_EVENT_IOC_ENABLE => {
                 *result = 0;
@@ -179,7 +179,7 @@ impl FileMonitor for VirtualPerfCounterMonitor {
         true
     }
 
-    fn emulate_fcntl(&mut self, t: &mut RecordTask, result: &mut usize) -> bool {
+    fn emulate_fcntl(&mut self, t: &RecordTask, result: &mut usize) -> bool {
         *result = (-EINVAL as isize) as usize;
         match t.regs_ref().arg2() as u32 {
             F_SETOWN_EX => {

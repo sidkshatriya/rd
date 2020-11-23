@@ -43,7 +43,7 @@ pub struct MonitoredSharedMemory {
 
 impl MonitoredSharedMemory {
     pub fn maybe_monitor(
-        t: &mut RecordTask,
+        t: &RecordTask,
         filename: &OsStr,
         m: address_space::Mapping,
         tracee_fd: i32,
@@ -90,7 +90,7 @@ impl MonitoredSharedMemory {
         copy_to.copy_from_slice(real_mem);
     }
 
-    pub fn check_all(t: &mut RecordTask) {
+    pub fn check_all(t: &RecordTask) {
         let mut addrs = Vec::<RemotePtr<Void>>::new();
         for a in t.vm().monitored_addrs().iter() {
             addrs.push(*a);
@@ -116,7 +116,7 @@ impl MonitoredSharedMemory {
         unimplemented!()
     }
 
-    fn check_for_changes(&self, t: &mut RecordTask, m: address_space::Mapping) {
+    fn check_for_changes(&self, t: &RecordTask, m: address_space::Mapping) {
         ed_assert_eq!(t, m.map.size(), self.real_mem.len());
         let local_slice: &'static mut [u8] = match m.local_addr {
             None => {

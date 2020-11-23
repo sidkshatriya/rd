@@ -156,7 +156,7 @@ use trace_stream::{MappedDataSource, TraceRemoteFd};
 ///
 /// DIFF NOTE: Params maybe_expect_syscallno2 and maybe_new_tid and treatment slightly different.
 fn __ptrace_cont(
-    t: &mut ReplayTask,
+    t: &ReplayTask,
     resume_how: ResumeRequest,
     syscall_arch: SupportedArch,
     expect_syscallno: i32,
@@ -233,7 +233,7 @@ fn __ptrace_cont(
 }
 
 /// DIFF NOTE: In rd we're returning a `None` if this was not a write syscall
-fn maybe_dump_written_string(t: &mut ReplayTask) -> Option<OsString> {
+fn maybe_dump_written_string(t: &ReplayTask) -> Option<OsString> {
     if !is_write_syscall(t.regs_ref().original_syscallno() as i32, t.arch()) {
         return None;
     }
@@ -248,7 +248,7 @@ fn maybe_dump_written_string(t: &mut ReplayTask) -> Option<OsString> {
     Some(OsString::from_vec(buf))
 }
 
-fn init_scratch_memory(t: &mut ReplayTask, km: &KernelMapping, data: &trace_stream::MappedData) {
+fn init_scratch_memory(t: &ReplayTask, km: &KernelMapping, data: &trace_stream::MappedData) {
     ed_assert_eq!(t, data.source, trace_stream::MappedDataSource::SourceZero);
 
     t.scratch_ptr = km.start();
@@ -311,7 +311,7 @@ fn init_scratch_memory(t: &mut ReplayTask, km: &KernelMapping, data: &trace_stre
 /// that don't actually use scratch space don't ever try to restore
 /// saved scratch memory during replay.  So, this helper can be used
 /// for that class of syscalls.
-fn maybe_noop_restore_syscallbuf_scratch(t: &mut ReplayTask) {
+fn maybe_noop_restore_syscallbuf_scratch(t: &ReplayTask) {
     if t.is_in_untraced_syscall() {
         // Untraced syscalls always have t's arch
         log!(
@@ -347,7 +347,7 @@ fn read_task_trace_event(t: &ReplayTask, task_event_type: TraceTaskEventType) ->
     tte.unwrap()
 }
 
-fn prepare_clone<Arch: Architecture>(t: &mut ReplayTask) {
+fn prepare_clone<Arch: Architecture>(t: &ReplayTask) {
     let trace_frame = t.current_trace_frame();
     let trace_frame_regs = trace_frame.regs_ref().clone();
     let syscall_event = trace_frame.event().syscall_event();
@@ -557,7 +557,7 @@ fn prepare_clone<Arch: Architecture>(t: &mut ReplayTask) {
 }
 
 /// DIFF NOTE: This simply returns a ReplayTraceStep instead of modifying one.
-pub fn rep_prepare_run_to_syscall(t: &mut ReplayTask, step: &mut ReplayTraceStep) {
+pub fn rep_prepare_run_to_syscall(t: &ReplayTask, step: &mut ReplayTraceStep) {
     let sys_num = t.current_trace_frame().event().syscall_event().number;
     let sys_arch = t.current_trace_frame().event().syscall_event().arch();
     let sys_name = t
@@ -597,7 +597,7 @@ pub fn rep_prepare_run_to_syscall(t: &mut ReplayTask, step: &mut ReplayTraceStep
     }
 }
 
-pub fn rep_process_syscall(t: &mut ReplayTask, step: &mut ReplayTraceStep) {
+pub fn rep_process_syscall(t: &ReplayTask, step: &mut ReplayTraceStep) {
     let arch: SupportedArch;
     let trace_regs: Registers;
     {
@@ -611,7 +611,7 @@ pub fn rep_process_syscall(t: &mut ReplayTask, step: &mut ReplayTraceStep) {
 }
 
 fn rep_process_syscall_arch<Arch: Architecture>(
-    t: &mut ReplayTask,
+    t: &ReplayTask,
     step: &mut ReplayTraceStep,
     trace_regs: &Registers,
 ) {
@@ -928,7 +928,7 @@ fn rep_process_syscall_arch<Arch: Architecture>(
     }
 }
 
-fn process_init_buffers(t: &mut ReplayTask, step: &mut ReplayTraceStep) {
+fn process_init_buffers(t: &ReplayTask, step: &mut ReplayTraceStep) {
     step.action = ReplayTraceStepType::TstepRetire;
 
     // Proceed to syscall exit so we can run our own syscalls. */
@@ -950,7 +950,7 @@ fn process_init_buffers(t: &mut ReplayTask, step: &mut ReplayTraceStep) {
     t.validate_regs(ReplayTaskIgnore::default());
 }
 
-fn process_brk(t: &mut ReplayTask) {
+fn process_brk(t: &ReplayTask) {
     let mut data = MappedData::default();
     let km: KernelMapping = t
         .trace_reader_mut()
@@ -1009,11 +1009,11 @@ fn non_negative_syscall(sys: i32) -> i32 {
 }
 
 /// Call this when `t` has just entered a syscall.
-pub fn rep_after_enter_syscall(t: &mut ReplayTask) {
+pub fn rep_after_enter_syscall(t: &ReplayTask) {
     rd_arch_function_selfless!(rep_after_enter_syscall_arch, t.arch(), t)
 }
 
-fn rep_after_enter_syscall_arch<Arch: Architecture>(t: &mut ReplayTask) {
+fn rep_after_enter_syscall_arch<Arch: Architecture>(t: &ReplayTask) {
     let sys: i32 = non_negative_syscall(t.regs_ref().original_syscallno().try_into().unwrap());
 
     if sys == Arch::WRITE || sys == Arch::WRITEV {
@@ -1085,7 +1085,7 @@ fn rep_after_enter_syscall_arch<Arch: Architecture>(t: &mut ReplayTask) {
 
 // DIFF NOTE: This does not take an extra param `trace_frame` as it can be
 // obtained from `t` itself
-pub fn process_execve(t: &mut ReplayTask, step: &mut ReplayTraceStep) {
+pub fn process_execve(t: &ReplayTask, step: &mut ReplayTraceStep) {
     step.action = ReplayTraceStepType::TstepRetire;
     let frame_arch = t.current_trace_frame().regs_ref().arch();
     // First, exec a stub program
@@ -1500,7 +1500,7 @@ fn find_exec_stub(arch: SupportedArch) -> CString {
     CString::new(exe_path).unwrap()
 }
 
-fn handle_opened_files(t: &mut ReplayTask, flags_raw: i32) {
+fn handle_opened_files(t: &ReplayTask, flags_raw: i32) {
     // @TODO The from_bits_unchecked seems to be needed here cause in x86 there is a flag that
     // is not recognized here by OFlag::from_bits(flags_raw).unwrap(). Check again?
     let flags = unsafe { OFlag::from_bits_unchecked(flags_raw) };
@@ -1544,7 +1544,7 @@ fn handle_opened_files(t: &mut ReplayTask, flags_raw: i32) {
 // DIFF NOTE: This does not take an extra param `trace_frame` as it can be
 // obtained from `t` itself
 fn process_mmap(
-    t: &mut ReplayTask,
+    t: &ReplayTask,
     mut length: usize,
     prot_raw: i32,
     flags_raw: i32,
@@ -1880,7 +1880,7 @@ fn finish_private_mmap(
 }
 
 fn write_mapped_data(
-    t: &mut ReplayTask,
+    t: &ReplayTask,
     mut rec_addr: RemotePtr<Void>,
     mut size: usize,
     data: &MappedData,
@@ -2003,7 +2003,7 @@ fn finish_anonymous_mmap(
 }
 
 /// DIFF NOTE: Take trace_regs as param. rr takes trace_frame instead.
-fn process_mremap(t: &mut ReplayTask, trace_regs: &Registers, step: &mut ReplayTraceStep) {
+fn process_mremap(t: &ReplayTask, trace_regs: &Registers, step: &mut ReplayTraceStep) {
     step.action = ReplayTraceStepType::TstepRetire;
 
     let original_syscallno: i32 = trace_regs.original_syscallno() as i32;
@@ -2157,7 +2157,7 @@ fn process_mremap(t: &mut ReplayTask, trace_regs: &Registers, step: &mut ReplayT
 
 /// DIFF NOTE: Takes `trace_regs` instead of trace frame as a param
 fn process_shmat(
-    t: &mut ReplayTask,
+    t: &ReplayTask,
     trace_regs: &Registers,
     shm_flags: i32,
     step: &mut ReplayTraceStep,
@@ -2200,7 +2200,7 @@ fn process_shmat(
 
 /// DIFF NOTE: Takes `trace_regs` instead of trace frame as a param
 fn process_shmdt(
-    t: &mut ReplayTask,
+    t: &ReplayTask,
     trace_regs: &Registers,
     addr: RemotePtr<Void>,
     step: &mut ReplayTraceStep,

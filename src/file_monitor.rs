@@ -222,14 +222,14 @@ pub trait FileMonitor {
     /// Return true if the ioctl should be fully emulated. If so the result
     /// is stored in the last parameter.
     /// Only called during recording.
-    fn emulate_ioctl(&mut self, _t: &mut RecordTask, _r: &mut usize) -> bool {
+    fn emulate_ioctl(&mut self, _t: &RecordTask, _r: &mut usize) -> bool {
         false
     }
 
     /// Return true if the fcntl should should be fully emulated. If so the
     /// result is stored in the last parameter.
     /// Only called during recording.
-    fn emulate_fcntl(&mut self, _t: &mut RecordTask, _r: &mut usize) -> bool {
+    fn emulate_fcntl(&mut self, _t: &RecordTask, _r: &mut usize) -> bool {
         false
     }
 
@@ -246,7 +246,7 @@ pub trait FileMonitor {
 
     /// Allows the FileMonitor to rewrite the output of a getdents/getdents64 call
     /// if desired.
-    fn filter_getdents(&self, _t: &mut RecordTask) {
+    fn filter_getdents(&self, _t: &RecordTask) {
         // Do nothing by default
     }
 }

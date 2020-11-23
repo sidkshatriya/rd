@@ -62,7 +62,7 @@ impl SeccompFilterRewriter {
     /// Assuming `t` is set up for a prctl or seccomp syscall that
     /// installs a seccomp-bpf filter, patch the filter to signal the tracer
     /// instead of silently delivering an errno, and install it.
-    pub fn install_patched_seccomp_filter(&mut self, t: &mut RecordTask) {
+    pub fn install_patched_seccomp_filter(&mut self, t: &RecordTask) {
         let arch = t.arch();
         rd_arch_function_selfless!(
             install_patched_seccomp_filter_arch,
@@ -77,7 +77,7 @@ impl SeccompFilterRewriter {
     /// PTRACE_EVENT_EXIT probably got in the way.
     pub fn map_filter_data_to_real_result(
         &self,
-        t: &mut RecordTask,
+        t: &RecordTask,
         value: u16,
         result: &mut u32,
     ) -> bool {
@@ -106,7 +106,7 @@ const fn BPF_RVAL(code: u16) -> u32 {
 }
 
 fn install_patched_seccomp_filter_arch<Arch: Architecture>(
-    t: &mut RecordTask,
+    t: &RecordTask,
     result_to_index: &mut HashMap<u32, u16>,
     index_to_result: &mut Vec<u32>,
 ) {
@@ -208,13 +208,13 @@ fn install_patched_seccomp_filter_arch<Arch: Architecture>(
     }
 }
 
-fn set_syscall_result(t: &mut RecordTask, ret: isize) {
+fn set_syscall_result(t: &RecordTask, ret: isize) {
     let mut r: Registers = t.regs_ref().clone();
     r.set_syscall_result_signed(ret);
     t.set_regs(&r);
 }
 
-fn pass_through_seccomp_filter(t: &mut RecordTask) {
+fn pass_through_seccomp_filter(t: &RecordTask) {
     let ret: isize;
     {
         let arg1 = t.regs_ref().arg1();

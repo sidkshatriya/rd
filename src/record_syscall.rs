@@ -530,7 +530,7 @@ struct rdcall_params<Arch: Architecture> {
 
 /// Prepare `t` to enter its current syscall event.  Return Switchable::AllowSwitch if
 /// a context-switch is allowed for `t`, Switchable::PreventSwitch if not.
-pub fn rec_prepare_syscall(t: &mut RecordTask) -> Switchable {
+pub fn rec_prepare_syscall(t: &RecordTask) -> Switchable {
     if t.syscall_state.is_none() {
         let mut new_ts = TaskSyscallState::new(t);
         new_ts.init(t);
@@ -553,7 +553,7 @@ pub fn rec_prepare_syscall(t: &mut RecordTask) -> Switchable {
 
 /// DIFF NOTE: Does not take separate TaskSyscallState param
 /// as that can be gotten from t directly
-fn rec_prepare_syscall_internal(t: &mut RecordTask) -> Switchable {
+fn rec_prepare_syscall_internal(t: &RecordTask) -> Switchable {
     let arch: SupportedArch = t.ev().syscall_event().arch();
     let regs = t.regs_ref().clone();
     with_converted_registers(&regs, arch, |converted_regs| {
@@ -563,10 +563,7 @@ fn rec_prepare_syscall_internal(t: &mut RecordTask) -> Switchable {
 
 /// DIFF NOTE: Does not take separate TaskSyscallState param
 /// as that can be gotten from t directly
-fn rec_prepare_syscall_arch<Arch: Architecture>(
-    t: &mut RecordTask,
-    regs: &Registers,
-) -> Switchable {
+fn rec_prepare_syscall_arch<Arch: Architecture>(t: &RecordTask, regs: &Registers) -> Switchable {
     let sys = t.ev().syscall_event().number;
 
     if t.regs_ref().original_syscallno() == SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO {
@@ -2137,7 +2134,7 @@ fn is_blacklisted_memfd(name: &CStr) -> bool {
 }
 
 fn maybe_blacklist_connect<Arch: Architecture>(
-    t: &mut RecordTask,
+    t: &RecordTask,
     addr_ptr: RemotePtr<Void>,
     addrlen: socklen_t,
 ) -> Switchable {
@@ -2171,11 +2168,7 @@ fn is_blacklisted_socket(filename_in: &[i8; 108]) -> bool {
     &filename[0..nsd.len()] == nsd
 }
 
-fn maybe_emulate_wait(
-    t: &mut RecordTask,
-    syscall_state: &mut TaskSyscallState,
-    options: i32,
-) -> bool {
+fn maybe_emulate_wait(t: &RecordTask, syscall_state: &mut TaskSyscallState, options: i32) -> bool {
     for child in &t.emulated_ptrace_tracees {
         let rt_child = child.as_rec_unwrap();
         if t.is_waiting_for_ptrace(rt_child) && rt_child.emulated_stop_pending {
@@ -2202,7 +2195,7 @@ fn maybe_emulate_wait(
 }
 
 fn protect_rd_sigs_sa_mask(
-    t: &mut RecordTask,
+    t: &RecordTask,
     p: RemotePtr<Void>,
     maybe_save: Option<&mut [u8]>,
 ) -> bool {
@@ -2211,7 +2204,7 @@ fn protect_rd_sigs_sa_mask(
 }
 
 fn protect_rd_sigs_sa_mask_arch<Arch: Architecture>(
-    t: &mut RecordTask,
+    t: &RecordTask,
     p: RemotePtr<Void>,
     maybe_save: Option<&mut [u8]>,
 ) -> bool {
@@ -2246,7 +2239,7 @@ fn protect_rd_sigs_sa_mask_arch<Arch: Architecture>(
     true
 }
 
-fn protect_rd_sigs(t: &mut RecordTask, p: RemotePtr<Void>, maybe_save: Option<&mut [u8]>) -> bool {
+fn protect_rd_sigs(t: &RecordTask, p: RemotePtr<Void>, maybe_save: Option<&mut [u8]>) -> bool {
     let setp = RemotePtr::<sig_set_t>::cast(p);
     if setp.is_null() {
         return false;
@@ -2277,7 +2270,7 @@ fn protect_rd_sigs(t: &mut RecordTask, p: RemotePtr<Void>, maybe_save: Option<&m
     true
 }
 
-fn record_ranges(t: &mut RecordTask, ranges: &[file_monitor::Range], size: usize) {
+fn record_ranges(t: &RecordTask, ranges: &[file_monitor::Range], size: usize) {
     let mut s = size;
     for r in ranges {
         let bytes = min(s, r.length);
@@ -2288,7 +2281,7 @@ fn record_ranges(t: &mut RecordTask, ranges: &[file_monitor::Range], size: usize
     }
 }
 
-fn prepare_mmap_register_params(t: &mut RecordTask) {
+fn prepare_mmap_register_params(t: &RecordTask) {
     let mut r: Registers = t.regs_ref().clone();
     if t.session().as_record().unwrap().enable_chaos()
         && (r.arg4_signed() & (MAP_FIXED as isize | MAP_32BIT as isize) == 0)
@@ -2317,7 +2310,7 @@ fn prepare_mmap_register_params(t: &mut RecordTask) {
 /// Call this when the tracee has already entered SYS_exit/SYS_exit_group. The
 /// tracee will be returned at a state in which it has entered (or
 /// re-entered) SYS_exit/SYS_exit_group.
-fn prepare_exit(t: &mut RecordTask, exit_code: i32) {
+fn prepare_exit(t: &RecordTask, exit_code: i32) {
     // RecordSession is responsible for ensuring we don't get here with
     // pending signals.
     ed_assert!(t, !t.has_any_stashed_sig());
@@ -2412,7 +2405,7 @@ fn prepare_exit(t: &mut RecordTask, exit_code: i32) {
     }
 }
 
-fn check_signals_while_exiting(t: &mut RecordTask) {
+fn check_signals_while_exiting(t: &RecordTask) {
     let maybe_s = t.peek_stashed_sig_to_deliver();
     match maybe_s {
         Some(s) => {
@@ -2434,7 +2427,7 @@ fn check_signals_while_exiting(t: &mut RecordTask) {
 }
 
 /// DIFF NOTE: Takes the extra param `maybe_tracer` unlike rr.
-fn do_ptrace_exit_stop(t: &mut RecordTask, maybe_tracer: Option<&RecordTask>) {
+fn do_ptrace_exit_stop(t: &RecordTask, maybe_tracer: Option<&RecordTask>) {
     // Notify ptracer of the exit if it's not going to receive it from the
     // kernel because it's not the parent. (The kernel has similar logic to
     // deliver two stops in this case.)
@@ -2454,17 +2447,17 @@ fn do_ptrace_exit_stop(t: &mut RecordTask, maybe_tracer: Option<&RecordTask>) {
     }
 }
 
-pub fn rec_prepare_restart_syscall(t: &mut RecordTask) {
+pub fn rec_prepare_restart_syscall(t: &RecordTask) {
     rec_prepare_restart_syscall_internal(t);
     t.syscall_state = None;
 }
 
-pub fn rec_prepare_restart_syscall_internal(t: &mut RecordTask) {
+pub fn rec_prepare_restart_syscall_internal(t: &RecordTask) {
     let arch = t.arch();
     rd_arch_function_selfless!(rec_prepare_restart_syscall_arch, arch, t);
 }
 
-fn rec_prepare_restart_syscall_arch<Arch: Architecture>(t: &mut RecordTask) {
+fn rec_prepare_restart_syscall_arch<Arch: Architecture>(t: &RecordTask) {
     let sys: i32 = t.ev().syscall_event().number;
     if sys == Arch::NANOSLEEP || sys == Arch::CLOCK_NANOSLEEP || sys == Arch::CLOCK_NANOSLEEP_TIME64
     {
@@ -2508,7 +2501,7 @@ fn rec_prepare_restart_syscall_arch<Arch: Architecture>(t: &mut RecordTask) {
     }
 }
 
-pub fn rec_process_syscall(t: &mut RecordTask) {
+pub fn rec_process_syscall(t: &RecordTask) {
     let syscall_state_shr = t.syscall_state_unwrap();
     let mut syscall_state = syscall_state_shr.borrow_mut();
     let sys_ev_arch = t.ev().syscall_event().arch();
@@ -2535,7 +2528,7 @@ pub fn rec_process_syscall(t: &mut RecordTask) {
 /// N.B.: `arch` is the the architecture of the syscall, which may be different
 ///         from the architecture of the call (e.g. x86_64 may invoke x86 syscalls)
 pub fn rec_process_syscall_internal(
-    t: &mut RecordTask,
+    t: &RecordTask,
     arch: SupportedArch,
     syscall_state: &mut TaskSyscallState,
 ) {
@@ -2543,7 +2536,7 @@ pub fn rec_process_syscall_internal(
 }
 
 pub fn rec_process_syscall_arch<Arch: Architecture>(
-    t: &mut RecordTask,
+    t: &RecordTask,
     syscall_state: &mut TaskSyscallState,
 ) {
     let sys: i32 = t.ev().syscall_event().number;
@@ -3173,7 +3166,7 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
     }
 }
 
-fn fake_gcrypt_file(t: &mut RecordTask, r: &mut Registers) {
+fn fake_gcrypt_file(t: &RecordTask, r: &mut Registers) {
     // We hijacked this call to deal with /etc/gcrypt/hwf.deny.
     let file = create_temporary_file(b"rd-gcrypt-hwf-deny-XXXXXX");
 
@@ -3240,7 +3233,7 @@ fn is_gcrypt_deny_file(f: &OsStr) -> bool {
     f.as_bytes() == b"/etc/gcrypt/hwf.deny"
 }
 
-fn handle_opened_file(t: &mut RecordTask, fd: i32, flags: i32) -> OsString {
+fn handle_opened_file(t: &RecordTask, fd: i32, flags: i32) -> OsString {
     let mut pathname = t.file_name_of_fd(fd);
     let st = t.stat_fd(fd);
 
@@ -3345,7 +3338,7 @@ fn is_mapped_shared(t: &dyn Task, st: &libc::stat) -> bool {
 }
 
 fn process_mmap(
-    t: &mut RecordTask,
+    t: &RecordTask,
     length: usize,
     prot_raw: i32,
     flags_raw: i32,
@@ -3637,7 +3630,7 @@ enum ScratchAddrType {
     DynamicAddress,
 }
 
-fn process_execve(t: &mut RecordTask, syscall_state: &mut TaskSyscallState) {
+fn process_execve(t: &RecordTask, syscall_state: &mut TaskSyscallState) {
     if t.regs_ref().syscall_failed() {
         return;
     }
@@ -3937,7 +3930,7 @@ fn init_scratch_memory(t: &RecordTask, maybe_addr_type: Option<ScratchAddrType>)
     t.set_regs(&r);
 }
 
-fn check_privileged_exe(t: &mut RecordTask) {
+fn check_privileged_exe(t: &RecordTask) {
     // Check if the executable we just execed has setuid bits or file capabilities
     // If so (and rd doesn't have CAP_SYS_ADMIN, which would have let us avoid,
     // no_new privs), they may have been ignored, due to our no_new_privs setting
@@ -3978,7 +3971,7 @@ fn check_privileged_exe(t: &mut RecordTask) {
     }
 }
 
-fn get_exe_entry(t: &mut RecordTask) -> RemotePtr<Void> {
+fn get_exe_entry(t: &RecordTask) -> RemotePtr<Void> {
     let v = read_auxv(t);
     let mut i: usize = 0;
     let wsize: usize = word_size(t.arch());
@@ -3997,8 +3990,8 @@ fn get_exe_entry(t: &mut RecordTask) -> RemotePtr<Void> {
     RemotePtr::null()
 }
 
-type AfterSyscallAction = Box<dyn Fn(&mut RecordTask) -> ()>;
-type ArgMutator = Box<dyn Fn(&mut RecordTask, RemotePtr<Void>, Option<&mut [u8]>) -> bool>;
+type AfterSyscallAction = Box<dyn Fn(&RecordTask) -> ()>;
+type ArgMutator = Box<dyn Fn(&RecordTask, RemotePtr<Void>, Option<&mut [u8]>) -> bool>;
 
 /// When tasks enter syscalls that may block and so must be
 /// prepared for a context-switch, and the syscall params
@@ -4197,7 +4190,7 @@ impl TaskSyscallState {
     /// DIFF NOTE: Takes `t` as param
     fn mem_ptr_parameter<T>(
         &mut self,
-        t: &mut RecordTask,
+        t: &RecordTask,
         addr_of_buf_ptr: RemotePtr<Void>,
         maybe_mode: Option<ArgMode>,
         maybe_mutator: Option<ArgMutator>,
@@ -4222,7 +4215,7 @@ impl TaskSyscallState {
     /// DIFF NOTE: Takes `t` as param
     fn mem_ptr_parameter_inferred<Arch: Architecture, T>(
         &mut self,
-        t: &mut RecordTask,
+        t: &RecordTask,
         addr_of_buf_ptr: RemotePtr<Ptr<Arch::unsigned_word, T>>,
         maybe_mode: Option<ArgMode>,
         maybe_mutator: Option<ArgMutator>,
@@ -4247,7 +4240,7 @@ impl TaskSyscallState {
     /// DIFF NOTE: Takes `t` as param
     fn mem_ptr_parameter_with_size(
         &mut self,
-        t: &mut RecordTask,
+        t: &RecordTask,
         addr_of_buf_ptr: RemotePtr<Void>,
         param_size: ParamSize,
         maybe_mode: Option<ArgMode>,
@@ -4330,12 +4323,7 @@ impl TaskSyscallState {
     /// computes the actual size to use for parameter param_index.
     ///
     /// DIFF NOTE: Takes t as param
-    fn eval_param_size(
-        &self,
-        t: &mut RecordTask,
-        i: usize,
-        actual_sizes: &mut Vec<usize>,
-    ) -> usize {
+    fn eval_param_size(&self, t: &RecordTask, i: usize, actual_sizes: &mut Vec<usize>) -> usize {
         assert_eq!(actual_sizes.len(), i);
         assert!(self.weak_task.ptr_eq(&t.weak_self));
 
@@ -4363,7 +4351,7 @@ impl TaskSyscallState {
     /// otherwise returns 'sw'.
     ///
     /// DIFF NOTE: Takes t as param
-    fn done_preparing(&mut self, t: &mut RecordTask, mut sw: Switchable) -> Switchable {
+    fn done_preparing(&mut self, t: &RecordTask, mut sw: Switchable) -> Switchable {
         assert!(self.weak_task.ptr_eq(&t.weak_self));
 
         if self.preparation_done {
@@ -4410,7 +4398,7 @@ impl TaskSyscallState {
     }
 
     /// DIFF NOTE: Takes t as param
-    fn done_preparing_internal(&mut self, t: &mut RecordTask, sw: Switchable) -> Switchable {
+    fn done_preparing_internal(&mut self, t: &RecordTask, sw: Switchable) -> Switchable {
         ed_assert!(t, !self.preparation_done);
 
         self.preparation_done = true;
@@ -4486,7 +4474,7 @@ impl TaskSyscallState {
     /// original destinations, update registers, etc.
     ///
     /// DIFF NOTE: Takes t as param
-    fn process_syscall_results(&mut self, t: &mut RecordTask) {
+    fn process_syscall_results(&mut self, t: &RecordTask) {
         assert!(self.weak_task.ptr_eq(&t.weak_self));
         ed_assert!(t, self.preparation_done);
 
@@ -4580,7 +4568,7 @@ impl TaskSyscallState {
     /// made.
     ///
     /// DIFF NOTE: Takes t as param
-    pub fn abort_syscall_results(&mut self, t: &mut RecordTask) {
+    pub fn abort_syscall_results(&mut self, t: &RecordTask) {
         assert!(self.weak_task.ptr_eq(&t.weak_self));
         ed_assert!(t, self.preparation_done);
 
@@ -4857,7 +4845,7 @@ fn extra_expected_errno_info<Arch: Architecture>(
 }
 
 fn prepare_ioctl<Arch: Architecture>(
-    t: &mut RecordTask,
+    t: &RecordTask,
     syscall_state: &mut TaskSyscallState,
 ) -> Switchable {
     let fd = t.regs_ref().arg1() as i32;
@@ -5053,7 +5041,7 @@ fn prepare_ioctl<Arch: Architecture>(
     unimplemented!()
 }
 
-fn record_page_below_stack_ptr(t: &mut RecordTask) {
+fn record_page_below_stack_ptr(t: &RecordTask) {
     // Record.the page above the top of `t`'s stack.  The SIOC* ioctls
     // have been observed to write beyond the end of tracees' stacks, as
     // if they had allocated scratch space for themselves.  All we can do
@@ -5062,7 +5050,7 @@ fn record_page_below_stack_ptr(t: &mut RecordTask) {
     t.record_remote(child_addr, page_size());
 }
 
-fn prepare_clone<Arch: Architecture>(t: &mut RecordTask, syscall_state: &mut TaskSyscallState) {
+fn prepare_clone<Arch: Architecture>(t: &RecordTask, syscall_state: &mut TaskSyscallState) {
     // DIFF NOTE: rr uses a usize here
     let flags: i32;
     let mut params: CloneParameters = Default::default();
@@ -5245,7 +5233,7 @@ fn ptrace_option_for_event(ptrace_event: u32) -> u32 {
     }
 }
 
-fn maybe_pause_instead_of_waiting(t: &mut RecordTask, options: i32) {
+fn maybe_pause_instead_of_waiting(t: &RecordTask, options: i32) {
     if t.in_wait_type != WaitType::WaitTypePid || (options & WNOHANG != 0) {
         return;
     }
@@ -5273,12 +5261,7 @@ fn maybe_pause_instead_of_waiting(t: &mut RecordTask, options: i32) {
     t.set_regs(&r);
 }
 
-fn process_mremap(
-    t: &mut RecordTask,
-    old_addr: RemotePtr<Void>,
-    old_length: usize,
-    new_length: usize,
-) {
+fn process_mremap(t: &RecordTask, old_addr: RemotePtr<Void>, old_length: usize, new_length: usize) {
     if t.regs_ref().syscall_failed() {
         // We purely emulate failed mremaps.
         return;
@@ -5345,7 +5328,7 @@ fn send_signal_during_init_buffers() -> bool {
 }
 
 fn prepare_recvmsg<Arch: Architecture>(
-    t: &mut RecordTask,
+    t: &RecordTask,
     syscall_state: &mut TaskSyscallState,
     msgp: RemotePtr<msghdr<Arch>>,
     io_size: ParamSize,
@@ -5396,7 +5379,7 @@ fn prepare_recvmsg<Arch: Architecture>(
 }
 
 fn prepare_recvmmsg<Arch: Architecture>(
-    t: &mut RecordTask,
+    t: &RecordTask,
     syscall_state: &mut TaskSyscallState,
     mmsgp: RemotePtr<mmsghdr<Arch>>,
     vlen: usize,
@@ -5414,7 +5397,7 @@ fn prepare_recvmmsg<Arch: Architecture>(
     }
 }
 
-fn check_scm_rights_fd<Arch: Architecture>(t: &mut RecordTask, msg: &msghdr<Arch>) {
+fn check_scm_rights_fd<Arch: Architecture>(t: &RecordTask, msg: &msghdr<Arch>) {
     if Arch::size_t_as_usize(msg.msg_controllen) < size_of::<cmsghdr<Arch>>() {
         return;
     }
@@ -5467,7 +5450,7 @@ fn block_sock_opt(level: i32, optname: u32, syscall_state: &mut TaskSyscallState
 }
 
 fn prepare_setsockopt<Arch: Architecture>(
-    t: &mut RecordTask,
+    t: &RecordTask,
     syscall_state: &mut TaskSyscallState,
     args: &setsockopt_args<Arch>,
 ) -> Switchable {
@@ -5515,7 +5498,7 @@ fn prepare_setsockopt<Arch: Architecture>(
 }
 
 fn verify_ptrace_target(
-    tracer: &mut RecordTask,
+    tracer: &RecordTask,
     syscall_state: &mut TaskSyscallState,
     pid: pid_t,
 ) -> Option<TaskSharedPtr> {
@@ -5589,7 +5572,7 @@ fn widen_buffer_signed(buf: &[u8]) -> i64 {
 
 /// DIFF NOTE: Has an extra param `tracer`
 fn prepare_ptrace_cont(
-    tracee: &mut RecordTask,
+    tracee: &RecordTask,
     maybe_sig: Option<Sig>,
     command: u32,
     tracer: &RecordTask,
@@ -5633,7 +5616,7 @@ fn prepare_ptrace_cont(
 }
 
 fn ptrace_get_reg_set<Arch: Architecture>(
-    t: &mut RecordTask,
+    t: &RecordTask,
     syscall_state: &mut TaskSyscallState,
     regs: &[u8],
 ) {
@@ -5659,7 +5642,7 @@ fn ptrace_get_reg_set<Arch: Architecture>(
 }
 
 fn ptrace_verify_set_reg_set<Arch: Architecture>(
-    t: &mut RecordTask,
+    t: &RecordTask,
     min_size: usize,
     syscall_state: &mut TaskSyscallState,
 ) {
@@ -5672,7 +5655,7 @@ fn ptrace_verify_set_reg_set<Arch: Architecture>(
     }
 }
 
-fn verify_ptrace_options(t: &mut RecordTask, syscall_state: &mut TaskSyscallState) -> bool {
+fn verify_ptrace_options(t: &RecordTask, syscall_state: &mut TaskSyscallState) -> bool {
     // We "support" PTRACE_O_SYSGOOD because we don't support PTRACE_SYSCALL yet
     let supported_ptrace_options = PTRACE_O_TRACESYSGOOD
         | PTRACE_O_TRACEEXIT
@@ -5759,7 +5742,7 @@ fn prepare_ptrace_traceme(
     }
 }
 
-fn ptrace_attach_to_already_stopped_task(t: &mut RecordTask, tracer: &mut RecordTask) {
+fn ptrace_attach_to_already_stopped_task(t: &RecordTask, tracer: &RecordTask) {
     ed_assert_eq!(t, t.emulated_stop_type, EmulatedStopType::GroupStop);
     // tracee is already stopped because of a group-stop signal.
     // Sending a SIGSTOP won't work, but we don't need to.
@@ -5771,7 +5754,7 @@ fn ptrace_attach_to_already_stopped_task(t: &mut RecordTask, tracer: &mut Record
 }
 
 fn prepare_ptrace<Arch: Architecture>(
-    t: &mut RecordTask,
+    t: &RecordTask,
     syscall_state: &mut TaskSyscallState,
 ) -> Switchable {
     let pid = t.regs_ref().arg2_signed() as pid_t;
@@ -6441,7 +6424,7 @@ fn prepare_shmctl<Arch: Architecture>(
 }
 
 fn prepare_socketcall<Arch: Architecture>(
-    t: &mut RecordTask,
+    t: &RecordTask,
     syscall_state: &mut TaskSyscallState,
 ) -> Switchable {
     // int socketcall(int call, unsigned long *args) {

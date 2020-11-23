@@ -225,7 +225,7 @@ impl ReplayTask {
 
     /// @TODO More elegant approach??
     /// Restore the next chunk of saved data from the trace to this.
-    pub fn set_data_from_trace(&mut self, maybe_other: Option<&mut ReplayTask>) -> usize {
+    pub fn set_data_from_trace(&mut self, maybe_other: Option<&ReplayTask>) -> usize {
         let buf: RawData = self.trace_reader_mut().read_raw_data();
         if !buf.addr.is_null() && buf.data.len() > 0 {
             if buf.rec_tid == self.rec_tid {
@@ -508,7 +508,7 @@ impl Task for ReplayTask {
         Some(self)
     }
 
-    fn as_replay_task_mut(&mut self) -> Option<&mut ReplayTask> {
+    fn as_replay_task_mut(&mut self) -> Option<&ReplayTask> {
         Some(self)
     }
 

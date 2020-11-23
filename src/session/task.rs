@@ -162,7 +162,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
         None
     }
 
-    fn as_record_task_mut(&mut self) -> Option<&mut RecordTask> {
+    fn as_record_task_mut(&mut self) -> Option<&RecordTask> {
         None
     }
 
@@ -174,7 +174,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
         None
     }
 
-    fn as_replay_task_mut(&mut self) -> Option<&mut ReplayTask> {
+    fn as_replay_task_mut(&mut self) -> Option<&ReplayTask> {
         None
     }
 

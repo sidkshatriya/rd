@@ -116,7 +116,7 @@ impl MonkeyPatcher {
     /// Apply any necessary patching immediately after exec.
     /// In this hook we patch everything that doesn't depend on the preload
     /// library being loaded.
-    pub fn patch_after_exec(&mut self, t: &mut RecordTask) {
+    pub fn patch_after_exec(&mut self, t: &RecordTask) {
         let arch = t.arch();
         match arch {
             SupportedArch::X86 => patch_after_exec_arch_x86arch(t, self),
@@ -179,7 +179,7 @@ impl MonkeyPatcher {
     /// patch libpthread.so.
     pub fn patch_after_mmap(
         &self,
-        t: &mut RecordTask,
+        t: &RecordTask,
         start: RemotePtr<Void>,
         size: usize,
         offset_pages: usize,
@@ -305,7 +305,7 @@ struct ElfReader;
 /// @TODO Remove
 struct SymbolTable;
 
-fn write_and_record_bytes(t: &mut RecordTask, child_addr: RemotePtr<Void>, buf: &[u8]) {
+fn write_and_record_bytes(t: &RecordTask, child_addr: RemotePtr<Void>, buf: &[u8]) {
     t.write_bytes_helper(child_addr, buf, None, WriteFlags::empty());
     t.record_local(child_addr, buf);
 }
@@ -328,7 +328,7 @@ fn write_and_record_mem<T>(_t: &RecordTask, _child_addr: RemotePtr<T>, _vals: &[
 /// overridden by the preload library, or might override them itself (e.g.
 /// because we're recording an rr replay).
 fn setup_library_path_arch<Arch: Architecture>(
-    t: &mut RecordTask,
+    t: &RecordTask,
     env_var: &OsStr,
     soname_base: &OsStr,
     soname_padded: &OsStr,
@@ -408,7 +408,7 @@ fn setup_library_path_arch<Arch: Architecture>(
     }
 }
 
-fn setup_preload_library_path<Arch: Architecture>(t: &mut RecordTask) {
+fn setup_preload_library_path<Arch: Architecture>(t: &RecordTask) {
     let soname_base = OsStr::new(SYSCALLBUF_LIB_FILENAME_BASE);
     let soname_padded = OsStr::new(SYSCALLBUF_LIB_FILENAME_PADDED);
     let soname_32 = OsStr::new(SYSCALLBUF_LIB_FILENAME_32);
@@ -505,7 +505,7 @@ fn safe_for_syscall_patching(_start: RemoteCodePtr, _end: RemoteCodePtr, _exclud
 
 /// Return true iff `addr` points to a known `__kernel_vsyscall()`
 /// implementation.
-fn is_kernel_vsyscall(t: &mut RecordTask, addr: RemotePtr<Void>) -> bool {
+fn is_kernel_vsyscall(t: &RecordTask, addr: RemotePtr<Void>) -> bool {
     let mut impl_buf = [0u8; X86SysenterVsyscallImplementationAMD::SIZE];
     t.read_bytes(addr, &mut impl_buf);
     X86SysenterVsyscallImplementation::matchp(&impl_buf[0..X86SysenterVsyscallImplementation::SIZE])
@@ -565,7 +565,7 @@ fn find_section_file_offsets<'a>(elf_file: &Elf<'a>, section_name: &str) -> Opti
     None
 }
 
-fn erase_section<'a>(elf_file: &Elf<'a>, t: &mut RecordTask, section_name: &str) {
+fn erase_section<'a>(elf_file: &Elf<'a>, t: &RecordTask, section_name: &str) {
     match find_section_file_offsets(elf_file, section_name) {
         Some(offsets) => {
             let mut zeroes: Vec<u8> = Vec::with_capacity(offsets.end - offsets.start);
@@ -578,7 +578,7 @@ fn erase_section<'a>(elf_file: &Elf<'a>, t: &mut RecordTask, section_name: &str)
     }
 }
 
-fn obliterate_debug_info<'a>(elf_file: &Elf<'a>, t: &mut RecordTask) {
+fn obliterate_debug_info<'a>(elf_file: &Elf<'a>, t: &RecordTask) {
     erase_section(elf_file, t, ".eh_frame");
     erase_section(elf_file, t, ".eh_frame_hdr");
     erase_section(elf_file, t, ".note");
@@ -697,7 +697,7 @@ fn addr_to_offset<'a>(elf_file: &Elf<'a>, addr: usize, offset: &mut usize) -> bo
 /// static constructors, so we can't wait for our preload library to be
 /// initialized. Fortunately we're just replacing the vdso code with real
 ///  syscalls so there is no dependency on the preload library at all.
-fn patch_after_exec_arch_x86arch(t: &mut RecordTask, patcher: &mut MonkeyPatcher) {
+fn patch_after_exec_arch_x86arch(t: &RecordTask, patcher: &mut MonkeyPatcher) {
     setup_preload_library_path::<X86Arch>(t);
     let vdso_start = t.vm().vdso().start();
     let vdso_size = t.vm().vdso().size();
@@ -798,7 +798,7 @@ const X86_SYSENTER_VSYSCALL_USE_INT80_BYTES: [u8; 3] = [0xcd, 0x80, 0xc3];
 
 /// Return the address of a recognized `__kernel_vsyscall()`
 /// implementation in `t`'s address space.
-fn locate_and_verify_kernel_vsyscall(t: &mut RecordTask, elf_file: &Elf) -> RemotePtr<Void> {
+fn locate_and_verify_kernel_vsyscall(t: &RecordTask, elf_file: &Elf) -> RemotePtr<Void> {
     let mut kernel_vsyscall = RemotePtr::null();
     // It is unlikely but possible that multiple, versioned __kernel_vsyscall
     // symbols will exist.  But we can't rely on setting |kernel_vsyscall| to
@@ -861,7 +861,7 @@ fn locate_and_verify_kernel_vsyscall(t: &mut RecordTask, elf_file: &Elf) -> Remo
 /// DIFF NOTE: The rr version of this x64 architecture specific function call uses u64
 /// and usize in a few places. It makes sense to simply use usize consistently.
 /// @TODO Need to make sure if there was any deliberate intent there.
-fn patch_after_exec_arch_x64arch(t: &mut RecordTask, patcher: &mut MonkeyPatcher) {
+fn patch_after_exec_arch_x64arch(t: &RecordTask, patcher: &mut MonkeyPatcher) {
     setup_preload_library_path::<X64Arch>(t);
 
     let vdso_start = t.vm().vdso().start();
@@ -1095,7 +1095,7 @@ fn resolve_address<'a>(
 }
 
 fn set_and_record_bytes<'a>(
-    t: &mut RecordTask,
+    t: &RecordTask,
     elf_file: &Elf<'a>,
     elf_addr: usize,
     bytes: &[u8],
