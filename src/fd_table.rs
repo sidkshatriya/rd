@@ -68,7 +68,7 @@ impl FdTable {
         }
 
         self.fds.borrow_mut().insert(fd, rc);
-        self.update_syscallbuf_fds_disabled(fd, t);
+        self.update_syscallbuf_fds_disabled(fd);
     }
 
     /// DIFF NOTE: @TODO Changed this from u64 to usize
@@ -130,8 +130,7 @@ impl FdTable {
         }
     }
 
-    /// DIFF NOTE: Additional param `active_task` to solve borrow issues.
-    pub fn did_dup(&self, from: i32, to: i32, active_task: &dyn Task) {
+    pub fn did_dup(&self, from: i32, to: i32) {
         if self.fds.borrow().contains_key(&from) {
             if to >= SYSCALLBUF_FDS_DISABLED_SIZE && !self.fds.borrow().contains_key(&to) {
                 self.fd_count_beyond_limit
@@ -146,18 +145,17 @@ impl FdTable {
             }
             self.fds.borrow_mut().remove(&to);
         }
-        self.update_syscallbuf_fds_disabled(to, active_task);
+        self.update_syscallbuf_fds_disabled(to);
     }
 
-    /// DIFF NOTE: Additional param `active_task` to solve borrow issues.
-    pub fn did_close(&self, fd: i32, active_task: &dyn Task) {
+    pub fn did_close(&self, fd: i32) {
         log!(LogDebug, "Close fd {}", fd);
         if fd >= SYSCALLBUF_FDS_DISABLED_SIZE && self.fds.borrow().contains_key(&fd) {
             self.fd_count_beyond_limit
                 .set(self.fd_count_beyond_limit.get() - 1);
         }
         self.fds.borrow_mut().remove(&fd);
-        self.update_syscallbuf_fds_disabled(fd, active_task);
+        self.update_syscallbuf_fds_disabled(fd);
     }
 
     /// Method is called clone() in rr
@@ -249,7 +247,7 @@ impl FdTable {
             }
         }
         for &fd in &fds_to_close {
-            self.did_close(fd, t);
+            self.did_close(fd);
         }
 
         fds_to_close
@@ -260,7 +258,7 @@ impl FdTable {
         ed_assert!(t, self.task_set().has(t.weak_self_ptr()));
 
         for &fd in fds_to_close {
-            self.did_close(fd, t)
+            self.did_close(fd)
         }
     }
 
@@ -272,8 +270,7 @@ impl FdTable {
         }
     }
 
-    /// DIFF NOTE: Additional param `active_task` to solve borrow issues.
-    fn update_syscallbuf_fds_disabled(&self, mut fd: i32, active_task: &dyn Task) {
+    fn update_syscallbuf_fds_disabled(&self, mut fd: i32) {
         debug_assert!(fd >= 0);
         debug_assert!(!self.task_set().is_empty());
 
@@ -291,7 +288,7 @@ impl FdTable {
                     if fd >= SYSCALLBUF_FDS_DISABLED_SIZE {
                         fd = SYSCALLBUF_FDS_DISABLED_SIZE - 1;
                     }
-                    let disable: u8 = if is_fd_monitored_in_any_task(&rt.vm(), fd, rt) {
+                    let disable: u8 = if is_fd_monitored_in_any_task(&rt.vm(), fd) {
                         1
                     } else {
                         0
@@ -323,8 +320,7 @@ fn is_fd_open(t: &dyn Task, fd: i32) -> bool {
     lstat(path.as_str()).is_ok()
 }
 
-/// DIFF NOTE: Extra param `vm_task` to solve already borrowed possibility
-fn is_fd_monitored_in_any_task(vm: &AddressSpace, fd: i32, vm_task: &dyn Task) -> bool {
+fn is_fd_monitored_in_any_task(vm: &AddressSpace, fd: i32) -> bool {
     for t in vm.task_set().iter() {
         if t.fd_table().is_monitoring(fd)
             || (fd >= SYSCALLBUF_FDS_DISABLED_SIZE - 1 && t.fd_table().count_beyond_limit() > 0)

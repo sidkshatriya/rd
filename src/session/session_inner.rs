@@ -260,10 +260,9 @@ impl SessionInner {
         let tid: i32;
         let tuid_serial: u32;
         {
-            let tb = t.borrow();
-            rec_tid = tb.rec_tid;
-            tid = tb.tid;
-            tuid_serial = tb.tuid().serial();
+            rec_tid = t.rec_tid;
+            tid = t.tid;
+            tuid_serial = t.tuid().serial();
         }
 
         let tg = ThreadGroup::new(self.weak_self.clone(), None, rec_tid, tid, tid, tuid_serial);

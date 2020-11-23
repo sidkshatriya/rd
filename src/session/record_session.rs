@@ -806,7 +806,7 @@ impl RecordSession {
             return true;
         }
 
-        let deterministic: SignalDeterministic = is_deterministic_signal(&**t);
+        let deterministic: SignalDeterministic = is_deterministic_signal(&***t);
         // The kernel might have forcibly unblocked the signal. Check whether it
         // was blocked now, before we update our cached sigmask.
         let signal_was_blocked = if t.as_rec_unwrap().is_sig_blocked(sig) {
@@ -1315,7 +1315,7 @@ impl RecordSession {
                         Some(sig),
                     );
                     log!(LogWarn,   "Delivered core-dumping signal; may misrecord CLONE_CHILD_CLEARTID memory race");
-                    t.thread_group_shr_ptr().borrow().destabilize(t);
+                    t.thread_group_shr_ptr().borrow().destabilize();
                 }
 
                 t.signal_delivered(sig);
@@ -3056,7 +3056,7 @@ fn handle_ptrace_exit_event(t: &RecordTask) -> bool {
             LogWarn,
             "unstable exit; may misrecord CLONE_CHILD_CLEARTID memory race"
         );
-        t.thread_group_shr_ptr().borrow().destabilize(t);
+        t.thread_group_shr_ptr().borrow().destabilize();
     }
 
     record_robust_futex_changes(t);

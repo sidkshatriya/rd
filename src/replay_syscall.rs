@@ -143,7 +143,6 @@ use nix::{
     unistd::{access, lseek, read, AccessFlags, Whence},
 };
 use std::{
-    cell::RefMut,
     cmp::min,
     convert::TryInto,
     ffi::{CString, OsStr, OsString},
@@ -869,7 +868,6 @@ fn rep_process_syscall_arch<Arch: Architecture>(
         let dest_pid = t.regs_ref().arg1() as pid_t;
         let iov_cnt = t.regs_ref().arg5();
         let t_rc: TaskSharedPtr;
-        let mut t_b: RefMut<Box<dyn Task>>;
         let maybe_dest = if dest_pid == t.rec_tid {
             Some(t)
         } else {
@@ -1776,7 +1774,7 @@ fn finish_shared_mmap<'a>(
     );
 
     write_mapped_data(
-        remote.task_mut().as_replay_task_mut().unwrap(),
+        remote.task_mut().as_replay_task().unwrap(),
         rec_addr,
         km.size(),
         data,
@@ -1872,7 +1870,7 @@ fn finish_private_mmap(
 
     // Restore the map region we copied.
     write_mapped_data(
-        remote.task_mut().as_replay_task_mut().unwrap(),
+        remote.task_mut().as_replay_task().unwrap(),
         rec_addr,
         km.size(),
         data,

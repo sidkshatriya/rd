@@ -51,7 +51,7 @@ impl FastForwardStatus {
 }
 
 /// Return true if the instruction at t.ip() is a string instruction
-pub fn at_x86_string_instruction<T: Task>(t: &mut T) -> bool {
+pub fn at_x86_string_instruction<T: Task>(t: &T) -> bool {
     if !is_x86ish(t) {
         return false;
     }
@@ -82,7 +82,7 @@ pub fn at_x86_string_instruction<T: Task>(t: &mut T) -> bool {
 /// DIFF NOTE: @TODO Performance?
 /// In rr we're getting pointers to registers. Here we're getting a register copy
 pub fn fast_forward_through_instruction<T: Task>(
-    t: &mut T,
+    t: &T,
     how: ResumeRequest,
     states: &[Registers],
 ) -> FastForwardStatus {
@@ -346,7 +346,7 @@ struct InstructionBuf {
     code_buf_len: usize,
 }
 
-fn read_instruction<T: Task>(t: &mut T, ip: RemoteCodePtr) -> Result<InstructionBuf, ()> {
+fn read_instruction<T: Task>(t: &T, ip: RemoteCodePtr) -> Result<InstructionBuf, ()> {
     let mut result = InstructionBuf::default();
     result.arch = t.arch();
     result.code_buf_len = t.read_bytes_fallible(ip.to_data_ptr::<u8>(), &mut result.code_buf)?;
@@ -541,7 +541,7 @@ fn is_string_instruction(byte: u8) -> bool {
   }
 }
 
-fn fallible_read_byte<T: Task>(t: &mut T, ip: RemotePtr<u8>) -> Result<u8, ()> {
+fn fallible_read_byte<T: Task>(t: &T, ip: RemotePtr<u8>) -> Result<u8, ()> {
     let mut byte = [0u8; 1];
     match t.read_bytes_fallible(ip, &mut byte) {
         Ok(1) => Ok(byte[0]),
@@ -549,7 +549,7 @@ fn fallible_read_byte<T: Task>(t: &mut T, ip: RemotePtr<u8>) -> Result<u8, ()> {
     }
 }
 
-fn is_string_instruction_at<T: Task>(t: &mut T, ip: RemoteCodePtr) -> bool {
+fn is_string_instruction_at<T: Task>(t: &T, ip: RemoteCodePtr) -> bool {
     let mut found_rep = false;
     let mut bare_ip = ip.to_data_ptr::<u8>();
     loop {
@@ -573,7 +573,7 @@ fn is_string_instruction_at<T: Task>(t: &mut T, ip: RemoteCodePtr) -> bool {
     }
 }
 
-fn is_string_instruction_before<T: Task>(t: &mut T, ip: RemoteCodePtr) -> bool {
+fn is_string_instruction_before<T: Task>(t: &T, ip: RemoteCodePtr) -> bool {
     let mut bare_ip = ip.to_data_ptr::<u8>();
     bare_ip = bare_ip - 1usize;
     match fallible_read_byte(t, bare_ip) {

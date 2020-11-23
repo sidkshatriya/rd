@@ -3564,7 +3564,7 @@ fn monitor_fd_for_mapping(
     let mut found_our_mapping = false;
     let mut our_mapping_writable = false;
     let mapped_table = Rc::downgrade(&mapped_t.fd_table_shr_ptr());
-    let mapped_t_weak = mapped_t.weak_self_ptr();
+
     for (_, t) in mapped_t.session().tasks().iter() {
         if t.unstable.get() {
             // This task isn't a problem because it's exiting and won't write to its
@@ -3606,7 +3606,7 @@ fn monitor_fd_for_mapping(
                 // Not our file
                 continue;
             }
-            let writable = is_writable(t, fd);
+            let writable = is_writable(&***t, fd);
             if table.ptr_eq(&mapped_table) && fd == mapped_fd {
                 // This is what we're using to do the mmap. Don't put it in extra_fds.
                 found_our_mapping = true;

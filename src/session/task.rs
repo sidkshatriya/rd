@@ -156,7 +156,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
 
     fn as_task_inner(&self) -> &TaskInner;
 
-    fn as_task_inner_mut(&mut self) -> &mut TaskInner;
+    fn as_task_inner_mut(&mut self) -> &TaskInner;
 
     fn as_record_task(&self) -> Option<&RecordTask> {
         None

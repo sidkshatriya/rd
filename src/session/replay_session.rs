@@ -615,7 +615,7 @@ impl ReplaySession {
                 self.advance_to_next_trace_frame();
             }
             if self.current_step.get().action == ReplayTraceStepType::TstepNone {
-                result.break_status.task = Some(rc_t.borrow().weak_self.clone());
+                result.break_status.task = Some(rc_t.weak_self.clone());
                 result.break_status.task_exit = true;
             }
             return result;
@@ -624,9 +624,8 @@ impl ReplaySession {
             let rc_t = maybe_rc_t.as_ref().unwrap().clone();
             self.fast_forward_status.set(FastForwardStatus::new());
             // Now we know `t` hasn't died, so save it in break_status.
-            result.break_status.task = Some(rc_t.borrow().weak_self.clone());
-            let mut dt = rc_t.borrow_mut();
-            let t = dt.as_replay_task_mut().unwrap();
+            result.break_status.task = Some(rc_t.weak_self.clone());
+            let t = rc_t.as_replay_task().unwrap();
             // Advance towards fulfilling `current_step`.
             if self.try_one_trace_step(t, &constraints) == Completion::Incomplete {
                 if EventType::EvTraceTermination == self.current_trace_frame().event().event_type()
@@ -718,8 +717,7 @@ impl ReplaySession {
         match maybe_rc_t {
             None => (),
             Some(rc_t) => {
-                let mut dt = rc_t.borrow_mut();
-                let t = dt.as_replay_task_mut().unwrap();
+                let t = rc_t.as_replay_task().unwrap();
 
                 let frame = self.current_trace_frame();
                 let ev = frame.event();
@@ -748,8 +746,7 @@ impl ReplaySession {
         match maybe_next_task {
             None => (),
             Some(next_task_shr_ptr) => {
-                let next_task_t = next_task_shr_ptr.borrow_mut();
-                let next_task = next_task_t.as_replay_task().unwrap();
+                let next_task = next_task_shr_ptr.as_replay_task().unwrap();
                 if next_task.vm().first_run_event() == 0 && self.done_initial_exec() {
                     next_task
                         .vm()
@@ -777,8 +774,8 @@ impl ReplaySession {
             None => self.revive_task_for_exec(ev, trace_frame_tid),
             Some(ts) => ts,
         };
-        let mut dyn_t = t_shr_ptr.borrow_mut();
-        let t = dyn_t.as_replay_task_mut().unwrap();
+
+        let t = t_shr_ptr.as_replay_task().unwrap();
 
         log!(
             LogDebug,
@@ -920,7 +917,6 @@ impl ReplaySession {
         }
 
         self.current_step.set(current_step);
-        drop(dyn_t);
         t_shr_ptr
     }
 
@@ -996,7 +992,7 @@ impl ReplaySession {
         }
 
         let t_rc = tg.borrow().task_set().iter().next().unwrap();
-        let t_rec_tid = t_rc.borrow().rec_tid;
+        let t_rec_tid = t_rc.rec_tid;
         log!(
             LogDebug,
             "Changing task tid from {} to {}",
@@ -1005,7 +1001,7 @@ impl ReplaySession {
         );
         let t_rc_removed = self.task_map.borrow_mut().remove(&t_rec_tid).unwrap();
         debug_assert!(Rc::ptr_eq(&t_rc_removed, &t_rc));
-        t_rc.borrow_mut().rec_tid = trace_frame_tid;
+        t_rc.rec_tid = trace_frame_tid;
         self.task_map.borrow_mut().insert(trace_frame_tid, t_rc);
         // The real tid is not changing yet. It will, in process_execve.
         t_rc_removed

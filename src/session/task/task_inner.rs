@@ -544,6 +544,10 @@ impl DebugControl {
 }
 
 impl TaskInner {
+    pub fn tid(&self) -> pid_t {
+        self.tid
+    }
+
     pub fn weak_self_ptr(&self) -> TaskSharedWeakPtr {
         self.weak_self.clone()
     }
@@ -1274,7 +1278,7 @@ impl TaskInner {
         rd_arch_function_selfless!(setup_preload_thread_locals_arch, self.arch(), self);
     }
 
-    pub fn setup_preload_thread_locals_from_clone(&mut self, origin: &mut TaskInner) {
+    pub fn setup_preload_thread_locals_from_clone(&mut self, origin: &TaskInner) {
         rd_arch_function_selfless!(
             setup_preload_thread_locals_from_clone_arch,
             self.arch(),
@@ -1308,7 +1312,7 @@ impl TaskInner {
     }
 
     // DIFF NOTE: Takes an additional param maybe_active_task
-    pub fn activate_preload_thread_locals(&mut self, maybe_active_task: Option<&mut TaskInner>) {
+    pub fn activate_preload_thread_locals(&mut self, maybe_active_task: Option<&TaskInner>) {
         // Switch thread-locals to the new task.
         if self.tuid() != self.vm().thread_locals_tuid() {
             let maybe_local_addr = preload_thread_locals_local_addr(&self.vm());
@@ -1326,7 +1330,7 @@ impl TaskInner {
                                 .find_task_from_task_uid(self.vm().thread_locals_tuid());
 
                             maybe_t.map(|t| {
-                                t.borrow_mut().fetch_preload_thread_locals();
+                                t.fetch_preload_thread_locals();
                             });
                         }
                     };
@@ -1768,20 +1772,19 @@ impl TaskInner {
         }
         let next_t_serial = session.next_task_serial();
         let t = session.new_task(tid, rec_tid, next_t_serial, RD_NATIVE_ARCH);
-        let wrapped_t = Rc::new(RefCell::new(t));
+        let wrapped_t = Rc::new(t);
         // Set the weak self pointer of the task
-        wrapped_t.borrow_mut().weak_self = Rc::downgrade(&wrapped_t);
+        wrapped_t.weak_self = Rc::downgrade(&wrapped_t);
 
         let tg = session.create_initial_tg(wrapped_t.clone());
-        wrapped_t.borrow_mut().tg = Some(tg);
-        let addr_space = session.create_vm(wrapped_t.borrow_mut().as_mut(), None, None);
-        wrapped_t.borrow_mut().as_ = Some(addr_space);
-        let weak_t_ptr = wrapped_t.borrow().weak_self.clone();
-        wrapped_t.borrow_mut().fds = Some(FdTable::create(weak_t_ptr));
+        wrapped_t.tg = Some(tg);
+        let addr_space = session.create_vm(&**wrapped_t, None, None);
+        wrapped_t.as_ = Some(addr_space);
+        let weak_t_ptr = wrapped_t.weak_self.clone();
+        wrapped_t.fds = Some(FdTable::create(weak_t_ptr));
         {
-            let mut ref_task = wrapped_t.borrow_mut();
-            let fds: FdTableSharedPtr = ref_task.fds.as_ref().unwrap().clone();
-            setup_fd_table(ref_task.as_mut(), &fds, fd_number);
+            let fds: FdTableSharedPtr = wrapped_t.fds.as_ref().unwrap().clone();
+            setup_fd_table(&**wrapped_t, &fds, fd_number);
         }
 
         // Install signal handler here, so that when creating the first RecordTask
@@ -1794,9 +1797,8 @@ impl TaskInner {
         unsafe { sigaction(Signal::SIGALRM, &sa) }.unwrap();
 
         {
-            let mut t = wrapped_t.borrow_mut();
-            t.wait(None);
-            if t.maybe_ptrace_event() == PTRACE_EVENT_EXIT {
+            wrapped_t.wait(None);
+            if wrapped_t.maybe_ptrace_event() == PTRACE_EVENT_EXIT {
                 fatal!(
                     "Tracee died before reaching SIGSTOP\nChild's message: {:?}",
                     session.read_spawned_task_error()
@@ -1804,18 +1806,18 @@ impl TaskInner {
             }
             // SIGSTOP can be reported as a signal-stop or group-stop depending on
             // whether PTRACE_SEIZE happened before or after it was delivered.
-            if t.status().maybe_stop_sig() != SIGSTOP
-                && t.status().maybe_group_stop_sig() != SIGSTOP
+            if wrapped_t.status().maybe_stop_sig() != SIGSTOP
+                && wrapped_t.status().maybe_group_stop_sig() != SIGSTOP
             {
                 fatal!(
                     "Unexpected stop {}\n Child's message: {:?}",
-                    t.status(),
+                    wrapped_t.status(),
                     session.read_spawned_task_error()
                 );
             }
 
-            t.clear_wait_status();
-            t.open_mem_fd();
+            wrapped_t.clear_wait_status();
+            wrapped_t.open_mem_fd();
         }
 
         wrapped_t
@@ -2081,8 +2083,8 @@ fn setup_preload_thread_locals_arch<Arch: Architecture>(t: &TaskInner) {
 }
 
 fn setup_preload_thread_locals_from_clone_arch<Arch: Architecture>(
-    t: &mut TaskInner,
-    origin: &mut TaskInner,
+    t: &TaskInner,
+    origin: &TaskInner,
 ) {
     let maybe_local_addr = preload_thread_locals_local_addr(t.vm());
 

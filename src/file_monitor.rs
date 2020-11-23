@@ -62,7 +62,7 @@ impl Range {
 /// file descriptor), so we only do it if we actually need to look at the
 /// offset.
 pub struct LazyOffset<'b, 'a: 'b> {
-    t: &'a mut dyn Task,
+    t: &'a dyn Task,
     regs: &'b Registers,
     /// DIFF NOTE: @TODO in rr this is an i64
     /// Keeping it as an i32 to be consistent with elsewhere.
@@ -78,7 +78,7 @@ impl<'b, 'a: 'b> LazyOffset<'b, 'a> {
         self.t
     }
 
-    pub fn new(t: &'a mut dyn Task, regs: &'b Registers, syscallno: i32) -> LazyOffset<'b, 'a> {
+    pub fn new(t: &'a dyn Task, regs: &'b Registers, syscallno: i32) -> LazyOffset<'b, 'a> {
         LazyOffset { t, regs, syscallno }
     }
 

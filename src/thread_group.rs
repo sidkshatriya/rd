@@ -1,10 +1,6 @@
 use crate::{
     log::LogLevel::LogDebug,
-    session::{
-        task::{Task, WeakTaskPtrSet},
-        SessionSharedPtr,
-        SessionSharedWeakPtr,
-    },
+    session::{task::WeakTaskPtrSet, SessionSharedPtr, SessionSharedWeakPtr},
     taskish_uid::ThreadGroupUid,
     wait_status::WaitStatus,
     weak_ptr_set::WeakPtrSet,
@@ -209,12 +205,11 @@ impl ThreadGroup {
     ///
     /// Currently, instability is a one-way street; it's only used
     /// needed for death signals and exit_group().
-    pub fn destabilize(&self, active_task: &dyn Task) {
+    pub fn destabilize(&self) {
         log!(LogDebug, "destabilizing thread group {}", self.tgid);
-        active_task.unstable.set(true);
-        for t in self.task_set().iter_except(active_task.weak_self_ptr()) {
-            t.borrow().unstable.set(true);
-            log!(LogDebug, "  destabilized task {}", t.borrow().tid);
+        for t in self.task_set().iter() {
+            t.unstable.set(true);
+            log!(LogDebug, "  destabilized task {}", t.tid());
         }
     }
 

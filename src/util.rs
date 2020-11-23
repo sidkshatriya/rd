@@ -103,7 +103,6 @@ use std::{
     },
     path::Path,
     ptr::copy_nonoverlapping,
-    rc::Rc,
     slice,
     sync::Mutex,
 };
@@ -1219,7 +1218,7 @@ pub fn trapped_instruction_len(insn: TrappedInstruction) -> usize {
 }
 
 /// XXX this probably needs to be extended to decode ignored prefixes
-pub fn trapped_instruction_at<T: Task>(t: &mut T, ip: RemoteCodePtr) -> TrappedInstruction {
+pub fn trapped_instruction_at<T: Task>(t: &T, ip: RemoteCodePtr) -> TrappedInstruction {
     let mut insn: [u8; RDTSCP_INSN.len()] = Default::default();
     let ret = t.read_bytes_fallible(ip.to_data_ptr::<u8>(), &mut insn);
     if ret.is_err() {
@@ -2078,14 +2077,7 @@ fn notify_checksum_error(
 
 /// DIFF NOTE: Takes `t` instead of the address space as param
 fn is_task_buffer(t: &dyn Task, m: &Mapping) -> bool {
-    if RemotePtr::cast(t.syscallbuf_child) == m.map.start() && t.syscallbuf_size == m.map.size() {
-        return true;
-    }
-    if t.scratch_ptr == m.map.start() && t.scratch_size == m.map.size() {
-        return true;
-    }
-    for t_rc in t.vm().task_set().iter_except(t.weak_self_ptr()) {
-        let tt = t_rc.borrow();
+    for tt in t.vm().task_set().iter() {
         if RemotePtr::cast(tt.syscallbuf_child) == m.map.start()
             && tt.syscallbuf_size == m.map.size()
         {
@@ -2103,16 +2095,8 @@ fn is_task_buffer(t: &dyn Task, m: &Mapping) -> bool {
 /// Should instead only look at the address space of the task in
 /// question.
 fn is_start_of_scratch_region(t: &dyn Task, start_addr: RemotePtr<Void>) -> bool {
-    if start_addr == t.scratch_ptr {
-        return true;
-    }
-
-    let t_rc = t.weak_self_ptr().upgrade().unwrap();
     for (_, tt_rc) in t.session().tasks().iter() {
-        if Rc::ptr_eq(tt_rc, &t_rc) {
-            continue;
-        }
-        if start_addr == tt_rc.borrow().scratch_ptr {
+        if start_addr == tt_rc.scratch_ptr {
             return true;
         }
     }

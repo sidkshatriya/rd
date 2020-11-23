@@ -244,14 +244,9 @@ impl ReplayTask {
             } else {
                 let t = self.session().find_task_from_rec_tid(buf.rec_tid).unwrap();
 
-                t.borrow_mut()
-                    .write_bytes_helper(buf.addr, &buf.data, None, WriteFlags::empty());
-                let vm_shr_ptr = t.borrow().vm_shr_ptr();
-                vm_shr_ptr.maybe_update_breakpoints(
-                    t.borrow_mut().as_mut(),
-                    buf.addr,
-                    buf.data.len(),
-                );
+                t.write_bytes_helper(buf.addr, &buf.data, None, WriteFlags::empty());
+                let vm_shr_ptr = t.vm_shr_ptr();
+                vm_shr_ptr.maybe_update_breakpoints(&**t, buf.addr, buf.data.len());
             }
         }
 
@@ -290,18 +285,9 @@ impl ReplayTask {
                             );
                         } else {
                             let t = self.session().find_task_from_rec_tid(buf.rec_tid).unwrap();
-                            t.borrow_mut().write_bytes_helper(
-                                buf.addr,
-                                &buf.data,
-                                None,
-                                WriteFlags::empty(),
-                            );
-                            let vm_shr = t.borrow().vm_shr_ptr();
-                            vm_shr.maybe_update_breakpoints(
-                                t.borrow_mut().as_mut(),
-                                buf.addr,
-                                buf.data.len(),
-                            );
+                            t.write_bytes_helper(buf.addr, &buf.data, None, WriteFlags::empty());
+                            let vm_shr = t.vm_shr_ptr();
+                            vm_shr.maybe_update_breakpoints(&**t, buf.addr, buf.data.len());
                         };
                     }
                 }
@@ -500,7 +486,7 @@ impl Task for ReplayTask {
         &self.task_inner
     }
 
-    fn as_task_inner_mut(&mut self) -> &mut TaskInner {
+    fn as_task_inner_mut(&mut self) -> &TaskInner {
         &mut self.task_inner
     }
 

@@ -589,7 +589,7 @@ impl Task for RecordTask {
             new_serial,
             maybe_other_session,
         );
-        if t.borrow().session().is_recording() {
+        if t.session().is_recording() {
             if flags.contains(CloneFlags::CLONE_CLEARTID) {
                 log!(
                     LogDebug,
@@ -597,7 +597,7 @@ impl Task for RecordTask {
                     cleartid_addr.as_usize()
                 );
                 ed_assert!(self, !cleartid_addr.is_null());
-                t.borrow_mut().as_rec_unwrap().tid_futex = cleartid_addr;
+                t.as_rec_unwrap().tid_futex = cleartid_addr;
             } else {
                 log!(LogDebug, "(clone child not enabling CLEARTID)");
             }
@@ -785,7 +785,7 @@ impl Task for RecordTask {
         &self.task_inner
     }
 
-    fn as_task_inner_mut(&mut self) -> &mut TaskInner {
+    fn as_task_inner_mut(&mut self) -> &TaskInner {
         &mut self.task_inner
     }
 
@@ -1252,7 +1252,7 @@ impl RecordTask {
         match &self.emulated_ptracer {
             Some(emulated_ptracer) => ed_assert!(
                 self,
-                !(emulated_ptracer.upgrade().unwrap().borrow().arch() == SupportedArch::X86
+                !(emulated_ptracer.upgrade().unwrap().arch() == SupportedArch::X86
                     && self.arch() == SupportedArch::X64),
                 "We don't support a 32-bit process tracing a 64-bit process"
             ),
@@ -1419,8 +1419,7 @@ impl RecordTask {
         }
 
         for tracee_rc in &self.emulated_ptrace_tracees {
-            let mut traceeb = tracee_rc.borrow_mut();
-            let tracee = traceeb.as_rec_unwrap();
+            let tracee = tracee_rc.as_rec_unwrap();
             if tracee.emulated_ptrace_sigchld_pending {
                 tracee.emulated_ptrace_sigchld_pending = false;
                 let sia: &mut siginfo_t_arch<NativeArch> = unsafe { mem::transmute(si) };
@@ -1432,8 +1431,7 @@ impl RecordTask {
 
         for child_tg in self.thread_group().children() {
             for child in child_tg.borrow().task_set() {
-                let mut rchildb = child.borrow_mut();
-                let rchild = rchildb.as_rec_unwrap();
+                let rchild = child.as_rec_unwrap();
                 if rchild.emulated_sigchld_pending {
                     rchild.emulated_sigchld_pending = false;
                     let sia: &mut siginfo_t_arch<NativeArch> = unsafe { mem::transmute(si) };
@@ -1511,7 +1509,7 @@ impl RecordTask {
                 // This is there in rd to prevent already borrowed possibility
                 if ptracer.ptr_eq(&self.weak_self)
                     || Rc::ptr_eq(
-                        &ptracer.upgrade().unwrap().borrow().thread_group_shr_ptr(),
+                        &ptracer.upgrade().unwrap().thread_group_shr_ptr(),
                         &self.thread_group_shr_ptr(),
                     ) =>
             {
@@ -1589,7 +1587,6 @@ impl RecordTask {
                         .find_task_from_rec_tid(get_ppid(self.tid).unwrap())
                     {
                         Some(t) => t
-                            .borrow_mut()
                             .as_rec_unwrap()
                             .send_synthetic_sigchld_if_necessary(Some(self), maybe_active_sibling),
                         None => (),
@@ -1598,7 +1595,7 @@ impl RecordTask {
                 Some(tracer) => {
                     self.emulate_ptrace_stop(
                         status,
-                        tracer.borrow().as_rec_unwrap(),
+                        tracer.as_rec_unwrap(),
                         None,
                         None,
                         maybe_active_sibling,
@@ -1640,10 +1637,7 @@ impl RecordTask {
                     .task_set()
                     .iter_except(self.weak_self_ptr())
                 {
-                    t.borrow_mut()
-                        .as_record_task_mut()
-                        .unwrap()
-                        .apply_group_stop(sig, None);
+                    t.as_record_task().unwrap().apply_group_stop(sig, None);
                 }
             } else if sig == sig::SIGCONT {
                 self.emulate_sigcont();
@@ -1697,8 +1691,7 @@ impl RecordTask {
             .task_set()
             .iter_except(self.weak_self_ptr())
         {
-            let mut tb = t.borrow_mut();
-            let rt = tb.as_rec_unwrap();
+            let rt = t.as_rec_unwrap();
             log!(LogDebug, "setting {} to NOT_STOPPED due to SIGCONT", rt.tid);
             rt.emulated_stop_pending = false;
             rt.emulated_stop_type = EmulatedStopType::NotStopped;
@@ -2924,8 +2917,7 @@ impl RecordTask {
             .task_set()
             .iter_except(self.weak_self_ptr())
         {
-            let mut rtb = t.borrow_mut();
-            let rt = rtb.as_rec_unwrap();
+            let rt = t.as_rec_unwrap();
             if rt.is_waiting_for(rchild) {
                 return Some((rt.tgid(), rt.tid, rt.is_sig_blocked(sig::SIGCHLD)));
             }
@@ -2950,15 +2942,11 @@ impl RecordTask {
         let mut wake_task = None;
         for tracee_rc in &self.emulated_ptrace_tracees {
             let tracee_rc_weak = Rc::downgrade(&tracee_rc);
-            let traceeb;
             let tracee = match maybe_active_child {
                 Some(task) if task.weak_self.ptr_eq(&tracee_rc_weak) => task,
                 _ => match maybe_active_sibling {
                     Some(task) if task.weak_self.ptr_eq(&tracee_rc_weak) => task,
-                    _ => {
-                        traceeb = tracee_rc.borrow();
-                        traceeb.as_rec_unwrap()
-                    }
+                    _ => tracee_rc.as_rec_unwrap(),
                 },
             };
             if tracee.emulated_ptrace_sigchld_pending {
@@ -2975,8 +2963,7 @@ impl RecordTask {
                     .task_set()
                     .iter_except(self.weak_self_ptr())
                 {
-                    let rtb = t.borrow();
-                    let rt = rtb.as_rec_unwrap();
+                    let rt = t.as_rec_unwrap();
                     if rt.is_waiting_for_ptrace(tracee) {
                         wake_task = Some((rt.tgid(), rt.tid, rt.is_sig_blocked(sig::SIGCHLD)));
                         break;
@@ -2991,15 +2978,12 @@ impl RecordTask {
             for child_tg in self.thread_group_shr_ptr().borrow().children() {
                 for child_rc in child_tg.borrow().task_set().iter() {
                     let child_rc_weak = Rc::downgrade(&child_rc);
-                    let rchildb;
+
                     let rchild = match maybe_active_child {
                         Some(task) if task.weak_self.ptr_eq(&child_rc_weak) => task,
                         _ => match maybe_active_sibling {
                             Some(task) if task.weak_self.ptr_eq(&child_rc_weak) => task,
-                            _ => {
-                                rchildb = child_rc.borrow();
-                                rchildb.as_rec_unwrap()
-                            }
+                            _ => child_rc.as_rec_unwrap(),
                         },
                     };
                     if rchild.emulated_sigchld_pending {
@@ -3190,8 +3174,7 @@ impl Drop for RecordTask {
                 weak_emulated_ptracer
                     .upgrade()
                     .unwrap()
-                    .borrow_mut()
-                    .as_record_task_mut()
+                    .as_record_task()
                     .unwrap()
                     .emulated_ptrace_tracees
                     .erase(self.weak_self_ptr());
@@ -3207,8 +3190,7 @@ impl Drop for RecordTask {
         }
 
         for tt in self.emulated_ptrace_tracees.iter() {
-            let mut bt = tt.borrow_mut();
-            let t = bt.as_record_task_mut().unwrap();
+            let t = tt.as_record_task().unwrap();
             // XXX emulate PTRACE_O_EXITKILL
             ed_assert!(
                 self,

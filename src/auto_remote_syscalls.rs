@@ -429,12 +429,12 @@ impl<'a> AutoRemoteSyscalls<'a> {
     /// signals.  This code does not attempt to deal with signals.
     ///
     /// Note: In case you're wondering why this takes &dyn Task
-    /// instead of &mut TaskInner, that is because of the call to
+    /// instead of &TaskInner, that is because of the call to
     /// resume_execution() (in AutoRemoteSyscalls::syscall_base()) calls will_resume_execution()
     /// which is a "virtual" method -- effectively in our rust implementation
     /// that means that will_resume_execution() must live in a Task trait impl
     /// And since struct TaskInner does NOT (deliberately) impl the Task trait
-    /// AutoRemoteSyscalls needs to take a &dyn Task instead of &mut TaskInner.
+    /// AutoRemoteSyscalls needs to take a &dyn Task instead of &TaskInner.
     pub fn new_with_mem_params(
         t: &dyn Task,
         enable_mem_params: MemParamsEnabled,
