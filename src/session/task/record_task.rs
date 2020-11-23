@@ -2283,7 +2283,7 @@ impl RecordTask {
         self.record_local(RemotePtr::<Void>::cast(addr), data);
     }
 
-    pub fn record_remote(&mut self, addr: RemotePtr<Void>, num_bytes: usize) {
+    pub fn record_remote(&self, addr: RemotePtr<Void>, num_bytes: usize) {
         self.maybe_flush_syscallbuf();
 
         if addr.is_null() {

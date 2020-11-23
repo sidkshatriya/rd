@@ -144,29 +144,12 @@ impl FileMonitor for MmappedFileMonitor {
                             // wrong.
                             // Make sure we use a task for this address space. `t` might have
                             // a different address space.
-                            let mut done = false;
-                            if v.uid() == offset.t.vm().uid() {
-                                let result = offset
-                                    .t
-                                    .as_record_task_mut()
-                                    .unwrap()
-                                    .record_remote_range_fallible(km.intersect(&mr));
-                                if let Ok(nread) = result {
-                                    if nread > 0 {
-                                        done = true;
-                                    }
-                                }
-                            }
-
-                            if !done {
-                                for t_rc in v.task_set().iter_except(offset.t.weak_self_ptr()) {
+                                for rt_ref in v.task_set().iter() {
                                     // If the task here has execed, we may not be able to record its
                                     // memory any longer, so loop through all tasks in this address
                                     // space in turn in case any *didn't* exec.
-                                    let mut rt_ref = t_rc.borrow_mut();
                                     let result = rt_ref
-                                        .as_record_task_mut()
-                                        .unwrap()
+                                        .as_rec_unwrap()
                                         .record_remote_range_fallible(km.intersect(&mr));
                                     if let Ok(nread) = result {
                                         if nread > 0 {
@@ -174,7 +157,6 @@ impl FileMonitor for MmappedFileMonitor {
                                         }
                                     }
                                 }
-                            }
                         }
                     }
                     local_offset = local_offset + r.length as u64;

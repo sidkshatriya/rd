@@ -204,7 +204,7 @@ pub fn handle_signal(
         Some(tracer) => {
             t.emulate_ptrace_stop(
                 WaitStatus::for_stop_sig(sig),
-                tracer.borrow().as_rec_unwrap(),
+                tracer.as_rec_unwrap(),
                 Some(&si),
                 None,
                 None,

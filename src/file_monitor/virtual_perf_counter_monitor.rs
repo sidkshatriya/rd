@@ -157,7 +157,7 @@ impl FileMonitor for VirtualPerfCounterMonitor {
                     self.initial_ticks = t.tick_count();
                 } else {
                     let target = t.session().find_task_from_rec_tid(target_tid).unwrap();
-                    self.initial_ticks = target.borrow().tick_count();
+                    self.initial_ticks = target.tick_count();
                 }
             }
             PERF_EVENT_IOC_PERIOD => {
@@ -243,7 +243,7 @@ impl FileMonitor for VirtualPerfCounterMonitor {
                 let val = if lazy_offset.t.tid == self.target_tuid().tid() {
                     lazy_offset.t.tick_count() - self.initial_ticks
                 } else {
-                    target.borrow().tick_count() - self.initial_ticks
+                    target.tick_count() - self.initial_ticks
                 };
                 *result = write_ranges(lazy_offset.t, ranges, &val.to_le_bytes());
             }

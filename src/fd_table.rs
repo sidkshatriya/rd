@@ -217,17 +217,8 @@ impl FdTable {
         // It's possible that some tasks in this address space have a different
         // FdTable. We need to disable syscallbuf for an fd if any tasks for this
         // address space are monitoring the fd.
-        for &fd in rt.fd_table().fds.borrow().keys() {
-            debug_assert!(fd >= 0);
-            let mut adjusted_fd = fd;
-            if fd >= SYSCALLBUF_FDS_DISABLED_SIZE {
-                adjusted_fd = SYSCALLBUF_FDS_DISABLED_SIZE - 1;
-            }
-            disabled[adjusted_fd as usize] = 1;
-        }
-
-        for vm_t in rt.vm().task_set().iter_except(rt.weak_self_ptr()) {
-            for &fd in vm_t.borrow().fd_table().fds.borrow().keys() {
+        for vm_t in rt.vm().task_set().iter() {
+            for &fd in vm_t.fd_table().fds.borrow().keys() {
                 debug_assert!(fd >= 0);
                 let mut adjusted_fd = fd;
                 if fd >= SYSCALLBUF_FDS_DISABLED_SIZE {
@@ -288,7 +279,7 @@ impl FdTable {
 
         let mut vms_updated: HashSet<AddressSpaceUid> = HashSet::new();
 
-        let mut process = |rt: &mut RecordTask| -> () {
+        let mut process = |rt: &RecordTask| -> () {
             let vm_uid = rt.vm().uid();
             if vms_updated.contains(&vm_uid) {
                 return;
@@ -318,17 +309,11 @@ impl FdTable {
 
         // It's possible for tasks with different VMs to share this fd table.
         // But tasks with the same VM might have different fd tables...
-        if active_task.session().is_recording() {
-            process(active_task.as_record_task_mut().unwrap());
-        } else {
-            return;
-        }
-        for t in self.task_set().iter_except(active_task.weak_self_ptr()) {
-            ed_assert!(active_task, t.borrow().session().is_recording());
-
-            let mut t_ref_task = t.borrow_mut();
-            let rt: &mut RecordTask = t_ref_task.as_record_task_mut().unwrap();
-            process(rt);
+        for t in self.task_set().iter() {
+            if !t.session().is_recording() {
+                return;
+            }
+            process(t.as_rec_unwrap());
         }
     }
 }
@@ -340,13 +325,7 @@ fn is_fd_open(t: &dyn Task, fd: i32) -> bool {
 
 /// DIFF NOTE: Extra param `vm_task` to solve already borrowed possibility
 fn is_fd_monitored_in_any_task(vm: &AddressSpace, fd: i32, vm_task: &dyn Task) -> bool {
-    if vm_task.fd_table().is_monitoring(fd)
-        || (fd >= SYSCALLBUF_FDS_DISABLED_SIZE - 1 && vm_task.fd_table().count_beyond_limit() > 0)
-    {
-        return true;
-    }
-    for rc in vm.task_set().iter_except(vm_task.weak_self_ptr()) {
-        let t = rc.borrow();
+    for t in vm.task_set().iter() {
         if t.fd_table().is_monitoring(fd)
             || (fd >= SYSCALLBUF_FDS_DISABLED_SIZE - 1 && t.fd_table().count_beyond_limit() > 0)
         {

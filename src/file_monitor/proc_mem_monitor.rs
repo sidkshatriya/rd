@@ -37,13 +37,10 @@ impl ProcMemMonitor {
                     let tid_str = String::from_utf8_lossy(tid_os_str.as_bytes());
                     let maybe_tid = tid_str.parse::<pid_t>();
                     let tid = maybe_tid.unwrap();
-                    let maybe_found = if t.rec_tid == tid {
-                        Some(t.tuid())
-                    } else {
+                    let maybe_found =
                         t.session()
                             .find_task_from_rec_tid(tid)
-                            .map_or(None, |ft| Some(ft.borrow().tuid()))
-                    };
+                            .map_or(None, |ft| Some(ft.tuid()));
 
                     return ProcMemMonitor {
                         maybe_tuid: maybe_found,
@@ -78,22 +75,18 @@ impl FileMonitor for ProcMemMonitor {
 
         let mut offset = lazy_offset.retrieve(false).unwrap();
         let target_rc;
-        let mut targetb;
-        let task = if lazy_offset.t.tuid() == tuid {
-            &mut *lazy_offset.t
-        } else {
+        let task : &dyn Task = {
             let maybe_target = lazy_offset.t.session().find_task_from_task_uid(tuid);
             match maybe_target {
                 None => return,
                 Some(target) => {
                     target_rc = target;
-                    targetb = target_rc.borrow_mut();
-                    targetb.as_mut()
+                    &**target_rc
                 }
             }
         };
 
-        let record_task = task.as_record_task_mut().unwrap();
+        let record_task = task.as_rec_unwrap();
         for r in ranges {
             record_task.record_remote(RemotePtr::new(offset.try_into().unwrap()), r.length);
             offset += r.length as u64;

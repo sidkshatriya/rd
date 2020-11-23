@@ -72,7 +72,7 @@ impl RdCommand for TraceInfoCommand {
         loop {
             let result = replay_session.replay_step(RunCommand::RunContinue);
             if replay_session.done_initial_exec() {
-                environ = read_env(replay_session.current_task().unwrap().borrow_mut().as_mut());
+                environ = read_env(&**replay_session.current_task().unwrap());
                 break;
             }
 

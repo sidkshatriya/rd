@@ -34,7 +34,7 @@ use crate::{
 use libc::{pid_t, waitpid, EINTR, ENOSYS, SIGSTOP, SIGTRAP, WNOHANG, __WALL};
 use nix::errno::errno;
 use std::{
-    cell::RefCell,
+
     ffi::{CString, OsStr, OsString},
     fmt::{self, Debug, Formatter},
     io::{stderr, Write},
@@ -53,9 +53,9 @@ pub mod replay_task;
 pub mod task_common;
 pub mod task_inner;
 
-pub type TaskSharedPtr = Rc<RefCell<Box<dyn Task>>>;
-pub type TaskSharedWeakPtr = Weak<RefCell<Box<dyn Task>>>;
-pub type WeakTaskPtrSet = WeakPtrSet<RefCell<Box<dyn Task>>>;
+pub type TaskSharedPtr = Rc<Box<dyn Task>>;
+pub type TaskSharedWeakPtr = Weak<Box<dyn Task>>;
+pub type WeakTaskPtrSet = WeakPtrSet<Box<dyn Task>>;
 
 impl Debug for &dyn Task {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {

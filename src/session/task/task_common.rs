@@ -627,7 +627,7 @@ pub(super) fn stored_record_size<T: Task>(
 ///
 /// Write single `val` to `child_addr`.
 pub fn write_val_mem<D: 'static>(
-    task: &mut dyn Task,
+    task: &dyn Task,
     child_addr: RemotePtr<D>,
     val: &D,
     ok: Option<&mut bool>,

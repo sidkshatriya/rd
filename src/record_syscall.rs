@@ -1374,15 +1374,13 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         if regs.arg1() as u32 == PRIO_PROCESS {
             let tid = regs.arg2_signed() as pid_t;
             let found_rc: TaskSharedPtr;
-            let mut found_b;
             let maybe_target = if tid == t.rec_tid || tid == 0 {
                 Some(t)
             } else {
                 match t.session().find_task_from_rec_tid(tid) {
                     Some(found) => {
                         found_rc = found;
-                        found_b = found_rc.borrow_mut();
-                        Some(found_b.as_rec_mut_unwrap())
+                        Some(found_rc.as_rec_unwrap())
                     }
                     None => None,
                 }
@@ -2179,8 +2177,7 @@ fn maybe_emulate_wait(
     options: i32,
 ) -> bool {
     for child in &t.emulated_ptrace_tracees {
-        let rt_childb = child.borrow();
-        let rt_child = rt_childb.as_rec_unwrap();
+        let rt_child = child.as_rec_unwrap();
         if t.is_waiting_for_ptrace(rt_child) && rt_child.emulated_stop_pending {
             syscall_state.emulate_wait_for_child = Some(Rc::downgrade(&child));
             return true;
@@ -2189,8 +2186,7 @@ fn maybe_emulate_wait(
     if options & WUNTRACED != 0 {
         for child_process in t.thread_group().children() {
             for child in child_process.borrow().task_set() {
-                let rchildb = child.borrow();
-                let rchild = rchildb.as_rec_unwrap();
+                let rchild = child.as_rec_unwrap();
                 if rchild.emulated_stop_type == EmulatedStopType::GroupStop
                     && rchild.emulated_stop_pending
                     && t.is_waiting_for(rchild)

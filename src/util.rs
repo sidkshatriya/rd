@@ -1014,7 +1014,7 @@ fn read_env_arch<Arch: Architecture>(t: &mut dyn Task) -> Vec<CString> {
     result
 }
 
-pub fn read_env(t: &mut dyn Task) -> Vec<CString> {
+pub fn read_env(t: &dyn Task) -> Vec<CString> {
     rd_arch_function_selfless!(read_env_arch, t.arch(), t)
 }
 

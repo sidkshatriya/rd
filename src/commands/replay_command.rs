@@ -243,12 +243,12 @@ impl ReplayCommand {
                 cmd = RunCommand::RunSinglestep;
                 write!(out, "Stepping from: ")?;
                 let t = replay_session.current_task().unwrap();
-                t.borrow().regs_ref().write_register_file_compact(out)?;
+                t.regs_ref().write_register_file_compact(out)?;
                 write!(out, " ")?;
-                t.borrow_mut()
+                t
                     .extra_regs_ref()
                     .write_register_file_compact(out)?;
-                write!(out, " ticks:{}", t.borrow().tick_count())?;
+                write!(out, " ticks:{}", t.tick_count())?;
             }
 
             let before_time: FrameTime = replay_session.trace_reader().time();
