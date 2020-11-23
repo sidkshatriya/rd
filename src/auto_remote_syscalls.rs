@@ -1352,7 +1352,7 @@ fn ignore_signal(t: &dyn Task) -> bool {
             return true;
         }
     } else if t.session().is_recording() {
-        let rt = t.as_record_task_mut().unwrap();
+        let rt = t.as_record_task().unwrap();
         // Better to use unwrap_sig() here as we've already made sure that maybe_sig.is_sig() above.
         if maybe_sig.unwrap_sig() != rt.session().as_record().unwrap().syscallbuf_desched_sig() {
             rt.stash_sig();

@@ -177,7 +177,7 @@ use std::{
 /// first. If necessary we force the tracee to open the file
 /// itself and smuggle the fd back to us.
 /// Returns false if the process no longer exists.
-pub(super) fn open_mem_fd<T: Task>(task: &mut T) -> bool {
+pub(super) fn open_mem_fd<T: Task>(task: &T) -> bool {
     // Use ptrace to read/write during open_mem_fd
     task.vm().set_mem_fd(ScopedFd::new());
 
@@ -573,7 +573,7 @@ pub fn read_mem<D: Clone>(
 
 /// Forwarded method definition
 ///
-pub(super) fn syscallbuf_data_size<T: Task>(task: &mut T) -> usize {
+pub(super) fn syscallbuf_data_size<T: Task>(task: &T) -> usize {
     let addr: RemotePtr<u32> = RemotePtr::cast(task.syscallbuf_child);
     read_val_mem::<u32>(task, addr + offset_of!(syscallbuf_hdr, num_rec_bytes), None) as usize
         + size_of::<syscallbuf_hdr>()
@@ -588,7 +588,7 @@ pub(super) fn write_bytes_common<T: Task>(task: &T, child_addr: RemotePtr<Void>,
 
 /// Forwarded method definition
 ///
-pub(super) fn next_syscallbuf_record<T: Task>(task: &mut T) -> RemotePtr<syscallbuf_record> {
+pub(super) fn next_syscallbuf_record<T: Task>(task: &T) -> RemotePtr<syscallbuf_record> {
     // Next syscallbuf record is size_of the syscallbuf header + number of bytes in buffer
     let addr = RemotePtr::<u8>::cast(task.syscallbuf_child + 1usize);
     let num_rec_bytes_addr =
@@ -1461,7 +1461,7 @@ fn prname_from_exe_image(exe_image: &OsStr) -> &OsStr {
 ///
 /// Determine why a SIGTRAP occurred. Uses debug_status() but doesn't
 /// consume it.
-pub(super) fn compute_trap_reasons<T: Task>(t: &mut T) -> TrapReasons {
+pub(super) fn compute_trap_reasons<T: Task>(t: &T) -> TrapReasons {
     ed_assert_eq!(t, t.maybe_stop_sig(), SIGTRAP);
     let mut reasons = TrapReasons::default();
     let status = t.debug_status();
@@ -1552,14 +1552,14 @@ pub(super) fn compute_trap_reasons<T: Task>(t: &mut T) -> TrapReasons {
     reasons
 }
 
-pub(super) fn at_preload_init_common<T: Task>(t: &mut T) {
+pub(super) fn at_preload_init_common<T: Task>(t: &T) {
     t.vm_shr_ptr().at_preload_init(t);
     do_preload_init(t);
 
     t.fd_table_shr_ptr().init_syscallbuf_fds_disabled(t);
 }
 
-fn do_preload_init_arch<Arch: Architecture, T: Task>(t: &mut T) {
+fn do_preload_init_arch<Arch: Architecture, T: Task>(t: &T) {
     let addr_val = t.regs_ref().arg1();
     let params = read_val_mem(
         t,
@@ -1584,7 +1584,7 @@ fn do_preload_init_arch<Arch: Architecture, T: Task>(t: &mut T) {
     write_val_mem(t, addr, &is_replaying, None);
 }
 
-fn do_preload_init<T: Task>(t: &mut T) {
+fn do_preload_init<T: Task>(t: &T) {
     rd_arch_task_function_selfless!(T, do_preload_init_arch, t.arch(), t);
 }
 
@@ -1894,7 +1894,7 @@ pub(super) fn post_vm_clone_common<T: Task>(
 
 /// Forwarded method definition
 ///
-pub(super) fn destroy_buffers<T: Task>(t: &mut T) {
+pub(super) fn destroy_buffers<T: Task>(t: &T) {
     let saved_syscallbuf_child = t.syscallbuf_child;
     let mut remote = AutoRemoteSyscalls::new(t);
     // Clear syscallbuf_child now so nothing tries to use it while tearing
@@ -2177,7 +2177,7 @@ fn ptrace_get_regs_set<Arch: Architecture>(
 
 /// Forwarded method definition
 ///
-pub(super) fn detect_syscall_arch<T: Task>(task: &mut T) -> SupportedArch {
+pub(super) fn detect_syscall_arch<T: Task>(task: &T) -> SupportedArch {
     let mut syscall_arch = SupportedArch::X64;
     let arch = task.arch();
     let code_ptr = task.regs_ref().ip().decrement_by_syscall_insn_length(arch);
@@ -2208,7 +2208,7 @@ pub(super) fn set_syscallbuf_locked<T: Task>(t: &T, locked: bool) {
     }
 }
 
-pub(super) fn reset_syscallbuf<T: Task>(t: &mut T) {
+pub(super) fn reset_syscallbuf<T: Task>(t: &T) {
     let syscallbuf_child_addr = t.syscallbuf_child;
     if syscallbuf_child_addr.is_null() {
         return;

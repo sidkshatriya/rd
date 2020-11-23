@@ -330,7 +330,7 @@ pub fn fast_forward_through_instruction<T: Task>(
 /// before t->ip(), could be a REP-prefixed string instruction. It's OK to
 /// return true if it's not really a string instruction (though for performance
 /// reasons, this should be rare).
-pub fn maybe_at_or_after_x86_string_instruction<T: Task>(t: &mut T) -> bool {
+pub fn maybe_at_or_after_x86_string_instruction<T: Task>(t: &T) -> bool {
     if !is_x86ish(t) {
         return false;
     }

@@ -104,7 +104,7 @@ impl<'b, 'a: 'b> LazyOffset<'b, 'a> {
         let maybe_offset = retrieve_offset(self.t, self.syscallno, self.regs);
         if needed_for_replay && is_implicit_offset {
             self.t
-                .as_record_task_mut()
+                .as_record_task()
                 .unwrap()
                 .ev_mut()
                 .syscall_event_mut()

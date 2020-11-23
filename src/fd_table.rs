@@ -200,7 +200,7 @@ impl FdTable {
             return;
         }
 
-        let rt = t.as_record_task_mut().unwrap();
+        let rt = t.as_record_task().unwrap();
 
         ed_assert!(&rt, self.task_set().has(rt.weak_self_ptr()));
 

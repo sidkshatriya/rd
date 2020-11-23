@@ -382,9 +382,7 @@ impl Scheduler {
             match maybe_next.as_ref() {
                 Some(nt) => {
                     log!(LogDebug, "Trying task {} from yield queue", nt.tid);
-                    if self
-                        .is_task_runnable(nt.as_record_task_mut().unwrap(), &mut result.by_waitpid)
-                    {
+                    if self.is_task_runnable(nt.as_record_task().unwrap(), &mut result.by_waitpid) {
                         break;
                     }
                     self.maybe_pop_round_robin_task(nt.as_rec_unwrap());
@@ -592,7 +590,7 @@ impl Scheduler {
                 self.task_round_robin_queue
                     .borrow_mut()
                     .push_back(w.clone());
-                tt.as_record_task_mut().unwrap().in_round_robin_queue = true;
+                tt.as_record_task().unwrap().in_round_robin_queue = true;
             }
         }
 
@@ -608,7 +606,7 @@ impl Scheduler {
         debug_assert!(!t.as_record_task().unwrap().in_round_robin_queue);
         if self.enable_chaos.get() {
             // new tasks get a random priority
-            t.as_record_task_mut().unwrap().priority = self.choose_random_priority(&t);
+            t.as_record_task().unwrap().priority = self.choose_random_priority(&t);
         }
 
         self.task_priority_set.borrow_mut().insert(PriorityTup(
