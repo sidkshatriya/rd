@@ -428,13 +428,13 @@ impl<'a> AutoRemoteSyscalls<'a> {
     /// the caller *must* ensure the callee will not receive any
     /// signals.  This code does not attempt to deal with signals.
     ///
-    /// Note: In case you're wondering why this takes &mut dyn Task
+    /// Note: In case you're wondering why this takes &dyn Task
     /// instead of &mut TaskInner, that is because of the call to
     /// resume_execution() (in AutoRemoteSyscalls::syscall_base()) calls will_resume_execution()
     /// which is a "virtual" method -- effectively in our rust implementation
     /// that means that will_resume_execution() must live in a Task trait impl
     /// And since struct TaskInner does NOT (deliberately) impl the Task trait
-    /// AutoRemoteSyscalls needs to take a &mut dyn Task instead of &mut TaskInner.
+    /// AutoRemoteSyscalls needs to take a &dyn Task instead of &mut TaskInner.
     pub fn new_with_mem_params(
         t: &dyn Task,
         enable_mem_params: MemParamsEnabled,
@@ -544,7 +544,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
     ///  doing.  *ESPECIALLY* don't call this on a `t` other than
     ///  the one passed to the constructor, unless you really know
     ///  what you're doing.
-    pub fn restore_state_to(&mut self, maybe_other_task: Option<&mut dyn Task>) {
+    pub fn restore_state_to(&mut self, maybe_other_task: Option<&dyn Task>) {
         match maybe_other_task {
             Some(other_t) => {
                 // Unmap our scratch region if required
@@ -733,7 +733,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         self.t
     }
 
-    pub fn task_mut(&mut self) -> &mut dyn Task {
+    pub fn task_mut(&mut self) -> &dyn Task {
         self.t
     }
 
@@ -1341,7 +1341,7 @@ fn is_usable_area(km: &KernelMapping) -> bool {
         && (km.flags().contains(MapFlags::MAP_PRIVATE))
 }
 
-fn ignore_signal(t: &mut dyn Task) -> bool {
+fn ignore_signal(t: &dyn Task) -> bool {
     let maybe_sig: MaybeStopSignal = t.maybe_stop_sig();
     if !maybe_sig.is_sig() {
         return false;
@@ -1385,7 +1385,7 @@ impl<Arch: Architecture> Clone for SocketcallArgs<Arch> {
 impl<Arch: Architecture> Copy for SocketcallArgs<Arch> {}
 
 fn write_socketcall_args<Arch: Architecture>(
-    t: &mut dyn Task,
+    t: &dyn Task,
     remote_mem: RemotePtr<SocketcallArgs<Arch>>,
     arg1: Arch::signed_long,
     arg2: Arch::signed_long,

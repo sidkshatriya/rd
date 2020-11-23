@@ -53,7 +53,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
     fn as_session_inner_mut(&mut self) -> &mut SessionInner;
 
     /// DIFF NOTE: Simply called on_destroy() in rr.
-    fn on_destroy_task(&self, _t: &mut dyn Task) {
+    fn on_destroy_task(&self, _t: &dyn Task) {
         // DIFF NOTE: Don't need to remove task from task
         // map like in rr. This is done in kill_all_tasks() or
         // Task::destroy() already.
@@ -179,7 +179,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
     /// This method is simply called Session::clone in rr.
     fn clone_task(
         &self,
-        p: &mut dyn Task,
+        p: &dyn Task,
         flags: CloneFlags,
         stack: RemotePtr<Void>,
         tls: RemotePtr<Void>,
@@ -320,7 +320,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
     /// everything must be the same.
     ///
     /// DIFF NOTE: Additional param `t`. Makes things simpler.
-    fn post_exec(&self, t: &mut dyn Task) {
+    fn post_exec(&self, t: &dyn Task) {
         // We just saw a successful exec(), so from now on we know
         // that the address space layout for the replay tasks will
         // (should!) be the same as for the recorded tasks.  So we can

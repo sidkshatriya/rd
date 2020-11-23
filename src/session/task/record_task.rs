@@ -597,7 +597,7 @@ impl Task for RecordTask {
                     cleartid_addr.as_usize()
                 );
                 ed_assert!(self, !cleartid_addr.is_null());
-                t.borrow_mut().as_rec_mut_unwrap().tid_futex = cleartid_addr;
+                t.borrow_mut().as_rec_unwrap().tid_futex = cleartid_addr;
             } else {
                 log!(LogDebug, "(clone child not enabling CLEARTID)");
             }
@@ -801,10 +801,6 @@ impl Task for RecordTask {
         self
     }
 
-    fn as_rec_mut_unwrap(&mut self) -> &mut RecordTask {
-        self
-    }
-
     fn on_syscall_exit(&mut self, syscallno: i32, arch: SupportedArch, regs: &Registers) {
         with_converted_registers(regs, arch, |regs| {
             task_common::on_syscall_exit_common(self, syscallno, arch, regs);
@@ -916,12 +912,7 @@ impl Task for RecordTask {
         compute_trap_reasons(self)
     }
 
-    fn post_vm_clone(
-        &mut self,
-        reason: CloneReason,
-        flags: CloneFlags,
-        origin: &mut dyn Task,
-    ) -> bool {
+    fn post_vm_clone(&mut self, reason: CloneReason, flags: CloneFlags, origin: &dyn Task) -> bool {
         if post_vm_clone_common(self, reason, flags, origin) {
             // @TODO Could just do a &self here and avoid a clone.
             let preload_thread_locals_mapping = self
@@ -1429,7 +1420,7 @@ impl RecordTask {
 
         for tracee_rc in &self.emulated_ptrace_tracees {
             let mut traceeb = tracee_rc.borrow_mut();
-            let tracee = traceeb.as_rec_mut_unwrap();
+            let tracee = traceeb.as_rec_unwrap();
             if tracee.emulated_ptrace_sigchld_pending {
                 tracee.emulated_ptrace_sigchld_pending = false;
                 let sia: &mut siginfo_t_arch<NativeArch> = unsafe { mem::transmute(si) };
@@ -1442,7 +1433,7 @@ impl RecordTask {
         for child_tg in self.thread_group().children() {
             for child in child_tg.borrow().task_set() {
                 let mut rchildb = child.borrow_mut();
-                let rchild = rchildb.as_rec_mut_unwrap();
+                let rchild = rchildb.as_rec_unwrap();
                 if rchild.emulated_sigchld_pending {
                     rchild.emulated_sigchld_pending = false;
                     let sia: &mut siginfo_t_arch<NativeArch> = unsafe { mem::transmute(si) };
@@ -1599,7 +1590,7 @@ impl RecordTask {
                     {
                         Some(t) => t
                             .borrow_mut()
-                            .as_rec_mut_unwrap()
+                            .as_rec_unwrap()
                             .send_synthetic_sigchld_if_necessary(Some(self), maybe_active_sibling),
                         None => (),
                     }
@@ -1707,7 +1698,7 @@ impl RecordTask {
             .iter_except(self.weak_self_ptr())
         {
             let mut tb = t.borrow_mut();
-            let rt = tb.as_rec_mut_unwrap();
+            let rt = tb.as_rec_unwrap();
             log!(LogDebug, "setting {} to NOT_STOPPED due to SIGCONT", rt.tid);
             rt.emulated_stop_pending = false;
             rt.emulated_stop_type = EmulatedStopType::NotStopped;
@@ -2934,7 +2925,7 @@ impl RecordTask {
             .iter_except(self.weak_self_ptr())
         {
             let mut rtb = t.borrow_mut();
-            let rt = rtb.as_rec_mut_unwrap();
+            let rt = rtb.as_rec_unwrap();
             if rt.is_waiting_for(rchild) {
                 return Some((rt.tgid(), rt.tid, rt.is_sig_blocked(sig::SIGCHLD)));
             }

@@ -256,7 +256,7 @@ impl FileMonitor for VirtualPerfCounterMonitor {
     }
 }
 
-fn write_ranges(t: &mut dyn Task, ranges: &[Range], p: &[u8]) -> usize {
+fn write_ranges(t: &dyn Task, ranges: &[Range], p: &[u8]) -> usize {
     let mut s: usize = p.len();
     let mut result: usize = 0;
     for r in ranges {

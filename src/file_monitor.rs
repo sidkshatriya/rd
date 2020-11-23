@@ -70,7 +70,7 @@ pub struct LazyOffset<'b, 'a: 'b> {
 }
 
 impl<'b, 'a: 'b> LazyOffset<'b, 'a> {
-    pub fn task_mut(&mut self) -> &mut dyn Task {
+    pub fn task_mut(&mut self) -> &dyn Task {
         self.t
     }
 
@@ -124,7 +124,7 @@ fn is_implict_offset_syscall(arch: SupportedArch, syscallno: i32) -> bool {
 }
 
 fn retrieve_offset_arch<Arch: Architecture>(
-    t: &mut dyn Task,
+    t: &dyn Task,
     syscallno: i32,
     regs: &Registers,
 ) -> Option<u64> {
@@ -168,7 +168,7 @@ fn retrieve_offset_arch<Arch: Architecture>(
     }
 }
 
-fn retrieve_offset(t: &mut dyn Task, syscallno: i32, regs: &Registers) -> Option<u64> {
+fn retrieve_offset(t: &dyn Task, syscallno: i32, regs: &Registers) -> Option<u64> {
     let arch = t.arch();
     rd_arch_function_selfless!(retrieve_offset_arch, arch, t, syscallno, regs)
 }

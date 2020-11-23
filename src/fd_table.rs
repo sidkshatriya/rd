@@ -45,7 +45,7 @@ impl FdTable {
         self.tasks.borrow_mut()
     }
 
-    pub fn add_monitor(&self, t: &mut dyn Task, fd: i32, monitor: Box<dyn FileMonitor>) {
+    pub fn add_monitor(&self, t: &dyn Task, fd: i32, monitor: Box<dyn FileMonitor>) {
         // In the future we could support multiple monitors on an fd, but we don't
         // need to yet.
         ed_assert!(
@@ -131,7 +131,7 @@ impl FdTable {
     }
 
     /// DIFF NOTE: Additional param `active_task` to solve borrow issues.
-    pub fn did_dup(&self, from: i32, to: i32, active_task: &mut dyn Task) {
+    pub fn did_dup(&self, from: i32, to: i32, active_task: &dyn Task) {
         if self.fds.borrow().contains_key(&from) {
             if to >= SYSCALLBUF_FDS_DISABLED_SIZE && !self.fds.borrow().contains_key(&to) {
                 self.fd_count_beyond_limit
@@ -150,7 +150,7 @@ impl FdTable {
     }
 
     /// DIFF NOTE: Additional param `active_task` to solve borrow issues.
-    pub fn did_close(&self, fd: i32, active_task: &mut dyn Task) {
+    pub fn did_close(&self, fd: i32, active_task: &dyn Task) {
         log!(LogDebug, "Close fd {}", fd);
         if fd >= SYSCALLBUF_FDS_DISABLED_SIZE && self.fds.borrow().contains_key(&fd) {
             self.fd_count_beyond_limit
@@ -161,7 +161,7 @@ impl FdTable {
     }
 
     /// Method is called clone() in rr
-    pub fn clone_into_task(&self, t: &mut dyn Task) -> FdTableSharedPtr {
+    pub fn clone_into_task(&self, t: &dyn Task) -> FdTableSharedPtr {
         let file_mon = FdTable {
             tasks: Default::default(),
             fds: RefCell::new(self.fds.borrow().clone()),
@@ -197,7 +197,7 @@ impl FdTable {
 
     /// Regenerate syscallbuf_fds_disabled in task `t`.
     /// Called during initialization of the preload library.
-    pub fn init_syscallbuf_fds_disabled(&self, t: &mut dyn Task) {
+    pub fn init_syscallbuf_fds_disabled(&self, t: &dyn Task) {
         if !t.session().is_recording() {
             return;
         }
@@ -273,7 +273,7 @@ impl FdTable {
     }
 
     /// DIFF NOTE: Additional param `active_task` to solve borrow issues.
-    fn update_syscallbuf_fds_disabled(&self, mut fd: i32, active_task: &mut dyn Task) {
+    fn update_syscallbuf_fds_disabled(&self, mut fd: i32, active_task: &dyn Task) {
         debug_assert!(fd >= 0);
         debug_assert!(!self.task_set().is_empty());
 

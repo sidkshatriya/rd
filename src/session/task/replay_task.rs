@@ -576,12 +576,7 @@ impl Task for ReplayTask {
         compute_trap_reasons(self)
     }
 
-    fn post_vm_clone(
-        &mut self,
-        reason: CloneReason,
-        flags: CloneFlags,
-        origin: &mut dyn Task,
-    ) -> bool {
+    fn post_vm_clone(&mut self, reason: CloneReason, flags: CloneFlags, origin: &dyn Task) -> bool {
         if post_vm_clone_common(self, reason, flags, origin)
             && reason == CloneReason::TraceeClone
             && self.trace_reader().preload_thread_locals_recorded()

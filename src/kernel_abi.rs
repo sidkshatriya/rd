@@ -171,7 +171,7 @@ const SYSENTER_INSN: [u8; 2] = [0x0f, 0x34];
 const SYSCALL_INSN: [u8; 2] = [0x0f, 0x05];
 
 pub fn get_syscall_instruction_arch(
-    t: &mut dyn Task,
+    t: &dyn Task,
     ptr: RemoteCodePtr,
     arch: &mut SupportedArch,
 ) -> bool {
@@ -223,7 +223,7 @@ pub fn get_syscall_instruction_arch(
     }
 }
 
-pub fn is_at_syscall_instruction(t: &mut dyn Task, ptr: RemoteCodePtr) -> bool {
+pub fn is_at_syscall_instruction(t: &dyn Task, ptr: RemoteCodePtr) -> bool {
     let mut arch = SupportedArch::X64;
     get_syscall_instruction_arch(t, ptr, &mut arch)
 }

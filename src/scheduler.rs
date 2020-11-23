@@ -491,7 +491,7 @@ impl Scheduler {
                             let curr = self.current().unwrap();
                             // @TODO If we were interruped then self.current_ must be Some()
                             // Is that a fair assumption??
-                            ed_assert!(&curr.borrow(), self.must_run_task.is_none());
+                            ed_assert!(&**curr, self.must_run_task.borrow().is_none());
 
                             result.interrupted_by_signal = true;
 

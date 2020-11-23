@@ -194,7 +194,7 @@ impl SessionInner {
     /// If `exec_count` is not specified it is assumed to be 0.
     pub fn create_vm(
         &self,
-        t: &mut dyn Task,
+        t: &dyn Task,
         maybe_exe: Option<&OsStr>,
         maybe_exec_count: Option<u32>,
     ) -> AddressSpaceSharedPtr {
@@ -418,7 +418,7 @@ impl SessionInner {
 
     pub(super) fn diagnose_debugger_trap(
         &self,
-        t: &mut dyn Task,
+        t: &dyn Task,
         run_command: RunCommand,
     ) -> BreakStatus {
         self.assert_fully_initialized();

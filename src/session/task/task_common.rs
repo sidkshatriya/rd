@@ -7,7 +7,7 @@
 //! (b) Some utility methods which because of their template parameters cannot be added to the
 //!     Task trait. This makes calling them a tad bit more inconvenient as we _cannot_ invoke using
 //!     the self.func_name() style. They are included in this file because they take &dyn Task or
-//!     &mut dyn Task as their first parameter. It would have been confusing to include them
+//!     &dyn Task as their first parameter. It would have been confusing to include them
 //!     in task_inner.rs
 //! (c) Some misc methods that did not fit elsewhere...
 
@@ -362,7 +362,7 @@ pub(super) fn read_bytes_helper_common<T: Task>(
 /// If the data can't all be read, then if `ok` is non-null, sets *ok to
 /// false, otherwise asserts.
 pub fn read_bytes_helper_for<T: Task, D>(
-    task: &mut dyn Task,
+    task: &dyn Task,
     addr: RemotePtr<D>,
     data: &mut D,
     ok: Option<&mut bool>,
@@ -410,11 +410,7 @@ pub(super) fn read_c_str_common<T: Task>(task: &mut T, child_addr: RemotePtr<u8>
 /// that's PROT_NONE.
 /// Also, writing through MAP_SHARED readonly mappings fails (even if the
 /// file was opened read-write originally), so we handle that here too.
-pub(super) fn safe_pwrite64(
-    t: &mut dyn Task,
-    buf: &[u8],
-    addr: RemotePtr<Void>,
-) -> Result<usize, ()> {
+pub(super) fn safe_pwrite64(t: &dyn Task, buf: &[u8], addr: RemotePtr<Void>) -> Result<usize, ()> {
     let mut mappings_to_fix: Vec<(MemoryRangeKey, ProtFlags)> = Vec::new();
     let buf_size = buf.len();
     for (k, m) in &t.vm().maps_containing_or_after(floor_page_size(addr)) {
@@ -539,7 +535,7 @@ pub(super) fn write_bytes_helper_common<T: Task>(
 /// Read `val` from `child_addr`.
 /// If the data can't all be read, then if `ok` is non-null
 /// sets *ok to false, otherwise asserts.
-pub fn read_val_mem<D>(task: &mut dyn Task, child_addr: RemotePtr<D>, ok: Option<&mut bool>) -> D {
+pub fn read_val_mem<D>(task: &dyn Task, child_addr: RemotePtr<D>, ok: Option<&mut bool>) -> D {
     let mut v: D = unsafe { zeroed() };
     let u8_slice = unsafe { slice::from_raw_parts_mut(&raw mut v as *mut u8, size_of::<D>()) };
     task.read_bytes_helper(RemotePtr::cast(child_addr), u8_slice, ok);
@@ -549,7 +545,7 @@ pub fn read_val_mem<D>(task: &mut dyn Task, child_addr: RemotePtr<D>, ok: Option
 /// Just like read_val_mem() for those occations where unsafe { zeroed() } for init
 /// is not a good idea.
 pub fn read_val_with_default_mem<D: Default>(
-    task: &mut dyn Task,
+    task: &dyn Task,
     child_addr: RemotePtr<D>,
     ok: Option<&mut bool>,
 ) -> D {
@@ -563,7 +559,7 @@ pub fn read_val_with_default_mem<D: Default>(
 ///
 /// Read `count` values from `child_addr`.
 pub fn read_mem<D: Clone>(
-    task: &mut dyn Task,
+    task: &dyn Task,
     child_addr: RemotePtr<D>,
     count: usize,
     ok: Option<&mut bool>,
@@ -639,7 +635,7 @@ pub fn write_val_mem<D: 'static>(
 ///
 /// Write single `val` to `child_addr` and optionally specify a flag.
 pub fn write_val_mem_with_flags<D: 'static>(
-    task: &mut dyn Task,
+    task: &dyn Task,
     child_addr: RemotePtr<D>,
     val: &D,
     ok: Option<&mut bool>,
@@ -1104,7 +1100,7 @@ pub(in super::super) fn os_clone_into(
 /// in the process into which the copy of this task will be
 /// created.  `task_leader` will perform the actual OS calls to
 /// create the new child.
-fn os_fork_into(t: &mut dyn Task, session: SessionSharedPtr) -> TaskSharedPtr {
+fn os_fork_into(t: &dyn Task, session: SessionSharedPtr) -> TaskSharedPtr {
     let rec_tid = t.rec_tid;
     let serial = t.serial;
     let mut remote =
@@ -1141,7 +1137,7 @@ fn os_fork_into(t: &mut dyn Task, session: SessionSharedPtr) -> TaskSharedPtr {
     child
 }
 
-fn on_syscall_exit_common_arch<Arch: Architecture>(t: &mut dyn Task, sys: i32, regs: &Registers) {
+fn on_syscall_exit_common_arch<Arch: Architecture>(t: &dyn Task, sys: i32, regs: &Registers) {
     t.session().accumulate_syscall_performed();
 
     if regs.original_syscallno() == SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO {
@@ -1346,7 +1342,7 @@ fn on_syscall_exit_common_arch<Arch: Architecture>(t: &mut dyn Task, sys: i32, r
 /// Use 'regs' instead of t.regs_ref() because some registers may not be
 /// set properly in the task yet.
 pub(super) fn on_syscall_exit_common(
-    t: &mut dyn Task,
+    t: &dyn Task,
     syscallno: i32,
     arch: SupportedArch,
     regs: &Registers,
@@ -1358,7 +1354,7 @@ pub(super) fn on_syscall_exit_common(
 
 /// Call this method when this task has exited a successful execve() syscall.
 /// At this point it is safe to make remote syscalls.
-pub(super) fn post_exec_syscall_common(t: &mut dyn Task) {
+pub(super) fn post_exec_syscall_common(t: &dyn Task) {
     let arch = t.arch();
     t.canonicalize_regs(arch);
     t.vm_shr_ptr().post_exec_syscall(t);
@@ -1599,7 +1595,7 @@ fn do_preload_init<T: Task>(t: &mut T) {
 }
 
 pub(in super::super) fn clone_task_common(
-    clone_this: &mut dyn Task,
+    clone_this: &dyn Task,
     reason: CloneReason,
     flags: CloneFlags,
     stack: RemotePtr<Void>,
@@ -1787,11 +1783,11 @@ pub(in super::super) fn clone_task_common(
     rc_t
 }
 
-fn set_thread_area_from_clone(t: &mut dyn Task, tls: RemotePtr<u8>) {
+fn set_thread_area_from_clone(t: &dyn Task, tls: RemotePtr<u8>) {
     rd_arch_function_selfless!(set_thread_area_from_clone_arch, t.arch(), t, tls)
 }
 
-fn set_thread_area_from_clone_arch<Arch: Architecture>(t: &mut dyn Task, tls: RemotePtr<Void>) {
+fn set_thread_area_from_clone_arch<Arch: Architecture>(t: &dyn Task, tls: RemotePtr<Void>) {
     if Arch::CLONE_TLS_TYPE == CloneTLSType::UserDescPointer {
         t.set_thread_area(RemotePtr::cast(tls));
     }
@@ -1800,7 +1796,7 @@ fn set_thread_area_from_clone_arch<Arch: Architecture>(t: &mut dyn Task, tls: Re
 // DIFF NOTE: Param list different from rr version
 fn unmap_buffers_for(
     remote: &mut AutoRemoteSyscalls,
-    maybe_context: Option<&mut dyn Task>,
+    maybe_context: Option<&dyn Task>,
     saved_syscallbuf_child: RemotePtr<syscallbuf_hdr>,
     other_syscallbuf_size: usize,
     other_scratch_ptr: RemotePtr<Void>,
@@ -1852,7 +1848,7 @@ fn unmap_buffers_for(
 // DIFF NOTE: Param list different from rr version
 pub fn close_buffers_for(
     remote: &mut AutoRemoteSyscalls,
-    mut maybe_context: Option<&mut dyn Task>,
+    mut maybe_context: Option<&dyn Task>,
     other_desched_fd_child: i32,
     other_cloned_file_data_fd_child: i32,
 ) {
@@ -1897,7 +1893,7 @@ pub(super) fn post_vm_clone_common<T: Task>(
     t: &mut T,
     reason: CloneReason,
     flags: CloneFlags,
-    origin: &mut dyn Task,
+    origin: &dyn Task,
 ) -> bool {
     let mut created_preload_thread_locals_mapping: bool = false;
     if !flags.contains(CloneFlags::CLONE_SHARE_VM) {
@@ -2008,7 +2004,7 @@ fn process_shmdt(t: &dyn Task, addr: RemotePtr<Void>) {
     t.vm_shr_ptr().unmap(t, addr, size);
 }
 
-fn process_ptrace<Arch: Architecture>(regs: &Registers, t: &mut dyn Task) {
+fn process_ptrace<Arch: Architecture>(regs: &Registers, t: &dyn Task) {
     let pid = regs.arg2_signed() as pid_t;
     let maybe_tracee = t.session().find_task_from_rec_tid(pid);
     match regs.arg1() as u32 {
@@ -2181,7 +2177,7 @@ fn process_ptrace<Arch: Architecture>(regs: &Registers, t: &mut dyn Task) {
 }
 
 fn ptrace_get_regs_set<Arch: Architecture>(
-    t: &mut dyn Task,
+    t: &dyn Task,
     regs: &Registers,
     min_size: usize,
 ) -> Vec<u8> {

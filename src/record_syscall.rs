@@ -3562,7 +3562,7 @@ fn process_mmap(
 }
 
 fn monitor_fd_for_mapping(
-    mapped_t: &mut dyn Task,
+    mapped_t: &dyn Task,
     mapped_fd: i32,
     file: &libc::stat,
     extra_fds: &mut Vec<TraceRemoteFd>,
@@ -4677,7 +4677,7 @@ impl ParamSize {
     /// p points to a tracee location that is already initialized with a
     /// "maximum buffer size" passed in by the tracee, and which will be filled
     /// in with the size of the data by the kernel when the syscall exits.
-    fn from_initialized_mem<T>(t: &mut dyn Task, p: RemotePtr<T>) -> ParamSize {
+    fn from_initialized_mem<T>(t: &dyn Task, p: RemotePtr<T>) -> ParamSize {
         let mut r = ParamSize::from(if p.is_null() {
             0
         } else {
@@ -4734,7 +4734,7 @@ impl ParamSize {
         r
     }
 
-    fn eval(&self, t: &mut dyn Task, already_consumed: usize) -> usize {
+    fn eval(&self, t: &dyn Task, already_consumed: usize) -> usize {
         let mut s: usize = self.incoming_size;
         if !self.mem_ptr.is_null() {
             let mem_size: usize;
@@ -4815,7 +4815,7 @@ impl Default for ArgMode {
 }
 
 fn set_remote_ptr_arch<Arch: Architecture>(
-    t: &mut dyn Task,
+    t: &dyn Task,
     addr: RemotePtr<Void>,
     value: RemotePtr<Void>,
 ) {
@@ -4828,21 +4828,18 @@ fn set_remote_ptr_arch<Arch: Architecture>(
     );
 }
 
-fn set_remote_ptr(t: &mut dyn Task, addr: RemotePtr<Void>, value: RemotePtr<Void>) {
+fn set_remote_ptr(t: &dyn Task, addr: RemotePtr<Void>, value: RemotePtr<Void>) {
     let arch = t.arch();
     rd_arch_function_selfless!(set_remote_ptr_arch, arch, t, addr, value);
 }
 
-fn get_remote_ptr_arch<Arch: Architecture>(
-    t: &mut dyn Task,
-    addr: RemotePtr<Void>,
-) -> RemotePtr<Void> {
+fn get_remote_ptr_arch<Arch: Architecture>(t: &dyn Task, addr: RemotePtr<Void>) -> RemotePtr<Void> {
     let typed_addr = RemotePtr::<Arch::unsigned_word>::cast(addr);
     let old = read_val_mem(t, typed_addr, None);
     RemotePtr::from(old.try_into().unwrap())
 }
 
-fn get_remote_ptr(t: &mut dyn Task, addr: RemotePtr<Void>) -> RemotePtr<Void> {
+fn get_remote_ptr(t: &dyn Task, addr: RemotePtr<Void>) -> RemotePtr<Void> {
     let arch = t.arch();
     rd_arch_function_selfless!(get_remote_ptr_arch, arch, t, addr)
 }
@@ -5806,7 +5803,7 @@ fn prepare_ptrace<Arch: Architecture>(
             let maybe_tracer = prepare_ptrace_traceme(t, syscall_state);
             match maybe_tracer {
                 Some(tracer_rc) => {
-                    let tracer = tracer_rc.as_rec_mut_unwrap();
+                    let tracer = tracer_rc.as_rec_unwrap();
                     t.set_emulated_ptracer(Some(tracer), None);
                     t.emulated_ptrace_seized = false;
                     t.emulated_ptrace_options = 0;
@@ -5886,7 +5883,7 @@ fn prepare_ptrace<Arch: Architecture>(
             let data = syscall_state.reg_parameter::<Arch::user_regs_struct>(4, None, None);
             match maybe_tracee {
                 Some(tracee_rc) => {
-                    let tracee = tracee_rc.as_rec_mut_unwrap();
+                    let tracee = tracee_rc.as_rec_unwrap();
                     let regs: Vec<u8> = tracee.regs_ref().get_ptrace_for_arch(Arch::arch());
                     ed_assert_eq!(t, regs.len(), data.referent_size());
                     t.write_bytes_helper(

@@ -1965,7 +1965,7 @@ impl ReplaySession {
     }
 
     // DIFF NOTE: Additional Param `active_task`
-    fn clear_syscall_bp(&self, active_task: &mut dyn Task) {
+    fn clear_syscall_bp(&self, active_task: &dyn Task) {
         let mut maybe_bp_vm = self.syscall_bp_vm.borrow_mut();
         maybe_bp_vm.as_ref().map(|bp_vm| {
             bp_vm.remove_breakpoint(

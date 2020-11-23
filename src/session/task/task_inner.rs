@@ -1900,7 +1900,7 @@ fn create_seccomp_filter() -> SeccompFilter {
 // waitpid to return EINTR and that's all we need.
 extern "C" fn handle_alarm_signal(_sig: c_int) {}
 
-fn setup_fd_table(t: &mut dyn Task, fds: &FdTableSharedPtr, tracee_socket_fd_number: i32) {
+fn setup_fd_table(t: &dyn Task, fds: &FdTableSharedPtr, tracee_socket_fd_number: i32) {
     fds.add_monitor(t, STDOUT_FILENO, Box::new(StdioMonitor::new(STDOUT_FILENO)));
     fds.add_monitor(t, STDERR_FILENO, Box::new(StdioMonitor::new(STDERR_FILENO)));
     fds.add_monitor(

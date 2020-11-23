@@ -712,16 +712,16 @@ impl RecordSession {
             }
 
             if did_enter_syscall
-                && t.borrow().as_record_task().unwrap().ev().event_type() == EventType::EvSyscall
+                && t.as_record_task().unwrap().ev().event_type() == EventType::EvSyscall
             {
-                self.syscall_state_changed(t.borrow_mut().as_rec_mut_unwrap(), &mut step_state);
+                self.syscall_state_changed(t.as_rec_unwrap(), &mut step_state);
             }
         } else if rescheduled.by_waitpid && self.handle_signal_event(&mut t, &mut step_state) {
             // @TODO Is this what we want here?
             // Do nothing
         } else {
             self.runnable_state_changed(
-                t.borrow_mut().as_rec_mut_unwrap(),
+                t.as_rec_unwrap(),
                 &mut step_state,
                 &mut result,
                 rescheduled.by_waitpid,
@@ -733,22 +733,22 @@ impl RecordSession {
                 return result;
             }
 
-            let event_type = t.borrow().as_rec_unwrap().ev().event_type();
+            let event_type = t.as_rec_unwrap().ev().event_type();
             match event_type {
                 EventType::EvDesched => {
-                    self.desched_state_changed(t.borrow_mut().as_rec_mut_unwrap());
+                    self.desched_state_changed(t.as_rec_unwrap());
                 }
                 EventType::EvSyscall => {
-                    self.syscall_state_changed(t.borrow_mut().as_rec_mut_unwrap(), &mut step_state);
+                    self.syscall_state_changed(t.as_rec_unwrap(), &mut step_state);
                 }
                 EventType::EvSignal | EventType::EvSignalDelivery => {
-                    self.signal_state_changed(t.borrow_mut().as_rec_mut_unwrap(), &mut step_state);
+                    self.signal_state_changed(t.as_rec_unwrap(), &mut step_state);
                 }
                 _ => (),
             }
         }
 
-        t.borrow_mut().as_rec_mut_unwrap().verify_signal_states();
+        t.as_rec_unwrap().verify_signal_states();
 
         // We try to inject a signal if there's one pending; otherwise we continue
         // task execution.
@@ -759,13 +759,13 @@ impl RecordSession {
             // Only tasks blocked in a syscall can be switched away from, otherwise
             // we have races.
             ed_assert!(
-                &t.borrow(),
+                &**t,
                 self.last_task_switchable.get() == Switchable::PreventSwitch
-                    || t.borrow().unstable.get()
-                    || t.borrow().as_record_task().unwrap().may_be_blocked()
+                    || t.unstable.get()
+                    || t.as_record_task().unwrap().may_be_blocked()
             );
 
-            debug_exec_state("EXEC_START", t.borrow().as_ref());
+            debug_exec_state("EXEC_START", &**t);
 
             self.task_continue(step_state);
         }
@@ -774,7 +774,7 @@ impl RecordSession {
     }
 
     fn handle_signal_event(&self, mut t: &mut TaskSharedPtr, step_state: &mut StepState) -> bool {
-        let maybe_sig = t.borrow().maybe_stop_sig();
+        let maybe_sig = t.maybe_stop_sig();
         if !maybe_sig.is_sig() {
             return false;
         }
@@ -796,66 +796,54 @@ impl RecordSession {
             );
 
             // These signals might have effects on the sigmask.
-            t.borrow_mut().as_rec_mut_unwrap().invalidate_sigmask();
+            t.as_rec_unwrap().invalidate_sigmask();
             // No events to be recorded, so no syscallbuf updates
             // needed.
             return true;
         }
 
-        if maybe_sig == sig::SIGTRAP
-            && handle_syscallbuf_breakpoint(t.borrow_mut().as_rec_mut_unwrap())
-        {
+        if maybe_sig == sig::SIGTRAP && handle_syscallbuf_breakpoint(t.as_rec_unwrap()) {
             return true;
         }
 
-        let deterministic: SignalDeterministic = is_deterministic_signal(t.borrow_mut().as_mut());
+        let deterministic: SignalDeterministic = is_deterministic_signal(&**t);
         // The kernel might have forcibly unblocked the signal. Check whether it
         // was blocked now, before we update our cached sigmask.
-        let signal_was_blocked = if t.borrow_mut().as_rec_mut_unwrap().is_sig_blocked(sig) {
+        let signal_was_blocked = if t.as_rec_unwrap().is_sig_blocked(sig) {
             SignalBlocked::SigBlocked
         } else {
             SignalBlocked::SigUnblocked
         };
 
         if deterministic == SignalDeterministic::DeterministicSig
-            || sig
-                == t.borrow()
-                    .session()
-                    .as_record()
-                    .unwrap()
-                    .syscallbuf_desched_sig()
+            || sig == t.session().as_record().unwrap().syscallbuf_desched_sig()
         {
             // Don't stash these signals; deliver them immediately.
             // We don't want them to be reordered around other signals.
             // invalidate_sigmask() must not be called before we reach handle_signal!
-            let si = t.borrow().get_siginfo().clone();
-            let res = handle_signal(
-                t.borrow_mut().as_rec_mut_unwrap(),
-                si,
-                deterministic,
-                signal_was_blocked,
-            );
+            let si = t.get_siginfo().clone();
+            let res = handle_signal(t.as_rec_unwrap(), si, deterministic, signal_was_blocked);
             match res {
                 (SignalHandled::SignalPtraceStop, new_si) => {
-                    t.borrow_mut().pending_siginfo = new_si;
+                    t.pending_siginfo = new_si;
                     // Emulated ptrace-stop. Don't run the task again yet.
                     self.last_task_switchable.set(Switchable::AllowSwitch);
                     step_state.continue_type = ContinueType::DontContinue;
                     return true;
                 }
                 (SignalHandled::DeferSignal, new_si) => {
-                    t.borrow_mut().pending_siginfo = new_si;
+                    t.pending_siginfo = new_si;
                     ed_assert!(
-                        &t.borrow(),
+                        &**t,
                         false,
                         "Can't defer deterministic or internal signal {} at ip {}",
-                        t.borrow().get_siginfo(),
-                        t.borrow().ip()
+                        t.get_siginfo(),
+                        t.ip()
                     );
                 }
                 (SignalHandled::SignalHandled, new_si) => {
-                    t.borrow_mut().pending_siginfo = new_si;
-                    if t.borrow().maybe_ptrace_event() == PTRACE_EVENT_SECCOMP {
+                    t.pending_siginfo = new_si;
+                    if t.maybe_ptrace_event() == PTRACE_EVENT_SECCOMP {
                         // `handle_desched_event` detected a spurious desched followed
                         // by a SECCOMP event, which it left pending. Handle that SECCOMP
                         // event now.
@@ -870,7 +858,7 @@ impl RecordSession {
                             &mut dummy_result_ignore,
                             &mut dummy_did_enter_syscall,
                         );
-                        ed_assert!(&t.borrow(), !dummy_did_enter_syscall);
+                        ed_assert!(&**t, !dummy_did_enter_syscall);
                     }
                 }
             }
@@ -878,8 +866,7 @@ impl RecordSession {
             return false;
         }
 
-        let mut tb = t.borrow_mut();
-        let rt = tb.as_rec_mut_unwrap();
+        let rt = t.as_rec_unwrap();
         // Conservatively invalidate the sigmask in case just accepting a signal has
         // sigmask effects.
         rt.invalidate_sigmask();
@@ -938,29 +925,26 @@ impl RecordSession {
         did_enter_syscall: &mut bool,
     ) -> bool {
         *did_enter_syscall = false;
-        if t.borrow().status().maybe_group_stop_sig().is_sig()
-            || t.borrow().as_rec_unwrap().has_stashed_group_stop()
+        if t.status().maybe_group_stop_sig().is_sig() || t.as_rec_unwrap().has_stashed_group_stop()
         {
-            t.borrow_mut()
-                .as_rec_mut_unwrap()
-                .clear_stashed_group_stop();
+            t.as_rec_unwrap().clear_stashed_group_stop();
             self.last_task_switchable.set(Switchable::AllowSwitch);
             step_state.continue_type = ContinueType::DontContinue;
             return true;
         }
 
-        if !t.borrow().maybe_ptrace_event().is_ptrace_event() {
+        if !t.maybe_ptrace_event().is_ptrace_event() {
             return false;
         }
 
         log!(
             LogDebug,
             "  {}: handle_ptrace_event {}: event {}",
-            t.borrow().tid,
-            t.borrow().maybe_ptrace_event(),
-            t.borrow().as_rec_unwrap().ev()
+            t.tid,
+            t.maybe_ptrace_event(),
+            t.as_rec_unwrap().ev()
         );
-        let event = t.borrow().maybe_ptrace_event().unwrap_event();
+        let event = t.maybe_ptrace_event().unwrap_event();
 
         match event {
             PTRACE_EVENT_SECCOMP_OBSOLETE | PTRACE_EVENT_SECCOMP => {
@@ -971,19 +955,16 @@ impl RecordSession {
                         .set(PtraceSyscallSeccompOrdering::SeccompBeforeSyscall);
                 }
 
-                let seccomp_data: u16 = t
-                    .borrow()
-                    .as_rec_unwrap()
-                    .get_ptrace_eventmsg_seccomp_data();
-                let syscallno = t.borrow().regs_ref().original_syscallno() as i32;
+                let seccomp_data: u16 = t.as_rec_unwrap().get_ptrace_eventmsg_seccomp_data();
+                let syscallno = t.regs_ref().original_syscallno() as i32;
                 if seccomp_data as u32 == SECCOMP_RET_DATA {
                     log!(
                         LogDebug,
                         "  traced syscall entered: {}",
-                        syscall_name(syscallno, t.borrow().arch())
+                        syscall_name(syscallno, t.arch())
                     );
                     self.handle_seccomp_traced_syscall(
-                        t.borrow_mut().as_rec_mut_unwrap(),
+                        t.as_rec_unwrap(),
                         step_state,
                         result,
                         did_enter_syscall,
@@ -996,7 +977,7 @@ impl RecordSession {
                     if !self
                         .seccomp_filter_rewriter()
                         .map_filter_data_to_real_result(
-                            t.borrow_mut().as_rec_mut_unwrap(),
+                            t.as_rec_unwrap(),
                             seccomp_data,
                             &mut real_result,
                         )
@@ -1013,10 +994,10 @@ impl RecordSession {
                                 log!(
                                     LogDebug,
                                     "  seccomp trap for syscall: {}",
-                                    syscall_name(syscallno, t.borrow().arch())
+                                    syscall_name(syscallno, t.arch())
                                 );
                                 handle_seccomp_trap(
-                                    t.borrow_mut().as_rec_mut_unwrap(),
+                                    t.as_rec_unwrap(),
                                     step_state,
                                     real_result_data,
                                 );
@@ -1026,10 +1007,10 @@ impl RecordSession {
                                     LogDebug,
                                     "  seccomp errno {} for syscall: {}",
                                     errno_name(real_result_data as i32),
-                                    syscall_name(syscallno, t.borrow().arch())
+                                    syscall_name(syscallno, t.arch())
                                 );
                                 handle_seccomp_errno(
-                                    t.borrow_mut().as_rec_mut_unwrap(),
+                                    t.as_rec_unwrap(),
                                     step_state,
                                     real_result_data,
                                 );
@@ -1038,29 +1019,27 @@ impl RecordSession {
                                 log!(
                                     LogDebug,
                                     "  seccomp kill for syscall: {}",
-                                    syscall_name(syscallno, t.borrow().arch())
+                                    syscall_name(syscallno, t.arch())
                                 );
 
-                                let tg = t.borrow().thread_group_shr_ptr();
+                                let tg = t.thread_group_shr_ptr();
                                 for tt in tg.borrow().task_set().iter() {
                                     // Record robust futex changes now in case the taskgroup dies
                                     // synchronously without a regular PTRACE_EVENT_EXIT (as seems
                                     // to happen on Ubuntu 4.2.0-42-generic)
-                                    record_robust_futex_changes(
-                                        tt.borrow_mut().as_rec_mut_unwrap(),
-                                    );
+                                    record_robust_futex_changes(tt.borrow_mut().as_rec_unwrap());
                                 }
-                                t.borrow().as_rec_unwrap().tgkill(sig::SIGKILL);
+                                t.as_rec_unwrap().tgkill(sig::SIGKILL);
                                 step_state.continue_type = ContinueType::Continue;
                             }
-                            _ => ed_assert!(&t.borrow(), false, "Seccomp result not handled"),
+                            _ => ed_assert!(&**t, false, "Seccomp result not handled"),
                         }
                     }
                 }
             }
 
             PTRACE_EVENT_EXEC => {
-                let thread_group_len = t.borrow().thread_group().task_set().len();
+                let thread_group_len = t.thread_group().task_set().len();
                 if thread_group_len > 1 {
                     // All tasks but the task that did the execve should have exited by
                     // now and notified us of their exits. However, it's possible that
@@ -1078,32 +1057,32 @@ impl RecordSession {
                     // in memory accessible to another process even after exec, i.e. a
                     // shared-memory mapping or two different thread-groups sharing the same
                     // address space.
-                    let tid = t.borrow().rec_tid;
-                    let status: WaitStatus = t.borrow().status();
+                    let tid = t.rec_tid;
+                    let status: WaitStatus = t.status();
                     // Mark task as unstable so we don't wait on its futex. This matches
                     // what the kernel would do.
-                    t.borrow().unstable.set(true);
-                    record_exit(t.borrow().as_rec_unwrap(), WaitStatus::default());
+                    t.unstable.set(true);
+                    record_exit(t.as_rec_unwrap(), WaitStatus::default());
 
                     // DIFF NOTE: OK to call destroy(). We just ask it to skip PTRACE_DETACH.
-                    t.borrow_mut().destroy(Some(false));
+                    t.destroy(Some(false));
                     // Steal the exec'ing task and make it the thread-group leader, and
                     // carry on!
                     *t = self.revive_task_for_exec(tid);
                     self.scheduler().set_current(Some(Rc::downgrade(&t)));
                     // Tell t that it is actually stopped, because the stop we got is really
                     // for this task, not the old dead task.
-                    t.borrow_mut().did_waitpid(status);
+                    t.did_waitpid(status);
                 }
 
-                t.borrow_mut().as_rec_mut_unwrap().post_exec();
+                t.as_rec_unwrap().post_exec();
 
                 // Skip past the ptrace event.
                 step_state.continue_type = ContinueType::ContinueSyscall;
             }
 
             _ => ed_assert!(
-                &t.borrow(),
+                &**t,
                 false,
                 "Unhandled ptrace event {}({})",
                 event,
@@ -1599,8 +1578,7 @@ impl RecordSession {
         let mut ssig_addr: *const StashedSignal;
 
         {
-            let mut tb = t_shr.borrow_mut();
-            let t = tb.as_rec_mut_unwrap();
+            let t = t_shr.as_rec_unwrap();
             loop {
                 match t.peek_stashed_sig_to_deliver() {
                     Some(ssig_obtained) => {
@@ -1633,7 +1611,7 @@ impl RecordSession {
         }
 
         let res = handle_signal(
-            t_shr.borrow_mut().as_rec_mut_unwrap(),
+            t_shr.as_rec_unwrap(),
             unsafe { si.linux_api },
             ssig.deterministic,
             SignalBlocked::SigUnblocked,
@@ -1666,15 +1644,15 @@ impl RecordSession {
                 );
                 // Signal is now a pending event on `t`'s event stack
 
-                if t_shr.borrow().as_rec_unwrap().ev().event_type() == EventType::EvSched {
-                    if t_shr.borrow().as_rec_unwrap().maybe_in_spinlock() {
+                if t_shr.as_rec_unwrap().ev().event_type() == EventType::EvSched {
+                    if t_shr.as_rec_unwrap().maybe_in_spinlock() {
                         // So that we can provide a shared pointer to the scheduler
                         log!(
                             LogDebug,
                             "Detected possible spinlock, forcing one round-robin"
                         );
                         self.scheduler()
-                            .schedule_one_round_robin(t_shr.borrow_mut().as_rec_mut_unwrap());
+                            .schedule_one_round_robin(t_shr.as_rec_unwrap());
                     }
                     // Allow switching after a SCHED. We'll flush the SCHED if and only
                     // if we really do a switch.
@@ -1684,15 +1662,9 @@ impl RecordSession {
         }
 
         step_state.continue_type = ContinueType::DontContinue;
-        t_shr
-            .borrow_mut()
-            .as_rec_mut_unwrap()
-            .pop_stash_sig(ssig_addr);
-        if t_shr.borrow().as_rec_unwrap().ev().event_type() != EventType::EvSignal {
-            t_shr
-                .borrow_mut()
-                .as_rec_mut_unwrap()
-                .stashed_signal_processed();
+        t_shr.as_rec_unwrap().pop_stash_sig(ssig_addr);
+        if t_shr.as_rec_unwrap().ev().event_type() != EventType::EvSignal {
+            t_shr.as_rec_unwrap().stashed_signal_processed();
         }
 
         true
@@ -1701,29 +1673,23 @@ impl RecordSession {
     fn task_continue(&self, step_state: StepState) {
         let t = self.scheduler().current().unwrap().clone();
 
-        ed_assert!(
-            &t.borrow(),
-            step_state.continue_type != ContinueType::DontContinue
-        );
+        ed_assert!(&**t, step_state.continue_type != ContinueType::DontContinue);
         // A task in an emulated ptrace-stop must really stay stopped
-        ed_assert!(
-            &t.borrow(),
-            !t.borrow().as_rec_unwrap().emulated_stop_pending
-        );
+        ed_assert!(&**t, !t.as_rec_unwrap().emulated_stop_pending);
 
-        let may_restart = t.borrow().as_rec_unwrap().at_may_restart_syscall();
+        let may_restart = t.as_rec_unwrap().at_may_restart_syscall();
 
-        if may_restart && t.borrow().seccomp_bpf_enabled {
+        if may_restart && t.seccomp_bpf_enabled {
             log!(
                 LogDebug,
                 "  PTRACE_SYSCALL to possibly-restarted {}",
-                t.borrow().as_rec_unwrap().ev()
+                t.as_rec_unwrap().ev()
             );
         }
 
-        if t.borrow().vm().first_run_event() == 0 {
+        if t.vm().first_run_event() == 0 {
             let time = self.trace_writer().time();
-            t.borrow().vm().set_first_run_event(time);
+            t.vm().set_first_run_event(time);
         }
 
         let mut ticks_request: TicksRequest;
@@ -1732,8 +1698,7 @@ impl RecordSession {
             ticks_request = TicksRequest::ResumeNoTicks;
             resume = ResumeRequest::ResumeSyscall;
         } else {
-            if t.borrow()
-                .as_rec_unwrap()
+            if t.as_rec_unwrap()
                 .has_stashed_sig(perf_counters::TIME_SLICE_SIGNAL)
             {
                 // timeslice signal already stashed, no point in generating another one
@@ -1741,7 +1706,7 @@ impl RecordSession {
                 ticks_request = TicksRequest::ResumeUnlimitedTicks;
             } else {
                 let end = self.scheduler().current_timeslice_end();
-                let tick_count = t.borrow().tick_count();
+                let tick_count = t.tick_count();
                 // @TODO What about stipulation that ResumeWithTicksRequest must have > 0 as
                 // request?? Its possible for end to be less than tick_count.
                 let num_ticks_request = if tick_count > end {
@@ -1754,21 +1719,18 @@ impl RecordSession {
 
             // Clear any lingering state, then see if we need to stop earlier for a
             // tracee-requested pmc interrupt on the virtualized performance counter.
-            t.borrow_mut()
-                .as_rec_mut_unwrap()
-                .next_pmc_interrupt_is_for_user = false;
-            let maybe_vpmc =
-                VirtualPerfCounterMonitor::interrupting_virtual_pmc_for_task(t.borrow().as_ref());
+            t.as_rec_unwrap().next_pmc_interrupt_is_for_user = false;
+            let maybe_vpmc = VirtualPerfCounterMonitor::interrupting_virtual_pmc_for_task(&**t);
 
             match maybe_vpmc {
                 Some(vpmc) => {
                     ed_assert!(
-                        &t.borrow(),
+                        &**t,
                         vpmc.borrow()
                             .as_virtual_perf_counter_monitor()
                             .unwrap()
                             .target_tuid()
-                            == t.borrow().tuid()
+                            == t.tuid()
                     );
 
                     let after: Ticks = max(
@@ -1776,7 +1738,7 @@ impl RecordSession {
                             .as_virtual_perf_counter_monitor()
                             .unwrap()
                             .target_ticks()
-                            - t.borrow().tick_count(),
+                            - t.tick_count(),
                         0,
                     );
 
@@ -1793,9 +1755,7 @@ impl RecordSession {
                                 after_ticks_request
                             );
                             ticks_request = after_ticks_request;
-                            t.borrow_mut()
-                                .as_rec_mut_unwrap()
-                                .next_pmc_interrupt_is_for_user = true;
+                            t.as_rec_unwrap().next_pmc_interrupt_is_for_user = true;
                         }
                         _ => (),
                     }
@@ -1803,13 +1763,12 @@ impl RecordSession {
                 None => (),
             }
 
-            let mut singlestep = t.borrow().as_rec_unwrap().emulated_ptrace_cont_command
+            let mut singlestep = t.as_rec_unwrap().emulated_ptrace_cont_command
                 == PTRACE_SINGLESTEP
-                || t.borrow().as_rec_unwrap().emulated_ptrace_cont_command
-                    == PTRACE_SYSEMU_SINGLESTEP;
+                || t.as_rec_unwrap().emulated_ptrace_cont_command == PTRACE_SYSEMU_SINGLESTEP;
 
-            let t_at_ip = t.borrow().ip();
-            if singlestep && is_at_syscall_instruction(t.borrow_mut().as_mut(), t_at_ip) {
+            let t_at_ip = t.ip();
+            if singlestep && is_at_syscall_instruction(&**t, t_at_ip) {
                 // We're about to singlestep into a syscall instruction.
                 // Act like we're NOT singlestepping since doing a PTRACE_SINGLESTEP would
                 // skip over the system call.
@@ -2006,7 +1965,7 @@ impl RecordSession {
     pub fn terminate_recording(&self) {
         match self.scheduler().current() {
             Some(t) => {
-                t.borrow_mut().as_rec_mut_unwrap().maybe_flush_syscallbuf();
+                t.borrow_mut().as_rec_unwrap().maybe_flush_syscallbuf();
             }
             None => (),
         }
@@ -2122,7 +2081,7 @@ impl RecordSession {
         // Update the serial as if this task was really created by cloning the old
         // task.
         t.borrow_mut()
-            .as_rec_mut_unwrap()
+            .as_rec_unwrap()
             .set_tid_and_update_serial(rec_tid, own_namespace_tid);
 
         t
@@ -2618,7 +2577,7 @@ fn maybe_trigger_emulated_ptrace_syscall_exit_stop(t: &mut RecordTask) {
         // syscall.
         t.emulate_ptrace_stop(
             WaitStatus::for_stop_sig(sig::SIGTRAP),
-            emulated_ptracer.borrow().as_rec_unwrap(),
+            emulated_ptracer.as_rec_unwrap(),
             None,
             Some(SI_KERNEL as i32),
             None,
@@ -2658,8 +2617,8 @@ impl Session for RecordSession {
         kill_all_tasks(self)
     }
 
-    fn on_destroy_task(&self, t: &mut dyn Task) {
-        self.scheduler().on_destroy_task(t.as_rec_mut_unwrap())
+    fn on_destroy_task(&self, t: &dyn Task) {
+        self.scheduler().on_destroy_task(t.as_rec_unwrap())
     }
 
     fn as_session_inner(&self) -> &SessionInner {
