@@ -336,7 +336,7 @@ impl Scheduler {
                         maybe_next = self.find_next_runnable_task(
                             Some(&curr),
                             &mut result.by_waitpid,
-                            curr.as_record_task().unwrap().priority - 1,
+                            curr.as_record_task().unwrap().priority.get() - 1,
                         );
 
                         if maybe_next.is_some() {
@@ -549,8 +549,8 @@ impl Scheduler {
                 curr.name(),
                 nt.tid(),
                 nt.name(),
-                curr.as_record_task().unwrap().priority,
-                nt.as_record_task().unwrap().priority,
+                curr.as_record_task().unwrap().priority.get(),
+                nt.as_record_task().unwrap().priority.get(),
                 curr.as_record_task().unwrap().trace_writer().time()
             ),
             _ => (),
@@ -587,14 +587,14 @@ impl Scheduler {
         let rc_t = t.weak_self_ptr().upgrade().unwrap();
         ed_assert!(t, Rc::ptr_eq(&self.current().unwrap(), &rc_t));
         self.maybe_pop_round_robin_task(t);
-        ed_assert!(t, !t.in_round_robin_queue);
+        ed_assert!(t, !t.in_round_robin_queue.get());
         for PriorityTup(_, _, w) in self.task_priority_set.borrow().iter() {
             let tt = w.upgrade().unwrap();
-            if !Rc::ptr_eq(&rc_t, &tt) && !tt.as_record_task().unwrap().in_round_robin_queue {
+            if !Rc::ptr_eq(&rc_t, &tt) && !tt.as_record_task().unwrap().in_round_robin_queue.get() {
                 self.task_round_robin_queue
                     .borrow_mut()
                     .push_back(w.clone());
-                tt.as_record_task().unwrap().in_round_robin_queue = true;
+                tt.as_record_task().unwrap().in_round_robin_queue.set(true);
             }
         }
 
@@ -602,19 +602,22 @@ impl Scheduler {
         self.task_round_robin_queue
             .borrow_mut()
             .push_back(t.weak_self_ptr());
-        t.in_round_robin_queue = true;
+        t.in_round_robin_queue.set(true);
         self.expire_timeslice();
     }
 
     pub fn on_create_task(&self, t: TaskSharedPtr) {
-        debug_assert!(!t.as_record_task().unwrap().in_round_robin_queue);
+        debug_assert!(!t.as_record_task().unwrap().in_round_robin_queue.get());
         if self.enable_chaos.get() {
             // new tasks get a random priority
-            t.as_record_task().unwrap().priority = self.choose_random_priority(&t);
+            t.as_record_task()
+                .unwrap()
+                .priority
+                .set(self.choose_random_priority(&t));
         }
 
         self.task_priority_set.borrow_mut().insert(PriorityTup(
-            t.as_record_task().unwrap().priority,
+            t.as_record_task().unwrap().priority.get(),
             t.stable_serial(),
             Rc::downgrade(&t),
         ));
@@ -629,7 +632,7 @@ impl Scheduler {
             _ => (),
         }
 
-        let in_rrq = t.in_round_robin_queue;
+        let in_rrq = t.in_round_robin_queue.get();
         if in_rrq {
             let mut maybe_remove = None;
             for (i, it) in self.task_round_robin_queue.borrow().iter().enumerate() {
@@ -646,7 +649,7 @@ impl Scheduler {
             }
         } else {
             self.task_priority_set.borrow_mut().remove(&PriorityTup(
-                t.priority,
+                t.priority.get(),
                 t.stable_serial(),
                 weak,
             ));
@@ -717,7 +720,7 @@ impl Scheduler {
     }
 
     pub fn in_stable_exit(&self, t: &RecordTask) {
-        self.update_task_priority_internal(t, t.priority);
+        self.update_task_priority_internal(t, t.priority.get());
     }
 
     /// Pull a task from the round-robin queue if available. Otherwise,
@@ -752,7 +755,7 @@ impl Scheduler {
                 if !self.enable_chaos.get() {
                     let same_priority_vec = match maybe_t {
                         Some(t)
-                            if t.as_record_task().unwrap().priority == priority
+                            if t.as_record_task().unwrap().priority.get() == priority
                                 && task_priority_setb.contains(&PriorityTup(
                                     priority,
                                     t.stable_serial(),
@@ -825,9 +828,9 @@ impl Scheduler {
             .ptr_eq(&t.weak_self_ptr())
         {
             self.task_round_robin_queue.borrow_mut().pop_front();
-            t.in_round_robin_queue = false;
+            t.in_round_robin_queue.set(false);
             self.task_priority_set.borrow_mut().insert(PriorityTup(
-                t.priority,
+                t.priority.get(),
                 t.stable_serial(),
                 t.weak_self_ptr(),
             ));
@@ -906,23 +909,23 @@ impl Scheduler {
             value = -9999;
         }
 
-        if t.priority == value {
+        if t.priority.get() == value {
             return;
         }
 
-        if t.in_round_robin_queue {
-            t.priority = value;
+        if t.in_round_robin_queue.get() {
+            t.priority.set(value);
             return;
         }
 
         self.task_priority_set.borrow_mut().remove(&PriorityTup(
-            t.priority,
+            t.priority.get(),
             t.stable_serial(),
             t.weak_self_ptr(),
         ));
-        t.priority = value;
+        t.priority.set(value);
         self.task_priority_set.borrow_mut().insert(PriorityTup(
-            t.priority,
+            t.priority.get(),
             t.stable_serial(),
             t.weak_self_ptr(),
         ));
@@ -965,7 +968,7 @@ impl Scheduler {
     }
 
     fn treat_as_high_priority(&self, t: &TaskSharedPtr) -> bool {
-        self.task_priority_set.borrow().len() > 1 && t.as_record_task().unwrap().priority == 0
+        self.task_priority_set.borrow().len() > 1 && t.as_record_task().unwrap().priority.get() == 0
     }
 
     /// Returns true if we should return t as the runnable task. Otherwise we
@@ -989,7 +992,7 @@ impl Scheduler {
             return true;
         }
 
-        if t.emulated_stop_type != EmulatedStopType::NotStopped {
+        if t.emulated_stop_type.get() != EmulatedStopType::NotStopped {
             if t.is_signal_pending(sig::SIGCONT) {
                 // We have to do this here. RecordTask::signal_delivered can't always
                 // do it because if we don't PTRACE_CONT the task, we'll never see the

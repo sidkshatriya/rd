@@ -816,8 +816,8 @@ fn handle_desched_event(t: &RecordTask, si: &siginfo_t) {
         // reset until we've finished guiding the tracee through this
         // interrupted call.  We use the record counter for
         // assertions.
-        ed_assert!(t, !t.delay_syscallbuf_reset_for_desched);
-        t.delay_syscallbuf_reset_for_desched = true;
+        ed_assert!(t, !t.delay_syscallbuf_reset_for_desched.get());
+        t.delay_syscallbuf_reset_for_desched.set(true);
         log!(LogDebug, "Desched initiated");
 
         // The tracee is (re-)entering the buffered syscall.  Stash

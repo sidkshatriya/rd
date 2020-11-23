@@ -60,8 +60,8 @@ impl Debug for &dyn Task {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.write_str(&format!(
             "Task(tid: {} rec_tid:{}, serial:{})",
-            self.tid,
-            self.rec_tid,
+            self.tid(),
+            self.rec_tid(),
             self.tuid().serial()
         ))
     }
@@ -199,7 +199,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
     /// Return the pid of the task in its own pid namespace.
     /// Only RecordTasks actually change pid namespaces.
     fn own_namespace_tid(&self) -> pid_t {
-        self.tid
+        self.tid.get()
     }
 
     /// Called when SYS_rdcall_init_preload has happened.
@@ -214,9 +214,9 @@ pub trait Task: DerefMut<Target = TaskInner> {
             out,
             "  {:?}(tid:{} rec_tid:{} status:{}{})<{:?}>\n",
             self.prname,
-            self.tid,
-            self.rec_tid,
-            self.wait_status,
+            self.tid(),
+            self.rec_tid(),
+            self.wait_status.get(),
             if self.unstable.get() { " UNSTABLE" } else { "" },
             self as *const _
         )
@@ -234,10 +234,10 @@ pub trait Task: DerefMut<Target = TaskInner> {
     /// call. Continue into the kernel and stop where we can modify the syscall
     /// state.
     fn enter_syscall(&self) {
-        let mut need_ptrace_syscall_event = !self.seccomp_bpf_enabled
+        let mut need_ptrace_syscall_event = !self.seccomp_bpf_enabled.get()
             || self.session().syscall_seccomp_ordering()
                 == PtraceSyscallSeccompOrdering::SeccompBeforeSyscall;
-        let mut need_seccomp_event = self.seccomp_bpf_enabled;
+        let mut need_seccomp_event = self.seccomp_bpf_enabled.get();
         while need_ptrace_syscall_event || need_seccomp_event {
             let resume_how = if need_ptrace_syscall_event {
                 ResumeRequest::ResumeSyscall
@@ -296,7 +296,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
         // whether we process the syscall on the syscall entry trap or
         // on the seccomp trap. Detect if we are on the former and
         // just bring us forward to the seccomp trap.
-        let mut will_see_seccomp: bool = self.seccomp_bpf_enabled
+        let mut will_see_seccomp: bool = self.seccomp_bpf_enabled.get()
             && (self.session().syscall_seccomp_ordering()
                 == PtraceSyscallSeccompOrdering::SyscallBeforeSeccomp)
             && !self.is_ptrace_seccomp_event();
@@ -398,23 +398,23 @@ pub trait Task: DerefMut<Target = TaskInner> {
         }
 
         let mut raw_status: i32 = 0;
-        let ret = unsafe { waitpid(self.tid, &mut raw_status, WNOHANG | __WALL) } as i32;
+        let ret = unsafe { waitpid(self.tid(), &mut raw_status, WNOHANG | __WALL) } as i32;
         ed_assert!(
             self,
             0 <= ret,
             "waitpid({}, NOHANG) failed with {}",
-            self.tid,
+            self.tid(),
             ret
         );
         log!(
             LogDebug,
             "waitpid({}, NOHANG) returns {}, status {}",
-            self.tid,
+            self.tid(),
             ret,
             WaitStatus::new(raw_status)
         );
 
-        if ret == self.tid {
+        if ret == self.tid() {
             self.did_waitpid(WaitStatus::new(raw_status));
             return true;
         }
@@ -428,7 +428,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
     fn wait(&self, maybe_interrupt_after_elapsed: Option<f64>) {
         let interrupt_after_elapsed = maybe_interrupt_after_elapsed.unwrap_or(0.0);
         debug_assert!(interrupt_after_elapsed >= 0.0);
-        log!(LogDebug, "going into blocking waitpid({}) ...", self.tid);
+        log!(LogDebug, "going into blocking waitpid({}) ...", self.tid());
         ed_assert!(self, !self.unstable.get(), "Don't wait for unstable tasks");
         ed_assert!(
             self,
@@ -451,7 +451,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
                 }
             }
             let mut raw_status: i32 = 0;
-            ret = unsafe { waitpid(self.tid, &mut raw_status, libc::__WALL) };
+            ret = unsafe { waitpid(self.tid(), &mut raw_status, libc::__WALL) };
             status = WaitStatus::new(raw_status);
             if interrupt_after_elapsed > 0.0 {
                 let timer: itimerval = Default::default();
@@ -473,10 +473,10 @@ pub trait Task: DerefMut<Target = TaskInner> {
                 log!(
                     LogWarn,
                     "Synthesizing PTRACE_EVENT_EXIT for zombie process {}",
-                    self.tid
+                    self.tid()
                 );
                 status = WaitStatus::for_ptrace_event(PTRACE_EVENT_EXIT);
-                ret = self.tid;
+                ret = self.tid();
                 // XXX could this leave unreaped zombies lying around?
                 break;
             }
@@ -484,7 +484,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
             if !sent_wait_interrupt && (interrupt_after_elapsed > 0.0) {
                 self.ptrace_if_alive(PTRACE_INTERRUPT, RemotePtr::null(), &mut PtraceData::None);
                 sent_wait_interrupt = true;
-                self.expecting_ptrace_interrupt_stop = 2;
+                self.expecting_ptrace_interrupt_stop.set(2);
             }
         }
 
@@ -499,7 +499,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
             // Verify that we have not actually seen a PTRACE_EXIT_EVENT.
             ed_assert!(
                 self,
-                !self.seen_ptrace_exit_event,
+                !self.seen_ptrace_exit_event.get(),
                 "A PTRACE_EXIT_EVENT was observed for this task, but somehow forgotten"
             );
 
@@ -507,7 +507,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
             log!(
                 LogWarn,
                 "Synthesizing PTRACE_EVENT_EXIT for process {} exited with {}",
-                self.tid,
+                self.tid(),
                 status.exit_code().unwrap()
             );
             status = WaitStatus::for_ptrace_event(PTRACE_EVENT_EXIT);
@@ -516,15 +516,16 @@ pub trait Task: DerefMut<Target = TaskInner> {
         log!(
             LogDebug,
             "  waitpid({}) returns {}; status {}",
-            self.tid,
+            self.tid(),
             ret,
             status
         );
-        ed_assert!(
+        ed_assert_eq!(
             self,
-            self.tid == ret,
+            self.tid(),
+            ret,
             "waitpid({}) failed with {}",
-            self.tid,
+            self.tid(),
             ret
         );
 
@@ -544,13 +545,13 @@ pub trait Task: DerefMut<Target = TaskInner> {
     /// Return true if an unexpected exit was already detected for this task and
     /// it is ready to be reported.
     fn wait_unexpected_exit(&self) -> bool {
-        if self.detected_unexpected_exit {
+        if self.detected_unexpected_exit.get() {
             log!(
                 LogDebug,
                 "Unexpected (SIGKILL) exit was detected; reporting it now"
             );
             self.did_waitpid(WaitStatus::for_ptrace_event(PTRACE_EVENT_EXIT));
-            self.detected_unexpected_exit = false;
+            self.detected_unexpected_exit.set(false);
             return true;
         }
         false

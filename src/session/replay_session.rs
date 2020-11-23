@@ -781,7 +781,7 @@ impl ReplaySession {
             LogDebug,
             "[event {}] {}: replaying {}; state {}",
             self.current_frame_time(),
-            t.rec_tid,
+            t.rec_tid(),
             ev,
             if ev.is_syscall_event() {
                 format!("{}", ev.syscall_event().state)
@@ -790,8 +790,8 @@ impl ReplaySession {
             }
         );
 
-        if !t.syscallbuf_child.is_null() {
-            let syscallbuf_hdr: RemotePtr<u8> = RemotePtr::cast(t.syscallbuf_child);
+        if !t.syscallbuf_child.get().is_null() {
+            let syscallbuf_hdr: RemotePtr<u8> = RemotePtr::cast(t.syscallbuf_child.get());
             let syscallbuf_num_rec_bytes: RemotePtr<u32> =
                 RemotePtr::cast(syscallbuf_hdr + offset_of!(syscallbuf_hdr, num_rec_bytes));
             let syscallbuf_abort_commit: RemotePtr<u8> =
@@ -815,7 +815,7 @@ impl ReplaySession {
                 current_step.action = ReplayTraceStepType::TstepExitTask;
             }
             EventType::EvSyscallbufAbortCommit => {
-                let child_addr = RemotePtr::<u8>::cast(t.syscallbuf_child)
+                let child_addr = RemotePtr::<u8>::cast(t.syscallbuf_child.get())
                     + offset_of!(syscallbuf_hdr, abort_commit);
                 write_val_mem(t, child_addr, &1u8, None);
                 t.apply_all_data_records_from_trace();
@@ -928,8 +928,8 @@ impl ReplaySession {
         // Read the recorded syscall buffer back into the buffer region.
         let buf = t.trace_reader_mut().read_raw_data();
         ed_assert!(t, buf.data.len() >= size_of::<syscallbuf_hdr>());
-        ed_assert!(t, buf.data.len() <= t.syscallbuf_size);
-        ed_assert_eq!(t, buf.addr, RemotePtr::cast(t.syscallbuf_child));
+        ed_assert!(t, buf.data.len() <= t.syscallbuf_size.get());
+        ed_assert_eq!(t, buf.addr, RemotePtr::cast(t.syscallbuf_child.get()));
 
         let mut recorded_hdr: syscallbuf_hdr = Default::default();
         unsafe {
@@ -942,7 +942,7 @@ impl ReplaySession {
         // Don't overwrite syscallbuf_hdr. That needs to keep tracking the current
         // syscallbuf state.
         t.write_bytes_helper(
-            RemotePtr::cast(t.syscallbuf_child + 1usize),
+            RemotePtr::cast(t.syscallbuf_child.get() + 1usize),
             &buf.data[size_of::<syscallbuf_hdr>()..],
             None,
             WriteFlags::empty(),
@@ -951,7 +951,7 @@ impl ReplaySession {
         let num_rec_bytes = recorded_hdr.num_rec_bytes;
         ed_assert!(
             t,
-            num_rec_bytes as usize + size_of::<syscallbuf_hdr>() <= t.syscallbuf_size
+            num_rec_bytes as usize + size_of::<syscallbuf_hdr>() <= t.syscallbuf_size.get()
         );
 
         current_step.action = ReplayTraceStepType::TstepFlushSyscallbuf;
@@ -992,7 +992,7 @@ impl ReplaySession {
         }
 
         let t_rc = tg.borrow().task_set().iter().next().unwrap();
-        let t_rec_tid = t_rc.rec_tid;
+        let t_rec_tid = t_rc.rec_tid();
         log!(
             LogDebug,
             "Changing task tid from {} to {}",
@@ -1001,7 +1001,7 @@ impl ReplaySession {
         );
         let t_rc_removed = self.task_map.borrow_mut().remove(&t_rec_tid).unwrap();
         debug_assert!(Rc::ptr_eq(&t_rc_removed, &t_rc));
-        t_rc.rec_tid = trace_frame_tid;
+        t_rc.rec_tid.set(trace_frame_tid);
         self.task_map.borrow_mut().insert(trace_frame_tid, t_rc);
         // The real tid is not changing yet. It will, in process_execve.
         t_rc_removed
@@ -1119,7 +1119,7 @@ impl ReplaySession {
                 t.get_siginfo()
             );
         }
-        if t.seccomp_bpf_enabled
+        if t.seccomp_bpf_enabled.get()
             && self.syscall_seccomp_ordering_.get()
                 == PtraceSyscallSeccompOrdering::SyscallBeforeSeccompUnknown
         {
@@ -1264,7 +1264,7 @@ impl ReplaySession {
     }
 
     fn exit_task(&self, t: &ReplayTask) -> Completion {
-        ed_assert!(t, !t.seen_ptrace_exit_event);
+        ed_assert!(t, !t.seen_ptrace_exit_event.get());
         // Apply robust-futex updates captured during recording.
         t.apply_all_data_records_from_trace();
         end_task(t);
@@ -1754,7 +1754,7 @@ impl ReplaySession {
 
         loop {
             let mut next_rec = t.next_syscallbuf_record();
-            let child_addr: RemotePtr<u8> = RemotePtr::cast(t.syscallbuf_child)
+            let child_addr: RemotePtr<u8> = RemotePtr::cast(t.syscallbuf_child.get())
                 + offset_of!(syscallbuf_hdr, mprotect_record_count_completed);
             let skip_mprotect_records = read_val_mem::<u32>(t, RemotePtr::cast(child_addr), None);
 
@@ -1970,7 +1970,7 @@ impl ReplaySession {
 /// Returns mprotect record count
 fn apply_mprotect_records(t: &ReplayTask, skip_mprotect_records: u32) -> u32 {
     let final_mprotect_record_count_addr = RemotePtr::<u32>::cast(
-        RemotePtr::<u8>::cast(t.syscallbuf_child)
+        RemotePtr::<u8>::cast(t.syscallbuf_child.get())
             + offset_of!(syscallbuf_hdr, mprotect_record_count),
     );
 
@@ -1992,7 +1992,7 @@ fn apply_mprotect_records(t: &ReplayTask, skip_mprotect_records: u32) -> u32 {
 
         for (i, r) in records.iter().enumerate() {
             let completed_count_addr = RemotePtr::<u32>::cast(
-                RemotePtr::<u8>::cast(t.syscallbuf_child)
+                RemotePtr::<u8>::cast(t.syscallbuf_child.get())
                     + offset_of!(syscallbuf_hdr, mprotect_record_count_completed),
             );
             let completed_count: u32 = read_val_mem(t, completed_count_addr, None);
@@ -2053,7 +2053,7 @@ fn end_task(t: &ReplayTask) {
     );
     ed_assert_eq!(t, t.maybe_ptrace_event(), PTRACE_EVENT_EXIT);
 
-    t.stable_exit = true;
+    t.stable_exit.set(true);
     t.destroy(None);
 }
 

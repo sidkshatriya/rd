@@ -1659,7 +1659,7 @@ pub mod address_space {
                 return;
             }
 
-            log!(LogDebug, "Verifying address space for task {}", t.tid);
+            log!(LogDebug, "Verifying address space for task {}", t.tid());
 
             let mb = self.mem.borrow();
             let mut mem_it = mb.values();
@@ -1889,7 +1889,7 @@ pub mod address_space {
         /// wrong device number! If you stick to anonymous or special file
         /// mappings, this should be OK.
         pub fn read_kernel_mapping(t: &dyn Task, addr: RemotePtr<Void>) -> KernelMapping {
-            read_kernel_mapping(t.tid, addr)
+            read_kernel_mapping(t.tid(), addr)
         }
 
         /// Same as read_kernel_mapping, but reads rd's own memory map.
@@ -2125,7 +2125,7 @@ pub mod address_space {
 
             let addr_space = AddressSpace {
                 exe: exe.to_owned(),
-                leader_tid_: t.rec_tid,
+                leader_tid_: t.rec_tid(),
                 leader_serial: t.tuid().serial(),
                 exec_count,
                 session_: Rc::downgrade(&t.session()),
@@ -3401,7 +3401,7 @@ fn assert_segments_match(t: &dyn Task, m: &KernelMapping, km: &KernelMapping) {
             LogError,
             "cached mmap:\n{}\n/proc/{}/maps:\n{}\n",
             t.vm().dump(),
-            t.tid,
+            t.tid(),
             AddressSpace::dump_process_maps(t)
         );
         ed_assert!(t, false, "\nCached mapping {} should be {}; {}", m, km, err);

@@ -2180,7 +2180,7 @@ fn maybe_emulate_wait(t: &RecordTask, syscall_state: &mut TaskSyscallState, opti
         for child_process in t.thread_group().children() {
             for child in child_process.borrow().task_set() {
                 let rchild = child.as_rec_unwrap();
-                if rchild.emulated_stop_type == EmulatedStopType::GroupStop
+                if rchild.emulated_stop_type.get() == EmulatedStopType::GroupStop
                     && rchild.emulated_stop_pending.get()
                     && t.is_waiting_for(rchild)
                 {
@@ -5512,7 +5512,7 @@ fn verify_ptrace_target(
                         .emulated_ptracer
                         .as_ref()
                         .map_or(true, |ep| !ep.ptr_eq(&tracer.weak_self))
-                        || tracee.emulated_stop_type == EmulatedStopType::NotStopped
+                        || tracee.emulated_stop_type.get() == EmulatedStopType::NotStopped
                     {
                         syscall_state.emulate_result_signed(-ESRCH as isize);
                         return None;
@@ -5744,7 +5744,7 @@ fn prepare_ptrace_traceme(
 }
 
 fn ptrace_attach_to_already_stopped_task(t: &RecordTask, tracer: &RecordTask) {
-    ed_assert_eq!(t, t.emulated_stop_type, EmulatedStopType::GroupStop);
+    ed_assert_eq!(t, t.emulated_stop_type.get(), EmulatedStopType::GroupStop);
     // tracee is already stopped because of a group-stop signal.
     // Sending a SIGSTOP won't work, but we don't need to.
     t.force_emulate_ptrace_stop(WaitStatus::for_stop_sig(sig::SIGSTOP), tracer);
@@ -5771,7 +5771,7 @@ fn prepare_ptrace<Arch: Architecture>(
                     tracee.emulated_ptrace_seized.set(false);
                     tracee.emulated_ptrace_options.set(0);
                     syscall_state.emulate_result(0);
-                    if tracee.emulated_stop_type == EmulatedStopType::NotStopped {
+                    if tracee.emulated_stop_type.get() == EmulatedStopType::NotStopped {
                         // Send SIGSTOP to this specific thread. Otherwise the kernel might
                         // deliver SIGSTOP to some other thread of the process, and we won't
                         // generate any ptrace event if that thread isn't being ptraced.
@@ -5844,7 +5844,7 @@ fn prepare_ptrace<Arch: Architecture>(
                     write_val_mem(
                         t,
                         datap,
-                        &Arch::usize_as_ulong(tracee.emulated_ptrace_event_msg),
+                        &Arch::usize_as_ulong(tracee.emulated_ptrace_event_msg.get()),
                         None,
                     );
                     syscall_state.emulate_result(0);

@@ -418,7 +418,7 @@ pub struct RecordTask {
     /// We use this to drive scheduling decisions. rd's scheduler is
     /// deliberately simple and unfair; a task never runs as long as there's
     /// another runnable task with a lower nice value.
-    pub priority: i32,
+    pub priority: Cell<i32>,
     /// Tasks with in_round_robin_queue set are in the session's
     /// in_round_robin_queue instead of its task_priority_set.
     pub in_round_robin_queue: Cell<bool>,
@@ -428,7 +428,7 @@ pub struct RecordTask {
     /// Task for which we're emulating ptrace of this task, or None
     pub emulated_ptracer: Option<TaskSharedWeakPtr>,
     pub emulated_ptrace_tracees: WeakTaskPtrSet,
-    pub emulated_ptrace_event_msg: usize,
+    pub emulated_ptrace_event_msg: Cell<usize>,
     /// @TODO Do we want to make this a queue?
     /// Saved emulated-ptrace signals
     pub saved_ptrace_siginfos: Vec<siginfo_t>,
@@ -468,7 +468,7 @@ pub struct RecordTask {
     pub sighandlers: Rc<RefCell<Sighandlers>>,
     /// If not NotStopped, then the task is logically stopped and this is the type
     /// of stop.
-    pub emulated_stop_type: EmulatedStopType,
+    pub emulated_stop_type: Cell<EmulatedStopType>,
     /// True if the task sigmask may have changed and we need to refetch it.
     pub blocked_sigs_dirty: Cell<bool>,
     /// Most accesses to this should use set_sigmask and get_sigmask to ensure
@@ -490,11 +490,11 @@ pub struct RecordTask {
     /// This bit is set when code wants to prevent the syscall
     /// record buffer from being reset when it normally would be.
     /// This bit is set by the desched code.
-    pub delay_syscallbuf_reset_for_desched: bool,
+    pub delay_syscallbuf_reset_for_desched: Cell<bool>,
     /// This is set when code wants to prevent the syscall
     /// record buffer from being reset when it normally would be.
     /// This is set by the code for handling seccomp SIGSYS signals.
-    pub delay_syscallbuf_reset_for_seccomp_trap: bool,
+    pub delay_syscallbuf_reset_for_seccomp_trap: Cell<bool>,
     /// Value to return from PR_GET_SECCOMP
     pub prctl_seccomp_status: u8,
 
@@ -824,12 +824,12 @@ impl Task for RecordTask {
                 RemotePtr::<Void>::from(size_of::<sig_set_t>()),
                 &mut PtraceData::ReadFrom(u8_slice(&self.blocked_sigs)),
             );
-        } else if !self.syscallbuf_child.is_null() {
+        } else if !self.syscallbuf_child.get().is_null() {
             // The syscallbuf struct is only 32 bytes currently so read the whole thing
             // at once to aVoid multiple calls to read_mem. Even though this shouldn't
             // need a syscall because we use a local-mapping, apparently that lookup
             // is still noticeably expensive.
-            let child_addr = self.syscallbuf_child;
+            let child_addr = self.syscallbuf_child.get();
             let syscallbuf = read_val_mem(self, child_addr, None);
             if syscallbuf.in_sigprocmask_critical_section != 0 {
                 // `blocked_sigs` may have been updated but the syscall not yet issued.
@@ -965,30 +965,30 @@ impl RecordTask {
             task_inner: TaskInner::new(session, tid, None, serial, a),
             ticks_at_last_recorded_syscall_exit: 0,
             time_at_start_of_last_timeslice: 0,
-            priority: 0,
-            in_round_robin_queue: false,
+            priority: Cell::new(0),
+            in_round_robin_queue: Cell::new(false),
             emulated_ptracer: None,
-            emulated_ptrace_event_msg: 0,
-            emulated_ptrace_options: 0,
-            emulated_ptrace_cont_command: 0,
-            emulated_stop_pending: false,
-            emulated_ptrace_sigchld_pending: false,
-            emulated_sigchld_pending: false,
-            emulated_ptrace_seized: false,
-            emulated_ptrace_queued_exit_stop: false,
-            in_wait_type: WaitType::WaitTypeNone,
-            in_wait_pid: 0,
-            emulated_stop_type: EmulatedStopType::NotStopped,
+            emulated_ptrace_event_msg: Cell::new(0),
+            emulated_ptrace_options: Cell::new(0),
+            emulated_ptrace_cont_command: Cell::new(0),
+            emulated_stop_pending: Cell::new(false),
+            emulated_ptrace_sigchld_pending: Cell::new(false),
+            emulated_sigchld_pending: Cell::new(false),
+            emulated_ptrace_seized: Cell::new(false),
+            emulated_ptrace_queued_exit_stop: Cell::new(false),
+            in_wait_type: Cell::new(WaitType::WaitTypeNone),
+            in_wait_pid: Cell::new(0),
+            emulated_stop_type: Cell::new(EmulatedStopType::NotStopped),
             blocked_sigs_dirty: Cell::new(true),
             syscallbuf_blocked_sigs_generation: 0,
             flushed_num_rec_bytes: 0,
             flushed_syscallbuf: false,
-            delay_syscallbuf_reset_for_desched: false,
+            delay_syscallbuf_reset_for_desched: Cell::new(false),
             delay_syscallbuf_reset_for_seccomp_trap: false,
             prctl_seccomp_status: 0,
             robust_futex_list_len: 0,
             own_namespace_rec_tid: tid,
-            exit_code: 0,
+            exit_code: Cell::new(0),
             termination_signal: None,
             tsc_mode: PR_TSC_ENABLE,
             cpuid_mode: 1,
@@ -1101,12 +1101,13 @@ impl RecordTask {
 
         args.cloned_file_data_fd = -1;
         if self.vm().syscallbuf_enabled() {
-            self.syscallbuf_size = self.session().as_record().unwrap().syscall_buffer_size();
-            args.syscallbuf_size = self.syscallbuf_size.try_into().unwrap();
+            self.syscallbuf_size
+                .set(self.session().as_record().unwrap().syscall_buffer_size());
+            args.syscallbuf_size = self.syscallbuf_size.get().try_into().unwrap();
             let syscallbuf_km = remote.init_syscall_buffer(RemotePtr::null());
             args.syscallbuf_ptr =
-                Arch::from_remote_ptr(RemotePtr::<u8>::cast(self.syscallbuf_child));
-            self.desched_fd_child = args.desched_counter_fd;
+                Arch::from_remote_ptr(RemotePtr::<u8>::cast(self.syscallbuf_child.get()));
+            self.desched_fd_child.set(args.desched_counter_fd);
             // Prevent the child from closing this fd
             self.fd_table_shr_ptr().add_monitor(
                 self,
@@ -1152,12 +1153,13 @@ impl RecordTask {
                         free_fd,
                         O_CLOEXEC
                     ) as i32;
-                    self.cloned_file_data_fd_child = cloned_file_data_fd_child;
+                    self.cloned_file_data_fd_child
+                        .set(cloned_file_data_fd_child);
 
                     if cloned_file_data_fd_child != free_fd {
                         ed_assert!(self, cloned_file_data_fd_child < 0);
                         log!(LogWarn, "Couldn't dup clone-data file to free fd");
-                        self.cloned_file_data_fd_child = cloned_file_data;
+                        self.cloned_file_data_fd_child.set(cloned_file_data);
                     } else {
                         // Prevent the child from closing this fd. We're going to close it
                         // ourselves and we don't want the child closing it and then reopening
@@ -1173,14 +1175,14 @@ impl RecordTask {
                             cloned_file_data
                         );
                     }
-                    args.cloned_file_data_fd = self.cloned_file_data_fd_child;
+                    args.cloned_file_data_fd = self.cloned_file_data_fd_child.get();
                 }
             }
         } else {
             args.syscallbuf_ptr = Arch::from_remote_ptr(RemotePtr::null());
             args.syscallbuf_size = 0;
         }
-        args.scratch_buf = Arch::from_remote_ptr(self.scratch_ptr);
+        args.scratch_buf = Arch::from_remote_ptr(self.scratch_ptr.get());
         args.usable_scratch_size = self.usable_scratch_size().try_into().unwrap();
 
         // Return the mapped buffers to the child.
@@ -1190,7 +1192,7 @@ impl RecordTask {
         // already written to the inout `args` param, but we stash it
         // away in the return value slot so that we can easily check
         // that we map the segment at the same addr during replay.
-        let syscallbuf_child = self.syscallbuf_child;
+        let syscallbuf_child = self.syscallbuf_child.get();
         remote
             .initial_regs_mut()
             .set_syscall_result(syscallbuf_child.as_usize());
@@ -1269,8 +1271,8 @@ impl RecordTask {
                 ed_assert!(self, self.emulated_ptracer.is_some());
                 ed_assert!(
                     self,
-                    self.emulated_stop_type == EmulatedStopType::NotStopped
-                        || self.emulated_stop_type == EmulatedStopType::GroupStop
+                    self.emulated_stop_type.get() == EmulatedStopType::NotStopped
+                        || self.emulated_stop_type.get() == EmulatedStopType::GroupStop
                 );
                 let removed_tracer = self.emulated_ptracer.take().unwrap();
                 let tracer = old_maybe_tracer.unwrap();
@@ -1328,14 +1330,15 @@ impl RecordTask {
     /// Force the ptrace-stop state no matter what state the task is currently in.
     /// DIFF NOTE: Extra param `tracer` to solve already borrowed possibility
     pub fn force_emulate_ptrace_stop(&self, status: WaitStatus, tracer: &RecordTask) {
-        self.emulated_stop_type = if status.maybe_group_stop_sig().is_sig() {
-            EmulatedStopType::GroupStop
-        } else {
-            EmulatedStopType::SignalDeliveryStop
-        };
-        self.emulated_stop_code = status;
-        self.emulated_stop_pending = true;
-        self.emulated_ptrace_sigchld_pending = true;
+        self.emulated_stop_type
+            .set(if status.maybe_group_stop_sig().is_sig() {
+                EmulatedStopType::GroupStop
+            } else {
+                EmulatedStopType::SignalDeliveryStop
+            });
+        self.emulated_stop_code.set(status);
+        self.emulated_stop_pending.set(true);
+        self.emulated_ptrace_sigchld_pending.set(true);
 
         ed_assert!(
             self,
@@ -1376,8 +1379,8 @@ impl RecordTask {
 
         for tracee_rc in &self.emulated_ptrace_tracees {
             let tracee = tracee_rc.as_rec_unwrap();
-            if tracee.emulated_ptrace_sigchld_pending {
-                tracee.emulated_ptrace_sigchld_pending = false;
+            if tracee.emulated_ptrace_sigchld_pending.get() {
+                tracee.emulated_ptrace_sigchld_pending.set(false);
                 let sia: &mut siginfo_t_arch<NativeArch> = unsafe { mem::transmute(si) };
                 tracee.set_siginfo_for_waited_task::<NativeArch>(sia);
                 sia._sifields._rt.si_sigval_.sival_int = 0;
@@ -1388,8 +1391,8 @@ impl RecordTask {
         for child_tg in self.thread_group().children() {
             for child in child_tg.borrow().task_set() {
                 let rchild = child.as_rec_unwrap();
-                if rchild.emulated_sigchld_pending {
-                    rchild.emulated_sigchld_pending = false;
+                if rchild.emulated_sigchld_pending.get() {
+                    rchild.emulated_sigchld_pending.set(false);
                     let sia: &mut siginfo_t_arch<NativeArch> = unsafe { mem::transmute(si) };
                     rchild.set_siginfo_for_waited_task::<NativeArch>(sia);
                     sia._sifields._rt.si_sigval_.sival_int = 0;
@@ -1403,10 +1406,10 @@ impl RecordTask {
 
     pub fn set_siginfo_for_waited_task<Arch: Architecture>(&self, si: &mut siginfo_t_arch<Arch>) {
         // XXX handle CLD_EXITED here
-        if self.emulated_stop_type == EmulatedStopType::GroupStop {
+        if self.emulated_stop_type.get() == EmulatedStopType::GroupStop {
             si.si_code = CLD_STOPPED;
             // @TODO Do we want just a maybe_stop_sig().unwrap_sig().as_raw() approach here?
-            let maybe_stop_sig = self.emulated_stop_code.maybe_stop_sig();
+            let maybe_stop_sig = self.emulated_stop_code.get().maybe_stop_sig();
             if maybe_stop_sig.is_sig() {
                 si._sifields._sigchld.si_status_ = maybe_stop_sig.unwrap_sig().as_raw();
             } else {
@@ -1417,6 +1420,7 @@ impl RecordTask {
             // @TODO Is this approach what we want? Or do we want ptrace_signal().unwrap().as_raw() ?
             si._sifields._sigchld.si_status_ = self
                 .emulated_stop_code
+                .get()
                 .ptrace_signal()
                 .map_or(0, |sig| sig.as_raw());
         }
@@ -1427,7 +1431,7 @@ impl RecordTask {
     /// Return a reference to the saved siginfo record for the stop-signal
     /// that we're currently in a ptrace-stop for.
     pub fn get_saved_ptrace_siginfo(&self) -> &siginfo_t {
-        let sig = self.emulated_stop_code.ptrace_signal().unwrap();
+        let sig = self.emulated_stop_code.get().ptrace_signal().unwrap();
         for it in &self.saved_ptrace_siginfos {
             if it.si_signo == sig.as_raw() {
                 return it;
@@ -1474,7 +1478,7 @@ impl RecordTask {
             _ => return false,
         }
         // XXX need to check |options| to make sure this task is eligible!!
-        match self.in_wait_type {
+        match self.in_wait_type.get() {
             WaitType::WaitTypeNone => false,
             WaitType::WaitTypeAny => true,
             WaitType::WaitTypeSamePgid => {
@@ -1482,7 +1486,7 @@ impl RecordTask {
                     == getpgid(Some(Pid::from_raw(self.tgid()))).unwrap()
             }
             WaitType::WaitTypePgid => {
-                getpgid(Some(Pid::from_raw(t.tgid()))).unwrap().as_raw() == self.in_wait_pid
+                getpgid(Some(Pid::from_raw(t.tgid()))).unwrap().as_raw() == self.in_wait_pid.get()
             }
             WaitType::WaitTypePid =>
             // When waiting for a ptracee, a specific pid is interpreted as the
@@ -1503,7 +1507,7 @@ impl RecordTask {
             return false;
         }
 
-        match self.in_wait_type {
+        match self.in_wait_type.get() {
             WaitType::WaitTypeNone => false,
             WaitType::WaitTypeAny => true,
             WaitType::WaitTypeSamePgid => {
@@ -1511,9 +1515,9 @@ impl RecordTask {
                     == getpgid(Some(Pid::from_raw(self.tgid()))).unwrap()
             }
             WaitType::WaitTypePgid => {
-                getpgid(Some(Pid::from_raw(t.tgid()))).unwrap().as_raw() == self.in_wait_pid
+                getpgid(Some(Pid::from_raw(t.tgid()))).unwrap().as_raw() == self.in_wait_pid.get()
             }
-            WaitType::WaitTypePid => t.tgid() == self.in_wait_pid,
+            WaitType::WaitTypePid => t.tgid() == self.in_wait_pid.get(),
         }
     }
 
@@ -1521,11 +1525,11 @@ impl RecordTask {
     /// notifying ptracer if necessary.
     /// DIFF NOTE: Additional param `maybe_active_sibling` to deal with already borrowed possibility.
     pub fn apply_group_stop(&self, sig: Sig, maybe_active_sibling: Option<&RecordTask>) {
-        if self.emulated_stop_type == EmulatedStopType::NotStopped {
+        if self.emulated_stop_type.get() == EmulatedStopType::NotStopped {
             log!(
                 LogDebug,
                 "setting {} to GROUP_STOP due to signal {}",
-                self.tid,
+                self.tid(),
                 sig
             );
             let status: WaitStatus = WaitStatus::for_group_sig(sig, self);
@@ -1534,13 +1538,13 @@ impl RecordTask {
                 self.emulated_ptracer.as_ref().map(|w| w.upgrade().unwrap());
             match maybe_emulated_ptrace {
                 None => {
-                    self.emulated_stop_type = EmulatedStopType::GroupStop;
-                    self.emulated_stop_code = status;
-                    self.emulated_stop_pending = true;
-                    self.emulated_sigchld_pending = true;
+                    self.emulated_stop_type.set(EmulatedStopType::GroupStop);
+                    self.emulated_stop_code.set(status);
+                    self.emulated_stop_pending.set(true);
+                    self.emulated_sigchld_pending.set(true);
                     match self
                         .session()
-                        .find_task_from_rec_tid(get_ppid(self.tid).unwrap())
+                        .find_task_from_rec_tid(get_ppid(self.tid()).unwrap())
                     {
                         Some(t) => t.as_rec_unwrap().send_synthetic_sigchld_if_necessary(),
                         None => (),
@@ -1604,7 +1608,8 @@ impl RecordTask {
     /// Return true if `sig` is pending but hasn't been reported to ptrace yet
     /// DIFF NOTE: A little more stricter than rr due to the unwraps and assert
     pub fn is_signal_pending(&self, sig: Sig) -> bool {
-        let mut pending_strs = read_proc_status_fields(self.tid, &[b"SigPnd", b"ShdPnd"]).unwrap();
+        let mut pending_strs =
+            read_proc_status_fields(self.tid(), &[b"SigPnd", b"ShdPnd"]).unwrap();
         ed_assert_eq!(self, pending_strs.len(), 2);
 
         let mask2 =

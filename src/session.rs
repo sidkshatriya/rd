@@ -274,7 +274,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
                 self.weak_self.clone(),
                 maybe_parent,
                 tg.borrow().tgid,
-                t.tid,
+                t.tid(),
                 t.own_namespace_tid(),
                 tg.borrow().tguid().serial(),
             )
@@ -337,6 +337,6 @@ pub trait Session: DerefMut<Target = SessionInner> {
 }
 
 fn on_create_task_common<S: Session>(sess: &S, t: TaskSharedPtr) {
-    let rec_tid = t.rec_tid;
+    let rec_tid = t.rec_tid();
     sess.task_map.borrow_mut().insert(rec_tid, t);
 }

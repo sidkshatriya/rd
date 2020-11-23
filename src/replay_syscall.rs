@@ -1812,7 +1812,7 @@ fn finish_shared_mmap<'a>(
     };
 
     for fd in fds {
-        if remote.task().rec_tid == fd.tid() {
+        if remote.task().rec_tid() == fd.tid {
             process(remote.task_mut(), fd);
         } else {
             match remote.task().session().find_task_from_rec_tid(fd.tid) {

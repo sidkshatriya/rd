@@ -667,7 +667,7 @@ impl RecordSession {
             LogDebug,
             "trace time {}: Active task is {}. Events:",
             t.trace_time(),
-            t.tid
+            t.tid()
         );
 
         if is_logging!(LogDebug) {
@@ -940,7 +940,7 @@ impl RecordSession {
         log!(
             LogDebug,
             "  {}: handle_ptrace_event {}: event {}",
-            t.tid,
+            t.tid(),
             t.maybe_ptrace_event(),
             t.as_rec_unwrap().ev()
         );
@@ -1057,7 +1057,7 @@ impl RecordSession {
                     // in memory accessible to another process even after exec, i.e. a
                     // shared-memory mapping or two different thread-groups sharing the same
                     // address space.
-                    let tid = t.rec_tid;
+                    let tid = t.rec_tid();
                     let status: WaitStatus = t.status();
                     // Mark task as unstable so we don't wait on its futex. This matches
                     // what the kernel would do.
@@ -1137,7 +1137,7 @@ impl RecordSession {
         // try to commit the current record; we've already
         // recorded that syscall.  The following event sets
         // the abort-commit bit.
-        let syscallbuf_child = t.syscallbuf_child;
+        let syscallbuf_child = t.syscallbuf_child.get();
         write_val_mem(
             t,
             RemotePtr::<u8>::cast(syscallbuf_child) + offset_of!(syscallbuf_hdr, abort_commit),
@@ -1154,7 +1154,7 @@ impl RecordSession {
         // aborted record, and won't touch the syscallbuf
         // during this (aborted) transaction again.  So now
         // is a good time for us to reset the record counter.
-        t.delay_syscallbuf_reset_for_desched = false;
+        t.delay_syscallbuf_reset_for_desched.set(false);
         // Run the syscallbuf exit hook. This ensures we'll be able to reset
         // the syscallbuf before trying to buffer another syscall.
         write_val_mem(
@@ -1182,7 +1182,7 @@ impl RecordSession {
                 let has_handler = t.signal_has_user_handler(sig);
                 let mut done = false;
                 if has_handler {
-                    log!(LogDebug, "  {}: {} has user handler", t.tid, sig);
+                    log!(LogDebug, "  {}: {} has user handler", t.tid(), sig);
 
                     if !inject_handled_signal(t) {
                         // Signal delivery isn't happening. Prepare to process the new
@@ -1216,7 +1216,7 @@ impl RecordSession {
                     }
                 } else {
                     t.stashed_signal_processed();
-                    log!(LogDebug, "  {}: no user handler for {}", t.tid, sig);
+                    log!(LogDebug, "  {}: no user handler for {}", t.tid(), sig);
                     // Don't do another task continue. We want to deliver the signal
                     // as the next thing that the task does.
                     step_state.continue_type = ContinueType::DontContinue;
@@ -1336,7 +1336,7 @@ impl RecordSession {
                 debug_exec_state("EXEC_SYSCALL_ENTRY_PTRACE", t);
                 step_state.continue_type = ContinueType::DontContinue;
                 self.last_task_switchable.set(Switchable::AllowSwitch);
-                if t.emulated_stop_type != EmulatedStopType::NotStopped {
+                if t.emulated_stop_type.get() != EmulatedStopType::NotStopped {
                     // Don't go any further.
                     return;
                 }
@@ -1369,7 +1369,7 @@ impl RecordSession {
             }
             SyscallState::EnteringSyscall => {
                 debug_exec_state("EXEC_SYSCALL_ENTRY", t);
-                ed_assert!(t, !t.emulated_stop_pending);
+                ed_assert!(t, !t.emulated_stop_pending.get());
 
                 self.last_task_switchable.set(rec_prepare_syscall(t));
                 t.ev_mut().syscall_event_mut().switchable = self.last_task_switchable.get();
@@ -1385,7 +1385,7 @@ impl RecordSession {
                 debug_exec_state("after cont", t);
                 t.ev_mut().syscall_event_mut().state = SyscallState::ProcessingSyscall;
 
-                if t.emulated_stop_pending {
+                if t.emulated_stop_pending.get() {
                     step_state.continue_type = ContinueType::DontContinue;
                 } else {
                     // Resume the syscall execution in the kernel context.
@@ -1675,11 +1675,11 @@ impl RecordSession {
 
         ed_assert!(&**t, step_state.continue_type != ContinueType::DontContinue);
         // A task in an emulated ptrace-stop must really stay stopped
-        ed_assert!(&**t, !t.as_rec_unwrap().emulated_stop_pending);
+        ed_assert!(&**t, !t.as_rec_unwrap().emulated_stop_pending.get());
 
         let may_restart = t.as_rec_unwrap().at_may_restart_syscall();
 
-        if may_restart && t.seccomp_bpf_enabled {
+        if may_restart && t.seccomp_bpf_enabled.get() {
             log!(
                 LogDebug,
                 "  PTRACE_SYSCALL to possibly-restarted {}",
@@ -1763,9 +1763,9 @@ impl RecordSession {
                 None => (),
             }
 
-            let mut singlestep = t.as_rec_unwrap().emulated_ptrace_cont_command
+            let mut singlestep = t.as_rec_unwrap().emulated_ptrace_cont_command.get()
                 == PTRACE_SINGLESTEP
-                || t.as_rec_unwrap().emulated_ptrace_cont_command == PTRACE_SYSEMU_SINGLESTEP;
+                || t.as_rec_unwrap().emulated_ptrace_cont_command.get() == PTRACE_SYSEMU_SINGLESTEP;
 
             let t_at_ip = t.ip();
             if singlestep && is_at_syscall_instruction(&**t, t_at_ip) {
@@ -1793,7 +1793,7 @@ impl RecordSession {
                 //   makes PTRACE_SYSCALL traps be delivered *before* seccomp RET_TRACE
                 //   traps.
                 //   Detect and handle this.
-                if !t.seccomp_bpf_enabled
+                if !t.seccomp_bpf_enabled.get()
                     || may_restart
                     || self.syscall_seccomp_ordering_.get()
                         == PtraceSyscallSeccompOrdering::SyscallBeforeSeccompUnknown
@@ -1868,7 +1868,7 @@ impl RecordSession {
 
             if self.syscall_seccomp_ordering_.get()
                 == PtraceSyscallSeccompOrdering::SyscallBeforeSeccompUnknown
-                && t.seccomp_bpf_enabled
+                && t.seccomp_bpf_enabled.get()
             {
                 // We received a PTRACE_SYSCALL notification before the seccomp
                 // notification. Ignore it and continue to the seccomp notification.
@@ -1904,9 +1904,9 @@ impl RecordSession {
 
         self.check_initial_task_syscalls(t, step_result);
         note_entering_syscall(t);
-        if t.emulated_ptrace_cont_command == PTRACE_SYSCALL
-            || t.emulated_ptrace_cont_command == PTRACE_SYSEMU
-            || t.emulated_ptrace_cont_command == PTRACE_SYSEMU_SINGLESTEP
+        if t.emulated_ptrace_cont_command.get() == PTRACE_SYSCALL
+            || t.emulated_ptrace_cont_command.get() == PTRACE_SYSEMU
+            || t.emulated_ptrace_cont_command.get() == PTRACE_SYSEMU_SINGLESTEP
                 && !is_in_privileged_syscall(t)
         {
             // There MUST be an emulated ptracer
@@ -1921,9 +1921,9 @@ impl RecordSession {
             );
             t.record_current_event();
 
-            t.ev_mut().syscall_event_mut().in_sysemu = t.emulated_ptrace_cont_command
+            t.ev_mut().syscall_event_mut().in_sysemu = t.emulated_ptrace_cont_command.get()
                 == PTRACE_SYSEMU
-                || t.emulated_ptrace_cont_command == PTRACE_SYSEMU_SINGLESTEP;
+                || t.emulated_ptrace_cont_command.get() == PTRACE_SYSEMU_SINGLESTEP;
         }
 
         true
@@ -2049,7 +2049,7 @@ impl RecordSession {
         }
 
         let t = maybe_t.unwrap();
-        let tid = t.tid;
+        let tid = t.tid();
         ed_assert_eq!(&**t, rec_tid, t.tgid());
         let own_namespace_tid = t.thread_group().real_tgid_own_namespace;
 
@@ -2472,9 +2472,9 @@ fn seccomp_trap_done(t: &RecordTask) {
     t.pop_seccomp_trap();
 
     // It's safe to reset the syscall buffer now.
-    t.delay_syscallbuf_reset_for_seccomp_trap = false;
+    t.delay_syscallbuf_reset_for_seccomp_trap.set(false);
 
-    let syscallbuf_child = t.syscallbuf_child;
+    let syscallbuf_child = t.syscallbuf_child.get();
     write_val_mem(
         t,
         syscallbuf_child.as_rptr_u8() + offset_of!(syscallbuf_hdr, failed_during_preparation),
@@ -2552,7 +2552,7 @@ fn save_interrupted_syscall_ret_in_syscallbuf(t: &RecordTask, retval: isize) {
 }
 
 fn maybe_trigger_emulated_ptrace_syscall_exit_stop(t: &RecordTask) {
-    if t.emulated_ptrace_cont_command == PTRACE_SYSCALL {
+    if t.emulated_ptrace_cont_command.get() == PTRACE_SYSCALL {
         // We MUST have an emulated ptracer
         let emulated_ptracer = t.emulated_ptracer.as_ref().unwrap().upgrade().unwrap();
         t.emulate_ptrace_stop(
@@ -2562,8 +2562,8 @@ fn maybe_trigger_emulated_ptrace_syscall_exit_stop(t: &RecordTask) {
             None,
             None,
         );
-    } else if t.emulated_ptrace_cont_command == PTRACE_SINGLESTEP
-        || t.emulated_ptrace_cont_command == PTRACE_SYSEMU_SINGLESTEP
+    } else if t.emulated_ptrace_cont_command.get() == PTRACE_SINGLESTEP
+        || t.emulated_ptrace_cont_command.get() == PTRACE_SYSEMU_SINGLESTEP
     {
         // We MUST have an emulated ptracer
         let emulated_ptracer = t.emulated_ptracer.as_ref().unwrap().upgrade().unwrap();
@@ -2894,7 +2894,7 @@ fn handle_seccomp_trap(t: &RecordTask, step_state: &mut StepState, seccomp_data:
 
         // desched may be armed but we're not going to execute the syscall, let
         // alone block. If it fires, ignore it.
-        let syscallbuf_child = t.syscallbuf_child;
+        let syscallbuf_child = t.syscallbuf_child.get();
         write_val_mem(
             t,
             RemotePtr::<u8>::cast(syscallbuf_child)
@@ -2998,7 +2998,7 @@ fn handle_ptrace_exit_event(t: &RecordTask) -> bool {
         return false;
     }
 
-    if t.stable_exit {
+    if t.stable_exit.get() {
         log!(LogDebug, "stable exit");
     } else {
         if !t.may_be_blocked() {
@@ -3165,7 +3165,12 @@ fn mask_low_bit<T>(p: RemotePtr<T>) -> RemotePtr<T> {
 fn maybe_restart_syscall(t: &RecordTask) -> bool {
     let arch = t.arch();
     if is_restart_syscall_syscall(t.regs_ref().original_syscallno() as i32, arch) {
-        log!(LogDebug, "  {}: SYS_restart_syscall'ing {}", t.tid, t.ev());
+        log!(
+            LogDebug,
+            "  {}: SYS_restart_syscall'ing {}",
+            t.tid(),
+            t.ev()
+        );
     }
 
     if t.is_syscall_restart() {
@@ -3188,7 +3193,7 @@ fn syscall_not_restarted(t: &RecordTask) {
     log!(
         LogDebug,
         "  {}: popping abandoned interrupted {}; pending events:",
-        t.tid,
+        t.tid(),
         t.ev()
     );
 
@@ -3212,9 +3217,9 @@ fn record_exit(t: &RecordTask, exit_status: WaitStatus) {
         .as_record()
         .unwrap()
         .trace_writer_mut()
-        .write_task_event(&TraceTaskEvent::for_exit(t.tid, exit_status));
+        .write_task_event(&TraceTaskEvent::for_exit(t.tid(), exit_status));
 
-    if t.thread_group().tgid == t.tid {
+    if t.thread_group().tgid == t.tid() {
         t.thread_group_mut().exit_status = exit_status;
     }
 }
