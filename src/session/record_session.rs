@@ -465,7 +465,7 @@ impl RecordSession {
             Rc::get_mut_unchecked(&mut rc)
                 .as_record_mut()
                 .unwrap()
-                .initial_thread_group = Some(t.borrow().thread_group_shr_ptr());
+                .initial_thread_group = Some(t.thread_group_shr_ptr());
         }
         rc.on_create_task(t);
         rc
@@ -634,27 +634,16 @@ impl RecordSession {
         let mut t = self.scheduler().current().unwrap();
         match maybe_prev_task {
             Some(prev_task)
-                if prev_task
-                    .borrow()
-                    .as_record_task()
-                    .unwrap()
-                    .ev()
-                    .event_type()
-                    == EventType::EvSched =>
+                if prev_task.as_record_task().unwrap().ev().event_type() == EventType::EvSched =>
             {
                 if !Rc::ptr_eq(&prev_task, &t) {
                     // We did do a context switch, so record the SCHED event. Otherwise
                     // we'll just discard it.
-                    prev_task
-                        .borrow_mut()
-                        .as_record_task_mut()
-                        .unwrap()
-                        .record_current_event();
+                    prev_task.as_record_task().unwrap().record_current_event();
                 }
 
                 prev_task
-                    .borrow_mut()
-                    .as_record_task_mut()
+                    .as_record_task()
                     .unwrap()
                     .pop_event(EventType::EvSched);
             }
@@ -662,15 +651,12 @@ impl RecordSession {
         }
 
         if rescheduled.started_new_timeslice {
-            let regs = t.borrow().regs_ref().clone();
-            t.borrow_mut()
-                .as_record_task_mut()
+            let regs = t.regs_ref().clone();
+            t.as_record_task()
                 .unwrap()
                 .registers_at_start_of_last_timeslice = regs;
-            t.borrow_mut()
-                .as_record_task_mut()
-                .unwrap()
-                .time_at_start_of_last_timeslice = self.trace_writer().time();
+            t.as_record_task().unwrap().time_at_start_of_last_timeslice =
+                self.trace_writer().time();
         }
 
         // Have to disable context-switching until we know it's safe
@@ -680,20 +666,20 @@ impl RecordSession {
         log!(
             LogDebug,
             "trace time {}: Active task is {}. Events:",
-            t.borrow().trace_time(),
-            t.borrow().tid
+            t.trace_time(),
+            t.tid
         );
 
         if is_logging!(LogDebug) {
-            t.borrow().log_pending_events();
+            t.log_pending_events();
         }
 
-        if handle_ptrace_exit_event(t.borrow_mut().as_rec_mut_unwrap()) {
+        if handle_ptrace_exit_event(t.as_rec_unwrap()) {
             // t is dead and has been deleted.
             return result;
         }
 
-        if t.borrow().unstable.get() {
+        if t.unstable.get() {
             // Do not record non-ptrace-exit events for tasks in
             // an unstable exit. We can't replay them. This happens in the
             // signal_deferred test; the signal gets re-reported to us.
@@ -3054,7 +3040,7 @@ fn rec_abort_prepared_syscall(t: &mut RecordTask) {
 
 /// Return true if we handle a ptrace exit event for task t. When this returns
 /// true, t has been deleted and cannot be referenced again.
-fn handle_ptrace_exit_event(t: &mut RecordTask) -> bool {
+fn handle_ptrace_exit_event(t: &RecordTask) -> bool {
     if t.maybe_ptrace_event() != PTRACE_EVENT_EXIT {
         return false;
     }

@@ -144,19 +144,19 @@ impl FileMonitor for MmappedFileMonitor {
                             // wrong.
                             // Make sure we use a task for this address space. `t` might have
                             // a different address space.
-                                for rt_ref in v.task_set().iter() {
-                                    // If the task here has execed, we may not be able to record its
-                                    // memory any longer, so loop through all tasks in this address
-                                    // space in turn in case any *didn't* exec.
-                                    let result = rt_ref
-                                        .as_rec_unwrap()
-                                        .record_remote_range_fallible(km.intersect(&mr));
-                                    if let Ok(nread) = result {
-                                        if nread > 0 {
-                                            break;
-                                        }
+                            for rt_ref in v.task_set().iter() {
+                                // If the task here has execed, we may not be able to record its
+                                // memory any longer, so loop through all tasks in this address
+                                // space in turn in case any *didn't* exec.
+                                let result = rt_ref
+                                    .as_rec_unwrap()
+                                    .record_remote_range_fallible(km.intersect(&mr));
+                                if let Ok(nread) = result {
+                                    if nread > 0 {
+                                        break;
                                     }
                                 }
+                            }
                         }
                     }
                     local_offset = local_offset + r.length as u64;

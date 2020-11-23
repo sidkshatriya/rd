@@ -1412,12 +1412,7 @@ pub mod address_space {
             match self.breakpoints.borrow().get(&addr) {
                 Some(bp) => {
                     let t = self.any_task_from_task_set().unwrap();
-                    write_val_mem::<u8>(
-                        t.borrow_mut().as_mut(),
-                        addr.to_data_ptr::<u8>(),
-                        &bp.overwritten_data,
-                        None,
-                    );
+                    write_val_mem::<u8>(&**t, addr.to_data_ptr::<u8>(), &bp.overwritten_data, None);
                 }
                 None => (),
             }
@@ -1429,7 +1424,7 @@ pub mod address_space {
                 Some(_bp) => {
                     let t = self.any_task_from_task_set().unwrap();
                     write_val_mem::<u8>(
-                        t.borrow_mut().as_mut(),
+                        &**t,
                         addr.to_data_ptr::<u8>(),
                         &Self::BREAKPOINT_INSN,
                         None,
@@ -2540,9 +2535,8 @@ pub mod address_space {
                 let mut bytes_read: usize;
                 while num_bytes > 0 {
                     let buf_pos = addr.as_usize() - watchpoint_range.start().as_usize();
-                    let bytes_read_res = t
-                        .borrow_mut()
-                        .read_bytes_fallible(addr, &mut value_bytes[buf_pos..buf_pos + num_bytes]);
+                    let bytes_read_res =
+                        t.read_bytes_fallible(addr, &mut value_bytes[buf_pos..buf_pos + num_bytes]);
                     match bytes_read_res {
                         Ok(0) | Err(_) => {
                             valid = false;
@@ -2698,7 +2692,7 @@ pub mod address_space {
                 }
 
                 for t in self.task_set().iter_except_vec(except_vec.clone()) {
-                    if !t.borrow_mut().set_debug_regs(&regs) {
+                    if !t.set_debug_regs(&regs) {
                         ok = false;
                     }
                 }
@@ -2716,7 +2710,7 @@ pub mod address_space {
                     .map(|cloned_from_thread| cloned_from_thread.set_debug_regs(&mut regs));
             }
             for t2 in self.task_set().iter_except_vec(except_vec) {
-                t2.borrow_mut().set_debug_regs(&regs);
+                t2.set_debug_regs(&regs);
             }
 
             for v in self.watchpoints.borrow_mut().values_mut() {
@@ -3312,8 +3306,7 @@ fn thread_group_in_exec(t: &dyn Task) -> bool {
     }
 
     for tt in t.thread_group().task_set().iter_except(t.weak_self_ptr()) {
-        let rf = tt.borrow();
-        let rt = rf.as_record_task().unwrap();
+        let rt = tt.as_record_task().unwrap();
         let ev: &Event = rt.ev();
         if ev.is_syscall_event()
             && is_execve_syscall(ev.syscall_event().number, ev.syscall_event().arch())

@@ -245,9 +245,7 @@ impl ReplayCommand {
                 let t = replay_session.current_task().unwrap();
                 t.regs_ref().write_register_file_compact(out)?;
                 write!(out, " ")?;
-                t
-                    .extra_regs_ref()
-                    .write_register_file_compact(out)?;
+                t.extra_regs_ref().write_register_file_compact(out)?;
                 write!(out, " ticks:{}", t.tick_count())?;
             }
 

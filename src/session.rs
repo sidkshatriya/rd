@@ -132,11 +132,10 @@ pub trait Session: DerefMut<Target = SessionInner> {
         // method.
         let cc = self.clone_completion.replace(None).unwrap();
         for tgleader in &cc.address_spaces {
-            let rc = tgleader.clone_leader.upgrade().unwrap();
-            let mut leader = rc.borrow_mut();
+            let leader = tgleader.clone_leader.upgrade().unwrap();
             {
                 let mut found_syscall_buf = None;
-                let mut remote = AutoRemoteSyscalls::new(leader.as_mut());
+                let mut remote = AutoRemoteSyscalls::new(&**leader);
                 for (&mk, m) in &remote.vm().maps() {
                     if m.flags.contains(MappingFlags::IS_SYSCALLBUF) {
                         // DIFF NOTE: The whole reason why this approach is a bit different from rr because its
@@ -169,12 +168,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
             }
 
             copy_state(
-                tgleader
-                    .clone_leader
-                    .upgrade()
-                    .unwrap()
-                    .borrow_mut()
-                    .as_mut(),
+                &**tgleader.clone_leader.upgrade().unwrap(),
                 &tgleader.clone_leader_state,
             );
         }
@@ -343,6 +337,6 @@ pub trait Session: DerefMut<Target = SessionInner> {
 }
 
 fn on_create_task_common<S: Session>(sess: &S, t: TaskSharedPtr) {
-    let rec_tid = t.borrow().rec_tid;
+    let rec_tid = t.rec_tid;
     sess.task_map.borrow_mut().insert(rec_tid, t);
 }

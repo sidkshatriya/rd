@@ -34,7 +34,6 @@ use crate::{
 use libc::{pid_t, waitpid, EINTR, ENOSYS, SIGSTOP, SIGTRAP, WNOHANG, __WALL};
 use nix::errno::errno;
 use std::{
-
     ffi::{CString, OsStr, OsString},
     fmt::{self, Debug, Formatter},
     io::{stderr, Write},

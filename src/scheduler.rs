@@ -302,19 +302,18 @@ impl Scheduler {
                 log!(
                     LogDebug,
                     "  ({} is un-switchable at {})",
-                    curr.borrow().tid,
-                    curr.borrow().as_record_task().unwrap().ev()
+                    curr.tid,
+                    curr.as_rec_unwrap().ev()
                 );
 
-                if curr.borrow().is_running() {
+                if curr.is_running() {
                     log!(LogDebug, "  and running; waiting for state change");
                     // |current| is un-switchable, but already running. Wait for it to change
                     // state before "scheduling it", so avoid busy-waiting with our client
-                    curr.borrow_mut()
-                        .wait(Some(self.interrupt_after_elapsed_time()));
+                    curr.wait(Some(self.interrupt_after_elapsed_time()));
                     // @TODO Monitor unswitchable waits stuff
                     result.by_waitpid = true;
-                    log!(LogDebug, "  new status is {}", curr.borrow().status());
+                    log!(LogDebug, "  new status is {}", curr.status());
                 }
 
                 self.validate_scheduled_task();
@@ -337,7 +336,7 @@ impl Scheduler {
                         maybe_next = self.find_next_runnable_task(
                             Some(&curr),
                             &mut result.by_waitpid,
-                            curr.borrow().as_record_task().unwrap().priority - 1,
+                            curr.as_record_task().unwrap().priority - 1,
                         );
 
                         if maybe_next.is_some() {
@@ -352,8 +351,8 @@ impl Scheduler {
                     // (this might not hold if it was at the head of the queue but we
                     // rejected current_ and popped it in a previous iteration of this loop)
                     // -- it must be runnable, and not in an unstable exit.
-                    let tick_count = curr.borrow().tick_count();
-                    let is_unstable = curr.borrow().unstable.get();
+                    let tick_count = curr.tick_count();
+                    let is_unstable = curr.unstable.get();
                     if !is_unstable
                         && !self.always_switch.get()
                         && (round_robin_task.is_none()
@@ -362,17 +361,17 @@ impl Scheduler {
                             || !self.last_reschedule_in_high_priority_only_interval.get())
                         && tick_count < self.current_timeslice_end()
                         && self.is_task_runnable(
-                            curr.borrow_mut().as_record_task_mut().unwrap(),
+                            curr.as_record_task().unwrap(),
                             &mut result.by_waitpid,
                         )
                     {
-                        log!(LogDebug, "  Carrying on with task {}", curr.borrow().tid);
+                        log!(LogDebug, "  Carrying on with task {}", curr.tid);
                         self.validate_scheduled_task();
                         return result;
                     }
                     // Having rejected current_, be prepared to run the next task in the
                     // round-robin queue.
-                    self.maybe_pop_round_robin_task(curr.borrow_mut().as_rec_mut_unwrap());
+                    self.maybe_pop_round_robin_task(curr.as_rec_unwrap());
                 }
                 None => (),
             }
@@ -382,14 +381,13 @@ impl Scheduler {
             maybe_next = self.get_round_robin_task();
             match maybe_next.as_ref() {
                 Some(nt) => {
-                    log!(LogDebug, "Trying task {} from yield queue", nt.borrow().tid);
-                    if self.is_task_runnable(
-                        nt.borrow_mut().as_record_task_mut().unwrap(),
-                        &mut result.by_waitpid,
-                    ) {
+                    log!(LogDebug, "Trying task {} from yield queue", nt.tid);
+                    if self
+                        .is_task_runnable(nt.as_record_task_mut().unwrap(), &mut result.by_waitpid)
+                    {
                         break;
                     }
-                    self.maybe_pop_round_robin_task(nt.borrow_mut().as_rec_mut_unwrap());
+                    self.maybe_pop_round_robin_task(nt.as_rec_unwrap());
 
                     continue;
                 }
@@ -440,8 +438,8 @@ impl Scheduler {
         }
 
         match maybe_next.as_ref() {
-            Some(nt) if !nt.borrow().unstable.get() => {
-                log!(LogDebug, "  selecting task {}", nt.borrow().tid)
+            Some(nt) if !nt.unstable.get() => {
+                log!(LogDebug, "  selecting task {}", nt.tid)
             }
             _ => {
                 // All the tasks are blocked (or we found an unstable-exit task).
@@ -450,7 +448,7 @@ impl Scheduler {
                 // Clear the round-robin queue since we will no longer be able to service
                 // those tasks in-order.
                 while let Some(t) = self.get_round_robin_task() {
-                    self.maybe_pop_round_robin_task(t.borrow_mut().as_rec_mut_unwrap());
+                    self.maybe_pop_round_robin_task(t.as_rec_unwrap());
                 }
 
                 log!(
@@ -493,7 +491,7 @@ impl Scheduler {
                             let curr = self.current().unwrap();
                             // @TODO If we were interruped then self.current_ must be Some()
                             // Is that a fair assumption??
-                            ed_assert!(&curr.borrow(), self.must_run_task.borrow().is_none());
+                            ed_assert!(&curr.borrow(), self.must_run_task.is_none());
 
                             result.interrupted_by_signal = true;
 
@@ -513,7 +511,7 @@ impl Scheduler {
                             // will be marked as unstable even though it's actually not. There's
                             // no way to know until we see the EXEC event that we weren't really
                             // in an unstable exit.
-                            Some(nt) => nt.borrow_mut().unstable.set(false),
+                            Some(nt) => nt.unstable.set(false),
                             None => {
                                 // The thread-group-leader died and now the exec'ing thread has
                                 // changed its thread ID to be thread-group leader.
@@ -530,15 +528,15 @@ impl Scheduler {
 
                 let nt = maybe_next.as_ref().unwrap();
                 ed_assert!(
-                    &nt.borrow(),
-                    nt.borrow().unstable.get()
+                    &***nt,
+                    nt.unstable.get()
                         // Note the call to did_waitpid() below
-                        || nt.borrow().as_record_task().unwrap().may_be_blocked()
+                        || nt.as_record_task().unwrap().may_be_blocked()
                         || status.maybe_ptrace_event() == PTRACE_EVENT_EXIT,
                     "Scheduled task should have been blocked or unstable"
                 );
 
-                nt.borrow_mut().did_waitpid(status);
+                nt.did_waitpid(status);
                 result.by_waitpid = true;
                 *self.must_run_task.borrow_mut() = Some(Rc::downgrade(nt));
             }
@@ -549,17 +547,13 @@ impl Scheduler {
             Some(curr) if !Rc::ptr_eq(&curr, &nt) => log!(
                 LogDebug,
                 "Switching from {} ({:?}) to {} ({:?}) (priority {} to {}) at {}",
-                curr.borrow().tid,
-                curr.borrow().name(),
-                nt.borrow().tid,
-                nt.borrow().name(),
-                curr.borrow().as_record_task().unwrap().priority,
-                nt.borrow().as_record_task().unwrap().priority,
-                curr.borrow()
-                    .as_record_task()
-                    .unwrap()
-                    .trace_writer()
-                    .time()
+                curr.tid,
+                curr.name(),
+                nt.tid,
+                nt.name(),
+                curr.as_record_task().unwrap().priority,
+                nt.as_record_task().unwrap().priority,
+                curr.as_record_task().unwrap().trace_writer().time()
             ),
             _ => (),
         }
@@ -594,16 +588,11 @@ impl Scheduler {
         ed_assert!(t, !t.in_round_robin_queue);
         for PriorityTup(_, _, w) in self.task_priority_set.borrow().iter() {
             let tt = w.upgrade().unwrap();
-            if !Rc::ptr_eq(&rc_t, &tt)
-                && !tt.borrow().as_record_task().unwrap().in_round_robin_queue
-            {
+            if !Rc::ptr_eq(&rc_t, &tt) && !tt.as_record_task().unwrap().in_round_robin_queue {
                 self.task_round_robin_queue
                     .borrow_mut()
                     .push_back(w.clone());
-                tt.borrow_mut()
-                    .as_record_task_mut()
-                    .unwrap()
-                    .in_round_robin_queue = true;
+                tt.as_record_task_mut().unwrap().in_round_robin_queue = true;
             }
         }
 
@@ -616,15 +605,15 @@ impl Scheduler {
     }
 
     pub fn on_create_task(&self, t: TaskSharedPtr) {
-        debug_assert!(!t.borrow().as_record_task().unwrap().in_round_robin_queue);
+        debug_assert!(!t.as_record_task().unwrap().in_round_robin_queue);
         if self.enable_chaos.get() {
             // new tasks get a random priority
-            t.borrow_mut().as_record_task_mut().unwrap().priority = self.choose_random_priority(&t);
+            t.as_record_task_mut().unwrap().priority = self.choose_random_priority(&t);
         }
 
         self.task_priority_set.borrow_mut().insert(PriorityTup(
-            t.borrow().as_record_task().unwrap().priority,
-            t.borrow().stable_serial(),
+            t.as_record_task().unwrap().priority,
+            t.stable_serial(),
             Rc::downgrade(&t),
         ));
     }
@@ -761,22 +750,18 @@ impl Scheduler {
                 if !self.enable_chaos.get() {
                     let same_priority_vec = match maybe_t {
                         Some(t)
-                            if t.borrow().as_record_task().unwrap().priority == priority
+                            if t.as_record_task().unwrap().priority == priority
                                 && task_priority_setb.contains(&PriorityTup(
                                     priority,
-                                    t.borrow().stable_serial(),
-                                    t.borrow().weak_self_ptr(),
+                                    t.stable_serial(),
+                                    t.weak_self_ptr(),
                                 )) =>
                         {
                             let (lte, gt): (Vec<&PriorityTup>, Vec<&PriorityTup>) =
                                 same_priority_range.partition(|p| {
                                     // Its not important to exactly specify the weak ptr as its
                                     // ignored anyways in the cmp
-                                    **p <= PriorityTup(
-                                        priority,
-                                        t.borrow().stable_serial(),
-                                        Weak::new(),
-                                    )
+                                    **p <= PriorityTup(priority, t.stable_serial(), Weak::new())
                                 });
 
                             gt.iter().chain(lte.iter()).cloned().cloned().collect()
@@ -786,12 +771,7 @@ impl Scheduler {
 
                     for PriorityTup(_, _, task_weak) in same_priority_vec {
                         if self.is_task_runnable(
-                            task_weak
-                                .upgrade()
-                                .unwrap()
-                                .borrow_mut()
-                                .as_record_task_mut()
-                                .unwrap(),
+                            task_weak.upgrade().unwrap().as_record_task().unwrap(),
                             by_waitpid,
                         ) {
                             return Some(task_weak.upgrade().unwrap());
@@ -805,12 +785,7 @@ impl Scheduler {
 
                     for PriorityTup(_, _, task_weak) in same_priority_shuffled {
                         if self.is_task_runnable(
-                            task_weak
-                                .upgrade()
-                                .unwrap()
-                                .borrow_mut()
-                                .as_record_task_mut()
-                                .unwrap(),
+                            task_weak.upgrade().unwrap().as_record_task().unwrap(),
                             by_waitpid,
                         ) {
                             return Some(task_weak.upgrade().unwrap());
@@ -877,7 +852,7 @@ impl Scheduler {
             }
         }
 
-        let tick_count = self.current().unwrap().borrow().tick_count();
+        let tick_count = self.current().unwrap().tick_count();
         self.current_timeslice_end_.set(
             tick_count + (random::<Ticks>() % min(self.max_ticks_.get(), max_timeslice_duration)),
         );
@@ -903,15 +878,12 @@ impl Scheduler {
         for t in tasks {
             let tt = t.upgrade().unwrap();
             let priority = self.choose_random_priority(&tt);
-            self.update_task_priority_internal(
-                tt.borrow_mut().as_record_task_mut().unwrap(),
-                priority,
-            );
+            self.update_task_priority_internal(tt.as_record_task().unwrap(), priority);
         }
     }
 
     fn choose_random_priority(&self, t: &TaskSharedPtr) -> i32 {
-        let prob = if t.borrow().tgid() == t.borrow().tid {
+        let prob = if t.tgid() == t.tid {
             MAIN_THREAD_LOW_PRIORITY_PROBABILITY
         } else {
             LOW_PRIORITY_PROBABILITY
@@ -991,8 +963,7 @@ impl Scheduler {
     }
 
     fn treat_as_high_priority(&self, t: &TaskSharedPtr) -> bool {
-        self.task_priority_set.borrow().len() > 1
-            && t.borrow_mut().as_record_task_mut().unwrap().priority == 0
+        self.task_priority_set.borrow().len() > 1 && t.as_record_task().unwrap().priority == 0
     }
 
     /// Returns true if we should return t as the runnable task. Otherwise we
@@ -1088,7 +1059,7 @@ impl Scheduler {
     fn validate_scheduled_task(&self) {
         let curr = self.current().unwrap();
         ed_assert!(
-            &curr.borrow(),
+            &**curr,
             self.must_run_task.borrow().is_none()
                 || Rc::ptr_eq(
                     &self
@@ -1102,7 +1073,7 @@ impl Scheduler {
                 )
         );
         ed_assert!(
-            &curr.borrow(),
+            &**curr,
             self.task_round_robin_queue.borrow().is_empty()
                 || Rc::ptr_eq(
                     &curr,

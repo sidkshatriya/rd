@@ -489,8 +489,7 @@ fn prepare_clone<Arch: Architecture>(t: &mut ReplayTask) {
         Some(rec_tid),
     );
 
-    let mut new_task_ref = new_task_shr_ptr.borrow_mut();
-    let new_task: &mut ReplayTask = new_task_ref.as_replay_task_mut().unwrap();
+    let new_task: &ReplayTask = new_task_shr_ptr.as_replay_task().unwrap();
 
     if Arch::CLONE as isize == t.regs_ref().original_syscallno() {
         // FIXME: what if registers are non-null and contain an invalid address?
@@ -830,7 +829,7 @@ fn rep_process_syscall_arch<Arch: Architecture>(
             if VirtualPerfCounterMonitor::should_virtualize(&attr) {
                 let monitor: Box<dyn FileMonitor> = Box::new(VirtualPerfCounterMonitor::new(
                     t,
-                    maybe_target.unwrap().borrow().as_ref(),
+                    &**maybe_target.unwrap(),
                     &attr,
                 ));
                 t.fd_table_shr_ptr().add_monitor(t, fd, monitor);
@@ -878,8 +877,7 @@ fn rep_process_syscall_arch<Arch: Architecture>(
             match t.session().find_task_from_rec_tid(dest_pid) {
                 Some(found_rc) => {
                     t_rc = found_rc;
-                    t_b = t_rc.borrow_mut();
-                    Some(t_b.as_replay_task_mut().unwrap())
+                    Some(t_rc.as_replay_task().unwrap())
                 }
                 None => None,
             }
@@ -1039,8 +1037,7 @@ fn rep_after_enter_syscall_arch<Arch: Architecture>(t: &mut ReplayTask) {
             Some(target) => match t.regs_ref().arg1() as u32 {
                 PTRACE_POKETEXT | PTRACE_POKEDATA => {
                     target
-                        .borrow_mut()
-                        .as_replay_task_mut()
+                        .as_replay_task()
                         .unwrap()
                         .apply_all_data_records_from_trace();
                 }
@@ -1052,7 +1049,6 @@ fn rep_after_enter_syscall_arch<Arch: Architecture>(t: &mut ReplayTask) {
                 | PTRACE_DETACH => {
                     let command = t.regs_ref().arg1() as u32;
                     target
-                        .borrow_mut()
                         .set_syscallbuf_locked(command != PTRACE_CONT && command != PTRACE_DETACH);
                 }
                 PTRACE_SET_THREAD_AREA => {
@@ -1061,9 +1057,7 @@ fn rep_after_enter_syscall_arch<Arch: Architecture>(t: &mut ReplayTask) {
                     let desc: user_desc =
                         read_val_mem(t, RemotePtr::<user_desc>::from(child_addr), Some(&mut ok));
                     if ok {
-                        target
-                            .borrow_mut()
-                            .emulate_set_thread_area(t.regs_ref().arg3() as u32, desc);
+                        target.emulate_set_thread_area(t.regs_ref().arg3() as u32, desc);
                     }
                 }
                 _ => (),
@@ -1103,7 +1097,7 @@ pub fn process_execve(t: &mut ReplayTask, step: &mut ReplayTraceStep) {
     // different tgid.
     let mut maybe_memory_task = None;
     for task in t.vm().task_set().iter_except(t.weak_self_ptr()) {
-        if task.borrow().tgid() != t.tgid() {
+        if task.tgid() != t.tgid() {
             maybe_memory_task = Some(task);
             break;
         }
@@ -1190,12 +1184,9 @@ pub fn process_execve(t: &mut ReplayTask, step: &mut ReplayTraceStep) {
     // later we may try to unmap this task's syscallbuf.
     match maybe_memory_task {
         None => (),
-        Some(ref memory_task) => write_mem(
-            memory_task.borrow_mut().as_mut(),
-            remote_mem,
-            saved_data.as_slice(),
-            None,
-        ),
+        Some(ref memory_task) => {
+            write_mem(&***memory_task, remote_mem, saved_data.as_slice(), None)
+        }
     }
 
     let mut kms: Vec<KernelMapping> = Vec::new();
@@ -1800,7 +1791,7 @@ fn finish_shared_mmap<'a>(
         emufile.borrow().emu_path()
     );
 
-    let process = |rt: &mut dyn Task, fd: &TraceRemoteFd| -> () {
+    let process = |rt: &dyn Task, fd: &TraceRemoteFd| -> () {
         let maybe_mon = rt.fd_table().get_monitor(fd.fd);
         match maybe_mon {
             Some(file_mon_shr_ptr) => {
@@ -1827,8 +1818,7 @@ fn finish_shared_mmap<'a>(
         } else {
             match remote.task().session().find_task_from_rec_tid(fd.tid) {
                 Some(shr_ptr) => {
-                    let mut t_b = shr_ptr.borrow_mut();
-                    process(t_b.as_mut(), fd);
+                    process(&**shr_ptr, fd);
                 }
                 None => {
                     ed_assert!(remote.task(), false, "Can't find task {}", fd.tid);

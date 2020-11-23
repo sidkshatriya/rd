@@ -655,7 +655,7 @@ pub fn write_val_mem_with_flags<D: 'static>(
 ///
 /// Write array of `val`s to `child_addr`.
 pub fn write_mem<D: 'static>(
-    task: &mut dyn Task,
+    task: &dyn Task,
     child_addr: RemotePtr<D>,
     val: &[D],
     ok: Option<&mut bool>,
@@ -2311,7 +2311,7 @@ pub(super) fn reset_syscallbuf<T: Task>(t: &mut T) {
 /// Some task state must be copied into this by injecting and
 /// running syscalls in this task.  Other state is metadata
 /// that can simply be copied over in local memory
-pub(in super::super) fn copy_state(t: &mut dyn Task, state: &CapturedState) {
+pub(in super::super) fn copy_state(t: &dyn Task, state: &CapturedState) {
     t.set_regs(&state.regs);
     t.set_extra_regs(&state.extra_regs);
     {

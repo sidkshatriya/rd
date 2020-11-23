@@ -37,10 +37,10 @@ impl ProcMemMonitor {
                     let tid_str = String::from_utf8_lossy(tid_os_str.as_bytes());
                     let maybe_tid = tid_str.parse::<pid_t>();
                     let tid = maybe_tid.unwrap();
-                    let maybe_found =
-                        t.session()
-                            .find_task_from_rec_tid(tid)
-                            .map_or(None, |ft| Some(ft.tuid()));
+                    let maybe_found = t
+                        .session()
+                        .find_task_from_rec_tid(tid)
+                        .map_or(None, |ft| Some(ft.tuid()));
 
                     return ProcMemMonitor {
                         maybe_tuid: maybe_found,
@@ -75,7 +75,7 @@ impl FileMonitor for ProcMemMonitor {
 
         let mut offset = lazy_offset.retrieve(false).unwrap();
         let target_rc;
-        let task : &dyn Task = {
+        let task: &dyn Task = {
             let maybe_target = lazy_offset.t.session().find_task_from_task_uid(tuid);
             match maybe_target {
                 None => return,

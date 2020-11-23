@@ -403,7 +403,7 @@ impl<'a, 'b> AutoRestoreMem<'a, 'b> {
 ///
 /// Note: We do NOT want Copy or Clone.
 pub struct AutoRemoteSyscalls<'a> {
-    t: &'a mut dyn Task,
+    t: &'a dyn Task,
     initial_regs: Registers,
     initial_ip: RemoteCodePtr,
     initial_sp: RemotePtr<Void>,
@@ -436,7 +436,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
     /// And since struct TaskInner does NOT (deliberately) impl the Task trait
     /// AutoRemoteSyscalls needs to take a &mut dyn Task instead of &mut TaskInner.
     pub fn new_with_mem_params(
-        t: &mut dyn Task,
+        t: &dyn Task,
         enable_mem_params: MemParamsEnabled,
     ) -> AutoRemoteSyscalls {
         let mut remote = AutoRemoteSyscalls {
@@ -475,7 +475,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
     }
 
     /// You mostly want to use this convenience method.
-    pub fn new(t: &mut dyn Task) -> AutoRemoteSyscalls {
+    pub fn new(t: &dyn Task) -> AutoRemoteSyscalls {
         Self::new_with_mem_params(t, MemParamsEnabled::EnableMemoryParams)
     }
 

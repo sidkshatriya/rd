@@ -2397,13 +2397,13 @@ fn prepare_exit(t: &mut RecordTask, exit_code: i32) {
                 t.emulated_ptrace_queued_exit_stop = true;
                 t.emulate_ptrace_stop(
                     WaitStatus::for_ptrace_event(PTRACE_EVENT_EXIT),
-                    tracer_rc.borrow().as_rec_unwrap(),
+                    tracer_rc.as_rec_unwrap(),
                     None,
                     None,
                     None,
                 );
             } else {
-                do_ptrace_exit_stop(t, Some(tracer_rc.borrow().as_rec_unwrap()));
+                do_ptrace_exit_stop(t, Some(tracer_rc.as_rec_unwrap()));
             }
         }
         None => {
@@ -2622,7 +2622,7 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
                 if t.emulated_ptrace_options & PTRACE_O_TRACEEXEC != 0 {
                     t.emulate_ptrace_stop(
                         WaitStatus::for_ptrace_event(PTRACE_EVENT_EXEC),
-                        tracer_rc.borrow().as_rec_unwrap(),
+                        tracer_rc.as_rec_unwrap(),
                         None,
                         None,
                         None,
@@ -2687,11 +2687,7 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
             let monitor = if t.tid != tid {
                 Box::new(VirtualPerfCounterMonitor::new(
                     t,
-                    t.session()
-                        .find_task_from_rec_tid(tid)
-                        .unwrap()
-                        .borrow()
-                        .as_ref(),
+                    &**t.session().find_task_from_rec_tid(tid).unwrap(),
                     &attr,
                 ))
             } else {
@@ -2822,7 +2818,7 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
     if sys == Arch::PROCESS_VM_WRITEV {
         let tid = t.regs_ref().arg1() as i32;
         let task_rc: TaskSharedPtr;
-        let mut taskb;
+
         let dest_task;
         let maybe_dest = if tid == t.tid {
             None
@@ -2831,8 +2827,7 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
                 None => return,
                 Some(rc) => {
                     task_rc = rc;
-                    taskb = task_rc.borrow_mut();
-                    dest_task = taskb.as_rec_mut_unwrap();
+                    dest_task = task_rc.as_rec_unwrap();
                     Some(dest_task)
                 }
             }
@@ -2867,8 +2862,7 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
         match maybe_tracee {
             Some(tracee_weak) => {
                 let tracee_rc = tracee_weak.upgrade().unwrap();
-                let mut traceeb = tracee_rc.borrow_mut();
-                let tracee = traceeb.as_rec_mut_unwrap();
+                let tracee = tracee_rc.as_rec_unwrap();
                 // Finish emulation of ptrace result or stop-signal
                 let mut r: Registers = t.regs_ref().clone();
                 r.set_syscall_result(tracee.tid as usize);
@@ -2925,10 +2919,7 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
                             .task_set()
                             .iter_except(tracee.weak_self_ptr())
                         {
-                            thread
-                                .borrow_mut()
-                                .as_rec_mut_unwrap()
-                                .emulated_stop_pending = false;
+                            thread.as_rec_unwrap().emulated_stop_pending = false;
                         }
                     }
                 }
@@ -3516,13 +3507,11 @@ fn process_mmap(
         }
         for f in &extra_fds {
             let rc_t;
-            let mut tb;
-            let tt: &mut dyn Task = if f.tid == t.tid {
+            let tt: &dyn Task = if f.tid == t.tid {
                 t
             } else {
                 rc_t = t.session().find_task_from_rec_tid(f.tid).unwrap();
-                tb = rc_t.borrow_mut();
-                tb.as_mut()
+                &**rc_t
             };
 
             if tt.fd_table().is_monitoring(f.fd) {
@@ -3583,14 +3572,7 @@ fn monitor_fd_for_mapping(
     let mut our_mapping_writable = false;
     let mapped_table = Rc::downgrade(&mapped_t.fd_table_shr_ptr());
     let mapped_t_weak = mapped_t.weak_self_ptr();
-    for (_, ts) in mapped_t.session().tasks().iter() {
-        let tb;
-        let t: &dyn Task = if mapped_t_weak.ptr_eq(&Rc::downgrade(ts)) {
-            mapped_t
-        } else {
-            tb = ts.borrow();
-            tb.as_ref()
-        };
+    for (_, t) in mapped_t.session().tasks().iter() {
         if t.unstable.get() {
             // This task isn't a problem because it's exiting and won't write to its
             // fds. (Well in theory there could be a write in progress I suppose, but
@@ -3891,7 +3873,7 @@ fn process_execve(t: &mut RecordTask, syscall_state: &mut TaskSyscallState) {
 /// here.
 const FIXED_SCRATCH_PTR: usize = 0x68000000;
 
-fn init_scratch_memory(t: &mut RecordTask, maybe_addr_type: Option<ScratchAddrType>) {
+fn init_scratch_memory(t: &RecordTask, maybe_addr_type: Option<ScratchAddrType>) {
     let addr_type = maybe_addr_type.unwrap_or(ScratchAddrType::DynamicAddress);
     let scratch_size = 512 * page_size();
     // The PROT_EXEC looks scary, and it is, but it's to prevent
@@ -5184,8 +5166,8 @@ fn prepare_clone<Arch: Architecture>(t: &mut RecordTask, syscall_state: &mut Tas
         new_tid,
         None,
     );
-    let mut new_task_b = new_task_shr_ptr.borrow_mut();
-    let new_task = new_task_b.as_rec_mut_unwrap();
+
+    let new_task = new_task_shr_ptr.as_rec_unwrap();
 
     // Restore modified registers in cloned task
     let mut new_r: Registers = new_task.regs_ref().clone();
@@ -5225,16 +5207,13 @@ fn prepare_clone<Arch: Architecture>(t: &mut RecordTask, syscall_state: &mut Tas
     {
         // There MUST be a ptracer present. Hence the unwrap().
         let emulated_ptracer = t.emulated_ptracer.as_ref().unwrap().upgrade().unwrap();
-        new_task.set_emulated_ptracer(
-            Some(emulated_ptracer.borrow_mut().as_rec_mut_unwrap()),
-            None,
-        );
+        new_task.set_emulated_ptracer(Some(emulated_ptracer.as_rec_unwrap()), None);
         new_task.emulated_ptrace_seized = t.emulated_ptrace_seized;
         new_task.emulated_ptrace_options = t.emulated_ptrace_options;
         t.emulated_ptrace_event_msg = new_task.rec_tid as usize;
         t.emulate_ptrace_stop(
             WaitStatus::for_ptrace_event(ptrace_event),
-            emulated_ptracer.borrow().as_rec_unwrap(),
+            emulated_ptracer.as_rec_unwrap(),
             None,
             None,
             Some(new_task),
@@ -5277,8 +5256,7 @@ fn maybe_pause_instead_of_waiting(t: &mut RecordTask, options: i32) {
     let maybe_child: Option<TaskSharedPtr> = t.session().find_task_from_rec_tid(t.in_wait_pid);
     match maybe_child {
         Some(child_rc) => {
-            let mut childb = child_rc.borrow_mut();
-            let child = childb.as_rec_mut_unwrap();
+            let child = child_rc.as_rec_unwrap();
             if !t.is_waiting_for_ptrace(child) || t.is_waiting_for(child) {
                 return;
             }
@@ -5548,8 +5526,7 @@ fn verify_ptrace_target(
         match tracer.session().find_task_from_rec_tid(pid) {
             Some(rc_tracee) => {
                 {
-                    let mut rc_traceeb = rc_tracee.borrow_mut();
-                    let tracee = rc_traceeb.as_rec_mut_unwrap();
+                    let tracee = rc_tracee.as_rec_unwrap();
                     if tracee
                         .emulated_ptracer
                         .as_ref()
@@ -5730,7 +5707,7 @@ fn prepare_ptrace_attach(
             syscall_state.emulate_result_signed(-ESRCH as isize);
             return None;
         }
-        Some(tracee) if !check_ptracer_compatible(t, tracee.borrow().as_rec_unwrap()) => {
+        Some(tracee) if !check_ptracer_compatible(t, tracee.as_rec_unwrap()) => {
             syscall_state.emulate_result_signed(-EPERM as isize);
             return None;
         }
@@ -5777,7 +5754,7 @@ fn prepare_ptrace_traceme(
             syscall_state.emulate_result_signed(-ESRCH as isize);
             None
         }
-        Some(tracer) if !check_ptracer_compatible(tracer.borrow().as_rec_unwrap(), t) => {
+        Some(tracer) if !check_ptracer_compatible(tracer.as_rec_unwrap(), t) => {
             syscall_state.emulate_result_signed(-EPERM as isize);
             None
         }
@@ -5808,8 +5785,7 @@ fn prepare_ptrace<Arch: Architecture>(
             let maybe_tracee = prepare_ptrace_attach(t, pid, syscall_state);
             match maybe_tracee {
                 Some(tracee_rc) => {
-                    let mut traceeb = tracee_rc.borrow_mut();
-                    let tracee = traceeb.as_rec_mut_unwrap();
+                    let tracee = tracee_rc.as_rec_unwrap();
                     tracee.set_emulated_ptracer(Some(t), None);
                     tracee.emulated_ptrace_seized = false;
                     tracee.emulated_ptrace_options = 0;
@@ -5830,8 +5806,7 @@ fn prepare_ptrace<Arch: Architecture>(
             let maybe_tracer = prepare_ptrace_traceme(t, syscall_state);
             match maybe_tracer {
                 Some(tracer_rc) => {
-                    let mut tracerb = tracer_rc.borrow_mut();
-                    let tracer = tracerb.as_rec_mut_unwrap();
+                    let tracer = tracer_rc.as_rec_mut_unwrap();
                     t.set_emulated_ptracer(Some(tracer), None);
                     t.emulated_ptrace_seized = false;
                     t.emulated_ptrace_options = 0;
@@ -5848,8 +5823,7 @@ fn prepare_ptrace<Arch: Architecture>(
                         syscall_state.emulate_result_signed(-EIO as isize);
                     } else {
                         if verify_ptrace_options(t, syscall_state) {
-                            let mut traceeb = tracee_rc.borrow_mut();
-                            let tracee = traceeb.as_rec_mut_unwrap();
+                            let tracee = tracee_rc.as_rec_unwrap();
                             tracee.set_emulated_ptracer(Some(t), None);
                             tracee.emulated_ptrace_seized = true;
                             tracee.emulated_ptrace_options = t.regs_ref().arg4() as u32;
@@ -5867,8 +5841,7 @@ fn prepare_ptrace<Arch: Architecture>(
             let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
             match maybe_tracee {
                 Some(tracee_rc) => {
-                    let mut traceeb = tracee_rc.borrow_mut();
-                    let tracee = traceeb.as_rec_mut_unwrap();
+                    let tracee = tracee_rc.as_rec_unwrap();
                     if verify_ptrace_options(t, syscall_state) {
                         tracee.emulated_ptrace_options = t.regs_ref().arg4() as u32;
                         syscall_state.emulate_result(0);
@@ -5881,8 +5854,7 @@ fn prepare_ptrace<Arch: Architecture>(
             let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
             match maybe_tracee {
                 Some(tracee_rc) => {
-                    let mut traceeb = tracee_rc.borrow_mut();
-                    let tracee = traceeb.as_rec_mut_unwrap();
+                    let tracee = tracee_rc.as_rec_unwrap();
                     let datap = syscall_state.reg_parameter::<Arch::unsigned_long>(4, None, None);
                     write_val_mem(
                         t,
@@ -5899,8 +5871,7 @@ fn prepare_ptrace<Arch: Architecture>(
             let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
             match maybe_tracee {
                 Some(tracee_rc) => {
-                    let mut traceeb = tracee_rc.borrow_mut();
-                    let tracee = traceeb.as_rec_mut_unwrap();
+                    let tracee = tracee_rc.as_rec_unwrap();
                     let datap = syscall_state.reg_parameter::<siginfo_t<Arch>>(4, None, None);
                     let mut dest: siginfo_t<Arch> = unsafe { mem::zeroed() };
                     set_arch_siginfo(tracee.get_saved_ptrace_siginfo(), &mut dest);
@@ -5915,8 +5886,7 @@ fn prepare_ptrace<Arch: Architecture>(
             let data = syscall_state.reg_parameter::<Arch::user_regs_struct>(4, None, None);
             match maybe_tracee {
                 Some(tracee_rc) => {
-                    let mut traceeb = tracee_rc.borrow_mut();
-                    let tracee = traceeb.as_rec_mut_unwrap();
+                    let tracee = tracee_rc.as_rec_mut_unwrap();
                     let regs: Vec<u8> = tracee.regs_ref().get_ptrace_for_arch(Arch::arch());
                     ed_assert_eq!(t, regs.len(), data.referent_size());
                     t.write_bytes_helper(
@@ -5934,8 +5904,7 @@ fn prepare_ptrace<Arch: Architecture>(
             let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
             match maybe_tracee {
                 Some(tracee_rc) => {
-                    let mut traceeb = tracee_rc.borrow_mut();
-                    let tracee = traceeb.as_rec_mut_unwrap();
+                    let tracee = tracee_rc.as_rec_unwrap();
                     let data =
                         syscall_state.reg_parameter::<Arch::user_fpregs_struct>(4, None, None);
                     let regs: Vec<u8> =
@@ -5960,8 +5929,7 @@ fn prepare_ptrace<Arch: Architecture>(
                 let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
                 match maybe_tracee {
                     Some(tracee_rc) => {
-                        let mut traceeb = tracee_rc.borrow_mut();
-                        let tracee = traceeb.as_rec_mut_unwrap();
+                        let tracee = tracee_rc.as_rec_unwrap();
                         let data =
                             syscall_state.reg_parameter::<x86::user_fpxregs_struct>(4, None, None);
                         let regs = tracee.extra_regs_ref().get_user_fpxregs_struct();
@@ -5977,8 +5945,7 @@ fn prepare_ptrace<Arch: Architecture>(
                 let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
                 match maybe_tracee {
                     Some(tracee_rc) => {
-                        let mut traceeb = tracee_rc.borrow_mut();
-                        let tracee = traceeb.as_rec_mut_unwrap();
+                        let tracee = tracee_rc.as_rec_unwrap();
                         let regs = tracee.regs_ref().get_ptrace_for_arch(Arch::arch());
                         ptrace_get_reg_set::<Arch>(t, syscall_state, &regs);
                     }
@@ -5989,8 +5956,7 @@ fn prepare_ptrace<Arch: Architecture>(
                 let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
                 match maybe_tracee {
                     Some(tracee_rc) => {
-                        let mut traceeb = tracee_rc.borrow_mut();
-                        let tracee = traceeb.as_rec_mut_unwrap();
+                        let tracee = tracee_rc.as_rec_unwrap();
                         let regs = tracee.extra_regs_ref().get_user_fpregs_struct(Arch::arch());
                         ptrace_get_reg_set::<Arch>(t, syscall_state, &regs);
                     }
@@ -6001,8 +5967,7 @@ fn prepare_ptrace<Arch: Architecture>(
                 let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
                 match maybe_tracee {
                     Some(tracee_rc) => {
-                        let mut traceeb = tracee_rc.borrow_mut();
-                        let tracee = traceeb.as_rec_mut_unwrap();
+                        let tracee = tracee_rc.as_rec_unwrap();
                         match tracee.extra_regs_ref().format() {
                             Format::XSave => ptrace_get_reg_set::<Arch>(
                                 t,
@@ -6077,12 +6042,12 @@ fn prepare_ptrace<Arch: Architecture>(
                     let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
                     match maybe_tracee {
                         Some(tracee_rc) => {
-                            let format = tracee_rc.borrow_mut().extra_regs_ref().format();
+                            let format = tracee_rc.extra_regs_ref().format();
                             match format {
                                 Format::XSave => {
                                     ptrace_verify_set_reg_set::<Arch>(
                                         t,
-                                        tracee_rc.borrow_mut().extra_regs_ref().data_size(),
+                                        tracee_rc.extra_regs_ref().data_size(),
                                         syscall_state,
                                     );
                                 }
@@ -6110,8 +6075,7 @@ fn prepare_ptrace<Arch: Architecture>(
                     let datap = syscall_state.reg_parameter::<Arch::unsigned_word>(4, None, None);
                     let addr = RemotePtr::<Arch::unsigned_word>::from(t.regs_ref().arg3());
                     let mut ok = true;
-                    let mut traceeb = tracee_rc.borrow_mut();
-                    let tracee = traceeb.as_rec_mut_unwrap();
+                    let tracee = tracee_rc.as_rec_unwrap();
                     let v = read_val_mem(tracee, addr, Some(&mut ok));
                     if ok {
                         write_val_mem(t, datap, &v, None);
@@ -6127,8 +6091,7 @@ fn prepare_ptrace<Arch: Architecture>(
             let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
             match maybe_tracee {
                 Some(tracee_rc) => {
-                    let mut traceeb = tracee_rc.borrow_mut();
-                    let tracee = traceeb.as_rec_mut_unwrap();
+                    let tracee = tracee_rc.as_rec_unwrap();
                     let addr = RemotePtr::<Arch::unsigned_word>::from(t.regs_ref().arg3());
                     let data = Arch::as_unsigned_word(t.regs_ref().arg4());
                     let mut ok = true;
@@ -6148,8 +6111,7 @@ fn prepare_ptrace<Arch: Architecture>(
         PTRACE_PEEKUSER => {
             let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
             match maybe_tracee {
-                Some(tracee_rc) => {
-                    let tracee = tracee_rc.borrow();
+                Some(tracee) => {
                     // The actual syscall returns the data via the 'data' out-parameter.
                     // The behavior of returning the data as the system call result is
                     // provided by the glibc wrapper.
@@ -6261,8 +6223,7 @@ fn prepare_ptrace<Arch: Architecture>(
                         // Invalid signals in ptrace resume cause EIO
                         syscall_state.emulate_result_signed(-EIO as isize);
                     } else {
-                        let mut traceeb = tracee_rc.borrow_mut();
-                        let tracee = traceeb.as_rec_mut_unwrap();
+                        let tracee = tracee_rc.as_rec_unwrap();
                         tracee.set_syscallbuf_locked(command != PTRACE_CONT);
                         prepare_ptrace_cont(
                             tracee,
@@ -6280,8 +6241,7 @@ fn prepare_ptrace<Arch: Architecture>(
             let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
             match maybe_tracee {
                 Some(tracee_rc) => {
-                    let mut traceeb = tracee_rc.borrow_mut();
-                    let tracee = traceeb.as_rec_mut_unwrap();
+                    let tracee = tracee_rc.as_rec_unwrap();
                     tracee.set_syscallbuf_locked(false);
                     tracee.emulated_ptrace_options = 0;
                     tracee.emulated_ptrace_cont_command = 0;
@@ -6303,8 +6263,7 @@ fn prepare_ptrace<Arch: Architecture>(
             let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
             match maybe_tracee {
                 Some(tracee_rc) => {
-                    let mut traceeb = tracee_rc.borrow_mut();
-                    let tracee = traceeb.as_rec_mut_unwrap();
+                    let tracee = tracee_rc.as_rec_unwrap();
                     // The tracee could already be dead, in which case sending it a signal
                     // would move it out of the exit stop, preventing us from doing our
                     // clean up work.
@@ -6318,8 +6277,7 @@ fn prepare_ptrace<Arch: Architecture>(
         PTRACE_GET_THREAD_AREA | PTRACE_SET_THREAD_AREA => {
             let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
             match maybe_tracee {
-                Some(tracee_rc) => {
-                    let mut tracee = tracee_rc.borrow_mut();
+                Some(tracee) => {
                     if tracee.arch() != SupportedArch::X86 {
                         // This syscall should fail if the tracee is not x86
                         syscall_state.expect_errno = EIO;
@@ -6364,9 +6322,7 @@ fn prepare_ptrace<Arch: Architecture>(
             let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
             match maybe_tracee {
                 None => (),
-                Some(tracee_rc) => {
-                    let mut traceeb = tracee_rc.borrow_mut();
-                    let tracee = traceeb.as_rec_mut_unwrap();
+                Some(tracee) => {
                     if tracee.arch() != SupportedArch::X64 {
                         // This syscall should fail if the tracee is not
                         // x86_64
@@ -6418,8 +6374,8 @@ fn prepare_ptrace<Arch: Architecture>(
 
 /// if `maybe_dest` is `None` then this is interpreted to mean that `dest` is `t` also
 fn record_iovec_output<Arch: Architecture>(
-    t: &mut RecordTask,
-    maybe_dest: Option<&mut RecordTask>,
+    t: &RecordTask,
+    maybe_dest: Option<&RecordTask>,
     piov: RemotePtr<iovec<Arch>>,
     iov_cnt: u32,
 ) {

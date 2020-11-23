@@ -390,10 +390,7 @@ impl ReRunCommand {
                 if done_initial_exec && before_time >= self.trace_start {
                     if !done_first_step {
                         if self.function.is_some() {
-                            self.run_diversion_function(
-                                replay_session,
-                                &**old_task.unwrap()
-                            )?;
+                            self.run_diversion_function(replay_session, &**old_task.unwrap())?;
                             return Ok(());
                         }
 
@@ -425,8 +422,7 @@ impl ReRunCommand {
                 {
                     let old_task =
                         old_task_tuid.map_or(None, |id| replay_session.find_task_from_task_uid(id));
-                    let after_ip: RemoteCodePtr =
-                        old_task.as_ref().map_or(0.into(), |t| t.ip());
+                    let after_ip: RemoteCodePtr = old_task.as_ref().map_or(0.into(), |t| t.ip());
                     debug_assert!(after_time >= before_time && after_time <= before_time + 1);
 
                     debug_assert_eq!(result.status, ReplayStatus::ReplayContinue);
@@ -480,11 +476,7 @@ impl ReRunCommand {
         Ok(())
     }
 
-    fn run_diversion_function(
-        &self,
-        replay: &ReplaySession,
-        task: &dyn Task,
-    ) -> io::Result<()> {
+    fn run_diversion_function(&self, replay: &ReplaySession, task: &dyn Task) -> io::Result<()> {
         let diversion_session = replay.clone_diversion();
         let diversion_ref = diversion_session.borrow_mut();
         let t = diversion_ref.find_task_from_task_uid(task.tuid()).unwrap();
@@ -505,10 +497,9 @@ impl ReRunCommand {
         };
 
         loop {
-            let result =
-                diversion_session
-                    .borrow()
-                    .diversion_step(t.as_mut(), Some(cmd), None);
+            let result = diversion_session
+                .borrow()
+                .diversion_step(t.as_mut(), Some(cmd), None);
             self.write_regs(&**t, 0, 0, &mut stdout())?;
             match result.break_status.signal {
                 Some(siginfo) => {
