@@ -729,19 +729,23 @@ impl<'a> AutoRemoteSyscalls<'a> {
     }
 
     /// The Task in the context of which we're making syscalls.
+    #[inline]
     pub fn task(&self) -> &dyn Task {
         self.t
     }
 
+    #[inline]
     pub fn task_mut(&mut self) -> &mut dyn Task {
         self.t
     }
 
+    #[inline]
     pub fn vm(&self) -> &AddressSpace {
         self.t.vm()
     }
 
     /// A small helper to get at the Task's arch.
+    #[inline]
     pub fn arch(&self) -> SupportedArch {
         self.t.arch()
     }

@@ -785,6 +785,7 @@ pub mod address_space {
             AddressSpaceUid::new_with(self.leader_tid_, self.leader_serial, self.exec_count)
         }
 
+        #[inline]
         pub fn session(&self) -> SessionSharedPtr {
             self.session_.upgrade().unwrap()
         }
@@ -796,6 +797,7 @@ pub mod address_space {
             self.session_.upgrade()
         }
 
+        #[inline]
         pub fn session_weak(&self) -> &SessionSharedWeakPtr {
             &self.session_
         }

@@ -884,6 +884,7 @@ impl TaskInner {
     }
 
     /// Return the session this is part of.
+    #[inline]
     pub fn session(&self) -> SessionSharedPtr {
         self.session_.upgrade().unwrap()
     }

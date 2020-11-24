@@ -244,6 +244,7 @@ impl Scheduler {
         *self.session.borrow_mut() = weak_ptr;
     }
 
+    #[inline]
     fn session(&self) -> SessionSharedPtr {
         self.session.borrow().upgrade().unwrap()
     }

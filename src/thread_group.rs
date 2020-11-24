@@ -218,6 +218,7 @@ impl ThreadGroup {
         }
     }
 
+    #[inline]
     pub fn session(&self) -> SessionSharedPtr {
         self.session_.upgrade().unwrap()
     }
