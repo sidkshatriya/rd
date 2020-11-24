@@ -686,7 +686,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
                     r.set_arg1_signed(-1);
                     t.set_regs(&r);
                     let val = t.regs_ref().arg2() as i32;
-                    t.cpuid_mode = !!val;
+                    t.cpuid_mode = if val != 0 { 1 } else { 0 };
                     syscall_state.emulate_result(0);
                 }
             }
