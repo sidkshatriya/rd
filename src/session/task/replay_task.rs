@@ -228,13 +228,13 @@ impl ReplayTask {
     pub fn set_data_from_trace(&mut self, maybe_other: Option<&ReplayTask>) -> usize {
         let buf: RawData = self.trace_reader_mut().read_raw_data();
         if !buf.addr.is_null() && buf.data.len() > 0 {
-            if buf.rec_tid == self.rec_tid {
+            if buf.rec_tid == self.rec_tid() {
                 self.write_bytes_helper(buf.addr, &buf.data, None, WriteFlags::empty());
                 self.vm_shr_ptr()
                     .maybe_update_breakpoints(self, buf.addr, buf.data.len());
             } else if maybe_other
                 .as_ref()
-                .map_or(false, |o| o.rec_tid == buf.rec_tid)
+                .map_or(false, |o| o.rec_tid() == buf.rec_tid)
             {
                 let other = maybe_other.unwrap();
                 other.write_bytes_helper(buf.addr, &buf.data, None, WriteFlags::empty());
@@ -276,7 +276,7 @@ impl ReplayTask {
             match maybe_buf {
                 Some(buf) => {
                     if !buf.addr.is_null() && buf.data.len() > 0 {
-                        if buf.rec_tid == self.rec_tid {
+                        if buf.rec_tid == self.rec_tid() {
                             self.write_bytes_helper(buf.addr, &buf.data, None, WriteFlags::empty());
                             self.vm_shr_ptr().maybe_update_breakpoints(
                                 self,
@@ -312,7 +312,7 @@ impl ReplayTask {
     /// thread-group leader.
     pub fn set_real_tid_and_update_serial(&mut self, tid: pid_t) {
         self.hpc.set_tid(tid);
-        self.tid = tid;
+        self.tid.set(tid);
         self.serial = self.session().next_task_serial();
     }
 
@@ -333,9 +333,9 @@ impl ReplayTask {
 
         let mut remote = AutoRemoteSyscalls::new(self);
         if !syscallbuf_ptr.is_null() {
-            self.syscallbuf_size = syscallbuf_size;
+            self.syscallbuf_size.set(syscallbuf_size);
             remote.init_syscall_buffer(map_hint);
-            self.desched_fd_child = desched_counter_fd;
+            self.desched_fd_child.set(desched_counter_fd);
             // Prevent the child from closing this fd
             self.fd_table_shr_ptr().add_monitor(
                 self,
@@ -349,7 +349,7 @@ impl ReplayTask {
                 .read_mapped_region(None, None, None, None, None);
 
             if cloned_file_data_fd >= 0 {
-                self.cloned_file_data_fd_child = cloned_file_data_fd;
+                self.cloned_file_data_fd_child.set(cloned_file_data_fd);
                 let arch = self.arch();
                 let clone_file_name = self.trace_reader().file_data_clone_file_name(tuid);
                 let fd: i32 = {
@@ -383,7 +383,7 @@ impl ReplayTask {
             }
         }
 
-        let syscallbuf_child_addr = self.syscallbuf_child.as_usize();
+        let syscallbuf_child_addr = self.syscallbuf_child.get().as_usize();
         remote
             .initial_regs_mut()
             .set_syscall_result(syscallbuf_child_addr);

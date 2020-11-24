@@ -2884,11 +2884,11 @@ fn handle_seccomp_trap(t: &RecordTask, step_state: &mut StepState, seccomp_data:
     }
 
     if t.is_in_untraced_syscall() {
-        ed_assert!(t, !t.delay_syscallbuf_reset_for_seccomp_trap);
+        ed_assert!(t, !t.delay_syscallbuf_reset_for_seccomp_trap.get());
         // Don't reset the syscallbuf immediately after delivering the trap. We have
         // to wait until this buffered syscall aborts completely before resetting
         // the buffer.
-        t.delay_syscallbuf_reset_for_seccomp_trap = true;
+        t.delay_syscallbuf_reset_for_seccomp_trap.set(true);
 
         t.push_event(Event::seccomp_trap());
 

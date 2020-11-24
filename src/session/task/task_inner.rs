@@ -567,19 +567,19 @@ impl TaskInner {
     /// can vary based on how rd set up the child process. We have to flush
     /// out any state that might have been affected by that.
     pub fn flush_inconsistent_state(&mut self) {
-        self.ticks = 0;
+        self.ticks.set(0);
     }
 
     /// Return total number of ticks ever executed by this task.
     /// Updates tick count from the current performance counter values if
     /// necessary.
     pub fn tick_count(&self) -> Ticks {
-        self.ticks
+        self.ticks.get()
     }
 
     /// Stat `fd` in the context of this task's fd table.
     pub fn stat_fd(&self, fd: i32) -> FileStat {
-        let path = format!("/proc/{}/fd/{}", self.tid, fd);
+        let path = format!("/proc/{}/fd/{}", self.tid(), fd);
         let res = stat(path.as_str());
         ed_assert!(self, res.is_ok());
         res.unwrap()
@@ -587,7 +587,7 @@ impl TaskInner {
 
     /// Lstat `fd` in the context of this task's fd table.
     pub fn lstat_fd(&self, fd: i32) -> FileStat {
-        let path = format!("/proc/{}/fd/{}", self.tid, fd);
+        let path = format!("/proc/{}/fd/{}", self.tid(), fd);
         let res = lstat(path.as_str());
         ed_assert!(self, res.is_ok());
         res.unwrap()
@@ -595,14 +595,14 @@ impl TaskInner {
 
     /// Open `fd` in the context of this task's fd table.
     pub fn open_fd(&self, fd: i32, flags: OFlag) -> ScopedFd {
-        let path = format!("/proc/{}/fd/{}", self.tid, fd);
+        let path = format!("/proc/{}/fd/{}", self.tid(), fd);
         ScopedFd::open_path(path.as_str(), flags)
     }
 
     /// Get the name of the file referenced by `fd` in the context of this
     /// task's fd table.
     pub fn file_name_of_fd(&self, fd: i32) -> OsString {
-        let path = format!("/proc/{}/fd/{}", self.tid, fd);
+        let path = format!("/proc/{}/fd/{}", self.tid(), fd);
         let res = readlink(path.as_str());
         // DIFF NOTE: rr returns an empty string if the file name could not be obtained.
         res.unwrap()
@@ -678,7 +678,7 @@ impl TaskInner {
             }
         }
 
-        self.registers_dirty = true;
+        self.registers_dirty.set(true);
     }
 
     /// Return the ptrace message pid associated with the current ptrace
@@ -712,15 +712,16 @@ impl TaskInner {
         let mut r = self.regs_ref().clone();
         r.set_ip(ip);
         self.set_regs(&r);
-        self.ticks += PerfCounters::ticks_for_unconditional_indirect_branch(self);
+        self.ticks
+            .set(self.ticks.get() + PerfCounters::ticks_for_unconditional_indirect_branch(self));
     }
 
     /// Return true if this is at an arm-desched-event or
     /// disarm-desched-event syscall.
     pub fn is_desched_event_syscall(&self) -> bool {
         is_ioctl_syscall(self.regs_ref().original_syscallno() as i32, self.arch())
-            && self.desched_fd_child != -1
-            && self.desched_fd_child == self.regs_ref().arg1_signed() as i32
+            && self.desched_fd_child.get() != -1
+            && self.desched_fd_child.get() == self.regs_ref().arg1_signed() as i32
     }
 
     /// Return true when this task is in a traced syscall made by the
@@ -908,12 +909,12 @@ impl TaskInner {
     pub fn set_regs(&mut self, regs: &Registers) {
         ed_assert!(self, self.is_stopped);
         self.registers = regs.clone();
-        self.registers_dirty = true;
+        self.registers_dirty.set(true);
     }
 
     /// Ensure registers are flushed back to the underlying task.
     pub fn flush_regs(&mut self) {
-        if self.registers_dirty {
+        if self.registers_dirty.get() {
             ed_assert!(self, self.is_stopped);
             let ptrace_regs = self.registers.get_ptrace();
             self.ptrace_if_alive(
@@ -921,7 +922,7 @@ impl TaskInner {
                 0usize.into(),
                 &mut PtraceData::ReadFrom(u8_slice(&ptrace_regs)),
             );
-            self.registers_dirty = false;
+            self.registers_dirty.set(false);
         }
     }
 
@@ -1083,35 +1084,35 @@ impl TaskInner {
     }
 
     pub fn set_status(&mut self, status: WaitStatus) {
-        self.wait_status = status;
+        self.wait_status.set(status);
     }
 
     /// Return true when the task is running, false if it's stopped.
     pub fn is_running(&self) -> bool {
-        !self.is_stopped
+        !self.is_stopped.get()
     }
 
     /// Return the status of this as of the last successful wait()/try_wait() call.
     pub fn status(&self) -> WaitStatus {
-        self.wait_status
+        self.wait_status.get()
     }
 
     /// Return the ptrace event as of the last call to `wait()/try_wait()`.
     pub fn maybe_ptrace_event(&self) -> MaybePtraceEvent {
-        self.wait_status.maybe_ptrace_event()
+        self.wait_status.get().maybe_ptrace_event()
     }
 
     /// Return the signal that's pending for this as of the last call to `wait()/try_wait()`.
     pub fn maybe_stop_sig(&self) -> MaybeStopSignal {
-        self.wait_status.maybe_stop_sig()
+        self.wait_status.get().maybe_stop_sig()
     }
 
     pub fn maybe_group_stop_sig(&self) -> MaybeStopSignal {
-        self.wait_status.maybe_group_stop_sig()
+        self.wait_status.get().maybe_group_stop_sig()
     }
 
     pub fn clear_wait_status(&mut self) {
-        self.wait_status = WaitStatus::default();
+        self.wait_status.set(WaitStatus::default());
     }
 
     /// Return the thread group this belongs to.
@@ -1141,7 +1142,7 @@ impl TaskInner {
     }
 
     pub fn tuid(&self) -> TaskUid {
-        TaskUid::new_with(self.rec_tid, self.serial)
+        TaskUid::new_with(self.rec_tid(), self.serial)
     }
 
     /// Return the dir of the trace we're using.
@@ -1243,7 +1244,7 @@ impl TaskInner {
         Errno::clear();
         self.fallible_ptrace(request, addr, data);
         if errno() == ESRCH {
-            log!(LogDebug, "ptrace_if_alive tid {} was not alive", self.tid);
+            log!(LogDebug, "ptrace_if_alive tid {} was not alive", self.tid());
             return false;
         }
         ed_assert!(
@@ -1251,7 +1252,7 @@ impl TaskInner {
             errno() == 0,
             "ptrace({}, {}, addr={}, data={:?}) failed with errno: {}",
             ptrace_req_name(request),
-            self.tid,
+            self.tid(),
             addr,
             data.get_data_slice(),
             errno_name(errno())
@@ -1260,22 +1261,22 @@ impl TaskInner {
     }
 
     pub fn is_dying(&self) -> bool {
-        self.seen_ptrace_exit_event || self.detected_unexpected_exit
+        self.seen_ptrace_exit_event.get() || self.detected_unexpected_exit.get()
     }
 
     pub fn last_execution_resume(&self) -> RemoteCodePtr {
-        self.address_of_last_execution_resume
+        self.address_of_last_execution_resume.get()
     }
 
     pub fn usable_scratch_size(&self) -> usize {
-        max(0, self.scratch_size as isize - page_size() as isize) as usize
+        max(0, self.scratch_size.get() as isize - page_size() as isize) as usize
     }
 
     pub fn syscallbuf_alt_stack(&self) -> RemotePtr<Void> {
-        if self.scratch_ptr.is_null() {
+        if self.scratch_ptr.get().is_null() {
             RemotePtr::null()
         } else {
-            self.scratch_ptr + self.scratch_size
+            self.scratch_ptr.get() + self.scratch_size.get()
         }
     }
 
@@ -1366,43 +1367,43 @@ impl TaskInner {
         let stable_serial = session.next_task_stable_serial();
         TaskInner {
             unstable: Cell::new(false),
-            stable_exit: false,
+            stable_exit: Cell::new(false),
             scratch_ptr: Default::default(),
-            scratch_size: 0,
+            scratch_size: Cell::new(0),
             // This will be initialized when the syscall buffer is
-            desched_fd_child: -1,
+            desched_fd_child: Cell::new(-1),
             // This will be initialized when the syscall buffer is
-            cloned_file_data_fd_child: -1,
+            cloned_file_data_fd_child: Cell::new(-1),
             hpc: PerfCounters::new(tid, session.ticks_semantics()),
-            tid,
-            rec_tid: adjusted_rec_tid,
-            syscallbuf_size: 0,
+            tid: Cell::new(tid),
+            rec_tid: Cell::new(adjusted_rec_tid),
+            syscallbuf_size: Cell::new(0),
             stopping_breakpoint_table_entry_size: 0,
             serial,
             stable_serial,
             prname: "???".into(),
-            ticks: 0,
+            ticks: Cell::new(0),
             registers: Registers::new(a),
-            how_last_execution_resumed: ResumeRequest::ResumeCont,
-            last_resume_orig_cx: 0,
-            did_set_breakpoint_after_cpuid: false,
-            is_stopped: false,
-            seccomp_bpf_enabled: false,
-            detected_unexpected_exit: false,
-            registers_dirty: false,
+            how_last_execution_resumed: Cell::new(ResumeRequest::ResumeCont),
+            last_resume_orig_cx: Cell::new(0),
+            did_set_breakpoint_after_cpuid: Cell::new(false),
+            is_stopped: Cell::new(false),
+            seccomp_bpf_enabled: Cell::new(false),
+            detected_unexpected_exit: Cell::new(false),
+            registers_dirty: Cell::new(false),
             extra_registers: None,
             session_: session.weak_self.clone(),
             top_of_stack: Default::default(),
-            seen_ptrace_exit_event: false,
+            seen_ptrace_exit_event: Cell::new(false),
             thread_locals: array_init::array_init(|_| 0),
-            expecting_ptrace_interrupt_stop: 0,
+            expecting_ptrace_interrupt_stop: Cell::new(0),
             // DIFF NOTE: These are not explicitly set in rr
             syscallbuf_child: Default::default(),
             preload_globals: None,
             as_: Default::default(),
             fds: Default::default(),
             address_of_last_execution_resume: Default::default(),
-            singlestepping_instruction: TrappedInstruction::None,
+            singlestepping_instruction: Cell::new(TrappedInstruction::None),
             tg: Default::default(),
             thread_areas_: vec![],
             wait_status: Default::default(),
@@ -1421,27 +1422,27 @@ impl TaskInner {
     /// initialize a new task via os_clone_into/os_fork_into and copy_state.
     pub(in super::super) fn capture_state(&mut self) -> CapturedState {
         CapturedState {
-            rec_tid: self.rec_tid,
+            rec_tid: self.rec_tid(),
             serial: self.serial,
             regs: self.regs_ref().clone(),
             extra_regs: self.extra_regs_ref().clone(),
             prname: self.prname.clone(),
             thread_areas: self.thread_areas_.clone(),
-            desched_fd_child: self.desched_fd_child,
-            cloned_file_data_fd_child: self.cloned_file_data_fd_child,
-            cloned_file_data_offset: if self.cloned_file_data_fd_child > 0 {
-                get_fd_offset(self.tid, self.cloned_file_data_fd_child)
+            desched_fd_child: Cell::new(self.desched_fd_child.get()),
+            cloned_file_data_fd_child: Cell::new(self.cloned_file_data_fd_child.get()),
+            cloned_file_data_offset: if self.cloned_file_data_fd_child.get() > 0 {
+                get_fd_offset(self.tid.get(), self.cloned_file_data_fd_child.get())
             } else {
                 0
             },
-            syscallbuf_child: self.syscallbuf_child,
-            syscallbuf_size: self.syscallbuf_size,
+            syscallbuf_child: self.syscallbuf_child.get(),
+            syscallbuf_size: self.syscallbuf_size.get(),
             preload_globals: self.preload_globals,
-            scratch_ptr: self.scratch_ptr,
-            scratch_size: self.scratch_size,
-            wait_status: self.wait_status,
-            ticks: self.ticks,
-            top_of_stack: self.top_of_stack,
+            scratch_ptr: self.scratch_ptr.get(),
+            scratch_size: self.scratch_size.get(),
+            wait_status: self.wait_status.get(),
+            ticks: self.ticks.get(),
+            top_of_stack: self.top_of_stack.get(),
             thread_locals: self.fetch_preload_thread_locals().clone(),
         }
     }
