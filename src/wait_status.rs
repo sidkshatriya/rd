@@ -199,7 +199,7 @@ impl WaitStatus {
 
     pub fn for_group_sig(sig: Sig, t: &RecordTask) -> WaitStatus {
         let mut code: i32 = (sig.as_raw() << 8) | 0x7f;
-        if t.emulated_ptrace_seized {
+        if t.emulated_ptrace_seized.get() {
             code |= (PTRACE_EVENT_STOP as i32) << 16;
         }
 
@@ -208,7 +208,7 @@ impl WaitStatus {
 
     pub fn for_syscall(t: &RecordTask) -> WaitStatus {
         let mut code: i32 = (SIGTRAP << 8) | 0x7f;
-        if t.emulated_ptrace_options & PTRACE_O_TRACESYSGOOD != 0 {
+        if t.emulated_ptrace_options.get() & PTRACE_O_TRACESYSGOOD != 0 {
             code |= 0x80 << 8;
         }
 

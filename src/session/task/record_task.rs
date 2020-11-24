@@ -3135,7 +3135,7 @@ impl Drop for RecordTask {
                 if self.emulated_ptrace_options.get() & PTRACE_O_TRACEEXIT != 0 {
                     ed_assert!(
                         self,
-                        self.stable_exit,
+                        self.stable_exit.get(),
                         "PTRACE_O_TRACEEXIT only supported for stable exits for now"
                     );
                 }

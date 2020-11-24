@@ -197,7 +197,7 @@ impl TraceWriter {
     ) {
         let mut frame_msg = message::Builder::new_default();
         let mut frame = frame_msg.init_root::<frame::Builder>();
-        frame.set_tid(t.tid);
+        frame.set_tid(t.tid());
         // DIFF NOTE: In rr ticks are signed. In rd they are not.
         frame.set_ticks(t.tick_count() as i64);
         frame.set_monotonic_sec(monotonic_now_sec());
@@ -919,7 +919,7 @@ fn to_trace_syscall_state(state: SyscallState) -> TraceSyscallState {
 /// Given `file_name`, where `file_name` is relative to our root directory
 /// but is in the mount namespace of `t`, try to make it a file we can read.
 fn try_make_process_file_name(t: &RecordTask, file_name: &OsStr) -> OsString {
-    let proc_root = format!("/proc/{}/root", t.tid);
+    let proc_root = format!("/proc/{}/root", t.tid());
     // /proc/<pid>/root has magical properties; not only is it a link, but
     // it links to a view of the filesystem as the process sees it, taking into
     // account the process mount namespace etc.

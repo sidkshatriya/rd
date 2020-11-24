@@ -612,7 +612,7 @@ impl TaskInner {
     /// Perform those side effects on `registers` to make it look like a syscall
     /// happened.
     pub fn canonicalize_regs(&mut self, syscall_arch: SupportedArch) {
-        ed_assert!(self, self.is_stopped);
+        ed_assert!(self, self.is_stopped.get());
 
         match self.registers.arch() {
             SupportedArch::X64 => {
@@ -796,7 +796,7 @@ impl TaskInner {
 
     /// Return the current regs of this.
     pub fn regs_ref(&self) -> &Registers {
-        ed_assert!(self, self.is_stopped);
+        ed_assert!(self, self.is_stopped.get());
         &self.registers
     }
 
@@ -907,7 +907,7 @@ impl TaskInner {
 
     /// Set the tracee's registers to `regs`. Lazy.
     pub fn set_regs(&mut self, regs: &Registers) {
-        ed_assert!(self, self.is_stopped);
+        ed_assert!(self, self.is_stopped.get());
         self.registers = regs.clone();
         self.registers_dirty.set(true);
     }
@@ -915,7 +915,7 @@ impl TaskInner {
     /// Ensure registers are flushed back to the underlying task.
     pub fn flush_regs(&mut self) {
         if self.registers_dirty.get() {
-            ed_assert!(self, self.is_stopped);
+            ed_assert!(self, self.is_stopped.get());
             let ptrace_regs = self.registers.get_ptrace();
             self.ptrace_if_alive(
                 PTRACE_SETREGS,
@@ -1428,8 +1428,8 @@ impl TaskInner {
             extra_regs: self.extra_regs_ref().clone(),
             prname: self.prname.clone(),
             thread_areas: self.thread_areas_.clone(),
-            desched_fd_child: Cell::new(self.desched_fd_child.get()),
-            cloned_file_data_fd_child: Cell::new(self.cloned_file_data_fd_child.get()),
+            desched_fd_child: self.desched_fd_child.get(),
+            cloned_file_data_fd_child: self.cloned_file_data_fd_child.get(),
             cloned_file_data_offset: if self.cloned_file_data_fd_child.get() > 0 {
                 get_fd_offset(self.tid.get(), self.cloned_file_data_fd_child.get())
             } else {
@@ -1488,7 +1488,7 @@ impl TaskInner {
             errno == 0,
             "ptrace({}, {}, addr={}, data={:?}) failed with errno: {}",
             ptrace_req_name(request),
-            self.tid,
+            self.tid(),
             addr,
             data.get_data_slice(),
             errno

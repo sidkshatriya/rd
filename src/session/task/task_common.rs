@@ -1472,7 +1472,7 @@ pub(super) fn compute_trap_reasons<T: Task>(t: &T) -> TrapReasons {
     let status = t.debug_status();
     reasons.singlestep = status & DebugStatus::DsSingleStep as usize != 0;
 
-    let addr_last_execution_resume = t.address_of_last_execution_resume;
+    let addr_last_execution_resume = t.address_of_last_execution_resume.get();
     if is_singlestep_resume(t.how_last_execution_resumed.get()) {
         if is_at_syscall_instruction(t, addr_last_execution_resume)
             && t.ip() == addr_last_execution_resume + syscall_instruction_length(t.arch())
@@ -1900,7 +1900,7 @@ pub(super) fn post_vm_clone_common<T: Task>(
 /// Forwarded method definition
 ///
 pub(super) fn destroy_buffers<T: Task>(t: &T) {
-    let saved_syscallbuf_child = t.syscallbuf_child;
+    let saved_syscallbuf_child = t.syscallbuf_child.get();
     let mut remote = AutoRemoteSyscalls::new(t);
     // Clear syscallbuf_child now so nothing tries to use it while tearing
     // down buffers.
@@ -1944,11 +1944,11 @@ pub(super) fn task_drop_common<T: Task>(t: &T) {
             t.vm_shr_ptr().unmap(
                 t,
                 RemotePtr::cast(t.syscallbuf_child.get()),
-                t.syscallbuf_size,
+                t.syscallbuf_size.get(),
             );
         }
     } else {
-        ed_assert!(t, t.seen_ptrace_exit_event);
+        ed_assert!(t, t.seen_ptrace_exit_event.get());
         ed_assert!(t, t.syscallbuf_child.get().is_null());
 
         if t.thread_group().task_set().is_empty() && !t.session().is_recording() {
@@ -2197,7 +2197,7 @@ pub(super) fn detect_syscall_arch<T: Task>(task: &T) -> SupportedArch {
 /// Forwarded method definition
 ///
 pub(super) fn set_syscallbuf_locked<T: Task>(t: &T, locked: bool) {
-    if t.syscallbuf_child.is_null() {
+    if t.syscallbuf_child.get().is_null() {
         return;
     }
     let remote_addr: RemotePtr<u8> =
@@ -2217,8 +2217,8 @@ pub(super) fn set_syscallbuf_locked<T: Task>(t: &T, locked: bool) {
 }
 
 pub(super) fn reset_syscallbuf<T: Task>(t: &T) {
-    let syscallbuf_child_addr = t.syscallbuf_child;
-    if syscallbuf_child_addr.get().is_null() {
+    let syscallbuf_child_addr = t.syscallbuf_child.get();
+    if syscallbuf_child_addr.is_null() {
         return;
     }
 
