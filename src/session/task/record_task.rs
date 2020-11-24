@@ -480,13 +480,13 @@ pub struct RecordTask {
     pub syscallbuf_code_layout: SyscallbufCodeLayout,
     pub desched_fd: ScopedFd,
     /// Value of hdr->num_rec_bytes when the buffer was flushed
-    pub flushed_num_rec_bytes: u32,
+    pub flushed_num_rec_bytes: Cell<u32>,
     /// Nonzero after the trace recorder has flushed the
     /// syscallbuf.  When this happens, the recorder must prepare a
     /// "reset" of the buffer, to zero the record count, at the
     /// next available slow (taking `desched` into
     /// consideration).
-    pub flushed_syscallbuf: bool,
+    pub flushed_syscallbuf: Cell<bool>,
     /// This bit is set when code wants to prevent the syscall
     /// record buffer from being reset when it normally would be.
     /// This bit is set by the desched code.
@@ -519,11 +519,11 @@ pub struct RecordTask {
     pub termination_signal: Option<Sig>,
 
     /// Our value for PR_GET/SET_TSC (one of PR_TSC_ENABLED, PR_TSC_SIGSEGV).
-    pub tsc_mode: i32,
+    pub tsc_mode: Cell<i32>,
     /// Our value for ARCH_GET/SET_CPUID (0 -> generate SIGSEGV, 1 -> do CPUID).
     /// Only used if session().has_cpuid_faulting().
     /// @TODO should this be made into an Option?
-    pub cpuid_mode: i32,
+    pub cpuid_mode: Cell<i32>,
     /// The current stack of events being processed.  (We use a
     /// deque instead of a stack because we need to iterate the
     /// events.)
@@ -546,7 +546,7 @@ pub struct RecordTask {
     /// DIFF NOTE: This field does not exist in rr
     /// Since the property system is not used intensively in rr its
     /// simpler just to add this single field instead.
-    pub syscall_state: Option<SyscallStateSharedPtr>,
+    pub syscall_state: RefCell<Option<SyscallStateSharedPtr>>,
 }
 
 impl Deref for RecordTask {
@@ -645,7 +645,7 @@ impl Task for RecordTask {
         // accurate.
         self.get_sigmask();
 
-        if self.stashed_signals_blocking_more_signals {
+        if self.stashed_signals_blocking_more_signals.get() {
             // A stashed signal we have already accepted for this task may
             // have a sigaction::sa_mask that would block the next signal to be
             // delivered and cause it to be delivered to a different task. If we allow
@@ -711,7 +711,7 @@ impl Task for RecordTask {
                 .syscallbuf_code_layout
                 .syscallbuf_final_exit_instruction;
 
-            if self.break_at_syscallbuf_final_instruction {
+            if self.break_at_syscallbuf_final_instruction.get() {
                 self.vm_shr_ptr()
                     .add_breakpoint(self, addr, BreakpointType::BkptInternal);
             }
@@ -805,7 +805,7 @@ impl Task for RecordTask {
             self.vm_shr_ptr()
                 .remove_breakpoint(p, BreakpointType::BkptInternal, self);
         }
-        if self.break_at_syscallbuf_final_instruction {
+        if self.break_at_syscallbuf_final_instruction.get() {
             self.vm_shr_ptr().remove_breakpoint(
                 self.syscallbuf_code_layout
                     .syscallbuf_final_exit_instruction,
@@ -814,7 +814,7 @@ impl Task for RecordTask {
             );
         }
 
-        if self.stashed_signals_blocking_more_signals {
+        if self.stashed_signals_blocking_more_signals.get() {
             // Saved 'blocked_sigs' must still be correct regardless of syscallbuf
             // state, because we do not allow stashed_signals_blocking_more_signals
             // to hold across syscalls (traced or untraced) that change the signal mask.
@@ -950,7 +950,7 @@ pub type SyscallStateSharedPtr = Rc<RefCell<TaskSyscallState>>;
 
 impl RecordTask {
     pub fn syscall_state_unwrap(&self) -> SyscallStateSharedPtr {
-        self.syscall_state.clone().unwrap()
+        self.syscall_state.borrow().clone().unwrap()
     }
 
     /// Every Task owned by a RecordSession is a RecordTask. Functionality that
@@ -981,8 +981,8 @@ impl RecordTask {
             emulated_stop_type: Cell::new(EmulatedStopType::NotStopped),
             blocked_sigs_dirty: Cell::new(true),
             syscallbuf_blocked_sigs_generation: 0,
-            flushed_num_rec_bytes: 0,
-            flushed_syscallbuf: false,
+            flushed_num_rec_bytes: Cell::new(0),
+            flushed_syscallbuf: Cell::new(false),
             delay_syscallbuf_reset_for_desched: Cell::new(false),
             delay_syscallbuf_reset_for_seccomp_trap: Cell::new(false),
             prctl_seccomp_status: 0,
@@ -990,16 +990,16 @@ impl RecordTask {
             own_namespace_rec_tid: tid,
             exit_code: Cell::new(0),
             termination_signal: None,
-            tsc_mode: PR_TSC_ENABLE,
-            cpuid_mode: 1,
+            tsc_mode: Cell::new(PR_TSC_ENABLE),
+            cpuid_mode: Cell::new(1),
             stashed_signals: Default::default(),
-            stashed_signals_blocking_more_signals: false,
-            stashed_group_stop: false,
-            break_at_syscallbuf_traced_syscalls: false,
-            break_at_syscallbuf_untraced_syscalls: false,
-            break_at_syscallbuf_final_instruction: false,
-            next_pmc_interrupt_is_for_user: false,
-            did_record_robust_futex_changes: false,
+            stashed_signals_blocking_more_signals: Cell::new(false),
+            stashed_group_stop: Cell::new(false),
+            break_at_syscallbuf_traced_syscalls: Cell::new(false),
+            break_at_syscallbuf_untraced_syscalls: Cell::new(false),
+            break_at_syscallbuf_final_instruction: Cell::new(false),
+            next_pmc_interrupt_is_for_user: Cell::new(false),
+            did_record_robust_futex_changes: Cell::new(false),
             // Implicit
             registers_at_start_of_last_timeslice: Registers::new(a),
             emulated_ptrace_tracees: Default::default(),
@@ -1031,7 +1031,7 @@ impl RecordTask {
     // @TODO clone_task() ??
     pub fn syscallbuf_syscall_entry_breakpoints(&self) -> Vec<RemoteCodePtr> {
         let mut result = Vec::<RemoteCodePtr>::new();
-        if self.break_at_syscallbuf_untraced_syscalls {
+        if self.break_at_syscallbuf_untraced_syscalls.get() {
             result.push(AddressSpace::rd_page_syscall_entry_point(
                 Traced::Untraced,
                 Privileged::Unprivileged,
@@ -1045,7 +1045,7 @@ impl RecordTask {
                 self.arch(),
             ));
         }
-        if self.break_at_syscallbuf_traced_syscalls {
+        if self.break_at_syscallbuf_traced_syscalls.get() {
             result.push(AddressSpace::rd_page_syscall_entry_point(
                 Traced::Traced,
                 Privileged::Unprivileged,
@@ -1068,7 +1068,7 @@ impl RecordTask {
     }
 
     pub fn is_at_syscallbuf_final_instruction_breakpoint(&self) -> bool {
-        if !self.break_at_syscallbuf_final_instruction {
+        if !self.break_at_syscallbuf_final_instruction.get() {
             return false;
         }
         let arch = self.arch();
@@ -1237,7 +1237,7 @@ impl RecordTask {
 
         // Newly execed tasks always have non-faulting mode (from their point of
         // view, even if rr is secretly causing faults).
-        self.cpuid_mode = 1;
+        self.cpuid_mode.set(1);
     }
 
     pub fn trace_writer(&self) -> OwningHandle<SessionSharedPtr, Ref<'_, TraceWriter>> {
@@ -1901,10 +1901,10 @@ impl RecordTask {
         }));
         // Once we've stashed a signal, stop at the next traced/untraced syscall to
         // check whether we need to process the signal before it runs.
-        self.stashed_signals_blocking_more_signals = true;
-        self.break_at_syscallbuf_final_instruction = true;
-        self.break_at_syscallbuf_traced_syscalls = true;
-        self.break_at_syscallbuf_untraced_syscalls = true;
+        self.stashed_signals_blocking_more_signals.set(true);
+        self.break_at_syscallbuf_final_instruction.set(true);
+        self.break_at_syscallbuf_traced_syscalls.set(true);
+        self.break_at_syscallbuf_untraced_syscalls.set(true);
     }
 
     pub fn stash_synthetic_sig(&self, si: &siginfo_t, deterministic: SignalDeterministic) {
@@ -1948,10 +1948,10 @@ impl RecordTask {
                 deterministic,
             }),
         );
-        self.stashed_signals_blocking_more_signals = true;
-        self.break_at_syscallbuf_final_instruction = true;
-        self.break_at_syscallbuf_traced_syscalls = true;
-        self.break_at_syscallbuf_untraced_syscalls = true;
+        self.stashed_signals_blocking_more_signals.set(true);
+        self.break_at_syscallbuf_final_instruction.set(true);
+        self.break_at_syscallbuf_traced_syscalls.set(true);
+        self.break_at_syscallbuf_untraced_syscalls.set(true);
     }
 
     /// DIFF NOTE: Simply called has_stashed_sig() in rr
@@ -2009,24 +2009,28 @@ impl RecordTask {
 
     pub fn stashed_signal_processed(&self) {
         let has_any_stashed_sig = self.has_any_stashed_sig();
-        self.break_at_syscallbuf_final_instruction = has_any_stashed_sig;
-        self.break_at_syscallbuf_traced_syscalls = has_any_stashed_sig;
-        self.break_at_syscallbuf_untraced_syscalls = has_any_stashed_sig;
-        self.stashed_signals_blocking_more_signals = has_any_stashed_sig;
+        self.break_at_syscallbuf_final_instruction
+            .set(has_any_stashed_sig);
+        self.break_at_syscallbuf_traced_syscalls
+            .set(has_any_stashed_sig);
+        self.break_at_syscallbuf_untraced_syscalls
+            .set(has_any_stashed_sig);
+        self.stashed_signals_blocking_more_signals
+            .set(has_any_stashed_sig);
     }
 
     /// If a group-stop occurs at an inconvenient time, stash it and
     /// process it later.
     pub fn stash_group_stop(&self) {
-        self.stashed_group_stop = true;
+        self.stashed_group_stop.set(true);
     }
 
     pub fn clear_stashed_group_stop(&self) {
-        self.stashed_group_stop = false;
+        self.stashed_group_stop.set(false);
     }
 
     pub fn has_stashed_group_stop(&self) -> bool {
-        self.stashed_group_stop
+        self.stashed_group_stop.get()
     }
 
     /// Return true if the current state of this looks like the

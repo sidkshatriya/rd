@@ -871,7 +871,7 @@ impl RecordSession {
         // sigmask effects.
         rt.invalidate_sigmask();
         if sig == perf_counters::TIME_SLICE_SIGNAL {
-            if rt.next_pmc_interrupt_is_for_user {
+            if rt.next_pmc_interrupt_is_for_user.get() {
                 let maybe_vpmc = VirtualPerfCounterMonitor::interrupting_virtual_pmc_for_task(rt);
                 ed_assert!(rt, maybe_vpmc.is_some());
 
@@ -883,7 +883,7 @@ impl RecordSession {
                     .unwrap()
                     .synthesize_signal(rt);
 
-                rt.next_pmc_interrupt_is_for_user = false;
+                rt.next_pmc_interrupt_is_for_user.set(false);
                 return true;
             }
 
@@ -1719,7 +1719,7 @@ impl RecordSession {
 
             // Clear any lingering state, then see if we need to stop earlier for a
             // tracee-requested pmc interrupt on the virtualized performance counter.
-            t.as_rec_unwrap().next_pmc_interrupt_is_for_user = false;
+            t.as_rec_unwrap().next_pmc_interrupt_is_for_user.set(false);
             let maybe_vpmc = VirtualPerfCounterMonitor::interrupting_virtual_pmc_for_task(&**t);
 
             match maybe_vpmc {
@@ -1755,7 +1755,7 @@ impl RecordSession {
                                 after_ticks_request
                             );
                             ticks_request = after_ticks_request;
-                            t.as_rec_unwrap().next_pmc_interrupt_is_for_user = true;
+                            t.as_rec_unwrap().next_pmc_interrupt_is_for_user.set(true);
                         }
                         _ => (),
                     }
@@ -2982,10 +2982,10 @@ fn note_entering_syscall(t: &RecordTask) {
 }
 
 fn rec_abort_prepared_syscall(t: &RecordTask) {
-    match t.syscall_state.clone() {
+    match t.syscall_state.borrow().clone() {
         Some(state) => {
             state.borrow_mut().abort_syscall_results(t);
-            t.syscall_state = None;
+            *t.syscall_state.borrow_mut() = None;
         }
         None => (),
     }
@@ -3091,10 +3091,10 @@ fn record_robust_futex_changes(t: &RecordTask) {
 /// during replay because the TID value in each futex is the recorded
 /// TID, not the actual TID of the dying task.
 fn record_robust_futex_changes_arch<Arch: Architecture>(t: &RecordTask) {
-    if t.did_record_robust_futex_changes {
+    if t.did_record_robust_futex_changes.get() {
         return;
     }
-    t.did_record_robust_futex_changes = true;
+    t.did_record_robust_futex_changes.set(true);
 
     let head_ptr = RemotePtr::<robust_list_head<Arch>>::cast(t.robust_list());
     if head_ptr.is_null() {

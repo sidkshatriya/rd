@@ -336,7 +336,7 @@ pub struct TaskInner {
     /// The child's cloned_file_data_fd
     pub cloned_file_data_fd_child: Cell<i32>,
 
-    pub hpc: PerfCounters,
+    pub hpc: RefCell<PerfCounters>,
 
     /// This is always the "real" tid of the tracee.
     pub tid: Cell<pid_t>,
@@ -398,7 +398,7 @@ pub struct TaskInner {
     pub(in super::super) registers_dirty: Cell<bool>,
     /// DIFF NOTE: This is an option in rd. In rr there is `extra_registers_known`
     /// which we don't need.
-    pub(in super::super) extra_registers: Option<ExtraRegisters>,
+    pub(in super::super) extra_registers: RefCell<Option<ExtraRegisters>>,
     /// A weak pointer to the  session we're part of.
     pub(in super::super) session_: SessionSharedWeakPtr,
     /// The thread group this belongs to.
@@ -1467,7 +1467,12 @@ impl TaskInner {
                 ptrace(request, self.tid(), addr.as_usize(), (*data) as *const u8)
             },
             PtraceData::None => unsafe {
-                ptrace(request, self.tid, addr.as_usize(), ptr::null() as *const u8)
+                ptrace(
+                    request,
+                    self.tid(),
+                    addr.as_usize(),
+                    ptr::null() as *const u8,
+                )
             },
         };
         res as isize

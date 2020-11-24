@@ -531,10 +531,10 @@ struct rdcall_params<Arch: Architecture> {
 /// Prepare `t` to enter its current syscall event.  Return Switchable::AllowSwitch if
 /// a context-switch is allowed for `t`, Switchable::PreventSwitch if not.
 pub fn rec_prepare_syscall(t: &RecordTask) -> Switchable {
-    if t.syscall_state.is_none() {
+    if t.syscall_state.borrow().is_none() {
         let mut new_ts = TaskSyscallState::new(t);
         new_ts.init(t);
-        t.syscall_state = Some(Rc::new(RefCell::new(new_ts)));
+        *t.syscall_state.borrow_mut() = Some(Rc::new(RefCell::new(new_ts)));
     } else {
         t.syscall_state_unwrap().borrow_mut().init(t);
     }
@@ -544,7 +544,7 @@ pub fn rec_prepare_syscall(t: &RecordTask) -> Switchable {
     if is_sigreturn(syscallno, t.ev().syscall_event().arch()) {
         // There isn't going to be an exit event for this syscall, so remove
         // syscall_state now.
-        t.syscall_state = None;
+        *t.syscall_state.borrow_mut() = None;
         return s;
     }
 
@@ -683,7 +683,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(t: &RecordTask, regs: &Registers
                     r.set_arg1_signed(-1);
                     t.set_regs(&r);
                     let val = t.regs_ref().arg2() as i32;
-                    t.cpuid_mode = !!val;
+                    t.cpuid_mode.set(val);
                     syscall_state.emulate_result(0);
                 }
             }
@@ -694,7 +694,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(t: &RecordTask, regs: &Registers
                     let mut r: Registers = t.regs_ref().clone();
                     r.set_arg1_signed(-1);
                     t.set_regs(&r);
-                    syscall_state.emulate_result_signed(t.cpuid_mode as isize);
+                    syscall_state.emulate_result_signed(t.cpuid_mode.get() as isize);
                 }
             }
 
@@ -765,7 +765,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(t: &RecordTask, regs: &Registers
                 syscall_state.emulate_result(0);
                 let child_addr =
                     syscall_state.reg_parameter::<i32>(2, Some(ArgMode::InOutNoScratch), None);
-                let tsc_mode = t.tsc_mode;
+                let tsc_mode = t.tsc_mode.get();
                 write_val_mem(t, child_addr, &tsc_mode, None);
             }
 
@@ -779,7 +779,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(t: &RecordTask, regs: &Registers
                     syscall_state.emulate_result_signed(-EINVAL as isize);
                 } else {
                     syscall_state.emulate_result(0);
-                    t.tsc_mode = val;
+                    t.tsc_mode.set(val);
                 }
             }
 
@@ -1487,7 +1487,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(t: &RecordTask, regs: &Registers
     if sys == SYS_rdcall_init_buffers as i32 {
         // This is purely for testing purposes. See signal_during_preload_init.
         if send_signal_during_init_buffers() {
-            unsafe { libc::syscall(SYS_tgkill, t.tgid(), t.tid, SIGCHLD) };
+            unsafe { libc::syscall(SYS_tgkill, t.tgid(), t.tid(), SIGCHLD) };
         }
         syscall_state.reg_parameter::<rdcall_init_buffers_params<Arch>>(
             1,
@@ -2449,7 +2449,7 @@ fn do_ptrace_exit_stop(t: &RecordTask, maybe_tracer: Option<&RecordTask>) {
 
 pub fn rec_prepare_restart_syscall(t: &RecordTask) {
     rec_prepare_restart_syscall_internal(t);
-    t.syscall_state = None;
+    *t.syscall_state.borrow_mut() = None;
 }
 
 pub fn rec_prepare_restart_syscall_internal(t: &RecordTask) {
@@ -2520,7 +2520,7 @@ pub fn rec_process_syscall(t: &RecordTask) {
     syscall_state.process_syscall_results(t);
     let regs = t.regs_ref().clone();
     t.on_syscall_exit(sys_ev_number, sys_ev_arch, &regs);
-    t.syscall_state = None;
+    *t.syscall_state.borrow_mut() = None;
 
     MonitoredSharedMemory::check_all(t);
 }
@@ -3942,13 +3942,13 @@ fn check_privileged_exe(t: &RecordTask) {
         // namespace - as a result we must have at least as much privilege).
         // Nevertheless, we still need to stop the hpc counters, since
         // the executable may be privileged with respect to its namespace.
-        t.hpc.stop();
+        t.hpc.borrow_mut().stop();
     } else if is_privileged_executable(t, t.vm().exe_image()) {
         if has_effective_caps(1 << CAP_SYS_ADMIN) {
             // perf_events may have decided to stop counting for security reasons.
             // To be safe, close all perf counters now, to force re-opening the
             // perf file descriptors the next time we resume the task.
-            t.hpc.stop();
+            t.hpc.borrow_mut().stop();
         } else {
             // Only issue the warning once. If it's a problem, the user will likely
             // find out soon enough. If not, no need to keep bothering them.

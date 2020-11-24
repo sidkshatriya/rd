@@ -133,14 +133,14 @@ impl ReplayTask {
     /// the return value from the rrcall, which is also returned
     /// from this call.  `map_hint` suggests where to map the
     /// region; see `init_syscallbuf_buffer()`.
-    pub fn init_buffers(&mut self, map_hint: RemotePtr<Void>) {
+    pub fn init_buffers(&self, map_hint: RemotePtr<Void>) {
         rd_arch_function!(self, init_buffers_arch, self.arch(), map_hint)
     }
 
     /// DIFF NOTE: Simply called ReplayTask::post_exec_syscall(...) in rr
     /// Not to be confused with post_exec_syscall() in rr which does not take any arguments
     /// Call this method when the exec has completed.
-    pub fn post_exec_syscall_for_replay_exe(&mut self, replay_exe: &OsStr) {
+    pub fn post_exec_syscall_for_replay_exe(&self, replay_exe: &OsStr) {
         self.post_exec_for_exe(replay_exe);
 
         // Perform post-exec-syscall tasks now (e.g. opening mem_fd) before we
@@ -225,7 +225,7 @@ impl ReplayTask {
 
     /// @TODO More elegant approach??
     /// Restore the next chunk of saved data from the trace to this.
-    pub fn set_data_from_trace(&mut self, maybe_other: Option<&ReplayTask>) -> usize {
+    pub fn set_data_from_trace(&self, maybe_other: Option<&ReplayTask>) -> usize {
         let buf: RawData = self.trace_reader_mut().read_raw_data();
         if !buf.addr.is_null() && buf.data.len() > 0 {
             if buf.rec_tid == self.rec_tid() {
@@ -270,7 +270,7 @@ impl ReplayTask {
     }
 
     /// Restore all remaining chunks of saved data for the current trace frame.
-    pub fn apply_all_data_records_from_trace(&mut self) {
+    pub fn apply_all_data_records_from_trace(&self) {
         loop {
             let maybe_buf = self.trace_reader_mut().read_raw_data_for_frame().clone();
             match maybe_buf {
@@ -298,7 +298,7 @@ impl ReplayTask {
 
     /// Set the syscall-return-value register of this to what was
     /// saved in the current trace frame.
-    pub fn set_return_value_from_trace(&mut self) {
+    pub fn set_return_value_from_trace(&self) {
         let mut r = self.regs_ref().clone();
         r.set_syscall_result(self.current_trace_frame().regs_ref().syscall_result());
         // In some cases (e.g. syscalls forced to return an error by tracee
@@ -310,14 +310,14 @@ impl ReplayTask {
 
     /// Used when an execve changes the tid of a non-main-thread to the
     /// thread-group leader.
-    pub fn set_real_tid_and_update_serial(&mut self, tid: pid_t) {
+    pub fn set_real_tid_and_update_serial(&self, tid: pid_t) {
         self.hpc.set_tid(tid);
         self.tid.set(tid);
         self.serial = self.session().next_task_serial();
     }
 
     /// Note: This method is private
-    fn init_buffers_arch<Arch: Architecture>(&mut self, map_hint: RemotePtr<Void>) {
+    fn init_buffers_arch<Arch: Architecture>(&self, map_hint: RemotePtr<Void>) {
         self.apply_all_data_records_from_trace();
 
         let child_args: RemotePtr<rdcall_init_buffers_params<Arch>> =
