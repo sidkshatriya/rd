@@ -192,7 +192,7 @@ impl ReplayTask {
         Registers::compare_register_files(
             Some(self),
             "replaying",
-            self.regs_ref(),
+            &self.regs_ref(),
             "recorded",
             rec_regs,
             MismatchBehavior::BailOnMismatch,

@@ -531,17 +531,17 @@ pub struct RecordTask {
     /// Stashed signal-delivery state, ready to be delivered at
     /// next opportunity.
     pub stashed_signals: VecDeque<Box<StashedSignal>>,
-    pub stashed_signals_blocking_more_signals: bool,
-    pub stashed_group_stop: bool,
-    pub break_at_syscallbuf_traced_syscalls: bool,
-    pub break_at_syscallbuf_untraced_syscalls: bool,
-    pub break_at_syscallbuf_final_instruction: bool,
+    pub stashed_signals_blocking_more_signals: Cell<bool>,
+    pub stashed_group_stop: Cell<bool>,
+    pub break_at_syscallbuf_traced_syscalls: Cell<bool>,
+    pub break_at_syscallbuf_untraced_syscalls: Cell<bool>,
+    pub break_at_syscallbuf_final_instruction: Cell<bool>,
 
     /// The pmc is programmed to interrupt at a value requested by the tracee, not
     /// by rd.
-    pub next_pmc_interrupt_is_for_user: bool,
+    pub next_pmc_interrupt_is_for_user: Cell<bool>,
 
-    pub did_record_robust_futex_changes: bool,
+    pub did_record_robust_futex_changes: Cell<bool>,
 
     /// DIFF NOTE: This field does not exist in rr
     /// Since the property system is not used intensively in rr its
@@ -1097,7 +1097,7 @@ impl RecordTask {
         // Arguments to the rdcall.
         let child_args: RemotePtr<rdcall_init_buffers_params<Arch>> =
             RemotePtr::from(remote.task().regs_ref().arg1());
-        let mut args = read_val_mem(remote.task_mut(), child_args, None);
+        let mut args = read_val_mem(remote.task(), child_args, None);
 
         args.cloned_file_data_fd = -1;
         if self.vm().syscallbuf_enabled() {
@@ -1205,7 +1205,9 @@ impl RecordTask {
         // results.
         let arch = self.arch();
         let syscallno: i32 = syscall_number_for_execve(arch);
-        self.registers.set_original_syscallno(syscallno as isize);
+        self.registers
+            .borrow_mut()
+            .set_original_syscallno(syscallno as isize);
         // Fix event architecture and syscall number
         self.ev_mut().syscall_event_mut().number = syscallno;
         self.ev_mut().syscall_event_mut().set_arch(arch);

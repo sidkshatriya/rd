@@ -1148,7 +1148,7 @@ fn extract_clone_parameters_arch<Arch: Architecture>(regs: &Registers) -> CloneP
 }
 
 pub fn extract_clone_parameters(t: &dyn Task) -> CloneParameters {
-    rd_arch_function_selfless!(extract_clone_parameters_arch, t.arch(), t.regs_ref())
+    rd_arch_function_selfless!(extract_clone_parameters_arch, t.arch(), &t.regs_ref())
 }
 
 /// Convert the flags passed to the clone() syscall, `flags_arg`, into

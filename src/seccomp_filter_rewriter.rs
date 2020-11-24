@@ -183,12 +183,12 @@ fn install_patched_seccomp_filter_arch<Arch: Architecture>(
         );
         let code_ptr: RemotePtr<sock_filter> = RemotePtr::cast(mem.get().unwrap());
 
-        write_mem(mem.task_mut(), code_ptr, &f.filters, None);
+        write_mem(mem.task(), code_ptr, &f.filters, None);
 
         prog.len = f.filters.len().try_into().unwrap();
         prog.filter = Arch::from_remote_ptr(code_ptr);
         let prog_ptr = RemotePtr::<sock_fprog<Arch>>::cast(code_ptr + f.filters.len());
-        write_val_mem(mem.task_mut(), prog_ptr, &prog, None);
+        write_val_mem(mem.task(), prog_ptr, &prog, None);
 
         log!(LogDebug, "About to install seccomp filter");
         ret = mem.syscall(orig_syscallno, &[arg1, arg2, prog_ptr.as_usize()]);

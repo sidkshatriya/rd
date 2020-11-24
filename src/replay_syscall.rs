@@ -1295,7 +1295,7 @@ pub fn process_execve(t: &ReplayTask, step: &mut ReplayTraceStep) {
             remote
                 .task()
                 .vm_shr_ptr()
-                .unmap(remote.task_mut(), m.start(), m.size());
+                .unmap(remote.task(), m.start(), m.size());
         }
         // We will have unmapped the stack memory that `remote` would have used for
         // memory parameters. Fortunately process_mapped_region below doesn't
@@ -1406,7 +1406,7 @@ pub fn restore_mapped_region(
     }
 
     remote.task().vm_shr_ptr().map(
-        remote.task_mut(),
+        remote.task(),
         km.start(),
         km.size(),
         km.prot(),
@@ -1587,7 +1587,7 @@ fn process_mmap(
             let mut extra_fds: Vec<TraceRemoteFd> = Vec::new();
             let mut skip_monitoring_mapped_fd: bool = false;
             let mut km: KernelMapping = remote
-                .task_mut()
+                .task()
                 .as_replay_task()
                 .unwrap()
                 .trace_reader_mut()
@@ -1775,7 +1775,7 @@ fn finish_shared_mmap<'a>(
     );
 
     write_mapped_data(
-        remote.task_mut().as_replay_task().unwrap(),
+        remote.task().as_replay_task().unwrap(),
         rec_addr,
         km.size(),
         data,
@@ -1813,7 +1813,7 @@ fn finish_shared_mmap<'a>(
 
     for fd in fds {
         if remote.task().rec_tid() == fd.tid {
-            process(remote.task_mut(), fd);
+            process(remote.task(), fd);
         } else {
             match remote.task().session().find_task_from_rec_tid(fd.tid) {
                 Some(shr_ptr) => {
@@ -1853,7 +1853,7 @@ fn finish_private_mmap(
     // kernel-bug-workarounds when writing to tracee memory see the up-to-date
     // virtual map.
     remote.task().vm_shr_ptr().map(
-        remote.task_mut(),
+        remote.task(),
         rec_addr,
         length,
         prot,
@@ -1871,7 +1871,7 @@ fn finish_private_mmap(
 
     // Restore the map region we copied.
     write_mapped_data(
-        remote.task_mut().as_replay_task().unwrap(),
+        remote.task().as_replay_task().unwrap(),
         rec_addr,
         km.size(),
         data,
@@ -2127,7 +2127,7 @@ fn process_mremap(t: &ReplayTask, trace_regs: &Registers, step: &mut ReplayTrace
                     None,
                 );
                 remote
-                    .task_mut()
+                    .task()
                     .write_bytes_helper(new_addr, &buf, None, WriteFlags::empty());
                 mapping = remote.task().vm().mapping_of(new_addr).unwrap().clone();
             }

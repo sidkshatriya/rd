@@ -716,7 +716,7 @@ pub(super) fn did_waitpid<T: Task>(task: &T, mut status: WaitStatus) {
         task.pending_siginfo = local_pending_siginfo;
     }
 
-    let original_syscallno = task.registers.original_syscallno();
+    let original_syscallno = task.registers.borrow().original_syscallno();
     log!(LogDebug, "  (refreshing register cache)");
     // An unstable exit can cause a task to exit without us having run it, in
     // which case we might have pending register changes for it that are now
@@ -740,19 +740,19 @@ pub(super) fn did_waitpid<T: Task>(task: &T, mut status: WaitStatus) {
             RemotePtr::null(),
             &mut PtraceData::WriteInto(u8_slice_mut(&mut ptrace_regs)),
         ) {
-            task.registers.set_from_ptrace(&ptrace_regs);
+            task.registers.borrow_mut().set_from_ptrace(&ptrace_regs);
             // @TODO rr does an if-defined here
             // Check the architecture of the task by looking at the
             // cs segment register and checking if that segment is a long mode segment
             // (Linux always uses GDT entries for this, which are globally the same).
-            let a: SupportedArch = if is_long_mode_segment(task.registers.cs() as u32) {
+            let a: SupportedArch = if is_long_mode_segment(task.registers.borrow().cs() as u32) {
                 SupportedArch::X64
             } else {
                 SupportedArch::X86
             };
-            if a != task.registers.arch() {
-                task.registers = Registers::new(a);
-                task.registers.set_from_ptrace(&ptrace_regs);
+            if a != task.registers.borrow().arch() {
+                *task.registers.borrow_mut() = Registers::new(a);
+                task.registers.borrow_mut().set_from_ptrace(&ptrace_regs);
             }
         } else {
             log!(LogDebug, "Unexpected process death for {}", task.tid.get());
@@ -772,18 +772,19 @@ pub(super) fn did_waitpid<T: Task>(task: &T, mut status: WaitStatus) {
     if status.maybe_ptrace_event() == PTRACE_EVENT_EXIT {
         task.seen_ptrace_exit_event.set(true);
     } else {
-        if task.registers.singlestep_flag() {
-            task.registers.clear_singlestep_flag();
+        if task.registers.borrow().singlestep_flag() {
+            task.registers.borrow_mut().clear_singlestep_flag();
             task.registers_dirty.set(true);
         }
 
         if task.last_resume_orig_cx.get() != 0 {
-            let new_cx: usize = task.registers.cx();
+            let new_cx: usize = task.registers.borrow().cx();
             // Un-fudge registers, if we fudged them to work around the KNL hardware quirk
             let cutoff: usize = single_step_coalesce_cutoff();
             ed_assert!(task, new_cx == cutoff - 1 || new_cx == cutoff);
             let local_last_resume_orig_cx = task.last_resume_orig_cx.get();
             task.registers
+                .borrow_mut()
                 .set_cx(local_last_resume_orig_cx - cutoff + new_cx);
             task.registers_dirty.set(true);
         }
@@ -840,7 +841,9 @@ pub(super) fn did_waitpid<T: Task>(task: &T, mut status: WaitStatus) {
             // syscall number can be reset to -1. Undo that, so that the register
             // state matches the state we'd be in if we hadn't resumed. ReplayTimeline
             // depends on resume-at-a-breakpoint being a noop.
-            task.registers.set_original_syscallno(original_syscallno);
+            task.registers
+                .borrow_mut()
+                .set_original_syscallno(original_syscallno);
             task.registers_dirty.set(true);
         }
 
@@ -1737,7 +1740,7 @@ pub(in super::super) fn clone_task_common(
                     tt.scratch_size.get(),
                 );
             }
-            clone_this.vm().did_fork_into(remote.task_mut());
+            clone_this.vm().did_fork_into(remote.task());
         }
 
         if flags.contains(CloneFlags::CLONE_SHARE_FILES) {
@@ -1855,7 +1858,7 @@ pub fn close_buffers_for(
         }
         match maybe_context {
             None => remote
-                .task_mut()
+                .task()
                 .fd_table_shr_ptr()
                 .did_close(other_desched_fd_child),
             Some(ref mut context) => context.fd_table_shr_ptr().did_close(other_desched_fd_child),
@@ -1869,7 +1872,7 @@ pub fn close_buffers_for(
         );
         match maybe_context {
             None => remote
-                .task_mut()
+                .task()
                 .fd_table_shr_ptr()
                 .did_close(other_cloned_file_data_fd_child),
             Some(ref mut context) => context
@@ -2316,7 +2319,7 @@ pub(in super::super) fn copy_state(t: &dyn Task, state: &CapturedState) {
                 PR_SET_NAME,
                 child_addr.as_usize()
             );
-            remote_prname.task_mut().update_prname(child_addr);
+            remote_prname.task().update_prname(child_addr);
         }
 
         copy_tls(state, &mut remote);
@@ -2427,7 +2430,7 @@ fn os_clone(
 
     // This should have been set in the remote clone syscall made in perform_remote_clone()
     let new_tid = remote.new_tid().unwrap();
-    let child = remote.task_mut().clone_task(
+    let child = remote.task().clone_task(
         reason,
         clone_flags_to_task_flags(base_flags),
         stack,

@@ -2451,7 +2451,7 @@ pub mod address_space {
                 file_name = child_path.task().file_name_of_fd(page.as_raw());
 
                 let page_data: Vec<u8> = read_all(child_path.task(), &page);
-                child_path.task_mut().write_bytes_helper(
+                child_path.task().write_bytes_helper(
                     Self::rd_page_start(),
                     &page_data,
                     None,

@@ -451,7 +451,7 @@ impl<'a> ExpressionState<'a> {
                     }
                 };
                 let extra_regs = t.extra_regs_ref().clone();
-                let v: GdbRegisterValue = GdbServer::get_reg(t.regs_ref(), &extra_regs, r);
+                let v: GdbRegisterValue = GdbServer::get_reg(&t.regs_ref(), &extra_regs, r);
 
                 if !v.defined {
                     self.set_error();

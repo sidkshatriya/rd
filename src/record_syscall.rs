@@ -3754,7 +3754,7 @@ fn process_execve(t: &RecordTask, syscall_state: &mut TaskSyscallState) {
                 None,
             );
             ed_assert_eq!(remote.task(), mode, RecordInTrace::RecordInTrace);
-            let buf = read_mem(remote.task_mut(), km.start(), km.size(), None);
+            let buf = read_mem(remote.task(), km.start(), km.size(), None);
             t.trace_writer_mut()
                 .write_raw(t.rec_tid(), &buf, km.start());
 

@@ -158,6 +158,7 @@ use crate::{
     bindings::ptrace::{PTRACE_GETFPREGS, PTRACE_SETFPREGS},
     kernel_abi::x64,
 };
+use std::cell::RefMut;
 
 const NUM_X86_DEBUG_REGS: usize = 8;
 const NUM_X86_WATCHPOINTS: usize = 4;
@@ -367,7 +368,7 @@ pub struct TaskInner {
     /// consistent and the task last wait()ed.
     pub(in super::super) ticks: Cell<Ticks>,
     /// When `is_stopped`, these are our child registers.
-    pub(in super::super) registers: Registers,
+    pub(in super::super) registers: RefCell<Registers>,
     /// Where we last resumed execution
     pub(in super::super) address_of_last_execution_resume: Cell<RemoteCodePtr>,
     pub(in super::super) how_last_execution_resumed: Cell<ResumeRequest>,
@@ -566,7 +567,7 @@ impl TaskInner {
     /// enters a consistent state. Prior to that, the task state
     /// can vary based on how rd set up the child process. We have to flush
     /// out any state that might have been affected by that.
-    pub fn flush_inconsistent_state(&mut self) {
+    pub fn flush_inconsistent_state(&self) {
         self.ticks.set(0);
     }
 
@@ -611,10 +612,10 @@ impl TaskInner {
     /// Syscalls have side effects on registers (e.g. setting the flags register).
     /// Perform those side effects on `registers` to make it look like a syscall
     /// happened.
-    pub fn canonicalize_regs(&mut self, syscall_arch: SupportedArch) {
+    pub fn canonicalize_regs(&self, syscall_arch: SupportedArch) {
         ed_assert!(self, self.is_stopped.get());
 
-        match self.registers.arch() {
+        match self.registers.borrow().arch() {
             SupportedArch::X64 => {
                 match syscall_arch {
                     SupportedArch::X86 => {
@@ -625,10 +626,10 @@ impl TaskInner {
                         // which, though possible, does not appear to actually be done by any
                         // real application (contrary to int $0x80, which is accessible from 64bit
                         // mode as well).
-                        self.registers.set_r8(0x0);
-                        self.registers.set_r9(0x0);
-                        self.registers.set_r10(0x0);
-                        self.registers.set_r11(0x0);
+                        self.registers.borrow_mut().set_r8(0x0);
+                        self.registers.borrow_mut().set_r9(0x0);
+                        self.registers.borrow_mut().set_r10(0x0);
+                        self.registers.borrow_mut().set_r11(0x0);
                     }
                     SupportedArch::X64 => {
                         // x86-64 'syscall' instruction copies RFLAGS to R11 on syscall entry.
@@ -644,7 +645,7 @@ impl TaskInner {
                         // Ubuntu/Debian kernels.
                         // Making this match the flags makes this operation idempotent, which is
                         // helpful.
-                        self.registers.set_r11(0x246);
+                        self.registers.borrow_mut().set_r11(0x246);
                         // x86-64 'syscall' instruction copies return address to RCX on syscall
                         // entry. rd-related kernel activity normally sets RCX to -1 at some point
                         // during syscall execution, but apparently in some (unknown) situations
@@ -655,7 +656,7 @@ impl TaskInner {
                         // want to clobber that.
                         // For untraced syscalls, the untraced-syscall entry point code (see
                         // write_rd_page) does this itself.
-                        self.registers.set_cx(-1isize as usize);
+                        self.registers.borrow_mut().set_cx(-1isize as usize);
                     }
                 };
                 // On kernel 3.13.0-68-generic #111-Ubuntu SMP we have observed a failed
@@ -664,7 +665,7 @@ impl TaskInner {
                 // consistent.
                 // 0x246 is ZF+PF+IF+reserved, the result clearing a register using
                 // "xor reg, reg".
-                self.registers.set_flags(0x246);
+                self.registers.borrow_mut().set_flags(0x246);
             }
             SupportedArch::X86 => {
                 // The x86 SYSENTER handling in Linux modifies EBP and EFLAGS on entry.
@@ -674,7 +675,7 @@ impl TaskInner {
                 // In a VMWare guest, the modifications to EFLAGS appear to be
                 // nondeterministic. Cover that up by setting EFLAGS to reasonable values
                 // now.
-                self.registers.set_flags(0x246);
+                self.registers.borrow_mut().set_flags(0x246);
             }
         }
 
@@ -704,11 +705,11 @@ impl TaskInner {
 
     /// Return the current $ip of this.
     pub fn ip(&self) -> RemoteCodePtr {
-        self.registers.ip()
+        self.registers.borrow().ip()
     }
 
     /// Emulate a jump to a new IP, updating the ticks counter as appropriate.
-    pub fn emulate_jump(&mut self, ip: RemoteCodePtr) {
+    pub fn emulate_jump(&self, ip: RemoteCodePtr) {
         let mut r = self.regs_ref().clone();
         r.set_ip(ip);
         self.set_regs(&r);
@@ -775,7 +776,7 @@ impl TaskInner {
 
     /// Assuming ip() is just past a breakpoint instruction, adjust
     /// ip() backwards to point at that breakpoint insn.
-    pub fn move_ip_before_breakpoint(&mut self) {
+    pub fn move_ip_before_breakpoint(&self) {
         // TODO: assert that this is at a breakpoint trap.
         let mut r: Registers = self.regs_ref().clone();
         let arch = self.arch();
@@ -795,21 +796,21 @@ impl TaskInner {
     }
 
     /// Return the current regs of this.
-    pub fn regs_ref(&self) -> &Registers {
+    pub fn regs_ref(&self) -> Ref<Registers> {
         ed_assert!(self, self.is_stopped.get());
-        &self.registers
+        self.registers.borrow()
     }
 
     /// Return the current regs of this.
-    pub fn regs_mut(&mut self) -> &mut Registers {
-        &mut self.registers
+    pub fn regs_mut(&self) -> RefMut<Registers> {
+        self.registers.borrow_mut()
     }
 
     /// DIFF NOTE: simply `extra_regs()` in rr
     /// Return the extra registers of this.
-    pub fn extra_regs_ref(&mut self) -> &ExtraRegisters {
+    pub fn extra_regs_ref(&self) -> &ExtraRegisters {
         if self.extra_registers.is_none() {
-            let arch_ = self.registers.arch();
+            let arch_ = self.registers.borrow().arch();
             let format_ = Format::XSave;
             let mut data_ = Vec::<u8>::new();
             let er: ExtraRegisters;
@@ -875,7 +876,7 @@ impl TaskInner {
 
     /// Return the current arch of this. This can change due to exec().
     pub fn arch(&self) -> SupportedArch {
-        self.registers.arch()
+        self.registers.borrow().arch()
     }
 
     /// Return the debug status (DR6 on x86). The debug status is always cleared
@@ -906,17 +907,17 @@ impl TaskInner {
     }
 
     /// Set the tracee's registers to `regs`. Lazy.
-    pub fn set_regs(&mut self, regs: &Registers) {
+    pub fn set_regs(&self, regs: &Registers) {
         ed_assert!(self, self.is_stopped.get());
-        self.registers = regs.clone();
+        *self.registers.borrow_mut() = regs.clone();
         self.registers_dirty.set(true);
     }
 
     /// Ensure registers are flushed back to the underlying task.
-    pub fn flush_regs(&mut self) {
+    pub fn flush_regs(&self) {
         if self.registers_dirty.get() {
             ed_assert!(self, self.is_stopped.get());
-            let ptrace_regs = self.registers.get_ptrace();
+            let ptrace_regs = self.registers.borrow().get_ptrace();
             self.ptrace_if_alive(
                 PTRACE_SETREGS,
                 0usize.into(),
@@ -927,7 +928,7 @@ impl TaskInner {
     }
 
     /// Set the tracee's extra registers to `regs`.
-    pub fn set_extra_regs(&mut self, regs: &ExtraRegisters) {
+    pub fn set_extra_regs(&self, regs: &ExtraRegisters) {
         ed_assert!(self, !regs.is_empty(), "Trying to set empty ExtraRegisters");
         ed_assert!(
             self,
@@ -1048,7 +1049,7 @@ impl TaskInner {
     /// Set the thread area at index `idx` to desc and reflect this
     /// into the OS task. Returns 0 on success, errno otherwise
     /// DIFF NOTE: idx is a i32 in rr
-    pub fn emulate_set_thread_area(&mut self, idx: u32, mut desc: user_desc) -> i32 {
+    pub fn emulate_set_thread_area(&self, idx: u32, mut desc: user_desc) -> i32 {
         Errno::clear();
         // @TODO Is the cast `idx as usize` what we want?
         self.fallible_ptrace(
@@ -1083,7 +1084,7 @@ impl TaskInner {
         &self.thread_areas_
     }
 
-    pub fn set_status(&mut self, status: WaitStatus) {
+    pub fn set_status(&self, status: WaitStatus) {
         self.wait_status.set(status);
     }
 
@@ -1111,7 +1112,7 @@ impl TaskInner {
         self.wait_status.get().maybe_group_stop_sig()
     }
 
-    pub fn clear_wait_status(&mut self) {
+    pub fn clear_wait_status(&self) {
         self.wait_status.set(WaitStatus::default());
     }
 
@@ -1280,12 +1281,12 @@ impl TaskInner {
         }
     }
 
-    pub fn setup_preload_thread_locals(&mut self) {
+    pub fn setup_preload_thread_locals(&self) {
         self.activate_preload_thread_locals(None);
         rd_arch_function_selfless!(setup_preload_thread_locals_arch, self.arch(), self);
     }
 
-    pub fn setup_preload_thread_locals_from_clone(&mut self, origin: &TaskInner) {
+    pub fn setup_preload_thread_locals_from_clone(&self, origin: &TaskInner) {
         rd_arch_function_selfless!(
             setup_preload_thread_locals_from_clone_arch,
             self.arch(),
@@ -1294,7 +1295,7 @@ impl TaskInner {
         )
     }
 
-    pub fn fetch_preload_thread_locals(&mut self) -> &ThreadLocals {
+    pub fn fetch_preload_thread_locals(&self) -> &ThreadLocals {
         if self.tuid() == self.vm().thread_locals_tuid() {
             let maybe_local_addr = preload_thread_locals_local_addr(self.vm());
             match maybe_local_addr {
@@ -1319,7 +1320,7 @@ impl TaskInner {
     }
 
     // DIFF NOTE: Takes an additional param maybe_active_task
-    pub fn activate_preload_thread_locals(&mut self, maybe_active_task: Option<&TaskInner>) {
+    pub fn activate_preload_thread_locals(&self, maybe_active_task: Option<&TaskInner>) {
         // Switch thread-locals to the new task.
         if self.tuid() != self.vm().thread_locals_tuid() {
             let maybe_local_addr = preload_thread_locals_local_addr(&self.vm());
@@ -1383,7 +1384,7 @@ impl TaskInner {
             stable_serial,
             prname: "???".into(),
             ticks: Cell::new(0),
-            registers: Registers::new(a),
+            registers: RefCell::new(Registers::new(a)),
             how_last_execution_resumed: Cell::new(ResumeRequest::ResumeCont),
             last_resume_orig_cx: Cell::new(0),
             did_set_breakpoint_after_cpuid: Cell::new(false),
@@ -1420,7 +1421,7 @@ impl TaskInner {
 
     /// Grab state from this task into a structure that we can use to
     /// initialize a new task via os_clone_into/os_fork_into and copy_state.
-    pub(in super::super) fn capture_state(&mut self) -> CapturedState {
+    pub(in super::super) fn capture_state(&self) -> CapturedState {
         CapturedState {
             rec_tid: self.rec_tid(),
             serial: self.serial,
@@ -1457,13 +1458,13 @@ impl TaskInner {
     ) -> isize {
         let res = match data {
             PtraceData::WriteInto(data) => unsafe {
-                ptrace(request, self.tid, addr.as_usize(), (*data).as_mut_ptr())
+                ptrace(request, self.tid(), addr.as_usize(), (*data).as_mut_ptr())
             },
             PtraceData::ReadFrom(data) => unsafe {
-                ptrace(request, self.tid, addr.as_usize(), (*data).as_ptr())
+                ptrace(request, self.tid(), addr.as_usize(), (*data).as_ptr())
             },
             PtraceData::ReadWord(data) => unsafe {
-                ptrace(request, self.tid, addr.as_usize(), (*data) as *const u8)
+                ptrace(request, self.tid(), addr.as_usize(), (*data) as *const u8)
             },
             PtraceData::None => unsafe {
                 ptrace(request, self.tid, addr.as_usize(), ptr::null() as *const u8)

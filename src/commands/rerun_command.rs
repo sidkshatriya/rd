@@ -37,6 +37,7 @@ use std::{
     io::{stdout, Write},
     mem,
     mem::size_of,
+    ops::Deref,
     path::PathBuf,
 };
 use structopt::clap;
@@ -499,7 +500,7 @@ impl ReRunCommand {
         loop {
             let result = diversion_session
                 .borrow()
-                .diversion_step(t.as_mut(), Some(cmd), None);
+                .diversion_step(&**t, Some(cmd), None);
             self.write_regs(&**t, 0, 0, &mut stdout())?;
             match result.break_status.signal {
                 Some(siginfo) => {
@@ -566,7 +567,7 @@ impl ReRunCommand {
                 }
                 TraceFieldKind::TraceFsbase => {
                     // @TODO will rr also give 0 for x86?
-                    let value: u64 = match t.regs_ref() {
+                    let value: u64 = match t.regs_ref().deref() {
                         Registers::X86(_) => 0,
                         Registers::X64(regs) => regs.fs_base,
                     };
@@ -574,7 +575,7 @@ impl ReRunCommand {
                 }
                 TraceFieldKind::TraceGsbase => {
                     // @TODO will rr also give 0 for x86?
-                    let value: u64 = match t.regs_ref() {
+                    let value: u64 = match t.regs_ref().deref() {
                         Registers::X86(_) => 0,
                         Registers::X64(regs) => regs.gs_base,
                     };
@@ -605,7 +606,7 @@ impl ReRunCommand {
                     }
                 }
                 TraceFieldKind::TraceSegReg => {
-                    let value: u64 = seg_reg(t.regs_ref(), field.reg_num);
+                    let value: u64 = seg_reg(&t.regs_ref(), field.reg_num);
                     self.write_value(
                         SEG_REG_NAMES[field.reg_num as usize],
                         &value.to_le_bytes(),
