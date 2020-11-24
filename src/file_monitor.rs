@@ -70,10 +70,12 @@ pub struct LazyOffset<'b, 'a: 'b> {
 }
 
 impl<'b, 'a: 'b> LazyOffset<'b, 'a> {
+    #[inline]
     pub fn task_mut(&mut self) -> &dyn Task {
         self.t
     }
 
+    #[inline]
     pub fn task(&self) -> &dyn Task {
         self.t
     }

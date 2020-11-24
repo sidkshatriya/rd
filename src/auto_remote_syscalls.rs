@@ -729,6 +729,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
     }
 
     /// The Task in the context of which we're making syscalls.
+    #[inline]
     pub fn task(&self) -> &dyn Task {
         self.t
     }
