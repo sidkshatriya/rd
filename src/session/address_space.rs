@@ -3438,7 +3438,7 @@ fn normalized_device_number(m: &KernelMapping) -> dev_t {
     }
 }
 
-fn read_kernel_mapping(tid: pid_t, addr: RemotePtr<Void>) -> KernelMapping {
+pub fn read_kernel_mapping(tid: pid_t, addr: RemotePtr<Void>) -> KernelMapping {
     let range = MemoryRange::new_range(addr, 1);
     let iter = KernelMapIterator::new_from_tid(tid);
     for km in iter {

@@ -654,6 +654,8 @@ pub trait Architecture: 'static + Default {
     type shmid64_ds: Copy + 'static;
     type shminfo64: Copy + 'static;
     type shm_info: Copy + 'static;
+    type semid64_ds: Copy + 'static;
+    type seminfo: Copy + 'static;
 
     fn as_rptr<T>(p: Ptr<Self::unsigned_word, T>) -> RemotePtr<T>;
 
@@ -1233,6 +1235,8 @@ impl Architecture for X86Arch {
     type shmid64_ds = x86::shmid64_ds;
     type shminfo64 = x86::shminfo64;
     type shm_info = x86::shm_info;
+    type semid64_ds = x86::semid64_ds;
+    type seminfo = x86::seminfo;
 
     fn as_rptr<T>(p: Ptr<u32, T>) -> RemotePtr<T> {
         p.rptr()
@@ -1860,6 +1864,8 @@ impl Architecture for X64Arch {
     type shmid64_ds = x64::shmid64_ds;
     type shminfo64 = x64::shminfo64;
     type shm_info = x64::shm_info;
+    type semid64_ds = x64::semid64_ds;
+    type seminfo = x64::seminfo;
 
     fn as_rptr<T>(p: Ptr<u64, T>) -> RemotePtr<T> {
         p.rptr()

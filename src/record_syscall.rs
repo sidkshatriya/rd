@@ -34,9 +34,17 @@ use crate::{
     bindings::{
         fcntl,
         kernel::{
+            semid64_ds,
+            seminfo,
+            shmid64_ds,
             user_desc,
             vfs_cap_data,
             CAP_SYS_ADMIN,
+            GETALL,
+            GETNCNT,
+            GETPID,
+            GETVAL,
+            GETZCNT,
             IPC_64,
             IPC_INFO,
             IPC_RMID,
@@ -55,6 +63,10 @@ use crate::{
             SEMGET,
             SEMOP,
             SEMTIMEDOP,
+            SEM_INFO,
+            SEM_STAT,
+            SETALL,
+            SETVAL,
             SG_GET_VERSION_NUM,
             SG_IO,
             SHMAT,
@@ -284,7 +296,7 @@ use crate::{
         SelectCallingSemantics,
         SupportedArch,
     },
-    kernel_metadata::{errno_name, is_sigreturn, syscall_name},
+    kernel_metadata::{errno_name, is_sigreturn, shm_flags_to_mmap_prot, syscall_name},
     kernel_supplement::{
         sig_set_t,
         NUM_SIGNALS,
@@ -314,7 +326,11 @@ use crate::{
     scoped_fd::ScopedFd,
     seccomp_filter_rewriter::SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO,
     session::{
-        address_space::{address_space::AddressSpace, kernel_mapping::KernelMapping},
+        address_space::{
+            address_space::AddressSpace,
+            kernel_mapping::KernelMapping,
+            read_kernel_mapping,
+        },
         record_session::set_arch_siginfo,
         session_inner::SessionInner,
         task::{
@@ -2108,7 +2124,15 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
             }
 
             SEMCTL => {
-                unimplemented!()
+                let cmd = regs.arg4() as u32 & !IPC_64;
+                return prepare_semctl::<Arch>(
+                    t,
+                    &mut syscall_state,
+                    regs.arg2_signed() as i32,
+                    cmd,
+                    5,
+                    SemctlDereference::Dereference,
+                );
             }
 
             _ => {
@@ -2119,7 +2143,14 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
     }
 
     if sys == Arch::SEMCTL {
-        unimplemented!()
+        return prepare_semctl::<Arch>(
+            t,
+            &mut syscall_state,
+            regs.arg1_signed() as i32,
+            regs.arg3() as u32,
+            4,
+            SemctlDereference::UseDirectly,
+        );
     }
 
     // Invalid syscalls return -ENOSYS. Assume any such
@@ -2652,7 +2683,11 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
     }
 
     if sys == Arch::SHMAT {
-        unimplemented!()
+        let shmid = t.regs_ref().arg1_signed() as i32;
+        let shm_flags = t.regs_ref().arg3_signed() as i32;
+        let syscall_result: RemotePtr<Void> = t.regs_ref().syscall_result().into();
+        process_shmat(t, shmid, shm_flags, syscall_result);
+        return;
     }
 
     if sys == Arch::IPC {
@@ -2662,10 +2697,16 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
                 let child_addr = RemotePtr::<Arch::unsigned_word>::from(t.regs_ref().arg4());
                 let out_ptr = read_val_mem(t, child_addr, None);
                 let out_rptr = RemotePtr::<Void>::new(out_ptr.try_into().unwrap());
-                unimplemented!()
+                process_shmat(
+                    t,
+                    t.regs_ref().arg2_signed() as i32,
+                    t.regs_ref().arg3_signed() as i32,
+                    out_rptr,
+                );
             }
             _ => (),
         }
+        return;
     }
 
     if sys == Arch::CLOCK_NANOSLEEP || sys == Arch::NANOSLEEP {
@@ -6791,4 +6832,152 @@ fn in_same_mount_namespace_as(t: &RecordTask) -> bool {
     let my_buf = stat("/proc/self/ns/mnt").unwrap();
     let their_buf = stat(proc_ns_mount.as_str()).unwrap();
     my_buf.st_ino == their_buf.st_ino
+}
+
+#[derive(Copy, Clone, Eq, PartialEq)]
+enum SemctlDereference {
+    Dereference,
+    UseDirectly,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+union _semun {
+    val: i32,
+    buf: *mut semid64_ds,
+    array: *mut i16,
+    __buf: *mut seminfo,
+}
+
+fn prepare_semctl<Arch: Architecture>(
+    t: &mut RecordTask,
+    syscall_state: &mut TaskSyscallState,
+    semid: i32,
+    cmd: u32,
+    ptr_reg: usize,
+    dref: SemctlDereference,
+) -> Switchable {
+    match cmd {
+        IPC_SET | IPC_RMID | GETNCNT | GETPID | GETVAL | GETZCNT | SETALL | SETVAL => (),
+
+        IPC_STAT | SEM_STAT => {
+            if dref == SemctlDereference::Dereference {
+                let addr = RemotePtr::cast(
+                    syscall_state.reg_parameter::<Arch::unsigned_long>(ptr_reg, None, None),
+                );
+                syscall_state.mem_ptr_parameter::<Arch::semid64_ds>(t, addr, None, None);
+            } else {
+                syscall_state.reg_parameter::<Arch::semid64_ds>(ptr_reg, None, None);
+            }
+        }
+
+        IPC_INFO | SEM_INFO => {
+            if dref == SemctlDereference::Dereference {
+                let addr = RemotePtr::cast(
+                    syscall_state.reg_parameter::<Arch::unsigned_long>(ptr_reg, None, None),
+                );
+                syscall_state.mem_ptr_parameter::<Arch::seminfo>(t, addr, None, None);
+            } else {
+                syscall_state.reg_parameter::<Arch::seminfo>(ptr_reg, None, None);
+            }
+        }
+
+        GETALL => {
+            let mut ds = semid64_ds::default();
+            let mut un_arg: _semun = unsafe { mem::zeroed() };
+            un_arg.buf = &raw mut ds;
+            let ret: i32 = _semctl(semid, 0, IPC_STAT, un_arg);
+            // @TODO msan_unpoison
+            ed_assert_eq!(t, ret, 0);
+
+            let sz: usize = ds.sem_nsems.try_into().unwrap();
+            let size = ParamSize::from(size_of::<i16>() * sz);
+            if dref == SemctlDereference::Dereference {
+                let addr = RemotePtr::cast(
+                    syscall_state.reg_parameter::<Arch::unsigned_long>(ptr_reg, None, None),
+                );
+                syscall_state.mem_ptr_parameter_with_size(t, addr, size, None, None);
+            } else {
+                syscall_state.reg_parameter_with_size(ptr_reg, size, None, None);
+            }
+        }
+
+        _ => {
+            syscall_state.expect_errno = EINVAL;
+        }
+    }
+
+    Switchable::PreventSwitch
+}
+
+fn _semctl(semid: i32, semnum: i32, mut cmd: u32, un_arg: _semun) -> i32 {
+    if size_of::<usize>() == 4 {
+        cmd |= IPC_64;
+    }
+
+    // @TODO omitting the ifdef in rr
+    unsafe { libc::syscall(libc::SYS_semctl, semid, semnum, cmd, un_arg) as i32 }
+}
+
+fn _shmctl(shmid: i32, mut cmd: u32, buf: &mut shmid64_ds) -> i32 {
+    if size_of::<usize>() == 4 {
+        cmd |= IPC_64;
+    }
+
+    // @TODO omitting the ifdef in rr
+    unsafe { libc::syscall(libc::SYS_shmctl, shmid, cmd, buf) as i32 }
+}
+
+fn process_shmat(t: &mut RecordTask, shmid: i32, shm_flags: i32, addr: RemotePtr<Void>) {
+    if t.regs_ref().syscall_failed() {
+        // We purely emulate failed shmats.
+        return;
+    }
+
+    let mut ds = shmid64_ds::default();
+    let ret = _shmctl(shmid, IPC_STAT, &mut ds);
+    // @TODO msan_unpoison;
+    ed_assert_eq!(
+        t,
+        ret,
+        0,
+        "shmid should be readable by rd since rd has the same UID as tracees"
+    );
+    let size = ceil_page_size(ds.shm_segsz.try_into().unwrap());
+
+    let prot = shm_flags_to_mmap_prot(shm_flags);
+    let flags = MapFlags::MAP_SHARED;
+
+    // Read the kernel's mapping for the shm segment. There doesn't seem to be
+    // any other way to get the correct device number. (The inode number seems to
+    // be the shm key.) This should be OK since SysV shmem is not used very much
+    // and reading /proc/<pid>/maps should be reasonably cheap.
+    let kernel_info: KernelMapping = read_kernel_mapping(t.tid, addr);
+    let km: KernelMapping = t.vm_shr_ptr().map(
+        t,
+        addr,
+        size,
+        prot,
+        flags,
+        0,
+        kernel_info.fsname(),
+        kernel_info.device(),
+        kernel_info.inode(),
+        None,
+        None,
+        None,
+        None,
+        None,
+    );
+    t.vm().set_shm_size(km.start(), km.size());
+    let disposition =
+        t.trace_writer_mut()
+            .write_mapped_region(t, &km, &km.fake_stat(), &[], None, None);
+    ed_assert_eq!(t, disposition, RecordInTrace::RecordInTrace);
+    t.record_remote(addr, size);
+
+    log!(
+        LogDebug,
+        "Optimistically hoping that SysV segment is not used outside of tracees"
+    );
 }
