@@ -754,7 +754,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(t: &RecordTask, regs: &Registers
             }
 
             PR_GET_SECCOMP => {
-                syscall_state.emulate_result(t.prctl_seccomp_status as usize);
+                syscall_state.emulate_result(t.prctl_seccomp_status.get() as usize);
             }
 
             PR_GET_TSC => {
@@ -5177,7 +5177,7 @@ fn prepare_clone<Arch: Architecture>(t: &RecordTask, syscall_state: &mut TaskSys
         .write_task_event(&TraceTaskEvent::for_clone(
             new_task.tid(),
             t.tid(),
-            new_task.own_namespace_rec_tid,
+            new_task.own_namespace_rec_tid.get(),
             flags,
         ));
 

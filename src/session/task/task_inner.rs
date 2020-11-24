@@ -415,7 +415,7 @@ pub struct TaskInner {
     pub(in super::super) wait_status: Cell<WaitStatus>,
     /// The most recent siginfo (captured when wait_status shows pending_sig())
     /// @TODO Should this be an Option??
-    pub(in super::super) pending_siginfo: siginfo_t,
+    pub(in super::super) pending_siginfo: Cell<siginfo_t>,
     /// True when a PTRACE_EXIT_EVENT has been observed in the wait_status
     /// for this task.
     pub(in super::super) seen_ptrace_exit_event: Cell<bool>,
@@ -808,8 +808,8 @@ impl TaskInner {
 
     /// DIFF NOTE: simply `extra_regs()` in rr
     /// Return the extra registers of this.
-    pub fn extra_regs_ref(&self) -> &ExtraRegisters {
-        if self.extra_registers.is_none() {
+    pub fn extra_regs_ref(&self) -> Ref<ExtraRegisters> {
+        if self.extra_registers.borrow().is_none() {
             let arch_ = self.registers.borrow().arch();
             let format_ = Format::XSave;
             let mut data_ = Vec::<u8>::new();
@@ -868,10 +868,10 @@ impl TaskInner {
                     arch_,
                 };
             }
-            self.extra_registers = Some(er);
+            *self.extra_registers.borrow_mut() = Some(er);
         }
 
-        self.extra_registers.as_ref().unwrap()
+        Ref::map(self.extra_registers.borrow(), |b| b.as_ref().unwrap())
     }
 
     /// Return the current arch of this. This can change due to exec().
@@ -979,7 +979,7 @@ impl TaskInner {
                 unreachable!();
             }
         }
-        self.extra_registers = Some(er);
+        *self.extra_registers.borrow_mut() = Some(er);
     }
 
     /// Program the debug registers to the vector of watchpoint
@@ -1375,7 +1375,7 @@ impl TaskInner {
             desched_fd_child: Cell::new(-1),
             // This will be initialized when the syscall buffer is
             cloned_file_data_fd_child: Cell::new(-1),
-            hpc: PerfCounters::new(tid, session.ticks_semantics()),
+            hpc: RefCell::new(PerfCounters::new(tid, session.ticks_semantics())),
             tid: Cell::new(tid),
             rec_tid: Cell::new(adjusted_rec_tid),
             syscallbuf_size: Cell::new(0),
@@ -1392,7 +1392,7 @@ impl TaskInner {
             seccomp_bpf_enabled: Cell::new(false),
             detected_unexpected_exit: Cell::new(false),
             registers_dirty: Cell::new(false),
-            extra_registers: None,
+            extra_registers: RefCell::new(None),
             session_: session.weak_self.clone(),
             top_of_stack: Default::default(),
             seen_ptrace_exit_event: Cell::new(false),

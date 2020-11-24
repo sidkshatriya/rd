@@ -696,7 +696,7 @@ pub(super) fn did_waitpid<T: Task>(task: &T, mut status: WaitStatus) {
             status = WaitStatus::for_stop_sig(TIME_SLICE_SIGNAL);
             task.pending_siginfo = Default::default();
             task.pending_siginfo.si_signo = TIME_SLICE_SIGNAL.as_raw();
-            task.pending_siginfo._sifields._sigpoll.si_fd = task.hpc.ticks_interrupt_fd();
+            task.pending_siginfo._sifields._sigpoll.si_fd = task.hpc.borrow().ticks_interrupt_fd();
             task.pending_siginfo.si_code = POLL_IN as i32;
             siginfo_overridden = true;
             task.expecting_ptrace_interrupt_stop.set(0);
@@ -762,10 +762,10 @@ pub(super) fn did_waitpid<T: Task>(task: &T, mut status: WaitStatus) {
 
     task.is_stopped.set(true);
     task.wait_status.set(status);
-    let more_ticks: Ticks = task.hpc.read_ticks(task);
+    let more_ticks: Ticks = task.hpc.borrow().read_ticks(task);
     // We stop counting here because there may be things we want to do to the
     // tracee that would otherwise generate ticks.
-    task.hpc.stop_counting();
+    task.hpc.borrow_mut().stop_counting();
     task.session().accumulate_ticks_processed(more_ticks);
     task.ticks.set(task.ticks.get() + more_ticks);
 
@@ -903,13 +903,13 @@ pub(super) fn resume_execution<T: Task>(
     match tick_period {
         TicksRequest::ResumeNoTicks => (),
         TicksRequest::ResumeUnlimitedTicks => {
-            task.hpc.reset(0);
+            task.hpc.borrow_mut().reset(0);
             task.activate_preload_thread_locals(None);
         }
         TicksRequest::ResumeWithTicksRequest(tr) => {
             ed_assert!(task, tr <= MAX_TICKS_REQUEST);
             let adjusted_tr = max(1, tr);
-            task.hpc.reset(adjusted_tr);
+            task.hpc.borrow_mut().reset(adjusted_tr);
             task.activate_preload_thread_locals(None);
         }
     }
@@ -1016,7 +1016,7 @@ pub(super) fn resume_execution<T: Task>(
     }
 
     task.is_stopped.set(false);
-    task.extra_registers = None;
+    *task.extra_registers.borrow_mut() = None;
     if WaitRequest::ResumeWait == wait_how {
         task.wait(None);
     }
@@ -1428,7 +1428,7 @@ pub(super) fn post_exec_for_exe<T: Task>(t: &T, exe_file: &OsStr) {
     t.vm().task_set_mut().erase(t.weak_self_ptr());
     t.fd_table().task_set_mut().erase(t.weak_self_ptr());
 
-    t.extra_registers = None;
+    *t.extra_registers.borrow_mut() = None;
     let mut e = t.extra_regs_ref().clone();
     e.reset();
     t.set_extra_regs(&e);

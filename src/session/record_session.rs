@@ -654,9 +654,12 @@ impl RecordSession {
             let regs = t.regs_ref().clone();
             t.as_record_task()
                 .unwrap()
-                .registers_at_start_of_last_timeslice = regs;
-            t.as_record_task().unwrap().time_at_start_of_last_timeslice =
-                self.trace_writer().time();
+                .registers_at_start_of_last_timeslice
+                .set(regs);
+            t.as_record_task()
+                .unwrap()
+                .time_at_start_of_last_timeslice
+                .set(self.trace_writer().time());
         }
 
         // Have to disable context-switching until we know it's safe
@@ -825,14 +828,14 @@ impl RecordSession {
             let res = handle_signal(t.as_rec_unwrap(), si, deterministic, signal_was_blocked);
             match res {
                 (SignalHandled::SignalPtraceStop, new_si) => {
-                    t.pending_siginfo = new_si;
+                    t.pending_siginfo.set(new_si);
                     // Emulated ptrace-stop. Don't run the task again yet.
                     self.last_task_switchable.set(Switchable::AllowSwitch);
                     step_state.continue_type = ContinueType::DontContinue;
                     return true;
                 }
                 (SignalHandled::DeferSignal, new_si) => {
-                    t.pending_siginfo = new_si;
+                    t.pending_siginfo.set(new_si);
                     ed_assert!(
                         &**t,
                         false,
@@ -842,7 +845,7 @@ impl RecordSession {
                     );
                 }
                 (SignalHandled::SignalHandled, new_si) => {
-                    t.pending_siginfo = new_si;
+                    t.pending_siginfo.set(new_si);
                     if t.maybe_ptrace_event() == PTRACE_EVENT_SECCOMP {
                         // `handle_desched_event` detected a spurious desched followed
                         // by a SECCOMP event, which it left pending. Handle that SECCOMP
@@ -3017,7 +3020,7 @@ fn handle_ptrace_exit_event(t: &RecordTask) -> bool {
             {
                 // Either we're in a syscall, or we're immediately after a syscall
                 // and it exited with ENOSYS.
-                if t.ticks_at_last_recorded_syscall_exit == t.tick_count() {
+                if t.ticks_at_last_recorded_syscall_exit.get() == t.tick_count() {
                     log!(LogDebug, "Nothing to record after PTRACE_EVENT_EXIT");
                 // It's the latter case; do nothing.
                 } else {
@@ -3142,7 +3145,7 @@ fn record_robust_futex_change<Arch: Architecture>(
     if !ok {
         return;
     }
-    if val & FUTEX_TID_MASK != t.own_namespace_rec_tid as u32 {
+    if val & FUTEX_TID_MASK != t.own_namespace_rec_tid.get() as u32 {
         return;
     }
     val = (val & FUTEX_WAITERS) | FUTEX_OWNER_DIED;

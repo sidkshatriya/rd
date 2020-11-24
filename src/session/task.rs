@@ -351,7 +351,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
         );
 
         self.set_regs(&r);
-        self.wait_status = Default::default();
+        self.wait_status.set(Default::default());
     }
 
     /// Assuming we've just entered a syscall, exit that syscall and reset

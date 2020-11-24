@@ -365,7 +365,7 @@ pub enum AddSysgoodFlag {
     UseSysgood,
 }
 
-#[derive(Clone, Default)]
+#[derive(Copy, Clone, Default)]
 pub struct SyscallbufCodeLayout {
     pub syscallbuf_code_start: RemoteCodePtr,
     pub syscallbuf_code_end: RemoteCodePtr,
@@ -408,11 +408,11 @@ pub type RecordTaskSharedPtr = Rc<RefCell<RecordTask>>;
 
 pub struct RecordTask {
     pub task_inner: TaskInner,
-    pub ticks_at_last_recorded_syscall_exit: Ticks,
+    pub ticks_at_last_recorded_syscall_exit: Cell<Ticks>,
 
     /// Scheduler state
-    pub registers_at_start_of_last_timeslice: Registers,
-    pub time_at_start_of_last_timeslice: FrameTime,
+    pub registers_at_start_of_last_timeslice: Cell<Registers>,
+    pub time_at_start_of_last_timeslice: Cell<FrameTime>,
     /// Task 'nice' value set by setpriority(2).
     ///
     /// We use this to drive scheduling decisions. rd's scheduler is
@@ -474,11 +474,11 @@ pub struct RecordTask {
     /// Most accesses to this should use set_sigmask and get_sigmask to ensure
     /// the mirroring to syscallbuf is correct.
     pub blocked_sigs: Cell<sig_set_t>,
-    pub syscallbuf_blocked_sigs_generation: u32,
+    pub syscallbuf_blocked_sigs_generation: Cell<u32>,
 
     /// Syscallbuf state
-    pub syscallbuf_code_layout: SyscallbufCodeLayout,
-    pub desched_fd: ScopedFd,
+    pub syscallbuf_code_layout: Cell<SyscallbufCodeLayout>,
+    pub desched_fd: RefCell<ScopedFd>,
     /// Value of hdr->num_rec_bytes when the buffer was flushed
     pub flushed_num_rec_bytes: Cell<u32>,
     /// Nonzero after the trace recorder has flushed the
@@ -496,7 +496,7 @@ pub struct RecordTask {
     /// This is set by the code for handling seccomp SIGSYS signals.
     pub delay_syscallbuf_reset_for_seccomp_trap: Cell<bool>,
     /// Value to return from PR_GET_SECCOMP
-    pub prctl_seccomp_status: u8,
+    pub prctl_seccomp_status: Cell<u8>,
 
     /// Mirrored kernel state
     /// This state agrees with kernel-internal values
@@ -505,18 +505,18 @@ pub struct RecordTask {
     /// strong type for this list head and read it if we wanted to,
     /// but for now we only need to remember its address / size at
     /// the time of the most recent set_robust_list() call.
-    pub robust_futex_list: RemotePtr<Void>,
-    pub robust_futex_list_len: usize,
+    pub robust_futex_list: Cell<RemotePtr<Void>>,
+    pub robust_futex_list_len: Cell<usize>,
     /// The memory cell the kernel will clear and notify on exit,
     /// if our clone parent requested it.
-    pub tid_futex: RemotePtr<i32>,
+    pub tid_futex: Cell<RemotePtr<i32>>,
     /// This is the recorded tid of the tracee *in its own pid namespace*.
-    pub own_namespace_rec_tid: pid_t,
+    pub own_namespace_rec_tid: Cell<pid_t>,
     pub exit_code: Cell<i32>,
     /// Signal delivered by the kernel when this task terminates
     /// DIFF NOTE: We have an Option<> here which is different from rr.
     /// In rr None is indicated by 0
-    pub termination_signal: Option<Sig>,
+    pub termination_signal: Cell<Option<Sig>>,
 
     /// Our value for PR_GET/SET_TSC (one of PR_TSC_ENABLED, PR_TSC_SIGSEGV).
     pub tsc_mode: Cell<i32>,
@@ -597,7 +597,7 @@ impl Task for RecordTask {
                     cleartid_addr.as_usize()
                 );
                 ed_assert!(self, !cleartid_addr.is_null());
-                t.as_rec_unwrap().tid_futex = cleartid_addr;
+                t.as_rec_unwrap().tid_futex.set(cleartid_addr);
             } else {
                 log!(LogDebug, "(clone child not enabling CLEARTID)");
             }
@@ -606,20 +606,22 @@ impl Task for RecordTask {
     }
 
     fn own_namespace_tid(&self) -> pid_t {
-        self.own_namespace_rec_tid
+        self.own_namespace_rec_tid.get()
     }
 
     fn post_wait_clone(&self, clone_from: &dyn Task, flags: CloneFlags) {
         post_wait_clone_common(self, clone_from, flags);
 
         let rt = clone_from.as_rec_unwrap();
-        self.priority = rt.priority;
-        self.syscallbuf_code_layout = rt.syscallbuf_code_layout.clone();
-        self.prctl_seccomp_status = rt.prctl_seccomp_status;
-        self.robust_futex_list = rt.robust_futex_list;
-        self.robust_futex_list_len = rt.robust_futex_list_len;
-        self.tsc_mode = rt.tsc_mode;
-        self.cpuid_mode = rt.cpuid_mode;
+        self.priority.set(rt.priority.get());
+        self.syscallbuf_code_layout
+            .set(rt.syscallbuf_code_layout.get());
+        self.prctl_seccomp_status.set(rt.prctl_seccomp_status.get());
+        self.robust_futex_list.set(rt.robust_futex_list.get());
+        self.robust_futex_list_len
+            .set(rt.robust_futex_list_len.get());
+        self.tsc_mode.set(rt.tsc_mode.get());
+        self.cpuid_mode.set(rt.cpuid_mode.get());
         if flags.contains(CloneFlags::CLONE_SHARE_SIGHANDLERS) {
             self.sighandlers = rt.sighandlers.clone();
         } else {
@@ -837,8 +839,9 @@ impl Task for RecordTask {
                 self.invalidate_sigmask();
             } else {
                 let syscallbuf_generation = syscallbuf.blocked_sigs_generation;
-                if syscallbuf_generation > self.syscallbuf_blocked_sigs_generation {
-                    self.syscallbuf_blocked_sigs_generation = syscallbuf_generation;
+                if syscallbuf_generation > self.syscallbuf_blocked_sigs_generation.get() {
+                    self.syscallbuf_blocked_sigs_generation
+                        .set(syscallbuf_generation);
                     self.blocked_sigs.set(syscallbuf.blocked_sigs);
                 }
             }
@@ -963,8 +966,8 @@ impl RecordTask {
     ) -> Box<dyn Task> {
         let mut rt = RecordTask {
             task_inner: TaskInner::new(session, tid, None, serial, a),
-            ticks_at_last_recorded_syscall_exit: 0,
-            time_at_start_of_last_timeslice: 0,
+            ticks_at_last_recorded_syscall_exit: Cell::new(0),
+            time_at_start_of_last_timeslice: Cell::new(0),
             priority: Cell::new(0),
             in_round_robin_queue: Cell::new(false),
             emulated_ptracer: None,
@@ -980,16 +983,16 @@ impl RecordTask {
             in_wait_pid: Cell::new(0),
             emulated_stop_type: Cell::new(EmulatedStopType::NotStopped),
             blocked_sigs_dirty: Cell::new(true),
-            syscallbuf_blocked_sigs_generation: 0,
+            syscallbuf_blocked_sigs_generation: Cell::new(0),
             flushed_num_rec_bytes: Cell::new(0),
             flushed_syscallbuf: Cell::new(false),
             delay_syscallbuf_reset_for_desched: Cell::new(false),
             delay_syscallbuf_reset_for_seccomp_trap: Cell::new(false),
-            prctl_seccomp_status: 0,
-            robust_futex_list_len: 0,
-            own_namespace_rec_tid: tid,
+            prctl_seccomp_status: Cell::new(0),
+            robust_futex_list_len: Cell::new(0),
+            own_namespace_rec_tid: Cell::new(tid),
             exit_code: Cell::new(0),
-            termination_signal: None,
+            termination_signal: Cell::new(None),
             tsc_mode: Cell::new(PR_TSC_ENABLE),
             cpuid_mode: Cell::new(1),
             stashed_signals: Default::default(),
@@ -1114,7 +1117,7 @@ impl RecordTask {
                 args.desched_counter_fd,
                 Box::new(PreserveFileMonitor::new()),
             );
-            self.desched_fd = remote.retrieve_fd(args.desched_counter_fd);
+            *self.desched_fd.borrow_mut() = remote.retrieve_fd(args.desched_counter_fd);
 
             let record_in_trace = self.trace_writer_mut().write_mapped_region(
                 self,
@@ -2154,7 +2157,7 @@ impl RecordTask {
     /// Returns true if it looks like this task has been spinning on an atomic
     /// access/lock.
     pub fn maybe_in_spinlock(&self) -> bool {
-        self.time_at_start_of_last_timeslice == self.trace_writer().time()
+        self.time_at_start_of_last_timeslice.get() == self.trace_writer().time()
             && self
                 .regs_ref()
                 .matches(&self.registers_at_start_of_last_timeslice)
@@ -2448,10 +2451,10 @@ impl RecordTask {
 
         ed_assert!(
             self,
-            !self.flushed_syscallbuf || self.flushed_num_rec_bytes == hdr.num_rec_bytes
+            !self.flushed_syscallbuf.get() || self.flushed_num_rec_bytes.get() == hdr.num_rec_bytes
         );
 
-        if hdr.num_rec_bytes == 0 || self.flushed_syscallbuf {
+        if hdr.num_rec_bytes == 0 || self.flushed_syscallbuf.get() {
             // no records, or we've already flushed.
             return;
         }
@@ -2515,8 +2518,8 @@ impl RecordTask {
         self.record_current_event();
         self.pop_event(EventType::EvSyscallbufFlush);
 
-        self.flushed_syscallbuf = true;
-        self.flushed_num_rec_bytes = hdr.num_rec_bytes;
+        self.flushed_syscallbuf.set(true);
+        self.flushed_num_rec_bytes.set(hdr.num_rec_bytes);
 
         let num_rec_bytes = hdr.num_rec_bytes;
         log!(
@@ -2530,14 +2533,14 @@ impl RecordTask {
     /// syscallbuf. It must be after recording an event to ensure during replay
     /// we run past any syscallbuf after-syscall code that uses the buffer data.
     pub fn maybe_reset_syscallbuf(&self) {
-        if self.flushed_syscallbuf
+        if self.flushed_syscallbuf.get()
             && !self.delay_syscallbuf_reset_for_desched.get()
             && !self.delay_syscallbuf_reset_for_seccomp_trap.get()
         {
-            self.flushed_syscallbuf = false;
+            self.flushed_syscallbuf.set(false);
             log!(LogDebug, "Syscallbuf reset");
             self.reset_syscallbuf();
-            self.syscallbuf_blocked_sigs_generation = 0;
+            self.syscallbuf_blocked_sigs_generation.set(0);
             self.record_event(Some(Event::syscallbuf_reset()), None, None, None);
         }
     }
@@ -2577,7 +2580,8 @@ impl RecordTask {
         }
 
         if ev.is_syscall_event() && ev.syscall_event().state == SyscallState::ExitingSyscall {
-            self.ticks_at_last_recorded_syscall_exit = self.tick_count();
+            self.ticks_at_last_recorded_syscall_exit
+                .set(self.tick_count());
         }
 
         let mut maybe_extra_registers = None;
@@ -2696,11 +2700,11 @@ impl RecordTask {
     }
 
     pub fn robust_list(&self) -> RemotePtr<Void> {
-        self.robust_futex_list
+        self.robust_futex_list.get()
     }
 
     pub fn robust_list_len(&self) -> usize {
-        self.robust_futex_list_len
+        self.robust_futex_list_len.get()
     }
 
     /// Uses /proc so not trivially cheap.
@@ -2712,11 +2716,11 @@ impl RecordTask {
     /// Return true if this is a "clone child" per the wait(2) man page.
     pub fn is_clone_child(&self) -> bool {
         // @TODO Is this what we want? Should we unwrap?
-        self.termination_signal != Some(sig::SIGCHLD)
+        self.termination_signal.get() != Some(sig::SIGCHLD)
     }
 
     pub fn set_termination_signal(&self, maybe_sig: Option<Sig>) {
-        self.termination_signal = maybe_sig;
+        self.termination_signal.set(maybe_sig);
     }
 
     /// When a signal triggers an emulated a ptrace-stop for this task,
@@ -2737,11 +2741,11 @@ impl RecordTask {
     /// where they can: when a non-main-thread does an execve, its tid changes
     /// to the tid of the thread-group leader.
     pub fn set_tid_and_update_serial(&self, tid: pid_t, own_namespace_tid: pid_t) {
-        self.hpc.set_tid(tid);
+        self.hpc.borrow_mut().set_tid(tid);
         self.rec_tid.set(tid);
         self.tid.set(tid);
         self.serial = self.session().next_task_serial();
-        self.own_namespace_rec_tid = own_namespace_tid;
+        self.own_namespace_rec_tid.set(own_namespace_tid);
     }
 
     /// Return our cached copy of the signal mask, updating it if necessary.
@@ -2849,7 +2853,7 @@ impl RecordTask {
             let mut remote = AutoRemoteSyscalls::new(self);
             ret = remote.infallible_syscall(syscall_number_for_gettid(arch), &[]) as i32;
         }
-        self.own_namespace_rec_tid = ret;
+        self.own_namespace_rec_tid.set(ret);
     }
 
     /// Wait for `sync_addr` in `self` address space to have the value
@@ -3016,8 +3020,8 @@ impl RecordTask {
     /// Update the futex robust list head pointer to `list` (which
     /// is of size `len`).
     fn set_robust_list(&mut self, list: RemotePtr<Void>, len: usize) {
-        self.robust_futex_list = list;
-        self.robust_futex_list_len = len;
+        self.robust_futex_list.set(list);
+        self.robust_futex_list_len.set(len);
     }
 
     fn on_syscall_exit_arch<Arch: Architecture>(&mut self, sys: i32, regs: &Registers) {
@@ -3083,7 +3087,7 @@ impl RecordTask {
     /// Update the clear-tid futex to `tid_addr`.
     fn set_tid_addr(&mut self, tid_addr: RemotePtr<i32>) {
         log!(LogDebug, "updating cleartid futex to {}", tid_addr);
-        self.tid_futex = tid_addr;
+        self.tid_futex.set(tid_addr);
     }
 }
 
@@ -3170,7 +3174,8 @@ impl Drop for RecordTask {
         // Unstable exits may result in the kernel *not* clearing the
         // futex, for example for fatal signals.  So we would
         // deadlock waiting on the futex.
-        if !self.unstable.get() && !self.tid_futex.is_null() && self.vm().task_set().len() > 1 {
+        if !self.unstable.get() && !self.tid_futex.get().is_null() && self.vm().task_set().len() > 1
+        {
             // clone()'d tasks can have a pid_t* |ctid| argument
             // that's written with the new task's pid.  That
             // pointer can also be used as a futex: when the task
@@ -3181,12 +3186,12 @@ impl Drop for RecordTask {
             log!(
                 LogDebug,
                 " waiting for tid futex {} to be cleared ...",
-                self.tid_futex
+                self.tid_futex.get()
             );
 
-            if self.futex_wait(self.tid_futex, 0).is_ok() {
+            if self.futex_wait(self.tid_futex.get(), 0).is_ok() {
                 let val = 0;
-                self.record_local_for(self.tid_futex, &val);
+                self.record_local_for(self.tid_futex.get(), &val);
             }
         }
 

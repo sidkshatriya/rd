@@ -197,12 +197,12 @@ fn install_patched_seccomp_filter_arch<Arch: Architecture>(
     set_syscall_result(t, ret);
 
     if !t.regs_ref().syscall_failed() {
-        t.prctl_seccomp_status = 2;
+        t.prctl_seccomp_status.set(2);
         if is_seccomp_syscall(orig_syscallno, t.arch())
             && (arg2 & SECCOMP_FILTER_FLAG_TSYNC as usize != 0)
         {
             for tt in t.thread_group().task_set().iter_except(t.weak_self_ptr()) {
-                tt.as_rec_unwrap().prctl_seccomp_status = 2;
+                tt.as_rec_unwrap().prctl_seccomp_status.set(2);
             }
         }
     }

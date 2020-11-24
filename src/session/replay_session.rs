@@ -2013,7 +2013,7 @@ fn apply_mprotect_records(t: &ReplayTask, skip_mprotect_records: u32) -> u32 {
                 unsafe {
                     libc::syscall(
                         SYS_rdcall_mprotect_record as _,
-                        t.tid,
+                        t.tid(),
                         r.start as usize,
                         r.size as usize,
                         r.prot,
