@@ -2784,19 +2784,19 @@ fn read_exe_info<T: AsRef<OsStr>>(full_path: T) -> ExeInfo {
 
     match Elf::parse(&data) {
         Err(e) => fatal!("Error while Elf parsing {:?}: {:?}", full_path.as_ref(), e),
-        Ok(elf_file) => match elf_file.dynamic {
+        Ok(elf_obj) => match elf_obj.dynamic {
             Some(dyns) => {
                 let mut maybe_libasan_path = None;
                 let mut has_asan_init = false;
-                for lib in dyns.get_libraries(&elf_file.dynstrtab) {
+                for lib in dyns.get_libraries(&elf_obj.dynstrtab) {
                     // @TODO Is contains() OK?
                     if lib.contains("libasan") {
                         maybe_libasan_path = Some(OsString::from(lib));
                         break;
                     }
                 }
-                for s in elf_file.dynsyms.iter() {
-                    match elf_file.dynstrtab.get(s.st_name) {
+                for s in elf_obj.dynsyms.iter() {
+                    match elf_obj.dynstrtab.get(s.st_name) {
                         Some(name_res) => match name_res {
                             Ok(name) => {
                                 if name == "__asan_init" {

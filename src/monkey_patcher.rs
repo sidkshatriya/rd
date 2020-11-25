@@ -217,19 +217,19 @@ impl MonkeyPatcher {
             // there is a debuglink.  For example, on Fedora 26, the .symtab and
             // .strtab sections are stripped from the debuginfo file for
             // libpthread.so.
-            let elf_file = match Elf::parse(elf_map.map) {
-                Ok(elf_file) => elf_file,
+            let elf_obj = match Elf::parse(elf_map.map) {
+                Ok(elfo) => elfo,
                 Err(_) => return,
             };
 
-            if elf_file.syms.len() == 0 {
+            if elf_obj.syms.len() == 0 {
                 log!(
                     LogWarn,
                     "@TODO PENDING try to get symbols for patch_after_mmap() from debug"
                 )
             }
-            for sym in &elf_file.syms {
-                if has_name(&elf_file.strtab, sym.st_name, "__elision_aconf") {
+            for sym in &elf_obj.syms {
+                if has_name(&elf_obj.strtab, sym.st_name, "__elision_aconf") {
                     log!(
                         LogDebug,
                         "Found __elision_conf for possible patching in memory"
@@ -240,7 +240,7 @@ impl MonkeyPatcher {
                     // in glibc's elide.h.
                     set_and_record_bytes(
                         t,
-                        &elf_file,
+                        &elf_obj,
                         sym.st_value as usize + 8,
                         &ZERO.to_le_bytes(),
                         start,
@@ -248,7 +248,7 @@ impl MonkeyPatcher {
                         offset_pages,
                     );
                 }
-                if has_name(&elf_file.strtab, sym.st_name, "elision_init") {
+                if has_name(&elf_obj.strtab, sym.st_name, "elision_init") {
                     log!(
                         LogDebug,
                         "Found elision_init for possible patching in memory"
@@ -260,7 +260,7 @@ impl MonkeyPatcher {
                     const RET: [u8; 1] = [0xC3];
                     set_and_record_bytes(
                         t,
-                        &elf_file,
+                        &elf_obj,
                         sym.st_value as usize,
                         &RET,
                         start,
@@ -274,9 +274,9 @@ impl MonkeyPatcher {
                 // during a real exec, not during the mmap operations performed when rr
                 // replays an exec.
                 if mode == MmapMode::MmapExec
-                    && (has_name(&elf_file.strtab, sym.st_name, "_dl_runtime_resolve_fxsave")
-                        || has_name(&elf_file.strtab, sym.st_name, "_dl_runtime_resolve_xsave")
-                        || has_name(&elf_file.strtab, sym.st_name, "_dl_runtime_resolve_xsavec"))
+                    && (has_name(&elf_obj.strtab, sym.st_name, "_dl_runtime_resolve_fxsave")
+                        || has_name(&elf_obj.strtab, sym.st_name, "_dl_runtime_resolve_xsave")
+                        || has_name(&elf_obj.strtab, sym.st_name, "_dl_runtime_resolve_xsavec"))
                 {
                     log!(LogWarn, "@TODO PENDING patch_dl_runtime_resolve()");
                 }
@@ -551,9 +551,9 @@ impl X86SysenterVsyscallImplementationAMD {
     pub const SIZE: usize = X86_SYSENTER_VSYSCALL_IMPLEMENTATION_AMD_BYTES.len();
 }
 
-fn find_section_file_offsets<'a>(elf_file: &Elf<'a>, section_name: &str) -> Option<Range<usize>> {
-    for section in &elf_file.section_headers {
-        match elf_file.strtab.get(section.sh_name) {
+fn find_section_file_offsets<'a>(elf_obj: &Elf<'a>, section_name: &str) -> Option<Range<usize>> {
+    for section in &elf_obj.section_headers {
+        match elf_obj.strtab.get(section.sh_name) {
             Some(name_res) => match name_res {
                 Ok(name) if name == section_name => return Some(section.file_range()),
                 _ => continue,
@@ -565,8 +565,8 @@ fn find_section_file_offsets<'a>(elf_file: &Elf<'a>, section_name: &str) -> Opti
     None
 }
 
-fn erase_section<'a>(elf_file: &Elf<'a>, t: &mut RecordTask, section_name: &str) {
-    match find_section_file_offsets(elf_file, section_name) {
+fn erase_section<'a>(elf_obj: &Elf<'a>, t: &mut RecordTask, section_name: &str) {
+    match find_section_file_offsets(elf_obj, section_name) {
         Some(offsets) => {
             let mut zeroes: Vec<u8> = Vec::with_capacity(offsets.end - offsets.start);
             zeroes.resize(offsets.end - offsets.start, 0);
@@ -578,10 +578,10 @@ fn erase_section<'a>(elf_file: &Elf<'a>, t: &mut RecordTask, section_name: &str)
     }
 }
 
-fn obliterate_debug_info<'a>(elf_file: &Elf<'a>, t: &mut RecordTask) {
-    erase_section(elf_file, t, ".eh_frame");
-    erase_section(elf_file, t, ".eh_frame_hdr");
-    erase_section(elf_file, t, ".note");
+fn obliterate_debug_info<'a>(elf_obj: &Elf<'a>, t: &mut RecordTask) {
+    erase_section(elf_obj, t, ".eh_frame");
+    erase_section(elf_obj, t, ".eh_frame_hdr");
+    erase_section(elf_obj, t, ".note");
 }
 
 /// Patch _dl_runtime_resolve_(fxsave,xsave,xsavec) to clear "FDP Data Pointer"
@@ -669,8 +669,8 @@ const X86_SYSCALLS_TO_MONKEYPATCH: [NamedSyscall; 5] = [
 ];
 
 /// @TODO Could offsets need a u64? rr uses a usize like here though
-fn addr_to_offset<'a>(elf_file: &Elf<'a>, addr: usize, offset: &mut usize) -> bool {
-    for section in &elf_file.section_headers {
+fn addr_to_offset<'a>(elf_obj: &Elf<'a>, addr: usize, offset: &mut usize) -> bool {
+    for section in &elf_obj.section_headers {
         // Skip the section if it either "occupies no space in the file" or
         // doesn't have a valid address because it does not "occupy memory
         // during process execution".
@@ -705,12 +705,12 @@ fn patch_after_exec_arch_x86arch(t: &mut RecordTask, patcher: &mut MonkeyPatcher
     let mut data = Vec::new();
     data.resize(vdso_size, 0u8);
     t.read_bytes_helper(vdso_start, &mut data, None);
-    let elf_file = match Elf::parse(&data) {
-        Ok(elf_file) => elf_file,
+    let elf_obj = match Elf::parse(&data) {
+        Ok(elfo) => elfo,
         Err(e) => fatal!("Error in parsing vdso: {:?}", e),
     };
 
-    patcher.x86_vsyscall = locate_and_verify_kernel_vsyscall(t, &elf_file);
+    patcher.x86_vsyscall = locate_and_verify_kernel_vsyscall(t, &elf_obj);
     if patcher.x86_vsyscall.is_null() {
         fatal!(
             "Failed to monkeypatch vdso: your __kernel_vsyscall() wasn't recognized.\n\
@@ -730,12 +730,12 @@ fn patch_after_exec_arch_x86arch(t: &mut RecordTask, patcher: &mut MonkeyPatcher
     log!(LogDebug, "monkeypatched __kernel_vsyscall to use int $80");
 
     for syscall in &X86_SYSCALLS_TO_MONKEYPATCH {
-        for s in elf_file.dynsyms.iter() {
-            match elf_file.dynstrtab.get(s.st_name) {
+        for s in elf_obj.dynsyms.iter() {
+            match elf_obj.dynstrtab.get(s.st_name) {
                 Some(name_res) => match name_res {
                     Ok(name) if name == syscall.name => {
                         let mut file_offset: usize = 0;
-                        if !addr_to_offset(&elf_file, s.st_value as usize, &mut file_offset) {
+                        if !addr_to_offset(&elf_obj, s.st_value as usize, &mut file_offset) {
                             log!(LogDebug, "Can't convert address {} to offset", s.st_value);
 
                             continue;
@@ -772,7 +772,7 @@ fn patch_after_exec_arch_x86arch(t: &mut RecordTask, patcher: &mut MonkeyPatcher
         }
     }
 
-    obliterate_debug_info(&elf_file, t);
+    obliterate_debug_info(&elf_obj, t);
 }
 
 struct X86SysenterVsyscallUseInt80;
@@ -798,7 +798,7 @@ const X86_SYSENTER_VSYSCALL_USE_INT80_BYTES: [u8; 3] = [0xcd, 0x80, 0xc3];
 
 /// Return the address of a recognized `__kernel_vsyscall()`
 /// implementation in `t`'s address space.
-fn locate_and_verify_kernel_vsyscall(t: &mut RecordTask, elf_file: &Elf) -> RemotePtr<Void> {
+fn locate_and_verify_kernel_vsyscall(t: &mut RecordTask, elf_obj: &Elf) -> RemotePtr<Void> {
     let mut kernel_vsyscall = RemotePtr::null();
     // It is unlikely but possible that multiple, versioned __kernel_vsyscall
     // symbols will exist.  But we can't rely on setting |kernel_vsyscall| to
@@ -807,12 +807,12 @@ fn locate_and_verify_kernel_vsyscall(t: &mut RecordTask, elf_file: &Elf) -> Remo
     // the last one.  Therefore, we have this separate flag to alert us to
     // this possibility.
     let mut seen_kernel_vsyscall = false;
-    for s in elf_file.dynsyms.iter() {
-        match elf_file.dynstrtab.get(s.st_name) {
+    for s in elf_obj.dynsyms.iter() {
+        match elf_obj.dynstrtab.get(s.st_name) {
             Some(name_res) => match name_res {
                 Ok(name) if name == "__kernel_vsyscall" => {
                     let mut file_offset: usize = 0;
-                    if !addr_to_offset(&elf_file, s.st_value as usize, &mut file_offset) {
+                    if !addr_to_offset(&elf_obj, s.st_value as usize, &mut file_offset) {
                         log!(LogDebug, "Can't convert address {} to offset", s.st_value);
                         continue;
                     }
@@ -871,18 +871,18 @@ fn patch_after_exec_arch_x64arch(t: &mut RecordTask, patcher: &mut MonkeyPatcher
     let mut data = Vec::new();
     data.resize(size, 0u8);
     t.read_bytes_helper(t.vm().vdso().start(), &mut data, None);
-    let elf_file = match Elf::parse(&data) {
-        Ok(elf_file) => elf_file,
+    let elf_obj = match Elf::parse(&data) {
+        Ok(elfo) => elfo,
         Err(e) => fatal!("Error in parsing vdso: {:?}", e),
     };
 
     for syscall in &X64_SYSCALLS_TO_MONKEYPATCH {
-        for s in elf_file.dynsyms.iter() {
-            match elf_file.dynstrtab.get(s.st_name) {
+        for s in elf_obj.dynsyms.iter() {
+            match elf_obj.dynstrtab.get(s.st_name) {
                 Some(name_res) => match name_res {
                     Ok(name) if name == syscall.name => {
                         let mut file_offset: usize = 0;
-                        if !addr_to_offset(&elf_file, s.st_value as usize, &mut file_offset) {
+                        if !addr_to_offset(&elf_obj, s.st_value as usize, &mut file_offset) {
                             log!(LogDebug, "Can't convert address {} to offset", s.st_value);
 
                             continue;
@@ -942,7 +942,7 @@ fn patch_after_exec_arch_x64arch(t: &mut RecordTask, patcher: &mut MonkeyPatcher
         }
     }
 
-    obliterate_debug_info(&elf_file, t);
+    obliterate_debug_info(&elf_obj, t);
 
     for (_, m) in &t.vm_shr_ptr().maps() {
         let km = &m.map;
@@ -1073,14 +1073,14 @@ impl Drop for ElfMap {
 }
 
 fn resolve_address<'a>(
-    elf_file: &Elf<'a>,
+    elf_obj: &Elf<'a>,
     elf_addr: usize,
     map_start: RemotePtr<Void>,
     map_size: usize,
     map_offset_pages: usize,
 ) -> RemotePtr<Void> {
     let mut file_offset: usize = 0;
-    if !addr_to_offset(elf_file, elf_addr, &mut file_offset) {
+    if !addr_to_offset(elf_obj, elf_addr, &mut file_offset) {
         log!(LogWarn, "ELF address {:#x} not in file", elf_addr);
     }
     let map_offset = map_offset_pages * page_size();
@@ -1096,7 +1096,7 @@ fn resolve_address<'a>(
 
 fn set_and_record_bytes<'a>(
     t: &mut RecordTask,
-    elf_file: &Elf<'a>,
+    elf_obj: &Elf<'a>,
     elf_addr: usize,
     bytes: &[u8],
     map_start: RemotePtr<Void>,
@@ -1104,7 +1104,7 @@ fn set_and_record_bytes<'a>(
     map_offset_pages: usize,
 ) {
     let addr: RemotePtr<Void> =
-        resolve_address(elf_file, elf_addr, map_start, map_size, map_offset_pages);
+        resolve_address(elf_obj, elf_addr, map_start, map_size, map_offset_pages);
 
     if addr.is_null() {
         return;
