@@ -63,6 +63,11 @@ fn main() {
         .status()
         .unwrap();
 
+    Command::new("scripts/generate_syscalls.py")
+        .arg(path.join("assembly_templates_generated.rs"))
+        .status()
+        .unwrap();
+
     // These are typically not needed. Uncomment and use when necessary e.g. there are new syscalls
     /*
     Command::new("scripts/generate_syscalls.py")
@@ -102,6 +107,7 @@ fn main() {
         .unwrap();
 
     println!("cargo:rerun-if-changed=scripts/generate_syscalls.py");
+    println!("cargo:rerun-if-changed=scripts/assembly_templates.py");
     println!("cargo:rerun-if-changed=scripts/syscalls.py");
 
     let perf_event_bindings = Builder::default()
