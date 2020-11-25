@@ -2783,7 +2783,18 @@ fn read_exe_info<T: AsRef<OsStr>>(full_path: T) -> ExeInfo {
     };
 
     match Elf::parse(&data) {
-        Err(e) => fatal!("Error while Elf parsing {:?}: {:?}", full_path.as_ref(), e),
+        Err(e) => {
+            log!(
+                LogDebug,
+                "Skipping trying to reading exe info as {:?} was not an elf file: {:?}",
+                full_path.as_ref(),
+                e
+            );
+            ExeInfo {
+                libasan_path: None,
+                has_asan_symbols: false,
+            }
+        }
         Ok(elf_obj) => match elf_obj.dynamic {
             Some(dyns) => {
                 let mut maybe_libasan_path = None;
