@@ -33,7 +33,7 @@ use std::{
     collections::{HashMap, HashSet},
     convert::TryInto,
     ffi::OsStr,
-    mem::size_of,
+    mem::{size_of, size_of_val},
     ops::Range,
     os::unix::ffi::OsStrExt,
     path::Path,
@@ -43,6 +43,8 @@ use std::{
 
 const MAX_VDSO_SIZE: usize = 16384;
 const VDSO_ABSOLUTE_ADDRESS: usize = 0xffffe000;
+
+include!(concat!(env!("OUT_DIR"), "/assembly_templates_generated.rs"));
 
 #[derive(Clone)]
 pub struct MonkeyPatcher {
@@ -512,45 +514,6 @@ fn is_kernel_vsyscall(t: &mut RecordTask, addr: RemotePtr<Void>) -> bool {
         || X86SysenterVsyscallImplementationAMD::matchp(&impl_buf)
 }
 
-const X86_SYSENTER_VSYSCALL_IMPLEMENTATION_BYTES: [u8; 7] =
-    [0x51, 0x52, 0x55, 0x89, 0xe5, 0xf, 0x34];
-const X86_SYSENTER_VSYSCALL_IMPLEMENTATION_AMD_BYTES: [u8; 9] =
-    [0x51, 0x52, 0x55, 0x89, 0xcd, 0xf, 0x5, 0xcd, 0x80];
-
-struct X86SysenterVsyscallImplementation;
-
-impl X86SysenterVsyscallImplementation {
-    pub fn matchp(buffer: &[u8]) -> bool {
-        if buffer[0..Self::SIZE] != X86_SYSENTER_VSYSCALL_IMPLEMENTATION_BYTES {
-            return false;
-        }
-        true
-    }
-
-    pub fn substitute(buffer: &mut [u8]) {
-        buffer[0..Self::SIZE].copy_from_slice(&X86_SYSENTER_VSYSCALL_IMPLEMENTATION_BYTES);
-    }
-
-    pub const SIZE: usize = X86_SYSENTER_VSYSCALL_IMPLEMENTATION_BYTES.len();
-}
-
-struct X86SysenterVsyscallImplementationAMD;
-
-impl X86SysenterVsyscallImplementationAMD {
-    pub fn matchp(buffer: &[u8]) -> bool {
-        if buffer[0..Self::SIZE] != X86_SYSENTER_VSYSCALL_IMPLEMENTATION_AMD_BYTES {
-            return false;
-        }
-        true
-    }
-
-    pub fn substitute(buffer: &mut [u8]) {
-        buffer[0..Self::SIZE].copy_from_slice(&X86_SYSENTER_VSYSCALL_IMPLEMENTATION_AMD_BYTES);
-    }
-
-    pub const SIZE: usize = X86_SYSENTER_VSYSCALL_IMPLEMENTATION_AMD_BYTES.len();
-}
-
 fn find_section_file_offsets<'a>(elf_obj: &Elf<'a>, section_name: &str) -> Option<Range<usize>> {
     for section in &elf_obj.section_headers {
         match elf_obj.strtab.get(section.sh_name) {
@@ -750,7 +713,10 @@ fn patch_after_exec_arch_x86arch(t: &mut RecordTask, patcher: &mut MonkeyPatcher
                         let absolute_address = vdso_start + file_offset;
 
                         let mut patch = [0u8; X86VsyscallMonkeypatch::SIZE];
-                        X86VsyscallMonkeypatch::substitute(&mut patch, syscall.syscall_number);
+                        X86VsyscallMonkeypatch::substitute(
+                            &mut patch,
+                            syscall.syscall_number as u32,
+                        );
 
                         write_and_record_bytes(t, absolute_address, &patch);
                         // Record the location of the syscall instruction, skipping the
@@ -774,27 +740,6 @@ fn patch_after_exec_arch_x86arch(t: &mut RecordTask, patcher: &mut MonkeyPatcher
 
     obliterate_debug_info(&elf_obj, t);
 }
-
-struct X86SysenterVsyscallUseInt80;
-
-impl X86SysenterVsyscallUseInt80 {
-    pub fn matchp(buffer: &[u8]) -> bool {
-        if buffer[0..Self::SIZE] != X86_SYSENTER_VSYSCALL_USE_INT80_BYTES[0..Self::SIZE] {
-            return false;
-        }
-
-        true
-    }
-
-    pub fn substitute(buffer: &mut [u8]) {
-        buffer[0..Self::SIZE]
-            .copy_from_slice(&X86_SYSENTER_VSYSCALL_USE_INT80_BYTES[0..Self::SIZE]);
-    }
-
-    pub const SIZE: usize = X86_SYSENTER_VSYSCALL_USE_INT80_BYTES.len();
-}
-
-const X86_SYSENTER_VSYSCALL_USE_INT80_BYTES: [u8; 3] = [0xcd, 0x80, 0xc3];
 
 /// Return the address of a recognized `__kernel_vsyscall()`
 /// implementation in `t`'s address space.
@@ -903,7 +848,7 @@ fn patch_after_exec_arch_x64arch(t: &mut RecordTask, patcher: &mut MonkeyPatcher
 
                             let mut patch = [0u8; X64VsyscallMonkeypatch::SIZE];
                             let syscall_number: i32 = syscall.syscall_number;
-                            X64VsyscallMonkeypatch::substitute(&mut patch, syscall_number);
+                            X64VsyscallMonkeypatch::substitute(&mut patch, syscall_number as u32);
 
                             write_and_record_bytes(t, absolute_address.into(), &patch);
                             // Record the location of the syscall instruction, skipping the
@@ -957,75 +902,9 @@ fn patch_after_exec_arch_x64arch(t: &mut RecordTask, patcher: &mut MonkeyPatcher
     }
 }
 
-impl X64VsyscallMonkeypatch {
-    pub fn matchp(buffer: &[u8], syscall_number: &mut u32) -> bool {
-        if buffer[0] != X64_VSYSCALL_MONKEYPATCH_BYTES[0] {
-            return false;
-        }
-        *syscall_number = u32::from_le_bytes(buffer[1..1 + size_of::<u32>()].try_into().unwrap());
-        if buffer[Self::SYSCALL_NUMBER_END..Self::SIZE]
-            != X64_VSYSCALL_MONKEYPATCH_BYTES[Self::SYSCALL_NUMBER_END..Self::SIZE]
-        {
-            return false;
-        }
-
-        true
-    }
-
-    pub fn substitute(buffer: &mut [u8], syscall_number: i32) {
-        buffer[0] = X64_VSYSCALL_MONKEYPATCH_BYTES[0];
-        buffer[1..1 + size_of::<i32>()].copy_from_slice(&syscall_number.to_le_bytes());
-        buffer[Self::SYSCALL_NUMBER_END..Self::SIZE]
-            .copy_from_slice(&X64_VSYSCALL_MONKEYPATCH_BYTES[Self::SYSCALL_NUMBER_END..Self::SIZE]);
-    }
-
-    pub const SYSCALL_NUMBER_END: usize = 5;
-
-    pub const SIZE: usize = X64_VSYSCALL_MONKEYPATCH_BYTES.len();
-}
-
-struct X64VsyscallMonkeypatch;
-
-const X64_VSYSCALL_MONKEYPATCH_BYTES: [u8; 11] =
-    [0xb8, 0x0, 0x0, 0x0, 0x0, 0xf, 0x5, 0x90, 0x90, 0x90, 0xc3];
-
 struct ElfMap {
     map: &'static mut [u8],
 }
-
-struct X86VsyscallMonkeypatch;
-
-impl X86VsyscallMonkeypatch {
-    pub fn matchp(buffer: &[u8], syscall_number: &mut u32) -> bool {
-        if buffer[0..2] != X86_VSYSCALL_MONKEYPATCH_BYTES[0..2] {
-            return false;
-        }
-        *syscall_number = u32::from_le_bytes(buffer[2..2 + size_of::<u32>()].try_into().unwrap());
-        if buffer[Self::SYSCALL_NUMBER_END..Self::SIZE]
-            != X86_VSYSCALL_MONKEYPATCH_BYTES[Self::SYSCALL_NUMBER_END..Self::SIZE]
-        {
-            return false;
-        }
-
-        true
-    }
-
-    pub fn substitute(buffer: &mut [u8], syscall_number: i32) {
-        buffer[0..2].copy_from_slice(&X86_VSYSCALL_MONKEYPATCH_BYTES[0..2]);
-        buffer[2..Self::SYSCALL_NUMBER_END].copy_from_slice(&syscall_number.to_le_bytes());
-        buffer[Self::SYSCALL_NUMBER_END..Self::SIZE]
-            .copy_from_slice(&X86_VSYSCALL_MONKEYPATCH_BYTES[Self::SYSCALL_NUMBER_END..Self::SIZE]);
-    }
-
-    pub const SYSCALL_NUMBER_END: usize = 6;
-
-    pub const SIZE: usize = X86_VSYSCALL_MONKEYPATCH_BYTES.len();
-}
-
-const X86_VSYSCALL_MONKEYPATCH_BYTES: [u8; 21] = [
-    0x53, 0xb8, 0x0, 0x0, 0x0, 0x0, 0x8b, 0x5c, 0x24, 0x8, 0x8b, 0x4c, 0x24, 0xc, 0xcd, 0x80, 0x90,
-    0x90, 0x90, 0x5b, 0xc3,
-];
 
 impl ElfMap {
     fn new(fd: &ScopedFd) -> ElfMap {
