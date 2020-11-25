@@ -175,7 +175,7 @@ class SyscallGen(Enum):
     TRAIT_IMPL = 4
 
 generators_for = {
-    'AssemblyTemplates': lambda f: assembly_templates.generate(f),
+    'assembly_templates_generated': lambda f: assembly_templates.generate(f),
     'check_syscall_numbers_generated': write_check_syscall_numbers,
     'syscall_consts_x86_generated': lambda f: write_syscall_consts(f, 'x86', SyscallGen.DEFAULT),
     'syscall_consts_x64_generated': lambda f: write_syscall_consts(f, 'x64', SyscallGen.DEFAULT),

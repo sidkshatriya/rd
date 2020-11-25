@@ -19,7 +19,7 @@ class Field(object):
         return self.byte_length
 
     def c_type(self):
-        types = { 8: 'uint64_t', 4: 'uint32_t', 2: 'uint16_t', 1: 'uint8_t' }
+        types = { 8: 'u64', 4: 'u32', 2: 'u16', 1: 'u8' }
         return types[self.byte_length]
 
 class AssemblyTemplate(object):
@@ -182,21 +182,21 @@ def generate_match_method(byte_array, template):
     fields = template.fields()
     field_types = [f.c_type() for f in fields]
     field_names = [f.name for f in fields]
-    args = ', ' + ', '.join("%s* %s" % (t, n) for t, n in zip(field_types, field_names)) \
+    args = ', ' + ', '.join("%s: &mut %s" % (t, n) for t, n in zip(field_names, field_types)) \
            if fields else ''
     
-    s.write('  static bool match(const uint8_t* buffer %s) {\n' % (args,))
+    s.write('  pub fn matchp(buffer: &[u8] %s) -> bool {\n' % (args,))
     offset = 0
     for chunk in template.chunks:
         if isinstance(chunk, Field):
             field_name = chunk.name
-            s.write('    memcpy(%s, &buffer[%d], sizeof(*%s));\n'
-                    % (field_name, offset, field_name))
+            s.write('    *%s = %s::from_le_bytes(buffer[%d..%d + size_of_val(&%s)].try_into().unwrap());\n'
+                    % (field_name, chunk.c_type(), offset, offset, field_name))
         else:
-            s.write('    if (memcmp(&buffer[%d], &%s[%d], %d) != 0) { return false; }\n'
-                    % (offset, byte_array, offset, len(chunk)))
+            s.write('    if buffer[%d..%d] != %s[%d..%d] { return false; }\n'
+                    % (offset, offset + len(chunk), byte_array, offset, offset + len(chunk)))
         offset += len(chunk)
-    s.write('    return true;\n')
+    s.write('    true\n')
     s.write('  }')
     return s.getvalue()
 
@@ -205,19 +205,19 @@ def generate_substitute_method(byte_array, template):
     fields = template.fields()
     field_types = [f.c_type() for f in fields]
     field_names = [f.name for f in fields]
-    args = ', ' + ', '.join("%s %s" % (t, n) for t, n in zip(field_types, field_names)) \
+    args = ', ' + ', '.join("%s: %s" % (t, n) for t, n in zip(field_names, field_types)) \
            if fields else ''
     
-    s.write('  static void substitute(uint8_t* buffer %s) {\n' % (args,))
+    s.write('  pub fn substitute(buffer: &mut [u8] %s) {\n' % (args,))
     offset = 0
     for chunk in template.chunks:
         if isinstance(chunk, Field):
             field_name = chunk.name
-            s.write('    memcpy(&buffer[%d], &%s, sizeof(%s));\n'
-                    % (offset, field_name, field_name))
+            s.write('    buffer[%d..%d + size_of_val(&%s)].copy_from_slice(&%s.to_le_bytes());\n'
+                    % (offset, offset, field_name, field_name))
         else:
-            s.write('    memcpy(&buffer[%d], &%s[%d], %d);\n'
-                    % (offset, byte_array, offset, len(chunk)))
+            s.write('    buffer[%d..%d].copy_from_slice(&%s[%d..%d]);\n'
+                    % (offset, offset + len(chunk), byte_array, offset, offset + len(chunk)))
         offset += len(chunk)
     s.write('  }')
     return s.getvalue()
@@ -228,34 +228,35 @@ def generate_field_end_methods(byte_array, template):
     for chunk in template.chunks:
         offset += len(chunk)
         if isinstance(chunk, Field):
-            s.write('  static const size_t %s_end = %d;\n' % (chunk.name, offset))
+            s.write('  pub const %s_END : usize = %d;\n' % (chunk.name.upper(), offset))
     return s.getvalue()
 
 def generate_size_member(byte_array):
     s = StringIO()
-    s.write('  static const size_t size = sizeof(%s);' % byte_array)
+    s.write('  pub const SIZE : usize = %s.len();' % byte_array)
     return s.getvalue()
 
 def generate(f):
     # Raw bytes.
     for name, template in templates.items():
         bytes = template.bytes()
-        f.write('static const uint8_t %s[] = { %s };\n'
-                % (byte_array_name(name), ', '.join(['0x%x' % b for b in bytes])))
+        f.write('#[allow(non_upper_case_globals)]\npub const %s: [u8; %d] = [ %s ];\n'
+                % (byte_array_name(name), len(bytes), ', '.join(['0x%x' % b for b in bytes])))
     f.write('\n')
 
     # Objects representing assembly templates.
     for name, template in templates.items():
         byte_array = byte_array_name(name)
-        f.write("""class %(class_name)s {
-public:
+        f.write("""pub struct %(class_name)s;
+
+impl %(class_name)s {
 %(match_method)s
 
 %(substitute_method)s
 
 %(field_end_methods)s
 %(size_member)s
-};
+}
 """ % { 'class_name': name,
         'match_method': generate_match_method(byte_array, template),
         'substitute_method': generate_substitute_method(byte_array, template),
