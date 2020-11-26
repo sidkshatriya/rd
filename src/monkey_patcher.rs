@@ -33,7 +33,7 @@ use std::{
     collections::{HashMap, HashSet},
     convert::TryInto,
     ffi::OsStr,
-    mem::{size_of, size_of_val},
+    mem::size_of,
     ops::Range,
     os::unix::ffi::OsStrExt,
     path::Path,
@@ -312,8 +312,10 @@ fn write_and_record_bytes(t: &mut RecordTask, child_addr: RemotePtr<Void>, buf: 
     t.record_local(child_addr, buf);
 }
 
-fn write_and_record_mem<T>(_t: &RecordTask, _child_addr: RemotePtr<T>, _vals: &[T]) {
-    unimplemented!()
+fn write_and_record_mem<T>(t: &mut RecordTask, child_addr: RemotePtr<T>, vals: &[T]) {
+    let vals_u8 =
+        unsafe { slice::from_raw_parts(vals.as_ptr() as *const u8, vals.len() * size_of::<T>()) };
+    write_and_record_bytes(t, RemotePtr::cast(child_addr), vals_u8);
 }
 
 /// RecordSession sets up an LD_PRELOAD environment variable with an entry
@@ -451,9 +453,9 @@ fn substitute_extended_jump<Arch: Architecture>(
 /// Allocate an extended jump in an extended jump page and return its address.
 /// The resulting address must be within 2G of from_end, and the instruction
 /// there must jump to to_start.
-fn allocate_extended_jump(
+fn allocate_extended_jump<Patch: AssemblyTemplate>(
     _t: &RecordTask,
-    _pages: Vec<ExtendedJumpPage>,
+    _pages: &[ExtendedJumpPage],
     _from_end: RemotePtr<u8>,
 ) -> RemotePtr<u8> {
     unimplemented!()
@@ -551,16 +553,72 @@ fn obliterate_debug_info<'a>(elf_obj: &Elf<'a>, t: &mut RecordTask) {
 /// register so that CPU-specific behaviors involving that register don't leak
 /// into stack memory.
 fn patch_dl_runtime_resolve(
-    _patcher: &MonkeyPatcher,
-    _t: &RecordTask,
-    _reader: &ElfReader,
-    _elf_addr: usize,
-    _bytes: &[u8],
-    _map_start: RemotePtr<Void>,
-    _map_size: usize,
-    _map_offset_pages: usize,
+    patcher: &MonkeyPatcher,
+    t: &mut RecordTask,
+    elf_obj: &Elf,
+    elf_addr: usize,
+    map_start: RemotePtr<Void>,
+    map_size: usize,
+    map_offset_pages: usize,
 ) {
-    unimplemented!()
+    if t.arch() != SupportedArch::X64 {
+        return;
+    }
+    let addr = resolve_address(elf_obj, elf_addr, map_start, map_size, map_offset_pages);
+    if addr.is_null() {
+        return;
+    }
+
+    let mut impl_resolve = [0u8; X64DLRuntimeResolve::SIZE];
+    t.read_bytes(addr, &mut impl_resolve);
+    if !X64DLRuntimeResolve::matchp(&impl_resolve) && !X64DLRuntimeResolve2::matchp(&impl_resolve) {
+        log!(
+            LogWarn,
+            "_dl_runtime_resolve implementation doesn't look right"
+        );
+        return;
+    }
+
+    let mut jump_patch = [0u8; X64JumpMonkeypatch::SIZE];
+    // We're patching in a relative jump, so we need to compute the offset from
+    // the end of the jump to our actual destination.
+    let jump_patch_start = RemotePtr::<u8>::cast(addr);
+    let jump_patch_end = jump_patch_start + jump_patch.len();
+
+    let extended_jump_start = allocate_extended_jump::<X64DLRuntimeResolvePrelude>(
+        t,
+        &patcher.extended_jump_pages,
+        jump_patch_end,
+    );
+    if extended_jump_start.is_null() {
+        return;
+    }
+    let mut stub_patch = [0u8; X64DLRuntimeResolvePrelude::SIZE];
+    let return_offset: i64 = (jump_patch_start.as_isize() as i64
+        + X64DLRuntimeResolve::SIZE as i64)
+        - (extended_jump_start.as_isize() as i64 + X64DLRuntimeResolvePrelude::SIZE as i64);
+    if return_offset != return_offset as i32 as i64 {
+        log!(LogWarn, "Return out of range");
+        return;
+    }
+    X64DLRuntimeResolvePrelude::substitute(&mut stub_patch, return_offset as u32);
+    write_and_record_bytes(t, extended_jump_start, &stub_patch);
+
+    let jump_offset: isize = extended_jump_start.as_isize() - jump_patch_end.as_isize();
+    let jump_offset32 = jump_offset as i32;
+    ed_assert_eq!(
+        t,
+        jump_offset32 as isize,
+        jump_offset,
+        "allocate_extended_jump didn't work"
+    );
+    X64JumpMonkeypatch::substitute(&mut jump_patch, jump_offset32 as u32);
+    write_and_record_bytes(t, jump_patch_start, &jump_patch);
+
+    // pad with NOPs to the next instruction
+    const NOP: u8 = 0x90;
+    let nops = [NOP; X64DLRuntimeResolve::SIZE - X64JumpMonkeypatch::SIZE];
+    write_and_record_bytes(t, jump_patch_start + jump_patch.len(), &nops);
 }
 
 fn file_may_need_instrumentation(map: &address_space::Mapping) -> bool {

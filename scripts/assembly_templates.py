@@ -190,7 +190,7 @@ def generate_match_method(byte_array, template):
     for chunk in template.chunks:
         if isinstance(chunk, Field):
             field_name = chunk.name
-            s.write('    *%s = %s::from_le_bytes(buffer[%d..%d + size_of_val(&%s)].try_into().unwrap());\n'
+            s.write('    *%s = %s::from_le_bytes(buffer[%d..%d + std::mem::size_of_val(&%s)].try_into().unwrap());\n'
                     % (field_name, chunk.c_type(), offset, offset, field_name))
         else:
             s.write('    if buffer[%d..%d] != %s[%d..%d] { return false; }\n'
@@ -213,7 +213,7 @@ def generate_substitute_method(byte_array, template):
     for chunk in template.chunks:
         if isinstance(chunk, Field):
             field_name = chunk.name
-            s.write('    buffer[%d..%d + size_of_val(&%s)].copy_from_slice(&%s.to_le_bytes());\n'
+            s.write('    buffer[%d..%d + std::mem::size_of_val(&%s)].copy_from_slice(&%s.to_le_bytes());\n'
                     % (offset, offset, field_name, field_name))
         else:
             s.write('    buffer[%d..%d].copy_from_slice(&%s[%d..%d]);\n'
@@ -233,7 +233,7 @@ def generate_field_end_methods(byte_array, template):
 
 def generate_size_member(byte_array):
     s = StringIO()
-    s.write('  pub const SIZE : usize = %s.len();' % byte_array)
+    s.write('  const SIZE : usize = %s.len();' % byte_array)
     return s.getvalue()
 
 def generate(f):
@@ -242,7 +242,10 @@ def generate(f):
         bytes = template.bytes()
         f.write('#[allow(non_upper_case_globals)]\npub const %s: [u8; %d] = [ %s ];\n'
                 % (byte_array_name(name), len(bytes), ', '.join(['0x%x' % b for b in bytes])))
-    f.write('\n')
+    f.write('\n\n')
+    f.write('trait AssemblyTemplate {\n');
+    f.write('const SIZE : usize;\n');
+    f.write('}\n');
 
     # Objects representing assembly templates.
     for name, template in templates.items():
@@ -255,6 +258,9 @@ impl %(class_name)s {
 %(substitute_method)s
 
 %(field_end_methods)s
+}
+
+impl AssemblyTemplate for %(class_name)s {
 %(size_member)s
 }
 """ % { 'class_name': name,
