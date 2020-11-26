@@ -1,5 +1,6 @@
 use crate::{
     arch::{Architecture, X64Arch, X86Arch},
+    auto_remote_syscalls::AutoRemoteSyscalls,
     kernel_abi::SupportedArch,
     log::{LogDebug, LogWarn},
     preload_interface::{
@@ -12,9 +13,10 @@ use crate::{
     remote_ptr::{RemotePtr, Void},
     scoped_fd::ScopedFd,
     session::{
-        address_space::address_space,
+        address_space::{address_space, kernel_mapping::KernelMapping, MappingFlags},
         task::{record_task::RecordTask, task_common::read_val_mem, task_inner::WriteFlags, Task},
     },
+    trace::trace_writer::MappingOrigin,
     util::{find, page_size},
 };
 use goblin::{
@@ -32,7 +34,7 @@ use nix::{
 use std::{
     collections::{HashMap, HashSet},
     convert::TryInto,
-    ffi::OsStr,
+    ffi::{OsStr, OsString},
     mem::size_of,
     ops::Range,
     os::unix::ffi::OsStrExt,
@@ -76,7 +78,7 @@ pub enum MmapMode {
     MmapSyscall,
 }
 
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct ExtendedJumpPage {
     pub addr: RemotePtr<u8>,
     pub allocated: usize,
@@ -280,7 +282,16 @@ impl MonkeyPatcher {
                         || has_name(&elf_obj.strtab, sym.st_name, "_dl_runtime_resolve_xsave")
                         || has_name(&elf_obj.strtab, sym.st_name, "_dl_runtime_resolve_xsavec"))
                 {
-                    log!(LogWarn, "@TODO PENDING patch_dl_runtime_resolve()");
+                    let patcher = t.vm().monkeypatcher().unwrap();
+                    patch_dl_runtime_resolve(
+                        &mut patcher.borrow_mut(),
+                        t,
+                        &elf_obj,
+                        sym.st_value as usize,
+                        start,
+                        size,
+                        offset_pages,
+                    );
                 }
             }
         }
@@ -453,12 +464,99 @@ fn substitute_extended_jump<Arch: Architecture>(
 /// Allocate an extended jump in an extended jump page and return its address.
 /// The resulting address must be within 2G of from_end, and the instruction
 /// there must jump to to_start.
-fn allocate_extended_jump<Patch: AssemblyTemplate>(
-    _t: &RecordTask,
-    _pages: &[ExtendedJumpPage],
-    _from_end: RemotePtr<u8>,
+fn allocate_extended_jump<ExtendedJumpPatch: AssemblyTemplate>(
+    t: &mut RecordTask,
+    pages: &mut Vec<ExtendedJumpPage>,
+    from_end: RemotePtr<u8>,
 ) -> RemotePtr<u8> {
-    unimplemented!()
+    let mut maybe_page: Option<usize> = None;
+    for (i, p) in pages.iter().enumerate() {
+        let page_jump_start = p.addr + p.allocated;
+        let offset = page_jump_start.as_isize() as i64 - from_end.as_isize() as i64;
+        if offset as i32 as i64 == offset && p.allocated + ExtendedJumpPatch::SIZE <= page_size() {
+            maybe_page = Some(i);
+            break;
+        }
+    }
+
+    match maybe_page {
+        None => {
+            // We're looking for a gap of three pages --- one page to allocate and
+            // a page on each side as a guard page.
+            let required_space = 3 * page_size();
+            let free_mem = t.vm().find_free_memory(
+                required_space,
+                // Find free space after the patch site.
+                Some(t.vm().mapping_of(from_end).unwrap().map.start()),
+            );
+
+            let addr = free_mem + page_size();
+            let offset: i64 = addr.as_isize() as i64 - from_end.as_isize() as i64;
+            if offset as i32 as i64 != offset {
+                log!(LogDebug, "Can't find space close enough for the jump");
+                return RemotePtr::null();
+            }
+
+            {
+                let mut remote = AutoRemoteSyscalls::new(t);
+                let prot = ProtFlags::PROT_READ | ProtFlags::PROT_EXEC;
+                let flags = MapFlags::MAP_ANONYMOUS | MapFlags::MAP_FIXED | MapFlags::MAP_PRIVATE;
+                remote.infallible_mmap_syscall(Some(addr), page_size(), prot, flags, -1, 0);
+                let recorded = KernelMapping::new_with_opts(
+                    addr,
+                    addr + page_size(),
+                    &OsString::new(),
+                    KernelMapping::NO_DEVICE,
+                    KernelMapping::NO_INODE,
+                    prot,
+                    flags,
+                    0,
+                );
+                remote.task().vm().map(
+                    remote.task(),
+                    addr,
+                    page_size(),
+                    prot,
+                    flags,
+                    0,
+                    &OsString::new(),
+                    KernelMapping::NO_DEVICE,
+                    KernelMapping::NO_INODE,
+                    None,
+                    Some(&recorded),
+                    None,
+                    None,
+                    None,
+                );
+                *remote.task().vm().mapping_flags_of_mut(addr) |= MappingFlags::IS_PATCH_STUBS;
+                remote
+                    .task()
+                    .as_rec_unwrap()
+                    .trace_writer_mut()
+                    .write_mapped_region(
+                        remote.task().as_rec_unwrap(),
+                        &recorded,
+                        &recorded.fake_stat(),
+                        &[],
+                        Some(MappingOrigin::PatchMapping),
+                        None,
+                    );
+            }
+
+            let mut page = ExtendedJumpPage::new(addr);
+            page.allocated += ExtendedJumpPatch::SIZE;
+            let jump_addr = page.addr + page.allocated;
+            pages.push(page);
+            jump_addr
+        }
+        Some(page_i) => {
+            let page = pages.get_mut(page_i).unwrap();
+            let jump_addr = page.addr + page.allocated;
+            page.allocated += ExtendedJumpPatch::SIZE;
+
+            jump_addr
+        }
+    }
 }
 
 /// Some functions make system calls while storing local variables in memory
@@ -553,7 +651,7 @@ fn obliterate_debug_info<'a>(elf_obj: &Elf<'a>, t: &mut RecordTask) {
 /// register so that CPU-specific behaviors involving that register don't leak
 /// into stack memory.
 fn patch_dl_runtime_resolve(
-    patcher: &MonkeyPatcher,
+    patcher: &mut MonkeyPatcher,
     t: &mut RecordTask,
     elf_obj: &Elf,
     elf_addr: usize,
@@ -579,6 +677,11 @@ fn patch_dl_runtime_resolve(
         return;
     }
 
+    log!(
+        LogDebug,
+        "Found candidate _dl_runtime_resolve implementation for patching",
+    );
+
     let mut jump_patch = [0u8; X64JumpMonkeypatch::SIZE];
     // We're patching in a relative jump, so we need to compute the offset from
     // the end of the jump to our actual destination.
@@ -587,30 +690,34 @@ fn patch_dl_runtime_resolve(
 
     let extended_jump_start = allocate_extended_jump::<X64DLRuntimeResolvePrelude>(
         t,
-        &patcher.extended_jump_pages,
+        &mut patcher.extended_jump_pages,
         jump_patch_end,
     );
     if extended_jump_start.is_null() {
         return;
     }
+    log!(LogDebug, "  call to allocated_extended_jump() succeeded");
     let mut stub_patch = [0u8; X64DLRuntimeResolvePrelude::SIZE];
     let return_offset: i64 = (jump_patch_start.as_isize() as i64
         + X64DLRuntimeResolve::SIZE as i64)
         - (extended_jump_start.as_isize() as i64 + X64DLRuntimeResolvePrelude::SIZE as i64);
     if return_offset != return_offset as i32 as i64 {
-        log!(LogWarn, "Return out of range");
+        log!(LogWarn, "  Return out of range. exiting");
         return;
     }
     X64DLRuntimeResolvePrelude::substitute(&mut stub_patch, return_offset as u32);
     write_and_record_bytes(t, extended_jump_start, &stub_patch);
-
+    log!(
+        LogDebug,
+        "  patched in runtime resolve prelude successfully"
+    );
     let jump_offset: isize = extended_jump_start.as_isize() - jump_patch_end.as_isize();
     let jump_offset32 = jump_offset as i32;
     ed_assert_eq!(
         t,
         jump_offset32 as isize,
         jump_offset,
-        "allocate_extended_jump didn't work"
+        "jump offset not valid. allocate_extended_jump didn't work"
     );
     X64JumpMonkeypatch::substitute(&mut jump_patch, jump_offset32 as u32);
     write_and_record_bytes(t, jump_patch_start, &jump_patch);
@@ -619,6 +726,7 @@ fn patch_dl_runtime_resolve(
     const NOP: u8 = 0x90;
     let nops = [NOP; X64DLRuntimeResolve::SIZE - X64JumpMonkeypatch::SIZE];
     write_and_record_bytes(t, jump_patch_start + jump_patch.len(), &nops);
+    log!(LogDebug, "  patched in jump monkey patch successfully");
 }
 
 fn file_may_need_instrumentation(map: &address_space::Mapping) -> bool {
