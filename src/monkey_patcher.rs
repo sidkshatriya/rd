@@ -456,11 +456,6 @@ fn patch_at_preload_init_arch<Arch: Architecture>(_t: &RecordTask, _patcher: &Mo
     unimplemented!()
 }
 
-/// @TODO Remove
-struct ElfReader;
-/// @TODO Remove
-struct SymbolTable;
-
 fn write_and_record_bytes(t: &mut RecordTask, child_addr: RemotePtr<Void>, buf: &[u8]) {
     t.write_bytes_helper(child_addr, buf, None, WriteFlags::empty());
     t.record_local(child_addr, buf);
