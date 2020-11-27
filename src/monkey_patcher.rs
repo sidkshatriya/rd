@@ -1,7 +1,7 @@
 use crate::{
     arch::{Architecture, X64Arch, X86Arch},
     auto_remote_syscalls::AutoRemoteSyscalls,
-    kernel_abi::SupportedArch,
+    kernel_abi::{syscall_instruction_length, SupportedArch},
     log::{LogDebug, LogWarn},
     preload_interface::{
         syscall_patch_hook,
@@ -452,13 +452,44 @@ fn substitute<Arch: Architecture>(
     unimplemented!()
 }
 
-fn substitute_extended_jump<Arch: Architecture>(
-    _buffer: &[u8],
-    _patch_addr: u64,
-    _return_addr: u64,
-    _target_addr: u64,
-) {
-    unimplemented!()
+trait AssemblyTemplateSubstituteExtendedJump: AssemblyTemplate {
+    fn substitute_extended_jump(
+        buffer: &mut [u8],
+        patch_addr: u64,
+        return_addr: u64,
+        target_addr: u64,
+    );
+}
+
+impl AssemblyTemplateSubstituteExtendedJump for X86SyscallStubExtendedJump {
+    fn substitute_extended_jump(
+        buffer: &mut [u8],
+        patch_addr: u64,
+        return_addr: u64,
+        target_addr: u64,
+    ) {
+        let offset: i64 = target_addr as i64
+            - (patch_addr as i64 + X86SyscallStubExtendedJump::TRAMPOLINE_RELATIVE_ADDR_END as i64);
+        // An offset that appears to be > 2GB is OK here, since EIP will just
+        // wrap around.
+        X86SyscallStubExtendedJump::substitute(buffer, return_addr as u32, offset as u32);
+    }
+}
+
+impl AssemblyTemplateSubstituteExtendedJump for X64SyscallStubExtendedJump {
+    fn substitute_extended_jump(
+        buffer: &mut [u8],
+        _param: u64,
+        return_addr: u64,
+        target_addr: u64,
+    ) {
+        X64SyscallStubExtendedJump::substitute(
+            buffer,
+            return_addr as u32,
+            (return_addr >> 32) as u32,
+            target_addr,
+        );
+    }
 }
 
 /// Allocate an extended jump in an extended jump page and return its address.
@@ -577,20 +608,94 @@ fn allocate_extended_jump<ExtendedJumpPatch: AssemblyTemplate>(
 /// instruction. So, we allocate "extender pages" --- pages of memory within
 /// 2GB of the patch site, that contain the stub code. We don't really need this
 /// on x86, but we do it there too for consistency.
-fn patch_syscall_with_hook_x86ish(
-    _patcher: &MonkeyPatcher,
-    _t: &RecordTask,
-    _hook: syscall_patch_hook,
+fn patch_syscall_with_hook_x86ish<
+    JumpPatch: AssemblyTemplateSubstitute,
+    ExtendedJumpPatch: AssemblyTemplateSubstituteExtendedJump,
+>(
+    patcher: &mut MonkeyPatcher,
+    t: &mut RecordTask,
+    hook: &syscall_patch_hook,
 ) -> bool {
-    unimplemented!()
+    let mut jump_patch = Vec::<u8>::with_capacity(JumpPatch::SIZE);
+    jump_patch.resize(JumpPatch::SIZE, 0);
+    // We're patching in a relative jump, so we need to compute the offset from
+    // the end of the jump to our actual destination.
+    let jump_patch_start = t.regs_ref().ip().to_data_ptr::<u8>();
+    let jump_patch_end = jump_patch_start + jump_patch.len();
+
+    let extended_jump_start = allocate_extended_jump::<ExtendedJumpPatch>(
+        t,
+        &mut patcher.extended_jump_pages,
+        jump_patch_end,
+    );
+    if extended_jump_start.is_null() {
+        return false;
+    }
+
+    let mut stub_patch = Vec::<u8>::with_capacity(ExtendedJumpPatch::SIZE);
+    stub_patch.resize(ExtendedJumpPatch::SIZE, 0);
+    let return_addr = jump_patch_start.as_usize() as u64
+        + syscall_instruction_length(SupportedArch::X64) as u64
+        + hook.next_instruction_length as u64;
+    ExtendedJumpPatch::substitute_extended_jump(
+        &mut stub_patch,
+        extended_jump_start.as_usize() as u64,
+        return_addr,
+        hook.hook_address,
+    );
+    write_and_record_bytes(t, extended_jump_start, &stub_patch);
+
+    patcher
+        .syscallbuf_stubs
+        .insert(extended_jump_start, ExtendedJumpPatch::SIZE);
+
+    let jump_offset = extended_jump_start.as_isize() - jump_patch_end.as_isize();
+    let jump_offset32 = jump_offset as i32 as isize;
+    ed_assert_eq!(
+        t,
+        jump_offset32,
+        jump_offset,
+        "allocate_extended_jump didn't work"
+    );
+
+    JumpPatch::substitute_template(&mut jump_patch, jump_offset32 as u32);
+    write_and_record_bytes(t, jump_patch_start, &jump_patch);
+
+    // pad with NOPs to the next instruction
+    const NOP: u8 = 0x90;
+    debug_assert_eq!(
+        syscall_instruction_length(SupportedArch::X64),
+        syscall_instruction_length(SupportedArch::X86)
+    );
+    let nops_bufsize: usize = syscall_instruction_length(SupportedArch::X64)
+        + hook.next_instruction_length as usize
+        - jump_patch.len();
+    let mut nops = Vec::<u8>::with_capacity(nops_bufsize);
+    nops.resize(nops_bufsize, NOP);
+    write_and_record_mem(t, jump_patch_start + jump_patch.len(), &nops);
+
+    true
 }
 
 fn patch_syscall_with_hook(
-    _patcher: &MonkeyPatcher,
-    _t: &RecordTask,
-    _hook: &syscall_patch_hook,
+    patcher: &mut MonkeyPatcher,
+    t: &mut RecordTask,
+    hook: &syscall_patch_hook,
 ) -> bool {
-    unimplemented!()
+    let arch = t.arch();
+    match arch {
+        SupportedArch::X86 => {
+            return patch_syscall_with_hook_x86ish::<
+                X86SysenterVsyscallSyscallHook,
+                X86SyscallStubExtendedJump,
+            >(patcher, t, hook);
+        }
+        SupportedArch::X64 => {
+            return patch_syscall_with_hook_x86ish::<X64JumpMonkeypatch, X64SyscallStubExtendedJump>(
+                patcher, t, hook,
+            );
+        }
+    }
 }
 
 fn task_safe_for_syscall_patching(
