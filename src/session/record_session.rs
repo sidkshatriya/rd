@@ -1941,7 +1941,7 @@ impl RecordSession {
             if t.vm()
                 .monkeypatcher()
                 .unwrap()
-                .borrow()
+                .borrow_mut()
                 .try_patch_syscall(t)
             {
                 // Syscall was patched. Emit event and continue execution.

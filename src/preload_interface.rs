@@ -117,6 +117,9 @@ pub struct syscall_patch_hook {
     pub hook_address: u64,
 }
 
+/// IMPORTANT! This needs to be kept in sync with the syscall_patch_hook struct
+pub const NEXT_INSTRUCTION_BYTES_LEN: usize = 14;
+
 /// We buffer mprotect syscalls. Their effects need to be noted so we can
 /// update AddressSpace's cache of memory layout, which stores prot bits. So,
 /// the preload code builds a list of mprotect_records corresponding to the

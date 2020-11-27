@@ -1,10 +1,12 @@
 use crate::{
     arch::{Architecture, X64Arch, X86Arch},
     auto_remote_syscalls::AutoRemoteSyscalls,
-    kernel_abi::{syscall_instruction_length, SupportedArch},
+    kernel_abi::{get_syscall_instruction_arch, syscall_instruction_length, SupportedArch},
+    kernel_metadata::syscall_name,
     log::{LogDebug, LogWarn},
     preload_interface::{
         syscall_patch_hook,
+        NEXT_INSTRUCTION_BYTES_LEN,
         SYSCALLBUF_LIB_FILENAME_32,
         SYSCALLBUF_LIB_FILENAME_BASE,
         SYSCALLBUF_LIB_FILENAME_PADDED,
@@ -14,7 +16,12 @@ use crate::{
     scoped_fd::ScopedFd,
     session::{
         address_space::{address_space, kernel_mapping::KernelMapping, MappingFlags},
-        task::{record_task::RecordTask, task_common::read_val_mem, task_inner::WriteFlags, Task},
+        task::{
+            record_task::RecordTask,
+            task_common::{read_mem, read_val_mem},
+            task_inner::WriteFlags,
+            Task,
+        },
     },
     trace::trace_writer::MappingOrigin,
     util::{find, page_size},
@@ -32,6 +39,7 @@ use nix::{
     },
 };
 use std::{
+    cmp::min,
     collections::{HashMap, HashSet},
     convert::TryInto,
     ffi::{OsStr, OsString},
@@ -40,6 +48,7 @@ use std::{
     os::unix::ffi::OsStrExt,
     path::Path,
     ptr,
+    rc::Rc,
     slice,
 };
 
@@ -142,7 +151,7 @@ impl MonkeyPatcher {
     /// and execution should resume normally to execute the patched code.
     /// Zero or more mapping operations are also recorded to the trace and must
     /// be replayed.
-    pub fn try_patch_syscall(&self, t: &RecordTask) -> bool {
+    pub fn try_patch_syscall(&mut self, t: &mut RecordTask) -> bool {
         if self.syscall_hooks.is_empty() {
             // Syscall hooks not set up yet. Don't spew warnings, and don't
             // fill tried_to_patch_syscall_addresses with addresses that we might be
@@ -161,16 +170,150 @@ impl MonkeyPatcher {
             // Never try to patch the traced-syscall in our preload library!
             return false;
         }
+        let r = t.regs_ref().clone();
+        let ip = r.ip();
 
-        unimplemented!()
+        if self.tried_to_patch_syscall_addresses.get(&ip).is_some() {
+            return false;
+        }
+
+        // We could examine the current syscall number and if it's not one that
+        // we support syscall buffering for, refuse to patch the syscall instruction.
+        // This would, on the face of it, reduce overhead since patching the
+        // instruction just means a useless trip through the syscall buffering logic.
+        // However, it actually wouldn't help much since we'd still do a switch
+        // on the syscall number in this function instead, and due to context
+        // switching costs any overhead saved would be insignificant.
+        // Also, implementing that would require keeping a buffered-syscalls
+        // list in sync with the preload code, which is unnecessary complexity.
+        let mut arch = SupportedArch::default();
+        let code_ptr = ip.decrement_by_syscall_insn_length(t.arch());
+        if !get_syscall_instruction_arch(t, code_ptr, &mut arch) || arch != t.arch() {
+            log!(
+                LogDebug,
+                "Declining to patch cross-architecture syscall at {}",
+                ip
+            );
+            self.tried_to_patch_syscall_addresses.insert(ip);
+            return false;
+        }
+
+        let mut following_bytes = [0u8; 256];
+        // @TODO Is it ok to unwrap here? i.e. assert that there should be no error?
+        let bytes_count = t
+            .read_bytes_fallible(ip.to_data_ptr::<u8>(), &mut following_bytes)
+            .unwrap();
+
+        let syscallno = r.original_syscallno();
+        let mut do_patch = None;
+        for hook in &self.syscall_hooks {
+            if bytes_count >= hook.next_instruction_length as usize
+                && following_bytes[0..hook.next_instruction_length as usize]
+                    == hook.next_instruction_bytes[0..hook.next_instruction_length as usize]
+            {
+                // Search for a following short-jump instruction that targets an
+                // instruction
+                // after the syscall. False positives are OK.
+                // glibc-2.23.1-8.fc24.x86_64's __clock_nanosleep needs this.
+                let mut found_potential_interfering_branch = false;
+                // If this was a VDSO syscall we patched, we don't have to worry about
+                // this check since the function doesn't do anything except execute our
+                // syscall and return.
+                // Otherwise the Linux 4.12 VDSO triggers the interfering-branch check.
+                if !self
+                    .patched_vdso_syscalls
+                    .get(&ip.decrement_by_syscall_insn_length(arch))
+                    .is_some()
+                {
+                    let mut i = 0;
+                    while i + 2 <= bytes_count {
+                        let b: u8 = following_bytes[i];
+                        // Check for short conditional or unconditional jump
+                        if b == 0xeb || (b >= 0x70 && b < 0x80) {
+                            let offset = i as i8 + 2 as i8 + following_bytes[i + 1] as i8;
+                            let cond = if hook.is_multi_instruction != 0 {
+                                offset >= 0 && (offset as u8) < hook.next_instruction_length
+                            } else {
+                                offset == 0
+                            };
+                            if cond {
+                                log!(
+                                    LogDebug,
+                                    "Found potential interfering branch at {}",
+                                    ip.to_data_ptr::<u8>() + i
+                                );
+                                // We can't patch this because it would jump straight back into
+                                // the middle of our patch code.
+                                found_potential_interfering_branch = true;
+                            }
+                        }
+                        i += 1;
+                    }
+                }
+
+                if !found_potential_interfering_branch {
+                    if !safe_for_syscall_patching(ip, ip + hook.next_instruction_length as usize, t)
+                    {
+                        log!(LogDebug,
+               "Temporarily declining to patch syscall at {} because a different task has its ip in the patched range", ip);
+
+                        return false;
+                    }
+
+                    let sl = &following_bytes[0..min(bytes_count, NEXT_INSTRUCTION_BYTES_LEN)];
+                    log!(
+                        LogDebug,
+                        "Patched syscall at {} syscall {} tid {} bytes {:?}",
+                        ip,
+                        syscall_name(syscallno as i32, t.arch()),
+                        t.tid,
+                        sl
+                    );
+
+                    // Get out of executing the current syscall before we patch it.
+                    if !t.exit_syscall_and_prepare_restart() {
+                        return false;
+                    }
+
+                    do_patch = Some(hook.clone());
+                    break;
+                }
+            }
+        }
+
+        let success = match do_patch {
+            // DIFF NOTE: @TODO rr seems to return true unconditionally?
+            Some(hook) => patch_syscall_with_hook(self, t, &hook),
+            None => false,
+        };
+
+        if !success {
+            let sl = &following_bytes[0..min(bytes_count, NEXT_INSTRUCTION_BYTES_LEN)];
+            log!(
+                LogDebug,
+                "Failed to patch syscall at {} syscall {} tid {} bytes {:?}",
+                ip,
+                syscall_name(syscallno as i32, t.arch()),
+                t.tid,
+                sl
+            );
+            self.tried_to_patch_syscall_addresses.insert(ip);
+
+            false
+        } else {
+            true
+        }
     }
 
     pub fn init_dynamic_syscall_patching(
-        _t: &RecordTask,
-        _syscall_patch_hook_count: usize,
-        _syscall_patch_hooks: RemotePtr<syscall_patch_hook>,
+        &mut self,
+        t: &mut RecordTask,
+        syscall_patch_hook_count: usize,
+        syscall_patch_hooks: RemotePtr<syscall_patch_hook>,
     ) {
-        unimplemented!()
+        if syscall_patch_hook_count != 0 {
+            self.syscall_hooks = read_mem(t, syscall_patch_hooks, syscall_patch_hook_count, None);
+        }
     }
 
     /// Try to allocate a stub from the sycall patching stub buffer. Returns null
@@ -699,15 +842,44 @@ fn patch_syscall_with_hook(
 }
 
 fn task_safe_for_syscall_patching(
-    _t: &RecordTask,
-    _start: RemoteCodePtr,
-    _end: RemoteCodePtr,
+    t: &RecordTask,
+    start: RemoteCodePtr,
+    end: RemoteCodePtr,
 ) -> bool {
-    unimplemented!()
+    if !t.is_running() {
+        let ip = t.ip();
+        if start <= ip && ip < end {
+            return false;
+        }
+    }
+    for e in &t.pending_events {
+        if e.is_syscall_event() {
+            let ip = e.syscall_event().regs.ip();
+            if start <= ip && ip < end {
+                return false;
+            }
+        }
+    }
+
+    true
 }
 
-fn safe_for_syscall_patching(_start: RemoteCodePtr, _end: RemoteCodePtr, _exclude: &RecordTask) {
-    unimplemented!()
+fn safe_for_syscall_patching(
+    start: RemoteCodePtr,
+    end: RemoteCodePtr,
+    exclude: &RecordTask,
+) -> bool {
+    let exclude_rc = exclude.weak_self_ptr().upgrade().unwrap();
+    for (_, rt) in exclude.session().tasks().iter() {
+        if Rc::ptr_eq(rt, &exclude_rc) {
+            continue;
+        }
+        if !task_safe_for_syscall_patching(rt.borrow().as_rec_unwrap(), start, end) {
+            return false;
+        }
+    }
+
+    true
 }
 
 /// Return true iff `addr` points to a known `__kernel_vsyscall()`
