@@ -222,6 +222,21 @@ def generate_substitute_method(byte_array, template):
     s.write('  }')
     return s.getvalue()
 
+def generate_substitute_method_trait(byte_array, name, template):
+    s = StringIO()
+    fields = template.fields()
+    field_types = [f.c_type() for f in fields]
+    field_names = [f.name for f in fields]
+    if len(fields) == 1 and field_types[0] == 'u32':
+        s.write('impl AssemblyTemplateSubstitute for %s {\n' %(name,))
+        s.write('  fn substitute_template(buffer: &mut [u8], %s: %s) {\n' %(field_names[0], field_types[0]))
+        s.write('    Self::substitute(buffer, %s);\n' % (field_names[0],))
+        s.write('    }\n')
+        s.write('}\n')
+    else:
+        s.write('')
+    return s.getvalue()
+
 def generate_field_end_methods(byte_array, template):
     s = StringIO()
     offset = 0
@@ -243,8 +258,13 @@ def generate(f):
         f.write('#[allow(non_upper_case_globals)]\npub const %s: [u8; %d] = [ %s ];\n'
                 % (byte_array_name(name), len(bytes), ', '.join(['0x%x' % b for b in bytes])))
     f.write('\n\n')
+
     f.write('trait AssemblyTemplate {\n');
-    f.write('const SIZE : usize;\n');
+    f.write('  const SIZE : usize;\n');
+    f.write('}\n');
+
+    f.write('trait AssemblyTemplateSubstitute : AssemblyTemplate {\n');
+    f.write('  fn substitute_template(buf: &mut [u8], param: u32);\n');
     f.write('}\n');
 
     # Objects representing assembly templates.
@@ -263,9 +283,12 @@ impl %(class_name)s {
 impl AssemblyTemplate for %(class_name)s {
 %(size_member)s
 }
+
+%(substitute_method_trait)s
 """ % { 'class_name': name,
         'match_method': generate_match_method(byte_array, template),
         'substitute_method': generate_substitute_method(byte_array, template),
         'field_end_methods': generate_field_end_methods(byte_array, template),
-        'size_member': generate_size_member(byte_array), })
+        'size_member': generate_size_member(byte_array),
+        'substitute_method_trait': generate_substitute_method_trait(byte_array, name, template)})
         f.write('\n\n')
