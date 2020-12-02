@@ -520,12 +520,13 @@ pub(super) fn write_bytes_helper_common<T: Task>(
             *ok.unwrap() = false;
         }
     } else {
-        ed_assert!(
+        ed_assert_eq!(
             task,
-            nwritten == buf_size,
-            "Should have written {} bytes to {}, but only wrote {}",
-            addr,
+            nwritten,
             buf_size,
+            "Should have written {} bytes to {}, but only wrote {}",
+            buf_size,
+            addr,
             nwritten,
         );
     }
