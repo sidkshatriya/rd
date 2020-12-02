@@ -1,6 +1,7 @@
 use crate::{
     arch::{Architecture, X64Arch, X86Arch},
     auto_remote_syscalls::AutoRemoteSyscalls,
+    flags::Flags,
     kernel_abi::{get_syscall_instruction_arch, syscall_instruction_length, SupportedArch},
     kernel_metadata::syscall_name,
     log::{LogDebug, LogWarn},
@@ -471,8 +472,54 @@ fn patch_at_preload_init_arch<Arch: Architecture>(t: &mut RecordTask, patcher: &
     }
 }
 
-fn patch_at_preload_init_arch_x86arch(_t: &mut RecordTask, _patcher: &mut MonkeyPatcher) {
-    unimplemented!()
+fn patch_at_preload_init_arch_x86arch(t: &mut RecordTask, patcher: &mut MonkeyPatcher) {
+    let child_addr = RemotePtr::<rdcall_init_preload_params<X86Arch>>::from(t.regs_ref().arg1());
+    let params = read_val_mem(t, child_addr, None);
+    if params.syscallbuf_enabled == 0 {
+        return;
+    }
+
+    let kernel_vsyscall = patcher.x86_vsyscall;
+
+    // Luckily, linux is happy for us to scribble directly over
+    // the vdso mapping's bytes without mprotecting the region, so
+    // we don't need to prepare remote syscalls here.
+    let syscallhook_vsyscall_entry = X86Arch::as_rptr(params.syscallhook_vsyscall_entry);
+
+    let mut patch = Vec::<u8>::with_capacity(X86SysenterVsyscallSyscallHook::SIZE);
+    patch.resize(X86SysenterVsyscallSyscallHook::SIZE, 0);
+
+    if safe_for_syscall_patching(
+        kernel_vsyscall.to_code_ptr(),
+        kernel_vsyscall.to_code_ptr() + patch.len(),
+        t,
+    ) {
+        // We're patching in a relative jump, so we need to compute the offset from
+        // the end of the jump to our actual destination.
+        let val = (syscallhook_vsyscall_entry.as_isize()
+            - (kernel_vsyscall.as_isize() + patch.len() as isize)) as u32;
+        X86SysenterVsyscallSyscallHook::substitute(&mut patch, val);
+        write_and_record_bytes(t, kernel_vsyscall, &patch);
+        log!(
+            LogDebug,
+            "monkeypatched __kernel_vsyscall to jump to {}",
+            syscallhook_vsyscall_entry
+        );
+    } else {
+        if !Flags::get().suppress_environment_warnings {
+            eprintln!("Unable to patch __kernel_vsyscall because a LD_PRELOAD thread is blocked in it; recording will be slow");
+        }
+        log!(
+            LogDebug,
+            "Unable to patch __kernel_vsyscall because a LD_PRELOAD thread is blocked in it"
+        );
+    }
+
+    patcher.init_dynamic_syscall_patching(
+        t,
+        params.syscall_patch_hook_count.try_into().unwrap(),
+        X86Arch::as_rptr(params.syscall_patch_hooks),
+    );
 }
 
 fn patch_at_preload_init_arch_x64arch(t: &mut RecordTask, patcher: &mut MonkeyPatcher) {
@@ -484,7 +531,7 @@ fn patch_at_preload_init_arch_x64arch(t: &mut RecordTask, patcher: &mut MonkeyPa
 
     patcher.init_dynamic_syscall_patching(
         t,
-        params.syscall_patch_hook_count as usize,
+        params.syscall_patch_hook_count.try_into().unwrap(),
         X64Arch::as_rptr(params.syscall_patch_hooks),
     );
 }
