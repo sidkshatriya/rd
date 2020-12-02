@@ -267,11 +267,12 @@ impl MonkeyPatcher {
                     let sl = &following_bytes[0..min(bytes_count, NEXT_INSTRUCTION_BYTES_LEN)];
                     log!(
                         LogDebug,
-                        "Patched syscall at {} syscall {} tid {} bytes {:?}",
+                        "Patched syscall at: {} syscall: {} tid: {} bytes: {:?} at time: {}",
                         ip,
                         syscall_name(syscallno as i32, t.arch()),
                         t.tid,
-                        sl
+                        sl,
+                        t.trace_time()
                     );
 
                     // Get out of executing the current syscall before we patch it.
@@ -729,8 +730,8 @@ fn allocate_extended_jump<ExtendedJumpPatch: AssemblyTemplate>(
             }
 
             let mut page = ExtendedJumpPage::new(addr);
-            page.allocated += ExtendedJumpPatch::SIZE;
             let jump_addr = page.addr + page.allocated;
+            page.allocated += ExtendedJumpPatch::SIZE;
             pages.push(page);
             jump_addr
         }
@@ -738,7 +739,6 @@ fn allocate_extended_jump<ExtendedJumpPatch: AssemblyTemplate>(
             let page = pages.get_mut(page_i).unwrap();
             let jump_addr = page.addr + page.allocated;
             page.allocated += ExtendedJumpPatch::SIZE;
-
             jump_addr
         }
     }

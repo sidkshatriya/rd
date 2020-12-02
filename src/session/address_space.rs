@@ -2195,6 +2195,10 @@ pub mod address_space {
             leader_serial: u32,
             exec_count: u32,
         ) -> AddressSpace {
+            let maybe_monkey_patcher = match o.monkeypatch_state.as_ref() {
+                Some(rc) => Some(Rc::new(RefCell::new(rc.borrow().clone()))),
+                None => None,
+            };
             let mut addr_space = AddressSpace {
                 exe: o.exe.clone(),
                 leader_tid_: leader_tid,
@@ -2207,7 +2211,7 @@ pub mod address_space {
                 monitored_mem: o.monitored_mem.clone(),
                 session_: session.clone(),
                 vdso_start_addr: o.vdso_start_addr.clone(),
-                monkeypatch_state: o.monkeypatch_state.clone(),
+                monkeypatch_state: maybe_monkey_patcher,
                 traced_syscall_ip_: o.traced_syscall_ip_.clone(),
                 privileged_traced_syscall_ip_: o.privileged_traced_syscall_ip_.clone(),
                 syscallbuf_enabled_: o.syscallbuf_enabled_.clone(),
