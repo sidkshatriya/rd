@@ -825,17 +825,17 @@ fn handle_desched_event(t: &mut RecordTask, si: &siginfo_t) {
         // the tracee was in, and how much "scratch" space it carved
         // off the syscallbuf, if needed.
         let next_desched_rec: RemotePtr<syscallbuf_record> = t.next_syscallbuf_record();
-        let desched_rec_addr = t.desched_rec();
         t.push_event(Event::new_desched_event(DeschedEventData {
             rec: next_desched_rec,
         }));
-        let call: i32 = read_val_mem(
+        let desched_rec_addr = t.desched_rec();
+        let call = read_val_mem(
             t,
-            RemotePtr::<i32>::cast(
+            RemotePtr::<u16>::cast(
                 desched_rec_addr.as_rptr_u8() + offset_of!(syscallbuf_record, syscallno),
             ),
             None,
-        );
+        ) as i32;
 
         // The descheduled syscall was interrupted by a signal, like
         // all other may-restart syscalls, with the exception that
@@ -859,13 +859,13 @@ fn handle_desched_event(t: &mut RecordTask, si: &siginfo_t) {
     // otherwise we'll get a divergence during replay, which will not
     // encounter this problem.
     let desched_rec_addr = t.desched_rec();
-    let call: i32 = read_val_mem(
+    let call = read_val_mem(
         t,
-        RemotePtr::<i32>::cast(
+        RemotePtr::<u16>::cast(
             desched_rec_addr.as_rptr_u8() + offset_of!(syscallbuf_record, syscallno),
         ),
         None,
-    );
+    ) as i32;
 
     {
         let ev = t.ev_mut().syscall_event_mut();
@@ -940,11 +940,11 @@ fn is_safe_to_deliver_signal(t: &mut RecordTask, si: &siginfo_t) -> bool {
             syscall_name(
                 read_val_mem(
                     t,
-                    RemotePtr::<i32>::cast(
+                    RemotePtr::<u16>::cast(
                         desched_rec_addr.as_rptr_u8() + offset_of!(syscallbuf_record, syscallno)
                     ),
                     None
-                ),
+                ) as i32,
                 t.arch()
             )
         );
