@@ -2201,15 +2201,33 @@ impl RecordTask {
 
     /// Return true if `self` is within the syscallbuf library.  This
     /// *does not* imply that $ip is at a buffered syscall.
-    pub fn is_in_syscallbuf(&self) -> bool {
+    pub fn is_in_syscallbuf(&mut self) -> bool {
         if !self.vm().syscallbuf_enabled() {
             // Even if we're in the rd page, if syscallbuf isn't enabled then the
             // rd page is not being used by syscallbuf.
             return false;
         }
 
-        // @TODO
-        unimplemented!()
+        let mut p = self.ip();
+        if self.is_in_rd_page()
+            || (self.syscallbuf_code_layout.get_pc_thunks_start <= p
+                && p < self.syscallbuf_code_layout.get_pc_thunks_end)
+        {
+            // Look at the caller to see if we're in the syscallbuf or not.
+            let mut ok = true;
+            let child_addr = self.regs_ref().sp();
+            let addr = read_ptr(self, child_addr, &mut ok);
+            if ok {
+                p = addr.into();
+            }
+        }
+        self.vm()
+            .monkeypatcher()
+            .unwrap()
+            .borrow()
+            .is_jump_stub_instruction(p)
+            || (self.syscallbuf_code_layout.syscallbuf_code_start <= p
+                && p < self.syscallbuf_code_layout.syscallbuf_code_end)
     }
 
     /// Shortcut to the most recent `pending_event->desched.rec` when
@@ -3410,4 +3428,14 @@ fn do_preload_init_arch<Arch: Architecture>(t: &mut RecordTask) {
     );
     write_val_mem(t, random_seed_ptr, &random_seed, None);
     t.record_local_for(random_seed_ptr, &random_seed);
+}
+
+fn read_ptr_arch<Arch: Architecture>(t: &mut dyn Task, p: RemotePtr<Void>, ok: &mut bool) -> usize {
+    let res = read_val_mem(t, RemotePtr::<Arch::unsigned_word>::cast(p), Some(ok));
+    res.try_into().unwrap()
+}
+
+fn read_ptr(t: &mut dyn Task, p: RemotePtr<Void>, ok: &mut bool) -> usize {
+    let arch = t.arch();
+    rd_arch_function_selfless!(read_ptr_arch, arch, t, p, ok)
 }
