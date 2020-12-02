@@ -2995,8 +2995,8 @@ pub mod address_space {
                 self.monkeypatch_state
                     .as_ref()
                     .unwrap()
-                    .borrow()
-                    .patch_at_preload_init(t.as_record_task().unwrap());
+                    .borrow_mut()
+                    .patch_at_preload_init(t.as_rec_mut_unwrap());
             }
         }
 

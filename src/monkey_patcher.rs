@@ -11,6 +11,7 @@ use crate::{
         SYSCALLBUF_LIB_FILENAME_BASE,
         SYSCALLBUF_LIB_FILENAME_PADDED,
     },
+    preload_interface_arch::rdcall_init_preload_params,
     remote_code_ptr::RemoteCodePtr,
     remote_ptr::{RemotePtr, Void},
     scoped_fd::ScopedFd,
@@ -40,11 +41,14 @@ use nix::{
 };
 use std::{
     cmp::min,
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashSet},
     convert::TryInto,
     ffi::{OsStr, OsString},
     mem::size_of,
-    ops::Range,
+    ops::{
+        Bound::{Included, Unbounded},
+        Range,
+    },
     os::unix::ffi::OsStrExt,
     path::Path,
     ptr,
@@ -69,7 +73,7 @@ pub struct MonkeyPatcher {
     pub patched_vdso_syscalls: HashSet<RemoteCodePtr>,
 
     /// Addresses/lengths of syscallbuf stubs.
-    pub syscallbuf_stubs: HashMap<RemotePtr<u8>, usize>,
+    pub syscallbuf_stubs: BTreeMap<RemotePtr<u8>, usize>,
 
     /// The list of supported syscall patches obtained from the preload
     /// library. Each one matches a specific byte signature for the instruction(s)
@@ -137,7 +141,7 @@ impl MonkeyPatcher {
         }
     }
 
-    pub fn patch_at_preload_init(&self, t: &RecordTask) {
+    pub fn patch_at_preload_init(&mut self, t: &mut RecordTask) {
         // NB: the tracee can't be interrupted with a signal while
         // we're processing the rdcall, because it's masked off all
         // signals.
@@ -440,8 +444,14 @@ impl MonkeyPatcher {
         }
     }
 
-    pub fn is_jump_stub_instruction(_p: RemoteCodePtr) -> bool {
-        unimplemented!()
+    pub fn is_jump_stub_instruction(&self, ip: RemoteCodePtr) -> bool {
+        let pp = ip.to_data_ptr::<u8>();
+        // @TODO Check this logic again
+        let mut range = self.syscallbuf_stubs.range((Unbounded, Included(pp)));
+        match range.next_back() {
+            Some((&k, &v)) => k <= pp && pp < k + v,
+            None => false,
+        }
     }
 }
 
@@ -452,8 +462,30 @@ fn has_name(tab: &Strtab, index: usize, name: &str) -> bool {
     }
 }
 
-fn patch_at_preload_init_arch<Arch: Architecture>(_t: &RecordTask, _patcher: &MonkeyPatcher) {
+fn patch_at_preload_init_arch<Arch: Architecture>(t: &mut RecordTask, patcher: &mut MonkeyPatcher) {
+    let arch = t.arch();
+    match arch {
+        SupportedArch::X86 => patch_at_preload_init_arch_x86arch(t, patcher),
+        SupportedArch::X64 => patch_at_preload_init_arch_x64arch(t, patcher),
+    }
+}
+
+fn patch_at_preload_init_arch_x86arch(_t: &mut RecordTask, _patcher: &mut MonkeyPatcher) {
     unimplemented!()
+}
+
+fn patch_at_preload_init_arch_x64arch(t: &mut RecordTask, patcher: &mut MonkeyPatcher) {
+    let child_addr = RemotePtr::<rdcall_init_preload_params<X64Arch>>::from(t.regs_ref().arg1());
+    let params: rdcall_init_preload_params<X64Arch> = read_val_mem(t, child_addr, None);
+    if params.syscallbuf_enabled == 0 {
+        return;
+    }
+
+    patcher.init_dynamic_syscall_patching(
+        t,
+        params.syscall_patch_hook_count as usize,
+        X64Arch::as_rptr(params.syscall_patch_hooks),
+    );
 }
 
 fn write_and_record_bytes(t: &mut RecordTask, child_addr: RemotePtr<Void>, buf: &[u8]) {
@@ -572,22 +604,6 @@ fn setup_preload_library_path<Arch: Architecture>(t: &mut RecordTask) {
         soname_padded,
         soname_32,
     );
-}
-
-fn patch_syscall_with_hook_arch<Arch: Architecture>(
-    _patcher: &MonkeyPatcher,
-    _t: &RecordTask,
-    _hook: &syscall_patch_hook,
-) -> bool {
-    unimplemented!()
-}
-
-fn substitute<Arch: Architecture>(
-    _buffer: &[u8],
-    _return_addr: u64,
-    _trampoline_relative_addr: u64,
-) {
-    unimplemented!()
 }
 
 trait AssemblyTemplateSubstituteExtendedJump: AssemblyTemplate {
