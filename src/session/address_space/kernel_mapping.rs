@@ -90,7 +90,7 @@ impl KernelMapping {
             device_: device,
             inode_: inode,
             prot_: prot,
-            flags_: flags,
+            flags_: flags & Self::MAP_FLAGS_MASK,
             offset,
             fsname_: fsname.into(),
             mr: MemoryRange::from_range(start, end),

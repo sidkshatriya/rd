@@ -1132,7 +1132,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         if map_addr as isize == -1 {
             fatal!("Failed to mmap shmem region");
         }
-        if maybe_map_hint.is_some() {
+        if !maybe_map_hint.unwrap_or(RemotePtr::null()).is_null() {
             flags |= MapFlags::MAP_FIXED;
         }
         // Here we map the shared memory segment into the tracee.

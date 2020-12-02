@@ -25,7 +25,8 @@ pub const SYSCALLBUF_LIB_FILENAME_PADDED: &'static str = "librrpreload.so:::";
 pub const SYSCALLBUF_LIB_FILENAME_32: &'static str = "librrpreload_32.so";
 
 /// Set this env var to enable syscall buffering.
-pub const SYSCALLBUF_ENABLED_ENV_VAR: &'static str = "_RD_USE_SYSCALLBUF";
+/// @TODO This needs to remain `_RR_USE_SYSCALLBUF` for now and not `_RD_USE_SYSCALLBUF`
+pub const SYSCALLBUF_ENABLED_ENV_VAR: &'static str = "_RR_USE_SYSCALLBUF";
 
 /// Size of table mapping fd numbers to syscallbuf-disabled flag.
 /// Most Linux kernels limit fds to 1024 so it probably doesn't make sense

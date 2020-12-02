@@ -234,7 +234,7 @@ impl MonkeyPatcher {
                         let b: u8 = following_bytes[i];
                         // Check for short conditional or unconditional jump
                         if b == 0xeb || (b >= 0x70 && b < 0x80) {
-                            let offset = i as i8 + 2 as i8 + following_bytes[i + 1] as i8;
+                            let offset: i32 = i as i32 + 2i32 + following_bytes[i + 1] as i8 as i32;
                             let cond = if hook.is_multi_instruction != 0 {
                                 offset >= 0 && (offset as u8) < hook.next_instruction_length
                             } else {
