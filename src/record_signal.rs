@@ -974,7 +974,7 @@ fn is_safe_to_deliver_signal(t: &mut RecordTask, si: &siginfo_t) -> bool {
             None,
         );
 
-        if locked_why.contains(syscallbuf_locked_why::SYSCALLBUF_LOCKED_TRACEE) {
+        if locked_why.contains(syscallbuf_locked_why::SYSCALLBUF_LOCKED_TRACER) {
             log!(
                 LogDebug,
                 "Safe to deliver signal at {} because the syscallbuf is locked",
