@@ -1439,6 +1439,7 @@ pub(super) fn post_exec_for_exe<T: Task>(t: &mut T, exe_file: &OsStr) {
     t.syscallbuf_size = 0;
     t.scratch_ptr = RemotePtr::null();
     t.cloned_file_data_fd_child = -1;
+    t.desched_fd_child = -1;
     t.stopping_breakpoint_table = RemoteCodePtr::null();
     t.stopping_breakpoint_table_entry_size = 0;
     t.preload_globals = None;
