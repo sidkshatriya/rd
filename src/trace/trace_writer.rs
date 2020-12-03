@@ -56,12 +56,7 @@ use crate::{
         CPUIDRecord,
     },
 };
-use capnp::{
-    message,
-    primitive_list,
-    private::layout::ListBuilder,
-    serialize_packed::write_message,
-};
+use capnp::{message, serialize_packed::write_message};
 use libc::{dev_t, ino_t, ioctl, pid_t, EEXIST, STDOUT_FILENO};
 use nix::{
     errno::{errno, Errno},
@@ -296,13 +291,11 @@ impl TraceWriter {
                             data.set_write_offset(offset as i64);
                         }
                         None if e.exec_fds_to_close.len() > 0 => {
-                            let lb = ListBuilder::new_default();
-                            let mut primitive_list = primitive_list::Builder::new(lb);
-                            for (i, fd) in e.exec_fds_to_close.iter().enumerate() {
-                                primitive_list.set(i as u32, *fd);
+                            let mut list =
+                                data.init_exec_fds_to_close(e.exec_fds_to_close.len() as u32);
+                            for (i, &fd) in e.exec_fds_to_close.iter().enumerate() {
+                                list.set(i as u32, fd);
                             }
-                            data.set_exec_fds_to_close(primitive_list.into_reader())
-                                .unwrap();
                         }
                         None if e.opened.len() > 0 => {
                             let mut open = data.init_opened_fds(e.opened.len() as u32);
