@@ -985,9 +985,9 @@ fn is_safe_to_deliver_signal(t: &mut RecordTask, si: &siginfo_t) -> bool {
         }
 
         // A signal (e.g. seccomp SIGSYS) interrupted a untraced syscall in a
-        // non-restartable way. Defer it until SYS_rrcall_notify_syscall_hook_exit.
+        // non-restartable way. Defer it until SYS_rdcall_notify_syscall_hook_exit.
         if t.is_in_untraced_syscall() {
-            // Our emulation of SYS_rrcall_notify_syscall_hook_exit clears this flag.
+            // Our emulation of SYS_rdcall_notify_syscall_hook_exit clears this flag.
             let syscallbuf_child = t.syscallbuf_child;
             write_val_mem(
                 t,

@@ -2121,9 +2121,6 @@ fn is_start_of_scratch_region(t: &dyn Task, start_addr: RemotePtr<Void>) -> bool
 }
 
 fn compute_checksum(data: &[u8]) -> u32 {
-    assert_eq!(data.len() % size_of::<u32>(), 0);
-    assert_eq!(data.as_ptr() as usize % size_of::<u32>(), 0);
-
     let mut checksum: u32 = data.len().try_into().unwrap();
     let words = data.len() / size_of::<u32>();
     let data_as_u32: &[u32] = unsafe { slice::from_raw_parts(data.as_ptr().cast(), words) };
