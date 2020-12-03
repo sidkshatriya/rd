@@ -2584,7 +2584,7 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
     let sys: i32 = t.ev().syscall_event().number;
 
     if t.regs_ref().original_syscallno() == SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO {
-        // rr vetoed this syscall. Don't do any post-processing.
+        // rd vetoed this syscall. Don't do any post-processing.
         return;
     }
 

@@ -1964,10 +1964,10 @@ impl RecordSession {
 
         self.check_initial_task_syscalls(t, step_result);
         note_entering_syscall(t);
-        if t.emulated_ptrace_cont_command == PTRACE_SYSCALL
+        if (t.emulated_ptrace_cont_command == PTRACE_SYSCALL
             || t.emulated_ptrace_cont_command == PTRACE_SYSEMU
-            || t.emulated_ptrace_cont_command == PTRACE_SYSEMU_SINGLESTEP
-                && !is_in_privileged_syscall(t)
+            || t.emulated_ptrace_cont_command == PTRACE_SYSEMU_SINGLESTEP)
+            && !is_in_privileged_syscall(t)
         {
             // There MUST be an emulated ptracer
             let emulated_ptracer = t.emulated_ptracer.as_ref().unwrap().upgrade().unwrap();
