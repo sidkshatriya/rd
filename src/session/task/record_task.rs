@@ -1301,6 +1301,7 @@ impl RecordTask {
 
     /// Emulate 'tracer' ptracing this task.
     /// DIFF NOTE: Slightly odd old_maybe_tracer param to solve borrow issues
+    /// @TODO Put in an enum instead of new_maybe_tracer/old_maybe_tracer
     pub fn set_emulated_ptracer(
         &mut self,
         new_maybe_tracer: Option<&mut RecordTask>,

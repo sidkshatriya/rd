@@ -48,7 +48,6 @@ pub struct preload_thread_locals<Arch: Architecture> {
     /// zero if we're not processing a buffered syscall. Do not depend on this
     /// existing during replay, some traces with SYSCALLBUF_PROTOCOL_VERSION 0
     /// don't have it.
-    // @TODO Is this OK?
     pub original_syscall_parameters: Ptr<Arch::unsigned_word, syscall_info<Arch>>,
 
     /// Nonzero when thread-local state like the syscallbuf has been

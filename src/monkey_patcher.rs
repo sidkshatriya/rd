@@ -448,7 +448,6 @@ impl MonkeyPatcher {
 
     pub fn is_jump_stub_instruction(&self, ip: RemoteCodePtr) -> bool {
         let pp = ip.to_data_ptr::<u8>();
-        // @TODO Check this logic again
         let mut range = self.syscallbuf_stubs.range((Unbounded, Included(pp)));
         match range.next_back() {
             Some((&k, &v)) => k <= pp && pp < k + v,

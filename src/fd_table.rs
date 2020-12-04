@@ -71,7 +71,7 @@ impl FdTable {
         self.update_syscallbuf_fds_disabled(fd, t, None);
     }
 
-    /// DIFF NOTE: @TODO Changed this from u64 to usize
+    /// DIFF NOTE: Changed this from u64 to usize
     pub fn emulate_ioctl(&self, fd: i32, t: &mut RecordTask, result: &mut usize) -> bool {
         match self.fds.borrow().get(&fd) {
             Some(f) => f.borrow_mut().emulate_ioctl(t, result),
@@ -79,7 +79,7 @@ impl FdTable {
         }
     }
 
-    /// DIFF NOTE: @TODO Changed this from u64 to usize
+    /// DIFF NOTE: Changed this from u64 to usize
     pub fn emulate_fcntl(&self, fd: i32, t: &mut RecordTask, result: &mut usize) -> bool {
         match self.fds.borrow().get(&fd) {
             Some(f) => f.borrow_mut().emulate_fcntl(t, result),
