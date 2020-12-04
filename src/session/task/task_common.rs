@@ -1277,7 +1277,7 @@ fn on_syscall_exit_common_arch<Arch: Architecture>(t: &mut dyn Task, sys: i32, r
     }
 
     if sys == Arch::CLOSE {
-        t.fd_table_shr_ptr().did_close(regs.arg1() as i32, t);
+        t.fd_table_shr_ptr().did_close(regs.arg1() as i32, t, None);
         return;
     }
 
@@ -1762,23 +1762,13 @@ pub(in super::super) fn clone_task_common(
         } else {
             // Close syscallbuf fds for tasks using the original fd table.
             let mut remote = AutoRemoteSyscalls::new(ref_t.as_mut());
-            close_buffers_for(
-                &mut remote,
-                None,
-                clone_this.desched_fd_child,
-                clone_this.cloned_file_data_fd_child,
-            );
+            close_buffers_for(&mut remote, Some(clone_this));
             for tt in clone_this
                 .fd_table()
                 .task_set()
                 .iter_except(clone_this.weak_self_ptr())
             {
-                close_buffers_for(
-                    &mut remote,
-                    None,
-                    tt.borrow().desched_fd_child,
-                    tt.borrow().cloned_file_data_fd_child,
-                )
+                close_buffers_for(&mut remote, Some(tt.borrow().as_ref()))
             }
         }
     }
@@ -1851,47 +1841,37 @@ fn unmap_buffers_for(
     }
 }
 
-// DIFF NOTE: Param list different from rr version
-pub fn close_buffers_for(
-    remote: &mut AutoRemoteSyscalls,
-    mut maybe_context: Option<&mut dyn Task>,
-    other_desched_fd_child: i32,
-    other_cloned_file_data_fd_child: i32,
-) {
+// DIFF NOTE: Param list slightly different from rr version. Additional param `maybe_other` is an Option<>
+pub fn close_buffers_for(remote: &mut AutoRemoteSyscalls, maybe_other: Option<&dyn Task>) {
     let arch = remote.task().arch();
-    if other_desched_fd_child >= 0 {
+    let (desched_fd_child, cloned_file_data_fd_child) = match maybe_other {
+        Some(other) => (other.desched_fd_child, other.cloned_file_data_fd_child),
+        None => (
+            remote.task().desched_fd_child,
+            remote.task().cloned_file_data_fd_child,
+        ),
+    };
+    if desched_fd_child >= 0 {
         if remote.task().session().is_recording() {
-            rd_infallible_syscall!(
-                remote,
-                syscall_number_for_close(arch),
-                other_desched_fd_child
-            );
+            rd_infallible_syscall!(remote, syscall_number_for_close(arch), desched_fd_child);
         }
-        match maybe_context {
-            None => remote
-                .task_mut()
-                .fd_table_shr_ptr()
-                .did_close(other_desched_fd_child, remote.task_mut()),
-            Some(ref mut context) => context
-                .fd_table_shr_ptr()
-                .did_close(other_desched_fd_child, *context),
-        }
+        remote.task_mut().fd_table_shr_ptr().did_close(
+            desched_fd_child,
+            remote.task_mut(),
+            maybe_other,
+        );
     }
-    if other_cloned_file_data_fd_child >= 0 {
+    if cloned_file_data_fd_child >= 0 {
         rd_infallible_syscall!(
             remote,
             syscall_number_for_close(arch),
-            other_cloned_file_data_fd_child
+            cloned_file_data_fd_child
         );
-        match maybe_context {
-            None => remote
-                .task_mut()
-                .fd_table_shr_ptr()
-                .did_close(other_cloned_file_data_fd_child, remote.task_mut()),
-            Some(ref mut context) => context
-                .fd_table_shr_ptr()
-                .did_close(other_cloned_file_data_fd_child, *context),
-        }
+        remote.task_mut().fd_table_shr_ptr().did_close(
+            cloned_file_data_fd_child,
+            remote.task_mut(),
+            maybe_other,
+        );
     }
 }
 
@@ -1933,14 +1913,7 @@ pub(super) fn destroy_buffers<T: Task>(t: &mut T) {
         scratch_size,
     );
     remote.task_mut().scratch_ptr = RemotePtr::null();
-    let other_desched_fd_child = remote.task().desched_fd_child;
-    let other_cloned_file_data_fd_child = remote.task().cloned_file_data_fd_child;
-    close_buffers_for(
-        &mut remote,
-        None,
-        other_desched_fd_child,
-        other_cloned_file_data_fd_child,
-    );
+    close_buffers_for(&mut remote, None);
     remote.task_mut().desched_fd_child = -1;
     remote.task_mut().cloned_file_data_fd_child = -1;
 }

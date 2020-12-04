@@ -68,7 +68,7 @@ impl FdTable {
         }
 
         self.fds.borrow_mut().insert(fd, rc);
-        self.update_syscallbuf_fds_disabled(fd, t);
+        self.update_syscallbuf_fds_disabled(fd, t, None);
     }
 
     /// DIFF NOTE: @TODO Changed this from u64 to usize
@@ -146,18 +146,24 @@ impl FdTable {
             }
             self.fds.borrow_mut().remove(&to);
         }
-        self.update_syscallbuf_fds_disabled(to, active_task);
+        self.update_syscallbuf_fds_disabled(to, active_task, None);
     }
 
-    /// DIFF NOTE: Additional param `active_task` to solve borrow issues.
-    pub fn did_close(&self, fd: i32, active_task: &mut dyn Task) {
+    /// DIFF NOTE: Additional param `active_task` to solve borrow possibility
+    /// DIFF NOTE: Additional param `maybe_other_task` to solve borrow possibility due to a clone happening.
+    pub fn did_close(
+        &self,
+        fd: i32,
+        active_task: &mut dyn Task,
+        maybe_other_task: Option<&dyn Task>,
+    ) {
         log!(LogDebug, "Close fd {}", fd);
         if fd >= SYSCALLBUF_FDS_DISABLED_SIZE && self.fds.borrow().contains_key(&fd) {
             self.fd_count_beyond_limit
                 .set(self.fd_count_beyond_limit.get() - 1);
         }
         self.fds.borrow_mut().remove(&fd);
-        self.update_syscallbuf_fds_disabled(fd, active_task);
+        self.update_syscallbuf_fds_disabled(fd, active_task, maybe_other_task);
     }
 
     /// Method is called clone() in rr
@@ -258,7 +264,7 @@ impl FdTable {
             }
         }
         for &fd in &fds_to_close {
-            self.did_close(fd, t);
+            self.did_close(fd, t, None);
         }
 
         fds_to_close
@@ -269,7 +275,7 @@ impl FdTable {
         ed_assert!(t, self.task_set().has(t.weak_self_ptr()));
 
         for &fd in fds_to_close {
-            self.did_close(fd, t)
+            self.did_close(fd, t, None)
         }
     }
 
@@ -282,13 +288,19 @@ impl FdTable {
     }
 
     /// DIFF NOTE: Additional param `active_task` to solve borrow issues.
-    fn update_syscallbuf_fds_disabled(&self, mut fd: i32, active_task: &mut dyn Task) {
+    /// DIFF NOTE: Additional param `maybe_other_task` to solve borrow issues arising out of a clone happening
+    fn update_syscallbuf_fds_disabled(
+        &self,
+        mut fd: i32,
+        active_task: &mut dyn Task,
+        maybe_other_task: Option<&dyn Task>,
+    ) {
         debug_assert!(fd >= 0);
         debug_assert!(!self.task_set().is_empty());
 
         let mut vms_updated: HashSet<AddressSpaceUid> = HashSet::new();
 
-        let mut process = |rt: &mut RecordTask| -> () {
+        let mut process = |rt: &mut RecordTask, maybe_other_task: Option<&dyn Task>| -> () {
             let vm_uid = rt.vm().uid();
             if vms_updated.contains(&vm_uid) {
                 return;
@@ -300,11 +312,12 @@ impl FdTable {
                     if fd >= SYSCALLBUF_FDS_DISABLED_SIZE {
                         fd = SYSCALLBUF_FDS_DISABLED_SIZE - 1;
                     }
-                    let disable: u8 = if is_fd_monitored_in_any_task(&rt.vm(), fd, rt) {
-                        1
-                    } else {
-                        0
-                    };
+                    let disable: u8 =
+                        if is_fd_monitored_in_any_task(&rt.vm(), fd, rt, maybe_other_task) {
+                            1
+                        } else {
+                            0
+                        };
 
                     let addr: RemotePtr<u8> =
                         remote_ptr_field!(pg, preload_globals, syscallbuf_fds_disabled)
@@ -319,7 +332,7 @@ impl FdTable {
         // It's possible for tasks with different VMs to share this fd table.
         // But tasks with the same VM might have different fd tables...
         if active_task.session().is_recording() {
-            process(active_task.as_record_task_mut().unwrap());
+            process(active_task.as_record_task_mut().unwrap(), maybe_other_task);
         } else {
             return;
         }
@@ -328,7 +341,7 @@ impl FdTable {
 
             let mut t_ref_task = t.borrow_mut();
             let rt: &mut RecordTask = t_ref_task.as_record_task_mut().unwrap();
-            process(rt);
+            process(rt, maybe_other_task);
         }
     }
 }
@@ -339,19 +352,37 @@ fn is_fd_open(t: &dyn Task, fd: i32) -> bool {
 }
 
 /// DIFF NOTE: Extra param `vm_task` to solve already borrowed possibility
-fn is_fd_monitored_in_any_task(vm: &AddressSpace, fd: i32, vm_task: &dyn Task) -> bool {
+/// DIFF NOTE: Extra param `maybe_other_task` to solve already borrowed possibility arising from a clone happening
+fn is_fd_monitored_in_any_task(
+    vm: &AddressSpace,
+    fd: i32,
+    vm_task: &dyn Task,
+    maybe_other_task: Option<&dyn Task>,
+) -> bool {
     if vm_task.fd_table().is_monitoring(fd)
         || (fd >= SYSCALLBUF_FDS_DISABLED_SIZE - 1 && vm_task.fd_table().count_beyond_limit() > 0)
     {
         return true;
     }
+    let maybe_rc_other = match maybe_other_task {
+        Some(other) => Some(other.weak_self_ptr().upgrade().unwrap()),
+        None => None,
+    };
     for rc in vm.task_set().iter_except(vm_task.weak_self_ptr()) {
-        let t = rc.borrow();
+        let rc_b;
+        let t = match maybe_rc_other.as_ref() {
+            Some(rc_other) if Rc::ptr_eq(rc_other, &rc) => maybe_other_task.unwrap(),
+            _ => {
+                rc_b = rc.borrow();
+                rc_b.as_ref()
+            }
+        };
         if t.fd_table().is_monitoring(fd)
             || (fd >= SYSCALLBUF_FDS_DISABLED_SIZE - 1 && t.fd_table().count_beyond_limit() > 0)
         {
             return true;
         }
     }
+
     false
 }
