@@ -65,10 +65,9 @@ The following work:
 * `rd replay -a`
   * Interactive replay (which uses a debugger like gdb) is not yet supported
   * In other words, non-interative replay (`-a` flag) is currently supported
-* `rd record -n`
-  * Syscall buffering which improves performance is not supported currently during recording (The `-n` flag disables syscall buffering).
-  * Some system calls are still unsupported
-  * In general the recording functionality is still incomplete but substantial progress has been made and this feature is ready to experiment with
+* `rd record`
+  * The ioctl system call is partially supported during recording
+  * The recording functionality has known issues and is incomplete in places. However, massive progress has been made and this feature is ready to play around with
 * `rd buildid`
 * `rd dump`
 * `rd traceinfo`
@@ -84,7 +83,7 @@ Assuming you have a local source build of `rr-debugger/rr` at `/home/abcxyz/rr/b
 $ alias rd="rd --resource-path=/home/abcxyz/rr/build"
 ```
 
-This will avoid constantly specifying the resource path on every `rd` invocation.
+This will avoid constantly specifying the resource path on every `rd` invocation. In the future, manually specifying the `--resource-path` will not be needed (just like in `rr`) but this is required for now.
 
 ### Logging
 
@@ -96,15 +95,25 @@ $ RD_LOG=all:warn,auto_remote_syscalls:debug rd <etc params>
 
 ### Recording program runs (i.e. traces)
 
-`rd` can now record program runs (i.e. traces) on its own now (just like `rr`). Some system calls are not yet supported during recording. Also, the syscallbuf optimization is not supported currently during recording. In general the recording functionality is incomplete but subtantial progress has been made and it is ready to experiment with.
+`rd` can now record program runs (i.e. traces) on its own now (just like `rr`). Recording with syscall buffers enabled or disabled are both supported. 
+ 
+```bash
+$ rd record <program to be recorded>
+```
+If you want to pass arguments to the program:
 
 ```bash
-$ rd record -n <program to be recorded>
+$ rd record <program to be recorded> -- <arguments>
 ```
 
-The `-n` disables the syscallbuf. 
+Example:
+```bash
+$ rd record ls -- -l
+```
 
-Note that syscallbuf functionality _is_ supported during `rd replay -a`. This would be relevant if you used `rr` to make a recording with syscallbuf enabled.
+Notes:
+  * The ioctl system call is partially supported during recording
+  * The recording functionality has known issues and is incomplete in places. However, massive progress has been made and this feature is ready to play around with
 
 ### _RR_TRACE environment variable
 
