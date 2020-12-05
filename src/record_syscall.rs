@@ -40,6 +40,10 @@ use crate::{
             user_desc,
             vfs_cap_data,
             CAP_SYS_ADMIN,
+            FIOASYNC,
+            FIOCLEX,
+            FIONBIO,
+            FIONCLEX,
             GETALL,
             GETNCNT,
             GETPID,
@@ -145,15 +149,41 @@ use crate::{
             SYS_SOCKETPAIR,
             S_ISGID,
             S_ISUID,
+            TCFLSH,
             TCGETA,
             TCGETS,
+            TCSBRK,
+            TCSBRKP,
+            TCSETA,
+            TCSETAF,
+            TCSETAW,
+            TCSETS,
+            TCSETSF,
+            TCSETSW,
+            TCXONC,
+            TIOCCBRK,
+            TIOCCONS,
+            TIOCEXCL,
             TIOCGETD,
             TIOCGLCKTRMIOS,
             TIOCGPGRP,
             TIOCGSID,
             TIOCGWINSZ,
             TIOCINQ,
+            TIOCNOTTY,
+            TIOCNXCL,
             TIOCOUTQ,
+            TIOCPKT,
+            TIOCSBRK,
+            TIOCSCTTY,
+            TIOCSETD,
+            TIOCSLCKTRMIOS,
+            TIOCSPGRP,
+            TIOCSTI,
+            TIOCSWINSZ,
+            _IOC_READ,
+            _IOC_SIZEMASK,
+            _IOC_SIZESHIFT,
             _LINUX_CAPABILITY_U32S_1,
             _LINUX_CAPABILITY_U32S_2,
             _LINUX_CAPABILITY_U32S_3,
@@ -299,6 +329,8 @@ use crate::{
     kernel_metadata::{errno_name, is_sigreturn, shm_flags_to_mmap_prot, syscall_name},
     kernel_supplement::{
         sig_set_t,
+        BTRFS_IOC_CLONE_,
+        BTRFS_IOC_CLONE_RANGE_,
         NUM_SIGNALS,
         PTRACE_OLDSETOPTIONS,
         SECCOMP_SET_MODE_FILTER,
@@ -306,6 +338,30 @@ use crate::{
         SO_SET_REPLACE,
         _HCIGETDEVINFO,
         _HCIGETDEVLIST,
+        _TIOCGPTPEER,
+        _TIOCSPTLCK,
+        _TUNATTACHFILTER,
+        _TUNDETACHFILTER,
+        _TUNSETDEBUG,
+        _TUNSETGROUP,
+        _TUNSETIFF,
+        _TUNSETIFINDEX,
+        _TUNSETLINK,
+        _TUNSETNOCSUM,
+        _TUNSETOFFLOAD,
+        _TUNSETOWNER,
+        _TUNSETPERSIST,
+        _TUNSETQUEUE,
+        _TUNSETSNDBUF,
+        _TUNSETTXFILTER,
+        _TUNSETVNETBE,
+        _TUNSETVNETHDRSZ,
+        _TUNSETVNETLE,
+        _USBDEVFS_DISCARDURB,
+        _USBDEVFS_GETDRIVER,
+        _USBDEVFS_REAPURB,
+        _USBDEVFS_REAPURBNDELAY,
+        _USBDEVFS_RESET,
     },
     log::{LogDebug, LogInfo, LogWarn},
     monitored_shared_memory::MonitoredSharedMemory,
@@ -5116,7 +5172,159 @@ fn prepare_ioctl<Arch: Architecture>(
         _ => (),
     }
 
+    // In ioctl language, "_IOC_READ" means "outparam".  Both
+    // READ and WRITE can be set for inout params.
+    // USBDEVFS ioctls seem to be mostly backwards in their interpretation of the
+    // read/write bits :-(.
+    //
+    if _IOC_READ & dir == 0 {
+        const IOCTL_MASK_SIZE_TUNSETIFF: u32 = ioctl_mask_size(_TUNSETIFF);
+        const IOCTL_MASK_SIZE_TUNSETNOCSUM: u32 = ioctl_mask_size(_TUNSETNOCSUM);
+        const IOCTL_MASK_SIZE_TUNSETDEBUG: u32 = ioctl_mask_size(_TUNSETDEBUG);
+        const IOCTL_MASK_SIZE_TUNSETPERSIST: u32 = ioctl_mask_size(_TUNSETPERSIST);
+        const IOCTL_MASK_SIZE_TUNSETOWNER: u32 = ioctl_mask_size(_TUNSETOWNER);
+        const IOCTL_MASK_SIZE_TUNSETLINK: u32 = ioctl_mask_size(_TUNSETLINK);
+        const IOCTL_MASK_SIZE_TUNSETGROUP: u32 = ioctl_mask_size(_TUNSETGROUP);
+        const IOCTL_MASK_SIZE_TUNSETOFFLOAD: u32 = ioctl_mask_size(_TUNSETOFFLOAD);
+        const IOCTL_MASK_SIZE_TUNSETTXFILTER: u32 = ioctl_mask_size(_TUNSETTXFILTER);
+        const IOCTL_MASK_SIZE_TUNSETSNDBUF: u32 = ioctl_mask_size(_TUNSETSNDBUF);
+        const IOCTL_MASK_SIZE_TUNATTACHFILTER: u32 = ioctl_mask_size(_TUNATTACHFILTER);
+        const IOCTL_MASK_SIZE_TUNDETACHFILTER: u32 = ioctl_mask_size(_TUNDETACHFILTER);
+        const IOCTL_MASK_SIZE_TUNSETVNETHDRSZ: u32 = ioctl_mask_size(_TUNSETVNETHDRSZ);
+        const IOCTL_MASK_SIZE_TUNSETQUEUE: u32 = ioctl_mask_size(_TUNSETQUEUE);
+        const IOCTL_MASK_SIZE_TUNSETIFINDEX: u32 = ioctl_mask_size(_TUNSETIFINDEX);
+        const IOCTL_MASK_SIZE_TUNSETVNETLE: u32 = ioctl_mask_size(_TUNSETVNETLE);
+        const IOCTL_MASK_SIZE_TUNSETVNETBE: u32 = ioctl_mask_size(_TUNSETVNETBE);
+        const IOCTL_MASK_SIZE_BTRFS_IOC_CLONE: u32 = ioctl_mask_size(BTRFS_IOC_CLONE_);
+        const IOCTL_MASK_SIZE_BTRFS_IOC_CLONE_RANGE: u32 = ioctl_mask_size(BTRFS_IOC_CLONE_RANGE_);
+        const IOCTL_MASK_SIZE_TIOCSPTLCK: u32 = ioctl_mask_size(_TIOCSPTLCK);
+        const IOCTL_MASK_SIZE_TIOCGPTPEER: u32 = ioctl_mask_size(_TIOCGPTPEER);
+        const IOCTL_MASK_SIZE_USBDEVFS_DISCARDURB: u32 = ioctl_mask_size(_USBDEVFS_DISCARDURB);
+        const IOCTL_MASK_SIZE_USBDEVFS_RESET: u32 = ioctl_mask_size(_USBDEVFS_RESET);
+        const IOCTL_MASK_SIZE_USBDEVFS_GETDRIVER: u32 = ioctl_mask_size(_USBDEVFS_GETDRIVER);
+        const IOCTL_MASK_SIZE_USBDEVFS_REAPURB: u32 = ioctl_mask_size(_USBDEVFS_REAPURB);
+        const IOCTL_MASK_SIZE_USBDEVFS_REAPURBNDELAY: u32 =
+            ioctl_mask_size(_USBDEVFS_REAPURBNDELAY);
+
+        match ioctl_mask_size(request) {
+            // Order by value
+            // Older ioctls don't use IOC macros at all, so don't mask size for them
+            // No test for TIOCCONS because if run as root it would do bad things
+            TCSETS
+            | TCSETSW
+            | TCSETSF
+            | TCSETA
+            | TCSETAW
+            | TCSETAF
+            | TIOCSLCKTRMIOS
+            | TCSBRK
+            | TCSBRKP
+            | TIOCSBRK
+            | TIOCCBRK
+            | TCXONC
+            | TCFLSH
+            | TIOCEXCL
+            | TIOCNXCL
+            | TIOCSCTTY
+            | TIOCNOTTY
+            | TIOCSPGRP
+            | TIOCSTI
+            | TIOCSWINSZ
+            | TIOCCONS
+            | TIOCPKT
+            | FIONBIO
+            | FIOASYNC
+            | TIOCSETD
+            | IOCTL_MASK_SIZE_TIOCSPTLCK
+            | IOCTL_MASK_SIZE_TIOCGPTPEER
+            | FIOCLEX
+            | FIONCLEX
+            | IOCTL_MASK_SIZE_BTRFS_IOC_CLONE
+            | IOCTL_MASK_SIZE_BTRFS_IOC_CLONE_RANGE
+            | IOCTL_MASK_SIZE_USBDEVFS_DISCARDURB
+            | IOCTL_MASK_SIZE_USBDEVFS_RESET
+            | IOCTL_MASK_SIZE_TUNSETNOCSUM
+            | IOCTL_MASK_SIZE_TUNSETDEBUG
+            | IOCTL_MASK_SIZE_TUNSETPERSIST
+            | IOCTL_MASK_SIZE_TUNSETOWNER
+            | IOCTL_MASK_SIZE_TUNSETLINK
+            | IOCTL_MASK_SIZE_TUNSETGROUP
+            | IOCTL_MASK_SIZE_TUNSETOFFLOAD
+            | IOCTL_MASK_SIZE_TUNSETTXFILTER
+            | IOCTL_MASK_SIZE_TUNSETSNDBUF
+            | IOCTL_MASK_SIZE_TUNATTACHFILTER
+            | IOCTL_MASK_SIZE_TUNDETACHFILTER
+            | IOCTL_MASK_SIZE_TUNSETVNETHDRSZ
+            | IOCTL_MASK_SIZE_TUNSETQUEUE
+            | IOCTL_MASK_SIZE_TUNSETIFINDEX
+            | IOCTL_MASK_SIZE_TUNSETVNETLE
+            | IOCTL_MASK_SIZE_TUNSETVNETBE => {
+                return Switchable::PreventSwitch;
+            }
+            IOCTL_MASK_SIZE_USBDEVFS_GETDRIVER => {
+                // Reads and writes its parameter despite not having the _IOC_READ bit.
+                syscall_state.reg_parameter_with_size(
+                    3,
+                    ParamSize::from(size as usize),
+                    None,
+                    None,
+                );
+                return Switchable::PreventSwitch;
+            }
+            IOCTL_MASK_SIZE_USBDEVFS_REAPURB | IOCTL_MASK_SIZE_USBDEVFS_REAPURBNDELAY => {
+                syscall_state.reg_parameter_with_size(
+                    3,
+                    ParamSize::from(size as usize),
+                    None,
+                    None,
+                );
+                unimplemented!()
+            }
+            IOCTL_MASK_SIZE_TUNSETIFF => {
+                // Reads and writes its parameter despite not having the _IOC_READ
+                // bit...
+                // And the parameter is an ifreq, not an int as in the ioctl definition!
+                syscall_state.reg_parameter::<Arch::ifreq>(3, None, None);
+                return Switchable::PreventSwitch;
+            }
+            _ => (),
+        }
+
+        match type_ {
+            // TIO*
+            // SIO*
+            // SIO* wireless interface ioctls
+            // These ioctls are known to be irregular and don't usually have the
+            // correct `dir` bits. They must be handled above
+            0x54 | 0x89 | 0x8B => {
+                syscall_state.expect_errno = EINVAL;
+                return Switchable::PreventSwitch;
+            }
+            _ => (),
+        }
+
+        // If the kernel isn't going to write any data back to
+        // us, we hope and pray that the result of the ioctl
+        // (observable to the tracee) is deterministic.
+        // We're also assuming it doesn't block.
+        // This is risky! Many ioctls use irregular ioctl codes
+        // that do not have the _IOC_READ bit set but actually do write to
+        // user-space!
+        log!(LogDebug, "  (presumed ignorable ioctl, nothing to do)");
+        return Switchable::PreventSwitch;
+    }
+
+    // There are lots of ioctl values for EVIOCGBIT
+    if type_ == b'E' as u32 && nr >= 0x20 && nr <= 0x7f {
+        syscall_state.reg_parameter_with_size(3, ParamSize::from(size as usize), None, None);
+        return Switchable::PreventSwitch;
+    }
+
     unimplemented!()
+}
+
+const fn ioctl_mask_size(req: u32) -> u32 {
+    req & !(_IOC_SIZEMASK << _IOC_SIZESHIFT)
 }
 
 fn record_page_below_stack_ptr(t: &mut RecordTask) {

@@ -640,7 +640,7 @@ impl TraceWriter {
         let ret = unsafe {
             libc::ioctl(
                 version_clone_fd.as_raw(),
-                BTRFS_IOC_CLONE_RANGE_,
+                BTRFS_IOC_CLONE_RANGE_ as _,
                 &raw const clone_args,
             )
         };
@@ -825,7 +825,7 @@ impl TraceWriter {
             return false;
         }
 
-        let ret = unsafe { ioctl(dest.as_raw(), BTRFS_IOC_CLONE_, src.as_raw()) };
+        let ret = unsafe { ioctl(dest.as_raw(), BTRFS_IOC_CLONE_ as _, src.as_raw()) };
         if ret < 0 {
             // maybe not on the same filesystem, or filesystem doesn't support clone?
             // DIFF NOTE: rr swallows an unlink error but we dont for now.

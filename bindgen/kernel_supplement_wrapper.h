@@ -140,10 +140,8 @@ struct btrfs_ioctl_clone_range_args {
   _IOW(BTRFS_IOCTL_MAGIC, 13, struct btrfs_ioctl_clone_range_args)
 #endif
 
-// Added this manually for the constant to be picked up
-const unsigned long BTRFS_IOC_CLONE_ = BTRFS_IOC_CLONE;
-// Added this manually for the constant to be picked up
-const unsigned long BTRFS_IOC_CLONE_RANGE_ = BTRFS_IOC_CLONE_RANGE;
+const unsigned int BTRFS_IOC_CLONE_ = BTRFS_IOC_CLONE;
+const unsigned int BTRFS_IOC_CLONE_RANGE_ = BTRFS_IOC_CLONE_RANGE;
 
 #ifndef USBDEVFS_GET_CAPABILITIES
 #define USBDEVFS_GET_CAPABILITIES _IOR('U', 26, __u32)
@@ -192,6 +190,9 @@ struct usbdevfs_streams {
 #ifndef TIOCGPTPEER
 #define TIOCGPTPEER _IO('T', 0x41)
 #endif
+
+const unsigned int _TIOCGPTPEER = TIOCGPTPEER;
+const unsigned int _TIOCSPTLCK = TIOCSPTLCK;
 
 struct rr_input_mask {
   uint32_t type;
@@ -348,3 +349,39 @@ enum {
 /// Manually get these
 const unsigned int _HCIGETDEVLIST = HCIGETDEVLIST;
 const unsigned int _HCIGETDEVINFO = HCIGETDEVINFO;
+
+const unsigned int _USBDEVFS_GETDRIVER = USBDEVFS_GETDRIVER;
+const unsigned int _USBDEVFS_DISCARDURB = USBDEVFS_DISCARDURB;
+const unsigned int _USBDEVFS_REAPURB = USBDEVFS_REAPURB;
+const unsigned int _USBDEVFS_REAPURBNDELAY = USBDEVFS_REAPURBNDELAY;
+const unsigned int _USBDEVFS_RESET = USBDEVFS_RESET;
+
+const unsigned int _TUNSETNOCSUM = TUNSETNOCSUM;
+const unsigned int _TUNSETDEBUG = TUNSETDEBUG;
+const unsigned int _TUNSETIFF = TUNSETIFF;
+const unsigned int _TUNSETPERSIST = TUNSETPERSIST;
+const unsigned int _TUNSETOWNER = TUNSETOWNER;
+const unsigned int _TUNSETLINK = TUNSETLINK;
+const unsigned int _TUNSETGROUP = TUNSETGROUP;
+const unsigned int _TUNGETFEATURES = TUNGETFEATURES;
+const unsigned int _TUNSETOFFLOAD = TUNSETOFFLOAD;
+const unsigned int _TUNSETTXFILTER = TUNSETTXFILTER;
+const unsigned int _TUNGETIFF = TUNGETIFF;
+const unsigned int _TUNGETSNDBUF = TUNGETSNDBUF;
+const unsigned int _TUNSETSNDBUF = TUNSETSNDBUF;
+const unsigned int _TUNATTACHFILTER = TUNATTACHFILTER;
+const unsigned int _TUNDETACHFILTER = TUNDETACHFILTER;
+const unsigned int _TUNGETVNETHDRSZ = TUNGETVNETHDRSZ;
+const unsigned int _TUNSETVNETHDRSZ = TUNSETVNETHDRSZ;
+const unsigned int _TUNSETQUEUE = TUNSETQUEUE;
+const unsigned int _TUNSETIFINDEX = TUNSETIFINDEX;
+const unsigned int _TUNGETFILTER = TUNGETFILTER;
+const unsigned int _TUNSETVNETLE = TUNSETVNETLE;
+const unsigned int _TUNGETVNETLE = TUNGETVNETLE;
+const unsigned int _TUNSETVNETBE = TUNSETVNETBE;
+const unsigned int _TUNGETVNETBE = TUNGETVNETBE;
+const unsigned int _TUNSETSTEERINGEBPF = TUNSETSTEERINGEBPF;
+const unsigned int _TUNSETFILTEREBPF = TUNSETFILTEREBPF;
+const unsigned int _TUNSETCARRIER = TUNSETCARRIER;
+const unsigned int _TUNGETDEVNETNS = TUNGETDEVNETNS;
+
