@@ -14,6 +14,7 @@ use crate::{
         ifreq,
         iovec,
         ipc_kludge_args,
+        iwreq,
         kernel_sigaction,
         mmap_args,
         mmsghdr,
@@ -5082,7 +5083,20 @@ fn prepare_ioctl<Arch: Architecture>(
             return Switchable::PreventSwitch;
         }
 
-        SIOCGIWESSID => unimplemented!(),
+        SIOCGIWESSID => {
+            let argsp = syscall_state.reg_parameter::<iwreq<Arch>>(3, Some(ArgMode::InOut), None);
+            let args = read_val_mem(t, argsp, None);
+            let ptr = unsafe { args.u.essid.pointer };
+            syscall_state.mem_ptr_parameter_with_size(
+                t,
+                Arch::as_rptr(ptr),
+                ParamSize::from(unsafe { args.u.essid.length } as usize),
+                None,
+                None,
+            );
+            syscall_state.after_syscall_action(Box::new(record_page_below_stack_ptr));
+            return Switchable::PreventSwitch;
+        }
 
         SIOCGSTAMP => {
             syscall_state.reg_parameter::<Arch::timeval>(3, None, None);
