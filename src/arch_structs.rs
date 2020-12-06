@@ -907,6 +907,9 @@ pub struct usbdevfs_ioctl<Arch: Architecture> {
     pub data: Ptr<Arch::unsigned_word, u8>,
 }
 
+assert_eq_size!(kernel::usbdevfs_ioctl, usbdevfs_ioctl<NativeArch>);
+assert_eq_align!(kernel::usbdevfs_ioctl, usbdevfs_ioctl<NativeArch>);
+
 #[repr(C)]
 #[allow(non_snake_case)]
 pub struct usbdevfs_ctrltransfer<Arch: Architecture> {
@@ -918,3 +921,12 @@ pub struct usbdevfs_ctrltransfer<Arch: Architecture> {
     pub timeout: u32,
     pub data: Ptr<Arch::unsigned_word, u8>,
 }
+
+assert_eq_size!(
+    kernel::usbdevfs_ctrltransfer,
+    usbdevfs_ctrltransfer<NativeArch>
+);
+assert_eq_align!(
+    kernel::usbdevfs_ctrltransfer,
+    usbdevfs_ctrltransfer<NativeArch>
+);

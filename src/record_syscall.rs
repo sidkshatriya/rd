@@ -196,6 +196,7 @@ use crate::{
             _LINUX_CAPABILITY_VERSION_3,
             _SNDRV_CTL_IOCTL_CARD_INFO,
             _SNDRV_CTL_IOCTL_PVERSION,
+            _VIDIOC_DQBUF,
             _VIDIOC_ENUMINPUT,
             _VIDIOC_ENUM_FMT,
             _VIDIOC_ENUM_FRAMEINTERVALS,
@@ -5119,6 +5120,7 @@ const IOCTL_MASK_SIZE_VIDIOC_QBUF: u32 = ioctl_mask_size(_VIDIOC_QBUF);
 const IOCTL_MASK_SIZE_VIDIOC_G_CTRL: u32 = ioctl_mask_size(_VIDIOC_G_CTRL);
 const IOCTL_MASK_SIZE_VIDIOC_G_OUTPUT: u32 = ioctl_mask_size(_VIDIOC_G_OUTPUT);
 const IOCTL_MASK_SIZE_VIDIOC_S_CTRL: u32 = ioctl_mask_size(_VIDIOC_S_CTRL);
+const IOCTL_MASK_SIZE_VIDIOC_DQBUF: u32 = ioctl_mask_size(_VIDIOC_DQBUF);
 
 const IOCTL_MASK_SIZE_VFAT_IOCTL_READDIR_BOTH: u32 = ioctl_mask_size(_VFAT_IOCTL_READDIR_BOTH);
 const IOCTL_MASK_SIZE_FS_IOC_GETVERSION: u32 = ioctl_mask_size(_FS_IOC_GETVERSION);
@@ -5571,7 +5573,7 @@ fn prepare_ioctl<Arch: Architecture>(
             // compat code so a 32-bit task on a 64-bit kernel needs to use the
             // 64-bit type.
             if size_of::<usize>() == 8 {
-                // 64-bit rr build. We must be on a 64-bit kernel so use the 64-bit
+                // 64-bit rd build. We must be on a 64-bit kernel so use the 64-bit
                 // sock_fprog type.
                 syscall_state.reg_parameter::<sock_fprog<NativeArch>>(3, None, None);
             } else {
@@ -5583,7 +5585,14 @@ fn prepare_ioctl<Arch: Architecture>(
             let argsp =
                 syscall_state.reg_parameter::<usbdevfs_ioctl<Arch>>(3, Some(ArgMode::In), None);
             let args = read_val_mem(t, argsp, None);
-            unimplemented!()
+            syscall_state.mem_ptr_parameter_with_size(
+                t,
+                remote_ptr_field!(argsp, usbdevfs_ioctl<Arch>, data),
+                ParamSize::from(unsafe { ioctl_size(args.ioctl_code as u32) } as usize),
+                None,
+                None,
+            );
+            return Switchable::PreventSwitch;
         }
         IOCTL_MASK_SIZE_USBDEVFS_CONTROL => {
             let argsp = syscall_state.reg_parameter::<usbdevfs_ctrltransfer<Arch>>(
@@ -5592,12 +5601,28 @@ fn prepare_ioctl<Arch: Architecture>(
                 None,
             );
             let args = read_val_mem(t, argsp, None);
+            syscall_state.mem_ptr_parameter_with_size(
+                t,
+                remote_ptr_field!(argsp, usbdevfs_ctrltransfer<Arch>, data),
+                ParamSize::from(args.wLength as usize),
+                None,
+                None,
+            );
+            return Switchable::PreventSwitch;
+        }
+        _ => (),
+    }
+
+    // These ioctls are mostly regular but require additional recording.
+    match ioctl_mask_size(request) {
+        IOCTL_MASK_SIZE_VIDIOC_DQBUF => {
             unimplemented!()
         }
         _ => (),
     }
 
-    unimplemented!()
+    syscall_state.expect_errno = EINVAL;
+    Switchable::PreventSwitch
 }
 
 const fn ioctl_mask_size(req: u32) -> u32 {

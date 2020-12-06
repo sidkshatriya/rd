@@ -70,3 +70,4 @@ const unsigned int _VIDIOC_QBUF = VIDIOC_QBUF;
 const unsigned int _VIDIOC_G_CTRL = VIDIOC_G_CTRL;
 const unsigned int _VIDIOC_G_OUTPUT = VIDIOC_G_OUTPUT;
 const unsigned int _VIDIOC_S_CTRL = VIDIOC_S_CTRL;
+const unsigned int _VIDIOC_DQBUF = VIDIOC_DQBUF;
