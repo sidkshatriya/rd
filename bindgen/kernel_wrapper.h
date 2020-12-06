@@ -52,3 +52,21 @@
 /// Need to manually define these
 const unsigned int _SNDRV_CTL_IOCTL_PVERSION = SNDRV_CTL_IOCTL_PVERSION;
 const unsigned int _SNDRV_CTL_IOCTL_CARD_INFO = SNDRV_CTL_IOCTL_CARD_INFO;
+
+const unsigned int _VIDIOC_QUERYCAP = VIDIOC_QUERYCAP;
+const unsigned int _VIDIOC_ENUM_FMT = VIDIOC_ENUM_FMT;
+const unsigned int _VIDIOC_ENUM_FRAMESIZES = VIDIOC_ENUM_FRAMESIZES;
+const unsigned int _VIDIOC_ENUM_FRAMEINTERVALS = VIDIOC_ENUM_FRAMEINTERVALS;
+const unsigned int _VIDIOC_ENUMINPUT = VIDIOC_ENUMINPUT;
+const unsigned int _VIDIOC_G_FMT = VIDIOC_G_FMT;
+const unsigned int _VIDIOC_S_FMT = VIDIOC_S_FMT;
+const unsigned int _VIDIOC_TRY_FMT = VIDIOC_TRY_FMT;
+const unsigned int _VIDIOC_G_PARM = VIDIOC_G_PARM;
+const unsigned int _VIDIOC_S_PARM = VIDIOC_S_PARM;
+const unsigned int _VIDIOC_REQBUFS = VIDIOC_REQBUFS;
+const unsigned int _VIDIOC_QUERYBUF = VIDIOC_QUERYBUF;
+const unsigned int _VIDIOC_QUERYCTRL = VIDIOC_QUERYCTRL;
+const unsigned int _VIDIOC_QBUF = VIDIOC_QBUF;
+const unsigned int _VIDIOC_G_CTRL = VIDIOC_G_CTRL;
+const unsigned int _VIDIOC_G_OUTPUT = VIDIOC_G_OUTPUT;
+const unsigned int _VIDIOC_S_CTRL = VIDIOC_S_CTRL;

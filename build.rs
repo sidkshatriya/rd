@@ -164,6 +164,7 @@ fn main() {
         "kernel_supplement",
         "packet",
         "personality",
+        "misc_for_ioctl",
     ];
 
     for &name in &names {

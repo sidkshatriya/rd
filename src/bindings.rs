@@ -1,6 +1,7 @@
 pub mod audit;
 pub mod fcntl;
 pub mod kernel;
+pub mod misc_for_ioctl;
 pub mod packet;
 pub mod perf_event;
 pub mod personality;

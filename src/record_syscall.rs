@@ -1,5 +1,5 @@
 use crate::{
-    arch::{loff_t, off64_t, Architecture},
+    arch::{loff_t, off64_t, Architecture, NativeArch},
     arch_structs::{
         self,
         __sysctl_args,
@@ -29,7 +29,10 @@ use crate::{
         sendmsg_args,
         sg_io_hdr,
         siginfo_t,
+        sock_fprog,
         socketpair_args,
+        usbdevfs_ctrltransfer,
+        usbdevfs_ioctl,
     },
     auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem, MemParamsEnabled},
     bindings::{
@@ -193,6 +196,49 @@ use crate::{
             _LINUX_CAPABILITY_VERSION_3,
             _SNDRV_CTL_IOCTL_CARD_INFO,
             _SNDRV_CTL_IOCTL_PVERSION,
+            _VIDIOC_ENUMINPUT,
+            _VIDIOC_ENUM_FMT,
+            _VIDIOC_ENUM_FRAMEINTERVALS,
+            _VIDIOC_ENUM_FRAMESIZES,
+            _VIDIOC_G_CTRL,
+            _VIDIOC_G_FMT,
+            _VIDIOC_G_OUTPUT,
+            _VIDIOC_G_PARM,
+            _VIDIOC_QBUF,
+            _VIDIOC_QUERYBUF,
+            _VIDIOC_QUERYCAP,
+            _VIDIOC_QUERYCTRL,
+            _VIDIOC_REQBUFS,
+            _VIDIOC_S_CTRL,
+            _VIDIOC_S_FMT,
+            _VIDIOC_S_PARM,
+            _VIDIOC_TRY_FMT,
+        },
+        misc_for_ioctl::{
+            _EVIOCGEFFECTS,
+            _EVIOCGID,
+            _EVIOCGKEYCODE,
+            _EVIOCGKEY_0,
+            _EVIOCGLED_0,
+            _EVIOCGMASK,
+            _EVIOCGMTSLOTS_0,
+            _EVIOCGNAME_0,
+            _EVIOCGPHYS_0,
+            _EVIOCGPROP_0,
+            _EVIOCGREP,
+            _EVIOCGSND_0,
+            _EVIOCGSW_0,
+            _EVIOCGUNIQ_0,
+            _EVIOCGVERSION,
+            _FS_IOC_GETFLAGS,
+            _FS_IOC_GETVERSION,
+            _JSIOCGAXES,
+            _JSIOCGAXMAP,
+            _JSIOCGBTNMAP,
+            _JSIOCGBUTTONS,
+            _JSIOCGNAME_0,
+            _JSIOCGVERSION,
+            _VFAT_IOCTL_READDIR_BOTH,
         },
         packet::{PACKET_RX_RING, PACKET_TX_RING},
         perf_event::perf_event_attr,
@@ -339,10 +385,21 @@ use crate::{
         SO_SET_REPLACE,
         _HCIGETDEVINFO,
         _HCIGETDEVLIST,
+        _TIOCGEXCL,
+        _TIOCGPKT,
+        _TIOCGPTLCK,
+        _TIOCGPTN,
         _TIOCGPTPEER,
         _TIOCSPTLCK,
         _TUNATTACHFILTER,
         _TUNDETACHFILTER,
+        _TUNGETFEATURES,
+        _TUNGETFILTER,
+        _TUNGETIFF,
+        _TUNGETSNDBUF,
+        _TUNGETVNETBE,
+        _TUNGETVNETHDRSZ,
+        _TUNGETVNETLE,
         _TUNSETDEBUG,
         _TUNSETGROUP,
         _TUNSETIFF,
@@ -358,11 +415,23 @@ use crate::{
         _TUNSETVNETBE,
         _TUNSETVNETHDRSZ,
         _TUNSETVNETLE,
+        _USBDEVFS_ALLOC_STREAMS,
+        _USBDEVFS_CLAIMINTERFACE,
+        _USBDEVFS_CLEAR_HALT,
+        _USBDEVFS_CONTROL,
         _USBDEVFS_DISCARDURB,
+        _USBDEVFS_DISCONNECT_CLAIM,
+        _USBDEVFS_FREE_STREAMS,
         _USBDEVFS_GETDRIVER,
+        _USBDEVFS_GET_CAPABILITIES,
+        _USBDEVFS_IOCTL,
         _USBDEVFS_REAPURB,
         _USBDEVFS_REAPURBNDELAY,
+        _USBDEVFS_RELEASEINTERFACE,
         _USBDEVFS_RESET,
+        _USBDEVFS_SETCONFIGURATION,
+        _USBDEVFS_SETINTERFACE,
+        _USBDEVFS_SUBMITURB,
     },
     log::{LogDebug, LogInfo, LogWarn},
     monitored_shared_memory::MonitoredSharedMemory,
@@ -4979,6 +5048,103 @@ fn extra_expected_errno_info<Arch: Architecture>(
     unimplemented!()
 }
 
+const IOCTL_MASK_SIZE_TUNSETIFF: u32 = ioctl_mask_size(_TUNSETIFF);
+const IOCTL_MASK_SIZE_TUNSETNOCSUM: u32 = ioctl_mask_size(_TUNSETNOCSUM);
+const IOCTL_MASK_SIZE_TUNSETDEBUG: u32 = ioctl_mask_size(_TUNSETDEBUG);
+const IOCTL_MASK_SIZE_TUNSETPERSIST: u32 = ioctl_mask_size(_TUNSETPERSIST);
+const IOCTL_MASK_SIZE_TUNSETOWNER: u32 = ioctl_mask_size(_TUNSETOWNER);
+const IOCTL_MASK_SIZE_TUNSETLINK: u32 = ioctl_mask_size(_TUNSETLINK);
+const IOCTL_MASK_SIZE_TUNSETGROUP: u32 = ioctl_mask_size(_TUNSETGROUP);
+const IOCTL_MASK_SIZE_TUNSETOFFLOAD: u32 = ioctl_mask_size(_TUNSETOFFLOAD);
+const IOCTL_MASK_SIZE_TUNSETTXFILTER: u32 = ioctl_mask_size(_TUNSETTXFILTER);
+const IOCTL_MASK_SIZE_TUNSETSNDBUF: u32 = ioctl_mask_size(_TUNSETSNDBUF);
+const IOCTL_MASK_SIZE_TUNATTACHFILTER: u32 = ioctl_mask_size(_TUNATTACHFILTER);
+const IOCTL_MASK_SIZE_TUNDETACHFILTER: u32 = ioctl_mask_size(_TUNDETACHFILTER);
+const IOCTL_MASK_SIZE_TUNSETVNETHDRSZ: u32 = ioctl_mask_size(_TUNSETVNETHDRSZ);
+const IOCTL_MASK_SIZE_TUNSETQUEUE: u32 = ioctl_mask_size(_TUNSETQUEUE);
+const IOCTL_MASK_SIZE_TUNSETIFINDEX: u32 = ioctl_mask_size(_TUNSETIFINDEX);
+const IOCTL_MASK_SIZE_TUNSETVNETLE: u32 = ioctl_mask_size(_TUNSETVNETLE);
+const IOCTL_MASK_SIZE_TUNSETVNETBE: u32 = ioctl_mask_size(_TUNSETVNETBE);
+const IOCTL_MASK_SIZE_TUNGETFEATURES: u32 = ioctl_mask_size(_TUNGETFEATURES);
+const IOCTL_MASK_SIZE_TUNGETSNDBUF: u32 = ioctl_mask_size(_TUNGETSNDBUF);
+const IOCTL_MASK_SIZE_TUNGETVNETHDRSZ: u32 = ioctl_mask_size(_TUNGETVNETHDRSZ);
+const IOCTL_MASK_SIZE_TUNGETVNETLE: u32 = ioctl_mask_size(_TUNGETVNETLE);
+const IOCTL_MASK_SIZE_TUNGETVNETBE: u32 = ioctl_mask_size(_TUNGETVNETBE);
+const IOCTL_MASK_SIZE_TUNGETIFF: u32 = ioctl_mask_size(_TUNGETIFF);
+const IOCTL_MASK_SIZE_TUNGETFILTER: u32 = ioctl_mask_size(_TUNGETFILTER);
+
+const IOCTL_MASK_SIZE_BTRFS_IOC_CLONE: u32 = ioctl_mask_size(BTRFS_IOC_CLONE_);
+const IOCTL_MASK_SIZE_BTRFS_IOC_CLONE_RANGE: u32 = ioctl_mask_size(BTRFS_IOC_CLONE_RANGE_);
+
+const IOCTL_MASK_SIZE_USBDEVFS_DISCARDURB: u32 = ioctl_mask_size(_USBDEVFS_DISCARDURB);
+const IOCTL_MASK_SIZE_USBDEVFS_RESET: u32 = ioctl_mask_size(_USBDEVFS_RESET);
+const IOCTL_MASK_SIZE_USBDEVFS_GETDRIVER: u32 = ioctl_mask_size(_USBDEVFS_GETDRIVER);
+const IOCTL_MASK_SIZE_USBDEVFS_REAPURB: u32 = ioctl_mask_size(_USBDEVFS_REAPURB);
+const IOCTL_MASK_SIZE_USBDEVFS_REAPURBNDELAY: u32 = ioctl_mask_size(_USBDEVFS_REAPURBNDELAY);
+const IOCTL_MASK_SIZE_USBDEVFS_ALLOC_STREAMS: u32 = ioctl_mask_size(_USBDEVFS_ALLOC_STREAMS);
+const IOCTL_MASK_SIZE_USBDEVFS_CLAIMINTERFACE: u32 = ioctl_mask_size(_USBDEVFS_CLAIMINTERFACE);
+const IOCTL_MASK_SIZE_USBDEVFS_CLEAR_HALT: u32 = ioctl_mask_size(_USBDEVFS_CLEAR_HALT);
+const IOCTL_MASK_SIZE_USBDEVFS_DISCONNECT_CLAIM: u32 = ioctl_mask_size(_USBDEVFS_DISCONNECT_CLAIM);
+const IOCTL_MASK_SIZE_USBDEVFS_FREE_STREAMS: u32 = ioctl_mask_size(_USBDEVFS_FREE_STREAMS);
+const IOCTL_MASK_SIZE_USBDEVFS_RELEASEINTERFACE: u32 = ioctl_mask_size(_USBDEVFS_RELEASEINTERFACE);
+const IOCTL_MASK_SIZE_USBDEVFS_SETCONFIGURATION: u32 = ioctl_mask_size(_USBDEVFS_SETCONFIGURATION);
+const IOCTL_MASK_SIZE_USBDEVFS_SETINTERFACE: u32 = ioctl_mask_size(_USBDEVFS_SETINTERFACE);
+const IOCTL_MASK_SIZE_USBDEVFS_SUBMITURB: u32 = ioctl_mask_size(_USBDEVFS_SUBMITURB);
+const IOCTL_MASK_SIZE_USBDEVFS_IOCTL: u32 = ioctl_mask_size(_USBDEVFS_IOCTL);
+const IOCTL_MASK_SIZE_USBDEVFS_CONTROL: u32 = ioctl_mask_size(_USBDEVFS_CONTROL);
+const IOCTL_MASK_SIZE_USBDEVFS_GET_CAPABILITIES: u32 = ioctl_mask_size(_USBDEVFS_GET_CAPABILITIES);
+
+const IOCTL_MASK_SIZE_TIOCGPTN: u32 = ioctl_mask_size(_TIOCGPTN);
+const IOCTL_MASK_SIZE_TIOCGPKT: u32 = ioctl_mask_size(_TIOCGPKT);
+const IOCTL_MASK_SIZE_TIOCGPTLCK: u32 = ioctl_mask_size(_TIOCGPTLCK);
+const IOCTL_MASK_SIZE_TIOCGEXCL: u32 = ioctl_mask_size(_TIOCGEXCL);
+const IOCTL_MASK_SIZE_TIOCSPTLCK: u32 = ioctl_mask_size(_TIOCSPTLCK);
+const IOCTL_MASK_SIZE_TIOCGPTPEER: u32 = ioctl_mask_size(_TIOCGPTPEER);
+
+const IOCTL_MASK_SIZE_VIDIOC_QUERYCAP: u32 = ioctl_mask_size(_VIDIOC_QUERYCAP);
+const IOCTL_MASK_SIZE_VIDIOC_ENUM_FMT: u32 = ioctl_mask_size(_VIDIOC_ENUM_FMT);
+const IOCTL_MASK_SIZE_VIDIOC_ENUM_FRAMESIZES: u32 = ioctl_mask_size(_VIDIOC_ENUM_FRAMESIZES);
+const IOCTL_MASK_SIZE_VIDIOC_ENUM_FRAMEINTERVALS: u32 =
+    ioctl_mask_size(_VIDIOC_ENUM_FRAMEINTERVALS);
+const IOCTL_MASK_SIZE_VIDIOC_ENUMINPUT: u32 = ioctl_mask_size(_VIDIOC_ENUMINPUT);
+const IOCTL_MASK_SIZE_VIDIOC_G_FMT: u32 = ioctl_mask_size(_VIDIOC_G_FMT);
+const IOCTL_MASK_SIZE_VIDIOC_S_FMT: u32 = ioctl_mask_size(_VIDIOC_S_FMT);
+const IOCTL_MASK_SIZE_VIDIOC_TRY_FMT: u32 = ioctl_mask_size(_VIDIOC_TRY_FMT);
+const IOCTL_MASK_SIZE_VIDIOC_G_PARM: u32 = ioctl_mask_size(_VIDIOC_G_PARM);
+const IOCTL_MASK_SIZE_VIDIOC_S_PARM: u32 = ioctl_mask_size(_VIDIOC_S_PARM);
+const IOCTL_MASK_SIZE_VIDIOC_REQBUFS: u32 = ioctl_mask_size(_VIDIOC_REQBUFS);
+const IOCTL_MASK_SIZE_VIDIOC_QUERYBUF: u32 = ioctl_mask_size(_VIDIOC_QUERYBUF);
+const IOCTL_MASK_SIZE_VIDIOC_QUERYCTRL: u32 = ioctl_mask_size(_VIDIOC_QUERYCTRL);
+const IOCTL_MASK_SIZE_VIDIOC_QBUF: u32 = ioctl_mask_size(_VIDIOC_QBUF);
+const IOCTL_MASK_SIZE_VIDIOC_G_CTRL: u32 = ioctl_mask_size(_VIDIOC_G_CTRL);
+const IOCTL_MASK_SIZE_VIDIOC_G_OUTPUT: u32 = ioctl_mask_size(_VIDIOC_G_OUTPUT);
+const IOCTL_MASK_SIZE_VIDIOC_S_CTRL: u32 = ioctl_mask_size(_VIDIOC_S_CTRL);
+
+const IOCTL_MASK_SIZE_VFAT_IOCTL_READDIR_BOTH: u32 = ioctl_mask_size(_VFAT_IOCTL_READDIR_BOTH);
+const IOCTL_MASK_SIZE_FS_IOC_GETVERSION: u32 = ioctl_mask_size(_FS_IOC_GETVERSION);
+const IOCTL_MASK_SIZE_FS_IOC_GETFLAGS: u32 = ioctl_mask_size(_FS_IOC_GETFLAGS);
+const IOCTL_MASK_SIZE_EVIOCGVERSION: u32 = ioctl_mask_size(_EVIOCGVERSION);
+const IOCTL_MASK_SIZE_EVIOCGID: u32 = ioctl_mask_size(_EVIOCGID);
+const IOCTL_MASK_SIZE_EVIOCGREP: u32 = ioctl_mask_size(_EVIOCGREP);
+const IOCTL_MASK_SIZE_EVIOCGKEYCODE: u32 = ioctl_mask_size(_EVIOCGKEYCODE);
+const IOCTL_MASK_SIZE_EVIOCGNAME_0: u32 = ioctl_mask_size(_EVIOCGNAME_0);
+const IOCTL_MASK_SIZE_EVIOCGPHYS_0: u32 = ioctl_mask_size(_EVIOCGPHYS_0);
+const IOCTL_MASK_SIZE_EVIOCGUNIQ_0: u32 = ioctl_mask_size(_EVIOCGUNIQ_0);
+const IOCTL_MASK_SIZE_EVIOCGPROP_0: u32 = ioctl_mask_size(_EVIOCGPROP_0);
+const IOCTL_MASK_SIZE_EVIOCGMTSLOTS_0: u32 = ioctl_mask_size(_EVIOCGMTSLOTS_0);
+const IOCTL_MASK_SIZE_EVIOCGKEY_0: u32 = ioctl_mask_size(_EVIOCGKEY_0);
+const IOCTL_MASK_SIZE_EVIOCGLED_0: u32 = ioctl_mask_size(_EVIOCGLED_0);
+const IOCTL_MASK_SIZE_EVIOCGSND_0: u32 = ioctl_mask_size(_EVIOCGSND_0);
+const IOCTL_MASK_SIZE_EVIOCGSW_0: u32 = ioctl_mask_size(_EVIOCGSW_0);
+const IOCTL_MASK_SIZE_EVIOCGEFFECTS: u32 = ioctl_mask_size(_EVIOCGEFFECTS);
+const IOCTL_MASK_SIZE_EVIOCGMASK: u32 = ioctl_mask_size(_EVIOCGMASK);
+const IOCTL_MASK_SIZE_JSIOCGVERSION: u32 = ioctl_mask_size(_JSIOCGVERSION);
+const IOCTL_MASK_SIZE_JSIOCGAXES: u32 = ioctl_mask_size(_JSIOCGAXES);
+const IOCTL_MASK_SIZE_JSIOCGBUTTONS: u32 = ioctl_mask_size(_JSIOCGBUTTONS);
+const IOCTL_MASK_SIZE_JSIOCGAXMAP: u32 = ioctl_mask_size(_JSIOCGAXMAP);
+const IOCTL_MASK_SIZE_JSIOCGBTNMAP: u32 = ioctl_mask_size(_JSIOCGBTNMAP);
+const IOCTL_MASK_SIZE_JSIOCGNAME_0: u32 = ioctl_mask_size(_JSIOCGNAME_0);
+
 fn prepare_ioctl<Arch: Architecture>(
     t: &mut RecordTask,
     syscall_state: &mut TaskSyscallState,
@@ -5192,34 +5358,6 @@ fn prepare_ioctl<Arch: Architecture>(
     // read/write bits :-(.
     //
     if _IOC_READ & dir == 0 {
-        const IOCTL_MASK_SIZE_TUNSETIFF: u32 = ioctl_mask_size(_TUNSETIFF);
-        const IOCTL_MASK_SIZE_TUNSETNOCSUM: u32 = ioctl_mask_size(_TUNSETNOCSUM);
-        const IOCTL_MASK_SIZE_TUNSETDEBUG: u32 = ioctl_mask_size(_TUNSETDEBUG);
-        const IOCTL_MASK_SIZE_TUNSETPERSIST: u32 = ioctl_mask_size(_TUNSETPERSIST);
-        const IOCTL_MASK_SIZE_TUNSETOWNER: u32 = ioctl_mask_size(_TUNSETOWNER);
-        const IOCTL_MASK_SIZE_TUNSETLINK: u32 = ioctl_mask_size(_TUNSETLINK);
-        const IOCTL_MASK_SIZE_TUNSETGROUP: u32 = ioctl_mask_size(_TUNSETGROUP);
-        const IOCTL_MASK_SIZE_TUNSETOFFLOAD: u32 = ioctl_mask_size(_TUNSETOFFLOAD);
-        const IOCTL_MASK_SIZE_TUNSETTXFILTER: u32 = ioctl_mask_size(_TUNSETTXFILTER);
-        const IOCTL_MASK_SIZE_TUNSETSNDBUF: u32 = ioctl_mask_size(_TUNSETSNDBUF);
-        const IOCTL_MASK_SIZE_TUNATTACHFILTER: u32 = ioctl_mask_size(_TUNATTACHFILTER);
-        const IOCTL_MASK_SIZE_TUNDETACHFILTER: u32 = ioctl_mask_size(_TUNDETACHFILTER);
-        const IOCTL_MASK_SIZE_TUNSETVNETHDRSZ: u32 = ioctl_mask_size(_TUNSETVNETHDRSZ);
-        const IOCTL_MASK_SIZE_TUNSETQUEUE: u32 = ioctl_mask_size(_TUNSETQUEUE);
-        const IOCTL_MASK_SIZE_TUNSETIFINDEX: u32 = ioctl_mask_size(_TUNSETIFINDEX);
-        const IOCTL_MASK_SIZE_TUNSETVNETLE: u32 = ioctl_mask_size(_TUNSETVNETLE);
-        const IOCTL_MASK_SIZE_TUNSETVNETBE: u32 = ioctl_mask_size(_TUNSETVNETBE);
-        const IOCTL_MASK_SIZE_BTRFS_IOC_CLONE: u32 = ioctl_mask_size(BTRFS_IOC_CLONE_);
-        const IOCTL_MASK_SIZE_BTRFS_IOC_CLONE_RANGE: u32 = ioctl_mask_size(BTRFS_IOC_CLONE_RANGE_);
-        const IOCTL_MASK_SIZE_TIOCSPTLCK: u32 = ioctl_mask_size(_TIOCSPTLCK);
-        const IOCTL_MASK_SIZE_TIOCGPTPEER: u32 = ioctl_mask_size(_TIOCGPTPEER);
-        const IOCTL_MASK_SIZE_USBDEVFS_DISCARDURB: u32 = ioctl_mask_size(_USBDEVFS_DISCARDURB);
-        const IOCTL_MASK_SIZE_USBDEVFS_RESET: u32 = ioctl_mask_size(_USBDEVFS_RESET);
-        const IOCTL_MASK_SIZE_USBDEVFS_GETDRIVER: u32 = ioctl_mask_size(_USBDEVFS_GETDRIVER);
-        const IOCTL_MASK_SIZE_USBDEVFS_REAPURB: u32 = ioctl_mask_size(_USBDEVFS_REAPURB);
-        const IOCTL_MASK_SIZE_USBDEVFS_REAPURBNDELAY: u32 =
-            ioctl_mask_size(_USBDEVFS_REAPURBNDELAY);
-
         match ioctl_mask_size(request) {
             // Order by value
             // Older ioctls don't use IOC macros at all, so don't mask size for them
@@ -5332,6 +5470,131 @@ fn prepare_ioctl<Arch: Architecture>(
     if type_ == b'E' as u32 && nr >= 0x20 && nr <= 0x7f {
         syscall_state.reg_parameter_with_size(3, ParamSize::from(size as usize), None, None);
         return Switchable::PreventSwitch;
+    }
+
+    // The following are thought to be "regular" ioctls, the
+    // processing of which is only known to (observably) write to
+    // the bytes in the structure passed to the kernel.  So all we
+    // need is to record |size| bytes.
+    // Since the size may vary across architectures we mask it out here to check
+    // only the type + number.
+    match ioctl_mask_size(request) {
+        IOCTL_MASK_SIZE_VIDIOC_QUERYCAP
+        | IOCTL_MASK_SIZE_VIDIOC_ENUM_FMT
+        | IOCTL_MASK_SIZE_VIDIOC_ENUM_FRAMESIZES
+        | IOCTL_MASK_SIZE_VIDIOC_ENUM_FRAMEINTERVALS
+        | IOCTL_MASK_SIZE_VIDIOC_ENUMINPUT
+        | IOCTL_MASK_SIZE_VIDIOC_G_FMT
+        | IOCTL_MASK_SIZE_VIDIOC_S_FMT
+        | IOCTL_MASK_SIZE_VIDIOC_TRY_FMT
+        | IOCTL_MASK_SIZE_VIDIOC_G_PARM
+        | IOCTL_MASK_SIZE_VIDIOC_S_PARM
+        | IOCTL_MASK_SIZE_VIDIOC_REQBUFS
+        | IOCTL_MASK_SIZE_VIDIOC_QUERYBUF
+        | IOCTL_MASK_SIZE_VIDIOC_QUERYCTRL
+        | IOCTL_MASK_SIZE_VIDIOC_QBUF
+        | IOCTL_MASK_SIZE_VIDIOC_G_CTRL
+        | IOCTL_MASK_SIZE_VIDIOC_G_OUTPUT
+        | IOCTL_MASK_SIZE_VIDIOC_S_CTRL
+        | IOCTL_MASK_SIZE_VFAT_IOCTL_READDIR_BOTH => {
+            syscall_state.reg_parameter_with_size(
+                3,
+                ParamSize::from(size as usize),
+                Some(ArgMode::InOut),
+                None,
+            );
+            return Switchable::PreventSwitch;
+        }
+
+        // FS_IOC_GETVERSION has the same number as VIDIOCGCAP (but different size)
+        // but the same treatment works for both.
+        // EVIOCGKEYCODE also covers EVIOCGKEYCODE_V2
+        // This gets a list of js_corr structures whose length we don't know without
+        // querying the device ourselves.
+        // IOCTL_MASK_SIZE(JSIOCGCORR)|
+        IOCTL_MASK_SIZE_TIOCGPTN
+        | IOCTL_MASK_SIZE_TIOCGPKT
+        | IOCTL_MASK_SIZE_TIOCGPTLCK
+        | IOCTL_MASK_SIZE_TIOCGEXCL
+        | IOCTL_MASK_SIZE_USBDEVFS_GET_CAPABILITIES
+        | IOCTL_MASK_SIZE_FS_IOC_GETVERSION
+        | IOCTL_MASK_SIZE_FS_IOC_GETFLAGS
+        | IOCTL_MASK_SIZE_TUNGETFEATURES
+        | IOCTL_MASK_SIZE_TUNGETSNDBUF
+        | IOCTL_MASK_SIZE_TUNGETVNETHDRSZ
+        | IOCTL_MASK_SIZE_TUNGETVNETLE
+        | IOCTL_MASK_SIZE_TUNGETVNETBE
+        | IOCTL_MASK_SIZE_EVIOCGVERSION
+        | IOCTL_MASK_SIZE_EVIOCGID
+        | IOCTL_MASK_SIZE_EVIOCGREP
+        | IOCTL_MASK_SIZE_EVIOCGKEYCODE
+        | IOCTL_MASK_SIZE_EVIOCGNAME_0
+        | IOCTL_MASK_SIZE_EVIOCGPHYS_0
+        | IOCTL_MASK_SIZE_EVIOCGUNIQ_0
+        | IOCTL_MASK_SIZE_EVIOCGPROP_0
+        | IOCTL_MASK_SIZE_EVIOCGMTSLOTS_0
+        | IOCTL_MASK_SIZE_EVIOCGKEY_0
+        | IOCTL_MASK_SIZE_EVIOCGLED_0
+        | IOCTL_MASK_SIZE_EVIOCGSND_0
+        | IOCTL_MASK_SIZE_EVIOCGSW_0
+        | IOCTL_MASK_SIZE_EVIOCGEFFECTS
+        | IOCTL_MASK_SIZE_EVIOCGMASK
+        | IOCTL_MASK_SIZE_JSIOCGVERSION
+        | IOCTL_MASK_SIZE_JSIOCGAXES
+        | IOCTL_MASK_SIZE_JSIOCGBUTTONS
+        | IOCTL_MASK_SIZE_JSIOCGAXMAP
+        | IOCTL_MASK_SIZE_JSIOCGBTNMAP
+        | IOCTL_MASK_SIZE_JSIOCGNAME_0 => {
+            syscall_state.reg_parameter_with_size(3, ParamSize::from(size as usize), None, None);
+            return Switchable::PreventSwitch;
+        }
+        IOCTL_MASK_SIZE_USBDEVFS_ALLOC_STREAMS
+        | IOCTL_MASK_SIZE_USBDEVFS_CLAIMINTERFACE
+        | IOCTL_MASK_SIZE_USBDEVFS_CLEAR_HALT
+        | IOCTL_MASK_SIZE_USBDEVFS_DISCONNECT_CLAIM
+        | IOCTL_MASK_SIZE_USBDEVFS_FREE_STREAMS
+        | IOCTL_MASK_SIZE_USBDEVFS_RELEASEINTERFACE
+        | IOCTL_MASK_SIZE_USBDEVFS_SETCONFIGURATION
+        | IOCTL_MASK_SIZE_USBDEVFS_SETINTERFACE
+        | IOCTL_MASK_SIZE_USBDEVFS_SUBMITURB => {
+            // Doesn't actually seem to write to userspace
+            return Switchable::PreventSwitch;
+        }
+        IOCTL_MASK_SIZE_TUNGETIFF => {
+            // The ioctl definition says "unsigned int" but it's actually a
+            // struct ifreq!
+            syscall_state.reg_parameter::<ifreq<Arch>>(3, None, None);
+            return Switchable::PreventSwitch;
+        }
+        IOCTL_MASK_SIZE_TUNGETFILTER => {
+            // The ioctl definition says "struct sock_fprog" but there is no kernel
+            // compat code so a 32-bit task on a 64-bit kernel needs to use the
+            // 64-bit type.
+            if size_of::<usize>() == 8 {
+                // 64-bit rr build. We must be on a 64-bit kernel so use the 64-bit
+                // sock_fprog type.
+                syscall_state.reg_parameter::<sock_fprog<NativeArch>>(3, None, None);
+            } else {
+                fatal!("TUNGETFILTER not supported on 32-bit since its behavior depends on 32-bit vs 64-bit kernel");
+            }
+            return Switchable::PreventSwitch;
+        }
+        IOCTL_MASK_SIZE_USBDEVFS_IOCTL => {
+            let argsp =
+                syscall_state.reg_parameter::<usbdevfs_ioctl<Arch>>(3, Some(ArgMode::In), None);
+            let args = read_val_mem(t, argsp, None);
+            unimplemented!()
+        }
+        IOCTL_MASK_SIZE_USBDEVFS_CONTROL => {
+            let argsp = syscall_state.reg_parameter::<usbdevfs_ctrltransfer<Arch>>(
+                3,
+                Some(ArgMode::In),
+                None,
+            );
+            let args = read_val_mem(t, argsp, None);
+            unimplemented!()
+        }
+        _ => (),
     }
 
     unimplemented!()

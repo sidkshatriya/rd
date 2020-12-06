@@ -895,8 +895,26 @@ pub struct recvmmsg_args<Arch: Architecture> {
 
 ///  Some ipc calls require 7 params, so two of them are stashed into
 ///  one of these structs and a pointer to this is passed instead.
-///
 pub struct ipc_kludge_args<Arch: Architecture> {
     pub msgbuf: Ptr<Arch::unsigned_word, u8>,
     pub msgtype: Arch::signed_long,
+}
+
+#[repr(C)]
+pub struct usbdevfs_ioctl<Arch: Architecture> {
+    pub ifno: i32,
+    pub ioctl_code: i32,
+    pub data: Ptr<Arch::unsigned_word, u8>,
+}
+
+#[repr(C)]
+#[allow(non_snake_case)]
+pub struct usbdevfs_ctrltransfer<Arch: Architecture> {
+    pub bRequestType: u8,
+    pub bRequest: u8,
+    pub wValue: u16,
+    pub wIndex: u16,
+    pub wLength: u16,
+    pub timeout: u32,
+    pub data: Ptr<Arch::unsigned_word, u8>,
 }
