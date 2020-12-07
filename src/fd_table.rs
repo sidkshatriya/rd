@@ -10,7 +10,6 @@ use crate::{
             record_task::RecordTask,
             replay_task::ReplayTask,
             Task,
-            TaskSharedPtr,
             TaskSharedWeakPtr,
             WeakTaskPtrSet,
         },
@@ -361,11 +360,14 @@ fn is_fd_monitored_in_any_task(
     {
         return true;
     }
-    let rc_others: Vec<TaskSharedPtr> = maybe_other_tasks
-        .iter()
-        .map(|other| other.weak_self_ptr().upgrade().unwrap())
-        .collect();
 
+    let mut rc_others = Vec::new();
+    if maybe_other_tasks.len() >= 1 {
+        rc_others.push(maybe_other_tasks[0].weak_self.upgrade().unwrap());
+    }
+    if maybe_other_tasks.len() == 2 {
+        rc_others.push(maybe_other_tasks[1].weak_self.upgrade().unwrap());
+    }
     for rc in vm.task_set().iter_except(vm_task.weak_self_ptr()) {
         let rc_b;
         let t = if rc_others.len() >= 1 && Rc::ptr_eq(&rc_others[0], &rc) {
