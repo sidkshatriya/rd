@@ -1277,7 +1277,7 @@ fn on_syscall_exit_common_arch<Arch: Architecture>(t: &mut dyn Task, sys: i32, r
     }
 
     if sys == Arch::CLOSE {
-        t.fd_table_shr_ptr().did_close(regs.arg1() as i32, t, None);
+        t.fd_table_shr_ptr().did_close(regs.arg1() as i32, t, &[]);
         return;
     }
 
@@ -1762,13 +1762,13 @@ pub(in super::super) fn clone_task_common(
         } else {
             // Close syscallbuf fds for tasks using the original fd table.
             let mut remote = AutoRemoteSyscalls::new(ref_t.as_mut());
-            close_buffers_for(&mut remote, Some(clone_this));
+            close_buffers_for(&mut remote, Some(clone_this), None);
             for tt in clone_this
                 .fd_table()
                 .task_set()
                 .iter_except(clone_this.weak_self_ptr())
             {
-                close_buffers_for(&mut remote, Some(tt.borrow().as_ref()))
+                close_buffers_for(&mut remote, Some(tt.borrow().as_ref()), Some(clone_this))
             }
         }
     }
@@ -1842,7 +1842,12 @@ fn unmap_buffers_for(
 }
 
 // DIFF NOTE: Param list slightly different from rr version. Additional param `maybe_other` is an Option<>
-pub fn close_buffers_for(remote: &mut AutoRemoteSyscalls, maybe_other: Option<&dyn Task>) {
+// DIFF NOTE: `maybe_clone_this` is an additional param to deal with already borrowed possibility when cloning happens.
+pub fn close_buffers_for(
+    remote: &mut AutoRemoteSyscalls,
+    maybe_other: Option<&dyn Task>,
+    maybe_clone_this: Option<&dyn Task>,
+) {
     let arch = remote.task().arch();
     let (desched_fd_child, cloned_file_data_fd_child) = match maybe_other {
         Some(other) => (other.desched_fd_child, other.cloned_file_data_fd_child),
@@ -1851,14 +1856,18 @@ pub fn close_buffers_for(remote: &mut AutoRemoteSyscalls, maybe_other: Option<&d
             remote.task().cloned_file_data_fd_child,
         ),
     };
+    let mut v = Vec::new();
+    maybe_other.map(|other| v.push(other));
+    maybe_clone_this.map(|clone_this| v.push(clone_this));
     if desched_fd_child >= 0 {
         if remote.task().session().is_recording() {
             rd_infallible_syscall!(remote, syscall_number_for_close(arch), desched_fd_child);
         }
+
         remote.task_mut().fd_table_shr_ptr().did_close(
             desched_fd_child,
             remote.task_mut(),
-            maybe_other,
+            v.as_slice(),
         );
     }
     if cloned_file_data_fd_child >= 0 {
@@ -1870,7 +1879,7 @@ pub fn close_buffers_for(remote: &mut AutoRemoteSyscalls, maybe_other: Option<&d
         remote.task_mut().fd_table_shr_ptr().did_close(
             cloned_file_data_fd_child,
             remote.task_mut(),
-            maybe_other,
+            v.as_slice(),
         );
     }
 }
@@ -1913,7 +1922,7 @@ pub(super) fn destroy_buffers<T: Task>(t: &mut T) {
         scratch_size,
     );
     remote.task_mut().scratch_ptr = RemotePtr::null();
-    close_buffers_for(&mut remote, None);
+    close_buffers_for(&mut remote, None, None);
     remote.task_mut().desched_fd_child = -1;
     remote.task_mut().cloned_file_data_fd_child = -1;
 }
