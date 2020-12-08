@@ -192,10 +192,7 @@ fn filter_dirents_arch<Arch: Architecture>(t: &mut RecordTask) {
         let mut bytes: usize = regs.syscall_result();
         buf.resize(bytes, 0);
         if regs.original_syscallno() == Arch::GETDENTS64 as isize {
-            // This one is a bit of a kludge.
-            // Even if we're in X86, GETDENTS64 causes struct linux_dirent64 to be used.
-            // So use X64Arch regardless
-            bytes = filter_dirent_structs::<X64Arch>(t, &mut buf, &get_lengths_dirent64);
+            bytes = filter_dirent_structs::<Arch>(t, &mut buf, &get_lengths_dirent64);
         } else {
             bytes = filter_dirent_structs::<Arch>(t, &mut buf, &get_lengths_dirent);
         }
