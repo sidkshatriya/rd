@@ -2871,6 +2871,7 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
             };
             t.fd_table_shr_ptr().add_monitor(t, fd, monitor);
         }
+        return;
     }
 
     if sys == Arch::CONNECT {

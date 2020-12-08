@@ -836,6 +836,7 @@ fn rep_process_syscall_arch<Arch: Architecture>(
                 t.fd_table_shr_ptr().add_monitor(t, fd, monitor);
             }
         }
+        // Falls through to the next case
     }
 
     if nsys == Arch::PERF_EVENT_OPEN

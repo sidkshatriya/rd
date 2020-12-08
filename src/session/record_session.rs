@@ -2892,9 +2892,9 @@ fn inject_ld_helper_library(env: &mut Vec<(OsString, OsString)>, name: &OsStr, v
     }
 }
 
-union USiginfo {
-    native_api: native_arch::siginfo_t,
-    linux_api: siginfo_t,
+pub union USiginfo {
+    pub native_api: native_arch::siginfo_t,
+    pub linux_api: siginfo_t,
 }
 
 fn handle_seccomp_errno(t: &mut RecordTask, step_state: &mut StepState, seccomp_data: u16) {

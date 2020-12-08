@@ -10,6 +10,7 @@ use crate::{
         },
         signal::siginfo_t,
     },
+    event::SignalDeterministic,
     file_monitor::{
         FileMonitor,
         FileMonitorSharedPtr,
@@ -18,9 +19,11 @@ use crate::{
         LazyOffset,
         Range,
     },
+    log::LogLevel::LogDebug,
     perf_counters::PerfCounters,
     remote_ptr::RemotePtr,
     session::{
+        record_session::USiginfo,
         task::{record_task::RecordTask, task_common::read_val_mem, task_inner::WriteFlags, Task},
         SessionSharedWeakPtr,
     },
@@ -29,9 +32,40 @@ use crate::{
     ticks::Ticks,
 };
 use libc::{pid_t, EINVAL, O_ASYNC};
-use std::{cmp::min, convert::TryFrom};
+use std::{
+    cell::RefCell,
+    cmp::min,
+    collections::HashMap,
+    convert::TryFrom,
+    mem,
+    ops::{Deref, DerefMut},
+};
 
 const VIRTUAL_PERF_COUNTER_SIGNAL_SI_ERRNO: i32 = -1337;
+
+struct TaskWithInterruptsWrap(RefCell<HashMap<TaskUid, FileMonitorSharedWeakPtr>>);
+
+unsafe impl Send for TaskWithInterruptsWrap {}
+unsafe impl Sync for TaskWithInterruptsWrap {}
+
+impl Deref for TaskWithInterruptsWrap {
+    type Target = RefCell<HashMap<TaskUid, FileMonitorSharedWeakPtr>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for TaskWithInterruptsWrap {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+lazy_static! {
+    static ref TASKS_WITH_INTERRUPTS: TaskWithInterruptsWrap =
+        TaskWithInterruptsWrap(RefCell::new(HashMap::new()));
+}
 
 /// A FileMonitor to virtualize the performance counter that rr uses to count
 /// ticks. Note that this doesn't support interrupts yet so recording rr replays
@@ -64,7 +98,7 @@ impl VirtualPerfCounterMonitor {
         target: &dyn Task,
         attr: &perf_event_attr,
     ) -> VirtualPerfCounterMonitor {
-        let v = VirtualPerfCounterMonitor {
+        let mut v = VirtualPerfCounterMonitor {
             session: t.session().weak_self_ptr(),
             initial_ticks: target.tick_count(),
             target_ticks_: 0,
@@ -93,8 +127,20 @@ impl VirtualPerfCounterMonitor {
         self.target_tuid_
     }
 
-    pub fn synthesize_signal(&mut self, _t: &mut RecordTask) {
-        unimplemented!()
+    pub fn synthesize_signal(&mut self, t: &mut RecordTask) {
+        // Use NativeArch here because different versions of system headers
+        // have inconsistent field naming.
+        let mut si: USiginfo = unsafe { mem::zeroed() };
+        si.native_api.si_signo = self.sig.map_or(0, |s| s.as_raw());
+        si.native_api.si_errno = VIRTUAL_PERF_COUNTER_SIGNAL_SI_ERRNO;
+        log!(LogDebug, "Synthesizing vpmc signal {}", unsafe {
+            si.linux_api
+        });
+        t.stash_synthetic_sig(
+            unsafe { &si.linux_api },
+            SignalDeterministic::NondeterministicSig,
+        );
+        self.disable_interrupt();
     }
 
     pub fn is_virtual_perf_counter_signal(s: &siginfo_t) -> bool {
@@ -103,24 +149,49 @@ impl VirtualPerfCounterMonitor {
 
     pub fn interrupting_virtual_pmc_for_task(t: &dyn Task) -> Option<FileMonitorSharedPtr> {
         let tuid = t.tuid();
-        t.session()
-            .tasks_with_interrupts
+        TASKS_WITH_INTERRUPTS
             .borrow()
             .get(&tuid)
             .map(|f| f.upgrade().unwrap())
     }
 
-    fn maybe_enable_interrupt(&self, _t: &RecordTask, _after: u64) {
-        unimplemented!()
+    fn maybe_enable_interrupt(&mut self, t: &RecordTask, after: u64) {
+        let target = t
+            .session()
+            .find_task_from_task_uid(self.target_tuid())
+            .unwrap();
+        if after == 0 || after > 0xffffffff {
+            return;
+        }
+
+        let maybe_previous = TASKS_WITH_INTERRUPTS
+            .borrow_mut()
+            .insert(self.target_tuid(), self.weak_self.clone());
+
+        match maybe_previous {
+            Some(previous) if !previous.ptr_eq(&self.weak_self) => {
+                ed_assert!(
+                    t,
+                    false,
+                    "Multiple virtualized performance counters with interrupts:\n\
+             \tFirst at {}\n\
+             \tSecond at {}",
+                    previous.as_ptr() as usize,
+                    self.weak_self.as_ptr() as usize
+                );
+            }
+
+            _ => (),
+        }
+        self.target_ticks_ = target.borrow().tick_count() + after;
     }
 
     fn disable_interrupt(&self) {
-        let session = self.session.upgrade().unwrap();
         let tuid = self.target_tuid();
-        let maybe_v = session.tasks_with_interrupts.borrow().get(&tuid).cloned();
+        let maybe_v = TASKS_WITH_INTERRUPTS.borrow().get(&tuid).cloned();
         match maybe_v {
             Some(v) if v.ptr_eq(&self.weak_self) => {
-                session.tasks_with_interrupts.borrow_mut().remove(&tuid);
+                TASKS_WITH_INTERRUPTS.borrow_mut().remove(&tuid);
             }
             _ => (),
         }

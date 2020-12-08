@@ -225,6 +225,7 @@ fn check_for_bugs_and_extra() -> PmuBugsAndExtra {
     if PMU_ATTRIBUTES
         .pmu_flags
         .contains(PmuFlags::PMU_SKIP_INTEL_BUG_CHECK)
+        || running_under_rd()
     {
         // Set some defaults since we're not checking the CPU.
         has_ioc_period_bug = false;
@@ -843,8 +844,8 @@ impl PerfCounters {
             }
 
             // This creates a local copy.
-            let mut cycles_attr = PMU_ATTRIBUTES.cycles_attr.unwrap();
             if PMU_BUGS_AND_EXTRA.activate_useless_counter && !self.fd_useless_counter.is_open() {
+                let mut cycles_attr = PMU_ATTRIBUTES.cycles_attr.unwrap();
                 // N.B.: This is deliberately not in the same group as the other counters
                 // since we want to keep it scheduled at all times.
                 self.fd_useless_counter = start_counter(self.tid, -1, &mut cycles_attr).0;
