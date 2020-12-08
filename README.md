@@ -66,7 +66,6 @@ The following work:
   * Interactive replay (which uses a debugger like gdb) is not yet supported
   * In other words, non-interative replay (`-a` flag) is currently supported
 * `rd record`
-  * The ioctl system call is partially supported during recording currently
   * The recording functionality has known issues and is incomplete in places. However, massive progress has been made and this feature is ready to play around with
 * `rd buildid`
 * `rd dump`
@@ -112,7 +111,6 @@ $ rd record ls -- -l
 ```
 
 Notes:
-  * The ioctl system call is partially supported during recording currently
   * The recording functionality has known issues and is incomplete in places. However, massive progress has been made and this feature is ready to play around with
 
 ### _RR_TRACE environment variable
