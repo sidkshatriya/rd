@@ -1,10 +1,11 @@
 use libc::pid_t;
 
 use crate::{
-    arch::{Architecture, X64Arch},
-    arch_structs::dirent,
+    arch::{Architecture, X64Arch, X86Arch},
+    arch_structs::{linux_dirent, linux_dirent64},
     auto_remote_syscalls::AutoRemoteSyscalls,
     file_monitor::{FileMonitor, FileMonitorType},
+    kernel_abi::SupportedArch,
     remote_ptr::RemotePtr,
     session::task::{
         record_task::RecordTask,
@@ -88,8 +89,42 @@ impl ProcFdDirMonitor {
     }
 }
 
+fn get_lengths_dirent(arch: SupportedArch, buf: &[u8]) -> (usize, usize) {
+    match arch {
+        SupportedArch::X86 => {
+            let current_struct: linux_dirent<X86Arch> =
+                unsafe { mem::transmute_copy(buf.as_ptr().as_ref().unwrap()) };
+            (
+                current_struct.d_reclen as usize,
+                offset_of!(linux_dirent<X86Arch>, d_name),
+            )
+        }
+        SupportedArch::X64 => {
+            let current_struct: linux_dirent<X64Arch> =
+                unsafe { mem::transmute_copy(buf.as_ptr().as_ref().unwrap()) };
+            (
+                current_struct.d_reclen as usize,
+                offset_of!(linux_dirent<X64Arch>, d_name),
+            )
+        }
+    }
+}
+
+fn get_lengths_dirent64(_arch: SupportedArch, buf: &[u8]) -> (usize, usize) {
+    let current_struct: linux_dirent64 =
+        unsafe { mem::transmute_copy(buf.as_ptr().as_ref().unwrap()) };
+    (
+        current_struct.d_reclen as usize,
+        offset_of!(linux_dirent64, d_name),
+    )
+}
+
 /// returns the length of valid dirent structs left in the buffer
-fn filter_dirent_structs<Arch: Architecture>(t: &RecordTask, buf: &mut Vec<u8>) -> usize {
+fn filter_dirent_structs<Arch: Architecture>(
+    t: &RecordTask,
+    buf: &mut Vec<u8>,
+    f: &dyn Fn(SupportedArch, &[u8]) -> (usize, usize),
+) -> usize {
     let mut bytes: usize = 0;
     let mut current_offset: usize = 0;
     let mut size = buf.len();
@@ -98,48 +133,42 @@ fn filter_dirent_structs<Arch: Architecture>(t: &RecordTask, buf: &mut Vec<u8>) 
             break;
         }
 
-        // @TODO Is this transmute_copy totally fail safe? The buffer consists of variable length linux_dirent
-        // entries. However dirent<Arch> has a fixed 256 char buffer at the end. What if while reading this
-        // extra buffer we hit the end of the page boundary and the next page is not allocated? Would that raise
-        // a SIGSEGV?
-        let current_struct: dirent<Arch> =
-            unsafe { mem::transmute_copy(buf.as_ptr().add(current_offset).as_ref().unwrap()) };
-        let mut next_off = current_offset + current_struct.d_reclen as usize;
+        let (current_struct_d_reclen, inner_offset) = f(Arch::arch(), &buf[current_offset..]);
+        let mut next_off = current_offset + current_struct_d_reclen as usize;
 
         let mut skip = false;
-        let null_at = current_struct
-            .d_name
+
+        let null_at = buf[current_offset + inner_offset..]
             .iter()
             .enumerate()
-            .find(|(_, c)| **c == 0);
+            .find(|(_, c)| **c == 0)
+            .unwrap()
+            .0;
 
-        match null_at {
-            Some((loc, _)) => {
-                let fd_data = String::from_utf8_lossy(&current_struct.d_name[0..loc]);
-                let maybe_fd = fd_data.parse::<i32>();
-                match maybe_fd.ok() {
-                    Some(fd) if t.fd_table().is_rd_fd(fd) => {
-                        skip = true;
-                        // Skip this entry.
-                        unsafe {
-                            ptr::copy(
-                                buf.as_ptr().add(next_off),
-                                buf.as_mut_ptr().add(current_offset),
-                                size - next_off,
-                            )
-                        };
-                        size -= next_off - current_offset;
-                        next_off = current_offset;
-                    }
-                    _ => (),
-                }
+        let fd_data = String::from_utf8_lossy(
+            &buf[current_offset + inner_offset..current_offset + inner_offset + null_at],
+        );
+        let maybe_fd = fd_data.parse::<i32>();
+        match maybe_fd.ok() {
+            Some(fd) if t.fd_table().is_rd_fd(fd) => {
+                skip = true;
+                // Skip this entry.
+                unsafe {
+                    ptr::copy(
+                        buf.as_ptr().add(next_off),
+                        buf.as_mut_ptr().add(current_offset),
+                        size - next_off,
+                    )
+                };
+                size -= next_off - current_offset;
+                next_off = current_offset;
             }
-            None => (),
+            _ => (),
         }
 
         if !skip {
             // Either this is a tracee fd or not an fd at all (e.g. '.')
-            bytes += current_struct.d_reclen as usize;
+            bytes += current_struct_d_reclen as usize;
         }
 
         current_offset = next_off;
@@ -163,13 +192,12 @@ fn filter_dirents_arch<Arch: Architecture>(t: &mut RecordTask) {
         let mut bytes: usize = regs.syscall_result();
         buf.resize(bytes, 0);
         if regs.original_syscallno() == Arch::GETDENTS64 as isize {
-            // This one is a bit an inelegant kludge.
-            // If we're in X86, GETDENTS64 causes the struct `dirent` to be the same as `dirent64`
-            // The alternative is more code duplication -- have a two copies for fn filter_dirent_structs
-            // i.e. one for `dirent` and the other for `dirent64`. Avoid the alternative.
-            bytes = filter_dirent_structs::<X64Arch>(t, &mut buf);
+            // This one is a bit of a kludge.
+            // Even if we're in X86, GETDENTS64 causes struct linux_dirent64 to be used.
+            // So use X64Arch regardless
+            bytes = filter_dirent_structs::<X64Arch>(t, &mut buf, &get_lengths_dirent64);
         } else {
-            bytes = filter_dirent_structs::<Arch>(t, &mut buf);
+            bytes = filter_dirent_structs::<Arch>(t, &mut buf, &get_lengths_dirent);
         }
 
         if bytes > 0 {
