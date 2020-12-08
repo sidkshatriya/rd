@@ -213,7 +213,7 @@ pub(super) fn open_mem_fd<T: Task>(task: &mut T) -> bool {
                 syscall_number_for_openat(remote_arch),
                 RD_RESERVED_ROOT_DIR_FD,
                 // Skip the leading '/' in the path as this is a relative path.
-                (remote_addr + 1usize).as_usize(),
+                remote_addr.as_usize() + 1,
                 libc::O_RDWR
             ) as i32;
         } else {

@@ -383,7 +383,8 @@ impl ReplayTask {
                         name_restore,
                         syscall_number_for_openat(arch),
                         RD_RESERVED_ROOT_DIR_FD,
-                        name.as_usize(),
+                        // skip leading '/' since we want the path to be relative to the root fd
+                        name.as_usize() + 1,
                         O_RDONLY | O_CLOEXEC
                     ) as i32
                 };

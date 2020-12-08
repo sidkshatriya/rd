@@ -3378,7 +3378,8 @@ fn fake_gcrypt_file(t: &mut RecordTask, r: &mut Registers) {
         let sys = syscall_number_for_openat(t.arch());
         let mut remote = AutoRemoteSyscalls::new(t);
         let mut child_str = AutoRestoreMem::push_cstr(&mut remote, file.name.as_os_str());
-        let child_addr = child_str.get().unwrap().as_usize();
+        // skip leading '/' since we want the path to be relative to the root fd
+        let child_addr = child_str.get().unwrap().as_usize() + 1;
         child_fd = rd_infallible_syscall!(
             child_str,
             sys,

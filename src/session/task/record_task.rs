@@ -1184,7 +1184,8 @@ impl RecordTask {
                     name,
                     syscall_number_for_openat(arch),
                     RD_RESERVED_ROOT_DIR_FD,
-                    filename_addr.as_usize(),
+                    // skip leading '/' since we want the path to be relative to the root fd
+                    filename_addr.as_usize() + 1,
                     O_RDWR | O_CREAT | O_CLOEXEC,
                     0o0600
                 ) as i32;

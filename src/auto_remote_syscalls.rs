@@ -1091,7 +1091,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
             let arch = self.arch();
             let mut child_path = AutoRestoreMem::push_cstr(self, path.as_slice());
             // skip leading '/' since we want the path to be relative to the root fd
-            let path_addr_val = (child_path.get().unwrap() + 1usize).as_usize();
+            let path_addr_val = child_path.get().unwrap().as_usize() + 1;
             child_shmem_fd = rd_infallible_syscall!(
                 child_path,
                 syscall_number_for_openat(arch),
