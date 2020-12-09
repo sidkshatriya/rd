@@ -1017,7 +1017,8 @@ pub fn rep_after_enter_syscall(t: &mut ReplayTask) {
 }
 
 fn rep_after_enter_syscall_arch<Arch: Architecture>(t: &mut ReplayTask) {
-    let sys: i32 = non_negative_syscall(t.regs_ref().original_syscallno().try_into().unwrap());
+    // @TODO: The cast as i32 is like the behavior in rr. Any potential edge cases??
+    let sys: i32 = non_negative_syscall(t.regs_ref().original_syscallno() as i32);
 
     if sys == Arch::WRITE || sys == Arch::WRITEV {
         let fd: i32 = t.regs_ref().arg1_signed() as i32;
