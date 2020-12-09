@@ -2205,7 +2205,7 @@ pub mod address_space {
                 leader_serial,
                 exec_count,
                 brk_start: o.brk_start.clone(),
-                brk_end: o.brk_start.clone(),
+                brk_end: o.brk_end.clone(),
                 mem: o.mem.clone(),
                 shm_sizes: o.shm_sizes.clone(),
                 monitored_mem: o.monitored_mem.clone(),
