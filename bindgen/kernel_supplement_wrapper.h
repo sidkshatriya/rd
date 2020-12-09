@@ -392,10 +392,7 @@ const unsigned int _TUNSETVNETLE = TUNSETVNETLE;
 const unsigned int _TUNGETVNETLE = TUNGETVNETLE;
 const unsigned int _TUNSETVNETBE = TUNSETVNETBE;
 const unsigned int _TUNGETVNETBE = TUNGETVNETBE;
-const unsigned int _TUNSETSTEERINGEBPF = TUNSETSTEERINGEBPF;
-const unsigned int _TUNSETFILTEREBPF = TUNSETFILTEREBPF;
 const unsigned int _TUNSETCARRIER = TUNSETCARRIER;
-const unsigned int _TUNGETDEVNETNS = TUNGETDEVNETNS;
 
 const unsigned int _TIOCGPTN = TIOCGPTN;
 const unsigned int _TIOCGPKT = TIOCGPKT;
