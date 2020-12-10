@@ -1336,7 +1336,7 @@ impl RecordTask {
     /// make one up based on the status (unless the status is an exit code).
     /// Returns true if the task is stopped-for-emulated-ptrace, false otherwise.
     /// DIFF NOTE: Additional param `tracer`.
-    /// DIFF NOTE: We ONLY call this function if there is an emulate tracer. There is no boolean
+    /// DIFF NOTE: We ONLY call this function if there is an emulated tracer. There is no boolean
     /// return value unlike rr.
     /// DIFF NOTE: Additional param `maybe_active_sibling` to solve already borrowed possibility
     pub fn emulate_ptrace_stop(

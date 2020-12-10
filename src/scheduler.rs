@@ -846,7 +846,7 @@ impl Scheduler {
             .borrow()
             .front()
             .unwrap()
-            .ptr_eq(&t.weak_self_ptr())
+            .ptr_eq(&t.weak_self)
         {
             self.task_round_robin_queue.borrow_mut().pop_front();
             t.in_round_robin_queue = false;
