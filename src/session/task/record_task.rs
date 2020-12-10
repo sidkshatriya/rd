@@ -1654,7 +1654,7 @@ impl RecordTask {
                     t.borrow_mut()
                         .as_record_task_mut()
                         .unwrap()
-                        .apply_group_stop(sig, None);
+                        .apply_group_stop(sig, Some(self));
                 }
             } else if sig == sig::SIGCONT {
                 self.emulate_sigcont();
