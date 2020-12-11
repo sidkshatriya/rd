@@ -29,15 +29,15 @@ use std::{
 };
 
 pub struct DumpCommand {
-    dump_syscallbuf: bool,
-    dump_task_events: bool,
-    dump_recorded_data_metadata: bool,
-    dump_mmaps: bool,
-    raw_dump: bool,
-    statistics: bool,
-    only_tid: Option<libc::pid_t>,
-    trace_dir: Option<PathBuf>,
-    event_spec: Option<(FrameTime, Option<FrameTime>)>,
+    pub dump_syscallbuf: bool,
+    pub dump_task_events: bool,
+    pub dump_recorded_data_metadata: bool,
+    pub dump_mmaps: bool,
+    pub raw_dump: bool,
+    pub statistics: bool,
+    pub only_tid: Option<libc::pid_t>,
+    pub trace_dir: Option<PathBuf>,
+    pub event_spec: Option<(FrameTime, Option<FrameTime>)>,
 }
 
 impl DumpCommand {
@@ -68,7 +68,7 @@ impl DumpCommand {
         }
     }
 
-    fn dump(&self, f: &mut dyn Write) -> io::Result<()> {
+    pub fn dump(&self, f: &mut dyn Write) -> io::Result<()> {
         let mut trace = TraceReader::new(self.trace_dir.as_ref());
 
         if self.raw_dump {

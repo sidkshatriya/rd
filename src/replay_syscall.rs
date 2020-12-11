@@ -221,6 +221,7 @@ fn __ptrace_cont(
 
     // check if we are synchronized with the trace -- should never fail
     let current_syscall = t.regs_ref().original_syscallno() as i32;
+    let maybe_dump_str = maybe_dump_written_string(t);
     // DIFF NOTE: Minor differences arising out of maybe_dump_written_string() behavior.
     ed_assert!(
         t,
@@ -228,7 +229,7 @@ fn __ptrace_cont(
         "Should be at {}, but instead at {} ({:?})",
         syscall_name(expect_syscallno, syscall_arch),
         syscall_name(current_syscall, syscall_arch),
-        maybe_dump_written_string(t)
+        maybe_dump_str
     );
 }
 

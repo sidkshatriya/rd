@@ -1342,15 +1342,13 @@ impl ReplaySession {
 
     fn check_pending_sig(&self, t: &mut ReplayTask) {
         if t.maybe_stop_sig().is_not_sig() {
+            let syscall_arch = t.detect_syscall_arch();
             ed_assert!(
                 t,
                 false,
                 "Replaying `{}': expecting tracee signal or trap, but instead at `{}' (ticks:{})",
                 self.current_trace_frame().event(),
-                syscall_name(
-                    t.regs_ref().original_syscallno() as i32,
-                    t.detect_syscall_arch()
-                ),
+                syscall_name(t.regs_ref().original_syscallno() as i32, syscall_arch),
                 t.tick_count()
             )
         }

@@ -1,13 +1,16 @@
 use crate::kernel_metadata::errno_name;
 use backtrace::Backtrace;
-use nix::errno::errno;
+use nix::{
+    errno::{errno, Errno},
+    sys::signal::{sigaction, SaFlags, SigAction, SigHandler, SigSet, Signal},
+};
 use std::{
     collections::HashMap,
     env,
     env::var_os,
     fs::{File, OpenOptions},
     io::{self, BufWriter, Result, Write},
-    path::Path,
+    path::{Path, PathBuf},
     sync::{Mutex, MutexGuard},
 };
 
@@ -26,7 +29,14 @@ pub enum LogLevel {
     LogDebug,
 }
 
-use crate::session::task::Task;
+use crate::{
+    commands::dump_command::DumpCommand,
+    flags::Flags,
+    session::task::task_inner::TaskInner,
+    trace::{trace_stream::TraceStream, trace_writer::CloseStatus},
+    util::{probably_not_interactive, running_under_rd},
+};
+use io::stderr;
 pub use LogLevel::*;
 
 struct LogGlobals {
@@ -77,7 +87,13 @@ lazy_static! {
         };
         assert_eq!(ret, 0);
 
-        let (default_level, level_map) = match env::var("RD_LOG") {
+        let env = if running_under_rd() {
+            env::var("RD_UNDER_RD_LOG")
+        } else {
+            env::var("RD_LOG")
+        };
+
+        let (default_level, level_map) = match env {
             Ok(rd_log) => init_log_levels(&rd_log),
             Err(_) => (LogError, HashMap::new())
         };
@@ -392,8 +408,7 @@ macro_rules! ed_assert {
                        None => ()
                     }
                }
-                // @TODO this should be replaced with starting an emergency debug session
-                crate::log::notifying_abort(backtrace::Backtrace::new());
+               crate::log::emergency_debug(t);
             }
         }
     };
@@ -422,8 +437,7 @@ macro_rules! ed_assert {
                        None => ()
                     }
                }
-                // @TODO this should be replaced with starting an emergency debug session
-                crate::log::notifying_abort(backtrace::Backtrace::new());
+               crate::log::emergency_debug(t);
             }
         }
     };
@@ -459,8 +473,7 @@ macro_rules! ed_assert_eq {
                        None => ()
                     }
                }
-                // @TODO this should be replaced with starting an emergency debug session
-                crate::log::notifying_abort(backtrace::Backtrace::new());
+               crate::log::emergency_debug(t);
             }
         }
     };
@@ -493,8 +506,7 @@ macro_rules! ed_assert_eq {
                        None => ()
                     }
                }
-                // @TODO this should be replaced with starting an emergency debug session
-                crate::log::notifying_abort(backtrace::Backtrace::new());
+               crate::log::emergency_debug(t);
             }
         }
     };
@@ -530,8 +542,7 @@ macro_rules! ed_assert_ne {
                        None => ()
                     }
                }
-                // @TODO this should be replaced with starting an emergency debug session
-                crate::log::notifying_abort(backtrace::Backtrace::new());
+               crate::log::emergency_debug(t);
             }
         }
     };
@@ -564,13 +575,67 @@ macro_rules! ed_assert_ne {
                        None => ()
                     }
                }
-                // @TODO this should be replaced with starting an emergency debug session
-                crate::log::notifying_abort(backtrace::Backtrace::new());
+               crate::log::emergency_debug(t);
             }
         }
     };
 }
 
-fn emergency_debug(_t: &dyn Task) {
-    unimplemented!()
+pub fn emergency_debug(t: &TaskInner) {
+    // @TODO stop ftrace
+
+    // Enable SIGINT in case it was disabled. Users want to be able to ctrl-C
+    // out of this.
+    let sa = SigAction::new(SigHandler::SigDfl, SaFlags::empty(), SigSet::empty());
+    unsafe { sigaction(Signal::SIGINT, &sa) }.unwrap();
+
+    if let Some(record_session) = t.session().as_record() {
+        record_session.close_trace_writer(CloseStatus::CloseError);
+    }
+
+    if let Some(trace_stream) = t.session().trace_stream() {
+        dump_last_events(&trace_stream, &mut stderr()).unwrap_or(());
+    }
+
+    if probably_not_interactive(None)
+        && !Flags::get().force_things
+        && !env::var("RUNNING_UNDER_TEST_MONITOR").is_ok()
+    {
+        Errno::clear();
+        fatal!("(session doesn't look interactive, aborting emergency debugging)");
+    }
+
+    // @TODO gdb emergency debug
+
+    flush_log_buffer();
+
+    // DIFF NOTE: This Errno::clear() is not there in rr. Makes sense to have
+    // here though as there is no gdb emergency debug.
+    Errno::clear();
+    fatal!("Can't resume execution from invalid state");
+}
+
+const NUMBER_OF_EVENTS_IN_TAIL: u64 = 20;
+
+fn dump_last_events(trace_stream: &TraceStream, f: &mut dyn Write) -> io::Result<()> {
+    let end = trace_stream.time();
+    let start = if end > NUMBER_OF_EVENTS_IN_TAIL {
+        end - NUMBER_OF_EVENTS_IN_TAIL
+    } else {
+        0
+    };
+    let dump_command = DumpCommand {
+        dump_syscallbuf: true,
+        dump_task_events: false,
+        dump_recorded_data_metadata: true,
+        dump_mmaps: true,
+        raw_dump: false,
+        statistics: false,
+        only_tid: None,
+        trace_dir: Some(PathBuf::from(trace_stream.dir())),
+        event_spec: Some((start, Some(end))),
+    };
+
+    write!(f, "Tail of trace dump: {}-{}\n", start, end)?;
+    dump_command.dump(f)
 }
