@@ -4,11 +4,12 @@ use crate::{
     taskish_uid::TaskUid,
     trace::trace_frame::FrameTime,
     trace_capnp::Arch as TraceArch,
-    util::{dir_exists, ensure_dir, real_path},
+    util::{dir_exists, ensure_dir, get_num_cpus, real_path},
 };
 use libc::{pid_t, EEXIST};
 use nix::{errno::errno, sys::stat::Mode, unistd::mkdir};
 use std::{
+    cmp::min,
     env,
     ffi::{OsStr, OsString},
     io::Write,
@@ -43,8 +44,9 @@ pub const SUBSTREAMS: [Substream; SUBSTREAM_COUNT] = [
     Substream::Tasks,
 ];
 
-/// This needs to be kept in sync with the enum above
-pub(super) const SUBSTREAMS_DATA: [SubstreamData; SUBSTREAM_COUNT] = [
+/// @TODO static mut should be OK but avoid it??
+/// NOTE: This needs to be kept in sync with the enum above
+pub(super) static mut SUBSTREAMS_DATA: [SubstreamData; SUBSTREAM_COUNT] = [
     SubstreamData {
         name: "events",
         block_size: 1024 * 1024,
@@ -53,8 +55,8 @@ pub(super) const SUBSTREAMS_DATA: [SubstreamData; SUBSTREAM_COUNT] = [
     SubstreamData {
         name: "data",
         block_size: 1024 * 1024,
-        // @TODO Hardcoded for now
-        threads: 8,
+        // Will be set later. See the substream() fn.
+        threads: 0,
     },
     SubstreamData {
         name: "mmaps",
@@ -69,8 +71,12 @@ pub(super) const SUBSTREAMS_DATA: [SubstreamData; SUBSTREAM_COUNT] = [
 ];
 
 pub(super) fn substream(s: Substream) -> &'static SubstreamData {
-    // @TODO This method still needs to be completed
-    &SUBSTREAMS_DATA[s as usize]
+    if unsafe { SUBSTREAMS_DATA[Substream::RawData as usize].threads } == 0 {
+        unsafe {
+            SUBSTREAMS_DATA[Substream::RawData as usize].threads = min(8, get_num_cpus() as usize)
+        };
+    }
+    unsafe { &SUBSTREAMS_DATA[s as usize] }
 }
 
 impl Substream {
