@@ -374,7 +374,13 @@ use crate::{
         SelectCallingSemantics,
         SupportedArch,
     },
-    kernel_metadata::{errno_name, is_sigreturn, shm_flags_to_mmap_prot, syscall_name},
+    kernel_metadata::{
+        errno_name,
+        is_sigreturn,
+        ptrace_req_name,
+        shm_flags_to_mmap_prot,
+        syscall_name,
+    },
     kernel_supplement::{
         sig_set_t,
         BTRFS_IOC_CLONE_,
@@ -5047,10 +5053,83 @@ fn align_scratch(scratch: &mut RemotePtr<Void>, maybe_amount: Option<usize>) {
 }
 
 fn extra_expected_errno_info<Arch: Architecture>(
-    _t: &RecordTask,
-    _syscall_state: &mut TaskSyscallState,
+    t: &RecordTask,
+    syscall_state: &mut TaskSyscallState,
 ) -> String {
-    unimplemented!()
+    match syscall_state.expect_errno {
+        ENOSYS => return format!("; execution of syscall unsupported by rd"),
+        EINVAL => {
+            let sys = t.regs_ref().original_syscallno() as i32;
+            if sys == Arch::IOCTL {
+                let request = t.regs_ref().arg2() as u32;
+                let type_ = unsafe { ioctl_type(request) };
+                let nr = unsafe { ioctl_nr(request) };
+                let dir = unsafe { ioctl_dir(request) };
+                let size = unsafe { ioctl_size(request) };
+                return format!(
+                    "; Unknown ioctl({:x}): type:{:x} nr:{:x} dir:{:x} size:{:x} addr:{:x}",
+                    request,
+                    type_,
+                    nr,
+                    dir,
+                    size,
+                    t.regs_ref().arg3()
+                );
+            }
+            if sys == Arch::FCNTL || sys == Arch::FCNTL64 {
+                return format!("; unknown fcntl({:x})", t.regs_ref().arg2_signed() as i32);
+            }
+            if sys == Arch::PRCTL {
+                return format!("; unknown prctl({:x})", t.regs_ref().arg1_signed() as i32);
+            }
+            if sys == Arch::ARCH_PRCTL {
+                return format!(
+                    "; unknown arch_prctl({:x})",
+                    t.regs_ref().arg1_signed() as i32
+                );
+            }
+            if sys == Arch::KEYCTL {
+                return format!("; unknown keyctl({:x})", t.regs_ref().arg1_signed() as i32);
+            }
+            if sys == Arch::SOCKETCALL {
+                return format!(
+                    "; unknown socketcall({:x})",
+                    t.regs_ref().arg1_signed() as i32
+                );
+            }
+            if sys == Arch::IPC {
+                return format!("; unknown ipc({:x})", t.regs_ref().arg1_signed() as i32);
+            }
+            if sys == Arch::FUTEX_TIME64 || sys == Arch::FUTEX {
+                return format!(
+                    "; unknown futex({:x})",
+                    t.regs_ref().arg2_signed() as i32 & FUTEX_CMD_MASK
+                );
+            }
+            if sys == Arch::WAITID {
+                return format!("; unknown waitid({:x})", t.regs_ref().arg1() as idtype_t);
+            }
+            if sys == Arch::SECCOMP {
+                return format!("; unknown seccomp({:x})", t.regs_ref().arg1() as u32);
+            }
+            if sys == Arch::MADVISE {
+                return format!("; unknown madvise({:x})", t.regs_ref().arg3() as i32);
+            }
+        }
+        EIO => {
+            let sys = t.regs_ref().original_syscallno() as i32;
+            if sys == Arch::PTRACE {
+                return format!(
+                    "; unsupported ptrace({:x}) [{}]",
+                    t.regs_ref().arg1(),
+                    ptrace_req_name(t.regs_ref().arg1() as u32)
+                );
+            }
+        }
+        _ => (),
+    }
+
+    return String::new();
 }
 
 const IOCTL_MASK_SIZE_TUNSETIFF: u32 = ioctl_mask_size(_TUNSETIFF);
