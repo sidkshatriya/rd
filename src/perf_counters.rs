@@ -222,6 +222,8 @@ fn check_for_bugs_and_extra() -> PmuBugsAndExtra {
     let has_kvm_in_txcp_bug;
     let only_one_counter;
 
+    // Under rd we emulate idealized performance counters, so we can assume
+    // none of the bugs apply if running_under_rd() is true.
     if PMU_ATTRIBUTES
         .pmu_flags
         .contains(PmuFlags::PMU_SKIP_INTEL_BUG_CHECK)
@@ -243,7 +245,7 @@ fn check_for_bugs_and_extra() -> PmuBugsAndExtra {
     }
     // For maintainability, and since it doesn't impact performance when not
     // needed, we always activate this. If it ever turns out to be a problem,
-    // this can be set to pmu->flags & PMU_BENEFITS_FROM_USELESS_COUNTER,
+    // this can be set to pmu.flags & PMU_BENEFITS_FROM_USELESS_COUNTER,
     // instead.
     //
     // We also disable this counter when running under rd. Even though it's the

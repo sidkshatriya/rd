@@ -191,7 +191,7 @@ impl NewLineTerminatingOstream {
         level: LogLevel,
         filename: &str,
         line: u32,
-        func_name: &str,
+        module_path: &str,
         always_enabled: bool,
     ) -> Option<NewLineTerminatingOstream> {
         let mut lock = LOG_GLOBALS.lock().unwrap();
@@ -207,7 +207,7 @@ impl NewLineTerminatingOstream {
             if level == LogDebug {
                 write!(stream, "[{}] ", m.name).unwrap();
             } else {
-                write_prefix(&mut stream, level, filename, line, func_name);
+                write_prefix(&mut stream, level, filename, line, module_path);
             }
 
             Some(stream)
@@ -266,14 +266,10 @@ pub fn write_prefix(
     level: LogLevel,
     filename: &str,
     line: u32,
-    func_name: &str,
+    _module_path: &str,
 ) {
-    write!(stream, "[{} ", log_name(level)).unwrap();
-    if level <= LogError {
-        write!(stream, "{}:{} ", filename, line).unwrap();
-    }
+    write!(stream, "[{} {}:{}", log_name(level), filename, line).unwrap();
 
-    write!(stream, "{}()", func_name).unwrap();
     let err = errno();
     if level <= LogWarn && err != 0 {
         write!(stream, " errno: {}", errno_name(err)).unwrap();
@@ -281,6 +277,7 @@ pub fn write_prefix(
     write!(stream, "] ").unwrap();
 }
 
+/// This is almost always not the method you want. Use log!() macro instead
 pub fn log(
     log_level: LogLevel,
     filename: &str,
