@@ -2394,8 +2394,6 @@ fn protect_rd_sigs_sa_mask_arch<Arch: Architecture>(
         return false;
     }
 
-    sa.sa_mask = new_sig_set;
-    write_val_mem(t, sap, &sa, None);
     match maybe_save {
         Some(save) => unsafe {
             copy_nonoverlapping(
@@ -2406,6 +2404,8 @@ fn protect_rd_sigs_sa_mask_arch<Arch: Architecture>(
         },
         None => (),
     }
+    sa.sa_mask = new_sig_set;
+    write_val_mem(t, sap, &sa, None);
 
     true
 }
