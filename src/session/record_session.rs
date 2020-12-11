@@ -519,6 +519,8 @@ impl RecordSession {
         env.push(("RUNNING_UNDER_RD".into(), "1".into()));
         // Stop Mesa using the GPU
         env.push(("LIBGL_ALWAYS_SOFTWARE".into(), "1".into()));
+        env.push(("GBM_ALWAYS_SOFTWARE".into(), "1".into()));
+        env.push(("SDL_RENDER_DRIVER".into(), "software".into()));
         // Stop sssd from using shared-memory with its daemon
         env.push(("SSS_NSS_USE_MEMCACHE".into(), "NO".into()));
 
@@ -535,6 +537,8 @@ impl RecordSession {
             env.push(("OPENSSL_ia32cap".into(), "~4611686018427387904:~0".into()));
             // Disable Qt's use of RDRAND/RDSEED/RTM
             env.push(("QT_NO_CPU_FEATURE".into(), "rdrand rdseed rtm".into()));
+            // Disable systemd's use of RDRAND
+            env.push(("SYSTEMD_RDRAND".into(), "0".into()));
         }
 
         RecordSession::new(
