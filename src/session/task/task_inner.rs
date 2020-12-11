@@ -594,8 +594,9 @@ impl TaskInner {
     pub fn file_name_of_fd(&self, fd: i32) -> OsString {
         let path = format!("/proc/{}/fd/{}", self.tid, fd);
         let res = readlink(path.as_str());
-        // DIFF NOTE: rr returns an empty string if the file name could not be obtained.
-        res.unwrap()
+        // @TODO like rr, returns an empty string if the file name could not be obtained
+        // Is this behavior what we want though?
+        res.unwrap_or(OsString::new())
     }
 
     /// Syscalls have side effects on registers (e.g. setting the flags register).
