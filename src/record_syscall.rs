@@ -2308,27 +2308,29 @@ fn maybe_blacklist_connect<Arch: Architecture>(
         .unwrap();
     // Ensure null termination;
     addr.sun_path[size_of_val(&addr.sun_path) - 1] = 0;
-    if addr.sun_family as i32 == AF_UNIX && is_blacklisted_socket(&addr.sun_path) {
-        log!(
-            LogWarn,
-            "Cowardly refusing to connect to {:?}",
-            addr.sun_path
-        );
-        // Hijack the syscall.
-        let mut r: Registers = t.regs_ref().clone();
-        r.set_original_syscallno(Arch::GETTID as isize);
-        t.set_regs(&r);
+    if addr.sun_family as i32 == AF_UNIX {
+        if let Some(file) = is_blacklisted_socket(&addr.sun_path) {
+            log!(LogWarn, "Cowardly refusing to connect to {:?}", file);
+            // Hijack the syscall.
+            let mut r: Registers = t.regs_ref().clone();
+            r.set_original_syscallno(Arch::GETTID as isize);
+            t.set_regs(&r);
+        }
     }
 
-    return Switchable::PreventSwitch;
+    Switchable::PreventSwitch
 }
 
-fn is_blacklisted_socket(filename_in: &[i8; 108]) -> bool {
+fn is_blacklisted_socket(filename_in: &[i8; 108]) -> Option<&str> {
     let filename: &[u8; 108] = unsafe { mem::transmute(filename_in) };
     // Blacklist the nscd socket because glibc communicates with the daemon over
-    // shared memory rr can't handle.
+    // shared memory rd can't handle.
     let nsd = b"/var/run/nscd/socket\0";
-    &filename[0..nsd.len()] == nsd
+    if &filename[0..nsd.len()] == nsd {
+        Some("/var/run/nscd/socket")
+    } else {
+        None
+    }
 }
 
 fn maybe_emulate_wait(
