@@ -178,7 +178,7 @@ use std::{
 /// first. If necessary we force the tracee to open the file
 /// itself and smuggle the fd back to us.
 /// Returns false if the process no longer exists.
-pub(super) fn open_mem_fd<T: Task>(task: &mut T) -> bool {
+pub(super) fn open_mem_fd_common<T: Task>(task: &mut T) -> bool {
     // Use ptrace to read/write during open_mem_fd
     task.vm().set_mem_fd(ScopedFd::new());
 
@@ -579,7 +579,7 @@ pub fn read_mem<D: Clone>(
 
 /// Forwarded method definition
 ///
-pub(super) fn syscallbuf_data_size<T: Task>(task: &mut T) -> usize {
+pub(super) fn syscallbuf_data_size_common<T: Task>(task: &mut T) -> usize {
     let addr: RemotePtr<u32> = RemotePtr::cast(task.syscallbuf_child);
     read_val_mem::<u32>(task, addr + offset_of!(syscallbuf_hdr, num_rec_bytes), None) as usize
         + size_of::<syscallbuf_hdr>()
@@ -594,7 +594,7 @@ pub(super) fn write_bytes_common<T: Task>(task: &mut T, child_addr: RemotePtr<Vo
 
 /// Forwarded method definition
 ///
-pub(super) fn next_syscallbuf_record<T: Task>(task: &mut T) -> RemotePtr<syscallbuf_record> {
+pub(super) fn next_syscallbuf_record_common<T: Task>(task: &mut T) -> RemotePtr<syscallbuf_record> {
     // Next syscallbuf record is size_of the syscallbuf header + number of bytes in buffer
     let addr = RemotePtr::<u8>::cast(task.syscallbuf_child + 1usize);
     let num_rec_bytes_addr =
@@ -608,7 +608,7 @@ pub(super) fn next_syscallbuf_record<T: Task>(task: &mut T) -> RemotePtr<syscall
 
 /// Forwarded method definition
 ///
-pub(super) fn stored_record_size<T: Task>(
+pub(super) fn stored_record_size_common<T: Task>(
     task: &mut T,
     record: RemotePtr<syscallbuf_record>,
 ) -> usize {
@@ -672,12 +672,12 @@ pub fn write_mem<D: 'static>(
     );
 }
 
-/// Forwarded method
+/// Forwarded method definition
 ///
 /// Force the wait status of this to `status`, as if
 /// `wait()/try_wait()` had returned it. Call this whenever a waitpid
 /// returned activity for this past.
-pub(super) fn did_waitpid<T: Task>(task: &mut T, mut status: WaitStatus) {
+pub(super) fn did_waitpid_common<T: Task>(task: &mut T, mut status: WaitStatus) {
     // After PTRACE_INTERRUPT, any next two stops may be a group stop caused by
     // that PTRACE_INTERRUPT (or neither may be). This is because PTRACE_INTERRUPT
     // generally lets other stops win (and thus doesn't inject it's own stop), but
@@ -885,7 +885,7 @@ fn single_step_coalesce_cutoff() -> usize {
     return 16;
 }
 
-/// Forwarded Method
+/// Forwarded method definition
 ///
 /// Resume execution `how`, deliverying `sig` if nonzero.
 /// After resuming, `wait_how`. In replay, reset hpcs and
@@ -895,7 +895,7 @@ fn single_step_coalesce_cutoff() -> usize {
 /// after that many seconds have elapsed.
 ///
 /// All tracee execution goes through here.
-pub(super) fn resume_execution<T: Task>(
+pub(super) fn resume_execution_common<T: Task>(
     task: &mut T,
     how: ResumeRequest,
     wait_how: WaitRequest,
@@ -1375,12 +1375,12 @@ pub(super) fn post_exec_syscall_common(t: &mut dyn Task) {
     }
 }
 
-/// Forwarded Method
+/// Forwarded method definition
 ///
 /// DIFF NOTE: Simply called post_exec(...) in rr
 /// Not to be confused with another post_exec() in rr that does not
 /// take any arguments
-pub(super) fn post_exec_for_exe<T: Task>(t: &mut T, exe_file: &OsStr) {
+pub(super) fn post_exec_for_exe_common<T: Task>(t: &mut T, exe_file: &OsStr) {
     let mut stopped_task_in_address_space = None;
     let mut other_task_in_address_space = false;
     for task in t.vm().task_set().iter_except(t.weak_self_ptr()) {
@@ -1472,7 +1472,7 @@ fn prname_from_exe_image(exe_image: &OsStr) -> &OsStr {
 ///
 /// Determine why a SIGTRAP occurred. Uses debug_status() but doesn't
 /// consume it.
-pub(super) fn compute_trap_reasons<T: Task>(t: &mut T) -> TrapReasons {
+pub(super) fn compute_trap_reasons_common<T: Task>(t: &mut T) -> TrapReasons {
     ed_assert_eq!(t, t.maybe_stop_sig(), SIGTRAP);
     let mut reasons = TrapReasons::default();
     let status = t.debug_status();
@@ -1904,7 +1904,7 @@ pub(super) fn post_vm_clone_common<T: Task>(
 
 /// Forwarded method definition
 ///
-pub(super) fn destroy_buffers<T: Task>(t: &mut T) {
+pub(super) fn destroy_buffers_common<T: Task>(t: &mut T) {
     let saved_syscallbuf_child = t.syscallbuf_child;
     let mut remote = AutoRemoteSyscalls::new(t);
     // Clear syscallbuf_child now so nothing tries to use it while tearing
@@ -2181,7 +2181,7 @@ fn ptrace_get_regs_set<Arch: Architecture>(
 
 /// Forwarded method definition
 ///
-pub(super) fn detect_syscall_arch<T: Task>(task: &mut T) -> SupportedArch {
+pub(super) fn detect_syscall_arch_common<T: Task>(task: &mut T) -> SupportedArch {
     let mut syscall_arch = SupportedArch::X64;
     let arch = task.arch();
     let code_ptr = task.regs_ref().ip().decrement_by_syscall_insn_length(arch);
@@ -2192,7 +2192,7 @@ pub(super) fn detect_syscall_arch<T: Task>(task: &mut T) -> SupportedArch {
 
 /// Forwarded method definition
 ///
-pub(super) fn set_syscallbuf_locked<T: Task>(t: &mut T, locked: bool) {
+pub(super) fn set_syscallbuf_locked_common<T: Task>(t: &mut T, locked: bool) {
     if t.syscallbuf_child.is_null() {
         return;
     }
@@ -2212,7 +2212,9 @@ pub(super) fn set_syscallbuf_locked<T: Task>(t: &mut T, locked: bool) {
     }
 }
 
-pub(super) fn reset_syscallbuf<T: Task>(t: &mut T) {
+/// Forwarded method definition
+///
+pub(super) fn reset_syscallbuf_common<T: Task>(t: &mut T) {
     let syscallbuf_child_addr = t.syscallbuf_child;
     if syscallbuf_child_addr.is_null() {
         return;
@@ -2488,9 +2490,9 @@ fn perform_remote_clone_arch<Arch: Architecture>(
     }
 }
 
-/// Forwarded method
+/// Forwarded method definition
 ///
-pub(super) fn destroy<T: Task>(t: &mut T, maybe_detach: Option<bool>) {
+pub(super) fn destroy_common<T: Task>(t: &mut T, maybe_detach: Option<bool>) {
     let detach = maybe_detach.unwrap_or(true);
     if detach {
         debug_assert!(t.session().tasks().get(&t.rec_tid).is_some());

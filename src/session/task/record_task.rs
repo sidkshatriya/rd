@@ -3,13 +3,13 @@ use super::{
         self,
         at_preload_init_common,
         clone_task_common,
-        destroy,
+        destroy_common,
         post_vm_clone_common,
         post_wait_clone_common,
         read_mem,
         read_val_mem,
-        reset_syscallbuf,
-        set_syscallbuf_locked,
+        reset_syscallbuf_common,
+        set_syscallbuf_locked_common,
         task_drop_common,
         write_val_mem,
     },
@@ -95,22 +95,22 @@ use crate::{
         record_session::RecordSession,
         task::{
             task_common::{
-                compute_trap_reasons,
-                destroy_buffers,
-                detect_syscall_arch,
-                did_waitpid,
-                next_syscallbuf_record,
-                open_mem_fd,
-                post_exec_for_exe,
+                compute_trap_reasons_common,
+                destroy_buffers_common,
+                detect_syscall_arch_common,
+                did_waitpid_common,
+                next_syscallbuf_record_common,
+                open_mem_fd_common,
+                post_exec_for_exe_common,
                 post_exec_syscall_common,
                 read_bytes_fallible_common,
                 read_bytes_helper_common,
                 read_bytes_helper_for,
                 read_c_str_common,
-                resume_execution,
+                resume_execution_common,
                 set_thread_area_common,
-                stored_record_size,
-                syscallbuf_data_size,
+                stored_record_size_common,
+                syscallbuf_data_size_common,
                 write_bytes_common,
                 write_bytes_helper_common,
             },
@@ -720,7 +720,7 @@ impl Task for RecordTask {
 
     /// Forwarded method
     fn destroy(&mut self, maybe_detach: Option<bool>) {
-        destroy(self, maybe_detach)
+        destroy_common(self, maybe_detach)
     }
 
     fn log_pending_events(&self) {
@@ -742,17 +742,17 @@ impl Task for RecordTask {
 
     /// Forwarded method
     fn detect_syscall_arch(&mut self) -> SupportedArch {
-        detect_syscall_arch(self)
+        detect_syscall_arch_common(self)
     }
 
     /// Forwarded method
     fn destroy_buffers(&mut self) {
-        destroy_buffers(self)
+        destroy_buffers_common(self)
     }
 
     /// Forwarded method
     fn post_exec_for_exe(&mut self, exe_file: &OsStr) {
-        post_exec_for_exe(self, exe_file)
+        post_exec_for_exe_common(self, exe_file)
     }
 
     /// Forwarded method
@@ -763,22 +763,22 @@ impl Task for RecordTask {
         tick_period: TicksRequest,
         maybe_sig: Option<Sig>,
     ) {
-        resume_execution(self, how, wait_how, tick_period, maybe_sig)
+        resume_execution_common(self, how, wait_how, tick_period, maybe_sig)
     }
 
     /// Forwarded method
     fn stored_record_size(&mut self, record: RemotePtr<syscallbuf_record>) -> usize {
-        stored_record_size(self, record)
+        stored_record_size_common(self, record)
     }
 
     /// Forwarded method
     fn did_waitpid(&mut self, status: WaitStatus) {
-        did_waitpid(self, status)
+        did_waitpid_common(self, status)
     }
 
     /// Forwarded method
     fn next_syscallbuf_record(&mut self) -> RemotePtr<syscallbuf_record> {
-        next_syscallbuf_record(self)
+        next_syscallbuf_record_common(self)
     }
 
     fn as_task_inner(&self) -> &TaskInner {
@@ -864,7 +864,7 @@ impl Task for RecordTask {
 
     /// Forwarded method
     fn open_mem_fd(&mut self) -> bool {
-        open_mem_fd(self)
+        open_mem_fd_common(self)
     }
 
     /// Forwarded method
@@ -899,7 +899,7 @@ impl Task for RecordTask {
 
     /// Forwarded method
     fn syscallbuf_data_size(&mut self) -> usize {
-        syscallbuf_data_size(self)
+        syscallbuf_data_size_common(self)
     }
 
     /// Forwarded method
@@ -913,7 +913,7 @@ impl Task for RecordTask {
 
     // Forwarded method
     fn compute_trap_reasons(&mut self) -> TrapReasons {
-        compute_trap_reasons(self)
+        compute_trap_reasons_common(self)
     }
 
     fn post_vm_clone(
@@ -954,12 +954,12 @@ impl Task for RecordTask {
 
     /// Forwarded method
     fn reset_syscallbuf(&mut self) {
-        reset_syscallbuf(self);
+        reset_syscallbuf_common(self);
     }
 
     /// Forwarded method
     fn set_syscallbuf_locked(&mut self, locked: bool) {
-        set_syscallbuf_locked(self, locked);
+        set_syscallbuf_locked_common(self, locked);
     }
 }
 
