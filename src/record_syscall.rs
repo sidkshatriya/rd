@@ -33,6 +33,7 @@ use crate::{
         socketpair_args,
         usbdevfs_ctrltransfer,
         usbdevfs_ioctl,
+        v4l2_buffer,
     },
     auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem, MemParamsEnabled},
     bindings::{
@@ -185,6 +186,7 @@ use crate::{
             TIOCSPGRP,
             TIOCSTI,
             TIOCSWINSZ,
+            V4L2_MEMORY_MMAP,
             _IOC_READ,
             _IOC_SIZEMASK,
             _IOC_SIZESHIFT,
@@ -5699,7 +5701,24 @@ fn prepare_ioctl<Arch: Architecture>(
     // These ioctls are mostly regular but require additional recording.
     match ioctl_mask_size(request) {
         IOCTL_MASK_SIZE_VIDIOC_DQBUF => {
-            unimplemented!()
+            if size as usize == size_of::<v4l2_buffer<Arch>>() {
+                syscall_state.reg_parameter_with_size(
+                    3,
+                    ParamSize::from(size as usize),
+                    Some(ArgMode::InOut),
+                    None,
+                );
+                syscall_state.after_syscall_action(Box::new(record_v4l2_buffer_contents::<Arch>));
+                // VIDIOC_DQBUF can block. It can't if the fd was opened O_NONBLOCK,
+                // but we don't try to determine that.
+                // Note that we're exposed to potential race conditions here because
+                // VIDIOC_DQBUF (blocking or not) assumes the driver has filled
+                // the mmapped data region at some point since the buffer was queued
+                // with VIDIOC_QBUF, and we don't/can't know exactly when that
+                // happened. Replay could fail if this thread or another thread reads
+                // the contents of mmapped contents queued with the driver.
+                return Switchable::AllowSwitch;
+            }
         }
         _ => (),
     }
@@ -7573,4 +7592,51 @@ fn process_shmat(t: &mut RecordTask, shmid: i32, shm_flags: i32, addr: RemotePtr
         LogDebug,
         "Optimistically hoping that SysV segment is not used outside of tracees"
     );
+}
+
+/// A change has been made to file 'fd' in task t. If the file has been mmapped
+/// somewhere in t's address space, record the changes.
+/// We check for matching files by comparing file names. This may not be
+/// reliable but hopefully it's good enough for the cases where we need this.
+/// This doesn't currently handle shared mappings very well. A file mapped
+/// shared in multiple locations will be recorded once per location.
+/// This doesn't handle mappings of the file into other address spaces.
+fn record_file_change(t: &mut RecordTask, fd: i32, offset: u64, length: u64) {
+    let file_name = t.file_name_of_fd(fd);
+
+    for (_, m) in &t.vm_shr_ptr().maps() {
+        if m.map.fsname() == file_name {
+            let start = max(offset, m.map.file_offset_bytes());
+            let end = min(
+                offset + length,
+                m.map.file_offset_bytes() + m.map.size() as u64,
+            );
+            if start < end {
+                t.record_remote(
+                    m.map.start() + (start - m.map.file_offset_bytes()) as usize,
+                    (end - start) as usize,
+                );
+            }
+        }
+    }
+}
+
+fn record_v4l2_buffer_contents<Arch: Architecture>(t: &mut RecordTask) {
+    let bufp: RemotePtr<v4l2_buffer<Arch>> = t.regs_ref().arg3().into();
+    let buf = read_val_mem(t, bufp, None);
+
+    match buf.memory {
+        V4L2_MEMORY_MMAP => {
+            record_file_change(
+                t,
+                t.regs_ref().arg1_signed() as i32,
+                unsafe { buf.m.offset as u64 },
+                buf.length as u64,
+            );
+            return;
+        }
+        _ => {
+            ed_assert!(t, false, "Unhandled V4L2 memory type {}", buf.memory);
+        }
+    }
 }

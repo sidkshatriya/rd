@@ -926,3 +926,48 @@ assert_eq_align!(
     kernel::usbdevfs_ctrltransfer,
     usbdevfs_ctrltransfer<NativeArch>
 );
+
+#[repr(C)]
+pub struct v4l2_timecode {
+    pub type_: u32,
+    pub flags: u32,
+    pub frames: u8,
+    pub seconds: u8,
+    pub minutes: u8,
+    pub hours: u8,
+    pub userbits: [u8; 4],
+}
+
+assert_eq_size!(kernel::v4l2_timecode, v4l2_timecode);
+
+assert_eq_align!(kernel::v4l2_timecode, v4l2_timecode);
+
+#[repr(C)]
+pub union v4l2_m<Arch: Architecture> {
+    pub offset: u32,
+    pub userptr: Arch::unsigned_long,
+    pub planes: Ptr<Arch::unsigned_word, u8>,
+    pub fd: i32,
+}
+
+#[repr(C)]
+pub struct v4l2_buffer<Arch: Architecture> {
+    pub index: u32,
+    pub type_: u32,
+    pub bytesused: u32,
+    pub flags: u32,
+    pub field: u32,
+    pub __pad: Arch::STD_PAD_ARR,
+    pub timestamp: Arch::timeval,
+    pub timecode: v4l2_timecode,
+    pub sequence: u32,
+    pub memory: u32,
+    pub m: v4l2_m<Arch>,
+    pub length: u32,
+    pub reserved2: u32,
+    pub reserved: u32,
+}
+
+assert_eq_size!(kernel::v4l2_buffer, v4l2_buffer<NativeArch>);
+
+assert_eq_align!(kernel::v4l2_buffer, v4l2_buffer<NativeArch>);
