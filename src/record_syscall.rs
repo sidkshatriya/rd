@@ -388,6 +388,10 @@ use crate::{
     },
     kernel_supplement::{
         sig_set_t,
+        BPF_MAP_CREATE,
+        BPF_MAP_DELETE_ELEM,
+        BPF_MAP_UPDATE_ELEM,
+        BPF_PROG_LOAD,
         BTRFS_IOC_CLONE_,
         BTRFS_IOC_CLONE_RANGE_,
         NUM_SIGNALS,
@@ -2216,7 +2220,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
     }
 
     if sys == Arch::BPF {
-        unimplemented!()
+        return prepare_bpf::<Arch>(t, &mut syscall_state);
     }
 
     if sys == Arch::IPC {
@@ -7676,4 +7680,26 @@ fn record_usbdevfs_reaped_urb<Arch: Architecture>(t: &mut RecordTask) {
     // It's tempting to use actual_length here but in some cases the kernel
     // writes back more data than that.
     t.record_remote(Arch::as_rptr(urb.buffer), length);
+}
+
+fn prepare_bpf<Arch: Architecture>(
+    t: &mut RecordTask,
+    syscall_state: &mut TaskSyscallState,
+) -> Switchable {
+    let cmd = t.regs_ref().arg1() as u32;
+    match cmd {
+        BPF_MAP_CREATE | BPF_MAP_UPDATE_ELEM | BPF_MAP_DELETE_ELEM => {
+            return Switchable::PreventSwitch;
+        }
+        BPF_PROG_LOAD => {
+            unimplemented!()
+        }
+        // These are hard to support because we have to track the key_size/value_size :-(
+        // BPF_MAP_LOOKUP_ELEM
+        // BPF_MAP_GET_NEXT_KEY
+        _ => {
+            syscall_state.expect_errno = EINVAL;
+            return Switchable::PreventSwitch;
+        }
+    }
 }
