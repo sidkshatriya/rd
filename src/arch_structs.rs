@@ -1008,3 +1008,74 @@ pub struct usbdevfs_iso_packet_desc {
 
 assert_eq_size!(kernel::usbdevfs_iso_packet_desc, usbdevfs_iso_packet_desc);
 assert_eq_align!(kernel::usbdevfs_iso_packet_desc, usbdevfs_iso_packet_desc);
+
+#[repr(C)]
+#[derive(Copy, Clone, Default)]
+pub struct bpf_attr_u1 {
+    pub map_type: u32,
+    pub key_size: u32,
+    pub value_size: u32,
+    pub max_entries: u32,
+    pub map_flags: u32,
+    pub inner_map_fd: u32,
+    pub numa_node: u32,
+    pub map_name: [u8; 16],
+    pub map_ifindex: u32,
+    pub btf_fd: u32,
+    pub btf_key_type_id: u32,
+    pub btf_value_type_id: u32,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub union bpf_attr_u2_u1 {
+    pub value: common::ptr64<u8>,
+    pub next_key: common::ptr64<u8>,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct bpf_attr_u2 {
+    pub map_fd: u32,
+    pub key: common::ptr64<u8>,
+    pub bpf_attr_u2_u1: bpf_attr_u2_u1,
+    pub flags: u64,
+}
+
+#[repr(C, align(8))]
+#[derive(Copy, Clone, Default)]
+pub struct aligned_u64 {
+    pub __val: u64,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Default)]
+pub struct bpf_attr_u3 {
+    pub prog_type: u32,
+    pub insn_cnt: u32,
+    pub insns: common::ptr64<u8>,
+    pub license: common::ptr64<u8>,
+    pub log_level: u32,
+    pub log_size: u32,
+    pub log_buf: common::ptr64<char>,
+    pub kern_version: u32,
+    pub prog_flags: u32,
+    pub prog_name: [u8; 16],
+    pub prog_ifindex: u32,
+    pub expected_attach_type: u32,
+    pub prog_btf_fd: u32,
+    pub func_info_rec_size: u32,
+    pub func_info: aligned_u64,
+    pub func_info_cnt: u32,
+    pub line_info_rec_size: u32,
+    pub line_info: aligned_u64,
+    pub line_info_cnt: u32,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub union bpf_attr {
+    pub bpf_attr_u1: bpf_attr_u1,
+    pub bpf_attr_u2: bpf_attr_u2,
+    pub bpf_attr_u3: bpf_attr_u3,
+}

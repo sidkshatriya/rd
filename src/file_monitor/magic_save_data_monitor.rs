@@ -10,7 +10,7 @@ use crate::{
     session::task::replay_task::ReplayTask,
 };
 
-/// A FileMonitor to track writes to RR_MAGIC_SAVE_DATA_FD.
+/// A FileMonitor to track writes to RD_MAGIC_SAVE_DATA_FD.
 pub struct MagicSaveDataMonitor;
 
 impl FileMonitor for MagicSaveDataMonitor {

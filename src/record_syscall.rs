@@ -7692,7 +7692,17 @@ fn prepare_bpf<Arch: Architecture>(
             return Switchable::PreventSwitch;
         }
         BPF_PROG_LOAD => {
-            unimplemented!()
+            let argsp =
+                syscall_state.reg_parameter::<arch_structs::bpf_attr>(2, Some(ArgMode::In), None);
+            let args = read_val_mem(t, argsp, None);
+            syscall_state.mem_ptr_parameter_with_size(
+                t,
+                remote_ptr_field!(argsp, arch_structs::bpf_attr_u3, log_buf),
+                ParamSize::from(unsafe { args.bpf_attr_u3.log_size } as usize),
+                None,
+                None,
+            );
+            return Switchable::PreventSwitch;
         }
         // These are hard to support because we have to track the key_size/value_size :-(
         // BPF_MAP_LOOKUP_ELEM
