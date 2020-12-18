@@ -66,7 +66,7 @@ The following work:
   * Interactive replay (which uses a debugger like gdb) is not yet supported
   * In other words, non-interative replay (`-a` flag) is currently supported
 * `rd record`
-  * The recording functionality has a few known issues and is incomplete in places. However, massive progress has been made and this feature is ready to play around with
+  * The recording functionality is mostly complete
 * `rd buildid`
 * `rd dump`
 * `rd traceinfo`
@@ -111,7 +111,7 @@ $ rd record ls -- -l
 ```
 
 Notes:
-  * The recording functionality has a few known issues and is incomplete in places. However, massive progress has been made and this feature is ready to play around with
+  * The recording functionality is mostly complete
 
 ### _RR_TRACE environment variable
 
