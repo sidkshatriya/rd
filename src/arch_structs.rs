@@ -971,3 +971,40 @@ pub struct v4l2_buffer<Arch: Architecture> {
 assert_eq_size!(kernel::v4l2_buffer, v4l2_buffer<NativeArch>);
 
 assert_eq_align!(kernel::v4l2_buffer, v4l2_buffer<NativeArch>);
+
+#[repr(C)]
+pub struct usbdevfs_urb<Arch: Architecture> {
+    pub type_: u8,
+    pub endpoint: u8,
+    pub status: i32,
+    pub flags: u32,
+    pub buffer: Ptr<Arch::unsigned_word, u8>,
+    pub buffer_length: i32,
+    pub actual_length: i32,
+    pub start_frame: i32,
+    pub usbdevfs_urb_u: usbdevfs_urb_u,
+    pub error_count: i32,
+    pub signr: u32,
+    pub usercontext: Ptr<Arch::unsigned_word, u8>,
+    pub iso_frame_desc: [usbdevfs_iso_packet_desc; 0],
+}
+
+assert_eq_size!(kernel::usbdevfs_urb, usbdevfs_urb<NativeArch>);
+assert_eq_align!(kernel::usbdevfs_urb, usbdevfs_urb<NativeArch>);
+
+#[repr(C)]
+pub union usbdevfs_urb_u {
+    pub number_of_packets: i32,
+    pub stream_id: u32,
+}
+
+#[repr(C)]
+#[derive(Clone)]
+pub struct usbdevfs_iso_packet_desc {
+    pub length: u32,
+    pub actual_length: u32,
+    pub status: u32,
+}
+
+assert_eq_size!(kernel::usbdevfs_iso_packet_desc, usbdevfs_iso_packet_desc);
+assert_eq_align!(kernel::usbdevfs_iso_packet_desc, usbdevfs_iso_packet_desc);

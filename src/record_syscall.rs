@@ -33,6 +33,8 @@ use crate::{
         socketpair_args,
         usbdevfs_ctrltransfer,
         usbdevfs_ioctl,
+        usbdevfs_iso_packet_desc,
+        usbdevfs_urb,
         v4l2_buffer,
     },
     auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem, MemParamsEnabled},
@@ -186,6 +188,7 @@ use crate::{
             TIOCSPGRP,
             TIOCSTI,
             TIOCSWINSZ,
+            USBDEVFS_URB_TYPE_ISO,
             V4L2_MEMORY_MMAP,
             _IOC_READ,
             _IOC_SIZEMASK,
@@ -5517,7 +5520,8 @@ fn prepare_ioctl<Arch: Architecture>(
                     None,
                     None,
                 );
-                unimplemented!()
+                syscall_state.after_syscall_action(Box::new(record_usbdevfs_reaped_urb::<Arch>));
+                return Switchable::AllowSwitch;
             }
             IOCTL_MASK_SIZE_TUNSETIFF => {
                 // Reads and writes its parameter despite not having the _IOC_READ
@@ -7639,4 +7643,37 @@ fn record_v4l2_buffer_contents<Arch: Architecture>(t: &mut RecordTask) {
             ed_assert!(t, false, "Unhandled V4L2 memory type {}", buf.memory);
         }
     }
+}
+
+fn record_usbdevfs_reaped_urb<Arch: Architecture>(t: &mut RecordTask) {
+    if t.regs_ref().syscall_failed() {
+        return;
+    }
+
+    let pp: RemotePtr<Arch::unsigned_word> = t.regs_ref().arg3().into();
+    let p: RemotePtr<usbdevfs_urb<Arch>> =
+        RemotePtr::new(read_val_mem(t, pp, None).try_into().unwrap());
+    t.record_remote_for(p);
+    let urb = read_val_mem(t, p, None);
+    let mut length: usize;
+    if urb.type_ as u32 == USBDEVFS_URB_TYPE_ISO {
+        let iso_frame_descs_ptr: RemotePtr<usbdevfs_iso_packet_desc> =
+            RemotePtr::cast(remote_ptr_field!(p, usbdevfs_urb<Arch>, iso_frame_desc));
+        let iso_frame_descs: Vec<usbdevfs_iso_packet_desc> = read_mem(
+            t,
+            iso_frame_descs_ptr,
+            unsafe { urb.usbdevfs_urb_u.number_of_packets } as usize,
+            None,
+        );
+        length = 0;
+        for f in &iso_frame_descs {
+            length += f.length as usize;
+        }
+        t.record_local_for_slice(iso_frame_descs_ptr, &iso_frame_descs);
+    } else {
+        length = urb.buffer_length as usize;
+    }
+    // It's tempting to use actual_length here but in some cases the kernel
+    // writes back more data than that.
+    t.record_remote(Arch::as_rptr(urb.buffer), length);
 }
