@@ -4,15 +4,15 @@ import io
 import os
 import sys
 
-# Currently the rr page is not copied into the trace. If you want to change
-# the contents of the rr page, think carefully about trace compatibility.
-# One option would be to save the (replay) rr page into the trace and have
-# replay default to the old rr page if the saved page is not present.
+# Currently the rd page is not copied into the trace. If you want to change
+# the contents of the rd page, think carefully about trace compatibility.
+# One option would be to save the (replay) rd page into the trace and have
+# replay default to the old rd page if the saved page is not present.
 
-def write_rr_page(f, is_64, is_replay):
-    # The length of each code sequence must be RR_PAGE_SYSCALL_STUB_SIZE.
+def write_rd_page(f, is_64, is_replay):
+    # The length of each code sequence must be RD_PAGE_SYSCALL_STUB_SIZE.
     # The end of each syscall instruction must be at offset
-    # RR_PAGE_SYSCALL_INSTRUCTION_END.
+    # RD_PAGE_SYSCALL_INSTRUCTION_END.
     if is_64:
         bytes = bytearray([
             0x0f, 0x05, # syscall
@@ -63,10 +63,10 @@ def write_rr_page(f, is_64, is_replay):
     f.write(ff_bytes)
 
 generators_for = {
-    'rr_page_32': lambda stream: write_rr_page(stream, False, False),
-    'rr_page_64': lambda stream: write_rr_page(stream, True, False),
-    'rr_page_32_replay': lambda stream: write_rr_page(stream, False, True),
-    'rr_page_64_replay': lambda stream: write_rr_page(stream, True, True),
+    'rd_page_32': lambda stream: write_rd_page(stream, False, False),
+    'rd_page_64': lambda stream: write_rd_page(stream, True, False),
+    'rd_page_32_replay': lambda stream: write_rd_page(stream, False, True),
+    'rd_page_64_replay': lambda stream: write_rd_page(stream, True, True),
 }
 
 def main(argv):
