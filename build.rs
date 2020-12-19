@@ -3,6 +3,7 @@ use bindgen::{
     Builder,
     CargoCallbacks,
 };
+use cmake::Config;
 use std::{env, path::PathBuf, process::Command};
 
 #[derive(Debug)]
@@ -24,8 +25,16 @@ impl ParseCallbacks for CustomPrefixCallbacks {
 }
 
 fn main() {
-    let out_dir = env::var("OUT_DIR").unwrap();
+    let out_dir = env::var_os("OUT_DIR").unwrap();
+    let mut target_dir = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
+    // @TODO What about cases where there is a custom target dir?
+    target_dir.push("target");
     let path = PathBuf::from(out_dir);
+
+    Config::new(".")
+        .define("CMAKE_BUILD_TYPE", "Release")
+        .define("CMAKE_INSTALL_PREFIX", target_dir)
+        .build();
 
     cc::Build::new()
         .file("src/cpuid_loop.S")
