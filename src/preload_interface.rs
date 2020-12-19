@@ -19,14 +19,13 @@ use crate::bindings::kernel::PAGE_SIZE;
 
 pub const SYSCALLBUF_PROTOCOL_VERSION: u16 = 0;
 
-pub const SYSCALLBUF_LIB_FILENAME_BASE: &'static str = "librrpreload";
-pub const SYSCALLBUF_LIB_FILENAME: &'static str = "librrpreload.so";
-pub const SYSCALLBUF_LIB_FILENAME_PADDED: &'static str = "librrpreload.so:::";
-pub const SYSCALLBUF_LIB_FILENAME_32: &'static str = "librrpreload_32.so";
+pub const SYSCALLBUF_LIB_FILENAME_BASE: &'static str = "librdpreload";
+pub const SYSCALLBUF_LIB_FILENAME: &'static str = "librdpreload.so";
+pub const SYSCALLBUF_LIB_FILENAME_PADDED: &'static str = "librdpreload.so:::";
+pub const SYSCALLBUF_LIB_FILENAME_32: &'static str = "librdpreload_32.so";
 
 /// Set this env var to enable syscall buffering.
-/// @TODO This needs to remain `_RR_USE_SYSCALLBUF` for now and not `_RD_USE_SYSCALLBUF`
-pub const SYSCALLBUF_ENABLED_ENV_VAR: &'static str = "_RR_USE_SYSCALLBUF";
+pub const SYSCALLBUF_ENABLED_ENV_VAR: &'static str = "_RD_USE_SYSCALLBUF";
 
 /// Size of table mapping fd numbers to syscallbuf-disabled flag.
 /// Most Linux kernels limit fds to 1024 so it probably doesn't make sense
@@ -35,7 +34,7 @@ pub const SYSCALLBUF_FDS_DISABLED_SIZE: i32 = 1024;
 
 pub const MPROTECT_RECORD_COUNT: u32 = 1000;
 
-/// Must match generate_rr_page.py
+/// Must match generate_rd_page.py
 pub const RD_PAGE_ADDR: usize = 0x70000000;
 pub const RD_PAGE_SYSCALL_STUB_SIZE: usize = 3;
 pub const RD_PAGE_SYSCALL_INSTRUCTION_END: usize = 2;

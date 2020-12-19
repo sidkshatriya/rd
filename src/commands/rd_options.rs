@@ -49,7 +49,7 @@ pub struct RdOptions {
     )]
     pub disable_ptrace_exit_events: bool,
 
-    /// Specify the paths that rd should use to find files such as rr_page_*.  These files
+    /// Specify the paths that rd should use to find files such as rd_page_*.  These files
     /// should be located in `<resource-path>/bin`, `<resource-path>/lib[64]`, and
     /// `<resource-path>/share` as appropriate.
     #[structopt(parse(try_from_os_str = parse_resource_path), long="resource-path")]

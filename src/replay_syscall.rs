@@ -1505,9 +1505,9 @@ fn find_exec_stub(arch: SupportedArch) -> CString {
     exe_path.extend_from_slice(resource_path().as_bytes());
     exe_path.extend_from_slice(b"bin/");
     if arch == SupportedArch::X86 && RD_NATIVE_ARCH == SupportedArch::X64 {
-        exe_path.extend_from_slice(b"rr_exec_stub_32");
+        exe_path.extend_from_slice(b"rd_exec_stub_32");
     } else {
-        exe_path.extend_from_slice(b"rr_exec_stub");
+        exe_path.extend_from_slice(b"rd_exec_stub");
     }
     CString::new(exe_path).unwrap()
 }

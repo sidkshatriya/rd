@@ -90,18 +90,18 @@ static inline const char* extract_file_name(const char* s) {
  * and 'extern "C"' is not compatible with our use of templates below.
  */
 
-#define SYSCALLBUF_LIB_FILENAME_BASE "librrpreload"
+#define SYSCALLBUF_LIB_FILENAME_BASE "librdpreload"
 #define SYSCALLBUF_LIB_FILENAME SYSCALLBUF_LIB_FILENAME_BASE ".so"
 #define SYSCALLBUF_LIB_FILENAME_PADDED SYSCALLBUF_LIB_FILENAME_BASE ".so:::"
 #define SYSCALLBUF_LIB_FILENAME_32 SYSCALLBUF_LIB_FILENAME_BASE "_32.so"
 
-#define RTLDAUDIT_LIB_FILENAME_BASE "librraudit"
+#define RTLDAUDIT_LIB_FILENAME_BASE "librdaudit"
 #define RTLDAUDIT_LIB_FILENAME RTLDAUDIT_LIB_FILENAME_BASE ".so"
 #define RTLDAUDIT_LIB_FILENAME_PADDED RTLDAUDIT_LIB_FILENAME_BASE ".so:::"
 #define RTLDAUDIT_LIB_FILENAME_32 RTLDAUDIT_LIB_FILENAME_BASE "_32.so"
 
 /* Set this env var to enable syscall buffering. */
-#define SYSCALLBUF_ENABLED_ENV_VAR "_RR_USE_SYSCALLBUF"
+#define SYSCALLBUF_ENABLED_ENV_VAR "_RD_USE_SYSCALLBUF"
 
 /* Size of table mapping fd numbers to syscallbuf-disabled flag.
  * Most Linux kernels limit fds to 1024 so it probably doesn't make sense
@@ -110,7 +110,7 @@ static inline const char* extract_file_name(const char* s) {
 
 #define MPROTECT_RECORD_COUNT 1000
 
-/* Must match generate_rr_page.py */
+/* Must match generate_rd_page.py */
 #define RR_PAGE_ADDR 0x70000000
 #define RR_PAGE_SYSCALL_STUB_SIZE 3
 #define RR_PAGE_SYSCALL_INSTRUCTION_END 2

@@ -104,7 +104,7 @@ enum HandleHeap {
     RespectHeap,
 }
 
-/// Must match generate_rr_page.py
+/// Must match generate_rd_page.py
 const ENTRY_POINTS: [SyscallType; 8] = [
     SyscallType::new(
         Traced::Traced,
@@ -2256,12 +2256,12 @@ pub mod address_space {
                 }
             }
 
-            // If we're being recorded by rr, we'll see the outer rr's rr_page and
+            // If we're being recorded by rd, we'll see the outer rd's rd_page and
             // preload_thread_locals. In post_exec() we'll remap those with our
-            // own mappings. That's OK because a) the rr_page contents are the same
+            // own mappings. That's OK because a) the rd_page contents are the same
             // anyway and immutable and b) the preload_thread_locals page is only
             // used by the preload library, and the preload library only knows about
-            // the inner rd. I.e. as far as the outer rd is concerned, the tracee is
+            // the inner rd. i.e. as far as the outer rd is concerned, the tracee is
             // not doing syscall buffering.
 
             let mut found_stacks = 0;
@@ -2439,13 +2439,13 @@ pub mod address_space {
                 ed_assert!(
                     child_path.task(),
                     child_fd != -ENOENT,
-                    "rr_page file not found: {:?}",
+                    "rd_page file not found: {:?}",
                     path
                 );
                 ed_assert!(
                     child_path.task(),
                     child_fd == -EACCES,
-                    "Unexpected error mapping rr_page"
+                    "Unexpected error mapping rd_page"
                 );
                 flags |= MapFlags::MAP_ANONYMOUS;
                 child_path.infallible_mmap_syscall(
@@ -2460,7 +2460,7 @@ pub mod address_space {
                 ed_assert!(
                     child_path.task(),
                     page.is_open(),
-                    "Error opening rr_page ourselves"
+                    "Error opening rd_page ourselves"
                 );
                 // @TODO Different from rr. Make sure this is correct.
                 file_name = child_path.task().file_name_of_fd(page.as_raw());
@@ -3282,7 +3282,7 @@ fn range_for_watchpoint(addr: RemotePtr<Void>, num_bytes: usize) -> MemoryRange 
 
 fn find_rd_page_file(t: &dyn Task) -> OsString {
     let mut path: Vec<u8> = Vec::from(resource_path().as_bytes());
-    path.extend_from_slice(b"share/rr/rr_page_");
+    path.extend_from_slice(b"share/rd/rd_page_");
     match t.arch() {
         SupportedArch::X86 => path.extend_from_slice(b"32"),
         SupportedArch::X64 => path.extend_from_slice(b"64"),
