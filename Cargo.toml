@@ -33,6 +33,7 @@ structopt = "0.3"
 bindgen = "0.56"
 capnpc = "0.13"
 cc = "1.0"
+cmake = "0.1"
 
 [features]
 default = []
