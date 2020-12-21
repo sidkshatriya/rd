@@ -224,8 +224,9 @@ pub struct MappedData {
 pub(super) fn make_trace_dir(exe_path: &OsStr, maybe_output_trace_dir: Option<&OsStr>) -> OsString {
     match maybe_output_trace_dir {
         Some(output_trace_dir) => {
+            // DIFF NOTE: Make trace dirs only S_IRWXU to be conservative. rr adds Mode::S_IRWXG also.
             // save trace dir in given output trace dir with option -o
-            let ret = mkdir(output_trace_dir, Mode::S_IRWXU | Mode::S_IRWXG);
+            let ret = mkdir(output_trace_dir, Mode::S_IRWXU);
             match ret {
                 Ok(_) => output_trace_dir.to_owned(),
                 Err(e) if EEXIST == errno() => {
@@ -258,7 +259,8 @@ pub(super) fn make_trace_dir(exe_path: &OsStr, maybe_output_trace_dir: Option<&O
                 dir = Vec::from(ss.as_slice());
                 write!(dir, "-{}", nonce).unwrap();
                 nonce += 1;
-                ret = mkdir(dir.as_slice(), Mode::S_IRWXU | Mode::S_IRWXG);
+                // DIFF NOTE: Make trace dirs only S_IRWXU to be conservative. rr adds Mode::S_IRWXG also.
+                ret = mkdir(dir.as_slice(), Mode::S_IRWXU);
                 if ret.is_ok() || EEXIST != errno() {
                     break;
                 }
