@@ -97,15 +97,15 @@ else()
 endif()
 
 # Check that compiling 32-bit code on a 64-bit target works, if required.
-#if(CMAKE_HOST_SYSTEM_PROCESSOR STREQUAL "x86_64" AND rd_32BIT)
-#  # try_compile won't accept LINK_FLAGS, so do this manually.
-#  file(WRITE "${CMAKE_BINARY_DIR}/test32.c" "int main() { return 0; }")
-#  execute_process(COMMAND ${CMAKE_C_COMPILER} -o ${CMAKE_BINARY_DIR}/test32 ${CMAKE_BINARY_DIR}/test32.c -m32
-#			RESULT_VARIABLE COMPILER_32BIT_RESULT)
-#  if(NOT (COMPILER_32BIT_RESULT EQUAL 0))
-#    message(FATAL_ERROR "Your toolchain doesn't support 32-bit cross-compilation. Install the required packages or pass -Ddisable32bit=ON to cmake.")
-#  endif()
-#endif()
+if(CMAKE_HOST_SYSTEM_PROCESSOR STREQUAL "x86_64" AND rd_32BIT)
+  # try_compile won't accept LINK_FLAGS, so do this manually.
+  file(WRITE "${CMAKE_BINARY_DIR}/test32.c" "int main() { return 0; }")
+  execute_process(COMMAND ${CMAKE_C_COMPILER} -o ${CMAKE_BINARY_DIR}/test32 ${CMAKE_BINARY_DIR}/test32.c -m32
+			RESULT_VARIABLE COMPILER_32BIT_RESULT)
+  if(NOT (COMPILER_32BIT_RESULT EQUAL 0))
+    message(FATAL_ERROR "Your toolchain doesn't support 32-bit cross-compilation. Install the required packages or pass -Ddisable32bit=ON to cmake.")
+  endif()
+endif()
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${rd_MBITNESS_OPTION}")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${rd_MBITNESS_OPTION}")
