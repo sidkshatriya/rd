@@ -4,38 +4,71 @@
 
 The port is  _in-progress_ but many things work already (see [below](https://github.com/sidkshatriya/rd#what-works)).
 
-## Installing
+## Building 
 
 rd requires a nightly version of the rust `x86_64-unknown-linux-gnu` toolchain to compile.
 
 ```bash
 $ git clone git@github.com:sidkshatriya/rd.git
 $ cd rd
-$ cargo install --locked --force --path .
+$ cargo build --release 
 ```
 
-Alternatively, use `--debug` like below. Things will run much more slowly as the code will be compiled with lower compiler optimizations, extra debug-mode assertions etc. 
+Alternatively, build in debug mode . Things will run much more slowly as the code will be compiled with lower compiler optimizations, extra debug-mode assertions etc. 
 
 ```bash
-$ cargo install --debug --locked --force --path .
+# Defaults to debug mode by default
+$ cargo build 
 ```
 
-In general, run in release mode as the debug mode can be much slower. Run `rd` in debug mode if you run into issues or are working on developing `rd`.
+In general, use release mode as the debug mode can be much slower. Run `rd` in debug mode if you run into issues or are working on developing `rd`.
 
 The program has been tested to compile and run properly on a 64-bit Ubuntu 20.04 installation at the moment only. 
 
 Please file a ticket if `rd` does not work properly for your specific Linux distribution. In general, if `rr` compiles and runs properly in your Linux distro, `rd` should do the same.
 
-## Running `rd`
+## Running `rd` via `cargo`
 
-Invoking `rd` without any parameters will give you help.
+Invoking `rd` without any command line parameters will give you help.
 ```bash
-$ rd
+$ cd rd
+# This command will provide general help on rd
+# To run debug mode simply omit `--release`
+$ cargo run --release
 ```
 
-To get help on specific `rd` sub-command:
+To get help on specific `rd` sub-command e.g. `record`
+```bash
+$ cargo run --release -- record --help
 ```
-$ rd rerun --help
+
+Here is a simple way to record and replay (the replay is non-interactive) `ls -l`.
+
+```bash
+# Note that we add another '--' in case we are passing any command line params to rd 
+$ cargo run --release -- record ls -- -l
+$ cargo run --release -- replay -a
+```
+
+## Installing `rd`
+
+It can get pretty tiresome to keep running `rd` via cargo. A simple script `install.sh` has been provided to install the rd binary and related support files to your directory of choice.
+
+```bash
+$ cd rd
+$ PREFIX=~/myrd ./install.sh
+```
+
+This installs rd at `$HOME/myrd`. Files will be stored at `~/myrd/bin`, `~/myrd/lib` and `~/myrd/share`. The install script is extremely simple and it's very easy to see what its doing. You may also want to add `~/myrd/bin` to your `PATH`.
+
+Assuming that `~/myrd`is in your `PATH` it is very easy to invoke `rd` now.
+
+```bash
+# Records ls -l invocation
+$ rd record ls -- -l
+
+# Non-interatively replays the ls -l recording
+$ rd replay -a
 ```
 
 ## Credits
@@ -73,17 +106,6 @@ The following work:
 
 ## Tips and Suggestions
 
-### Add an alias
-After installing `rd` add an alias like this in your bash (or other shell):
-
-Assuming you have a local source build of `rr-debugger/rr` at `/home/abcxyz/rr/build`
-
-```bash
-$ alias rd="rd --resource-path=/home/abcxyz/rr/build"
-```
-
-This will avoid constantly specifying the resource path on every `rd` invocation. In the future, manually specifying the `--resource-path` will not be needed (just like in `rr`) but this is required for now.
-
 ### Logging
 
 The various logging levels are `debug`, `info`, `warn`, `info` and `fatal`. To log at `warn` by default and `debug` for all messages from the `auto_remote_syscalls` rust module (as an example) do:
@@ -94,7 +116,7 @@ $ RD_LOG=all:warn,auto_remote_syscalls:debug rd <etc params>
 
 ### Recording program runs (i.e. traces)
 
-`rd` can now record program runs (i.e. traces) on its own now (just like `rr`). Recording with syscall buffers enabled or disabled are both supported. 
+`rd` can record program runs (i.e. traces) on its own (just like `rr`). Recording with syscall buffers enabled or disabled are both supported. 
  
 ```bash
 $ rd record <program to be recorded>
@@ -113,10 +135,21 @@ $ rd record ls -- -l
 Notes:
   * The recording functionality is mostly complete
 
-### _RR_TRACE environment variable
+### Replaying using `rr`
 
-`rd` understands the `_RR_TRACE` environment variable. E.g.
+As mentioned above `rd` cannot do interactive replay i.e. in the gdb debugger yet. 
+
+Non-interative replay i.e. `rd replay -a` is supported though. 
+
+If you want replay via gdb, you can record using `rd` and replay using `rr`.
 
 ```bash
-$ _RR_TRACE=/the/trace/directory rd replay -a
+$ rd record ls 
+rd: Saving execution to trace directory "/home/abcxyz/.local/share/rd/ls-3".
+base_file_monitor.rs	    mmapped_file_monitor.rs   proc_fd_dir_monitor.rs  stdio_monitor.rs
+magic_save_data_monitor.rs  preserve_file_monitor.rs  proc_mem_monitor.rs     virtual_perf_counter_monitor.rs
+
+# Now we can replay *interactively*  using rr
+# Assuming rr is in your PATH, add the exact directory on the first line after rd is invoked
+$ rr replay /home/abcxyz/.local/share/rd/ls-3
 ```
