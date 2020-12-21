@@ -6,12 +6,8 @@ if [ -z "${PREFIX}" ]; then
     echo "No PREFIX specified. Dont know where to install rd files!"
     echo ""
     echo "e.g. $ PREFIX=~/myrd ./install.sh"
-    echo "     This command will install rd files and directories in ~/myrd to:"
-    echo "           ~/myrd/bin, ~/myrd/lib and ~/myrd/share"
-    echo ""
-    echo "e.g. $ PREFIX=~/.local ./install.sh"
-    echo "     This command will install rd files and directories in ~/.local to:"
-    echo "           ~/.local/bin, ~/.local/lib and ~/.local/share"
+    echo "     This command will install rd files and directories to ~/myrd "
+    echo "     rd related files will be stored in ~/myrd/bin, ~/myrd/lib and ~/myrd/share"
     exit 1
 fi
 
