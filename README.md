@@ -29,7 +29,7 @@ Please file a ticket if `rd` does not work properly for your specific Linux dist
 
 ## Running `rd` via `cargo`
 
-Invoking `rd` without any command line parameters will give you help.
+Invoking `cargo run` without any command line parameters will give you help.
 ```bash
 $ cd rd
 # This command will provide general help on rd
