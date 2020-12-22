@@ -71,7 +71,7 @@ $ rd record ls -- -l
 $ rd replay -a
 ```
 
-Please note that the `install.sh` script is rudimentary. _As always, check (and modify as necessary) the unix permissions of the files and directories created_, especially, if you install to a location like `~/.local` `/usr/local` etc. In general it is recommended to install `rd` to a separate directory in `$HOME` e.g. `~/myrd`, `~/rd` etc. as that interferes the least with your existing system.
+Please note that the `install.sh` script is rudimentary. _As always, check (and modify as necessary) the unix permissions/ownership of the files and directories created_, especially, if you install to a location like `~/.local` `/usr/local` etc. In general it is recommended to install `rd` to a separate directory in `$HOME` e.g. `~/myrd`, `~/rd` etc. as that interferes the least with your existing system.
 
 ## Credits
 
