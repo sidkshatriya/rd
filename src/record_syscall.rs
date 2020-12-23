@@ -3744,14 +3744,11 @@ fn process_mmap(
     // at an assertion, in the worst case, we'd end up modifying the underlying
     // file.
     if !flags.contains(MapFlags::MAP_SHARED) {
-        t.vm().monkeypatcher().unwrap().borrow().patch_after_mmap(
-            t,
-            addr,
-            size,
-            offset_pages,
-            fd,
-            MmapMode::MmapSyscall,
-        );
+        t.vm()
+            .monkeypatcher()
+            .unwrap()
+            .borrow_mut()
+            .patch_after_mmap(t, addr, size, offset_pages, fd, MmapMode::MmapSyscall);
     }
 
     if (prot & (ProtFlags::PROT_WRITE | ProtFlags::PROT_READ)) == ProtFlags::PROT_READ

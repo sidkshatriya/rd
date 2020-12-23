@@ -28,18 +28,23 @@ use crate::{
     trace::trace_writer::MappingOrigin,
     util::{find, page_size},
 };
+use crc32fast::Hasher;
 use goblin::{
     elf::Elf,
     elf64::section_header::{SHF_ALLOC, SHT_NOBITS},
     strtab::Strtab,
 };
 use nix::{
+    errno::Errno,
     fcntl::{readlink, OFlag},
     sys::{
         mman::{mmap, munmap, MapFlags, ProtFlags},
         stat::fstat,
     },
+    unistd::read,
+    Error,
 };
+use object::{self, Object};
 use std::{
     cmp::min,
     collections::{BTreeMap, HashSet},
@@ -51,7 +56,7 @@ use std::{
         Range,
     },
     os::unix::ffi::OsStrExt,
-    path::Path,
+    path::{Component, Path, PathBuf},
     ptr,
     rc::Rc,
     slice,
@@ -331,7 +336,7 @@ impl MonkeyPatcher {
     /// Apply any necessary patching immediately after an mmap. We use this to
     /// patch libpthread.so.
     pub fn patch_after_mmap(
-        &self,
+        &mut self,
         t: &mut RecordTask,
         start: RemotePtr<Void>,
         size: usize,
@@ -342,7 +347,7 @@ impl MonkeyPatcher {
         if file_may_need_instrumentation(&t.vm().mapping_of(start).unwrap())
             && (t.arch() == SupportedArch::X86 || t.arch() == SupportedArch::X64)
         {
-            let open_fd: ScopedFd;
+            let mut open_fd: ScopedFd;
             if child_fd >= 0 {
                 open_fd = t.open_fd(child_fd, OFlag::O_RDONLY);
                 ed_assert!(t, open_fd.is_open(), "Failed to open child fd {}", child_fd);
@@ -370,16 +375,33 @@ impl MonkeyPatcher {
             // there is a debuglink.  For example, on Fedora 26, the .symtab and
             // .strtab sections are stripped from the debuginfo file for
             // libpthread.so.
-            let elf_obj = match Elf::parse(elf_map.map) {
+            let mut elf_obj = match Elf::parse(elf_map.map) {
                 Ok(elfo) => elfo,
                 Err(_) => return,
             };
 
+            let debug_elf_map;
+            let mut maybe_original = None;
             if elf_obj.syms.len() == 0 {
-                log!(
-                    LogWarn,
-                    "@TODO PENDING try to get symbols for patch_after_mmap() from debug"
-                )
+                let fsname = t
+                    .vm()
+                    .mapping_of(start)
+                    .unwrap()
+                    .map
+                    .fsname()
+                    .to_os_string();
+                match open_debug_file(elf_map.map, fsname) {
+                    Some(fd) => {
+                        open_fd = fd;
+                        debug_elf_map = ElfMap::new(&open_fd);
+                        maybe_original = Some(elf_obj);
+                        elf_obj = match Elf::parse(debug_elf_map.map) {
+                            Ok(elfo) => elfo,
+                            Err(_) => return,
+                        };
+                    }
+                    None => return,
+                }
             }
             for sym in &elf_obj.syms {
                 if has_name(&elf_obj.strtab, sym.st_name, "__elision_aconf") {
@@ -393,7 +415,10 @@ impl MonkeyPatcher {
                     // in glibc's elide.h.
                     set_and_record_bytes(
                         t,
-                        &elf_obj,
+                        match maybe_original.as_ref() {
+                            Some(elf) => elf,
+                            None => &elf_obj
+                        },
                         sym.st_value as usize + 8,
                         &ZERO.to_le_bytes(),
                         start,
@@ -413,7 +438,10 @@ impl MonkeyPatcher {
                     const RET: [u8; 1] = [0xC3];
                     set_and_record_bytes(
                         t,
-                        &elf_obj,
+                        match maybe_original.as_ref() {
+                            Some(elf) => elf,
+                            None => &elf_obj
+                        },
                         sym.st_value as usize,
                         &RET,
                         start,
@@ -431,11 +459,13 @@ impl MonkeyPatcher {
                         || has_name(&elf_obj.strtab, sym.st_name, "_dl_runtime_resolve_xsave")
                         || has_name(&elf_obj.strtab, sym.st_name, "_dl_runtime_resolve_xsavec"))
                 {
-                    let patcher = t.vm().monkeypatcher().unwrap();
                     patch_dl_runtime_resolve(
-                        &mut patcher.borrow_mut(),
+                        self,
                         t,
-                        &elf_obj,
+                        match maybe_original.as_ref() {
+                            Some(elf) => elf,
+                            None => &elf_obj
+                        },
                         sym.st_value as usize,
                         start,
                         size,
@@ -453,6 +483,48 @@ impl MonkeyPatcher {
             Some((&k, &v)) => k <= pp && pp < k + v,
             None => false,
         }
+    }
+}
+
+fn open_debug_file(bytes: &[u8], fsname: OsString) -> Option<ScopedFd> {
+    let path = PathBuf::from(fsname.clone());
+    let dirname = path.parent()?;
+    let mut debug_so_path = PathBuf::from("/usr/lib/debug");
+    for component in dirname.components() {
+        if component != Component::RootDir {
+            debug_so_path.push(component)
+        }
+    }
+
+    // @TODO This uses the object crate. Probably a good idea to _just_ use object or just goblin
+    let parsed = object::read::File::parse(bytes).ok()?;
+    let (debug_link, crc32) = parsed.gnu_debuglink().ok()??;
+    debug_so_path.push(OsStr::from_bytes(debug_link));
+    let debug_fd = ScopedFd::open_path(&debug_so_path, OFlag::O_RDONLY);
+    if !debug_fd.is_open() {
+        return None;
+    }
+    // Verify that the CRC checksum matches, in case the debuginfo and text file
+    // are in separate packages that are out of sync.
+    let mut hash = Hasher::new();
+    loop {
+        let mut buf = [0u8; 4096];
+        match read(debug_fd.as_raw(), &mut buf) {
+            Ok(0) => break,
+            Ok(nread) => hash.update(&buf[0..nread]),
+            //  Try again
+            Err(Error::Sys(Errno::EINTR)) => (),
+            Err(e) => {
+                log!(LogDebug, "Error reading {:?}: {:?}", debug_so_path, e);
+                return None;
+            }
+        }
+    }
+    if hash.finalize() == crc32 {
+        log!(LogDebug, "Found debug info for {:?}", fsname);
+        Some(debug_fd)
+    } else {
+        None
     }
 }
 
