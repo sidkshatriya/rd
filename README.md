@@ -29,7 +29,7 @@ Please file a ticket if `rd` does not work properly for your specific Linux dist
 
 ## Running `rd` via `cargo`
 
-Invoking `rd` without any command line parameters will give you help.
+Invoking `cargo run` without any command line parameters will give you help.
 ```bash
 $ cd rd
 # This command will provide general help on rd
@@ -59,9 +59,9 @@ $ cd rd
 $ PREFIX=~/myrd ./install.sh
 ```
 
-This installs rd at `$HOME/myrd`. Files will be stored at `~/myrd/bin`, `~/myrd/lib` and `~/myrd/share`. The install script is extremely simple and it's very easy to see what its doing. You may also want to add `~/myrd/bin` to your `PATH`.
+This installs rd at `$HOME/myrd`. Files will be stored at `~/myrd/bin`, `~/myrd/lib` and `~/myrd/share`. The install script is extremely simple and can be easily understood. You may also want to add `~/myrd/bin` to your `PATH` at this point.
 
-Assuming that `~/myrd`is in your `PATH` it is very easy to invoke `rd` now.
+Assuming that `~/myrd/bin`is in your `PATH` it is very easy to invoke `rd` now.
 
 ```bash
 # Records ls -l invocation
@@ -70,6 +70,8 @@ $ rd record ls -- -l
 # Non-interatively replays the ls -l recording
 $ rd replay -a
 ```
+
+Please note that the `install.sh` script is rudimentary. _As always, check (and modify as necessary) the unix permissions/ownership of the files and directories created_, especially, if you install to a location like `~/.local` `/usr/local` etc. In general it is recommended to install `rd` to a separate directory in `$HOME` e.g. `~/myrd`, `~/rd` etc. as that interferes the least with your existing system.
 
 ## Credits
 
