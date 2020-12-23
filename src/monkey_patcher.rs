@@ -417,7 +417,7 @@ impl MonkeyPatcher {
                         t,
                         match maybe_original.as_ref() {
                             Some(elf) => elf,
-                            None => &elf_obj
+                            None => &elf_obj,
                         },
                         sym.st_value as usize + 8,
                         &ZERO.to_le_bytes(),
@@ -440,7 +440,7 @@ impl MonkeyPatcher {
                         t,
                         match maybe_original.as_ref() {
                             Some(elf) => elf,
-                            None => &elf_obj
+                            None => &elf_obj,
                         },
                         sym.st_value as usize,
                         &RET,
@@ -464,7 +464,7 @@ impl MonkeyPatcher {
                         t,
                         match maybe_original.as_ref() {
                             Some(elf) => elf,
-                            None => &elf_obj
+                            None => &elf_obj,
                         },
                         sym.st_value as usize,
                         start,
@@ -521,7 +521,6 @@ fn open_debug_file(bytes: &[u8], fsname: OsString) -> Option<ScopedFd> {
         }
     }
     if hash.finalize() == crc32 {
-        log!(LogDebug, "Found debug info for {:?}", fsname);
         Some(debug_fd)
     } else {
         None
@@ -1523,8 +1522,8 @@ impl Drop for ElfMap {
     }
 }
 
-fn resolve_address<'a>(
-    elf_obj: &Elf<'a>,
+fn resolve_address(
+    elf_obj: &Elf,
     elf_addr: usize,
     map_start: RemotePtr<Void>,
     map_size: usize,
