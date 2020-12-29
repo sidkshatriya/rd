@@ -1460,13 +1460,21 @@ fn patch_after_exec_arch_x64arch(t: &mut RecordTask, patcher: &mut MonkeyPatcher
 
     obliterate_debug_info(&elf_obj, t);
 
+    let mut after_mmap_vec = Vec::new();
     for (_, m) in &t.vm_shr_ptr().maps() {
         let km = &m.map;
+        let km_start = km.start();
+        let km_size = km.size();
+        let km_offset = km.file_offset_bytes();
+        after_mmap_vec.push((km_start, km_size, km_offset));
+    }
+
+    for (km_start, km_size, km_offset) in after_mmap_vec {
         patcher.patch_after_mmap(
             t,
-            km.start(),
-            km.size(),
-            (km.file_offset_bytes() / page_size() as u64) as usize,
+            km_start,
+            km_size,
+            (km_offset / page_size() as u64) as usize,
             -1,
             MmapMode::MmapExec,
         );
