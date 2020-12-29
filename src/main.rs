@@ -1,4 +1,3 @@
-#![feature(slice_fill)]
 #![feature(get_mut_unchecked)]
 #![feature(map_first_last)]
 #![feature(llvm_asm)]
