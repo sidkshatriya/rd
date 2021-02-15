@@ -27,6 +27,11 @@ The program has been tested to compile and run properly on a 64-bit Ubuntu 20.04
 
 Please file a ticket if `rd` does not work properly for your specific Linux distribution. In general, if `rr` compiles and runs properly in your Linux distro, `rd` should do the same.
 
+Before trying to install or run `rd` make sure:
+```
+sudo apt install cmake make capnproto libcapnp-dev
+```
+
 ## Running `rd` via `cargo`
 
 Invoking `cargo run` without any command line parameters will give you help.
