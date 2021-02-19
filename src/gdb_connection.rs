@@ -19,7 +19,7 @@ include!(concat!(
 
 /// Represents a possibly-undefined register `name`.  `size` indicates how
 /// many bytes of `value` are valid, if any.
-#[derive(Clone, Debug)]
+#[derive(Clone, Default, Debug)]
 pub struct GdbRegisterValue {
     pub name: GdbRegister,
     pub value: GdbRegisterValueData,
@@ -34,6 +34,13 @@ pub enum GdbRegisterValueData {
     Value2(u16),
     Value4(u32),
     Value8(u64),
+}
+
+impl Default for GdbRegisterValueData {
+    fn default() -> Self {
+        // Pick something arbitrary
+        GdbRegisterValueData::Value8(0)
+    }
 }
 
 impl GdbRegisterValue {
@@ -71,7 +78,7 @@ impl GdbRegisterValue {
 
 /// Descriptor for task.  Note: on linux, we can uniquely identify any thread
 /// by its `tid` (in rd's pid namespace).
-#[derive(PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct GdbThreadId {
     pub pid: pid_t,
     pub tid: pid_t,
@@ -83,12 +90,22 @@ impl Default for GdbThreadId {
     }
 }
 
+impl GdbThreadId {
+    const ANY: GdbThreadId = GdbThreadId::new(0, 0);
+    const ALL: GdbThreadId = GdbThreadId::new(-1, -1);
+
+    const fn new(pid: pid_t, tid: pid_t) -> Self {
+        GdbThreadId { pid, tid }
+    }
+}
+
 impl Display for GdbThreadId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "{}.{}", self.pid, self.tid)
     }
 }
 
+#[derive(Clone)]
 pub struct GdbRequest {
     pub type_: GdbRequestType,
     pub value: GdbRequestValue,
@@ -96,7 +113,9 @@ pub struct GdbRequest {
     pub suppress_debugger_stop: bool,
 }
 
+#[derive(Clone)]
 pub enum GdbRequestValue {
+    GdbRequestNone,
     GdbRequestMem(gdb_request::Mem),
     GdbRequestWatch(gdb_request::Watch),
     GdbRequestRestart(gdb_request::Restart),
@@ -112,6 +131,39 @@ pub enum GdbRequestValue {
 }
 
 impl GdbRequest {
+    pub fn new(maybe_type: Option<GdbRequestType>) -> GdbRequest {
+        let type_ = maybe_type.unwrap_or(DREQ_NONE);
+        let value = match type_ {
+            DREQ_NONE => GdbRequestValue::GdbRequestNone,
+            t if t >= DREQ_MEM_FIRST && t <= DREQ_MEM_LAST => {
+                GdbRequestValue::GdbRequestMem(Default::default())
+            }
+            t if t >= DREQ_WATCH_FIRST && t <= DREQ_WATCH_LAST => {
+                GdbRequestValue::GdbRequestWatch(Default::default())
+            }
+            t if t >= DREQ_REG_FIRST && t <= DREQ_REG_LAST => {
+                GdbRequestValue::GdbRequestRegisterValue(Default::default())
+            }
+            DREQ_RESTART => GdbRequestValue::GdbRequestRestart(Default::default()),
+            DREQ_CONT => GdbRequestValue::GdbRequestCont(Default::default()),
+            DREQ_RR_CMD => GdbRequestValue::GdbRequestText(Default::default()),
+            DREQ_TLS => GdbRequestValue::GdbRequestTls(Default::default()),
+            DREQ_QSYMBOL => GdbRequestValue::GdbRequestSymbol(Default::default()),
+            DREQ_FILE_SETFS => GdbRequestValue::GdbRequestFileSetfs(Default::default()),
+            DREQ_FILE_OPEN => GdbRequestValue::GdbRequestFileOpen(Default::default()),
+            DREQ_FILE_PREAD => GdbRequestValue::GdbRequestFilePread(Default::default()),
+            DREQ_FILE_CLOSE => GdbRequestValue::GdbRequestFileClose(Default::default()),
+            _ => panic!("Unknown DREQ: {}", type_),
+        };
+
+        GdbRequest {
+            type_,
+            value,
+            target: GdbThreadId::ANY,
+            suppress_debugger_stop: false,
+        }
+    }
+
     /// Return nonzero if this requires that program execution be resumed in some way.
     pub fn is_resume_request(&self) -> bool {
         self.type_ == DREQ_CONT
@@ -334,10 +386,46 @@ impl GdbRequest {
     }
 }
 
-/// @TODO
-pub struct GdbRestartType;
-/// @TODO
-pub struct GdbContAction;
+#[derive(Copy, Clone, PartialEq, Eq)]
+pub enum GdbRestartType {
+    RestartFromPrevious,
+    RestartFromEvent,
+    RestartFromCheckpoint,
+}
+
+impl Default for GdbRestartType {
+    fn default() -> Self {
+        GdbRestartType::RestartFromPrevious
+    }
+}
+
+#[derive(Copy, Clone, PartialEq, Eq)]
+pub enum GdbActionType {
+    ActionContinue,
+    ActionStep,
+}
+
+#[derive(Clone)]
+pub struct GdbContAction {
+    pub type_: GdbActionType,
+    pub target: GdbThreadId,
+    /// rr allows a 0 signal. We represent that by Option<Sig> where None becomes the 0 signal
+    pub maybe_signal_to_deliver: Option<Sig>,
+}
+
+impl GdbContAction {
+    pub fn new(
+        maybe_type: Option<GdbActionType>,
+        maybe_target: Option<GdbThreadId>,
+        maybe_signal_to_deliver: Option<Sig>,
+    ) -> GdbContAction {
+        GdbContAction {
+            type_: maybe_type.unwrap_or(GdbActionType::ActionContinue),
+            target: maybe_target.unwrap_or(GdbThreadId::ANY),
+            maybe_signal_to_deliver,
+        }
+    }
+}
 
 pub mod gdb_request {
     use super::{GdbContAction, GdbRestartType};
@@ -348,6 +436,7 @@ pub mod gdb_request {
     use libc::pid_t;
     use std::ffi::OsString;
 
+    #[derive(Default, Clone)]
     pub struct Mem {
         pub addr: usize,
         pub len: usize,
@@ -356,38 +445,45 @@ pub mod gdb_request {
         pub data: Vec<u8>,
     }
 
+    #[derive(Default, Clone)]
     pub struct Watch {
         pub addr: usize,
         pub kind: i32,
         pub conditions: Vec<Vec<u8>>,
     }
 
+    #[derive(Default, Clone)]
     pub struct Restart {
         pub param: i32,
         pub param_str: OsString,
         pub type_: GdbRestartType,
     }
 
+    #[derive(Default, Clone)]
     pub struct Cont {
         pub run_direction: RunDirection,
         pub actions: Vec<GdbContAction>,
     }
 
+    #[derive(Default, Clone)]
     pub struct Tls {
         pub offset: usize,
         pub load_module: RemotePtr<Void>,
     }
 
+    #[derive(Default, Clone)]
     pub struct Symbol {
         pub has_address: bool,
         pub address: RemotePtr<Void>,
         pub name: OsString,
     }
 
+    #[derive(Default, Clone)]
     pub struct FileSetfs {
         pub pid: pid_t,
     }
 
+    #[derive(Default, Clone)]
     pub struct FileOpen {
         pub file_name: OsString,
         /// In system format, not gdb's format
@@ -395,12 +491,14 @@ pub mod gdb_request {
         pub mode: i32,
     }
 
+    #[derive(Default, Clone)]
     pub struct FilePread {
         pub fd: i32,
         pub size: usize,
         pub offset: u64,
     }
 
+    #[derive(Default, Clone)]
     pub struct FileClose {
         pub fd: i32,
     }

@@ -20,6 +20,13 @@ include!(concat!(
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct GdbRegister(u32);
 
+impl Default for GdbRegister {
+    fn default() -> Self {
+        // Pick an arbitrary one
+        DREG_EAX
+    }
+}
+
 pub const DREG_EAX: GdbRegister = GdbRegister(__DREG_EAX);
 pub const DREG_ECX: GdbRegister = GdbRegister(__DREG_ECX);
 pub const DREG_EDX: GdbRegister = GdbRegister(__DREG_EDX);
