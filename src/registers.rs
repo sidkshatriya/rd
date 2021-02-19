@@ -341,8 +341,7 @@ impl Registers {
                     Some(rv.nbytes)
                 }
                 _ => {
-                    debug_assert!(false, format!("Unknown register size: {}", rv.nbytes));
-                    None
+                    fatal!("Unknown register size: {}", rv.nbytes);
                 }
             }
         } else {
@@ -376,7 +375,7 @@ impl Registers {
                     *rv_ref = u64::from_le_bytes(value[0..8].try_into().unwrap());
                 }
                 _ => {
-                    debug_assert!(false, format!("Unknown register size: {}", rv.nbytes));
+                    fatal!("Unknown register size: {}", rv.nbytes);
                 }
             }
         }
