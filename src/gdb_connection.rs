@@ -1,5 +1,6 @@
 use crate::{
     gdb_register::GdbRegister,
+    log::LogLevel::{LogDebug, LogInfo},
     registers::MAX_REG_SIZE_BYTES,
     remote_ptr::{RemotePtr, Void},
     scoped_fd::ScopedFd,
@@ -7,9 +8,16 @@ use crate::{
     sig::Sig,
 };
 use libc::pid_t;
+use nix::{
+    errno::Errno,
+    poll::{poll, PollFd, PollFlags},
+    unistd,
+    Error,
+};
 use std::{
     ffi::{OsStr, OsString},
     fmt::{self, Display},
+    os::unix::ffi::OsStrExt,
 };
 
 include!(concat!(
@@ -395,6 +403,7 @@ pub enum GdbRestartType {
 
 impl Default for GdbRestartType {
     fn default() -> Self {
+        // Arbitrary
         GdbRestartType::RestartFromPrevious
     }
 }
@@ -811,8 +820,35 @@ impl GdbConnection {
     }
 
     /// Send all pending output to gdb.  May block.
-    fn write_flush() {
-        unimplemented!()
+    fn write_flush(&mut self) {
+        let mut write_index: usize = 0;
+
+        log!(
+            LogDebug,
+            "write_flush: {:?}",
+            OsStr::from_bytes(&self.outbuf)
+        );
+
+        while write_index < self.outbuf.len() {
+            poll_outgoing(&self.sock_fd, -1 /*wait forever*/);
+            let result = unistd::write(self.sock_fd.as_raw(), &mut self.outbuf[write_index..]);
+            match result {
+                Err(_) => {
+                    log!(
+                        LogInfo,
+                        "Could not write data to gdb socket, marking connection as closed",
+                    );
+                    self.connection_alive_ = false;
+                    self.outbuf.clear();
+                    return;
+                }
+                Ok(nwritten) => {
+                    write_index += nwritten;
+                }
+            }
+        }
+
+        self.outbuf.clear();
     }
 
     fn write_data_raw(_data: &[u8]) {
@@ -913,4 +949,34 @@ impl GdbConnection {
     fn send_file_error_reply(_system_errno: i32) {
         unimplemented!()
     }
+}
+
+fn poll_incoming(sock_fd: &ScopedFd, timeout_ms: i32) {
+    poll_socket(
+        sock_fd,
+        PollFlags::POLLIN, /* TODO: |POLLERR */
+        timeout_ms,
+    );
+}
+
+fn poll_outgoing(sock_fd: &ScopedFd, timeout_ms: i32) {
+    poll_socket(
+        sock_fd,
+        PollFlags::POLLOUT, /* TODO: |POLLERR */
+        timeout_ms,
+    );
+}
+
+/// Poll for data to or from gdb, waiting `timeoutMs`.  0 means "don't
+/// wait", and -1 means "wait forever".  Return true if data is ready.
+fn poll_socket(sock_fd: &ScopedFd, events: PollFlags, timeout_ms: i32) -> bool {
+    let mut pfds = [PollFd::new(sock_fd.as_raw(), events)];
+
+    match poll(&mut pfds, timeout_ms) {
+        Ok(ret) if ret > 0 => return true,
+        Err(Error::Sys(err)) if err != Errno::EINTR => log!(LogInfo, "gdb socket has been closed"),
+        _ => (),
+    }
+
+    false
 }
