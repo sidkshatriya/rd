@@ -7,7 +7,10 @@ use crate::{
     sig::Sig,
 };
 use libc::pid_t;
-use std::ffi::OsStr;
+use std::{
+    ffi::{OsStr, OsString},
+    fmt::{self, Display},
+};
 
 include!(concat!(
     env!("OUT_DIR"),
@@ -66,11 +69,271 @@ impl GdbRegisterValue {
     }
 }
 
-/// @TODO
-pub struct GdbThreadId;
+/// Descriptor for task.  Note: on linux, we can uniquely identify any thread
+/// by its `tid` (in rd's pid namespace).
+#[derive(PartialEq, Eq)]
+pub struct GdbThreadId {
+    pub pid: pid_t,
+    pub tid: pid_t,
+}
 
-/// @TODO
-pub struct GdbRequest;
+impl Default for GdbThreadId {
+    fn default() -> Self {
+        GdbThreadId { pid: -1, tid: -1 }
+    }
+}
+
+impl Display for GdbThreadId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{}.{}", self.pid, self.tid)
+    }
+}
+
+pub struct GdbRequest {
+    pub type_: GdbRequestType,
+    pub value: GdbRequestValue,
+    pub target: GdbThreadId,
+    pub suppress_debugger_stop: bool,
+}
+
+pub enum GdbRequestValue {
+    GdbRequestMem(gdb_request::Mem),
+    GdbRequestWatch(gdb_request::Watch),
+    GdbRequestRestart(gdb_request::Restart),
+    GdbRequestRegisterValue(GdbRegisterValue),
+    GdbRequestText(OsString),
+    GdbRequestCont(gdb_request::Cont),
+    GdbRequestTls(gdb_request::Tls),
+    GdbRequestSymbol(gdb_request::Symbol),
+    GdbRequestFileSetfs(gdb_request::FileSetfs),
+    GdbRequestFileOpen(gdb_request::FileOpen),
+    GdbRequestFilePread(gdb_request::FilePread),
+    GdbRequestFileClose(gdb_request::FileClose),
+}
+
+impl GdbRequest {
+    /// Return nonzero if this requires that program execution be resumed in some way.
+    pub fn is_resume_request(&self) -> bool {
+        self.type_ == DREQ_CONT
+    }
+    pub fn mem(&self) -> &gdb_request::Mem {
+        match &self.value {
+            GdbRequestValue::GdbRequestMem(v) => v,
+            _ => panic!(
+                "Unexpected GdbRequestValue enum variant. GdbRequestType was: {}",
+                self.type_
+            ),
+        }
+    }
+    pub fn watch(&self) -> &gdb_request::Watch {
+        match &self.value {
+            GdbRequestValue::GdbRequestWatch(v) => v,
+            _ => panic!(
+                "Unexpected GdbRequestValue enum variant. GdbRequestType was: {}",
+                self.type_
+            ),
+        }
+    }
+    pub fn restart(&self) -> &gdb_request::Restart {
+        match &self.value {
+            GdbRequestValue::GdbRequestRestart(v) => v,
+            _ => panic!(
+                "Unexpected GdbRequestValue enum variant. GdbRequestType was: {}",
+                self.type_
+            ),
+        }
+    }
+    pub fn reg(&self) -> &GdbRegisterValue {
+        match &self.value {
+            GdbRequestValue::GdbRequestRegisterValue(v) => v,
+            _ => panic!(
+                "Unexpected GdbRequestValue enum variant. GdbRequestType was: {}",
+                self.type_
+            ),
+        }
+    }
+    pub fn cont(&self) -> &gdb_request::Cont {
+        match &self.value {
+            GdbRequestValue::GdbRequestCont(v) => v,
+            _ => panic!(
+                "Unexpected GdbRequestValue enum variant. GdbRequestType was: {}",
+                self.type_
+            ),
+        }
+    }
+    pub fn text(&self) -> &OsStr {
+        match &self.value {
+            GdbRequestValue::GdbRequestText(v) => v,
+            _ => panic!(
+                "Unexpected GdbRequestValue enum variant. GdbRequestType was: {}",
+                self.type_
+            ),
+        }
+    }
+    pub fn tls(&self) -> &gdb_request::Tls {
+        match &self.value {
+            GdbRequestValue::GdbRequestTls(v) => v,
+            _ => panic!(
+                "Unexpected GdbRequestValue enum variant. GdbRequestType was: {}",
+                self.type_
+            ),
+        }
+    }
+    pub fn sym(&self) -> &gdb_request::Symbol {
+        match &self.value {
+            GdbRequestValue::GdbRequestSymbol(v) => v,
+            _ => panic!(
+                "Unexpected GdbRequestValue enum variant. GdbRequestType was: {}",
+                self.type_
+            ),
+        }
+    }
+    pub fn file_setfs(&self) -> &gdb_request::FileSetfs {
+        match &self.value {
+            GdbRequestValue::GdbRequestFileSetfs(v) => v,
+            _ => panic!(
+                "Unexpected GdbRequestValue enum variant. GdbRequestType was: {}",
+                self.type_
+            ),
+        }
+    }
+    pub fn file_open(&self) -> &gdb_request::FileOpen {
+        match &self.value {
+            GdbRequestValue::GdbRequestFileOpen(v) => v,
+            _ => panic!(
+                "Unexpected GdbRequestValue enum variant. GdbRequestType was: {}",
+                self.type_
+            ),
+        }
+    }
+    pub fn file_pread(&self) -> &gdb_request::FilePread {
+        match &self.value {
+            GdbRequestValue::GdbRequestFilePread(v) => v,
+            _ => panic!(
+                "Unexpected GdbRequestValue enum variant. GdbRequestType was: {}",
+                self.type_
+            ),
+        }
+    }
+    pub fn file_close(&self) -> &gdb_request::FileClose {
+        match &self.value {
+            GdbRequestValue::GdbRequestFileClose(v) => v,
+            _ => panic!(
+                "Unexpected GdbRequestValue enum variant. GdbRequestType was: {}",
+                self.type_
+            ),
+        }
+    }
+    pub fn mem_mut(&mut self) -> &mut gdb_request::Mem {
+        match &mut self.value {
+            GdbRequestValue::GdbRequestMem(v) => v,
+            _ => panic!(
+                "Unexpected GdbRequestValue enum variant. GdbRequestType was: {}",
+                self.type_
+            ),
+        }
+    }
+    pub fn watch_mut(&mut self) -> &mut gdb_request::Watch {
+        match &mut self.value {
+            GdbRequestValue::GdbRequestWatch(v) => v,
+            _ => panic!(
+                "Unexpected GdbRequestValue enum variant. GdbRequestType was: {}",
+                self.type_
+            ),
+        }
+    }
+    pub fn restart_mut(&mut self) -> &mut gdb_request::Restart {
+        match &mut self.value {
+            GdbRequestValue::GdbRequestRestart(v) => v,
+            _ => panic!(
+                "Unexpected GdbRequestValue enum variant. GdbRequestType was: {}",
+                self.type_
+            ),
+        }
+    }
+    pub fn reg_mut(&mut self) -> &mut GdbRegisterValue {
+        match &mut self.value {
+            GdbRequestValue::GdbRequestRegisterValue(v) => v,
+            _ => panic!(
+                "Unexpected GdbRequestValue enum variant. GdbRequestType was: {}",
+                self.type_
+            ),
+        }
+    }
+    pub fn cont_mut(&mut self) -> &mut gdb_request::Cont {
+        match &mut self.value {
+            GdbRequestValue::GdbRequestCont(v) => v,
+            _ => panic!(
+                "Unexpected GdbRequestValue enum variant. GdbRequestType was: {}",
+                self.type_
+            ),
+        }
+    }
+    pub fn text_mut(&mut self) -> &mut OsString {
+        match &mut self.value {
+            GdbRequestValue::GdbRequestText(v) => v,
+            _ => panic!(
+                "Unexpected GdbRequestValue enum variant. GdbRequestType was: {}",
+                self.type_
+            ),
+        }
+    }
+    pub fn tls_mut(&mut self) -> &mut gdb_request::Tls {
+        match &mut self.value {
+            GdbRequestValue::GdbRequestTls(v) => v,
+            _ => panic!(
+                "Unexpected GdbRequestValue enum variant. GdbRequestType was: {}",
+                self.type_
+            ),
+        }
+    }
+    pub fn sym_mut(&mut self) -> &mut gdb_request::Symbol {
+        match &mut self.value {
+            GdbRequestValue::GdbRequestSymbol(v) => v,
+            _ => panic!(
+                "Unexpected GdbRequestValue enum variant. GdbRequestType was: {}",
+                self.type_
+            ),
+        }
+    }
+    pub fn file_setfs_mut(&mut self) -> &mut gdb_request::FileSetfs {
+        match &mut self.value {
+            GdbRequestValue::GdbRequestFileSetfs(v) => v,
+            _ => panic!(
+                "Unexpected GdbRequestValue enum variant. GdbRequestType was: {}",
+                self.type_
+            ),
+        }
+    }
+    pub fn file_open_mut(&mut self) -> &mut gdb_request::FileOpen {
+        match &mut self.value {
+            GdbRequestValue::GdbRequestFileOpen(v) => v,
+            _ => panic!(
+                "Unexpected GdbRequestValue enum variant. GdbRequestType was: {}",
+                self.type_
+            ),
+        }
+    }
+    pub fn file_pread_mut(&mut self) -> &mut gdb_request::FilePread {
+        match &mut self.value {
+            GdbRequestValue::GdbRequestFilePread(v) => v,
+            _ => panic!(
+                "Unexpected GdbRequestValue enum variant. GdbRequestType was: {}",
+                self.type_
+            ),
+        }
+    }
+    pub fn file_close_mut(&mut self) -> &mut gdb_request::FileClose {
+        match &mut self.value {
+            GdbRequestValue::GdbRequestFileClose(v) => v,
+            _ => panic!(
+                "Unexpected GdbRequestValue enum variant. GdbRequestType was: {}",
+                self.type_
+            ),
+        }
+    }
+}
+
 /// @TODO
 pub struct GdbRestartType;
 /// @TODO
