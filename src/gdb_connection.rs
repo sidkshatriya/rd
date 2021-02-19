@@ -815,8 +815,23 @@ impl GdbConnection {
     }
 
     /// read() incoming data exactly one time, successfully.  May block.
-    fn read_data_once() {
-        unimplemented!()
+    fn read_data_once(&mut self) {
+        // Wait until there's data, instead of busy-looping on EAGAIN.
+        poll_incoming(&self.sock_fd, -1 /* wait forever */);
+        let mut buf = [0u8; 4096];
+        let result = unistd::read(self.sock_fd.as_raw(), &mut buf);
+        match result {
+            Ok(0) | Err(_) => {
+                log!(
+                    LogInfo,
+                    "Could not read data from gdb socket, marking connection as closed"
+                );
+                self.connection_alive_ = false;
+            }
+            Ok(nread) => {
+                self.inbuf.extend_from_slice(&buf[0..nread]);
+            }
+        }
     }
 
     /// Send all pending output to gdb.  May block.
@@ -851,8 +866,8 @@ impl GdbConnection {
         self.outbuf.clear();
     }
 
-    fn write_data_raw(_data: &[u8]) {
-        unimplemented!()
+    fn write_data_raw(&mut self, data: &[u8]) {
+        self.outbuf.extend_from_slice(data);
     }
 
     /// @TODO: Correct size chosen?
