@@ -1,6 +1,6 @@
 use crate::{
     gdb_register::GdbRegister,
-    log::LogLevel::{LogDebug, LogInfo},
+    log::LogLevel::{LogDebug, LogInfo, LogWarn},
     registers::MAX_REG_SIZE_BYTES,
     remote_ptr::{RemotePtr, Void},
     scoped_fd::ScopedFd,
@@ -54,7 +54,7 @@ pub struct GdbRegisterValue {
 
 #[derive(Clone, Debug)]
 pub enum GdbRegisterValueData {
-    Value([u8; MAX_REG_SIZE_BYTES]),
+    Value([u8; GdbRegisterValue::MAX_SIZE]),
     Value1(u8),
     Value2(u16),
     Value4(u32),
@@ -69,6 +69,9 @@ impl Default for GdbRegisterValueData {
 }
 
 impl GdbRegisterValue {
+    // Max register size
+    const MAX_SIZE: usize = MAX_REG_SIZE_BYTES;
+
     pub fn value1(&self) -> u8 {
         match self.value {
             GdbRegisterValueData::Value1(v) => v,
@@ -680,19 +683,51 @@ impl GdbConnection {
     }
 
     /// Send |value| back to the debugger host.  |value| may be undefined.
-    pub fn reply_get_reg(_value: &GdbRegisterValue) {
-        unimplemented!()
+    pub fn reply_get_reg(&mut self, reg: &GdbRegisterValue) {
+        let mut buf = Vec::<u8>::new();
+
+        debug_assert_eq!(DREQ_GET_REG, self.req.type_);
+
+        print_reg_value(&reg, &mut buf);
+        self.write_packet_bytes(&buf);
+
+        self.consume_request();
     }
 
     /// Send |file| back to the debugger host.  |file| may contain
     /// undefined register values.
-    pub fn reply_get_regs(_file: &[GdbRegisterValue]) {
-        unimplemented!()
+    pub fn reply_get_regs(&mut self, file: &[GdbRegisterValue]) {
+        let mut buf = Vec::<u8>::new();
+
+        debug_assert_eq!(DREQ_GET_REGS, self.req.type_);
+
+        for reg in file {
+            print_reg_value(reg, &mut buf);
+        }
+        self.write_packet_bytes(&buf);
+
+        self.consume_request();
     }
 
     /// Pass |ok = true| iff the requested register was successfully set.
-    pub fn reply_set_reg(_ok: bool) {
-        unimplemented!()
+    pub fn reply_set_reg(&mut self, ok: bool) {
+        debug_assert_eq!(DREQ_SET_REG, self.req.type_);
+
+        // TODO: what happens if we're forced to reply to a
+        // set-register request with |ok = false|, leading us to
+        // pretend not to understand the packet?  If, later, an
+        // experimental session needs the set-register request will it
+        // not be sent?
+        //
+        // We can't reply with an error packet here because gdb thinks
+        // that failed set-register requests are catastrophic.
+        if ok {
+            self.write_packet_bytes(b"OK")
+        } else {
+            self.write_packet_bytes(&[])
+        }
+
+        self.consume_request();
     }
 
     /// Reply to the DREQ_GET_STOP_REASON request.
@@ -1249,4 +1284,157 @@ fn decode_ascii_encoded_hex_str(encoded: &[u8]) -> String {
     }
 
     decoded_str
+}
+
+/// Format `value` into `buf` in the manner gdb expects.
+fn print_reg_value(reg: &GdbRegisterValue, buf: &mut Vec<u8>) {
+    parser_assert!(reg.size <= GdbRegisterValue::MAX_SIZE);
+    if reg.defined {
+        // gdb wants the register value in native endianness.
+        // reg.value read in native endianness is exactly that.
+        match reg.value {
+            GdbRegisterValueData::Value(v) => {
+                for i in 0..reg.size {
+                    write!(buf, "{:02x}", v[i]).unwrap();
+                }
+            }
+            GdbRegisterValueData::Value1(v) => {
+                write!(buf, "{:02x}", v).unwrap();
+            }
+            GdbRegisterValueData::Value2(v) => {
+                write!(buf, "{:04x}", v).unwrap();
+            }
+            GdbRegisterValueData::Value4(v) => {
+                write!(buf, "{:08x}", v).unwrap();
+            }
+            GdbRegisterValueData::Value8(v) => {
+                write!(buf, "{:016x}", v).unwrap();
+            }
+        }
+    } else {
+        for _ in 0..reg.size {
+            write!(buf, "xx").unwrap();
+        }
+    }
+}
+
+// Translate linux-x86 |sig| to gdb's internal numbering.  Translation
+// made according to gdb/include/gdb/signals.def.
+fn to_gdb_signum(sig: i32) -> i32 {
+    match sig {
+        0 => {
+            return 0;
+        }
+        libc::SIGHUP => {
+            return 1;
+        }
+        libc::SIGINT => {
+            return 2;
+        }
+        libc::SIGQUIT => {
+            return 3;
+        }
+        libc::SIGILL => {
+            return 4;
+        }
+        libc::SIGTRAP => {
+            return 5;
+        }
+        libc::SIGABRT => {
+            // libc::SIGIOT
+            return 6;
+        }
+        libc::SIGBUS => {
+            return 10;
+        }
+        libc::SIGFPE => {
+            return 8;
+        }
+        libc::SIGKILL => {
+            return 9;
+        }
+        libc::SIGUSR1 => {
+            return 30;
+        }
+        libc::SIGSEGV => {
+            return 11;
+        }
+        libc::SIGUSR2 => {
+            return 31;
+        }
+        libc::SIGPIPE => {
+            return 13;
+        }
+        libc::SIGALRM => {
+            return 14;
+        }
+        libc::SIGTERM => {
+            return 15;
+        }
+        // gdb hasn't heard of libc::SIGSTKFLT, so this is
+        // arbitrarily made up.  libc::SIGDANGER just sounds cool
+        libc::SIGSTKFLT => {
+            return 38; // GDB_libc::SIGNAL_DANGER
+        }
+        /* case libc::SIGCLD */ libc::SIGCHLD => {
+            return 20;
+        }
+        libc::SIGCONT => {
+            return 19;
+        }
+        libc::SIGSTOP => {
+            return 17;
+        }
+        libc::SIGTSTP => {
+            return 18;
+        }
+        libc::SIGTTIN => {
+            return 21;
+        }
+        libc::SIGTTOU => {
+            return 22;
+        }
+        libc::SIGURG => {
+            return 16;
+        }
+        libc::SIGXCPU => {
+            return 24;
+        }
+        libc::SIGXFSZ => {
+            return 25;
+        }
+        libc::SIGVTALRM => {
+            return 26;
+        }
+        libc::SIGPROF => {
+            return 27;
+        }
+        libc::SIGWINCH => {
+            return 28;
+        }
+        /* case libc::SIGPOLL */ libc::SIGIO => {
+            return 23;
+        }
+        libc::SIGPWR => {
+            return 32;
+        }
+        libc::SIGSYS => {
+            return 12;
+        }
+        32 => {
+            return 77;
+        }
+        _ => {
+            if 33 <= sig && sig <= 63 {
+                // GDB_libc::SIGNAL_REALTIME_33 is numbered 45, hence this offset
+                return sig + 12;
+            }
+            if 64 <= sig && sig <= 127 {
+                // GDB_libc::SIGNAL_REALTIME_64 is numbered 78, hence this offset
+                return sig + 14;
+            }
+            log!(LogWarn, "Unknown signal {}", sig);
+            return 143; // GDB_libc::SIGNAL_UNKNOWN
+        }
+    }
 }
