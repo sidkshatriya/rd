@@ -1,5 +1,6 @@
 // enum from rr-debugger/rr ( https://github.com/rr-debugger/rr ) src/GdbConnection.h
 // enum as of rr-debugger/rr git revision abd344288878c9b4046e0b8664927992947a46eb
+// Also DREQ_RR_CMD -> DREQ_RD_CMD
 enum GdbRequestType {
   DREQ_NONE = 0,
 
@@ -69,7 +70,7 @@ enum GdbRequestType {
   DREQ_RESTART,
 
   /* Uses params.text. */
-  DREQ_RR_CMD,
+  DREQ_RD_CMD,
 
   // qSymbol packet, uses params.sym.
   DREQ_QSYMBOL,

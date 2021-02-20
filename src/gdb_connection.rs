@@ -103,7 +103,7 @@ impl GdbRegisterValue {
 
 /// Descriptor for task.  Note: on linux, we can uniquely identify any thread
 /// by its `tid` (in rd's pid namespace).
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq)]
 pub struct GdbThreadId {
     pub pid: pid_t,
     pub tid: pid_t,
@@ -171,7 +171,7 @@ impl GdbRequest {
             }
             DREQ_RESTART => GdbRequestValue::GdbRequestRestart(Default::default()),
             DREQ_CONT => GdbRequestValue::GdbRequestCont(Default::default()),
-            DREQ_RR_CMD => GdbRequestValue::GdbRequestText(Default::default()),
+            DREQ_RD_CMD => GdbRequestValue::GdbRequestText(Default::default()),
             DREQ_TLS => GdbRequestValue::GdbRequestTls(Default::default()),
             DREQ_QSYMBOL => GdbRequestValue::GdbRequestSymbol(Default::default()),
             DREQ_FILE_SETFS => GdbRequestValue::GdbRequestFileSetfs(Default::default()),
@@ -706,10 +706,16 @@ impl GdbConnection {
         unimplemented!()
     }
 
-    /// |ok| is true if the request was successfully applied, false if
-    /// not.
-    pub fn reply_watchpoint_request(_ok: bool) {
-        unimplemented!()
+    /// |ok| is true if the request was successfully applied, false if not.
+    pub fn reply_watchpoint_request(&mut self, ok: bool) {
+        debug_assert!(DREQ_WATCH_FIRST <= self.req.type_ && self.req.type_ <= DREQ_WATCH_LAST);
+        if ok {
+            self.write_packet_bytes(b"OK");
+        } else {
+            self.write_packet_bytes(b"E01");
+        }
+
+        self.consume_request();
     }
 
     /// DREQ_DETACH was processed.
@@ -717,63 +723,132 @@ impl GdbConnection {
     /// There's no functional reason to reply to the detach request.
     /// However, some versions of gdb expect a response and time out
     /// awaiting it, wasting developer time.
-    pub fn reply_detach() {
-        unimplemented!()
+    pub fn reply_detach(&mut self) {
+        debug_assert!(DREQ_DETACH <= self.req.type_);
+
+        self.write_packet_bytes(b"OK");
+
+        self.consume_request();
     }
 
     /// Pass the siginfo_t and its size (as requested by the debugger) in
-    /// |si_bytes| and |num_bytes| if successfully read.  Otherwise pass
-    /// |si_bytes = nullptr|.
-    pub fn reply_read_siginfo(_si_bytes: &[u8]) {
-        unimplemented!()
+    /// `si_bytes` if successfully read.  Otherwise pass si_bytes = nullptr.
+    pub fn reply_read_siginfo(&mut self, si_bytes: &[u8]) {
+        debug_assert_eq!(DREQ_READ_SIGINFO, self.req.type_);
+
+        if si_bytes.is_empty() {
+            self.write_packet_bytes(b"E01");
+        } else {
+            self.write_binary_packet(b"l", si_bytes);
+        }
+
+        self.consume_request();
     }
 
     /// Not yet implemented, but call this after a WRITE_SIGINFO request
     /// anyway.
-    pub fn reply_write_siginfo(/* TODO*/) {
-        unimplemented!()
+    pub fn reply_write_siginfo(&mut self /* TODO*/) {
+        debug_assert_eq!(DREQ_WRITE_SIGINFO, self.req.type_);
+
+        self.write_packet_bytes(b"E01");
+
+        self.consume_request();
     }
 
     /// Send a manual text response to a rr cmd (maintenance) packet.
-    pub fn reply_rd_cmd(_text: &OsStr) {
-        unimplemented!()
+    pub fn reply_rd_cmd(&mut self, text: &str) {
+        debug_assert_eq!(DREQ_RD_CMD, self.req.type_);
+
+        self.write_packet_bytes(text.as_bytes());
+
+        self.consume_request();
     }
 
     /// Send a qSymbol response to gdb, requesting the address of the
     /// symbol |name|.
-    pub fn send_qsymbol(_name: &OsStr) {
-        unimplemented!()
+    pub fn send_qsymbol(&mut self, name: &str) {
+        debug_assert_eq!(DREQ_QSYMBOL, self.req.type_);
+
+        self.write_hex_bytes_packet_with_prefix(b"qSymbol:", name.as_bytes());
+
+        self.consume_request();
     }
 
     /// The "all done" response to a qSymbol packet from gdb.
-    pub fn qsymbols_finished() {
-        unimplemented!()
+    pub fn qsymbols_finished(&mut self) {
+        debug_assert_eq!(DREQ_QSYMBOL, self.req.type_);
+
+        self.write_packet_bytes(b"OK");
+
+        self.consume_request();
     }
 
     /// Respond to a qGetTLSAddr packet.  If |ok| is true, then respond
     /// with |address|.  If |ok| is false, respond with an error.
-    pub fn reply_tls_addr(_ok: bool, _addr: RemotePtr<Void>) {
-        unimplemented!()
+    pub fn reply_tls_addr(&mut self, ok: bool, addr: RemotePtr<Void>) {
+        debug_assert_eq!(DREQ_TLS, self.req.type_);
+
+        if ok {
+            let mut buf = Vec::<u8>::new();
+            write!(buf, "{:x};", addr.as_usize()).unwrap();
+            self.write_packet_bytes(&buf);
+        } else {
+            self.write_packet_bytes(b"E01");
+        }
+
+        self.consume_request();
     }
 
     /// Respond to a vFile:setfs
-    pub fn reply_setfs(_err: i32) {
-        unimplemented!()
+    pub fn reply_setfs(&mut self, err: i32) {
+        debug_assert_eq!(DREQ_FILE_SETFS, self.req.type_);
+        if err != 0 {
+            self.send_file_error_reply(err);
+        } else {
+            self.write_packet_bytes(b"F0");
+        }
+
+        self.consume_request();
     }
 
     /// Respond to a vFile:open
-    pub fn reply_open(_fd: i32, _err: i32) {
-        unimplemented!()
+    pub fn reply_open(&mut self, fd: i32, err: i32) {
+        debug_assert_eq!(DREQ_FILE_OPEN, self.req.type_);
+        if err != 0 {
+            self.send_file_error_reply(err);
+        } else {
+            let mut buf = Vec::<u8>::new();
+            write!(buf, "F{:x};", fd).unwrap();
+            self.write_packet_bytes(&buf);
+        }
+
+        self.consume_request();
     }
 
     /// Respond to a vFile:pread
-    pub fn reply_pread(_bytes: &[u8], _err: i32) {
-        unimplemented!()
+    pub fn reply_pread(&mut self, bytes: &[u8], err: i32) {
+        debug_assert_eq!(DREQ_FILE_PREAD, self.req.type_);
+        if err != 0 {
+            self.send_file_error_reply(err);
+        } else {
+            let mut buf = Vec::<u8>::new();
+            write!(buf, "F{:x};", bytes.len()).unwrap();
+            self.write_binary_packet(&buf, bytes);
+        }
+
+        self.consume_request();
     }
 
     /// Respond to a vFile:close
-    pub fn reply_close(_err: i32) {
-        unimplemented!()
+    pub fn reply_close(&mut self, err: i32) {
+        debug_assert_eq!(DREQ_FILE_CLOSE, self.req.type_);
+        if err != 0 {
+            self.send_file_error_reply(err);
+        } else {
+            self.write_packet_bytes(b"F0");
+        }
+
+        self.consume_request();
     }
 
     /// Create a checkpoint of the given Session with the given id. Delete the
@@ -827,8 +902,8 @@ impl GdbConnection {
     }
 
     ///  Returns false if the connection has been closed
-    pub fn is_connection_alive() -> bool {
-        unimplemented!()
+    pub fn is_connection_alive(&self) -> bool {
+        self.connection_alive_
     }
 
     /// read() incoming data exactly one time, successfully.  May block.
@@ -911,7 +986,7 @@ impl GdbConnection {
         unimplemented!()
     }
 
-    /// DIFF NOTE: prefix is a null terminated c-string in rr. here its just a slice.
+    /// DIFF NOTE: prefix is a null terminated c-string in rr. Here its just a slice.
     fn write_binary_packet(&mut self, pfx: &[u8], data: &[u8]) {
         let pfx_num_chars = pfx.len();
         let num_bytes = data.len();
@@ -1033,8 +1108,9 @@ impl GdbConnection {
         unimplemented!()
     }
 
-    fn consume_request() {
-        unimplemented!()
+    fn consume_request(&mut self) {
+        self.req = GdbRequest::new(None);
+        self.write_flush()
     }
 
     fn send_stop_reply_packet(_thread: GdbThreadId, _sig: Sig, _watch_addr: Option<usize>) {
