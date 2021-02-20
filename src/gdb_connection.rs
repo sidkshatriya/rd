@@ -1540,3 +1540,37 @@ fn to_gdb_signum(sig: i32) -> i32 {
         }
     }
 }
+
+fn gdb_open_flags_to_system_flags(flags: i64) -> i32 {
+    let mut ret: i32;
+    match flags & 3 {
+        0 => {
+            ret = libc::O_RDONLY;
+        }
+        1 => {
+            ret = libc::O_WRONLY;
+        }
+        2 => {
+            ret = libc::O_RDWR;
+        }
+        _ => {
+            parser_assert!(false);
+            return 0;
+        }
+    }
+    parser_assert_eq!(0, flags & !(3 | 0x8 | 0x200 | 0x400 | 0x800));
+    if flags & 0x8 != 0 {
+        ret |= libc::O_APPEND;
+    }
+    if flags & 0x200 != 0 {
+        ret |= libc::O_CREAT;
+    }
+    if flags & 0x400 != 0 {
+        ret |= libc::O_TRUNC;
+    }
+    if flags & 0x800 != 0 {
+        ret |= libc::O_EXCL;
+    }
+
+    ret
+}
