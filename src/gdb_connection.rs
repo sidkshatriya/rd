@@ -700,10 +700,29 @@ impl GdbConnection {
         unimplemented!()
     }
 
-    /// |threads| contains the list of live threads, of which there are
-    /// |len|.
-    pub fn reply_get_thread_list(_threads: &[GdbThreadId]) {
-        unimplemented!()
+    /// `threads` contains the list of live threads.
+    pub fn reply_get_thread_list(&mut self, threads: &[GdbThreadId]) {
+        debug_assert_eq!(DREQ_GET_THREAD_LIST, self.req.type_);
+        if threads.is_empty() {
+            self.write_packet_bytes(b"l");
+        } else {
+            let mut buf = Vec::<u8>::new();
+            buf.push(b'm');
+            for &t in threads {
+                if self.tgid != t.pid {
+                    continue;
+                }
+                if self.multiprocess_supported_ {
+                    write!(buf, "p{:02x}.{:02x},", t.pid, t.tid).unwrap();
+                } else {
+                    write!(buf, "{:02x},", t.tid).unwrap();
+                }
+            }
+            // Omit the trailing `,`
+            self.write_packet_bytes(&buf[..buf.len() - 1]);
+        }
+
+        self.consume_request();
     }
 
     /// |ok| is true if the request was successfully applied, false if not.
