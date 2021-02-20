@@ -3,6 +3,7 @@ use crate::{
     log::LogLevel::{LogDebug, LogInfo, LogWarn},
     registers::MAX_REG_SIZE_BYTES,
     remote_ptr::{RemotePtr, Void},
+    replay_timeline::RunDirection,
     scoped_fd::ScopedFd,
     session::SessionSharedPtr,
     sig::Sig,
@@ -1254,8 +1255,34 @@ impl GdbConnection {
 
     /// Return true if we need to do something in a debugger request,
     /// false if we already handled the packet internally.
-    fn process_bpacket(_payload: &[u8]) -> bool {
-        unimplemented!()
+    fn process_bpacket(&mut self, payload: &[u8]) -> bool {
+        if payload == b"c" {
+            self.req = GdbRequest::new(Some(DREQ_CONT));
+            self.req.cont_mut().run_direction = RunDirection::RunBackward;
+            self.req.cont_mut().actions.push(GdbContAction::new(
+                Some(GdbActionType::ActionContinue),
+                Some(self.resume_thread),
+                None,
+            ));
+            return true;
+        } else if payload == b"s" {
+            self.req = GdbRequest::new(Some(DREQ_CONT));
+            self.req.cont_mut().run_direction = RunDirection::RunBackward;
+            self.req.cont_mut().actions.push(GdbContAction::new(
+                Some(GdbActionType::ActionStep),
+                Some(self.resume_thread),
+                None,
+            ));
+            return true;
+        } else {
+            self.write_packet_bytes(&[]);
+            log!(
+                LogInfo,
+                "Unhandled gdb bpacket: b{:?}",
+                OsStr::from_bytes(payload)
+            );
+            return false;
+        }
     }
 
     /// Return true if we need to do something in a debugger request,
