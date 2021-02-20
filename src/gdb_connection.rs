@@ -26,6 +26,22 @@ include!(concat!(
     "/gdb_request_bindings_generated.rs"
 ));
 
+macro_rules! parser_assert {
+    ( $x:expr ) => {{
+        // DIFF NOTE: In rr the logic is ever so slightly different.
+        // In rr there is a fputs followed by a debug_assert and exit.
+        assert!($x, "Failed to parse gdb request");
+    }};
+}
+
+macro_rules! parser_assert_eq {
+    ( $x:expr, $y:expr ) => {{
+        assert_eq!($x, $y, "Failed to parse gdb request");
+    }};
+}
+
+const INTERRUPT_CHAR: u8 = b'\x03';
+
 /// Represents a possibly-undefined register `name`.  `size` indicates how
 /// many bytes of `value` are valid, if any.
 #[derive(Clone, Default, Debug)]
@@ -890,7 +906,7 @@ impl GdbConnection {
         self.write_hex(checksum as usize);
     }
 
-    /// NOTE: This function is intended to write a C String in rr
+    /// NOTE: This function is intended to write a null terminated c-string in rr
     fn write_packet(_data: &[u8]) {
         unimplemented!()
     }
@@ -943,8 +959,32 @@ impl GdbConnection {
     /// Consume bytes in the input buffer until start-of-packet ('$') or
     /// the interrupt character is seen.  Does not block.  Return true if
     /// seen, false if not.
-    fn skip_to_packet_start() -> bool {
-        unimplemented!()
+    fn skip_to_packet_start(&mut self) -> bool {
+        let mut maybe_end = None;
+        // Can we make this more efficient?
+        // XXX we want memcspn() here
+        for i in 0..self.inbuf.len() {
+            if self.inbuf[i] == b'$' || self.inbuf[i] == INTERRUPT_CHAR {
+                maybe_end = Some(i);
+                break;
+            }
+        }
+        match maybe_end {
+            None => {
+                // Discard all read bytes, which we don't care about
+                self.inbuf.clear();
+                return false;
+            }
+            Some(end) => {
+                // Discard bytes up to start-of-packet
+                self.inbuf.drain(..end);
+            }
+        }
+
+        parser_assert!(1 <= self.inbuf.len());
+        parser_assert!(b'$' == self.inbuf[0] || INTERRUPT_CHAR == self.inbuf[0]);
+
+        true
     }
 
     /// Block until the sequence of bytes
@@ -1001,8 +1041,73 @@ impl GdbConnection {
         unimplemented!()
     }
 
-    fn send_file_error_reply(_system_errno: i32) {
-        unimplemented!()
+    fn send_file_error_reply(&mut self, system_errno: i32) {
+        let gdb_err;
+        match system_errno {
+            libc::EPERM => {
+                gdb_err = 1;
+            }
+            libc::ENOENT => {
+                gdb_err = 2;
+            }
+            libc::EINTR => {
+                gdb_err = 4;
+            }
+            libc::EBADF => {
+                gdb_err = 9;
+            }
+            libc::EACCES => {
+                gdb_err = 13;
+            }
+            libc::EFAULT => {
+                gdb_err = 14;
+            }
+            libc::EBUSY => {
+                gdb_err = 16;
+            }
+            libc::EEXIST => {
+                gdb_err = 17;
+            }
+            libc::ENODEV => {
+                gdb_err = 19;
+            }
+            libc::ENOTDIR => {
+                gdb_err = 20;
+            }
+            libc::EISDIR => {
+                gdb_err = 21;
+            }
+            libc::EINVAL => {
+                gdb_err = 22;
+            }
+            libc::ENFILE => {
+                gdb_err = 23;
+            }
+            libc::EMFILE => {
+                gdb_err = 24;
+            }
+            libc::EFBIG => {
+                gdb_err = 27;
+            }
+            libc::ENOSPC => {
+                gdb_err = 28;
+            }
+            libc::ESPIPE => {
+                gdb_err = 29;
+            }
+            libc::EROFS => {
+                gdb_err = 30;
+            }
+            libc::ENAMETOOLONG => {
+                gdb_err = 91;
+            }
+            _ => {
+                gdb_err = 9999;
+            }
+        };
+        let mut buf = Vec::<u8>::new();
+        write!(buf, "F-01,{:x}", gdb_err).unwrap();
+        self.write_packet_bytes(&buf);
     }
 }
 
@@ -1034,4 +1139,19 @@ fn poll_socket(sock_fd: &ScopedFd, events: PollFlags, timeout_ms: i32) -> bool {
     }
 
     false
+}
+
+fn decode_ascii_encoded_hex_str(encoded: &[u8]) -> String {
+    let enc_len = encoded.len();
+    parser_assert_eq!(enc_len % 2, 0);
+    let mut decoded_str = String::new();
+    for i in 0..enc_len {
+        let enc_byte_str = std::str::from_utf8(&encoded[2 * i..2 * i + 2]).unwrap();
+        let c_u8 = u8::from_str_radix(enc_byte_str, 16).unwrap();
+        parser_assert!(c_u8 < 128);
+        let c: char = c_u8.into();
+        decoded_str.push(c);
+    }
+
+    decoded_str
 }
