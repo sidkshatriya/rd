@@ -586,8 +586,16 @@ impl GdbConnection {
 
     /// Finish a DREQ_RESTART request.  Should be invoked after replay
     /// restarts and prior GdbConnection has been restored.
-    pub fn notify_restart() {
-        unimplemented!()
+    pub fn notify_restart(&mut self) {
+        debug_assert_eq!(DREQ_RESTART, self.req.type_);
+
+        // These threads may not exist at the first trace-stop after
+        // restart.  The gdb client should reset this state, but help
+        // it out just in case.
+        self.resume_thread = GdbThreadId::ANY;
+        self.query_thread = GdbThreadId::ANY;
+
+        self.req = GdbRequest::new(None);
     }
 
     /// Return the current request made by the debugger host, that needs to
@@ -603,9 +611,17 @@ impl GdbConnection {
         unimplemented!()
     }
 
-    /// Notify the host that this process has exited with |code|.
-    pub fn notify_exit_code(_code: i32) {
-        unimplemented!()
+    /// Notify the host that this process has exited with `code`.
+    /// DIFF NOTE: On rr code is an int
+    pub fn notify_exit_code(&mut self, code: u8) {
+        let mut buf = Vec::<u8>::new();
+
+        debug_assert!(self.req.is_resume_request() || self.req.type_ == DREQ_INTERRUPT);
+
+        write!(buf, "W{:02x}", code).unwrap();
+        self.write_packet_bytes(&buf);
+
+        self.consume_request();
     }
 
     /// Notify the host that this process has exited from |sig|.
@@ -621,65 +637,156 @@ impl GdbConnection {
     }
 
     /// Notify the debugger that a restart request failed.
-    pub fn notify_restart_failed() {
-        unimplemented!()
+    pub fn notify_restart_failed(&mut self) {
+        debug_assert_eq!(DREQ_RESTART, self.req.type_);
+
+        // @TODO: Does gdb knows how to recover from a failed "run" request?
+        self.write_packet_bytes(b"E01");
+
+        self.consume_request();
     }
 
     /// Tell the host that |thread| is the current thread.
-    pub fn reply_get_current_thread(_thread: GdbThreadId) {
-        unimplemented!()
+    pub fn reply_get_current_thread(&mut self, thread: GdbThreadId) {
+        debug_assert_eq!(DREQ_GET_CURRENT_THREAD, self.req.type_);
+
+        let mut buf = Vec::<u8>::new();
+        if self.multiprocess_supported_ {
+            write!(buf, "QCp{:02x}.{:02x}", thread.pid, thread.tid).unwrap();
+        } else {
+            write!(buf, "QC{:02x}", thread.tid).unwrap();
+        }
+        self.write_packet_bytes(&buf);
+
+        self.consume_request();
     }
 
     /// Reply with the target thread's |auxv| pairs. |auxv.empty()|
     /// if there was an error reading the auxiliary vector.
-    pub fn reply_get_auxv(_auxv: &[u8]) {
-        unimplemented!()
+    pub fn reply_get_auxv(&mut self, auxv: &[u8]) {
+        debug_assert_eq!(DREQ_GET_AUXV, self.req.type_);
+
+        if !auxv.is_empty() {
+            self.write_binary_packet(b"l", auxv);
+        } else {
+            self.write_packet_bytes(b"E01");
+        }
+
+        self.consume_request();
     }
 
     /// Reply with the target thread's executable file name
-    pub fn reply_get_exec_file(_exec_file: &OsStr) {
-        unimplemented!()
+    pub fn reply_get_exec_file(&mut self, exec_file: &OsStr) {
+        debug_assert_eq!(DREQ_GET_EXEC_FILE, self.req.type_);
+
+        if !exec_file.is_empty() {
+            self.write_binary_packet(b"l", exec_file.as_bytes());
+        } else {
+            self.write_packet_bytes(b"E01");
+        }
+
+        self.consume_request();
     }
 
     /// |alive| is true if the requested thread is alive, false if dead.
-    pub fn reply_get_is_thread_alive(_alive: bool) {
-        unimplemented!()
+    pub fn reply_get_is_thread_alive(&mut self, alive: bool) {
+        debug_assert_eq!(DREQ_GET_IS_THREAD_ALIVE, self.req.type_);
+
+        if alive {
+            self.write_packet_bytes(b"OK");
+        } else {
+            self.write_packet_bytes(b"E01");
+        }
+
+        self.consume_request();
     }
 
     /// |info| is a string containing data about the request target that
     /// might be relevant to the debugger user.
-    pub fn reply_get_thread_extra_info(_info: &OsStr) {
-        unimplemented!()
+    pub fn reply_get_thread_extra_info(&mut self, info: &OsStr) {
+        debug_assert_eq!(DREQ_GET_THREAD_EXTRA_INFO, self.req.type_);
+
+        log!(LogDebug, "thread extra info: {:?}", info);
+        self.write_hex_bytes_packet(info.as_bytes());
+
+        self.consume_request();
     }
 
     /// |ok| is true if req->target can be selected, false otherwise.
-    pub fn reply_select_thread(_ok: bool) {
-        unimplemented!()
+    pub fn reply_select_thread(&mut self, ok: bool) {
+        debug_assert!(
+            DREQ_SET_CONTINUE_THREAD == self.req.type_ || DREQ_SET_QUERY_THREAD == self.req.type_
+        );
+
+        if ok && DREQ_SET_CONTINUE_THREAD == self.req.type_ {
+            self.resume_thread = self.req.target;
+        } else if ok && DREQ_SET_QUERY_THREAD == self.req.type_ {
+            self.query_thread = self.req.target;
+        }
+
+        if ok {
+            self.write_packet_bytes(b"OK");
+        } else {
+            self.write_packet_bytes(b"E01");
+        }
+
+        self.consume_request();
     }
 
     /// The first |mem.size()| bytes of the request were read into |mem|.
     /// |mem.size()| must be less than or equal to the length of the request.
-    pub fn reply_get_mem(_mem: &[u8]) {
-        unimplemented!()
+    pub fn reply_get_mem(&mut self, mem: &[u8]) {
+        debug_assert_eq!(DREQ_GET_MEM, self.req.type_);
+        debug_assert!(mem.len() <= self.req.mem().len);
+
+        if self.req.mem().len > 0 && mem.len() == 0 {
+            self.write_packet_bytes(b"E01");
+        } else {
+            self.write_hex_bytes_packet(mem);
+        }
+
+        self.consume_request();
     }
 
     /// |ok| is true if a SET_MEM request succeeded, false otherwise.  This
     /// function *must* be called whenever a SET_MEM request is made,
     /// regardless of success/failure or special interpretation.
-    pub fn reply_set_mem(_ok: bool) {
-        unimplemented!()
+    pub fn reply_set_mem(&mut self, ok: bool) {
+        debug_assert_eq!(DREQ_SET_MEM, self.req.type_);
+
+        if ok {
+            self.write_packet_bytes(b"OK");
+        } else {
+            self.write_packet_bytes(b"E01");
+        }
+
+        self.consume_request();
     }
 
     /// Reply to the DREQ_SEARCH_MEM request.
-    /// |found| is true if we found the searched-for bytes starting at address
-    /// |addr|.
-    pub fn reply_search_mem(_found: bool, _addr: RemotePtr<Void>) {
-        unimplemented!()
+    /// |found| is true if we found the searched-for bytes starting at address |addr|.
+    pub fn reply_search_mem(&mut self, found: bool, addr: RemotePtr<Void>) {
+        debug_assert_eq!(DREQ_SEARCH_MEM, self.req.type_);
+
+        if found {
+            let mut buf = Vec::<u8>::new();
+            write!(buf, "1,{:x}", addr.as_usize()).unwrap();
+            self.write_packet_bytes(&buf);
+        } else {
+            self.write_packet_bytes(b"0");
+        }
+
+        self.consume_request();
     }
 
     /// Reply to the DREQ_GET_OFFSETS request.
-    pub fn reply_get_offsets(/* TODO*/) {
-        unimplemented!()
+    pub fn reply_get_offsets(&mut self /* TODO*/) {
+        debug_assert_eq!(DREQ_GET_OFFSETS, self.req.type_);
+
+        // XXX FIXME TODO
+        self.write_packet_bytes(b"");
+
+        self.consume_request();
     }
 
     /// Send |value| back to the debugger host.  |value| may be undefined.
@@ -1033,11 +1140,6 @@ impl GdbConnection {
         self.write_data_raw(data);
         self.write_data_raw(b"#");
         self.write_hex(checksum as usize);
-    }
-
-    /// NOTE: This function is intended to write a null terminated c-string in rr
-    fn write_packet(_data: &[u8]) {
-        unimplemented!()
     }
 
     /// DIFF NOTE: prefix is a null terminated c-string in rr. Here its just a slice.
