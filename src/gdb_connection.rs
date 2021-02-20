@@ -17,6 +17,7 @@ use nix::{
 use std::{
     ffi::{OsStr, OsString},
     fmt::{self, Display},
+    io::Write,
     os::unix::ffi::OsStrExt,
 };
 
@@ -870,30 +871,69 @@ impl GdbConnection {
         self.outbuf.extend_from_slice(data);
     }
 
-    /// @TODO: Correct size chosen?
-    fn write_hex(_hex: usize) {
-        unimplemented!()
+    fn write_hex(&mut self, hex: usize) {
+        let mut buf: Vec<u8> = Vec::new();
+
+        write!(buf, "{:02x}", hex).unwrap();
+        self.write_data_raw(&buf);
     }
 
-    fn write_packet_bytes(_data: &[u8]) {
-        unimplemented!()
+    fn write_packet_bytes(&mut self, data: &[u8]) {
+        let mut checksum: u8 = 0;
+
+        self.write_data_raw(b"$");
+        for &b in data {
+            checksum = checksum.overflowing_add(b).0;
+        }
+        self.write_data_raw(data);
+        self.write_data_raw(b"#");
+        self.write_hex(checksum as usize);
     }
 
+    /// NOTE: This function is intended to write a C String in rr
     fn write_packet(_data: &[u8]) {
         unimplemented!()
     }
 
-    /// DIFF NOTE: num_bytes is a ssize_t in rr
-    fn write_binary_packet(_pfx: &[u8], _data: &[u8]) {
-        unimplemented!()
+    /// DIFF NOTE: prefix is a null terminated c-string in rr. here its just a slice.
+    fn write_binary_packet(&mut self, pfx: &[u8], data: &[u8]) {
+        let pfx_num_chars = pfx.len();
+        let num_bytes = data.len();
+        let mut buf = Vec::<u8>::with_capacity(2 * num_bytes + pfx_num_chars);
+
+        buf.extend_from_slice(pfx);
+        for &b in data {
+            match b {
+                b'#' | b'$' | b'}' | b'*' => {
+                    buf.push(b'}');
+                    buf.push(b ^ 0x20);
+                }
+                _ => {
+                    buf.push(b);
+                }
+            }
+        }
+
+        log!(
+            LogDebug,
+            " ***** NOTE: writing binary data, upcoming debug output may be truncated"
+        );
+
+        self.write_packet_bytes(&buf);
     }
 
-    fn write_hex_bytes_packet_with_prefix(_prefix: &[u8], _data: &[u8]) {
-        unimplemented!()
+    /// DIFF NOTE: prefix is a null terminated c-string in rr. here its just a slice.
+    fn write_hex_bytes_packet_with_prefix(&mut self, prefix: &[u8], data: &[u8]) {
+        let mut buf = Vec::<u8>::with_capacity(prefix.len() + 2 * data.len());
+        buf.extend_from_slice(prefix);
+        for &b in data {
+            write!(buf, "{:02x}", b).unwrap();
+        }
+        self.write_packet_bytes(&buf);
     }
 
-    fn write_hex_bytes_packet(_data: &[u8]) {
-        unimplemented!()
+    fn write_hex_bytes_packet(&mut self, data: &[u8]) {
+        self.write_hex_bytes_packet_with_prefix(&[], data)
     }
 
     fn write_xfer_response(_data: &[u8], _offset: u64, _len: u64) {
