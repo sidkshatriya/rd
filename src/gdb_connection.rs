@@ -1,6 +1,10 @@
+//! Much of this implementation is based on the documentation at
+//!
+//! http://sourceware.org/gdb/onlinedocs/gdb/Packets.html
+
 use crate::{
     gdb_register::GdbRegister,
-    log::LogLevel::{LogDebug, LogInfo, LogWarn},
+    log::LogLevel::{LogDebug, LogError, LogInfo, LogWarn},
     registers::MAX_REG_SIZE_BYTES,
     remote_ptr::{RemotePtr, Void},
     replay_timeline::RunDirection,
@@ -19,6 +23,7 @@ use std::{
     ffi::{OsStr, OsString},
     fmt::{self, Display},
     io::Write,
+    mem::size_of_val,
     os::unix::ffi::OsStrExt,
 };
 
@@ -134,7 +139,7 @@ impl Display for GdbThreadId {
     }
 }
 
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub struct GdbRequest {
     pub type_: GdbRequestType,
     pub value: GdbRequestValue,
@@ -157,6 +162,12 @@ pub enum GdbRequestValue {
     GdbRequestFileOpen(gdb_request::FileOpen),
     GdbRequestFilePread(gdb_request::FilePread),
     GdbRequestFileClose(gdb_request::FileClose),
+}
+
+impl Default for GdbRequestValue {
+    fn default() -> Self {
+        Self::GdbRequestNone
+    }
 }
 
 impl GdbRequest {
@@ -197,6 +208,7 @@ impl GdbRequest {
     pub fn is_resume_request(&self) -> bool {
         self.type_ == DREQ_CONT
     }
+
     pub fn mem(&self) -> &gdb_request::Mem {
         match &self.value {
             GdbRequestValue::GdbRequestMem(v) => v,
@@ -206,6 +218,7 @@ impl GdbRequest {
             ),
         }
     }
+
     pub fn watch(&self) -> &gdb_request::Watch {
         match &self.value {
             GdbRequestValue::GdbRequestWatch(v) => v,
@@ -215,6 +228,7 @@ impl GdbRequest {
             ),
         }
     }
+
     pub fn restart(&self) -> &gdb_request::Restart {
         match &self.value {
             GdbRequestValue::GdbRequestRestart(v) => v,
@@ -224,6 +238,7 @@ impl GdbRequest {
             ),
         }
     }
+
     pub fn reg(&self) -> &GdbRegisterValue {
         match &self.value {
             GdbRequestValue::GdbRequestRegisterValue(v) => v,
@@ -233,6 +248,7 @@ impl GdbRequest {
             ),
         }
     }
+
     pub fn cont(&self) -> &gdb_request::Cont {
         match &self.value {
             GdbRequestValue::GdbRequestCont(v) => v,
@@ -242,6 +258,7 @@ impl GdbRequest {
             ),
         }
     }
+
     pub fn text(&self) -> &OsStr {
         match &self.value {
             GdbRequestValue::GdbRequestText(v) => v,
@@ -251,6 +268,7 @@ impl GdbRequest {
             ),
         }
     }
+
     pub fn tls(&self) -> &gdb_request::Tls {
         match &self.value {
             GdbRequestValue::GdbRequestTls(v) => v,
@@ -260,6 +278,7 @@ impl GdbRequest {
             ),
         }
     }
+
     pub fn sym(&self) -> &gdb_request::Symbol {
         match &self.value {
             GdbRequestValue::GdbRequestSymbol(v) => v,
@@ -269,6 +288,7 @@ impl GdbRequest {
             ),
         }
     }
+
     pub fn file_setfs(&self) -> &gdb_request::FileSetfs {
         match &self.value {
             GdbRequestValue::GdbRequestFileSetfs(v) => v,
@@ -278,6 +298,7 @@ impl GdbRequest {
             ),
         }
     }
+
     pub fn file_open(&self) -> &gdb_request::FileOpen {
         match &self.value {
             GdbRequestValue::GdbRequestFileOpen(v) => v,
@@ -287,6 +308,7 @@ impl GdbRequest {
             ),
         }
     }
+
     pub fn file_pread(&self) -> &gdb_request::FilePread {
         match &self.value {
             GdbRequestValue::GdbRequestFilePread(v) => v,
@@ -296,6 +318,7 @@ impl GdbRequest {
             ),
         }
     }
+
     pub fn file_close(&self) -> &gdb_request::FileClose {
         match &self.value {
             GdbRequestValue::GdbRequestFileClose(v) => v,
@@ -542,6 +565,7 @@ pub struct GdbConnectionFeatures {
 impl Default for GdbConnectionFeatures {
     fn default() -> Self {
         Self {
+            // This is _not_ an arbitrary choice
             reverse_execution: true,
         }
     }
@@ -578,11 +602,54 @@ pub struct GdbConnection {
 }
 
 impl GdbConnection {
-    /// Call this when the target of |req| is needed to fulfill the
+    pub fn new(tgid: pid_t, features: GdbConnectionFeatures) -> GdbConnection {
+        GdbConnection {
+            tgid,
+            cpu_features_: 0,
+            no_ack: false,
+            features_: features,
+            connection_alive_: true,
+            // Implied settings
+            req: Default::default(),
+            resume_thread: Default::default(),
+            query_thread: Default::default(),
+            sock_fd: Default::default(),
+            inbuf: Default::default(),
+            packetend: Default::default(),
+            outbuf: Default::default(),
+            multiprocess_supported_: Default::default(),
+        }
+    }
+
+    /// Call this when the target of `req` is needed to fulfill the
     /// request, but the target is dead.  This situation is a symptom of a
-    /// gdb or rr bug.
-    pub fn notify_no_such_thread(_req: &GdbRequest) {
-        unimplemented!()
+    /// gdb or rd bug.
+    pub fn notify_no_such_thread(&mut self, req: &GdbRequest) {
+        debug_assert_eq!(
+            unsafe {
+                // @TODO Not sure about this approach!
+                libc::memcmp(
+                    &raw const self.req as _,
+                    req as *const GdbRequest as _,
+                    size_of_val(&req),
+                )
+            },
+            0
+        );
+
+        // '10' is the errno ECHILD.  We use it as a magic code to
+        // notify the user that the thread that was the target of this
+        // request has died, and either gdb didn't notice that, or rr
+        // didn't notify gdb.  Either way, the user should restart
+        // their debugging session. */
+        log!(
+            LogError,
+            "Targeted thread no longer exists; this is the result of either a gdb or\n\
+                rd bug.  Please restart your debugging session and avoid doing whatever\n\
+                triggered this bug."
+        );
+        self.write_packet_bytes(b"E10");
+        self.consume_request();
     }
 
     /// Finish a DREQ_RESTART request.  Should be invoked after replay
@@ -608,17 +675,61 @@ impl GdbConnection {
     ///
     /// The target should peek at the debugger request in between execution
     /// steps.  A new request may need to be serviced.
-    pub fn get_request() -> GdbRequest {
-        unimplemented!()
+    ///
+    /// DIFF NOTE: In rr this returns a GdbRequest, here we return a reference
+    pub fn get_request(&mut self) -> &GdbRequest {
+        if DREQ_RESTART == self.req.type_ {
+            log!(LogDebug, "consuming RESTART request");
+            self.notify_restart();
+            // gdb wants to be notified with a stop packet when
+            // the process "relaunches".  In rd's case, the
+            // traceee may be very far away from process creation,
+            // but that's OK.
+            self.req = GdbRequest::new(Some(DREQ_GET_STOP_REASON));
+            self.req.target = self.query_thread;
+            return &self.req;
+        }
+
+        // Can't ask for the next request until you've satisfied the
+        // current one, for requests that need an immediate
+        // response.
+        // DIFF NOTE: This is gated behind a #ifdef DEBUG in rr.
+        debug_assert_eq!(request_needs_immediate_response(&self.req), false);
+
+        if !self.sniff_packet() && self.req.is_resume_request() {
+            // There's no new request data available and gdb has
+            // already asked us to resume.  OK, do that (or keep
+            // doing that) now.
+            return &self.req;
+        }
+
+        loop {
+            // There's either new request data, or we have nothing
+            // to do.  Either way, block until we read a complete
+            // packet from gdb.
+            self.read_packet();
+
+            if !self.connection_alive_ {
+                self.req = GdbRequest::new(Some(DREQ_DETACH));
+                return &self.req;
+            }
+
+            if self.process_packet() {
+                // We couldn't process the packet internally,
+                // so the target has to do something.
+                return &self.req;
+            }
+            // The packet we got was "internal", gdb details.
+            // Nothing for the target to do yet.  Keep waiting.
+        }
     }
 
     /// Notify the host that this process has exited with `code`.
     /// DIFF NOTE: On rr code is an int
     pub fn notify_exit_code(&mut self, code: u8) {
-        let mut buf = Vec::<u8>::new();
-
         debug_assert!(self.req.is_resume_request() || self.req.type_ == DREQ_INTERRUPT);
 
+        let mut buf = Vec::<u8>::new();
         write!(buf, "W{:02x}", code).unwrap();
         self.write_packet_bytes(&buf);
 
@@ -626,15 +737,66 @@ impl GdbConnection {
     }
 
     /// Notify the host that this process has exited from |sig|.
-    pub fn notify_exit_signal(_sig: Sig) {
-        unimplemented!()
+    pub fn notify_exit_signal(&mut self, sig: Sig) {
+        debug_assert!(self.req.is_resume_request() || self.req.type_ == DREQ_INTERRUPT);
+
+        let mut buf = Vec::<u8>::new();
+        write!(buf, "X{:02x}", sig.as_raw()).unwrap();
+        self.write_packet_bytes(&buf);
+
+        self.consume_request();
     }
 
     /// Notify the host that a resume request has "finished", i.e., the
-    /// target has stopped executing for some reason.  |sig| is the signal
-    /// that stopped execution, or 0 if execution stopped otherwise.
-    pub fn notify_stop(_which: GdbThreadId, _sig: Sig, _watch_addr: Option<usize>) {
-        unimplemented!()
+    /// target has stopped executing for some reason.  `maybe_sig` is the signal
+    /// that stopped execution, or `None` if execution stopped otherwise.
+    pub fn notify_stop(
+        &mut self,
+        thread: GdbThreadId,
+        maybe_sig: Option<Sig>,
+        watch_addr: RemotePtr<u8>,
+    ) {
+        debug_assert!(self.req.is_resume_request() || self.req.type_ == DREQ_INTERRUPT);
+
+        if self.tgid != thread.pid {
+            log!(
+                LogDebug,
+                "ignoring stop of {} because we're debugging tgid {}",
+                thread,
+                self.tgid
+            );
+            // Re-use the existing continue request to advance to
+            // the next stop we're willing to tell gdb about.
+            return;
+        }
+        self.send_stop_reply_packet(thread, maybe_sig, watch_addr);
+
+        // This isn't documented in the gdb remote protocol, but if we
+        // don't do this, gdb will sometimes continue to send requests
+        // for the previously-stopped thread when it obviously intends
+        // to be making requests about the stopped thread.
+        // To make things even better, gdb expects different behavior
+        // for forward continue/interupt and reverse continue.
+        if self.req.is_resume_request()
+            && self.req.cont().run_direction == RunDirection::RunBackward
+        {
+            log!(
+                LogDebug,
+                "Setting query/resume_thread to ANY after reverse continue"
+            );
+            self.resume_thread = GdbThreadId::ANY;
+            self.query_thread = self.resume_thread;
+        } else {
+            log!(
+                LogDebug,
+                "Setting query/resume_thread to {} after forward continue or interrupt",
+                thread
+            );
+            self.resume_thread = thread;
+            self.query_thread = self.resume_thread;
+        }
+
+        self.consume_request();
     }
 
     /// Notify the debugger that a restart request failed.
@@ -647,7 +809,7 @@ impl GdbConnection {
         self.consume_request();
     }
 
-    /// Tell the host that |thread| is the current thread.
+    /// Tell the host that `thread` is the current thread.
     pub fn reply_get_current_thread(&mut self, thread: GdbThreadId) {
         debug_assert_eq!(DREQ_GET_CURRENT_THREAD, self.req.type_);
 
@@ -839,8 +1001,12 @@ impl GdbConnection {
     }
 
     /// Reply to the DREQ_GET_STOP_REASON request.
-    pub fn reply_get_stop_reason(_which: GdbThreadId, _sig: Sig) {
-        unimplemented!()
+    pub fn reply_get_stop_reason(&mut self, which: GdbThreadId, sig: Sig) {
+        debug_assert_eq!(DREQ_GET_STOP_REASON, self.req.type_);
+
+        self.send_stop_reply_packet(which, Some(sig), RemotePtr::null());
+
+        self.consume_request();
     }
 
     /// `threads` contains the list of live threads.
@@ -1024,7 +1190,7 @@ impl GdbConnection {
 
     /// Delete the checkpoint with the given id. Silently fail if the checkpoint
     /// does not exist.
-
+    ///
     /// DIFF NOTE: The checkpoint id is signed in rr
     pub fn delete_checkpoint(_checkpoint_id: u32) {
         unimplemented!()
@@ -1037,8 +1203,13 @@ impl GdbConnection {
 
     /// Return true if there's a new packet to be read/process (whether
     /// incomplete or not), and false if there isn't one.
-    pub fn sniff_packet() -> bool {
-        unimplemented!()
+    pub fn sniff_packet(&mut self) -> bool {
+        if self.skip_to_packet_start() {
+            // We've already seen a (possibly partial) packet.
+            return true;
+        }
+        parser_assert!(self.inbuf.is_empty());
+        return poll_incoming(&self.sock_fd, 0 /*don't wait*/);
     }
 
     pub fn features(&self) -> GdbConnectionFeatures {
@@ -1051,10 +1222,6 @@ impl GdbConnection {
 
     pub fn cpu_features(&self) -> u32 {
         self.cpu_features_
-    }
-
-    pub fn new(_tgid: pid_t, _features: GdbConnectionFeatures) -> GdbConnection {
-        unimplemented!()
     }
 
     /// Wait for a debugger client to connect to |dbg|'s socket.  Blocks
@@ -1225,7 +1392,7 @@ impl GdbConnection {
     ///
     /// has been read from the client fd.  This is one (or more) gdb
     /// packet(s).
-    fn read_packet() {
+    fn read_packet(&self) {
         unimplemented!()
     }
 
@@ -1287,7 +1454,7 @@ impl GdbConnection {
 
     /// Return true if we need to do something in a debugger request,
     /// false if we already handled the packet internally.
-    fn process_packet() -> bool {
+    fn process_packet(&self) -> bool {
         unimplemented!()
     }
 
@@ -1296,8 +1463,35 @@ impl GdbConnection {
         self.write_flush()
     }
 
-    fn send_stop_reply_packet(_thread: GdbThreadId, _sig: Sig, _watch_addr: Option<usize>) {
-        unimplemented!()
+    fn send_stop_reply_packet(
+        &mut self,
+        thread: GdbThreadId,
+        maybe_sig: Option<Sig>,
+        watch_addr: RemotePtr<u8>,
+    ) {
+        let mut buf = Vec::<u8>::new();
+        if self.multiprocess_supported_ {
+            write!(
+                buf,
+                "T{:02x}thread:p{:02x}.{:02x};",
+                to_gdb_signum(maybe_sig),
+                thread.pid,
+                thread.tid,
+            )
+            .unwrap();
+        } else {
+            write!(
+                buf,
+                "T{:02x}thread:{:02x};",
+                to_gdb_signum(maybe_sig),
+                thread.tid,
+            )
+            .unwrap();
+        }
+        if !watch_addr.is_null() {
+            write!(buf, "watch:{};", watch_addr.as_usize()).unwrap();
+        }
+        self.write_packet_bytes(&buf);
     }
 
     fn send_file_error_reply(&mut self, system_errno: i32) {
@@ -1370,20 +1564,20 @@ impl GdbConnection {
     }
 }
 
-fn poll_incoming(sock_fd: &ScopedFd, timeout_ms: i32) {
+fn poll_incoming(sock_fd: &ScopedFd, timeout_ms: i32) -> bool {
     poll_socket(
         sock_fd,
         PollFlags::POLLIN, /* TODO: |POLLERR */
         timeout_ms,
-    );
+    )
 }
 
-fn poll_outgoing(sock_fd: &ScopedFd, timeout_ms: i32) {
+fn poll_outgoing(sock_fd: &ScopedFd, timeout_ms: i32) -> bool {
     poll_socket(
         sock_fd,
         PollFlags::POLLOUT, /* TODO: |POLLERR */
         timeout_ms,
-    );
+    )
 }
 
 /// Poll for data to or from gdb, waiting `timeoutMs`.  0 means "don't
@@ -1449,7 +1643,11 @@ fn print_reg_value(reg: &GdbRegisterValue, buf: &mut Vec<u8>) {
 
 // Translate linux-x86 |sig| to gdb's internal numbering.  Translation
 // made according to gdb/include/gdb/signals.def.
-fn to_gdb_signum(sig: i32) -> i32 {
+fn to_gdb_signum(maybe_sig: Option<Sig>) -> i32 {
+    let sig = match maybe_sig {
+        Some(sig) => sig.as_raw(),
+        None => return 0,
+    };
     match sig {
         0 => {
             return 0;
@@ -1600,4 +1798,11 @@ fn gdb_open_flags_to_system_flags(flags: i64) -> i32 {
     }
 
     ret
+}
+
+fn request_needs_immediate_response(req: &GdbRequest) -> bool {
+    match req.type_ {
+        DREQ_NONE | DREQ_CONT => false,
+        _ => true,
+    }
 }
