@@ -16,6 +16,7 @@ use libc::pid_t;
 use nix::{
     errno::Errno,
     poll::{poll, PollFd, PollFlags},
+    sys::socket::accept,
     unistd,
     Error,
 };
@@ -1226,8 +1227,10 @@ impl GdbConnection {
 
     /// Wait for a debugger client to connect to |dbg|'s socket.  Blocks
     /// indefinitely.
-    pub fn await_debugger(_listen_fd: &ScopedFd) {
-        unimplemented!()
+    pub fn await_debugger(&mut self, listen_fd: &ScopedFd) {
+        self.sock_fd = ScopedFd::from_raw(accept(listen_fd.as_raw()).unwrap());
+        // We might restart this debugging session, so don't set the
+        // socket fd CLOEXEC.
     }
 
     ///  Returns false if the connection has been closed
@@ -1351,8 +1354,18 @@ impl GdbConnection {
         self.write_hex_bytes_packet_with_prefix(&[], data)
     }
 
-    fn write_xfer_response(_data: &[u8], _offset: u64, _len: u64) {
-        unimplemented!()
+    // DIFF NOTE: `offset` and `len` are u64 in rr
+    fn write_xfer_response(&mut self, data: &[u8], offset: usize, len: usize) {
+        let size = data.len();
+        if offset > size {
+            self.write_packet_bytes(b"E01");
+        } else if offset == size {
+            self.write_packet_bytes(b"l");
+        } else if offset + len < size {
+            self.write_binary_packet(b"m", &data[offset..offset + len]);
+        } else {
+            self.write_binary_packet(b"l", &data[offset..]);
+        }
     }
 
     /// Consume bytes in the input buffer until start-of-packet ('$') or
