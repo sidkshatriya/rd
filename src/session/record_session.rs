@@ -2727,7 +2727,7 @@ fn check_perf_event_paranoid() {
             }
             Ok(siz) => {
                 let int_str = String::from_utf8_lossy(&buf[0..siz]);
-                let maybe_val = int_str.trim().parse::<usize>();
+                let maybe_val = int_str.trim().parse::<isize>();
                 match maybe_val {
                     Ok(val) if val > 1 => {
                         clean_fatal!("rd needs `/proc/sys/kernel/perf_event_paranoid` <= 1, but it is {}.\n\
