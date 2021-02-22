@@ -13,6 +13,7 @@ use crate::{
     sig::Sig,
 };
 use libc::pid_t;
+use memchr::memchr;
 use nix::{
     errno::Errno,
     poll::{poll, PollFd, PollFlags},
@@ -21,7 +22,7 @@ use nix::{
     Error,
 };
 use std::{
-    ffi::{OsStr, OsString},
+    ffi::OsStr,
     fmt::{self, Display},
     io::Write,
     mem::size_of_val,
@@ -155,7 +156,7 @@ pub enum GdbRequestValue {
     GdbRequestWatch(gdb_request::Watch),
     GdbRequestRestart(gdb_request::Restart),
     GdbRequestRegisterValue(GdbRegisterValue),
-    GdbRequestText(OsString),
+    GdbRequestText(Vec<u8>),
     GdbRequestCont(gdb_request::Cont),
     GdbRequestTls(gdb_request::Tls),
     GdbRequestSymbol(gdb_request::Symbol),
@@ -260,7 +261,7 @@ impl GdbRequest {
         }
     }
 
-    pub fn text(&self) -> &OsStr {
+    pub fn text(&self) -> &Vec<u8> {
         match &self.value {
             GdbRequestValue::GdbRequestText(v) => v,
             _ => panic!(
@@ -374,7 +375,7 @@ impl GdbRequest {
             ),
         }
     }
-    pub fn text_mut(&mut self) -> &mut OsString {
+    pub fn text_mut(&mut self) -> &mut Vec<u8> {
         match &mut self.value {
             GdbRequestValue::GdbRequestText(v) => v,
             _ => panic!(
@@ -1405,8 +1406,60 @@ impl GdbConnection {
     ///
     /// has been read from the client fd.  This is one (or more) gdb
     /// packet(s).
-    fn read_packet(&self) {
-        unimplemented!()
+    fn read_packet(&mut self) {
+        // Read and discard bytes until we see the start of a
+        // packet.
+        //
+        // NB: we're ignoring "+/-" responses from gdb.  There doesn't
+        // seem to be any sane reason why we would send a damaged
+        // packet to gdb over TCP, then see a "-" reply from gdb and
+        // somehow magically fix our bug that led to the malformed
+        // packet in the first place.
+        while !self.skip_to_packet_start() && self.connection_alive_ {
+            self.read_data_once();
+        }
+
+        if !self.connection_alive_ {
+            return;
+        }
+
+        if self.inbuf[0] == INTERRUPT_CHAR {
+            // Interrupts are kind of an ugly duckling in the gdb
+            // protocol ...
+            self.packetend = 1;
+            return;
+        }
+
+        // Read until we see end-of-packet.
+        let mut checkedlen: usize = 0;
+        loop {
+            let maybe_p = memchr(b'#', &self.inbuf[checkedlen..]);
+            match maybe_p {
+                Some(p) => {
+                    self.packetend = p;
+                    break;
+                }
+                None => (),
+            };
+            checkedlen = self.inbuf.len();
+            self.read_data_once();
+            if !self.connection_alive_ {
+                return;
+            }
+        }
+
+        // NB: we're ignoring the gdb packet checksums here too.  If
+        // gdb is corrupted enough to garble a checksum over TCP, it's
+        // not really clear why asking for the packet again might make
+        // the bug go away.
+        parser_assert_eq!(b'$', self.inbuf[0]);
+        parser_assert!(self.packetend < self.inbuf.len());
+
+        // Acknowledge receipt of the packet.
+        if !self.no_ack {
+            self.write_data_raw(b"+");
+            self.write_flush();
+        }
     }
 
     /// Return true if we need to do something in a debugger request,
@@ -1417,7 +1470,101 @@ impl GdbConnection {
 
     /// Return true if we need to do something in a debugger request,
     /// false if we already handled the packet internally.
-    fn query(_payload: &[u8]) -> bool {
+    fn query(&mut self, payload: &[u8]) -> bool {
+        let maybe_args_loc = memchr(b':', payload);
+        let name = match maybe_args_loc {
+            Some(l) => &payload[0..l],
+            None => payload,
+        };
+
+        let maybe_args = match maybe_args_loc {
+            Some(l) => Some(&payload[l + 1..]),
+            None => None,
+        };
+
+        if name.starts_with(b"RDCmd") {
+            log!(
+                LogDebug,
+                "gdb requests rd cmd: {:?}",
+                OsStr::from_bytes(name)
+            );
+            self.req = GdbRequest::new(Some(DREQ_RD_CMD));
+            // Assumes there is always a `:` after `RDCmd`
+            *self.req.text_mut() = maybe_args.unwrap().to_vec();
+            return true;
+        }
+        if name[0] == b'C' {
+            log!(LogDebug, "gdb requests current thread ID");
+            self.req = GdbRequest::new(Some(DREQ_GET_CURRENT_THREAD));
+            return true;
+        }
+        if name.starts_with(b"Attached") {
+            log!(LogDebug, "gdb asks if this is a new or existing process");
+            // Tell gdb this is an existing process; it might be
+            // (see emergency_debug()).
+            self.write_packet_bytes(b"1");
+            return false;
+        }
+        if name.starts_with(b"fThreadInfo") {
+            log!(LogDebug, "gdb asks for thread list");
+            self.req = GdbRequest::new(Some(DREQ_GET_THREAD_LIST));
+            return true;
+        }
+        if name.starts_with(b"sThreadInfo") {
+            // "end of list"
+            self.write_packet_bytes(b"l");
+            return false;
+        }
+        if name.starts_with(b"GetTLSAddr") {
+            unimplemented!()
+        }
+        if name.starts_with(b"Offsets") {
+            log!(LogDebug, "gdb asks for section offsets");
+            self.req = GdbRequest::new(Some(DREQ_GET_OFFSETS));
+            self.req.target = self.query_thread;
+            return true;
+        }
+        if b'P' == name[0] {
+            // The docs say not to use this packet ...
+            self.write_packet_bytes(&[]);
+            return false;
+        }
+        if name.starts_with(b"Supported") {
+            let args = maybe_args.unwrap();
+            // TODO process these
+            log!(LogDebug, "gdb supports {:?}", OsStr::from_bytes(args));
+
+            // @TODO
+            // let _multiprocess_supported_ = find(args, b"multiprocess+").is_some();
+
+            let mut supported = Vec::<u8>::new();
+            // Encourage gdb to use very large packets since we support any packet size
+            write!(
+                supported,
+                "PacketSize=1048576\
+                 ;QStartNoAckMode+\
+                 ;qXfer:features:read+\
+                 ;qXfer:auxv:read+\
+                 ;qXfer:exec-file:read+\
+                 ;qXfer:siginfo:read+\
+                 ;qXfer:siginfo:write+\
+                 ;multiprocess+\
+                 ;ConditionalBreakpoints+\
+                 ;vContSupported+"
+            )
+            .unwrap();
+            if self.features().reverse_execution {
+                write!(
+                    supported,
+                    ";ReverseContinue+\
+                   ;ReverseStep+"
+                )
+                .unwrap();
+            }
+            self.write_packet_bytes(&supported);
+            return false;
+        }
+
         unimplemented!()
     }
 
