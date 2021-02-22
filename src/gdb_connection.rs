@@ -1570,8 +1570,22 @@ impl GdbConnection {
 
     /// Return true if we need to do something in a debugger request,
     /// false if we already handled the packet internally.
-    fn set_var(_payload: &[u8]) -> bool {
-        unimplemented!()
+    fn set_var(&mut self, payload: &[u8]) -> bool {
+        let maybe_args_loc = memchr(b':', payload);
+        let name = match maybe_args_loc {
+            Some(l) => &payload[0..l],
+            None => payload,
+        };
+
+        if name.starts_with(b"StartNoAckMode") {
+            self.write_packet_bytes(b"OK");
+            self.no_ack = true;
+        } else {
+            self.write_packet_bytes(&[]);
+            log!(LogInfo, "Unhandled gdb set: Q{:?}", OsStr::from_bytes(name));
+        }
+
+        false
     }
 
     /// Return true if we need to do something in a debugger request,
