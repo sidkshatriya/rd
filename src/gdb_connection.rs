@@ -11,6 +11,7 @@ use crate::{
     scoped_fd::ScopedFd,
     session::SessionSharedPtr,
     sig::Sig,
+    util::str16_to_usize,
 };
 use libc::pid_t;
 use memchr::memchr;
@@ -530,7 +531,8 @@ pub mod gdb_request {
     pub struct Symbol {
         pub has_address: bool,
         pub address: RemotePtr<Void>,
-        pub name: OsString,
+        // NOTE: This could have been an OsString but its OK to keep as String
+        pub name: String,
     }
 
     #[derive(Default, Clone)]
@@ -1464,7 +1466,7 @@ impl GdbConnection {
 
     /// Return true if we need to do something in a debugger request,
     /// false if we already handled the packet internally.
-    fn xfer(_name: &OsStr, _args: &[&OsStr]) -> bool {
+    fn xfer(&self, _name: &[u8], _args: &[u8]) -> bool {
         unimplemented!()
     }
 
@@ -1563,6 +1565,51 @@ impl GdbConnection {
             }
             self.write_packet_bytes(&supported);
             return false;
+        }
+        if name.starts_with(b"Symbol") {
+            log!(LogDebug, "gdb is ready for symbol lookups");
+            let mut args = maybe_args.unwrap();
+            let _colon = memchr(b':', args).unwrap();
+            self.req = GdbRequest::new(Some(DREQ_QSYMBOL));
+            if args[0] == b':' {
+                self.req.sym_mut().has_address = false;
+            } else {
+                self.req.sym_mut().has_address = true;
+                self.req.sym_mut().address = str16_to_usize(args, &mut args).unwrap().into();
+            }
+            parser_assert_eq!(args[0], b':');
+            args = &args[1..];
+            self.req.sym_mut().name = decode_ascii_encoded_hex_str(args);
+            return true;
+        }
+        if name.starts_with(b"ThreadExtraInfo") {
+            // ThreadExtraInfo is a special snowflake that
+            // delimits its args with ','.
+            parser_assert!(maybe_args.is_none());
+            let mut args = payload;
+            let loc_args = 1 + memchr(b',', args).unwrap();
+            args = &args[loc_args..];
+
+            self.req = GdbRequest::new(Some(DREQ_GET_THREAD_EXTRA_INFO));
+            self.req.target = parse_threadid(args, &mut args);
+            // We should have consumed everything
+            parser_assert_eq!(args.len(), 0);
+            return true;
+        }
+        if name.starts_with(b"TStatus") {
+            log!(LogDebug, "gdb asks for trace status");
+            // XXX from the docs, it appears that we should reply
+            // with "T0" here.  But if we do, gdb keeps bothering
+            // us with trace queries.  So pretend we don't know
+            // what it's talking about. */
+            self.write_packet_bytes(b"");
+            return false;
+        }
+        if name.starts_with(b"Xfer") {
+            let args = maybe_args.unwrap();
+            let colon_loc = memchr(b':', args).unwrap();
+            let name = &args[0..colon_loc];
+            return self.xfer(name, &args[colon_loc + 1..]);
         }
 
         unimplemented!()
@@ -1979,4 +2026,12 @@ fn request_needs_immediate_response(req: &GdbRequest) -> bool {
         DREQ_NONE | DREQ_CONT => false,
         _ => true,
     }
+}
+
+/// Parse and return a gdb thread-id from `text`.  `new_text` is a slice whose
+/// first char points to the character just after the last character in the
+/// thread-id.  `new_text` may be set as an empty slice if there are no
+/// characters remaining after thread-id.
+fn parse_threadid<'a>(_text: &'a [u8], _new_text: &mut &'a [u8]) -> GdbThreadId {
+    unimplemented!();
 }
