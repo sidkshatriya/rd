@@ -11,7 +11,7 @@ use crate::{
     scoped_fd::ScopedFd,
     session::SessionSharedPtr,
     sig::Sig,
-    util::str16_to_usize,
+    util::{str16_to_isize, str16_to_usize},
 };
 use libc::pid_t;
 use memchr::memchr;
@@ -23,6 +23,7 @@ use nix::{
     Error,
 };
 use std::{
+    convert::TryInto,
     ffi::OsStr,
     fmt::{self, Display},
     io::Write,
@@ -494,7 +495,7 @@ pub mod gdb_request {
 
     #[derive(Default, Clone)]
     pub struct Mem {
-        pub addr: usize,
+        pub addr: RemotePtr<u8>,
         pub len: usize,
         /// For SET_MEM requests, the |len| raw bytes that are to be written.
         /// For SEARCH_MEM requests, the bytes to search for.
@@ -1484,7 +1485,7 @@ impl GdbConnection {
             None => None,
         };
 
-        if name.starts_with(b"RDCmd") {
+        if name == b"RDCmd" {
             log!(
                 LogDebug,
                 "gdb requests rd cmd: {:?}",
@@ -1495,24 +1496,24 @@ impl GdbConnection {
             *self.req.text_mut() = maybe_args.unwrap().to_vec();
             return true;
         }
-        if name[0] == b'C' {
+        if name == b"C" {
             log!(LogDebug, "gdb requests current thread ID");
             self.req = GdbRequest::new(Some(DREQ_GET_CURRENT_THREAD));
             return true;
         }
-        if name.starts_with(b"Attached") {
+        if name == b"Attached" {
             log!(LogDebug, "gdb asks if this is a new or existing process");
             // Tell gdb this is an existing process; it might be
             // (see emergency_debug()).
             self.write_packet_bytes(b"1");
             return false;
         }
-        if name.starts_with(b"fThreadInfo") {
+        if name == b"fThreadInfo" {
             log!(LogDebug, "gdb asks for thread list");
             self.req = GdbRequest::new(Some(DREQ_GET_THREAD_LIST));
             return true;
         }
-        if name.starts_with(b"sThreadInfo") {
+        if name == b"sThreadInfo" {
             // "end of list"
             self.write_packet_bytes(b"l");
             return false;
@@ -1531,7 +1532,7 @@ impl GdbConnection {
             self.write_packet_bytes(&[]);
             return false;
         }
-        if name.starts_with(b"Supported") {
+        if name == b"Supported" {
             let args = maybe_args.unwrap();
             // TODO process these
             log!(LogDebug, "gdb supports {:?}", OsStr::from_bytes(args));
@@ -1566,7 +1567,7 @@ impl GdbConnection {
             self.write_packet_bytes(&supported);
             return false;
         }
-        if name.starts_with(b"Symbol") {
+        if name == b"Symbol" {
             log!(LogDebug, "gdb is ready for symbol lookups");
             let mut args = maybe_args.unwrap();
             let _colon = memchr(b':', args).unwrap();
@@ -1596,7 +1597,7 @@ impl GdbConnection {
             parser_assert_eq!(args.len(), 0);
             return true;
         }
-        if name.starts_with(b"TStatus") {
+        if name == b"TStatus" {
             log!(LogDebug, "gdb asks for trace status");
             // XXX from the docs, it appears that we should reply
             // with "T0" here.  But if we do, gdb keeps bothering
@@ -1605,14 +1606,53 @@ impl GdbConnection {
             self.write_packet_bytes(b"");
             return false;
         }
-        if name.starts_with(b"Xfer") {
+        if name == b"Xfer" {
             let args = maybe_args.unwrap();
             let colon_loc = memchr(b':', args).unwrap();
             let name = &args[0..colon_loc];
             return self.xfer(name, &args[colon_loc + 1..]);
         }
+        if name == b"Search" {
+            let mut args = maybe_args.unwrap();
+            let args_loc = memchr(b':', args);
+            let name = match args_loc {
+                Some(l) => {
+                    args = &args[l + 1..];
+                    &args[0..l]
+                }
+                None => args,
+            };
+            if name == b"memory" && args_loc.is_some() {
+                self.req = GdbRequest::new(Some(DREQ_SEARCH_MEM));
+                self.req.target = self.query_thread;
+                self.req.mem_mut().addr = str16_to_usize(args, &mut args).unwrap().into();
+                parser_assert_eq!(b';', args[0]);
+                args = &args[1..];
+                self.req.mem_mut().len = str16_to_usize(args, &mut args).unwrap();
+                parser_assert_eq!(b';', args[0]);
+                args = &args[1..];
+                read_binary_data(args, &mut self.req.mem_mut().data);
 
-        unimplemented!()
+                log!(
+                    LogDebug,
+                    "gdb searching memory (addr={}, len={})",
+                    self.req.mem().addr,
+                    self.req.mem().len
+                );
+
+                return true;
+            }
+            self.write_packet_bytes(b"");
+            return false;
+        }
+
+        self.write_packet_bytes(b"");
+        log!(
+            LogInfo,
+            "Unhandled gdb query: q{}",
+            String::from_utf8_lossy(name)
+        );
+        false
     }
 
     /// Return true if we need to do something in a debugger request,
@@ -1629,7 +1669,11 @@ impl GdbConnection {
             self.no_ack = true;
         } else {
             self.write_packet_bytes(&[]);
-            log!(LogInfo, "Unhandled gdb set: Q{:?}", OsStr::from_bytes(name));
+            log!(
+                LogInfo,
+                "Unhandled gdb set: Q{}",
+                String::from_utf8_lossy(name)
+            );
         }
 
         false
@@ -2032,6 +2076,46 @@ fn request_needs_immediate_response(req: &GdbRequest) -> bool {
 /// first char points to the character just after the last character in the
 /// thread-id.  `new_text` may be set as an empty slice if there are no
 /// characters remaining after thread-id.
-fn parse_threadid<'a>(_text: &'a [u8], _new_text: &mut &'a [u8]) -> GdbThreadId {
-    unimplemented!();
+fn parse_threadid<'a>(mut text: &'a [u8], new_text: &mut &'a [u8]) -> GdbThreadId {
+    let mut t = GdbThreadId::new(-1, -1);
+    let mut multiprocess = false;
+    parser_assert!(text.len() > 0);
+    if text[0] == b'p' {
+        multiprocess = true;
+        text = &text[1..];
+    }
+
+    t.pid = str16_to_isize(text, &mut text).unwrap().try_into().unwrap();
+    if text.len() == 0 {
+        if multiprocess {
+            t.tid = -1;
+        } else {
+            t.tid = t.pid;
+            t.pid = -1;
+        }
+        *new_text = text;
+        return t;
+    }
+
+    parser_assert_eq!(b'.', text[0]);
+    text = &text[1..];
+    t.tid = str16_to_isize(text, &mut text).unwrap().try_into().unwrap();
+
+    *new_text = text;
+    t
+}
+
+fn read_binary_data(payload: &[u8], data: &mut Vec<u8>) {
+    data.clear();
+    let l = payload.len();
+    let mut it = payload.iter().enumerate();
+    while let Some((i, &b)) = it.next() {
+        if b'}' == b {
+            parser_assert!(i < l - 1);
+            let (_, &next_b) = it.next().unwrap();
+            data.push(0x20 ^ next_b);
+        } else {
+            data.push(b);
+        }
+    }
 }
