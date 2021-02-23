@@ -86,11 +86,13 @@ use nix::{
     NixPath,
 };
 use rand::random;
+use regex::bytes::Regex;
 use std::{
     cmp::{max, min},
     convert::TryInto,
     env,
     env::var_os,
+    error,
     ffi::{c_void, CStr, CString, OsStr, OsString},
     fs::File,
     io,
@@ -2156,4 +2158,117 @@ pub fn create_temporary_file(pattern: &[u8]) -> TempFile {
 pub struct TempFile {
     pub name: OsString,
     pub fd: ScopedFd,
+}
+
+pub fn str16_to_usize<'a>(
+    text: &'a [u8],
+    new_text: &mut &'a [u8],
+) -> Result<usize, Box<dyn error::Error>> {
+    lazy_static! {
+        static ref RE16: Regex = Regex::new(r"^\s*([\+\-])?(?:0[xX])([0-9a-fA-F]+)").unwrap();
+    }
+    match RE16.find(text) {
+        Some(m) => {
+            let cap = RE16.captures(text).unwrap();
+            let num_str = &cap[2];
+            *new_text = &text[m.end()..];
+            if cap.get(1).is_some() && cap[1][0] == b'-' {
+                let mut num_str_neg = vec![b'-'];
+                num_str_neg.extend_from_slice(num_str);
+                match isize::from_str_radix(std::str::from_utf8(&num_str_neg).unwrap(), 16) {
+                    Ok(num) => Ok(num as usize),
+                    Err(e) => Err(Box::new(e)),
+                }
+            } else {
+                match usize::from_str_radix(std::str::from_utf8(num_str).unwrap(), 16) {
+                    Ok(num) => Ok(num),
+                    Err(e) => Err(Box::new(e)),
+                }
+            }
+        }
+        None => {
+            *new_text = text;
+            Err(Box::new(Error::new(
+                ErrorKind::Other,
+                "Cannot obtain number",
+            )))
+        }
+    }
+}
+
+pub fn str16_to_isize<'a>(
+    text: &'a [u8],
+    new_text: &mut &'a [u8],
+) -> Result<isize, Box<dyn error::Error>> {
+    lazy_static! {
+        static ref RE16: Regex = Regex::new(r"^\s*([\+\-])?(?:0[xX])([0-9a-fA-F]+)").unwrap();
+    }
+    match RE16.find(text) {
+        Some(m) => {
+            let cap = RE16.captures(text).unwrap();
+            let num_str = &cap[2];
+            *new_text = &text[m.end()..];
+            if cap.get(1).is_some() && cap[1][0] == b'-' {
+                let mut num_str_neg = vec![b'-'];
+                num_str_neg.extend_from_slice(num_str);
+                match isize::from_str_radix(std::str::from_utf8(&num_str_neg).unwrap(), 16) {
+                    Ok(num) => Ok(num),
+                    Err(e) => Err(Box::new(e)),
+                }
+            } else {
+                match isize::from_str_radix(std::str::from_utf8(num_str).unwrap(), 16) {
+                    Ok(num) => Ok(num),
+                    Err(e) => Err(Box::new(e)),
+                }
+            }
+        }
+        None => {
+            *new_text = text;
+            Err(Box::new(Error::new(
+                ErrorKind::Other,
+                "Cannot obtain number",
+            )))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn str16_to_usize_test() {
+        let mut sl = b"  0xAB apples".as_slice();
+        let maybe_num = str16_to_usize(sl, &mut sl);
+        assert_eq!(0xAB, maybe_num.unwrap());
+        assert_eq!(b" apples", sl);
+
+        let mut sl = b"  -0xAB apples".as_slice();
+        let maybe_num = str16_to_usize(sl, &mut sl);
+        assert_eq!(-0xABisize as usize, maybe_num.unwrap());
+        assert_eq!(b" apples", sl);
+
+        let mut sl = b"mango".as_slice();
+        let maybe_num = str16_to_usize(sl, &mut sl);
+        assert!(maybe_num.is_err());
+        assert_eq!(b"mango", sl);
+    }
+
+    #[test]
+    fn str16_to_isize_test() {
+        let mut sl = b"  0xAB apples".as_slice();
+        let maybe_num = str16_to_isize(sl, &mut sl);
+        assert_eq!(0xAB, maybe_num.unwrap());
+        assert_eq!(b" apples", sl);
+
+        let mut sl = b"  -0xAB apples".as_slice();
+        let maybe_num = str16_to_isize(sl, &mut sl);
+        assert_eq!(-0xAB, maybe_num.unwrap());
+        assert_eq!(b" apples", sl);
+
+        let mut sl = b"mango".as_slice();
+        let maybe_num = str16_to_isize(sl, &mut sl);
+        assert!(maybe_num.is_err());
+        assert_eq!(b"mango", sl);
+    }
 }
