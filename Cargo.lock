@@ -566,6 +566,7 @@ dependencies = [
  "owning_ref",
  "rand",
  "raw-cpuid",
+ "regex",
  "serde",
  "serde_json",
  "static_assertions",
