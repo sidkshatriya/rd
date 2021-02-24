@@ -1804,7 +1804,122 @@ impl GdbConnection {
 
     /// Return true if we need to do something in a debugger request,
     /// false if we already handled the packet internally.
-    fn process_vpacket(_payload: &[u8]) -> bool {
+    fn process_vpacket(&mut self, payload: &[u8]) -> bool {
+        let maybe_args_loc = memchr(b':', payload);
+        let name = match maybe_args_loc {
+            Some(l) => &payload[0..l],
+            None => payload,
+        };
+
+        let maybe_args = match maybe_args_loc {
+            Some(l) => Some(&payload[l + 1..]),
+            None => None,
+        };
+        if name == b"Cont" {
+            let mut args = maybe_args.unwrap();
+            let mut actions: Vec<GdbContAction> = Vec::new();
+            let mut maybe_default_action: Option<GdbContAction> = None;
+
+            while args.len() > 0 {
+                let mut cmd = args;
+                // Skip to `:` or `;`
+                while args.len() > 0 && args[0] != b':' && args[0] != b';' {
+                    args = &args[1..];
+                }
+                let mut is_default = true;
+                let mut target = GdbThreadId::new(-1, -1);
+                if args.len() > 0 {
+                    if args[0] == b':' {
+                        is_default = false;
+                        args = &args[1..];
+                        target = parse_threadid(args, &mut args);
+                    }
+                    let args_loc = memchr(b';', args);
+                    match args_loc {
+                        Some(l) => {
+                            args = &args[l + 1..];
+                        }
+                        None => {
+                            args = &[];
+                        }
+                    }
+                }
+
+                let action: GdbActionType;
+                let mut maybe_signal_to_deliver: Option<Sig> = None;
+                let cmd0 = cmd[0];
+                cmd = &cmd[1..];
+                let mut maybe_endptr = None;
+                match cmd0 {
+                    b'C' => {
+                        let mut endptr: &[u8] = Default::default();
+                        action = GdbActionType::ActionContinue;
+                        maybe_signal_to_deliver =
+                            str16_to_usize(cmd, &mut endptr).unwrap().try_into().ok();
+                        maybe_endptr = Some(endptr);
+                    }
+                    b'c' => {
+                        action = GdbActionType::ActionContinue;
+                    }
+                    b'S' => {
+                        action = GdbActionType::ActionStep;
+                        maybe_signal_to_deliver =
+                            str16_to_usize(cmd, &mut cmd).unwrap().try_into().ok();
+                    }
+                    b's' => {
+                        action = GdbActionType::ActionStep;
+                    }
+                    _ => {
+                        self.write_packet_bytes(b"");
+                        log!(
+                            LogInfo,
+                            "Unhandled vCont command {}",
+                            String::from_utf8_lossy(cmd)
+                        );
+                        return false;
+                    }
+                }
+                if maybe_endptr.is_some() && maybe_endptr.unwrap().len() > 0 {
+                    self.write_packet_bytes(b"");
+                    log!(
+                        LogInfo,
+                        "Unhandled vCont command parameters {}",
+                        String::from_utf8_lossy(cmd)
+                    );
+                    return false;
+                }
+                if is_default {
+                    if maybe_default_action.is_some() {
+                        self.write_packet_bytes(b"");
+                        log!(
+                            LogInfo,
+                            "Unhandled vCont command with multiple default actions"
+                        );
+                        return false;
+                    }
+                    maybe_default_action = Some(GdbContAction::new(
+                        Some(action),
+                        Some(GdbThreadId::ALL),
+                        maybe_signal_to_deliver,
+                    ));
+                } else {
+                    actions.push(GdbContAction::new(
+                        Some(action),
+                        Some(target),
+                        maybe_signal_to_deliver,
+                    ));
+                }
+            }
+
+            if maybe_default_action.is_some() {
+                actions.push(maybe_default_action.unwrap());
+            }
+            self.req = GdbRequest::new(Some(DREQ_CONT));
+            self.req.cont_mut().run_direction = RunDirection::RunForward;
+            self.req.cont_mut().actions = actions;
+            return true;
+        }
+
         unimplemented!()
     }
 
