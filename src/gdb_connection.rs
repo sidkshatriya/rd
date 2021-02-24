@@ -11,15 +11,17 @@ use crate::{
     scoped_fd::ScopedFd,
     session::SessionSharedPtr,
     sig::Sig,
-    util::{str16_to_isize, str16_to_usize},
+    util::{resource_path, str16_to_isize, str16_to_usize},
 };
 use libc::pid_t;
 use memchr::memchr;
 use nix::{
     errno::Errno,
+    fcntl::OFlag,
     poll::{poll, PollFd, PollFlags},
     sys::socket::accept,
     unistd,
+    unistd::read,
     Error,
 };
 use std::{
@@ -607,6 +609,10 @@ pub struct GdbConnection {
 }
 
 impl GdbConnection {
+    pub const CPU_64BIT: u32 = 0x1;
+    pub const CPU_AVX: u32 = 0x2;
+    pub const CPU_64BIT_AND_CPU_AVX: u32 = 0x1 | 0x2;
+
     pub fn new(tgid: pid_t, features: GdbConnectionFeatures) -> GdbConnection {
         GdbConnection {
             tgid,
@@ -626,7 +632,7 @@ impl GdbConnection {
         }
     }
 
-    /// Call this when the target of `req` is needed to fulfill the
+    /// Call t'his when the target of `req` is needed to fulfill the
     /// request, but the target is dead.  This situation is a symptom of a
     /// gdb or rd bug.
     pub fn notify_no_such_thread(&mut self, req: &GdbRequest) {
@@ -1467,8 +1473,112 @@ impl GdbConnection {
 
     /// Return true if we need to do something in a debugger request,
     /// false if we already handled the packet internally.
-    fn xfer(&self, _name: &[u8], _args: &[u8]) -> bool {
-        unimplemented!()
+    #[allow(unused_assignments)]
+    fn xfer(&mut self, name: &[u8], mut args: &[u8]) -> bool {
+        let args_loc = memchr(b':', args).unwrap();
+        let mode = &args[0..args_loc];
+        args = &args[args_loc + 1..];
+
+        if mode != b"read" && mode != b"write" {
+            self.write_packet_bytes(b"");
+            return false;
+        }
+
+        let mut annex = args;
+        let colon_loc = memchr(b':', args).unwrap();
+        args = &args[colon_loc + 1..];
+
+        // @TODO DIFF NOTE: In rr, if we can't parse we get an automatic offset of 0
+        let offset = str16_to_usize(args, &mut args).unwrap();
+
+        let mut len: usize = 0;
+        if mode == b"read" {
+            parser_assert_eq!(b',', args[0]);
+            args = &args[1..];
+            len = str16_to_usize(args, &mut args).unwrap();
+            // Assert that its not the end
+            parser_assert!(args.len() > 0);
+        } else {
+            parser_assert_eq!(args[0], b':');
+            args = &args[1..];
+        }
+
+        log!(
+            LogDebug,
+            "gdb asks us to transfer {} mode={}, annex={}, offset={} len={}",
+            String::from_utf8_lossy(name),
+            String::from_utf8_lossy(mode),
+            String::from_utf8_lossy(annex),
+            offset,
+            len
+        );
+        if name == b"auxv" {
+            if annex != b"" {
+                self.write_packet_bytes(b"E00");
+                return false;
+            }
+            if mode != b"read" {
+                self.write_packet_bytes(b"");
+                return false;
+            }
+
+            self.req = GdbRequest::new(Some(DREQ_GET_AUXV));
+            self.req.target = self.query_thread;
+            // XXX handle offset/len here!
+            return true;
+        }
+
+        if name == b"exec-file" {
+            if mode != b"read" {
+                self.write_packet_bytes(b"");
+                return false;
+            }
+
+            self.req = GdbRequest::new(Some(DREQ_GET_EXEC_FILE));
+            self.req.target.tid = str16_to_usize(annex, &mut annex)
+                .unwrap()
+                .try_into()
+                .unwrap();
+            self.req.target.pid = self.req.target.tid;
+            // XXX handle offset/len here!
+            return true;
+        }
+
+        if name == b"siginfo" {
+            if annex != b"" {
+                self.write_packet_bytes(b"E00");
+                return false;
+            }
+            if mode == b"read" {
+                self.req = GdbRequest::new(Some(DREQ_READ_SIGINFO));
+                self.req.target = self.query_thread;
+                self.req.mem_mut().addr = offset.into();
+                self.req.mem_mut().len = len;
+                return true;
+            }
+
+            self.req = GdbRequest::new(Some(DREQ_WRITE_SIGINFO));
+            self.req.target = self.query_thread;
+            return true;
+        }
+        if name == b"features" {
+            if mode != b"read" {
+                self.write_packet_bytes(b"");
+                return false;
+            }
+
+            let filename = if annex != b"" && annex != b"target.xml" {
+                annex
+            } else {
+                target_description_name(self.cpu_features_)
+            };
+            let target_desc = read_target_desc(filename).unwrap();
+            self.write_xfer_response(&target_desc, offset, len);
+            return false;
+        }
+
+        self.write_packet_bytes(b"");
+        return false;
     }
 
     /// Return true if we need to do something in a debugger request,
@@ -1518,10 +1628,10 @@ impl GdbConnection {
             self.write_packet_bytes(b"l");
             return false;
         }
-        if name.starts_with(b"GetTLSAddr") {
+        if name == b"GetTLSAddr" {
             unimplemented!()
         }
-        if name.starts_with(b"Offsets") {
+        if name == b"Offsets" {
             log!(LogDebug, "gdb asks for section offsets");
             self.req = GdbRequest::new(Some(DREQ_GET_OFFSETS));
             self.req.target = self.query_thread;
@@ -2118,4 +2228,38 @@ fn read_binary_data(payload: &[u8], data: &mut Vec<u8>) {
             data.push(b);
         }
     }
+}
+
+fn target_description_name(cpu_features: u32) -> &'static [u8] {
+    // This doesn't scale, but it's what gdb does...
+    match cpu_features {
+        0 => b"i386-linux.xml",
+        GdbConnection::CPU_64BIT => b"amd64-linux.xml",
+        GdbConnection::CPU_AVX => b"i386-avx-linux.xml",
+        GdbConnection::CPU_64BIT_AND_CPU_AVX => b"amd64-avx-linux.xml",
+        _ => fatal!("Unknown features"),
+    }
+}
+
+fn read_target_desc(file_name: &[u8]) -> Result<Vec<u8>, Error> {
+    let mut path = resource_path().as_bytes().to_vec();
+    path.extend_from_slice(b"share/rr/");
+    path.extend_from_slice(file_name);
+    let f = ScopedFd::open_path(path.as_slice(), OFlag::O_RDONLY);
+    // DIFF NOTE: This is a debug assert in rr. Why?
+    assert!(f.is_open());
+    let mut buf = [0u8; 4 * 1024];
+    let mut text_buf = Vec::<u8>::with_capacity(4 * 1024);
+    loop {
+        let bytes_result = read(f.as_raw(), &mut buf);
+        match bytes_result {
+            Err(e) => return Err(e),
+            Ok(0) => break,
+            Ok(nread) => {
+                text_buf.extend_from_slice(&buf[0..nread]);
+            }
+        }
+    }
+
+    Ok(text_buf)
 }
