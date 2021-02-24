@@ -1629,7 +1629,20 @@ impl GdbConnection {
             return false;
         }
         if name == b"GetTLSAddr" {
-            unimplemented!()
+            let mut args = maybe_args.unwrap();
+            log!(LogDebug, "gdb asks for TLS addr");
+            self.req = GdbRequest::new(Some(DREQ_TLS));
+            self.req.target = parse_threadid(args, &mut args);
+            parser_assert_eq!(args[0], b',');
+            args = &args[1..];
+            let offset = str16_to_usize(args, &mut args).unwrap();
+            parser_assert_eq!(args[0], b',');
+            args = &args[1..];
+            let load_module = str16_to_usize(args, &mut args).unwrap();
+            parser_assert_eq!(args.len(), 0);
+            self.req.tls_mut().offset = offset;
+            self.req.tls_mut().load_module = load_module.into();
+            return true;
         }
         if name == b"Offsets" {
             log!(LogDebug, "gdb asks for section offsets");
@@ -2016,8 +2029,8 @@ fn print_reg_value(reg: &GdbRegisterValue, buf: &mut Vec<u8>) {
     }
 }
 
-// Translate linux-x86 |sig| to gdb's internal numbering.  Translation
-// made according to gdb/include/gdb/signals.def.
+/// Translate linux-x86 |sig| to gdb's internal numbering.  Translation
+/// made according to gdb/include/gdb/signals.def.
 fn to_gdb_signum(maybe_sig: Option<Sig>) -> i32 {
     let sig = match maybe_sig {
         Some(sig) => sig.as_raw(),
