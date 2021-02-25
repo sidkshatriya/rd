@@ -2188,10 +2188,9 @@ pub fn str16_to_usize<'a>(
         }
         None => {
             *new_text = text;
-            Err(Box::new(Error::new(
-                ErrorKind::Other,
-                "Cannot obtain number",
-            )))
+            // This tries to mimic the behavior of strtoul where if there were no
+            // digits the result of the conversion is 0
+            Ok(0)
         }
     }
 }
@@ -2224,10 +2223,9 @@ pub fn str16_to_isize<'a>(
         }
         None => {
             *new_text = text;
-            Err(Box::new(Error::new(
-                ErrorKind::Other,
-                "Cannot obtain number",
-            )))
+            // This tries to mimic the behavior of strtol where if there were no
+            // digits the result of the conversion is 0
+            Ok(0)
         }
     }
 }
@@ -2250,7 +2248,7 @@ mod tests {
 
         let mut sl = b"mango".as_slice();
         let maybe_num = str16_to_usize(sl, &mut sl);
-        assert!(maybe_num.is_err());
+        assert_eq!(maybe_num.unwrap(), 0);
         assert_eq!(b"mango", sl);
     }
 
@@ -2268,7 +2266,7 @@ mod tests {
 
         let mut sl = b"mango".as_slice();
         let maybe_num = str16_to_isize(sl, &mut sl);
-        assert!(maybe_num.is_err());
+        assert_eq!(maybe_num.unwrap(), 0);
         assert_eq!(b"mango", sl);
     }
 }

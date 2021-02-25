@@ -1300,10 +1300,11 @@ impl GdbConnection {
             poll_outgoing(&self.sock_fd, -1 /*wait forever*/);
             let result = unistd::write(self.sock_fd.as_raw(), &mut self.outbuf[write_index..]);
             match result {
-                Err(_) => {
+                Err(e) => {
                     log!(
                         LogInfo,
-                        "Could not write data to gdb socket, marking connection as closed",
+                        "Could not write data to gdb socket, error was: {:?}. Marking connection as closed",
+                        e
                     );
                     self.connection_alive_ = false;
                     self.outbuf.clear();
@@ -1502,11 +1503,10 @@ impl GdbConnection {
             return false;
         }
 
-        let mut annex = args;
         let colon_loc = memchr(b':', args).unwrap();
+        let annex = &args[0..colon_loc];
         args = &args[colon_loc + 1..];
 
-        // @TODO DIFF NOTE: In rr, if we can't parse we get an automatic offset of 0
         let offset = str16_to_usize(args, &mut args).unwrap();
 
         let mut len: usize = 0;
@@ -1553,7 +1553,9 @@ impl GdbConnection {
             }
 
             self.req = GdbRequest::new(DREQ_GET_EXEC_FILE);
-            self.req.target.tid = str16_to_usize(annex, &mut annex)
+            // Handles the empty annex case by setting the tid to 0
+            let mut ignore: &[u8] = Default::default();
+            self.req.target.tid = str16_to_usize(annex, &mut ignore)
                 .unwrap()
                 .try_into()
                 .unwrap();
@@ -1579,6 +1581,7 @@ impl GdbConnection {
             self.req.target = self.query_thread;
             return true;
         }
+
         if name == b"features" {
             if mode != b"read" {
                 self.write_packet_bytes(b"");
@@ -2383,7 +2386,7 @@ fn target_description_name(cpu_features: u32) -> &'static [u8] {
 
 fn read_target_desc(file_name: &[u8]) -> Result<Vec<u8>, Error> {
     let mut path = resource_path().as_bytes().to_vec();
-    path.extend_from_slice(b"share/rr/");
+    path.extend_from_slice(b"share/rd/");
     path.extend_from_slice(file_name);
     let f = ScopedFd::open_path(path.as_slice(), OFlag::O_RDONLY);
     // DIFF NOTE: This is a debug assert in rr. Why?
