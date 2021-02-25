@@ -504,6 +504,7 @@ pub mod gdb_request {
     #[derive(Default, Clone)]
     pub struct Mem {
         pub addr: RemotePtr<u8>,
+        /// @TODO Not sure why we need an extra len parameter. data should contain it all??
         pub len: usize,
         /// For SET_MEM requests, the |len| raw bytes that are to be written.
         /// For SEARCH_MEM requests, the bytes to search for.
@@ -638,7 +639,7 @@ impl GdbConnection {
         }
     }
 
-    /// Call t'his when the target of `req` is needed to fulfill the
+    /// Call this when the target of `req` is needed to fulfill the
     /// request, but the target is dead.  This situation is a symptom of a
     /// gdb or rd bug.
     pub fn notify_no_such_thread(&mut self, req: &GdbRequest) {
@@ -693,7 +694,7 @@ impl GdbConnection {
     /// The target should peek at the debugger request in between execution
     /// steps.  A new request may need to be serviced.
     ///
-    /// DIFF NOTE: In rr this returns a GdbRequest, here we return a reference
+    /// DIFF NOTE: @TODO? In rr this returns a GdbRequest, here we return a reference
     pub fn get_request(&mut self) -> &GdbRequest {
         if DREQ_RESTART == self.req.type_ {
             log!(LogDebug, "consuming RESTART request");
@@ -736,13 +737,16 @@ impl GdbConnection {
                 // so the target has to do something.
                 return &self.req;
             }
+
             // The packet we got was "internal", gdb details.
             // Nothing for the target to do yet.  Keep waiting.
         }
     }
 
     /// Notify the host that this process has exited with `code`.
-    /// DIFF NOTE: On rr code is an int
+    ///
+    /// DIFF NOTE: On rr code is an int. Use a u8 is that should be sufficient for all
+    /// exit codes.
     pub fn notify_exit_code(&mut self, code: u8) {
         debug_assert!(self.req.is_resume_request() || self.req.type_ == DREQ_INTERRUPT);
 
@@ -753,7 +757,11 @@ impl GdbConnection {
         self.consume_request();
     }
 
-    /// Notify the host that this process has exited from |sig|.
+    /// Notify the host that this process has exited from `sig`.
+    ///
+    /// DIFF NOTE: Unlike rr we can't say we exited from signal 0
+    /// or some invalid signal. We may need to allow for exiting from
+    /// signal 0. Not sure right now.
     pub fn notify_exit_signal(&mut self, sig: Sig) {
         debug_assert!(self.req.is_resume_request() || self.req.type_ == DREQ_INTERRUPT);
 
@@ -841,7 +849,7 @@ impl GdbConnection {
         self.consume_request();
     }
 
-    /// Reply with the target thread's |auxv| pairs. |auxv.empty()|
+    /// Reply with the target thread's `auxv` pairs. |auxv.empty()|
     /// if there was an error reading the auxiliary vector.
     pub fn reply_get_auxv(&mut self, auxv: &[u8]) {
         debug_assert_eq!(DREQ_GET_AUXV, self.req.type_);
@@ -892,7 +900,7 @@ impl GdbConnection {
         self.consume_request();
     }
 
-    /// |ok| is true if req->target can be selected, false otherwise.
+    /// `ok` is true if `self.req.target` can be selected, false otherwise.
     pub fn reply_select_thread(&mut self, ok: bool) {
         debug_assert!(
             DREQ_SET_CONTINUE_THREAD == self.req.type_ || DREQ_SET_QUERY_THREAD == self.req.type_
@@ -913,8 +921,11 @@ impl GdbConnection {
         self.consume_request();
     }
 
-    /// The first |mem.size()| bytes of the request were read into |mem|.
-    /// |mem.size()| must be less than or equal to the length of the request.
+    /// The first `mem.len()` bytes of the request (i.e. self.req.mem().data)
+    ///  were read into the param `mem`.
+    /// `mem.len()` must be less than or equal to the length of the request.
+    ///
+    /// @TODO Check the above comments again
     pub fn reply_get_mem(&mut self, mem: &[u8]) {
         debug_assert_eq!(DREQ_GET_MEM, self.req.type_);
         debug_assert!(mem.len() <= self.req.mem().len);
@@ -928,7 +939,7 @@ impl GdbConnection {
         self.consume_request();
     }
 
-    /// |ok| is true if a SET_MEM request succeeded, false otherwise.  This
+    /// `ok` is true if a SET_MEM request succeeded, false otherwise.  This
     /// function *must* be called whenever a SET_MEM request is made,
     /// regardless of success/failure or special interpretation.
     pub fn reply_set_mem(&mut self, ok: bool) {
@@ -944,7 +955,7 @@ impl GdbConnection {
     }
 
     /// Reply to the DREQ_SEARCH_MEM request.
-    /// |found| is true if we found the searched-for bytes starting at address |addr|.
+    /// `found` is true if we found the searched-for bytes starting at address `addr`.
     pub fn reply_search_mem(&mut self, found: bool, addr: RemotePtr<Void>) {
         debug_assert_eq!(DREQ_SEARCH_MEM, self.req.type_);
 
@@ -969,7 +980,7 @@ impl GdbConnection {
         self.consume_request();
     }
 
-    /// Send |value| back to the debugger host.  |value| may be undefined.
+    /// Send `reg` back to the debugger host.  `reg` may be undefined.
     pub fn reply_get_reg(&mut self, reg: &GdbRegisterValue) {
         let mut buf = Vec::<u8>::new();
 
@@ -981,7 +992,7 @@ impl GdbConnection {
         self.consume_request();
     }
 
-    /// Send |file| back to the debugger host.  |file| may contain
+    /// Send `file` back to the debugger host.  `file` may contain
     /// undefined register values.
     pub fn reply_get_regs(&mut self, file: &[GdbRegisterValue]) {
         let mut buf = Vec::<u8>::new();
@@ -996,12 +1007,12 @@ impl GdbConnection {
         self.consume_request();
     }
 
-    /// Pass |ok = true| iff the requested register was successfully set.
+    /// Pass `ok = true` iff the requested register was successfully set.
     pub fn reply_set_reg(&mut self, ok: bool) {
         debug_assert_eq!(DREQ_SET_REG, self.req.type_);
 
         // TODO: what happens if we're forced to reply to a
-        // set-register request with |ok = false|, leading us to
+        // set-register request with `ok = false`, leading us to
         // pretend not to understand the packet?  If, later, an
         // experimental session needs the set-register request will it
         // not be sent?
@@ -1011,7 +1022,7 @@ impl GdbConnection {
         if ok {
             self.write_packet_bytes(b"OK")
         } else {
-            self.write_packet_bytes(&[])
+            self.write_packet_bytes(b"")
         }
 
         self.consume_request();
@@ -1039,6 +1050,7 @@ impl GdbConnection {
                     continue;
                 }
                 if self.multiprocess_supported_ {
+                    // Note the trailing `,`
                     write!(buf, "p{:02x}.{:02x},", t.pid, t.tid).unwrap();
                 } else {
                     write!(buf, "{:02x},", t.tid).unwrap();
@@ -1051,7 +1063,7 @@ impl GdbConnection {
         self.consume_request();
     }
 
-    /// |ok| is true if the request was successfully applied, false if not.
+    /// `ok` is true if the request was successfully applied, false if not.
     pub fn reply_watchpoint_request(&mut self, ok: bool) {
         debug_assert!(DREQ_WATCH_FIRST <= self.req.type_ && self.req.type_ <= DREQ_WATCH_LAST);
         if ok {
@@ -1076,8 +1088,8 @@ impl GdbConnection {
         self.consume_request();
     }
 
-    /// Pass the siginfo_t and its size (as requested by the debugger) in
-    /// `si_bytes` if successfully read.  Otherwise pass si_bytes = nullptr.
+    /// Pass the siginfo_t (as requested by the debugger) in
+    /// `si_bytes` if successfully read.  Otherwise output an error.
     pub fn reply_read_siginfo(&mut self, si_bytes: &[u8]) {
         debug_assert_eq!(DREQ_READ_SIGINFO, self.req.type_);
 
@@ -1090,9 +1102,9 @@ impl GdbConnection {
         self.consume_request();
     }
 
-    /// Not yet implemented, but call this after a WRITE_SIGINFO request
+    /// @TODO Not yet implemented, but call this after a WRITE_SIGINFO request
     /// anyway.
-    pub fn reply_write_siginfo(&mut self /* TODO*/) {
+    pub fn reply_write_siginfo(&mut self) {
         debug_assert_eq!(DREQ_WRITE_SIGINFO, self.req.type_);
 
         self.write_packet_bytes(b"E01");
@@ -1100,7 +1112,7 @@ impl GdbConnection {
         self.consume_request();
     }
 
-    /// Send a manual text response to a rr cmd (maintenance) packet.
+    /// Send a manual text response to a rd cmd (maintenance) packet.
     pub fn reply_rd_cmd(&mut self, text: &str) {
         debug_assert_eq!(DREQ_RD_CMD, self.req.type_);
 
@@ -1110,7 +1122,7 @@ impl GdbConnection {
     }
 
     /// Send a qSymbol response to gdb, requesting the address of the
-    /// symbol |name|.
+    /// symbol `name`.
     pub fn send_qsymbol(&mut self, name: &str) {
         debug_assert_eq!(DREQ_QSYMBOL, self.req.type_);
 
@@ -1128,8 +1140,8 @@ impl GdbConnection {
         self.consume_request();
     }
 
-    /// Respond to a qGetTLSAddr packet.  If |ok| is true, then respond
-    /// with |address|.  If |ok| is false, respond with an error.
+    /// Respond to a qGetTLSAddr packet.  If `ok` is true, then respond
+    /// with `address`.  If `ok` is false, respond with an error.
     pub fn reply_tls_addr(&mut self, ok: bool, addr: RemotePtr<Void>) {
         debug_assert_eq!(DREQ_TLS, self.req.type_);
 
@@ -2112,7 +2124,7 @@ fn decode_ascii_encoded_hex_str(encoded: &[u8]) -> String {
     decoded_str
 }
 
-/// Format `value` into `buf` in the manner gdb expects.
+/// Format `reg` into `buf` in the manner gdb expects.
 fn print_reg_value(reg: &GdbRegisterValue, buf: &mut Vec<u8>) {
     parser_assert!(reg.size <= GdbRegisterValue::MAX_SIZE);
     if reg.defined {
