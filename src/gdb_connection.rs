@@ -133,7 +133,7 @@ pub struct GdbThreadId {
 
 impl Default for GdbThreadId {
     fn default() -> Self {
-        GdbThreadId { pid: -1, tid: -1 }
+        GdbThreadId::ALL
     }
 }
 
@@ -184,8 +184,7 @@ impl Default for GdbRequestValue {
 }
 
 impl GdbRequest {
-    pub fn new(maybe_type: Option<GdbRequestType>) -> GdbRequest {
-        let type_ = maybe_type.unwrap_or(DREQ_NONE);
+    pub fn new(type_: GdbRequestType) -> GdbRequest {
         let value = match type_ {
             DREQ_NONE => GdbRequestValue::GdbRequestNone,
             t if t >= DREQ_MEM_FIRST && t <= DREQ_MEM_LAST => {
@@ -681,7 +680,7 @@ impl GdbConnection {
         self.resume_thread = GdbThreadId::ANY;
         self.query_thread = GdbThreadId::ANY;
 
-        self.req = GdbRequest::new(None);
+        self.req = GdbRequest::new(DREQ_NONE);
     }
 
     /// Return the current request made by the debugger host, that needs to
@@ -703,7 +702,7 @@ impl GdbConnection {
             // the process "relaunches".  In rd's case, the
             // traceee may be very far away from process creation,
             // but that's OK.
-            self.req = GdbRequest::new(Some(DREQ_GET_STOP_REASON));
+            self.req = GdbRequest::new(DREQ_GET_STOP_REASON);
             self.req.target = self.query_thread;
             return &self.req;
         }
@@ -728,7 +727,7 @@ impl GdbConnection {
             self.read_packet();
 
             if !self.connection_alive_ {
-                self.req = GdbRequest::new(Some(DREQ_DETACH));
+                self.req = GdbRequest::new(DREQ_DETACH);
                 return &self.req;
             }
 
@@ -1529,7 +1528,7 @@ impl GdbConnection {
                 return false;
             }
 
-            self.req = GdbRequest::new(Some(DREQ_GET_AUXV));
+            self.req = GdbRequest::new(DREQ_GET_AUXV);
             self.req.target = self.query_thread;
             // XXX handle offset/len here!
             return true;
@@ -1541,7 +1540,7 @@ impl GdbConnection {
                 return false;
             }
 
-            self.req = GdbRequest::new(Some(DREQ_GET_EXEC_FILE));
+            self.req = GdbRequest::new(DREQ_GET_EXEC_FILE);
             self.req.target.tid = str16_to_usize(annex, &mut annex)
                 .unwrap()
                 .try_into()
@@ -1557,14 +1556,14 @@ impl GdbConnection {
                 return false;
             }
             if mode == b"read" {
-                self.req = GdbRequest::new(Some(DREQ_READ_SIGINFO));
+                self.req = GdbRequest::new(DREQ_READ_SIGINFO);
                 self.req.target = self.query_thread;
                 self.req.mem_mut().addr = offset.into();
                 self.req.mem_mut().len = len;
                 return true;
             }
 
-            self.req = GdbRequest::new(Some(DREQ_WRITE_SIGINFO));
+            self.req = GdbRequest::new(DREQ_WRITE_SIGINFO);
             self.req.target = self.query_thread;
             return true;
         }
@@ -1608,14 +1607,14 @@ impl GdbConnection {
                 "gdb requests rd cmd: {:?}",
                 OsStr::from_bytes(name)
             );
-            self.req = GdbRequest::new(Some(DREQ_RD_CMD));
+            self.req = GdbRequest::new(DREQ_RD_CMD);
             // Assumes there is always a `:` after `RDCmd`
             *self.req.text_mut() = maybe_args.unwrap().to_vec();
             return true;
         }
         if name == b"C" {
             log!(LogDebug, "gdb requests current thread ID");
-            self.req = GdbRequest::new(Some(DREQ_GET_CURRENT_THREAD));
+            self.req = GdbRequest::new(DREQ_GET_CURRENT_THREAD);
             return true;
         }
         if name == b"Attached" {
@@ -1627,7 +1626,7 @@ impl GdbConnection {
         }
         if name == b"fThreadInfo" {
             log!(LogDebug, "gdb asks for thread list");
-            self.req = GdbRequest::new(Some(DREQ_GET_THREAD_LIST));
+            self.req = GdbRequest::new(DREQ_GET_THREAD_LIST);
             return true;
         }
         if name == b"sThreadInfo" {
@@ -1638,7 +1637,7 @@ impl GdbConnection {
         if name == b"GetTLSAddr" {
             let mut args = maybe_args.unwrap();
             log!(LogDebug, "gdb asks for TLS addr");
-            self.req = GdbRequest::new(Some(DREQ_TLS));
+            self.req = GdbRequest::new(DREQ_TLS);
             self.req.target = parse_threadid(args, &mut args);
             parser_assert_eq!(args[0], b',');
             args = &args[1..];
@@ -1653,7 +1652,7 @@ impl GdbConnection {
         }
         if name == b"Offsets" {
             log!(LogDebug, "gdb asks for section offsets");
-            self.req = GdbRequest::new(Some(DREQ_GET_OFFSETS));
+            self.req = GdbRequest::new(DREQ_GET_OFFSETS);
             self.req.target = self.query_thread;
             return true;
         }
@@ -1701,7 +1700,7 @@ impl GdbConnection {
             log!(LogDebug, "gdb is ready for symbol lookups");
             let mut args = maybe_args.unwrap();
             let _colon = memchr(b':', args).unwrap();
-            self.req = GdbRequest::new(Some(DREQ_QSYMBOL));
+            self.req = GdbRequest::new(DREQ_QSYMBOL);
             if args[0] == b':' {
                 self.req.sym_mut().has_address = false;
             } else {
@@ -1721,7 +1720,7 @@ impl GdbConnection {
             let loc_args = 1 + memchr(b',', args).unwrap();
             args = &args[loc_args..];
 
-            self.req = GdbRequest::new(Some(DREQ_GET_THREAD_EXTRA_INFO));
+            self.req = GdbRequest::new(DREQ_GET_THREAD_EXTRA_INFO);
             self.req.target = parse_threadid(args, &mut args);
             // We should have consumed everything
             parser_assert_eq!(args.len(), 0);
@@ -1753,7 +1752,7 @@ impl GdbConnection {
                 None => args,
             };
             if name == b"memory" && args_loc.is_some() {
-                self.req = GdbRequest::new(Some(DREQ_SEARCH_MEM));
+                self.req = GdbRequest::new(DREQ_SEARCH_MEM);
                 self.req.target = self.query_thread;
                 self.req.mem_mut().addr = str16_to_usize(args, &mut args).unwrap().into();
                 parser_assert_eq!(b';', args[0]);
@@ -1916,7 +1915,7 @@ impl GdbConnection {
             if maybe_default_action.is_some() {
                 actions.push(maybe_default_action.unwrap());
             }
-            self.req = GdbRequest::new(Some(DREQ_CONT));
+            self.req = GdbRequest::new(DREQ_CONT);
             self.req.cont_mut().run_direction = RunDirection::RunForward;
             self.req.cont_mut().actions = actions;
             return true;
@@ -1929,7 +1928,7 @@ impl GdbConnection {
     /// false if we already handled the packet internally.
     fn process_bpacket(&mut self, payload: &[u8]) -> bool {
         if payload == b"c" {
-            self.req = GdbRequest::new(Some(DREQ_CONT));
+            self.req = GdbRequest::new(DREQ_CONT);
             self.req.cont_mut().run_direction = RunDirection::RunBackward;
             self.req.cont_mut().actions.push(GdbContAction::new(
                 Some(GdbActionType::ActionContinue),
@@ -1938,7 +1937,7 @@ impl GdbConnection {
             ));
             return true;
         } else if payload == b"s" {
-            self.req = GdbRequest::new(Some(DREQ_CONT));
+            self.req = GdbRequest::new(DREQ_CONT);
             self.req.cont_mut().run_direction = RunDirection::RunBackward;
             self.req.cont_mut().actions.push(GdbContAction::new(
                 Some(GdbActionType::ActionStep),
@@ -1963,7 +1962,7 @@ impl GdbConnection {
     }
 
     fn consume_request(&mut self) {
-        self.req = GdbRequest::new(None);
+        self.req = GdbRequest::new(DREQ_NONE);
         self.write_flush()
     }
 
