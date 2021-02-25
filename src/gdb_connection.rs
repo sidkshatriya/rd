@@ -52,6 +52,13 @@ macro_rules! parser_assert_eq {
     }};
 }
 
+macro_rules! unhandled_req {
+    ($slf:expr, $($args:tt)+) => {
+        $slf.write_packet_bytes(b"");
+        log!(crate::log::LogLevel::LogInfo, $($args)+)
+    };
+}
+
 const INTERRUPT_CHAR: u8 = b'\x03';
 
 /// Represents a possibly-undefined register `name`.  `size` indicates how
@@ -1769,9 +1776,8 @@ impl GdbConnection {
             return false;
         }
 
-        self.write_packet_bytes(b"");
-        log!(
-            LogInfo,
+        unhandled_req!(
+            self,
             "Unhandled gdb query: q{}",
             String::from_utf8_lossy(name)
         );
@@ -1791,9 +1797,8 @@ impl GdbConnection {
             self.write_packet_bytes(b"OK");
             self.no_ack = true;
         } else {
-            self.write_packet_bytes(&[]);
-            log!(
-                LogInfo,
+            unhandled_req!(
+                self,
                 "Unhandled gdb set: Q{}",
                 String::from_utf8_lossy(name)
             );
@@ -1870,9 +1875,8 @@ impl GdbConnection {
                         action = GdbActionType::ActionStep;
                     }
                     _ => {
-                        self.write_packet_bytes(b"");
-                        log!(
-                            LogInfo,
+                        unhandled_req!(
+                            self,
                             "Unhandled vCont command {}",
                             String::from_utf8_lossy(cmd)
                         );
@@ -1880,9 +1884,8 @@ impl GdbConnection {
                     }
                 }
                 if maybe_endptr.is_some() && maybe_endptr.unwrap().len() > 0 {
-                    self.write_packet_bytes(b"");
-                    log!(
-                        LogInfo,
+                    unhandled_req!(
+                        self,
                         "Unhandled vCont command parameters {}",
                         String::from_utf8_lossy(cmd)
                     );
@@ -1890,9 +1893,8 @@ impl GdbConnection {
                 }
                 if is_default {
                     if maybe_default_action.is_some() {
-                        self.write_packet_bytes(b"");
-                        log!(
-                            LogInfo,
+                        unhandled_req!(
+                            self,
                             "Unhandled vCont command with multiple default actions"
                         );
                         return false;
@@ -1945,11 +1947,10 @@ impl GdbConnection {
             ));
             return true;
         } else {
-            self.write_packet_bytes(&[]);
-            log!(
-                LogInfo,
-                "Unhandled gdb bpacket: b{:?}",
-                OsStr::from_bytes(payload)
+            unhandled_req!(
+                self,
+                "Unhandled gdb bpacket: b{}",
+                String::from_utf8_lossy(payload)
             );
             return false;
         }
