@@ -505,6 +505,8 @@ pub mod gdb_request {
     pub struct Mem {
         pub addr: RemotePtr<u8>,
         /// @TODO Not sure why we need an extra len parameter. data should contain it all??
+        /// On second thoughts might it be a good idea to keep len? Gdb explicitly specifies len and
+        /// data is sent e.g. qSearch
         pub len: usize,
         /// For SET_MEM requests, the |len| raw bytes that are to be written.
         /// For SEARCH_MEM requests, the bytes to search for.
@@ -1620,18 +1622,20 @@ impl GdbConnection {
             log!(
                 LogDebug,
                 "gdb requests rd cmd: {:?}",
-                OsStr::from_bytes(name)
+                String::from_utf8_lossy(name)
             );
             self.req = GdbRequest::new(DREQ_RD_CMD);
             // Assumes there is always a `:` after `RDCmd`
             *self.req.text_mut() = maybe_args.unwrap().to_vec();
             return true;
         }
+
         if name == b"C" {
             log!(LogDebug, "gdb requests current thread ID");
             self.req = GdbRequest::new(DREQ_GET_CURRENT_THREAD);
             return true;
         }
+
         if name == b"Attached" {
             log!(LogDebug, "gdb asks if this is a new or existing process");
             // Tell gdb this is an existing process; it might be
@@ -1639,16 +1643,19 @@ impl GdbConnection {
             self.write_packet_bytes(b"1");
             return false;
         }
+
         if name == b"fThreadInfo" {
             log!(LogDebug, "gdb asks for thread list");
             self.req = GdbRequest::new(DREQ_GET_THREAD_LIST);
             return true;
         }
+
         if name == b"sThreadInfo" {
             // "end of list"
             self.write_packet_bytes(b"l");
             return false;
         }
+
         if name == b"GetTLSAddr" {
             let mut args = maybe_args.unwrap();
             log!(LogDebug, "gdb asks for TLS addr");
@@ -1665,17 +1672,20 @@ impl GdbConnection {
             self.req.tls_mut().load_module = load_module.into();
             return true;
         }
+
         if name == b"Offsets" {
             log!(LogDebug, "gdb asks for section offsets");
             self.req = GdbRequest::new(DREQ_GET_OFFSETS);
             self.req.target = self.query_thread;
             return true;
         }
+
         if b'P' == name[0] {
             // The docs say not to use this packet ...
-            self.write_packet_bytes(&[]);
+            self.write_packet_bytes(b"");
             return false;
         }
+
         if name == b"Supported" {
             let args = maybe_args.unwrap();
             // TODO process these
@@ -1711,6 +1721,7 @@ impl GdbConnection {
             self.write_packet_bytes(&supported);
             return false;
         }
+
         if name == b"Symbol" {
             log!(LogDebug, "gdb is ready for symbol lookups");
             let mut args = maybe_args.unwrap();
@@ -1727,13 +1738,14 @@ impl GdbConnection {
             self.req.sym_mut().name = decode_ascii_encoded_hex_str(args);
             return true;
         }
+
         if name.starts_with(b"ThreadExtraInfo") {
             // ThreadExtraInfo is a special snowflake that
             // delimits its args with ','.
             parser_assert!(maybe_args.is_none());
             let mut args = payload;
-            let loc_args = 1 + memchr(b',', args).unwrap();
-            args = &args[loc_args..];
+            let loc_args = memchr(b',', args).unwrap();
+            args = &args[loc_args + 1..];
 
             self.req = GdbRequest::new(DREQ_GET_THREAD_EXTRA_INFO);
             self.req.target = parse_threadid(args, &mut args);
@@ -1741,26 +1753,30 @@ impl GdbConnection {
             parser_assert_eq!(args.len(), 0);
             return true;
         }
+
         if name == b"TStatus" {
             log!(LogDebug, "gdb asks for trace status");
             // XXX from the docs, it appears that we should reply
             // with "T0" here.  But if we do, gdb keeps bothering
             // us with trace queries.  So pretend we don't know
-            // what it's talking about. */
+            // what it's talking about.
             self.write_packet_bytes(b"");
             return false;
         }
+
         if name == b"Xfer" {
             let args = maybe_args.unwrap();
             let colon_loc = memchr(b':', args).unwrap();
             let name = &args[0..colon_loc];
             return self.xfer(name, &args[colon_loc + 1..]);
         }
+
         if name == b"Search" {
             let mut args = maybe_args.unwrap();
             let args_loc = memchr(b':', args);
             let name = match args_loc {
                 Some(l) => {
+                    // Important side effect!
                     args = &args[l + 1..];
                     &args[0..l]
                 }
@@ -1775,6 +1791,8 @@ impl GdbConnection {
                 self.req.mem_mut().len = str16_to_usize(args, &mut args).unwrap();
                 parser_assert_eq!(b';', args[0]);
                 args = &args[1..];
+                // @TODO Is this the correct interpretation?
+                // https://sourceware.org/gdb/current/onlinedocs/gdb/General-Query-Packets.html#General-Query-Packets
                 read_binary_data(args, &mut self.req.mem_mut().data);
 
                 log!(
@@ -1795,6 +1813,7 @@ impl GdbConnection {
             "Unhandled gdb query: q{}",
             String::from_utf8_lossy(name)
         );
+
         false
     }
 
@@ -1807,7 +1826,7 @@ impl GdbConnection {
             None => payload,
         };
 
-        if name.starts_with(b"StartNoAckMode") {
+        if name == b"StartNoAckMode" {
             self.write_packet_bytes(b"OK");
             self.no_ack = true;
         } else {
@@ -1824,7 +1843,7 @@ impl GdbConnection {
     /// Return true if we need to do something in a debugger request,
     /// false if we already handled the packet internally.
     fn process_vpacket(&mut self, payload: &[u8]) -> bool {
-        let maybe_args_loc = memchr(b':', payload);
+        let maybe_args_loc = memchr(b';', payload);
         let name = match maybe_args_loc {
             Some(l) => &payload[0..l],
             None => payload,
@@ -1834,6 +1853,7 @@ impl GdbConnection {
             Some(l) => Some(&payload[l + 1..]),
             None => None,
         };
+
         if name == b"Cont" {
             let mut args = maybe_args.unwrap();
             let mut actions: Vec<GdbContAction> = Vec::new();
@@ -1930,6 +1950,7 @@ impl GdbConnection {
             if maybe_default_action.is_some() {
                 actions.push(maybe_default_action.unwrap());
             }
+
             self.req = GdbRequest::new(DREQ_CONT);
             self.req.cont_mut().run_direction = RunDirection::RunForward;
             self.req.cont_mut().actions = actions;
@@ -2006,9 +2027,11 @@ impl GdbConnection {
             )
             .unwrap();
         }
+
         if !watch_addr.is_null() {
-            write!(buf, "watch:{};", watch_addr.as_usize()).unwrap();
+            write!(buf, "watch:{:x};", watch_addr.as_usize()).unwrap();
         }
+
         self.write_packet_bytes(&buf);
     }
 
@@ -2112,6 +2135,8 @@ fn poll_socket(sock_fd: &ScopedFd, events: PollFlags, timeout_ms: i32) -> bool {
     false
 }
 
+// @TODO Since this is ASCII encoded it might be a good idea to
+// use a specific ASCII type instead of String?
 fn decode_ascii_encoded_hex_str(encoded: &[u8]) -> String {
     let enc_len = encoded.len();
     parser_assert_eq!(enc_len % 2, 0);
@@ -2167,9 +2192,6 @@ fn to_gdb_signum(maybe_sig: Option<Sig>) -> i32 {
         None => return 0,
     };
     match sig {
-        0 => {
-            return 0;
-        }
         libc::SIGHUP => {
             return 1;
         }
@@ -2364,6 +2386,7 @@ fn read_binary_data(payload: &[u8], data: &mut Vec<u8>) {
     let mut it = payload.iter().enumerate();
     while let Some((i, &b)) = it.next() {
         if b'}' == b {
+            // There is at least one more u8 left
             parser_assert!(i < l - 1);
             let (_, &next_b) = it.next().unwrap();
             data.push(0x20 ^ next_b);
