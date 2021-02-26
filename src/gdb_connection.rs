@@ -27,7 +27,7 @@ use nix::{
 use std::{
     convert::TryInto,
     ffi::OsStr,
-    fmt::{self, Display},
+    fmt::{self, Display, Write as OtherWrite},
     io::Write,
     mem::size_of_val,
     os::unix::ffi::OsStrExt,
@@ -2347,7 +2347,28 @@ impl GdbConnection {
                 ret = self.process_vpacket(&payload);
             }
             b'X' => {
-                unimplemented!()
+                self.req = GdbRequest::new(DREQ_SET_MEM);
+                self.req.target = self.query_thread;
+                let mut payload_sl: &[u8] = &payload;
+                self.req.mem_mut().addr =
+                    str16_to_usize(payload_sl, &mut payload_sl).unwrap().into();
+                parser_assert_eq!(b',', payload_sl[0]);
+                payload_sl = &payload_sl[1..];
+                self.req.mem_mut().len = str16_to_usize(payload_sl, &mut payload_sl).unwrap();
+                parser_assert_eq!(b':', payload_sl[0]);
+                payload_sl = &payload_sl[1..];
+                read_binary_data(payload_sl, &mut self.req.mem_mut().data);
+                parser_assert_eq!(self.req.mem().len, self.req.mem().data.len());
+
+                log!(
+                    LogDebug,
+                    "gdb setting memory (addr={}, len={}, data={})",
+                    self.req.mem().addr,
+                    self.req.mem().len,
+                    to_string(&self.req.mem().data, 32)
+                );
+
+                ret = true;
             }
             b'z' | b'Z' => {
                 unimplemented!()
@@ -2822,4 +2843,17 @@ fn read_target_desc(file_name: &[u8]) -> Result<Vec<u8>, Error> {
 /// be mutated.
 fn read_reg_value(_strp: &mut &[u8], _reg: &mut GdbRegisterValue) {
     unimplemented!()
+}
+
+fn to_string(bytes: &[u8], max_len: usize) -> String {
+    let mut ss = String::new();
+    for i in 0..bytes.len() {
+        if i >= max_len {
+            ss.push_str("...");
+            break;
+        }
+        write!(ss, "{:02x}", bytes[i]).unwrap();
+    }
+
+    ss
 }
