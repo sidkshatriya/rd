@@ -11,7 +11,7 @@ use crate::{
     scoped_fd::ScopedFd,
     session::SessionSharedPtr,
     sig::Sig,
-    util::{resource_path, str16_to_isize, str16_to_usize},
+    util::{resource_path, str0_to_isize, str16_to_isize, str16_to_usize},
 };
 use libc::pid_t;
 use memchr::memchr;
@@ -523,7 +523,9 @@ pub mod gdb_request {
     #[derive(Default, Clone)]
     pub struct Restart {
         pub param: i32,
-        pub param_str: OsString,
+        /// @TODO Made this a String because its value seems to only come from
+        /// decode_ascii_encoded_hex_str
+        pub param_str: String,
         pub type_: GdbRestartType,
     }
 
@@ -1917,27 +1919,34 @@ impl GdbConnection {
                         return false;
                     }
                 }
-                if maybe_endptr.is_some() && maybe_endptr.unwrap().len() > 0 {
-                    unhandled_req!(
-                        self,
-                        "Unhandled vCont command parameters {}",
-                        String::from_utf8_lossy(cmd)
-                    );
-                    return false;
-                }
-                if is_default {
-                    if maybe_default_action.is_some() {
+                match maybe_endptr {
+                    Some(endptr) if endptr.len() > 0 => {
                         unhandled_req!(
                             self,
-                            "Unhandled vCont command with multiple default actions"
+                            "Unhandled vCont command parameters {}",
+                            String::from_utf8_lossy(cmd)
                         );
                         return false;
                     }
-                    maybe_default_action = Some(GdbContAction::new(
-                        Some(action),
-                        Some(GdbThreadId::ALL),
-                        maybe_signal_to_deliver,
-                    ));
+                    _ => (),
+                }
+                if is_default {
+                    match maybe_default_action {
+                        Some(_) => {
+                            unhandled_req!(
+                                self,
+                                "Unhandled vCont command with multiple default actions"
+                            );
+                            return false;
+                        }
+                        None => {
+                            maybe_default_action = Some(GdbContAction::new(
+                                Some(action),
+                                Some(GdbThreadId::ALL),
+                                maybe_signal_to_deliver,
+                            ));
+                        }
+                    }
                 } else {
                     actions.push(GdbContAction::new(
                         Some(action),
@@ -1947,13 +1956,107 @@ impl GdbConnection {
                 }
             }
 
-            if maybe_default_action.is_some() {
-                actions.push(maybe_default_action.unwrap());
+            match maybe_default_action {
+                Some(default_action) => {
+                    actions.push(default_action);
+                }
+                None => (),
             }
 
             self.req = GdbRequest::new(DREQ_CONT);
             self.req.cont_mut().run_direction = RunDirection::RunForward;
             self.req.cont_mut().actions = actions;
+            return true;
+        }
+
+        if name == b"Cont?" {
+            log!(LogDebug, "gdb queries which continue commands we support");
+            self.write_packet_bytes(b"vCont;c;C;s;S;");
+            return false;
+        }
+
+        if name == b"Kill" {
+            // We can't kill tracees or replay can diverge.  We
+            // assume that this kill request is being made because
+            // a "vRun" restart is coming right up.  We know how
+            // to implement vRun, so we'll ignore this one.
+            log!(LogDebug, "gdb asks us to kill tracee(s); ignoring");
+            self.write_packet_bytes(b"OK");
+            return false;
+        }
+
+        if name == b"Run" {
+            let mut args = maybe_args.unwrap();
+            self.req = GdbRequest::new(DREQ_RESTART);
+
+            let mut filename = args;
+            let maybe_args_loc = memchr(b';', args);
+            match maybe_args_loc {
+                Some(l) => {
+                    filename = &filename[0..l];
+                    args = &args[l + 1..]
+                }
+                None => (),
+            }
+            if filename.len() > 0 {
+                fatal!(
+                    "gdb wants us to run the exe image `{}', but we don't support that.",
+                    String::from_utf8_lossy(filename)
+                );
+            }
+            if args.len() == 0 {
+                self.req.restart_mut().type_ = GdbRestartType::RestartFromPrevious;
+                return true;
+            }
+            let arg1 = args;
+            let maybe_args_loc = memchr(b';', args);
+            match maybe_args_loc {
+                Some(l) => {
+                    args = &args[l + 1..];
+                    log!(
+                        LogDebug,
+                        "Ignoring extra parameters {}",
+                        String::from_utf8_lossy(args)
+                    );
+                }
+                None => (),
+            }
+            let event_str = decode_ascii_encoded_hex_str(arg1);
+            let mut event_strb = event_str.as_bytes();
+            let mut endp: &[u8] = Default::default();
+            if event_strb[0] == b'c' {
+                event_strb = &event_strb[1..];
+                let param = str0_to_isize(event_strb, &mut endp).unwrap();
+                self.req.restart_mut().type_ = GdbRestartType::RestartFromCheckpoint;
+                self.req.restart_mut().param_str = String::from_utf8_lossy(event_strb).into();
+                self.req.restart_mut().param = param.try_into().unwrap();
+                log!(
+                    LogDebug,
+                    "next replayer restarting from checkpoint {}",
+                    self.req.restart().param
+                );
+            } else {
+                self.req.restart_mut().type_ = GdbRestartType::RestartFromEvent;
+                self.req.restart_mut().param = str0_to_isize(event_strb, &mut endp)
+                    .unwrap()
+                    .try_into()
+                    .unwrap();
+                log!(
+                    LogDebug,
+                    "next replayer advancing to event {}",
+                    self.req.restart().param
+                );
+            }
+            if endp.len() > 0 {
+                log!(
+                    LogDebug,
+                    "Couldn't parse event string `{}'; restarting from previous",
+                    event_str,
+                );
+                self.req.restart_mut().type_ = GdbRestartType::RestartFromPrevious;
+                self.req.restart_mut().param = -1;
+            }
+
             return true;
         }
 

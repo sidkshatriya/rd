@@ -2230,6 +2230,93 @@ pub fn str16_to_isize<'a>(
     }
 }
 
+pub fn str0_to_isize<'a>(
+    text: &'a [u8],
+    new_text: &mut &'a [u8],
+) -> Result<isize, Box<dyn error::Error>> {
+    lazy_static! {
+        static ref RE016: Regex = Regex::new(r"^\s*([\+\-])?0[xX]([0-9a-fA-F]+)").unwrap();
+        static ref RE010: Regex = Regex::new(r"^\s*([\+\-])?([0-9]+)").unwrap();
+        static ref RE08: Regex = Regex::new(r"^\s*([\+\-])?0([0-7]+)").unwrap();
+    }
+    match RE016.find(text) {
+        Some(m) => {
+            let cap = RE016.captures(text).unwrap();
+            let num_str = &cap[2];
+            *new_text = &text[m.end()..];
+            if cap.get(1).is_some() && cap[1][0] == b'-' {
+                let mut num_str_neg = vec![b'-'];
+                num_str_neg.extend_from_slice(num_str);
+                match isize::from_str_radix(std::str::from_utf8(&num_str_neg).unwrap(), 16) {
+                    Ok(num) => Ok(num),
+                    Err(e) => Err(Box::new(e)),
+                }
+            } else {
+                match isize::from_str_radix(std::str::from_utf8(num_str).unwrap(), 16) {
+                    Ok(num) => Ok(num),
+                    Err(e) => Err(Box::new(e)),
+                }
+            }
+        }
+        None => {
+            match RE08.find(text) {
+                Some(m) => {
+                    let cap = RE08.captures(text).unwrap();
+                    let num_str = &cap[2];
+                    *new_text = &text[m.end()..];
+                    if cap.get(1).is_some() && cap[1][0] == b'-' {
+                        let mut num_str_neg = vec![b'-'];
+                        num_str_neg.extend_from_slice(num_str);
+                        match isize::from_str_radix(std::str::from_utf8(&num_str_neg).unwrap(), 8) {
+                            Ok(num) => Ok(num),
+                            Err(e) => Err(Box::new(e)),
+                        }
+                    } else {
+                        match isize::from_str_radix(std::str::from_utf8(num_str).unwrap(), 8) {
+                            Ok(num) => Ok(num),
+                            Err(e) => Err(Box::new(e)),
+                        }
+                    }
+                }
+                None => {
+                    match RE010.find(text) {
+                        Some(m) => {
+                            let cap = RE010.captures(text).unwrap();
+                            let num_str = &cap[2];
+                            *new_text = &text[m.end()..];
+                            if cap.get(1).is_some() && cap[1][0] == b'-' {
+                                let mut num_str_neg = vec![b'-'];
+                                num_str_neg.extend_from_slice(num_str);
+                                match isize::from_str_radix(
+                                    std::str::from_utf8(&num_str_neg).unwrap(),
+                                    10,
+                                ) {
+                                    Ok(num) => Ok(num),
+                                    Err(e) => Err(Box::new(e)),
+                                }
+                            } else {
+                                match isize::from_str_radix(
+                                    std::str::from_utf8(num_str).unwrap(),
+                                    10,
+                                ) {
+                                    Ok(num) => Ok(num),
+                                    Err(e) => Err(Box::new(e)),
+                                }
+                            }
+                        }
+                        None => {
+                            *new_text = text;
+                            // This tries to mimic the behavior of strtol where if there were no
+                            // digits the result of the conversion is 0
+                            Ok(0)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2266,6 +2353,44 @@ mod tests {
 
         let mut sl = b"mango".as_slice();
         let maybe_num = str16_to_isize(sl, &mut sl);
+        assert_eq!(maybe_num.unwrap(), 0);
+        assert_eq!(b"mango", sl);
+    }
+
+    #[test]
+    fn str0_to_isize_test() {
+        let mut sl = b"  0xAB apples".as_slice();
+        let maybe_num = str0_to_isize(sl, &mut sl);
+        assert_eq!(0xAB, maybe_num.unwrap());
+        assert_eq!(b" apples", sl);
+
+        let mut sl = b"  -0xAB apples".as_slice();
+        let maybe_num = str0_to_isize(sl, &mut sl);
+        assert_eq!(-0xAB, maybe_num.unwrap());
+        assert_eq!(b" apples", sl);
+
+        let mut sl = b"  010 apples".as_slice();
+        let maybe_num = str0_to_isize(sl, &mut sl);
+        assert_eq!(0o10, maybe_num.unwrap());
+        assert_eq!(b" apples", sl);
+
+        let mut sl = b"  -010 apples".as_slice();
+        let maybe_num = str0_to_isize(sl, &mut sl);
+        assert_eq!(-0o10, maybe_num.unwrap());
+        assert_eq!(b" apples", sl);
+
+        let mut sl = b"  10 apples".as_slice();
+        let maybe_num = str0_to_isize(sl, &mut sl);
+        assert_eq!(10, maybe_num.unwrap());
+        assert_eq!(b" apples", sl);
+
+        let mut sl = b"  -10 apples".as_slice();
+        let maybe_num = str0_to_isize(sl, &mut sl);
+        assert_eq!(-10, maybe_num.unwrap());
+        assert_eq!(b" apples", sl);
+
+        let mut sl = b"mango".as_slice();
+        let maybe_num = str0_to_isize(sl, &mut sl);
         assert_eq!(maybe_num.unwrap(), 0);
         assert_eq!(b"mango", sl);
     }
