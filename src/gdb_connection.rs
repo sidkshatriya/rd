@@ -2107,8 +2107,6 @@ impl GdbConnection {
                 self.req = GdbRequest::new(DREQ_FILE_PREAD);
                 self.req.file_pread_mut().fd = fd;
                 let mut size_end: &[u8] = Default::default();
-                // @TODO Shouldn't we have a str16_to_i64 or something like that?
-                // Interestingly rr has a strtol() here.
                 let size: i64 = str16_to_isize(&fd_end[1..], &mut size_end)
                     .unwrap()
                     .try_into()
@@ -2184,8 +2182,137 @@ impl GdbConnection {
 
     /// Return true if we need to do something in a debugger request,
     /// false if we already handled the packet internally.
-    fn process_packet(&self) -> bool {
-        unimplemented!()
+    fn process_packet(&mut self) -> bool {
+        parser_assert!(
+            INTERRUPT_CHAR == self.inbuf[0]
+                || (b'$' == self.inbuf[0] && memchr(b'#', &self.inbuf).unwrap() == self.packetend)
+        );
+
+        if INTERRUPT_CHAR == self.inbuf[0] {
+            log!(LogDebug, "gdb requests interrupt");
+            self.req = GdbRequest::new(DREQ_INTERRUPT);
+            self.inbuf.drain(0..1);
+            return true;
+        }
+
+        let request = self.inbuf[1];
+        let request_c: char = request.into();
+        // @TODO Avoid this??
+        let payload = self.inbuf[2..self.packetend].to_owned();
+        log!(
+            LogDebug,
+            "raw request {}{}",
+            request_c,
+            String::from_utf8_lossy(&payload)
+        );
+
+        let ret;
+        match request {
+            b'b' => {
+                ret = self.process_bpacket(&payload);
+            }
+            b'c' => {
+                log!(LogDebug, "gdb is asking to continue");
+                self.req = GdbRequest::new(DREQ_CONT);
+                self.req.cont_mut().run_direction = RunDirection::RunForward;
+                self.req.cont_mut().actions.push(GdbContAction::new(
+                    Some(GdbActionType::ActionContinue),
+                    None,
+                    None,
+                ));
+                ret = true;
+            }
+            b'D' => {
+                log!(LogDebug, "gdb is detaching from us");
+                self.req = GdbRequest::new(DREQ_DETACH);
+                ret = true;
+            }
+            b'g' => {
+                self.req = GdbRequest::new(DREQ_GET_REGS);
+                self.req.target = self.query_thread;
+                log!(LogDebug, "gdb requests registers");
+                ret = true;
+            }
+            b'G' => {
+                // XXX we can't let gdb spray registers in general,
+                // because it may cause replay to diverge.  But some
+                // writes may be OK.  Let's see how far we can get
+                // with ignoring these requests. */
+                self.write_packet_bytes(b"");
+                ret = false;
+            }
+            b'H' => {
+                unimplemented!()
+            }
+            b'k' => {
+                log!(LogInfo, "gdb requests kill, exiting");
+                self.write_packet_bytes(b"OK");
+                // Is this what we want?
+                std::process::exit(0);
+            }
+            b'm' => {
+                unimplemented!()
+            }
+            b'M' => {
+                // We can't allow the debugger to write arbitrary data
+                // to memory, or the replay may diverge. */
+                // TODO: parse this packet in case some oddball gdb
+                // decides to send it instead of 'X'
+                self.write_packet_bytes(b"");
+                ret = false;
+            }
+            b'p' => {
+                unimplemented!()
+            }
+            b'P' => {
+                unimplemented!()
+            }
+            b'q' => {
+                ret = self.query(&payload);
+            }
+            b'Q' => {
+                ret = self.set_var(&payload);
+            }
+            b'T' => {
+                unimplemented!()
+            }
+            b'v' => {
+                ret = self.process_vpacket(&payload);
+            }
+            b'X' => {
+                unimplemented!()
+            }
+            b'z' | b'Z' => {
+                unimplemented!()
+            }
+            b'!' => {
+                log!(LogDebug, "gdb requests extended mode");
+                self.write_packet_bytes(b"OK");
+                ret = false;
+            }
+            b'?' => {
+                log!(LogDebug, "gdb requests stop reason");
+                self.req = GdbRequest::new(DREQ_GET_STOP_REASON);
+                self.req.target = self.query_thread;
+                ret = true;
+            }
+            _ => {
+                unhandled_req!(self, "Unhandled gdb request '{}'", self.inbuf[1]);
+                ret = false;
+            }
+        }
+        // Erase the newly processed packet from the input buffer. The checksum
+        // after the '#' will be skipped later as we look for the next packet start.
+        {
+            self.inbuf.drain(0..self.packetend + 1);
+        }
+
+        // If we processed the request internally, consume it.
+        if ret == false {
+            self.consume_request();
+        }
+
+        ret
     }
 
     fn consume_request(&mut self) {
