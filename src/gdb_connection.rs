@@ -2088,11 +2088,55 @@ impl GdbConnection {
                 self.req.file_open_mut().mode = mode;
                 return true;
             } else if operation.starts_with(b"close:") {
-                unimplemented!()
+                let mut endptr: &[u8] = Default::default();
+                let fd: i32 = str16_to_isize(&operation[6..], &mut endptr)
+                    .unwrap()
+                    .try_into()
+                    .unwrap();
+                parser_assert_eq!(endptr.len(), 0);
+                self.req = GdbRequest::new(DREQ_FILE_CLOSE);
+                self.req.file_close_mut().fd = fd;
+                return true;
             } else if operation.starts_with(b"pread:") {
-                unimplemented!()
+                let mut fd_end: &[u8] = Default::default();
+                let fd: i32 = str16_to_isize(&operation[6..], &mut fd_end)
+                    .unwrap()
+                    .try_into()
+                    .unwrap();
+                parser_assert_eq!(fd_end[0], b',');
+                self.req = GdbRequest::new(DREQ_FILE_PREAD);
+                self.req.file_pread_mut().fd = fd;
+                let mut size_end: &[u8] = Default::default();
+                // @TODO Shouldn't we have a str16_to_i64 or something like that?
+                // Interestingly rr has a strtol() here.
+                let size: i64 = str16_to_isize(&fd_end[1..], &mut size_end)
+                    .unwrap()
+                    .try_into()
+                    .unwrap();
+                parser_assert_eq!(size_end[0], b',');
+                parser_assert!(size >= 0);
+                self.req.file_pread_mut().size = size.try_into().unwrap();
+                let mut offset_end: &[u8] = Default::default();
+                // @TODO Shouldn't we have a str16_to_i64 or something like that?
+                // Interestingly rr has a strtol() here.
+                let offset: i64 = str16_to_isize(&size_end[1..], &mut offset_end)
+                    .unwrap()
+                    .try_into()
+                    .unwrap();
+                parser_assert_eq!(offset_end.len(), 0);
+                parser_assert!(offset >= 0);
+                self.req.file_pread_mut().offset = offset.try_into().unwrap();
+                return true;
             } else if operation.starts_with(b"setfs:") {
-                unimplemented!()
+                let mut endptr: &[u8] = Default::default();
+                let pid: pid_t = str16_to_isize(&operation[6..], &mut endptr)
+                    .unwrap()
+                    .try_into()
+                    .unwrap();
+                parser_assert_eq!(endptr.len(), 0);
+                self.req = GdbRequest::new(DREQ_FILE_SETFS);
+                self.req.file_setfs_mut().pid = pid;
+                return true;
             } else {
                 self.write_packet_bytes(b"");
                 return false;
