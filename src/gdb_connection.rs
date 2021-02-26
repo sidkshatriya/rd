@@ -499,7 +499,6 @@ pub mod gdb_request {
         replay_timeline::RunDirection,
     };
     use libc::pid_t;
-    use std::ffi::OsString;
 
     #[derive(Default, Clone)]
     pub struct Mem {
@@ -556,7 +555,9 @@ pub mod gdb_request {
 
     #[derive(Default, Clone)]
     pub struct FileOpen {
-        pub file_name: OsString,
+        // @TODO This may need to be an OsString. However the decode_ascii_encoded_hex_str
+        // ensures each char is ascii so String should OK here.
+        pub file_name: String,
         /// In system format, not gdb's format
         pub flags: i32,
         pub mode: i32,
@@ -1777,11 +1778,11 @@ impl GdbConnection {
             let mut args = maybe_args.unwrap();
             let args_loc = memchr(b':', args);
             let name = match args_loc {
-                Some(l) => {
-                    // Important side effect!
-                    args = &args[l + 1..];
-                    &args[0..l]
-                }
+                Some(l) => &args[0..l],
+                None => args,
+            };
+            args = match args_loc {
+                Some(l) => &args[l + 1..],
                 None => args,
             };
             if name == b"memory" && args_loc.is_some() {
@@ -2008,10 +2009,11 @@ impl GdbConnection {
                 self.req.restart_mut().type_ = GdbRestartType::RestartFromPrevious;
                 return true;
             }
-            let arg1 = args;
+            let mut arg1 = args;
             let maybe_args_loc = memchr(b';', args);
             match maybe_args_loc {
                 Some(l) => {
+                    arg1 = &args[..l];
                     args = &args[l + 1..];
                     log!(
                         LogDebug,
@@ -2060,7 +2062,49 @@ impl GdbConnection {
             return true;
         }
 
-        unimplemented!()
+        if name.starts_with(b"File:") {
+            let operation = &payload[..5];
+            if operation.starts_with(b"open:") {
+                let file_name_end_loc = memchr(b',', &operation[5..]).unwrap();
+                let file_name = &operation[5..file_name_end_loc];
+                self.req = GdbRequest::new(DREQ_FILE_OPEN);
+                self.req.file_open_mut().file_name = decode_ascii_encoded_hex_str(file_name);
+                let mut flags_end: &[u8] = Default::default();
+                let flags: i32 =
+                    str16_to_usize(&operation[file_name_end_loc + 1..], &mut flags_end)
+                        .unwrap()
+                        .try_into()
+                        .unwrap();
+
+                parser_assert_eq!(flags_end[0], b',');
+                self.req.file_open_mut().flags = gdb_open_flags_to_system_flags(flags);
+                let mut mode_end: &[u8] = Default::default();
+                let mode: i32 = str16_to_isize(&flags_end[1..], &mut mode_end)
+                    .unwrap()
+                    .try_into()
+                    .unwrap();
+                parser_assert_eq!(mode_end.len(), 0);
+                parser_assert_eq!(mode & !0o777, 0);
+                self.req.file_open_mut().mode = mode;
+                return true;
+            } else if operation.starts_with(b"close:") {
+                unimplemented!()
+            } else if operation.starts_with(b"pread:") {
+                unimplemented!()
+            } else if operation.starts_with(b"setfs:") {
+                unimplemented!()
+            } else {
+                self.write_packet_bytes(b"");
+                return false;
+            }
+        }
+
+        unhandled_req!(
+            self,
+            "Unhandled gdb vpacket: v{}",
+            String::from_utf8_lossy(name)
+        );
+        return false;
     }
 
     /// Return true if we need to do something in a debugger request,
@@ -2247,6 +2291,9 @@ fn decode_ascii_encoded_hex_str(encoded: &[u8]) -> String {
     for i in 0..enc_len {
         let enc_byte_str = std::str::from_utf8(&encoded[2 * i..2 * i + 2]).unwrap();
         let c_u8 = u8::from_str_radix(enc_byte_str, 16).unwrap();
+        // @TODO Why should this be the case? the hex string is ascii encoded but why
+        // should the final string be purely ascii too?? Things like filenames may be
+        // in arbitrary encoding in linux
         parser_assert!(c_u8 < 128);
         let c: char = c_u8.into();
         decoded_str.push(c);
@@ -2409,7 +2456,7 @@ fn to_gdb_signum(maybe_sig: Option<Sig>) -> i32 {
     }
 }
 
-fn gdb_open_flags_to_system_flags(flags: i64) -> i32 {
+fn gdb_open_flags_to_system_flags(flags: i32) -> i32 {
     let mut ret: i32;
     match flags & 3 {
         0 => {
