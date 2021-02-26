@@ -2242,7 +2242,17 @@ impl GdbConnection {
                 ret = false;
             }
             b'H' => {
-                unimplemented!()
+                if b'c' == payload[0] {
+                    self.req = GdbRequest::new(DREQ_SET_CONTINUE_THREAD);
+                } else {
+                    self.req = GdbRequest::new(DREQ_SET_QUERY_THREAD);
+                }
+                let mut payload_slice = &payload[1..];
+                self.req.target = parse_threadid(payload_slice, &mut payload_slice);
+                parser_assert_eq!(payload_slice.len(), 0);
+
+                log!(LogDebug, "gdb selecting {}", self.req.target);
+                ret = true;
             }
             b'k' => {
                 log!(LogInfo, "gdb requests kill, exiting");
@@ -2251,7 +2261,26 @@ impl GdbConnection {
                 std::process::exit(0);
             }
             b'm' => {
-                unimplemented!()
+                self.req = GdbRequest::new(DREQ_GET_MEM);
+                self.req.target = self.query_thread;
+                let mut payload_sl: &[u8] = &payload;
+                self.req.mem_mut().addr = str16_to_usize(payload_sl, &mut payload_sl)
+                    .unwrap()
+                    .try_into()
+                    .unwrap();
+                parser_assert_eq!(b',', payload_sl[0]);
+                payload_sl = &payload_sl[1..];
+                self.req.mem_mut().len = str16_to_usize(payload_sl, &mut payload_sl).unwrap();
+                parser_assert_eq!(payload_sl.len(), 0);
+
+                log!(
+                    LogDebug,
+                    "gdb requests memory (addr={}, len={})",
+                    self.req.mem().addr,
+                    self.req.mem().len
+                );
+
+                ret = true;
             }
             b'M' => {
                 // We can't allow the debugger to write arbitrary data
@@ -2262,10 +2291,39 @@ impl GdbConnection {
                 ret = false;
             }
             b'p' => {
-                unimplemented!()
+                self.req = GdbRequest::new(DREQ_GET_REG);
+                self.req.target = self.query_thread;
+                let mut payload_sl: &[u8] = &payload;
+                let num: u32 = str16_to_usize(payload_sl, &mut payload_sl)
+                    .unwrap()
+                    .try_into()
+                    .unwrap();
+                self.req.reg_mut().name = num.try_into().unwrap();
+                parser_assert_eq!(payload_sl.len(), 0);
+                log!(
+                    LogDebug,
+                    "gdb requests register value ({})",
+                    self.req.reg().name
+                );
+                ret = true;
             }
             b'P' => {
-                unimplemented!()
+                self.req = GdbRequest::new(DREQ_SET_REG);
+                self.req.target = self.query_thread;
+                let mut payload_sl: &[u8] = &payload;
+                let num: u32 = str16_to_usize(payload_sl, &mut payload_sl)
+                    .unwrap()
+                    .try_into()
+                    .unwrap();
+                self.req.reg_mut().name = num.try_into().unwrap();
+                parser_assert_eq!(b'=', payload_sl[0]);
+                payload_sl = &payload_sl[1..];
+
+                read_reg_value(&mut payload_sl, self.req.reg_mut());
+
+                parser_assert_eq!(payload_sl.len(), 0);
+
+                ret = true;
             }
             b'q' => {
                 ret = self.query(&payload);
@@ -2274,7 +2332,16 @@ impl GdbConnection {
                 ret = self.set_var(&payload);
             }
             b'T' => {
-                unimplemented!()
+                self.req = GdbRequest::new(DREQ_GET_IS_THREAD_ALIVE);
+                let mut payload_sl: &[u8] = &payload;
+                self.req.target = parse_threadid(payload_sl, &mut payload_sl);
+                parser_assert_eq!(payload_sl.len(), 0);
+                log!(
+                    LogDebug,
+                    "gdb wants to know if {} is alive",
+                    self.req.target
+                );
+                ret = true;
             }
             b'v' => {
                 ret = self.process_vpacket(&payload);
@@ -2749,4 +2816,10 @@ fn read_target_desc(file_name: &[u8]) -> Result<Vec<u8>, Error> {
     }
 
     Ok(text_buf)
+}
+
+/// Read the encoded register value in |strp| into |reg|.  |strp| may
+/// be mutated.
+fn read_reg_value(_strp: &mut &[u8], _reg: &mut GdbRegisterValue) {
+    unimplemented!()
 }
