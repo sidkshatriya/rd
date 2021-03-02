@@ -2371,7 +2371,67 @@ impl GdbConnection {
                 ret = true;
             }
             b'z' | b'Z' => {
-                unimplemented!()
+                let mut payload_sl: &[u8] = &payload;
+                let type_: u32 = str16_to_isize(payload_sl, &mut payload_sl)
+                    .unwrap()
+                    .try_into()
+                    .unwrap();
+                parser_assert_eq!(b',', payload_sl[0]);
+                payload_sl = &payload_sl[1..];
+                if type_ > 4 {
+                    log!(LogWarn, "Unknown watch type {}", type_);
+                    self.write_packet_bytes(b"");
+                    ret = false;
+                } else {
+                    let add = if request == b'Z' {
+                        DREQ_SET_SW_BREAK
+                    } else {
+                        DREQ_REMOVE_SW_BREAK
+                    };
+                    self.req = GdbRequest::new(type_ + add);
+                    self.req.watch_mut().addr =
+                        str16_to_usize(payload_sl, &mut payload_sl).unwrap().into();
+                    parser_assert_eq!(b',', payload_sl[0]);
+                    payload_sl = &payload_sl[1..];
+                    self.req.watch_mut().kind = str16_to_isize(payload_sl, &mut payload_sl)
+                        .unwrap()
+                        .try_into()
+                        .unwrap();
+                    if b';' == payload_sl[0] {
+                        payload_sl = &payload_sl[1..];
+                        while b'X' == payload_sl[0] {
+                            payload_sl = &payload_sl[1..];
+                            let len: usize = str16_to_isize(payload_sl, &mut payload_sl)
+                                .unwrap()
+                                .try_into()
+                                .unwrap();
+                            parser_assert_eq!(b',', payload_sl[0]);
+                            payload_sl = &payload_sl[1..];
+                            let mut bytes = Vec::<u8>::new();
+                            for _ in 0..len {
+                                parser_assert!(payload_sl.len() >= 2);
+                                bytes.push(
+                                    str16_to_usize(&payload_sl[0..2], &mut payload_sl)
+                                        .unwrap()
+                                        .try_into()
+                                        .unwrap(),
+                                );
+                            }
+                            self.req.watch_mut().conditions.push(bytes);
+                        }
+                    }
+                    parser_assert_eq!(payload_sl.len(), 0);
+                    let gdb_request = if b'Z' == request { "set" } else { "remove" };
+                    log!(
+                        LogDebug,
+                        "gdb requests {} breakpoint (addr={}, len={})",
+                        gdb_request,
+                        self.req.watch().addr,
+                        self.req.watch().kind
+                    );
+
+                    ret = true;
+                }
             }
             b'!' => {
                 log!(LogDebug, "gdb requests extended mode");
