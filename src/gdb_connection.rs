@@ -2901,8 +2901,37 @@ fn read_target_desc(file_name: &[u8]) -> Result<Vec<u8>, Error> {
 
 /// Read the encoded register value in |strp| into |reg|.  |strp| may
 /// be mutated.
-fn read_reg_value(_strp: &mut &[u8], _reg: &mut GdbRegisterValue) {
-    unimplemented!()
+fn read_reg_value(strp: &mut &[u8], reg: &mut GdbRegisterValue) {
+    let mut numstr = *strp;
+
+    if b'x' == numstr[0] {
+        reg.defined = false;
+        reg.size = 0;
+        return;
+    }
+
+    reg.defined = true;
+    assert_eq!(numstr.len() % 2, 0);
+    reg.size = numstr.len() / 2;
+    let mut buf = [0u8; GdbRegisterValue::MAX_SIZE];
+    let mut new_sl: &[u8] = Default::default();
+    for i in 0..reg.size {
+        buf[i] = str16_to_usize(&numstr[0..2], &mut new_sl)
+            .unwrap()
+            .try_into()
+            .unwrap();
+        assert_eq!(new_sl.len(), 0);
+        numstr = &numstr[2..];
+    }
+    reg.value = match reg.size {
+        1 => GdbRegisterValueData::Value1(buf[0]),
+        2 => GdbRegisterValueData::Value2(u16::from_le_bytes(buf[0..2].try_into().unwrap())),
+        4 => GdbRegisterValueData::Value4(u32::from_le_bytes(buf[0..4].try_into().unwrap())),
+        8 => GdbRegisterValueData::Value8(u64::from_le_bytes(buf[0..8].try_into().unwrap())),
+        _ => GdbRegisterValueData::Value(buf),
+    };
+
+    *strp = numstr;
 }
 
 fn to_string(bytes: &[u8], max_len: usize) -> String {
