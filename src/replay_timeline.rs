@@ -10,3 +10,8 @@ impl Default for RunDirection {
         RunDirection::RunForward
     }
 }
+
+/// This class manages a set of ReplaySessions corresponding to different points
+/// in the same recording. It provides an API for explicitly managing
+/// checkpoints along this timeline and navigating to specific events.
+pub struct ReplayTimeline;
