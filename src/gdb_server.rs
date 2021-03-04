@@ -4,7 +4,7 @@ use crate::{
     gdb_connection::{GdbConnection, GdbRegisterValue},
     gdb_register::GdbRegister,
     registers::Registers,
-    replay_timeline::ReplayTimeline,
+    replay_timeline::{self, ReplayTimeline},
     scoped_fd::ScopedFd,
     session::{task::Task, SessionSharedWeakPtr},
     taskish_uid::{TaskUid, ThreadGroupUid},
@@ -15,7 +15,7 @@ use libc::pid_t;
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
-    ffi::OsString,
+    ffi::{OsStr, OsString},
     rc::Weak,
 };
 
@@ -73,7 +73,50 @@ impl Default for ConnectionFlags {
     }
 }
 
-struct Checkpoint;
+#[derive(Copy, Clone, Eq, PartialEq)]
+enum ExplicitCheckpoint {
+    Explicit,
+    NotExplicit,
+}
+
+struct Checkpoint {
+    mark: replay_timeline::Mark,
+    last_continue_tuid: TaskUid,
+    is_explicit: ExplicitCheckpoint,
+    where_: OsString,
+}
+
+impl Default for Checkpoint {
+    fn default() -> Self {
+        Checkpoint {
+            mark: Default::default(),
+            last_continue_tuid: Default::default(),
+            is_explicit: ExplicitCheckpoint::NotExplicit,
+            where_: Default::default(),
+        }
+    }
+}
+
+impl Checkpoint {
+    fn new(
+        timeline: &ReplayTimeline,
+        last_continue_tuid: TaskUid,
+        e: ExplicitCheckpoint,
+        where_: &OsStr,
+    ) -> Checkpoint {
+        let mark = if e == ExplicitCheckpoint::Explicit {
+            timeline.add_explicit_checkpoint()
+        } else {
+            timeline.mark()
+        };
+        Checkpoint {
+            mark,
+            last_continue_tuid,
+            is_explicit: e,
+            where_: where_.to_owned(),
+        }
+    }
+}
 
 pub struct GdbServer {
     target: Target,
