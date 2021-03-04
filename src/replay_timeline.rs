@@ -1,3 +1,5 @@
+use crate::session::SessionSharedPtr;
+
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub enum RunDirection {
     RunForward,
@@ -16,7 +18,23 @@ impl Default for RunDirection {
 /// checkpoints along this timeline and navigating to specific events.
 pub struct ReplayTimeline;
 
+impl Default for ReplayTimeline {
+    fn default() -> Self {
+        unimplemented!()
+    }
+}
+
+impl Drop for ReplayTimeline {
+    fn drop(&mut self) {
+        unimplemented!()
+    }
+}
+
 impl ReplayTimeline {
+    pub fn new(_session: SessionSharedPtr) -> ReplayTimeline {
+        unimplemented!()
+    }
+
     pub fn add_explicit_checkpoint(&self) -> Mark {
         unimplemented!()
     }
