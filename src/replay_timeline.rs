@@ -1,4 +1,10 @@
-use crate::session::SessionSharedPtr;
+use crate::{
+    extra_registers::ExtraRegisters,
+    registers::Registers,
+    return_address_list::ReturnAddressList,
+    session::SessionSharedPtr,
+    ticks::Ticks,
+};
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub enum RunDirection {
@@ -44,9 +50,27 @@ impl ReplayTimeline {
     }
 }
 
+#[derive(Eq, PartialEq)]
 pub struct Mark;
 
-struct InternalMark;
+/// Everything we know about the tracee state for a particular Mark.
+/// This data alone does not allow us to determine the time ordering
+/// of two Marks.
+struct InternalMark<'a> {
+    owner: &'a ReplayTimeline,
+    // Reuse ProtoMark to contain the MarkKey + Registers + ReturnAddressList.
+    proto: ProtoMark,
+    extra_regs: ExtraRegisters,
+    /// Optional checkpoint for this Mark.
+    checkpoint: SessionSharedPtr,
+    ticks_at_event_start: Ticks,
+    /// Number of users of `checkpoint`.
+    checkpoint_refcount: u32,
+    /// The next InternalMark in the ReplayTimeline's Mark vector is the result
+    /// of singlestepping from this mark *and* no signal is reported in the
+    /// break_status when doing such a singlestep.
+    singlestep_to_next_mark_no_signal: bool,
+}
 
 /// A MarkKey consists of FrameTime + Ticks + ReplayStepKey. These values
 /// do not uniquely identify a program state, but they are intrinsically
@@ -71,7 +95,11 @@ impl Default for Mark {
 /// Mark later.
 /// MarkKey + Registers + ReturnAddressList are assumed to identify a unique
 /// program state.
-struct ProtoMark;
+struct ProtoMark {
+    pub key: MarkKey,
+    pub regs: Registers,
+    pub return_addresses: ReturnAddressList,
+}
 
 /// Different strategies for placing automatic checkpoints.
 pub enum CheckpointStrategy {
@@ -86,3 +114,9 @@ pub enum CheckpointStrategy {
     /// reverse-executions to follow other reverse-execution.
     ExpectShortReverseExecution,
 }
+
+/// An estimate of how much progress a session has made. This should roughly
+/// correlate to the time required to replay from the start of a session
+/// to the current point, in microseconds.
+/// DIFF NOTE: This is a i64 in rr
+pub type Progress = u64;
