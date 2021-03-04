@@ -579,7 +579,7 @@ pub trait Architecture: 'static + Default {
 
     type __statfs_word: Default + Copy + 'static;
     type sigchld_clock_t: Default + Copy + 'static;
-    type size_t: Default + Copy + 'static;
+    type size_t: Default + Copy + From<u8> + 'static;
     type signed_long: Default + Copy + From<i32> + TryFrom<usize, Error = TryFromIntError> + 'static;
     type unsigned_long: Default
         + Copy

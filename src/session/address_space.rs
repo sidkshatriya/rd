@@ -862,7 +862,7 @@ pub mod address_space {
                 && ok;
         }
 
-        /// The buffer `dest` of length `length` represents the contents of tracee
+        /// The buffer `dest` of length `dest.len()` represents the contents of tracee
         /// memory at `addr`. Replace the bytes in `dest` that have been overwritten
         /// by breakpoints with the original data that was replaced by the breakpoints.
         pub fn replace_breakpoints_with_original_values(
