@@ -10,6 +10,10 @@ use crate::{
     ticks::Ticks,
     trace::trace_frame::FrameTime,
 };
+use std::{
+    cell::{Ref, RefCell},
+    rc::{Rc, Weak},
+};
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub enum RunDirection {
@@ -68,15 +72,32 @@ impl ReplayTimeline {
     }
 }
 
-#[derive(Eq, PartialEq)]
-pub struct Mark;
+pub struct Mark {
+    ptr: Rc<RefCell<InternalMark>>,
+}
+
+impl Mark {
+    ///  Return the values of the general-purpose registers at this mark.
+    pub fn regs(&self) -> Ref<Registers> {
+        Ref::map(self.ptr.borrow(), |b| &b.proto.regs)
+    }
+
+    pub fn extra_regs(&self) -> Ref<ExtraRegisters> {
+        Ref::map(self.ptr.borrow(), |b| &b.extra_regs)
+    }
+
+    pub fn time(&self) -> FrameTime {
+        self.ptr.borrow().proto.key.trace_time
+    }
+}
 
 /// Everything we know about the tracee state for a particular Mark.
 /// This data alone does not allow us to determine the time ordering
 /// of two Marks.
-struct InternalMark<'a> {
-    owner: &'a ReplayTimeline,
-    // Reuse ProtoMark to contain the MarkKey + Registers + ReturnAddressList.
+struct InternalMark {
+    /// @TODO Is this what we want?
+    owner: Weak<ReplayTimeline>,
+    /// Reuse ProtoMark to contain the MarkKey + Registers + ReturnAddressList.
     proto: ProtoMark,
     extra_regs: ExtraRegisters,
     /// Optional checkpoint for this Mark.
@@ -150,6 +171,16 @@ impl ProtoMark {
             return_addresses: Default::default(),
         }
     }
+
+    pub fn equal_states(&self, session: &ReplaySession) -> bool {
+        if ReplayTimeline::session_mark_key(session) != self.key {
+            return false;
+        }
+        let t = session.current_task().unwrap();
+        let mut tb = t.borrow_mut();
+        equal_regs(&self.regs, tb.regs_ref())
+            && self.return_addresses == ReturnAddressList::new(tb.as_mut())
+    }
 }
 
 /// Different strategies for placing automatic checkpoints.
@@ -169,5 +200,12 @@ pub enum CheckpointStrategy {
 /// An estimate of how much progress a session has made. This should roughly
 /// correlate to the time required to replay from the start of a session
 /// to the current point, in microseconds.
+///
 /// DIFF NOTE: This is a i64 in rr
 pub type Progress = u64;
+
+fn equal_regs(r1: &Registers, r2: &Registers) -> bool {
+    // Compare ip()s first since they will usually fail to match, especially
+    // when we're comparing InternalMarks with the same MarkKey
+    r1.ip() == r2.ip() && r1.matches(r2)
+}
