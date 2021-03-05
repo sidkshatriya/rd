@@ -2,8 +2,13 @@ use crate::{
     extra_registers::ExtraRegisters,
     registers::Registers,
     return_address_list::ReturnAddressList,
-    session::SessionSharedPtr,
+    session::{
+        replay_session::{ReplaySession, ReplayStepKey},
+        task::Task,
+        SessionSharedPtr,
+    },
     ticks::Ticks,
+    trace::trace_frame::FrameTime,
 };
 
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -48,6 +53,19 @@ impl ReplayTimeline {
     pub fn mark(&self) -> Mark {
         unimplemented!()
     }
+
+    fn session_mark_key(session: &ReplaySession) -> MarkKey {
+        let maybe_t = session.current_task();
+        let tick_count = match maybe_t {
+            Some(t) => t.borrow().tick_count(),
+            None => 0,
+        };
+        MarkKey::new(
+            session.trace_reader().time(),
+            tick_count,
+            session.current_step_key(),
+        )
+    }
 }
 
 #[derive(Eq, PartialEq)]
@@ -77,7 +95,22 @@ struct InternalMark<'a> {
 /// totally ordered. The ReplayTimeline::marks database is an ordered
 /// map from MarkKeys to a time-ordered list of Marks associated with each
 /// MarkKey.
-struct MarkKey;
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+struct MarkKey {
+    pub trace_time: FrameTime,
+    pub ticks: Ticks,
+    pub step_key: ReplayStepKey,
+}
+
+impl MarkKey {
+    fn new(trace_time: FrameTime, ticks: Ticks, step_key: ReplayStepKey) -> MarkKey {
+        MarkKey {
+            trace_time,
+            ticks,
+            step_key,
+        }
+    }
+}
 
 impl Default for Mark {
     fn default() -> Self {
@@ -99,6 +132,24 @@ struct ProtoMark {
     pub key: MarkKey,
     pub regs: Registers,
     pub return_addresses: ReturnAddressList,
+}
+
+impl ProtoMark {
+    pub fn new(key: MarkKey, t: &mut dyn Task) -> ProtoMark {
+        ProtoMark {
+            key,
+            regs: t.regs_ref().clone(),
+            return_addresses: ReturnAddressList::new(t),
+        }
+    }
+
+    pub fn new_from_key(key: MarkKey) -> ProtoMark {
+        ProtoMark {
+            key,
+            regs: Default::default(),
+            return_addresses: Default::default(),
+        }
+    }
 }
 
 /// Different strategies for placing automatic checkpoints.

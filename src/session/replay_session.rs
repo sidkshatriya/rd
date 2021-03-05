@@ -399,6 +399,11 @@ impl Drop for ReplaySession {
 }
 
 impl ReplaySession {
+    /// The current ReplayStepKey.
+    pub fn current_step_key(&self) -> ReplayStepKey {
+        ReplayStepKey::new_with(self.current_step.get().action)
+    }
+
     /// Return a semantic copy of all the state managed by this,
     /// that is the entire tracee tree and the state it depends on.
     /// Any mutations of the returned Session can't affect the
