@@ -124,6 +124,7 @@ enum CpuMicroarch {
     IntelGoldmont,
     IntelKabylake,
     IntelCometlake,
+    IntelTigerlake,
     AMDF15R30,
     AMDRyzen,
 }
@@ -178,6 +179,7 @@ fn get_cpu_microarch() -> CpuMicroarch {
         0x506f0 => return IntelGoldmont,
         0x806e0 | 0x906e0 => return IntelKabylake,
         0xa0660 => return IntelCometlake,
+        0x806c0 => return IntelTigerlake,
         0x30f00 => return AMDF15R30,
         0x00f10 => {
             if ext_family == 8 {
@@ -403,13 +405,22 @@ fn get_init_attributes() -> PmuAttributes {
 /// - cb = eventsel for event HW_INTERRUPTS.RECEIVED
 /// See Intel 64 and IA32 Architectures Performance Monitoring Events.
 /// See check_events from libpfm4.
-const PMU_CONFIGS: [PmuConfig; 15] = [
+const PMU_CONFIGS: [PmuConfig; 16] = [
     PmuConfig {
         uarch: IntelCometlake,
         name: "Intel Cometlake",
         rcb_cntr_event: 0x5101c4,
         minus_ticks_cntr_event: 0,
         hw_intr_cntr_event: 0x5301cb,
+        skid_size: 100,
+        flags: PmuFlags::PMU_TICKS_RCB,
+    },
+    PmuConfig {
+        uarch: IntelTigerlake,
+        name: "Intel Tigerlake",
+        rcb_cntr_event: 0x5111c4,
+        minus_ticks_cntr_event: 0,
+        hw_intr_cntr_event: 0,
         skid_size: 100,
         flags: PmuFlags::PMU_TICKS_RCB,
     },
