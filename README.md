@@ -29,7 +29,7 @@ Please file a ticket if `rd` does not work properly for your specific Linux dist
 
 Before trying to install or run `rd` make sure:
 ```bash
-$ sudo apt install cmake make capnproto libcapnp-dev gdb g++-multilib
+$ sudo apt install cmake make capnproto libcapnp-dev gdb g++-multilib libclang-11-dev
 ```
 
 ## Running `rd` via `cargo`
