@@ -410,7 +410,7 @@ fn gather_cpuid_records(up_to: u32) -> Vec<CPUIDRecord> {
                 results.push(rec);
                 // @TODO check this.
                 for level in 1..64 {
-                    if rec.out.edx & (1 << level) != 0 {
+                    if rec.out.edx as u64 & (1u64 << level) != 0 {
                         results.push(cpuid_record(base, level));
                     }
                 }
@@ -420,7 +420,7 @@ fn gather_cpuid_records(up_to: u32) -> Vec<CPUIDRecord> {
                 results.push(rec);
                 // @TODO check this.
                 for level in 1..64 {
-                    if rec.out.ebx & (1 << level) != 0 {
+                    if rec.out.ebx as u64 & (1u64 << level) != 0 {
                         results.push(cpuid_record(base, level));
                     }
                 }
