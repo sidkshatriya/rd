@@ -168,6 +168,10 @@ pub struct Scheduler {
     /// @TODO Is this what we want?
     pretend_num_cores_: Cell<u32>,
 
+    /// If nonzero, the threadgroup ID of a threadgroup where one of the
+    /// threads is currently in an execve.
+    in_exec_tgid: Cell<Option<pid_t>>,
+
     /// When true, context switch at every possible point.
     always_switch: Cell<bool>,
     /// When true, make random scheduling decisions to try to increase the
@@ -237,6 +241,7 @@ impl Scheduler {
             enable_chaos: Default::default(),
             enable_poll: Default::default(),
             last_reschedule_in_high_priority_only_interval: Default::default(),
+            in_exec_tgid: Default::default(),
         }
     }
 
@@ -324,8 +329,9 @@ impl Scheduler {
             _ => (),
         }
 
-        let mut maybe_next: Option<TaskSharedPtr>;
-        loop {
+        let mut maybe_next: Option<TaskSharedPtr> = None;
+        // While a threadgroup is in execve, treat all tasks as blocked.
+        while self.in_exec_tgid.get().is_none() {
             self.maybe_reset_high_priority_only_intervals(now);
             self.last_reschedule_in_high_priority_only_interval
                 .set(self.in_high_priority_only_interval(now));
@@ -521,25 +527,41 @@ impl Scheduler {
                                 maybe_next = Some(self.record_session().revive_task_for_exec(tid));
                             }
                         }
+                        if maybe_next.is_none() {
+                            log!(LogDebug, "    ... but it's dead");
+                        }
+                    }
+                    if maybe_next.is_some() {
+                        let nt = maybe_next.as_ref().unwrap();
+                        ed_assert!(
+                            &nt.borrow(),
+                            nt.borrow().unstable.get()
+                                || nt.borrow().as_rec_unwrap().may_be_blocked()
+                                || status.maybe_ptrace_event() == PTRACE_EVENT_EXIT,
+                            "Scheduled task should have been blocked or unstable"
+                        );
+                        nt.borrow_mut().did_waitpid(status);
+                        if self.in_exec_tgid.get().is_some()
+                            && Some(nt.borrow().tgid()) != self.in_exec_tgid.get()
+                        {
+                            // Some threadgroup is doing execve and this task isn't in
+                            // that threadgroup. Don't schedule this task until the execve
+                            // is complete.
+                            log!(
+                                LogDebug,
+                                "  ... but threadgroup {} is in execve, so ignoring for now",
+                                self.in_exec_tgid.get().unwrap()
+                            );
+                            maybe_next = None;
+                        }
                     }
 
-                    match maybe_next.as_ref() {
-                        None => log!(LogDebug, "    ... but it's dead"),
-                        Some(_) => break,
+                    if maybe_next.is_some() {
+                        break;
                     }
                 }
 
                 let nt = maybe_next.as_ref().unwrap();
-                ed_assert!(
-                    &nt.borrow(),
-                    nt.borrow().unstable.get()
-                        // Note the call to did_waitpid() below
-                        || nt.borrow().as_record_task().unwrap().may_be_blocked()
-                        || status.maybe_ptrace_event() == PTRACE_EVENT_EXIT,
-                    "Scheduled task should have been blocked or unstable"
-                );
-
-                nt.borrow_mut().did_waitpid(status);
                 result.by_waitpid = true;
                 *self.must_run_task.borrow_mut() = Some(Rc::downgrade(nt));
             }
@@ -639,6 +661,12 @@ impl Scheduler {
             _ => (),
         }
 
+        // When the last task in a threadgroup undergoing execve dies,
+        // the execve is over.
+        if Some(t.tgid()) == self.in_exec_tgid.get() && t.thread_group().task_set().len() == 1 {
+            self.in_exec_tgid.set(None);
+        }
+
         let in_rrq = t.in_round_robin_queue;
         if in_rrq {
             let mut maybe_remove = None;
@@ -728,6 +756,29 @@ impl Scheduler {
 
     pub fn in_stable_exit(&self, t: &mut RecordTask) {
         self.update_task_priority_internal(t, t.priority);
+    }
+
+    /// Let the scheduler know that the task has entered an execve.
+    pub fn did_enter_execve(&self, t: &RecordTask) {
+        ed_assert!(
+            t,
+            self.in_exec_tgid.get().is_none(),
+            "Entering execve while another execve is already happening in tgid {}",
+            self.in_exec_tgid.get().unwrap()
+        );
+        self.in_exec_tgid.set(Some(t.tgid()));
+    }
+
+    /// Let the scheduler know that the task has exited an execve.
+    pub fn did_exit_execve(&self, t: &RecordTask) {
+        ed_assert_eq!(
+            t,
+            self.in_exec_tgid.get(),
+            Some(t.tgid()),
+            "Exiting an execve we didn't know about"
+        );
+
+        self.in_exec_tgid.set(None);
     }
 
     /// Pull a task from the round-robin queue if available. Otherwise,
@@ -1053,7 +1104,15 @@ impl Scheduler {
             }
         }
 
-        if EventType::EvSyscall == t.ev().event_type()
+        if !t.is_running() {
+            log!(LogDebug, "  was already stopped with status {}", t.status());
+            // If we have may_be_blocked, but we aren't running, then somebody noticed
+            // this event earlier and already called did_waitpid for us. Just pretend
+            // we did that here.
+            *by_waitpid = true;
+            *self.must_run_task.borrow_mut() = Some(t.weak_self_ptr());
+            return true;
+        } else if EventType::EvSyscall == t.ev().event_type()
             && SyscallState::ProcessingSyscall == t.ev().syscall_event().state
             && treat_syscall_as_nonblocking(t.ev().syscall_event().number, t.arch())
         {

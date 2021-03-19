@@ -775,6 +775,11 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
     }
 
     if sys == Arch::EXECVE {
+        t.session()
+            .as_record()
+            .unwrap()
+            .scheduler()
+            .did_enter_execve(t);
         let mut cmd_line = Vec::new();
         let mut argv = RemotePtr::<Arch::unsigned_word>::from(regs.arg2());
         loop {
@@ -2778,6 +2783,13 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
             errno_name((-t.regs_ref().syscall_result_signed()).try_into().unwrap()),
             extra_expected_errno_info::<Arch>(t, syscall_state)
         );
+        if sys == Arch::EXECVE {
+            t.session()
+                .as_record()
+                .unwrap()
+                .scheduler()
+                .did_exit_execve(t);
+        }
         return;
     }
 
@@ -2794,6 +2806,11 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
     }
 
     if sys == Arch::EXECVE {
+        t.session()
+            .as_record()
+            .unwrap()
+            .scheduler()
+            .did_exit_execve(t);
         process_execve(t, syscall_state);
         let emulated_ptracer = t.emulated_ptracer.as_ref().map(|w| w.upgrade().unwrap());
         match emulated_ptracer {
