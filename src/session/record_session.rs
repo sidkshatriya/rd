@@ -1942,15 +1942,18 @@ impl RecordSession {
                 return true;
             }
 
-            if t.vm()
-                .monkeypatcher()
-                .unwrap()
-                .borrow_mut()
-                .try_patch_syscall(t)
-            {
-                // Syscall was patched. Emit event and continue execution.
-                t.record_event(Some(Event::patch_syscall()), None, None, None);
-                return true;
+            // Don't ever patch a sigreturn syscall. These can't go through the syscallbuf.
+            if !is_sigreturn(t.regs_ref().original_syscallno() as i32, t.arch()) {
+                if t.vm()
+                    .monkeypatcher()
+                    .unwrap()
+                    .borrow_mut()
+                    .try_patch_syscall(t)
+                {
+                    // Syscall was patched. Emit event and continue execution.
+                    t.record_event(Some(Event::patch_syscall()), None, None, None);
+                    return true;
+                }
             }
 
             if t.maybe_ptrace_event() == PTRACE_EVENT_EXIT {
