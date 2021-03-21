@@ -8,7 +8,7 @@ use crate::{
     flags::{Checksum, DumpOn, Flags},
     kernel_abi::{native_arch, CloneParameterOrdering, SupportedArch},
     kernel_supplement::sig_set_t,
-    log::LogLevel::{LogDebug, LogWarn},
+    log::LogLevel::{LogDebug, LogError, LogWarn},
     preload_interface::{preload_globals, syscallbuf_hdr, syscallbuf_record},
     registers::Registers,
     remote_code_ptr::RemoteCodePtr,
@@ -1907,16 +1907,15 @@ fn iterate_checksums(t: &mut dyn Task, mode: ChecksumMode, global_time: FrameTim
             let space2 = find(&buf[dash + 1..], b" ").unwrap() + dash + 1;
             ed_assert!(t, nread > dash + 1);
 
-            let checksum = String::from_utf8_lossy(&buf[startparen + 1..endparen])
-                .parse::<u32>()
+            let mut dummy: &[u8] = Default::default();
+            let checksum: u32 = str16_to_usize(&buf[startparen + 1..endparen], &mut dummy)
+                .unwrap()
+                .try_into()
                 .unwrap();
-            let rec_start = RemotePtr::from(
-                usize::from_str_radix(&String::from_utf8_lossy(&buf[space + 1..dash]), 16).unwrap(),
-            );
-            let rec_end = RemotePtr::from(
-                usize::from_str_radix(&String::from_utf8_lossy(&buf[dash + 1..space2]), 16)
-                    .unwrap(),
-            );
+            let rec_start =
+                RemotePtr::from(str16_to_usize(&buf[space + 1..dash], &mut dummy).unwrap());
+            let rec_end =
+                RemotePtr::from(str16_to_usize(&buf[dash + 1..space2], &mut dummy).unwrap());
             checksums.push(ParsedChecksumLine {
                 start: rec_start,
                 end: rec_end,
@@ -1937,7 +1936,7 @@ fn iterate_checksums(t: &mut dyn Task, mode: ChecksumMode, global_time: FrameTim
         let mut maps_iter = maps.into_iter();
         while let Some((_, mp)) = maps_iter.next() {
             let mut m = mp;
-            let mut raw_map_line = format!("{}", m.map.str(false));
+            let mut raw_map_line = m.map.str(true);
             let mut rec_checksum: u32 = 0;
 
             match &mut checksum_data {
@@ -1951,7 +1950,7 @@ fn iterate_checksums(t: &mut dyn Task, mode: ChecksumMode, global_time: FrameTim
                             match maps_iter.next() {
                                 Some((_, mp)) => {
                                     m = mp;
-                                    raw_map_line = format!("{}", m.map.str(false));
+                                    raw_map_line = m.map.str(true);
                                     continue;
                                 }
                                 None => {
@@ -2000,8 +1999,12 @@ fn iterate_checksums(t: &mut dyn Task, mode: ChecksumMode, global_time: FrameTim
                 }
                 ChecksumData::StoreChecksums(checksums_file) => {
                     if !checksum_segment_filter(&m) {
-                        write!(checksums_file, "({}) {}\n", IGNORED_CHECKSUM, raw_map_line)
-                            .unwrap();
+                        write!(
+                            checksums_file,
+                            "({:x}) {}\n",
+                            IGNORED_CHECKSUM, raw_map_line
+                        )
+                        .unwrap();
                         continue;
                     }
                 }
@@ -2043,7 +2046,7 @@ fn iterate_checksums(t: &mut dyn Task, mode: ChecksumMode, global_time: FrameTim
 
             match &mut checksum_data {
                 ChecksumData::StoreChecksums(file) => {
-                    write!(file, "({}) {}\n", checksum, raw_map_line).unwrap();
+                    write!(file, "({:x}) {}\n", checksum, raw_map_line).unwrap();
                 }
                 ChecksumData::ValidateChecksums(_file) => {
                     ed_assert!(t, t.session().is_replaying());
@@ -2070,11 +2073,19 @@ fn iterate_checksums(t: &mut dyn Task, mode: ChecksumMode, global_time: FrameTim
 
 fn notify_checksum_error(
     _t: &ReplayTask,
-    _global_time: u64,
-    _checksum: u32,
-    _rec_checksum: u32,
-    _raw_map_line: &str,
+    global_time: u64,
+    checksum: u32,
+    rec_checksum: u32,
+    raw_map_line: &str,
 ) {
+    log!(
+        LogError,
+        "Checksum error at time {}: {}\nRecorded checksum: {:#x}, Replay checksum: {:#x}",
+        global_time,
+        raw_map_line,
+        rec_checksum,
+        checksum
+    );
     unimplemented!()
 }
 
