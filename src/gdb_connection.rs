@@ -39,17 +39,17 @@ include!(concat!(
 ));
 
 macro_rules! parser_assert {
-    ( $x:expr ) => {{
+    ( $x:expr ) => {
         // DIFF NOTE: In rr the logic is ever so slightly different.
         // In rr there is a fputs followed by a debug_assert and exit.
         assert!($x, "Failed to parse gdb request");
-    }};
+    };
 }
 
 macro_rules! parser_assert_eq {
-    ( $x:expr, $y:expr ) => {{
+    ( $x:expr, $y:expr ) => {
         assert_eq!($x, $y, "Failed to parse gdb request");
-    }};
+    };
 }
 
 macro_rules! unhandled_req {
