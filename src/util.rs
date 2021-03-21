@@ -2165,7 +2165,7 @@ pub fn str16_to_usize<'a>(
     new_text: &mut &'a [u8],
 ) -> Result<usize, Box<dyn error::Error>> {
     lazy_static! {
-        static ref RE16: Regex = Regex::new(r"^\s*([\+\-])?(?:0[xX])([0-9a-fA-F]+)").unwrap();
+        static ref RE16: Regex = Regex::new(r"^\s*([\+\-])?(?:0[xX])?([0-9a-fA-F]+)").unwrap();
     }
     match RE16.find(text) {
         Some(m) => {
@@ -2200,7 +2200,7 @@ pub fn str16_to_isize<'a>(
     new_text: &mut &'a [u8],
 ) -> Result<isize, Box<dyn error::Error>> {
     lazy_static! {
-        static ref RE16: Regex = Regex::new(r"^\s*([\+\-])?(?:0[xX])([0-9a-fA-F]+)").unwrap();
+        static ref RE16: Regex = Regex::new(r"^\s*([\+\-])?(?:0[xX])?([0-9a-fA-F]+)").unwrap();
     }
     match RE16.find(text) {
         Some(m) => {
@@ -2323,6 +2323,16 @@ mod tests {
 
     #[test]
     fn str16_to_usize_test() {
+        let mut sl = b"  -ff apples".as_slice();
+        let maybe_num = str16_to_usize(sl, &mut sl);
+        assert_eq!(-0xffisize as usize, maybe_num.unwrap());
+        assert_eq!(b" apples", sl);
+
+        let mut sl = b"  ff apples".as_slice();
+        let maybe_num = str16_to_usize(sl, &mut sl);
+        assert_eq!(0xff, maybe_num.unwrap());
+        assert_eq!(b" apples", sl);
+
         let mut sl = b"  0xAB apples".as_slice();
         let maybe_num = str16_to_usize(sl, &mut sl);
         assert_eq!(0xAB, maybe_num.unwrap());
@@ -2341,6 +2351,16 @@ mod tests {
 
     #[test]
     fn str16_to_isize_test() {
+        let mut sl = b"  -ff apples".as_slice();
+        let maybe_num = str16_to_isize(sl, &mut sl);
+        assert_eq!(-0xff, maybe_num.unwrap());
+        assert_eq!(b" apples", sl);
+
+        let mut sl = b"  ff apples".as_slice();
+        let maybe_num = str16_to_isize(sl, &mut sl);
+        assert_eq!(0xff, maybe_num.unwrap());
+        assert_eq!(b" apples", sl);
+
         let mut sl = b"  0xAB apples".as_slice();
         let maybe_num = str16_to_isize(sl, &mut sl);
         assert_eq!(0xAB, maybe_num.unwrap());
