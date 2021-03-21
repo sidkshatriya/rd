@@ -14,6 +14,7 @@ use crate::{
         ifreq,
         iovec,
         ipc_kludge_args,
+        iw_point,
         iwreq,
         kernel_sigaction,
         mmap_args,
@@ -5380,10 +5381,11 @@ fn prepare_ioctl<Arch: Architecture>(
         SIOCGIWESSID => {
             let argsp = syscall_state.reg_parameter::<iwreq<Arch>>(3, Some(ArgMode::InOut), None);
             let args = read_val_mem(t, argsp, None);
-            let ptr = unsafe { args.u.essid.pointer };
+            let ptr =
+                remote_ptr_field!(argsp, iwreq<Arch>, u) + offset_of!(iw_point<Arch>, pointer);
             syscall_state.mem_ptr_parameter_with_size(
                 t,
-                Arch::as_rptr(ptr),
+                ptr,
                 ParamSize::from(unsafe { args.u.essid.length } as usize),
                 None,
                 None,
