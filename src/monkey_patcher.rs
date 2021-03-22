@@ -1021,7 +1021,8 @@ fn is_kernel_vsyscall(t: &mut RecordTask, addr: RemotePtr<Void>) -> bool {
 
 fn find_section_file_offsets<'a>(elf_obj: &Elf<'a>, section_name: &str) -> Option<Range<usize>> {
     for section in &elf_obj.section_headers {
-        match elf_obj.strtab.get(section.sh_name) {
+        let res = elf_obj.shdr_strtab.get(section.sh_name);
+        match res {
             Some(name_res) => match name_res {
                 Ok(name) if name == section_name => return Some(section.file_range()),
                 _ => continue,
@@ -1383,9 +1384,8 @@ fn patch_after_exec_arch_x64arch(t: &mut RecordTask, patcher: &mut MonkeyPatcher
     let vdso_start = t.vm().vdso().start();
     let vdso_size = t.vm().vdso().size();
 
-    let size = t.vm().vdso().size();
     let mut data = Vec::new();
-    data.resize(size, 0u8);
+    data.resize(vdso_size, 0u8);
     t.read_bytes_helper(t.vm().vdso().start(), &mut data, None);
     let elf_obj = match Elf::parse(&data) {
         Ok(elfo) => elfo,
