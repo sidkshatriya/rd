@@ -50,6 +50,9 @@ use crate::{
         is_exit_group_syscall,
         is_exit_syscall,
         is_restart_syscall_syscall,
+        is_wait4_syscall,
+        is_waitid_syscall,
+        is_waitpid_syscall,
         sigaction_sigset_size,
         syscall_number_for_close,
         syscall_number_for_dup3,
@@ -1422,11 +1425,25 @@ impl RecordTask {
             return true;
         }
 
-        if self.is_syscall_restart() {
-            // ptrace generated signals don't interrupt syscalls such as wait.
-            // Return false to tell the caller to defer the signal and resume
-            // the syscall.
-            return false;
+        if self.is_syscall_restart() && EventType::EvSyscallInterruption == self.ev().event_type() {
+            let syscallno = self.regs_ref().original_syscallno() as i32;
+            let syscall_arch = self.ev().syscall_event().arch();
+            if is_waitpid_syscall(syscallno, syscall_arch)
+                || is_waitid_syscall(syscallno, syscall_arch)
+                || is_wait4_syscall(syscallno, syscall_arch)
+            {
+                // Wait-like syscalls always check for notifications from waited-for processes
+                // before they check for pending signals. So, if the tracee has a pending
+                // notification that also generated a signal, the wait syscall will return
+                // normally rather than returning with ERESTARTSYS etc. (The signal will
+                // be dequeued and any handler run on the return to userspace, however.)
+                // We need to emulate this by deferring our synthetic ptrace signal
+                // until after the wait syscall has returned.
+                log!(LogDebug, "Deferring signal because we're in a wait");
+                // Return false to tell the caller to defer the signal and resume
+                // the syscall.
+                return false;
+            }
         }
 
         for tracee_rc in &self.emulated_ptrace_tracees {
@@ -3064,6 +3081,10 @@ impl RecordTask {
                 let ret = unsafe { syscall(SYS_rt_tgsigqueueinfo, tgid, tid, SIGCHLD, &si) };
                 ed_assert_eq!(self, ret, 0);
                 if sigchld_blocked {
+                    log!(
+                        LogDebug,
+                        "SIGCHLD is blocked, kicking it out of the syscall"
+                    );
                     // Just sending SIGCHLD won't wake it up. Send it a TIME_SLICE_SIGNAL
                     // as well to make sure it exits a blocking syscall. We ensure those
                     // can never be blocked.
