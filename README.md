@@ -96,7 +96,7 @@ By contributing to `rd` you agree to license your contributions under the MIT li
 
 ## What works
 
-The port is currently in progress and not ready for end-user usage. However developers interested in contributing to this project will find there is a lot to work with and build upon. The project already contains 45k+ lines of ported over Rust code.
+The port is currently in progress and not ready for end-user usage. However developers interested in contributing to this project will find there is a lot to work with and build upon. The project already contains 50,000+ lines of ported over Rust code.
 
 `rd` can now record program runs (i.e. traces) on its own now (just like `rr`). See below for details.
 
