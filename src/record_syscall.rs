@@ -6426,6 +6426,7 @@ fn verify_ptrace_options(t: &mut RecordTask, syscall_state: &mut TaskSyscallStat
         | PTRACE_O_TRACEEXIT
         | PTRACE_O_TRACEFORK
         | PTRACE_O_TRACECLONE
+        | PTRACE_O_TRACEVFORK
         | PTRACE_O_TRACEEXEC;
 
     if t.regs_ref().arg4() as u32 & !supported_ptrace_options != 0 {
