@@ -623,7 +623,7 @@ pub fn ensure_dir(dir: &OsStr, dir_type: &str, mode: Mode) {
 /// Like pwrite64(2) but we try to write all bytes by looping on short writes.
 ///
 /// Slightly different from rr. Employs Result.
-pub fn pwrite_all_fallible(fd: i32, buf_initial: &[u8], offset: isize) -> Result<usize, ()> {
+pub fn pwrite_all_fallible(fd: i32, buf_initial: &[u8], mut offset: isize) -> Result<usize, ()> {
     let mut written: usize = 0;
     let mut cur_size = buf_initial.len();
 
@@ -642,6 +642,7 @@ pub fn pwrite_all_fallible(fd: i32, buf_initial: &[u8], offset: isize) -> Result
             // We know that ret > 0 by now so its safe to cast ret as usize in this block.
             buf = &buf[ret as usize..];
             written += ret as usize;
+            offset += ret;
             cur_size -= ret as usize;
         }
     }
