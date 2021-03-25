@@ -11,7 +11,8 @@ use crate::{
     trace::trace_frame::FrameTime,
 };
 use std::{
-    cell::{Ref, RefCell},
+    cell::RefCell,
+    cmp::Ordering,
     collections::BTreeMap,
     fmt::Display,
     io::Write,
@@ -119,22 +120,73 @@ impl ReplayTimeline {
     }
 }
 
+/// DIFF NOTE: One important difference between rd and rr's Mark is that
+/// rd's Mark always indicates a position in the replay unlike
+/// in rr where `ptr` can be null
 pub struct Mark {
-    ptr: Rc<RefCell<InternalMark>>,
+    ptr: InternalMarkSharedPtr,
+}
+
+impl Eq for Mark {}
+
+impl Ord for Mark {
+    /// See ReplayTimeline::less_than() in rr
+    /// @TODO Check this again
+    fn cmp(&self, m2: &Self) -> Ordering {
+        // DIFF NOTE: This is a DEBUG_ASSERT in rr
+        assert!(self.ptr.owner.ptr_eq(&m2.ptr.owner));
+        if self == m2 {
+            Ordering::Equal
+        } else {
+            if self.ptr.proto.key < m2.ptr.proto.key {
+                return Ordering::Less;
+            }
+            if m2.ptr.proto.key < self.ptr.proto.key {
+                return Ordering::Greater;
+            }
+            // We now know that self & m2 have the same ptr.proto.key
+            for m in &self.ptr.owner.upgrade().unwrap().marks.borrow()[&self.ptr.proto.key] {
+                if Rc::eq(m, &m2.ptr) {
+                    return Ordering::Greater;
+                }
+                if Rc::eq(m, &self.ptr) {
+                    return Ordering::Less;
+                }
+            }
+            assert!(false, "Marks missing from vector, invariants broken!");
+            unreachable!()
+        }
+    }
+}
+
+impl PartialOrd for Mark {
+    fn partial_cmp(&self, m2: &Self) -> Option<Ordering> {
+        Some(Self::cmp(self, &m2))
+    }
+}
+
+impl PartialEq for Mark {
+    fn eq(&self, other: &Self) -> bool {
+        Rc::eq(&self.ptr, &other.ptr)
+    }
 }
 
 impl Mark {
     ///  Return the values of the general-purpose registers at this mark.
-    pub fn regs(&self) -> Ref<Registers> {
-        Ref::map(self.ptr.borrow(), |b| &b.proto.regs)
+    pub fn regs(&self) -> &Registers {
+        &self.ptr.proto.regs
     }
 
-    pub fn extra_regs(&self) -> Ref<ExtraRegisters> {
-        Ref::map(self.ptr.borrow(), |b| &b.extra_regs)
+    pub fn extra_regs(&self) -> &ExtraRegisters {
+        &self.ptr.extra_regs
     }
 
     pub fn time(&self) -> FrameTime {
-        self.ptr.borrow().proto.key.trace_time
+        self.ptr.proto.key.trace_time
+    }
+
+    fn from_internal_mark(weak: InternalMarkSharedPtr) -> Mark {
+        Mark { ptr: weak }
     }
 }
 
@@ -156,6 +208,18 @@ struct InternalMark {
     /// of singlestepping from this mark *and* no signal is reported in the
     /// break_status when doing such a singlestep.
     singlestep_to_next_mark_no_signal: bool,
+}
+
+impl PartialOrd for InternalMark {
+    fn partial_cmp(&self, _other: &Self) -> Option<Ordering> {
+        unimplemented!()
+    }
+}
+
+impl PartialEq for InternalMark {
+    fn eq(&self, _other: &Self) -> bool {
+        unimplemented!()
+    }
 }
 
 impl Drop for InternalMark {
@@ -202,7 +266,7 @@ impl InternalMark {
         self.proto.equal_states(session)
     }
 
-    // DIFF NOTE: Called full_print() in rr
+    /// DIFF NOTE: Called full_print() in rr
     fn full_write(&self, out: &mut dyn Write) {
         write!(out, "{{{},regs:", self.proto.key).unwrap();
         self.proto.regs.write_register_file(out).unwrap();
