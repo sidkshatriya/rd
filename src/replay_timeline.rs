@@ -11,7 +11,7 @@ use crate::{
     trace::trace_frame::FrameTime,
 };
 use std::{
-    cell::RefCell,
+    cell::{Ref, RefCell},
     cmp::Ordering,
     collections::BTreeMap,
     fmt::Display,
@@ -32,7 +32,7 @@ impl Default for RunDirection {
     }
 }
 
-type InternalMarkSharedPtr = Rc<InternalMark>;
+type InternalMarkSharedPtr = Rc<RefCell<InternalMark>>;
 
 /// This class manages a set of ReplaySessions corresponding to different points
 /// in the same recording. It provides an API for explicitly managing
@@ -79,7 +79,12 @@ impl Default for ReplayTimeline {
 
 impl Drop for ReplayTimeline {
     fn drop(&mut self) {
-        unimplemented!()
+        for (_k, v) in self.marks.borrow().iter() {
+            for internal_mark in v {
+                internal_mark.borrow_mut().owner = Weak::new();
+                internal_mark.borrow_mut().checkpoint = None;
+            }
+        }
     }
 }
 
@@ -129,7 +134,7 @@ pub struct Mark {
 
 impl Display for Mark {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        write!(f, "{}", *self.ptr)
+        write!(f, "{}", *self.ptr.borrow())
     }
 }
 
@@ -140,18 +145,20 @@ impl Ord for Mark {
     /// @TODO Check this again
     fn cmp(&self, m2: &Self) -> Ordering {
         // DIFF NOTE: This is a DEBUG_ASSERT in rr
-        assert!(self.ptr.owner.ptr_eq(&m2.ptr.owner));
+        assert!(self.ptr.borrow().owner.ptr_eq(&m2.ptr.borrow().owner));
         if self == m2 {
             Ordering::Equal
         } else {
-            if self.ptr.proto.key < m2.ptr.proto.key {
+            if self.ptr.borrow().proto.key < m2.ptr.borrow().proto.key {
                 return Ordering::Less;
             }
-            if m2.ptr.proto.key < self.ptr.proto.key {
+            if m2.ptr.borrow().proto.key < self.ptr.borrow().proto.key {
                 return Ordering::Greater;
             }
             // We now know that self & m2 have the same ptr.proto.key
-            for m in &self.ptr.owner.upgrade().unwrap().marks.borrow()[&self.ptr.proto.key] {
+            for m in &self.ptr.borrow().owner.upgrade().unwrap().marks.borrow()
+                [&self.ptr.borrow().proto.key]
+            {
                 if Rc::eq(m, &m2.ptr) {
                     return Ordering::Greater;
                 }
@@ -178,17 +185,16 @@ impl PartialEq for Mark {
 }
 
 impl Mark {
-    ///  Return the values of the general-purpose registers at this mark.
-    pub fn regs(&self) -> &Registers {
-        &self.ptr.proto.regs
+    pub fn regs(&self) -> Ref<Registers> {
+        Ref::map(self.ptr.borrow(), |b| &b.proto.regs)
     }
 
-    pub fn extra_regs(&self) -> &ExtraRegisters {
-        &self.ptr.extra_regs
+    pub fn extra_regs(&self) -> Ref<ExtraRegisters> {
+        Ref::map(self.ptr.borrow(), |b| &b.extra_regs)
     }
 
     pub fn time(&self) -> FrameTime {
-        self.ptr.proto.key.trace_time
+        self.ptr.borrow().proto.key.trace_time
     }
 
     fn from_internal_mark(weak: InternalMarkSharedPtr) -> Mark {
