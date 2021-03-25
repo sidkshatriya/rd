@@ -404,6 +404,10 @@ impl ReplaySession {
         ReplayStepKey::new_with(self.current_step.get().action)
     }
 
+    pub fn ticks_at_start_of_current_event(&self) -> Ticks {
+        self.ticks_at_start_of_event.get()
+    }
+
     /// Return a semantic copy of all the state managed by this,
     /// that is the entire tracee tree and the state it depends on.
     /// Any mutations of the returned Session can't affect the

@@ -1,6 +1,6 @@
 //! Much of this implementation is based on the documentation at
 //!
-//! http://sourceware.org/gdb/onlinedocs/gdb/Packets.html
+//! <http://sourceware.org/gdb/onlinedocs/gdb/Packets.html>
 
 use crate::{
     gdb_register::GdbRegister,

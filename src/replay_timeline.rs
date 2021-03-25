@@ -12,6 +12,7 @@ use crate::{
 };
 use std::{
     cell::{Ref, RefCell},
+    collections::BTreeMap,
     rc::{Rc, Weak},
 };
 
@@ -31,7 +32,12 @@ impl Default for RunDirection {
 /// This class manages a set of ReplaySessions corresponding to different points
 /// in the same recording. It provides an API for explicitly managing
 /// checkpoints along this timeline and navigating to specific events.
-pub struct ReplayTimeline;
+pub struct ReplayTimeline {
+    /// All mark keys with at least one checkpoint. The value is the number of
+    /// checkpoints. There can be multiple checkpoints for a given MarkKey
+    /// because a MarkKey may have multiple corresponding Marks.
+    marks_with_checkpoints: RefCell<BTreeMap<MarkKey, u32>>,
+}
 
 impl Default for ReplayTimeline {
     fn default() -> Self {
@@ -70,6 +76,16 @@ impl ReplayTimeline {
             session.current_step_key(),
         )
     }
+
+    fn remove_mark_with_checkpoint(&self, key: MarkKey) {
+        debug_assert!(self.marks_with_checkpoints.borrow()[&key] > 0);
+        self.marks_with_checkpoints
+            .borrow_mut()
+            .insert(key, self.marks_with_checkpoints.borrow()[&key] - 1);
+        if self.marks_with_checkpoints.borrow()[&key] == 0 {
+            self.marks_with_checkpoints.borrow_mut().remove(&key);
+        }
+    }
 }
 
 pub struct Mark {
@@ -101,14 +117,55 @@ struct InternalMark {
     proto: ProtoMark,
     extra_regs: ExtraRegisters,
     /// Optional checkpoint for this Mark.
-    checkpoint: SessionSharedPtr,
-    ticks_at_event_start: Ticks,
-    /// Number of users of `checkpoint`.
+    checkpoint: Option<SessionSharedPtr>,
+    /// Number of users of `checkpoint`
     checkpoint_refcount: u32,
+    ticks_at_event_start: Ticks,
     /// The next InternalMark in the ReplayTimeline's Mark vector is the result
     /// of singlestepping from this mark *and* no signal is reported in the
     /// break_status when doing such a singlestep.
     singlestep_to_next_mark_no_signal: bool,
+}
+
+impl Drop for InternalMark {
+    fn drop(&mut self) {
+        match self.owner.upgrade() {
+            Some(owner) => match self.checkpoint.as_ref() {
+                Some(_session) => {
+                    owner.remove_mark_with_checkpoint(self.proto.key);
+                }
+                None => (),
+            },
+            None => (),
+        }
+    }
+}
+
+impl InternalMark {
+    fn new(owner: Weak<ReplayTimeline>, session: &ReplaySession, key: MarkKey) -> InternalMark {
+        let proto;
+        let extra_regs;
+        match session.current_task() {
+            Some(t) => {
+                proto = ProtoMark::new(key, t.borrow_mut().as_mut());
+                extra_regs = t.borrow_mut().extra_regs_ref().clone();
+            }
+            None => {
+                proto = ProtoMark::new_from_key(key);
+                extra_regs = Default::default()
+            }
+        }
+
+        InternalMark {
+            owner,
+            proto,
+            extra_regs,
+            checkpoint: None,
+            checkpoint_refcount: 0,
+            ticks_at_event_start: session.ticks_at_start_of_current_event(),
+            singlestep_to_next_mark_no_signal: false,
+        }
+    }
 }
 
 /// A MarkKey consists of FrameTime + Ticks + ReplayStepKey. These values
