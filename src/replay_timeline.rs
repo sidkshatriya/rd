@@ -1,10 +1,14 @@
 use crate::{
+    breakpoint_condition::BreakpointCondition,
     extra_registers::ExtraRegisters,
     registers::Registers,
+    remote_code_ptr::RemoteCodePtr,
+    remote_ptr::{RemotePtr, Void},
     return_address_list::ReturnAddressList,
     session::{
-        replay_session::{ReplaySession, ReplayStepKey},
-        task::Task,
+        address_space::WatchType,
+        replay_session::{ReplayResult, ReplaySession, ReplayStepKey},
+        task::{replay_task::ReplayTask, Task},
         SessionSharedPtr,
     },
     ticks::Ticks,
@@ -38,6 +42,10 @@ type InternalMarkSharedPtr = Rc<RefCell<InternalMark>>;
 /// in the same recording. It provides an API for explicitly managing
 /// checkpoints along this timeline and navigating to specific events.
 pub struct ReplayTimeline {
+    maybe_current: Option<SessionSharedPtr>,
+    /// current is known to be at or after this mark
+    current_at_or_after_mark: Option<InternalMarkSharedPtr>,
+
     /// All known marks.
     ///
     /// An InternalMark appears in a ReplayTimeline 'marks' map if and only if
@@ -89,15 +97,116 @@ impl Drop for ReplayTimeline {
 }
 
 impl ReplayTimeline {
-    pub fn new(_session: SessionSharedPtr) -> ReplayTimeline {
+    pub fn is_running(&self) -> bool {
+        self.maybe_current.is_some()
+    }
+
+    /// The current state. The current state can be moved forward or backward
+    /// using ReplaySession's APIs. Do not set breakpoints on its tasks directly.
+    /// Use ReplayTimeline's breakpoint methods.
+    pub fn maybe_current_session(&self) -> Option<&ReplaySession> {
+        self.maybe_current.as_ref().map(|s| s.as_replay().unwrap())
+    }
+
+    /// Return a mark for the current state. A checkpoint need not be retained,
+    /// but this mark can be seeked to later.
+    /// This can be expensive in some (perhaps unusual) situations since we
+    /// may need to clone the current session and run it a bit, to figure out
+    /// where we are relative to other Marks. So don't call this unless you
+    /// need it.
+    pub fn mark(&self) -> Mark {
         unimplemented!()
     }
 
+    /// Indicates that the current replay position is the result of
+    /// singlestepping from 'from'.
+    pub fn mark_after_singlestep(&self, _from: &Mark, _result: &ReplayResult) {
+        unimplemented!()
+    }
+
+    /// Returns true if it's safe to add a checkpoint here.
+    pub fn can_add_checkpoint(&self) -> bool {
+        unimplemented!()
+    }
+
+    /// Ensure that the current session is explicitly checkpointed.
+    /// Explicit checkpoints are reference counted.
+    /// Only call this if can_add_checkpoint would return true.
     pub fn add_explicit_checkpoint(&self) -> Mark {
         unimplemented!()
     }
 
-    pub fn mark(&self) -> Mark {
+    /// Remove an explicit checkpoint reference count for this mark.
+    pub fn remove_explicit_checkpoint(&self, _mark: &Mark) {
+        unimplemented!()
+    }
+
+    /// Return true if we're currently at the given mark.
+    pub fn at_mark(&self, _mark: &Mark) {
+        unimplemented!()
+    }
+
+    /// Add/remove breakpoints and watchpoints. Use these APIs instead
+    /// of operating on the task directly, so that ReplayTimeline can track
+    /// breakpoints and automatically move them across sessions as necessary.
+    /// Only one breakpoint for a given address space/addr combination can be set;
+    /// setting another for the same address space/addr will replace the first.
+    /// Likewise only one watchpoint for a given task/addr/num_bytes/type can be
+    /// set. gdb expects that setting two breakpoints on the same address and then
+    /// removing one removes both.
+    pub fn add_breakpoint(
+        _t: &ReplayTask,
+        _addr: RemoteCodePtr,
+        _condition: Option<Box<dyn BreakpointCondition>>,
+    ) -> bool {
+        unimplemented!()
+    }
+
+    /// You can't remove a breakpoint with a specific condition, so don't
+    /// place multiple breakpoints with conditions on the same location.
+    pub fn remove_breakpoint(_t: &ReplayTask, _addr: RemoteCodePtr) {
+        unimplemented!()
+    }
+
+    pub fn add_watchpoint(
+        _t: &ReplayTask,
+        _addr: RemotePtr<Void>,
+        _num_bytes: usize,
+        _type_: WatchType,
+        _condition: Option<Box<dyn BreakpointCondition>>,
+    ) -> bool {
+        unimplemented!()
+    }
+
+    /// You can't remove a watchpoint with a specific condition, so don't
+    /// place multiple breakpoints with conditions on the same location.
+    pub fn remove_watchpoint(
+        _t: &ReplayTask,
+        _addr: RemotePtr<Void>,
+        _num_bytes: usize,
+        _type_: WatchType,
+    ) -> bool {
+        unimplemented!()
+    }
+
+    pub fn remove_breakpoints_and_watchpoints() -> bool {
+        unimplemented!()
+    }
+
+    pub fn has_breakpoint_at_address(_t: &ReplayTask, _addr: RemoteCodePtr) -> bool {
+        unimplemented!()
+    }
+
+    pub fn has_watchpoint_at_address(
+        _t: &ReplayTask,
+        _addr: RemotePtr<Void>,
+        _num_bytes: usize,
+        _type_: WatchType,
+    ) -> bool {
+        unimplemented!()
+    }
+
+    pub fn new(_session: SessionSharedPtr) -> ReplayTimeline {
         unimplemented!()
     }
 

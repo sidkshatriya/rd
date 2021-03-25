@@ -28,6 +28,7 @@ mod arch;
 mod kernel_abi;
 #[macro_use]
 mod auto_remote_syscalls;
+mod breakpoint_condition;
 #[macro_use]
 mod remote_ptr;
 mod arch_structs;
