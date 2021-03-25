@@ -13,6 +13,8 @@ use crate::{
 use std::{
     cell::{Ref, RefCell},
     collections::BTreeMap,
+    fmt::Display,
+    io::Write,
     rc::{Rc, Weak},
 };
 
@@ -29,10 +31,39 @@ impl Default for RunDirection {
     }
 }
 
+type InternalMarkSharedPtr = Rc<InternalMark>;
+
 /// This class manages a set of ReplaySessions corresponding to different points
 /// in the same recording. It provides an API for explicitly managing
 /// checkpoints along this timeline and navigating to specific events.
 pub struct ReplayTimeline {
+    /// All known marks.
+    ///
+    /// An InternalMark appears in a ReplayTimeline 'marks' map if and only if
+    /// that ReplayTimeline is the InternalMark's 'owner'. ReplayTimeline's
+    /// destructor clears the 'owner' of all marks in the map.
+    ///
+    /// For each MarkKey, the InternalMarks are stored in execution order.
+    ///
+    /// The key problem we're dealing with here is that we don't have any state
+    /// that we can use to compute a total time order on Marks. MarkKeys are
+    /// totally ordered, but different program states can have the same MarkKey
+    /// (i.e. same retired conditional branch count). The only way to determine
+    /// the time ordering of two Marks m1 and m2 is to actually replay the
+    /// execution until we see m1 and m2 and observe which one happened first.
+    /// We record that ordering for all Marks by storing all the Marks for a given
+    /// MarkKey in vector ordered by time.
+    /// Determining this order is expensive so we avoid creating Marks unless we
+    /// really need to! If we're at a specific point in time and we///may* need to
+    /// create a Mark for this point later, create a ProtoMark instead to
+    /// capture enough state so that a Mark can later be created if needed.
+    ///
+    /// We assume there will be a limited number of InternalMarks per MarkKey.
+    /// This should be true because ReplayTask::tick_count() should increment
+    /// frequently during execution. In some cases we see hundreds of elements
+    /// but that's not too bad.
+    marks: RefCell<BTreeMap<MarkKey, Vec<InternalMarkSharedPtr>>>,
+
     /// All mark keys with at least one checkpoint. The value is the number of
     /// checkpoints. There can be multiple checkpoints for a given MarkKey
     /// because a MarkKey may have multiple corresponding Marks.
@@ -166,6 +197,30 @@ impl InternalMark {
             singlestep_to_next_mark_no_signal: false,
         }
     }
+
+    fn equal_states(&self, session: &ReplaySession) -> bool {
+        self.proto.equal_states(session)
+    }
+
+    // DIFF NOTE: Called full_print() in rr
+    fn full_write(&self, out: &mut dyn Write) {
+        write!(out, "{{{},regs:", self.proto.key).unwrap();
+        self.proto.regs.write_register_file(out).unwrap();
+        write!(out, ",return_addresses=[").unwrap();
+        for i in 0..ReturnAddressList::COUNT {
+            // @TODO: This is %p in rr
+            write!(
+                out,
+                "{:08x}",
+                self.proto.return_addresses.addresses[i].as_usize()
+            )
+            .unwrap();
+            if i + 1 < ReturnAddressList::COUNT {
+                write!(out, ",").unwrap();
+            }
+        }
+        write!(out, "]}}").unwrap();
+    }
 }
 
 /// A MarkKey consists of FrameTime + Ticks + ReplayStepKey. These values
@@ -178,6 +233,18 @@ struct MarkKey {
     pub trace_time: FrameTime,
     pub ticks: Ticks,
     pub step_key: ReplayStepKey,
+}
+
+impl Display for MarkKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(
+            f,
+            "time:{},ticks:{},st:{}",
+            self.trace_time,
+            self.ticks,
+            self.step_key.as_i32()
+        )
+    }
 }
 
 impl MarkKey {
