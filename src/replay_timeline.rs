@@ -127,6 +127,12 @@ pub struct Mark {
     ptr: InternalMarkSharedPtr,
 }
 
+impl Display for Mark {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(f, "{}", *self.ptr)
+    }
+}
+
 impl Eq for Mark {}
 
 impl Ord for Mark {
@@ -210,6 +216,12 @@ struct InternalMark {
     singlestep_to_next_mark_no_signal: bool,
 }
 
+impl Display for InternalMark {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(f, "{}", self.proto)
+    }
+}
+
 impl PartialOrd for InternalMark {
     fn partial_cmp(&self, _other: &Self) -> Option<Ordering> {
         unimplemented!()
@@ -272,7 +284,7 @@ impl InternalMark {
         self.proto.regs.write_register_file(out).unwrap();
         write!(out, ",return_addresses=[").unwrap();
         for i in 0..ReturnAddressList::COUNT {
-            // @TODO: This is %p in rr
+            // @TODO: Check this. This is %p in rr
             write!(
                 out,
                 "{:08x}",
@@ -341,6 +353,12 @@ struct ProtoMark {
     pub key: MarkKey,
     pub regs: Registers,
     pub return_addresses: ReturnAddressList,
+}
+
+impl Display for ProtoMark {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(f, "{{{},regs_ip:{}}}", self.key, self.regs.ip(),)
+    }
 }
 
 impl ProtoMark {
