@@ -1076,8 +1076,8 @@ impl ReplaySession {
 
     /// Continue until reaching either the "entry" of an emulated syscall,
     /// or the entry or exit of an executed syscall.  `emu` is nonzero when
-    /// we're emulating the syscall.  Return COMPLETE when the next syscall
-    /// boundary is reached, or INCOMPLETE if advancing to the boundary was
+    /// we're emulating the syscall. Return Completion::Complete when the next syscall
+    /// boundary is reached, or Completion::Incomplete if advancing to the boundary was
     /// interrupted by an unknown trap.
     /// When the syscall trace frame is non-null, we continue to the syscall by
     /// setting a breakpoint instead of running until we execute a system
@@ -1087,9 +1087,11 @@ impl ReplaySession {
         t: &mut ReplayTask,
         constraints: &StepConstraints,
     ) -> Completion {
-        let mut ticks_request: TicksRequest = Default::default();
-        if !compute_ticks_request(t, constraints, &mut ticks_request) {
-            return Completion::Incomplete;
+        let mut ticks_request: TicksRequest = TicksRequest::ResumeUnlimitedTicks;
+        if constraints.ticks_target <= self.trace_frame.borrow().ticks() {
+            if !compute_ticks_request(t, constraints, &mut ticks_request) {
+                return Completion::Incomplete;
+            }
         }
 
         if constraints.command == RunCommand::RunSinglestepFastForward {
