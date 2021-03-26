@@ -80,7 +80,7 @@ use std::{
     ffi::{OsStr, OsString},
     fs::File,
     io::{BufRead, BufReader, Read},
-    mem::size_of,
+    mem::{size_of, swap},
     ops::{Deref, DerefMut},
     os::unix::ffi::{OsStrExt, OsStringExt},
     process::exit,
@@ -559,12 +559,16 @@ impl TraceReader {
                 let events = self.reader_mut(Substream::Events);
                 state = events.get_state();
             }
+            let mut saved_raw_recs = Vec::new();
+            // self.read_frame() sets self.raw_recs to Vec::new() anyways so this is OK to do
+            swap(&mut saved_raw_recs, &mut self.raw_recs);
             let frame = self.read_frame();
             {
                 let events = self.reader_mut(Substream::Events);
                 events.restore_state(state);
             }
             self.global_time = saved_time;
+            self.raw_recs = saved_raw_recs;
             Some(frame)
         } else {
             return None;
