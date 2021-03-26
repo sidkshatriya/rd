@@ -536,7 +536,7 @@ impl RecordSession {
             // bit for RDRAND support.
             env.push(("OPENSSL_ia32cap".into(), "~4611686018427387904:~0".into()));
             // Disable Qt's use of RDRAND/RDSEED/RTM
-            env.push(("QT_NO_CPU_FEATURE".into(), "rdrand rdseed rtm".into()));
+            env.push(("QT_NO_CPU_FEATURE".into(), "rdrnd rdseed rtm".into()));
             // Disable systemd's use of RDRAND
             env.push(("SYSTEMD_RDRAND".into(), "0".into()));
         }
