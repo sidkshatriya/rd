@@ -12,14 +12,14 @@ use crate::{
         task::{replay_task::ReplayTask, Task},
         SessionSharedPtr,
     },
-    taskish_uid::TaskUid,
+    taskish_uid::{AddressSpaceUid, TaskUid},
     ticks::Ticks,
     trace::trace_frame::FrameTime,
 };
 use std::{
     cell::{Ref, RefCell},
     cmp::Ordering,
-    collections::BTreeMap,
+    collections::{BTreeMap, HashSet},
     fmt::Display,
     io::Write,
     rc::{Rc, Weak},
@@ -96,6 +96,33 @@ pub struct ReplayTimeline {
     /// checkpoints. There can be multiple checkpoints for a given MarkKey
     /// because a MarkKey may have multiple corresponding Marks.
     marks_with_checkpoints: RefCell<BTreeMap<MarkKey, u32>>,
+
+    breakpoints: HashSet<(AddressSpaceUid, RemoteCodePtr, Box<dyn BreakpointCondition>)>,
+
+    watchpoints: HashSet<(
+        AddressSpaceUid,
+        RemotePtr<Void>,
+        usize,
+        WatchType,
+        Box<dyn BreakpointCondition>,
+    )>,
+
+    breakpoints_applied: bool,
+
+    reverse_execution_barrier_event: FrameTime,
+
+    /// Checkpoints used to accelerate reverse execution.
+    reverse_exec_checkpoints: BTreeMap<Mark, Progress>,
+
+    /// When these are non-null, then when singlestepping from
+    /// no_break_interval_start to no_break_interval_end, none of the currently
+    /// set watchpoints fire.
+    no_watchpoints_hit_interval_start: Mark,
+    no_watchpoints_hit_interval_end: Mark,
+
+    /// A single checkpoint that's very close to the current point, used to
+    /// accelerate a sequence of reverse singlestep operations.
+    reverse_exec_short_checkpoint: Mark,
 }
 
 impl Default for ReplayTimeline {
@@ -375,6 +402,7 @@ impl ReplayTimeline {
             self.marks_with_checkpoints.borrow_mut().remove(&key);
         }
     }
+
     fn seek_to_before_key(&self, _key: &MarkKey) {
         unimplemented!()
     }
