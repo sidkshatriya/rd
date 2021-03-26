@@ -485,12 +485,12 @@ impl SessionInner {
                 let retired_bp: BreakpointType =
                     t.vm().get_breakpoint_type_for_retired_insn(t.ip());
                 if BreakpointType::BkptUser == retired_bp {
-                    log!(LogDebug, "hit debugger breakpoint at ip {}", t.ip());
                     // SW breakpoint: $ip is just past the
                     // breakpoint instruction.  Move $ip back
                     // right before it.
                     t.move_ip_before_breakpoint();
                     break_status.breakpoint_hit = true;
+                    log!(LogDebug, "hit debugger breakpoint at ip {}", t.ip());
                 }
             }
         }
