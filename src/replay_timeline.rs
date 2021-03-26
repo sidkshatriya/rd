@@ -7,10 +7,12 @@ use crate::{
     return_address_list::ReturnAddressList,
     session::{
         address_space::WatchType,
-        replay_session::{ReplayResult, ReplaySession, ReplayStepKey},
+        replay_session::{ReplayResult, ReplaySession, ReplayStepKey, StepConstraints},
+        session_inner::RunCommand,
         task::{replay_task::ReplayTask, Task},
         SessionSharedPtr,
     },
+    taskish_uid::TaskUid,
     ticks::Ticks,
     trace::trace_frame::FrameTime,
 };
@@ -22,6 +24,12 @@ use std::{
     io::Write,
     rc::{Rc, Weak},
 };
+
+#[derive(Copy, Clone)]
+enum ForceProgress {
+    ForceProgress,
+    DontForceProgress,
+}
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub enum RunDirection {
@@ -37,6 +45,17 @@ impl Default for RunDirection {
 }
 
 type InternalMarkSharedPtr = Rc<RefCell<InternalMark>>;
+
+#[derive(Copy, Clone, Default)]
+struct ReplayStepToMarkStrategy {
+    singlesteps_to_perform: u32,
+}
+
+impl ReplayStepToMarkStrategy {
+    pub fn setup_step_constraints() -> StepConstraints {
+        unimplemented!()
+    }
+}
 
 /// This class manages a set of ReplaySessions corresponding to different points
 /// in the same recording. It provides an API for explicitly managing
@@ -95,6 +114,9 @@ impl Drop for ReplayTimeline {
         }
     }
 }
+
+type StopFilterFn = dyn Fn(&ReplayTask) -> bool;
+type InterruptCheckFn = dyn Fn(&ReplayTask) -> bool;
 
 impl ReplayTimeline {
     pub fn is_running(&self) -> bool {
@@ -155,6 +177,7 @@ impl ReplayTimeline {
     /// set. gdb expects that setting two breakpoints on the same address and then
     /// removing one removes both.
     pub fn add_breakpoint(
+        &self,
         _t: &ReplayTask,
         _addr: RemoteCodePtr,
         _condition: Option<Box<dyn BreakpointCondition>>,
@@ -164,11 +187,12 @@ impl ReplayTimeline {
 
     /// You can't remove a breakpoint with a specific condition, so don't
     /// place multiple breakpoints with conditions on the same location.
-    pub fn remove_breakpoint(_t: &ReplayTask, _addr: RemoteCodePtr) {
+    pub fn remove_breakpoint(&self, _t: &ReplayTask, _addr: RemoteCodePtr) {
         unimplemented!()
     }
 
     pub fn add_watchpoint(
+        &self,
         _t: &ReplayTask,
         _addr: RemotePtr<Void>,
         _num_bytes: usize,
@@ -181,6 +205,7 @@ impl ReplayTimeline {
     /// You can't remove a watchpoint with a specific condition, so don't
     /// place multiple breakpoints with conditions on the same location.
     pub fn remove_watchpoint(
+        &self,
         _t: &ReplayTask,
         _addr: RemotePtr<Void>,
         _num_bytes: usize,
@@ -189,15 +214,16 @@ impl ReplayTimeline {
         unimplemented!()
     }
 
-    pub fn remove_breakpoints_and_watchpoints() -> bool {
+    pub fn remove_breakpoints_and_watchpoints(&self) -> bool {
         unimplemented!()
     }
 
-    pub fn has_breakpoint_at_address(_t: &ReplayTask, _addr: RemoteCodePtr) -> bool {
+    pub fn has_breakpoint_at_address(&self, _t: &ReplayTask, _addr: RemoteCodePtr) -> bool {
         unimplemented!()
     }
 
     pub fn has_watchpoint_at_address(
+        &self,
         _t: &ReplayTask,
         _addr: RemotePtr<Void>,
         _num_bytes: usize,
@@ -206,7 +232,107 @@ impl ReplayTimeline {
         unimplemented!()
     }
 
+    /// Ensure that reverse execution never proceeds into an event before
+    /// |event|. Reverse execution will stop with a |task_exit| break status when
+    /// at the beginning of this event.
+    pub fn set_reverse_execution_barrier_event(&self, _event: FrameTime) {
+        unimplemented!()
+    }
+
+    /// State-changing APIs. These may alter state associated with
+    /// current_session().
+    /// Reset the current session to the last available session before event
+    /// 'time'. Useful if you want to run up to that event.
+    pub fn seek_to_before_event(&self, _time: FrameTime) {
+        unimplemented!()
+    }
+
+    /// Reset the current session to the last checkpointed session before (or at)
+    /// the mark. Will return at the mark if this mark was explicitly checkpointed
+    /// previously (and not deleted).
+    pub fn seek_up_to_mark(&self, _mark: &Mark) {
+        unimplemented!()
+    }
+
+    /// Sets current session to 'mark' by restoring the nearest useful checkpoint
+    /// and executing forwards if necessary.
+    pub fn seek_to_mark(&self, _mark: &Mark) {
+        unimplemented!()
+    }
+
+    /// Replay 'current'.
+    /// If there is a breakpoint at the current task's current ip(), then
+    /// when running forward we will immediately break at the breakpoint. When
+    /// running backward we will ignore the initial "hit" of the breakpoint ---
+    /// this is the behavior gdb expects.
+    /// Likewise, if there is a breakpoint at the current task's current ip(),
+    /// then running forward will immediately break at the breakpoint, but
+    /// running backward will ignore the initial "hit" of the breakpoint; this is
+    /// what gdb expects.
+    ///
+    /// replay_step_forward only does one replay step. That means we'll only
+    /// execute code in current_session().current_task().
+    pub fn replay_step_forward(
+        &self,
+        _command: RunCommand,
+        _stop_at_time: FrameTime,
+    ) -> ReplayResult {
+        unimplemented!()
+    }
+
+    pub fn reverse_continue(
+        &self,
+        _stop_filter: &StopFilterFn,
+        _interrupt_check: &InterruptCheckFn,
+    ) -> ReplayResult {
+        unimplemented!()
+    }
+
+    pub fn reverse_singlestep(
+        &self,
+        _stop_filter: &StopFilterFn,
+        _interrupt_check: &InterruptCheckFn,
+    ) -> ReplayResult {
+        unimplemented!()
+    }
+
+    /// Try to identify an existing Mark which is known to be one singlestep
+    /// before 'from', and for which we know singlestepping to 'from' would
+    /// trigger no break statuses other than "singlestep_complete".
+    /// If we can't, return a null Mark.
+    /// Will only return a Mark for the same executing task as 'from', which
+    /// must be 't'.
+    pub fn lazy_reverse_singlestep(&self, _from: &Mark, _t: &ReplayTask) -> Mark {
+        unimplemented!()
+    }
+
     pub fn new(_session: SessionSharedPtr) -> ReplayTimeline {
+        unimplemented!()
+    }
+
+    /// We track the set of breakpoints/watchpoints requested by the client.
+    /// When we switch to a new ReplaySession, these need to be reapplied before
+    /// replaying that session, but we do this lazily.
+    /// apply_breakpoints_and_watchpoints() forces the breakpoints/watchpoints
+    /// to be applied to the current session.
+    /// Our checkpoints never have breakpoints applied.
+    pub fn apply_breakpoints_and_watchpoints(&self) {
+        unimplemented!()
+    }
+
+    /// unapply_breakpoints_and_watchpoints() forces the breakpoints/watchpoints
+    /// to not be applied to the current session. Use this when we need to
+    /// clone the current session or replay the current session without
+    /// triggering breakpoints.
+    fn unapply_breakpoints_and_watchpoints(&self) {
+        unimplemented!()
+    }
+
+    fn apply_breakpoints_internal(&self) {
+        unimplemented!()
+    }
+
+    fn unapply_breakpoints_internal(&self) {
         unimplemented!()
     }
 
@@ -223,6 +349,23 @@ impl ReplayTimeline {
         )
     }
 
+    fn current_mark_key(&self) -> MarkKey {
+        unimplemented!()
+    }
+
+    fn proto_mark(&self) -> ProtoMark {
+        unimplemented!()
+    }
+
+    fn seek_to_proto_mark(&self, _pmark: &ProtoMark) {
+        unimplemented!()
+    }
+
+    /// Returns a shared pointer to the mark if there is one for the current state.
+    fn current_mark(&self) -> InternalMarkSharedPtr {
+        unimplemented!()
+    }
+
     fn remove_mark_with_checkpoint(&self, key: MarkKey) {
         debug_assert!(self.marks_with_checkpoints.borrow()[&key] > 0);
         self.marks_with_checkpoints
@@ -231,6 +374,111 @@ impl ReplayTimeline {
         if self.marks_with_checkpoints.borrow()[&key] == 0 {
             self.marks_with_checkpoints.borrow_mut().remove(&key);
         }
+    }
+    fn seek_to_before_key(&self, _key: &MarkKey) {
+        unimplemented!()
+    }
+
+    /// Run forward towards the midpoint of the current position and |end|.
+    /// Must stop before we reach |end|.
+    /// Returns false if we made no progress.
+    fn run_forward_to_intermediate_point(&self, _end: &Mark, _force: ForceProgress) -> bool {
+        unimplemented!()
+    }
+
+    fn update_strategy_and_fix_watchpoint_quirk(
+        &self,
+        _strategy: &ReplayStepToMarkStrategy,
+        _constraints: &StepConstraints,
+        _result: &ReplayResult,
+        _before: &ProtoMark,
+    ) {
+        unimplemented!()
+    }
+
+    /// Take a single replay step towards |mark|. Stop before or at |mark|, and
+    /// stop if any breakpoint/watchpoint/signal is hit.
+    /// Maintain current strategy state in |strategy|. Passing the same
+    /// |strategy| object to consecutive replay_step_to_mark invocations helps
+    /// optimize performance.
+    fn replay_step_to_mark(
+        &self,
+        _mark: &Mark,
+        _strategy: &ReplayStepToMarkStrategy,
+    ) -> ReplayResult {
+        unimplemented!()
+    }
+
+    fn singlestep_with_breakpoints_disabled(&self) -> ReplayResult {
+        unimplemented!()
+    }
+
+    fn fix_watchpoint_coalescing_quirk(&self, _result: &ReplayResult, _before: &ProtoMark) -> bool {
+        unimplemented!()
+    }
+
+    fn find_singlestep_before(&self, _mark: &Mark) -> Mark {
+        unimplemented!()
+    }
+
+    fn is_start_of_reverse_execution_barrier_event(&self) -> bool {
+        unimplemented!()
+    }
+
+    fn update_observable_break_status(_now: &Mark, _result: &ReplayResult) {
+        unimplemented!()
+    }
+
+    /// Simply called reverse_singlestep() in rr
+    fn reverse_singlestep2(
+        &self,
+        _origin: &Mark,
+        _step_tuid: TaskUid,
+        _step_ticks: Ticks,
+        _stop_filter: &StopFilterFn,
+        _interrupt_check: &InterruptCheckFn,
+    ) -> ReplayResult {
+        unimplemented!()
+    }
+
+    /// Reasonably fast since it just relies on checking the mark map.
+    fn less_than(_m1: &Mark, _m2: &Mark) -> bool {
+        unimplemented!()
+    }
+
+    fn estimate_progress(&self) -> Progress {
+        unimplemented!()
+    }
+
+    /// Called when the current session has moved forward to a new execution
+    /// point and we might want to make a checkpoint to support reverse-execution.
+    /// If this adds a checkpoint, it will call
+    /// discard_past_reverse_exec_checkpoints
+    /// first.
+    fn maybe_add_reverse_exec_checkpoint(&self, _strategy: CheckpointStrategy) {
+        unimplemented!()
+    }
+
+    /// Discard some reverse-exec checkpoints in the past, if necessary. We do
+    /// this to stop the number of checkpoints growing out of control.
+    fn discard_past_reverse_exec_checkpoints(&self, _strategy: CheckpointStrategy) {
+        unimplemented!()
+    }
+
+    /// Discard all reverse-exec checkpoints that are in the future (they're
+    /// useless).
+    fn discard_future_reverse_exec_checkpoints(&self) {
+        unimplemented!()
+    }
+
+    fn set_short_checkpoint(&self) -> Mark {
+        unimplemented!()
+    }
+
+    /// If result.break_status hit watchpoints or breakpoints, evaluate their
+    /// conditions and clear the break_status flags if the conditions don't hold.
+    fn evaluate_conditions(&self, _result: &ReplayResult) {
+        unimplemented!()
     }
 }
 
