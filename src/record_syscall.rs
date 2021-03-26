@@ -271,6 +271,7 @@ use crate::{
             PR_GET_PDEATHSIG,
             PR_GET_SECCOMP,
             PR_GET_SPECULATION_CTRL,
+            PR_GET_THP_DISABLE,
             PR_GET_TIMERSLACK,
             PR_GET_TSC,
             PR_GET_UNALIGN,
@@ -285,6 +286,7 @@ use crate::{
             PR_SET_PTRACER,
             PR_SET_SECCOMP,
             PR_SET_SPECULATION_CTRL,
+            PR_SET_THP_DISABLE,
             PR_SET_TIMERSLACK,
             PR_SET_TSC,
             PR_TSC_ENABLE,
@@ -900,7 +902,9 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
             | PR_CAPBSET_DROP
             | PR_CAPBSET_READ
             | PR_GET_SPECULATION_CTRL
-            | PR_SET_SPECULATION_CTRL => (),
+            | PR_SET_SPECULATION_CTRL
+            | PR_GET_THP_DISABLE
+            | PR_SET_THP_DISABLE => (),
 
             PR_SET_DUMPABLE => {
                 if regs.arg2() == 0 {
