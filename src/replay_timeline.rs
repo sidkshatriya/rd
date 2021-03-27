@@ -1,13 +1,20 @@
 use crate::{
     breakpoint_condition::BreakpointCondition,
     extra_registers::ExtraRegisters,
+    log::LogDebug,
     registers::Registers,
     remote_code_ptr::RemoteCodePtr,
     remote_ptr::{RemotePtr, Void},
     return_address_list::ReturnAddressList,
     session::{
         address_space::WatchType,
-        replay_session::{ReplayResult, ReplaySession, ReplayStepKey, StepConstraints},
+        replay_session::{
+            ReplayResult,
+            ReplaySession,
+            ReplayStatus,
+            ReplayStepKey,
+            StepConstraints,
+        },
         session_inner::RunCommand,
         task::{replay_task::ReplayTask, Task},
         SessionSharedPtr,
@@ -63,7 +70,8 @@ impl ReplayStepToMarkStrategy {
 /// in the same recording. It provides an API for explicitly managing
 /// checkpoints along this timeline and navigating to specific events.
 pub struct ReplayTimeline {
-    current: SessionSharedPtr,
+    weak_self: ReplayTimelineSharedWeakPtr,
+    current: Option<SessionSharedPtr>,
     /// current is known to be at or after this mark
     current_at_or_after_mark: Option<InternalMarkSharedPtr>,
 
@@ -160,7 +168,11 @@ impl ReplayTimeline {
     /// using ReplaySession's APIs. Do not set breakpoints on its tasks directly.
     /// Use ReplayTimeline's breakpoint methods.
     pub fn current_session(&self) -> &ReplaySession {
-        self.current.as_replay().unwrap()
+        self.current.as_ref().unwrap().as_replay().unwrap()
+    }
+
+    pub fn weak_self_ptr(&self) -> ReplayTimelineSharedWeakPtr {
+        self.weak_self.clone()
     }
 
     /// Return a mark for the current state. A checkpoint need not be retained,
@@ -169,8 +181,117 @@ impl ReplayTimeline {
     /// may need to clone the current session and run it a bit, to figure out
     /// where we are relative to other Marks. So don't call this unless you
     /// need it.
-    pub fn mark(&self) -> Mark {
-        unimplemented!()
+    pub fn mark(&mut self) -> Mark {
+        match self.current_mark() {
+            Some(mark) => {
+                return Mark::from_internal_mark(mark);
+            }
+            None => (),
+        }
+
+        let key = self.current_mark_key();
+        let m = Rc::new(RefCell::new(InternalMark::new(
+            self.weak_self_ptr(),
+            self.current_session(),
+            key,
+        )));
+
+        if !self.marks.contains_key(&key) {
+            self.marks.insert(key, Vec::new());
+        }
+
+        let len = self.marks.get(&key).unwrap().len();
+        if len == 0 {
+            self.marks.get_mut(&key).unwrap().push(m.clone());
+        } else if self.current_at_or_after_mark.is_some()
+            && *self.current_at_or_after_mark.as_ref().unwrap().borrow()
+                == *self.marks.get(&key).unwrap()[len - 1].borrow()
+        {
+            self.marks.get_mut(&key).unwrap().push(m.clone());
+        } else {
+            // Now the hard part: figuring out where to put it in the list of existing
+            // marks.
+            self.unapply_breakpoints_and_watchpoints();
+            let tmp_session = self.current_session().clone_replay();
+            let tmp_session_replay: &ReplaySession = tmp_session.as_replay().unwrap();
+
+            // We could set breakpoints at the marks and then continue with an
+            // interrupt set to fire when our tick-count increases. But that requires
+            // new replay functionality (probably a new RunCommand), so for now, do the
+            // simplest thing and just single-step until we find where to put the new
+            // mark(s).
+            log!(
+                LogDebug,
+                "mark() replaying to find mark location for {}",
+                *m.borrow()
+            );
+            let mut new_marks = Vec::<InternalMarkSharedPtr>::new();
+            new_marks.push(m.clone());
+
+            // Allow coalescing of multiple repetitions of a single x86 string
+            // instruction (as long as we don't reach one of our mark_vector states).
+            let mut constraints = StepConstraints::new(RunCommand::RunSinglestepFastForward);
+            for mv in self.marks.get(&key).unwrap().iter() {
+                constraints
+                    .stop_before_states
+                    .push(mv.borrow().proto.regs.clone());
+            }
+
+            let mut mark_index = len;
+            loop {
+                let result = tmp_session_replay.replay_step_with_constraints(&constraints);
+                if Self::session_mark_key(tmp_session_replay) != key
+                    || result.status != ReplayStatus::ReplayContinue
+                {
+                    break;
+                }
+                if !result.break_status.singlestep_complete {
+                    continue;
+                }
+
+                for (i, existing_mark) in self.marks.get_mut(&key).unwrap().iter().enumerate() {
+                    if existing_mark.borrow().equal_states(tmp_session_replay) {
+                        if !result.did_fast_forward && result.break_status.signal.is_none() {
+                            new_marks[new_marks.len() - 1]
+                                .borrow_mut()
+                                .singlestep_to_next_mark_no_signal = true;
+                        }
+                        mark_index = i;
+                        break;
+                    }
+                }
+
+                if mark_index != len {
+                    break;
+                }
+
+                // Some callers singlestep through N instructions, all with the same
+                // MarkKey, requesting a Mark after each step. If there's a Mark at the
+                // end of the N instructions, this could mean N(N+1)/2 singlestep
+                // operations total. To avoid that, add all the intermediate states to
+                // the mark map now, so the first mark() call will perform N singlesteps
+                // and the rest will perform none.
+                if !result.did_fast_forward && result.break_status.signal.is_none() {
+                    new_marks[new_marks.len() - 1]
+                        .borrow_mut()
+                        .singlestep_to_next_mark_no_signal = true;
+                }
+                new_marks.push(Rc::new(RefCell::new(InternalMark::new(
+                    self.weak_self_ptr(),
+                    self.current_session(),
+                    key,
+                ))));
+            }
+
+            // mark_index is the current index of the next mark after 'current'. So
+            // insert our new marks at mark_index.
+            let mark_vector = self.marks.get_mut(&key).unwrap();
+            let end_vec = mark_vector.split_off(mark_index);
+            mark_vector.extend_from_slice(&new_marks);
+            mark_vector.extend_from_slice(&end_vec);
+        }
+        self.current_at_or_after_mark = Some(m.clone());
+        Mark::from_internal_mark(m)
     }
 
     /// Indicates that the current replay position is the result of
@@ -600,8 +721,8 @@ impl Mark {
         self.ptr.borrow().proto.key.trace_time
     }
 
-    fn from_internal_mark(weak: InternalMarkSharedPtr) -> Mark {
-        Mark { ptr: weak }
+    fn from_internal_mark(ptr: InternalMarkSharedPtr) -> Mark {
+        Mark { ptr }
     }
 }
 

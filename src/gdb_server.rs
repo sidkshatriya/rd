@@ -107,7 +107,7 @@ impl Default for Checkpoint {
 
 impl Checkpoint {
     fn new(
-        timeline: &ReplayTimeline,
+        timeline: &mut ReplayTimeline,
         last_continue_tuid: TaskUid,
         e: ExplicitCheckpoint,
         where_: &OsStr,

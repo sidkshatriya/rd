@@ -421,7 +421,9 @@ impl ReplaySession {
     /// to keep a session around inactive, keep the clone and not the original
     /// session. Partially initialized sessions automatically finish
     /// initializing when necessary.
-    pub fn clone_replay(&self) -> ReplaySessionSharedPtr {
+    ///
+    /// DIFF NOTE: Simply called clone() in rr
+    pub fn clone_replay(&self) -> SessionSharedPtr {
         unimplemented!()
     }
 
@@ -606,7 +608,7 @@ impl ReplaySession {
     /// reaches ticks_target (but not too far before, unless we hit a breakpoint
     /// or stop_at_time). Only useful for RUN_CONTINUE.
     /// Always stops on a switch to a new task.
-    pub fn replay_step_with_constraints(&self, constraints: StepConstraints) -> ReplayResult {
+    pub fn replay_step_with_constraints(&self, constraints: &StepConstraints) -> ReplayResult {
         self.finish_initializing();
         let mut result = ReplayResult::new(ReplayStatus::ReplayContinue);
         let mut maybe_rc_t = self.current_task();
@@ -1021,7 +1023,7 @@ impl ReplaySession {
     }
 
     pub fn replay_step(&self, command: RunCommand) -> ReplayResult {
-        self.replay_step_with_constraints(StepConstraints::new(command))
+        self.replay_step_with_constraints(&StepConstraints::new(command))
     }
 
     fn emulate_signal_delivery(&self, t: &mut ReplayTask, sig: Sig) -> Completion {
