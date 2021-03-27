@@ -45,6 +45,8 @@ impl Default for RunDirection {
 }
 
 type InternalMarkSharedPtr = Rc<RefCell<InternalMark>>;
+type ReplayTimelineSharedPtr = Rc<RefCell<ReplayTimeline>>;
+type ReplayTimelineSharedWeakPtr = Weak<RefCell<ReplayTimeline>>;
 
 #[derive(Copy, Clone, Default)]
 struct ReplayStepToMarkStrategy {
@@ -61,7 +63,7 @@ impl ReplayStepToMarkStrategy {
 /// in the same recording. It provides an API for explicitly managing
 /// checkpoints along this timeline and navigating to specific events.
 pub struct ReplayTimeline {
-    maybe_current: Option<SessionSharedPtr>,
+    current: SessionSharedPtr,
     /// current is known to be at or after this mark
     current_at_or_after_mark: Option<InternalMarkSharedPtr>,
 
@@ -90,12 +92,12 @@ pub struct ReplayTimeline {
     /// This should be true because ReplayTask::tick_count() should increment
     /// frequently during execution. In some cases we see hundreds of elements
     /// but that's not too bad.
-    marks: RefCell<BTreeMap<MarkKey, Vec<InternalMarkSharedPtr>>>,
+    marks: BTreeMap<MarkKey, Vec<InternalMarkSharedPtr>>,
 
     /// All mark keys with at least one checkpoint. The value is the number of
     /// checkpoints. There can be multiple checkpoints for a given MarkKey
     /// because a MarkKey may have multiple corresponding Marks.
-    marks_with_checkpoints: RefCell<BTreeMap<MarkKey, u32>>,
+    marks_with_checkpoints: BTreeMap<MarkKey, u32>,
 
     breakpoints: HashSet<(AddressSpaceUid, RemoteCodePtr, Box<dyn BreakpointCondition>)>,
 
@@ -133,7 +135,7 @@ impl Default for ReplayTimeline {
 
 impl Drop for ReplayTimeline {
     fn drop(&mut self) {
-        for (_k, v) in self.marks.borrow().iter() {
+        for (_k, v) in self.marks.iter() {
             for internal_mark in v {
                 internal_mark.borrow_mut().owner = Weak::new();
                 internal_mark.borrow_mut().checkpoint = None;
@@ -146,15 +148,19 @@ type StopFilterFn = dyn Fn(&ReplayTask) -> bool;
 type InterruptCheckFn = dyn Fn(&ReplayTask) -> bool;
 
 impl ReplayTimeline {
+    /// @TODO This method seems redundant.
+    /// There always seems to be something assigned to current
+    /// Event if current is set temporarily to nullptr in rr, after a block
+    /// of code, it is checked to be assigned to something non-null
     pub fn is_running(&self) -> bool {
-        self.maybe_current.is_some()
+        unimplemented!()
     }
 
     /// The current state. The current state can be moved forward or backward
     /// using ReplaySession's APIs. Do not set breakpoints on its tasks directly.
     /// Use ReplayTimeline's breakpoint methods.
-    pub fn maybe_current_session(&self) -> Option<&ReplaySession> {
-        self.maybe_current.as_ref().map(|s| s.as_replay().unwrap())
+    pub fn current_session(&self) -> &ReplaySession {
+        self.current.as_replay().unwrap()
     }
 
     /// Return a mark for the current state. A checkpoint need not be retained,
@@ -377,7 +383,7 @@ impl ReplayTimeline {
     }
 
     fn current_mark_key(&self) -> MarkKey {
-        unimplemented!()
+        Self::session_mark_key(self.current_session())
     }
 
     fn proto_mark(&self) -> ProtoMark {
@@ -389,17 +395,29 @@ impl ReplayTimeline {
     }
 
     /// Returns a shared pointer to the mark if there is one for the current state.
-    fn current_mark(&self) -> InternalMarkSharedPtr {
-        unimplemented!()
+    fn current_mark(&self) -> Option<InternalMarkSharedPtr> {
+        let maybe_it = self.marks.get(&self.current_mark_key());
+        // Avoid creating an entry in 'marks' if it doesn't already exist
+        match maybe_it {
+            Some(v) => {
+                for m in v {
+                    if m.borrow().equal_states(self.current_session()) {
+                        return Some(m.clone());
+                    }
+                }
+                None
+            }
+            None => None,
+        }
     }
 
-    fn remove_mark_with_checkpoint(&self, key: MarkKey) {
-        debug_assert!(self.marks_with_checkpoints.borrow()[&key] > 0);
+    /// Assumes key is already present in self.marks_with_checkpoints
+    fn remove_mark_with_checkpoint(&mut self, key: MarkKey) {
+        debug_assert!(self.marks_with_checkpoints[&key] > 0);
         self.marks_with_checkpoints
-            .borrow_mut()
-            .insert(key, self.marks_with_checkpoints.borrow()[&key] - 1);
-        if self.marks_with_checkpoints.borrow()[&key] == 0 {
-            self.marks_with_checkpoints.borrow_mut().remove(&key);
+            .insert(key, self.marks_with_checkpoints[&key] - 1);
+        if self.marks_with_checkpoints[&key] == 0 {
+            self.marks_with_checkpoints.remove(&key);
         }
     }
 
@@ -541,7 +559,7 @@ impl Ord for Mark {
                 return Ordering::Greater;
             }
             // We now know that self & m2 have the same ptr.proto.key
-            for m in &self.ptr.borrow().owner.upgrade().unwrap().marks.borrow()
+            for m in &self.ptr.borrow().owner.upgrade().unwrap().borrow().marks
                 [&self.ptr.borrow().proto.key]
             {
                 if Rc::eq(m, &m2.ptr) {
@@ -592,7 +610,7 @@ impl Mark {
 /// of two Marks.
 struct InternalMark {
     /// @TODO Is this what we want?
-    owner: Weak<ReplayTimeline>,
+    owner: ReplayTimelineSharedWeakPtr,
     /// Reuse ProtoMark to contain the MarkKey + Registers + ReturnAddressList.
     proto: ProtoMark,
     extra_regs: ExtraRegisters,
@@ -630,7 +648,9 @@ impl Drop for InternalMark {
         match self.owner.upgrade() {
             Some(owner) => match self.checkpoint.as_ref() {
                 Some(_session) => {
-                    owner.remove_mark_with_checkpoint(self.proto.key);
+                    owner
+                        .borrow_mut()
+                        .remove_mark_with_checkpoint(self.proto.key);
                 }
                 None => (),
             },
@@ -640,7 +660,11 @@ impl Drop for InternalMark {
 }
 
 impl InternalMark {
-    fn new(owner: Weak<ReplayTimeline>, session: &ReplaySession, key: MarkKey) -> InternalMark {
+    fn new(
+        owner: ReplayTimelineSharedWeakPtr,
+        session: &ReplaySession,
+        key: MarkKey,
+    ) -> InternalMark {
         let proto;
         let extra_regs;
         match session.current_task() {
