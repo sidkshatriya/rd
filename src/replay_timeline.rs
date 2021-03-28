@@ -300,7 +300,7 @@ impl ReplayTimeline {
 
     /// Returns true if it's safe to add a checkpoint here.
     pub fn can_add_checkpoint(&self) -> bool {
-        unimplemented!()
+        self.current_session().can_clone()
     }
 
     /// Ensure that the current session is explicitly checkpointed.
@@ -806,10 +806,10 @@ impl Ord for Mark {
             for m in &self.ptr.borrow().owner.upgrade().unwrap().borrow().marks
                 [&self.ptr.borrow().proto.key]
             {
-                if Rc::eq(m, &m2.ptr) {
+                if Rc::ptr_eq(m, &m2.ptr) {
                     return Ordering::Greater;
                 }
-                if Rc::eq(m, &self.ptr) {
+                if Rc::ptr_eq(m, &self.ptr) {
                     return Ordering::Less;
                 }
             }
@@ -827,7 +827,7 @@ impl PartialOrd for Mark {
 
 impl PartialEq for Mark {
     fn eq(&self, other: &Self) -> bool {
-        Rc::eq(&self.ptr, &other.ptr)
+        Rc::ptr_eq(&self.ptr, &other.ptr)
     }
 }
 
