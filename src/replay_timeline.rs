@@ -124,11 +124,11 @@ pub struct ReplayTimeline {
     /// Checkpoints used to accelerate reverse execution.
     reverse_exec_checkpoints: BTreeMap<Mark, Progress>,
 
-    /// When these are non-null, then when singlestepping from
-    /// no_break_interval_start to no_break_interval_end, none of the currently
+    /// When these are non-None, then when singlestepping from
+    /// no_watchpoints_interval_start to no_break_interval_end, none of the currently
     /// set watchpoints fire.
-    no_watchpoints_hit_interval_start: Mark,
-    no_watchpoints_hit_interval_end: Mark,
+    no_watchpoints_hit_interval_start: Option<Mark>,
+    no_watchpoints_hit_interval_end: Option<Mark>,
 
     /// A single checkpoint that's very close to the current point, used to
     /// accelerate a sequence of reverse singlestep operations.
@@ -304,13 +304,38 @@ impl ReplayTimeline {
     /// Ensure that the current session is explicitly checkpointed.
     /// Explicit checkpoints are reference counted.
     /// Only call this if can_add_checkpoint would return true.
-    pub fn add_explicit_checkpoint(&self) -> Mark {
-        unimplemented!()
+    pub fn add_explicit_checkpoint(&mut self) -> Mark {
+        debug_assert!(self.current_session().can_clone());
+
+        let m = self.mark();
+        if m.ptr.borrow().checkpoint.is_none() {
+            self.unapply_breakpoints_and_watchpoints();
+            m.ptr.borrow_mut().checkpoint = Some(self.current_session().clone_replay());
+            let key = m.ptr.borrow().proto.key;
+            let val = self.marks_with_checkpoints.get(&key).copied();
+            match val {
+                None => {
+                    self.marks_with_checkpoints.insert(key, 1);
+                }
+                Some(v) => {
+                    self.marks_with_checkpoints.insert(key, v + 1);
+                }
+            };
+        }
+        let cnt = m.ptr.borrow().checkpoint_refcount;
+        m.ptr.borrow_mut().checkpoint_refcount = cnt + 1;
+        m
     }
 
     /// Remove an explicit checkpoint reference count for this mark.
-    pub fn remove_explicit_checkpoint(&self, _mark: &Mark) {
-        unimplemented!()
+    pub fn remove_explicit_checkpoint(&mut self, mark: &Mark) {
+        let cnt = mark.ptr.borrow().checkpoint_refcount;
+        debug_assert!(cnt > 0);
+        mark.ptr.borrow_mut().checkpoint_refcount = cnt - 1;
+        if mark.ptr.borrow().checkpoint_refcount == 0 {
+            mark.ptr.borrow_mut().checkpoint = None;
+            self.remove_mark_with_checkpoint(mark.ptr.borrow().proto.key);
+        }
     }
 
     /// Return true if we're currently at the given mark.
@@ -449,11 +474,24 @@ impl ReplayTimeline {
     /// Try to identify an existing Mark which is known to be one singlestep
     /// before 'from', and for which we know singlestepping to 'from' would
     /// trigger no break statuses other than "singlestep_complete".
-    /// If we can't, return a null Mark.
+    /// If we can't, return a None.
     /// Will only return a Mark for the same executing task as 'from', which
     /// must be 't'.
-    pub fn lazy_reverse_singlestep(&self, _from: &Mark, _t: &ReplayTask) -> Mark {
-        unimplemented!()
+    pub fn lazy_reverse_singlestep(&self, from: &Mark, t: &ReplayTask) -> Option<Mark> {
+        if self.no_watchpoints_hit_interval_start.is_none()
+            || self.no_watchpoints_hit_interval_end.is_none()
+        {
+            return None;
+        }
+        let m = self.find_singlestep_before(from)?;
+        if m >= *self.no_watchpoints_hit_interval_start.as_ref().unwrap()
+            && m < *self.no_watchpoints_hit_interval_end.as_ref().unwrap()
+            && !self.has_breakpoint_at_address(t, from.ptr.borrow().proto.regs.ip())
+        {
+            return Some(m);
+        }
+
+        None
     }
 
     pub fn new(_session: SessionSharedPtr) -> ReplayTimeline {
@@ -530,6 +568,7 @@ impl ReplayTimeline {
 
     /// Assumes key is already present in self.marks_with_checkpoints
     fn remove_mark_with_checkpoint(&mut self, key: MarkKey) {
+        debug_assert!(self.marks_with_checkpoints.get(&key).is_some());
         debug_assert!(self.marks_with_checkpoints[&key] > 0);
         self.marks_with_checkpoints
             .insert(key, self.marks_with_checkpoints[&key] - 1);
