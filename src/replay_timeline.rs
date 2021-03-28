@@ -156,12 +156,8 @@ type StopFilterFn = dyn Fn(&ReplayTask) -> bool;
 type InterruptCheckFn = dyn Fn(&ReplayTask) -> bool;
 
 impl ReplayTimeline {
-    /// @TODO This method seems redundant.
-    /// There always seems to be something assigned to current
-    /// Event if current is set temporarily to nullptr in rr, after a block
-    /// of code, it is checked to be assigned to something non-null
     pub fn is_running(&self) -> bool {
-        unimplemented!()
+        self.current.is_some()
     }
 
     /// The current state. The current state can be moved forward or backward
@@ -584,8 +580,30 @@ impl ReplayTimeline {
         unimplemented!()
     }
 
-    fn find_singlestep_before(&self, _mark: &Mark) -> Mark {
-        unimplemented!()
+    fn find_singlestep_before(&self, mark: &Mark) -> Option<Mark> {
+        let mark_vector = self.marks.get(&mark.ptr.borrow().proto.key)?;
+
+        let mut i: isize = mark_vector.len() as isize - 1;
+        while i >= 0 {
+            if Rc::ptr_eq(&mark_vector[i as usize], &mark.ptr) {
+                break;
+            }
+            i -= 1;
+        }
+        debug_assert!(i >= 0, "Mark not in vector???");
+
+        if i == 0 {
+            return None;
+        }
+        if !mark_vector[i as usize - 1]
+            .borrow()
+            .singlestep_to_next_mark_no_signal
+        {
+            return None;
+        }
+        Some(Mark::from_internal_mark(
+            mark_vector[i as usize - 1].clone(),
+        ))
     }
 
     fn is_start_of_reverse_execution_barrier_event(&self) -> bool {
