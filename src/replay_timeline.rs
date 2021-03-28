@@ -29,6 +29,8 @@ use std::{
     collections::{BTreeMap, HashSet},
     fmt::Display,
     io::Write,
+    mem,
+    ops::Bound::{Excluded, Included, Unbounded},
     rc::{Rc, Weak},
 };
 
@@ -577,8 +579,72 @@ impl ReplayTimeline {
         }
     }
 
-    fn seek_to_before_key(&self, _key: &MarkKey) {
-        unimplemented!()
+    fn seek_to_before_key(&mut self, key: MarkKey) {
+        let mut it = self
+            .marks_with_checkpoints
+            .range((Included(key), Unbounded));
+        // 'it' points to the first value equivalent to or greater than 'key'.
+        let current_key = self.current_mark_key();
+        let lb = it.next().map(|(&k, _)| k);
+        let first = self
+            .marks_with_checkpoints
+            .first_key_value()
+            .map(|(&k, _)| k);
+        // @TODO Check scenario when self.marks_with_checkpoints is empty
+        if lb == first {
+            if current_key < key {
+                // We can use the current session, so do nothing.
+            } else {
+                // nowhere earlier to go, so restart from beginning.
+                let s = Some(ReplaySession::create(
+                    Some(&self.current_session().trace_reader().dir()),
+                    *self.current_session().flags(),
+                ));
+                self.current = s;
+                self.breakpoints_applied = false;
+                self.current_at_or_after_mark = None;
+            }
+        } else {
+            let it = *self
+                .marks_with_checkpoints
+                .range((Unbounded, Excluded(key)))
+                .next_back()
+                .unwrap()
+                .0;
+            // 'it' is now at the last checkpoint before 'key'
+            if it < current_key && current_key < key {
+                // Current state is closer to the destination than any checkpoint we
+                // have, so do nothing.
+            } else {
+                // Return one of the checkpoints at *it.
+                self.current = None;
+                for mark_it in &self.marks[&it] {
+                    if mark_it.borrow().checkpoint.is_some() {
+                        self.current = Some(
+                            mark_it
+                                .borrow()
+                                .checkpoint
+                                .as_ref()
+                                .unwrap()
+                                .as_replay()
+                                .unwrap()
+                                .clone_replay(),
+                        );
+                        // At this point, mark_it.checkpoint is fully initialized but current
+                        // is not. Swap them so that mark_it.checkpoint is not fully
+                        // initialized, to reduce resource usage.
+                        mem::swap(
+                            self.current.as_mut().unwrap(),
+                            mark_it.borrow_mut().checkpoint.as_mut().unwrap(),
+                        );
+                        self.breakpoints_applied = false;
+                        self.current_at_or_after_mark = Some(mark_it.clone());
+                        break;
+                    }
+                }
+                debug_assert!(self.current.is_some());
+            }
+        }
     }
 
     /// Run forward towards the midpoint of the current position and |end|.
