@@ -427,8 +427,50 @@ impl ReplayTimeline {
     /// Reset the current session to the last checkpointed session before (or at)
     /// the mark. Will return at the mark if this mark was explicitly checkpointed
     /// previously (and not deleted).
-    pub fn seek_up_to_mark(&self, _mark: &Mark) {
-        unimplemented!()
+    pub fn seek_up_to_mark(&mut self, mark: &Mark) {
+        if self.current_mark_key() == mark.ptr.borrow().proto.key {
+            let cm = self.mark();
+            if cm <= *mark {
+                // close enough, stay where we are
+                return;
+            }
+        }
+
+        // Check if any of the marks with the same key as 'mark', but not after
+        // 'mark', are usable.
+        let mark_vector = &self.marks[&mark.ptr.borrow().proto.key];
+        let mut at_or_before_mark = false;
+        let mut i = mark_vector.len() as isize - 1;
+        while i >= 0 {
+            let m = &mark_vector[i as usize];
+            if Rc::ptr_eq(&m, &mark.ptr) {
+                at_or_before_mark = true;
+            }
+            if at_or_before_mark && m.borrow().checkpoint.is_some() {
+                self.current = Some(
+                    m.borrow()
+                        .checkpoint
+                        .as_ref()
+                        .unwrap()
+                        .as_replay()
+                        .unwrap()
+                        .clone_replay(),
+                );
+                // At this point, m.checkpoint is fully initialized but current
+                // is not. Swap them so that m.checkpoint is not fully
+                // initialized, to reduce resource usage.
+                mem::swap(
+                    self.current.as_mut().unwrap(),
+                    m.borrow_mut().checkpoint.as_mut().unwrap(),
+                );
+                self.breakpoints_applied = false;
+                self.current_at_or_after_mark = Some(m.clone());
+                return;
+            }
+            i -= 1;
+        }
+
+        self.seek_to_before_key(mark.ptr.borrow().proto.key)
     }
 
     /// Sets current session to 'mark' by restoring the nearest useful checkpoint
@@ -791,8 +833,7 @@ impl Ord for Mark {
     /// See ReplayTimeline::less_than() in rr
     /// @TODO Check this again
     fn cmp(&self, m2: &Self) -> Ordering {
-        // DIFF NOTE: This is a DEBUG_ASSERT in rr
-        assert!(self.ptr.borrow().owner.ptr_eq(&m2.ptr.borrow().owner));
+        debug_assert!(self.ptr.borrow().owner.ptr_eq(&m2.ptr.borrow().owner));
         if self == m2 {
             Ordering::Equal
         } else {
