@@ -63,8 +63,19 @@ struct ReplayStepToMarkStrategy {
 }
 
 impl ReplayStepToMarkStrategy {
-    pub fn setup_step_constraints() -> StepConstraints {
-        unimplemented!()
+    pub fn setup_step_constraints(&mut self) -> StepConstraints {
+        let mut constraints = StepConstraints {
+            command: RunCommand::RunContinue,
+            stop_at_time: Default::default(),
+            ticks_target: Default::default(),
+            stop_before_states: Default::default(),
+        };
+        if self.singlesteps_to_perform > 0 {
+            constraints.command = RunCommand::RunSinglestepFastForward;
+            self.singlesteps_to_perform -= 1;
+        }
+
+        constraints
     }
 }
 
@@ -194,11 +205,7 @@ impl ReplayTimeline {
             key,
         )));
 
-        if !self.marks.contains_key(&key) {
-            self.marks.insert(key, Vec::new());
-        }
-
-        let len = self.marks.get(&key).unwrap().len();
+        let len = self.marks_slice(key).len();
         if len == 0 {
             self.marks.get_mut(&key).unwrap().push(m.clone());
         } else if self.current_at_or_after_mark.is_some()
@@ -428,7 +435,8 @@ impl ReplayTimeline {
     /// the mark. Will return at the mark if this mark was explicitly checkpointed
     /// previously (and not deleted).
     pub fn seek_up_to_mark(&mut self, mark: &Mark) {
-        if self.current_mark_key() == mark.ptr.borrow().proto.key {
+        let key = mark.ptr.borrow().proto.key;
+        if self.current_mark_key() == key {
             let cm = self.mark();
             if cm <= *mark {
                 // close enough, stay where we are
@@ -436,9 +444,12 @@ impl ReplayTimeline {
             }
         }
 
+        if !self.marks.contains_key(&key) {
+            self.marks.insert(key, Vec::new());
+        }
         // Check if any of the marks with the same key as 'mark', but not after
         // 'mark', are usable.
-        let mark_vector = &self.marks[&mark.ptr.borrow().proto.key];
+        let mark_vector = &self.marks[&key];
         let mut at_or_before_mark = false;
         let mut i = mark_vector.len() as isize - 1;
         while i >= 0 {
@@ -621,6 +632,13 @@ impl ReplayTimeline {
         }
     }
 
+    fn marks_slice(&mut self, key: MarkKey) -> &[InternalMarkSharedPtr] {
+        if !self.marks.contains_key(&key) {
+            self.marks.insert(key, Vec::new());
+        }
+        &self.marks[&key]
+    }
+
     fn seek_to_before_key(&mut self, key: MarkKey) {
         let mut it = self
             .marks_with_checkpoints
@@ -660,6 +678,9 @@ impl ReplayTimeline {
             } else {
                 // Return one of the checkpoints at *it.
                 self.current = None;
+                if !self.marks.contains_key(&it) {
+                    self.marks.insert(it, Vec::new());
+                }
                 for mark_it in &self.marks[&it] {
                     if mark_it.borrow().checkpoint.is_some() {
                         self.current = Some(
@@ -774,8 +795,8 @@ impl ReplayTimeline {
     }
 
     /// Reasonably fast since it just relies on checking the mark map.
-    fn less_than(_m1: &Mark, _m2: &Mark) -> bool {
-        unimplemented!()
+    fn less_than(m1: &Mark, m2: &Mark) -> bool {
+        *m1 < *m2
     }
 
     fn estimate_progress(&self) -> Progress {
