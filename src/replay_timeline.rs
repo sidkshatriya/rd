@@ -577,8 +577,8 @@ impl ReplayTimeline {
     /// current_session().
     /// Reset the current session to the last available session before event
     /// 'time'. Useful if you want to run up to that event.
-    pub fn seek_to_before_event(&self, _time: FrameTime) {
-        unimplemented!()
+    pub fn seek_to_before_event(&mut self, time: FrameTime) {
+        self.seek_to_before_key(MarkKey::new(time, 0, ReplayStepKey::new()));
     }
 
     /// Reset the current session to the last checkpointed session before (or at)
@@ -636,8 +636,20 @@ impl ReplayTimeline {
 
     /// Sets current session to 'mark' by restoring the nearest useful checkpoint
     /// and executing forwards if necessary.
-    pub fn seek_to_mark(&self, _mark: &Mark) {
-        unimplemented!()
+    pub fn seek_to_mark(&mut self, mark: &Mark) {
+        self.seek_up_to_mark(mark);
+        // @TODO Check this. Make sure logic is correct.
+        while self
+            .current_mark()
+            .as_ref()
+            .map_or(true, |m| !Rc::ptr_eq(m, &mark.ptr))
+        {
+            self.unapply_breakpoints_and_watchpoints();
+            let strategy: ReplayStepToMarkStrategy = Default::default();
+            self.replay_step_to_mark(mark, &strategy);
+        }
+        self.current_at_or_after_mark = Some(mark.ptr.clone());
+        // XXX handle cases where breakpoints can't yet be applied
     }
 
     /// Replay 'current'.
@@ -747,7 +759,10 @@ impl ReplayTimeline {
     }
 
     fn proto_mark(&self) -> ProtoMark {
-        unimplemented!()
+        match self.current_session().current_task() {
+            Some(rc_t) => ProtoMark::new(self.current_mark_key(), rc_t.borrow_mut().as_mut()),
+            None => ProtoMark::new_from_key(self.current_mark_key()),
+        }
     }
 
     fn seek_to_proto_mark(&self, _pmark: &ProtoMark) {
@@ -884,7 +899,13 @@ impl ReplayTimeline {
     }
 
     fn singlestep_with_breakpoints_disabled(&self) -> ReplayResult {
-        unimplemented!()
+        self.apply_breakpoints_and_watchpoints();
+        self.unapply_breakpoints_internal();
+        let result = self
+            .current_session()
+            .replay_step(RunCommand::RunSinglestep);
+        self.apply_breakpoints_internal();
+        result
     }
 
     fn fix_watchpoint_coalescing_quirk(&self, _result: &ReplayResult, _before: &ProtoMark) -> bool {
@@ -943,7 +964,22 @@ impl ReplayTimeline {
     }
 
     fn estimate_progress(&self) -> Progress {
-        unimplemented!()
+        let stats = self.current_session().statistics();
+        // The following parameters were estimated by running Firefox startup
+        // and shutdown in an opt build on a Lenovo W530 laptop, replaying with
+        // DUMP_STATS_PERIOD set to 100 (twice, and using only values from the
+        // second run, to ensure caches are warm), and then minimizing least-squares
+        // error.
+        const MICROSECONDS_PER_TICK: f64 = 0.0020503143;
+        const MICROSECONDS_PER_SYSCALL: f64 = 39.6793587609;
+        const MICROSECONDS_PER_BYTE_WRITTEN: f64 = 0.001833611;
+        const MICROSECONDS_CONSTANT: f64 = 997.8257239043;
+        let progress = MICROSECONDS_PER_TICK * stats.ticks_processed as f64
+            + MICROSECONDS_PER_SYSCALL * stats.syscalls_performed as f64
+            + MICROSECONDS_PER_BYTE_WRITTEN * stats.bytes_written as f64
+            + MICROSECONDS_CONSTANT;
+
+        progress as u64
     }
 
     /// Called when the current session has moved forward to a new execution
