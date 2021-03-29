@@ -765,8 +765,41 @@ impl ReplayTimeline {
         }
     }
 
-    fn seek_to_proto_mark(&self, _pmark: &ProtoMark) {
-        unimplemented!()
+    fn seek_to_proto_mark(&mut self, pmark: &ProtoMark) {
+        self.seek_to_before_key(pmark.key);
+        self.unapply_breakpoints_and_watchpoints();
+        while !pmark.equal_states(self.current_session()) {
+            if self.current_session().trace_reader().time() < pmark.key.trace_time {
+                let mut constraints = StepConstraints::new(RunCommand::RunContinue);
+                constraints.stop_at_time = pmark.key.trace_time;
+                self.current_session()
+                    .replay_step_with_constraints(&constraints);
+            } else {
+                let t = self.current_session().current_task().unwrap();
+                let mark_addr: RemoteCodePtr = pmark.regs.ip();
+                if t.borrow().regs_ref().ip() == mark_addr
+                    && self.current_session().current_step_key().in_execution()
+                {
+                    // At required IP, but not in the correct state. Singlestep over
+                    // this IP.
+                    let mut constraints =
+                        StepConstraints::new(RunCommand::RunSinglestepFastForward);
+                    constraints.stop_before_states.push(pmark.regs.clone());
+                    self.current_session()
+                        .replay_step_with_constraints(&constraints);
+                } else {
+                    // Get a shared reference to t.vm() in case t dies during replay_step
+                    let vm = t.borrow().vm_shr_ptr();
+                    vm.add_breakpoint(t.borrow_mut().as_mut(), mark_addr, BreakpointType::BkptUser);
+                    self.current_session().replay_step(RunCommand::RunContinue);
+                    vm.remove_breakpoint(
+                        mark_addr,
+                        BreakpointType::BkptUser,
+                        t.borrow_mut().as_mut(),
+                    );
+                }
+            }
+        }
     }
 
     /// Returns a shared pointer to the mark if there is one for the current state.
