@@ -50,7 +50,7 @@ pub enum BreakpointType {
 
 /// NB: these random-looking enumeration values are chosen to
 /// match the numbers programmed into x86 debug registers.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 #[repr(usize)]
 pub enum WatchType {
     WatchExec = 0x00,

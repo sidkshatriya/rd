@@ -26,7 +26,7 @@ use crate::{
 use std::{
     cell::{Ref, RefCell},
     cmp::Ordering,
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeMap,
     fmt::Display,
     io::{stderr, Write},
     mem,
@@ -34,58 +34,18 @@ use std::{
     rc::{Rc, Weak},
 };
 
+#[derive(Ord, Eq, PartialEq, PartialOrd, Clone)]
 struct TimelineBreakpoint {
     uid: AddressSpaceUid,
     addr: RemoteCodePtr,
-    condition: Option<Box<dyn BreakpointCondition>>,
 }
 
-impl PartialOrd for TimelineBreakpoint {
-    fn partial_cmp(&self, _other: &Self) -> Option<Ordering> {
-        unimplemented!()
-    }
-}
-
-impl Eq for TimelineBreakpoint {}
-
-impl PartialEq for TimelineBreakpoint {
-    fn eq(&self, _other: &Self) -> bool {
-        unimplemented!()
-    }
-}
-
-impl Ord for TimelineBreakpoint {
-    fn cmp(&self, _other: &Self) -> Ordering {
-        unimplemented!()
-    }
-}
-
+#[derive(Ord, Eq, PartialEq, PartialOrd, Clone)]
 struct TimelineWatchpoint {
     uid: AddressSpaceUid,
     addr: RemotePtr<Void>,
     size: usize,
     watch_type: WatchType,
-    condition: Box<dyn BreakpointCondition>,
-}
-
-impl PartialOrd for TimelineWatchpoint {
-    fn partial_cmp(&self, _other: &Self) -> Option<Ordering> {
-        unimplemented!()
-    }
-}
-
-impl Eq for TimelineWatchpoint {}
-
-impl PartialEq for TimelineWatchpoint {
-    fn eq(&self, _other: &Self) -> bool {
-        unimplemented!()
-    }
-}
-
-impl Ord for TimelineWatchpoint {
-    fn cmp(&self, _other: &Self) -> Ordering {
-        unimplemented!()
-    }
 }
 
 #[derive(Copy, Clone)]
@@ -174,11 +134,11 @@ pub struct ReplayTimeline {
     /// because a MarkKey may have multiple corresponding Marks.
     marks_with_checkpoints: BTreeMap<MarkKey, u32>,
 
-    /// DIFF NOTE: rr uses a tuple. We use a struct
-    breakpoints: BTreeSet<TimelineBreakpoint>,
+    /// DIFF NOTE: rr uses a tuple in a set. We use a struct & Option in a map.
+    breakpoints: BTreeMap<TimelineBreakpoint, Option<Box<dyn BreakpointCondition>>>,
 
-    /// DIFF NOTE: rr use a tuple. We use a struct
-    watchpoints: BTreeSet<TimelineWatchpoint>,
+    /// DIFF NOTE: rr uses a tuple in a set. We use a struct & Option in a map.
+    watchpoints: BTreeMap<TimelineWatchpoint, Option<Box<dyn BreakpointCondition>>>,
 
     breakpoints_applied: bool,
 
@@ -495,60 +455,115 @@ impl ReplayTimeline {
         {
             return false;
         }
-        self.breakpoints.insert(TimelineBreakpoint {
-            uid: t.vm().uid(),
-            addr,
+        self.breakpoints.insert(
+            TimelineBreakpoint {
+                uid: t.vm().uid(),
+                addr,
+            },
             condition,
-        });
+        );
 
         true
     }
 
     /// You can't remove a breakpoint with a specific condition, so don't
     /// place multiple breakpoints with conditions on the same location.
-    pub fn remove_breakpoint(&self, _t: &ReplayTask, _addr: RemoteCodePtr) {
-        unimplemented!()
+    pub fn remove_breakpoint(&mut self, t: &mut ReplayTask, addr: RemoteCodePtr) {
+        if self.breakpoints_applied {
+            t.vm_shr_ptr()
+                .remove_breakpoint(addr, BreakpointType::BkptUser, t);
+        }
+        ed_assert!(t, self.has_breakpoint_at_address(t, addr));
+        let tb = TimelineBreakpoint {
+            uid: t.vm().uid(),
+            addr,
+        };
+        assert!(self.breakpoints.remove(&tb).is_some());
     }
 
     pub fn add_watchpoint(
-        &self,
-        _t: &ReplayTask,
-        _addr: RemotePtr<Void>,
-        _num_bytes: usize,
-        _type_: WatchType,
-        _condition: Option<Box<dyn BreakpointCondition>>,
+        &mut self,
+        t: &mut ReplayTask,
+        addr: RemotePtr<Void>,
+        num_bytes: usize,
+        type_: WatchType,
+        condition: Option<Box<dyn BreakpointCondition>>,
     ) -> bool {
-        unimplemented!()
+        if self.has_watchpoint_at_address(t, addr, num_bytes, type_) {
+            self.remove_watchpoint(t, addr, num_bytes, type_);
+        }
+        // Apply breakpoints now; we need to actually try adding this breakpoint
+        // to see if it works.
+        self.apply_breakpoints_and_watchpoints();
+        if !t.vm_shr_ptr().add_watchpoint(addr, num_bytes, type_, t) {
+            return false;
+        }
+        self.watchpoints.insert(
+            TimelineWatchpoint {
+                uid: t.vm().uid(),
+                addr,
+                size: num_bytes,
+                watch_type: type_,
+            },
+            condition,
+        );
+        self.no_watchpoints_hit_interval_start = None;
+        self.no_watchpoints_hit_interval_end = None;
+        true
     }
 
     /// You can't remove a watchpoint with a specific condition, so don't
     /// place multiple breakpoints with conditions on the same location.
     pub fn remove_watchpoint(
-        &self,
-        _t: &ReplayTask,
-        _addr: RemotePtr<Void>,
-        _num_bytes: usize,
-        _type_: WatchType,
-    ) -> bool {
-        unimplemented!()
+        &mut self,
+        t: &mut ReplayTask,
+        addr: RemotePtr<Void>,
+        num_bytes: usize,
+        type_: WatchType,
+    ) {
+        if self.breakpoints_applied {
+            t.vm_shr_ptr().remove_watchpoint(addr, num_bytes, type_, t);
+        }
+        ed_assert!(t, self.has_watchpoint_at_address(t, addr, num_bytes, type_));
+        let wt = TimelineWatchpoint {
+            uid: t.vm().uid(),
+            addr,
+            size: num_bytes,
+            watch_type: type_,
+        };
+        assert!(self.watchpoints.remove(&wt).is_some());
     }
 
-    pub fn remove_breakpoints_and_watchpoints(&self) -> bool {
-        unimplemented!()
+    pub fn remove_breakpoints_and_watchpoints(&mut self) {
+        self.unapply_breakpoints_and_watchpoints();
+        self.breakpoints.clear();
+        self.watchpoints.clear();
     }
 
-    pub fn has_breakpoint_at_address(&self, _t: &ReplayTask, _addr: RemoteCodePtr) -> bool {
-        unimplemented!()
+    pub fn has_breakpoint_at_address(&self, t: &ReplayTask, addr: RemoteCodePtr) -> bool {
+        let tb = TimelineBreakpoint {
+            uid: t.vm().uid(),
+            addr,
+        };
+
+        self.breakpoints.contains_key(&tb)
     }
 
     pub fn has_watchpoint_at_address(
         &self,
-        _t: &ReplayTask,
-        _addr: RemotePtr<Void>,
-        _num_bytes: usize,
-        _type_: WatchType,
+        t: &ReplayTask,
+        addr: RemotePtr<Void>,
+        num_bytes: usize,
+        type_: WatchType,
     ) -> bool {
-        unimplemented!()
+        let tb = TimelineWatchpoint {
+            uid: t.vm().uid(),
+            addr,
+            size: num_bytes,
+            watch_type: type_,
+        };
+
+        self.watchpoints.contains_key(&tb)
     }
 
     /// Ensure that reverse execution never proceeds into an event before
