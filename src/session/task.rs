@@ -226,7 +226,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
     fn at_preload_init(&mut self);
 
     /// Dump attributes of this process, including pending events,
-    /// to `out`, which defaults to LOG_FILE.
+    /// to `out`, which defaults to stderr.
     fn dump(&self, maybe_out: Option<&mut dyn Write>) {
         let err = &mut stderr();
         let out = maybe_out.unwrap_or(err);

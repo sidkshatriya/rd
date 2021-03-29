@@ -1,7 +1,7 @@
 use crate::{
     breakpoint_condition::BreakpointCondition,
     extra_registers::ExtraRegisters,
-    log::LogDebug,
+    log::{LogDebug, LogError},
     registers::Registers,
     remote_code_ptr::RemoteCodePtr,
     remote_ptr::{RemotePtr, Void},
@@ -28,7 +28,7 @@ use std::{
     cmp::Ordering,
     collections::{BTreeMap, BTreeSet},
     fmt::Display,
-    io::Write,
+    io::{stderr, Write},
     mem,
     ops::Bound::{Excluded, Included, Unbounded},
     rc::{Rc, Weak},
@@ -255,12 +255,17 @@ impl ReplayTimeline {
             key,
         )));
 
-        let len = self.marks_slice(key).len();
+        if !self.marks.contains_key(&key) {
+            self.marks.insert(key, Vec::new());
+        }
+        let len = self.marks[&key].len();
         if len == 0 {
             self.marks.get_mut(&key).unwrap().push(m.clone());
         } else if self.current_at_or_after_mark.is_some()
-            && *self.current_at_or_after_mark.as_ref().unwrap().borrow()
-                == *self.marks.get(&key).unwrap()[len - 1].borrow()
+            && Rc::ptr_eq(
+                &self.current_at_or_after_mark.as_ref().unwrap(),
+                &self.marks[&key][len - 1],
+            )
         {
             self.marks.get_mut(&key).unwrap().push(m.clone());
         } else {
@@ -351,8 +356,68 @@ impl ReplayTimeline {
 
     /// Indicates that the current replay position is the result of
     /// singlestepping from 'from'.
-    pub fn mark_after_singlestep(&self, _from: &Mark, _result: &ReplayResult) {
-        unimplemented!()
+    pub fn mark_after_singlestep(&mut self, from: &Mark, result: &mut ReplayResult) {
+        debug_assert!(result.break_status.singlestep_complete);
+        let m = self.mark();
+        let m_key = m.ptr.borrow().proto.key;
+        if !result.did_fast_forward
+            && m_key == from.ptr.borrow().proto.key
+            && result.break_status.signal.is_none()
+        {
+            if !self.marks.contains_key(&m_key) {
+                self.marks.insert(m_key, Vec::new());
+            }
+            let mark_vector = &self.marks[&m_key];
+            for i in 0..mark_vector.len() {
+                if Rc::ptr_eq(&mark_vector[i], &from.ptr) {
+                    if i + 1 >= mark_vector.len() || mark_vector[i + 1] != m.ptr {
+                        let mut m_prev: isize = -1;
+                        for j in 0..mark_vector.len() {
+                            log!(
+                                LogDebug,
+                                "  mark_vector[{}] = {}",
+                                j,
+                                *mark_vector[j].borrow()
+                            );
+                            if j > 0 && Rc::ptr_eq(&mark_vector[j], &m.ptr) {
+                                m_prev = j as isize - 1;
+                            }
+                        }
+                        if m_prev >= 0 {
+                            log!(
+                                LogError,
+                                "Probable previous-to-duplicated-state at {}:",
+                                m_prev,
+                            );
+                            mark_vector[m_prev as usize]
+                                .borrow()
+                                .full_write(&mut stderr());
+                            log!(LogError, "Probable previous-to-duplicated-state at {}:", i);
+                            from.ptr.borrow().full_write(&mut stderr());
+                            log!(LogError, "Probable duplicated state at {}:", m_prev + 1);
+                            m.ptr.borrow().full_write(&mut stderr());
+                        }
+
+                        let t = result
+                            .break_status
+                            .task
+                            .as_ref()
+                            .unwrap()
+                            .upgrade()
+                            .unwrap();
+                        ed_assert!(
+                            &t.borrow(),
+                            false,
+                            " Probable duplicated states leading to {} at index {}",
+                            m,
+                            i + 1
+                        )
+                    }
+                    break;
+                }
+            }
+            from.ptr.borrow_mut().singlestep_to_next_mark_no_signal = true;
+        }
     }
 
     /// Returns true if it's safe to add a checkpoint here.
@@ -702,13 +767,6 @@ impl ReplayTimeline {
         }
     }
 
-    fn marks_slice(&mut self, key: MarkKey) -> &[InternalMarkSharedPtr] {
-        if !self.marks.contains_key(&key) {
-            self.marks.insert(key, Vec::new());
-        }
-        &self.marks[&key]
-    }
-
     fn seek_to_before_key(&mut self, key: MarkKey) {
         let mut it = self
             .marks_with_checkpoints
@@ -925,19 +983,23 @@ impl Ord for Mark {
     /// @TODO Check this again
     fn cmp(&self, m2: &Self) -> Ordering {
         debug_assert!(self.ptr.borrow().owner.ptr_eq(&m2.ptr.borrow().owner));
-        if self == m2 {
+        if Rc::ptr_eq(&self.ptr, &m2.ptr) {
             Ordering::Equal
         } else {
-            if self.ptr.borrow().proto.key < m2.ptr.borrow().proto.key {
+            let self_key = self.ptr.borrow().proto.key;
+            let m2_key = m2.ptr.borrow().proto.key;
+            if self_key < m2_key {
                 return Ordering::Less;
             }
-            if m2.ptr.borrow().proto.key < self.ptr.borrow().proto.key {
+            if m2_key < self_key {
                 return Ordering::Greater;
             }
-            // We now know that self & m2 have the same ptr.proto.key
-            for m in &self.ptr.borrow().owner.upgrade().unwrap().borrow().marks
-                [&self.ptr.borrow().proto.key]
-            {
+            // We now know that self & m2 have the same ptr.proto.key and same owner
+            let owner = self.ptr.borrow().owner.upgrade().unwrap();
+            if !owner.borrow().marks.contains_key(&self_key) {
+                owner.borrow_mut().marks.insert(self_key, Vec::new());
+            }
+            for m in &owner.borrow().marks[&self_key] {
                 if Rc::ptr_eq(m, &m2.ptr) {
                     return Ordering::Greater;
                 }

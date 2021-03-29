@@ -104,8 +104,6 @@ use std::{
     convert::TryInto,
     ffi::{OsStr, OsString},
     intrinsics::copy_nonoverlapping,
-    io,
-    io::Write,
     mem::size_of,
     ops::{Deref, DerefMut},
     rc::Rc,
@@ -2193,9 +2191,11 @@ fn check_xsave_compatibility(trace_in: &TraceReader) {
             // to XSAVE instructions executed on our CPU, or examines XCR0 directly,
             // This will cause divergence. The dynamic linker examines XCR0 so this
             // is nearly guaranteed.
-            write!(io::stderr(), "Trace XCR0 value {:#x} != our XCR0 value {:#x};\n\
-                            Replay will probably fail because glibc dynamic loader examines XCR0\n\n",
-                            tracee_xcr0, our_xcr0).unwrap();
+            eprintln!(
+                "Trace XCR0 value {:#x} != our XCR0 value {:#x};\n\
+                 Replay will probably fail because glibc dynamic loader examines XCR0\n\n",
+                tracee_xcr0, our_xcr0
+            );
         }
     }
 
