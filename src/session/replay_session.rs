@@ -618,14 +618,14 @@ impl ReplaySession {
             return result;
         }
         // If we restored from a checkpoint, the steps might have been
-        // computed already in which case step.action will not be TSTEP_NONE.
+        // computed already in which case step.action will not be TstepNone.
         if self.current_step.get().action == ReplayTraceStepType::TstepNone {
             let rc_t = self.setup_replay_one_trace_frame(maybe_rc_t);
             if self.current_step.get().action == ReplayTraceStepType::TstepNone {
                 // Already at the destination event.
                 self.advance_to_next_trace_frame();
             }
-            if self.current_step.get().action == ReplayTraceStepType::TstepNone {
+            if self.current_step.get().action == ReplayTraceStepType::TstepExitTask {
                 result.break_status.task = Some(rc_t.borrow().weak_self.clone());
                 result.break_status.task_exit = true;
             }
