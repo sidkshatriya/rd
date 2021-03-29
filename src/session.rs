@@ -248,7 +248,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
 
     /// Return the AddressSpace whose unique ID is `vmuid`, or None if no such
     /// address space exists.
-    fn find_address_space(&mut self, vmuid: AddressSpaceUid) -> Option<AddressSpaceSharedPtr> {
+    fn find_address_space(&self, vmuid: AddressSpaceUid) -> Option<AddressSpaceSharedPtr> {
         self.finish_initializing();
         // If the weak ptr was found, we _must_ be able to upgrade it!;
         self.vm_map().get(&vmuid).map(|a| a.upgrade().unwrap())

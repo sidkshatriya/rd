@@ -17,6 +17,7 @@ use crate::{
         },
         session_inner::RunCommand,
         task::{replay_task::ReplayTask, Task},
+        Session,
         SessionSharedPtr,
     },
     taskish_uid::{AddressSpaceUid, TaskUid},
@@ -721,24 +722,101 @@ impl ReplayTimeline {
     /// apply_breakpoints_and_watchpoints() forces the breakpoints/watchpoints
     /// to be applied to the current session.
     /// Our checkpoints never have breakpoints applied.
-    pub fn apply_breakpoints_and_watchpoints(&self) {
-        unimplemented!()
+    pub fn apply_breakpoints_and_watchpoints(&mut self) {
+        if self.breakpoints_applied {
+            return;
+        }
+        let t = self.current_session().current_task().unwrap();
+        self.breakpoints_applied = true;
+        self.apply_breakpoints_internal();
+        for wp in self.watchpoints.keys() {
+            let maybe_vm = self.current_session().find_address_space(wp.uid);
+            // XXX handle cases where we can't apply a watchpoint right now. Later
+            // during replay the address space might be created (or new mappings might
+            // be created) and we should reapply watchpoints then.
+            // XXX we could make this more efficient by providing a method to set
+            // several watchpoints at once on a given AddressSpace.
+            match maybe_vm {
+                Some(vm) if wp.watch_type != WatchType::WatchExec => {
+                    vm.add_watchpoint(wp.addr, wp.size, wp.watch_type, t.borrow_mut().as_mut());
+                }
+                _ => (),
+            }
+        }
     }
 
     /// unapply_breakpoints_and_watchpoints() forces the breakpoints/watchpoints
     /// to not be applied to the current session. Use this when we need to
     /// clone the current session or replay the current session without
     /// triggering breakpoints.
-    fn unapply_breakpoints_and_watchpoints(&self) {
-        unimplemented!()
+    fn unapply_breakpoints_and_watchpoints(&mut self) {
+        if !self.breakpoints_applied {
+            return;
+        }
+        self.breakpoints_applied = false;
+        self.unapply_breakpoints_internal();
+        let t = self.current_session().current_task().unwrap();
+        for wp in self.watchpoints.keys() {
+            let maybe_vm = self.current_session().find_address_space(wp.uid);
+            match maybe_vm {
+                Some(vm) if wp.watch_type != WatchType::WatchExec => {
+                    vm.remove_watchpoint(wp.addr, wp.size, wp.watch_type, t.borrow_mut().as_mut());
+                }
+                _ => (),
+            }
+        }
     }
 
     fn apply_breakpoints_internal(&self) {
-        unimplemented!()
+        let t = self.current_session().current_task().unwrap();
+        for bp in self.breakpoints.keys() {
+            let maybe_vm = self.current_session().find_address_space(bp.uid);
+            // XXX handle cases where we can't apply a breakpoint right now. Later
+            // during replay the address space might be created (or new mappings might
+            // be created) and we should reapply breakpoints then.
+            match maybe_vm {
+                Some(vm) => {
+                    vm.add_breakpoint(t.borrow_mut().as_mut(), bp.addr, BreakpointType::BkptUser);
+                }
+                _ => (),
+            }
+        }
+        for wp in self.watchpoints.keys() {
+            let maybe_vm = self.current_session().find_address_space(wp.uid);
+            match maybe_vm {
+                Some(vm) if wp.watch_type == WatchType::WatchExec => {
+                    vm.add_watchpoint(wp.addr, wp.size, wp.watch_type, t.borrow_mut().as_mut());
+                }
+                _ => (),
+            }
+        }
     }
 
     fn unapply_breakpoints_internal(&self) {
-        unimplemented!()
+        let t = self.current_session().current_task().unwrap();
+        for bp in self.breakpoints.keys() {
+            let maybe_vm = self.current_session().find_address_space(bp.uid);
+            match maybe_vm {
+                Some(vm) => {
+                    vm.remove_breakpoint(bp.addr, BreakpointType::BkptUser, t.borrow_mut().as_mut())
+                }
+                None => (),
+            }
+            for wp in self.watchpoints.keys() {
+                let maybe_vm = self.current_session().find_address_space(wp.uid);
+                match maybe_vm {
+                    Some(vm) if wp.watch_type == WatchType::WatchExec => {
+                        vm.remove_watchpoint(
+                            wp.addr,
+                            wp.size,
+                            wp.watch_type,
+                            t.borrow_mut().as_mut(),
+                        );
+                    }
+                    _ => (),
+                }
+            }
+        }
     }
 
     fn session_mark_key(session: &ReplaySession) -> MarkKey {
@@ -931,7 +1009,7 @@ impl ReplayTimeline {
         unimplemented!()
     }
 
-    fn singlestep_with_breakpoints_disabled(&self) -> ReplayResult {
+    fn singlestep_with_breakpoints_disabled(&mut self) -> ReplayResult {
         self.apply_breakpoints_and_watchpoints();
         self.unapply_breakpoints_internal();
         let result = self
