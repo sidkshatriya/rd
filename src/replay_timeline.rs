@@ -25,6 +25,7 @@ use crate::{
     ticks::Ticks,
     trace::trace_frame::FrameTime,
 };
+use nix::sys::mman::ProtFlags;
 use std::{
     cell::{Ref, RefCell},
     cmp::Ordering,
@@ -542,7 +543,7 @@ impl ReplayTimeline {
         self.watchpoints.clear();
     }
 
-    pub fn has_breakpoint_at_address(&self, t: &ReplayTask, addr: RemoteCodePtr) -> bool {
+    pub fn has_breakpoint_at_address(&self, t: &dyn Task, addr: RemoteCodePtr) -> bool {
         let tb = TimelineBreakpoint {
             uid: t.vm().uid(),
             addr,
@@ -647,8 +648,8 @@ impl ReplayTimeline {
             .map_or(true, |m| !Rc::ptr_eq(m, &mark.ptr))
         {
             self.unapply_breakpoints_and_watchpoints();
-            let strategy: ReplayStepToMarkStrategy = Default::default();
-            self.replay_step_to_mark(mark, &strategy);
+            let mut strategy: ReplayStepToMarkStrategy = Default::default();
+            self.replay_step_to_mark(mark, &mut strategy);
         }
         self.current_at_or_after_mark = Some(mark.ptr.clone());
         // XXX handle cases where breakpoints can't yet be applied
@@ -1021,13 +1022,24 @@ impl ReplayTimeline {
     }
 
     fn update_strategy_and_fix_watchpoint_quirk(
-        &self,
-        _strategy: &ReplayStepToMarkStrategy,
-        _constraints: &StepConstraints,
-        _result: &ReplayResult,
-        _before: &ProtoMark,
+        &mut self,
+        strategy: &mut ReplayStepToMarkStrategy,
+        constraints: &StepConstraints,
+        result: &mut ReplayResult,
+        before: &ProtoMark,
     ) {
-        unimplemented!()
+        if constraints.command == RunCommand::RunContinue
+            && self.fix_watchpoint_coalescing_quirk(result, before)
+        {
+            // It's quite common for x86 string instructions to trigger the same
+            // watchpoint several times in consecutive instructions, e.g. if we're
+            // doing a "rep movsb" over an 8-byte watchpoint. 8 invocations of
+            // fix_watchpoint_coalescing_quirk could require 8 replays from some
+            // previous checkpoint. To avoid that, after
+            // fix_watchpoint_coalescing_quirk has fired once, singlestep the
+            // next 7 times.
+            strategy.singlesteps_to_perform = 7;
+        }
     }
 
     /// Take a single replay step towards |mark|. Stop before or at |mark|, and
@@ -1036,11 +1048,146 @@ impl ReplayTimeline {
     /// |strategy| object to consecutive replay_step_to_mark invocations helps
     /// optimize performance.
     fn replay_step_to_mark(
-        &self,
-        _mark: &Mark,
-        _strategy: &ReplayStepToMarkStrategy,
+        &mut self,
+        mark: &Mark,
+        strategy: &mut ReplayStepToMarkStrategy,
     ) -> ReplayResult {
-        unimplemented!()
+        let t = self.current_session().current_task().unwrap();
+        let before: ProtoMark = self.proto_mark();
+        ed_assert!(
+            &t.borrow(),
+            before.key <= mark.ptr.borrow().proto.key,
+            "Current mark {} is already after target {}",
+            before,
+            mark
+        );
+        let mut result: ReplayResult;
+        if self.current_session().trace_reader().time() < mark.ptr.borrow().proto.key.trace_time {
+            // Easy case: each RunCommand::RunContinue can only advance by at most one
+            // trace event, so do one. But do a singlestep if our strategy suggests
+            // we should.
+            let mut constraints: StepConstraints = strategy.setup_step_constraints();
+            constraints.stop_at_time = mark.ptr.borrow().proto.key.trace_time;
+            result = self
+                .current_session()
+                .replay_step_with_constraints(&constraints);
+            self.update_strategy_and_fix_watchpoint_quirk(
+                strategy,
+                &constraints,
+                &mut result,
+                &before,
+            );
+            return result;
+        }
+
+        ed_assert_eq!(
+            &t.borrow(),
+            self.current_session().trace_reader().time(),
+            mark.ptr.borrow().proto.key.trace_time
+        );
+        // t must remain valid through here since t can only die when we complete
+        // an event, and we're not going to complete another event before
+        // reaching the mark ... apart from where we call
+        // fix_watchpoint_coalescing_quirk.
+
+        if t.borrow().tick_count() < mark.ptr.borrow().proto.key.ticks {
+            // Try to make progress by just continuing with a ticks constraint
+            // set to stop us before the mark. This is efficient in the worst case,
+            // when we must execute lots of instructions to reach the mark.
+            let mut constraints: StepConstraints = strategy.setup_step_constraints();
+            constraints.ticks_target = mark.ptr.borrow().proto.key.ticks - 1;
+            if constraints.ticks_target > 0 {
+                result = self
+                    .current_session()
+                    .replay_step_with_constraints(&constraints);
+                let approaching_ticks_target: bool = result.break_status.approaching_ticks_target;
+                result.break_status.approaching_ticks_target = false;
+                // We can't be at the mark yet.
+                ed_assert!(
+                    &t.borrow(),
+                    t.borrow().tick_count() < mark.ptr.borrow().proto.key.ticks
+                );
+                // If there's a break indicated, we should return that to the
+                // caller without doing any more work
+                if !approaching_ticks_target || result.break_status.any_break() {
+                    self.update_strategy_and_fix_watchpoint_quirk(
+                        strategy,
+                        &constraints,
+                        &mut result,
+                        &before,
+                    );
+                    return result;
+                }
+            }
+            // We may not have made any progress so we'll need to try another strategy
+        }
+
+        let mark_addr_code: RemoteCodePtr = mark.ptr.borrow().proto.regs.ip();
+        let mark_addr: RemotePtr<Void> = mark_addr_code.to_data_ptr();
+
+        // Try adding a breakpoint at the required IP and running to it.
+        // We can't do this if we're currently at the IP, since we'd make no progress.
+        // However, we need to be careful, since there are two related situations when
+        // the instruction at the mark ip is never actually executed. The first
+        // happens if the IP is invalid entirely, the second if it is valid, but
+        // not executable. In either case we need to fall back to the (slower, but
+        // more generic) code below.
+        if t.borrow().regs_ref().ip() != mark_addr_code
+            && (t
+                .borrow()
+                .vm()
+                .mapping_of(mark_addr)
+                .map_or(false, |m| m.map.prot().contains(ProtFlags::PROT_EXEC)))
+        {
+            let succeeded: bool = t.borrow().vm_shr_ptr().add_breakpoint(
+                t.borrow_mut().as_mut(),
+                mark_addr_code,
+                BreakpointType::BkptUser,
+            );
+            ed_assert!(&t.borrow(), succeeded);
+            let constraints: StepConstraints = strategy.setup_step_constraints();
+            result = self
+                .current_session()
+                .replay_step_with_constraints(&constraints);
+            t.borrow().vm_shr_ptr().remove_breakpoint(
+                mark_addr_code,
+                BreakpointType::BkptUser,
+                t.borrow_mut().as_mut(),
+            );
+            // If we hit our breakpoint and there is no client breakpoint there,
+            // pretend we didn't hit it.
+            if result.break_status.breakpoint_hit
+                && !self.has_breakpoint_at_address(t.borrow().as_ref(), t.borrow().ip())
+            {
+                result.break_status.breakpoint_hit = false;
+            }
+            self.update_strategy_and_fix_watchpoint_quirk(
+                strategy,
+                &constraints,
+                &mut result,
+                &before,
+            );
+            return result;
+        }
+
+        // At required IP, but not in the correct state. Singlestep over this IP.
+        // We need the FAST_FORWARD option in case the mark state occurs after
+        // many iterations of a string instruction at this address.
+        let mut constraints = StepConstraints::new(RunCommand::RunSinglestepFastForward);
+        // We don't want to fast-forward past the mark state, so give the mark
+        // state as a state we should stop before. FAST_FORWARD always does at
+        // least one singlestep so one call to replay_step_to_mark will fast-forward
+        // to the state before the mark and return, then the next call to
+        // replay_step_to_mark will singlestep into the mark state.
+        constraints
+            .stop_before_states
+            .push(mark.ptr.borrow().proto.regs.clone());
+        result = self
+            .current_session()
+            .replay_step_with_constraints(&constraints);
+        // Hide internal singlestep but preserve other break statuses
+        result.break_status.singlestep_complete = false;
+        result
     }
 
     fn singlestep_with_breakpoints_disabled(&mut self) -> ReplayResult {
