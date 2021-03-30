@@ -51,7 +51,7 @@ struct TimelineWatchpoint {
     watch_type: WatchType,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 enum ForceProgress {
     ForceProgress,
     DontForceProgress,
@@ -1017,8 +1017,141 @@ impl ReplayTimeline {
     /// Run forward towards the midpoint of the current position and |end|.
     /// Must stop before we reach |end|.
     /// Returns false if we made no progress.
-    fn run_forward_to_intermediate_point(&self, _end: &Mark, _force: ForceProgress) -> bool {
-        unimplemented!()
+    fn run_forward_to_intermediate_point(&mut self, end: &Mark, force: ForceProgress) -> bool {
+        self.unapply_breakpoints_and_watchpoints();
+
+        log!(
+            LogDebug,
+            "Trying to find intermediate point between {} and {} {}",
+            self.current_mark_key(),
+            end,
+            if force == ForceProgress::ForceProgress {
+                " (forced)"
+            } else {
+                ""
+            }
+        );
+
+        let now: FrameTime = self.current_session().trace_reader().time();
+        let mid: FrameTime = (now + end.ptr.borrow().proto.key.trace_time) / 2;
+        if now < mid && mid < end.ptr.borrow().proto.key.trace_time {
+            let mut constraints = StepConstraints::new(RunCommand::RunContinue);
+            constraints.stop_at_time = mid;
+            while self.current_session().trace_reader().time() < mid {
+                self.current_session()
+                    .replay_step_with_constraints(&constraints);
+            }
+            debug_assert_eq!(self.current_session().trace_reader().time(), mid);
+
+            log!(
+                LogDebug,
+                "Ran forward to mid event {}",
+                self.current_mark_key()
+            );
+            return true;
+        }
+
+        if self.current_session().trace_reader().time() < end.ptr.borrow().proto.key.trace_time
+            && end.ptr.borrow().ticks_at_event_start < end.ptr.borrow().proto.key.ticks
+        {
+            let mut constraints = StepConstraints::new(RunCommand::RunContinue);
+            constraints.stop_at_time = end.ptr.borrow().proto.key.trace_time;
+            while self.current_session().trace_reader().time()
+                < end.ptr.borrow().proto.key.trace_time
+            {
+                self.current_session()
+                    .replay_step_with_constraints(&constraints);
+            }
+            debug_assert_eq!(
+                self.current_session().trace_reader().time(),
+                end.ptr.borrow().proto.key.trace_time
+            );
+            log!(LogDebug, "Ran forward to event {}", self.current_mark_key());
+            return true;
+        }
+
+        let t = match self.current_session().current_task() {
+            Some(t) => t,
+            None => {
+                log!(LogDebug, "Made no progress");
+                return false;
+            }
+        };
+        let start_ticks: Ticks = t.borrow().tick_count();
+        let mut end_ticks: Ticks = self.current_session().current_trace_frame().ticks();
+        if end.ptr.borrow().proto.key.trace_time == self.current_session().trace_reader().time() {
+            end_ticks = u64::min(end_ticks, end.ptr.borrow().proto.key.ticks);
+        }
+        ed_assert!(&t.borrow(), start_ticks <= end_ticks);
+        let target: Ticks = u64::min(end_ticks, (start_ticks + end_ticks) / 2);
+        let m: ProtoMark = self.proto_mark();
+        if target != end_ticks {
+            // We can only try stepping if we won't end up at `end`
+            let mut constraints = StepConstraints::new(RunCommand::RunContinue);
+            constraints.ticks_target = target;
+            let mut result: ReplayResult = self
+                .current_session()
+                .replay_step_with_constraints(&constraints);
+            if !m.equal_states(self.current_session()) {
+                while t.borrow().tick_count() < target
+                    && !result.break_status.approaching_ticks_target
+                {
+                    result = self
+                        .current_session()
+                        .replay_step_with_constraints(&constraints);
+                }
+                log!(LogDebug, "Ran forward to {}", self.current_mark_key());
+                return true;
+            }
+            debug_assert!(result.break_status.approaching_ticks_target);
+            debug_assert_eq!(t.borrow().tick_count(), start_ticks);
+        }
+
+        // We didn't make any progress that way.
+        // Normally we should just give up now and let reverse_continue keep
+        // running and hitting breakpoints etc since we're pretty close to the
+        // target already and the overhead of what we have to do here otherwise
+        // can be high. But there's a pathological case where reverse_continue
+        // is hitting a breakpoint on each iteration of a string instruction.
+        // If that's happening then we will be told to force progress.
+        if force == ForceProgress::ForceProgress {
+            // Let's try a fast-forward singlestep to jump over an x86 string
+            // instruction that may be triggering a lot of breakpoint hits. Make
+            // sure
+            // we stop before |end|.
+            let mut maybe_tmp_session: Option<SessionSharedPtr> = None;
+            if start_ticks + 1 >= end_ticks {
+                // This singlestep operation might leave us at |end|, which is not
+                // allowed. So make a backup of the current state.
+                maybe_tmp_session = Some(self.current_session().clone_replay());
+                log!(LogDebug, "Created backup tmp_session");
+            }
+            let mut constraints = StepConstraints::new(RunCommand::RunSinglestepFastForward);
+            constraints
+                .stop_before_states
+                .push(end.ptr.borrow().proto.regs.clone());
+            let _result: ReplayResult = self
+                .current_session()
+                .replay_step_with_constraints(&constraints);
+            if self.at_mark(end) {
+                debug_assert!(maybe_tmp_session.is_some());
+                self.current = maybe_tmp_session;
+                log!(
+                    LogDebug,
+                    "Singlestepping arrived at |end|, restoring session"
+                );
+            } else if !m.equal_states(&self.current_session()) {
+                log!(
+                    LogDebug,
+                    "Did fast-singlestep forward to {}",
+                    self.current_mark_key()
+                );
+                return true;
+            }
+        }
+
+        log!(LogDebug, "Made no progress");
+        return false;
     }
 
     fn update_strategy_and_fix_watchpoint_quirk(
@@ -1328,12 +1461,29 @@ impl ReplayTimeline {
         ))
     }
 
-    fn is_start_of_reverse_execution_barrier_event(&self) -> bool {
-        unimplemented!()
+    fn is_start_of_reverse_execution_barrier_event(&mut self) -> bool {
+        if self.current_session().trace_reader().time() != self.reverse_execution_barrier_event
+            || self.current_session().current_step_key().in_execution()
+        {
+            return false;
+        }
+        log!(
+            LogDebug,
+            "Found reverse execution barrier at {}",
+            self.mark()
+        );
+        true
     }
 
-    fn update_observable_break_status(_now: &Mark, _result: &ReplayResult) {
-        unimplemented!()
+    /// DIFF NOTE: The rr method is void but here we return a Mark (i.e. now)
+    fn update_observable_break_status(&mut self, result: &ReplayResult) -> Mark {
+        let now = self.mark();
+        if self.no_watchpoints_hit_interval_start.is_none()
+            || !result.break_status.watchpoints_hit.is_empty()
+        {
+            self.no_watchpoints_hit_interval_start = Some(now.clone());
+        }
+        now
     }
 
     /// Simply called reverse_singlestep() in rr
@@ -1407,6 +1557,7 @@ impl ReplayTimeline {
 /// DIFF NOTE: One important difference between rd and rr's Mark is that
 /// rd's Mark always indicates a position in the replay unlike
 /// in rr where `ptr` can be null
+#[derive(Clone)]
 pub struct Mark {
     ptr: InternalMarkSharedPtr,
 }
