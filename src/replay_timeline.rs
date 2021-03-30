@@ -158,7 +158,7 @@ pub struct ReplayTimeline {
 
     /// A single checkpoint that's very close to the current point, used to
     /// accelerate a sequence of reverse singlestep operations.
-    reverse_exec_short_checkpoint: Mark,
+    reverse_exec_short_checkpoint: Option<Mark>,
 }
 
 impl Default for ReplayTimeline {
@@ -1539,12 +1539,50 @@ impl ReplayTimeline {
 
     /// Discard all reverse-exec checkpoints that are in the future (they're
     /// useless).
-    fn discard_future_reverse_exec_checkpoints(&self) {
-        unimplemented!()
+    fn discard_future_reverse_exec_checkpoints(&mut self) {
+        let now: Progress = self.estimate_progress();
+        loop {
+            let res = self
+                .reverse_exec_checkpoints
+                .iter()
+                .map(|(a, &b)| (a.clone(), b))
+                .next_back();
+
+            match res {
+                Some((k, v)) => {
+                    if v <= now {
+                        break;
+                    }
+                    log!(
+                        LogDebug,
+                        "Discarding reverse-exec future checkpoint at {}",
+                        k.ptr.borrow()
+                    );
+                    self.remove_explicit_checkpoint(&k);
+                    self.reverse_exec_checkpoints.remove(&k);
+                }
+                None => {
+                    break;
+                }
+            }
+        }
     }
 
-    fn set_short_checkpoint(&self) -> Mark {
-        unimplemented!()
+    fn set_short_checkpoint(&mut self) -> Option<Mark> {
+        if !self.can_add_checkpoint() {
+            return None;
+        }
+
+        // Add checkpoint before removing one in case m ==
+        // reverse_exec_short_checkpoint
+        let m: Mark = self.add_explicit_checkpoint();
+        log!(LogDebug, "Creating short-checkpoint at {}", m);
+        if self.reverse_exec_short_checkpoint.is_some() {
+            let chkp = self.reverse_exec_short_checkpoint.take().unwrap();
+            log!(LogDebug, "Discarding old short-checkpoint at {}", chkp);
+            self.remove_explicit_checkpoint(&chkp);
+        }
+        Some(m)
     }
 
     /// If result.break_status hit watchpoints or breakpoints, evaluate their
