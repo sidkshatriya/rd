@@ -111,7 +111,7 @@ impl BreakStatus {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum RunCommand {
     /// Continue until we hit a breakpoint or a new replay event
     RunContinue,
@@ -318,11 +318,11 @@ impl SessionInner {
     }
 
     pub fn visible_execution(&self) -> bool {
-        self.visible_execution_
+        self.visible_execution_.get()
     }
 
-    pub fn set_visible_execution(&mut self, visible: bool) {
-        self.visible_execution_ = visible
+    pub fn set_visible_execution(&self, visible: bool) {
+        self.visible_execution_.set(visible)
     }
 
     pub fn accumulate_bytes_written(&self, bytes_written: u64) {
@@ -395,7 +395,7 @@ impl SessionInner {
             syscall_seccomp_ordering_: Default::default(),
             ticks_semantics_: PerfCounters::default_ticks_semantics(),
             done_initial_exec_: Default::default(),
-            visible_execution_: true,
+            visible_execution_: Cell::new(true),
         };
         log!(LogDebug, "Session {} created", s.unique_id);
         s
@@ -588,7 +588,7 @@ pub struct SessionInner {
     pub(super) done_initial_exec_: Cell<bool>,
 
     /// True while the execution of this session is visible to users.
-    pub(super) visible_execution_: bool,
+    pub(super) visible_execution_: Cell<bool>,
 }
 
 impl Default for SessionInner {

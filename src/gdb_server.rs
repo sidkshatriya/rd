@@ -88,7 +88,8 @@ enum ExplicitCheckpoint {
 }
 
 struct Checkpoint {
-    mark: replay_timeline::Mark,
+    /// DIFF NOTE: This is an option in rd but a plain Mark in rr
+    maybe_mark: Option<replay_timeline::Mark>,
     last_continue_tuid: TaskUid,
     is_explicit: ExplicitCheckpoint,
     where_: OsString,
@@ -97,7 +98,7 @@ struct Checkpoint {
 impl Default for Checkpoint {
     fn default() -> Self {
         Checkpoint {
-            mark: Default::default(),
+            maybe_mark: None,
             last_continue_tuid: Default::default(),
             is_explicit: ExplicitCheckpoint::NotExplicit,
             where_: Default::default(),
@@ -118,7 +119,7 @@ impl Checkpoint {
             timeline.mark()
         };
         Checkpoint {
-            mark,
+            maybe_mark: Some(mark),
             last_continue_tuid,
             is_explicit: e,
             where_: where_.to_owned(),

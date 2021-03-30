@@ -1,6 +1,7 @@
 use crate::{
     breakpoint_condition::BreakpointCondition,
     extra_registers::ExtraRegisters,
+    fast_forward::maybe_at_or_after_x86_string_instruction,
     log::{LogDebug, LogError},
     registers::Registers,
     remote_code_ptr::RemoteCodePtr,
@@ -570,8 +571,8 @@ impl ReplayTimeline {
     /// Ensure that reverse execution never proceeds into an event before
     /// |event|. Reverse execution will stop with a |task_exit| break status when
     /// at the beginning of this event.
-    pub fn set_reverse_execution_barrier_event(&self, _event: FrameTime) {
-        unimplemented!()
+    pub fn set_reverse_execution_barrier_event(&mut self, event: FrameTime) {
+        self.reverse_execution_barrier_event = event;
     }
 
     /// State-changing APIs. These may alter state associated with
@@ -666,11 +667,44 @@ impl ReplayTimeline {
     /// replay_step_forward only does one replay step. That means we'll only
     /// execute code in current_session().current_task().
     pub fn replay_step_forward(
-        &self,
-        _command: RunCommand,
-        _stop_at_time: FrameTime,
+        &mut self,
+        command: RunCommand,
+        stop_at_time: FrameTime,
     ) -> ReplayResult {
-        unimplemented!()
+        debug_assert_ne!(command, RunCommand::RunSinglestepFastForward);
+
+        let mut result: ReplayResult;
+        self.apply_breakpoints_and_watchpoints();
+        let before: ProtoMark = self.proto_mark();
+        self.current_session().set_visible_execution(true);
+        let mut constraints = StepConstraints::new(command);
+        constraints.stop_at_time = stop_at_time;
+        result = self
+            .current_session()
+            .replay_step_with_constraints(&constraints);
+        self.current_session().set_visible_execution(false);
+        if command == RunCommand::RunContinue {
+            // Since it's easy for us to fix the coalescing quirk for forward
+            // execution, we may as well do so. It's nice to have forward execution
+            // behave consistently with reverse execution.
+            self.fix_watchpoint_coalescing_quirk(&mut result, &before);
+            // Hide any singlestepping we did
+            result.break_status.singlestep_complete = false;
+        }
+        self.maybe_add_reverse_exec_checkpoint(CheckpointStrategy::LowOverhead);
+
+        let did_hit_breakpoint: bool = result.break_status.hardware_or_software_breakpoint_hit();
+        self.evaluate_conditions(&result);
+        if did_hit_breakpoint && !result.break_status.any_break() {
+            // Singlestep past the breakpoint
+            self.current_session().set_visible_execution(true);
+            result = self.singlestep_with_breakpoints_disabled();
+            if command == RunCommand::RunContinue {
+                result.break_status.singlestep_complete = false;
+            }
+            self.current_session().set_visible_execution(false);
+        }
+        result
     }
 
     pub fn reverse_continue(
@@ -1019,8 +1053,106 @@ impl ReplayTimeline {
         result
     }
 
-    fn fix_watchpoint_coalescing_quirk(&self, _result: &ReplayResult, _before: &ProtoMark) -> bool {
-        unimplemented!()
+    /// Intel CPUs (and maybe others) coalesce iterations of REP-prefixed string
+    /// instructions so that a watchpoint on a byte at location L can fire after
+    /// the iteration that writes byte L+63 (or possibly more?).
+    /// This causes problems for us since this coalescing doesn't happen when we
+    /// single-step.
+    /// This function is called after doing a ReplaySession::replay_step with
+    /// command == RUN_CONTINUE. RUN_SINGLESTEP and RUN_SINGLESTEP_FAST_FORWARD
+    /// disable this coalescing (the latter, because it's aware of watchpoints
+    /// and single-steps when it gets too close to them).
+    /// |before| is the state before we did the replay_step.
+    /// If a watchpoint fired, and it looks like it could have fired during a
+    /// string instruction, we'll backup to |before| and replay forward, stopping
+    /// before the breakpoint could fire and single-stepping to make sure the
+    /// coalescing quirk doesn't happen.
+    /// Returns true if we might have fixed something.
+    fn fix_watchpoint_coalescing_quirk(
+        &mut self,
+        result: &mut ReplayResult,
+        before: &ProtoMark,
+    ) -> bool {
+        if result.status == ReplayStatus::ReplayExited
+            || result.break_status.data_watchpoints_hit().is_empty()
+        {
+            // no watchpoint hit. Nothing to fix.
+            return false;
+        }
+        let break_status_task = result
+            .break_status
+            .task
+            .as_ref()
+            .unwrap()
+            .upgrade()
+            .unwrap();
+        if !maybe_at_or_after_x86_string_instruction(
+            break_status_task.borrow_mut().as_replay_task_mut().unwrap(),
+        ) {
+            return false;
+        }
+
+        let after_tuid: TaskUid = break_status_task.borrow().tuid();
+        let after_ticks: Ticks = break_status_task.borrow().tick_count();
+        log!(
+            LogDebug,
+            "Fixing x86-string coalescing quirk from {} to {} (final cx {})",
+            before,
+            self.proto_mark(),
+            break_status_task.borrow().regs_ref().cx()
+        );
+
+        self.seek_to_proto_mark(before);
+
+        // Keep going until the watchpoint fires. It will either fire early, or at
+        // the same time as some other break.
+        self.apply_breakpoints_and_watchpoints();
+        let mut approaching_ticks_target = false;
+        loop {
+            let t = self.current_session().current_task().unwrap();
+            if t.borrow().tuid() == after_tuid {
+                if approaching_ticks_target {
+                    // We don't need to set any stop_before_states here.
+                    // RunCommand::RunSinglestepFastForward always avoids the coalescing quirk, so
+                    // if a watchpoint is triggered by the string instruction at
+                    // string_instruction_ip, it will have the correct timing.
+                    *result = self
+                        .current_session()
+                        .replay_step(RunCommand::RunSinglestepFastForward);
+                    if !result.break_status.data_watchpoints_hit().is_empty() {
+                        let break_status_task = result
+                            .break_status
+                            .task
+                            .as_ref()
+                            .unwrap()
+                            .upgrade()
+                            .unwrap();
+                        log!(
+                            LogDebug,
+                            "Fixed x86-string coalescing quirk; now at {} (new cx {})",
+                            self.current_mark_key(),
+                            break_status_task.borrow().regs_ref().cx()
+                        );
+                        break;
+                    }
+                } else {
+                    let mut constraints = StepConstraints::new(RunCommand::RunContinue);
+                    constraints.ticks_target = after_ticks - 1;
+                    *result = self
+                        .current_session()
+                        .replay_step_with_constraints(&constraints);
+                    approaching_ticks_target = result.break_status.approaching_ticks_target;
+                }
+                ed_assert!(
+                    &t.borrow(),
+                    t.borrow().tick_count() <= after_ticks,
+                    "We went too far!"
+                );
+            } else {
+                self.current_session().replay_step(RunCommand::RunContinue);
+            }
+        }
+        true
     }
 
     fn find_singlestep_before(&self, mark: &Mark) -> Option<Mark> {
@@ -1345,12 +1477,6 @@ impl MarkKey {
             ticks,
             step_key,
         }
-    }
-}
-
-impl Default for Mark {
-    fn default() -> Self {
-        unimplemented!()
     }
 }
 
