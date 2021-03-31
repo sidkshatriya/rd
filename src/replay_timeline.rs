@@ -1869,14 +1869,99 @@ impl ReplayTimeline {
     /// If this adds a checkpoint, it will call
     /// discard_past_reverse_exec_checkpoints
     /// first.
-    fn maybe_add_reverse_exec_checkpoint(&self, _strategy: CheckpointStrategy) {
-        unimplemented!()
+    fn maybe_add_reverse_exec_checkpoint(&mut self, strategy: CheckpointStrategy) {
+        self.discard_future_reverse_exec_checkpoints();
+
+        let now: Progress = self.estimate_progress();
+        let it = self
+            .reverse_exec_checkpoints
+            .iter()
+            .next_back()
+            .map(|(_, v)| *v);
+        if let Some(v) = it {
+            if v >= now - Self::inter_checkpoint_interval(strategy) {
+                // Latest checkpoint is close enough; we don't need to do anything.
+                return;
+            }
+        }
+
+        if !self.current_session().can_clone() {
+            // We can't create a checkpoint right now.
+            return;
+        }
+
+        // We always discard checkpoints before adding the new one to reduce the
+        // maximum checkpoint count by one.
+        self.discard_past_reverse_exec_checkpoints(strategy);
+
+        let m: Mark = self.add_explicit_checkpoint();
+        log!(LogDebug, "Creating reverse-exec checkpoint at {}", m);
+        self.reverse_exec_checkpoints.insert(m, now);
+    }
+
+    fn inter_checkpoint_interval(strategy: CheckpointStrategy) -> Progress {
+        if strategy == CheckpointStrategy::LowOverhead {
+            Self::LOW_OVERHEAD_INTER_CHECKPOINT_INTERVAL
+        } else {
+            Self::EXPECTING_REVERSE_EXEC_INTER_CHECKPOINT_INTERVAL
+        }
+    }
+
+    const CHECKPOINT_INTERVAL_EXPONENT: Progress = 2;
+
+    fn next_interval_length(len: Progress) -> Progress {
+        if len >= Self::LOW_OVERHEAD_INTER_CHECKPOINT_INTERVAL {
+            return Self::CHECKPOINT_INTERVAL_EXPONENT * len;
+        }
+        len + Self::EXPECTING_REVERSE_EXEC_INTER_CHECKPOINT_INTERVAL
     }
 
     /// Discard some reverse-exec checkpoints in the past, if necessary. We do
     /// this to stop the number of checkpoints growing out of control.
-    fn discard_past_reverse_exec_checkpoints(&self, _strategy: CheckpointStrategy) {
-        unimplemented!()
+    fn discard_past_reverse_exec_checkpoints(&mut self, strategy: CheckpointStrategy) {
+        let now: Progress = self.estimate_progress();
+        // No checkpoints are allowed in the first interval, since we're about to
+        // add one there.
+        let mut checkpoints_to_delete: Vec<Mark> = Vec::new();
+        {
+            let mut checkpoints_allowed: usize = 0;
+            let mut checkpoints_in_range: usize = 0;
+            let mut it = self.reverse_exec_checkpoints.iter().peekable();
+            let mut curr = it.next_back();
+            let mut len = Self::inter_checkpoint_interval(strategy);
+            // @TODO: This needs to be checked again
+            loop {
+                let start: Progress = now - len;
+                // Count checkpoints >= start, starting at 'it', and leave the first
+                // checkpoint entry < start in 'tmp_it'.
+                let mut tmp_it = it.clone();
+                let mut curr_tmp = tmp_it.next_back();
+                while curr_tmp.is_some() && *curr_tmp.unwrap().1 >= start {
+                    checkpoints_in_range += 1;
+                    curr_tmp = tmp_it.next_back();
+                }
+                // Delete excess checkpoints starting with 'it'.
+                while curr.is_some() && checkpoints_in_range > checkpoints_allowed {
+                    checkpoints_to_delete.push(curr.unwrap().0.clone());
+                    checkpoints_in_range -= 1;
+                    curr = it.next_back();
+                }
+                checkpoints_allowed += 1;
+                it = tmp_it;
+                // Even though peek looks ahead, if the iteration is over this
+                // should return None
+                if it.peek().is_none() {
+                    break;
+                }
+                len = Self::next_interval_length(len);
+            }
+        }
+
+        for m in &checkpoints_to_delete {
+            log!(LogDebug, "Discarding reverse-exec checkpoint at {}", m);
+            self.remove_explicit_checkpoint(&m);
+            self.reverse_exec_checkpoints.remove(&m);
+        }
     }
 
     /// Discard all reverse-exec checkpoints that are in the future (they're
@@ -2209,6 +2294,7 @@ impl ProtoMark {
 }
 
 /// Different strategies for placing automatic checkpoints.
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub enum CheckpointStrategy {
     /// Use this when we want to bound the overhead of checkpointing to be
     /// insignificant relative to the cost of forward execution.
