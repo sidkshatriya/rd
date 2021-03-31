@@ -62,6 +62,12 @@ pub struct BreakStatus {
     pub task_exit: bool,
 }
 
+impl Default for BreakStatus {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// In general, multiple break reasons can apply simultaneously.
 impl BreakStatus {
     pub fn new() -> BreakStatus {

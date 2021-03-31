@@ -263,17 +263,24 @@ pub enum ReplayStatus {
     ReplayExited,
 }
 
+impl Default for ReplayStatus {
+    fn default() -> Self {
+        Self::ReplayContinue
+    }
+}
+
 #[derive(Clone)]
 pub struct StepConstraints {
     pub command: RunCommand,
     pub stop_at_time: FrameTime,
+    /// @TODO If there is a no ticks target, we set this to 0
     pub ticks_target: Ticks,
-    // When the RunCommand is RunSinglestepFastForward, stop if the next
-    // singlestep would enter one of the register states in this list.
-    // RunSinglestepFastForwardWill always singlestep at least once
-    // regardless.
-    // DIFF NOTE: @TODO? In rr this is a pointer to the registers
-    // i.e. in Rust it would be Vec<&Registers>
+    /// When the RunCommand is RunSinglestepFastForward, stop if the next
+    /// singlestep would enter one of the register states in this list.
+    /// RunSinglestepFastForwardWill always singlestep at least once
+    /// regardless.
+    /// DIFF NOTE: @TODO? In rr this is a pointer to the registers
+    /// i.e. in Rust it would be Vec<&Registers>
     pub stop_before_states: Vec<Registers>,
 }
 
@@ -292,6 +299,7 @@ impl StepConstraints {
     }
 }
 
+#[derive(Clone, Default)]
 pub struct ReplayResult {
     pub status: ReplayStatus,
     pub break_status: BreakStatus,

@@ -122,7 +122,7 @@ pub struct ReplayTimeline {
     /// We record that ordering for all Marks by storing all the Marks for a given
     /// MarkKey in vector ordered by time.
     /// Determining this order is expensive so we avoid creating Marks unless we
-    /// really need to! If we're at a specific point in time and we///may* need to
+    /// really need to! If we're at a specific point in time and we *may* need to
     /// create a Mark for this point later, create a ProtoMark instead to
     /// capture enough state so that a Mark can later be created if needed.
     ///
@@ -145,6 +145,7 @@ pub struct ReplayTimeline {
 
     breakpoints_applied: bool,
 
+    /// @TODO Lack of a barrier event is indicated with the value being 0
     reverse_execution_barrier_event: FrameTime,
 
     /// Checkpoints used to accelerate reverse execution.
@@ -182,6 +183,40 @@ type StopFilterFn = dyn Fn(&ReplayTask) -> bool;
 type InterruptCheckFn = dyn Fn(&ReplayTask) -> bool;
 
 impl ReplayTimeline {
+    /// Checkpointing strategy:
+    ///
+    /// We define a series of intervals of increasing length, each one ending at
+    /// the current replay position. In each interval N, we allow at most N
+    /// checkpoints. We ensure that interval lengths grow exponentially (in the
+    /// limit), so the maximum number of checkpoints for a given execution length
+    /// L is O(log L).
+    ///
+    /// Interval N has length inter_checkpoint_interval to the
+    /// power of checkpoint_interval_exponent.
+    /// We allow at most N checkpoints in interval N.
+    /// To discard excess checkpoints, first pick the smallest interval N with
+    /// too many checkpoints, and discard the latest checkpoint in interval N
+    /// that is not in interval N-1. Repeat until there are no excess checkpoints.
+    /// All checkpoints after the current replay point are always discarded.
+    /// The script checkpoint-visualizer.html simulates this algorithm and
+    /// visualizes its results.
+    /// The implementation here is quite naive, but that's OK because we will
+    /// never have a large number of checkpoints.
+
+    /// Try to space out our checkpoints by a minimum of this much in LOW_OVERHEAD
+    /// mode.
+    /// This is currently aiming for about 0.5s of replay time, so a reverse step or
+    /// continue whose destination is within 0.5 should take at most a second.
+    /// Also, based on a guesstimate that taking checkpoints of Firefox requires
+    /// about 50ms, this would make checkpointing overhead about 10% of replay time,
+    /// which sounds reasonable.
+    const LOW_OVERHEAD_INTER_CHECKPOINT_INTERVAL: Progress = 500000;
+
+    /// Space out checkpoints linearly by this much in
+    /// EXPECT_SHORT_REVERSE_EXECUTION mode, until we reach
+    /// low_overhead_inter_checkpoint_interval.
+    const EXPECTING_REVERSE_EXEC_INTER_CHECKPOINT_INTERVAL: Progress = 100000;
+
     pub fn is_running(&self) -> bool {
         self.current.is_some()
     }
@@ -717,11 +752,14 @@ impl ReplayTimeline {
     }
 
     pub fn reverse_singlestep(
-        &self,
-        _stop_filter: &StopFilterFn,
-        _interrupt_check: &InterruptCheckFn,
+        &mut self,
+        tuid: TaskUid,
+        tuid_ticks: Ticks,
+        stop_filter: &StopFilterFn,
+        interrupt_check: &InterruptCheckFn,
     ) -> ReplayResult {
-        unimplemented!()
+        let m = self.mark();
+        self.reverse_singlestep2(&m, tuid, tuid_ticks, stop_filter, interrupt_check)
     }
 
     /// Try to identify an existing Mark which is known to be one singlestep
@@ -1486,16 +1524,320 @@ impl ReplayTimeline {
         now
     }
 
-    /// Simply called reverse_singlestep() in rr
+    /// DIFF NOTE: Simply called reverse_singlestep() in rr
     fn reverse_singlestep2(
-        &self,
-        _origin: &Mark,
-        _step_tuid: TaskUid,
-        _step_ticks: Ticks,
-        _stop_filter: &StopFilterFn,
-        _interrupt_check: &InterruptCheckFn,
+        &mut self,
+        origin: &Mark,
+        step_tuid: TaskUid,
+        step_ticks: Ticks,
+        stop_filter: &StopFilterFn,
+        interrupt_check: &InterruptCheckFn,
     ) -> ReplayResult {
-        unimplemented!()
+        log!(
+            LogDebug,
+            "ReplayTimeline::reverse_singlestep from {}",
+            origin
+        );
+
+        let mut outer: Mark = origin.clone();
+        let ticks_target: Ticks = step_ticks - 1;
+
+        loop {
+            let mut end: Mark = outer;
+            let mut start: Mark;
+            // DIFF NOTE: No initialization in rr
+            let mut seen_barrier = false;
+
+            loop {
+                let mut current_key: MarkKey = end.ptr.borrow().proto.key;
+
+                loop {
+                    if end.ptr.borrow().proto.key.trace_time != current_key.trace_time
+                        || end.ptr.borrow().proto.key.ticks != current_key.ticks
+                    {
+                        break;
+                    }
+                    self.seek_to_before_key(current_key);
+                    self.maybe_add_reverse_exec_checkpoint(
+                        CheckpointStrategy::ExpectShortReverseExecution,
+                    );
+                    if self.current_mark_key() == current_key {
+                        // Can't go further back. Treat this as an exit.
+                        log!(LogDebug, "Couldn't seek to before {}, returning exit", end);
+                        let result: ReplayResult = ReplayResult::new(ReplayStatus::ReplayExited);
+                        return result;
+                    }
+                    log!(
+                        LogDebug,
+                        "Seeked backward from {} to {}",
+                        current_key,
+                        self.current_mark_key()
+                    );
+                    current_key = self.current_mark_key();
+                }
+
+                start = self.mark();
+                log!(LogDebug, "Running forward from {}", start);
+                // Now run forward until we're reasonably close to the correct tick value.
+                let mut constraints = StepConstraints::new(RunCommand::RunContinue);
+                let mut approaching_ticks_target: bool = false;
+                let mut seen_other_task_break: bool = false;
+                while !self.at_mark(&end) {
+                    let t = self.current_session().current_task().unwrap();
+                    if stop_filter(t.borrow().as_replay_task().unwrap())
+                        && self.current_session().done_initial_exec()
+                    {
+                        if t.borrow().tuid() == step_tuid {
+                            if t.borrow().tick_count() >= ticks_target {
+                                // Don't step any further.
+                                log!(LogDebug, "Approaching ticks target");
+                                approaching_ticks_target = true;
+                                break;
+                            }
+                            self.unapply_breakpoints_and_watchpoints();
+                            constraints.ticks_target =
+                                if constraints.command == RunCommand::RunContinue {
+                                    ticks_target
+                                } else {
+                                    0
+                                };
+                            let result: ReplayResult = self
+                                .current_session()
+                                .replay_step_with_constraints(&constraints);
+                            if result.break_status.approaching_ticks_target {
+                                log!(
+                                    LogDebug,
+                                    "   approached ticks target at {}",
+                                    self.current_mark_key()
+                                );
+                                constraints =
+                                    StepConstraints::new(RunCommand::RunSinglestepFastForward);
+                            }
+                        } else {
+                            if seen_other_task_break {
+                                self.unapply_breakpoints_and_watchpoints();
+                            } else {
+                                self.apply_breakpoints_and_watchpoints();
+                            }
+                            constraints.ticks_target = 0;
+                            let result: ReplayResult =
+                                self.current_session().replay_step(RunCommand::RunContinue);
+                            if result.break_status.any_break() {
+                                seen_other_task_break = true;
+                            }
+                        }
+                    } else {
+                        self.unapply_breakpoints_and_watchpoints();
+                        constraints.ticks_target = 0;
+                        self.current_session().replay_step(RunCommand::RunContinue);
+                    }
+                    if self.is_start_of_reverse_execution_barrier_event() {
+                        seen_barrier = true;
+                    }
+                    self.maybe_add_reverse_exec_checkpoint(
+                        CheckpointStrategy::ExpectShortReverseExecution,
+                    );
+                }
+
+                if approaching_ticks_target || seen_barrier {
+                    break;
+                }
+                if seen_other_task_break {
+                    // We saw a break in another task that the debugger cares about, but
+                    // that's not the stepping task. At this point reverse-singlestep
+                    // will move back past that break, so We'll need to report that break
+                    // instead of the singlestep.
+                    return self.reverse_continue(stop_filter, interrupt_check);
+                }
+                end = start;
+            }
+            debug_assert!(
+                stop_filter(
+                    self.current_session()
+                        .current_task()
+                        .unwrap()
+                        .borrow()
+                        .as_replay_task()
+                        .unwrap()
+                ) || seen_barrier
+            );
+
+            let mut destination_candidate: Option<Mark> = None;
+            let mut step_start: Mark = self.set_short_checkpoint();
+            // @TODO Check this again
+            let mut destination_candidate_result = ReplayResult::default();
+            let mut destination_candidate_tuid: Option<TaskUid> = None;
+            // True when the singlestep starting at the destination candidate saw
+            // another task break.
+            let mut destination_candidate_saw_other_task_break: bool = false;
+
+            if self.is_start_of_reverse_execution_barrier_event() {
+                destination_candidate = Some(self.mark());
+                destination_candidate_result.break_status.task_exit = true;
+                destination_candidate_tuid = Some(
+                    self.current_session()
+                        .current_task()
+                        .unwrap()
+                        .borrow()
+                        .tuid(),
+                );
+            }
+
+            self.no_watchpoints_hit_interval_start = None;
+            let mut seen_other_task_break: bool = false;
+            loop {
+                let mut now: Mark;
+                let mut result: ReplayResult;
+                if stop_filter(
+                    self.current_session()
+                        .current_task()
+                        .unwrap()
+                        .borrow()
+                        .as_replay_task()
+                        .unwrap(),
+                ) {
+                    self.apply_breakpoints_and_watchpoints();
+                    if self
+                        .current_session()
+                        .current_task()
+                        .unwrap()
+                        .borrow()
+                        .tuid()
+                        == step_tuid
+                    {
+                        let before_step: Mark = self.mark();
+                        let mut constraints =
+                            StepConstraints::new(RunCommand::RunSinglestepFastForward);
+                        constraints
+                            .stop_before_states
+                            .push(end.ptr.borrow().proto.regs.clone());
+                        result = self
+                            .current_session()
+                            .replay_step_with_constraints(&constraints);
+                        now = self.update_observable_break_status(&result);
+                        if result.break_status.hardware_or_software_breakpoint_hit() {
+                            // If we hit a breakpoint while singlestepping, we didn't
+                            // make any progress.
+                            self.unapply_breakpoints_and_watchpoints();
+                            result = self
+                                .current_session()
+                                .replay_step_with_constraints(&constraints);
+                            now = self.update_observable_break_status(&result);
+                        }
+                        if result.break_status.singlestep_complete {
+                            self.mark_after_singlestep(&before_step, &mut result);
+                            if now > end {
+                                // This last step is not usable.
+                                log!(LogDebug, "   not usable, stopping now");
+                                break;
+                            }
+                            destination_candidate = Some(step_start);
+                            log!(
+                                LogDebug,
+                                "Setting candidate after step: {}",
+                                destination_candidate.as_ref().unwrap()
+                            );
+                            destination_candidate_result = result.clone();
+                            destination_candidate_tuid = Some(
+                                result
+                                    .break_status
+                                    .task
+                                    .as_ref()
+                                    .unwrap()
+                                    .upgrade()
+                                    .unwrap()
+                                    .borrow()
+                                    .tuid(),
+                            );
+                            destination_candidate_saw_other_task_break = seen_other_task_break;
+                            seen_other_task_break = false;
+                            step_start = now.clone();
+                        }
+                    } else {
+                        result = self.current_session().replay_step(RunCommand::RunContinue);
+                        now = self.update_observable_break_status(&result);
+                        if result.break_status.any_break() {
+                            seen_other_task_break = true;
+                        }
+                        if result.break_status.hardware_or_software_breakpoint_hit() {
+                            self.unapply_breakpoints_and_watchpoints();
+                            result = self
+                                .current_session()
+                                .replay_step(RunCommand::RunSinglestepFastForward);
+                            now = self.update_observable_break_status(&result);
+                            if result.break_status.any_break() {
+                                seen_other_task_break = true;
+                            }
+                        }
+                    }
+                } else {
+                    self.unapply_breakpoints_and_watchpoints();
+                    result = self.current_session().replay_step(RunCommand::RunContinue);
+                    self.no_watchpoints_hit_interval_start = None;
+                    now = self.mark();
+                }
+
+                if self.is_start_of_reverse_execution_barrier_event() {
+                    destination_candidate = Some(self.mark());
+                    log!(
+                        LogDebug,
+                        "Setting candidate to barrier {}",
+                        destination_candidate.as_ref().unwrap()
+                    );
+                    destination_candidate_result = result;
+                    destination_candidate_result.break_status.task_exit = true;
+                    destination_candidate_tuid = Some(
+                        self.current_session()
+                            .current_task()
+                            .unwrap()
+                            .borrow()
+                            .tuid(),
+                    );
+                    destination_candidate_saw_other_task_break = false;
+                    seen_other_task_break = false;
+                }
+
+                if now >= end {
+                    log!(LogDebug, "Stepped to {} (>= {}) stopping", now, end);
+                    break;
+                }
+                self.maybe_add_reverse_exec_checkpoint(
+                    CheckpointStrategy::ExpectShortReverseExecution,
+                );
+            }
+            self.no_watchpoints_hit_interval_end =
+                if self.no_watchpoints_hit_interval_start.is_none() {
+                    Some(end)
+                } else {
+                    None
+                };
+
+            if seen_other_task_break || destination_candidate_saw_other_task_break {
+                // We saw a break in another task that the debugger cares about, but
+                // that's not the stepping task. Report that break instead of the
+                // singlestep.
+                return self.reverse_continue(stop_filter, interrupt_check);
+            }
+
+            if destination_candidate.is_some() {
+                log!(
+                    LogDebug,
+                    "Found destination {}",
+                    destination_candidate.as_ref().unwrap()
+                );
+                self.seek_to_mark(destination_candidate.as_ref().unwrap());
+                destination_candidate_result.break_status.task = self
+                    .current_session()
+                    .find_task_from_task_uid(destination_candidate_tuid.unwrap())
+                    .map(|rc_t| Rc::downgrade(&rc_t));
+                debug_assert!(destination_candidate_result.break_status.task.is_some());
+                self.evaluate_conditions(&destination_candidate_result);
+                return destination_candidate_result;
+            }
+
+            // No destination candidate found. Search further backward.
+            outer = start;
+        }
     }
 
     /// Reasonably fast since it just relies on checking the mark map.
@@ -1568,9 +1910,9 @@ impl ReplayTimeline {
         }
     }
 
-    fn set_short_checkpoint(&mut self) -> Option<Mark> {
+    fn set_short_checkpoint(&mut self) -> Mark {
         if !self.can_add_checkpoint() {
-            return None;
+            return self.mark();
         }
 
         // Add checkpoint before removing one in case m ==
@@ -1582,7 +1924,7 @@ impl ReplayTimeline {
             log!(LogDebug, "Discarding old short-checkpoint at {}", chkp);
             self.remove_explicit_checkpoint(&chkp);
         }
-        Some(m)
+        m
     }
 
     /// If result.break_status hit watchpoints or breakpoints, evaluate their
