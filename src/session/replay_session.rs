@@ -106,7 +106,7 @@ use std::{
     intrinsics::copy_nonoverlapping,
     mem::size_of,
     ops::{Deref, DerefMut},
-    rc::Rc,
+    rc::{Rc, Weak},
 };
 
 const USE_BREAKPOINT_TARGET: bool = true;
@@ -632,7 +632,7 @@ impl ReplaySession {
                 self.advance_to_next_trace_frame();
             }
             if self.current_step.get().action == ReplayTraceStepType::TstepExitTask {
-                result.break_status.task = Some(rc_t.borrow().weak_self.clone());
+                result.break_status.task = rc_t.borrow().weak_self.clone();
                 result.break_status.task_exit = true;
             }
             return result;
@@ -641,7 +641,7 @@ impl ReplaySession {
             let rc_t = maybe_rc_t.as_ref().unwrap().clone();
             self.fast_forward_status.set(FastForwardStatus::new());
             // Now we know `t` hasn't died, so save it in break_status.
-            result.break_status.task = Some(rc_t.borrow().weak_self.clone());
+            result.break_status.task = rc_t.borrow().weak_self.clone();
             let mut dt = rc_t.borrow_mut();
             let t = dt.as_replay_task_mut().unwrap();
             // Advance towards fulfilling `current_step`.
@@ -715,7 +715,7 @@ impl ReplaySession {
                     }
                 }
                 ReplayTraceStepType::TstepExitTask => {
-                    result.break_status.task = None;
+                    result.break_status.task = Weak::new();
                     maybe_rc_t = None;
                     debug_assert!(!result.break_status.any_break());
                 }

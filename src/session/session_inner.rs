@@ -43,8 +43,9 @@ use std::{
 pub struct BreakStatus {
     /// The triggering Task. This may be different from session->current_task()
     /// when replay switches to a new task when ReplaySession::replay_step() ends.
-    /// @TODO Must this be an Option<>??
-    pub task: Option<TaskSharedWeakPtr>,
+    /// NOTE: A lack of a task is indicated by Weak::new(). This previously was a
+    /// Option<TaskSharedWeakPtr> but that becomes a little unecessarily complex
+    pub task: TaskSharedWeakPtr,
     /// List of watchpoints hit; any watchpoint hit causes a stop after the
     /// instruction that triggered the watchpoint has completed.
     pub watchpoints_hit: Vec<WatchConfig>,
@@ -427,7 +428,7 @@ impl SessionInner {
     ) -> BreakStatus {
         self.assert_fully_initialized();
         let mut break_status = BreakStatus::new();
-        break_status.task = Some(t.weak_self_ptr());
+        break_status.task = t.weak_self_ptr();
 
         let maybe_stop_sig = t.maybe_stop_sig();
         if maybe_stop_sig.is_not_sig() {

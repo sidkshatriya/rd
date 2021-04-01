@@ -396,13 +396,7 @@ impl ReplayTimeline {
                             m.ptr.borrow().full_write(&mut stderr());
                         }
 
-                        let t = result
-                            .break_status
-                            .task
-                            .as_ref()
-                            .unwrap()
-                            .upgrade()
-                            .unwrap();
+                        let t = result.break_status.task.upgrade().unwrap();
                         ed_assert!(
                             &t.borrow(),
                             false,
@@ -1397,13 +1391,7 @@ impl ReplayTimeline {
             // no watchpoint hit. Nothing to fix.
             return false;
         }
-        let break_status_task = result
-            .break_status
-            .task
-            .as_ref()
-            .unwrap()
-            .upgrade()
-            .unwrap();
+        let break_status_task = result.break_status.task.upgrade().unwrap();
         if !maybe_at_or_after_x86_string_instruction(
             break_status_task.borrow_mut().as_replay_task_mut().unwrap(),
         ) {
@@ -1438,13 +1426,7 @@ impl ReplayTimeline {
                         .current_session()
                         .replay_step(RunCommand::RunSinglestepFastForward);
                     if !result.break_status.data_watchpoints_hit().is_empty() {
-                        let break_status_task = result
-                            .break_status
-                            .task
-                            .as_ref()
-                            .unwrap()
-                            .upgrade()
-                            .unwrap();
+                        let break_status_task = result.break_status.task.upgrade().unwrap();
                         log!(
                             LogDebug,
                             "Fixed x86-string coalescing quirk; now at {} (new cx {})",
@@ -1738,17 +1720,8 @@ impl ReplayTimeline {
                                 destination_candidate.as_ref().unwrap()
                             );
                             destination_candidate_result = result.clone();
-                            destination_candidate_tuid = Some(
-                                result
-                                    .break_status
-                                    .task
-                                    .as_ref()
-                                    .unwrap()
-                                    .upgrade()
-                                    .unwrap()
-                                    .borrow()
-                                    .tuid(),
-                            );
+                            destination_candidate_tuid =
+                                Some(result.break_status.task.upgrade().unwrap().borrow().tuid());
                             destination_candidate_saw_other_task_break = seen_other_task_break;
                             seen_other_task_break = false;
                             step_start = now.clone();
@@ -1829,8 +1802,11 @@ impl ReplayTimeline {
                 destination_candidate_result.break_status.task = self
                     .current_session()
                     .find_task_from_task_uid(destination_candidate_tuid.unwrap())
-                    .map(|rc_t| Rc::downgrade(&rc_t));
-                debug_assert!(destination_candidate_result.break_status.task.is_some());
+                    .map_or(Weak::new(), |rc_t| Rc::downgrade(&rc_t));
+                debug_assert!(!destination_candidate_result
+                    .break_status
+                    .task
+                    .ptr_eq(&Weak::new()));
                 self.evaluate_conditions(&destination_candidate_result);
                 return destination_candidate_result;
             }
