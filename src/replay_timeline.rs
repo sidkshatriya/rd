@@ -374,7 +374,7 @@ impl ReplayTimeline {
             let mark_vector = &self.marks[&m_key];
             for i in 0..mark_vector.len() {
                 if Rc::ptr_eq(&mark_vector[i], &from.ptr) {
-                    if i + 1 >= mark_vector.len() || mark_vector[i + 1] != m.ptr {
+                    if i + 1 >= mark_vector.len() || !Rc::ptr_eq(&mark_vector[i + 1], &m.ptr) {
                         let mut m_prev: isize = -1;
                         for j in 0..mark_vector.len() {
                             log!(
@@ -2284,8 +2284,58 @@ impl ReplayTimeline {
 
     /// If result.break_status hit watchpoints or breakpoints, evaluate their
     /// conditions and clear the break_status flags if the conditions don't hold.
-    fn evaluate_conditions(&self, _result: &mut ReplayResult) {
-        unimplemented!()
+    fn evaluate_conditions(&self, result: &mut ReplayResult) {
+        let maybe_t = result.break_status.task.upgrade();
+        if maybe_t.is_none() {
+            return;
+        }
+        let t = maybe_t.unwrap();
+        let auid = t.borrow().vm().uid();
+
+        if result.break_status.breakpoint_hit {
+            let addr = t.borrow().ip();
+            let key = TimelineBreakpoint { uid: auid, addr };
+            let it = self.breakpoints.get(&key);
+            let mut hit = false;
+            // DIFF NOTE: @TODO Check this. This is while loop in rr we shouldn't need a while loop here
+            if let Some(conditions) = it {
+                if conditions.is_none()
+                    || conditions.as_ref().unwrap().evaluate(t.borrow().as_ref())
+                {
+                    hit = true;
+                }
+            }
+            if !hit {
+                result.break_status.breakpoint_hit = false;
+            }
+        }
+
+        let mut to_remove = Vec::new();
+        for (i, w) in result.break_status.watchpoints_hit.iter().enumerate() {
+            let key = TimelineWatchpoint {
+                uid: auid,
+                addr: w.addr,
+                size: w.num_bytes,
+                watch_type: w.type_,
+            };
+            let it = self.watchpoints.get(&key);
+            let mut hit = false;
+            // DIFF NOTE: @TODO Check this. This is while loop in rr we shouldn't need a while loop here
+            if let Some(conditions) = it {
+                if conditions.is_none()
+                    || conditions.as_ref().unwrap().evaluate(t.borrow().as_ref())
+                {
+                    hit = true;
+                }
+            }
+            if !hit {
+                to_remove.push(i);
+            }
+        }
+
+        for &i in &to_remove {
+            result.break_status.watchpoints_hit.remove(i);
+        }
     }
 }
 
@@ -2393,18 +2443,6 @@ struct InternalMark {
 impl Display for InternalMark {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(f, "{}", self.proto)
-    }
-}
-
-impl PartialOrd for InternalMark {
-    fn partial_cmp(&self, _other: &Self) -> Option<Ordering> {
-        unimplemented!()
-    }
-}
-
-impl PartialEq for InternalMark {
-    fn eq(&self, _other: &Self) -> bool {
-        unimplemented!()
     }
 }
 
