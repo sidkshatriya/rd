@@ -1927,7 +1927,6 @@ impl ReplayTimeline {
             let mut checkpoints_allowed: usize = 0;
             let mut checkpoints_in_range: usize = 0;
             let mut it = self.reverse_exec_checkpoints.iter().peekable();
-            let mut curr = it.next_back();
             let mut len = Self::inter_checkpoint_interval(strategy);
             // @TODO: This needs to be checked again
             loop {
@@ -1941,14 +1940,15 @@ impl ReplayTimeline {
                     curr_tmp = tmp_it.next_back();
                 }
                 // Delete excess checkpoints starting with 'it'.
-                while curr.is_some() && checkpoints_in_range > checkpoints_allowed {
+                let mut curr = it.next_back();
+                while checkpoints_in_range > checkpoints_allowed {
                     checkpoints_to_delete.push(curr.unwrap().0.clone());
                     checkpoints_in_range -= 1;
                     curr = it.next_back();
                 }
                 checkpoints_allowed += 1;
                 it = tmp_it;
-                // Even though peek looks ahead, if the iteration is over this
+                // Even though peek() looks ahead, if the iteration is over this
                 // should return None
                 if it.peek().is_none() {
                     break;
