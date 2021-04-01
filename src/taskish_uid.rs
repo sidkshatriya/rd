@@ -175,4 +175,11 @@ mod test {
 
         assert!(tuid1 > tuid3);
     }
+
+    #[test]
+    pub fn taskish_is_copy() {
+        let tuid1 = TaskUid::new_with(1, 1);
+        let tuid2 = tuid1;
+        assert!(tuid1 == tuid2);
+    }
 }

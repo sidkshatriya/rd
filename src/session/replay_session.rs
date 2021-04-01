@@ -302,6 +302,7 @@ impl StepConstraints {
 #[derive(Clone, Default)]
 pub struct ReplayResult {
     pub status: ReplayStatus,
+    /// @TODO Might want to consider having Option<BreakStatus> here??
     pub break_status: BreakStatus,
     /// True if we did a fast-forward operation, in which case
     /// break_status.singlestep_complete might indicate the completion of more
