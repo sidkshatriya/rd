@@ -118,7 +118,7 @@ The following work:
 The various logging levels are `debug`, `info`, `warn`, `info` and `fatal`. To log at `warn` by default and `debug` for all messages from the `auto_remote_syscalls` rust module (as an example) do:
 
 ```bash
-$ RD_LOG=all:warn,auto_remote_syscalls:debug rd <etc params>
+$ RD_LOG=all:warn,auto_remote_syscalls:debug rd /* rd params here */
 ```
 
 ### Recording program runs (i.e. traces)
