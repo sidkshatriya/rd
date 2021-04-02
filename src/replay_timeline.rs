@@ -1073,8 +1073,12 @@ impl ReplayTimeline {
         None
     }
 
-    pub fn new(_session: SessionSharedPtr) -> ReplayTimeline {
-        unimplemented!()
+    pub fn new(session: SessionSharedPtr) -> Rc<RefCell<ReplayTimeline>> {
+        let mut timeline = ReplayTimeline::default();
+        timeline.current = Some(session);
+        let rc = Rc::new(RefCell::new(timeline));
+        rc.borrow_mut().weak_self = Rc::downgrade(&rc);
+        rc
     }
 
     /// We track the set of breakpoints/watchpoints requested by the client.
@@ -2373,10 +2377,10 @@ impl Ord for Mark {
             }
             // We now know that self & m2 have the same ptr.proto.key and same owner
             let owner = self.ptr.borrow().owner.upgrade().unwrap();
-            if !owner.borrow().marks.contains_key(&self_key) {
-                owner.borrow_mut().marks.insert(self_key, Vec::new());
-            }
-            for m in &owner.borrow().marks[&self_key] {
+            // Need to do this unsafely as owner may already be borrowed mutably
+            // @TODO: Do this more cleanly??
+            let marks = unsafe { &(*(owner.as_ptr())).marks };
+            for m in marks.get(&self_key).unwrap_or(&vec![]) {
                 if Rc::ptr_eq(m, &m2.ptr) {
                     return Ordering::Greater;
                 }

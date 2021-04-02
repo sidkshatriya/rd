@@ -24,7 +24,7 @@ use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
     ffi::{OsStr, OsString},
-    rc::Weak,
+    rc::{Rc, Weak},
 };
 
 #[derive(Clone)]
@@ -153,7 +153,7 @@ pub struct GdbServer {
     /// True when a DREQ_INTERRUPT has been received but not handled, or when
     /// we've restarted and want the first continue to be interrupted immediately.
     interrupt_pending: bool,
-    timeline: ReplayTimeline,
+    timeline: Rc<RefCell<ReplayTimeline>>,
     emergency_debug_session: SessionSharedWeakPtr,
     debugger_restart_checkpoint: Checkpoint,
     /// gdb checkpoints, indexed by ID
@@ -219,10 +219,6 @@ impl GdbServer {
     /// debugging started wherever the replay happens to be.
     pub fn interrupt_replay_to_target(&mut self) {
         self.stop_replaying_to_target = true;
-    }
-
-    pub fn get_timeline(&self) -> &ReplayTimeline {
-        &self.timeline
     }
 
     fn current_session() -> SessionSharedPtr {
