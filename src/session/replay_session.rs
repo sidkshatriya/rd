@@ -406,6 +406,10 @@ impl Drop for ReplaySession {
 }
 
 impl ReplaySession {
+    pub fn get_trace_start_time(&self) -> f64 {
+        self.trace_start_time.get()
+    }
+
     /// The current ReplayStepKey.
     pub fn current_step_key(&self) -> ReplayStepKey {
         ReplayStepKey::new_with(self.current_step.get().action)

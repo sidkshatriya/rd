@@ -1,7 +1,7 @@
 use crate::{gdb_server::GdbServer, session::task::Task};
 use std::rc::Rc;
 
-use super::gdb_command::GdbCommand;
+use super::gdb_command::BaseGdbCommand;
 
 pub struct GdbCommandHandler;
 
@@ -12,7 +12,7 @@ impl GdbCommandHandler {
         unimplemented!()
     }
 
-    fn register_command(_cmd: &GdbCommand) {
+    pub fn register_command(_cmd: &BaseGdbCommand) {
         unimplemented!()
     }
 
@@ -21,17 +21,17 @@ impl GdbCommandHandler {
     ///
     /// NOTE: RD Commands are typically sent with the qRDCmd: prefix which
     /// should have been stripped already.
-    fn process_command(_gdb_server: &GdbServer, _t: &dyn Task, _payload: &str) -> String {
+    pub fn process_command(_gdb_server: &GdbServer, _t: &dyn Task, _payload: &str) -> String {
         unimplemented!()
     }
 
     /// @TODO Are we sure we want Rc<> here?
-    fn command_for_name(_name: &str) -> Rc<GdbCommand> {
+    pub fn command_for_name(_name: &str) -> Rc<BaseGdbCommand> {
         unimplemented!()
     }
 
     /// Special return value for commands that immediatly end a diversion session
-    fn cmd_end_diversion() -> &'static str {
+    pub fn cmd_end_diversion() -> &'static str {
         "RDCmd_EndDiversion"
     }
 }

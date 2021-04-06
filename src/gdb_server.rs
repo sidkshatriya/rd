@@ -22,7 +22,7 @@ use crate::{
 };
 use libc::pid_t;
 use std::{
-    cell::RefCell,
+    cell::{Ref, RefCell, RefMut},
     collections::{HashMap, HashSet},
     ffi::{OsStr, OsString},
     rc::{Rc, Weak},
@@ -157,6 +157,14 @@ pub struct GdbServer {
 }
 
 impl GdbServer {
+    pub fn get_timeline(&self) -> Ref<ReplayTimeline> {
+        self.timeline.as_ref().unwrap().borrow()
+    }
+
+    pub fn get_timeline_mut(&self) -> RefMut<ReplayTimeline> {
+        self.timeline.as_ref().unwrap().borrow_mut()
+    }
+
     /// Create a gdbserver serving the replay of `session`
     pub fn new(session: SessionSharedPtr, target: &Target) -> GdbServer {
         GdbServer {
@@ -376,20 +384,24 @@ enum ContinueOrStop {
 }
 
 lazy_static! {
-    static ref GDB_RD_MACROS: String = gdb_rd_macros();
+    static ref GDB_RD_MACROS: String = gdb_rd_macros_init();
 }
 
-/// Special-sauce macros defined by rr when launching the gdb client,
+fn gdb_rd_macros() -> &'static str {
+    &*GDB_RD_MACROS
+}
+
+/// Special-sauce macros defined by rd when launching the gdb client,
 /// which implement functionality outside of the gdb remote protocol.
 /// (Don't stare at them too long or you'll go blind ;).)
-fn gdb_rd_macros() -> String {
+fn gdb_rd_macros_init() -> String {
     let mut ss = String::new();
     ss.push_str(&GdbCommandHandler::gdb_macros());
 
     // In gdb version "Fedora 7.8.1-30.fc21", a raw "run" command
     // issued before any user-generated resume-execution command
     // results in gdb hanging just after the inferior hits an internal
-    // gdb breakpoint.  This happens outside of rr, with gdb
+    // gdb breakpoint.  This happens outside of rd, with gdb
     // controlling gdbserver, as well.  We work around that by
     // ensuring *some* resume-execution command has been issued before
     // restarting the session.  But, only if the inferior hasn't
