@@ -119,9 +119,16 @@ lazy_static! {
         &when_tid,
     );
     static ref RD_HISTORY_PUSH: SimpleGdbCommand = SimpleGdbCommand::new(
-        "rr-history-push",
-        "Push an entry into the rr history.",
+        "rd-history-push",
+        "Push an entry into the rd history.",
         &rd_history_push,
+    );
+    static ref BACK: SimpleGdbCommand =
+        SimpleGdbCommand::new("back", "Go back one entry in the rd history.", &back,);
+    static ref FORWARD: SimpleGdbCommand = SimpleGdbCommand::new(
+        "forward",
+        "Go forward one entry in the rd history.",
+        &forward
     );
 }
 
@@ -177,11 +184,11 @@ fn when_tid(_: &GdbServer, t: &dyn Task, _: &[String]) -> String {
     rets
 }
 
-fn rd_history_push(gdb_server: &GdbServer, t: &dyn Task, _: &[String]) -> String {
-    static mut BACK_STACK: Vec<Mark> = Vec::new();
-    static mut CURRENT_HISTORY_CP: Option<Mark> = None;
-    static mut FORWARD_STACK: Vec<Mark> = Vec::new();
+static mut BACK_STACK: Vec<Mark> = Vec::new();
+static mut CURRENT_HISTORY_CP: Option<Mark> = None;
+static mut FORWARD_STACK: Vec<Mark> = Vec::new();
 
+fn rd_history_push(gdb_server: &GdbServer, t: &dyn Task, _: &[String]) -> String {
     if !t.session().is_replaying() {
         // Don't create new history state inside a diversion
         return String::new();
@@ -195,6 +202,44 @@ fn rd_history_push(gdb_server: &GdbServer, t: &dyn Task, _: &[String]) -> String
 
         CURRENT_HISTORY_CP = Some(gdb_server.get_timeline_mut().mark());
         FORWARD_STACK.clear();
+    }
+
+    String::new()
+}
+
+fn back(gdb_server: &GdbServer, t: &dyn Task, _: &[String]) -> String {
+    if !t.session().is_replaying() {
+        return GdbCommandHandler::cmd_end_diversion().to_owned();
+    }
+    // @TODO Avoid unsafe?
+    unsafe {
+        if BACK_STACK.len() == 0 {
+            return "Can't go back. No more history entries.".to_owned();
+        }
+        FORWARD_STACK.push(CURRENT_HISTORY_CP.as_ref().unwrap().clone());
+        CURRENT_HISTORY_CP = Some(BACK_STACK.pop().unwrap());
+
+        gdb_server
+            .get_timeline_mut()
+            .seek_to_mark(CURRENT_HISTORY_CP.as_ref().unwrap());
+    }
+    String::new()
+}
+
+fn forward(gdb_server: &GdbServer, t: &dyn Task, _: &[String]) -> String {
+    if !t.session().is_replaying() {
+        return GdbCommandHandler::cmd_end_diversion().to_owned();
+    }
+    // @TODO Avoid unsafe?
+    unsafe {
+        if FORWARD_STACK.len() == 0 {
+            return "Can't go forward. No more history entries.".to_owned();
+        }
+        BACK_STACK.push(CURRENT_HISTORY_CP.as_ref().unwrap().clone());
+        CURRENT_HISTORY_CP = Some(FORWARD_STACK.pop().unwrap());
+        gdb_server
+            .get_timeline_mut()
+            .seek_to_mark(CURRENT_HISTORY_CP.as_ref().unwrap());
     }
 
     String::new()
