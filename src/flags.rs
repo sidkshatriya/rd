@@ -6,9 +6,9 @@ lazy_static! {
     static ref FLAGS: Flags = init_flags();
 }
 
-/// When to generate or check memory checksums. One of CHECKSUM_NONE,
-/// CHECKSUM_SYSCALL or CHECKSUM_ALL, or a positive integer representing the
-/// event time at which to start checksumming.
+/// When to generate or check memory checksums. One of ChecksumNone,
+/// ChecksumSyscall or ChecksumAll, or ChecksumAt(<a positive integer representing the
+/// event time at which to start checksumming>).
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum Checksum {
     ChecksumNone,

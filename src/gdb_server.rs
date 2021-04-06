@@ -4,7 +4,7 @@ use crate::{
     gdb_connection::{GdbConnection, GdbRegisterValue, GdbRequest},
     gdb_register::GdbRegister,
     registers::Registers,
-    replay_timeline::{self, ReplayTimeline},
+    replay_timeline::{self, ReplayTimeline, ReplayTimelineSharedPtr},
     scoped_fd::ScopedFd,
     session::{
         diversion_session::DiversionSession,
@@ -27,7 +27,9 @@ use std::{
     rc::{Rc, Weak},
 };
 
-#[derive(Clone)]
+const LOCALHOST_ADDR: &'static str = "127.0.0.1";
+
+#[derive(Default, Clone)]
 pub struct Target {
     /// Target process to debug, or `None` to just debug the first process
     pub pid: Option<pid_t>,
@@ -37,35 +39,20 @@ pub struct Target {
     pub event: FrameTime,
 }
 
-impl Target {
-    pub fn new() -> Self {
-        Self {
-            pid: None,
-            require_exec: false,
-            event: 0,
-        }
-    }
-}
-
-impl Default for Target {
-    fn default() -> Target {
-        Target::new()
-    }
-}
-
 pub struct ConnectionFlags {
     /// `None` to let GdbServer choose the port, a positive integer to select a
-    /// specific port to listen on. If keep_listening is on, wait for another
-    /// debugger connection after the first one is terminated.
+    /// specific port to listen on.
     pub dbg_port: Option<usize>,
     pub dbg_host: OsString,
+    /// If keep_listening is true, wait for another
+    /// debugger connection after the first one is terminated.
     pub keep_listening: bool,
-    /// If non-null, then when the gdbserver is set up, we write its connection
+    /// If not Weak::new(), then when the gdbserver is set up, we write its connection
     /// parameters through this pipe. GdbServer::launch_gdb is passed the
     /// other end of this pipe to exec gdb with the parameters.
     pub debugger_params_write_pipe: Weak<RefCell<ScopedFd>>,
     // Name of the debugger to suggest. Only used if debugger_params_write_pipe
-    // is null.
+    // is Weak::new().
     pub debugger_name: OsString,
 }
 
@@ -131,17 +118,19 @@ pub struct GdbServer {
     target: Target,
     /// dbg is initially null. Once the debugger connection is established, it
     /// never changes.
-    /// @TODO Avoid Option<Box<>> ?
     dbg: Option<Box<GdbConnection>>,
     /// When dbg is non-null, the ThreadGroupUid of the task being debugged. Never
     /// changes once the connection is established --- we don't currently
     /// support switching gdb between debuggee processes.
+    /// NOTE: @TODO Zero if not set. Change to option?
     debuggee_tguid: ThreadGroupUid,
     /// ThreadDb for debuggee ThreadGroup
     thread_db: Box<ThreadDb>,
     /// The TaskUid of the last continued task.
+    /// NOTE: @TODO Zero if not set. Change to option?
     last_continue_tuid: TaskUid,
     /// The TaskUid of the last queried task.
+    /// NOTE: @TODO Zero if not set. Change to option?
     last_query_tuid: TaskUid,
     final_event: FrameTime,
     /// siginfo for last notified stop.
@@ -153,7 +142,7 @@ pub struct GdbServer {
     /// True when a DREQ_INTERRUPT has been received but not handled, or when
     /// we've restarted and want the first continue to be interrupted immediately.
     interrupt_pending: bool,
-    timeline: Rc<RefCell<ReplayTimeline>>,
+    timeline: Option<ReplayTimelineSharedPtr>,
     emergency_debug_session: SessionSharedWeakPtr,
     debugger_restart_checkpoint: Checkpoint,
     /// gdb checkpoints, indexed by ID
@@ -162,17 +151,56 @@ pub struct GdbServer {
     symbols: HashSet<String>,
     files: HashMap<i32, ScopedFd>,
     /// The pid for gdb's last vFile:setfs
+    /// NOTE: @TODO Zero if not set. Change to option?
     file_scope_pid: pid_t,
 }
 
 impl GdbServer {
     /// Create a gdbserver serving the replay of `session`
-    pub fn new(_session: SessionSharedPtr, _target: &Target) -> GdbServer {
-        unimplemented!()
+    pub fn new(session: SessionSharedPtr, target: &Target) -> GdbServer {
+        GdbServer {
+            target: target.clone(),
+            dbg: Default::default(),
+            debuggee_tguid: Default::default(),
+            thread_db: Default::default(),
+            last_continue_tuid: Default::default(),
+            last_query_tuid: Default::default(),
+            final_event: u64::MAX,
+            stop_siginfo: Default::default(),
+            in_debuggee_end_state: Default::default(),
+            stop_replaying_to_target: Default::default(),
+            interrupt_pending: Default::default(),
+            timeline: Some(ReplayTimeline::new(session)),
+            emergency_debug_session: Default::default(),
+            debugger_restart_checkpoint: Default::default(),
+            checkpoints: Default::default(),
+            symbols: Default::default(),
+            files: Default::default(),
+            file_scope_pid: Default::default(),
+        }
     }
 
-    fn new_from(_dbg: Box<GdbConnection>, _t: &dyn Task) -> GdbServer {
-        unimplemented!()
+    fn new_from(dbg: Box<GdbConnection>, t: &dyn Task) -> GdbServer {
+        GdbServer {
+            dbg: Some(dbg),
+            debuggee_tguid: t.thread_group().tguid(),
+            last_continue_tuid: t.tuid(),
+            last_query_tuid: Default::default(),
+            final_event: u64::MAX,
+            stop_replaying_to_target: false,
+            interrupt_pending: false,
+            emergency_debug_session: Rc::downgrade(&t.session()),
+            file_scope_pid: 0,
+            target: Default::default(),
+            thread_db: Default::default(),
+            stop_siginfo: Default::default(),
+            in_debuggee_end_state: Default::default(),
+            timeline: Default::default(),
+            debugger_restart_checkpoint: Default::default(),
+            checkpoints: Default::default(),
+            symbols: Default::default(),
+            files: Default::default(),
+        }
     }
 
     /// Return the register `which`, which may not have a defined value.

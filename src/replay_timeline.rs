@@ -71,8 +71,8 @@ impl Default for RunDirection {
 }
 
 type InternalMarkSharedPtr = Rc<RefCell<InternalMark>>;
-type ReplayTimelineSharedPtr = Rc<RefCell<ReplayTimeline>>;
-type ReplayTimelineSharedWeakPtr = Weak<RefCell<ReplayTimeline>>;
+pub type ReplayTimelineSharedPtr = Rc<RefCell<ReplayTimeline>>;
+pub type ReplayTimelineSharedWeakPtr = Weak<RefCell<ReplayTimeline>>;
 
 #[derive(Copy, Clone, Default)]
 struct ReplayStepToMarkStrategy {

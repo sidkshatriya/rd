@@ -14,4 +14,5 @@
 ///
 /// ThreadDb works on a callback model, using symbols provided by the
 /// hosting application.  These are all defined in ThreadDb.cc.
+#[derive(Default)]
 pub struct ThreadDb;
