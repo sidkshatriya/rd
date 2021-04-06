@@ -411,71 +411,68 @@ fn gdb_rd_macros_init() -> String {
     //
     // Try both "set target-async" and "maint set target-async" since
     // that changed recently.
-    let s: &'static str = "\
-      define restart\n\
-        run c$arg0\n\
-      end\n\
-      document restart\n\
-      restart at checkpoint N\n\
-      checkpoints are created with the 'checkpoint' command\n\
-      end\n\
-      define hook-run\n\
-        rd-hook-run\n\
-      end\n\
-      define hookpost-continue\n\
-        rd-set-suppress-run-hook 1\n\
-      end\n\
-      define hookpost-step\n\
-        rd-set-suppress-run-hook 1\n\
-      end\n\
-      define hookpost-stepi\n\
-        rd-set-suppress-run-hook 1\n\
-      end\n\
-      define hookpost-next\n\
-        rd-set-suppress-run-hook 1\n\
-      end\n\
-      define hookpost-nexti\n\
-        rd-set-suppress-run-hook 1\n\
-      end\n\
-      define hookpost-finish\n\
-        rd-set-suppress-run-hook 1\n\
-      end\n\
-      define hookpost-reverse-continue\n\
-        rd-set-suppress-run-hook 1\n\
-      end\n\
-      define hookpost-reverse-step\n\
-        rd-set-suppress-run-hook 1\n\
-      end\n\
-      define hookpost-reverse-stepi\n\
-        rd-set-suppress-run-hook 1\n\
-      end\n\
-      define hookpost-reverse-finish\n\
-        rd-set-suppress-run-hook 1\n\
-      end\n\
-      define hookpost-run\n\
-        rd-set-suppress-run-hook 0\n\
-      end\n\
-      set unwindonsignal on\n\
-      handle SIGURG stop\n\
-      set prompt (rd) \n\
-      python\n\
-      import re\n\
-      m = re.compile(\"
-      '.* ([0-9]+)\\.([0-9]+)(\\.([0-9]+))?.*'\"
-      ).match(gdb.execute('show version', False, True))\n\
-      ver = int(m.group(1))*10000 + int(m.group(2))*100\n\
-      if m.group(4):\n\
-          ver = ver + int(m.group(4))\n\
-      \n\
-      if ver == 71100:\n\
-          gdb.write(\"
-      'This version of gdb (7.11.0) has known bugs that break rd. \
-      Install 7.11.1 or later.\\n', gdb.STDERR)\n\
-      \n\
-      if ver < 71101:\n\
-          gdb.execute('set target-async 0')\n\
-          gdb.execute('maint set target-async 0')\n\
-      end\n";
+    let s: &'static str = r##"
+define restart
+  run c$arg0
+end
+document restart
+restart at checkpoint N
+checkpoints are created with the 'checkpoint' command
+end
+define hook-run
+  rd-hook-run
+end
+define hookpost-continue
+  rd-set-suppress-run-hook 1
+end
+define hookpost-step
+  rd-set-suppress-run-hook 1
+end
+define hookpost-stepi
+  rd-set-suppress-run-hook 1
+end
+define hookpost-next
+  rd-set-suppress-run-hook 1
+end
+define hookpost-nexti
+  rd-set-suppress-run-hook 1
+end
+define hookpost-finish
+  rd-set-suppress-run-hook 1
+end
+define hookpost-reverse-continue
+  rd-set-suppress-run-hook 1
+end
+define hookpost-reverse-step
+  rd-set-suppress-run-hook 1
+end
+define hookpost-reverse-stepi
+  rd-set-suppress-run-hook 1
+end
+define hookpost-reverse-finish
+  rd-set-suppress-run-hook 1
+end
+define hookpost-run
+  rd-set-suppress-run-hook 0
+end
+set unwindonsignal on
+handle SIGURG stop
+set prompt (rd)
+python
+import re
+m = re.compile('.* ([0-9]+)\\.([0-9]+)(\\.([0-9]+))?.*').match(gdb.execute('show version', False, True))
+ver = int(m.group(1))*10000 + int(m.group(2))*100
+if m.group(4):
+    ver = ver + int(m.group(4))
+
+if ver == 71100:
+    gdb.write('This version of gdb (7.11.0) has known bugs that break rd. Install 7.11.1 or later.\\n', gdb.STDERR)
+
+if ver < 71101:
+    gdb.execute('set target-async 0')
+    gdb.execute('maint set target-async 0')
+end
+"##;
     ss.push_str(s);
     ss
 }

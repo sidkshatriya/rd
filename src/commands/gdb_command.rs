@@ -5,6 +5,7 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
+/// DIFF NOTE: Simply called GdbCommand in rr
 pub struct BaseGdbCommand {
     /// @TODO Do we want a OsString here?
     cmd_name: String,
