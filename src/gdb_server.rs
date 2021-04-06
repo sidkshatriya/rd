@@ -1,5 +1,6 @@
 use crate::{
     bindings::signal::siginfo_t,
+    commands::gdb_command_handler::GdbCommandHandler,
     extra_registers::ExtraRegisters,
     gdb_connection::{GdbConnection, GdbRegisterValue, GdbRequest},
     gdb_register::GdbRegister,
@@ -372,4 +373,97 @@ enum ReportState {
 enum ContinueOrStop {
     ContinueDebugging,
     StopDebugging,
+}
+
+lazy_static! {
+    static ref GDB_RD_MACROS: String = gdb_rd_macros();
+}
+
+/// Special-sauce macros defined by rr when launching the gdb client,
+/// which implement functionality outside of the gdb remote protocol.
+/// (Don't stare at them too long or you'll go blind ;).)
+fn gdb_rd_macros() -> String {
+    let mut ss = String::new();
+    ss.push_str(&GdbCommandHandler::gdb_macros());
+
+    // In gdb version "Fedora 7.8.1-30.fc21", a raw "run" command
+    // issued before any user-generated resume-execution command
+    // results in gdb hanging just after the inferior hits an internal
+    // gdb breakpoint.  This happens outside of rr, with gdb
+    // controlling gdbserver, as well.  We work around that by
+    // ensuring *some* resume-execution command has been issued before
+    // restarting the session.  But, only if the inferior hasn't
+    // already finished execution ($_thread != 0).  If it has and we
+    // issue the "stepi" command, then gdb refuses to restart
+    // execution.
+    //
+    // Try both "set target-async" and "maint set target-async" since
+    // that changed recently.
+    let s: &'static str = "\
+      define restart\n\
+        run c$arg0\n\
+      end\n\
+      document restart\n\
+      restart at checkpoint N\n\
+      checkpoints are created with the 'checkpoint' command\n\
+      end\n\
+      define hook-run\n\
+        rd-hook-run\n\
+      end\n\
+      define hookpost-continue\n\
+        rd-set-suppress-run-hook 1\n\
+      end\n\
+      define hookpost-step\n\
+        rd-set-suppress-run-hook 1\n\
+      end\n\
+      define hookpost-stepi\n\
+        rd-set-suppress-run-hook 1\n\
+      end\n\
+      define hookpost-next\n\
+        rd-set-suppress-run-hook 1\n\
+      end\n\
+      define hookpost-nexti\n\
+        rd-set-suppress-run-hook 1\n\
+      end\n\
+      define hookpost-finish\n\
+        rd-set-suppress-run-hook 1\n\
+      end\n\
+      define hookpost-reverse-continue\n\
+        rd-set-suppress-run-hook 1\n\
+      end\n\
+      define hookpost-reverse-step\n\
+        rd-set-suppress-run-hook 1\n\
+      end\n\
+      define hookpost-reverse-stepi\n\
+        rd-set-suppress-run-hook 1\n\
+      end\n\
+      define hookpost-reverse-finish\n\
+        rd-set-suppress-run-hook 1\n\
+      end\n\
+      define hookpost-run\n\
+        rd-set-suppress-run-hook 0\n\
+      end\n\
+      set unwindonsignal on\n\
+      handle SIGURG stop\n\
+      set prompt (rd) \n\
+      python\n\
+      import re\n\
+      m = re.compile(\"
+      '.* ([0-9]+)\\.([0-9]+)(\\.([0-9]+))?.*'\"
+      ).match(gdb.execute('show version', False, True))\n\
+      ver = int(m.group(1))*10000 + int(m.group(2))*100\n\
+      if m.group(4):\n\
+          ver = ver + int(m.group(4))\n\
+      \n\
+      if ver == 71100:\n\
+          gdb.write(\"
+      'This version of gdb (7.11.0) has known bugs that break rd. \
+      Install 7.11.1 or later.\\n', gdb.STDERR)\n\
+      \n\
+      if ver < 71101:\n\
+          gdb.execute('set target-async 0')\n\
+          gdb.execute('maint set target-async 0')\n\
+      end\n";
+    ss.push_str(s);
+    ss
 }
