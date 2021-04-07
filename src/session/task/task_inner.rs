@@ -426,7 +426,7 @@ pub struct TaskInner {
     pub weak_self: TaskSharedWeakPtr,
     /// DIFF NOTE: Not present in rr
     /// Slightly different from `serial` which is liable to change on an exec
-    pub stable_serial: u32,
+    pub stable_serial: Cell<u32>,
 }
 
 pub type DebugRegs = Vec<WatchConfig>;
@@ -1371,7 +1371,7 @@ impl TaskInner {
             syscallbuf_size: 0,
             stopping_breakpoint_table_entry_size: 0,
             serial,
-            stable_serial,
+            stable_serial: Cell::new(stable_serial),
             prname: "???".into(),
             ticks: 0,
             registers: Registers::new(a),
@@ -1406,7 +1406,7 @@ impl TaskInner {
 
     /// DIFF NOTE: There are no stable serials in rr
     pub fn stable_serial(&self) -> u32 {
-        self.stable_serial
+        self.stable_serial.get()
     }
 
     /// Grab state from this task into a structure that we can use to
