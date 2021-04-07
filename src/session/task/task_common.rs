@@ -779,7 +779,7 @@ pub(super) fn did_waitpid_common<T: Task>(task: &mut T, mut status: WaitStatus) 
     task.ticks += more_ticks;
 
     if status.maybe_ptrace_event() == PTRACE_EVENT_EXIT {
-        task.seen_ptrace_exit_event = true;
+        task.seen_ptrace_exit_event.set(true);
     } else {
         if task.registers.singlestep_flag() {
             task.registers.clear_singlestep_flag();
@@ -1944,7 +1944,7 @@ pub(super) fn task_drop_common<T: Task>(t: &T) {
                 .unmap(t, RemotePtr::cast(t.syscallbuf_child), t.syscallbuf_size);
         }
     } else {
-        ed_assert!(t, t.seen_ptrace_exit_event);
+        ed_assert!(t, t.seen_ptrace_exit_event.get());
         ed_assert!(t, t.syscallbuf_child.is_null());
 
         if t.thread_group().task_set().is_empty() && !t.session().is_recording() {

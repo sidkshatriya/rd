@@ -519,7 +519,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
             // Verify that we have not actually seen a PTRACE_EXIT_EVENT.
             ed_assert!(
                 self,
-                !self.seen_ptrace_exit_event,
+                !self.seen_ptrace_exit_event.get(),
                 "A PTRACE_EXIT_EVENT was observed for this task, but somehow forgotten"
             );
 

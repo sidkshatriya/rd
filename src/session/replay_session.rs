@@ -1296,7 +1296,7 @@ impl ReplaySession {
     }
 
     fn exit_task(&self, t: &mut ReplayTask) -> Completion {
-        ed_assert!(t, !t.seen_ptrace_exit_event);
+        ed_assert!(t, !t.seen_ptrace_exit_event.get());
         // Apply robust-futex updates captured during recording.
         t.apply_all_data_records_from_trace();
         end_task(t);

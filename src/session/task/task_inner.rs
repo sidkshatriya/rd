@@ -417,7 +417,7 @@ pub struct TaskInner {
     pub(in super::super) pending_siginfo: siginfo_t,
     /// True when a PTRACE_EXIT_EVENT has been observed in the wait_status
     /// for this task.
-    pub(in super::super) seen_ptrace_exit_event: bool,
+    pub(in super::super) seen_ptrace_exit_event: Cell<bool>,
     /// A counter for the number of stops for which the stop may have been caused
     /// by PTRACE_INTERRUPT. See description in do_waitpid
     pub(in super::super) expecting_ptrace_interrupt_stop: Cell<u32>,
@@ -1252,7 +1252,7 @@ impl TaskInner {
     }
 
     pub fn is_dying(&self) -> bool {
-        self.seen_ptrace_exit_event || self.detected_unexpected_exit
+        self.seen_ptrace_exit_event.get() || self.detected_unexpected_exit
     }
 
     pub fn last_execution_resume(&self) -> RemoteCodePtr {
@@ -1385,7 +1385,7 @@ impl TaskInner {
             extra_registers: None,
             session_: session.weak_self.clone(),
             top_of_stack: Default::default(),
-            seen_ptrace_exit_event: false,
+            seen_ptrace_exit_event: Default::default(),
             thread_locals: array_init::array_init(|_| 0),
             expecting_ptrace_interrupt_stop: Default::default(),
             // DIFF NOTE: These are not explicitly set in rr
