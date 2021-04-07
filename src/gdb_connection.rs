@@ -271,7 +271,7 @@ impl GdbRequest {
         }
     }
 
-    pub fn text(&self) -> &Vec<u8> {
+    pub fn text(&self) -> &[u8] {
         match &self.value {
             GdbRequestValue::GdbRequestText(v) => v,
             _ => panic!(

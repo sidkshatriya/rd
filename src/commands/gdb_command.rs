@@ -7,8 +7,9 @@ use crate::{
 use std::{
     collections::HashMap,
     ffi::{OsStr, OsString},
-    fmt::Write,
+    io::Write,
     ops::{Deref, DerefMut},
+    os::unix::ffi::OsStringExt,
     sync::atomic::{AtomicUsize, Ordering},
 };
 
@@ -23,6 +24,7 @@ impl BaseGdbCommand {
     pub fn name(&self) -> &str {
         &self.cmd_name
     }
+
     pub fn docs(&self) -> &str {
         &self.documentation
     }
@@ -49,7 +51,7 @@ pub trait GdbCommand: DerefMut<Target = BaseGdbCommand> {
     /// to the user.
     ///
     /// NOTE: args[0] is the command name
-    fn invoke(&self, gdb_server: &mut GdbServer, t: &dyn Task, args: &[OsString]) -> String;
+    fn invoke(&self, gdb_server: &mut GdbServer, t: &dyn Task, args: &[OsString]) -> OsString;
 }
 
 impl RdCommand for BaseGdbCommand {
@@ -58,7 +60,7 @@ impl RdCommand for BaseGdbCommand {
     }
 }
 
-type InvokerFn = dyn Fn(&mut GdbServer, &dyn Task, &[OsString]) -> String;
+type InvokerFn = dyn Fn(&mut GdbServer, &dyn Task, &[OsString]) -> OsString;
 
 struct SimpleGdbCommand {
     base_gdb_command: BaseGdbCommand,
@@ -70,13 +72,13 @@ unsafe impl Sync for SimpleGdbCommand {}
 
 impl SimpleGdbCommand {
     pub fn new(
-        cmd_name: &str,
+        cmd_name: String,
         documentation: &str,
         invoker: &'static InvokerFn,
     ) -> SimpleGdbCommand {
         SimpleGdbCommand {
             base_gdb_command: BaseGdbCommand {
-                cmd_name: cmd_name.to_owned(),
+                cmd_name,
                 documentation: documentation.to_owned(),
                 cmd_auto_args: Default::default(),
             },
@@ -100,7 +102,7 @@ impl DerefMut for SimpleGdbCommand {
 }
 
 impl GdbCommand for SimpleGdbCommand {
-    fn invoke(&self, gdb_server: &mut GdbServer, t: &dyn Task, args: &[OsString]) -> String {
+    fn invoke(&self, gdb_server: &mut GdbServer, t: &dyn Task, args: &[OsString]) -> OsString {
         (self.invoker)(gdb_server, t, args)
     }
 }
@@ -137,70 +139,70 @@ pub(super) fn gdb_command_list() -> &'static HashMap<String, Box<dyn GdbCommand>
 fn gdb_command_list_init() -> HashMap<String, Box<dyn GdbCommand>> {
     let mut command_list: HashMap<String, Box<dyn GdbCommand>> = HashMap::new();
 
-    command_list.insert("elapsed-time".to_string(), Box::new(SimpleGdbCommand::new(
-        "elapsed-time",
+    command_list.insert(String::from("elapsed-time"), Box::new(SimpleGdbCommand::new(
+        String::from("elapsed-time"),
         "Print elapsed time (in seconds) since the start of the trace, in the 'record' timeline.",
         &elapsed_time,
     )));
 
     command_list.insert(
-        "when".to_string(),
+        String::from("when"),
         Box::new(SimpleGdbCommand::new(
-            "when",
+            String::from("when"),
             "Print the current rd event number.",
             &when_fn,
         )),
     );
 
     command_list.insert(
-        "when-ticks".to_string(),
+        String::from("when-ticks"),
         Box::new(SimpleGdbCommand::new(
-            "when-ticks",
+            String::from("when-ticks"),
             "Print the current rd tick count for the current thread.",
             &when_ticks,
         )),
     );
 
     command_list.insert(
-        "when-tid".to_string(),
+        String::from("when-tid"),
         Box::new(SimpleGdbCommand::new(
-            "when-tid",
+            String::from("when-tid"),
             "Print the real tid for the current thread.",
             &when_tid,
         )),
     );
 
     command_list.insert(
-        "rd-history-push".to_string(),
+        String::from("rd-history-push"),
         Box::new(SimpleGdbCommand::new(
-            "rd-history-push",
+            String::from("rd-history-push"),
             "Push an entry into the rd history.",
             &rd_history_push,
         )),
     );
 
     command_list.insert(
-        "back".to_string(),
+        String::from("back"),
         Box::new(SimpleGdbCommand::new(
-            "back",
+            String::from("back"),
             "Go back one entry in the rd history.",
             &back,
         )),
     );
 
     command_list.insert(
-        "forward".to_string(),
+        String::from("forward"),
         Box::new(SimpleGdbCommand::new(
-            "forward",
+            String::from("forward"),
             "Go forward one entry in the rd history.",
             &forward,
         )),
     );
 
     command_list.insert(
-        "checkpoint".to_string(),
+        String::from("checkpoint"),
         Box::new(SimpleGdbCommand::new(
-            "checkpoint",
+            String::from("checkpoint"),
             "create a checkpoint representing a point in the execution\n",
             &invoke_checkpoint,
         )),
@@ -209,7 +211,7 @@ fn gdb_command_list_init() -> HashMap<String, Box<dyn GdbCommand>> {
     command_list
 }
 
-fn elapsed_time(_: &mut GdbServer, t: &dyn Task, _: &[OsString]) -> String {
+fn elapsed_time(_: &mut GdbServer, t: &dyn Task, _: &[OsString]) -> OsString {
     if !t.session().is_replaying() {
         return GdbCommandHandler::cmd_end_diversion().to_owned();
     }
@@ -222,53 +224,53 @@ fn elapsed_time(_: &mut GdbServer, t: &dyn Task, _: &[OsString]) -> String {
             .unwrap()
             .get_trace_start_time();
 
-    let mut rets = String::new();
+    let mut rets = Vec::<u8>::new();
     write!(rets, "Elapsed Time (s): {}", elapsed_time).unwrap();
-    rets
+    OsString::from_vec(rets)
 }
 
-fn when_fn(_: &mut GdbServer, t: &dyn Task, _: &[OsString]) -> String {
+fn when_fn(_: &mut GdbServer, t: &dyn Task, _: &[OsString]) -> OsString {
     if !t.session().is_replaying() {
-        return GdbCommandHandler::cmd_end_diversion().to_owned();
+        return GdbCommandHandler::cmd_end_diversion();
     }
-    let mut rets = String::new();
+    let mut rets = Vec::<u8>::new();
     write!(
         rets,
         "Current event: {}",
         t.as_replay_task().unwrap().current_trace_frame().time()
     )
     .unwrap();
-    rets
+    OsString::from_vec(rets)
 }
 
-fn when_ticks(_: &mut GdbServer, t: &dyn Task, _: &[OsString]) -> String {
+fn when_ticks(_: &mut GdbServer, t: &dyn Task, _: &[OsString]) -> OsString {
     if !t.session().is_replaying() {
-        return GdbCommandHandler::cmd_end_diversion().to_owned();
+        return GdbCommandHandler::cmd_end_diversion();
     }
 
-    let mut rets = String::new();
+    let mut rets = Vec::<u8>::new();
     write!(rets, "Current ticks: {}", t.tick_count()).unwrap();
-    rets
+    OsString::from_vec(rets)
 }
 
-fn when_tid(_: &mut GdbServer, t: &dyn Task, _: &[OsString]) -> String {
+fn when_tid(_: &mut GdbServer, t: &dyn Task, _: &[OsString]) -> OsString {
     if !t.session().is_replaying() {
-        return GdbCommandHandler::cmd_end_diversion().to_owned();
+        return GdbCommandHandler::cmd_end_diversion();
     }
 
-    let mut rets = String::new();
+    let mut rets = Vec::<u8>::new();
     write!(rets, "Current tid: {}", t.tid).unwrap();
-    rets
+    OsString::from_vec(rets)
 }
 
 static mut BACK_STACK: Vec<Mark> = Vec::new();
 static mut CURRENT_HISTORY_CP: Option<Mark> = None;
 static mut FORWARD_STACK: Vec<Mark> = Vec::new();
 
-fn rd_history_push(gdb_server: &mut GdbServer, t: &dyn Task, _: &[OsString]) -> String {
+fn rd_history_push(gdb_server: &mut GdbServer, t: &dyn Task, _: &[OsString]) -> OsString {
     if !t.session().is_replaying() {
         // Don't create new history state inside a diversion
-        return String::new();
+        return OsString::new();
     }
 
     // @TODO Avoid unsafe?
@@ -281,17 +283,17 @@ fn rd_history_push(gdb_server: &mut GdbServer, t: &dyn Task, _: &[OsString]) -> 
         FORWARD_STACK.clear();
     }
 
-    String::new()
+    OsString::new()
 }
 
-fn back(gdb_server: &mut GdbServer, t: &dyn Task, _: &[OsString]) -> String {
+fn back(gdb_server: &mut GdbServer, t: &dyn Task, _: &[OsString]) -> OsString {
     if !t.session().is_replaying() {
-        return GdbCommandHandler::cmd_end_diversion().to_owned();
+        return GdbCommandHandler::cmd_end_diversion();
     }
     // @TODO Avoid unsafe?
     unsafe {
         if BACK_STACK.len() == 0 {
-            return "Can't go back. No more history entries.".to_owned();
+            return OsString::from("Can't go back. No more history entries.");
         }
         FORWARD_STACK.push(CURRENT_HISTORY_CP.as_ref().unwrap().clone());
         CURRENT_HISTORY_CP = Some(BACK_STACK.pop().unwrap());
@@ -300,17 +302,17 @@ fn back(gdb_server: &mut GdbServer, t: &dyn Task, _: &[OsString]) -> String {
             .get_timeline_mut()
             .seek_to_mark(CURRENT_HISTORY_CP.as_ref().unwrap());
     }
-    String::new()
+    OsString::new()
 }
 
-fn forward(gdb_server: &mut GdbServer, t: &dyn Task, _: &[OsString]) -> String {
+fn forward(gdb_server: &mut GdbServer, t: &dyn Task, _: &[OsString]) -> OsString {
     if !t.session().is_replaying() {
-        return GdbCommandHandler::cmd_end_diversion().to_owned();
+        return GdbCommandHandler::cmd_end_diversion();
     }
     // @TODO Avoid unsafe?
     unsafe {
         if FORWARD_STACK.len() == 0 {
-            return "Can't go forward. No more history entries.".to_owned();
+            return OsString::from("Can't go forward. No more history entries.");
         }
         BACK_STACK.push(CURRENT_HISTORY_CP.as_ref().unwrap().clone());
         CURRENT_HISTORY_CP = Some(FORWARD_STACK.pop().unwrap());
@@ -319,10 +321,10 @@ fn forward(gdb_server: &mut GdbServer, t: &dyn Task, _: &[OsString]) -> String {
             .seek_to_mark(CURRENT_HISTORY_CP.as_ref().unwrap());
     }
 
-    String::new()
+    OsString::new()
 }
 
-fn invoke_checkpoint(gdb_server: &mut GdbServer, _t: &dyn Task, args: &[OsString]) -> String {
+fn invoke_checkpoint(gdb_server: &mut GdbServer, _t: &dyn Task, args: &[OsString]) -> OsString {
     static NEXT_CHECKPOINT_ID: AtomicUsize = AtomicUsize::new(0);
     let where_ = &args[1];
     let checkpoint_id = NEXT_CHECKPOINT_ID.fetch_add(1, Ordering::SeqCst);
@@ -339,7 +341,7 @@ fn invoke_checkpoint(gdb_server: &mut GdbServer, _t: &dyn Task, args: &[OsString
         where_,
     );
     gdb_server.checkpoints.insert(checkpoint_id, checkpoint);
-    let mut rets = String::new();
+    let mut rets = Vec::<u8>::new();
     write!(rets, "Checkpoint {} at {:?}", checkpoint_id, where_).unwrap();
-    rets
+    OsString::from_vec(rets)
 }

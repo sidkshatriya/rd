@@ -3,8 +3,11 @@ use crate::{
         gdb_command::{gdb_command_list, BaseGdbCommand, GdbCommand},
         gdb_server::GdbServer,
     },
+    log::LogDebug,
     session::task::Task,
+    util::{find, str16_to_usize},
 };
+use std::{ffi::OsString, io::Write, os::unix::ffi::OsStringExt};
 
 pub struct GdbCommandHandler;
 
@@ -13,9 +16,8 @@ impl GdbCommandHandler {
     /// wrapper code.
     pub fn gdb_macros() -> String {
         BaseGdbCommand::init_auto_args();
-        let _s = r##"Delimiter(
-
-set python print-stack full
+        let mut ss = String::new();
+        let s = r##"set python print-stack full
 python
 
 import re
@@ -95,9 +97,9 @@ class RDHookRun(gdb.Command):
                              gdb.COMMAND_USER, gdb.COMPLETE_NONE, False)
 
     def invoke(self, arg, from_tty):
-      thread = int(gdb.parse_and_eval("$_thread"))
-      if thread != 0 and not rd_suppress_run_hook:
-        gdb.execute("stepi")
+        thread = int(gdb.parse_and_eval("$_thread"))
+        if thread != 0 and not rd_suppress_run_hook:
+          gdb.execute("stepi")
 
 class RDSetSuppressRunHook(gdb.Command):
     def __init__(self):
@@ -105,7 +107,7 @@ class RDSetSuppressRunHook(gdb.Command):
                              gdb.COMMAND_USER, gdb.COMPLETE_NONE, False)
 
     def invoke(self, arg, from_tty):
-      rd_suppress_run_hook = arg == '1'
+        rd_suppress_run_hook = arg == '1'
 
 RDHookRun()
 RDSetSuppressRunHook()
@@ -116,9 +118,26 @@ RDSetSuppressRunHook()
 #gdb.events.stop.connect(history_push)
 
 end
-)Delimiter"##;
+"##;
 
-        unimplemented!()
+        ss.push_str(s);
+
+        for it in gdb_command_list().values() {
+            ss.push_str(&gdb_macro_binding(it));
+        }
+
+        ss.push_str(
+            r##"define hookpost-back
+frame
+end
+
+define hookpost-forward
+frame
+end
+"##,
+        );
+
+        ss
     }
 
     /// Process an incoming GDB payload of the following form:
@@ -126,16 +145,90 @@ end
     ///
     /// NOTE: RD Commands are typically sent with the qRDCmd: prefix which
     /// should have been stripped already.
-    pub fn process_command(_gdb_server: &GdbServer, _t: &dyn Task, _payload: &str) -> String {
-        unimplemented!()
+    pub fn process_command(gdb_server: &mut GdbServer, t: &dyn Task, payload: &[u8]) -> Vec<u8> {
+        let args = parse_cmd(payload);
+        let name = args[0].clone().into_string().unwrap();
+        let maybe_cmd = Self::command_for_name(&name);
+        match maybe_cmd {
+            None => {
+                let mut msg: Vec<u8> = Vec::new();
+                write!(msg, "Command {:?} not found.\n", args[0]).unwrap();
+                gdb_escape(&msg)
+            }
+            Some(cmd) => {
+                log!(LogDebug, "invoking command: {:?}", cmd.name());
+                let resp = cmd.invoke(gdb_server, t, &args);
+
+                if resp == GdbCommandHandler::cmd_end_diversion() {
+                    log!(LogDebug, "cmd must run outside of diversion ({:?})", resp);
+                    return OsString::into_vec(resp);
+                }
+
+                log!(LogDebug, "cmd response: {:?}", resp);
+                let mut res = OsString::into_vec(resp);
+                res.push(b'\n');
+                gdb_escape(&res)
+            }
+        }
     }
 
     pub fn command_for_name(name: &str) -> Option<&Box<dyn GdbCommand>> {
         gdb_command_list().get(name)
     }
 
-    /// Special return value for commands that immediatly end a diversion session
-    pub fn cmd_end_diversion() -> &'static str {
-        "RDCmd_EndDiversion"
+    /// Special return value for commands that immediately ends a diversion session
+    pub fn cmd_end_diversion() -> OsString {
+        OsString::from("RDCmd_EndDiversion")
     }
+}
+
+/// Use the simplest two hex character by byte encoding
+fn gdb_escape(s: &[u8]) -> Vec<u8> {
+    let mut ss = Vec::new();
+    for &b in s {
+        write!(ss, "{:02x}", b).unwrap();
+    }
+    ss
+}
+
+fn gdb_unescape(mut s: &[u8]) -> Vec<u8> {
+    assert_eq!(s.len() % 2, 0);
+    let mut ss = Vec::new();
+    while s.len() >= 2 {
+        let mut ignore = Default::default();
+        let val: u8 = str16_to_usize(&s[0..2], &mut ignore).unwrap() as u8;
+        assert_eq!(ignore.len(), 0);
+        ss.push(val);
+        s = &s[2..];
+    }
+    ss
+}
+
+fn parse_cmd(mut s: &[u8]) -> Vec<OsString> {
+    let mut args: Vec<OsString> = Vec::new();
+    while let Some(pos) = find(s, b":") {
+        args.push(OsString::from_vec(gdb_unescape(&s[0..pos])));
+        s = &s[pos + 1..];
+    }
+    if s.len() > 0 {
+        args.push(OsString::from_vec(gdb_unescape(s)));
+    }
+    args
+}
+
+fn gdb_macro_binding(cmd: &Box<dyn GdbCommand>) -> String {
+    let mut auto_args_str = String::from("[");
+    for (i, arg) in cmd.auto_args().iter().enumerate() {
+        if i > 0 {
+            auto_args_str.push_str(", ");
+        }
+        auto_args_str.push_str(&format!("{:?}", arg));
+    }
+    auto_args_str.push_str("]");
+    let mut ret = format!("python RRCmd({}, {})\n", cmd.name(), auto_args_str);
+    if !cmd.docs().is_empty() {
+        ret.push_str(&format!("document {}\n{}\nend\n", cmd.name(), cmd.docs()));
+    }
+
+    ret
 }
