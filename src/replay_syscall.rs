@@ -1083,7 +1083,7 @@ fn rep_after_enter_syscall_arch<Arch: Architecture>(t: &mut ReplayTask) {
     }
 
     if sys == Arch::EXIT_GROUP {
-        if t.thread_group().task_set().len() == 1 {
+        if t.thread_group().borrow().task_set().len() == 1 {
             // See above.
             t.destroy_buffers();
         }
@@ -1167,7 +1167,7 @@ pub fn process_execve(t: &mut ReplayTask, step: &mut ReplayTraceStep) {
     );
     // Complete the syscall. The tid of the task will be the thread-group-leader
     // tid, no matter what tid it was before.
-    let tgid: pid_t = t.thread_group().real_tgid;
+    let tgid: pid_t = t.thread_group().borrow().real_tgid;
     __ptrace_cont(
         t,
         ResumeRequest::ResumeSyscall,

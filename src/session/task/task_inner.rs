@@ -73,7 +73,7 @@ use crate::{
         SessionSharedWeakPtr,
     },
     taskish_uid::TaskUid,
-    thread_group::{ThreadGroupRef, ThreadGroupRefMut, ThreadGroupSharedPtr},
+    thread_group::ThreadGroupSharedPtr,
     ticks::Ticks,
     trace::{trace_frame::FrameTime, trace_stream::TraceStream},
     util::{
@@ -401,7 +401,7 @@ pub struct TaskInner {
     /// A weak pointer to the  session we're part of.
     pub(in super::super) session_: SessionSharedWeakPtr,
     /// The thread group this belongs to.
-    pub(in super::super) tg: Option<ThreadGroupSharedPtr>,
+    pub(in super::super) tg: RefCell<Option<ThreadGroupSharedPtr>>,
     /// Entries set by `set_thread_area()` or the `tls` argument to `clone()`
     /// (when that's a user_desc). May be more than one due to different
     /// entry_numbers.
@@ -781,7 +781,7 @@ impl TaskInner {
 
     /// Return true if this task has execed.
     pub fn execed(&self) -> bool {
-        self.thread_group().execed
+        self.thread_group().borrow().execed
     }
 
     /// Return the current regs of this.
@@ -1107,29 +1107,18 @@ impl TaskInner {
     }
 
     /// Return the thread group this belongs to.
-    pub fn thread_group(&self) -> ThreadGroupRef {
-        self.tg.as_ref().unwrap().borrow()
-    }
-
-    /// Return the thread group this belongs to.
-    pub fn thread_group_mut(&self) -> ThreadGroupRefMut {
-        self.tg.as_ref().unwrap().borrow_mut()
-    }
-
-    /// Use thread_group() and thread_group_mut() in preference to this
-    /// But could be useful in place for borrow related purposes
-    pub fn thread_group_shr_ptr(&self) -> ThreadGroupSharedPtr {
-        self.tg.as_ref().unwrap().clone()
+    pub fn thread_group(&self) -> ThreadGroupSharedPtr {
+        self.tg.borrow().as_ref().unwrap().clone()
     }
 
     /// Return the id of this task's recorded thread group.
     pub fn tgid(&self) -> pid_t {
-        self.thread_group().tgid
+        self.thread_group().borrow().tgid
     }
 
     /// Return id of real OS thread group
     pub fn real_tgid(&self) -> pid_t {
-        self.thread_group().real_tgid
+        self.thread_group().borrow().real_tgid
     }
 
     pub fn tuid(&self) -> TaskUid {
@@ -1776,7 +1765,7 @@ impl TaskInner {
         wrapped_t.borrow_mut().weak_self = Rc::downgrade(&wrapped_t);
 
         let tg = session.create_initial_tg(wrapped_t.clone());
-        wrapped_t.borrow_mut().tg = Some(tg);
+        *wrapped_t.borrow_mut().tg.borrow_mut() = Some(tg);
         let addr_space = session.create_vm(wrapped_t.borrow_mut().as_mut(), None, None);
         wrapped_t.borrow_mut().as_ = Some(addr_space);
         let weak_t_ptr = wrapped_t.borrow().weak_self.clone();

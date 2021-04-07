@@ -465,7 +465,7 @@ impl RecordSession {
             Rc::get_mut_unchecked(&mut rc)
                 .as_record_mut()
                 .unwrap()
-                .initial_thread_group = Some(t.borrow().thread_group_shr_ptr());
+                .initial_thread_group = Some(t.borrow().thread_group());
         }
         rc.on_create_task(t);
         rc
@@ -1059,7 +1059,7 @@ impl RecordSession {
                                     syscall_name(syscallno, t.borrow().arch())
                                 );
 
-                                let tg = t.borrow().thread_group_shr_ptr();
+                                let tg = t.borrow().thread_group();
                                 for tt in tg.borrow().task_set().iter() {
                                     // Record robust futex changes now in case the taskgroup dies
                                     // synchronously without a regular PTRACE_EVENT_EXIT (as seems
@@ -1078,7 +1078,7 @@ impl RecordSession {
             }
 
             PTRACE_EVENT_EXEC => {
-                let thread_group_len = t.borrow().thread_group().task_set().len();
+                let thread_group_len = t.borrow().thread_group().borrow().task_set().len();
                 if thread_group_len > 1 {
                     // All tasks but the task that did the execve should have exited by
                     // now and notified us of their exits. However, it's possible that
@@ -1354,7 +1354,7 @@ impl RecordSession {
                         Some(sig),
                     );
                     log!(LogWarn,   "Delivered core-dumping signal; may misrecord CLONE_CHILD_CLEARTID memory race");
-                    t.thread_group_shr_ptr().borrow().destabilize(t);
+                    t.thread_group().borrow().destabilize(t);
                 }
 
                 t.signal_delivered(sig);
@@ -2118,7 +2118,7 @@ impl RecordSession {
         let t = maybe_t.unwrap();
         let tid = t.borrow().tid;
         ed_assert_eq!(&t.borrow(), rec_tid, t.borrow().tgid());
-        let own_namespace_tid = t.borrow().thread_group().real_tgid_own_namespace;
+        let own_namespace_tid = t.borrow().thread_group().borrow().real_tgid_own_namespace;
 
         log!(LogDebug, "Changing task tid from {} to {}", tid, rec_tid);
 
@@ -2380,7 +2380,7 @@ fn inject_handled_signal(t: &mut RecordTask) -> bool {
         // signal handler to match what the kernel does.
         t.did_set_sig_handler_default(sig::SIGSEGV);
         t.stash_sig();
-        t.thread_group_mut().received_sigframe_sigsegv = true;
+        t.thread_group().borrow_mut().received_sigframe_sigsegv = true;
         return false;
     }
 
@@ -3135,7 +3135,7 @@ fn handle_ptrace_exit_event(t: &mut RecordTask) -> bool {
             LogWarn,
             "unstable exit; may misrecord CLONE_CHILD_CLEARTID memory race"
         );
-        t.thread_group_shr_ptr().borrow().destabilize(t);
+        t.thread_group().borrow().destabilize(t);
     }
 
     record_robust_futex_changes(t);
@@ -3293,8 +3293,8 @@ fn record_exit(t: &RecordTask, exit_status: WaitStatus) {
         .trace_writer_mut()
         .write_task_event(&TraceTaskEvent::for_exit(t.tid, exit_status));
 
-    if t.thread_group().tgid == t.tid {
-        t.thread_group_mut().exit_status = exit_status;
+    if t.thread_group().borrow().tgid == t.tid {
+        t.thread_group().borrow_mut().exit_status = exit_status;
     }
 }
 

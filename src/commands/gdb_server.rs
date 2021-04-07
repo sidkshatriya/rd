@@ -192,7 +192,7 @@ impl GdbServer {
     fn new_from(dbg: Box<GdbConnection>, t: &dyn Task) -> GdbServer {
         GdbServer {
             dbg: Some(dbg),
-            debuggee_tguid: t.thread_group().tguid(),
+            debuggee_tguid: t.thread_group().borrow().tguid(),
             last_continue_tuid: t.tuid(),
             last_query_tuid: Default::default(),
             final_event: u64::MAX,

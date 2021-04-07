@@ -102,7 +102,7 @@ pub(super) fn kill_all_tasks<S: Session>(sess: &S) {
                 syscall(SYS_tgkill, t.borrow().real_tgid(), t.borrow().tid, SIGKILL);
             }
             t.borrow()
-                .thread_group_shr_ptr()
+                .thread_group()
                 .borrow()
                 .destabilize(t.borrow().as_ref());
         }

@@ -1445,7 +1445,7 @@ pub(super) fn post_exec_for_exe_common<T: Task>(t: &mut T, exe_file: &OsStr) {
     t.stopping_breakpoint_table = RemoteCodePtr::null();
     t.stopping_breakpoint_table_entry_size = 0;
     t.preload_globals = None;
-    t.thread_group_mut().execed = true;
+    t.thread_group().borrow_mut().execed = true;
     t.thread_areas_.borrow_mut().clear();
     t.thread_locals = [0u8; PRELOAD_THREAD_LOCALS_SIZE];
     let exec_count = t.vm().uid().exec_count() + 1;
@@ -1709,13 +1709,13 @@ pub(in super::super) fn clone_task_common(
 
     ref_t.post_wait_clone(clone_this, flags);
     if flags.contains(CloneFlags::CLONE_SHARE_THREAD_GROUP) {
-        ref_t.tg = clone_this.tg.clone();
+        *ref_t.tg.borrow_mut() = clone_this.tg.borrow().clone();
     } else {
-        ref_t.tg =
-            Some(new_task_session.clone_tg(ref_t.as_mut(), clone_this.thread_group_shr_ptr()));
+        *ref_t.tg.borrow_mut() =
+            Some(new_task_session.clone_tg(ref_t.as_mut(), clone_this.thread_group()));
     }
     ref_t
-        .thread_group_shr_ptr()
+        .thread_group()
         .borrow_mut()
         .task_set_mut()
         .insert(weak_self_ptr.clone());
@@ -1948,18 +1948,19 @@ pub(super) fn task_drop_common<T: Task>(t: &T) {
         ed_assert!(t, t.seen_ptrace_exit_event.get());
         ed_assert!(t, t.syscallbuf_child.is_null());
 
-        if t.thread_group().task_set().is_empty() && !t.session().is_recording() {
+        if t.thread_group().borrow().task_set().is_empty() && !t.session().is_recording() {
             // Reap the zombie.
-            let ret = unsafe { waitpid(t.thread_group().real_tgid, ptr::null_mut(), __WALL) };
+            let ret =
+                unsafe { waitpid(t.thread_group().borrow().real_tgid, ptr::null_mut(), __WALL) };
             if ret == -1 {
                 ed_assert!(t, errno() == ECHILD || errno() == ESRCH);
             } else {
-                ed_assert_eq!(t, ret, t.thread_group().real_tgid);
+                ed_assert_eq!(t, ret, t.thread_group().borrow().real_tgid);
             }
         }
     }
 
-    t.thread_group_shr_ptr()
+    t.thread_group()
         .borrow_mut()
         .task_set_mut()
         .erase(t.weak_self_ptr());

@@ -663,7 +663,9 @@ impl Scheduler {
 
         // When the last task in a threadgroup undergoing execve dies,
         // the execve is over.
-        if Some(t.tgid()) == self.in_exec_tgid.get() && t.thread_group().task_set().len() == 1 {
+        if Some(t.tgid()) == self.in_exec_tgid.get()
+            && t.thread_group().borrow().task_set().len() == 1
+        {
             self.in_exec_tgid.set(None);
         }
 

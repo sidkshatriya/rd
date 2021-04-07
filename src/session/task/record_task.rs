@@ -1458,7 +1458,7 @@ impl RecordTask {
             }
         }
 
-        for child_tg in self.thread_group().children() {
+        for child_tg in self.thread_group().borrow().children() {
             for child in child_tg.borrow().task_set() {
                 let mut rchildb = child.borrow_mut();
                 let rchild = rchildb.as_rec_mut_unwrap();
@@ -1539,8 +1539,8 @@ impl RecordTask {
                 // This is there in rd to prevent already borrowed possibility
                 if ptracer.ptr_eq(&self.weak_self)
                     || Rc::ptr_eq(
-                        &ptracer.upgrade().unwrap().borrow().thread_group_shr_ptr(),
-                        &self.thread_group_shr_ptr(),
+                        &ptracer.upgrade().unwrap().borrow().thread_group(),
+                        &self.thread_group(),
                     ) =>
             {
                 ()
@@ -1571,9 +1571,12 @@ impl RecordTask {
     /// when t's status changes due to a regular event (exit).
     pub fn is_waiting_for(&self, t: &RecordTask) -> bool {
         // t must be a child of this task.
-        if !t.thread_group().parent().map_or(false, |parent| {
-            Rc::ptr_eq(&parent, &self.thread_group_shr_ptr())
-        }) {
+        if !t
+            .thread_group()
+            .borrow()
+            .parent()
+            .map_or(false, |parent| Rc::ptr_eq(&parent, &self.thread_group()))
+        {
             return false;
         }
 
@@ -1665,6 +1668,7 @@ impl RecordTask {
                 self.apply_group_stop(sig, None);
                 for t in self
                     .thread_group()
+                    .borrow()
                     .task_set()
                     .iter_except(self.weak_self_ptr())
                 {
@@ -1722,6 +1726,7 @@ impl RecordTask {
         self.emulated_stop_type = EmulatedStopType::NotStopped;
         for t in self
             .thread_group()
+            .borrow()
             .task_set()
             .iter_except(self.weak_self_ptr())
         {
@@ -2685,7 +2690,7 @@ impl RecordTask {
     }
 
     pub fn is_fatal_signal(&self, sig: Sig, deterministic: SignalDeterministic) -> bool {
-        if self.thread_group().received_sigframe_sigsegv {
+        if self.thread_group().borrow().received_sigframe_sigsegv {
             // Can't be blocked, caught or ignored
             return true;
         }
@@ -2967,6 +2972,7 @@ impl RecordTask {
 
         for t in self
             .thread_group()
+            .borrow()
             .task_set()
             .iter_except(self.weak_self_ptr())
         {
@@ -3018,6 +3024,7 @@ impl RecordTask {
                 }
                 for t in self
                     .thread_group()
+                    .borrow()
                     .task_set()
                     .iter_except(self.weak_self_ptr())
                 {
@@ -3034,7 +3041,7 @@ impl RecordTask {
             }
         }
         if !need_signal {
-            for child_tg in self.thread_group_shr_ptr().borrow().children() {
+            for child_tg in self.thread_group().borrow().children() {
                 for child_rc in child_tg.borrow().task_set().iter() {
                     let child_rc_weak = Rc::downgrade(&child_rc);
                     let rchildb;

@@ -3316,7 +3316,12 @@ fn thread_group_in_exec(t: &dyn Task) -> bool {
         return false;
     }
 
-    for tt in t.thread_group().task_set().iter_except(t.weak_self_ptr()) {
+    for tt in t
+        .thread_group()
+        .borrow()
+        .task_set()
+        .iter_except(t.weak_self_ptr())
+    {
         let rf = tt.borrow();
         let rt = rf.as_record_task().unwrap();
         let ev: &Event = rt.ev();

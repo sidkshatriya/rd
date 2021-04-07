@@ -201,7 +201,12 @@ fn install_patched_seccomp_filter_arch<Arch: Architecture>(
         if is_seccomp_syscall(orig_syscallno, t.arch())
             && (arg2 & SECCOMP_FILTER_FLAG_TSYNC as usize != 0)
         {
-            for tt in t.thread_group().task_set().iter_except(t.weak_self_ptr()) {
+            for tt in t
+                .thread_group()
+                .borrow()
+                .task_set()
+                .iter_except(t.weak_self_ptr())
+            {
                 tt.borrow_mut().as_rec_mut_unwrap().prctl_seccomp_status = 2;
             }
         }

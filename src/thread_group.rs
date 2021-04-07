@@ -11,14 +11,12 @@ use crate::{
 };
 use libc::pid_t;
 use std::{
-    cell::{Ref, RefCell, RefMut},
+    cell::RefCell,
     rc::{Rc, Weak},
 };
 
 pub type ThreadGroupSharedPtr = Rc<RefCell<ThreadGroup>>;
 pub type ThreadGroupSharedWeakPtr = Weak<RefCell<ThreadGroup>>;
-pub type ThreadGroupRef<'a> = Ref<'a, ThreadGroup>;
-pub type ThreadGroupRefMut<'a> = RefMut<'a, ThreadGroup>;
 
 /// Tracks a group of tasks with an associated ID, set from the
 /// original "thread group leader", the child of `fork()` which became

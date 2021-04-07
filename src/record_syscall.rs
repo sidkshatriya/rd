@@ -825,7 +825,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
     }
 
     if sys == Arch::EXIT_GROUP {
-        if t.thread_group().task_set().len() == 1 {
+        if t.thread_group().borrow().task_set().len() == 1 {
             prepare_exit(t, regs.arg1() as i32);
             return Switchable::AllowSwitch;
         }
@@ -914,14 +914,18 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
                     r.set_arg1_signed(-1);
                     t.set_regs(&r);
                     syscall_state.emulate_result(0);
-                    t.thread_group_mut().dumpable = false;
+                    t.thread_group().borrow_mut().dumpable = false;
                 } else if regs.arg2() == 1 {
-                    t.thread_group_mut().dumpable = true;
+                    t.thread_group().borrow_mut().dumpable = true;
                 }
             }
 
             PR_GET_DUMPABLE => {
-                syscall_state.emulate_result(if t.thread_group().dumpable { 1 } else { 0 });
+                syscall_state.emulate_result(if t.thread_group().borrow().dumpable {
+                    1
+                } else {
+                    0
+                });
             }
 
             PR_GET_SECCOMP => {
@@ -2392,7 +2396,7 @@ fn maybe_emulate_wait(
         }
     }
     if options & WUNTRACED != 0 {
-        for child_process in t.thread_group().children() {
+        for child_process in t.thread_group().borrow().children() {
             for child in child_process.borrow().task_set() {
                 let rchildb = child.borrow();
                 let rchild = rchildb.as_rec_unwrap();
@@ -3154,6 +3158,7 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
                         tracee.emulated_stop_pending = false;
                         for thread in tracee
                             .thread_group()
+                            .borrow()
                             .task_set()
                             .iter_except(tracee.weak_self_ptr())
                         {
