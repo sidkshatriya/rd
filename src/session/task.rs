@@ -236,7 +236,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
             self.prname,
             self.tid,
             self.rec_tid,
-            self.wait_status,
+            self.wait_status.get(),
             if self.unstable.get() { " UNSTABLE" } else { "" },
             self as *const _
         )

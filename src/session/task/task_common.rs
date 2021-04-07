@@ -771,7 +771,7 @@ pub(super) fn did_waitpid_common<T: Task>(task: &mut T, mut status: WaitStatus) 
     }
 
     task.is_stopped = true;
-    task.wait_status = status;
+    task.wait_status.set(status);
     let more_ticks: Ticks = task.hpc.read_ticks(task);
     // We stop counting here because there may be things we want to do to the
     // tracee that would otherwise generate ticks.
@@ -2355,7 +2355,7 @@ pub(in super::super) fn copy_state(t: &mut dyn Task, state: &CapturedState) {
 
     // Whatever |from|'s last wait status was is what ours would
     // have been.
-    t.wait_status = state.wait_status;
+    t.wait_status.set(state.wait_status);
 
     t.ticks = state.ticks;
 }

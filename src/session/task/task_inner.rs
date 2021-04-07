@@ -411,7 +411,7 @@ pub struct TaskInner {
     pub(in super::super) top_of_stack: RemotePtr<Void>,
     /// The most recent status of this task as returned by
     /// waitpid().
-    pub(in super::super) wait_status: WaitStatus,
+    pub(in super::super) wait_status: Cell<WaitStatus>,
     /// The most recent siginfo (captured when wait_status shows pending_sig())
     /// @TODO Should this be an Option??
     pub(in super::super) pending_siginfo: RefCell<siginfo_t>,
@@ -1075,7 +1075,7 @@ impl TaskInner {
     }
 
     pub fn set_status(&mut self, status: WaitStatus) {
-        self.wait_status = status;
+        self.wait_status.set(status);
     }
 
     /// Return true when the task is running, false if it's stopped.
@@ -1085,25 +1085,25 @@ impl TaskInner {
 
     /// Return the status of this as of the last successful wait()/try_wait() call.
     pub fn status(&self) -> WaitStatus {
-        self.wait_status
+        self.wait_status.get()
     }
 
     /// Return the ptrace event as of the last call to `wait()/try_wait()`.
     pub fn maybe_ptrace_event(&self) -> MaybePtraceEvent {
-        self.wait_status.maybe_ptrace_event()
+        self.wait_status.get().maybe_ptrace_event()
     }
 
     /// Return the signal that's pending for this as of the last call to `wait()/try_wait()`.
     pub fn maybe_stop_sig(&self) -> MaybeStopSignal {
-        self.wait_status.maybe_stop_sig()
+        self.wait_status.get().maybe_stop_sig()
     }
 
     pub fn maybe_group_stop_sig(&self) -> MaybeStopSignal {
-        self.wait_status.maybe_group_stop_sig()
+        self.wait_status.get().maybe_group_stop_sig()
     }
 
     pub fn clear_wait_status(&mut self) {
-        self.wait_status = WaitStatus::default();
+        self.wait_status.set(WaitStatus::default());
     }
 
     /// Return the thread group this belongs to.
@@ -1431,7 +1431,7 @@ impl TaskInner {
             preload_globals: self.preload_globals,
             scratch_ptr: self.scratch_ptr,
             scratch_size: self.scratch_size,
-            wait_status: self.wait_status,
+            wait_status: self.wait_status.get(),
             ticks: self.ticks,
             top_of_stack: self.top_of_stack,
             thread_locals: self.fetch_preload_thread_locals().clone(),
