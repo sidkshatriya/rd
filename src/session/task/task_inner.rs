@@ -420,7 +420,7 @@ pub struct TaskInner {
     pub(in super::super) seen_ptrace_exit_event: bool,
     /// A counter for the number of stops for which the stop may have been caused
     /// by PTRACE_INTERRUPT. See description in do_waitpid
-    pub(in super::super) expecting_ptrace_interrupt_stop: u32,
+    pub(in super::super) expecting_ptrace_interrupt_stop: Cell<u32>,
 
     /// Important. Weak dyn Task pointer to self.
     pub weak_self: TaskSharedWeakPtr,
@@ -1387,7 +1387,7 @@ impl TaskInner {
             top_of_stack: Default::default(),
             seen_ptrace_exit_event: false,
             thread_locals: array_init::array_init(|_| 0),
-            expecting_ptrace_interrupt_stop: 0,
+            expecting_ptrace_interrupt_stop: Default::default(),
             // DIFF NOTE: These are not explicitly set in rr
             syscallbuf_child: Default::default(),
             preload_globals: None,

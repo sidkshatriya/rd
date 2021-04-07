@@ -504,7 +504,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
             if !sent_wait_interrupt && (interrupt_after_elapsed > 0.0) {
                 self.ptrace_if_alive(PTRACE_INTERRUPT, RemotePtr::null(), &mut PtraceData::None);
                 sent_wait_interrupt = true;
-                self.expecting_ptrace_interrupt_stop = 2;
+                self.expecting_ptrace_interrupt_stop.set(2);
             }
         }
 
