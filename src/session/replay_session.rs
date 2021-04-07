@@ -1215,7 +1215,7 @@ impl ReplaySession {
                     self.syscall_bp_vm.borrow().is_none()
                         || Rc::ptr_eq(
                             self.syscall_bp_vm.borrow().as_ref().unwrap(),
-                            t.as_.as_ref().unwrap()
+                            &t.vm()
                         ) && syscall_instruction == self.syscall_bp_addr.get()
                             && t.vm().get_breakpoint_type_at_addr(syscall_instruction)
                                 != BreakpointType::BkptNone
@@ -1226,15 +1226,12 @@ impl ReplaySession {
                 // overwritten by the tracee. It could even be dynamically generated and
                 // not generated yet.
                 if self.syscall_bp_vm.borrow().is_none()
-                    && t.vm_shr_ptr()
+                    && t.vm()
                         .is_breakpoint_in_private_read_only_memory(syscall_instruction, t)
-                    && t.vm_shr_ptr().add_breakpoint(
-                        t,
-                        syscall_instruction,
-                        BreakpointType::BkptInternal,
-                    )
+                    && t.vm()
+                        .add_breakpoint(t, syscall_instruction, BreakpointType::BkptInternal)
                 {
-                    *self.syscall_bp_vm.borrow_mut() = Some(t.as_.as_ref().unwrap().clone());
+                    *self.syscall_bp_vm.borrow_mut() = Some(t.vm());
                     self.syscall_bp_addr.set(syscall_instruction);
                 }
             }
@@ -1635,7 +1632,7 @@ impl ReplaySession {
                     // Case (0) above: interrupt for the debugger.
                     log!(LogDebug, "    trap was debugger singlestep/breakpoint");
                     if did_set_internal_breakpoint {
-                        t.vm_shr_ptr()
+                        t.vm()
                             .remove_breakpoint(ip, BreakpointType::BkptInternal, t);
                     }
                     return Completion::Incomplete;
@@ -1695,7 +1692,7 @@ impl ReplaySession {
             // and it's simpler to start out knowing that the
             // breakpoint isn't set.
             if did_set_internal_breakpoint {
-                t.vm_shr_ptr()
+                t.vm()
                     .remove_breakpoint(ip, BreakpointType::BkptInternal, t);
                 did_set_internal_breakpoint = false;
             }
@@ -1723,8 +1720,7 @@ impl ReplaySession {
                 // no slower than single-stepping our way to
                 // the target execution point.
                 log!(LogDebug, "    breaking on target $ip");
-                t.vm_shr_ptr()
-                    .add_breakpoint(t, ip, BreakpointType::BkptInternal);
+                t.vm().add_breakpoint(t, ip, BreakpointType::BkptInternal);
                 did_set_internal_breakpoint = true;
                 self.continue_or_step(t, constraints, TicksRequest::ResumeUnlimitedTicks, None);
                 SIGTRAP_run_command = constraints.command;
@@ -1797,7 +1793,7 @@ impl ReplaySession {
                 return Completion::Incomplete;
             }
 
-            let added: bool = t.vm_shr_ptr().add_breakpoint(
+            let added: bool = t.vm().add_breakpoint(
                 t,
                 RemoteCodePtr::from(self.current_step.get().flush().stop_breakpoint_addr),
                 BreakpointType::BkptInternal,
@@ -1813,7 +1809,7 @@ impl ReplaySession {
                 self.current_step.get().flush().stop_breakpoint_addr,
             )) != BreakpointType::BkptInternal;
 
-            t.vm_shr_ptr().remove_breakpoint(
+            t.vm().remove_breakpoint(
                 RemoteCodePtr::from(self.current_step.get().flush().stop_breakpoint_addr),
                 BreakpointType::BkptInternal,
                 t,
@@ -1900,7 +1896,7 @@ impl ReplaySession {
                         -1,
                         0,
                     );
-                    remote.task().vm_shr_ptr().map(
+                    remote.task().vm().map(
                         remote.task_mut(),
                         km.start(),
                         km.size(),
@@ -2037,7 +2033,7 @@ fn apply_mprotect_records(t: &mut ReplayTask, skip_mprotect_records: u32) -> u32
                     continue;
                 }
             }
-            t.vm_shr_ptr().protect(
+            t.vm().protect(
                 t,
                 RemotePtr::from(r.start),
                 r.size as usize,
@@ -2443,7 +2439,7 @@ fn guard_overshoot(
         // set, and restore the tracee's $ip to what it would
         // have been had it not hit the breakpoint (if it did
         // hit the breakpoint).
-        t.vm_shr_ptr()
+        t.vm()
             .remove_breakpoint(target_ip, BreakpointType::BkptInternal, t);
         if t.regs_ref().ip() == target_ip.increment_by_bkpt_insn_length(t.arch()) {
             t.move_ip_before_breakpoint();

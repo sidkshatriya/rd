@@ -807,7 +807,7 @@ pub(super) fn did_waitpid_common<T: Task>(task: &mut T, mut status: WaitStatus) 
                 r.set_ip(bkpt_addr);
                 task.set_regs(&r);
             }
-            task.vm_shr_ptr()
+            task.vm()
                 .remove_breakpoint(bkpt_addr, BreakpointType::BkptInternal, task);
             task.did_set_breakpoint_after_cpuid.set(false);
         }
@@ -947,7 +947,7 @@ pub(super) fn resume_execution_common<T: Task>(
             let ip = task.ip();
             let len = trapped_instruction_len(task.singlestepping_instruction.get());
             let local_did_set_breakpoint_after_cpuid =
-                task.vm_shr_ptr()
+                task.vm()
                     .add_breakpoint(task, ip + len, BreakpointType::BkptInternal);
             task.did_set_breakpoint_after_cpuid
                 .set(local_did_set_breakpoint_after_cpuid);
@@ -1187,7 +1187,7 @@ fn on_syscall_exit_common_arch<Arch: Architecture>(t: &mut dyn Task, sys: i32, r
         let prot = regs.arg4_signed() as i32;
         if tid == t.rec_tid {
             return t
-                .vm_shr_ptr()
+                .vm()
                 .protect(t, addr, num_bytes, ProtFlags::from_bits(prot).unwrap());
         } else {
             match t.session().find_task_from_rec_tid(tid) {
@@ -1200,7 +1200,7 @@ fn on_syscall_exit_common_arch<Arch: Architecture>(t: &mut dyn Task, sys: i32, r
                     );
                 }
                 Some(found_t) => {
-                    return found_t.borrow().vm_shr_ptr().protect(
+                    return found_t.borrow().vm().protect(
                         found_t.borrow().as_ref(),
                         addr,
                         num_bytes,
@@ -1216,13 +1216,13 @@ fn on_syscall_exit_common_arch<Arch: Architecture>(t: &mut dyn Task, sys: i32, r
         let num_bytes: usize = regs.arg2();
         let prot = regs.arg3_signed() as i32;
         let prot_flags = ProtFlags::from_bits(prot).unwrap();
-        t.vm_shr_ptr().protect(t, addr, num_bytes, prot_flags);
+        t.vm().protect(t, addr, num_bytes, prot_flags);
     }
 
     if sys == Arch::MUNMAP {
         let addr: RemotePtr<Void> = regs.arg1().into();
         let num_bytes: usize = regs.arg2();
-        return t.vm_shr_ptr().unmap(t, addr, num_bytes);
+        return t.vm().unmap(t, addr, num_bytes);
     }
 
     if sys == Arch::SHMDT {
@@ -1233,7 +1233,7 @@ fn on_syscall_exit_common_arch<Arch: Architecture>(t: &mut dyn Task, sys: i32, r
         let addr: RemotePtr<Void> = regs.arg1().into();
         let num_bytes: usize = regs.arg2();
         let advice = regs.arg3() as i32;
-        return t.vm_shr_ptr().advise(t, addr, num_bytes, advice);
+        return t.vm().advise(t, addr, num_bytes, advice);
     }
 
     if sys == Arch::IPC {
@@ -1368,7 +1368,7 @@ pub(super) fn on_syscall_exit_common(
 pub(super) fn post_exec_syscall_common(t: &mut dyn Task) {
     let arch = t.arch();
     t.canonicalize_regs(arch);
-    t.vm_shr_ptr().post_exec_syscall(t);
+    t.vm().post_exec_syscall(t);
 
     if SessionInner::has_cpuid_faulting() {
         let mut remote = AutoRemoteSyscalls::new(t);
@@ -1453,11 +1453,11 @@ pub(super) fn post_exec_for_exe_common<T: Task>(t: &mut T, exe_file: &OsStr) {
     t.thread_areas_.borrow_mut().clear();
     t.thread_locals = [0u8; PRELOAD_THREAD_LOCALS_SIZE];
     let exec_count = t.vm().uid().exec_count() + 1;
-    t.as_ = Some(t.session().create_vm(t, Some(exe_file), Some(exec_count)));
+    *t.as_.borrow_mut() = Some(t.session().create_vm(t, Some(exe_file), Some(exec_count)));
     // It's barely-documented, but Linux unshares the fd table on exec
     t.fds = Some(t.fd_table_shr_ptr().clone_into_task(t));
-    let prname = prname_from_exe_image(t.vm().exe_image());
-    t.prname = prname.to_owned();
+    let prname = prname_from_exe_image(t.vm().exe_image()).to_owned();
+    t.prname = prname;
 }
 
 fn prname_from_exe_image(exe_image: &OsStr) -> &OsStr {
@@ -1570,7 +1570,7 @@ pub(super) fn compute_trap_reasons_common<T: Task>(t: &mut T) -> TrapReasons {
 }
 
 pub(super) fn at_preload_init_common<T: Task>(t: &mut T) {
-    t.vm_shr_ptr().at_preload_init(t);
+    t.vm().at_preload_init(t);
     do_preload_init(t);
 
     t.fd_table_shr_ptr().init_syscallbuf_fds_disabled(t);
@@ -1639,7 +1639,7 @@ pub(in super::super) fn clone_task_common(
         t.as_ = clone_this.as_.clone();
         if !stack.is_null() {
             let last_stack_byte: RemotePtr<Void> = stack - 1usize;
-            match t.vm_shr_ptr().mapping_of(last_stack_byte) {
+            match t.vm().mapping_of(last_stack_byte) {
                 Some(mapping) => {
                     if !mapping.recorded_map.is_heap() {
                         let m: &KernelMapping = &mapping.map;
@@ -1654,7 +1654,7 @@ pub(in super::super) fn clone_task_common(
 
                         // Release the borrow because we may want to modify the vm MemoryMap
                         drop(mapping);
-                        t.vm_shr_ptr().map(
+                        t.vm().map(
                             &mut *t,
                             m_start,
                             m_size,
@@ -1676,7 +1676,7 @@ pub(in super::super) fn clone_task_common(
             };
         }
     } else {
-        t.as_ = Some(new_task_session.clone_vm(&mut *t, clone_this.vm_shr_ptr()));
+        *t.as_.borrow_mut() = Some(new_task_session.clone_vm(&mut *t, clone_this.vm()));
     }
 
     t.syscallbuf_size = clone_this.syscallbuf_size;
@@ -1732,7 +1732,7 @@ pub(in super::super) fn clone_task_common(
     }
 
     ref_t
-        .vm_shr_ptr()
+        .vm()
         .task_set_mut()
         .insert(weak_self_ptr.clone());
 
@@ -1814,14 +1814,14 @@ fn unmap_buffers_for(
             other_scratch_size
         );
         match maybe_context {
-            None => remote.task().vm_shr_ptr().unmap(
+            None => remote.task().vm().unmap(
                 remote.task(),
                 other_scratch_ptr,
                 other_scratch_size,
             ),
             Some(ref context) => {
                 context
-                    .vm_shr_ptr()
+                    .vm()
                     .unmap(*context, other_scratch_ptr, other_scratch_size)
             }
         }
@@ -1834,12 +1834,12 @@ fn unmap_buffers_for(
             other_syscallbuf_size
         );
         match maybe_context {
-            None => remote.task().vm_shr_ptr().unmap(
+            None => remote.task().vm().unmap(
                 remote.task(),
                 RemotePtr::<Void>::cast(saved_syscallbuf_child),
                 other_syscallbuf_size,
             ),
-            Some(ref context) => context.vm_shr_ptr().unmap(
+            Some(ref context) => context.vm().unmap(
                 *context,
                 RemotePtr::<Void>::cast(saved_syscallbuf_child),
                 other_syscallbuf_size,
@@ -1899,7 +1899,7 @@ pub(super) fn post_vm_clone_common<T: Task>(
 ) -> bool {
     let mut created_preload_thread_locals_mapping: bool = false;
     if !flags.contains(CloneFlags::CLONE_SHARE_VM) {
-        created_preload_thread_locals_mapping = t.vm_shr_ptr().post_vm_clone(t);
+        created_preload_thread_locals_mapping = t.vm().post_vm_clone(t);
     }
 
     if reason == CloneReason::TraceeClone {
@@ -1946,7 +1946,7 @@ pub(super) fn task_drop_common<T: Task>(t: &T) {
         // Destroying a Session may result in unstable exits during which
         // destroy_buffers() will not have been called.
         if !t.syscallbuf_child.is_null() {
-            t.vm_shr_ptr()
+            t.vm()
                 .unmap(t, RemotePtr::cast(t.syscallbuf_child), t.syscallbuf_size);
         }
     } else {
@@ -1969,7 +1969,7 @@ pub(super) fn task_drop_common<T: Task>(t: &T) {
         .borrow_mut()
         .task_set_mut()
         .erase(t.weak_self_ptr());
-    t.vm_shr_ptr().task_set_mut().erase(t.weak_self_ptr());
+    t.vm().task_set_mut().erase(t.weak_self_ptr());
     t.fd_table().task_set_mut().erase(t.weak_self_ptr());
 
     log!(LogDebug, "  dead");
@@ -1997,7 +1997,7 @@ pub(super) fn set_thread_area_core(thread_areas: &mut Vec<user_desc>, desc: user
 fn process_shmdt(t: &dyn Task, addr: RemotePtr<Void>) {
     let size: usize = t.vm().get_shm_size(addr);
     t.vm().remove_shm_size(addr);
-    t.vm_shr_ptr().unmap(t, addr, size);
+    t.vm().unmap(t, addr, size);
 }
 
 fn process_ptrace<Arch: Architecture>(regs: &Registers, t: &mut dyn Task) {

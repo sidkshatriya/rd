@@ -379,7 +379,8 @@ fn try_grow_map(t: &mut RecordTask, si: &siginfo_t) -> bool {
     let it: KernelMapping;
     let mut new_start = floor_page_size(addr);
     {
-        let maps = t.vm().maps_starting_at(floor_page_size(addr));
+        let vm_shr_ptr = t.vm();
+        let maps = vm_shr_ptr.maps_starting_at(floor_page_size(addr));
         let mut maps_iter = maps.into_iter();
         let kv = maps_iter.next();
         match kv {
@@ -474,7 +475,7 @@ fn try_grow_map(t: &mut RecordTask, si: &siginfo_t) -> bool {
         );
     }
 
-    let km: KernelMapping = t.vm_shr_ptr().map(
+    let km: KernelMapping = t.vm().map(
         t,
         new_start,
         it.start() - new_start,

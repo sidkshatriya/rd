@@ -488,7 +488,7 @@ impl ReplayTimeline {
         // to see if it works.
         self.apply_breakpoints_and_watchpoints();
         if !t
-            .vm_shr_ptr()
+            .vm()
             .add_breakpoint(t, addr, BreakpointType::BkptUser)
         {
             return false;
@@ -508,7 +508,7 @@ impl ReplayTimeline {
     /// place multiple breakpoints with conditions on the same location.
     pub fn remove_breakpoint(&mut self, t: &mut ReplayTask, addr: RemoteCodePtr) {
         if self.breakpoints_applied {
-            t.vm_shr_ptr()
+            t.vm()
                 .remove_breakpoint(addr, BreakpointType::BkptUser, t);
         }
         ed_assert!(t, self.has_breakpoint_at_address(t, addr));
@@ -533,7 +533,7 @@ impl ReplayTimeline {
         // Apply breakpoints now; we need to actually try adding this breakpoint
         // to see if it works.
         self.apply_breakpoints_and_watchpoints();
-        if !t.vm_shr_ptr().add_watchpoint(addr, num_bytes, type_, t) {
+        if !t.vm().add_watchpoint(addr, num_bytes, type_, t) {
             return false;
         }
         self.watchpoints.insert(
@@ -560,7 +560,7 @@ impl ReplayTimeline {
         type_: WatchType,
     ) {
         if self.breakpoints_applied {
-            t.vm_shr_ptr().remove_watchpoint(addr, num_bytes, type_, t);
+            t.vm().remove_watchpoint(addr, num_bytes, type_, t);
         }
         ed_assert!(t, self.has_watchpoint_at_address(t, addr, num_bytes, type_));
         let wt = TimelineWatchpoint {
@@ -1232,7 +1232,7 @@ impl ReplayTimeline {
                         .replay_step_with_constraints(&constraints);
                 } else {
                     // Get a shared reference to t.vm() in case t dies during replay_step
-                    let vm = t.borrow().vm_shr_ptr();
+                    let vm = t.borrow().vm();
                     vm.add_breakpoint(t.borrow_mut().as_mut(), mark_addr, BreakpointType::BkptUser);
                     self.current_session().replay_step(RunCommand::RunContinue);
                     vm.remove_breakpoint(
@@ -1602,7 +1602,7 @@ impl ReplayTimeline {
                 .mapping_of(mark_addr)
                 .map_or(false, |m| m.map.prot().contains(ProtFlags::PROT_EXEC)))
         {
-            let succeeded: bool = t.borrow().vm_shr_ptr().add_breakpoint(
+            let succeeded: bool = t.borrow().vm().add_breakpoint(
                 t.borrow_mut().as_mut(),
                 mark_addr_code,
                 BreakpointType::BkptUser,
@@ -1612,7 +1612,7 @@ impl ReplayTimeline {
             result = self
                 .current_session()
                 .replay_step_with_constraints(&constraints);
-            t.borrow().vm_shr_ptr().remove_breakpoint(
+            t.borrow().vm().remove_breakpoint(
                 mark_addr_code,
                 BreakpointType::BkptUser,
                 t.borrow_mut().as_mut(),

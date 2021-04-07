@@ -230,7 +230,7 @@ impl ReplayTask {
         if !buf.addr.is_null() && buf.data.len() > 0 {
             if buf.rec_tid == self.rec_tid {
                 self.write_bytes_helper(buf.addr, &buf.data, None, WriteFlags::empty());
-                self.vm_shr_ptr()
+                self.vm()
                     .maybe_update_breakpoints(self, buf.addr, buf.data.len());
             } else if maybe_other
                 .as_ref()
@@ -239,14 +239,14 @@ impl ReplayTask {
                 let other = maybe_other.unwrap();
                 other.write_bytes_helper(buf.addr, &buf.data, None, WriteFlags::empty());
                 other
-                    .vm_shr_ptr()
+                    .vm()
                     .maybe_update_breakpoints(other, buf.addr, buf.data.len());
             } else {
                 let t = self.session().find_task_from_rec_tid(buf.rec_tid).unwrap();
 
                 t.borrow_mut()
                     .write_bytes_helper(buf.addr, &buf.data, None, WriteFlags::empty());
-                let vm_shr_ptr = t.borrow().vm_shr_ptr();
+                let vm_shr_ptr = t.borrow().vm();
                 vm_shr_ptr.maybe_update_breakpoints(
                     t.borrow_mut().as_mut(),
                     buf.addr,
@@ -283,7 +283,7 @@ impl ReplayTask {
                     if !buf.addr.is_null() && buf.data.len() > 0 {
                         if buf.rec_tid == self.rec_tid {
                             self.write_bytes_helper(buf.addr, &buf.data, None, WriteFlags::empty());
-                            self.vm_shr_ptr().maybe_update_breakpoints(
+                            self.vm().maybe_update_breakpoints(
                                 self,
                                 buf.addr,
                                 buf.data.len(),
@@ -296,7 +296,7 @@ impl ReplayTask {
                                 None,
                                 WriteFlags::empty(),
                             );
-                            let vm_shr = t.borrow().vm_shr_ptr();
+                            let vm_shr = t.borrow().vm();
                             vm_shr.maybe_update_breakpoints(
                                 t.borrow_mut().as_mut(),
                                 buf.addr,

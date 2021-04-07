@@ -35,7 +35,7 @@ use crate::{
     scoped_fd::ScopedFd,
     session::{
         address_space::{
-            address_space::{AddressSpace, Mapping},
+            address_space::{AddressSpace, AddressSpaceSharedPtr, Mapping},
             kernel_mapping::KernelMapping,
             memory_range::{MemoryRange, MemoryRangeKey},
             Enabled,
@@ -740,7 +740,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
     }
 
     #[inline]
-    pub fn vm(&self) -> &AddressSpace {
+    pub fn vm(&self) -> AddressSpaceSharedPtr {
         self.t.vm()
     }
 

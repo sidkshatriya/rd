@@ -358,7 +358,7 @@ pub struct TaskInner {
     /// These are private
     pub(in super::super) serial: u32,
     /// The address space of this task.
-    pub(in super::super) as_: Option<AddressSpaceSharedPtr>,
+    pub(in super::super) as_: RefCell<Option<AddressSpaceSharedPtr>>,
     /// The file descriptor table of this task.
     pub(in super::super) fds: Option<FdTableSharedPtr>,
     /// Task's OS name.
@@ -1147,14 +1147,8 @@ impl TaskInner {
 
     /// Return the virtual memory mapping (address space) of this
     /// task.
-    pub fn vm(&self) -> &AddressSpace {
-        &self.as_.as_ref().unwrap()
-    }
-
-    /// Useful for tricky situations when we need to pass a reference to task to
-    /// the AddressSpace methods for instance
-    pub fn vm_shr_ptr(&self) -> AddressSpaceSharedPtr {
-        self.as_.as_ref().unwrap().clone()
+    pub fn vm(&self) -> AddressSpaceSharedPtr {
+        self.as_.borrow().as_ref().unwrap().clone()
     }
 
     pub fn fd_table(&self) -> &FdTable {
@@ -1277,7 +1271,7 @@ impl TaskInner {
 
     pub fn fetch_preload_thread_locals(&mut self) -> &ThreadLocals {
         if self.tuid() == self.vm().thread_locals_tuid() {
-            let maybe_local_addr = preload_thread_locals_local_addr(self.vm());
+            let maybe_local_addr = preload_thread_locals_local_addr(&self.vm());
             match maybe_local_addr {
                 Some(local_addr) => unsafe {
                     copy_nonoverlapping(
@@ -1769,7 +1763,7 @@ impl TaskInner {
         let tg = session.create_initial_tg(wrapped_t.clone());
         *wrapped_t.borrow_mut().tg.borrow_mut() = Some(tg);
         let addr_space = session.create_vm(wrapped_t.borrow_mut().as_mut(), None, None);
-        wrapped_t.borrow_mut().as_ = Some(addr_space);
+        *wrapped_t.borrow_mut().as_.borrow_mut() = Some(addr_space);
         let weak_t_ptr = wrapped_t.borrow().weak_self.clone();
         wrapped_t.borrow_mut().fds = Some(FdTable::create(weak_t_ptr));
         {
@@ -2059,7 +2053,7 @@ fn preload_thread_locals_local_addr(as_: &AddressSpace) -> Option<NonNull<c_void
 }
 
 fn setup_preload_thread_locals_arch<Arch: Architecture>(t: &TaskInner) {
-    let maybe_local_addr = preload_thread_locals_local_addr(t.vm());
+    let maybe_local_addr = preload_thread_locals_local_addr(&t.vm());
 
     match maybe_local_addr {
         Some(local_addr) => {
@@ -2078,7 +2072,7 @@ fn setup_preload_thread_locals_from_clone_arch<Arch: Architecture>(
     t: &mut TaskInner,
     origin: &mut TaskInner,
 ) {
-    let maybe_local_addr = preload_thread_locals_local_addr(t.vm());
+    let maybe_local_addr = preload_thread_locals_local_addr(&t.vm());
 
     match maybe_local_addr {
         Some(local_addr) => {

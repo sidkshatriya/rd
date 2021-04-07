@@ -1068,7 +1068,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
     if sys == Arch::MPROTECT {
         // Since we're stripping MAP_GROWSDOWN from kernel mmap calls, we need
         // to implement PROT_GROWSDOWN ourselves.
-        t.vm_shr_ptr().fixup_mprotect_growsdown_parameters(t);
+        t.vm().fixup_mprotect_growsdown_parameters(t);
         return Switchable::PreventSwitch;
     }
 
@@ -2513,7 +2513,7 @@ fn prepare_mmap_register_params(t: &mut RecordTask) {
             // Ensure stacks can grow to the minimum size we choose
             len = max(AddressSpace::chaos_mode_min_stack_size(), len);
         }
-        let addr: RemotePtr<Void> = t.vm_shr_ptr().chaos_mode_find_free_memory(t, len);
+        let addr: RemotePtr<Void> = t.vm().chaos_mode_find_free_memory(t, len);
         if !addr.is_null() {
             r.set_arg1(addr.as_usize() + len - r.arg2());
             // Note that we don't set MapFlags::MAP_FIXED here. If anything goes wrong (e.g.
@@ -3324,7 +3324,7 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
             .write_mapped_region(t, &km, &km.fake_stat(), &[], None, None);
         ed_assert_eq!(t, d, RecordInTrace::DontRecordInTrace);
         let addr = t.regs_ref().syscall_result().into();
-        t.vm_shr_ptr().brk(t, addr, km.prot());
+        t.vm().brk(t, addr, km.prot());
         return;
     }
 
@@ -3637,7 +3637,7 @@ fn process_mmap(
             // Anonymous mappings are by definition not backed by any file-like
             // object, and are initialized to zero, so there's no nondeterminism to
             // record.
-            km = t.vm_shr_ptr().map(
+            km = t.vm().map(
                 t,
                 addr,
                 size,
@@ -3699,7 +3699,7 @@ fn process_mmap(
         effectively_anonymous = true;
     }
 
-    let km = t.vm_shr_ptr().map(
+    let km = t.vm().map(
         t,
         addr,
         size,
@@ -4019,7 +4019,7 @@ fn process_execve(t: &mut RecordTask, syscall_state: &mut TaskSyscallState) {
                 rd_infallible_syscall!(remote, munmap_no, vvar.start().as_usize(), vvar.size());
                 remote
                     .task()
-                    .vm_shr_ptr()
+                    .vm()
                     .unmap(remote.task(), vvar.start(), vvar.size());
             }
             None => (),
@@ -4077,7 +4077,7 @@ fn process_execve(t: &mut RecordTask, syscall_state: &mut TaskSyscallState) {
     // the trace.
     let mut pages_to_record: Vec<RemotePtr<Void>> = Vec::new();
 
-    for (_, m) in &t.vm_shr_ptr().maps() {
+    for (_, m) in &t.vm().maps() {
         let km = m.map.clone();
         if km.start() == AddressSpace::rd_page_start()
             || km.start() == AddressSpace::preload_thread_locals_start()
@@ -4134,7 +4134,7 @@ fn process_execve(t: &mut RecordTask, syscall_state: &mut TaskSyscallState) {
 
     // Patch LD_PRELOAD and VDSO after saving the mappings. Replay will apply
     // patches to the saved mappings.
-    t.vm_shr_ptr()
+    t.vm()
         .monkeypatcher()
         .unwrap()
         .borrow_mut()
@@ -4184,7 +4184,7 @@ fn init_scratch_memory(t: &mut RecordTask, maybe_addr_type: Option<ScratchAddrTy
     r.set_syscall_result(t.scratch_ptr.as_usize());
     t.set_regs(&r);
 
-    let km = t.vm_shr_ptr().map(
+    let km = t.vm().map(
         t,
         t.scratch_ptr,
         scratch_size,
@@ -7641,7 +7641,7 @@ fn process_shmat(t: &mut RecordTask, shmid: i32, shm_flags: i32, addr: RemotePtr
     // be the shm key.) This should be OK since SysV shmem is not used very much
     // and reading /proc/<pid>/maps should be reasonably cheap.
     let kernel_info: KernelMapping = read_kernel_mapping(t.tid, addr);
-    let km: KernelMapping = t.vm_shr_ptr().map(
+    let km: KernelMapping = t.vm().map(
         t,
         addr,
         size,
@@ -7680,7 +7680,7 @@ fn process_shmat(t: &mut RecordTask, shmid: i32, shm_flags: i32, addr: RemotePtr
 fn record_file_change(t: &mut RecordTask, fd: i32, offset: u64, length: u64) {
     let file_name = t.file_name_of_fd(fd);
 
-    for (_, m) in &t.vm_shr_ptr().maps() {
+    for (_, m) in &t.vm().maps() {
         if m.map.fsname() == file_name {
             let start = max(offset, m.map.file_offset_bytes());
             let end = min(

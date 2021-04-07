@@ -523,9 +523,9 @@ fn prepare_clone<Arch: Architecture>(t: &mut ReplayTask) {
         // be useful to inherit breakpoints (along with their
         // refcounts) across a non-VM-sharing clone, but for
         // now we never want to do this.
-        new_task.vm_shr_ptr().remove_all_breakpoints(new_task);
+        new_task.vm().remove_all_breakpoints(new_task);
         new_task
-            .vm_shr_ptr()
+            .vm()
             .remove_all_watchpoints(new_task, Some(t));
 
         let mut remote = AutoRemoteSyscalls::new(new_task);
@@ -555,7 +555,7 @@ fn prepare_clone<Arch: Architecture>(t: &mut ReplayTask) {
 
     init_scratch_memory(new_task, &km, &data);
 
-    new_task.vm_shr_ptr().after_clone(new_task, Some(t));
+    new_task.vm().after_clone(new_task, Some(t));
 }
 
 /// DIFF NOTE: This simply returns a ReplayTraceStep instead of modifying one.
@@ -766,7 +766,7 @@ fn rep_process_syscall_arch<Arch: Architecture>(
         r.set_ip(r.ip().decrement_by_syscall_insn_length(r.arch()));
         t.set_regs(&r);
         if nsys == Arch::MPROTECT {
-            t.vm_shr_ptr().fixup_mprotect_growsdown_parameters(t);
+            t.vm().fixup_mprotect_growsdown_parameters(t);
         }
         __ptrace_cont(
             t,
@@ -972,7 +972,7 @@ fn process_brk(t: &mut ReplayTask) {
             -1,
             0,
         );
-        remote.task().vm_shr_ptr().map(
+        remote.task().vm().map(
             remote.task(),
             km.start(),
             km.size(),
@@ -999,7 +999,7 @@ fn process_brk(t: &mut ReplayTask) {
         );
         remote
             .task()
-            .vm_shr_ptr()
+            .vm()
             .unmap(remote.task(), km.start(), km.size());
     }
 }
@@ -1307,7 +1307,7 @@ pub fn process_execve(t: &mut ReplayTask, step: &mut ReplayTraceStep) {
             );
             remote
                 .task()
-                .vm_shr_ptr()
+                .vm()
                 .unmap(remote.task_mut(), m.start(), m.size());
         }
         // We will have unmapped the stack memory that `remote` would have used for
@@ -1359,7 +1359,7 @@ pub fn process_execve(t: &mut ReplayTask, step: &mut ReplayTraceStep) {
     t.apply_all_data_records_from_trace();
 
     // Now it's safe to save the auxv data
-    t.vm_shr_ptr().save_auxv(t);
+    t.vm().save_auxv(t);
 
     // Notify outer rd if there is one
     unsafe { syscall(SYS_rdcall_reload_auxv as _, t.tid) };
@@ -1418,7 +1418,7 @@ pub fn restore_mapped_region(
         }
     }
 
-    remote.task().vm_shr_ptr().map(
+    remote.task().vm().map(
         remote.task_mut(),
         km.start(),
         km.size(),
@@ -1632,7 +1632,7 @@ fn process_mmap(
                 );
                 let km_sub: KernelMapping =
                     km.subrange(km.start(), km.start() + ceil_page_size(map_bytes));
-                remote.task().vm_shr_ptr().map(
+                remote.task().vm().map(
                     remote.task(),
                     km.start(),
                     map_bytes,
@@ -1703,7 +1703,7 @@ fn process_mmap(
                 .flags()
                 .share_private_mappings
         {
-            let vm_shr_ptr = remote.task().vm_shr_ptr();
+            let vm_shr_ptr = remote.task().vm();
             let mapping = vm_shr_ptr.mapping_of(addr).unwrap().clone();
             remote.make_private_shared(mapping);
         }
@@ -1770,7 +1770,7 @@ fn finish_shared_mmap<'a>(
     // kernel-bug-workarounds when writing to tracee memory see the up-to-date
     // virtual map.
     let offset_bytes: u64 = page_size() as u64 * offset_pages as u64;
-    remote.task().vm_shr_ptr().map(
+    remote.task().vm().map(
         remote.task(),
         rec_addr,
         km.size(),
@@ -1866,7 +1866,7 @@ fn finish_private_mmap(
     // Update AddressSpace before loading data from the trace. This ensures our
     // kernel-bug-workarounds when writing to tracee memory see the up-to-date
     // virtual map.
-    remote.task().vm_shr_ptr().map(
+    remote.task().vm().map(
         remote.task_mut(),
         rec_addr,
         length,
@@ -1997,7 +1997,7 @@ fn finish_anonymous_mmap(
         maybe_emu_file = Some(emu_file);
     }
 
-    remote.task().vm_shr_ptr().map(
+    remote.task().vm().map(
         remote.task(),
         rec_addr,
         length,
@@ -2027,7 +2027,7 @@ fn process_mremap(t: &mut ReplayTask, trace_regs: &Registers, step: &mut ReplayT
 
     // The recorded mremap call succeeded, so we know the original mapping can be
     // treated as a single mapping.
-    t.vm_shr_ptr()
+    t.vm()
         .ensure_replay_matches_single_recorded_mapping(
             t,
             MemoryRange::new_range(old_addr, old_size),
@@ -2122,9 +2122,9 @@ fn process_mremap(t: &mut ReplayTask, trace_regs: &Registers, step: &mut ReplayT
                 );
                 remote
                     .task()
-                    .vm_shr_ptr()
+                    .vm()
                     .unmap(remote.task(), new_addr, new_size);
-                remote.task().vm_shr_ptr().map(
+                remote.task().vm().map(
                     remote.task(),
                     new_addr,
                     new_size,

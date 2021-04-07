@@ -706,7 +706,7 @@ impl Task for RecordTask {
                 // (and must not) perform more than one blocking syscall for any given
                 // buffered syscall.
                 for p in self.syscallbuf_syscall_entry_breakpoints() {
-                    self.vm_shr_ptr()
+                    self.vm()
                         .add_breakpoint(self, p, BreakpointType::BkptInternal);
                 }
             }
@@ -715,7 +715,7 @@ impl Task for RecordTask {
                 .syscallbuf_final_exit_instruction;
 
             if self.break_at_syscallbuf_final_instruction {
-                self.vm_shr_ptr()
+                self.vm()
                     .add_breakpoint(self, addr, BreakpointType::BkptInternal);
             }
         }
@@ -817,11 +817,11 @@ impl Task for RecordTask {
 
     fn did_wait(&mut self) {
         for p in self.syscallbuf_syscall_entry_breakpoints() {
-            self.vm_shr_ptr()
+            self.vm()
                 .remove_breakpoint(p, BreakpointType::BkptInternal, self);
         }
         if self.break_at_syscallbuf_final_instruction {
-            self.vm_shr_ptr().remove_breakpoint(
+            self.vm().remove_breakpoint(
                 self.syscallbuf_code_layout
                     .syscallbuf_final_exit_instruction,
                 BreakpointType::BkptInternal,
@@ -2407,7 +2407,7 @@ impl RecordTask {
     /// Simple helper that attempts to use the local mapping to record if one
     /// exists
     pub fn record_remote_by_local_map(&mut self, addr: RemotePtr<Void>, num_bytes: usize) -> bool {
-        match self.vm_shr_ptr().local_mapping(addr, num_bytes) {
+        match self.vm().local_mapping(addr, num_bytes) {
             Some(local_data) => {
                 self.record_local(addr, local_data);
                 true
@@ -2550,7 +2550,7 @@ impl RecordTask {
                 None,
             );
             for r in &read_records {
-                self.vm_shr_ptr().protect(
+                self.vm().protect(
                     self,
                     RemotePtr::from(r.start),
                     r.size.try_into().unwrap(),

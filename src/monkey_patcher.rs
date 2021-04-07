@@ -1461,7 +1461,7 @@ fn patch_after_exec_arch_x64arch(t: &mut RecordTask, patcher: &mut MonkeyPatcher
     obliterate_debug_info(&elf_obj, t);
 
     let mut after_mmap_vec = Vec::new();
-    for (_, m) in &t.vm_shr_ptr().maps() {
+    for (_, m) in &t.vm().maps() {
         let km = &m.map;
         let km_start = km.start();
         let km_size = km.size();

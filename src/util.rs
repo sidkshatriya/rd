@@ -1930,7 +1930,7 @@ fn iterate_checksums(t: &mut dyn Task, mode: ChecksumMode, global_time: FrameTim
             });
 
             let mem_range = MemoryRange::from_range(rec_start, rec_end);
-            t.vm_shr_ptr()
+            t.vm()
                 .ensure_replay_matches_single_recorded_mapping(t, mem_range);
         },
         ChecksumData::StoreChecksums(_) => (),
@@ -1938,7 +1938,7 @@ fn iterate_checksums(t: &mut dyn Task, mode: ChecksumMode, global_time: FrameTim
 
     {
         let mut checksum_iter = checksums.iter();
-        let vm = t.vm_shr_ptr();
+        let vm = t.vm();
         let maps = vm.maps();
         let mut maps_iter = maps.into_iter();
         while let Some((_, mp)) = maps_iter.next() {

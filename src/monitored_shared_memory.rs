@@ -96,7 +96,7 @@ impl MonitoredSharedMemory {
             addrs.push(*a);
         }
         for a in addrs {
-            let rc_v = t.vm_shr_ptr();
+            let rc_v = t.vm();
             let m = rc_v.mapping_of(a).unwrap().clone();
             let maybe_mm = m.monitored_shared_memory.clone();
             match maybe_mm {

@@ -270,22 +270,22 @@ pub fn fast_forward_through_instruction<T: Task>(
         tmp.set_cx(iterations);
         t.set_regs(&tmp);
         let ok = t
-            .vm_shr_ptr()
+            .vm()
             .add_breakpoint(t, limit_ip, BreakpointType::BkptInternal);
         ed_assert!(t, ok, "Failed to add breakpoint");
         // Watchpoints can fire spuriously because configure_watch_registers
         // can increase the size of the watched area to conserve watch registers.
         // So, disable watchpoints temporarily.
         t.vm().save_watchpoints();
-        t.vm_shr_ptr().remove_all_watchpoints(t, None);
+        t.vm().remove_all_watchpoints(t, None);
         t.resume_execution(
             ResumeRequest::ResumeCont,
             WaitRequest::ResumeWait,
             TicksRequest::ResumeUnlimitedTicks,
             None,
         );
-        t.vm_shr_ptr().restore_watchpoints(t);
-        t.vm_shr_ptr()
+        t.vm().restore_watchpoints(t);
+        t.vm()
             .remove_breakpoint(limit_ip, BreakpointType::BkptInternal, t);
         result.did_fast_forward = true;
         // We should have reached the breakpoint
