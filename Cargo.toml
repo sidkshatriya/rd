@@ -33,7 +33,7 @@ static_assertions = "1.1"
 structopt = "0.3"
 
 [build-dependencies]
-bindgen = "0.57"
+bindgen = "0.58"
 capnpc = "0.14"
 cc = "1.0"
 cmake = "0.1"
