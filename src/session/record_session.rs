@@ -1731,7 +1731,7 @@ impl RecordSession {
 
         let may_restart = t.borrow().as_rec_unwrap().at_may_restart_syscall();
 
-        if may_restart && t.borrow().seccomp_bpf_enabled {
+        if may_restart && t.borrow().seccomp_bpf_enabled.get() {
             log!(
                 LogDebug,
                 "  PTRACE_SYSCALL to possibly-restarted {}",
@@ -1852,7 +1852,7 @@ impl RecordSession {
                 //   makes PTRACE_SYSCALL traps be delivered *before* seccomp RET_TRACE
                 //   traps.
                 //   Detect and handle this.
-                if !t.borrow().seccomp_bpf_enabled
+                if !t.borrow().seccomp_bpf_enabled.get()
                     || may_restart
                     || self.syscall_seccomp_ordering_.get()
                         == PtraceSyscallSeccompOrdering::SyscallBeforeSeccompUnknown
@@ -1932,7 +1932,7 @@ impl RecordSession {
 
             if self.syscall_seccomp_ordering_.get()
                 == PtraceSyscallSeccompOrdering::SyscallBeforeSeccompUnknown
-                && t.seccomp_bpf_enabled
+                && t.seccomp_bpf_enabled.get()
             {
                 // We received a PTRACE_SYSCALL notification before the seccomp
                 // notification. Ignore it and continue to the seccomp notification.

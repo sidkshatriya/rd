@@ -254,10 +254,10 @@ pub trait Task: DerefMut<Target = TaskInner> {
     /// call. Continue into the kernel and stop where we can modify the syscall
     /// state.
     fn enter_syscall(&mut self) {
-        let mut need_ptrace_syscall_event = !self.seccomp_bpf_enabled
+        let mut need_ptrace_syscall_event = !self.seccomp_bpf_enabled.get()
             || self.session().syscall_seccomp_ordering()
                 == PtraceSyscallSeccompOrdering::SeccompBeforeSyscall;
-        let mut need_seccomp_event = self.seccomp_bpf_enabled;
+        let mut need_seccomp_event = self.seccomp_bpf_enabled.get();
         while need_ptrace_syscall_event || need_seccomp_event {
             let resume_how = if need_ptrace_syscall_event {
                 ResumeRequest::ResumeSyscall
@@ -316,7 +316,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
         // whether we process the syscall on the syscall entry trap or
         // on the seccomp trap. Detect if we are on the former and
         // just bring us forward to the seccomp trap.
-        let mut will_see_seccomp: bool = self.seccomp_bpf_enabled
+        let mut will_see_seccomp: bool = self.seccomp_bpf_enabled.get()
             && (self.session().syscall_seccomp_ordering()
                 == PtraceSyscallSeccompOrdering::SyscallBeforeSeccomp)
             && !self.is_ptrace_seccomp_event();
@@ -564,13 +564,13 @@ pub trait Task: DerefMut<Target = TaskInner> {
     /// Return true if an unexpected exit was already detected for this task and
     /// it is ready to be reported.
     fn wait_unexpected_exit(&mut self) -> bool {
-        if self.detected_unexpected_exit {
+        if self.detected_unexpected_exit.get() {
             log!(
                 LogDebug,
                 "Unexpected (SIGKILL) exit was detected; reporting it now"
             );
             self.did_waitpid(WaitStatus::for_ptrace_event(PTRACE_EVENT_EXIT));
-            self.detected_unexpected_exit = false;
+            self.detected_unexpected_exit.set(false);
             return true;
         }
         false

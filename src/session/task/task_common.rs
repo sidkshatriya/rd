@@ -182,7 +182,7 @@ pub(super) fn open_mem_fd_common<T: Task>(task: &mut T) -> bool {
     // Use ptrace to read/write during open_mem_fd
     task.vm().set_mem_fd(ScopedFd::new());
 
-    if !task.is_stopped {
+    if !task.is_stopped.get() {
         log!(
             LogWarn,
             "Can't retrieve mem fd for {}; process not stopped, racing with exec?",
@@ -735,7 +735,7 @@ pub(super) fn did_waitpid_common<T: Task>(task: &mut T, mut status: WaitStatus) 
     if status.maybe_ptrace_event() != PTRACE_EVENT_EXIT {
         ed_assert!(
             task,
-            !task.registers_dirty,
+            !task.registers_dirty.get(),
             "Registers shouldn't already be dirty"
         );
     }
@@ -743,7 +743,7 @@ pub(super) fn did_waitpid_common<T: Task>(task: &mut T, mut status: WaitStatus) 
     // In fact if we didn't start the thread, we may not have flushed dirty
     // registers but still received a PTRACE_EVENT_EXIT, in which case the
     // task's register values are not what they should be.
-    if !task.is_stopped {
+    if !task.is_stopped.get() {
         let mut ptrace_regs: native_user_regs_struct = Default::default();
         if task.ptrace_if_alive(
             PTRACE_GETREGS,
@@ -770,7 +770,7 @@ pub(super) fn did_waitpid_common<T: Task>(task: &mut T, mut status: WaitStatus) 
         }
     }
 
-    task.is_stopped = true;
+    task.is_stopped.set(true);
     task.wait_status.set(status);
     let more_ticks: Ticks = task.hpc.read_ticks(task);
     // We stop counting here because there may be things we want to do to the
@@ -784,24 +784,24 @@ pub(super) fn did_waitpid_common<T: Task>(task: &mut T, mut status: WaitStatus) 
     } else {
         if task.registers.singlestep_flag() {
             task.registers.clear_singlestep_flag();
-            task.registers_dirty = true;
+            task.registers_dirty.set(true);
         }
 
-        if task.last_resume_orig_cx != 0 {
+        if task.last_resume_orig_cx.get() != 0 {
             let new_cx: usize = task.registers.cx();
             // Un-fudge registers, if we fudged them to work around the KNL hardware quirk
             let cutoff: usize = single_step_coalesce_cutoff();
             ed_assert!(task, new_cx == cutoff - 1 || new_cx == cutoff);
-            let local_last_resume_orig_cx = task.last_resume_orig_cx;
+            let local_last_resume_orig_cx = task.last_resume_orig_cx.get();
             task.registers
                 .set_cx(local_last_resume_orig_cx - cutoff + new_cx);
-            task.registers_dirty = true;
+            task.registers_dirty.set(true);
         }
-        task.last_resume_orig_cx = 0;
+        task.last_resume_orig_cx.set(0);
 
-        if task.did_set_breakpoint_after_cpuid {
-            let bkpt_addr: RemoteCodePtr = task.address_of_last_execution_resume
-                + trapped_instruction_len(task.singlestepping_instruction);
+        if task.did_set_breakpoint_after_cpuid.get() {
+            let bkpt_addr: RemoteCodePtr = task.address_of_last_execution_resume.get()
+                + trapped_instruction_len(task.singlestepping_instruction.get());
             if task.ip() == bkpt_addr.increment_by_bkpt_insn_length(task.arch()) {
                 let mut r = task.regs_ref().clone();
                 r.set_ip(bkpt_addr);
@@ -809,13 +809,13 @@ pub(super) fn did_waitpid_common<T: Task>(task: &mut T, mut status: WaitStatus) 
             }
             task.vm_shr_ptr()
                 .remove_breakpoint(bkpt_addr, BreakpointType::BkptInternal, task);
-            task.did_set_breakpoint_after_cpuid = false;
+            task.did_set_breakpoint_after_cpuid.set(false);
         }
-        if (task.singlestepping_instruction == TrappedInstruction::Pushf
-            || task.singlestepping_instruction == TrappedInstruction::Pushf16)
+        if (task.singlestepping_instruction.get() == TrappedInstruction::Pushf
+            || task.singlestepping_instruction.get() == TrappedInstruction::Pushf16)
             && task.ip()
-                == task.address_of_last_execution_resume
-                    + trapped_instruction_len(task.singlestepping_instruction)
+                == task.address_of_last_execution_resume.get()
+                    + trapped_instruction_len(task.singlestepping_instruction.get())
         {
             // We singlestepped through a pushf. Clear TF bit on stack.
             let sp: RemotePtr<u16> = RemotePtr::cast(task.regs_ref().sp());
@@ -825,7 +825,8 @@ pub(super) fn did_waitpid_common<T: Task>(task: &mut T, mut status: WaitStatus) 
             let write_val = val & !(X86_TF_FLAG as u16);
             write_val_mem(task, sp, &write_val, None);
         }
-        task.singlestepping_instruction = TrappedInstruction::None;
+        task.singlestepping_instruction
+            .set(TrappedInstruction::None);
 
         // We might have singlestepped at the resumption address and just exited
         // the kernel without executing the breakpoint at that address.
@@ -834,13 +835,14 @@ pub(super) fn did_waitpid_common<T: Task>(task: &mut T, mut status: WaitStatus) 
         // doesn't and it's kind of a kernel bug.
         if task
             .vm()
-            .get_breakpoint_type_at_addr(task.address_of_last_execution_resume)
+            .get_breakpoint_type_at_addr(task.address_of_last_execution_resume.get())
             != BreakpointType::BkptNone
             && task.maybe_stop_sig() == SIGTRAP
             && !task.maybe_ptrace_event().is_ptrace_event()
             && task.ip()
                 == task
                     .address_of_last_execution_resume
+                    .get()
                     .increment_by_bkpt_insn_length(task.arch())
         {
             ed_assert_eq!(task, more_ticks, 0);
@@ -849,7 +851,7 @@ pub(super) fn did_waitpid_common<T: Task>(task: &mut T, mut status: WaitStatus) 
             // state matches the state we'd be in if we hadn't resumed. ReplayTimeline
             // depends on resume-at-a-breakpoint being a noop.
             task.registers.set_original_syscallno(original_syscallno);
-            task.registers_dirty = true;
+            task.registers_dirty.set(true);
         }
 
         // If we're in the rd page,  we may have just returned from an untraced
@@ -931,22 +933,24 @@ pub(super) fn resume_execution_common<T: Task>(
         sig_string,
         tick_period
     );
-    task.address_of_last_execution_resume = task.ip();
-    task.how_last_execution_resumed = how;
+    task.address_of_last_execution_resume.set(task.ip());
+    task.how_last_execution_resumed.set(how);
     task.set_debug_status(0);
 
     if is_singlestep_resume(how) {
         work_around_knl_string_singlestep_bug(task);
-        task.singlestepping_instruction = trapped_instruction_at(task, task.ip());
-        if task.singlestepping_instruction == TrappedInstruction::CpuId {
+        let ti = trapped_instruction_at(task, task.ip());
+        task.singlestepping_instruction.set(ti);
+        if task.singlestepping_instruction.get() == TrappedInstruction::CpuId {
             // In KVM virtual machines (and maybe others), singlestepping over CPUID
             // executes the following instruction as well. Work around that.
             let ip = task.ip();
-            let len = trapped_instruction_len(task.singlestepping_instruction);
+            let len = trapped_instruction_len(task.singlestepping_instruction.get());
             let local_did_set_breakpoint_after_cpuid =
                 task.vm_shr_ptr()
                     .add_breakpoint(task, ip + len, BreakpointType::BkptInternal);
-            task.did_set_breakpoint_after_cpuid = local_did_set_breakpoint_after_cpuid;
+            task.did_set_breakpoint_after_cpuid
+                .set(local_did_set_breakpoint_after_cpuid);
         }
     }
 
@@ -1002,7 +1006,7 @@ pub(super) fn resume_execution_common<T: Task>(
     if wait_ret > 0 {
         log!(LogDebug, "Task: {} exited unexpectedly", task.tid);
         // wait() will see this and report the ptrace-exit event.
-        task.detected_unexpected_exit = true;
+        task.detected_unexpected_exit.set(true);
     } else {
         match maybe_sig {
             None => {
@@ -1018,7 +1022,7 @@ pub(super) fn resume_execution_common<T: Task>(
         }
     }
 
-    task.is_stopped = false;
+    task.is_stopped.set(false);
     *task.extra_registers.borrow_mut() = None;
     if WaitRequest::ResumeWait == wait_how {
         task.wait(None);
@@ -1040,7 +1044,7 @@ fn work_around_knl_string_singlestep_bug<T: Task>(task: &mut T) {
             cx
         );
         if cx > cutoff {
-            task.last_resume_orig_cx = cx;
+            task.last_resume_orig_cx.set(cx);
             let mut r = task.regs_ref().clone();
             // An arbitrary value < cutoff would work fine here, except 1, since
             // the last iteration of the loop behaves differently
@@ -1249,7 +1253,7 @@ fn on_syscall_exit_common_arch<Arch: Architecture>(t: &mut dyn Task, sys: i32, r
             PR_SET_SECCOMP => {
                 if t.regs_ref().arg2() == SECCOMP_MODE_FILTER as usize && t.session().is_recording()
                 {
-                    t.seccomp_bpf_enabled = true;
+                    t.seccomp_bpf_enabled.set(true);
                 }
             }
 
@@ -1387,7 +1391,7 @@ pub(super) fn post_exec_for_exe_common<T: Task>(t: &mut T, exe_file: &OsStr) {
     let mut other_task_in_address_space = false;
     for task in t.vm().task_set().iter_except(t.weak_self_ptr()) {
         other_task_in_address_space = true;
-        if task.borrow().is_stopped {
+        if task.borrow().is_stopped.get() {
             stopped_task_in_address_space = Some(task);
             break;
         }
@@ -1480,8 +1484,8 @@ pub(super) fn compute_trap_reasons_common<T: Task>(t: &mut T) -> TrapReasons {
     let status = t.debug_status();
     reasons.singlestep = status & DebugStatus::DsSingleStep as usize != 0;
 
-    let addr_last_execution_resume = t.address_of_last_execution_resume;
-    if is_singlestep_resume(t.how_last_execution_resumed) {
+    let addr_last_execution_resume = t.address_of_last_execution_resume.get();
+    if is_singlestep_resume(t.how_last_execution_resumed.get()) {
         if is_at_syscall_instruction(t, addr_last_execution_resume)
             && t.ip() == addr_last_execution_resume + syscall_instruction_length(t.arch())
         {
@@ -1520,7 +1524,7 @@ pub(super) fn compute_trap_reasons_common<T: Task>(t: &mut T) -> TrapReasons {
     if status & (DebugStatus::DsWatchpointAny as usize | DebugStatus::DsSingleStep as usize) != 0 {
         t.vm().notify_watchpoint_fired(
             status,
-            if is_singlestep_resume(t.how_last_execution_resumed) {
+            if is_singlestep_resume(t.how_last_execution_resumed.get()) {
                 addr_last_execution_resume
             } else {
                 RemoteCodePtr::null()
@@ -1679,7 +1683,8 @@ pub(in super::super) fn clone_task_common(
     t.stopping_breakpoint_table = clone_this.stopping_breakpoint_table;
     t.stopping_breakpoint_table_entry_size = clone_this.stopping_breakpoint_table_entry_size;
     t.preload_globals = clone_this.preload_globals;
-    t.seccomp_bpf_enabled = clone_this.seccomp_bpf_enabled;
+    t.seccomp_bpf_enabled
+        .set(clone_this.seccomp_bpf_enabled.get());
 
     let rc_t: TaskSharedPtr = Rc::new(RefCell::new(t));
     let weak_self_ptr = Rc::downgrade(&rc_t);

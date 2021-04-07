@@ -15,7 +15,7 @@ use nix::errno::errno;
 ///
 pub(super) fn kill_all_tasks<S: Session>(sess: &S) {
     for (_, t) in sess.task_map.borrow().iter() {
-        if !t.borrow().is_stopped {
+        if !t.borrow().is_stopped.get() {
             // During recording we might be aborting the recording, in which case
             // one or more tasks might not be stopped. We haven't got any really
             // good options here so we'll just skip detaching and try killing

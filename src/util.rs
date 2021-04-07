@@ -526,6 +526,12 @@ pub enum TrappedInstruction {
     Pushf16 = 6,
 }
 
+impl Default for TrappedInstruction {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
 pub fn is_kernel_trap(si_code: i32) -> bool {
     // XXX unable to find docs on which of these "should" be
     // right.  The SI_KERNEL code is seen in the int3 test, so we

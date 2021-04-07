@@ -1151,7 +1151,7 @@ impl ReplaySession {
                 t.get_siginfo()
             );
         }
-        if t.seccomp_bpf_enabled
+        if t.seccomp_bpf_enabled.get()
             && self.syscall_seccomp_ordering_.get()
                 == PtraceSyscallSeccompOrdering::SyscallBeforeSeccompUnknown
         {

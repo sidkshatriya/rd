@@ -369,32 +369,32 @@ pub struct TaskInner {
     /// When `is_stopped`, these are our child registers.
     pub(in super::super) registers: Registers,
     /// Where we last resumed execution
-    pub(in super::super) address_of_last_execution_resume: RemoteCodePtr,
-    pub(in super::super) how_last_execution_resumed: ResumeRequest,
+    pub(in super::super) address_of_last_execution_resume: Cell<RemoteCodePtr>,
+    pub(in super::super) how_last_execution_resumed: Cell<ResumeRequest>,
     /// In certain circumstances, due to hardware bugs, we need to fudge the
     /// cx register. If so, we record the orginal value here. See comments in
     /// Task.cc
     /// DIFF NOTE: In rr this is a u64. We use usize.
-    pub(in super::super) last_resume_orig_cx: usize,
+    pub(in super::super) last_resume_orig_cx: Cell<usize>,
     /// The instruction type we're singlestepping through.
-    pub(in super::super) singlestepping_instruction: TrappedInstruction,
+    pub(in super::super) singlestepping_instruction: Cell<TrappedInstruction>,
     /// True if we set a breakpoint after a singlestepped CPUID instruction.
     /// We need this in addition to `singlestepping_instruction` because that
     /// might be CPUID but we failed to set the breakpoint.
-    pub(in super::super) did_set_breakpoint_after_cpuid: bool,
+    pub(in super::super) did_set_breakpoint_after_cpuid: Cell<bool>,
     /// True when we know via waitpid() that the task is stopped and we haven't
     /// resumed it.
-    pub(in super::super) is_stopped: bool,
+    pub(in super::super) is_stopped: Cell<bool>,
     /// True when the seccomp filter has been enabled via prctl(). This happens
     /// in the first system call issued by the initial tracee (after it returns
     /// from kill(SIGSTOP) to synchronize with the tracer).
-    pub(in super::super) seccomp_bpf_enabled: bool,
+    pub(in super::super) seccomp_bpf_enabled: Cell<bool>,
     /// True when we consumed a PTRACE_EVENT_EXIT that was about to race with
     /// a resume_execution, that was issued while stopped (i.e. SIGKILL).
-    pub(in super::super) detected_unexpected_exit: bool,
+    pub(in super::super) detected_unexpected_exit: Cell<bool>,
     /// True when 'registers' has changes that haven't been flushed back to the
     /// task yet.
-    pub(in super::super) registers_dirty: bool,
+    pub(in super::super) registers_dirty: Cell<bool>,
     /// DIFF NOTE: This is an option in rd. In rr there is `extra_registers_known`
     /// which we don't need.
     pub(in super::super) extra_registers: RefCell<Option<ExtraRegisters>>,
@@ -603,7 +603,7 @@ impl TaskInner {
     /// Perform those side effects on `registers` to make it look like a syscall
     /// happened.
     pub fn canonicalize_regs(&mut self, syscall_arch: SupportedArch) {
-        ed_assert!(self, self.is_stopped);
+        ed_assert!(self, self.is_stopped.get());
 
         match self.registers.arch() {
             SupportedArch::X64 => {
@@ -669,7 +669,7 @@ impl TaskInner {
             }
         }
 
-        self.registers_dirty = true;
+        self.registers_dirty.set(true);
     }
 
     /// Return the ptrace message pid associated with the current ptrace
@@ -787,7 +787,7 @@ impl TaskInner {
 
     /// Return the current regs of this.
     pub fn regs_ref(&self) -> &Registers {
-        ed_assert!(self, self.is_stopped);
+        ed_assert!(self, self.is_stopped.get());
         &self.registers
     }
 
@@ -899,22 +899,22 @@ impl TaskInner {
 
     /// Set the tracee's registers to `regs`. Lazy.
     pub fn set_regs(&mut self, regs: &Registers) {
-        ed_assert!(self, self.is_stopped);
+        ed_assert!(self, self.is_stopped.get());
         self.registers = regs.clone();
-        self.registers_dirty = true;
+        self.registers_dirty.set(true);
     }
 
     /// Ensure registers are flushed back to the underlying task.
     pub fn flush_regs(&mut self) {
-        if self.registers_dirty {
-            ed_assert!(self, self.is_stopped);
+        if self.registers_dirty.get() {
+            ed_assert!(self, self.is_stopped.get());
             let ptrace_regs = self.registers.get_ptrace();
             self.ptrace_if_alive(
                 PTRACE_SETREGS,
                 0usize.into(),
                 &mut PtraceData::ReadFrom(u8_slice(&ptrace_regs)),
             );
-            self.registers_dirty = false;
+            self.registers_dirty.set(false);
         }
     }
 
@@ -1081,7 +1081,7 @@ impl TaskInner {
 
     /// Return true when the task is running, false if it's stopped.
     pub fn is_running(&self) -> bool {
-        !self.is_stopped
+        !self.is_stopped.get()
     }
 
     /// Return the status of this as of the last successful wait()/try_wait() call.
@@ -1242,11 +1242,11 @@ impl TaskInner {
     }
 
     pub fn is_dying(&self) -> bool {
-        self.seen_ptrace_exit_event.get() || self.detected_unexpected_exit
+        self.seen_ptrace_exit_event.get() || self.detected_unexpected_exit.get()
     }
 
     pub fn last_execution_resume(&self) -> RemoteCodePtr {
-        self.address_of_last_execution_resume
+        self.address_of_last_execution_resume.get()
     }
 
     pub fn usable_scratch_size(&self) -> usize {
@@ -1365,13 +1365,13 @@ impl TaskInner {
             prname: "???".into(),
             ticks: 0,
             registers: Registers::new(a),
-            how_last_execution_resumed: ResumeRequest::ResumeCont,
-            last_resume_orig_cx: 0,
-            did_set_breakpoint_after_cpuid: false,
-            is_stopped: false,
-            seccomp_bpf_enabled: false,
-            detected_unexpected_exit: false,
-            registers_dirty: false,
+            how_last_execution_resumed: Cell::new(ResumeRequest::ResumeCont),
+            last_resume_orig_cx: Default::default(),
+            did_set_breakpoint_after_cpuid: Default::default(),
+            is_stopped: Default::default(),
+            seccomp_bpf_enabled: Default::default(),
+            detected_unexpected_exit: Default::default(),
+            registers_dirty: Default::default(),
             extra_registers: Default::default(),
             session_: session.weak_self.clone(),
             top_of_stack: Default::default(),
@@ -1384,7 +1384,7 @@ impl TaskInner {
             as_: Default::default(),
             fds: Default::default(),
             address_of_last_execution_resume: Default::default(),
-            singlestepping_instruction: TrappedInstruction::None,
+            singlestepping_instruction: Default::default(),
             tg: Default::default(),
             thread_areas_: Default::default(),
             wait_status: Default::default(),
