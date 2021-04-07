@@ -846,7 +846,7 @@ impl RecordSession {
             // Don't stash these signals; deliver them immediately.
             // We don't want them to be reordered around other signals.
             // invalidate_sigmask() must not be called before we reach handle_signal!
-            let si = t.borrow().get_siginfo().clone();
+            let si = t.borrow().get_siginfo();
             let res = handle_signal(
                 t.borrow_mut().as_rec_mut_unwrap(),
                 si,

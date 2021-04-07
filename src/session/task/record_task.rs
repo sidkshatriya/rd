@@ -1961,7 +1961,7 @@ impl RecordTask {
             }
         }
         let deterministic = is_deterministic_signal(self);
-        let siginfo = self.get_siginfo().clone();
+        let siginfo = self.get_siginfo();
         self.stashed_signals.push_back(Box::new(StashedSignal {
             siginfo,
             deterministic,

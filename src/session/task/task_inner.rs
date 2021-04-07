@@ -689,6 +689,7 @@ impl TaskInner {
 
     /// Return the siginfo at the signal-stop of `self`.
     /// Not meaningful unless this is actually at a signal stop.
+    /// NOTE: This does not return a reference like in rr
     pub fn get_siginfo(&self) -> siginfo_t {
         self.pending_siginfo.get()
     }
