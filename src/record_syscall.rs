@@ -1104,7 +1104,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         let mut offset = LazyOffset::new(t, regs, sys);
         if offset
             .task()
-            .fd_table_shr_ptr()
+            .fd_table()
             .emulate_read(fd, &ranges, &mut offset, &mut result)
         {
             // Don't perform this syscall.
@@ -1157,7 +1157,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
     if sys == Arch::FCNTL || sys == Arch::FCNTL64 {
         let fd = regs.arg1() as i32;
         let mut result: usize = 0;
-        if t.fd_table_shr_ptr().emulate_fcntl(fd, t, &mut result) {
+        if t.fd_table().emulate_fcntl(fd, t, &mut result) {
             // Don't perform this syscall.
             let mut r: Registers = regs.clone();
             r.set_arg1_signed(-1);
@@ -2228,7 +2228,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         let mut offset = LazyOffset::new(t, regs, sys);
         if offset
             .task()
-            .fd_table_shr_ptr()
+            .fd_table()
             .emulate_read(fd, &ranges, &mut offset, &mut result)
         {
             // Don't perform this syscall.
@@ -2932,7 +2932,7 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
             } else {
                 Box::new(VirtualPerfCounterMonitor::new(t, t, &attr))
             };
-            t.fd_table_shr_ptr().add_monitor(t, fd, monitor);
+            t.fd_table().add_monitor(t, fd, monitor);
         }
         return;
     }
@@ -3084,7 +3084,7 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
 
     if sys == Arch::GETDENTS || sys == Arch::GETDENTS64 {
         let fd = t.regs_ref().arg1() as i32;
-        t.fd_table_shr_ptr().filter_getdents(fd, t);
+        t.fd_table().filter_getdents(fd, t);
         return;
     }
 
@@ -3549,7 +3549,7 @@ fn handle_opened_file(t: &mut RecordTask, fd: i32, flags: i32) -> OsString {
                     inode: st.st_ino,
                 });
             }
-            t.fd_table_shr_ptr().add_monitor(t, fd, mon);
+            t.fd_table().add_monitor(t, fd, mon);
         }
         None => (),
     }
@@ -3798,7 +3798,7 @@ fn process_mmap(
                     .revive();
             } else {
                 let mon = Box::new(MmappedFileMonitor::new(tt, f.fd));
-                tt.fd_table_shr_ptr().add_monitor(tt, f.fd, mon);
+                tt.fd_table().add_monitor(tt, f.fd, mon);
             }
         }
 
@@ -3837,7 +3837,7 @@ fn monitor_fd_for_mapping(
     let mut tables: WeakPtrSet<FdTable> = WeakPtrSet::new();
     let mut found_our_mapping = false;
     let mut our_mapping_writable = false;
-    let mapped_table = Rc::downgrade(&mapped_t.fd_table_shr_ptr());
+    let mapped_table = Rc::downgrade(&mapped_t.fd_table());
     let mapped_t_weak = mapped_t.weak_self_ptr();
     for (_, ts) in mapped_t.session().tasks().iter() {
         let tb;
@@ -3854,7 +3854,7 @@ fn monitor_fd_for_mapping(
             // probably fail.
             continue;
         }
-        let table = Rc::downgrade(&t.fd_table_shr_ptr());
+        let table = Rc::downgrade(&t.fd_table());
         if !tables.insert(table.clone()) {
             continue;
         }
@@ -3917,8 +3917,7 @@ fn process_execve(t: &mut RecordTask, syscall_state: &mut TaskSyscallState) {
     }
 
     t.post_exec_syscall();
-    t.ev_mut().syscall_event_mut().exec_fds_to_close =
-        t.fd_table_shr_ptr().fds_to_close_after_exec(t);
+    t.ev_mut().syscall_event_mut().exec_fds_to_close = t.fd_table().fds_to_close_after_exec(t);
 
     check_privileged_exe(t);
 
@@ -5310,7 +5309,7 @@ fn prepare_ioctl<Arch: Architecture>(
 ) -> Switchable {
     let fd = t.regs_ref().arg1() as i32;
     let mut result: usize = 0;
-    if t.fd_table_shr_ptr().emulate_ioctl(fd, t, &mut result) {
+    if t.fd_table().emulate_ioctl(fd, t, &mut result) {
         // Don't perform this syscall.
         let mut r: Registers = t.regs_ref().clone();
         r.set_arg1_signed(-1);

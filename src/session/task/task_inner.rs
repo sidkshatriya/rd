@@ -360,7 +360,7 @@ pub struct TaskInner {
     /// The address space of this task.
     pub(in super::super) as_: RefCell<Option<AddressSpaceSharedPtr>>,
     /// The file descriptor table of this task.
-    pub(in super::super) fds: Option<FdTableSharedPtr>,
+    pub(in super::super) fds: RefCell<Option<FdTableSharedPtr>>,
     /// Task's OS name.
     pub(in super::super) prname: OsString,
     /// Count of all ticks seen by this task since tracees became
@@ -1151,12 +1151,8 @@ impl TaskInner {
         self.as_.borrow().as_ref().unwrap().clone()
     }
 
-    pub fn fd_table(&self) -> &FdTable {
-        self.fds.as_ref().unwrap()
-    }
-
-    pub fn fd_table_shr_ptr(&self) -> FdTableSharedPtr {
-        self.fds.as_ref().unwrap().clone()
+    pub fn fd_table(&self) -> FdTableSharedPtr {
+        self.fds.borrow().as_ref().unwrap().clone()
     }
 
     /// Currently we don't allow recording across uid changes, so we can
@@ -1765,10 +1761,10 @@ impl TaskInner {
         let addr_space = session.create_vm(wrapped_t.borrow_mut().as_mut(), None, None);
         *wrapped_t.borrow_mut().as_.borrow_mut() = Some(addr_space);
         let weak_t_ptr = wrapped_t.borrow().weak_self.clone();
-        wrapped_t.borrow_mut().fds = Some(FdTable::create(weak_t_ptr));
+        *wrapped_t.borrow_mut().fds.borrow_mut() = Some(FdTable::create(weak_t_ptr));
         {
             let mut ref_task = wrapped_t.borrow_mut();
-            let fds: FdTableSharedPtr = ref_task.fds.as_ref().unwrap().clone();
+            let fds: FdTableSharedPtr = ref_task.fds.borrow().as_ref().unwrap().clone();
             setup_fd_table(ref_task.as_mut(), &fds, fd_number);
         }
 
