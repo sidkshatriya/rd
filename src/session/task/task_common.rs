@@ -1446,7 +1446,7 @@ pub(super) fn post_exec_for_exe_common<T: Task>(t: &mut T, exe_file: &OsStr) {
     t.stopping_breakpoint_table_entry_size = 0;
     t.preload_globals = None;
     t.thread_group_mut().execed = true;
-    t.thread_areas_.clear();
+    t.thread_areas_.borrow_mut().clear();
     t.thread_locals = [0u8; PRELOAD_THREAD_LOCALS_SIZE];
     let exec_count = t.vm().uid().exec_count() + 1;
     t.as_ = Some(t.session().create_vm(t, Some(exe_file), Some(exec_count)));
@@ -1974,7 +1974,7 @@ pub(super) fn task_drop_common<T: Task>(t: &T) {
 pub(super) fn set_thread_area_common<T: Task>(t: &mut T, tls: RemotePtr<user_desc>) {
     // We rely on the fact that user_desc is word-size-independent.
     let desc: user_desc = read_val_mem(t, tls, None);
-    set_thread_area_core(&mut t.thread_areas_, desc)
+    set_thread_area_core(&mut t.thread_areas_.borrow_mut(), desc)
 }
 
 pub(super) fn set_thread_area_core(thread_areas: &mut Vec<user_desc>, desc: user_desc) {
@@ -2320,7 +2320,7 @@ pub(in super::super) fn copy_state(t: &mut dyn Task, state: &CapturedState) {
         }
 
         copy_tls(state, &mut remote);
-        remote.task_mut().thread_areas_ = state.thread_areas.clone();
+        *remote.task_mut().thread_areas_.borrow_mut() = state.thread_areas.clone();
         remote.task_mut().syscallbuf_size = state.syscallbuf_size;
 
         ed_assert!(

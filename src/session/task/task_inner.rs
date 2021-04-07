@@ -405,7 +405,7 @@ pub struct TaskInner {
     /// Entries set by `set_thread_area()` or the `tls` argument to `clone()`
     /// (when that's a user_desc). May be more than one due to different
     /// entry_numbers.
-    pub(in super::super) thread_areas_: Vec<user_desc>,
+    pub(in super::super) thread_areas_: RefCell<Vec<user_desc>>,
     /// The `stack` argument passed to `clone()`, which for
     /// "threads" is the top of the user-allocated stack.
     pub(in super::super) top_of_stack: Cell<RemotePtr<Void>>,
@@ -1051,7 +1051,7 @@ impl TaskInner {
             return errno();
         }
         desc.entry_number = idx;
-        set_thread_area_core(&mut self.thread_areas_, desc);
+        set_thread_area_core(&mut self.thread_areas_.borrow_mut(), desc);
         0
     }
 
@@ -1070,8 +1070,8 @@ impl TaskInner {
         errno()
     }
 
-    pub fn thread_areas(&self) -> &[user_desc] {
-        &self.thread_areas_
+    pub fn thread_areas(&self) -> Ref<Vec<user_desc>> {
+        self.thread_areas_.borrow()
     }
 
     pub fn set_status(&mut self, status: WaitStatus) {
@@ -1396,7 +1396,7 @@ impl TaskInner {
             address_of_last_execution_resume: Default::default(),
             singlestepping_instruction: TrappedInstruction::None,
             tg: Default::default(),
-            thread_areas_: vec![],
+            thread_areas_: Default::default(),
             wait_status: Default::default(),
             pending_siginfo: Default::default(),
             weak_self: Weak::new(),
@@ -1412,13 +1412,14 @@ impl TaskInner {
     /// Grab state from this task into a structure that we can use to
     /// initialize a new task via os_clone_into/os_fork_into and copy_state.
     pub(in super::super) fn capture_state(&mut self) -> CapturedState {
+        let thread_areas = self.thread_areas_.borrow().clone();
         CapturedState {
             rec_tid: self.rec_tid,
             serial: self.serial,
             regs: self.regs_ref().clone(),
             extra_regs: self.extra_regs_ref().clone(),
             prname: self.prname.clone(),
-            thread_areas: self.thread_areas_.clone(),
+            thread_areas,
             desched_fd_child: self.desched_fd_child,
             cloned_file_data_fd_child: self.cloned_file_data_fd_child,
             cloned_file_data_offset: if self.cloned_file_data_fd_child > 0 {
