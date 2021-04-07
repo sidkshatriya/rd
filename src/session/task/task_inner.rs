@@ -397,7 +397,7 @@ pub struct TaskInner {
     pub(in super::super) registers_dirty: bool,
     /// DIFF NOTE: This is an option in rd. In rr there is `extra_registers_known`
     /// which we don't need.
-    pub(in super::super) extra_registers: Option<ExtraRegisters>,
+    pub(in super::super) extra_registers: RefCell<Option<ExtraRegisters>>,
     /// A weak pointer to the  session we're part of.
     pub(in super::super) session_: SessionSharedWeakPtr,
     /// The thread group this belongs to.
@@ -798,8 +798,8 @@ impl TaskInner {
 
     /// DIFF NOTE: simply `extra_regs()` in rr
     /// Return the extra registers of this.
-    pub fn extra_regs_ref(&mut self) -> &ExtraRegisters {
-        if self.extra_registers.is_none() {
+    pub fn extra_regs_ref(&mut self) -> Ref<ExtraRegisters> {
+        if self.extra_registers.borrow().is_none() {
             let arch_ = self.registers.arch();
             let format_ = Format::XSave;
             let mut data_ = Vec::<u8>::new();
@@ -858,10 +858,10 @@ impl TaskInner {
                     arch_,
                 };
             }
-            self.extra_registers = Some(er);
+            *self.extra_registers.borrow_mut() = Some(er);
         }
 
-        self.extra_registers.as_ref().unwrap()
+        Ref::map(self.extra_registers.borrow(), |e| e.as_ref().unwrap())
     }
 
     /// Return the current arch of this. This can change due to exec().
@@ -970,7 +970,7 @@ impl TaskInner {
                 unreachable!();
             }
         }
-        self.extra_registers = Some(er);
+        *self.extra_registers.borrow_mut() = Some(er);
     }
 
     /// Program the debug registers to the vector of watchpoint
@@ -1372,7 +1372,7 @@ impl TaskInner {
             seccomp_bpf_enabled: false,
             detected_unexpected_exit: false,
             registers_dirty: false,
-            extra_registers: None,
+            extra_registers: Default::default(),
             session_: session.weak_self.clone(),
             top_of_stack: Default::default(),
             seen_ptrace_exit_event: Default::default(),
@@ -1403,11 +1403,12 @@ impl TaskInner {
     /// initialize a new task via os_clone_into/os_fork_into and copy_state.
     pub(in super::super) fn capture_state(&mut self) -> CapturedState {
         let thread_areas = self.thread_areas_.borrow().clone();
+        let extra_regs = self.extra_regs_ref().clone();
         CapturedState {
             rec_tid: self.rec_tid,
             serial: self.serial,
             regs: self.regs_ref().clone(),
-            extra_regs: self.extra_regs_ref().clone(),
+            extra_regs,
             prname: self.prname.clone(),
             thread_areas,
             desched_fd_child: self.desched_fd_child,

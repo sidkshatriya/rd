@@ -1019,7 +1019,7 @@ pub(super) fn resume_execution_common<T: Task>(
     }
 
     task.is_stopped = false;
-    task.extra_registers = None;
+    *task.extra_registers.borrow_mut() = None;
     if WaitRequest::ResumeWait == wait_how {
         task.wait(None);
     }
@@ -1432,7 +1432,7 @@ pub(super) fn post_exec_for_exe_common<T: Task>(t: &mut T, exe_file: &OsStr) {
     t.vm().task_set_mut().erase(t.weak_self_ptr());
     t.fd_table().task_set_mut().erase(t.weak_self_ptr());
 
-    t.extra_registers = None;
+    *t.extra_registers.borrow_mut() = None;
     let mut e = t.extra_regs_ref().clone();
     e.reset();
     t.set_extra_regs(&e);
@@ -2059,7 +2059,8 @@ fn process_ptrace<Arch: Architecture>(regs: &Registers, t: &mut dyn Task) {
                 NT_X86_XSTATE => {
                     let tracee_rc = maybe_tracee.unwrap();
                     let mut tracee = tracee_rc.borrow_mut();
-                    match tracee.extra_regs_ref().format() {
+                    let format = tracee.extra_regs_ref().format();
+                    match format {
                         Format::XSave => {
                             let set = ptrace_get_regs_set::<Arch>(
                                 t,

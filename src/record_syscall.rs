@@ -6735,7 +6735,8 @@ fn prepare_ptrace<Arch: Architecture>(
                     Some(tracee_rc) => {
                         let mut traceeb = tracee_rc.borrow_mut();
                         let tracee = traceeb.as_rec_mut_unwrap();
-                        match tracee.extra_regs_ref().format() {
+                        let format = tracee.extra_regs_ref().format();
+                        match format {
                             Format::XSave => ptrace_get_reg_set::<Arch>(
                                 t,
                                 syscall_state,
