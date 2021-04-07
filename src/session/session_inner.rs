@@ -463,7 +463,7 @@ impl SessionInner {
                 break_status.breakpoint_hit = true;
             } else if maybe_stop_sig.is_sig() && maybe_stop_sig != perf_counters::TIME_SLICE_SIGNAL
             {
-                break_status.signal = Some(Box::new(*t.get_siginfo()));
+                break_status.signal = Some(Box::new(t.get_siginfo()));
                 log!(
                     LogDebug,
                     "Got signal {:?} (expected sig {})",

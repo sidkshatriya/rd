@@ -414,7 +414,7 @@ pub struct TaskInner {
     pub(in super::super) wait_status: Cell<WaitStatus>,
     /// The most recent siginfo (captured when wait_status shows pending_sig())
     /// @TODO Should this be an Option??
-    pub(in super::super) pending_siginfo: RefCell<siginfo_t>,
+    pub(in super::super) pending_siginfo: Cell<siginfo_t>,
     /// True when a PTRACE_EXIT_EVENT has been observed in the wait_status
     /// for this task.
     pub(in super::super) seen_ptrace_exit_event: Cell<bool>,
@@ -689,8 +689,8 @@ impl TaskInner {
 
     /// Return the siginfo at the signal-stop of `self`.
     /// Not meaningful unless this is actually at a signal stop.
-    pub fn get_siginfo(&self) -> Ref<siginfo_t> {
-        self.pending_siginfo.borrow()
+    pub fn get_siginfo(&self) -> siginfo_t {
+        self.pending_siginfo.get()
     }
 
     /// Return the current $ip of this.

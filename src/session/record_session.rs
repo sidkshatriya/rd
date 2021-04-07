@@ -855,14 +855,14 @@ impl RecordSession {
             );
             match res {
                 (SignalHandled::SignalPtraceStop, new_si) => {
-                    *t.borrow_mut().pending_siginfo.borrow_mut() = new_si;
+                    t.borrow_mut().pending_siginfo.set(new_si);
                     // Emulated ptrace-stop. Don't run the task again yet.
                     self.last_task_switchable.set(Switchable::AllowSwitch);
                     step_state.continue_type = ContinueType::DontContinue;
                     return true;
                 }
                 (SignalHandled::DeferSignal, new_si) => {
-                    *t.borrow_mut().pending_siginfo.borrow_mut() = new_si;
+                    t.borrow_mut().pending_siginfo.set(new_si);
                     ed_assert!(
                         &t.borrow(),
                         false,
@@ -872,7 +872,7 @@ impl RecordSession {
                     );
                 }
                 (SignalHandled::SignalHandled, new_si) => {
-                    *t.borrow_mut().pending_siginfo.borrow_mut() = new_si;
+                    t.borrow_mut().pending_siginfo.set(new_si);
                     if t.borrow().maybe_ptrace_event() == PTRACE_EVENT_SECCOMP {
                         // `handle_desched_event` detected a spurious desched followed
                         // by a SECCOMP event, which it left pending. Handle that SECCOMP

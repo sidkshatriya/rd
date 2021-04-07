@@ -36,7 +36,7 @@ use crate::{
             PTRACE_SETREGS,
             PTRACE_SETREGSET,
         },
-        signal::POLL_IN,
+        signal::{siginfo_t, POLL_IN},
     },
     core::type_has_no_holes,
     extra_registers::{ExtraRegisters, Format},
@@ -703,11 +703,11 @@ pub(super) fn did_waitpid_common<T: Task>(task: &mut T, mut status: WaitStatus) 
                     .expire_timeslice();
             }
             status = WaitStatus::for_stop_sig(TIME_SLICE_SIGNAL);
-            task.pending_siginfo = Default::default();
-            task.pending_siginfo.borrow_mut().si_signo = TIME_SLICE_SIGNAL.as_raw();
-            task.pending_siginfo.borrow_mut()._sifields._sigpoll.si_fd =
-                task.hpc.ticks_interrupt_fd();
-            task.pending_siginfo.borrow_mut().si_code = POLL_IN as i32;
+            let mut pending_siginfo: siginfo_t = Default::default();
+            pending_siginfo.si_signo = TIME_SLICE_SIGNAL.as_raw();
+            pending_siginfo._sifields._sigpoll.si_fd = task.hpc.ticks_interrupt_fd();
+            pending_siginfo.si_code = POLL_IN as i32;
+            task.pending_siginfo.set(pending_siginfo);
             siginfo_overridden = true;
             task.expecting_ptrace_interrupt_stop.set(0);
         }
@@ -1547,7 +1547,7 @@ pub(super) fn compute_trap_reasons_common<T: Task>(t: &mut T) -> TrapReasons {
         reasons.breakpoint = t.vm().has_exec_watchpoint_fired(ip_at_breakpoint)
             && AddressSpace::is_breakpoint_instruction(t, ip_at_breakpoint);
     } else {
-        let si = *t.get_siginfo();
+        let si = t.get_siginfo();
         ed_assert_eq!(t, SIGTRAP, si.si_signo, " expected SIGTRAP, got {:?}", si);
         reasons.breakpoint = is_kernel_trap(si.si_code);
 
