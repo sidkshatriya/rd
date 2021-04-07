@@ -5,6 +5,7 @@ pub mod dump_command;
 pub mod exit_result;
 pub mod gdb_command;
 pub mod gdb_command_handler;
+pub mod gdb_server;
 pub mod ps_command;
 pub mod rd_options;
 pub mod record_command;

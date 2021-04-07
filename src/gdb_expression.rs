@@ -1,4 +1,17 @@
-use crate::{remote_ptr::RemotePtr, session::task::Task};
+use crate::{
+    commands::gdb_server::GdbServer,
+    gdb_connection::GdbRegisterValue,
+    gdb_register::GdbRegister,
+    remote_ptr::RemotePtr,
+    session::task::{task_common::read_val_mem, Task},
+};
+use std::{
+    convert::TryFrom,
+    intrinsics::transmute,
+    mem::size_of,
+    ops::{BitOr, Shl},
+};
+use Opcode::*;
 
 /// Extracted from
 /// <https://sourceware.org/gdb/current/onlinedocs/gdb/Bytecode-Descriptions.html>
@@ -57,20 +70,6 @@ enum Opcode {
     OP_rot = 0x33,
     OP_printf = 0x34,
 }
-
-use crate::{
-    gdb_connection::GdbRegisterValue,
-    gdb_register::GdbRegister,
-    gdb_server::GdbServer,
-    session::task::task_common::read_val_mem,
-};
-use std::{
-    convert::TryFrom,
-    intrinsics::transmute,
-    mem::size_of,
-    ops::{BitOr, Shl},
-};
-use Opcode::*;
 
 /// DIFF NOTE: Simply called Value in rr
 #[derive(Copy, Clone, Eq, PartialEq)]

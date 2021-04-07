@@ -1,18 +1,22 @@
 use super::{exit_result::ExitResult, gdb_command_handler::GdbCommandHandler, RdCommand};
-use crate::{gdb_server::GdbServer, replay_timeline::Mark, session::task::Task};
+use crate::{
+    commands::gdb_server::{Checkpoint, ExplicitCheckpoint, GdbServer},
+    replay_timeline::Mark,
+    session::task::Task,
+};
 use std::{
+    collections::HashMap,
+    ffi::{OsStr, OsString},
     fmt::Write,
     ops::{Deref, DerefMut},
+    sync::atomic::{AtomicUsize, Ordering},
 };
 
 /// DIFF NOTE: Simply called GdbCommand in rr
 pub struct BaseGdbCommand {
-    /// @TODO Do we want a OsString here?
     cmd_name: String,
-    /// @TODO Do we want a OsString here?
     documentation: String,
-    /// @TODO Do we want a OsString here?
-    cmd_auto_args: Vec<String>,
+    cmd_auto_args: Vec<OsString>,
 }
 
 impl BaseGdbCommand {
@@ -24,13 +28,13 @@ impl BaseGdbCommand {
     }
 
     /// When called, gdb will automatically run gdb.execute() on this string and
-    /// pass it as an argument to the rr command. This is useful to pass gdb
+    /// pass it as an argument to the rd command. This is useful to pass gdb
     /// state alongside the command invocation.
-    pub fn add_auto_arg(&mut self, auto_arg: &str) {
+    pub fn add_auto_arg(&mut self, auto_arg: &OsStr) {
         self.cmd_auto_args.push(auto_arg.to_owned());
     }
 
-    pub fn auto_args(&self) -> &[String] {
+    pub fn auto_args(&self) -> &[OsString] {
         &self.cmd_auto_args
     }
 
@@ -40,12 +44,12 @@ impl BaseGdbCommand {
     }
 }
 
-trait GdbCommand: DerefMut<Target = BaseGdbCommand> {
+pub trait GdbCommand: DerefMut<Target = BaseGdbCommand> {
     /// Handle the RD Cmd and return a string response to be echo'd
     /// to the user.
     ///
     /// NOTE: args[0] is the command name
-    fn invoke(&self, gdb_server: &GdbServer, t: &dyn Task, args: &[String]) -> String;
+    fn invoke(&self, gdb_server: &mut GdbServer, t: &dyn Task, args: &[OsString]) -> String;
 }
 
 impl RdCommand for BaseGdbCommand {
@@ -54,7 +58,7 @@ impl RdCommand for BaseGdbCommand {
     }
 }
 
-type InvokerFn = dyn Fn(&GdbServer, &dyn Task, &[String]) -> String;
+type InvokerFn = dyn Fn(&mut GdbServer, &dyn Task, &[OsString]) -> String;
 
 struct SimpleGdbCommand {
     base_gdb_command: BaseGdbCommand,
@@ -96,44 +100,116 @@ impl DerefMut for SimpleGdbCommand {
 }
 
 impl GdbCommand for SimpleGdbCommand {
-    fn invoke(&self, gdb_server: &GdbServer, t: &dyn Task, args: &[String]) -> String {
+    fn invoke(&self, gdb_server: &mut GdbServer, t: &dyn Task, args: &[OsString]) -> String {
         (self.invoker)(gdb_server, t, args)
     }
 }
 
 lazy_static! {
-    static ref ELAPSED_TIME: SimpleGdbCommand = SimpleGdbCommand::new(
+    static ref GDB_COMMAND_LIST: GdbCommandListWrapper =
+        GdbCommandListWrapper(gdb_command_list_init());
+}
+
+struct GdbCommandListWrapper(HashMap<String, Box<dyn GdbCommand>>);
+
+/// Done to satisfy error in lazy_static!()
+/// Should be OK since everything should be one thread
+unsafe impl Sync for GdbCommandListWrapper {}
+
+impl Deref for GdbCommandListWrapper {
+    type Target = HashMap<String, Box<dyn GdbCommand>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for GdbCommandListWrapper {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+pub(super) fn gdb_command_list() -> &'static HashMap<String, Box<dyn GdbCommand>> {
+    GDB_COMMAND_LIST.deref()
+}
+
+fn gdb_command_list_init() -> HashMap<String, Box<dyn GdbCommand>> {
+    let mut command_list: HashMap<String, Box<dyn GdbCommand>> = HashMap::new();
+
+    command_list.insert("elapsed-time".to_string(), Box::new(SimpleGdbCommand::new(
         "elapsed-time",
         "Print elapsed time (in seconds) since the start of the trace, in the 'record' timeline.",
         &elapsed_time,
+    )));
+
+    command_list.insert(
+        "when".to_string(),
+        Box::new(SimpleGdbCommand::new(
+            "when",
+            "Print the current rd event number.",
+            &when_fn,
+        )),
     );
-    static ref WHEN: SimpleGdbCommand =
-        SimpleGdbCommand::new("when", "Print the current rd event number.", &when_fn);
-    static ref WHEN_TICKS: SimpleGdbCommand = SimpleGdbCommand::new(
-        "when-ticks",
-        "Print the current rd tick count for the current thread.",
-        &when_ticks,
+
+    command_list.insert(
+        "when-ticks".to_string(),
+        Box::new(SimpleGdbCommand::new(
+            "when-ticks",
+            "Print the current rd tick count for the current thread.",
+            &when_ticks,
+        )),
     );
-    static ref WHEN_TID: SimpleGdbCommand = SimpleGdbCommand::new(
-        "when-tid",
-        "Print the real tid for the current thread.",
-        &when_tid,
+
+    command_list.insert(
+        "when-tid".to_string(),
+        Box::new(SimpleGdbCommand::new(
+            "when-tid",
+            "Print the real tid for the current thread.",
+            &when_tid,
+        )),
     );
-    static ref RD_HISTORY_PUSH: SimpleGdbCommand = SimpleGdbCommand::new(
-        "rd-history-push",
-        "Push an entry into the rd history.",
-        &rd_history_push,
+
+    command_list.insert(
+        "rd-history-push".to_string(),
+        Box::new(SimpleGdbCommand::new(
+            "rd-history-push",
+            "Push an entry into the rd history.",
+            &rd_history_push,
+        )),
     );
-    static ref BACK: SimpleGdbCommand =
-        SimpleGdbCommand::new("back", "Go back one entry in the rd history.", &back,);
-    static ref FORWARD: SimpleGdbCommand = SimpleGdbCommand::new(
-        "forward",
-        "Go forward one entry in the rd history.",
-        &forward
+
+    command_list.insert(
+        "back".to_string(),
+        Box::new(SimpleGdbCommand::new(
+            "back",
+            "Go back one entry in the rd history.",
+            &back,
+        )),
     );
+
+    command_list.insert(
+        "forward".to_string(),
+        Box::new(SimpleGdbCommand::new(
+            "forward",
+            "Go forward one entry in the rd history.",
+            &forward,
+        )),
+    );
+
+    command_list.insert(
+        "checkpoint".to_string(),
+        Box::new(SimpleGdbCommand::new(
+            "checkpoint",
+            "create a checkpoint representing a point in the execution\n",
+            &invoke_checkpoint,
+        )),
+    );
+
+    command_list
 }
 
-fn elapsed_time(_: &GdbServer, t: &dyn Task, _: &[String]) -> String {
+fn elapsed_time(_: &mut GdbServer, t: &dyn Task, _: &[OsString]) -> String {
     if !t.session().is_replaying() {
         return GdbCommandHandler::cmd_end_diversion().to_owned();
     }
@@ -151,7 +227,7 @@ fn elapsed_time(_: &GdbServer, t: &dyn Task, _: &[String]) -> String {
     rets
 }
 
-fn when_fn(_: &GdbServer, t: &dyn Task, _: &[String]) -> String {
+fn when_fn(_: &mut GdbServer, t: &dyn Task, _: &[OsString]) -> String {
     if !t.session().is_replaying() {
         return GdbCommandHandler::cmd_end_diversion().to_owned();
     }
@@ -165,7 +241,7 @@ fn when_fn(_: &GdbServer, t: &dyn Task, _: &[String]) -> String {
     rets
 }
 
-fn when_ticks(_: &GdbServer, t: &dyn Task, _: &[String]) -> String {
+fn when_ticks(_: &mut GdbServer, t: &dyn Task, _: &[OsString]) -> String {
     if !t.session().is_replaying() {
         return GdbCommandHandler::cmd_end_diversion().to_owned();
     }
@@ -175,7 +251,7 @@ fn when_ticks(_: &GdbServer, t: &dyn Task, _: &[String]) -> String {
     rets
 }
 
-fn when_tid(_: &GdbServer, t: &dyn Task, _: &[String]) -> String {
+fn when_tid(_: &mut GdbServer, t: &dyn Task, _: &[OsString]) -> String {
     if !t.session().is_replaying() {
         return GdbCommandHandler::cmd_end_diversion().to_owned();
     }
@@ -189,7 +265,7 @@ static mut BACK_STACK: Vec<Mark> = Vec::new();
 static mut CURRENT_HISTORY_CP: Option<Mark> = None;
 static mut FORWARD_STACK: Vec<Mark> = Vec::new();
 
-fn rd_history_push(gdb_server: &GdbServer, t: &dyn Task, _: &[String]) -> String {
+fn rd_history_push(gdb_server: &mut GdbServer, t: &dyn Task, _: &[OsString]) -> String {
     if !t.session().is_replaying() {
         // Don't create new history state inside a diversion
         return String::new();
@@ -208,7 +284,7 @@ fn rd_history_push(gdb_server: &GdbServer, t: &dyn Task, _: &[String]) -> String
     String::new()
 }
 
-fn back(gdb_server: &GdbServer, t: &dyn Task, _: &[String]) -> String {
+fn back(gdb_server: &mut GdbServer, t: &dyn Task, _: &[OsString]) -> String {
     if !t.session().is_replaying() {
         return GdbCommandHandler::cmd_end_diversion().to_owned();
     }
@@ -227,7 +303,7 @@ fn back(gdb_server: &GdbServer, t: &dyn Task, _: &[String]) -> String {
     String::new()
 }
 
-fn forward(gdb_server: &GdbServer, t: &dyn Task, _: &[String]) -> String {
+fn forward(gdb_server: &mut GdbServer, t: &dyn Task, _: &[OsString]) -> String {
     if !t.session().is_replaying() {
         return GdbCommandHandler::cmd_end_diversion().to_owned();
     }
@@ -244,4 +320,26 @@ fn forward(gdb_server: &GdbServer, t: &dyn Task, _: &[String]) -> String {
     }
 
     String::new()
+}
+
+fn invoke_checkpoint(gdb_server: &mut GdbServer, _t: &dyn Task, args: &[OsString]) -> String {
+    static NEXT_CHECKPOINT_ID: AtomicUsize = AtomicUsize::new(0);
+    let where_ = &args[1];
+    let checkpoint_id = NEXT_CHECKPOINT_ID.fetch_add(1, Ordering::SeqCst);
+
+    let e = if gdb_server.get_timeline().can_add_checkpoint() {
+        ExplicitCheckpoint::Explicit
+    } else {
+        ExplicitCheckpoint::NotExplicit
+    };
+    let checkpoint = Checkpoint::new(
+        &mut gdb_server.get_timeline_mut(),
+        gdb_server.last_continue_tuid,
+        e,
+        where_,
+    );
+    gdb_server.checkpoints.insert(checkpoint_id, checkpoint);
+    let mut rets = String::new();
+    write!(rets, "Checkpoint {} at {:?}", checkpoint_id, where_).unwrap();
+    rets
 }

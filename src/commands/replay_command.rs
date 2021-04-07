@@ -1,13 +1,8 @@
-use super::{
-    exit_result::ExitResult,
-    rd_options::{PidOrCommand, RdOptions, RdSubCommand},
-};
 use crate::{
     assert_prerequisites,
     bindings::kernel::{gettimeofday, timeval},
-    commands::RdCommand,
+    commands::{gdb_server, RdCommand},
     flags::Flags,
-    gdb_server,
     log::LogLevel::LogInfo,
     session::{
         replay_session,
@@ -22,6 +17,11 @@ use libc::pid_t;
 use nix::unistd::{getpid, getppid};
 use replay_session::{ReplaySession, ReplayStatus};
 use std::{ffi::OsString, io, io::Write, path::PathBuf, ptr};
+
+use super::{
+    exit_result::ExitResult,
+    rd_options::{PidOrCommand, RdOptions, RdSubCommand},
+};
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 enum CreatedHow {

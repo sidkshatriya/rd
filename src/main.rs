@@ -50,7 +50,6 @@ mod file_monitor;
 mod gdb_connection;
 mod gdb_expression;
 mod gdb_register;
-mod gdb_server;
 mod kernel_supplement;
 mod monitored_shared_memory;
 mod monkey_patcher;

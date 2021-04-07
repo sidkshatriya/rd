@@ -70,12 +70,12 @@ impl Default for ConnectionFlags {
 }
 
 #[derive(Copy, Clone, Eq, PartialEq)]
-enum ExplicitCheckpoint {
+pub(super) enum ExplicitCheckpoint {
     Explicit,
     NotExplicit,
 }
 
-struct Checkpoint {
+pub(super) struct Checkpoint {
     /// DIFF NOTE: This is an option in rd but a plain Mark in rr
     maybe_mark: Option<replay_timeline::Mark>,
     last_continue_tuid: TaskUid,
@@ -95,7 +95,7 @@ impl Default for Checkpoint {
 }
 
 impl Checkpoint {
-    fn new(
+    pub fn new(
         timeline: &mut ReplayTimeline,
         last_continue_tuid: TaskUid,
         e: ExplicitCheckpoint,
@@ -129,7 +129,7 @@ pub struct GdbServer {
     thread_db: Box<ThreadDb>,
     /// The TaskUid of the last continued task.
     /// NOTE: @TODO Zero if not set. Change to option?
-    last_continue_tuid: TaskUid,
+    pub(super) last_continue_tuid: TaskUid,
     /// The TaskUid of the last queried task.
     /// NOTE: @TODO Zero if not set. Change to option?
     last_query_tuid: TaskUid,
@@ -147,7 +147,7 @@ pub struct GdbServer {
     emergency_debug_session: SessionSharedWeakPtr,
     debugger_restart_checkpoint: Checkpoint,
     /// gdb checkpoints, indexed by ID
-    checkpoints: HashMap<usize, Checkpoint>,
+    pub(super) checkpoints: HashMap<usize, Checkpoint>,
     /// Set of symbols to look for, for qSymbol
     symbols: HashSet<String>,
     files: HashMap<i32, ScopedFd>,

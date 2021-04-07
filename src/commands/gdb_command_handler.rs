@@ -1,7 +1,10 @@
-use crate::{gdb_server::GdbServer, session::task::Task};
-use std::rc::Rc;
-
-use super::gdb_command::BaseGdbCommand;
+use crate::{
+    commands::{
+        gdb_command::{gdb_command_list, BaseGdbCommand, GdbCommand},
+        gdb_server::GdbServer,
+    },
+    session::task::Task,
+};
 
 pub struct GdbCommandHandler;
 
@@ -118,10 +121,6 @@ end
         unimplemented!()
     }
 
-    pub fn register_command(_cmd: &BaseGdbCommand) {
-        unimplemented!()
-    }
-
     /// Process an incoming GDB payload of the following form:
     ///   <command name>:<arg1>:<arg2>:...
     ///
@@ -131,9 +130,8 @@ end
         unimplemented!()
     }
 
-    /// @TODO Are we sure we want Rc<> here?
-    pub fn command_for_name(_name: &str) -> Rc<BaseGdbCommand> {
-        unimplemented!()
+    pub fn command_for_name(name: &str) -> Option<&Box<dyn GdbCommand>> {
+        gdb_command_list().get(name)
     }
 
     /// Special return value for commands that immediatly end a diversion session
