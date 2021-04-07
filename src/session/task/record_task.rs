@@ -1806,7 +1806,7 @@ impl RecordTask {
 
     /// Set the siginfo for the signal-stop of self.
     pub fn set_siginfo(&mut self, si: &siginfo_t) {
-        self.pending_siginfo = si.clone();
+        *self.pending_siginfo.borrow_mut() = si.clone();
         self.ptrace_if_alive(
             PTRACE_SETSIGINFO,
             RemotePtr::null(),

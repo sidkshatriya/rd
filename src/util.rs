@@ -1705,8 +1705,8 @@ pub fn signal_bit(sig: Sig) -> sig_set_t {
 }
 
 pub fn is_deterministic_signal(t: &mut dyn Task) -> SignalDeterministic {
-    let si = t.get_siginfo();
-    match si.si_signo {
+    let signo = t.get_siginfo().si_signo;
+    match signo {
         // These signals may be delivered deterministically;
         // we'll check for sure below.
         SIGILL | SIGBUS | SIGFPE | SIGSEGV =>
@@ -1719,7 +1719,7 @@ pub fn is_deterministic_signal(t: &mut dyn Task) -> SignalDeterministic {
         // kernel delivered it, then it must have been
         // delivered deterministically. */
         {
-            if si.si_code > 0 {
+            if t.get_siginfo().si_code > 0 {
                 SignalDeterministic::DeterministicSig
             } else {
                 SignalDeterministic::NondeterministicSig
