@@ -2401,7 +2401,7 @@ fn is_same_execution_point(
             Registers::compare_register_files(
                 Some(t),
                 "(rep)",
-                t.regs_ref(),
+                &t.regs_ref(),
                 "(rec)",
                 rec_regs,
                 MismatchBehavior::LogMismatches,
@@ -2409,7 +2409,8 @@ fn is_same_execution_point(
         }
         return false;
     }
-    if !Registers::compare_register_files(Some(t), "rep", t.regs_ref(), "rec", rec_regs, behavior) {
+    if !Registers::compare_register_files(Some(t), "rep", &t.regs_ref(), "rec", rec_regs, behavior)
+    {
         log!(
             LogDebug,
             "  not same execution point: regs differ (@{})",
@@ -2451,7 +2452,7 @@ fn guard_overshoot(
                 Registers::compare_register_files(
                     Some(t),
                     "rep overshoot",
-                    t.regs_ref(),
+                    &t.regs_ref(),
                     "rec",
                     cmr,
                     MismatchBehavior::LogMismatches,
@@ -2462,7 +2463,7 @@ fn guard_overshoot(
                 Registers::compare_register_files(
                     Some(t),
                     "rep overshoot",
-                    t.regs_ref(),
+                    &t.regs_ref(),
                     "rec",
                     target_regs,
                     MismatchBehavior::LogMismatches,

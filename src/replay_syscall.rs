@@ -242,9 +242,8 @@ fn maybe_dump_written_string(t: &mut ReplayTask) -> Option<OsString> {
     let mut buf = Vec::<u8>::with_capacity(len);
     buf.resize(len, 0u8);
     // DIFF NOTE: Here we're actually expecting there to be no Err(_), hence the unwrap()
-    let nread = t
-        .read_bytes_fallible(t.regs_ref().arg2().into(), &mut buf)
-        .unwrap();
+    let arg2 = t.regs_ref().arg2();
+    let nread = t.read_bytes_fallible(arg2.into(), &mut buf).unwrap();
     buf.truncate(nread);
     Some(OsString::from_vec(buf))
 }
@@ -524,9 +523,7 @@ fn prepare_clone<Arch: Architecture>(t: &mut ReplayTask) {
         // refcounts) across a non-VM-sharing clone, but for
         // now we never want to do this.
         new_task.vm().remove_all_breakpoints(new_task);
-        new_task
-            .vm()
-            .remove_all_watchpoints(new_task, Some(t));
+        new_task.vm().remove_all_watchpoints(new_task, Some(t));
 
         let mut remote = AutoRemoteSyscalls::new(new_task);
         for (&k, m) in &t.vm().maps() {
@@ -851,12 +848,14 @@ fn rep_process_syscall_arch<Arch: Architecture>(
     }
 
     if nsys == Arch::OPENAT {
-        handle_opened_files(t, t.regs_ref().arg3() as i32);
+        let arg3 = t.regs_ref().arg3();
+        handle_opened_files(t, arg3 as i32);
         return;
     }
 
     if nsys == Arch::OPEN {
-        handle_opened_files(t, t.regs_ref().arg2() as i32);
+        let arg2 = t.regs_ref().arg2();
+        handle_opened_files(t, arg2 as i32);
         return;
     }
 
@@ -1039,38 +1038,44 @@ fn rep_after_enter_syscall_arch<Arch: Architecture>(t: &mut ReplayTask) {
         let maybe_target = t.session().find_task_from_rec_tid(pid);
         match maybe_target {
             None => (),
-            Some(target) => match t.regs_ref().arg1() as u32 {
-                PTRACE_POKETEXT | PTRACE_POKEDATA => {
-                    target
-                        .borrow_mut()
-                        .as_replay_task_mut()
-                        .unwrap()
-                        .apply_all_data_records_from_trace();
-                }
-                PTRACE_SYSCALL
-                | PTRACE_SINGLESTEP
-                | PTRACE_SYSEMU
-                | PTRACE_SYSEMU_SINGLESTEP
-                | PTRACE_CONT
-                | PTRACE_DETACH => {
-                    let command = t.regs_ref().arg1() as u32;
-                    target
-                        .borrow_mut()
-                        .set_syscallbuf_locked(command != PTRACE_CONT && command != PTRACE_DETACH);
-                }
-                PTRACE_SET_THREAD_AREA => {
-                    let mut ok = true;
-                    let child_addr = t.regs_ref().arg4();
-                    let desc: user_desc =
-                        read_val_mem(t, RemotePtr::<user_desc>::from(child_addr), Some(&mut ok));
-                    if ok {
+            Some(target) => {
+                let arg1 = t.regs_ref().arg1();
+                match arg1 as u32 {
+                    PTRACE_POKETEXT | PTRACE_POKEDATA => {
                         target
                             .borrow_mut()
-                            .emulate_set_thread_area(t.regs_ref().arg3() as u32, desc);
+                            .as_replay_task_mut()
+                            .unwrap()
+                            .apply_all_data_records_from_trace();
                     }
+                    PTRACE_SYSCALL
+                    | PTRACE_SINGLESTEP
+                    | PTRACE_SYSEMU
+                    | PTRACE_SYSEMU_SINGLESTEP
+                    | PTRACE_CONT
+                    | PTRACE_DETACH => {
+                        let command = t.regs_ref().arg1() as u32;
+                        target.borrow_mut().set_syscallbuf_locked(
+                            command != PTRACE_CONT && command != PTRACE_DETACH,
+                        );
+                    }
+                    PTRACE_SET_THREAD_AREA => {
+                        let mut ok = true;
+                        let child_addr = t.regs_ref().arg4();
+                        let desc: user_desc = read_val_mem(
+                            t,
+                            RemotePtr::<user_desc>::from(child_addr),
+                            Some(&mut ok),
+                        );
+                        if ok {
+                            target
+                                .borrow_mut()
+                                .emulate_set_thread_area(t.regs_ref().arg3() as u32, desc);
+                        }
+                    }
+                    _ => (),
                 }
-                _ => (),
-            },
+            }
         }
     }
 
@@ -2027,11 +2032,10 @@ fn process_mremap(t: &mut ReplayTask, trace_regs: &Registers, step: &mut ReplayT
 
     // The recorded mremap call succeeded, so we know the original mapping can be
     // treated as a single mapping.
-    t.vm()
-        .ensure_replay_matches_single_recorded_mapping(
-            t,
-            MemoryRange::new_range(old_addr, old_size),
-        );
+    t.vm().ensure_replay_matches_single_recorded_mapping(
+        t,
+        MemoryRange::new_range(old_addr, old_size),
+    );
 
     let mut data = MappedData::default();
     t.trace_reader_mut()
@@ -2120,10 +2124,7 @@ fn process_mremap(t: &mut ReplayTask, trace_regs: &Registers, step: &mut ReplayT
                     -1,
                     0,
                 );
-                remote
-                    .task()
-                    .vm()
-                    .unmap(remote.task(), new_addr, new_size);
+                remote.task().vm().unmap(remote.task(), new_addr, new_size);
                 remote.task().vm().map(
                     remote.task(),
                     new_addr,

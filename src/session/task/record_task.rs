@@ -1254,7 +1254,9 @@ impl RecordTask {
         // results.
         let arch = self.arch();
         let syscallno: i32 = syscall_number_for_execve(arch);
-        self.registers.set_original_syscallno(syscallno as isize);
+        self.registers
+            .borrow_mut()
+            .set_original_syscallno(syscallno as isize);
         // Fix event architecture and syscall number
         self.ev_mut().syscall_event_mut().number = syscallno;
         self.ev_mut().syscall_event_mut().set_arch(arch);

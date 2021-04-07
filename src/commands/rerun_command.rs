@@ -32,6 +32,7 @@ use crate::{
 };
 use nix::unistd::{getpid, getppid};
 use std::{
+    cell::Ref,
     fmt::Write as fmtWrite,
     io,
     io::{stdout, Write},
@@ -575,18 +576,18 @@ impl ReRunCommand {
                 }
                 TraceFieldKind::TraceFsbase => {
                     // @TODO will rr also give 0 for x86?
-                    let value: u64 = match t.regs_ref() {
-                        Registers::X86(_) => 0,
-                        Registers::X64(regs) => regs.fs_base,
-                    };
+                    let value: u64 = *Ref::map(t.regs_ref(), |r| match r {
+                        Registers::X86(_) => &0,
+                        Registers::X64(regs) => &regs.fs_base,
+                    });
                     self.write_value("fsbase", &value.to_le_bytes(), out)?;
                 }
                 TraceFieldKind::TraceGsbase => {
                     // @TODO will rr also give 0 for x86?
-                    let value: u64 = match t.regs_ref() {
-                        Registers::X86(_) => 0,
-                        Registers::X64(regs) => regs.gs_base,
-                    };
+                    let value: u64 = *Ref::map(t.regs_ref(), |r| match r {
+                        Registers::X86(_) => &0,
+                        Registers::X64(regs) => &regs.gs_base,
+                    });
                     self.write_value("gsbase", &value.to_le_bytes(), out)?;
                 }
                 TraceFieldKind::TraceFlags => {
@@ -614,7 +615,7 @@ impl ReRunCommand {
                     }
                 }
                 TraceFieldKind::TraceSegReg => {
-                    let value: u64 = seg_reg(t.regs_ref(), field.reg_num);
+                    let value: u64 = seg_reg(&t.regs_ref(), field.reg_num);
                     self.write_value(
                         SEG_REG_NAMES[field.reg_num as usize],
                         &value.to_le_bytes(),

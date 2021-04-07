@@ -136,7 +136,7 @@ use nix::{
 };
 use owning_ref::OwningHandle;
 use std::{
-    cell::{Cell, Ref, RefCell},
+    cell::{Cell, Ref, RefCell, RefMut},
     cmp::{max, min},
     ffi::{c_void, CStr, CString, OsStr, OsString},
     mem::{size_of, size_of_val},
@@ -367,7 +367,7 @@ pub struct TaskInner {
     /// consistent and the task last wait()ed.
     pub(in super::super) ticks: Ticks,
     /// When `is_stopped`, these are our child registers.
-    pub(in super::super) registers: Registers,
+    pub(in super::super) registers: RefCell<Registers>,
     /// Where we last resumed execution
     pub(in super::super) address_of_last_execution_resume: Cell<RemoteCodePtr>,
     pub(in super::super) how_last_execution_resumed: Cell<ResumeRequest>,
@@ -604,8 +604,8 @@ impl TaskInner {
     /// happened.
     pub fn canonicalize_regs(&mut self, syscall_arch: SupportedArch) {
         ed_assert!(self, self.is_stopped.get());
-
-        match self.registers.arch() {
+        let arch = self.registers.borrow().arch();
+        match arch {
             SupportedArch::X64 => {
                 match syscall_arch {
                     SupportedArch::X86 => {
@@ -616,10 +616,10 @@ impl TaskInner {
                         // which, though possible, does not appear to actually be done by any
                         // real application (contrary to int $0x80, which is accessible from 64bit
                         // mode as well).
-                        self.registers.set_r8(0x0);
-                        self.registers.set_r9(0x0);
-                        self.registers.set_r10(0x0);
-                        self.registers.set_r11(0x0);
+                        self.registers.borrow_mut().set_r8(0x0);
+                        self.registers.borrow_mut().set_r9(0x0);
+                        self.registers.borrow_mut().set_r10(0x0);
+                        self.registers.borrow_mut().set_r11(0x0);
                     }
                     SupportedArch::X64 => {
                         // x86-64 'syscall' instruction copies RFLAGS to R11 on syscall entry.
@@ -635,7 +635,7 @@ impl TaskInner {
                         // Ubuntu/Debian kernels.
                         // Making this match the flags makes this operation idempotent, which is
                         // helpful.
-                        self.registers.set_r11(0x246);
+                        self.registers.borrow_mut().set_r11(0x246);
                         // x86-64 'syscall' instruction copies return address to RCX on syscall
                         // entry. rd-related kernel activity normally sets RCX to -1 at some point
                         // during syscall execution, but apparently in some (unknown) situations
@@ -646,7 +646,7 @@ impl TaskInner {
                         // want to clobber that.
                         // For untraced syscalls, the untraced-syscall entry point code (see
                         // write_rd_page) does this itself.
-                        self.registers.set_cx(-1isize as usize);
+                        self.registers.borrow_mut().set_cx(-1isize as usize);
                     }
                 };
                 // On kernel 3.13.0-68-generic #111-Ubuntu SMP we have observed a failed
@@ -655,7 +655,7 @@ impl TaskInner {
                 // consistent.
                 // 0x246 is ZF+PF+IF+reserved, the result clearing a register using
                 // "xor reg, reg".
-                self.registers.set_flags(0x246);
+                self.registers.borrow_mut().set_flags(0x246);
             }
             SupportedArch::X86 => {
                 // The x86 SYSENTER handling in Linux modifies EBP and EFLAGS on entry.
@@ -665,7 +665,7 @@ impl TaskInner {
                 // In a VMWare guest, the modifications to EFLAGS appear to be
                 // nondeterministic. Cover that up by setting EFLAGS to reasonable values
                 // now.
-                self.registers.set_flags(0x246);
+                self.registers.borrow_mut().set_flags(0x246);
             }
         }
 
@@ -696,7 +696,7 @@ impl TaskInner {
 
     /// Return the current $ip of this.
     pub fn ip(&self) -> RemoteCodePtr {
-        self.registers.ip()
+        self.registers.borrow().ip()
     }
 
     /// Emulate a jump to a new IP, updating the ticks counter as appropriate.
@@ -786,21 +786,27 @@ impl TaskInner {
     }
 
     /// Return the current regs of this.
-    pub fn regs_ref(&self) -> &Registers {
+    pub fn regs_ref(&self) -> Ref<Registers> {
         ed_assert!(self, self.is_stopped.get());
-        &self.registers
+        self.registers.borrow()
+    }
+
+    /// NOTE: Use carefully, clones the registers!
+    pub fn regs(&self) -> Registers {
+        ed_assert!(self, self.is_stopped.get());
+        self.registers.borrow().clone()
     }
 
     /// Return the current regs of this.
-    pub fn regs_mut(&mut self) -> &mut Registers {
-        &mut self.registers
+    pub fn regs_mut(&mut self) -> RefMut<Registers> {
+        self.registers.borrow_mut()
     }
 
     /// DIFF NOTE: simply `extra_regs()` in rr
     /// Return the extra registers of this.
     pub fn extra_regs_ref(&mut self) -> Ref<ExtraRegisters> {
         if self.extra_registers.borrow().is_none() {
-            let arch_ = self.registers.arch();
+            let arch_ = self.registers.borrow().arch();
             let format_ = Format::XSave;
             let mut data_ = Vec::<u8>::new();
             let er: ExtraRegisters;
@@ -866,7 +872,7 @@ impl TaskInner {
 
     /// Return the current arch of this. This can change due to exec().
     pub fn arch(&self) -> SupportedArch {
-        self.registers.arch()
+        self.registers.borrow().arch()
     }
 
     /// Return the debug status (DR6 on x86). The debug status is always cleared
@@ -900,7 +906,7 @@ impl TaskInner {
     /// Set the tracee's registers to `regs`. Lazy.
     pub fn set_regs(&mut self, regs: &Registers) {
         ed_assert!(self, self.is_stopped.get());
-        self.registers = regs.clone();
+        *self.registers.borrow_mut() = regs.clone();
         self.registers_dirty.set(true);
     }
 
@@ -908,7 +914,7 @@ impl TaskInner {
     pub fn flush_regs(&mut self) {
         if self.registers_dirty.get() {
             ed_assert!(self, self.is_stopped.get());
-            let ptrace_regs = self.registers.get_ptrace();
+            let ptrace_regs = self.registers.borrow().get_ptrace();
             self.ptrace_if_alive(
                 PTRACE_SETREGS,
                 0usize.into(),
@@ -1354,7 +1360,7 @@ impl TaskInner {
             stable_serial: Cell::new(stable_serial),
             prname: "???".into(),
             ticks: 0,
-            registers: Registers::new(a),
+            registers: RefCell::new(Registers::new(a)),
             how_last_execution_resumed: Cell::new(ResumeRequest::ResumeCont),
             last_resume_orig_cx: Default::default(),
             did_set_breakpoint_after_cpuid: Default::default(),
@@ -1394,10 +1400,11 @@ impl TaskInner {
     pub(in super::super) fn capture_state(&mut self) -> CapturedState {
         let thread_areas = self.thread_areas_.borrow().clone();
         let extra_regs = self.extra_regs_ref().clone();
+        let regs = self.regs_ref().clone();
         CapturedState {
             rec_tid: self.rec_tid,
             serial: self.serial,
-            regs: self.regs_ref().clone(),
+            regs,
             extra_regs,
             prname: self.prname.clone(),
             thread_areas,

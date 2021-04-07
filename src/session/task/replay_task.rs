@@ -192,7 +192,7 @@ impl ReplayTask {
         Registers::compare_register_files(
             Some(self),
             "replaying",
-            self.regs_ref(),
+            &self.regs_ref(),
             "recorded",
             rec_regs,
             MismatchBehavior::BailOnMismatch,
@@ -283,11 +283,8 @@ impl ReplayTask {
                     if !buf.addr.is_null() && buf.data.len() > 0 {
                         if buf.rec_tid == self.rec_tid {
                             self.write_bytes_helper(buf.addr, &buf.data, None, WriteFlags::empty());
-                            self.vm().maybe_update_breakpoints(
-                                self,
-                                buf.addr,
-                                buf.data.len(),
-                            );
+                            self.vm()
+                                .maybe_update_breakpoints(self, buf.addr, buf.data.len());
                         } else {
                             let t = self.session().find_task_from_rec_tid(buf.rec_tid).unwrap();
                             t.borrow_mut().write_bytes_helper(

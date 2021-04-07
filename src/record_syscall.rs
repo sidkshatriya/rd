@@ -2863,12 +2863,10 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
     }
 
     if sys == Arch::MREMAP {
-        process_mremap(
-            t,
-            t.regs_ref().arg1().into(),
-            t.regs_ref().arg2(),
-            t.regs_ref().arg3(),
-        );
+        let arg1 = t.regs_ref().arg1();
+        let arg2 = t.regs_ref().arg2();
+        let arg3 = t.regs_ref().arg3();
+        process_mremap(t, arg1.into(), arg2, arg3);
         return;
     }
 
@@ -2881,18 +2879,16 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
     }
 
     if sys == Arch::IPC {
-        match t.regs_ref().arg1() as u32 {
+        let arg1 = t.regs_ref().arg1();
+        match arg1 as u32 {
             SHMAT => {
                 // DIFF NOTE: Arch::unsigned_long in rr
                 let child_addr = RemotePtr::<Arch::unsigned_word>::from(t.regs_ref().arg4());
                 let out_ptr = read_val_mem(t, child_addr, None);
                 let out_rptr = RemotePtr::<Void>::new(out_ptr.try_into().unwrap());
-                process_shmat(
-                    t,
-                    t.regs_ref().arg2_signed() as i32,
-                    t.regs_ref().arg3_signed() as i32,
-                    out_rptr,
-                );
+                let arg2_signed = t.regs_ref().arg2_signed();
+                let arg3_signed = t.regs_ref().arg3_signed();
+                process_shmat(t, arg2_signed as i32, arg3_signed as i32, out_rptr);
             }
             _ => (),
         }
@@ -3023,7 +3019,8 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
         t.set_regs(&r);
 
         if !t.regs_ref().syscall_failed() {
-            match t.regs_ref().arg1() as u32 {
+            let arg1 = t.regs_ref().arg1();
+            match arg1 as u32 {
                 SYS_RECVMSG => {
                     let child_addr = RemotePtr::<recvmsg_args<Arch>>::from(t.regs_ref().arg2());
                     let args = read_val_mem(t, child_addr, None);
@@ -3046,12 +3043,9 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
     }
 
     if sys == Arch::PROCESS_VM_READV {
-        record_iovec_output::<Arch>(
-            t,
-            None,
-            RemotePtr::<iovec<Arch>>::from(t.regs_ref().arg2()),
-            t.regs_ref().arg3() as u32,
-        );
+        let arg2 = t.regs_ref().arg2();
+        let arg3 = t.regs_ref().arg3();
+        record_iovec_output::<Arch>(t, None, RemotePtr::<iovec<Arch>>::from(arg2), arg3 as u32);
         return;
     }
 
@@ -3073,11 +3067,13 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
                 }
             }
         };
+        let arg4 = t.regs_ref().arg4();
+        let arg5 = t.regs_ref().arg5();
         record_iovec_output::<Arch>(
             t,
             maybe_dest,
-            RemotePtr::<iovec<Arch>>::from(t.regs_ref().arg4()),
-            t.regs_ref().arg5() as u32,
+            RemotePtr::<iovec<Arch>>::from(arg4),
+            arg5 as u32,
         );
         return;
     }
@@ -6703,55 +6699,58 @@ fn prepare_ptrace<Arch: Architecture>(
                 }
             }
         }
-        PTRACE_GETREGSET => match t.regs_ref().arg3() as u32 {
-            NT_PRSTATUS => {
-                let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
-                match maybe_tracee {
-                    Some(tracee_rc) => {
-                        let mut traceeb = tracee_rc.borrow_mut();
-                        let tracee = traceeb.as_rec_mut_unwrap();
-                        let regs = tracee.regs_ref().get_ptrace_for_arch(Arch::arch());
-                        ptrace_get_reg_set::<Arch>(t, syscall_state, &regs);
-                    }
-                    None => (),
-                }
-            }
-            NT_FPREGSET => {
-                let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
-                match maybe_tracee {
-                    Some(tracee_rc) => {
-                        let mut traceeb = tracee_rc.borrow_mut();
-                        let tracee = traceeb.as_rec_mut_unwrap();
-                        let regs = tracee.extra_regs_ref().get_user_fpregs_struct(Arch::arch());
-                        ptrace_get_reg_set::<Arch>(t, syscall_state, &regs);
-                    }
-                    None => (),
-                }
-            }
-            NT_X86_XSTATE => {
-                let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
-                match maybe_tracee {
-                    Some(tracee_rc) => {
-                        let mut traceeb = tracee_rc.borrow_mut();
-                        let tracee = traceeb.as_rec_mut_unwrap();
-                        let format = tracee.extra_regs_ref().format();
-                        match format {
-                            Format::XSave => ptrace_get_reg_set::<Arch>(
-                                t,
-                                syscall_state,
-                                tracee.extra_regs_ref().data_bytes(),
-                            ),
-                            _ => syscall_state.emulate_result_signed(-EINVAL as isize),
+        PTRACE_GETREGSET => {
+            let arg3 = t.regs_ref().arg3();
+            match arg3 as u32 {
+                NT_PRSTATUS => {
+                    let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
+                    match maybe_tracee {
+                        Some(tracee_rc) => {
+                            let mut traceeb = tracee_rc.borrow_mut();
+                            let tracee = traceeb.as_rec_mut_unwrap();
+                            let regs = tracee.regs_ref().get_ptrace_for_arch(Arch::arch());
+                            ptrace_get_reg_set::<Arch>(t, syscall_state, &regs);
                         }
+                        None => (),
                     }
-                    None => (),
+                }
+                NT_FPREGSET => {
+                    let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
+                    match maybe_tracee {
+                        Some(tracee_rc) => {
+                            let mut traceeb = tracee_rc.borrow_mut();
+                            let tracee = traceeb.as_rec_mut_unwrap();
+                            let regs = tracee.extra_regs_ref().get_user_fpregs_struct(Arch::arch());
+                            ptrace_get_reg_set::<Arch>(t, syscall_state, &regs);
+                        }
+                        None => (),
+                    }
+                }
+                NT_X86_XSTATE => {
+                    let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
+                    match maybe_tracee {
+                        Some(tracee_rc) => {
+                            let mut traceeb = tracee_rc.borrow_mut();
+                            let tracee = traceeb.as_rec_mut_unwrap();
+                            let format = tracee.extra_regs_ref().format();
+                            match format {
+                                Format::XSave => ptrace_get_reg_set::<Arch>(
+                                    t,
+                                    syscall_state,
+                                    tracee.extra_regs_ref().data_bytes(),
+                                ),
+                                _ => syscall_state.emulate_result_signed(-EINVAL as isize),
+                            }
+                        }
+                        None => (),
+                    }
+                }
+                _ => {
+                    syscall_state.expect_errno = EINVAL;
+                    emulate = false;
                 }
             }
-            _ => {
-                syscall_state.expect_errno = EINVAL;
-                emulate = false;
-            }
-        },
+        }
         PTRACE_SETREGS => {
             let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
             if maybe_tracee.is_some() {
@@ -6784,7 +6783,8 @@ fn prepare_ptrace<Arch: Architecture>(
         PTRACE_SETREGSET => {
             // The actual register effects are performed by
             // Task::on_syscall_exit_arch
-            match t.regs_ref().arg3() as u32 {
+            let arg3 = t.regs_ref().arg3();
+            match arg3 as u32 {
                 NT_PRSTATUS => {
                     let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
                     if maybe_tracee.is_some() {
@@ -7230,7 +7230,8 @@ fn prepare_socketcall<Arch: Architecture>(
     // }
     //
     // (from http://lxr.linux.no/#linux+v3.6.3/net/socket.c#L2354)
-    match t.regs_ref().arg1() as u32 {
+    let arg1 = t.regs_ref().arg1();
+    match arg1 as u32 {
         // int socket(int domain, int type, int protocol);
         // int bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen);
         // int listen(int sockfd, int backlog)
@@ -7702,9 +7703,10 @@ fn record_v4l2_buffer_contents<Arch: Architecture>(t: &mut RecordTask) {
 
     match buf.memory {
         V4L2_MEMORY_MMAP => {
+            let arg1_signed = t.regs_ref().arg1_signed();
             record_file_change(
                 t,
-                t.regs_ref().arg1_signed() as i32,
+                arg1_signed as i32,
                 unsafe { buf.m.offset as u64 },
                 buf.length as u64,
             );

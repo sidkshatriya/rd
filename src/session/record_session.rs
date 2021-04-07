@@ -1274,7 +1274,8 @@ impl RecordSession {
                     // We record this data even if sigframe_size is zero to simplify replay.
                     // Stop recording data if we run off the end of a writable mapping.
                     // Our sigframe size is conservative so we need to do this.
-                    t.record_remote_writable(t.regs_ref().sp(), sigframe_size);
+                    let sp = t.regs_ref().sp();
+                    t.record_remote_writable(sp, sigframe_size);
 
                     // This event is used by the replayer to set up the signal handler frame.
                     // But if we don't have a handler, we don't want to record the event
@@ -1400,10 +1401,11 @@ impl RecordSession {
                     return;
                 }
                 self.last_task_switchable.set(Switchable::PreventSwitch);
-                t.ev_mut().syscall_event_mut().regs = t.regs_ref().clone();
+                t.ev_mut().syscall_event_mut().regs = t.regs();
                 t.ev_mut().syscall_event_mut().state = SyscallState::EnteringSyscall;
                 // The syscallno may have been changed by the ptracer
-                t.ev_mut().syscall_event_mut().number = t.regs_ref().original_syscallno() as i32;
+                let osno = t.regs_ref().original_syscallno() as i32;
+                t.ev_mut().syscall_event_mut().number = osno;
                 return;
             }
             SyscallState::EnteringSyscall => {
@@ -1963,8 +1965,9 @@ impl RecordSession {
                 return false;
             }
 
+            let osno = t.regs_ref().original_syscallno() as i32;
             t.push_event(Event::new_syscall_event(SyscallEventData::new(
-                t.regs_ref().original_syscallno() as i32,
+                osno,
                 syscall_arch,
             )));
         }

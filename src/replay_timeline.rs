@@ -487,10 +487,7 @@ impl ReplayTimeline {
         // Apply breakpoints now; we need to actually try adding this breakpoint
         // to see if it works.
         self.apply_breakpoints_and_watchpoints();
-        if !t
-            .vm()
-            .add_breakpoint(t, addr, BreakpointType::BkptUser)
-        {
+        if !t.vm().add_breakpoint(t, addr, BreakpointType::BkptUser) {
             return false;
         }
         self.breakpoints.insert(
@@ -508,8 +505,7 @@ impl ReplayTimeline {
     /// place multiple breakpoints with conditions on the same location.
     pub fn remove_breakpoint(&mut self, t: &mut ReplayTask, addr: RemoteCodePtr) {
         if self.breakpoints_applied {
-            t.vm()
-                .remove_breakpoint(addr, BreakpointType::BkptUser, t);
+            t.vm().remove_breakpoint(addr, BreakpointType::BkptUser, t);
         }
         ed_assert!(t, self.has_breakpoint_at_address(t, addr));
         let tb = TimelineBreakpoint {
@@ -2579,9 +2575,10 @@ impl Display for ProtoMark {
 
 impl ProtoMark {
     pub fn new(key: MarkKey, t: &mut dyn Task) -> ProtoMark {
+        let regs = t.regs_ref().clone();
         ProtoMark {
             key,
-            regs: t.regs_ref().clone(),
+            regs,
             return_addresses: ReturnAddressList::new(t),
         }
     }
@@ -2600,8 +2597,8 @@ impl ProtoMark {
         }
         let t = session.current_task().unwrap();
         let mut tb = t.borrow_mut();
-        equal_regs(&self.regs, tb.regs_ref())
-            && self.return_addresses == ReturnAddressList::new(tb.as_mut())
+        let equal_regs = equal_regs(&self.regs, &tb.regs_ref());
+        equal_regs && self.return_addresses == ReturnAddressList::new(tb.as_mut())
     }
 }
 

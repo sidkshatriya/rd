@@ -118,7 +118,7 @@ pub fn fast_forward_through_instruction<T: Task>(
         return result;
     }
     for state in states {
-        if state.matches(t.regs_ref()) {
+        if state.matches(&t.regs_ref()) {
             return result;
         }
     }

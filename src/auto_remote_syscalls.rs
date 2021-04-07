@@ -439,10 +439,12 @@ impl<'a> AutoRemoteSyscalls<'a> {
         t: &mut dyn Task,
         enable_mem_params: MemParamsEnabled,
     ) -> AutoRemoteSyscalls {
+        let initial_regs = t.regs_ref().clone();
+        let initial_sp = t.regs_ref().sp();
         let mut remote = AutoRemoteSyscalls {
-            initial_regs: t.regs_ref().clone(),
+            initial_regs,
             initial_ip: t.ip(),
-            initial_sp: t.regs_ref().sp(),
+            initial_sp,
             fixed_sp: None,
             replaced_bytes: vec![],
             restore_wait_status: t.status(),
@@ -1021,18 +1023,16 @@ impl<'a> AutoRemoteSyscalls<'a> {
         if -4096 < ret && ret < 0 {
             let mut extra_msg: String = String::new();
             if is_open_syscall(syscallno, self.arch()) {
+                let arg1 = self.t.regs_ref().arg1();
                 extra_msg = format!(
                     "{} opening ",
-                    self.t
-                        .read_c_str(self.t.regs_ref().arg1().into())
-                        .to_string_lossy()
+                    self.t.read_c_str(arg1.into()).to_string_lossy()
                 );
             } else if is_openat_syscall(syscallno, self.arch()) {
+                let arg2 = self.t.regs_ref().arg2();
                 extra_msg = format!(
                     "{} opening ",
-                    self.t
-                        .read_c_str(self.t.regs_ref().arg2().into())
-                        .to_string_lossy()
+                    self.t.read_c_str(arg2.into()).to_string_lossy()
                 );
             }
             ed_assert!(

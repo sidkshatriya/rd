@@ -212,7 +212,8 @@ impl FileMonitor for VirtualPerfCounterMonitor {
     }
 
     fn emulate_ioctl(&mut self, t: &mut RecordTask, result: &mut usize) -> bool {
-        match t.regs_ref().arg2() as _ {
+        let arg2 = t.regs_ref().arg2();
+        match arg2 as _ {
             PERF_EVENT_IOC_ENABLE => {
                 *result = 0;
                 self.enabled = true;
@@ -252,7 +253,8 @@ impl FileMonitor for VirtualPerfCounterMonitor {
 
     fn emulate_fcntl(&mut self, t: &mut RecordTask, result: &mut usize) -> bool {
         *result = (-EINVAL as isize) as usize;
-        match t.regs_ref().arg2() as u32 {
+        let arg2 = t.regs_ref().arg2();
+        match arg2 as u32 {
             F_SETOWN_EX => {
                 let child_addr = RemotePtr::<f_owner_ex>::from(t.regs_ref().arg3());
                 let owner = read_val_mem(t, child_addr, None);
