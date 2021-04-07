@@ -1698,7 +1698,7 @@ pub(in super::super) fn clone_task_common(
         ref_t.fds = Some(clone_this.fd_table().clone_into_task(ref_t.as_mut()));
     }
 
-    ref_t.top_of_stack = stack;
+    ref_t.top_of_stack.set(stack);
     // Clone children, both thread and fork, inherit the parent
     // prname.
     ref_t.prname = clone_this.prname.clone();

@@ -408,7 +408,7 @@ pub struct TaskInner {
     pub(in super::super) thread_areas_: Vec<user_desc>,
     /// The `stack` argument passed to `clone()`, which for
     /// "threads" is the top of the user-allocated stack.
-    pub(in super::super) top_of_stack: RemotePtr<Void>,
+    pub(in super::super) top_of_stack: Cell<RemotePtr<Void>>,
     /// The most recent status of this task as returned by
     /// waitpid().
     pub(in super::super) wait_status: Cell<WaitStatus>,
@@ -1433,7 +1433,7 @@ impl TaskInner {
             scratch_size: self.scratch_size,
             wait_status: self.wait_status.get(),
             ticks: self.ticks,
-            top_of_stack: self.top_of_stack,
+            top_of_stack: self.top_of_stack.get(),
             thread_locals: self.fetch_preload_thread_locals().clone(),
         }
     }
