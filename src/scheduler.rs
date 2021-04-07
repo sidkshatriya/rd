@@ -979,7 +979,7 @@ impl Scheduler {
     }
 
     fn update_task_priority_internal(&self, t: &mut RecordTask, mut value: i32) {
-        if t.stable_exit && !self.enable_chaos.get() {
+        if t.stable_exit.get() && !self.enable_chaos.get() {
             // Tasks in a stable exit have the highest priority. We should force them
             // to complete exiting ASAP to clean up resources. They may not be runnable
             // due to waiting for PTRACE_EVENT_EXIT to complete.

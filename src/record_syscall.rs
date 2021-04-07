@@ -2535,7 +2535,7 @@ fn prepare_exit(t: &mut RecordTask, exit_code: i32) {
     // pending signals.
     ed_assert!(t, !t.has_any_stashed_sig());
 
-    t.stable_exit = true;
+    t.stable_exit.set(true);
     t.exit_code = exit_code;
     t.session()
         .as_record()
@@ -3136,7 +3136,7 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
                             tracee.ev().is_syscall_event()
                                 && SyscallState::ProcessingSyscall
                                     == tracee.ev().syscall_event().state
-                                && tracee.stable_exit
+                                && tracee.stable_exit.get()
                         );
                         // Continue the task since we didn't in enter_syscall
                         tracee.resume_execution(

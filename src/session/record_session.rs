@@ -3077,7 +3077,7 @@ fn handle_ptrace_exit_event(t: &mut RecordTask) -> bool {
         return false;
     }
 
-    if t.stable_exit {
+    if t.stable_exit.get() {
         log!(LogDebug, "stable exit");
     } else {
         if !t.may_be_blocked() {

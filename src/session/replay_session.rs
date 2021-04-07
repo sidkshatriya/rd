@@ -1213,10 +1213,8 @@ impl ReplaySession {
                 // completes, the breakpoint is cleared).
                 debug_assert!(
                     self.syscall_bp_vm.borrow().is_none()
-                        || Rc::ptr_eq(
-                            self.syscall_bp_vm.borrow().as_ref().unwrap(),
-                            &t.vm()
-                        ) && syscall_instruction == self.syscall_bp_addr.get()
+                        || Rc::ptr_eq(self.syscall_bp_vm.borrow().as_ref().unwrap(), &t.vm())
+                            && syscall_instruction == self.syscall_bp_addr.get()
                             && t.vm().get_breakpoint_type_at_addr(syscall_instruction)
                                 != BreakpointType::BkptNone
                 );
@@ -2083,7 +2081,7 @@ fn end_task(t: &mut ReplayTask) {
     );
     ed_assert_eq!(t, t.maybe_ptrace_event(), PTRACE_EVENT_EXIT);
 
-    t.stable_exit = true;
+    t.stable_exit.set(true);
     t.destroy(None);
 }
 

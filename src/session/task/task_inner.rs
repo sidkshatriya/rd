@@ -280,7 +280,7 @@ pub struct TaskInner {
     pub unstable: Cell<bool>,
     /// exit(), or exit_group() with one task, has been called, so
     /// the exit can be treated as stable.
-    pub stable_exit: bool,
+    pub stable_exit: Cell<bool>,
 
     /// Imagine that task A passes buffer `b` to the read()
     /// syscall.  Imagine that, after A is switched out for task B,
@@ -1341,8 +1341,8 @@ impl TaskInner {
         let adjusted_rec_tid = rec_tid.unwrap_or(tid);
         let stable_serial = session.next_task_stable_serial();
         TaskInner {
-            unstable: Cell::new(false),
-            stable_exit: false,
+            unstable: Default::default(),
+            stable_exit: Default::default(),
             scratch_ptr: Default::default(),
             scratch_size: 0,
             // This will be initialized when the syscall buffer is
