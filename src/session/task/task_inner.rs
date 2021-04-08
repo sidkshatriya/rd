@@ -144,7 +144,7 @@ use std::{
     os::{raw::c_int, unix::ffi::OsStrExt},
     ptr,
     ptr::{copy_nonoverlapping, NonNull},
-    rc::{Rc, Weak},
+    rc::Rc,
 };
 
 #[cfg(target_arch = "x86")]
@@ -564,7 +564,7 @@ impl TaskInner {
     /// enters a consistent state. Prior to that, the task state
     /// can vary based on how rd set up the child process. We have to flush
     /// out any state that might have been affected by that.
-    pub fn flush_inconsistent_state(&mut self) {
+    pub fn flush_inconsistent_state(&self) {
         self.ticks.set(0);
     }
 
@@ -610,7 +610,7 @@ impl TaskInner {
     /// Syscalls have side effects on registers (e.g. setting the flags register).
     /// Perform those side effects on `registers` to make it look like a syscall
     /// happened.
-    pub fn canonicalize_regs(&mut self, syscall_arch: SupportedArch) {
+    pub fn canonicalize_regs(&self, syscall_arch: SupportedArch) {
         ed_assert!(self, self.is_stopped.get());
         let arch = self.registers.borrow().arch();
         match arch {
@@ -708,7 +708,7 @@ impl TaskInner {
     }
 
     /// Emulate a jump to a new IP, updating the ticks counter as appropriate.
-    pub fn emulate_jump(&mut self, ip: RemoteCodePtr) {
+    pub fn emulate_jump(&self, ip: RemoteCodePtr) {
         let mut r = self.regs_ref().clone();
         r.set_ip(ip);
         self.set_regs(&r);
@@ -775,7 +775,7 @@ impl TaskInner {
 
     /// Assuming ip() is just past a breakpoint instruction, adjust
     /// ip() backwards to point at that breakpoint insn.
-    pub fn move_ip_before_breakpoint(&mut self) {
+    pub fn move_ip_before_breakpoint(&self) {
         // TODO: assert that this is at a breakpoint trap.
         let mut r: Registers = self.regs_ref().clone();
         let arch = self.arch();
@@ -807,13 +807,13 @@ impl TaskInner {
     }
 
     /// Return the current regs of this.
-    pub fn regs_mut(&mut self) -> RefMut<Registers> {
+    pub fn regs_mut(&self) -> RefMut<Registers> {
         self.registers.borrow_mut()
     }
 
     /// DIFF NOTE: simply `extra_regs()` in rr
     /// Return the extra registers of this.
-    pub fn extra_regs_ref(&mut self) -> Ref<ExtraRegisters> {
+    pub fn extra_regs_ref(&self) -> Ref<ExtraRegisters> {
         if self.extra_registers.borrow().is_none() {
             let arch_ = self.registers.borrow().arch();
             let format_ = Format::XSave;
@@ -913,14 +913,14 @@ impl TaskInner {
     }
 
     /// Set the tracee's registers to `regs`. Lazy.
-    pub fn set_regs(&mut self, regs: &Registers) {
+    pub fn set_regs(&self, regs: &Registers) {
         ed_assert!(self, self.is_stopped.get());
         *self.registers.borrow_mut() = regs.clone();
         self.registers_dirty.set(true);
     }
 
     /// Ensure registers are flushed back to the underlying task.
-    pub fn flush_regs(&mut self) {
+    pub fn flush_regs(&self) {
         if self.registers_dirty.get() {
             ed_assert!(self, self.is_stopped.get());
             let ptrace_regs = self.registers.borrow().get_ptrace();
@@ -934,7 +934,7 @@ impl TaskInner {
     }
 
     /// Set the tracee's extra registers to `regs`.
-    pub fn set_extra_regs(&mut self, regs: &ExtraRegisters) {
+    pub fn set_extra_regs(&self, regs: &ExtraRegisters) {
         ed_assert!(self, !regs.is_empty(), "Trying to set empty ExtraRegisters");
         ed_assert!(
             self,
@@ -1055,7 +1055,7 @@ impl TaskInner {
     /// Set the thread area at index `idx` to desc and reflect this
     /// into the OS task. Returns 0 on success, errno otherwise
     /// DIFF NOTE: idx is a i32 in rr
-    pub fn emulate_set_thread_area(&mut self, idx: u32, mut desc: user_desc) -> i32 {
+    pub fn emulate_set_thread_area(&self, idx: u32, mut desc: user_desc) -> i32 {
         Errno::clear();
         // @TODO Is the cast `idx as usize` what we want?
         self.fallible_ptrace(
@@ -1090,7 +1090,7 @@ impl TaskInner {
         self.thread_areas_.borrow()
     }
 
-    pub fn set_status(&mut self, status: WaitStatus) {
+    pub fn set_status(&self, status: WaitStatus) {
         self.wait_status.set(status);
     }
 
@@ -1118,7 +1118,7 @@ impl TaskInner {
         self.wait_status.get().maybe_group_stop_sig()
     }
 
-    pub fn clear_wait_status(&mut self) {
+    pub fn clear_wait_status(&self) {
         self.wait_status.set(WaitStatus::default());
     }
 
@@ -1266,12 +1266,12 @@ impl TaskInner {
         }
     }
 
-    pub fn setup_preload_thread_locals(&mut self) {
+    pub fn setup_preload_thread_locals(&self) {
         self.activate_preload_thread_locals(None);
         rd_arch_function_selfless!(setup_preload_thread_locals_arch, self.arch(), self);
     }
 
-    pub fn setup_preload_thread_locals_from_clone(&mut self, origin: &mut TaskInner) {
+    pub fn setup_preload_thread_locals_from_clone(&self, origin: &TaskInner) {
         rd_arch_function_selfless!(
             setup_preload_thread_locals_from_clone_arch,
             self.arch(),
@@ -1280,7 +1280,7 @@ impl TaskInner {
         )
     }
 
-    pub fn fetch_preload_thread_locals(&mut self) -> Ref<ThreadLocals> {
+    pub fn fetch_preload_thread_locals(&self) -> Ref<ThreadLocals> {
         if self.tuid() == self.vm().thread_locals_tuid() {
             let maybe_local_addr = preload_thread_locals_local_addr(&self.vm());
             match maybe_local_addr {
@@ -1306,7 +1306,7 @@ impl TaskInner {
     }
 
     // DIFF NOTE: Takes an additional param maybe_active_task
-    pub fn activate_preload_thread_locals(&mut self, maybe_active_task: Option<&mut TaskInner>) {
+    pub fn activate_preload_thread_locals(&self, maybe_active_task: Option<&TaskInner>) {
         // Switch thread-locals to the new task.
         if self.tuid() != self.vm().thread_locals_tuid() {
             let maybe_local_addr = preload_thread_locals_local_addr(&self.vm());
@@ -1349,6 +1349,7 @@ impl TaskInner {
         rec_tid: Option<pid_t>,
         serial: u32,
         a: SupportedArch,
+        weak_self: TaskSharedWeakPtr,
     ) -> TaskInner {
         let adjusted_rec_tid = rec_tid.unwrap_or(tid);
         let stable_serial = session.next_task_stable_serial();
@@ -1395,7 +1396,7 @@ impl TaskInner {
             thread_areas_: Default::default(),
             wait_status: Default::default(),
             pending_siginfo: Default::default(),
-            weak_self: Weak::new(),
+            weak_self,
             stopping_breakpoint_table: Default::default(),
         }
     }
@@ -1407,7 +1408,7 @@ impl TaskInner {
 
     /// Grab state from this task into a structure that we can use to
     /// initialize a new task via os_clone_into/os_fork_into and copy_state.
-    pub(in super::super) fn capture_state(&mut self) -> CapturedState {
+    pub(in super::super) fn capture_state(&self) -> CapturedState {
         let thread_areas = self.thread_areas_.borrow().clone();
         let extra_regs = self.extra_regs_ref().clone();
         let regs = self.regs_ref().clone();
@@ -1774,10 +1775,16 @@ impl TaskInner {
             fatal!("PTRACE_SEIZE failed for tid `{}`{}", tid, hint);
         }
         let next_t_serial = session.next_task_serial();
-        let t = session.new_task(tid, rec_tid, next_t_serial, RD_NATIVE_ARCH);
-        let wrapped_t = Rc::new(RefCell::new(t));
-        // Set the weak self pointer of the task
-        wrapped_t.borrow_mut().weak_self = Rc::downgrade(&wrapped_t);
+        let wrapped_t = Rc::new_cyclic(|weak_self| {
+            let t = session.new_task(
+                tid,
+                rec_tid,
+                next_t_serial,
+                RD_NATIVE_ARCH,
+                weak_self.clone(),
+            );
+            RefCell::new(t)
+        });
 
         let tg = session.create_initial_tg(wrapped_t.clone());
         *wrapped_t.borrow_mut().tg.borrow_mut() = Some(tg);
@@ -2088,8 +2095,8 @@ fn setup_preload_thread_locals_arch<Arch: Architecture>(t: &TaskInner) {
 }
 
 fn setup_preload_thread_locals_from_clone_arch<Arch: Architecture>(
-    t: &mut TaskInner,
-    origin: &mut TaskInner,
+    t: &TaskInner,
+    origin: &TaskInner,
 ) {
     let maybe_local_addr = preload_thread_locals_local_addr(&t.vm());
 

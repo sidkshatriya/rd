@@ -14,6 +14,7 @@ use crate::{
             task_inner::{CloneFlags, WriteFlags},
             Task,
             TaskSharedPtr,
+            TaskSharedWeakPtr,
         },
     },
     taskish_uid::{AddressSpaceUid, TaskUid, ThreadGroupUid},
@@ -97,6 +98,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
         _rec_tid: Option<pid_t>,
         _serial: u32,
         _a: SupportedArch,
+        _weak_self: TaskSharedWeakPtr,
     ) -> Box<dyn Task> {
         unimplemented!()
     }

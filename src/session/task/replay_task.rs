@@ -18,6 +18,7 @@ use super::{
     },
     task_inner::{CloneFlags, CloneReason, TrapReasons},
     TaskSharedPtr,
+    TaskSharedWeakPtr,
 };
 use crate::{
     arch::Architecture,
@@ -73,7 +74,7 @@ use owning_ref::OwningHandle;
 use std::{
     cell::{Ref, RefMut},
     ffi::{CString, OsStr},
-    ops::{Deref, DerefMut},
+    ops::Deref,
 };
 
 pub struct ReplayTask {
@@ -121,9 +122,10 @@ impl ReplayTask {
         rec_tid: Option<pid_t>,
         serial: u32,
         arch: SupportedArch,
+        weak_self: TaskSharedWeakPtr,
     ) -> ReplayTask {
         ReplayTask {
-            task_inner: TaskInner::new(session, tid, rec_tid, serial, arch),
+            task_inner: TaskInner::new(session, tid, rec_tid, serial, arch, weak_self),
         }
     }
 
@@ -414,12 +416,6 @@ impl ReplayTask {
     }
 }
 
-impl DerefMut for ReplayTask {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.task_inner
-    }
-}
-
 impl Task for ReplayTask {
     fn clone_task(
         &mut self,
@@ -499,10 +495,6 @@ impl Task for ReplayTask {
 
     fn as_task_inner(&self) -> &TaskInner {
         &self.task_inner
-    }
-
-    fn as_task_inner_mut(&mut self) -> &mut TaskInner {
-        &mut self.task_inner
     }
 
     fn as_replay_task(&self) -> Option<&ReplayTask> {

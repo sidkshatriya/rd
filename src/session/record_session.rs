@@ -21,6 +21,7 @@ use super::{
             TicksRequest,
             WaitRequest,
         },
+        TaskSharedWeakPtr,
     },
     SessionSharedPtr,
 };
@@ -2700,8 +2701,9 @@ impl Session for RecordSession {
         _rec_tid: Option<pid_t>,
         serial: u32,
         a: SupportedArch,
+        weak_self: TaskSharedWeakPtr,
     ) -> Box<dyn Task> {
-        RecordTask::new(self, tid, serial, a)
+        RecordTask::new(self, tid, serial, a, weak_self)
     }
 
     fn on_create_task(&self, t: TaskSharedPtr) {

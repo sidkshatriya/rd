@@ -188,7 +188,7 @@ use std::{
     error::Error,
     ffi::{c_void, CString, OsStr, OsString},
     mem::{self, size_of},
-    ops::{Deref, DerefMut},
+    ops::Deref,
     ptr::{self, copy_nonoverlapping},
     rc::{Rc, Weak},
     slice,
@@ -560,12 +560,6 @@ impl Deref for RecordTask {
     }
 }
 
-impl DerefMut for RecordTask {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.task_inner
-    }
-}
-
 impl Task for RecordTask {
     fn clone_task(
         &mut self,
@@ -788,10 +782,6 @@ impl Task for RecordTask {
         &self.task_inner
     }
 
-    fn as_task_inner_mut(&mut self) -> &mut TaskInner {
-        &mut self.task_inner
-    }
-
     fn as_record_task(&self) -> Option<&RecordTask> {
         Some(self)
     }
@@ -980,9 +970,10 @@ impl RecordTask {
         tid: pid_t,
         serial: u32,
         a: SupportedArch,
+        weak_self: TaskSharedWeakPtr,
     ) -> Box<dyn Task> {
         let mut rt = RecordTask {
-            task_inner: TaskInner::new(session, tid, None, serial, a),
+            task_inner: TaskInner::new(session, tid, None, serial, a, weak_self),
             ticks_at_last_recorded_syscall_exit: 0,
             time_at_start_of_last_timeslice: 0,
             priority: 0,

@@ -6,6 +6,7 @@
 #![feature(associated_type_defaults)]
 #![feature(slice_ptr_get)]
 #![feature(array_methods)]
+#![feature(arc_new_cyclic)]
 // @TODO To many results for "never used". Disable for now.
 #![allow(dead_code)]
 

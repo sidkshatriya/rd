@@ -7054,7 +7054,7 @@ fn prepare_ptrace<Arch: Architecture>(
             let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
             match maybe_tracee {
                 Some(tracee_rc) => {
-                    let mut tracee = tracee_rc.borrow_mut();
+                    let tracee = tracee_rc.borrow();
                     if tracee.arch() != SupportedArch::X86 {
                         // This syscall should fail if the tracee is not x86
                         syscall_state.expect_errno = EIO;

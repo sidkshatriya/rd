@@ -38,7 +38,7 @@ use std::{
     ffi::{CString, OsStr, OsString},
     fmt::{self, Debug, Formatter},
     io::{stderr, Write},
-    ops::DerefMut,
+    ops::Deref,
     os::unix::ffi::OsStringExt,
     ptr,
     rc::{Rc, Weak},
@@ -68,7 +68,7 @@ impl Debug for &dyn Task {
     }
 }
 
-pub trait Task: DerefMut<Target = TaskInner> {
+pub trait Task: Deref<Target = TaskInner> {
     /// Return a new Task cloned from `clone_this`. `flags` are a set of
     /// CloneFlags (see above) that determine which resources are
     /// shared or copied to the new child.  `new_tid` is the tid
@@ -161,8 +161,6 @@ pub trait Task: DerefMut<Target = TaskInner> {
     fn next_syscallbuf_record(&mut self) -> RemotePtr<syscallbuf_record>;
 
     fn as_task_inner(&self) -> &TaskInner;
-
-    fn as_task_inner_mut(&mut self) -> &mut TaskInner;
 
     fn as_record_task(&self) -> Option<&RecordTask> {
         None
@@ -371,7 +369,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
         );
 
         self.set_regs(&r);
-        self.wait_status = Default::default();
+        self.wait_status.set(Default::default());
     }
 
     /// Assuming we've just entered a syscall, exit that syscall and reset

@@ -59,6 +59,7 @@ use crate::{
             task_inner::{ResumeRequest, SaveTraceeFdNumber, TaskInner, TicksRequest, WaitRequest},
             Task,
             TaskSharedPtr,
+            TaskSharedWeakPtr,
         },
         Session,
         SessionSharedPtr,
@@ -2133,8 +2134,9 @@ impl Session for ReplaySession {
         rec_tid: Option<pid_t>,
         serial: u32,
         a: SupportedArch,
+        weak_self: TaskSharedWeakPtr,
     ) -> Box<dyn Task> {
-        let t = ReplayTask::new(self, tid, rec_tid, serial, a);
+        let t = ReplayTask::new(self, tid, rec_tid, serial, a, weak_self);
         Box::new(t)
     }
 

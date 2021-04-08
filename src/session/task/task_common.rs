@@ -723,7 +723,7 @@ pub(super) fn did_waitpid_common<T: Task>(task: &mut T, mut status: WaitStatus) 
             log!(LogDebug, "Unexpected process death for {}", task.tid());
             status = WaitStatus::for_ptrace_event(PTRACE_EVENT_EXIT);
         }
-        task.pending_siginfo = local_pending_siginfo;
+        task.pending_siginfo.set(local_pending_siginfo);
     }
 
     let original_syscallno = task.registers.borrow().original_syscallno();
@@ -1640,72 +1640,78 @@ pub(in super::super) fn clone_task_common(
     // No longer mutable.
     let new_task_session = new_task_session;
 
-    let mut t: Box<dyn Task> =
-        new_task_session.new_task(new_tid, new_rec_tid, new_serial, clone_this.arch());
+    let rc_t = Rc::new_cyclic(|weak_self| {
+        let mut t: Box<dyn Task> = new_task_session.new_task(
+            new_tid,
+            new_rec_tid,
+            new_serial,
+            clone_this.arch(),
+            weak_self.clone(),
+        );
 
-    if flags.contains(CloneFlags::CLONE_SHARE_VM) {
-        // The cloned task has the same AddressSpace
-        t.as_ = clone_this.as_.clone();
-        if !stack.is_null() {
-            let last_stack_byte: RemotePtr<Void> = stack - 1usize;
-            match t.vm().mapping_of(last_stack_byte) {
-                Some(mapping) => {
-                    if !mapping.recorded_map.is_heap() {
-                        let m: &KernelMapping = &mapping.map;
-                        log!(LogDebug, "mapping stack for {} at {}", new_tid, m);
-                        let m_start = m.start();
-                        let m_size = m.size();
-                        let m_prot = m.prot();
-                        let m_flags = m.flags();
-                        let m_file_offset_bytes = m.file_offset_bytes();
-                        let m_device = m.device();
-                        let m_inode = m.inode();
+        if flags.contains(CloneFlags::CLONE_SHARE_VM) {
+            // The cloned task has the same AddressSpace
+            *t.as_.borrow_mut() = clone_this.as_.borrow().clone();
+            if !stack.is_null() {
+                let last_stack_byte: RemotePtr<Void> = stack - 1usize;
+                match t.vm().mapping_of(last_stack_byte) {
+                    Some(mapping) => {
+                        if !mapping.recorded_map.is_heap() {
+                            let m: &KernelMapping = &mapping.map;
+                            log!(LogDebug, "mapping stack for {} at {}", new_tid, m);
+                            let m_start = m.start();
+                            let m_size = m.size();
+                            let m_prot = m.prot();
+                            let m_flags = m.flags();
+                            let m_file_offset_bytes = m.file_offset_bytes();
+                            let m_device = m.device();
+                            let m_inode = m.inode();
 
-                        // Release the borrow because we may want to modify the vm MemoryMap
-                        drop(mapping);
-                        t.vm().map(
-                            &mut *t,
-                            m_start,
-                            m_size,
-                            m_prot,
-                            m_flags,
-                            m_file_offset_bytes,
-                            OsStr::new("[stack]"),
-                            m_device,
-                            m_inode,
-                            None,
-                            None,
-                            None,
-                            None,
-                            None,
-                        );
+                            // Release the borrow because we may want to modify the vm MemoryMap
+                            drop(mapping);
+                            t.vm().map(
+                                &mut *t,
+                                m_start,
+                                m_size,
+                                m_prot,
+                                m_flags,
+                                m_file_offset_bytes,
+                                OsStr::new("[stack]"),
+                                m_device,
+                                m_inode,
+                                None,
+                                None,
+                                None,
+                                None,
+                                None,
+                            );
+                        }
                     }
-                }
-                None => (),
-            };
+                    None => (),
+                };
+            }
+        } else {
+            *t.as_.borrow_mut() = Some(new_task_session.clone_vm(&mut *t, clone_this.vm()));
         }
-    } else {
-        *t.as_.borrow_mut() = Some(new_task_session.clone_vm(&mut *t, clone_this.vm()));
-    }
 
-    t.syscallbuf_size.set(clone_this.syscallbuf_size.get());
-    t.stopping_breakpoint_table
-        .set(clone_this.stopping_breakpoint_table.get());
-    t.stopping_breakpoint_table_entry_size
-        .set(clone_this.stopping_breakpoint_table_entry_size.get());
-    t.preload_globals.set(clone_this.preload_globals.get());
-    t.seccomp_bpf_enabled
-        .set(clone_this.seccomp_bpf_enabled.get());
+        t.syscallbuf_size.set(clone_this.syscallbuf_size.get());
+        t.stopping_breakpoint_table
+            .set(clone_this.stopping_breakpoint_table.get());
+        t.stopping_breakpoint_table_entry_size
+            .set(clone_this.stopping_breakpoint_table_entry_size.get());
+        t.preload_globals.set(clone_this.preload_globals.get());
+        t.seccomp_bpf_enabled
+            .set(clone_this.seccomp_bpf_enabled.get());
 
-    let rc_t: TaskSharedPtr = Rc::new(RefCell::new(t));
+        RefCell::new(t)
+    });
+
     let weak_self_ptr = Rc::downgrade(&rc_t);
-    rc_t.borrow_mut().weak_self = weak_self_ptr.clone();
-
     let mut ref_t = rc_t.borrow_mut();
     // FdTable is either shared or copied, so the contents of
     // syscallbuf_fds_disabled_child are still valid.
     if flags.contains(CloneFlags::CLONE_SHARE_FILES) {
-        ref_t.fds = clone_this.fds.clone();
+        *ref_t.fds.borrow_mut() = clone_this.fds.borrow().clone();
         ref_t
             .fd_table()
             .task_set_mut()
@@ -1717,7 +1723,7 @@ pub(in super::super) fn clone_task_common(
     ref_t.top_of_stack.set(stack);
     // Clone children, both thread and fork, inherit the parent
     // prname.
-    ref_t.prname = clone_this.prname.clone();
+    *ref_t.prname.borrow_mut() = clone_this.prname.borrow().clone();
 
     // wait() before trying to do anything that might need to
     // use ptrace to access memory
@@ -1737,7 +1743,7 @@ pub(in super::super) fn clone_task_common(
         .insert(weak_self_ptr.clone());
 
     ref_t.open_mem_fd_if_needed();
-    ref_t.thread_areas_ = clone_this.thread_areas_.clone();
+    *ref_t.thread_areas_.borrow_mut() = clone_this.thread_areas_.borrow().clone();
     if flags.contains(CloneFlags::CLONE_SET_TLS) {
         set_thread_area_from_clone(ref_t.as_mut(), tls);
     }
@@ -2018,7 +2024,7 @@ fn process_ptrace<Arch: Architecture>(regs: &Registers, t: &mut dyn Task) {
     match regs.arg1() as u32 {
         PTRACE_SETREGS => {
             let tracee_rc = maybe_tracee.unwrap();
-            let mut tracee = tracee_rc.borrow_mut();
+            let tracee = tracee_rc.borrow();
             let data = read_mem(
                 t,
                 RemotePtr::<u8>::from(regs.arg4()),
@@ -2057,7 +2063,7 @@ fn process_ptrace<Arch: Architecture>(regs: &Registers, t: &mut dyn Task) {
             match regs.arg3() as u32 {
                 NT_PRSTATUS => {
                     let tracee_rc = maybe_tracee.unwrap();
-                    let mut tracee = tracee_rc.borrow_mut();
+                    let tracee = tracee_rc.borrow();
                     let set =
                         ptrace_get_regs_set::<Arch>(t, regs, size_of::<Arch::user_regs_struct>());
                     let mut r = tracee.regs_ref().clone();
@@ -2066,7 +2072,7 @@ fn process_ptrace<Arch: Architecture>(regs: &Registers, t: &mut dyn Task) {
                 }
                 NT_FPREGSET => {
                     let tracee_rc = maybe_tracee.unwrap();
-                    let mut tracee = tracee_rc.borrow_mut();
+                    let tracee = tracee_rc.borrow();
                     let set =
                         ptrace_get_regs_set::<Arch>(t, regs, size_of::<Arch::user_fpregs_struct>());
                     let mut r: ExtraRegisters = tracee.extra_regs_ref().clone();
@@ -2075,7 +2081,7 @@ fn process_ptrace<Arch: Architecture>(regs: &Registers, t: &mut dyn Task) {
                 }
                 NT_X86_XSTATE => {
                     let tracee_rc = maybe_tracee.unwrap();
-                    let mut tracee = tracee_rc.borrow_mut();
+                    let tracee = tracee_rc.borrow();
                     let format = tracee.extra_regs_ref().format();
                     match format {
                         Format::XSave => {
@@ -2126,7 +2132,7 @@ fn process_ptrace<Arch: Architecture>(regs: &Registers, t: &mut dyn Task) {
         }
         PTRACE_POKEUSER => {
             let tracee_rc = maybe_tracee.unwrap();
-            let mut tracee = tracee_rc.borrow_mut();
+            let tracee = tracee_rc.borrow();
             let addr: usize = regs.arg3();
             let data: Arch::unsigned_word = Arch::as_unsigned_word(regs.arg4());
             if addr < size_of::<Arch::user_regs_struct>() {
@@ -2155,7 +2161,7 @@ fn process_ptrace<Arch: Architecture>(regs: &Registers, t: &mut dyn Task) {
                 ARCH_GET_FS | ARCH_GET_GS => (),
                 ARCH_SET_FS | ARCH_SET_GS => {
                     let tracee_rc = maybe_tracee.unwrap();
-                    let mut tracee = tracee_rc.borrow_mut();
+                    let tracee = tracee_rc.borrow();
                     let mut r: Registers = tracee.regs_ref().clone();
                     if regs.arg3() == 0 {
                         // Work around a kernel bug in pre-4.7 kernels, where setting
