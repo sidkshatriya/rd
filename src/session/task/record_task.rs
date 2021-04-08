@@ -2823,7 +2823,7 @@ impl RecordTask {
     /// where they can: when a non-main-thread does an execve, its tid changes
     /// to the tid of the thread-group leader.
     pub fn set_tid_and_update_serial(&mut self, tid: pid_t, own_namespace_tid: pid_t) {
-        self.hpc.set_tid(tid);
+        self.hpc.borrow_mut().set_tid(tid);
         self.rec_tid = tid;
         self.tid = tid;
         self.serial = self.session().next_task_serial();

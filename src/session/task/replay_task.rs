@@ -322,7 +322,7 @@ impl ReplayTask {
     /// Used when an execve changes the tid of a non-main-thread to the
     /// thread-group leader.
     pub fn set_real_tid_and_update_serial(&mut self, tid: pid_t) {
-        self.hpc.set_tid(tid);
+        self.hpc.borrow_mut().set_tid(tid);
         self.tid = tid;
         self.serial = self.session().next_task_serial();
     }

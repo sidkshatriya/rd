@@ -335,7 +335,7 @@ pub struct TaskInner {
     /// The child's cloned_file_data_fd
     pub cloned_file_data_fd_child: Cell<i32>,
 
-    pub hpc: PerfCounters,
+    pub hpc: RefCell<PerfCounters>,
 
     /// This is always the "real" tid of the tracee.
     pub tid: pid_t,
@@ -1351,7 +1351,7 @@ impl TaskInner {
             desched_fd_child: Cell::new(-1),
             // This will be initialized when the syscall buffer is
             cloned_file_data_fd_child: Cell::new(-1),
-            hpc: PerfCounters::new(tid, session.ticks_semantics()),
+            hpc: RefCell::new(PerfCounters::new(tid, session.ticks_semantics())),
             tid,
             rec_tid: adjusted_rec_tid,
             syscallbuf_size: 0,
