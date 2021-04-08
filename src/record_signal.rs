@@ -313,12 +313,12 @@ fn try_handle_trapped_instruction(t: &mut RecordTask, si: &siginfo_t) -> bool {
     let trapped_instruction = trapped_instruction_at(t, t.ip());
     match trapped_instruction {
         TrappedInstruction::Rdtsc | TrappedInstruction::Rdtscp => {
-            if t.tsc_mode == PR_TSC_SIGSEGV {
+            if t.tsc_mode.get() == PR_TSC_SIGSEGV {
                 return false;
             }
         }
         TrappedInstruction::CpuId => {
-            if t.cpuid_mode == 0 {
+            if t.cpuid_mode.get() == 0 {
                 return false;
             }
         }
@@ -616,7 +616,7 @@ pub fn handle_syscallbuf_breakpoint(t: &mut RecordTask) -> bool {
     // signal, or it will block at which point we'll be able to deliver our
     // signal.
     log!(LogDebug, "Disabling breakpoints at untraced syscalls");
-    t.break_at_syscallbuf_untraced_syscalls = false;
+    t.break_at_syscallbuf_untraced_syscalls.set(false);
 
     true
 }
@@ -817,8 +817,8 @@ fn handle_desched_event(t: &mut RecordTask, si: &siginfo_t) {
         // reset until we've finished guiding the tracee through this
         // interrupted call.  We use the record counter for
         // assertions.
-        ed_assert!(t, !t.delay_syscallbuf_reset_for_desched);
-        t.delay_syscallbuf_reset_for_desched = true;
+        ed_assert!(t, !t.delay_syscallbuf_reset_for_desched.get());
+        t.delay_syscallbuf_reset_for_desched.set(true);
         log!(LogDebug, "Desched initiated");
 
         // The tracee is (re-)entering the buffered syscall.  Stash

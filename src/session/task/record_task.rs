@@ -411,51 +411,51 @@ pub type RecordTaskSharedPtr = Rc<RefCell<RecordTask>>;
 
 pub struct RecordTask {
     pub task_inner: TaskInner,
-    pub ticks_at_last_recorded_syscall_exit: Ticks,
+    pub ticks_at_last_recorded_syscall_exit: Cell<Ticks>,
 
     /// Scheduler state
     pub registers_at_start_of_last_timeslice: Registers,
-    pub time_at_start_of_last_timeslice: FrameTime,
+    pub time_at_start_of_last_timeslice: Cell<FrameTime>,
     /// Task 'nice' value set by setpriority(2).
     ///
     /// We use this to drive scheduling decisions. rd's scheduler is
     /// deliberately simple and unfair; a task never runs as long as there's
     /// another runnable task with a lower nice value.
-    pub priority: i32,
+    pub priority: Cell<i32>,
     /// Tasks with in_round_robin_queue set are in the session's
     /// in_round_robin_queue instead of its task_priority_set.
-    pub in_round_robin_queue: bool,
+    pub in_round_robin_queue: Cell<bool>,
 
     /// ptrace emulation state
     ///
     /// Task for which we're emulating ptrace of this task, or None
     pub emulated_ptracer: Option<TaskSharedWeakPtr>,
     pub emulated_ptrace_tracees: WeakTaskPtrSet,
-    pub emulated_ptrace_event_msg: usize,
+    pub emulated_ptrace_event_msg: Cell<usize>,
     /// @TODO Do we want to make this a queue?
     /// Saved emulated-ptrace signals
     pub saved_ptrace_siginfos: Vec<siginfo_t>,
     /// Code to deliver to ptracer/waiter when it waits. Note that zero can be a
     /// valid code! Reset to zero when leaving the stop due to PTRACE_CONT etc.
-    pub emulated_stop_code: WaitStatus,
+    pub emulated_stop_code: Cell<WaitStatus>,
     /// Always zero while no ptracer is attached.
-    pub emulated_ptrace_options: u32,
+    pub emulated_ptrace_options: Cell<u32>,
     /// One of PTRACE_CONT, PTRACE_SYSCALL --- or 0 if the tracee has not been
     /// continued by its ptracer yet, or has no ptracer.
-    pub emulated_ptrace_cont_command: u32,
+    pub emulated_ptrace_cont_command: Cell<u32>,
     /// true when a ptracer/waiter wait() can return `emulated_stop_code`.
-    pub emulated_stop_pending: bool,
+    pub emulated_stop_pending: Cell<bool>,
     /// true if this task needs to send a SIGCHLD to its ptracer for its
     /// emulated ptrace stop
-    pub emulated_ptrace_sigchld_pending: bool,
+    pub emulated_ptrace_sigchld_pending: Cell<bool>,
     /// true if this task needs to send a SIGCHLD to its parent for its
     /// emulated stop
-    pub emulated_sigchld_pending: bool,
+    pub emulated_sigchld_pending: Cell<bool>,
     /// tracer attached via PTRACE_SEIZE
-    pub emulated_ptrace_seized: bool,
-    pub emulated_ptrace_queued_exit_stop: bool,
-    pub in_wait_type: WaitType,
-    pub in_wait_pid: pid_t,
+    pub emulated_ptrace_seized: Cell<bool>,
+    pub emulated_ptrace_queued_exit_stop: Cell<bool>,
+    pub in_wait_type: Cell<WaitType>,
+    pub in_wait_pid: Cell<pid_t>,
 
     /// Signal handler state
     ///
@@ -471,35 +471,35 @@ pub struct RecordTask {
     pub sighandlers: Rc<RefCell<Sighandlers>>,
     /// If not NotStopped, then the task is logically stopped and this is the type
     /// of stop.
-    pub emulated_stop_type: EmulatedStopType,
+    pub emulated_stop_type: Cell<EmulatedStopType>,
     /// True if the task sigmask may have changed and we need to refetch it.
     pub blocked_sigs_dirty: Cell<bool>,
     /// Most accesses to this should use set_sigmask and get_sigmask to ensure
     /// the mirroring to syscallbuf is correct.
     pub blocked_sigs: Cell<sig_set_t>,
-    pub syscallbuf_blocked_sigs_generation: u32,
+    pub syscallbuf_blocked_sigs_generation: Cell<u32>,
 
     /// Syscallbuf state
     pub syscallbuf_code_layout: SyscallbufCodeLayout,
     pub desched_fd: ScopedFd,
     /// Value of hdr->num_rec_bytes when the buffer was flushed
-    pub flushed_num_rec_bytes: u32,
+    pub flushed_num_rec_bytes: Cell<u32>,
     /// Nonzero after the trace recorder has flushed the
     /// syscallbuf.  When this happens, the recorder must prepare a
     /// "reset" of the buffer, to zero the record count, at the
     /// next available slow (taking `desched` into
     /// consideration).
-    pub flushed_syscallbuf: bool,
+    pub flushed_syscallbuf: Cell<bool>,
     /// This bit is set when code wants to prevent the syscall
     /// record buffer from being reset when it normally would be.
     /// This bit is set by the desched code.
-    pub delay_syscallbuf_reset_for_desched: bool,
+    pub delay_syscallbuf_reset_for_desched: Cell<bool>,
     /// This is set when code wants to prevent the syscall
     /// record buffer from being reset when it normally would be.
     /// This is set by the code for handling seccomp SIGSYS signals.
-    pub delay_syscallbuf_reset_for_seccomp_trap: bool,
+    pub delay_syscallbuf_reset_for_seccomp_trap: Cell<bool>,
     /// Value to return from PR_GET_SECCOMP
-    pub prctl_seccomp_status: u8,
+    pub prctl_seccomp_status: Cell<u8>,
 
     /// Mirrored kernel state
     /// This state agrees with kernel-internal values
@@ -508,25 +508,25 @@ pub struct RecordTask {
     /// strong type for this list head and read it if we wanted to,
     /// but for now we only need to remember its address / size at
     /// the time of the most recent set_robust_list() call.
-    pub robust_futex_list: RemotePtr<Void>,
-    pub robust_futex_list_len: usize,
+    pub robust_futex_list: Cell<RemotePtr<Void>>,
+    pub robust_futex_list_len: Cell<usize>,
     /// The memory cell the kernel will clear and notify on exit,
     /// if our clone parent requested it.
-    pub tid_futex: RemotePtr<i32>,
+    pub tid_futex: Cell<RemotePtr<i32>>,
     /// This is the recorded tid of the tracee *in its own pid namespace*.
-    pub own_namespace_rec_tid: pid_t,
-    pub exit_code: i32,
+    pub own_namespace_rec_tid: Cell<pid_t>,
+    pub exit_code: Cell<i32>,
     /// Signal delivered by the kernel when this task terminates
     /// DIFF NOTE: We have an Option<> here which is different from rr.
     /// In rr None is indicated by 0
     pub termination_signal: Option<Sig>,
 
     /// Our value for PR_GET/SET_TSC (one of PR_TSC_ENABLED, PR_TSC_SIGSEGV).
-    pub tsc_mode: i32,
+    pub tsc_mode: Cell<i32>,
     /// Our value for ARCH_GET/SET_CPUID (0 -> generate SIGSEGV, 1 -> do CPUID).
     /// Only used if session().has_cpuid_faulting().
     /// @TODO should this be made into an Option?
-    pub cpuid_mode: i32,
+    pub cpuid_mode: Cell<i32>,
     /// The current stack of events being processed.  (We use a
     /// deque instead of a stack because we need to iterate the
     /// events.)
@@ -534,17 +534,17 @@ pub struct RecordTask {
     /// Stashed signal-delivery state, ready to be delivered at
     /// next opportunity.
     pub stashed_signals: VecDeque<Box<StashedSignal>>,
-    pub stashed_signals_blocking_more_signals: bool,
-    pub stashed_group_stop: bool,
-    pub break_at_syscallbuf_traced_syscalls: bool,
-    pub break_at_syscallbuf_untraced_syscalls: bool,
-    pub break_at_syscallbuf_final_instruction: bool,
+    pub stashed_signals_blocking_more_signals: Cell<bool>,
+    pub stashed_group_stop: Cell<bool>,
+    pub break_at_syscallbuf_traced_syscalls: Cell<bool>,
+    pub break_at_syscallbuf_untraced_syscalls: Cell<bool>,
+    pub break_at_syscallbuf_final_instruction: Cell<bool>,
 
     /// The pmc is programmed to interrupt at a value requested by the tracee, not
     /// by rd.
-    pub next_pmc_interrupt_is_for_user: bool,
+    pub next_pmc_interrupt_is_for_user: Cell<bool>,
 
-    pub did_record_robust_futex_changes: bool,
+    pub did_record_robust_futex_changes: Cell<bool>,
 
     /// DIFF NOTE: This field does not exist in rr
     /// Since the property system is not used intensively in rr its
@@ -594,7 +594,7 @@ impl Task for RecordTask {
                     cleartid_addr.as_usize()
                 );
                 ed_assert!(self, !cleartid_addr.is_null());
-                t.borrow_mut().as_rec_mut_unwrap().tid_futex = cleartid_addr;
+                t.borrow().as_rec_unwrap().tid_futex.set(cleartid_addr);
             } else {
                 log!(LogDebug, "(clone child not enabling CLEARTID)");
             }
@@ -603,20 +603,21 @@ impl Task for RecordTask {
     }
 
     fn own_namespace_tid(&self) -> pid_t {
-        self.own_namespace_rec_tid
+        self.own_namespace_rec_tid.get()
     }
 
     fn post_wait_clone(&mut self, clone_from: &dyn Task, flags: CloneFlags) {
         post_wait_clone_common(self, clone_from, flags);
 
         let rt = clone_from.as_rec_unwrap();
-        self.priority = rt.priority;
+        self.priority.set(rt.priority.get());
         self.syscallbuf_code_layout = rt.syscallbuf_code_layout.clone();
-        self.prctl_seccomp_status = rt.prctl_seccomp_status;
-        self.robust_futex_list = rt.robust_futex_list;
-        self.robust_futex_list_len = rt.robust_futex_list_len;
-        self.tsc_mode = rt.tsc_mode;
-        self.cpuid_mode = rt.cpuid_mode;
+        self.prctl_seccomp_status.set(rt.prctl_seccomp_status.get());
+        self.robust_futex_list.set(rt.robust_futex_list.get());
+        self.robust_futex_list_len
+            .set(rt.robust_futex_list_len.get());
+        self.tsc_mode.set(rt.tsc_mode.get());
+        self.cpuid_mode.set(rt.cpuid_mode.get());
         if flags.contains(CloneFlags::CLONE_SHARE_SIGHANDLERS) {
             self.sighandlers = rt.sighandlers.clone();
         } else {
@@ -642,7 +643,7 @@ impl Task for RecordTask {
         // accurate.
         self.get_sigmask();
 
-        if self.stashed_signals_blocking_more_signals {
+        if self.stashed_signals_blocking_more_signals.get() {
             // A stashed signal we have already accepted for this task may
             // have a sigaction::sa_mask that would block the next signal to be
             // delivered and cause it to be delivered to a different task. If we allow
@@ -708,7 +709,7 @@ impl Task for RecordTask {
                 .syscallbuf_code_layout
                 .syscallbuf_final_exit_instruction;
 
-            if self.break_at_syscallbuf_final_instruction {
+            if self.break_at_syscallbuf_final_instruction.get() {
                 self.vm()
                     .add_breakpoint(self, addr, BreakpointType::BkptInternal);
             }
@@ -810,7 +811,7 @@ impl Task for RecordTask {
             self.vm()
                 .remove_breakpoint(p, BreakpointType::BkptInternal, self);
         }
-        if self.break_at_syscallbuf_final_instruction {
+        if self.break_at_syscallbuf_final_instruction.get() {
             self.vm().remove_breakpoint(
                 self.syscallbuf_code_layout
                     .syscallbuf_final_exit_instruction,
@@ -819,7 +820,7 @@ impl Task for RecordTask {
             );
         }
 
-        if self.stashed_signals_blocking_more_signals {
+        if self.stashed_signals_blocking_more_signals.get() {
             // Saved 'blocked_sigs' must still be correct regardless of syscallbuf
             // state, because we do not allow stashed_signals_blocking_more_signals
             // to hold across syscalls (traced or untraced) that change the signal mask.
@@ -842,8 +843,9 @@ impl Task for RecordTask {
                 self.invalidate_sigmask();
             } else {
                 let syscallbuf_generation = syscallbuf.blocked_sigs_generation;
-                if syscallbuf_generation > self.syscallbuf_blocked_sigs_generation {
-                    self.syscallbuf_blocked_sigs_generation = syscallbuf_generation;
+                if syscallbuf_generation > self.syscallbuf_blocked_sigs_generation.get() {
+                    self.syscallbuf_blocked_sigs_generation
+                        .set(syscallbuf_generation);
                     self.blocked_sigs.set(syscallbuf.blocked_sigs);
                 }
             }
@@ -974,43 +976,43 @@ impl RecordTask {
     ) -> Box<dyn Task> {
         let mut rt = RecordTask {
             task_inner: TaskInner::new(session, tid, None, serial, a, weak_self),
-            ticks_at_last_recorded_syscall_exit: 0,
-            time_at_start_of_last_timeslice: 0,
-            priority: 0,
-            in_round_robin_queue: false,
+            ticks_at_last_recorded_syscall_exit: Default::default(),
+            time_at_start_of_last_timeslice: Default::default(),
+            priority: Default::default(),
+            in_round_robin_queue: Default::default(),
             emulated_ptracer: None,
-            emulated_ptrace_event_msg: 0,
-            emulated_ptrace_options: 0,
-            emulated_ptrace_cont_command: 0,
-            emulated_stop_pending: false,
-            emulated_ptrace_sigchld_pending: false,
-            emulated_sigchld_pending: false,
-            emulated_ptrace_seized: false,
-            emulated_ptrace_queued_exit_stop: false,
-            in_wait_type: WaitType::WaitTypeNone,
-            in_wait_pid: 0,
-            emulated_stop_type: EmulatedStopType::NotStopped,
+            emulated_ptrace_event_msg: Default::default(),
+            emulated_ptrace_options: Default::default(),
+            emulated_ptrace_cont_command: Default::default(),
+            emulated_stop_pending: Default::default(),
+            emulated_ptrace_sigchld_pending: Default::default(),
+            emulated_sigchld_pending: Default::default(),
+            emulated_ptrace_seized: Default::default(),
+            emulated_ptrace_queued_exit_stop: Default::default(),
+            in_wait_type: Cell::new(WaitType::WaitTypeNone),
+            in_wait_pid: Default::default(),
+            emulated_stop_type: Cell::new(EmulatedStopType::NotStopped),
             blocked_sigs_dirty: Cell::new(true),
-            syscallbuf_blocked_sigs_generation: 0,
-            flushed_num_rec_bytes: 0,
-            flushed_syscallbuf: false,
-            delay_syscallbuf_reset_for_desched: false,
-            delay_syscallbuf_reset_for_seccomp_trap: false,
-            prctl_seccomp_status: 0,
-            robust_futex_list_len: 0,
-            own_namespace_rec_tid: tid,
-            exit_code: 0,
+            syscallbuf_blocked_sigs_generation: Default::default(),
+            flushed_num_rec_bytes: Default::default(),
+            flushed_syscallbuf: Default::default(),
+            delay_syscallbuf_reset_for_desched: Default::default(),
+            delay_syscallbuf_reset_for_seccomp_trap: Default::default(),
+            prctl_seccomp_status: Default::default(),
+            robust_futex_list_len: Default::default(),
+            own_namespace_rec_tid: Cell::new(tid),
+            exit_code: Cell::new(0),
             termination_signal: None,
-            tsc_mode: PR_TSC_ENABLE,
-            cpuid_mode: 1,
+            tsc_mode: Cell::new(PR_TSC_ENABLE),
+            cpuid_mode: Cell::new(1),
             stashed_signals: Default::default(),
-            stashed_signals_blocking_more_signals: false,
-            stashed_group_stop: false,
-            break_at_syscallbuf_traced_syscalls: false,
-            break_at_syscallbuf_untraced_syscalls: false,
-            break_at_syscallbuf_final_instruction: false,
-            next_pmc_interrupt_is_for_user: false,
-            did_record_robust_futex_changes: false,
+            stashed_signals_blocking_more_signals: Default::default(),
+            stashed_group_stop: Default::default(),
+            break_at_syscallbuf_traced_syscalls: Default::default(),
+            break_at_syscallbuf_untraced_syscalls: Default::default(),
+            break_at_syscallbuf_final_instruction: Default::default(),
+            next_pmc_interrupt_is_for_user: Default::default(),
+            did_record_robust_futex_changes: Default::default(),
             // Implicit
             registers_at_start_of_last_timeslice: Registers::new(a),
             emulated_ptrace_tracees: Default::default(),
@@ -1042,7 +1044,7 @@ impl RecordTask {
     // @TODO clone_task() ??
     pub fn syscallbuf_syscall_entry_breakpoints(&self) -> Vec<RemoteCodePtr> {
         let mut result = Vec::<RemoteCodePtr>::new();
-        if self.break_at_syscallbuf_untraced_syscalls {
+        if self.break_at_syscallbuf_untraced_syscalls.get() {
             result.push(AddressSpace::rd_page_syscall_entry_point(
                 Traced::Untraced,
                 Privileged::Unprivileged,
@@ -1056,7 +1058,7 @@ impl RecordTask {
                 self.arch(),
             ));
         }
-        if self.break_at_syscallbuf_traced_syscalls {
+        if self.break_at_syscallbuf_traced_syscalls.get() {
             result.push(AddressSpace::rd_page_syscall_entry_point(
                 Traced::Traced,
                 Privileged::Unprivileged,
@@ -1079,7 +1081,7 @@ impl RecordTask {
     }
 
     pub fn is_at_syscallbuf_final_instruction_breakpoint(&self) -> bool {
-        if !self.break_at_syscallbuf_final_instruction {
+        if !self.break_at_syscallbuf_final_instruction.get() {
             return false;
         }
         let arch = self.arch();
@@ -1285,7 +1287,7 @@ impl RecordTask {
 
         // Newly execed tasks always have non-faulting mode (from their point of
         // view, even if rr is secretly causing faults).
-        self.cpuid_mode = 1;
+        self.cpuid_mode.set(1);
     }
 
     pub fn trace_writer(&self) -> OwningHandle<SessionSharedPtr, Ref<'_, TraceWriter>> {
@@ -1322,8 +1324,8 @@ impl RecordTask {
                 ed_assert!(self, self.emulated_ptracer.is_some());
                 ed_assert!(
                     self,
-                    self.emulated_stop_type == EmulatedStopType::NotStopped
-                        || self.emulated_stop_type == EmulatedStopType::GroupStop
+                    self.emulated_stop_type.get() == EmulatedStopType::NotStopped
+                        || self.emulated_stop_type.get() == EmulatedStopType::GroupStop
                 );
                 let removed_tracer = self.emulated_ptracer.take().unwrap();
                 let tracer = old_maybe_tracer.unwrap();
@@ -1352,7 +1354,11 @@ impl RecordTask {
         maybe_active_sibling: Option<&RecordTask>,
     ) {
         let si_code = maybe_si_code.unwrap_or(0);
-        ed_assert_eq!(self, self.emulated_stop_type, EmulatedStopType::NotStopped);
+        ed_assert_eq!(
+            self,
+            self.emulated_stop_type.get(),
+            EmulatedStopType::NotStopped
+        );
         // @TODO Check this logic again
         match maybe_siginfo {
             Some(siginfo) => {
@@ -1387,14 +1393,15 @@ impl RecordTask {
         tracer: &RecordTask,
         maybe_active_sibling: Option<&RecordTask>,
     ) {
-        self.emulated_stop_type = if status.maybe_group_stop_sig().is_sig() {
-            EmulatedStopType::GroupStop
-        } else {
-            EmulatedStopType::SignalDeliveryStop
-        };
-        self.emulated_stop_code = status;
-        self.emulated_stop_pending = true;
-        self.emulated_ptrace_sigchld_pending = true;
+        self.emulated_stop_type
+            .set(if status.maybe_group_stop_sig().is_sig() {
+                EmulatedStopType::GroupStop
+            } else {
+                EmulatedStopType::SignalDeliveryStop
+            });
+        self.emulated_stop_code.set(status);
+        self.emulated_stop_pending.set(true);
+        self.emulated_ptrace_sigchld_pending.set(true);
 
         ed_assert!(
             self,
@@ -1450,8 +1457,8 @@ impl RecordTask {
         for tracee_rc in &self.emulated_ptrace_tracees {
             let mut traceeb = tracee_rc.borrow_mut();
             let tracee = traceeb.as_rec_mut_unwrap();
-            if tracee.emulated_ptrace_sigchld_pending {
-                tracee.emulated_ptrace_sigchld_pending = false;
+            if tracee.emulated_ptrace_sigchld_pending.get() {
+                tracee.emulated_ptrace_sigchld_pending.set(false);
                 let sia: &mut siginfo_t_arch<NativeArch> = unsafe { mem::transmute(si) };
                 tracee.set_siginfo_for_waited_task::<NativeArch>(sia);
                 sia._sifields._rt.si_sigval_.sival_int = 0;
@@ -1463,8 +1470,8 @@ impl RecordTask {
             for child in child_tg.borrow().task_set() {
                 let mut rchildb = child.borrow_mut();
                 let rchild = rchildb.as_rec_mut_unwrap();
-                if rchild.emulated_sigchld_pending {
-                    rchild.emulated_sigchld_pending = false;
+                if rchild.emulated_sigchld_pending.get() {
+                    rchild.emulated_sigchld_pending.set(false);
                     let sia: &mut siginfo_t_arch<NativeArch> = unsafe { mem::transmute(si) };
                     rchild.set_siginfo_for_waited_task::<NativeArch>(sia);
                     sia._sifields._rt.si_sigval_.sival_int = 0;
@@ -1478,10 +1485,10 @@ impl RecordTask {
 
     pub fn set_siginfo_for_waited_task<Arch: Architecture>(&self, si: &mut siginfo_t_arch<Arch>) {
         // XXX handle CLD_EXITED here
-        if self.emulated_stop_type == EmulatedStopType::GroupStop {
+        if self.emulated_stop_type.get() == EmulatedStopType::GroupStop {
             si.si_code = CLD_STOPPED;
             // @TODO Do we want just a maybe_stop_sig().unwrap_sig().as_raw() approach here?
-            let maybe_stop_sig = self.emulated_stop_code.maybe_stop_sig();
+            let maybe_stop_sig = self.emulated_stop_code.get().maybe_stop_sig();
             if maybe_stop_sig.is_sig() {
                 si._sifields._sigchld.si_status_ = maybe_stop_sig.unwrap_sig().as_raw();
             } else {
@@ -1492,6 +1499,7 @@ impl RecordTask {
             // @TODO Is this approach what we want? Or do we want ptrace_signal().unwrap().as_raw() ?
             si._sifields._sigchld.si_status_ = self
                 .emulated_stop_code
+                .get()
                 .ptrace_signal()
                 .map_or(0, |sig| sig.as_raw());
         }
@@ -1502,7 +1510,7 @@ impl RecordTask {
     /// Return a reference to the saved siginfo record for the stop-signal
     /// that we're currently in a ptrace-stop for.
     pub fn get_saved_ptrace_siginfo(&self) -> &siginfo_t {
-        let sig = self.emulated_stop_code.ptrace_signal().unwrap();
+        let sig = self.emulated_stop_code.get().ptrace_signal().unwrap();
         for it in &self.saved_ptrace_siginfos {
             if it.si_signo == sig.as_raw() {
                 return it;
@@ -1549,7 +1557,7 @@ impl RecordTask {
             _ => return false,
         }
         // XXX need to check |options| to make sure this task is eligible!!
-        match self.in_wait_type {
+        match self.in_wait_type.get() {
             WaitType::WaitTypeNone => false,
             WaitType::WaitTypeAny => true,
             WaitType::WaitTypeSamePgid => {
@@ -1557,13 +1565,13 @@ impl RecordTask {
                     == getpgid(Some(Pid::from_raw(self.tgid()))).unwrap()
             }
             WaitType::WaitTypePgid => {
-                getpgid(Some(Pid::from_raw(t.tgid()))).unwrap().as_raw() == self.in_wait_pid
+                getpgid(Some(Pid::from_raw(t.tgid()))).unwrap().as_raw() == self.in_wait_pid.get()
             }
             WaitType::WaitTypePid =>
             // When waiting for a ptracee, a specific pid is interpreted as the
             // exact tid.
             {
-                t.tid() == self.in_wait_pid
+                t.tid() == self.in_wait_pid.get()
             }
         }
     }
@@ -1581,7 +1589,7 @@ impl RecordTask {
             return false;
         }
 
-        match self.in_wait_type {
+        match self.in_wait_type.get() {
             WaitType::WaitTypeNone => false,
             WaitType::WaitTypeAny => true,
             WaitType::WaitTypeSamePgid => {
@@ -1589,9 +1597,9 @@ impl RecordTask {
                     == getpgid(Some(Pid::from_raw(self.tgid()))).unwrap()
             }
             WaitType::WaitTypePgid => {
-                getpgid(Some(Pid::from_raw(t.tgid()))).unwrap().as_raw() == self.in_wait_pid
+                getpgid(Some(Pid::from_raw(t.tgid()))).unwrap().as_raw() == self.in_wait_pid.get()
             }
-            WaitType::WaitTypePid => t.tgid() == self.in_wait_pid,
+            WaitType::WaitTypePid => t.tgid() == self.in_wait_pid.get(),
         }
     }
 
@@ -1599,7 +1607,7 @@ impl RecordTask {
     /// notifying ptracer if necessary.
     /// DIFF NOTE: Additional param `maybe_active_sibling` to deal with already borrowed possibility.
     pub fn apply_group_stop(&mut self, sig: Sig, maybe_active_sibling: Option<&RecordTask>) {
-        if self.emulated_stop_type == EmulatedStopType::NotStopped {
+        if self.emulated_stop_type.get() == EmulatedStopType::NotStopped {
             log!(
                 LogDebug,
                 "setting {} to GROUP_STOP due to signal {}",
@@ -1607,15 +1615,19 @@ impl RecordTask {
                 sig
             );
             let status: WaitStatus = WaitStatus::for_group_sig(sig, self);
-            ed_assert_eq!(self, self.emulated_stop_type, EmulatedStopType::NotStopped);
+            ed_assert_eq!(
+                self,
+                self.emulated_stop_type.get(),
+                EmulatedStopType::NotStopped
+            );
             let maybe_emulated_ptrace =
                 self.emulated_ptracer.as_ref().map(|w| w.upgrade().unwrap());
             match maybe_emulated_ptrace {
                 None => {
-                    self.emulated_stop_type = EmulatedStopType::GroupStop;
-                    self.emulated_stop_code = status;
-                    self.emulated_stop_pending = true;
-                    self.emulated_sigchld_pending = true;
+                    self.emulated_stop_type.set(EmulatedStopType::GroupStop);
+                    self.emulated_stop_code.set(status);
+                    self.emulated_stop_pending.set(true);
+                    self.emulated_sigchld_pending.set(true);
                     match self
                         .session()
                         .find_task_from_rec_tid(get_ppid(self.tid()).unwrap())
@@ -1724,8 +1736,8 @@ impl RecordTask {
             "setting {} to NOT_STOPPED due to SIGCONT",
             self.tid()
         );
-        self.emulated_stop_pending = false;
-        self.emulated_stop_type = EmulatedStopType::NotStopped;
+        self.emulated_stop_pending.set(false);
+        self.emulated_stop_type.set(EmulatedStopType::NotStopped);
         for t in self
             .thread_group()
             .borrow()
@@ -1739,8 +1751,8 @@ impl RecordTask {
                 "setting {} to NOT_STOPPED due to SIGCONT",
                 rt.tid()
             );
-            rt.emulated_stop_pending = false;
-            rt.emulated_stop_type = EmulatedStopType::NotStopped;
+            rt.emulated_stop_pending.set(false);
+            rt.emulated_stop_type.set(EmulatedStopType::NotStopped);
         }
     }
 
@@ -1974,10 +1986,10 @@ impl RecordTask {
         }));
         // Once we've stashed a signal, stop at the next traced/untraced syscall to
         // check whether we need to process the signal before it runs.
-        self.stashed_signals_blocking_more_signals = true;
-        self.break_at_syscallbuf_final_instruction = true;
-        self.break_at_syscallbuf_traced_syscalls = true;
-        self.break_at_syscallbuf_untraced_syscalls = true;
+        self.stashed_signals_blocking_more_signals.set(true);
+        self.break_at_syscallbuf_final_instruction.set(true);
+        self.break_at_syscallbuf_traced_syscalls.set(true);
+        self.break_at_syscallbuf_untraced_syscalls.set(true);
     }
 
     pub fn stash_synthetic_sig(&mut self, si: &siginfo_t, deterministic: SignalDeterministic) {
@@ -2021,10 +2033,10 @@ impl RecordTask {
                 deterministic,
             }),
         );
-        self.stashed_signals_blocking_more_signals = true;
-        self.break_at_syscallbuf_final_instruction = true;
-        self.break_at_syscallbuf_traced_syscalls = true;
-        self.break_at_syscallbuf_untraced_syscalls = true;
+        self.stashed_signals_blocking_more_signals.set(true);
+        self.break_at_syscallbuf_final_instruction.set(true);
+        self.break_at_syscallbuf_traced_syscalls.set(true);
+        self.break_at_syscallbuf_untraced_syscalls.set(true);
     }
 
     /// DIFF NOTE: Simply called has_stashed_sig() in rr
@@ -2082,24 +2094,28 @@ impl RecordTask {
 
     pub fn stashed_signal_processed(&mut self) {
         let has_any_stashed_sig = self.has_any_stashed_sig();
-        self.break_at_syscallbuf_final_instruction = has_any_stashed_sig;
-        self.break_at_syscallbuf_traced_syscalls = has_any_stashed_sig;
-        self.break_at_syscallbuf_untraced_syscalls = has_any_stashed_sig;
-        self.stashed_signals_blocking_more_signals = has_any_stashed_sig;
+        self.break_at_syscallbuf_final_instruction
+            .set(has_any_stashed_sig);
+        self.break_at_syscallbuf_traced_syscalls
+            .set(has_any_stashed_sig);
+        self.break_at_syscallbuf_untraced_syscalls
+            .set(has_any_stashed_sig);
+        self.stashed_signals_blocking_more_signals
+            .set(has_any_stashed_sig);
     }
 
     /// If a group-stop occurs at an inconvenient time, stash it and
     /// process it later.
     pub fn stash_group_stop(&mut self) {
-        self.stashed_group_stop = true;
+        self.stashed_group_stop.set(true);
     }
 
     pub fn clear_stashed_group_stop(&mut self) {
-        self.stashed_group_stop = false;
+        self.stashed_group_stop.set(false);
     }
 
     pub fn has_stashed_group_stop(&self) -> bool {
-        self.stashed_group_stop
+        self.stashed_group_stop.get()
     }
 
     /// Return true if the current state of this looks like the
@@ -2217,13 +2233,13 @@ impl RecordTask {
     pub fn may_be_blocked(&self) -> bool {
         (EventType::EvSyscall == self.ev().event_type()
             && SyscallState::ProcessingSyscall == self.ev().syscall_event().state)
-            || self.emulated_stop_type != EmulatedStopType::NotStopped
+            || self.emulated_stop_type.get() != EmulatedStopType::NotStopped
     }
 
     /// Returns true if it looks like this task has been spinning on an atomic
     /// access/lock.
     pub fn maybe_in_spinlock(&self) -> bool {
-        self.time_at_start_of_last_timeslice == self.trace_writer().time()
+        self.time_at_start_of_last_timeslice.get() == self.trace_writer().time()
             && self
                 .regs_ref()
                 .matches(&self.registers_at_start_of_last_timeslice)
@@ -2535,10 +2551,10 @@ impl RecordTask {
 
         ed_assert!(
             self,
-            !self.flushed_syscallbuf || self.flushed_num_rec_bytes == hdr.num_rec_bytes
+            !self.flushed_syscallbuf.get() || self.flushed_num_rec_bytes.get() == hdr.num_rec_bytes
         );
 
-        if hdr.num_rec_bytes == 0 || self.flushed_syscallbuf {
+        if hdr.num_rec_bytes == 0 || self.flushed_syscallbuf.get() {
             // no records, or we've already flushed.
             return;
         }
@@ -2603,8 +2619,8 @@ impl RecordTask {
         self.record_current_event();
         self.pop_event(EventType::EvSyscallbufFlush);
 
-        self.flushed_syscallbuf = true;
-        self.flushed_num_rec_bytes = hdr.num_rec_bytes;
+        self.flushed_syscallbuf.set(true);
+        self.flushed_num_rec_bytes.set(hdr.num_rec_bytes);
 
         let num_rec_bytes = hdr.num_rec_bytes;
         log!(
@@ -2618,14 +2634,14 @@ impl RecordTask {
     /// syscallbuf. It must be after recording an event to ensure during replay
     /// we run past any syscallbuf after-syscall code that uses the buffer data.
     pub fn maybe_reset_syscallbuf(&mut self) {
-        if self.flushed_syscallbuf
-            && !self.delay_syscallbuf_reset_for_desched
-            && !self.delay_syscallbuf_reset_for_seccomp_trap
+        if self.flushed_syscallbuf.get()
+            && !self.delay_syscallbuf_reset_for_desched.get()
+            && !self.delay_syscallbuf_reset_for_seccomp_trap.get()
         {
-            self.flushed_syscallbuf = false;
+            self.flushed_syscallbuf.set(false);
             log!(LogDebug, "Syscallbuf reset");
             self.reset_syscallbuf();
-            self.syscallbuf_blocked_sigs_generation = 0;
+            self.syscallbuf_blocked_sigs_generation.set(0);
             self.record_event(Some(Event::syscallbuf_reset()), None, None, None);
         }
     }
@@ -2665,7 +2681,8 @@ impl RecordTask {
         }
 
         if ev.is_syscall_event() && ev.syscall_event().state == SyscallState::ExitingSyscall {
-            self.ticks_at_last_recorded_syscall_exit = self.tick_count();
+            self.ticks_at_last_recorded_syscall_exit
+                .set(self.tick_count());
         }
 
         let mut maybe_extra_registers = None;
@@ -2784,11 +2801,11 @@ impl RecordTask {
     }
 
     pub fn robust_list(&self) -> RemotePtr<Void> {
-        self.robust_futex_list
+        self.robust_futex_list.get()
     }
 
     pub fn robust_list_len(&self) -> usize {
-        self.robust_futex_list_len
+        self.robust_futex_list_len.get()
     }
 
     /// Uses /proc so not trivially cheap.
@@ -2829,7 +2846,7 @@ impl RecordTask {
         self.rec_tid.set(tid);
         self.tid.set(tid);
         self.serial.set(self.session().next_task_serial());
-        self.own_namespace_rec_tid = own_namespace_tid;
+        self.own_namespace_rec_tid.set(own_namespace_tid);
     }
 
     /// Return our cached copy of the signal mask, updating it if necessary.
@@ -2937,7 +2954,7 @@ impl RecordTask {
             let mut remote = AutoRemoteSyscalls::new(self);
             ret = remote.infallible_syscall(syscall_number_for_gettid(arch), &[]) as i32;
         }
-        self.own_namespace_rec_tid = ret;
+        self.own_namespace_rec_tid.set(ret);
     }
 
     /// Wait for `sync_addr` in `self` address space to have the value
@@ -3024,7 +3041,7 @@ impl RecordTask {
                     }
                 },
             };
-            if tracee.emulated_ptrace_sigchld_pending {
+            if tracee.emulated_ptrace_sigchld_pending.get() {
                 need_signal = true;
                 // check to see if any thread in the ptracer process is in a waitpid that
                 // could read the status of 'tracee'. If it is, we should wake up that
@@ -3066,7 +3083,7 @@ impl RecordTask {
                             }
                         },
                     };
-                    if rchild.emulated_sigchld_pending {
+                    if rchild.emulated_sigchld_pending.get() {
                         need_signal = true;
                         let wake_task = self.send_synthetic_sigchld_wake_task(rchild);
                         if wake_task.is_some() {
@@ -3140,8 +3157,8 @@ impl RecordTask {
     /// Update the futex robust list head pointer to `list` (which
     /// is of size `len`).
     fn set_robust_list(&mut self, list: RemotePtr<Void>, len: usize) {
-        self.robust_futex_list = list;
-        self.robust_futex_list_len = len;
+        self.robust_futex_list.set(list);
+        self.robust_futex_list_len.set(len);
     }
 
     fn on_syscall_exit_arch<Arch: Architecture>(&mut self, sys: i32, regs: &Registers) {
@@ -3207,7 +3224,7 @@ impl RecordTask {
     /// Update the clear-tid futex to `tid_addr`.
     fn set_tid_addr(&mut self, tid_addr: RemotePtr<i32>) {
         log!(LogDebug, "updating cleartid futex to {}", tid_addr);
-        self.tid_futex = tid_addr;
+        self.tid_futex.set(tid_addr);
     }
 }
 
@@ -3263,7 +3280,7 @@ impl Drop for RecordTask {
                     .unwrap()
                     .emulated_ptrace_tracees
                     .erase(self.weak_self_ptr());
-                if self.emulated_ptrace_options & PTRACE_O_TRACEEXIT != 0 {
+                if self.emulated_ptrace_options.get() & PTRACE_O_TRACEEXIT != 0 {
                     ed_assert!(
                         self,
                         self.stable_exit.get(),
@@ -3283,9 +3300,9 @@ impl Drop for RecordTask {
                 t.emulated_ptracer.as_ref().unwrap().ptr_eq(&self.weak_self)
             );
             t.emulated_ptracer = None;
-            t.emulated_ptrace_options = 0;
-            t.emulated_stop_pending = false;
-            t.emulated_stop_type = EmulatedStopType::NotStopped;
+            t.emulated_ptrace_options.set(0);
+            t.emulated_stop_pending.set(false);
+            t.emulated_stop_type.set(EmulatedStopType::NotStopped);
         }
 
         // Task::destroy has already done PTRACE_DETACH so the task can complete
@@ -3296,7 +3313,8 @@ impl Drop for RecordTask {
         // Unstable exits may result in the kernel *not* clearing the
         // futex, for example for fatal signals.  So we would
         // deadlock waiting on the futex.
-        if !self.unstable.get() && !self.tid_futex.is_null() && self.vm().task_set().len() > 1 {
+        if !self.unstable.get() && !self.tid_futex.get().is_null() && self.vm().task_set().len() > 1
+        {
             // clone()'d tasks can have a pid_t* |ctid| argument
             // that's written with the new task's pid.  That
             // pointer can also be used as a futex: when the task
@@ -3307,12 +3325,12 @@ impl Drop for RecordTask {
             log!(
                 LogDebug,
                 " waiting for tid futex {} to be cleared ...",
-                self.tid_futex
+                self.tid_futex.get()
             );
 
-            if self.futex_wait(self.tid_futex, 0).is_ok() {
+            if self.futex_wait(self.tid_futex.get(), 0).is_ok() {
                 let val = 0;
-                self.record_local_for(self.tid_futex, &val);
+                self.record_local_for(self.tid_futex.get(), &val);
             }
         }
 

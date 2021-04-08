@@ -675,7 +675,8 @@ impl RecordSession {
             t.borrow_mut()
                 .as_record_task_mut()
                 .unwrap()
-                .time_at_start_of_last_timeslice = self.trace_writer().time();
+                .time_at_start_of_last_timeslice
+                .set(self.trace_writer().time());
         }
 
         // Have to disable context-switching until we know it's safe
@@ -903,7 +904,7 @@ impl RecordSession {
         // sigmask effects.
         rt.invalidate_sigmask();
         if sig == perf_counters::TIME_SLICE_SIGNAL {
-            if rt.next_pmc_interrupt_is_for_user {
+            if rt.next_pmc_interrupt_is_for_user.get() {
                 let maybe_vpmc = VirtualPerfCounterMonitor::interrupting_virtual_pmc_for_task(rt);
                 ed_assert!(rt, maybe_vpmc.is_some());
 
@@ -915,7 +916,7 @@ impl RecordSession {
                     .unwrap()
                     .synthesize_signal(rt);
 
-                rt.next_pmc_interrupt_is_for_user = false;
+                rt.next_pmc_interrupt_is_for_user.set(false);
                 return true;
             }
 
@@ -1194,7 +1195,7 @@ impl RecordSession {
         // aborted record, and won't touch the syscallbuf
         // during this (aborted) transaction again.  So now
         // is a good time for us to reset the record counter.
-        t.delay_syscallbuf_reset_for_desched = false;
+        t.delay_syscallbuf_reset_for_desched.set(false);
         // Run the syscallbuf exit hook. This ensures we'll be able to reset
         // the syscallbuf before trying to buffer another syscall.
         write_val_mem(
@@ -1377,7 +1378,7 @@ impl RecordSession {
                 debug_exec_state("EXEC_SYSCALL_ENTRY_PTRACE", t);
                 step_state.continue_type = ContinueType::DontContinue;
                 self.last_task_switchable.set(Switchable::AllowSwitch);
-                if t.emulated_stop_type != EmulatedStopType::NotStopped {
+                if t.emulated_stop_type.get() != EmulatedStopType::NotStopped {
                     // Don't go any further.
                     return;
                 }
@@ -1411,7 +1412,7 @@ impl RecordSession {
             }
             SyscallState::EnteringSyscall => {
                 debug_exec_state("EXEC_SYSCALL_ENTRY", t);
-                ed_assert!(t, !t.emulated_stop_pending);
+                ed_assert!(t, !t.emulated_stop_pending.get());
 
                 self.last_task_switchable.set(rec_prepare_syscall(t));
                 t.ev_mut().syscall_event_mut().switchable = self.last_task_switchable.get();
@@ -1427,7 +1428,7 @@ impl RecordSession {
                 debug_exec_state("after cont", t);
                 t.ev_mut().syscall_event_mut().state = SyscallState::ProcessingSyscall;
 
-                if t.emulated_stop_pending {
+                if t.emulated_stop_pending.get() {
                     step_state.continue_type = ContinueType::DontContinue;
                 } else {
                     // Resume the syscall execution in the kernel context.
@@ -1729,7 +1730,7 @@ impl RecordSession {
         // A task in an emulated ptrace-stop must really stay stopped
         ed_assert!(
             &t.borrow(),
-            !t.borrow().as_rec_unwrap().emulated_stop_pending
+            !t.borrow().as_rec_unwrap().emulated_stop_pending.get()
         );
 
         let may_restart = t.borrow().as_rec_unwrap().at_may_restart_syscall();
@@ -1777,7 +1778,8 @@ impl RecordSession {
             // tracee-requested pmc interrupt on the virtualized performance counter.
             t.borrow_mut()
                 .as_rec_mut_unwrap()
-                .next_pmc_interrupt_is_for_user = false;
+                .next_pmc_interrupt_is_for_user
+                .set(false);
             let maybe_vpmc =
                 VirtualPerfCounterMonitor::interrupting_virtual_pmc_for_task(t.borrow().as_ref());
 
@@ -1816,7 +1818,8 @@ impl RecordSession {
                             ticks_request = after_ticks_request;
                             t.borrow_mut()
                                 .as_rec_mut_unwrap()
-                                .next_pmc_interrupt_is_for_user = true;
+                                .next_pmc_interrupt_is_for_user
+                                .set(true);
                         }
                         _ => (),
                     }
@@ -1824,9 +1827,16 @@ impl RecordSession {
                 None => (),
             }
 
-            let mut singlestep = t.borrow().as_rec_unwrap().emulated_ptrace_cont_command
+            let mut singlestep = t
+                .borrow()
+                .as_rec_unwrap()
+                .emulated_ptrace_cont_command
+                .get()
                 == PTRACE_SINGLESTEP
-                || t.borrow().as_rec_unwrap().emulated_ptrace_cont_command
+                || t.borrow()
+                    .as_rec_unwrap()
+                    .emulated_ptrace_cont_command
+                    .get()
                     == PTRACE_SYSEMU_SINGLESTEP;
 
             let t_at_ip = t.borrow().ip();
@@ -1975,9 +1985,9 @@ impl RecordSession {
 
         self.check_initial_task_syscalls(t, step_result);
         note_entering_syscall(t);
-        if (t.emulated_ptrace_cont_command == PTRACE_SYSCALL
-            || t.emulated_ptrace_cont_command == PTRACE_SYSEMU
-            || t.emulated_ptrace_cont_command == PTRACE_SYSEMU_SINGLESTEP)
+        if (t.emulated_ptrace_cont_command.get() == PTRACE_SYSCALL
+            || t.emulated_ptrace_cont_command.get() == PTRACE_SYSEMU
+            || t.emulated_ptrace_cont_command.get() == PTRACE_SYSEMU_SINGLESTEP)
             && !is_in_privileged_syscall(t)
         {
             // There MUST be an emulated ptracer
@@ -1992,9 +2002,9 @@ impl RecordSession {
             );
             t.record_current_event();
 
-            t.ev_mut().syscall_event_mut().in_sysemu = t.emulated_ptrace_cont_command
+            t.ev_mut().syscall_event_mut().in_sysemu = t.emulated_ptrace_cont_command.get()
                 == PTRACE_SYSEMU
-                || t.emulated_ptrace_cont_command == PTRACE_SYSEMU_SINGLESTEP;
+                || t.emulated_ptrace_cont_command.get() == PTRACE_SYSEMU_SINGLESTEP;
         }
 
         true
@@ -2544,7 +2554,7 @@ fn seccomp_trap_done(t: &mut RecordTask) {
     t.pop_seccomp_trap();
 
     // It's safe to reset the syscall buffer now.
-    t.delay_syscallbuf_reset_for_seccomp_trap = false;
+    t.delay_syscallbuf_reset_for_seccomp_trap.set(false);
 
     let syscallbuf_child = t.syscallbuf_child.get();
     write_val_mem(
@@ -2624,7 +2634,7 @@ fn save_interrupted_syscall_ret_in_syscallbuf(t: &mut RecordTask, retval: isize)
 }
 
 fn maybe_trigger_emulated_ptrace_syscall_exit_stop(t: &mut RecordTask) {
-    if t.emulated_ptrace_cont_command == PTRACE_SYSCALL {
+    if t.emulated_ptrace_cont_command.get() == PTRACE_SYSCALL {
         // We MUST have an emulated ptracer
         let emulated_ptracer = t.emulated_ptracer.as_ref().unwrap().upgrade().unwrap();
         t.emulate_ptrace_stop(
@@ -2634,8 +2644,8 @@ fn maybe_trigger_emulated_ptrace_syscall_exit_stop(t: &mut RecordTask) {
             None,
             None,
         );
-    } else if t.emulated_ptrace_cont_command == PTRACE_SINGLESTEP
-        || t.emulated_ptrace_cont_command == PTRACE_SYSEMU_SINGLESTEP
+    } else if t.emulated_ptrace_cont_command.get() == PTRACE_SINGLESTEP
+        || t.emulated_ptrace_cont_command.get() == PTRACE_SYSEMU_SINGLESTEP
     {
         // We MUST have an emulated ptracer
         let emulated_ptracer = t.emulated_ptracer.as_ref().unwrap().upgrade().unwrap();
@@ -2968,11 +2978,11 @@ fn handle_seccomp_trap(t: &mut RecordTask, step_state: &mut StepState, seccomp_d
     }
 
     if t.is_in_untraced_syscall() {
-        ed_assert!(t, !t.delay_syscallbuf_reset_for_seccomp_trap);
+        ed_assert!(t, !t.delay_syscallbuf_reset_for_seccomp_trap.get());
         // Don't reset the syscallbuf immediately after delivering the trap. We have
         // to wait until this buffered syscall aborts completely before resetting
         // the buffer.
-        t.delay_syscallbuf_reset_for_seccomp_trap = true;
+        t.delay_syscallbuf_reset_for_seccomp_trap.set(true);
 
         t.push_event(Event::seccomp_trap());
 
@@ -3101,7 +3111,7 @@ fn handle_ptrace_exit_event(t: &mut RecordTask) -> bool {
             {
                 // Either we're in a syscall, or we're immediately after a syscall
                 // and it exited with ENOSYS.
-                if t.ticks_at_last_recorded_syscall_exit == t.tick_count() {
+                if t.ticks_at_last_recorded_syscall_exit.get() == t.tick_count() {
                     log!(LogDebug, "Nothing to record after PTRACE_EVENT_EXIT");
                 // It's the latter case; do nothing.
                 } else {
@@ -3175,10 +3185,10 @@ fn record_robust_futex_changes(t: &mut RecordTask) {
 /// during replay because the TID value in each futex is the recorded
 /// TID, not the actual TID of the dying task.
 fn record_robust_futex_changes_arch<Arch: Architecture>(t: &mut RecordTask) {
-    if t.did_record_robust_futex_changes {
+    if t.did_record_robust_futex_changes.get() {
         return;
     }
-    t.did_record_robust_futex_changes = true;
+    t.did_record_robust_futex_changes.set(true);
 
     let head_ptr = RemotePtr::<robust_list_head<Arch>>::cast(t.robust_list());
     if head_ptr.is_null() {
@@ -3226,7 +3236,7 @@ fn record_robust_futex_change<Arch: Architecture>(
     if !ok {
         return;
     }
-    if val & FUTEX_TID_MASK != t.own_namespace_rec_tid as u32 {
+    if val & FUTEX_TID_MASK != t.own_namespace_rec_tid.get() as u32 {
         return;
     }
     val = (val & FUTEX_WAITERS) | FUTEX_OWNER_DIED;
