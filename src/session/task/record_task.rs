@@ -414,7 +414,7 @@ pub struct RecordTask {
     pub ticks_at_last_recorded_syscall_exit: Cell<Ticks>,
 
     /// Scheduler state
-    pub registers_at_start_of_last_timeslice: Registers,
+    pub registers_at_start_of_last_timeslice: RefCell<Registers>,
     pub time_at_start_of_last_timeslice: Cell<FrameTime>,
     /// Task 'nice' value set by setpriority(2).
     ///
@@ -1014,7 +1014,7 @@ impl RecordTask {
             next_pmc_interrupt_is_for_user: Default::default(),
             did_record_robust_futex_changes: Default::default(),
             // Implicit
-            registers_at_start_of_last_timeslice: Registers::new(a),
+            registers_at_start_of_last_timeslice: RefCell::new(Registers::new(a)),
             emulated_ptrace_tracees: Default::default(),
             saved_ptrace_siginfos: vec![],
             emulated_stop_code: Default::default(),
@@ -2242,7 +2242,7 @@ impl RecordTask {
         self.time_at_start_of_last_timeslice.get() == self.trace_writer().time()
             && self
                 .regs_ref()
-                .matches(&self.registers_at_start_of_last_timeslice)
+                .matches(&self.registers_at_start_of_last_timeslice.borrow())
     }
 
     /// Return true if `self` is within the syscallbuf library.  This

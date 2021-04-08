@@ -668,12 +668,13 @@ impl RecordSession {
 
         if rescheduled.started_new_timeslice {
             let regs = t.borrow().regs_ref().clone();
-            t.borrow_mut()
-                .as_record_task_mut()
+            *t.borrow()
+                .as_record_task()
                 .unwrap()
-                .registers_at_start_of_last_timeslice = regs;
-            t.borrow_mut()
-                .as_record_task_mut()
+                .registers_at_start_of_last_timeslice
+                .borrow_mut() = regs;
+            t.borrow()
+                .as_record_task()
                 .unwrap()
                 .time_at_start_of_last_timeslice
                 .set(self.trace_writer().time());
