@@ -353,7 +353,7 @@ pub struct TaskInner {
 
     /// DIFF NOTE: In rr null is used to denote no preload globals
     pub preload_globals: Option<RemotePtr<preload_globals>>,
-    pub thread_locals: ThreadLocals,
+    pub thread_locals: RefCell<ThreadLocals>,
 
     /// These are private
     pub(in super::super) serial: Cell<u32>,
@@ -1282,7 +1282,7 @@ impl TaskInner {
         )
     }
 
-    pub fn fetch_preload_thread_locals(&mut self) -> &ThreadLocals {
+    pub fn fetch_preload_thread_locals(&mut self) -> Ref<ThreadLocals> {
         if self.tuid() == self.vm().thread_locals_tuid() {
             let maybe_local_addr = preload_thread_locals_local_addr(&self.vm());
             match maybe_local_addr {
@@ -1297,13 +1297,13 @@ impl TaskInner {
                     // The mapping might have been removed by crazy application code.
                     // That's OK, assuming the preload library was removed too.
                     for i in 0..PRELOAD_THREAD_LOCALS_SIZE {
-                        self.thread_locals[i] = 0u8;
+                        self.thread_locals.borrow_mut()[i] = 0u8;
                     }
                 }
             }
         }
 
-        &self.thread_locals
+        self.thread_locals.borrow()
     }
 
     // DIFF NOTE: Takes an additional param maybe_active_task
@@ -1332,7 +1332,7 @@ impl TaskInner {
 
                     unsafe {
                         copy_nonoverlapping(
-                            &self.thread_locals as *const u8,
+                            self.thread_locals.as_ptr() as *const u8,
                             local_addr.as_ptr().cast::<u8>(),
                             PRELOAD_THREAD_LOCALS_SIZE,
                         );
@@ -1383,7 +1383,7 @@ impl TaskInner {
             session_: session.weak_self.clone(),
             top_of_stack: Default::default(),
             seen_ptrace_exit_event: Default::default(),
-            thread_locals: array_init::array_init(|_| 0),
+            thread_locals: RefCell::new([0u8; PRELOAD_THREAD_LOCALS_SIZE]),
             expecting_ptrace_interrupt_stop: Default::default(),
             // DIFF NOTE: These are not explicitly set in rr
             syscallbuf_child: Default::default(),

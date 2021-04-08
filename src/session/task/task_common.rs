@@ -1456,7 +1456,7 @@ pub(super) fn post_exec_for_exe_common<T: Task>(t: &mut T, exe_file: &OsStr) {
     t.preload_globals = None;
     t.thread_group().borrow_mut().execed = true;
     t.thread_areas_.borrow_mut().clear();
-    t.thread_locals = [0u8; PRELOAD_THREAD_LOCALS_SIZE];
+    *t.thread_locals.borrow_mut() = [0u8; PRELOAD_THREAD_LOCALS_SIZE];
     let exec_count = t.vm().uid().exec_count() + 1;
     *t.as_.borrow_mut() = Some(t.session().create_vm(t, Some(exe_file), Some(exec_count)));
     // It's barely-documented, but Linux unshares the fd table on exec
@@ -2372,7 +2372,7 @@ pub(in super::super) fn copy_state(t: &mut dyn Task, state: &CapturedState) {
 
     t.preload_globals = state.preload_globals;
     ed_assert!(t, t.vm().thread_locals_tuid() != t.tuid());
-    t.thread_locals = state.thread_locals.clone();
+    *t.thread_locals.borrow_mut() = state.thread_locals.clone();
     // The scratch buffer (for now) is merely a private mapping in
     // the remote task.  The CoW copy made by fork()'ing the
     // address space has the semantics we want.  It's not used in
