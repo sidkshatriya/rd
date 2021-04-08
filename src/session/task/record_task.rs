@@ -2558,7 +2558,8 @@ impl RecordTask {
 
         // Apply buffered mprotect operations and flush the buffer in the tracee.
         if hdr.mprotect_record_count > 0 {
-            let preload_globals = self.preload_globals.unwrap();
+            assert!(!self.preload_globals.is_null());
+            let preload_globals = self.preload_globals;
             let read_records = read_mem(
                 self,
                 RemotePtr::<mprotect_record>::cast(

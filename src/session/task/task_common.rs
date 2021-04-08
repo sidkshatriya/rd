@@ -1453,7 +1453,7 @@ pub(super) fn post_exec_for_exe_common<T: Task>(t: &mut T, exe_file: &OsStr) {
     t.desched_fd_child.set(-1);
     t.stopping_breakpoint_table.set(RemoteCodePtr::null());
     t.stopping_breakpoint_table_entry_size.set(0);
-    t.preload_globals = None;
+    t.preload_globals = Default::default();
     t.thread_group().borrow_mut().execed = true;
     t.thread_areas_.borrow_mut().clear();
     *t.thread_locals.borrow_mut() = [0u8; PRELOAD_THREAD_LOCALS_SIZE];
@@ -1589,14 +1589,14 @@ fn do_preload_init_arch<Arch: Architecture, T: Task>(t: &mut T) {
         None,
     );
 
-    t.preload_globals = Some(Arch::as_rptr(params.globals));
+    t.preload_globals = Arch::as_rptr(params.globals);
     t.stopping_breakpoint_table
         .set(Arch::as_rptr(params.breakpoint_table).to_code_ptr());
     t.stopping_breakpoint_table_entry_size
         .set(params.breakpoint_table_entry_size.try_into().unwrap());
     for rc_t in t.vm().task_set().iter_except(t.weak_self_ptr()) {
         let mut tt = rc_t.borrow_mut();
-        tt.preload_globals = Some(Arch::as_rptr(params.globals));
+        tt.preload_globals = Arch::as_rptr(params.globals);
 
         tt.stopping_breakpoint_table
             .set(Arch::as_rptr(params.breakpoint_table).to_code_ptr());
@@ -1604,7 +1604,8 @@ fn do_preload_init_arch<Arch: Architecture, T: Task>(t: &mut T) {
             .set(params.breakpoint_table_entry_size.try_into().unwrap());
     }
 
-    let preload_globals_ptr: RemotePtr<bool> = RemotePtr::cast(t.preload_globals.unwrap());
+    assert!(!t.preload_globals.is_null());
+    let preload_globals_ptr: RemotePtr<bool> = RemotePtr::cast(t.preload_globals);
     let addr = preload_globals_ptr + offset_of!(preload_globals, in_replay);
     let is_replaying = t.session().is_replaying();
     write_val_mem(t, addr, &is_replaying, None);

@@ -1891,8 +1891,8 @@ fn iterate_checksums(t: &mut dyn Task, mode: ChecksumMode, global_time: FrameTim
 
     let mut in_replay: u8 = 0;
     let mut in_replay_flag = RemotePtr::null();
-    if !t.preload_globals.unwrap_or(RemotePtr::null()).is_null() {
-        in_replay_flag = remote_ptr_field!(t.preload_globals.unwrap(), preload_globals, in_replay);
+    if !t.preload_globals.is_null() {
+        in_replay_flag = remote_ptr_field!(t.preload_globals, preload_globals, in_replay);
         in_replay = read_val_mem(t, in_replay_flag, None);
         write_val_mem(t, in_replay_flag, &0u8, None);
     }

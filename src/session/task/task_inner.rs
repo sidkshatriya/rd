@@ -351,8 +351,7 @@ pub struct TaskInner {
     pub stopping_breakpoint_table: Cell<RemoteCodePtr>,
     pub stopping_breakpoint_table_entry_size: Cell<usize>,
 
-    /// DIFF NOTE: In rr null is used to denote no preload globals
-    pub preload_globals: Option<RemotePtr<preload_globals>>,
+    pub preload_globals: RemotePtr<preload_globals>,
     pub thread_locals: RefCell<ThreadLocals>,
 
     /// These are private
@@ -449,7 +448,7 @@ pub struct CapturedState {
     // DIFF NOTE: Removed. This does not seem to be used.
     // pub num_syscallbuf_bytes: usize,
     /// DIFF NOTE: None to indicate no preload_globals
-    pub preload_globals: Option<RemotePtr<preload_globals>>,
+    pub preload_globals: RemotePtr<preload_globals>,
     pub scratch_ptr: RemotePtr<Void>,
     /// DIFF NOTE: This is signed in rr
     pub scratch_size: usize,
@@ -1387,7 +1386,7 @@ impl TaskInner {
             expecting_ptrace_interrupt_stop: Default::default(),
             // DIFF NOTE: These are not explicitly set in rr
             syscallbuf_child: Default::default(),
-            preload_globals: None,
+            preload_globals: Default::default(),
             as_: Default::default(),
             fds: Default::default(),
             address_of_last_execution_resume: Default::default(),

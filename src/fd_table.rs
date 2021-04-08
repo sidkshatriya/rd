@@ -207,10 +207,9 @@ impl FdTable {
 
         ed_assert!(&rt, self.task_set().has(rt.weak_self_ptr()));
 
-        let preload_globals = match rt.preload_globals {
-            None => return,
-            Some(pr) => pr,
-        };
+        if rt.preload_globals.is_null() {
+            return;
+        }
 
         let mut disabled: [u8; SYSCALLBUF_FDS_DISABLED_SIZE as usize] =
             [0u8; SYSCALLBUF_FDS_DISABLED_SIZE as usize];
@@ -238,8 +237,8 @@ impl FdTable {
             }
         }
 
-        let addr: RemotePtr<u8> =
-            RemotePtr::cast(preload_globals) + offset_of!(preload_globals, syscallbuf_fds_disabled);
+        let addr: RemotePtr<u8> = RemotePtr::cast(rt.preload_globals)
+            + offset_of!(preload_globals, syscallbuf_fds_disabled);
         rt.write_bytes(addr, &disabled);
         rt.record_local(addr, &disabled);
     }
@@ -302,25 +301,22 @@ impl FdTable {
             }
             vms_updated.insert(vm_uid);
 
-            match rt.preload_globals {
-                Some(pg) => {
-                    if fd >= SYSCALLBUF_FDS_DISABLED_SIZE {
-                        fd = SYSCALLBUF_FDS_DISABLED_SIZE - 1;
-                    }
-                    let disable: u8 =
-                        if is_fd_monitored_in_any_task(&rt.vm(), fd, rt, maybe_other_tasks) {
-                            1
-                        } else {
-                            0
-                        };
-
-                    let addr: RemotePtr<u8> =
-                        remote_ptr_field!(pg, preload_globals, syscallbuf_fds_disabled)
-                            + fd as usize;
-                    rt.write_bytes(addr, &disable.to_le_bytes());
-                    rt.record_local(addr, &disable.to_le_bytes());
+            if !rt.preload_globals.is_null() {
+                if fd >= SYSCALLBUF_FDS_DISABLED_SIZE {
+                    fd = SYSCALLBUF_FDS_DISABLED_SIZE - 1;
                 }
-                None => (),
+                let disable: u8 =
+                    if is_fd_monitored_in_any_task(&rt.vm(), fd, rt, maybe_other_tasks) {
+                        1
+                    } else {
+                        0
+                    };
+
+                let addr: RemotePtr<u8> =
+                    remote_ptr_field!(rt.preload_globals, preload_globals, syscallbuf_fds_disabled)
+                        + fd as usize;
+                rt.write_bytes(addr, &disable.to_le_bytes());
+                rt.record_local(addr, &disable.to_le_bytes());
             }
         };
 
