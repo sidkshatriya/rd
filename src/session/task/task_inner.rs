@@ -322,18 +322,18 @@ pub struct TaskInner {
     ///
     /// `scratch_ptr` points at the mapped address in the child,
     /// and `size` is the total available space.
-    pub scratch_ptr: RemotePtr<Void>,
+    pub scratch_ptr: Cell<RemotePtr<Void>>,
     /// The full size of the scratch buffer.
     /// The last page of the scratch buffer is used as an alternate stack
     /// for the syscallbuf code. So the usable size is less than this.
     ///
     /// DIFF NOTE: In rr this is a signed value i.e. isize
-    pub scratch_size: usize,
+    pub scratch_size: Cell<usize>,
 
     /// The child's desched counter event fd number
-    pub desched_fd_child: i32,
+    pub desched_fd_child: Cell<i32>,
     /// The child's cloned_file_data_fd
-    pub cloned_file_data_fd_child: i32,
+    pub cloned_file_data_fd_child: Cell<i32>,
 
     pub hpc: PerfCounters,
 
@@ -711,8 +711,8 @@ impl TaskInner {
     /// disarm-desched-event syscall.
     pub fn is_desched_event_syscall(&self) -> bool {
         is_ioctl_syscall(self.regs_ref().original_syscallno() as i32, self.arch())
-            && self.desched_fd_child != -1
-            && self.desched_fd_child == self.regs_ref().arg1_signed() as i32
+            && self.desched_fd_child.get() != -1
+            && self.desched_fd_child.get() == self.regs_ref().arg1_signed() as i32
     }
 
     /// Return true when this task is in a traced syscall made by the
@@ -1246,14 +1246,14 @@ impl TaskInner {
     }
 
     pub fn usable_scratch_size(&self) -> usize {
-        max(0, self.scratch_size as isize - page_size() as isize) as usize
+        max(0, self.scratch_size.get() as isize - page_size() as isize) as usize
     }
 
     pub fn syscallbuf_alt_stack(&self) -> RemotePtr<Void> {
-        if self.scratch_ptr.is_null() {
+        if self.scratch_ptr.get().is_null() {
             RemotePtr::null()
         } else {
-            self.scratch_ptr + self.scratch_size
+            self.scratch_ptr.get() + self.scratch_size.get()
         }
     }
 
@@ -1346,11 +1346,11 @@ impl TaskInner {
             unstable: Default::default(),
             stable_exit: Default::default(),
             scratch_ptr: Default::default(),
-            scratch_size: 0,
+            scratch_size: Default::default(),
             // This will be initialized when the syscall buffer is
-            desched_fd_child: -1,
+            desched_fd_child: Cell::new(-1),
             // This will be initialized when the syscall buffer is
-            cloned_file_data_fd_child: -1,
+            cloned_file_data_fd_child: Cell::new(-1),
             hpc: PerfCounters::new(tid, session.ticks_semantics()),
             tid,
             rec_tid: adjusted_rec_tid,
@@ -1408,18 +1408,18 @@ impl TaskInner {
             extra_regs,
             prname: self.prname.clone(),
             thread_areas,
-            desched_fd_child: self.desched_fd_child,
-            cloned_file_data_fd_child: self.cloned_file_data_fd_child,
-            cloned_file_data_offset: if self.cloned_file_data_fd_child > 0 {
-                get_fd_offset(self.tid, self.cloned_file_data_fd_child)
+            desched_fd_child: self.desched_fd_child.get(),
+            cloned_file_data_fd_child: self.cloned_file_data_fd_child.get(),
+            cloned_file_data_offset: if self.cloned_file_data_fd_child.get() > 0 {
+                get_fd_offset(self.tid, self.cloned_file_data_fd_child.get())
             } else {
                 0
             },
             syscallbuf_child: self.syscallbuf_child,
             syscallbuf_size: self.syscallbuf_size,
             preload_globals: self.preload_globals,
-            scratch_ptr: self.scratch_ptr,
-            scratch_size: self.scratch_size,
+            scratch_ptr: self.scratch_ptr.get(),
+            scratch_size: self.scratch_size.get(),
             wait_status: self.wait_status.get(),
             ticks: self.ticks,
             top_of_stack: self.top_of_stack.get(),

@@ -251,10 +251,10 @@ fn maybe_dump_written_string(t: &mut ReplayTask) -> Option<OsString> {
 fn init_scratch_memory(t: &mut ReplayTask, km: &KernelMapping, data: &trace_stream::MappedData) {
     ed_assert_eq!(t, data.source, trace_stream::MappedDataSource::SourceZero);
 
-    t.scratch_ptr = km.start();
-    t.scratch_size = km.size();
-    let sz = t.scratch_size;
-    let scratch_ptr = t.scratch_ptr;
+    t.scratch_ptr.set(km.start());
+    t.scratch_size.set(km.size());
+    let sz = t.scratch_size.get();
+    let scratch_ptr = t.scratch_ptr.get();
     // Make the scratch buffer read/write during replay so that
     // preload's sys_read can use it to buffer cloned data.
     ed_assert!(
@@ -282,7 +282,7 @@ fn init_scratch_memory(t: &mut ReplayTask, km: &KernelMapping, data: &trace_stre
         }
         t.vm().map(
             t,
-            t.scratch_ptr,
+            t.scratch_ptr.get(),
             sz,
             km.prot(),
             km.flags(),
@@ -897,10 +897,11 @@ fn rep_process_syscall_arch<Arch: Architecture>(
     }
 
     if nsys == Arch::READ {
-        if t.cloned_file_data_fd_child >= 0 {
+        if t.cloned_file_data_fd_child.get() >= 0 {
             let fd: i32 = t.regs_ref().arg1() as i32;
             let file_name = t.file_name_of_fd(fd);
-            if !file_name.is_empty() && file_name == t.file_name_of_fd(t.cloned_file_data_fd_child)
+            if !file_name.is_empty()
+                && file_name == t.file_name_of_fd(t.cloned_file_data_fd_child.get())
             {
                 // This is a read of the cloned-data file. Replay logic depends on
                 // this file's offset actually advancing.

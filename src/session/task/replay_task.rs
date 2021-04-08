@@ -346,7 +346,7 @@ impl ReplayTask {
         if !syscallbuf_ptr.is_null() {
             remote.task_mut().syscallbuf_size = syscallbuf_size;
             remote.init_syscall_buffer(map_hint);
-            remote.task_mut().desched_fd_child = desched_counter_fd;
+            remote.task_mut().desched_fd_child.set(desched_counter_fd);
             // Prevent the child from closing this fd
             remote.task_mut().fd_table().add_monitor(
                 remote.task_mut(),
@@ -364,7 +364,10 @@ impl ReplayTask {
                 .read_mapped_region(None, None, None, None, None);
 
             if cloned_file_data_fd >= 0 {
-                remote.task_mut().cloned_file_data_fd_child = cloned_file_data_fd;
+                remote
+                    .task_mut()
+                    .cloned_file_data_fd_child
+                    .set(cloned_file_data_fd);
                 let arch = remote.arch();
                 let clone_file_name = remote
                     .task()

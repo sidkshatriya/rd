@@ -1407,8 +1407,8 @@ pub(super) fn post_exec_for_exe_common<T: Task>(t: &mut T, exe_file: &OsStr) {
             // Note this is `t` and NOT `stopped`
             let syscallbuf_child = t.syscallbuf_child;
             let syscallbuf_size = t.syscallbuf_size;
-            let scratch_ptr = t.scratch_ptr;
-            let scratch_size = t.scratch_size;
+            let scratch_ptr = t.scratch_ptr.get();
+            let scratch_size = t.scratch_size.get();
 
             let mut remote = AutoRemoteSyscalls::new(stopped.as_mut());
             unmap_buffers_for(
@@ -1448,9 +1448,9 @@ pub(super) fn post_exec_for_exe_common<T: Task>(t: &mut T, exe_file: &OsStr) {
 
     t.syscallbuf_child = RemotePtr::null();
     t.syscallbuf_size = 0;
-    t.scratch_ptr = RemotePtr::null();
-    t.cloned_file_data_fd_child = -1;
-    t.desched_fd_child = -1;
+    t.scratch_ptr.set(RemotePtr::null());
+    t.cloned_file_data_fd_child.set(-1);
+    t.desched_fd_child.set(-1);
     t.stopping_breakpoint_table = RemoteCodePtr::null();
     t.stopping_breakpoint_table_entry_size = 0;
     t.preload_globals = None;
@@ -1756,8 +1756,8 @@ pub(in super::super) fn clone_task_common(
                     None,
                     tt.borrow().syscallbuf_child,
                     tt.borrow().syscallbuf_size,
-                    tt.borrow().scratch_ptr,
-                    tt.borrow().scratch_size,
+                    tt.borrow().scratch_ptr.get(),
+                    tt.borrow().scratch_size.get(),
                 );
             }
             clone_this.vm().did_fork_into(remote.task_mut());
@@ -1766,8 +1766,8 @@ pub(in super::super) fn clone_task_common(
         if flags.contains(CloneFlags::CLONE_SHARE_FILES) {
             // Clear our desched_fd_child so that we don't try to close it.
             // It should only be closed in `clone_this`.
-            ref_t.desched_fd_child = -1;
-            ref_t.cloned_file_data_fd_child = -1;
+            ref_t.desched_fd_child.set(-1);
+            ref_t.cloned_file_data_fd_child.set(-1);
         } else {
             // Close syscallbuf fds for tasks using the original fd table.
             let mut remote = AutoRemoteSyscalls::new(ref_t.as_mut());
@@ -1858,10 +1858,13 @@ pub fn close_buffers_for(
 ) {
     let arch = remote.task().arch();
     let (desched_fd_child, cloned_file_data_fd_child) = match maybe_other {
-        Some(other) => (other.desched_fd_child, other.cloned_file_data_fd_child),
+        Some(other) => (
+            other.desched_fd_child.get(),
+            other.cloned_file_data_fd_child.get(),
+        ),
         None => (
-            remote.task().desched_fd_child,
-            remote.task().cloned_file_data_fd_child,
+            remote.task().desched_fd_child.get(),
+            remote.task().cloned_file_data_fd_child.get(),
         ),
     };
     let mut v = Vec::new();
@@ -1918,8 +1921,8 @@ pub(super) fn destroy_buffers_common<T: Task>(t: &mut T) {
     // down buffers.
     remote.task_mut().syscallbuf_child = RemotePtr::null();
     let syscallbuf_size = remote.task().syscallbuf_size;
-    let scratch_ptr = remote.task().scratch_ptr;
-    let scratch_size = remote.task().scratch_size;
+    let scratch_ptr = remote.task().scratch_ptr.get();
+    let scratch_size = remote.task().scratch_size.get();
     unmap_buffers_for(
         &mut remote,
         None,
@@ -1928,10 +1931,10 @@ pub(super) fn destroy_buffers_common<T: Task>(t: &mut T) {
         scratch_ptr,
         scratch_size,
     );
-    remote.task_mut().scratch_ptr = RemotePtr::null();
+    remote.task_mut().scratch_ptr.set(RemotePtr::null());
     close_buffers_for(&mut remote, None, None);
-    remote.task_mut().desched_fd_child = -1;
-    remote.task_mut().cloned_file_data_fd_child = -1;
+    remote.task_mut().desched_fd_child.set(-1);
+    remote.task_mut().cloned_file_data_fd_child.set(-1);
 }
 
 pub(super) fn task_drop_common<T: Task>(t: &T) {
@@ -2337,8 +2340,14 @@ pub(in super::super) fn copy_state(t: &mut dyn Task, state: &CapturedState) {
         );
         if !state.syscallbuf_child.is_null() {
             // All these fields are preserved by the fork.
-            remote.task_mut().desched_fd_child = state.desched_fd_child;
-            remote.task_mut().cloned_file_data_fd_child = state.cloned_file_data_fd_child;
+            remote
+                .task_mut()
+                .desched_fd_child
+                .set(state.desched_fd_child);
+            remote
+                .task_mut()
+                .cloned_file_data_fd_child
+                .set(state.cloned_file_data_fd_child);
             if state.cloned_file_data_fd_child >= 0 {
                 remote.infallible_lseek_syscall(
                     state.cloned_file_data_fd_child,
@@ -2357,8 +2366,8 @@ pub(in super::super) fn copy_state(t: &mut dyn Task, state: &CapturedState) {
     // the remote task.  The CoW copy made by fork()'ing the
     // address space has the semantics we want.  It's not used in
     // replay anyway.
-    t.scratch_ptr = state.scratch_ptr;
-    t.scratch_size = state.scratch_size;
+    t.scratch_ptr.set(state.scratch_ptr);
+    t.scratch_size.set(state.scratch_size);
 
     // Whatever |from|'s last wait status was is what ours would
     // have been.

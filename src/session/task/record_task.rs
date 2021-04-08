@@ -1131,7 +1131,10 @@ impl RecordTask {
             let syscallbuf_km = remote.init_syscall_buffer(RemotePtr::null());
             args.syscallbuf_ptr =
                 Arch::from_remote_ptr(RemotePtr::<u8>::cast(remote.task().syscallbuf_child));
-            remote.task_mut().desched_fd_child = args.desched_counter_fd;
+            remote
+                .task_mut()
+                .desched_fd_child
+                .set(args.desched_counter_fd);
             // Prevent the child from closing this fd
             remote.task().fd_table().add_monitor(
                 remote.task_mut(),
@@ -1203,12 +1206,16 @@ impl RecordTask {
                         free_fd,
                         O_CLOEXEC
                     ) as i32;
-                    name.task_mut().cloned_file_data_fd_child = cloned_file_data_fd_child;
+                    name.task_mut()
+                        .cloned_file_data_fd_child
+                        .set(cloned_file_data_fd_child);
 
                     if cloned_file_data_fd_child != free_fd {
                         ed_assert!(name.task(), cloned_file_data_fd_child < 0);
                         log!(LogWarn, "Couldn't dup clone-data file to free fd");
-                        name.task_mut().cloned_file_data_fd_child = cloned_file_data;
+                        name.task_mut()
+                            .cloned_file_data_fd_child
+                            .set(cloned_file_data);
                     } else {
                         // Prevent the child from closing this fd. We're going to close it
                         // ourselves and we don't want the child closing it and then reopening
@@ -1224,14 +1231,14 @@ impl RecordTask {
                             cloned_file_data
                         );
                     }
-                    args.cloned_file_data_fd = name.task().cloned_file_data_fd_child;
+                    args.cloned_file_data_fd = name.task().cloned_file_data_fd_child.get();
                 }
             }
         } else {
             args.syscallbuf_ptr = Arch::from_remote_ptr(RemotePtr::null());
             args.syscallbuf_size = 0;
         }
-        args.scratch_buf = Arch::from_remote_ptr(remote.task().scratch_ptr);
+        args.scratch_buf = Arch::from_remote_ptr(remote.task().scratch_ptr.get());
         args.usable_scratch_size = remote.task().usable_scratch_size().try_into().unwrap();
 
         // Return the mapped buffers to the child.

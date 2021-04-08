@@ -749,7 +749,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         // However there is one case where we use scratch memory: when
         // sys_read's block-cloning path is interrupted. In that case, record
         // the scratch memory.
-        if sys == Arch::READ && regs.arg2() == t.scratch_ptr.as_usize() {
+        if sys == Arch::READ && regs.arg2() == t.scratch_ptr.get().as_usize() {
             syscall_state.reg_parameter_with_size(
                 2,
                 ParamSize::from_syscall_result_with_size::<Arch::ssize_t>(regs.arg3()),
@@ -4156,10 +4156,10 @@ fn init_scratch_memory(t: &mut RecordTask, maybe_addr_type: Option<ScratchAddrTy
         let mut remote = AutoRemoteSyscalls::new(t);
 
         if addr_type == ScratchAddrType::DynamicAddress {
-            remote.task_mut().scratch_ptr =
-                remote.infallible_mmap_syscall(None, scratch_size, prot, flags, -1, 0);
+            let res = remote.infallible_mmap_syscall(None, scratch_size, prot, flags, -1, 0);
+            remote.task_mut().scratch_ptr.set(res);
         } else {
-            remote.task_mut().scratch_ptr = remote.infallible_mmap_syscall(
+            let res = remote.infallible_mmap_syscall(
                 Some(RemotePtr::from(FIXED_SCRATCH_PTR)),
                 scratch_size,
                 prot,
@@ -4167,21 +4167,22 @@ fn init_scratch_memory(t: &mut RecordTask, maybe_addr_type: Option<ScratchAddrTy
                 -1,
                 0,
             );
+            remote.task_mut().scratch_ptr.set(res);
         }
-        remote.task_mut().scratch_size = scratch_size;
+        remote.task_mut().scratch_size.set(scratch_size);
     }
 
     t.setup_preload_thread_locals();
 
     // record this mmap for the replay
-    let mut r: Registers = t.regs_ref().clone();
+    let mut r: Registers = t.regs();
     let saved_result = r.syscall_result();
-    r.set_syscall_result(t.scratch_ptr.as_usize());
+    r.set_syscall_result(t.scratch_ptr.get().as_usize());
     t.set_regs(&r);
 
     let km = t.vm().map(
         t,
-        t.scratch_ptr,
+        t.scratch_ptr.get(),
         scratch_size,
         prot,
         flags,
@@ -4392,7 +4393,7 @@ impl TaskSyscallState {
             return;
         }
 
-        self.scratch = t.scratch_ptr;
+        self.scratch = t.scratch_ptr.get();
     }
 
     /// Identify a syscall memory parameter whose address is in register 'arg'
@@ -4686,17 +4687,19 @@ impl TaskSyscallState {
         self.write_back = WriteBack::WriteBack;
         self.switchable = sw;
 
-        if t.scratch_ptr.is_null() {
+        if t.scratch_ptr.get().is_null() {
             return self.switchable;
         }
 
-        ed_assert!(t, self.scratch >= t.scratch_ptr);
+        ed_assert!(t, self.scratch >= t.scratch_ptr.get());
 
-        if sw == Switchable::AllowSwitch && self.scratch > t.scratch_ptr + t.usable_scratch_size() {
+        if sw == Switchable::AllowSwitch
+            && self.scratch > t.scratch_ptr.get() + t.usable_scratch_size()
+        {
             log!(LogWarn,
          "`{}' needed a scratch buffer of size {}, but only {} was available.  Disabling context switching: deadlock may follow.",
              t.ev().syscall_event().syscall_name(),
-        self.scratch.as_usize() - t.scratch_ptr.as_usize(),
+        self.scratch.as_usize() - t.scratch_ptr.get().as_usize(),
         t.usable_scratch_size());
 
             self.switchable = Switchable::PreventSwitch;
@@ -4765,8 +4768,8 @@ impl TaskSyscallState {
         // EFAULT.
         let mut actual_sizes: Vec<usize> = Vec::new();
         if self.scratch_enabled {
-            let scratch_num_bytes: usize = self.scratch - t.scratch_ptr;
-            let child_addr = RemotePtr::<u8>::cast(t.scratch_ptr);
+            let scratch_num_bytes: usize = self.scratch - t.scratch_ptr.get();
+            let child_addr = RemotePtr::<u8>::cast(t.scratch_ptr.get());
             let data = read_mem(t, child_addr, scratch_num_bytes, None);
             let mut r: Registers = t.regs_ref().clone();
             // Step 1: compute actual sizes of all buffers and copy outputs
@@ -4776,7 +4779,7 @@ impl TaskSyscallState {
                 if self.write_back == WriteBack::WriteBack
                     && (param.mode == ArgMode::InOut || param.mode == ArgMode::Out)
                 {
-                    let offset = param.scratch.as_usize() - t.scratch_ptr.as_usize();
+                    let offset = param.scratch.as_usize() - t.scratch_ptr.get().as_usize();
                     let d = &data[offset..offset + size];
                     write_mem(t, param.dest, d, None);
                 }
@@ -4807,7 +4810,7 @@ impl TaskSyscallState {
                         if memory_cleaned_up {
                             t.record_remote(param.dest, size);
                         } else {
-                            let offset = param.scratch.as_usize() - t.scratch_ptr.as_usize();
+                            let offset = param.scratch.as_usize() - t.scratch_ptr.get().as_usize();
                             let d = &data[offset..offset + size];
                             t.record_local(param.dest, d);
                         }

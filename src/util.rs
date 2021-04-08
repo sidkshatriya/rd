@@ -2101,7 +2101,7 @@ fn is_task_buffer(t: &dyn Task, m: &Mapping) -> bool {
     if RemotePtr::cast(t.syscallbuf_child) == m.map.start() && t.syscallbuf_size == m.map.size() {
         return true;
     }
-    if t.scratch_ptr == m.map.start() && t.scratch_size == m.map.size() {
+    if t.scratch_ptr.get() == m.map.start() && t.scratch_size.get() == m.map.size() {
         return true;
     }
     for t_rc in t.vm().task_set().iter_except(t.weak_self_ptr()) {
@@ -2111,7 +2111,7 @@ fn is_task_buffer(t: &dyn Task, m: &Mapping) -> bool {
         {
             return true;
         }
-        if tt.scratch_ptr == m.map.start() && tt.scratch_size == m.map.size() {
+        if tt.scratch_ptr.get() == m.map.start() && tt.scratch_size.get() == m.map.size() {
             return true;
         }
     }
@@ -2123,7 +2123,7 @@ fn is_task_buffer(t: &dyn Task, m: &Mapping) -> bool {
 /// Should instead only look at the address space of the task in
 /// question.
 fn is_start_of_scratch_region(t: &dyn Task, start_addr: RemotePtr<Void>) -> bool {
-    if start_addr == t.scratch_ptr {
+    if start_addr == t.scratch_ptr.get() {
         return true;
     }
 
@@ -2132,7 +2132,7 @@ fn is_start_of_scratch_region(t: &dyn Task, start_addr: RemotePtr<Void>) -> bool
         if Rc::ptr_eq(tt_rc, &t_rc) {
             continue;
         }
-        if start_addr == tt_rc.borrow().scratch_ptr {
+        if start_addr == tt_rc.borrow().scratch_ptr.get() {
             return true;
         }
     }
