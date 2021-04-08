@@ -815,8 +815,8 @@ impl ReplaySession {
             }
         );
 
-        if !t.syscallbuf_child.is_null() {
-            let syscallbuf_hdr: RemotePtr<u8> = RemotePtr::cast(t.syscallbuf_child);
+        if !t.syscallbuf_child.get().is_null() {
+            let syscallbuf_hdr: RemotePtr<u8> = RemotePtr::cast(t.syscallbuf_child.get());
             let syscallbuf_num_rec_bytes: RemotePtr<u32> =
                 RemotePtr::cast(syscallbuf_hdr + offset_of!(syscallbuf_hdr, num_rec_bytes));
             let syscallbuf_abort_commit: RemotePtr<u8> =
@@ -840,7 +840,7 @@ impl ReplaySession {
                 current_step.action = ReplayTraceStepType::TstepExitTask;
             }
             EventType::EvSyscallbufAbortCommit => {
-                let child_addr = RemotePtr::<u8>::cast(t.syscallbuf_child)
+                let child_addr = RemotePtr::<u8>::cast(t.syscallbuf_child.get())
                     + offset_of!(syscallbuf_hdr, abort_commit);
                 write_val_mem(t, child_addr, &1u8, None);
                 t.apply_all_data_records_from_trace();
@@ -955,7 +955,7 @@ impl ReplaySession {
         let buf = t.trace_reader_mut().read_raw_data();
         ed_assert!(t, buf.data.len() >= size_of::<syscallbuf_hdr>());
         ed_assert!(t, buf.data.len() <= t.syscallbuf_size.get());
-        ed_assert_eq!(t, buf.addr, RemotePtr::cast(t.syscallbuf_child));
+        ed_assert_eq!(t, buf.addr, RemotePtr::cast(t.syscallbuf_child.get()));
 
         let mut recorded_hdr: syscallbuf_hdr = Default::default();
         unsafe {
@@ -968,7 +968,7 @@ impl ReplaySession {
         // Don't overwrite syscallbuf_hdr. That needs to keep tracking the current
         // syscallbuf state.
         t.write_bytes_helper(
-            RemotePtr::cast(t.syscallbuf_child + 1usize),
+            RemotePtr::cast(t.syscallbuf_child.get() + 1usize),
             &buf.data[size_of::<syscallbuf_hdr>()..],
             None,
             WriteFlags::empty(),
@@ -1786,7 +1786,7 @@ impl ReplaySession {
 
         loop {
             let mut next_rec = t.next_syscallbuf_record();
-            let child_addr: RemotePtr<u8> = RemotePtr::cast(t.syscallbuf_child)
+            let child_addr: RemotePtr<u8> = RemotePtr::cast(t.syscallbuf_child.get())
                 + offset_of!(syscallbuf_hdr, mprotect_record_count_completed);
             let skip_mprotect_records = read_val_mem::<u32>(t, RemotePtr::cast(child_addr), None);
 
@@ -2002,7 +2002,7 @@ impl ReplaySession {
 /// Returns mprotect record count
 fn apply_mprotect_records(t: &mut ReplayTask, skip_mprotect_records: u32) -> u32 {
     let final_mprotect_record_count_addr = RemotePtr::<u32>::cast(
-        RemotePtr::<u8>::cast(t.syscallbuf_child)
+        RemotePtr::<u8>::cast(t.syscallbuf_child.get())
             + offset_of!(syscallbuf_hdr, mprotect_record_count),
     );
 
@@ -2024,7 +2024,7 @@ fn apply_mprotect_records(t: &mut ReplayTask, skip_mprotect_records: u32) -> u32
 
         for (i, r) in records.iter().enumerate() {
             let completed_count_addr = RemotePtr::<u32>::cast(
-                RemotePtr::<u8>::cast(t.syscallbuf_child)
+                RemotePtr::<u8>::cast(t.syscallbuf_child.get())
                     + offset_of!(syscallbuf_hdr, mprotect_record_count_completed),
             );
             let completed_count: u32 = read_val_mem(t, completed_count_addr, None);

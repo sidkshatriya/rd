@@ -448,11 +448,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
     fn wait(&mut self, maybe_interrupt_after_elapsed: Option<f64>) {
         let interrupt_after_elapsed = maybe_interrupt_after_elapsed.unwrap_or(0.0);
         debug_assert!(interrupt_after_elapsed >= 0.0);
-        log!(
-            LogDebug,
-            "going into blocking waitpid({}) ...",
-            self.tid()
-        );
+        log!(LogDebug, "going into blocking waitpid({}) ...", self.tid());
         ed_assert!(self, !self.unstable.get(), "Don't wait for unstable tasks");
         ed_assert!(
             self,
@@ -614,7 +610,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
         ed_assert!(self, res.is_ok());
         let bytes_read = res.unwrap();
         ed_assert!(self, bytes_read > 0);
-        self.prname = OsString::from_vec(buf);
+        *self.prname.borrow_mut() = OsString::from_vec(buf);
     }
 
     fn compute_trap_reasons(&mut self) -> TrapReasons;

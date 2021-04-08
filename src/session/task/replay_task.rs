@@ -407,7 +407,7 @@ impl ReplayTask {
             }
         }
 
-        let syscallbuf_child_addr = remote.task().syscallbuf_child.as_usize();
+        let syscallbuf_child_addr = remote.task().syscallbuf_child.get().as_usize();
         remote
             .initial_regs_mut()
             .set_syscall_result(syscallbuf_child_addr);

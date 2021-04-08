@@ -389,7 +389,11 @@ impl Scheduler {
             maybe_next = self.get_round_robin_task();
             match maybe_next.as_ref() {
                 Some(nt) => {
-                    log!(LogDebug, "Trying task {} from yield queue", nt.borrow().tid());
+                    log!(
+                        LogDebug,
+                        "Trying task {} from yield queue",
+                        nt.borrow().tid()
+                    );
                     if self.is_task_runnable(
                         nt.borrow_mut().as_record_task_mut().unwrap(),
                         &mut result.by_waitpid,
@@ -609,7 +613,11 @@ impl Scheduler {
     /// If the task_round_robin_queue is empty this moves all tasks into it,
     /// putting last_task last.
     pub fn schedule_one_round_robin(&self, t: &mut RecordTask) {
-        log!(LogDebug, "Scheduling round-robin because of task {}", t.tid());
+        log!(
+            LogDebug,
+            "Scheduling round-robin because of task {}",
+            t.tid()
+        );
 
         let rc_t = t.weak_self_ptr().upgrade().unwrap();
         ed_assert!(t, Rc::ptr_eq(&self.current().unwrap(), &rc_t));

@@ -30,11 +30,7 @@ pub(super) fn kill_all_tasks<S: Session>(sess: &S) {
         // kill() is guaranteed to work properly. SIGKILL on ptrace-attached tasks
         // seems to not work very well, and after sending SIGKILL we can't seem to
         // reliably detach.
-        log!(
-            LogDebug,
-            "safely detaching from {} ...",
-            t.borrow().tid()
-        );
+        log!(LogDebug, "safely detaching from {} ...", t.borrow().tid());
         // Detaching from the process lets it continue. We don't want a replaying
         // process to perform syscalls or do anything else observable before we
         // get around to SIGKILLing it. So we move its ip() to an address
@@ -103,7 +99,12 @@ pub(super) fn kill_all_tasks<S: Session>(sess: &S) {
             // Linux doesn't seem to give us a reliable way to detach and kill
             // the tracee without races.
             unsafe {
-                syscall(SYS_tgkill, t.borrow().real_tgid(), t.borrow().tid(), SIGKILL);
+                syscall(
+                    SYS_tgkill,
+                    t.borrow().real_tgid(),
+                    t.borrow().tid(),
+                    SIGKILL,
+                );
             }
             t.borrow()
                 .thread_group()

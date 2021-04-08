@@ -951,14 +951,16 @@ impl<'a> AutoRemoteSyscalls<'a> {
                 .cast::<syscallbuf_hdr>()
                 .as_mut() = mem::zeroed()
         };
-        let syscallbuf_child = self.task().syscallbuf_child;
+        let syscallbuf_child = self.task().syscallbuf_child.get();
         ed_assert!(
             self.task(),
             syscallbuf_child.is_null(),
             "Should not already have syscallbuf initialized!"
         );
 
-        self.task_mut().syscallbuf_child = RemotePtr::cast(km.start());
+        self.task_mut()
+            .syscallbuf_child
+            .set(RemotePtr::cast(km.start()));
 
         km
     }

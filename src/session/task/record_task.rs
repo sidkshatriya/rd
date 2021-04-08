@@ -839,12 +839,12 @@ impl Task for RecordTask {
                 RemotePtr::<Void>::from(size_of::<sig_set_t>()),
                 &mut PtraceData::ReadFrom(u8_slice(&self.blocked_sigs)),
             );
-        } else if !self.syscallbuf_child.is_null() {
+        } else if !self.syscallbuf_child.get().is_null() {
             // The syscallbuf struct is only 32 bytes currently so read the whole thing
             // at once to aVoid multiple calls to read_mem. Even though this shouldn't
             // need a syscall because we use a local-mapping, apparently that lookup
             // is still noticeably expensive.
-            let child_addr = self.syscallbuf_child;
+            let child_addr = self.syscallbuf_child.get();
             let syscallbuf = read_val_mem(self, child_addr, None);
             if syscallbuf.in_sigprocmask_critical_section != 0 {
                 // `blocked_sigs` may have been updated but the syscall not yet issued.
@@ -1131,7 +1131,7 @@ impl RecordTask {
             args.syscallbuf_size = remote.task_mut().syscallbuf_size.get().try_into().unwrap();
             let syscallbuf_km = remote.init_syscall_buffer(RemotePtr::null());
             args.syscallbuf_ptr =
-                Arch::from_remote_ptr(RemotePtr::<u8>::cast(remote.task().syscallbuf_child));
+                Arch::from_remote_ptr(RemotePtr::<u8>::cast(remote.task().syscallbuf_child.get()));
             remote
                 .task_mut()
                 .desched_fd_child
@@ -1249,7 +1249,7 @@ impl RecordTask {
         // already written to the inout `args` param, but we stash it
         // away in the return value slot so that we can easily check
         // that we map the segment at the same addr during replay.
-        let syscallbuf_child = remote.task().syscallbuf_child;
+        let syscallbuf_child = remote.task().syscallbuf_child.get();
         remote
             .initial_regs_mut()
             .set_syscall_result(syscallbuf_child.as_usize());
@@ -2441,8 +2441,7 @@ impl RecordTask {
         self.maybe_flush_syscallbuf();
 
         if addr.is_null() {
-            self.trace_writer_mut()
-                .write_raw(self.rec_tid(), &[], addr);
+            self.trace_writer_mut().write_raw(self.rec_tid(), &[], addr);
             return;
         }
 
@@ -2531,7 +2530,7 @@ impl RecordTask {
             return;
         }
 
-        if self.syscallbuf_child.is_null() {
+        if self.syscallbuf_child.get().is_null() {
             return;
         }
 
@@ -2540,7 +2539,7 @@ impl RecordTask {
         // modifying the header. We'll take a snapshot of the header now.
         // The syscallbuf code ensures that writes to syscallbuf records
         // complete before num_rec_bytes is incremented.
-        let syscallbuf_child = self.syscallbuf_child;
+        let syscallbuf_child = self.syscallbuf_child.get();
         let hdr = read_val_mem(self, syscallbuf_child, None);
 
         ed_assert!(
@@ -2987,11 +2986,7 @@ impl RecordTask {
         // could read the status of 'tracee'. If it is, we should wake up that
         // thread. Otherwise we send SIGCHLD to the ptracer thread.
         if self.is_waiting_for(rchild) {
-            return Some((
-                self.tgid(),
-                self.tid(),
-                self.is_sig_blocked(sig::SIGCHLD),
-            ));
+            return Some((self.tgid(), self.tid(), self.is_sig_blocked(sig::SIGCHLD)));
         }
 
         for t in self

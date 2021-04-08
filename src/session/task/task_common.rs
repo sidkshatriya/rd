@@ -580,7 +580,7 @@ pub fn read_mem<D: Clone>(
 /// Forwarded method definition
 ///
 pub(super) fn syscallbuf_data_size_common<T: Task>(task: &mut T) -> usize {
-    let addr: RemotePtr<u32> = RemotePtr::cast(task.syscallbuf_child);
+    let addr: RemotePtr<u32> = RemotePtr::cast(task.syscallbuf_child.get());
     read_val_mem::<u32>(task, addr + offset_of!(syscallbuf_hdr, num_rec_bytes), None) as usize
         + size_of::<syscallbuf_hdr>()
 }
@@ -596,9 +596,9 @@ pub(super) fn write_bytes_common<T: Task>(task: &mut T, child_addr: RemotePtr<Vo
 ///
 pub(super) fn next_syscallbuf_record_common<T: Task>(task: &mut T) -> RemotePtr<syscallbuf_record> {
     // Next syscallbuf record is size_of the syscallbuf header + number of bytes in buffer
-    let addr = RemotePtr::<u8>::cast(task.syscallbuf_child + 1usize);
-    let num_rec_bytes_addr =
-        RemotePtr::<u8>::cast(task.syscallbuf_child) + offset_of!(syscallbuf_hdr, num_rec_bytes);
+    let addr = RemotePtr::<u8>::cast(task.syscallbuf_child.get() + 1usize);
+    let num_rec_bytes_addr = RemotePtr::<u8>::cast(task.syscallbuf_child.get())
+        + offset_of!(syscallbuf_hdr, num_rec_bytes);
 
     // @TODO: Here we have used our knowledge that `num_rec_bytes` is a u32.
     // Explore if there a generic way to get that information
@@ -777,7 +777,7 @@ pub(super) fn did_waitpid_common<T: Task>(task: &mut T, mut status: WaitStatus) 
     // tracee that would otherwise generate ticks.
     task.hpc.borrow_mut().stop_counting();
     task.session().accumulate_ticks_processed(more_ticks);
-    task.ticks += more_ticks;
+    task.ticks.set(task.ticks.get() + more_ticks);
 
     if status.maybe_ptrace_event() == PTRACE_EVENT_EXIT {
         task.seen_ptrace_exit_event.set(true);
@@ -1405,7 +1405,7 @@ pub(super) fn post_exec_for_exe_common<T: Task>(t: &mut T, exe_file: &OsStr) {
         Some(stopped_task) => {
             let mut stopped = stopped_task.borrow_mut();
             // Note this is `t` and NOT `stopped`
-            let syscallbuf_child = t.syscallbuf_child;
+            let syscallbuf_child = t.syscallbuf_child.get();
             let syscallbuf_size = t.syscallbuf_size.get();
             let scratch_ptr = t.scratch_ptr.get();
             let scratch_size = t.scratch_size.get();
@@ -1446,7 +1446,7 @@ pub(super) fn post_exec_for_exe_common<T: Task>(t: &mut T, exe_file: &OsStr) {
     e.reset();
     t.set_extra_regs(&e);
 
-    t.syscallbuf_child = RemotePtr::null();
+    t.syscallbuf_child.set(RemotePtr::null());
     t.syscallbuf_size.set(0);
     t.scratch_ptr.set(RemotePtr::null());
     t.cloned_file_data_fd_child.set(-1);
@@ -1462,7 +1462,7 @@ pub(super) fn post_exec_for_exe_common<T: Task>(t: &mut T, exe_file: &OsStr) {
     // It's barely-documented, but Linux unshares the fd table on exec
     *t.fds.borrow_mut() = Some(t.fd_table().clone_into_task(t));
     let prname = prname_from_exe_image(t.vm().exe_image()).to_owned();
-    t.prname = prname;
+    *t.prname.borrow_mut() = prname;
 }
 
 fn prname_from_exe_image(exe_image: &OsStr) -> &OsStr {
@@ -1688,8 +1688,10 @@ pub(in super::super) fn clone_task_common(
     }
 
     t.syscallbuf_size.set(clone_this.syscallbuf_size.get());
-    t.stopping_breakpoint_table.set(clone_this.stopping_breakpoint_table.get());
-    t.stopping_breakpoint_table_entry_size.set(clone_this.stopping_breakpoint_table_entry_size.get());
+    t.stopping_breakpoint_table
+        .set(clone_this.stopping_breakpoint_table.get());
+    t.stopping_breakpoint_table_entry_size
+        .set(clone_this.stopping_breakpoint_table_entry_size.get());
     t.preload_globals = clone_this.preload_globals;
     t.seccomp_bpf_enabled
         .set(clone_this.seccomp_bpf_enabled.get());
@@ -1757,7 +1759,7 @@ pub(in super::super) fn clone_task_common(
                 unmap_buffers_for(
                     &mut remote,
                     None,
-                    tt.borrow().syscallbuf_child,
+                    tt.borrow().syscallbuf_child.get(),
                     tt.borrow().syscallbuf_size.get(),
                     tt.borrow().scratch_ptr.get(),
                     tt.borrow().scratch_size.get(),
@@ -1918,11 +1920,11 @@ pub(super) fn post_vm_clone_common<T: Task>(
 /// Forwarded method definition
 ///
 pub(super) fn destroy_buffers_common<T: Task>(t: &mut T) {
-    let saved_syscallbuf_child = t.syscallbuf_child;
+    let saved_syscallbuf_child = t.syscallbuf_child.get();
     let mut remote = AutoRemoteSyscalls::new(t);
     // Clear syscallbuf_child now so nothing tries to use it while tearing
     // down buffers.
-    remote.task_mut().syscallbuf_child = RemotePtr::null();
+    remote.task_mut().syscallbuf_child.set(RemotePtr::null());
     let syscallbuf_size = remote.task().syscallbuf_size.get();
     let scratch_ptr = remote.task().scratch_ptr.get();
     let scratch_size = remote.task().scratch_size.get();
@@ -1951,16 +1953,16 @@ pub(super) fn task_drop_common<T: Task>(t: &T) {
 
         // Destroying a Session may result in unstable exits during which
         // destroy_buffers() will not have been called.
-        if !t.syscallbuf_child.is_null() {
+        if !t.syscallbuf_child.get().is_null() {
             t.vm().unmap(
                 t,
-                RemotePtr::cast(t.syscallbuf_child),
+                RemotePtr::cast(t.syscallbuf_child.get()),
                 t.syscallbuf_size.get(),
             );
         }
     } else {
         ed_assert!(t, t.seen_ptrace_exit_event.get());
-        ed_assert!(t, t.syscallbuf_child.is_null());
+        ed_assert!(t, t.syscallbuf_child.get().is_null());
 
         if t.thread_group().borrow().task_set().is_empty() && !t.session().is_recording() {
             // Reap the zombie.
@@ -2211,11 +2213,11 @@ pub(super) fn detect_syscall_arch_common<T: Task>(task: &mut T) -> SupportedArch
 /// Forwarded method definition
 ///
 pub(super) fn set_syscallbuf_locked_common<T: Task>(t: &mut T, locked: bool) {
-    if t.syscallbuf_child.is_null() {
+    if t.syscallbuf_child.get().is_null() {
         return;
     }
     let remote_addr: RemotePtr<u8> =
-        RemotePtr::<u8>::cast(t.syscallbuf_child) + offset_of!(syscallbuf_hdr, locked);
+        RemotePtr::<u8>::cast(t.syscallbuf_child.get()) + offset_of!(syscallbuf_hdr, locked);
     let locked_before =
         read_val_mem::<syscallbuf_locked_why>(t, RemotePtr::cast(remote_addr), None);
 
@@ -2233,7 +2235,7 @@ pub(super) fn set_syscallbuf_locked_common<T: Task>(t: &mut T, locked: bool) {
 /// Forwarded method definition
 ///
 pub(super) fn reset_syscallbuf_common<T: Task>(t: &mut T) {
-    let syscallbuf_child_addr = t.syscallbuf_child;
+    let syscallbuf_child_addr = t.syscallbuf_child.get();
     if syscallbuf_child_addr.is_null() {
         return;
     }
@@ -2341,7 +2343,7 @@ pub(in super::super) fn copy_state(t: &mut dyn Task, state: &CapturedState) {
 
         ed_assert!(
             remote.task(),
-            remote.task().syscallbuf_child.is_null(),
+            remote.task().syscallbuf_child.get().is_null(),
             "Syscallbuf should not already be initialized in clone"
         );
         if !state.syscallbuf_child.is_null() {
@@ -2361,7 +2363,10 @@ pub(in super::super) fn copy_state(t: &mut dyn Task, state: &CapturedState) {
                     SEEK_SET,
                 );
             }
-            remote.task_mut().syscallbuf_child = state.syscallbuf_child;
+            remote
+                .task_mut()
+                .syscallbuf_child
+                .set(state.syscallbuf_child);
         }
     }
 
@@ -2379,7 +2384,7 @@ pub(in super::super) fn copy_state(t: &mut dyn Task, state: &CapturedState) {
     // have been.
     t.wait_status.set(state.wait_status);
 
-    t.ticks = state.ticks;
+    t.ticks.set(state.ticks);
 }
 
 fn copy_tls(state: &CapturedState, remote: &mut AutoRemoteSyscalls) {

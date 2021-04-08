@@ -2098,7 +2098,7 @@ fn notify_checksum_error(
 
 /// DIFF NOTE: Takes `t` instead of the address space as param
 fn is_task_buffer(t: &dyn Task, m: &Mapping) -> bool {
-    if RemotePtr::cast(t.syscallbuf_child) == m.map.start()
+    if RemotePtr::cast(t.syscallbuf_child.get()) == m.map.start()
         && t.syscallbuf_size.get() == m.map.size()
     {
         return true;
@@ -2108,7 +2108,7 @@ fn is_task_buffer(t: &dyn Task, m: &Mapping) -> bool {
     }
     for t_rc in t.vm().task_set().iter_except(t.weak_self_ptr()) {
         let tt = t_rc.borrow();
-        if RemotePtr::cast(tt.syscallbuf_child) == m.map.start()
+        if RemotePtr::cast(tt.syscallbuf_child.get()) == m.map.start()
             && tt.syscallbuf_size.get() == m.map.size()
         {
             return true;

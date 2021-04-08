@@ -1176,7 +1176,7 @@ impl RecordSession {
         // try to commit the current record; we've already
         // recorded that syscall.  The following event sets
         // the abort-commit bit.
-        let syscallbuf_child = t.syscallbuf_child;
+        let syscallbuf_child = t.syscallbuf_child.get();
         write_val_mem(
             t,
             RemotePtr::<u8>::cast(syscallbuf_child) + offset_of!(syscallbuf_hdr, abort_commit),
@@ -2545,7 +2545,7 @@ fn seccomp_trap_done(t: &mut RecordTask) {
     // It's safe to reset the syscall buffer now.
     t.delay_syscallbuf_reset_for_seccomp_trap = false;
 
-    let syscallbuf_child = t.syscallbuf_child;
+    let syscallbuf_child = t.syscallbuf_child.get();
     write_val_mem(
         t,
         syscallbuf_child.as_rptr_u8() + offset_of!(syscallbuf_hdr, failed_during_preparation),
@@ -2976,7 +2976,7 @@ fn handle_seccomp_trap(t: &mut RecordTask, step_state: &mut StepState, seccomp_d
 
         // desched may be armed but we're not going to execute the syscall, let
         // alone block. If it fires, ignore it.
-        let syscallbuf_child = t.syscallbuf_child;
+        let syscallbuf_child = t.syscallbuf_child.get();
         write_val_mem(
             t,
             RemotePtr::<u8>::cast(syscallbuf_child)

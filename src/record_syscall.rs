@@ -2778,7 +2778,7 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
     if !rec.is_null() {
         // If the syscallbuf has already been unmapped, there's no need to record
         // the entry.
-        if !t.syscallbuf_child.is_null() {
+        if !t.syscallbuf_child.get().is_null() {
             let num_bytes = read_val_mem(
                 t,
                 RemotePtr::<u32>::cast(rec.as_rptr_u8() + offset_of!(syscallbuf_record, size)),
@@ -3220,7 +3220,7 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
 
     if sys == SYS_rdcall_notify_syscall_hook_exit as i32 {
         let child_addr = remote_ptr_field!(
-            t.syscallbuf_child,
+            t.syscallbuf_child.get(),
             syscallbuf_hdr,
             notify_on_syscall_hook_exit
         );

@@ -589,8 +589,8 @@ pub fn rep_prepare_run_to_syscall(t: &mut ReplayTask, step: &mut ReplayTraceStep
     // system call that we assigned a negative number because it doesn't
     // exist in this architecture.
     if is_rdcall_notify_syscall_hook_exit_syscall(sys_num, sys_arch) {
-        ed_assert!(t, !t.syscallbuf_child.is_null());
-        let child_addr: RemotePtr<u8> = RemotePtr::<u8>::cast(t.syscallbuf_child)
+        ed_assert!(t, !t.syscallbuf_child.get().is_null());
+        let child_addr: RemotePtr<u8> = RemotePtr::<u8>::cast(t.syscallbuf_child.get())
             + offset_of!(syscallbuf_hdr, notify_on_syscall_hook_exit);
         write_val_mem(t, child_addr, &1u8, None);
     }
@@ -946,10 +946,10 @@ fn process_init_buffers(t: &mut ReplayTask, step: &mut ReplayTraceStep) {
 
     ed_assert!(
         t,
-        RemotePtr::cast(t.syscallbuf_child) == rec_child_map_addr,
+        RemotePtr::cast(t.syscallbuf_child.get()) == rec_child_map_addr,
         "Should have mapped syscallbuf at {}, but it's at {}",
         rec_child_map_addr,
-        t.syscallbuf_child
+        t.syscallbuf_child.get()
     );
     t.validate_regs(ReplayTaskIgnore::default());
 }

@@ -346,7 +346,7 @@ pub struct TaskInner {
 
     pub syscallbuf_size: Cell<usize>,
     /// Points at the tracee's mapping of the buffer.
-    pub syscallbuf_child: RemotePtr<syscallbuf_hdr>,
+    pub syscallbuf_child: Cell<RemotePtr<syscallbuf_hdr>>,
     /// XXX Move these fields to ReplayTask
     pub stopping_breakpoint_table: Cell<RemoteCodePtr>,
     pub stopping_breakpoint_table_entry_size: Cell<usize>,
@@ -362,10 +362,10 @@ pub struct TaskInner {
     /// The file descriptor table of this task.
     pub(in super::super) fds: RefCell<Option<FdTableSharedPtr>>,
     /// Task's OS name.
-    pub(in super::super) prname: OsString,
+    pub(in super::super) prname: RefCell<OsString>,
     /// Count of all ticks seen by this task since tracees became
     /// consistent and the task last wait()ed.
-    pub(in super::super) ticks: Ticks,
+    pub(in super::super) ticks: Cell<Ticks>,
     /// When `is_stopped`, these are our child registers.
     pub(in super::super) registers: RefCell<Registers>,
     /// Where we last resumed execution
@@ -567,14 +567,14 @@ impl TaskInner {
     /// can vary based on how rd set up the child process. We have to flush
     /// out any state that might have been affected by that.
     pub fn flush_inconsistent_state(&mut self) {
-        self.ticks = 0;
+        self.ticks.set(0);
     }
 
     /// Return total number of ticks ever executed by this task.
     /// Updates tick count from the current performance counter values if
     /// necessary.
     pub fn tick_count(&self) -> Ticks {
-        self.ticks
+        self.ticks.get()
     }
 
     /// Stat `fd` in the context of this task's fd table.
@@ -714,7 +714,8 @@ impl TaskInner {
         let mut r = self.regs_ref().clone();
         r.set_ip(ip);
         self.set_regs(&r);
-        self.ticks += PerfCounters::ticks_for_unconditional_indirect_branch(self);
+        self.ticks
+            .set(self.ticks.get() + PerfCounters::ticks_for_unconditional_indirect_branch(self));
     }
 
     /// Return true if this is at an arm-desched-event or
@@ -786,8 +787,8 @@ impl TaskInner {
 
     /// Return the "task name"; i.e. what `prctl(PR_GET_NAME)` or
     /// /proc/tid/comm would say that the task's name is.
-    pub fn name(&self) -> &OsStr {
-        &self.prname
+    pub fn name(&self) -> Ref<OsString> {
+        self.prname.borrow()
     }
 
     /// Return true if this task has execed.
@@ -1231,11 +1232,7 @@ impl TaskInner {
         Errno::clear();
         self.fallible_ptrace(request, addr, data);
         if errno() == ESRCH {
-            log!(
-                LogDebug,
-                "ptrace_if_alive tid {} was not alive",
-                self.tid()
-            );
+            log!(LogDebug, "ptrace_if_alive tid {} was not alive", self.tid());
             return false;
         }
         ed_assert!(
@@ -1372,8 +1369,8 @@ impl TaskInner {
             stopping_breakpoint_table_entry_size: Default::default(),
             serial: Cell::new(serial),
             stable_serial: Cell::new(stable_serial),
-            prname: "???".into(),
-            ticks: 0,
+            prname: RefCell::new("???".into()),
+            ticks: Default::default(),
             registers: RefCell::new(Registers::new(a)),
             how_last_execution_resumed: Cell::new(ResumeRequest::ResumeCont),
             last_resume_orig_cx: Default::default(),
@@ -1415,12 +1412,13 @@ impl TaskInner {
         let thread_areas = self.thread_areas_.borrow().clone();
         let extra_regs = self.extra_regs_ref().clone();
         let regs = self.regs_ref().clone();
+        let prname = self.prname.borrow().clone();
         CapturedState {
             rec_tid: self.rec_tid(),
             serial: self.serial.get(),
             regs,
             extra_regs,
-            prname: self.prname.clone(),
+            prname,
             thread_areas,
             desched_fd_child: self.desched_fd_child.get(),
             cloned_file_data_fd_child: self.cloned_file_data_fd_child.get(),
@@ -1429,13 +1427,13 @@ impl TaskInner {
             } else {
                 0
             },
-            syscallbuf_child: self.syscallbuf_child,
+            syscallbuf_child: self.syscallbuf_child.get(),
             syscallbuf_size: self.syscallbuf_size.get(),
             preload_globals: self.preload_globals,
             scratch_ptr: self.scratch_ptr.get(),
             scratch_size: self.scratch_size.get(),
             wait_status: self.wait_status.get(),
-            ticks: self.ticks,
+            ticks: self.ticks.get(),
             top_of_stack: self.top_of_stack.get(),
             thread_locals: self.fetch_preload_thread_locals().clone(),
         }
@@ -1460,7 +1458,12 @@ impl TaskInner {
                 ptrace(request, self.tid(), addr.as_usize(), (*data) as *const u8)
             },
             PtraceData::None => unsafe {
-                ptrace(request, self.tid(), addr.as_usize(), ptr::null() as *const u8)
+                ptrace(
+                    request,
+                    self.tid(),
+                    addr.as_usize(),
+                    ptr::null() as *const u8,
+                )
             },
         };
         res as isize
