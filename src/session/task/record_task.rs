@@ -480,7 +480,7 @@ pub struct RecordTask {
     pub syscallbuf_blocked_sigs_generation: Cell<u32>,
 
     /// Syscallbuf state
-    pub syscallbuf_code_layout: SyscallbufCodeLayout,
+    pub syscallbuf_code_layout: RefCell<SyscallbufCodeLayout>,
     pub desched_fd: RefCell<ScopedFd>,
     /// Value of hdr->num_rec_bytes when the buffer was flushed
     pub flushed_num_rec_bytes: Cell<u32>,
@@ -707,6 +707,7 @@ impl Task for RecordTask {
             }
             let addr = self
                 .syscallbuf_code_layout
+                .borrow()
                 .syscallbuf_final_exit_instruction;
 
             if self.break_at_syscallbuf_final_instruction.get() {
@@ -812,12 +813,12 @@ impl Task for RecordTask {
                 .remove_breakpoint(p, BreakpointType::BkptInternal, self);
         }
         if self.break_at_syscallbuf_final_instruction.get() {
-            self.vm().remove_breakpoint(
-                self.syscallbuf_code_layout
-                    .syscallbuf_final_exit_instruction,
-                BreakpointType::BkptInternal,
-                self,
-            );
+            let final_exit_instruction = self
+                .syscallbuf_code_layout
+                .borrow()
+                .syscallbuf_final_exit_instruction;
+            self.vm()
+                .remove_breakpoint(final_exit_instruction, BreakpointType::BkptInternal, self);
         }
 
         if self.stashed_signals_blocking_more_signals.get() {
@@ -1088,6 +1089,7 @@ impl RecordTask {
         let i = self.ip().decrement_by_bkpt_insn_length(arch);
         i == self
             .syscallbuf_code_layout
+            .borrow()
             .syscallbuf_final_exit_instruction
     }
 
@@ -2260,8 +2262,8 @@ impl RecordTask {
 
         let mut p = self.ip();
         if self.is_in_rd_page()
-            || (self.syscallbuf_code_layout.get_pc_thunks_start <= p
-                && p < self.syscallbuf_code_layout.get_pc_thunks_end)
+            || (self.syscallbuf_code_layout.borrow().get_pc_thunks_start <= p
+                && p < self.syscallbuf_code_layout.borrow().get_pc_thunks_end)
         {
             // Look at the caller to see if we're in the syscallbuf or not.
             let mut ok = true;
@@ -2276,8 +2278,8 @@ impl RecordTask {
             .unwrap()
             .borrow()
             .is_jump_stub_instruction(p)
-            || (self.syscallbuf_code_layout.syscallbuf_code_start <= p
-                && p < self.syscallbuf_code_layout.syscallbuf_code_end)
+            || (self.syscallbuf_code_layout.borrow().syscallbuf_code_start <= p
+                && p < self.syscallbuf_code_layout.borrow().syscallbuf_code_end)
     }
 
     /// Shortcut to the most recent `pending_event->desched.rec` when
@@ -3433,15 +3435,17 @@ fn do_preload_init_arch<Arch: Architecture>(t: &mut RecordTask) {
         None,
     );
 
-    t.syscallbuf_code_layout.syscallbuf_final_exit_instruction =
+    t.syscallbuf_code_layout
+        .borrow_mut()
+        .syscallbuf_final_exit_instruction =
         Arch::as_rptr(params.syscallbuf_final_exit_instruction).to_code_ptr();
-    t.syscallbuf_code_layout.syscallbuf_code_start =
+    t.syscallbuf_code_layout.borrow_mut().syscallbuf_code_start =
         Arch::as_rptr(params.syscallbuf_code_start).to_code_ptr();
-    t.syscallbuf_code_layout.syscallbuf_code_end =
+    t.syscallbuf_code_layout.borrow_mut().syscallbuf_code_end =
         Arch::as_rptr(params.syscallbuf_code_end).to_code_ptr();
-    t.syscallbuf_code_layout.get_pc_thunks_start =
+    t.syscallbuf_code_layout.borrow_mut().get_pc_thunks_start =
         Arch::as_rptr(params.get_pc_thunks_start).to_code_ptr();
-    t.syscallbuf_code_layout.get_pc_thunks_end =
+    t.syscallbuf_code_layout.borrow_mut().get_pc_thunks_end =
         Arch::as_rptr(params.get_pc_thunks_end).to_code_ptr();
 
     let in_chaos: u8 = t.session().as_record().unwrap().enable_chaos() as u8;
