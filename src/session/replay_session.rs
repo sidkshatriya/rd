@@ -2010,9 +2010,9 @@ fn apply_mprotect_records(t: &mut ReplayTask, skip_mprotect_records: u32) -> u32
         read_val_mem::<u32>(t, final_mprotect_record_count_addr, None);
 
     if skip_mprotect_records < final_mprotect_record_count {
-        assert!(!t.preload_globals.is_null());
+        assert!(!t.preload_globals.get().is_null());
         let records_addr = RemotePtr::<mprotect_record>::cast(
-            RemotePtr::<u8>::cast(t.preload_globals)
+            RemotePtr::<u8>::cast(t.preload_globals.get())
                 + offset_of!(preload_globals, mprotect_records),
         ) + skip_mprotect_records;
 

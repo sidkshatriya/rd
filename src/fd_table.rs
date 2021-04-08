@@ -207,7 +207,7 @@ impl FdTable {
 
         ed_assert!(&rt, self.task_set().has(rt.weak_self_ptr()));
 
-        if rt.preload_globals.is_null() {
+        if rt.preload_globals.get().is_null() {
             return;
         }
 
@@ -237,7 +237,7 @@ impl FdTable {
             }
         }
 
-        let addr: RemotePtr<u8> = RemotePtr::cast(rt.preload_globals)
+        let addr: RemotePtr<u8> = RemotePtr::cast(rt.preload_globals.get())
             + offset_of!(preload_globals, syscallbuf_fds_disabled);
         rt.write_bytes(addr, &disabled);
         rt.record_local(addr, &disabled);
@@ -301,7 +301,7 @@ impl FdTable {
             }
             vms_updated.insert(vm_uid);
 
-            if !rt.preload_globals.is_null() {
+            if !rt.preload_globals.get().is_null() {
                 if fd >= SYSCALLBUF_FDS_DISABLED_SIZE {
                     fd = SYSCALLBUF_FDS_DISABLED_SIZE - 1;
                 }
@@ -312,9 +312,11 @@ impl FdTable {
                         0
                     };
 
-                let addr: RemotePtr<u8> =
-                    remote_ptr_field!(rt.preload_globals, preload_globals, syscallbuf_fds_disabled)
-                        + fd as usize;
+                let addr: RemotePtr<u8> = remote_ptr_field!(
+                    rt.preload_globals.get(),
+                    preload_globals,
+                    syscallbuf_fds_disabled
+                ) + fd as usize;
                 rt.write_bytes(addr, &disable.to_le_bytes());
                 rt.record_local(addr, &disable.to_le_bytes());
             }

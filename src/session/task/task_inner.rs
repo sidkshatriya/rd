@@ -351,7 +351,7 @@ pub struct TaskInner {
     pub stopping_breakpoint_table: Cell<RemoteCodePtr>,
     pub stopping_breakpoint_table_entry_size: Cell<usize>,
 
-    pub preload_globals: RemotePtr<preload_globals>,
+    pub preload_globals: Cell<RemotePtr<preload_globals>>,
     pub thread_locals: RefCell<ThreadLocals>,
 
     /// These are private
@@ -1428,7 +1428,7 @@ impl TaskInner {
             },
             syscallbuf_child: self.syscallbuf_child.get(),
             syscallbuf_size: self.syscallbuf_size.get(),
-            preload_globals: self.preload_globals,
+            preload_globals: self.preload_globals.get(),
             scratch_ptr: self.scratch_ptr.get(),
             scratch_size: self.scratch_size.get(),
             wait_status: self.wait_status.get(),
