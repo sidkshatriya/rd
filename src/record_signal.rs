@@ -84,16 +84,16 @@ extern "C" {
 pub const SIGCHLD_SYNTHETIC: i32 = 0xbeadf00du32 as i32;
 
 pub fn disarm_desched_event(t: &RecordTask) {
-    if t.desched_fd.is_open()
-        && unsafe { ioctl(t.desched_fd.as_raw(), PERF_EVENT_IOC_DISABLE, 0) } != 0
+    if t.desched_fd.borrow().is_open()
+        && unsafe { ioctl(t.desched_fd.borrow().as_raw(), PERF_EVENT_IOC_DISABLE, 0) } != 0
     {
         fatal!("Failed to disarm desched event");
     }
 }
 
 pub fn arm_desched_event(t: &RecordTask) {
-    if t.desched_fd.is_open()
-        && unsafe { ioctl(t.desched_fd.as_raw(), PERF_EVENT_IOC_ENABLE, 0) } != 0
+    if t.desched_fd.borrow().is_open()
+        && unsafe { ioctl(t.desched_fd.borrow().as_raw(), PERF_EVENT_IOC_ENABLE, 0) } != 0
     {
         fatal!("Failed to arm desched event");
     }

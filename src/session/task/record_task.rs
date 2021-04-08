@@ -481,7 +481,7 @@ pub struct RecordTask {
 
     /// Syscallbuf state
     pub syscallbuf_code_layout: SyscallbufCodeLayout,
-    pub desched_fd: ScopedFd,
+    pub desched_fd: RefCell<ScopedFd>,
     /// Value of hdr->num_rec_bytes when the buffer was flushed
     pub flushed_num_rec_bytes: Cell<u32>,
     /// Nonzero after the trace recorder has flushed the
@@ -1135,8 +1135,12 @@ impl RecordTask {
                 args.desched_counter_fd,
                 Box::new(PreserveFileMonitor::new()),
             );
-            remote.task_mut().as_record_task_mut().unwrap().desched_fd =
-                remote.retrieve_fd(args.desched_counter_fd);
+            *remote
+                .task()
+                .as_record_task()
+                .unwrap()
+                .desched_fd
+                .borrow_mut() = remote.retrieve_fd(args.desched_counter_fd);
 
             let record_in_trace = remote
                 .task()
