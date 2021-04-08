@@ -186,7 +186,7 @@ pub(super) fn open_mem_fd_common<T: Task>(task: &mut T) -> bool {
         log!(
             LogWarn,
             "Can't retrieve mem fd for {}; process not stopped, racing with exec?",
-            task.tid
+            task.tid()
         );
         return false;
     }
@@ -226,7 +226,7 @@ pub(super) fn open_mem_fd_common<T: Task>(task: &mut T) -> bool {
             // This can happen when a process fork()s after setuid; it can no longer
             // open its own /proc/self/mem. Hopefully we can read the child's
             // mem file in this case (because rd is probably running as root).
-            let buf: String = format!("/proc/{}/mem", remote.task().tid);
+            let buf: String = format!("/proc/{}/mem", remote.task().tid());
             fd = ScopedFd::open_path(Path::new(&buf), OFlag::O_RDWR);
         } else {
             fd = rd_arch_function!(remote, retrieve_fd_arch, arch, remote_fd);
@@ -238,7 +238,7 @@ pub(super) fn open_mem_fd_common<T: Task>(task: &mut T) -> bool {
         log!(
             LogInfo,
             "Can't retrieve mem fd for {}; process no longer exists?",
-            remote.task().tid
+            remote.task().tid()
         );
         return false;
     }
@@ -510,7 +510,7 @@ pub(super) fn write_bytes_helper_common<T: Task>(
             "Can't write to /proc/{}/mem\n\
                         Maybe you need to disable grsecurity MPROTECT with:\n\
                            setfattr -n user.pax.flags -v 'emr' <executable>",
-            task.tid
+            task.tid()
         );
     }
 
@@ -720,7 +720,7 @@ pub(super) fn did_waitpid_common<T: Task>(task: &mut T, mut status: WaitStatus) 
             RemotePtr::null(),
             &mut PtraceData::WriteInto(u8_slice_mut(&mut local_pending_siginfo)),
         ) {
-            log!(LogDebug, "Unexpected process death for {}", task.tid);
+            log!(LogDebug, "Unexpected process death for {}", task.tid());
             status = WaitStatus::for_ptrace_event(PTRACE_EVENT_EXIT);
         }
         task.pending_siginfo = local_pending_siginfo;
@@ -765,7 +765,7 @@ pub(super) fn did_waitpid_common<T: Task>(task: &mut T, mut status: WaitStatus) 
                 task.registers.borrow_mut().set_from_ptrace(&ptrace_regs);
             }
         } else {
-            log!(LogDebug, "Unexpected process death for {}", task.tid);
+            log!(LogDebug, "Unexpected process death for {}", task.tid());
             status = WaitStatus::for_ptrace_event(PTRACE_EVENT_EXIT);
         }
     }
@@ -931,7 +931,7 @@ pub(super) fn resume_execution_common<T: Task>(
     log!(
         LogDebug,
         "resuming execution of tid: {} with: {}{} tick_period: {:?}",
-        task.tid,
+        task.tid(),
         ptrace_req_name(how as u32),
         sig_string,
         tick_period
@@ -974,16 +974,16 @@ pub(super) fn resume_execution_common<T: Task>(
         let mut raw_status: i32 = 0;
         // tid is already stopped but like it was described above, the task may have gotten
         // woken up by a SIGKILL -- in that case we can try waiting on it with a WNOHANG.
-        wait_ret = unsafe { waitpid(task.tid, &mut raw_status, WNOHANG | __WALL) };
+        wait_ret = unsafe { waitpid(task.tid(), &mut raw_status, WNOHANG | __WALL) };
         ed_assert!(
             task,
             0 <= wait_ret,
             "waitpid({}, NOHANG) failed with: {}",
-            task.tid,
+            task.tid(),
             wait_ret
         );
         let status = WaitStatus::new(raw_status);
-        if wait_ret == task.tid {
+        if wait_ret == task.tid() {
             // In some (but not all) cases where the child was killed with SIGKILL,
             // we don't get PTRACE_EVENT_EXIT before it just exits.
             ed_assert!(
@@ -999,7 +999,7 @@ pub(super) fn resume_execution_common<T: Task>(
                 task,
                 0 == wait_ret,
                 "waitpid({}, NOHANG) failed with: {}",
-                task.tid,
+                task.tid(),
                 wait_ret
             );
         }
@@ -1007,7 +1007,7 @@ pub(super) fn resume_execution_common<T: Task>(
     // @TODO DIFF NOTE: Its more accurate to check if `wait_ret == task.tid` instead of
     // saying wait_ret > 0 but we leave it be for now to be consistent with rr.
     if wait_ret > 0 {
-        log!(LogDebug, "Task: {} exited unexpectedly", task.tid);
+        log!(LogDebug, "Task: {} exited unexpectedly", task.tid());
         // wait() will see this and report the ptrace-exit event.
         task.detected_unexpected_exit.set(true);
     } else {
@@ -1115,8 +1115,8 @@ pub(in super::super) fn os_clone_into(
 /// created.  `task_leader` will perform the actual OS calls to
 /// create the new child.
 fn os_fork_into(t: &mut dyn Task, session: SessionSharedPtr) -> TaskSharedPtr {
-    let rec_tid = t.rec_tid;
-    let serial = t.serial;
+    let rec_tid = t.rec_tid();
+    let serial = t.serial.get();
     let mut remote =
         AutoRemoteSyscalls::new_with_mem_params(t, MemParamsEnabled::DisableMemoryParams);
 
@@ -1188,7 +1188,7 @@ fn on_syscall_exit_common_arch<Arch: Architecture>(t: &mut dyn Task, sys: i32, r
         let addr = RemotePtr::from(regs.arg2());
         let num_bytes = regs.arg3();
         let prot = regs.arg4_signed() as i32;
-        if tid == t.rec_tid {
+        if tid == t.rec_tid() {
             return t
                 .vm()
                 .protect(t, addr, num_bytes, ProtFlags::from_bits(prot).unwrap());
@@ -1406,7 +1406,7 @@ pub(super) fn post_exec_for_exe_common<T: Task>(t: &mut T, exe_file: &OsStr) {
             let mut stopped = stopped_task.borrow_mut();
             // Note this is `t` and NOT `stopped`
             let syscallbuf_child = t.syscallbuf_child;
-            let syscallbuf_size = t.syscallbuf_size;
+            let syscallbuf_size = t.syscallbuf_size.get();
             let scratch_ptr = t.scratch_ptr.get();
             let scratch_size = t.scratch_size.get();
 
@@ -1431,7 +1431,7 @@ pub(super) fn post_exec_for_exe_common<T: Task>(t: &mut T, exe_file: &OsStr) {
                 log!(
                     LogWarn,
                     "Intentionally leaking syscallbuf after exec for task {}",
-                    t.tid
+                    t.tid()
                 );
             }
         }
@@ -1447,12 +1447,12 @@ pub(super) fn post_exec_for_exe_common<T: Task>(t: &mut T, exe_file: &OsStr) {
     t.set_extra_regs(&e);
 
     t.syscallbuf_child = RemotePtr::null();
-    t.syscallbuf_size = 0;
+    t.syscallbuf_size.set(0);
     t.scratch_ptr.set(RemotePtr::null());
     t.cloned_file_data_fd_child.set(-1);
     t.desched_fd_child.set(-1);
-    t.stopping_breakpoint_table = RemoteCodePtr::null();
-    t.stopping_breakpoint_table_entry_size = 0;
+    t.stopping_breakpoint_table.set(RemoteCodePtr::null());
+    t.stopping_breakpoint_table_entry_size.set(0);
     t.preload_globals = None;
     t.thread_group().borrow_mut().execed = true;
     t.thread_areas_.borrow_mut().clear();
@@ -1590,15 +1590,18 @@ fn do_preload_init_arch<Arch: Architecture, T: Task>(t: &mut T) {
     );
 
     t.preload_globals = Some(Arch::as_rptr(params.globals));
-    t.stopping_breakpoint_table = Arch::as_rptr(params.breakpoint_table).to_code_ptr();
-    t.stopping_breakpoint_table_entry_size = params.breakpoint_table_entry_size.try_into().unwrap();
+    t.stopping_breakpoint_table
+        .set(Arch::as_rptr(params.breakpoint_table).to_code_ptr());
+    t.stopping_breakpoint_table_entry_size
+        .set(params.breakpoint_table_entry_size.try_into().unwrap());
     for rc_t in t.vm().task_set().iter_except(t.weak_self_ptr()) {
         let mut tt = rc_t.borrow_mut();
         tt.preload_globals = Some(Arch::as_rptr(params.globals));
 
-        tt.stopping_breakpoint_table = Arch::as_rptr(params.breakpoint_table).to_code_ptr();
-        tt.stopping_breakpoint_table_entry_size =
-            params.breakpoint_table_entry_size.try_into().unwrap();
+        tt.stopping_breakpoint_table
+            .set(Arch::as_rptr(params.breakpoint_table).to_code_ptr());
+        tt.stopping_breakpoint_table_entry_size
+            .set(params.breakpoint_table_entry_size.try_into().unwrap());
     }
 
     let preload_globals_ptr: RemotePtr<bool> = RemotePtr::cast(t.preload_globals.unwrap());
@@ -1684,9 +1687,9 @@ pub(in super::super) fn clone_task_common(
         *t.as_.borrow_mut() = Some(new_task_session.clone_vm(&mut *t, clone_this.vm()));
     }
 
-    t.syscallbuf_size = clone_this.syscallbuf_size;
-    t.stopping_breakpoint_table = clone_this.stopping_breakpoint_table;
-    t.stopping_breakpoint_table_entry_size = clone_this.stopping_breakpoint_table_entry_size;
+    t.syscallbuf_size.set(clone_this.syscallbuf_size.get());
+    t.stopping_breakpoint_table.set(clone_this.stopping_breakpoint_table.get());
+    t.stopping_breakpoint_table_entry_size.set(clone_this.stopping_breakpoint_table_entry_size.get());
     t.preload_globals = clone_this.preload_globals;
     t.seccomp_bpf_enabled
         .set(clone_this.seccomp_bpf_enabled.get());
@@ -1755,7 +1758,7 @@ pub(in super::super) fn clone_task_common(
                     &mut remote,
                     None,
                     tt.borrow().syscallbuf_child,
-                    tt.borrow().syscallbuf_size,
+                    tt.borrow().syscallbuf_size.get(),
                     tt.borrow().scratch_ptr.get(),
                     tt.borrow().scratch_size.get(),
                 );
@@ -1920,7 +1923,7 @@ pub(super) fn destroy_buffers_common<T: Task>(t: &mut T) {
     // Clear syscallbuf_child now so nothing tries to use it while tearing
     // down buffers.
     remote.task_mut().syscallbuf_child = RemotePtr::null();
-    let syscallbuf_size = remote.task().syscallbuf_size;
+    let syscallbuf_size = remote.task().syscallbuf_size.get();
     let scratch_ptr = remote.task().scratch_ptr.get();
     let scratch_size = remote.task().scratch_size.get();
     unmap_buffers_for(
@@ -1942,15 +1945,18 @@ pub(super) fn task_drop_common<T: Task>(t: &T) {
         log!(
             LogWarn,
             "{} is unstable; not blocking on its termination",
-            t.tid
+            t.tid()
         );
         // This will probably leak a zombie process for rd's lifetime.
 
         // Destroying a Session may result in unstable exits during which
         // destroy_buffers() will not have been called.
         if !t.syscallbuf_child.is_null() {
-            t.vm()
-                .unmap(t, RemotePtr::cast(t.syscallbuf_child), t.syscallbuf_size);
+            t.vm().unmap(
+                t,
+                RemotePtr::cast(t.syscallbuf_child),
+                t.syscallbuf_size.get(),
+            );
         }
     } else {
         ed_assert!(t, t.seen_ptrace_exit_event.get());
@@ -2331,7 +2337,7 @@ pub(in super::super) fn copy_state(t: &mut dyn Task, state: &CapturedState) {
 
         copy_tls(state, &mut remote);
         *remote.task_mut().thread_areas_.borrow_mut() = state.thread_areas.clone();
-        remote.task_mut().syscallbuf_size = state.syscallbuf_size;
+        remote.task_mut().syscallbuf_size.set(state.syscallbuf_size);
 
         ed_assert!(
             remote.task(),
@@ -2513,8 +2519,13 @@ fn perform_remote_clone_arch<Arch: Architecture>(
 pub(super) fn destroy_common<T: Task>(t: &mut T, maybe_detach: Option<bool>) {
     let detach = maybe_detach.unwrap_or(true);
     if detach {
-        debug_assert!(t.session().tasks().get(&t.rec_tid).is_some());
-        log!(LogDebug, "task {} (rec:{}) is dying ...", t.tid, t.rec_tid);
+        debug_assert!(t.session().tasks().get(&t.rec_tid()).is_some());
+        log!(
+            LogDebug,
+            "task {} (rec:{}) is dying ...",
+            t.tid(),
+            t.rec_tid()
+        );
 
         t.fallible_ptrace(PTRACE_DETACH, RemotePtr::null(), &mut PtraceData::None);
     }
@@ -2523,7 +2534,7 @@ pub(super) fn destroy_common<T: Task>(t: &mut T, maybe_detach: Option<bool>) {
     t.session().on_destroy_task(t);
 
     // Removing the entry from the HashMap causes the drop() to happen
-    t.session().tasks_mut().remove(&t.rec_tid);
+    t.session().tasks_mut().remove(&t.rec_tid());
 }
 
 /// Forwarded method definition

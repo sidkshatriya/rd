@@ -1121,13 +1121,14 @@ impl RecordTask {
 
         args.cloned_file_data_fd = -1;
         if remote.vm().syscallbuf_enabled() {
-            remote.task_mut().syscallbuf_size = remote
+            let siz = remote
                 .task()
                 .session()
                 .as_record()
                 .unwrap()
                 .syscall_buffer_size();
-            args.syscallbuf_size = remote.task_mut().syscallbuf_size.try_into().unwrap();
+            remote.task_mut().syscallbuf_size.set(siz);
+            args.syscallbuf_size = remote.task_mut().syscallbuf_size.get().try_into().unwrap();
             let syscallbuf_km = remote.init_syscall_buffer(RemotePtr::null());
             args.syscallbuf_ptr =
                 Arch::from_remote_ptr(RemotePtr::<u8>::cast(remote.task().syscallbuf_child));
@@ -1197,7 +1198,7 @@ impl RecordTask {
                 ) as i32;
 
                 if cloned_file_data >= 0 {
-                    let tid = name.task().tid;
+                    let tid = name.task().tid();
                     let free_fd: i32 = find_free_file_descriptor(tid);
                     let cloned_file_data_fd_child = rd_syscall!(
                         name,
@@ -1571,7 +1572,7 @@ impl RecordTask {
             // When waiting for a ptracee, a specific pid is interpreted as the
             // exact tid.
             {
-                t.tid == self.in_wait_pid
+                t.tid() == self.in_wait_pid
             }
         }
     }
@@ -1611,7 +1612,7 @@ impl RecordTask {
             log!(
                 LogDebug,
                 "setting {} to GROUP_STOP due to signal {}",
-                self.tid,
+                self.tid(),
                 sig
             );
             let status: WaitStatus = WaitStatus::for_group_sig(sig, self);
@@ -1626,7 +1627,7 @@ impl RecordTask {
                     self.emulated_sigchld_pending = true;
                     match self
                         .session()
-                        .find_task_from_rec_tid(get_ppid(self.tid).unwrap())
+                        .find_task_from_rec_tid(get_ppid(self.tid()).unwrap())
                     {
                         Some(t) => t
                             .borrow_mut()
@@ -1697,7 +1698,8 @@ impl RecordTask {
     /// Return true if `sig` is pending but hasn't been reported to ptrace yet
     /// DIFF NOTE: A little more stricter than rr due to the unwraps and assert
     pub fn is_signal_pending(&self, sig: Sig) -> bool {
-        let mut pending_strs = read_proc_status_fields(self.tid, &[b"SigPnd", b"ShdPnd"]).unwrap();
+        let mut pending_strs =
+            read_proc_status_fields(self.tid(), &[b"SigPnd", b"ShdPnd"]).unwrap();
         ed_assert_eq!(self, pending_strs.len(), 2);
 
         let mask2 =
@@ -1711,7 +1713,7 @@ impl RecordTask {
     /// DIFF NOTE: A little more stricter than rr due to the unwraps and assert
     pub fn has_any_actionable_signal(&self) -> bool {
         let mut pending_strs =
-            read_proc_status_fields(self.tid, &[b"SigPnd", b"ShdPnd", b"SigBlk"]).unwrap();
+            read_proc_status_fields(self.tid(), &[b"SigPnd", b"ShdPnd", b"SigBlk"]).unwrap();
         ed_assert_eq!(self, pending_strs.len(), 3);
 
         let mask_blk =
@@ -1729,7 +1731,7 @@ impl RecordTask {
         log!(
             LogDebug,
             "setting {} to NOT_STOPPED due to SIGCONT",
-            self.tid
+            self.tid()
         );
         self.emulated_stop_pending = false;
         self.emulated_stop_type = EmulatedStopType::NotStopped;
@@ -1741,7 +1743,11 @@ impl RecordTask {
         {
             let mut tb = t.borrow_mut();
             let rt = tb.as_rec_mut_unwrap();
-            log!(LogDebug, "setting {} to NOT_STOPPED due to SIGCONT", rt.tid);
+            log!(
+                LogDebug,
+                "setting {} to NOT_STOPPED due to SIGCONT",
+                rt.tid()
+            );
             rt.emulated_stop_pending = false;
             rt.emulated_stop_type = EmulatedStopType::NotStopped;
         }
@@ -1850,7 +1856,7 @@ impl RecordTask {
             return;
         }
         let mut results =
-            read_proc_status_fields(self.tid, &[b"SigBlk", b"SigIgn", b"SigCgt"]).unwrap();
+            read_proc_status_fields(self.tid(), &[b"SigBlk", b"SigIgn", b"SigCgt"]).unwrap();
         ed_assert!(self, results.len() == 3);
         let caught =
             u64::from_str_radix(&results.pop().unwrap().into_string().unwrap(), 16).unwrap();
@@ -2320,7 +2326,8 @@ impl RecordTask {
             return;
         }
 
-        self.trace_writer_mut().write_raw(self.rec_tid, data, addr);
+        self.trace_writer_mut()
+            .write_raw(self.rec_tid(), data, addr);
     }
 
     pub fn record_local_for<T>(&mut self, addr: RemotePtr<T>, data: &T) {
@@ -2346,7 +2353,8 @@ impl RecordTask {
         }
 
         let buf = read_mem(self, addr, num_bytes, None);
-        self.trace_writer_mut().write_raw(self.rec_tid, &buf, addr);
+        self.trace_writer_mut()
+            .write_raw(self.rec_tid(), &buf, addr);
     }
 
     pub fn record_remote_for<T>(&mut self, addr: RemotePtr<T>) {
@@ -2388,7 +2396,8 @@ impl RecordTask {
             }
         }
 
-        self.trace_writer_mut().write_raw(self.rec_tid, &buf, addr);
+        self.trace_writer_mut()
+            .write_raw(self.rec_tid(), &buf, addr);
 
         ret
     }
@@ -2432,7 +2441,8 @@ impl RecordTask {
         self.maybe_flush_syscallbuf();
 
         if addr.is_null() {
-            self.trace_writer_mut().write_raw(self.rec_tid, &[], addr);
+            self.trace_writer_mut()
+                .write_raw(self.rec_tid(), &[], addr);
             return;
         }
 
@@ -2441,7 +2451,8 @@ impl RecordTask {
         }
 
         let buf = read_mem(self, addr, num_bytes, None);
-        self.trace_writer_mut().write_raw(self.rec_tid, &buf, addr);
+        self.trace_writer_mut()
+            .write_raw(self.rec_tid(), &buf, addr);
     }
 
     pub fn record_remote_even_if_null_for<T>(&mut self, addr: RemotePtr<T>) {
@@ -2726,7 +2737,7 @@ impl RecordTask {
         ed_assert_eq!(self, self.maybe_ptrace_event(), PTRACE_EVENT_CLONE);
 
         let hint: pid_t = self.get_ptrace_eventmsg_pid();
-        let filename = format!("/proc/{}/task/{}", self.tid, hint);
+        let filename = format!("/proc/{}/task/{}", self.tid(), hint);
         // This should always succeed, but may fail in old kernels due to
         // a kernel bug. See RecordSession::handle_ptrace_event.
         if self.session().find_task_from_rec_tid(hint).is_none() && stat(filename.as_str()).is_ok()
@@ -2766,9 +2777,9 @@ impl RecordTask {
 
     /// Do a tgkill to send a specific signal to this task.
     pub fn tgkill(&self, sig: Sig) {
-        log!(LogDebug, "Sending {} to tid {}", sig, self.tid);
+        log!(LogDebug, "Sending {} to tid {}", sig, self.tid());
         ed_assert_eq!(self, 0, unsafe {
-            syscall(SYS_tgkill, self.real_tgid(), self.tid, sig.as_raw())
+            syscall(SYS_tgkill, self.real_tgid(), self.tid(), sig.as_raw())
         });
     }
 
@@ -2792,7 +2803,7 @@ impl RecordTask {
     /// Uses /proc so not trivially cheap.
     /// Returns -1 if there was a problem in getting the pid
     pub fn get_parent_pid(&self) -> pid_t {
-        get_ppid(self.tid).unwrap_or(-1)
+        get_ppid(self.tid()).unwrap_or(-1)
     }
 
     /// Return true if this is a "clone child" per the wait(2) man page.
@@ -2824,9 +2835,9 @@ impl RecordTask {
     /// to the tid of the thread-group leader.
     pub fn set_tid_and_update_serial(&mut self, tid: pid_t, own_namespace_tid: pid_t) {
         self.hpc.borrow_mut().set_tid(tid);
-        self.rec_tid = tid;
-        self.tid = tid;
-        self.serial = self.session().next_task_serial();
+        self.rec_tid.set(tid);
+        self.tid.set(tid);
+        self.serial.set(self.session().next_task_serial());
         self.own_namespace_rec_tid = own_namespace_tid;
     }
 
@@ -2862,7 +2873,7 @@ impl RecordTask {
             }
         }
 
-        let mut results = read_proc_status_fields(self.tid, &[b"SigBlk"]).unwrap();
+        let mut results = read_proc_status_fields(self.tid(), &[b"SigBlk"]).unwrap();
         ed_assert!(self, results.len() == 1);
 
         let res = u64::from_str_radix(&results.pop().unwrap().into_string().unwrap(), 16).unwrap();
@@ -2976,7 +2987,11 @@ impl RecordTask {
         // could read the status of 'tracee'. If it is, we should wake up that
         // thread. Otherwise we send SIGCHLD to the ptracer thread.
         if self.is_waiting_for(rchild) {
-            return Some((self.tgid(), self.tid, self.is_sig_blocked(sig::SIGCHLD)));
+            return Some((
+                self.tgid(),
+                self.tid(),
+                self.is_sig_blocked(sig::SIGCHLD),
+            ));
         }
 
         for t in self
@@ -2988,7 +3003,7 @@ impl RecordTask {
             let mut rtb = t.borrow_mut();
             let rt = rtb.as_rec_mut_unwrap();
             if rt.is_waiting_for(rchild) {
-                return Some((rt.tgid(), rt.tid, rt.is_sig_blocked(sig::SIGCHLD)));
+                return Some((rt.tgid(), rt.tid(), rt.is_sig_blocked(sig::SIGCHLD)));
             }
         }
 
@@ -3028,7 +3043,7 @@ impl RecordTask {
                 // could read the status of 'tracee'. If it is, we should wake up that
                 // thread. Otherwise we send SIGCHLD to the ptracer thread.
                 if self.is_waiting_for_ptrace(tracee) {
-                    wake_task = Some((self.tgid(), self.tid, self.is_sig_blocked(sig::SIGCHLD)));
+                    wake_task = Some((self.tgid(), self.tid(), self.is_sig_blocked(sig::SIGCHLD)));
                     break;
                 }
                 for t in self
@@ -3040,7 +3055,7 @@ impl RecordTask {
                     let rtb = t.borrow();
                     let rt = rtb.as_rec_unwrap();
                     if rt.is_waiting_for_ptrace(tracee) {
-                        wake_task = Some((rt.tgid(), rt.tid, rt.is_sig_blocked(sig::SIGCHLD)));
+                        wake_task = Some((rt.tgid(), rt.tid(), rt.is_sig_blocked(sig::SIGCHLD)));
                         break;
                     }
                 }
@@ -3224,7 +3239,7 @@ fn find_free_file_descriptor(for_tid: pid_t) -> i32 {
 }
 
 fn exe_path(t: &RecordTask) -> OsString {
-    let proc_link = format!("/proc/{}/exe", t.tid);
+    let proc_link = format!("/proc/{}/exe", t.tid());
     readlink(proc_link.as_str()).unwrap()
 }
 
@@ -3345,7 +3360,7 @@ impl Drop for RecordTask {
             log!(
                 LogWarn,
                 "{} still has pending events.  From top down:",
-                self.tid
+                self.tid()
             );
             self.log_pending_events();
         }

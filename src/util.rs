@@ -1861,7 +1861,7 @@ const SIGBUS_CHECKSUM: u32 = 0x23456789;
 /// is selected by `mode`.
 fn iterate_checksums(t: &mut dyn Task, mode: ChecksumMode, global_time: FrameTime) {
     let mut filename_vec: Vec<u8> = t.trace_dir().into_vec();
-    let append = format!("/{}_{}", global_time, t.rec_tid);
+    let append = format!("/{}_{}", global_time, t.rec_tid());
     filename_vec.extend_from_slice(append.as_bytes());
     let filename = OsString::from_vec(filename_vec);
     let mut checksum_data = match mode {
@@ -2098,7 +2098,9 @@ fn notify_checksum_error(
 
 /// DIFF NOTE: Takes `t` instead of the address space as param
 fn is_task_buffer(t: &dyn Task, m: &Mapping) -> bool {
-    if RemotePtr::cast(t.syscallbuf_child) == m.map.start() && t.syscallbuf_size == m.map.size() {
+    if RemotePtr::cast(t.syscallbuf_child) == m.map.start()
+        && t.syscallbuf_size.get() == m.map.size()
+    {
         return true;
     }
     if t.scratch_ptr.get() == m.map.start() && t.scratch_size.get() == m.map.size() {
@@ -2107,7 +2109,7 @@ fn is_task_buffer(t: &dyn Task, m: &Mapping) -> bool {
     for t_rc in t.vm().task_set().iter_except(t.weak_self_ptr()) {
         let tt = t_rc.borrow();
         if RemotePtr::cast(tt.syscallbuf_child) == m.map.start()
-            && tt.syscallbuf_size == m.map.size()
+            && tt.syscallbuf_size.get() == m.map.size()
         {
             return true;
         }

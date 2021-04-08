@@ -685,7 +685,7 @@ impl RecordSession {
             LogDebug,
             "trace time {}: Active task is {}. Events:",
             t.borrow().trace_time(),
-            t.borrow().tid
+            t.borrow().tid()
         );
 
         if is_logging!(LogDebug) {
@@ -974,7 +974,7 @@ impl RecordSession {
         log!(
             LogDebug,
             "  {}: handle_ptrace_event {}: event {}",
-            t.borrow().tid,
+            t.borrow().tid(),
             t.borrow().maybe_ptrace_event(),
             t.borrow().as_rec_unwrap().ev()
         );
@@ -1096,7 +1096,7 @@ impl RecordSession {
                     // in memory accessible to another process even after exec, i.e. a
                     // shared-memory mapping or two different thread-groups sharing the same
                     // address space.
-                    let tid = t.borrow().rec_tid;
+                    let tid = t.borrow().rec_tid();
                     let status: WaitStatus = t.borrow().status();
                     // Mark task as unstable so we don't wait on its futex. This matches
                     // what the kernel would do.
@@ -1221,7 +1221,7 @@ impl RecordSession {
                 let has_handler = t.signal_has_user_handler(sig);
                 let mut done = false;
                 if has_handler {
-                    log!(LogDebug, "  {}: {} has user handler", t.tid, sig);
+                    log!(LogDebug, "  {}: {} has user handler", t.tid(), sig);
 
                     if !inject_handled_signal(t) {
                         // Signal delivery isn't happening. Prepare to process the new
@@ -1255,7 +1255,7 @@ impl RecordSession {
                     }
                 } else {
                     t.stashed_signal_processed();
-                    log!(LogDebug, "  {}: no user handler for {}", t.tid, sig);
+                    log!(LogDebug, "  {}: no user handler for {}", t.tid(), sig);
                     // Don't do another task continue. We want to deliver the signal
                     // as the next thing that the task does.
                     step_state.continue_type = ContinueType::DontContinue;
@@ -2119,7 +2119,7 @@ impl RecordSession {
         }
 
         let t = maybe_t.unwrap();
-        let tid = t.borrow().tid;
+        let tid = t.borrow().tid();
         ed_assert_eq!(&t.borrow(), rec_tid, t.borrow().tgid());
         let own_namespace_tid = t.borrow().thread_group().borrow().real_tgid_own_namespace;
 
@@ -3247,7 +3247,12 @@ fn mask_low_bit<T>(p: RemotePtr<T>) -> RemotePtr<T> {
 fn maybe_restart_syscall(t: &mut RecordTask) -> bool {
     let arch = t.arch();
     if is_restart_syscall_syscall(t.regs_ref().original_syscallno() as i32, arch) {
-        log!(LogDebug, "  {}: SYS_restart_syscall'ing {}", t.tid, t.ev());
+        log!(
+            LogDebug,
+            "  {}: SYS_restart_syscall'ing {}",
+            t.tid(),
+            t.ev()
+        );
     }
 
     if t.is_syscall_restart() {
@@ -3270,7 +3275,7 @@ fn syscall_not_restarted(t: &mut RecordTask) {
     log!(
         LogDebug,
         "  {}: popping abandoned interrupted {}; pending events:",
-        t.tid,
+        t.tid(),
         t.ev()
     );
 
@@ -3294,9 +3299,9 @@ fn record_exit(t: &RecordTask, exit_status: WaitStatus) {
         .as_record()
         .unwrap()
         .trace_writer_mut()
-        .write_task_event(&TraceTaskEvent::for_exit(t.tid, exit_status));
+        .write_task_event(&TraceTaskEvent::for_exit(t.tid(), exit_status));
 
-    if t.thread_group().borrow().tgid == t.tid {
+    if t.thread_group().borrow().tgid == t.tid() {
         t.thread_group().borrow_mut().exit_status = exit_status;
     }
 }

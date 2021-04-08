@@ -153,7 +153,7 @@ fn retrieve_offset_arch<Arch: Architecture>(
             "Can only read a file descriptor's offset while recording"
         );
         let fd: i32 = regs.arg1_signed() as i32;
-        let offset = get_fd_offset(t.tid, fd);
+        let offset = get_fd_offset(t.tid(), fd);
         // The pos we just read, was after the write completed. Luckily, we do
         // know how many bytes were written.
         // DIFF NOTE: This is slightly different from the rr approach.

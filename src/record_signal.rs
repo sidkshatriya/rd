@@ -131,7 +131,7 @@ pub fn handle_signal(
     log!(
         LogDebug,
         "{}: handling signal {} (pevent: {}, event: {}",
-        t.tid,
+        t.tid(),
         sig,
         t.maybe_ptrace_event(),
         t.ev()
@@ -423,7 +423,7 @@ fn try_grow_map(t: &mut RecordTask, si: &siginfo_t) -> bool {
             rlim_max: 0,
         };
         let mut limit_bottom: RemotePtr<Void> = RemotePtr::null();
-        let ret = unsafe { prlimit(t.tid, RLIMIT_STACK, ptr::null(), &mut stack_limit) };
+        let ret = unsafe { prlimit(t.tid(), RLIMIT_STACK, ptr::null(), &mut stack_limit) };
         if ret >= 0 && stack_limit.rlim_cur != RLIM_INFINITY {
             limit_bottom = RemotePtr::from(ceil_page_size(
                 it.end().as_usize() - stack_limit.rlim_cur as usize,

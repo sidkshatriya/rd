@@ -69,7 +69,7 @@ impl ProcFdDirMonitor {
                     let tid_str = String::from_utf8_lossy(tid_os_str.as_bytes());
                     let maybe_tid = tid_str.parse::<pid_t>();
                     let tid = maybe_tid.unwrap();
-                    let maybe_found = if t.rec_tid == tid {
+                    let maybe_found = if t.rec_tid() == tid {
                         Some(t.tuid())
                     } else {
                         t.session()

@@ -798,7 +798,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         // Save the event. We can't record it here because the exec might fail.
         let raw_filename = t.read_c_str(RemotePtr::from(regs.arg1()));
         syscall_state.exec_saved_event = Some(Box::new(TraceTaskEvent::for_exec(
-            t.tid,
+            t.tid(),
             &OsString::from_vec(raw_filename.into_bytes()),
             &cmd_line,
         )));
@@ -1567,7 +1567,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
             let tid = regs.arg2_signed() as pid_t;
             let found_rc: TaskSharedPtr;
             let mut found_b;
-            let maybe_target = if tid == t.rec_tid || tid == 0 {
+            let maybe_target = if tid == t.rec_tid() || tid == 0 {
                 Some(t)
             } else {
                 match t.session().find_task_from_rec_tid(tid) {
@@ -1585,7 +1585,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
                     log!(
                         LogDebug,
                         "Setting nice value for tid {} to {}",
-                        target.tid,
+                        target.tid(),
                         regs.arg3()
                     );
                     target
@@ -1684,7 +1684,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
     if sys == SYS_rdcall_init_buffers as i32 {
         // This is purely for testing purposes. See signal_during_preload_init.
         if send_signal_during_init_buffers() {
-            unsafe { libc::syscall(SYS_tgkill, t.tgid(), t.tid, SIGCHLD) };
+            unsafe { libc::syscall(SYS_tgkill, t.tgid(), t.tid(), SIGCHLD) };
         }
         syscall_state.reg_parameter::<rdcall_init_buffers_params<Arch>>(
             1,
@@ -2769,7 +2769,7 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
     log!(
         LogDebug,
         "{}: processing: {} -- time: {}",
-        t.tid,
+        t.tid(),
         t.ev(),
         t.trace_time()
     );
@@ -2915,7 +2915,7 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
             let child_addr = RemotePtr::<perf_event_attr>::from(t.regs_ref().arg1());
             let attr = read_val_mem(t, child_addr, None);
             let tid = t.regs_ref().arg2_signed() as pid_t;
-            let monitor = if t.tid != tid {
+            let monitor = if t.tid() != tid {
                 Box::new(VirtualPerfCounterMonitor::new(
                     t,
                     t.session()
@@ -2975,7 +2975,7 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
 
     if sys == Arch::SCHED_GETAFFINITY {
         let pid = t.regs_ref().arg1() as pid_t;
-        if !t.regs_ref().syscall_failed() && (pid == 0 || pid == t.rec_tid) {
+        if !t.regs_ref().syscall_failed() && (pid == 0 || pid == t.rec_tid()) {
             if t.regs_ref().syscall_result() > size_of::<cpu_set_t>() {
                 log!(
                     LogWarn,
@@ -3054,7 +3054,7 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
         let task_rc: TaskSharedPtr;
         let mut taskb;
         let dest_task;
-        let maybe_dest = if tid == t.tid {
+        let maybe_dest = if tid == t.tid() {
             None
         } else {
             match t.session().find_task_from_rec_tid(tid) {
@@ -3103,7 +3103,7 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
                 let tracee = traceeb.as_rec_mut_unwrap();
                 // Finish emulation of ptrace result or stop-signal
                 let mut r: Registers = t.regs_ref().clone();
-                r.set_syscall_result(tracee.tid as usize);
+                r.set_syscall_result(tracee.tid() as usize);
                 t.set_regs(&r);
                 if sys == Arch::WAITID {
                     let sip: RemotePtr<siginfo_t<Arch>> = r.arg3().into();
@@ -3767,12 +3767,12 @@ fn process_mmap(
         // in the tracee, recording memory records. Those should be recorded now, after the
         // memory region data itself. Needs to be consistent with replay_syscall.
         if monitor_this_fd {
-            extra_fds.push(TraceRemoteFd { tid: t.tid, fd });
+            extra_fds.push(TraceRemoteFd { tid: t.tid(), fd });
         }
         for f in &extra_fds {
             let rc_t;
             let mut tb;
-            let tt: &mut dyn Task = if f.tid == t.tid {
+            let tt: &mut dyn Task = if f.tid == t.tid() {
                 t
             } else {
                 rc_t = t.session().find_task_from_rec_tid(f.tid).unwrap();
@@ -3855,7 +3855,7 @@ fn monitor_fd_for_mapping(
             continue;
         }
 
-        let dir_path = format!("/proc/{}/fd", t.tid);
+        let dir_path = format!("/proc/{}/fd", t.tid());
 
         let dir = match read_dir(&dir_path) {
             Ok(dir) => dir,
@@ -3894,7 +3894,7 @@ fn monitor_fd_for_mapping(
                 // Ignore non-writable fds since they can't modify memory
                 continue;
             }
-            extra_fds.push(TraceRemoteFd { tid: t.tid, fd });
+            extra_fds.push(TraceRemoteFd { tid: t.tid(), fd });
         }
     }
     ed_assert!(mapped_t, found_our_mapping, "Can't find fd for mapped file");
@@ -4036,7 +4036,7 @@ fn process_execve(t: &mut RecordTask, syscall_state: &mut TaskSyscallState) {
             ed_assert_eq!(remote.task(), mode, RecordInTrace::RecordInTrace);
             let buf = read_mem(remote.task_mut(), km.start(), km.size(), None);
             remote.task().as_rec_unwrap().trace_writer_mut().write_raw(
-                remote.task().rec_tid,
+                remote.task().rec_tid(),
                 &buf,
                 km.start(),
             );
@@ -5941,8 +5941,8 @@ fn prepare_clone<Arch: Architecture>(t: &mut RecordTask, syscall_state: &mut Tas
     }
     t.trace_writer_mut()
         .write_task_event(&TraceTaskEvent::for_clone(
-            new_task.tid,
-            t.tid,
+            new_task.tid(),
+            t.tid(),
             new_task.own_namespace_rec_tid,
             flags,
         ));
@@ -5960,7 +5960,7 @@ fn prepare_clone<Arch: Architecture>(t: &mut RecordTask, syscall_state: &mut Tas
         );
         new_task.emulated_ptrace_seized = t.emulated_ptrace_seized;
         new_task.emulated_ptrace_options = t.emulated_ptrace_options;
-        t.emulated_ptrace_event_msg = new_task.rec_tid as usize;
+        t.emulated_ptrace_event_msg = new_task.rec_tid() as usize;
         t.emulate_ptrace_stop(
             WaitStatus::for_ptrace_event(ptrace_event),
             emulated_ptracer.borrow().as_rec_unwrap(),
@@ -6273,7 +6273,7 @@ fn verify_ptrace_target(
     syscall_state: &mut TaskSyscallState,
     pid: pid_t,
 ) -> Option<TaskSharedPtr> {
-    if tracer.rec_tid != pid {
+    if tracer.rec_tid() != pid {
         match tracer.session().find_task_from_rec_tid(pid) {
             Some(rc_tracee) => {
                 {
@@ -6489,7 +6489,7 @@ fn get_ptrace_partner(t: &RecordTask, pid: pid_t) -> Option<TaskSharedPtr> {
     // sandboxes anyway.
     // This could be supported, but would require some work to translate
     // rd's pids to/from the ptracer's pid namespace.
-    ed_assert!(t, is_same_namespace("pid", t.tid, getpid().as_raw()));
+    ed_assert!(t, is_same_namespace("pid", t.tid(), getpid().as_raw()));
     // NOTE for the case when find_task_from_rec_tid() returns `None`:
     //   XXX This prevents a tracee from attaching to a process which isn't
     //   under rd's control. We could support this but it would complicate
@@ -7519,7 +7519,7 @@ fn is_privileged_executable(t: &RecordTask, path: &OsStr) -> bool {
 }
 
 fn in_same_mount_namespace_as(t: &RecordTask) -> bool {
-    let proc_ns_mount = format!("/proc/{}/ns/mnt", t.tid);
+    let proc_ns_mount = format!("/proc/{}/ns/mnt", t.tid());
     let my_buf = stat("/proc/self/ns/mnt").unwrap();
     let their_buf = stat(proc_ns_mount.as_str()).unwrap();
     my_buf.st_ino == their_buf.st_ino
@@ -7643,7 +7643,7 @@ fn process_shmat(t: &mut RecordTask, shmid: i32, shm_flags: i32, addr: RemotePtr
     // any other way to get the correct device number. (The inode number seems to
     // be the shm key.) This should be OK since SysV shmem is not used very much
     // and reading /proc/<pid>/maps should be reasonably cheap.
-    let kernel_info: KernelMapping = read_kernel_mapping(t.tid, addr);
+    let kernel_info: KernelMapping = read_kernel_mapping(t.tid(), addr);
     let km: KernelMapping = t.vm().map(
         t,
         addr,

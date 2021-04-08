@@ -806,7 +806,7 @@ impl ReplaySession {
             LogDebug,
             "[event {}] {}: replaying {}; state {}",
             self.current_frame_time(),
-            t.rec_tid,
+            t.rec_tid(),
             ev,
             if ev.is_syscall_event() {
                 format!("{}", ev.syscall_event().state)
@@ -954,7 +954,7 @@ impl ReplaySession {
         // Read the recorded syscall buffer back into the buffer region.
         let buf = t.trace_reader_mut().read_raw_data();
         ed_assert!(t, buf.data.len() >= size_of::<syscallbuf_hdr>());
-        ed_assert!(t, buf.data.len() <= t.syscallbuf_size);
+        ed_assert!(t, buf.data.len() <= t.syscallbuf_size.get());
         ed_assert_eq!(t, buf.addr, RemotePtr::cast(t.syscallbuf_child));
 
         let mut recorded_hdr: syscallbuf_hdr = Default::default();
@@ -977,12 +977,16 @@ impl ReplaySession {
         let num_rec_bytes = recorded_hdr.num_rec_bytes;
         ed_assert!(
             t,
-            num_rec_bytes as usize + size_of::<syscallbuf_hdr>() <= t.syscallbuf_size
+            num_rec_bytes as usize + size_of::<syscallbuf_hdr>() <= t.syscallbuf_size.get()
         );
 
         current_step.action = ReplayTraceStepType::TstepFlushSyscallbuf;
-        let stop_breakpoint_addr = t.stopping_breakpoint_table.to_data_ptr::<Void>().as_usize()
-            + (num_rec_bytes as usize / 8) * t.stopping_breakpoint_table_entry_size;
+        let stop_breakpoint_addr = t
+            .stopping_breakpoint_table
+            .get()
+            .to_data_ptr::<Void>()
+            .as_usize()
+            + (num_rec_bytes as usize / 8) * t.stopping_breakpoint_table_entry_size.get();
         current_step.data = ReplayTraceStepData::Flush(ReplayFlushBufferedSyscallState {
             stop_breakpoint_addr,
         });
@@ -1018,7 +1022,7 @@ impl ReplaySession {
         }
 
         let t_rc = tg.borrow().task_set().iter().next().unwrap();
-        let t_rec_tid = t_rc.borrow().rec_tid;
+        let t_rec_tid = t_rc.borrow().rec_tid();
         log!(
             LogDebug,
             "Changing task tid from {} to {}",
@@ -1027,7 +1031,7 @@ impl ReplaySession {
         );
         let t_rc_removed = self.task_map.borrow_mut().remove(&t_rec_tid).unwrap();
         debug_assert!(Rc::ptr_eq(&t_rc_removed, &t_rc));
-        t_rc.borrow_mut().rec_tid = trace_frame_tid;
+        t_rc.borrow_mut().rec_tid.set(trace_frame_tid);
         self.task_map.borrow_mut().insert(trace_frame_tid, t_rc);
         // The real tid is not changing yet. It will, in process_execve.
         t_rc_removed
@@ -2041,7 +2045,7 @@ fn apply_mprotect_records(t: &mut ReplayTask, skip_mprotect_records: u32) -> u32
                 unsafe {
                     libc::syscall(
                         SYS_rdcall_mprotect_record as _,
-                        t.tid,
+                        t.tid(),
                         r.start as usize,
                         r.size as usize,
                         r.prot,

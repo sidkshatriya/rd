@@ -276,7 +276,7 @@ impl MonkeyPatcher {
                         "Patched syscall at: {} syscall: {} tid: {} bytes: {:?} at time: {}",
                         ip,
                         syscall_name(syscallno as i32, t.arch()),
-                        t.tid,
+                        t.tid(),
                         sl,
                         t.trace_time()
                     );
@@ -305,7 +305,7 @@ impl MonkeyPatcher {
                 "Failed to patch syscall at {} syscall {} tid {} bytes {:?}",
                 ip,
                 syscall_name(syscallno as i32, t.arch()),
-                t.tid,
+                t.tid(),
                 sl
             );
             self.tried_to_patch_syscall_addresses.insert(ip);
@@ -354,7 +354,7 @@ impl MonkeyPatcher {
             } else {
                 let buf = format!(
                     "/proc/{}/map_files/{:x}-{:x}",
-                    t.tid,
+                    t.tid(),
                     start.as_usize(),
                     start.as_usize() + size
                 );

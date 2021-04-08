@@ -30,7 +30,11 @@ pub(super) fn kill_all_tasks<S: Session>(sess: &S) {
         // kill() is guaranteed to work properly. SIGKILL on ptrace-attached tasks
         // seems to not work very well, and after sending SIGKILL we can't seem to
         // reliably detach.
-        log!(LogDebug, "safely detaching from {} ...", t.borrow().tid);
+        log!(
+            LogDebug,
+            "safely detaching from {} ...",
+            t.borrow().tid()
+        );
         // Detaching from the process lets it continue. We don't want a replaying
         // process to perform syscalls or do anything else observable before we
         // get around to SIGKILLing it. So we move its ip() to an address
@@ -72,7 +76,7 @@ pub(super) fn kill_all_tasks<S: Session>(sess: &S) {
                     .fallible_ptrace(PTRACE_DETACH, RemotePtr::null(), &mut PtraceData::None);
             ed_assert!(&t.borrow(), result >= 0 || errno() == ESRCH);
             // But we it might get ESRCH because it really doesn't exist.
-            if errno() == ESRCH && is_zombie_process(t.borrow().tid) {
+            if errno() == ESRCH && is_zombie_process(t.borrow().tid()) {
                 break;
             }
 
@@ -89,7 +93,7 @@ pub(super) fn kill_all_tasks<S: Session>(sess: &S) {
             // ensuring it was delivered.  After `kill()`, the only
             // meaningful thing that can be done with this task is to
             // delete it.
-            log!(LogDebug, "sending SIGKILL to {} ...", t.borrow().tid);
+            log!(LogDebug, "sending SIGKILL to {} ...", t.borrow().tid());
             // If we haven't already done a stable exit via syscall,
             // kill the task and note that the entire thread group is unstable.
             // The task may already have exited due to the preparation above,
@@ -99,7 +103,7 @@ pub(super) fn kill_all_tasks<S: Session>(sess: &S) {
             // Linux doesn't seem to give us a reliable way to detach and kill
             // the tracee without races.
             unsafe {
-                syscall(SYS_tgkill, t.borrow().real_tgid(), t.borrow().tid, SIGKILL);
+                syscall(SYS_tgkill, t.borrow().real_tgid(), t.borrow().tid(), SIGKILL);
             }
             t.borrow()
                 .thread_group()

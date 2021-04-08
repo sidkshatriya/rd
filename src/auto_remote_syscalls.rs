@@ -928,8 +928,8 @@ impl<'a> AutoRemoteSyscalls<'a> {
     ///
     /// DIFF NOTE: This method in rr is in the task.
     pub fn init_syscall_buffer(&mut self, map_hint: RemotePtr<Void>) -> KernelMapping {
-        let name = format!("syscallbuf.{}", self.task().rec_tid);
-        let syscallbuf_size = self.task().syscallbuf_size;
+        let name = format!("syscallbuf.{}", self.task().rec_tid());
+        let syscallbuf_size = self.task().syscallbuf_size.get();
         let km: KernelMapping = self.create_shared_mmap(
             syscallbuf_size,
             Some(map_hint),

@@ -230,7 +230,7 @@ impl SessionInner {
             addr_space = AddressSpace::new_after_fork_or_session_clone(
                 self.weak_self.clone(),
                 &vm,
-                t.rec_tid,
+                t.rec_tid(),
                 t.tuid().serial(),
                 0,
             );
@@ -267,8 +267,8 @@ impl SessionInner {
         let tuid_serial: u32;
         {
             let tb = t.borrow();
-            rec_tid = tb.rec_tid;
-            tid = tb.tid;
+            rec_tid = tb.rec_tid();
+            tid = tb.tid();
             tuid_serial = tb.tuid().serial();
         }
 

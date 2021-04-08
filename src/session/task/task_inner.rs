@@ -338,25 +338,25 @@ pub struct TaskInner {
     pub hpc: RefCell<PerfCounters>,
 
     /// This is always the "real" tid of the tracee.
-    pub tid: pid_t,
+    pub tid: Cell<pid_t>,
     /// This is always the recorded tid of the tracee.  During
     /// recording, it's synonymous with `tid`, and during replay
     /// it's the tid that was recorded.
-    pub rec_tid: pid_t,
+    pub rec_tid: Cell<pid_t>,
 
-    pub syscallbuf_size: usize,
+    pub syscallbuf_size: Cell<usize>,
     /// Points at the tracee's mapping of the buffer.
     pub syscallbuf_child: RemotePtr<syscallbuf_hdr>,
     /// XXX Move these fields to ReplayTask
-    pub stopping_breakpoint_table: RemoteCodePtr,
-    pub stopping_breakpoint_table_entry_size: usize,
+    pub stopping_breakpoint_table: Cell<RemoteCodePtr>,
+    pub stopping_breakpoint_table_entry_size: Cell<usize>,
 
     /// DIFF NOTE: In rr null is used to denote no preload globals
     pub preload_globals: Option<RemotePtr<preload_globals>>,
     pub thread_locals: ThreadLocals,
 
     /// These are private
-    pub(in super::super) serial: u32,
+    pub(in super::super) serial: Cell<u32>,
     /// The address space of this task.
     pub(in super::super) as_: RefCell<Option<AddressSpaceSharedPtr>>,
     /// The file descriptor table of this task.
@@ -544,6 +544,16 @@ impl DebugControl {
 }
 
 impl TaskInner {
+    #[inline]
+    pub fn tid(&self) -> pid_t {
+        self.tid.get()
+    }
+
+    #[inline]
+    pub fn rec_tid(&self) -> pid_t {
+        self.rec_tid.get()
+    }
+
     pub fn weak_self_ptr(&self) -> TaskSharedWeakPtr {
         self.weak_self.clone()
     }
@@ -569,7 +579,7 @@ impl TaskInner {
 
     /// Stat `fd` in the context of this task's fd table.
     pub fn stat_fd(&self, fd: i32) -> FileStat {
-        let path = format!("/proc/{}/fd/{}", self.tid, fd);
+        let path = format!("/proc/{}/fd/{}", self.tid(), fd);
         let res = stat(path.as_str());
         ed_assert!(self, res.is_ok());
         res.unwrap()
@@ -577,7 +587,7 @@ impl TaskInner {
 
     /// Lstat `fd` in the context of this task's fd table.
     pub fn lstat_fd(&self, fd: i32) -> FileStat {
-        let path = format!("/proc/{}/fd/{}", self.tid, fd);
+        let path = format!("/proc/{}/fd/{}", self.tid(), fd);
         let res = lstat(path.as_str());
         ed_assert!(self, res.is_ok());
         res.unwrap()
@@ -585,14 +595,14 @@ impl TaskInner {
 
     /// Open `fd` in the context of this task's fd table.
     pub fn open_fd(&self, fd: i32, flags: OFlag) -> ScopedFd {
-        let path = format!("/proc/{}/fd/{}", self.tid, fd);
+        let path = format!("/proc/{}/fd/{}", self.tid(), fd);
         ScopedFd::open_path(path.as_str(), flags)
     }
 
     /// Get the name of the file referenced by `fd` in the context of this
     /// task's fd table.
     pub fn file_name_of_fd(&self, fd: i32) -> OsString {
-        let path = format!("/proc/{}/fd/{}", self.tid, fd);
+        let path = format!("/proc/{}/fd/{}", self.tid(), fd);
         let res = readlink(path.as_str());
         // @TODO like rr, returns an empty string if the file name could not be obtained
         // Is this behavior what we want though?
@@ -1129,7 +1139,7 @@ impl TaskInner {
     }
 
     pub fn tuid(&self) -> TaskUid {
-        TaskUid::new_with(self.rec_tid, self.serial)
+        TaskUid::new_with(self.rec_tid(), self.serial.get())
     }
 
     /// Return the dir of the trace we're using.
@@ -1221,7 +1231,11 @@ impl TaskInner {
         Errno::clear();
         self.fallible_ptrace(request, addr, data);
         if errno() == ESRCH {
-            log!(LogDebug, "ptrace_if_alive tid {} was not alive", self.tid);
+            log!(
+                LogDebug,
+                "ptrace_if_alive tid {} was not alive",
+                self.tid()
+            );
             return false;
         }
         ed_assert!(
@@ -1229,7 +1243,7 @@ impl TaskInner {
             errno() == 0,
             "ptrace({}, {}, addr={}, data={:?}) failed with errno: {}",
             ptrace_req_name(request),
-            self.tid,
+            self.tid(),
             addr,
             data.get_data_slice(),
             errno_name(errno())
@@ -1352,11 +1366,11 @@ impl TaskInner {
             // This will be initialized when the syscall buffer is
             cloned_file_data_fd_child: Cell::new(-1),
             hpc: RefCell::new(PerfCounters::new(tid, session.ticks_semantics())),
-            tid,
-            rec_tid: adjusted_rec_tid,
-            syscallbuf_size: 0,
-            stopping_breakpoint_table_entry_size: 0,
-            serial,
+            tid: Cell::new(tid),
+            rec_tid: Cell::new(adjusted_rec_tid),
+            syscallbuf_size: Default::default(),
+            stopping_breakpoint_table_entry_size: Default::default(),
+            serial: Cell::new(serial),
             stable_serial: Cell::new(stable_serial),
             prname: "???".into(),
             ticks: 0,
@@ -1402,8 +1416,8 @@ impl TaskInner {
         let extra_regs = self.extra_regs_ref().clone();
         let regs = self.regs_ref().clone();
         CapturedState {
-            rec_tid: self.rec_tid,
-            serial: self.serial,
+            rec_tid: self.rec_tid(),
+            serial: self.serial.get(),
             regs,
             extra_regs,
             prname: self.prname.clone(),
@@ -1411,12 +1425,12 @@ impl TaskInner {
             desched_fd_child: self.desched_fd_child.get(),
             cloned_file_data_fd_child: self.cloned_file_data_fd_child.get(),
             cloned_file_data_offset: if self.cloned_file_data_fd_child.get() > 0 {
-                get_fd_offset(self.tid, self.cloned_file_data_fd_child.get())
+                get_fd_offset(self.tid(), self.cloned_file_data_fd_child.get())
             } else {
                 0
             },
             syscallbuf_child: self.syscallbuf_child,
-            syscallbuf_size: self.syscallbuf_size,
+            syscallbuf_size: self.syscallbuf_size.get(),
             preload_globals: self.preload_globals,
             scratch_ptr: self.scratch_ptr.get(),
             scratch_size: self.scratch_size.get(),
@@ -1437,16 +1451,16 @@ impl TaskInner {
     ) -> isize {
         let res = match data {
             PtraceData::WriteInto(data) => unsafe {
-                ptrace(request, self.tid, addr.as_usize(), (*data).as_mut_ptr())
+                ptrace(request, self.tid(), addr.as_usize(), (*data).as_mut_ptr())
             },
             PtraceData::ReadFrom(data) => unsafe {
-                ptrace(request, self.tid, addr.as_usize(), (*data).as_ptr())
+                ptrace(request, self.tid(), addr.as_usize(), (*data).as_ptr())
             },
             PtraceData::ReadWord(data) => unsafe {
-                ptrace(request, self.tid, addr.as_usize(), (*data) as *const u8)
+                ptrace(request, self.tid(), addr.as_usize(), (*data) as *const u8)
             },
             PtraceData::None => unsafe {
-                ptrace(request, self.tid, addr.as_usize(), ptr::null() as *const u8)
+                ptrace(request, self.tid(), addr.as_usize(), ptr::null() as *const u8)
             },
         };
         res as isize
@@ -1468,7 +1482,7 @@ impl TaskInner {
             errno == 0,
             "ptrace({}, {}, addr={}, data={:?}) failed with errno: {}",
             ptrace_req_name(request),
-            self.tid,
+            self.tid(),
             addr,
             data.get_data_slice(),
             errno

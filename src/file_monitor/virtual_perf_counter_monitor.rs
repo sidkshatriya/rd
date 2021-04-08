@@ -225,7 +225,7 @@ impl FileMonitor for VirtualPerfCounterMonitor {
             PERF_EVENT_IOC_RESET => {
                 *result = 0;
                 let target_tid = self.target_tuid().tid();
-                if target_tid == t.tid {
+                if target_tid == t.tid() {
                     self.initial_ticks = t.tick_count();
                 } else {
                     let target = t.session().find_task_from_rec_tid(target_tid).unwrap();
@@ -313,7 +313,7 @@ impl FileMonitor for VirtualPerfCounterMonitor {
             .find_task_from_task_uid(self.target_tuid());
         match maybe_target {
             Some(target) => {
-                let val = if lazy_offset.t.tid == self.target_tuid().tid() {
+                let val = if lazy_offset.t.tid() == self.target_tuid().tid() {
                     lazy_offset.t.tick_count() - self.initial_ticks
                 } else {
                     target.borrow().tick_count() - self.initial_ticks
