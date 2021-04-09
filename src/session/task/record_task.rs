@@ -791,15 +791,7 @@ impl Task for RecordTask {
         Some(self)
     }
 
-    fn as_record_task_mut(&self) -> Option<&RecordTask> {
-        Some(self)
-    }
-
     fn as_rec_unwrap(&self) -> &RecordTask {
-        self
-    }
-
-    fn as_rec_mut_unwrap(&self) -> &RecordTask {
         self
     }
 
