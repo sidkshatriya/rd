@@ -434,7 +434,7 @@ pub struct RecordTask {
     pub emulated_ptrace_event_msg: Cell<usize>,
     /// @TODO Do we want to make this a queue?
     /// Saved emulated-ptrace signals
-    pub saved_ptrace_siginfos: Vec<siginfo_t>,
+    pub saved_ptrace_siginfos: RefCell<Vec<siginfo_t>>,
     /// Code to deliver to ptracer/waiter when it waits. Note that zero can be a
     /// valid code! Reset to zero when leaving the stop due to PTRACE_CONT etc.
     pub emulated_stop_code: Cell<WaitStatus>,
@@ -1017,7 +1017,7 @@ impl RecordTask {
             // Implicit
             registers_at_start_of_last_timeslice: RefCell::new(Registers::new(a)),
             emulated_ptrace_tracees: Default::default(),
-            saved_ptrace_siginfos: vec![],
+            saved_ptrace_siginfos: Default::default(),
             emulated_stop_code: Default::default(),
             sighandlers: Rc::new(RefCell::new(Default::default())),
             blocked_sigs: Cell::new(0),
@@ -1521,15 +1521,16 @@ impl RecordTask {
 
     /// Return a reference to the saved siginfo record for the stop-signal
     /// that we're currently in a ptrace-stop for.
-    pub fn get_saved_ptrace_siginfo(&self) -> &siginfo_t {
+    ///
+    /// @TODO? DIFF NOTE: Return a siginfo_t instead of a &siginfo_t
+    pub fn get_saved_ptrace_siginfo(&self) -> siginfo_t {
         let sig = self.emulated_stop_code.get().ptrace_signal().unwrap();
-        for it in &self.saved_ptrace_siginfos {
+        for it in self.saved_ptrace_siginfos.borrow().iter() {
             if it.si_signo == sig.as_raw() {
-                return it;
+                return *it;
             }
         }
         ed_assert!(self, false, "No saved siginfo found for stop-signal ???");
-
         unreachable!()
     }
 
@@ -1537,10 +1538,10 @@ impl RecordTask {
     /// that was saved by `save_ptrace_signal_siginfo`. If no such siginfo was
     /// saved, make one up.
     pub fn take_ptrace_signal_siginfo(&mut self, sig: Sig) -> siginfo_t {
-        for (i, it) in self.saved_ptrace_siginfos.iter().enumerate() {
+        for (i, it) in self.saved_ptrace_siginfos.borrow().iter().enumerate() {
             if it.si_signo == sig.as_raw() {
                 let si = *it;
-                self.saved_ptrace_siginfos.remove(i);
+                self.saved_ptrace_siginfos.borrow_mut().remove(i);
                 return si;
             }
         }
@@ -2840,14 +2841,14 @@ impl RecordTask {
     /// save the siginfo so a later emulated ptrace-continue with this signal
     /// number can use it.
     pub fn save_ptrace_signal_siginfo(&mut self, si: &siginfo_t) {
-        for (i, it) in self.saved_ptrace_siginfos.iter().enumerate() {
+        for (i, it) in self.saved_ptrace_siginfos.borrow().iter().enumerate() {
             if it.si_signo == si.si_signo {
-                self.saved_ptrace_siginfos.remove(i);
+                self.saved_ptrace_siginfos.borrow_mut().remove(i);
                 break;
             }
         }
 
-        self.saved_ptrace_siginfos.push(*si);
+        self.saved_ptrace_siginfos.borrow_mut().push(*si);
     }
 
     /// Tasks normally can't change their tid. There is one very special situation

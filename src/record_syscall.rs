@@ -6658,7 +6658,7 @@ fn prepare_ptrace<Arch: Architecture>(
                     let tracee = traceeb.as_rec_mut_unwrap();
                     let datap = syscall_state.reg_parameter::<siginfo_t<Arch>>(4, None, None);
                     let mut dest: siginfo_t<Arch> = unsafe { mem::zeroed() };
-                    set_arch_siginfo(tracee.get_saved_ptrace_siginfo(), &mut dest);
+                    set_arch_siginfo(&tracee.get_saved_ptrace_siginfo(), &mut dest);
                     write_val_mem(t, datap, &dest, None);
                     syscall_state.emulate_result(0);
                 }
