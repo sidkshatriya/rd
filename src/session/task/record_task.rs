@@ -533,7 +533,7 @@ pub struct RecordTask {
     pub pending_events: RefCell<VecDeque<Event>>,
     /// Stashed signal-delivery state, ready to be delivered at
     /// next opportunity.
-    pub stashed_signals: VecDeque<Box<StashedSignal>>,
+    pub stashed_signals: RefCell<VecDeque<Box<StashedSignal>>>,
     pub stashed_signals_blocking_more_signals: Cell<bool>,
     pub stashed_group_stop: Cell<bool>,
     pub break_at_syscallbuf_traced_syscalls: Cell<bool>,
@@ -1991,7 +1991,7 @@ impl RecordTask {
         );
         // multiple non-RT signals coalesce
         if sig.as_raw() < __SIGRTMIN as i32 {
-            for it in &self.stashed_signals {
+            for it in self.stashed_signals.borrow().iter() {
                 if it.siginfo.si_signo == sig.as_raw() {
                     log!(
                         LogDebug,
@@ -2004,10 +2004,12 @@ impl RecordTask {
         }
         let deterministic = is_deterministic_signal(self);
         let siginfo = self.get_siginfo();
-        self.stashed_signals.push_back(Box::new(StashedSignal {
-            siginfo,
-            deterministic,
-        }));
+        self.stashed_signals
+            .borrow_mut()
+            .push_back(Box::new(StashedSignal {
+                siginfo,
+                deterministic,
+            }));
         // Once we've stashed a signal, stop at the next traced/untraced syscall to
         // check whether we need to process the signal before it runs.
         self.stashed_signals_blocking_more_signals.set(true);
@@ -2031,12 +2033,13 @@ impl RecordTask {
         );
         // multiple non-RT signals coalesce
         if sig < __SIGRTMIN as i32 {
-            for (pos, it) in self.stashed_signals.iter().enumerate() {
+            let mut remove_index = None;
+            for (pos, it) in self.stashed_signals.borrow().iter().enumerate() {
                 if it.siginfo.si_signo == sig {
                     if deterministic == SignalDeterministic::DeterministicSig
                         && it.deterministic == SignalDeterministic::NondeterministicSig
                     {
-                        self.stashed_signals.remove(pos);
+                        remove_index = Some(pos);
                         break;
                     } else {
                         log!(
@@ -2048,9 +2051,11 @@ impl RecordTask {
                     }
                 }
             }
+
+            remove_index.map(|pos| self.stashed_signals.borrow_mut().remove(pos));
         }
 
-        self.stashed_signals.insert(
+        self.stashed_signals.borrow_mut().insert(
             0,
             Box::new(StashedSignal {
                 siginfo: si.clone(),
@@ -2065,20 +2070,21 @@ impl RecordTask {
 
     /// DIFF NOTE: Simply called has_stashed_sig() in rr
     pub fn has_any_stashed_sig(&self) -> bool {
-        !self.stashed_signals.is_empty()
+        !self.stashed_signals.borrow().is_empty()
     }
 
-    pub fn stashed_sig_not_synthetic_sigchld(&self) -> Option<&siginfo_t> {
-        for it in &self.stashed_signals {
+    // @TODO? DIFF NOTE:  Returns siginfo_t instead of &siginfo_t
+    pub fn stashed_sig_not_synthetic_sigchld(&self) -> Option<siginfo_t> {
+        for it in self.stashed_signals.borrow().iter() {
             if !is_synthetic_sigchld(&it.siginfo) {
-                return Some(&it.siginfo);
+                return Some(it.siginfo.clone());
             }
         }
         None
     }
 
     pub fn has_stashed_sig(&self, sig: Sig) -> bool {
-        for it in &self.stashed_signals {
+        for it in self.stashed_signals.borrow().iter() {
             if it.siginfo.si_signo == sig.as_raw() {
                 return true;
             }
@@ -2088,17 +2094,18 @@ impl RecordTask {
 
     /// Deliberately returning a *const StashedSignal as we need an addr in pop_stash_sig()
     pub fn peek_stashed_sig_to_deliver(&self) -> Option<*const StashedSignal> {
-        if self.stashed_signals.is_empty() {
+        if self.stashed_signals.borrow().is_empty() {
             return None;
         }
         // Choose the first non-synthetic-SIGCHLD signal so that if a syscall should
         // be interrupted, we'll interrupt it.
-        for sig in &self.stashed_signals {
+        for sig in self.stashed_signals.borrow().iter() {
             if !is_synthetic_sigchld(&sig.siginfo) {
                 return Some(&**sig as *const StashedSignal);
             }
         }
         self.stashed_signals
+            .borrow()
             .get(0)
             .map(|sig| &**sig as *const StashedSignal)
     }
@@ -2106,14 +2113,22 @@ impl RecordTask {
     /// @TODO Instead of searching by pointer address which can have its issues why not
     /// store a unique id in a StashedSignal structure or some other approach?
     pub fn pop_stash_sig(&mut self, stashed: *const StashedSignal) {
-        for (pos, it) in self.stashed_signals.iter().enumerate() {
+        let mut remove_index = None;
+        for (pos, it) in self.stashed_signals.borrow().iter().enumerate() {
             if ptr::eq(&**it as *const StashedSignal, stashed) {
-                self.stashed_signals.remove(pos);
-                return;
+                remove_index = Some(pos);
+                break;
             }
         }
 
-        ed_assert!(self, false, "signal not found");
+        match remove_index {
+            Some(pos) => {
+                self.stashed_signals.borrow_mut().remove(pos);
+            }
+            None => {
+                ed_assert!(self, false, "signal not found");
+            }
+        }
     }
 
     pub fn stashed_signal_processed(&mut self) {
