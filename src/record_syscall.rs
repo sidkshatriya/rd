@@ -659,7 +659,7 @@ use nix::{
     unistd::{getpid, ttyname, unlink},
 };
 use std::{
-    cell::RefCell,
+    cell::RefMut,
     cmp::{max, min},
     convert::{TryFrom, TryInto},
     env,
@@ -692,12 +692,13 @@ struct rdcall_params<Arch: Architecture> {
 /// Prepare `t` to enter its current syscall event.  Return Switchable::AllowSwitch if
 /// a context-switch is allowed for `t`, Switchable::PreventSwitch if not.
 pub fn rec_prepare_syscall(t: &mut RecordTask) -> Switchable {
-    if t.syscall_state.is_none() {
+    let no_syscall_state = t.syscall_state.borrow().is_none();
+    if no_syscall_state {
         let mut new_ts = TaskSyscallState::new(t);
         new_ts.init(t);
-        t.syscall_state = Some(Rc::new(RefCell::new(new_ts)));
+        *t.syscall_state.borrow_mut() = Some(new_ts);
     } else {
-        t.syscall_state_unwrap().borrow_mut().init(t);
+        t.syscall_state.borrow_mut().as_mut().unwrap().init(t);
     }
 
     let s = rec_prepare_syscall_internal(t);
@@ -705,11 +706,15 @@ pub fn rec_prepare_syscall(t: &mut RecordTask) -> Switchable {
     if is_sigreturn(syscallno, t.ev().syscall_event().arch()) {
         // There isn't going to be an exit event for this syscall, so remove
         // syscall_state now.
-        t.syscall_state = None;
+        *t.syscall_state.borrow_mut() = None;
         return s;
     }
 
-    t.syscall_state_unwrap().borrow_mut().done_preparing(t, s)
+    t.syscall_state_shr_ptr()
+        .borrow_mut()
+        .as_mut()
+        .unwrap()
+        .done_preparing(t, s)
 }
 
 /// DIFF NOTE: Does not take separate TaskSyscallState param
@@ -735,8 +740,8 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         return Switchable::PreventSwitch;
     }
 
-    let syscall_state_shr = t.syscall_state_unwrap();
-    let mut syscall_state = syscall_state_shr.borrow_mut();
+    let syscall_state_shr = t.syscall_state.clone();
+    let mut syscall_state = RefMut::map(syscall_state_shr.borrow_mut(), |b| b.as_mut().unwrap());
     syscall_state.syscall_entry_registers = regs.clone();
 
     if !t.desched_rec().is_null() {
@@ -2669,7 +2674,7 @@ fn do_ptrace_exit_stop(t: &mut RecordTask, maybe_tracer: Option<&RecordTask>) {
 
 pub fn rec_prepare_restart_syscall(t: &mut RecordTask) {
     rec_prepare_restart_syscall_internal(t);
-    t.syscall_state = None;
+    *t.syscall_state.borrow_mut() = None;
 }
 
 pub fn rec_prepare_restart_syscall_internal(t: &mut RecordTask) {
@@ -2692,8 +2697,10 @@ fn rec_prepare_restart_syscall_arch<Arch: Architecture>(t: &mut RecordTask) {
         // that, we do what the kernel does, and update the
         // outparam at the -ERESTART_RESTART interruption
         // regardless.
-        t.syscall_state_unwrap()
+        t.syscall_state_shr_ptr()
             .borrow_mut()
+            .as_mut()
+            .unwrap()
             .process_syscall_results(t);
     }
     if sys == Arch::PPOLL
@@ -2709,8 +2716,10 @@ fn rec_prepare_restart_syscall_arch<Arch: Architecture>(t: &mut RecordTask) {
     if sys == Arch::WAIT4 || sys == Arch::WAITID || sys == Arch::WAITPID {
         let mut r: Registers = t.regs_ref().clone();
         let original_syscallno = t
-            .syscall_state_unwrap()
+            .syscall_state
             .borrow()
+            .as_ref()
+            .unwrap()
             .syscall_entry_registers
             .original_syscallno();
         r.set_original_syscallno(original_syscallno);
@@ -2722,31 +2731,37 @@ fn rec_prepare_restart_syscall_arch<Arch: Architecture>(t: &mut RecordTask) {
 }
 
 pub fn rec_process_syscall(t: &mut RecordTask) {
-    let syscall_state_shr = t.syscall_state_unwrap();
-    let mut syscall_state = syscall_state_shr.borrow_mut();
-    let sys_ev_arch = t.ev().syscall_event().arch();
-    let sys_ev_number = t.ev().syscall_event().number;
-    if sys_ev_arch != t.arch() {
-        static DID_WARN: AtomicBool = AtomicBool::new(false);
-        if !DID_WARN.load(Ordering::SeqCst) {
-            log!(
-                LogWarn,
-                "Cross architecture syscall detected. Support is best effort"
-            );
-            DID_WARN.store(true, Ordering::SeqCst);
+    let syscall_state_shr = t.syscall_state_shr_ptr();
+    {
+        let mut syscall_state =
+            RefMut::map(syscall_state_shr.borrow_mut(), |b| b.as_mut().unwrap());
+        let sys_ev_arch = t.ev().syscall_event().arch();
+        let sys_ev_number = t.ev().syscall_event().number;
+        if sys_ev_arch != t.arch() {
+            static DID_WARN: AtomicBool = AtomicBool::new(false);
+            if !DID_WARN.load(Ordering::SeqCst) {
+                log!(
+                    LogWarn,
+                    "Cross architecture syscall detected. Support is best effort"
+                );
+                DID_WARN.store(true, Ordering::SeqCst);
+            }
         }
+        rec_process_syscall_internal(t, sys_ev_arch, &mut syscall_state);
+        syscall_state.process_syscall_results(t);
+        let regs = t.regs_ref().clone();
+        t.on_syscall_exit(sys_ev_number, sys_ev_arch, &regs);
     }
-    rec_process_syscall_internal(t, sys_ev_arch, &mut syscall_state);
-    syscall_state.process_syscall_results(t);
-    let regs = t.regs_ref().clone();
-    t.on_syscall_exit(sys_ev_number, sys_ev_arch, &regs);
-    t.syscall_state = None;
+    *t.syscall_state.borrow_mut() = None;
 
     MonitoredSharedMemory::check_all(t);
 }
 
 /// N.B.: `arch` is the the architecture of the syscall, which may be different
 ///         from the architecture of the call (e.g. x86_64 may invoke x86 syscalls)
+///
+/// @TODO Passing syscall_state around like this is fine but one needs to keep in
+/// mind the borrow_mut-s on TaskSyscallState. More robust approach??
 pub fn rec_process_syscall_internal(
     t: &mut RecordTask,
     arch: SupportedArch,
