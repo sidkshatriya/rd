@@ -686,17 +686,13 @@ pub mod address_space {
         /// Call this after a new task has been cloned within this
         /// address space.
         /// DIFF NOTE: Additional param `active_task`
-        pub fn after_clone(
-            &self,
-            active_task: &mut dyn Task,
-            cloned_from_thread: Option<&mut dyn Task>,
-        ) {
+        pub fn after_clone(&self, active_task: &dyn Task, cloned_from_thread: Option<&dyn Task>) {
             self.allocate_watchpoints(active_task, cloned_from_thread);
         }
 
         /// Call this after a successful execve syscall has completed. At this point
         /// it is safe to perform remote syscalls.
-        pub fn post_exec_syscall(&self, t: &mut dyn Task) {
+        pub fn post_exec_syscall(&self, t: &dyn Task) {
             // First locate a syscall instruction we can use for remote syscalls.
             self.traced_syscall_ip_
                 .set(self.find_syscall_instruction(t));
@@ -830,7 +826,7 @@ pub mod address_space {
         pub fn is_breakpoint_in_private_read_only_memory(
             &self,
             addr: RemoteCodePtr,
-            active_task: &mut dyn Task,
+            active_task: &dyn Task,
         ) -> bool {
             // @TODO Its unclear why we need to iterate instead of just using
             // AddressSpace::mapping_of() to check breakpoint prot() and flags().
@@ -853,7 +849,7 @@ pub mod address_space {
 
         /// Return true if there's a breakpoint instruction at `ip`. This might
         /// be an explicit instruction, even if there's no breakpoint set via our API.
-        pub fn is_breakpoint_instruction(t: &mut dyn Task, ip: RemoteCodePtr) -> bool {
+        pub fn is_breakpoint_instruction(t: &dyn Task, ip: RemoteCodePtr) -> bool {
             let mut ok = true;
             return read_val_mem::<u8>(t, ip.to_data_ptr::<u8>(), Some(&mut ok))
                 == Self::BREAKPOINT_INSN
@@ -1208,7 +1204,7 @@ pub mod address_space {
         }
 
         /// Fix up mprotect registers parameters to take account of PROT_GROWSDOWN.
-        pub fn fixup_mprotect_growsdown_parameters(&self, t: &mut dyn Task) {
+        pub fn fixup_mprotect_growsdown_parameters(&self, t: &dyn Task) {
             ed_assert!(
                 t,
                 !(t.regs_ref().arg3() & PROT_GROWSUP as usize == PROT_GROWSUP as usize)
@@ -1335,7 +1331,7 @@ pub mod address_space {
         /// Here we explicitly pass in the task to perform any read/writes
         pub fn add_breakpoint(
             &self,
-            t: &mut dyn Task,
+            t: &dyn Task,
             addr: RemoteCodePtr,
             type_: BreakpointType,
         ) -> bool {
@@ -1378,7 +1374,7 @@ pub mod address_space {
             &self,
             addr: RemoteCodePtr,
             type_: BreakpointType,
-            active_task: &mut dyn Task,
+            active_task: &dyn Task,
         ) {
             let mut can_destroy_bp = false;
             match self.breakpoints.borrow_mut().get_mut(&addr) {
@@ -1396,7 +1392,7 @@ pub mod address_space {
         /// Destroy all breakpoints in this VM, regardless of their
         /// reference counts.
         /// DIFF NOTE: Additional param `active_task`
-        pub fn remove_all_breakpoints(&self, active_task: &mut dyn Task) {
+        pub fn remove_all_breakpoints(&self, active_task: &dyn Task) {
             let mut bps_to_destroy = Vec::new();
             for bp in self.breakpoints.borrow().keys() {
                 bps_to_destroy.push(*bp);
@@ -1412,12 +1408,7 @@ pub mod address_space {
             match self.breakpoints.borrow().get(&addr) {
                 Some(bp) => {
                     let t = self.any_task_from_task_set().unwrap();
-                    write_val_mem::<u8>(
-                        t.borrow_mut().as_mut(),
-                        addr.to_data_ptr::<u8>(),
-                        &bp.overwritten_data,
-                        None,
-                    );
+                    write_val_mem::<u8>(&**t, addr.to_data_ptr::<u8>(), &bp.overwritten_data, None);
                 }
                 None => (),
             }
@@ -1429,7 +1420,7 @@ pub mod address_space {
                 Some(_bp) => {
                     let t = self.any_task_from_task_set().unwrap();
                     write_val_mem::<u8>(
-                        t.borrow_mut().as_mut(),
+                        &**t,
                         addr.to_data_ptr::<u8>(),
                         &Self::BREAKPOINT_INSN,
                         None,
@@ -1448,7 +1439,7 @@ pub mod address_space {
             addr: RemotePtr<Void>,
             num_bytes: usize,
             type_: WatchType,
-            active_task: &mut dyn Task,
+            active_task: &dyn Task,
         ) -> bool {
             let range = range_for_watchpoint(addr, num_bytes);
             if self.watchpoints.borrow_mut().get_mut(&range).is_none() {
@@ -1475,7 +1466,7 @@ pub mod address_space {
             addr: RemotePtr<Void>,
             num_bytes: usize,
             type_: WatchType,
-            active_task: &mut dyn Task,
+            active_task: &dyn Task,
         ) {
             let r = range_for_watchpoint(addr, num_bytes);
             if let Some(wp) = self.watchpoints.borrow_mut().get_mut(&r) {
@@ -1490,8 +1481,8 @@ pub mod address_space {
         /// To solve already borrowed possibility in the task.
         pub fn remove_all_watchpoints(
             &self,
-            active_task: &mut dyn Task,
-            maybe_cloned_from_thread: Option<&mut dyn Task>,
+            active_task: &dyn Task,
+            maybe_cloned_from_thread: Option<&dyn Task>,
         ) {
             self.watchpoints.borrow_mut().clear();
             self.allocate_watchpoints(active_task, maybe_cloned_from_thread);
@@ -1509,7 +1500,7 @@ pub mod address_space {
         }
         /// Pop all watchpoint state from the saved-state stack.
         /// DIFF NOTE: Additional param `active_task`
-        pub fn restore_watchpoints(&self, active_task: &mut dyn Task) -> bool {
+        pub fn restore_watchpoints(&self, active_task: &dyn Task) -> bool {
             debug_assert!(!self.saved_watchpoints.borrow().is_empty());
             *self.watchpoints.borrow_mut() = self.saved_watchpoints.borrow_mut().pop().unwrap();
             self.allocate_watchpoints(active_task, None)
@@ -1721,7 +1712,7 @@ pub mod address_space {
             self.monkeypatch_state.clone()
         }
 
-        pub fn at_preload_init(&self, t: &mut dyn Task) {
+        pub fn at_preload_init(&self, t: &dyn Task) {
             rd_arch_function!(self, at_preload_init_arch, t.arch(), t)
         }
 
@@ -1827,7 +1818,7 @@ pub mod address_space {
         /// This gives us a way to execute remote syscalls without having to write
         /// a syscall instruction into executable tracee memory (which might not be
         /// possible with some kernels, e.g. PaX).
-        pub fn find_syscall_instruction(&self, t: &mut dyn Task) -> RemoteCodePtr {
+        pub fn find_syscall_instruction(&self, t: &dyn Task) -> RemoteCodePtr {
             static OFFSET_TO_SYSCALL_IN_X86: AtomicUsize = AtomicUsize::new(0);
             static OFFSET_TO_SYSCALL_IN_X64: AtomicUsize = AtomicUsize::new(0);
 
@@ -1861,7 +1852,7 @@ pub mod address_space {
         }
 
         /// Task `t` just forked from this address space. Apply dont_fork settings.
-        pub fn did_fork_into(&self, t: &mut dyn Task) {
+        pub fn did_fork_into(&self, t: &dyn Task) {
             for range in self.dont_fork.borrow().iter() {
                 // During recording we execute MADV_DONTFORK so the forked child will
                 // have had its dontfork areas unmapped by the kernel already
@@ -1889,7 +1880,7 @@ pub mod address_space {
         pub fn saved_auxv(&self) -> Ref<[u8]> {
             Ref::map(self.saved_auxv_.borrow(), |v| v.as_slice())
         }
-        pub fn save_auxv(&self, t: &mut dyn Task) {
+        pub fn save_auxv(&self, t: &dyn Task) {
             *self.saved_auxv_.borrow_mut() = read_auxv(t);
         }
 
@@ -1951,7 +1942,7 @@ pub mod address_space {
 
         /// The return value indicates whether we (re)created the preload_thread_locals
         /// area.
-        pub fn post_vm_clone(&self, t: &mut dyn Task) -> bool {
+        pub fn post_vm_clone(&self, t: &dyn Task) -> bool {
             let maybe_m = self.mapping_of(Self::preload_thread_locals_start());
             if maybe_m.is_some()
                 && !maybe_m
@@ -1997,7 +1988,7 @@ pub mod address_space {
         /// Call this when the memory at [addr,addr+len) was externally overwritten.
         /// This will attempt to update any breakpoints that may be set within the
         /// range (resetting them and storing the new value).
-        pub fn maybe_update_breakpoints(&self, t: &mut dyn Task, addr: RemotePtr<u8>, len: usize) {
+        pub fn maybe_update_breakpoints(&self, t: &dyn Task, addr: RemotePtr<u8>, len: usize) {
             for (k, v) in self.breakpoints.borrow_mut().iter_mut() {
                 let bp_addr = k.to_data_ptr::<u8>();
                 if addr <= bp_addr && bp_addr < addr + len {
@@ -2019,7 +2010,7 @@ pub mod address_space {
         /// The start of the range might also be in the middle of a mapping.
         pub fn ensure_replay_matches_single_recorded_mapping(
             &self,
-            t: &mut dyn Task,
+            t: &dyn Task,
             range: MemoryRange,
         ) {
             // The only case where we eagerly coalesced during recording but not replay should
@@ -2122,7 +2113,7 @@ pub mod address_space {
         /// Called after a successful execve to set up the new AddressSpace.
         /// Also called once for the initial spawn.
         pub(in super::super) fn new_after_execve(
-            t: &mut dyn Task,
+            t: &dyn Task,
             exe: &OsStr,
             exec_count: u32,
         ) -> AddressSpace {
@@ -2464,7 +2455,7 @@ pub mod address_space {
                 file_name = child_path.task().file_name_of_fd(page.as_raw());
 
                 let page_data: Vec<u8> = read_all(child_path.task(), &page);
-                child_path.task_mut().write_bytes_helper(
+                child_path.task().write_bytes_helper(
                     Self::rd_page_start(),
                     &page_data,
                     None,
@@ -2544,9 +2535,8 @@ pub mod address_space {
                 let mut bytes_read: usize;
                 while num_bytes > 0 {
                     let buf_pos = addr.as_usize() - watchpoint_range.start().as_usize();
-                    let bytes_read_res = t
-                        .borrow_mut()
-                        .read_bytes_fallible(addr, &mut value_bytes[buf_pos..buf_pos + num_bytes]);
+                    let bytes_read_res =
+                        t.read_bytes_fallible(addr, &mut value_bytes[buf_pos..buf_pos + num_bytes]);
                     match bytes_read_res {
                         Ok(0) | Err(_) => {
                             valid = false;
@@ -2661,8 +2651,8 @@ pub mod address_space {
         /// To solve already borrowed possibility for the tasks
         fn allocate_watchpoints(
             &self,
-            active_task: &mut dyn Task,
-            maybe_cloned_from_thread: Option<&mut dyn Task>,
+            active_task: &dyn Task,
+            maybe_cloned_from_thread: Option<&dyn Task>,
         ) -> bool {
             let mut regs = self.get_watch_configs(WillSetTaskState::SettingTaskState);
 
@@ -2702,7 +2692,7 @@ pub mod address_space {
                 }
 
                 for t in self.task_set().iter_except_vec(except_vec.clone()) {
-                    if !t.borrow_mut().set_debug_regs(&regs) {
+                    if !t.set_debug_regs(&regs) {
                         ok = false;
                     }
                 }
@@ -2720,7 +2710,7 @@ pub mod address_space {
                     .map(|cloned_from_thread| cloned_from_thread.set_debug_regs(&mut regs));
             }
             for t2 in self.task_set().iter_except_vec(except_vec) {
-                t2.borrow_mut().set_debug_regs(&regs);
+                t2.set_debug_regs(&regs);
             }
 
             for v in self.watchpoints.borrow_mut().values_mut() {
@@ -2811,7 +2801,7 @@ pub mod address_space {
         ///
         /// Called destroy_breakpoint() in rr.
         /// DIFF NOTE: Additional param `active_task`
-        fn destroy_breakpoint_at(&self, addr: RemoteCodePtr, active_task: &mut dyn Task) {
+        fn destroy_breakpoint_at(&self, addr: RemoteCodePtr, active_task: &dyn Task) {
             // @TODO In an earlier version of this method there was the possibility that there was
             // no task in the task set. In the new version we always assume there is an active
             // task. Check whether this assumption will not cause any problems.
@@ -2955,7 +2945,7 @@ pub mod address_space {
             self.mem.borrow_mut().insert(MemoryRangeKey(*m.map), m);
         }
 
-        fn at_preload_init_arch<Arch: Architecture>(&self, t: &mut dyn Task) {
+        fn at_preload_init_arch<Arch: Architecture>(&self, t: &dyn Task) {
             let addr = t.regs_ref().arg1();
             let params = read_val_mem(
                 t,
@@ -2998,7 +2988,7 @@ pub mod address_space {
                     .as_ref()
                     .unwrap()
                     .borrow_mut()
-                    .patch_at_preload_init(t.as_rec_mut_unwrap());
+                    .patch_at_preload_init(t.as_rec_unwrap());
             }
         }
 
@@ -3321,8 +3311,7 @@ fn thread_group_in_exec(t: &dyn Task) -> bool {
         .task_set()
         .iter_except(t.weak_self_ptr())
     {
-        let rf = tt.borrow();
-        let rt = rf.as_record_task().unwrap();
+        let rt = tt.as_record_task().unwrap();
         let ev = rt.ev();
         if ev.is_syscall_event()
             && is_execve_syscall(ev.syscall_event().number, ev.syscall_event().arch())

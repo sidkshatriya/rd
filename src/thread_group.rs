@@ -211,8 +211,8 @@ impl ThreadGroup {
         log!(LogDebug, "destabilizing thread group {}", self.tgid);
         active_task.unstable.set(true);
         for t in self.task_set().iter_except(active_task.weak_self_ptr()) {
-            t.borrow().unstable.set(true);
-            log!(LogDebug, "  destabilized task {}", t.borrow().tid());
+            t.unstable.set(true);
+            log!(LogDebug, "  destabilized task {}", t.tid());
         }
     }
 

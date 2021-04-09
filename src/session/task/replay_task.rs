@@ -135,14 +135,14 @@ impl ReplayTask {
     /// the return value from the rrcall, which is also returned
     /// from this call.  `map_hint` suggests where to map the
     /// region; see `init_syscallbuf_buffer()`.
-    pub fn init_buffers(&mut self, map_hint: RemotePtr<Void>) {
+    pub fn init_buffers(&self, map_hint: RemotePtr<Void>) {
         rd_arch_function!(self, init_buffers_arch, self.arch(), map_hint)
     }
 
     /// DIFF NOTE: Simply called ReplayTask::post_exec_syscall(...) in rr
     /// Not to be confused with post_exec_syscall() in rr which does not take any arguments
     /// Call this method when the exec has completed.
-    pub fn post_exec_syscall_for_replay_exe(&mut self, replay_exe: &OsStr) {
+    pub fn post_exec_syscall_for_replay_exe(&self, replay_exe: &OsStr) {
         self.post_exec_for_exe(replay_exe);
 
         // Perform post-exec-syscall tasks now (e.g. opening mem_fd) before we
@@ -227,7 +227,7 @@ impl ReplayTask {
 
     /// @TODO More elegant approach??
     /// Restore the next chunk of saved data from the trace to this.
-    pub fn set_data_from_trace(&mut self, maybe_other: Option<&mut ReplayTask>) -> usize {
+    pub fn set_data_from_trace(&self, maybe_other: Option<&ReplayTask>) -> usize {
         let buf: RawData = self.trace_reader_mut().read_raw_data();
         if !buf.addr.is_null() && buf.data.len() > 0 {
             if buf.rec_tid == self.rec_tid() {
@@ -246,14 +246,9 @@ impl ReplayTask {
             } else {
                 let t = self.session().find_task_from_rec_tid(buf.rec_tid).unwrap();
 
-                t.borrow_mut()
-                    .write_bytes_helper(buf.addr, &buf.data, None, WriteFlags::empty());
-                let vm_shr_ptr = t.borrow().vm();
-                vm_shr_ptr.maybe_update_breakpoints(
-                    t.borrow_mut().as_mut(),
-                    buf.addr,
-                    buf.data.len(),
-                );
+                t.write_bytes_helper(buf.addr, &buf.data, None, WriteFlags::empty());
+                t.vm()
+                    .maybe_update_breakpoints(&**t, buf.addr, buf.data.len());
             }
         }
 
@@ -277,7 +272,7 @@ impl ReplayTask {
     }
 
     /// Restore all remaining chunks of saved data for the current trace frame.
-    pub fn apply_all_data_records_from_trace(&mut self) {
+    pub fn apply_all_data_records_from_trace(&self) {
         loop {
             let maybe_buf = self.trace_reader_mut().read_raw_data_for_frame().clone();
             match maybe_buf {
@@ -289,18 +284,9 @@ impl ReplayTask {
                                 .maybe_update_breakpoints(self, buf.addr, buf.data.len());
                         } else {
                             let t = self.session().find_task_from_rec_tid(buf.rec_tid).unwrap();
-                            t.borrow_mut().write_bytes_helper(
-                                buf.addr,
-                                &buf.data,
-                                None,
-                                WriteFlags::empty(),
-                            );
-                            let vm_shr = t.borrow().vm();
-                            vm_shr.maybe_update_breakpoints(
-                                t.borrow_mut().as_mut(),
-                                buf.addr,
-                                buf.data.len(),
-                            );
+                            t.write_bytes_helper(buf.addr, &buf.data, None, WriteFlags::empty());
+                            t.vm()
+                                .maybe_update_breakpoints(&**t, buf.addr, buf.data.len());
                         };
                     }
                 }
@@ -311,7 +297,7 @@ impl ReplayTask {
 
     /// Set the syscall-return-value register of this to what was
     /// saved in the current trace frame.
-    pub fn set_return_value_from_trace(&mut self) {
+    pub fn set_return_value_from_trace(&self) {
         let mut r = self.regs_ref().clone();
         r.set_syscall_result(self.current_trace_frame().regs_ref().syscall_result());
         // In some cases (e.g. syscalls forced to return an error by tracee
@@ -323,14 +309,14 @@ impl ReplayTask {
 
     /// Used when an execve changes the tid of a non-main-thread to the
     /// thread-group leader.
-    pub fn set_real_tid_and_update_serial(&mut self, tid: pid_t) {
+    pub fn set_real_tid_and_update_serial(&self, tid: pid_t) {
         self.hpc.borrow_mut().set_tid(tid);
         self.tid.set(tid);
         self.serial.set(self.session().next_task_serial());
     }
 
     /// Note: This method is private
-    fn init_buffers_arch<Arch: Architecture>(&mut self, map_hint: RemotePtr<Void>) {
+    fn init_buffers_arch<Arch: Architecture>(&self, map_hint: RemotePtr<Void>) {
         self.apply_all_data_records_from_trace();
 
         let child_args: RemotePtr<rdcall_init_buffers_params<Arch>> =
@@ -346,12 +332,12 @@ impl ReplayTask {
 
         let mut remote = AutoRemoteSyscalls::new(self);
         if !syscallbuf_ptr.is_null() {
-            remote.task_mut().syscallbuf_size.set(syscallbuf_size);
+            remote.task().syscallbuf_size.set(syscallbuf_size);
             remote.init_syscall_buffer(map_hint);
-            remote.task_mut().desched_fd_child.set(desched_counter_fd);
+            remote.task().desched_fd_child.set(desched_counter_fd);
             // Prevent the child from closing this fd
-            remote.task_mut().fd_table().add_monitor(
-                remote.task_mut(),
+            remote.task().fd_table().add_monitor(
+                remote.task(),
                 desched_counter_fd,
                 Box::new(PreserveFileMonitor::new()),
             );
@@ -359,15 +345,15 @@ impl ReplayTask {
             // Skip mmap record. It exists mainly to inform non-replay code
             // (e.g. RemixModule) that this memory will be mapped.
             remote
-                .task_mut()
-                .as_replay_task_mut()
+                .task()
+                .as_replay_task()
                 .unwrap()
                 .trace_reader_mut()
                 .read_mapped_region(None, None, None, None, None);
 
             if cloned_file_data_fd >= 0 {
                 remote
-                    .task_mut()
+                    .task()
                     .cloned_file_data_fd_child
                     .set(cloned_file_data_fd);
                 let arch = remote.arch();
@@ -401,8 +387,8 @@ impl ReplayTask {
                     ed_assert_eq!(remote.task(), ret, cloned_file_data_fd);
                     rd_infallible_syscall!(remote, syscall_number_for_close(arch), fd);
                 }
-                remote.task_mut().fd_table().add_monitor(
-                    remote.task_mut(),
+                remote.task().fd_table().add_monitor(
+                    remote.task(),
                     cloned_file_data_fd,
                     Box::new(PreserveFileMonitor::new()),
                 );
@@ -418,7 +404,7 @@ impl ReplayTask {
 
 impl Task for ReplayTask {
     fn clone_task(
-        &mut self,
+        &self,
         reason: CloneReason,
         flags: CloneFlags,
         stack: RemotePtr<Void>,
@@ -443,33 +429,33 @@ impl Task for ReplayTask {
         )
     }
 
-    fn post_wait_clone(&mut self, clone_from: &dyn Task, flags: CloneFlags) {
+    fn post_wait_clone(&self, clone_from: &dyn Task, flags: CloneFlags) {
         post_wait_clone_common(self, clone_from, flags)
     }
 
     /// Forwarded method
-    fn destroy(&mut self, maybe_detach: Option<bool>) {
+    fn destroy(&self, maybe_detach: Option<bool>) {
         destroy_common(self, maybe_detach)
     }
 
     /// Forwarded method
-    fn detect_syscall_arch(&mut self) -> SupportedArch {
+    fn detect_syscall_arch(&self) -> SupportedArch {
         detect_syscall_arch_common(self)
     }
 
     /// Forwarded method
-    fn destroy_buffers(&mut self) {
+    fn destroy_buffers(&self) {
         destroy_buffers_common(self)
     }
 
     /// Forwarded method
-    fn post_exec_for_exe(&mut self, exe_file: &OsStr) {
+    fn post_exec_for_exe(&self, exe_file: &OsStr) {
         post_exec_for_exe_common(self, exe_file)
     }
 
     /// Forwarded method
     fn resume_execution(
-        &mut self,
+        &self,
         how: ResumeRequest,
         wait_how: WaitRequest,
         tick_period: TicksRequest,
@@ -479,17 +465,17 @@ impl Task for ReplayTask {
     }
 
     /// Forwarded method
-    fn stored_record_size(&mut self, record: RemotePtr<syscallbuf_record>) -> usize {
+    fn stored_record_size(&self, record: RemotePtr<syscallbuf_record>) -> usize {
         stored_record_size_common(self, record)
     }
 
     /// Forwarded method
-    fn did_waitpid(&mut self, status: WaitStatus) {
+    fn did_waitpid(&self, status: WaitStatus) {
         did_waitpid_common(self, status)
     }
 
     /// Forwarded method
-    fn next_syscallbuf_record(&mut self) -> RemotePtr<syscallbuf_record> {
+    fn next_syscallbuf_record(&self) -> RemotePtr<syscallbuf_record> {
         next_syscallbuf_record_common(self)
     }
 
@@ -501,46 +487,46 @@ impl Task for ReplayTask {
         Some(self)
     }
 
-    fn as_replay_task_mut(&mut self) -> Option<&mut ReplayTask> {
+    fn as_replay_task_mut(&self) -> Option<&ReplayTask> {
         Some(self)
     }
 
-    fn on_syscall_exit(&mut self, syscallno: i32, arch: SupportedArch, regs: &Registers) {
+    fn on_syscall_exit(&self, syscallno: i32, arch: SupportedArch, regs: &Registers) {
         on_syscall_exit_common(self, syscallno, arch, regs)
     }
 
     // Forwarded method
-    fn at_preload_init(&mut self) {
+    fn at_preload_init(&self) {
         at_preload_init_common(self)
     }
 
     /// Forwarded method
-    fn open_mem_fd(&mut self) -> bool {
+    fn open_mem_fd(&self) -> bool {
         open_mem_fd_common(self)
     }
 
     /// Forwarded method
-    fn read_bytes_fallible(&mut self, addr: RemotePtr<u8>, buf: &mut [u8]) -> Result<usize, ()> {
+    fn read_bytes_fallible(&self, addr: RemotePtr<u8>, buf: &mut [u8]) -> Result<usize, ()> {
         read_bytes_fallible_common(self, addr, buf)
     }
 
     /// Forwarded method
-    fn read_bytes_helper(&mut self, addr: RemotePtr<Void>, buf: &mut [u8], ok: Option<&mut bool>) {
+    fn read_bytes_helper(&self, addr: RemotePtr<Void>, buf: &mut [u8], ok: Option<&mut bool>) {
         read_bytes_helper_common(self, addr, buf, ok)
     }
 
-    fn read_bytes(&mut self, addr: RemotePtr<Void>, buf: &mut [u8]) {
+    fn read_bytes(&self, addr: RemotePtr<Void>, buf: &mut [u8]) {
         read_bytes_helper_common(self, addr, buf, None)
     }
 
     /// Forwarded method
-    fn read_c_str(&mut self, child_addr: RemotePtr<u8>) -> CString {
+    fn read_c_str(&self, child_addr: RemotePtr<u8>) -> CString {
         read_c_str_common(self, child_addr)
     }
 
     /// Forwarded method
     fn write_bytes_helper(
-        &mut self,
+        &self,
         addr: RemotePtr<u8>,
         buf: &[u8],
         ok: Option<&mut bool>,
@@ -550,31 +536,26 @@ impl Task for ReplayTask {
     }
 
     /// Forwarded method
-    fn syscallbuf_data_size(&mut self) -> usize {
+    fn syscallbuf_data_size(&self) -> usize {
         syscallbuf_data_size_common(self)
     }
 
     /// Forwarded method
-    fn write_bytes(&mut self, child_addr: RemotePtr<u8>, buf: &[u8]) {
+    fn write_bytes(&self, child_addr: RemotePtr<u8>, buf: &[u8]) {
         write_bytes_common(self, child_addr, buf);
     }
 
     /// Forwarded method
-    fn post_exec_syscall(&mut self) {
+    fn post_exec_syscall(&self) {
         post_exec_syscall_common(self)
     }
 
     // Forwarded method
-    fn compute_trap_reasons(&mut self) -> TrapReasons {
+    fn compute_trap_reasons(&self) -> TrapReasons {
         compute_trap_reasons_common(self)
     }
 
-    fn post_vm_clone(
-        &mut self,
-        reason: CloneReason,
-        flags: CloneFlags,
-        origin: &mut dyn Task,
-    ) -> bool {
+    fn post_vm_clone(&self, reason: CloneReason, flags: CloneFlags, origin: &dyn Task) -> bool {
         if post_vm_clone_common(self, reason, flags, origin)
             && reason == CloneReason::TraceeClone
             && self.trace_reader().preload_thread_locals_recorded()
@@ -597,17 +578,17 @@ impl Task for ReplayTask {
     }
 
     // Forwarded method
-    fn set_thread_area(&mut self, tls: RemotePtr<user_desc>) {
+    fn set_thread_area(&self, tls: RemotePtr<user_desc>) {
         set_thread_area_common(self, tls)
     }
 
     /// Forwarded method
-    fn reset_syscallbuf(&mut self) {
+    fn reset_syscallbuf(&self) {
         reset_syscallbuf_common(self);
     }
 
     /// Forwarded method
-    fn set_syscallbuf_locked(&mut self, locked: bool) {
+    fn set_syscallbuf_locked(&self, locked: bool) {
         set_syscallbuf_locked_common(self, locked);
     }
 }

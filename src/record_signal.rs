@@ -123,7 +123,7 @@ pub enum SignalHandled {
 ///
 /// DIFF NOTE: si param passed by value and treated subtly differently
 pub fn handle_signal(
-    t: &mut RecordTask,
+    t: &RecordTask,
     mut si: siginfo_t,
     deterministic: SignalDeterministic,
     signal_was_blocked: SignalBlocked,
@@ -205,7 +205,7 @@ pub fn handle_signal(
         Some(tracer) => {
             t.emulate_ptrace_stop(
                 WaitStatus::for_stop_sig(sig),
-                tracer.borrow().as_rec_unwrap(),
+                tracer.as_rec_unwrap(),
                 Some(&si),
                 None,
                 None,
@@ -248,7 +248,7 @@ pub fn handle_signal(
     (SignalHandled::SignalHandled, si)
 }
 
-fn restore_sighandler_if_not_default(t: &mut RecordTask, sig: Sig) {
+fn restore_sighandler_if_not_default(t: &RecordTask, sig: Sig) {
     if t.sig_disposition(sig) != SignalDisposition::SignalDefault {
         log!(LogDebug, "Restoring signal handler for {}", sig);
         let sa: Vec<u8> = t.signal_action(sig);
@@ -270,7 +270,7 @@ fn restore_sighandler_if_not_default(t: &mut RecordTask, sig: Sig) {
 
 /// Restore the blocked-ness and sigaction for `sig` from `t`'s local
 /// copy.
-fn restore_signal_state(t: &mut RecordTask, sig: Sig, signal_was_blocked: SignalBlocked) {
+fn restore_signal_state(t: &RecordTask, sig: Sig, signal_was_blocked: SignalBlocked) {
     restore_sighandler_if_not_default(t, sig);
     if signal_was_blocked == SignalBlocked::SigBlocked {
         log!(LogDebug, "Restoring signal blocked-ness for {}", sig);
@@ -308,7 +308,7 @@ fn restore_signal_state(t: &mut RecordTask, sig: Sig, signal_was_blocked: Signal
 /// Return true if `t` was stopped because of a SIGSEGV resulting
 /// from a disabled instruction and `t` was updated appropriately, false
 /// otherwise.
-fn try_handle_trapped_instruction(t: &mut RecordTask, si: &siginfo_t) -> bool {
+fn try_handle_trapped_instruction(t: &RecordTask, si: &siginfo_t) -> bool {
     ed_assert!(t, si.si_signo == SIGSEGV);
 
     let trapped_instruction = trapped_instruction_at(t, t.ip());
@@ -365,7 +365,7 @@ fn try_handle_trapped_instruction(t: &mut RecordTask, si: &siginfo_t) -> bool {
 
 /// Return true if `t` was stopped because of a SIGSEGV and we want to retry
 /// the instruction after emulating MAP_GROWSDOWN.
-fn try_grow_map(t: &mut RecordTask, si: &siginfo_t) -> bool {
+fn try_grow_map(t: &RecordTask, si: &siginfo_t) -> bool {
     ed_assert_eq!(t, si.si_signo, SIGSEGV);
 
     // Use kernel_abi to avoid odd inconsistencies between distros
@@ -516,7 +516,7 @@ fn try_grow_map(t: &mut RecordTask, si: &siginfo_t) -> bool {
     true
 }
 
-fn get_stub_scratch_1_arch<Arch: Architecture>(t: &mut RecordTask) -> RemoteCodePtr {
+fn get_stub_scratch_1_arch<Arch: Architecture>(t: &RecordTask) -> RemoteCodePtr {
     let locals = read_val_mem(
         t,
         RemotePtr::<preload_thread_locals<Arch>>::cast(AddressSpace::preload_thread_locals_start()),
@@ -526,7 +526,7 @@ fn get_stub_scratch_1_arch<Arch: Architecture>(t: &mut RecordTask) -> RemoteCode
     Arch::as_rptr(locals.stub_scratch_1).into()
 }
 
-fn get_stub_scratch_1(t: &mut RecordTask) -> RemoteCodePtr {
+fn get_stub_scratch_1(t: &RecordTask) -> RemoteCodePtr {
     let arch = t.arch();
     rd_arch_function_selfless!(get_stub_scratch_1_arch, arch, t)
 }
@@ -538,7 +538,7 @@ fn get_stub_scratch_1(t: &mut RecordTask) -> RemoteCodePtr {
 /// If it was triggered by one of our breakpoints, we have to call
 /// restore_sighandler_if_not_default(t, SIGTRAP) to make sure the SIGTRAP
 /// handler is properly restored if the kernel cleared it.
-pub fn handle_syscallbuf_breakpoint(t: &mut RecordTask) -> bool {
+pub fn handle_syscallbuf_breakpoint(t: &RecordTask) -> bool {
     if t.is_at_syscallbuf_final_instruction_breakpoint() {
         log!(
             LogDebug,
@@ -625,7 +625,7 @@ pub fn handle_syscallbuf_breakpoint(t: &mut RecordTask) -> bool {
 /// Return the event needing to be processed after this desched of `t`.
 /// The tracee's execution may be advanced, and if so `regs` is updated
 /// to the tracee's latest state.
-fn handle_desched_event(t: &mut RecordTask, si: &siginfo_t) {
+fn handle_desched_event(t: &RecordTask, si: &siginfo_t) {
     let desched_sig = t.session().as_record().unwrap().syscallbuf_desched_sig();
     ed_assert!(
         t,
@@ -887,7 +887,7 @@ fn handle_desched_event(t: &mut RecordTask, si: &siginfo_t) {
     );
 }
 
-fn is_safe_to_deliver_signal(t: &mut RecordTask, si: &siginfo_t) -> bool {
+fn is_safe_to_deliver_signal(t: &RecordTask, si: &siginfo_t) -> bool {
     if !t.is_in_syscallbuf() {
         // The tracee is outside the syscallbuf code,
         // so in most cases can't possibly affect

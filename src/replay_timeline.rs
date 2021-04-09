@@ -404,7 +404,7 @@ impl ReplayTimeline {
 
                         let t = result.break_status.task.upgrade().unwrap();
                         ed_assert!(
-                            &t.borrow(),
+                            &t,
                             false,
                             " Probable duplicated states leading to {} at index {}",
                             m,
@@ -477,7 +477,7 @@ impl ReplayTimeline {
     /// removing one removes both.
     pub fn add_breakpoint(
         &mut self,
-        t: &mut ReplayTask,
+        t: &ReplayTask,
         addr: RemoteCodePtr,
         condition: Option<Box<dyn BreakpointCondition>>,
     ) -> bool {
@@ -503,7 +503,7 @@ impl ReplayTimeline {
 
     /// You can't remove a breakpoint with a specific condition, so don't
     /// place multiple breakpoints with conditions on the same location.
-    pub fn remove_breakpoint(&mut self, t: &mut ReplayTask, addr: RemoteCodePtr) {
+    pub fn remove_breakpoint(&mut self, t: &ReplayTask, addr: RemoteCodePtr) {
         if self.breakpoints_applied {
             t.vm().remove_breakpoint(addr, BreakpointType::BkptUser, t);
         }
@@ -517,7 +517,7 @@ impl ReplayTimeline {
 
     pub fn add_watchpoint(
         &mut self,
-        t: &mut ReplayTask,
+        t: &ReplayTask,
         addr: RemotePtr<Void>,
         num_bytes: usize,
         type_: WatchType,
@@ -550,7 +550,7 @@ impl ReplayTimeline {
     /// place multiple breakpoints with conditions on the same location.
     pub fn remove_watchpoint(
         &mut self,
-        t: &mut ReplayTask,
+        t: &ReplayTask,
         addr: RemotePtr<Void>,
         num_bytes: usize,
         type_: WatchType,
@@ -821,10 +821,10 @@ impl ReplayTimeline {
                     || !result.break_status.watchpoints_hit.is_empty();
                 if avoidable_stop {
                     let task = result.break_status.task.upgrade().unwrap();
-                    made_progress_between_stops = avoidable_stop_ip != task.borrow().ip()
-                        || avoidable_stop_ticks != task.borrow().tick_count();
-                    avoidable_stop_ip = task.borrow().ip();
-                    avoidable_stop_ticks = task.borrow().tick_count();
+                    made_progress_between_stops =
+                        avoidable_stop_ip != task.ip() || avoidable_stop_ticks != task.tick_count();
+                    avoidable_stop_ip = task.ip();
+                    avoidable_stop_ticks = task.tick_count();
                 }
 
                 self.evaluate_conditions(&mut result);
@@ -835,7 +835,6 @@ impl ReplayTimeline {
                             .task
                             .upgrade()
                             .unwrap()
-                            .borrow()
                             .as_replay_task()
                             .unwrap(),
                     )
@@ -875,20 +874,12 @@ impl ReplayTimeline {
                     // @TODO Check this
                     final_result = result.clone();
                     final_tuid = if !result.break_status.task.ptr_eq(&Weak::new()) {
-                        Some(result.break_status.task.upgrade().unwrap().borrow().tuid())
+                        Some(result.break_status.task.upgrade().unwrap().tuid())
                     } else {
                         None
                     };
                     final_ticks = if !result.break_status.task.ptr_eq(&Weak::new()) {
-                        Some(
-                            result
-                                .break_status
-                                .task
-                                .upgrade()
-                                .unwrap()
-                                .borrow()
-                                .tick_count(),
-                        )
+                        Some(result.break_status.task.upgrade().unwrap().tick_count())
                     } else {
                         None
                     };
@@ -902,24 +893,8 @@ impl ReplayTimeline {
                     final_result.break_status.task =
                         Rc::downgrade(&self.current_session().current_task().unwrap());
                     final_result.break_status.task_exit = true;
-                    final_tuid = Some(
-                        final_result
-                            .break_status
-                            .task
-                            .upgrade()
-                            .unwrap()
-                            .borrow()
-                            .tuid(),
-                    );
-                    final_ticks = Some(
-                        result
-                            .break_status
-                            .task
-                            .upgrade()
-                            .unwrap()
-                            .borrow()
-                            .tick_count(),
-                    );
+                    final_tuid = Some(final_result.break_status.task.upgrade().unwrap().tuid());
+                    final_ticks = Some(result.break_status.task.upgrade().unwrap().tick_count());
                     last_stop_is_watch_or_signal = false;
                 }
 
@@ -940,20 +915,12 @@ impl ReplayTimeline {
                     );
                     final_result = result.clone();
                     final_tuid = if !result.break_status.task.ptr_eq(&Weak::new()) {
-                        Some(result.break_status.task.upgrade().unwrap().borrow().tuid())
+                        Some(result.break_status.task.upgrade().unwrap().tuid())
                     } else {
                         None
                     };
                     final_ticks = if !result.break_status.task.ptr_eq(&Weak::new()) {
-                        Some(
-                            result
-                                .break_status
-                                .task
-                                .upgrade()
-                                .unwrap()
-                                .borrow()
-                                .tick_count(),
-                        )
+                        Some(result.break_status.task.upgrade().unwrap().tick_count())
                     } else {
                         None
                     };
@@ -1099,7 +1066,7 @@ impl ReplayTimeline {
             // several watchpoints at once on a given AddressSpace.
             match maybe_vm {
                 Some(vm) if wp.watch_type != WatchType::WatchExec => {
-                    vm.add_watchpoint(wp.addr, wp.size, wp.watch_type, t.borrow_mut().as_mut());
+                    vm.add_watchpoint(wp.addr, wp.size, wp.watch_type, &**t);
                 }
                 _ => (),
             }
@@ -1121,7 +1088,7 @@ impl ReplayTimeline {
             let maybe_vm = self.current_session().find_address_space(wp.uid);
             match maybe_vm {
                 Some(vm) if wp.watch_type != WatchType::WatchExec => {
-                    vm.remove_watchpoint(wp.addr, wp.size, wp.watch_type, t.borrow_mut().as_mut());
+                    vm.remove_watchpoint(wp.addr, wp.size, wp.watch_type, &**t);
                 }
                 _ => (),
             }
@@ -1137,7 +1104,7 @@ impl ReplayTimeline {
             // be created) and we should reapply breakpoints then.
             match maybe_vm {
                 Some(vm) => {
-                    vm.add_breakpoint(t.borrow_mut().as_mut(), bp.addr, BreakpointType::BkptUser);
+                    vm.add_breakpoint(&**t, bp.addr, BreakpointType::BkptUser);
                 }
                 _ => (),
             }
@@ -1146,7 +1113,7 @@ impl ReplayTimeline {
             let maybe_vm = self.current_session().find_address_space(wp.uid);
             match maybe_vm {
                 Some(vm) if wp.watch_type == WatchType::WatchExec => {
-                    vm.add_watchpoint(wp.addr, wp.size, wp.watch_type, t.borrow_mut().as_mut());
+                    vm.add_watchpoint(wp.addr, wp.size, wp.watch_type, &**t);
                 }
                 _ => (),
             }
@@ -1158,21 +1125,14 @@ impl ReplayTimeline {
         for bp in self.breakpoints.keys() {
             let maybe_vm = self.current_session().find_address_space(bp.uid);
             match maybe_vm {
-                Some(vm) => {
-                    vm.remove_breakpoint(bp.addr, BreakpointType::BkptUser, t.borrow_mut().as_mut())
-                }
+                Some(vm) => vm.remove_breakpoint(bp.addr, BreakpointType::BkptUser, &**t),
                 None => (),
             }
             for wp in self.watchpoints.keys() {
                 let maybe_vm = self.current_session().find_address_space(wp.uid);
                 match maybe_vm {
                     Some(vm) if wp.watch_type == WatchType::WatchExec => {
-                        vm.remove_watchpoint(
-                            wp.addr,
-                            wp.size,
-                            wp.watch_type,
-                            t.borrow_mut().as_mut(),
-                        );
+                        vm.remove_watchpoint(wp.addr, wp.size, wp.watch_type, &**t);
                     }
                     _ => (),
                 }
@@ -1183,7 +1143,7 @@ impl ReplayTimeline {
     fn session_mark_key(session: &ReplaySession) -> MarkKey {
         let maybe_t = session.current_task();
         let tick_count = match maybe_t {
-            Some(t) => t.borrow().tick_count(),
+            Some(t) => t.tick_count(),
             None => 0,
         };
         MarkKey::new(
@@ -1199,7 +1159,7 @@ impl ReplayTimeline {
 
     fn proto_mark(&self) -> ProtoMark {
         match self.current_session().current_task() {
-            Some(rc_t) => ProtoMark::new(self.current_mark_key(), rc_t.borrow_mut().as_mut()),
+            Some(rc_t) => ProtoMark::new(self.current_mark_key(), &**rc_t),
             None => ProtoMark::new_from_key(self.current_mark_key()),
         }
     }
@@ -1216,7 +1176,7 @@ impl ReplayTimeline {
             } else {
                 let t = self.current_session().current_task().unwrap();
                 let mark_addr: RemoteCodePtr = pmark.regs.ip();
-                if t.borrow().regs_ref().ip() == mark_addr
+                if t.regs_ref().ip() == mark_addr
                     && self.current_session().current_step_key().in_execution()
                 {
                     // At required IP, but not in the correct state. Singlestep over
@@ -1228,14 +1188,10 @@ impl ReplayTimeline {
                         .replay_step_with_constraints(&constraints);
                 } else {
                     // Get a shared reference to t.vm() in case t dies during replay_step
-                    let vm = t.borrow().vm();
-                    vm.add_breakpoint(t.borrow_mut().as_mut(), mark_addr, BreakpointType::BkptUser);
+                    let vm = t.vm();
+                    vm.add_breakpoint(&**t, mark_addr, BreakpointType::BkptUser);
                     self.current_session().replay_step(RunCommand::RunContinue);
-                    vm.remove_breakpoint(
-                        mark_addr,
-                        BreakpointType::BkptUser,
-                        t.borrow_mut().as_mut(),
-                    );
+                    vm.remove_breakpoint(mark_addr, BreakpointType::BkptUser, &**t);
                 }
             }
         }
@@ -1403,12 +1359,12 @@ impl ReplayTimeline {
                 return false;
             }
         };
-        let start_ticks: Ticks = t.borrow().tick_count();
+        let start_ticks: Ticks = t.tick_count();
         let mut end_ticks: Ticks = self.current_session().current_trace_frame().ticks();
         if end.ptr.borrow().proto.key.trace_time == self.current_session().trace_reader().time() {
             end_ticks = u64::min(end_ticks, end.ptr.borrow().proto.key.ticks);
         }
-        ed_assert!(&t.borrow(), start_ticks <= end_ticks);
+        ed_assert!(&t, start_ticks <= end_ticks);
         let target: Ticks = u64::min(end_ticks, (start_ticks + end_ticks) / 2);
         let m: ProtoMark = self.proto_mark();
         if target != end_ticks {
@@ -1419,9 +1375,7 @@ impl ReplayTimeline {
                 .current_session()
                 .replay_step_with_constraints(&constraints);
             if !m.equal_states(self.current_session()) {
-                while t.borrow().tick_count() < target
-                    && !result.break_status.approaching_ticks_target
-                {
+                while t.tick_count() < target && !result.break_status.approaching_ticks_target {
                     result = self
                         .current_session()
                         .replay_step_with_constraints(&constraints);
@@ -1430,7 +1384,7 @@ impl ReplayTimeline {
                 return true;
             }
             debug_assert!(result.break_status.approaching_ticks_target);
-            debug_assert_eq!(t.borrow().tick_count(), start_ticks);
+            debug_assert_eq!(t.tick_count(), start_ticks);
         }
 
         // We didn't make any progress that way.
@@ -1514,7 +1468,7 @@ impl ReplayTimeline {
         let t = self.current_session().current_task().unwrap();
         let before: ProtoMark = self.proto_mark();
         ed_assert!(
-            &t.borrow(),
+            &t,
             before.key <= mark.ptr.borrow().proto.key,
             "Current mark {} is already after target {}",
             before,
@@ -1540,7 +1494,7 @@ impl ReplayTimeline {
         }
 
         ed_assert_eq!(
-            &t.borrow(),
+            &t,
             self.current_session().trace_reader().time(),
             mark.ptr.borrow().proto.key.trace_time
         );
@@ -1549,7 +1503,7 @@ impl ReplayTimeline {
         // reaching the mark ... apart from where we call
         // fix_watchpoint_coalescing_quirk.
 
-        if t.borrow().tick_count() < mark.ptr.borrow().proto.key.ticks {
+        if t.tick_count() < mark.ptr.borrow().proto.key.ticks {
             // Try to make progress by just continuing with a ticks constraint
             // set to stop us before the mark. This is efficient in the worst case,
             // when we must execute lots of instructions to reach the mark.
@@ -1562,10 +1516,7 @@ impl ReplayTimeline {
                 let approaching_ticks_target: bool = result.break_status.approaching_ticks_target;
                 result.break_status.approaching_ticks_target = false;
                 // We can't be at the mark yet.
-                ed_assert!(
-                    &t.borrow(),
-                    t.borrow().tick_count() < mark.ptr.borrow().proto.key.ticks
-                );
+                ed_assert!(&t, t.tick_count() < mark.ptr.borrow().proto.key.ticks);
                 // If there's a break indicated, we should return that to the
                 // caller without doing any more work
                 if !approaching_ticks_target || result.break_status.any_break() {
@@ -1591,33 +1542,25 @@ impl ReplayTimeline {
         // happens if the IP is invalid entirely, the second if it is valid, but
         // not executable. In either case we need to fall back to the (slower, but
         // more generic) code below.
-        if t.borrow().regs_ref().ip() != mark_addr_code
+        if t.regs_ref().ip() != mark_addr_code
             && (t
-                .borrow()
                 .vm()
                 .mapping_of(mark_addr)
                 .map_or(false, |m| m.map.prot().contains(ProtFlags::PROT_EXEC)))
         {
-            let succeeded: bool = t.borrow().vm().add_breakpoint(
-                t.borrow_mut().as_mut(),
-                mark_addr_code,
-                BreakpointType::BkptUser,
-            );
-            ed_assert!(&t.borrow(), succeeded);
+            let succeeded: bool =
+                t.vm()
+                    .add_breakpoint(&**t, mark_addr_code, BreakpointType::BkptUser);
+            ed_assert!(&t, succeeded);
             let constraints: StepConstraints = strategy.setup_step_constraints();
             result = self
                 .current_session()
                 .replay_step_with_constraints(&constraints);
-            t.borrow().vm().remove_breakpoint(
-                mark_addr_code,
-                BreakpointType::BkptUser,
-                t.borrow_mut().as_mut(),
-            );
+            t.vm()
+                .remove_breakpoint(mark_addr_code, BreakpointType::BkptUser, &**t);
             // If we hit our breakpoint and there is no client breakpoint there,
             // pretend we didn't hit it.
-            if result.break_status.breakpoint_hit
-                && !self.has_breakpoint_at_address(t.borrow().as_ref(), t.borrow().ip())
-            {
+            if result.break_status.breakpoint_hit && !self.has_breakpoint_at_address(&**t, t.ip()) {
                 result.break_status.breakpoint_hit = false;
             }
             self.update_strategy_and_fix_watchpoint_quirk(
@@ -1686,20 +1629,18 @@ impl ReplayTimeline {
             return false;
         }
         let break_status_task = result.break_status.task.upgrade().unwrap();
-        if !maybe_at_or_after_x86_string_instruction(
-            break_status_task.borrow_mut().as_replay_task_mut().unwrap(),
-        ) {
+        if !maybe_at_or_after_x86_string_instruction(break_status_task.as_replay_task().unwrap()) {
             return false;
         }
 
-        let after_tuid: TaskUid = break_status_task.borrow().tuid();
-        let after_ticks: Ticks = break_status_task.borrow().tick_count();
+        let after_tuid: TaskUid = break_status_task.tuid();
+        let after_ticks: Ticks = break_status_task.tick_count();
         log!(
             LogDebug,
             "Fixing x86-string coalescing quirk from {} to {} (final cx {})",
             before,
             self.proto_mark(),
-            break_status_task.borrow().regs_ref().cx()
+            break_status_task.regs_ref().cx()
         );
 
         self.seek_to_proto_mark(before);
@@ -1710,7 +1651,7 @@ impl ReplayTimeline {
         let mut approaching_ticks_target = false;
         loop {
             let t = self.current_session().current_task().unwrap();
-            if t.borrow().tuid() == after_tuid {
+            if t.tuid() == after_tuid {
                 if approaching_ticks_target {
                     // We don't need to set any stop_before_states here.
                     // RunCommand::RunSinglestepFastForward always avoids the coalescing quirk, so
@@ -1725,7 +1666,7 @@ impl ReplayTimeline {
                             LogDebug,
                             "Fixed x86-string coalescing quirk; now at {} (new cx {})",
                             self.current_mark_key(),
-                            break_status_task.borrow().regs_ref().cx()
+                            break_status_task.regs_ref().cx()
                         );
                         break;
                     }
@@ -1737,11 +1678,7 @@ impl ReplayTimeline {
                         .replay_step_with_constraints(&constraints);
                     approaching_ticks_target = result.break_status.approaching_ticks_target;
                 }
-                ed_assert!(
-                    &t.borrow(),
-                    t.borrow().tick_count() <= after_ticks,
-                    "We went too far!"
-                );
+                ed_assert!(&t, t.tick_count() <= after_ticks, "We went too far!");
             } else {
                 self.current_session().replay_step(RunCommand::RunContinue);
             }
@@ -1860,11 +1797,11 @@ impl ReplayTimeline {
                 let mut seen_other_task_break: bool = false;
                 while !self.at_mark(&end) {
                     let t = self.current_session().current_task().unwrap();
-                    if stop_filter(t.borrow().as_replay_task().unwrap())
+                    if stop_filter(t.as_replay_task().unwrap())
                         && self.current_session().done_initial_exec()
                     {
-                        if t.borrow().tuid() == step_tuid {
-                            if t.borrow().tick_count() >= ticks_target {
+                        if t.tuid() == step_tuid {
+                            if t.tick_count() >= ticks_target {
                                 // Don't step any further.
                                 log!(LogDebug, "Approaching ticks target");
                                 approaching_ticks_target = true;
@@ -1932,7 +1869,6 @@ impl ReplayTimeline {
                     self.current_session()
                         .current_task()
                         .unwrap()
-                        .borrow()
                         .as_replay_task()
                         .unwrap()
                 ) || seen_barrier
@@ -1950,13 +1886,8 @@ impl ReplayTimeline {
             if self.is_start_of_reverse_execution_barrier_event() {
                 destination_candidate = Some(self.mark());
                 destination_candidate_result.break_status.task_exit = true;
-                destination_candidate_tuid = Some(
-                    self.current_session()
-                        .current_task()
-                        .unwrap()
-                        .borrow()
-                        .tuid(),
-                );
+                destination_candidate_tuid =
+                    Some(self.current_session().current_task().unwrap().tuid());
             }
 
             self.no_watchpoints_hit_interval_start = None;
@@ -1968,19 +1899,11 @@ impl ReplayTimeline {
                     self.current_session()
                         .current_task()
                         .unwrap()
-                        .borrow()
                         .as_replay_task()
                         .unwrap(),
                 ) {
                     self.apply_breakpoints_and_watchpoints();
-                    if self
-                        .current_session()
-                        .current_task()
-                        .unwrap()
-                        .borrow()
-                        .tuid()
-                        == step_tuid
-                    {
+                    if self.current_session().current_task().unwrap().tuid() == step_tuid {
                         let before_step: Mark = self.mark();
                         let mut constraints =
                             StepConstraints::new(RunCommand::RunSinglestepFastForward);
@@ -2015,7 +1938,7 @@ impl ReplayTimeline {
                             );
                             destination_candidate_result = result.clone();
                             destination_candidate_tuid =
-                                Some(result.break_status.task.upgrade().unwrap().borrow().tuid());
+                                Some(result.break_status.task.upgrade().unwrap().tuid());
                             destination_candidate_saw_other_task_break = seen_other_task_break;
                             seen_other_task_break = false;
                             step_start = now.clone();
@@ -2053,13 +1976,8 @@ impl ReplayTimeline {
                     );
                     destination_candidate_result = result;
                     destination_candidate_result.break_status.task_exit = true;
-                    destination_candidate_tuid = Some(
-                        self.current_session()
-                            .current_task()
-                            .unwrap()
-                            .borrow()
-                            .tuid(),
-                    );
+                    destination_candidate_tuid =
+                        Some(self.current_session().current_task().unwrap().tuid());
                     destination_candidate_saw_other_task_break = false;
                     seen_other_task_break = false;
                 }
@@ -2290,18 +2208,16 @@ impl ReplayTimeline {
             return;
         }
         let t = maybe_t.unwrap();
-        let auid = t.borrow().vm().uid();
+        let auid = t.vm().uid();
 
         if result.break_status.breakpoint_hit {
-            let addr = t.borrow().ip();
+            let addr = t.ip();
             let key = TimelineBreakpoint { uid: auid, addr };
             let it = self.breakpoints.get(&key);
             let mut hit = false;
             // DIFF NOTE: @TODO Check this. This is while loop in rr we shouldn't need a while loop here
             if let Some(conditions) = it {
-                if conditions.is_none()
-                    || conditions.as_ref().unwrap().evaluate(t.borrow().as_ref())
-                {
+                if conditions.is_none() || conditions.as_ref().unwrap().evaluate(&**t) {
                     hit = true;
                 }
             }
@@ -2322,9 +2238,7 @@ impl ReplayTimeline {
             let mut hit = false;
             // DIFF NOTE: @TODO Check this. This is while loop in rr we shouldn't need a while loop here
             if let Some(conditions) = it {
-                if conditions.is_none()
-                    || conditions.as_ref().unwrap().evaluate(t.borrow().as_ref())
-                {
+                if conditions.is_none() || conditions.as_ref().unwrap().evaluate(&**t) {
                     hit = true;
                 }
             }
@@ -2472,8 +2386,8 @@ impl InternalMark {
         let extra_regs;
         match session.current_task() {
             Some(t) => {
-                proto = ProtoMark::new(key, t.borrow_mut().as_mut());
-                extra_regs = t.borrow_mut().extra_regs_ref().clone();
+                proto = ProtoMark::new(key, &**t);
+                extra_regs = t.extra_regs_ref().clone();
             }
             None => {
                 proto = ProtoMark::new_from_key(key);
@@ -2574,7 +2488,7 @@ impl Display for ProtoMark {
 }
 
 impl ProtoMark {
-    pub fn new(key: MarkKey, t: &mut dyn Task) -> ProtoMark {
+    pub fn new(key: MarkKey, t: &dyn Task) -> ProtoMark {
         let regs = t.regs_ref().clone();
         ProtoMark {
             key,
@@ -2596,9 +2510,8 @@ impl ProtoMark {
             return false;
         }
         let t = session.current_task().unwrap();
-        let mut tb = t.borrow_mut();
-        let equal_regs = equal_regs(&self.regs, &tb.regs_ref());
-        equal_regs && self.return_addresses == ReturnAddressList::new(tb.as_mut())
+        let equal_regs = equal_regs(&self.regs, &t.regs_ref());
+        equal_regs && self.return_addresses == ReturnAddressList::new(&**t)
     }
 }
 

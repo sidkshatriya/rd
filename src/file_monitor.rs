@@ -62,7 +62,7 @@ impl Range {
 /// file descriptor), so we only do it if we actually need to look at the
 /// offset.
 pub struct LazyOffset<'b, 'a: 'b> {
-    t: &'a mut dyn Task,
+    t: &'a dyn Task,
     regs: &'b Registers,
     /// DIFF NOTE: @TODO in rr this is an i64
     /// Keeping it as an i32 to be consistent with elsewhere.
@@ -70,15 +70,11 @@ pub struct LazyOffset<'b, 'a: 'b> {
 }
 
 impl<'b, 'a: 'b> LazyOffset<'b, 'a> {
-    pub fn task_mut(&mut self) -> &mut dyn Task {
-        self.t
-    }
-
     pub fn task(&self) -> &dyn Task {
         self.t
     }
 
-    pub fn new(t: &'a mut dyn Task, regs: &'b Registers, syscallno: i32) -> LazyOffset<'b, 'a> {
+    pub fn new(t: &'a dyn Task, regs: &'b Registers, syscallno: i32) -> LazyOffset<'b, 'a> {
         LazyOffset { t, regs, syscallno }
     }
 
@@ -104,7 +100,7 @@ impl<'b, 'a: 'b> LazyOffset<'b, 'a> {
         let maybe_offset = retrieve_offset(self.t, self.syscallno, self.regs);
         if needed_for_replay && is_implicit_offset {
             self.t
-                .as_record_task_mut()
+                .as_record_task()
                 .unwrap()
                 .ev_mut()
                 .syscall_event_mut()
@@ -124,7 +120,7 @@ fn is_implict_offset_syscall(arch: SupportedArch, syscallno: i32) -> bool {
 }
 
 fn retrieve_offset_arch<Arch: Architecture>(
-    t: &mut dyn Task,
+    t: &dyn Task,
     syscallno: i32,
     regs: &Registers,
 ) -> Option<u64> {
@@ -168,7 +164,7 @@ fn retrieve_offset_arch<Arch: Architecture>(
     }
 }
 
-fn retrieve_offset(t: &mut dyn Task, syscallno: i32, regs: &Registers) -> Option<u64> {
+fn retrieve_offset(t: &dyn Task, syscallno: i32, regs: &Registers) -> Option<u64> {
     let arch = t.arch();
     rd_arch_function_selfless!(retrieve_offset_arch, arch, t, syscallno, regs)
 }
@@ -222,14 +218,14 @@ pub trait FileMonitor {
     /// Return true if the ioctl should be fully emulated. If so the result
     /// is stored in the last parameter.
     /// Only called during recording.
-    fn emulate_ioctl(&mut self, _t: &mut RecordTask, _r: &mut usize) -> bool {
+    fn emulate_ioctl(&mut self, _t: &RecordTask, _r: &mut usize) -> bool {
         false
     }
 
     /// Return true if the fcntl should should be fully emulated. If so the
     /// result is stored in the last parameter.
     /// Only called during recording.
-    fn emulate_fcntl(&mut self, _t: &mut RecordTask, _r: &mut usize) -> bool {
+    fn emulate_fcntl(&mut self, _t: &RecordTask, _r: &mut usize) -> bool {
         false
     }
 
@@ -246,7 +242,7 @@ pub trait FileMonitor {
 
     /// Allows the FileMonitor to rewrite the output of a getdents/getdents64 call
     /// if desired.
-    fn filter_getdents(&self, _t: &mut RecordTask) {
+    fn filter_getdents(&self, _t: &RecordTask) {
         // Do nothing by default
     }
 }

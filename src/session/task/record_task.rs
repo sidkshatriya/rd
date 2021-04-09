@@ -468,7 +468,7 @@ pub struct RecordTask {
     /// fork children always get their own copies of the table.
     /// And if this task exec()s, the table is copied and stripped
     /// of user sighandlers (see below).
-    pub sighandlers: Rc<RefCell<Sighandlers>>,
+    pub sighandlers: RefCell<Rc<RefCell<Sighandlers>>>,
     /// If not NotStopped, then the task is logically stopped and this is the type
     /// of stop.
     pub emulated_stop_type: Cell<EmulatedStopType>,
@@ -562,7 +562,7 @@ impl Deref for RecordTask {
 
 impl Task for RecordTask {
     fn clone_task(
-        &mut self,
+        &self,
         reason: CloneReason,
         flags: CloneFlags,
         stack: RemotePtr<Void>,
@@ -586,7 +586,7 @@ impl Task for RecordTask {
             new_serial,
             maybe_other_session,
         );
-        if t.borrow().session().is_recording() {
+        if t.session().is_recording() {
             if flags.contains(CloneFlags::CLONE_CLEARTID) {
                 log!(
                     LogDebug,
@@ -594,7 +594,7 @@ impl Task for RecordTask {
                     cleartid_addr.as_usize()
                 );
                 ed_assert!(self, !cleartid_addr.is_null());
-                t.borrow().as_rec_unwrap().tid_futex.set(cleartid_addr);
+                t.as_rec_unwrap().tid_futex.set(cleartid_addr);
             } else {
                 log!(LogDebug, "(clone child not enabling CLEARTID)");
             }
@@ -606,12 +606,12 @@ impl Task for RecordTask {
         self.own_namespace_rec_tid.get()
     }
 
-    fn post_wait_clone(&mut self, clone_from: &dyn Task, flags: CloneFlags) {
+    fn post_wait_clone(&self, clone_from: &dyn Task, flags: CloneFlags) {
         post_wait_clone_common(self, clone_from, flags);
 
         let rt = clone_from.as_rec_unwrap();
         self.priority.set(rt.priority.get());
-        self.syscallbuf_code_layout = rt.syscallbuf_code_layout.clone();
+        *self.syscallbuf_code_layout.borrow_mut() = rt.syscallbuf_code_layout.borrow().clone();
         self.prctl_seccomp_status.set(rt.prctl_seccomp_status.get());
         self.robust_futex_list.set(rt.robust_futex_list.get());
         self.robust_futex_list_len
@@ -619,16 +619,16 @@ impl Task for RecordTask {
         self.tsc_mode.set(rt.tsc_mode.get());
         self.cpuid_mode.set(rt.cpuid_mode.get());
         if flags.contains(CloneFlags::CLONE_SHARE_SIGHANDLERS) {
-            self.sighandlers = rt.sighandlers.clone();
+            *self.sighandlers.borrow_mut() = rt.sighandlers.borrow().clone();
         } else {
-            self.sighandlers = Rc::new(RefCell::new(rt.sighandlers.borrow().clone()));
+            *self.sighandlers.borrow_mut().borrow_mut() = rt.sighandlers.borrow().borrow().clone();
         }
 
         self.update_own_namespace_tid();
     }
 
     fn will_resume_execution(
-        &mut self,
+        &self,
         _resume_req: ResumeRequest,
         _wait_req: WaitRequest,
         ticks_request: TicksRequest,
@@ -718,7 +718,7 @@ impl Task for RecordTask {
     }
 
     /// Forwarded method
-    fn destroy(&mut self, maybe_detach: Option<bool>) {
+    fn destroy(&self, maybe_detach: Option<bool>) {
         destroy_common(self, maybe_detach)
     }
 
@@ -743,23 +743,23 @@ impl Task for RecordTask {
     }
 
     /// Forwarded method
-    fn detect_syscall_arch(&mut self) -> SupportedArch {
+    fn detect_syscall_arch(&self) -> SupportedArch {
         detect_syscall_arch_common(self)
     }
 
     /// Forwarded method
-    fn destroy_buffers(&mut self) {
+    fn destroy_buffers(&self) {
         destroy_buffers_common(self)
     }
 
     /// Forwarded method
-    fn post_exec_for_exe(&mut self, exe_file: &OsStr) {
+    fn post_exec_for_exe(&self, exe_file: &OsStr) {
         post_exec_for_exe_common(self, exe_file)
     }
 
     /// Forwarded method
     fn resume_execution(
-        &mut self,
+        &self,
         how: ResumeRequest,
         wait_how: WaitRequest,
         tick_period: TicksRequest,
@@ -769,17 +769,17 @@ impl Task for RecordTask {
     }
 
     /// Forwarded method
-    fn stored_record_size(&mut self, record: RemotePtr<syscallbuf_record>) -> usize {
+    fn stored_record_size(&self, record: RemotePtr<syscallbuf_record>) -> usize {
         stored_record_size_common(self, record)
     }
 
     /// Forwarded method
-    fn did_waitpid(&mut self, status: WaitStatus) {
+    fn did_waitpid(&self, status: WaitStatus) {
         did_waitpid_common(self, status)
     }
 
     /// Forwarded method
-    fn next_syscallbuf_record(&mut self) -> RemotePtr<syscallbuf_record> {
+    fn next_syscallbuf_record(&self) -> RemotePtr<syscallbuf_record> {
         next_syscallbuf_record_common(self)
     }
 
@@ -791,7 +791,7 @@ impl Task for RecordTask {
         Some(self)
     }
 
-    fn as_record_task_mut(&mut self) -> Option<&mut RecordTask> {
+    fn as_record_task_mut(&self) -> Option<&RecordTask> {
         Some(self)
     }
 
@@ -799,18 +799,18 @@ impl Task for RecordTask {
         self
     }
 
-    fn as_rec_mut_unwrap(&mut self) -> &mut RecordTask {
+    fn as_rec_mut_unwrap(&self) -> &RecordTask {
         self
     }
 
-    fn on_syscall_exit(&mut self, syscallno: i32, arch: SupportedArch, regs: &Registers) {
+    fn on_syscall_exit(&self, syscallno: i32, arch: SupportedArch, regs: &Registers) {
         with_converted_registers(regs, arch, |regs| {
             task_common::on_syscall_exit_common(self, syscallno, arch, regs);
             rd_arch_function!(self, on_syscall_exit_arch, arch, syscallno, regs);
         })
     }
 
-    fn did_wait(&mut self) {
+    fn did_wait(&self) {
         for p in self.syscallbuf_syscall_entry_breakpoints() {
             self.vm()
                 .remove_breakpoint(p, BreakpointType::BkptInternal, self);
@@ -856,38 +856,38 @@ impl Task for RecordTask {
         }
     }
 
-    fn at_preload_init(&mut self) {
+    fn at_preload_init(&self) {
         at_preload_init_common(self);
         do_preload_init(self);
     }
 
     /// Forwarded method
-    fn open_mem_fd(&mut self) -> bool {
+    fn open_mem_fd(&self) -> bool {
         open_mem_fd_common(self)
     }
 
     /// Forwarded method
-    fn read_bytes_fallible(&mut self, addr: RemotePtr<Void>, buf: &mut [u8]) -> Result<usize, ()> {
+    fn read_bytes_fallible(&self, addr: RemotePtr<Void>, buf: &mut [u8]) -> Result<usize, ()> {
         read_bytes_fallible_common(self, addr, buf)
     }
 
     /// Forwarded method
-    fn read_bytes_helper(&mut self, addr: RemotePtr<Void>, buf: &mut [u8], ok: Option<&mut bool>) {
+    fn read_bytes_helper(&self, addr: RemotePtr<Void>, buf: &mut [u8], ok: Option<&mut bool>) {
         read_bytes_helper_common(self, addr, buf, ok)
     }
 
-    fn read_bytes(&mut self, addr: RemotePtr<Void>, buf: &mut [u8]) {
+    fn read_bytes(&self, addr: RemotePtr<Void>, buf: &mut [u8]) {
         read_bytes_helper_common(self, addr, buf, None)
     }
 
     /// Forwarded method
-    fn read_c_str(&mut self, child_addr: RemotePtr<u8>) -> CString {
+    fn read_c_str(&self, child_addr: RemotePtr<u8>) -> CString {
         read_c_str_common(self, child_addr)
     }
 
     /// Forwarded method
     fn write_bytes_helper(
-        &mut self,
+        &self,
         addr: RemotePtr<u8>,
         buf: &[u8],
         ok: Option<&mut bool>,
@@ -897,30 +897,25 @@ impl Task for RecordTask {
     }
 
     /// Forwarded method
-    fn syscallbuf_data_size(&mut self) -> usize {
+    fn syscallbuf_data_size(&self) -> usize {
         syscallbuf_data_size_common(self)
     }
 
     /// Forwarded method
-    fn write_bytes(&mut self, child_addr: RemotePtr<u8>, buf: &[u8]) {
+    fn write_bytes(&self, child_addr: RemotePtr<u8>, buf: &[u8]) {
         write_bytes_common(self, child_addr, buf);
     }
     // Forwarded method
-    fn post_exec_syscall(&mut self) {
+    fn post_exec_syscall(&self) {
         post_exec_syscall_common(self)
     }
 
     // Forwarded method
-    fn compute_trap_reasons(&mut self) -> TrapReasons {
+    fn compute_trap_reasons(&self) -> TrapReasons {
         compute_trap_reasons_common(self)
     }
 
-    fn post_vm_clone(
-        &mut self,
-        reason: CloneReason,
-        flags: CloneFlags,
-        origin: &mut dyn Task,
-    ) -> bool {
+    fn post_vm_clone(&self, reason: CloneReason, flags: CloneFlags, origin: &dyn Task) -> bool {
         if post_vm_clone_common(self, reason, flags, origin) {
             // @TODO Could just do a &self here and avoid a clone.
             let preload_thread_locals_mapping = self
@@ -947,17 +942,17 @@ impl Task for RecordTask {
     }
 
     /// Forwarded method
-    fn set_thread_area(&mut self, tls: RemotePtr<user_desc>) {
+    fn set_thread_area(&self, tls: RemotePtr<user_desc>) {
         set_thread_area_common(self, tls)
     }
 
     /// Forwarded method
-    fn reset_syscallbuf(&mut self) {
+    fn reset_syscallbuf(&self) {
         reset_syscallbuf_common(self);
     }
 
     /// Forwarded method
-    fn set_syscallbuf_locked(&mut self, locked: bool) {
+    fn set_syscallbuf_locked(&self, locked: bool) {
         set_syscallbuf_locked_common(self, locked);
     }
 }
@@ -994,7 +989,7 @@ impl RecordTask {
         a: SupportedArch,
         weak_self: TaskSharedWeakPtr,
     ) -> Box<dyn Task> {
-        let mut rt = RecordTask {
+        let rt = RecordTask {
             task_inner: TaskInner::new(session, tid, None, serial, a, weak_self),
             ticks_at_last_recorded_syscall_exit: Default::default(),
             time_at_start_of_last_timeslice: Default::default(),
@@ -1038,7 +1033,7 @@ impl RecordTask {
             emulated_ptrace_tracees: Default::default(),
             saved_ptrace_siginfos: Default::default(),
             emulated_stop_code: Default::default(),
-            sighandlers: Rc::new(RefCell::new(Default::default())),
+            sighandlers: Default::default(),
             blocked_sigs: Cell::new(0),
             syscallbuf_code_layout: Default::default(),
             desched_fd: Default::default(),
@@ -1055,7 +1050,10 @@ impl RecordTask {
             // dispositions of the current OS process (which should all be
             // default at this point, but ...).  From there on, new tasks
             // will transitively inherit from this first task.
-            rt.sighandlers.borrow_mut().init_from_current_process();
+            rt.sighandlers
+                .borrow_mut()
+                .borrow_mut()
+                .init_from_current_process();
         }
         let box_rt = Box::new(rt);
         box_rt
@@ -1117,12 +1115,12 @@ impl RecordTask {
     /// of *exit from* the rdcall.  Registers will be updated with
     /// the return value from the rdcall, which is also returned
     /// from this call.
-    pub fn init_buffers(&mut self) {
+    pub fn init_buffers(&self) {
         let arch = self.arch();
         rd_arch_function!(self, init_buffers_arch, arch)
     }
 
-    fn init_buffers_arch<Arch: Architecture>(&mut self) {
+    fn init_buffers_arch<Arch: Architecture>(&self) {
         // NB: the tracee can't be interrupted with a signal while
         // we're processing the rdcall, because it's masked off all
         // signals.
@@ -1131,7 +1129,7 @@ impl RecordTask {
         // Arguments to the rdcall.
         let child_args: RemotePtr<rdcall_init_buffers_params<Arch>> =
             RemotePtr::from(remote.task().regs_ref().arg1());
-        let mut args = read_val_mem(remote.task_mut(), child_args, None);
+        let mut args = read_val_mem(remote.task(), child_args, None);
 
         args.cloned_file_data_fd = -1;
         if remote.vm().syscallbuf_enabled() {
@@ -1141,18 +1139,15 @@ impl RecordTask {
                 .as_record()
                 .unwrap()
                 .syscall_buffer_size();
-            remote.task_mut().syscallbuf_size.set(siz);
-            args.syscallbuf_size = remote.task_mut().syscallbuf_size.get().try_into().unwrap();
+            remote.task().syscallbuf_size.set(siz);
+            args.syscallbuf_size = remote.task().syscallbuf_size.get().try_into().unwrap();
             let syscallbuf_km = remote.init_syscall_buffer(RemotePtr::null());
             args.syscallbuf_ptr =
                 Arch::from_remote_ptr(RemotePtr::<u8>::cast(remote.task().syscallbuf_child.get()));
-            remote
-                .task_mut()
-                .desched_fd_child
-                .set(args.desched_counter_fd);
+            remote.task().desched_fd_child.set(args.desched_counter_fd);
             // Prevent the child from closing this fd
             remote.task().fd_table().add_monitor(
-                remote.task_mut(),
+                remote.task(),
                 args.desched_counter_fd,
                 Box::new(PreserveFileMonitor::new()),
             );
@@ -1225,22 +1220,20 @@ impl RecordTask {
                         free_fd,
                         O_CLOEXEC
                     ) as i32;
-                    name.task_mut()
+                    name.task()
                         .cloned_file_data_fd_child
                         .set(cloned_file_data_fd_child);
 
                     if cloned_file_data_fd_child != free_fd {
                         ed_assert!(name.task(), cloned_file_data_fd_child < 0);
                         log!(LogWarn, "Couldn't dup clone-data file to free fd");
-                        name.task_mut()
-                            .cloned_file_data_fd_child
-                            .set(cloned_file_data);
+                        name.task().cloned_file_data_fd_child.set(cloned_file_data);
                     } else {
                         // Prevent the child from closing this fd. We're going to close it
                         // ourselves and we don't want the child closing it and then reopening
                         // its own file with this fd.
                         name.task().fd_table().add_monitor(
-                            name.task_mut(),
+                            name.task(),
                             cloned_file_data_fd_child,
                             Box::new(PreserveFileMonitor::new()),
                         );
@@ -1261,7 +1254,7 @@ impl RecordTask {
         args.usable_scratch_size = remote.task().usable_scratch_size().try_into().unwrap();
 
         // Return the mapped buffers to the child.
-        write_val_mem(remote.task_mut(), child_args, &args, None);
+        write_val_mem(remote.task(), child_args, &args, None);
 
         // The tracee doesn't need this addr returned, because it's
         // already written to the inout `args` param, but we stash it
@@ -1273,7 +1266,7 @@ impl RecordTask {
             .set_syscall_result(syscallbuf_child.as_usize());
     }
 
-    pub fn post_exec(&mut self) {
+    pub fn post_exec(&self) {
         // Change syscall number to execve *for the new arch*. If we don't do this,
         // and the arch changes, then the syscall number for execve in the old arch/
         // is treated as the syscall we're executing in the new arch, with hilarious
@@ -1295,7 +1288,7 @@ impl RecordTask {
             match maybe_emulated_ptracer {
                 Some(emulated_ptracer) => ed_assert!(
                     self,
-                    !(emulated_ptracer.upgrade().unwrap().borrow().arch() == SupportedArch::X86
+                    !(emulated_ptracer.upgrade().unwrap().arch() == SupportedArch::X86
                         && self.arch() == SupportedArch::X64),
                     "We don't support a 32-bit process tracing a 64-bit process"
                 ),
@@ -1309,9 +1302,12 @@ impl RecordTask {
         self.set_robust_list(RemotePtr::null(), 0);
 
         // @TODO Check this again
-        let cloned = self.sighandlers.borrow().clone();
-        self.sighandlers = Rc::new(RefCell::new(cloned));
-        self.sighandlers.borrow_mut().reset_user_handlers(arch);
+        let cloned = self.sighandlers.borrow().borrow().clone();
+        *self.sighandlers.borrow_mut() = Rc::new(RefCell::new(cloned));
+        self.sighandlers
+            .borrow_mut()
+            .borrow_mut()
+            .reset_user_handlers(arch);
 
         // Newly execed tasks always have non-faulting mode (from their point of
         // view, even if rr is secretly causing faults).
@@ -1338,9 +1334,9 @@ impl RecordTask {
     /// DIFF NOTE: Slightly odd old_maybe_tracer param to solve borrow issues
     /// @TODO Put in an enum instead of new_maybe_tracer/old_maybe_tracer
     pub fn set_emulated_ptracer(
-        &mut self,
-        new_maybe_tracer: Option<&mut RecordTask>,
-        old_maybe_tracer: Option<&mut RecordTask>,
+        &self,
+        new_maybe_tracer: Option<&RecordTask>,
+        old_maybe_tracer: Option<&RecordTask>,
     ) {
         match new_maybe_tracer {
             Some(tracer) => {
@@ -1380,7 +1376,7 @@ impl RecordTask {
     /// return value unlike rr.
     /// DIFF NOTE: Additional param `maybe_active_sibling` to solve already borrowed possibility
     pub fn emulate_ptrace_stop(
-        &mut self,
+        &self,
         status: WaitStatus,
         tracer: &RecordTask,
         maybe_siginfo: Option<&siginfo_t>,
@@ -1422,7 +1418,7 @@ impl RecordTask {
     /// DIFF NOTE: Extra param `tracer` to solve already borrowed possibility
     /// DIFF NOTE: Extra param `maybe_active_sibling` to solve already borrowed possibility
     pub fn force_emulate_ptrace_stop(
-        &mut self,
+        &self,
         status: WaitStatus,
         tracer: &RecordTask,
         maybe_active_sibling: Option<&RecordTask>,
@@ -1490,8 +1486,7 @@ impl RecordTask {
         }
 
         for tracee_rc in self.emulated_ptrace_tracees.borrow().iter() {
-            let mut traceeb = tracee_rc.borrow_mut();
-            let tracee = traceeb.as_rec_mut_unwrap();
+            let tracee = tracee_rc.as_rec_unwrap();
             if tracee.emulated_ptrace_sigchld_pending.get() {
                 tracee.emulated_ptrace_sigchld_pending.set(false);
                 let sia: &mut siginfo_t_arch<NativeArch> = unsafe { mem::transmute(si) };
@@ -1503,8 +1498,7 @@ impl RecordTask {
 
         for child_tg in self.thread_group().borrow().children() {
             for child in child_tg.borrow().task_set() {
-                let mut rchildb = child.borrow_mut();
-                let rchild = rchildb.as_rec_mut_unwrap();
+                let rchild = child.as_rec_unwrap();
                 if rchild.emulated_sigchld_pending.get() {
                     rchild.emulated_sigchld_pending.set(false);
                     let sia: &mut siginfo_t_arch<NativeArch> = unsafe { mem::transmute(si) };
@@ -1560,7 +1554,7 @@ impl RecordTask {
     /// When emulating a ptrace-continue with a signal number, extract the siginfo
     /// that was saved by `save_ptrace_signal_siginfo`. If no such siginfo was
     /// saved, make one up.
-    pub fn take_ptrace_signal_siginfo(&mut self, sig: Sig) -> siginfo_t {
+    pub fn take_ptrace_signal_siginfo(&self, sig: Sig) -> siginfo_t {
         let mut remove_index = None;
         for (i, it) in self.saved_ptrace_siginfos.borrow().iter().enumerate() {
             if it.si_signo == sig.as_raw() {
@@ -1593,7 +1587,7 @@ impl RecordTask {
                 // This is there in rd to prevent already borrowed possibility
                 if ptracer.ptr_eq(&self.weak_self)
                     || Rc::ptr_eq(
-                        &ptracer.upgrade().unwrap().borrow().thread_group(),
+                        &ptracer.upgrade().unwrap().thread_group(),
                         &self.thread_group(),
                     ) =>
             {
@@ -1651,7 +1645,7 @@ impl RecordTask {
     /// Call this to force a group stop for this task with signal 'sig',
     /// notifying ptracer if necessary.
     /// DIFF NOTE: Additional param `maybe_active_sibling` to deal with already borrowed possibility.
-    pub fn apply_group_stop(&mut self, sig: Sig, maybe_active_sibling: Option<&RecordTask>) {
+    pub fn apply_group_stop(&self, sig: Sig, maybe_active_sibling: Option<&RecordTask>) {
         if self.emulated_stop_type.get() == EmulatedStopType::NotStopped {
             log!(
                 LogDebug,
@@ -1681,8 +1675,7 @@ impl RecordTask {
                         .find_task_from_rec_tid(get_ppid(self.tid()).unwrap())
                     {
                         Some(t) => t
-                            .borrow_mut()
-                            .as_rec_mut_unwrap()
+                            .as_rec_unwrap()
                             .send_synthetic_sigchld_if_necessary(Some(self), maybe_active_sibling),
                         None => (),
                     }
@@ -1690,7 +1683,7 @@ impl RecordTask {
                 Some(tracer) => {
                     self.emulate_ptrace_stop(
                         status,
-                        tracer.borrow().as_rec_unwrap(),
+                        tracer.as_rec_unwrap(),
                         None,
                         None,
                         maybe_active_sibling,
@@ -1702,12 +1695,13 @@ impl RecordTask {
 
     /// Call this after `sig` is delivered to this task.  Emulate
     /// sighandler updates induced by the signal delivery.
-    pub fn signal_delivered(&mut self, sig: Sig) {
+    pub fn signal_delivered(&self, sig: Sig) {
         let h_disposition: SignalDisposition;
         let arch = self.arch();
 
         {
-            let mut hb = self.sighandlers.borrow_mut();
+            let hpb = self.sighandlers.borrow_mut();
+            let mut hb = hpb.borrow_mut();
             let handler = hb.get_mut(sig);
             h_disposition = handler.disposition();
             if handler.resethand {
@@ -1733,8 +1727,7 @@ impl RecordTask {
                     .task_set()
                     .iter_except(self.weak_self_ptr())
                 {
-                    t.borrow_mut()
-                        .as_record_task_mut()
+                    t.as_record_task()
                         .unwrap()
                         .apply_group_stop(sig, Some(self));
                 }
@@ -1777,7 +1770,7 @@ impl RecordTask {
     }
 
     /// Get all threads out of an emulated GROUP_STOP
-    pub fn emulate_sigcont(&mut self) {
+    pub fn emulate_sigcont(&self) {
         // All threads in the process are resumed.
         log!(
             LogDebug,
@@ -1792,8 +1785,7 @@ impl RecordTask {
             .task_set()
             .iter_except(self.weak_self_ptr())
         {
-            let mut tb = t.borrow_mut();
-            let rt = tb.as_rec_mut_unwrap();
+            let rt = t.as_rec_unwrap();
             log!(
                 LogDebug,
                 "setting {} to NOT_STOPPED due to SIGCONT",
@@ -1808,26 +1800,31 @@ impl RecordTask {
     /// SIG_IGN or SIG_DFL, that is, if a user sighandler will be
     /// invoked when `sig` is received.
     pub fn signal_has_user_handler(&self, sig: Sig) -> bool {
-        self.sighandlers.borrow().get(sig).disposition() == SignalDisposition::SignalHandler
+        self.sighandlers.borrow().borrow().get(sig).disposition()
+            == SignalDisposition::SignalHandler
     }
 
     /// If signal_has_user_handler(sig) is true, return the address of the
     /// user handler as a Some, otherwise return None.
     pub fn get_signal_user_handler(&self, sig: Sig) -> Option<RemoteCodePtr> {
-        self.sighandlers.borrow().get(sig).get_user_handler()
+        self.sighandlers
+            .borrow()
+            .borrow()
+            .get(sig)
+            .get_user_handler()
     }
 
     /// Return true if the signal handler for `sig` takes a &siginfo_t
     /// parameter.
     pub fn signal_handler_takes_siginfo(&self, sig: Sig) -> bool {
-        self.sighandlers.borrow().get(sig).takes_siginfo
+        self.sighandlers.borrow().borrow().get(sig).takes_siginfo
     }
 
     /// Return `sig`'s current sigaction. Returned as raw bytes since the
     /// data is architecture-dependent.
     /// DIFF NOTE: Returning the vector instead of the reference
     pub fn signal_action(&self, sig: Sig) -> Vec<u8> {
-        self.sighandlers.borrow().get(sig).sa.to_owned()
+        self.sighandlers.borrow().borrow().get(sig).sa.to_owned()
     }
 
     /// Return true iff `sig` is blocked for this.
@@ -1847,7 +1844,7 @@ impl RecordTask {
             // These can never be ignored
             return false;
         }
-        match self.sighandlers.borrow().get(sig).disposition() {
+        match self.sighandlers.borrow().borrow().get(sig).disposition() {
             SignalDisposition::SignalIgnore => true,
             SignalDisposition::SignalDefault => SignalAction::Ignore == default_action(sig),
             SignalDisposition::SignalHandler => false,
@@ -1856,7 +1853,7 @@ impl RecordTask {
 
     /// Return the applications current disposition of `sig`.
     pub fn sig_disposition(&self, sig: Sig) -> SignalDisposition {
-        self.sighandlers.borrow().get(sig).disposition()
+        self.sighandlers.borrow().borrow().get(sig).disposition()
     }
 
     /// Return the resolved disposition --- what this signal will actually do,
@@ -1876,7 +1873,7 @@ impl RecordTask {
     }
 
     /// Set the siginfo for the signal-stop of self.
-    pub fn set_siginfo(&mut self, si: &siginfo_t) {
+    pub fn set_siginfo(&self, si: &siginfo_t) {
         self.pending_siginfo.set(si.clone());
         self.ptrace_if_alive(
             PTRACE_SETSIGINFO,
@@ -1892,7 +1889,8 @@ impl RecordTask {
 
     /// Reset the signal handler for this signal to the default.
     pub fn did_set_sig_handler_default(&self, sig: Sig) {
-        let mut shb = self.sighandlers.borrow_mut();
+        let shpb = self.sighandlers.borrow_mut();
+        let mut shb = shpb.borrow_mut();
         let h: &mut Sighandler = shb.get_mut(sig);
         reset_handler(h, self.arch());
     }
@@ -1952,7 +1950,7 @@ impl RecordTask {
                         " is not blocked"
                     }
                 );
-                let disposition = self.sighandlers.borrow().get(sig).disposition();
+                let disposition = self.sighandlers.borrow().borrow().get(sig).disposition();
                 ed_assert_eq!(
                     self,
                     ignored & mask != 0,
@@ -2004,7 +2002,7 @@ impl RecordTask {
     ///
     /// If the process unexpectedly died (due to SIGKILL), we don't
     /// stash anything.
-    pub fn stash_sig(&mut self) {
+    pub fn stash_sig(&self) {
         let sig = self.maybe_stop_sig().unwrap_sig();
 
         // Callers should avoid passing SYSCALLBUF_DESCHED_SIGNAL in here.
@@ -2042,7 +2040,7 @@ impl RecordTask {
         self.break_at_syscallbuf_untraced_syscalls.set(true);
     }
 
-    pub fn stash_synthetic_sig(&mut self, si: &siginfo_t, deterministic: SignalDeterministic) {
+    pub fn stash_synthetic_sig(&self, si: &siginfo_t, deterministic: SignalDeterministic) {
         let sig = si.si_signo;
         // DIFF NOTE: In rr the debug is assert just verifies sig is non-zero
         debug_assert!(sig > 0);
@@ -2136,7 +2134,7 @@ impl RecordTask {
 
     /// @TODO Instead of searching by pointer address which can have its issues why not
     /// store a unique id in a StashedSignal structure or some other approach?
-    pub fn pop_stash_sig(&mut self, stashed: *const StashedSignal) {
+    pub fn pop_stash_sig(&self, stashed: *const StashedSignal) {
         let mut remove_index = None;
         for (pos, it) in self.stashed_signals.borrow().iter().enumerate() {
             if ptr::eq(&**it as *const StashedSignal, stashed) {
@@ -2155,7 +2153,7 @@ impl RecordTask {
         }
     }
 
-    pub fn stashed_signal_processed(&mut self) {
+    pub fn stashed_signal_processed(&self) {
         let has_any_stashed_sig = self.has_any_stashed_sig();
         self.break_at_syscallbuf_final_instruction
             .set(has_any_stashed_sig);
@@ -2169,11 +2167,11 @@ impl RecordTask {
 
     /// If a group-stop occurs at an inconvenient time, stash it and
     /// process it later.
-    pub fn stash_group_stop(&mut self) {
+    pub fn stash_group_stop(&self) {
         self.stashed_group_stop.set(true);
     }
 
-    pub fn clear_stashed_group_stop(&mut self) {
+    pub fn clear_stashed_group_stop(&self) {
         self.stashed_group_stop.set(false);
     }
 
@@ -2310,7 +2308,7 @@ impl RecordTask {
 
     /// Return true if `self` is within the syscallbuf library.  This
     /// *does not* imply that $ip is at a buffered syscall.
-    pub fn is_in_syscallbuf(&mut self) -> bool {
+    pub fn is_in_syscallbuf(&self) -> bool {
         if !self.vm().syscallbuf_enabled() {
             // Even if we're in the rd page, if syscallbuf isn't enabled then the
             // rd page is not being used by syscallbuf.
@@ -2389,7 +2387,7 @@ impl RecordTask {
     /// record it.
     ///
     /// If 'addr' is null then no record is written.
-    pub fn record_local(&mut self, addr: RemotePtr<Void>, data: &[u8]) {
+    pub fn record_local(&self, addr: RemotePtr<Void>, data: &[u8]) {
         self.maybe_flush_syscallbuf();
 
         if addr.is_null() {
@@ -2400,18 +2398,18 @@ impl RecordTask {
             .write_raw(self.rec_tid(), data, addr);
     }
 
-    pub fn record_local_for<T>(&mut self, addr: RemotePtr<T>, data: &T) {
+    pub fn record_local_for<T>(&self, addr: RemotePtr<T>, data: &T) {
         self.record_local(RemotePtr::<Void>::cast(addr), u8_slice(data))
     }
 
-    pub fn record_local_for_slice<T>(&mut self, addr: RemotePtr<T>, data: &[T]) {
+    pub fn record_local_for_slice<T>(&self, addr: RemotePtr<T>, data: &[T]) {
         let num = data.len();
         let data =
             unsafe { slice::from_raw_parts(data.as_ptr() as *const u8, num * size_of::<T>()) };
         self.record_local(RemotePtr::<Void>::cast(addr), data);
     }
 
-    pub fn record_remote(&mut self, addr: RemotePtr<Void>, num_bytes: usize) {
+    pub fn record_remote(&self, addr: RemotePtr<Void>, num_bytes: usize) {
         self.maybe_flush_syscallbuf();
 
         if addr.is_null() {
@@ -2427,22 +2425,22 @@ impl RecordTask {
             .write_raw(self.rec_tid(), &buf, addr);
     }
 
-    pub fn record_remote_for<T>(&mut self, addr: RemotePtr<T>) {
+    pub fn record_remote_for<T>(&self, addr: RemotePtr<T>) {
         self.record_remote(RemotePtr::<Void>::cast(addr), size_of::<T>())
     }
 
-    pub fn record_remote_range(&mut self, range: MemoryRange) {
+    pub fn record_remote_range(&self, range: MemoryRange) {
         self.record_remote(range.start(), range.size())
     }
 
-    pub fn record_remote_range_fallible(&mut self, range: MemoryRange) -> Result<usize, ()> {
+    pub fn record_remote_range_fallible(&self, range: MemoryRange) -> Result<usize, ()> {
         self.record_remote_fallible(range.start(), range.size())
     }
 
     /// Record as much as we can of the bytes in this range. Will record only
     /// contiguous mapped data starting at `addr`.
     pub fn record_remote_fallible(
-        &mut self,
+        &self,
         addr: RemotePtr<Void>,
         num_bytes: usize,
     ) -> Result<usize, ()> {
@@ -2474,7 +2472,7 @@ impl RecordTask {
 
     /// Record as much as we can of the bytes in this range. Will record only
     /// contiguous mapped-writable data starting at `addr`.
-    pub fn record_remote_writable(&mut self, addr: RemotePtr<Void>, mut num_bytes: usize) {
+    pub fn record_remote_writable(&self, addr: RemotePtr<Void>, mut num_bytes: usize) {
         let mut p = addr;
         while p < addr + num_bytes {
             match self.vm().mapping_of(p) {
@@ -2494,7 +2492,7 @@ impl RecordTask {
 
     /// Simple helper that attempts to use the local mapping to record if one
     /// exists
-    pub fn record_remote_by_local_map(&mut self, addr: RemotePtr<Void>, num_bytes: usize) -> bool {
+    pub fn record_remote_by_local_map(&self, addr: RemotePtr<Void>, num_bytes: usize) -> bool {
         match self.vm().local_mapping(addr, num_bytes) {
             Some(local_data) => {
                 self.record_local(addr, local_data);
@@ -2507,7 +2505,7 @@ impl RecordTask {
     /// Save tracee data to the trace.  `addr` is the address in
     /// the address space of this task.
     /// If 'addr' is null then a zero-length record is written.
-    pub fn record_remote_even_if_null(&mut self, addr: RemotePtr<Void>, num_bytes: usize) {
+    pub fn record_remote_even_if_null(&self, addr: RemotePtr<Void>, num_bytes: usize) {
         self.maybe_flush_syscallbuf();
 
         if addr.is_null() {
@@ -2524,7 +2522,7 @@ impl RecordTask {
             .write_raw(self.rec_tid(), &buf, addr);
     }
 
-    pub fn record_remote_even_if_null_for<T>(&mut self, addr: RemotePtr<T>) {
+    pub fn record_remote_even_if_null_for<T>(&self, addr: RemotePtr<T>) {
         self.record_remote_even_if_null(RemotePtr::<Void>::cast(addr), size_of::<T>())
     }
 
@@ -2532,45 +2530,45 @@ impl RecordTask {
     /// event onto the top of the event stack.  The `pop_*()`
     /// helpers pop the event at top of the stack, which must be of
     /// the specified type.
-    pub fn push_event(&mut self, ev: Event) {
+    pub fn push_event(&self, ev: Event) {
         self.pending_events.borrow_mut().push_back(ev);
     }
 
-    pub fn push_syscall_event(&mut self, no: i32) {
+    pub fn push_syscall_event(&self, no: i32) {
         let arch = self.detect_syscall_arch();
         self.push_event(Event::new_syscall_event(SyscallEventData::new(no, arch)));
     }
 
-    pub fn pop_event(&mut self, expected_type: EventType) {
+    pub fn pop_event(&self, expected_type: EventType) {
         let e = self.pending_events.borrow_mut().pop_back().unwrap();
         ed_assert_eq!(self, e.event_type(), expected_type);
     }
 
-    pub fn pop_noop(&mut self) {
+    pub fn pop_noop(&self) {
         self.pop_event(EventType::EvNoop);
     }
 
-    pub fn pop_desched(&mut self) {
+    pub fn pop_desched(&self) {
         self.pop_event(EventType::EvDesched);
     }
 
-    pub fn pop_seccomp_trap(&mut self) {
+    pub fn pop_seccomp_trap(&self) {
         self.pop_event(EventType::EvSeccompTrap);
     }
 
-    pub fn pop_signal_delivery(&mut self) {
+    pub fn pop_signal_delivery(&self) {
         self.pop_event(EventType::EvSignalDelivery);
     }
 
-    pub fn pop_signal_handler(&mut self) {
+    pub fn pop_signal_handler(&self) {
         self.pop_event(EventType::EvSignalHandler);
     }
 
-    pub fn pop_syscall(&mut self) {
+    pub fn pop_syscall(&self) {
         self.pop_event(EventType::EvSyscall);
     }
 
-    pub fn pop_syscall_interruption(&mut self) {
+    pub fn pop_syscall_interruption(&self) {
         self.pop_event(EventType::EvSyscallInterruption);
     }
 
@@ -2580,7 +2578,7 @@ impl RecordTask {
     }
 
     /// Return the event at the top of self's stack.
-    pub fn ev_mut(&mut self) -> RefMut<Event> {
+    pub fn ev_mut(&self) -> RefMut<Event> {
         RefMut::map(self.pending_events.borrow_mut(), |b| b.back_mut().unwrap())
     }
 
@@ -2595,7 +2593,7 @@ impl RecordTask {
     /// a chance to reset the syscallbuf (i.e. record some other kind of event)
     /// before the tracee runs again in a way that might append another buffered
     /// syscall --- so we can't flush too early
-    pub fn maybe_flush_syscallbuf(&mut self) {
+    pub fn maybe_flush_syscallbuf(&self) {
         if EventType::EvSyscallbufFlush == self.ev().event_type() {
             // Already flushing.
             return;
@@ -2697,7 +2695,7 @@ impl RecordTask {
     /// Call this after recording an event when it might be safe to reset the
     /// syscallbuf. It must be after recording an event to ensure during replay
     /// we run past any syscallbuf after-syscall code that uses the buffer data.
-    pub fn maybe_reset_syscallbuf(&mut self) {
+    pub fn maybe_reset_syscallbuf(&self) {
         if self.flushed_syscallbuf.get()
             && !self.delay_syscallbuf_reset_for_desched.get()
             && !self.delay_syscallbuf_reset_for_seccomp_trap.get()
@@ -2716,12 +2714,12 @@ impl RecordTask {
     /// and meaningful at this's current execution point.
     /// `record_current_event()` record `this->ev()`, and
     /// `record_event()` records the specified event.
-    pub fn record_current_event(&mut self) {
+    pub fn record_current_event(&self) {
         self.record_event(None, None, None, None)
     }
 
     pub fn record_event(
-        &mut self,
+        &self,
         maybe_ev: Option<Event>,
         maybe_flush: Option<FlushSyscallbuf>,
         maybe_reset: Option<AllowSyscallbufReset>,
@@ -2884,14 +2882,14 @@ impl RecordTask {
         self.termination_signal.get() != Some(sig::SIGCHLD)
     }
 
-    pub fn set_termination_signal(&mut self, maybe_sig: Option<Sig>) {
+    pub fn set_termination_signal(&self, maybe_sig: Option<Sig>) {
         self.termination_signal.set(maybe_sig);
     }
 
     /// When a signal triggers an emulated a ptrace-stop for this task,
     /// save the siginfo so a later emulated ptrace-continue with this signal
     /// number can use it.
-    pub fn save_ptrace_signal_siginfo(&mut self, si: &siginfo_t) {
+    pub fn save_ptrace_signal_siginfo(&self, si: &siginfo_t) {
         let mut remove_index = None;
         for (i, it) in self.saved_ptrace_siginfos.borrow().iter().enumerate() {
             if it.si_signo == si.si_signo {
@@ -2907,7 +2905,7 @@ impl RecordTask {
     /// Tasks normally can't change their tid. There is one very special situation
     /// where they can: when a non-main-thread does an execve, its tid changes
     /// to the tid of the thread-group leader.
-    pub fn set_tid_and_update_serial(&mut self, tid: pid_t, own_namespace_tid: pid_t) {
+    pub fn set_tid_and_update_serial(&self, tid: pid_t, own_namespace_tid: pid_t) {
         self.hpc.borrow_mut().set_tid(tid);
         self.rec_tid.set(tid);
         self.tid.set(tid);
@@ -2955,7 +2953,7 @@ impl RecordTask {
     }
 
     /// Unblock the signal for the process.
-    pub fn unblock_signal(&mut self, sig: Sig) {
+    pub fn unblock_signal(&self, sig: Sig) {
         let mut mask: sig_set_t = self.get_sigmask();
         mask &= !signal_bit(sig);
         let ret = self.fallible_ptrace(
@@ -2980,13 +2978,13 @@ impl RecordTask {
     }
 
     /// Set the signal handler to default for the process.
-    pub fn set_sig_handler_default(&mut self, sig: Sig) {
+    pub fn set_sig_handler_default(&self, sig: Sig) {
         self.did_set_sig_handler_default(sig);
         // This could happen during a syscallbuf untraced syscall. In that case
         // our remote syscall here could trigger a desched signal if that event
         // is armed, making progress impossible. Disarm the event now.
         disarm_desched_event(self);
-        let sa = self.sighandlers.borrow().get(sig).sa.clone();
+        let sa = self.sighandlers.borrow().borrow().get(sig).sa.clone();
         let arch = self.arch();
         let mut remote = AutoRemoteSyscalls::new(self);
         let mut mem = AutoRestoreMem::new(&mut remote, Some(&sa), sa.len());
@@ -3001,7 +2999,7 @@ impl RecordTask {
         );
     }
 
-    pub fn maybe_restore_original_syscall_registers(&mut self) {
+    pub fn maybe_restore_original_syscall_registers(&self) {
         let arch = self.arch();
         let ptl = self.preload_thread_locals();
         rd_arch_function_selfless!(
@@ -3013,7 +3011,7 @@ impl RecordTask {
     }
 
     /// Retrieve the tid of this task from the tracee and store it
-    fn update_own_namespace_tid(&mut self) {
+    fn update_own_namespace_tid(&self) {
         let arch = self.arch();
         let ret: i32;
         {
@@ -3029,7 +3027,7 @@ impl RecordTask {
     /// WARNING: this implementation semi-busy-waits for the value
     /// change.  This must only be used in contexts where the futex
     /// will change "soon".
-    fn futex_wait(&mut self, sync_addr: RemotePtr<i32>, sync_val: i32) -> Result<(), ()> {
+    fn futex_wait(&self, sync_addr: RemotePtr<i32>, sync_val: i32) -> Result<(), ()> {
         // Wait for *sync_addr == sync_val.  This implementation isn't
         // pretty, but it's pretty much the best we can do with
         // available kernel tools.
@@ -3070,8 +3068,7 @@ impl RecordTask {
             .task_set()
             .iter_except(self.weak_self_ptr())
         {
-            let mut rtb = t.borrow_mut();
-            let rt = rtb.as_rec_mut_unwrap();
+            let rt = t.as_rec_unwrap();
             if rt.is_waiting_for(rchild) {
                 return Some((rt.tgid(), rt.tid(), rt.is_sig_blocked(sig::SIGCHLD)));
             }
@@ -3096,15 +3093,12 @@ impl RecordTask {
         let mut wake_task = None;
         for tracee_rc in self.emulated_ptrace_tracees.borrow().iter() {
             let tracee_rc_weak = Rc::downgrade(&tracee_rc);
-            let traceeb;
+
             let tracee = match maybe_active_child {
                 Some(task) if task.weak_self.ptr_eq(&tracee_rc_weak) => task,
                 _ => match maybe_active_sibling {
                     Some(task) if task.weak_self.ptr_eq(&tracee_rc_weak) => task,
-                    _ => {
-                        traceeb = tracee_rc.borrow();
-                        traceeb.as_rec_unwrap()
-                    }
+                    _ => tracee_rc.as_rec_unwrap(),
                 },
             };
             if tracee.emulated_ptrace_sigchld_pending.get() {
@@ -3122,8 +3116,7 @@ impl RecordTask {
                     .task_set()
                     .iter_except(self.weak_self_ptr())
                 {
-                    let rtb = t.borrow();
-                    let rt = rtb.as_rec_unwrap();
+                    let rt = t.as_rec_unwrap();
                     if rt.is_waiting_for_ptrace(tracee) {
                         wake_task = Some((rt.tgid(), rt.tid(), rt.is_sig_blocked(sig::SIGCHLD)));
                         break;
@@ -3138,15 +3131,12 @@ impl RecordTask {
             for child_tg in self.thread_group().borrow().children() {
                 for child_rc in child_tg.borrow().task_set().iter() {
                     let child_rc_weak = Rc::downgrade(&child_rc);
-                    let rchildb;
+
                     let rchild = match maybe_active_child {
                         Some(task) if task.weak_self.ptr_eq(&child_rc_weak) => task,
                         _ => match maybe_active_sibling {
                             Some(task) if task.weak_self.ptr_eq(&child_rc_weak) => task,
-                            _ => {
-                                rchildb = child_rc.borrow();
-                                rchildb.as_rec_unwrap()
-                            }
+                            _ => child_rc.as_rec_unwrap(),
                         },
                     };
                     if rchild.emulated_sigchld_pending.get() {
@@ -3216,18 +3206,18 @@ impl RecordTask {
     }
 
     /// Call this when SYS_sigaction is finishing with `regs`.
-    fn update_sigaction(&mut self, regs: &Registers) {
+    fn update_sigaction(&self, regs: &Registers) {
         rd_arch_function!(self, update_sigaction_arch, regs.arch(), regs);
     }
 
     /// Update the futex robust list head pointer to `list` (which
     /// is of size `len`).
-    fn set_robust_list(&mut self, list: RemotePtr<Void>, len: usize) {
+    fn set_robust_list(&self, list: RemotePtr<Void>, len: usize) {
         self.robust_futex_list.set(list);
         self.robust_futex_list_len.set(len);
     }
 
-    fn on_syscall_exit_arch<Arch: Architecture>(&mut self, sys: i32, regs: &Registers) {
+    fn on_syscall_exit_arch<Arch: Architecture>(&self, sys: i32, regs: &Registers) {
         if regs.original_syscallno() == SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO
             || regs.syscall_failed()
         {
@@ -3265,7 +3255,7 @@ impl RecordTask {
     }
 
     /// Helper function for update_sigaction.
-    fn update_sigaction_arch<Arch: Architecture>(&mut self, regs: &Registers) {
+    fn update_sigaction_arch<Arch: Architecture>(&self, regs: &Registers) {
         let sig = Sig::try_from(regs.arg1_signed() as i32).unwrap();
         let new_sigaction_addr = RemotePtr::<kernel_sigaction<Arch>>::new(regs.arg2());
         if 0 == regs.syscall_result() && !new_sigaction_addr.is_null() {
@@ -3282,13 +3272,14 @@ impl RecordTask {
             );
             self.sighandlers
                 .borrow_mut()
+                .borrow_mut()
                 .get_mut(sig)
                 .init_arch::<Arch>(&sa);
         }
     }
 
     /// Update the clear-tid futex to `tid_addr`.
-    fn set_tid_addr(&mut self, tid_addr: RemotePtr<i32>) {
+    fn set_tid_addr(&self, tid_addr: RemotePtr<i32>) {
         log!(LogDebug, "updating cleartid futex to {}", tid_addr);
         self.tid_futex.set(tid_addr);
     }
@@ -3342,8 +3333,7 @@ impl Drop for RecordTask {
                 weak_emulated_ptracer
                     .upgrade()
                     .unwrap()
-                    .borrow_mut()
-                    .as_record_task_mut()
+                    .as_record_task()
                     .unwrap()
                     .emulated_ptrace_tracees
                     .borrow_mut()
@@ -3360,8 +3350,7 @@ impl Drop for RecordTask {
         }
 
         for tt in self.emulated_ptrace_tracees.borrow().iter() {
-            let mut bt = tt.borrow_mut();
-            let t = bt.as_record_task_mut().unwrap();
+            let t = tt.as_record_task().unwrap();
             // XXX emulate PTRACE_O_EXITKILL
             ed_assert!(
                 self,
@@ -3459,7 +3448,7 @@ fn is_synthetic_sigchld(si: &siginfo_t) -> bool {
 }
 
 fn maybe_restore_original_syscall_registers_arch<Arch: Architecture>(
-    t: &mut RecordTask,
+    t: &RecordTask,
     maybe_local_addr: Option<NonNull<c_void>>,
 ) {
     if maybe_local_addr.is_none() {
@@ -3489,11 +3478,11 @@ fn maybe_restore_original_syscall_registers_arch<Arch: Architecture>(
     t.set_regs(&r);
 }
 
-fn do_preload_init(t: &mut RecordTask) {
+fn do_preload_init(t: &RecordTask) {
     rd_arch_function_selfless!(do_preload_init_arch, t.arch(), t);
 }
 
-fn do_preload_init_arch<Arch: Architecture>(t: &mut RecordTask) {
+fn do_preload_init_arch<Arch: Architecture>(t: &RecordTask) {
     let child_addr = t.regs_ref().arg1();
     let params = read_val_mem(
         t,
@@ -3563,12 +3552,12 @@ fn do_preload_init_arch<Arch: Architecture>(t: &mut RecordTask) {
     t.record_local_for(random_seed_ptr, &random_seed);
 }
 
-fn read_ptr_arch<Arch: Architecture>(t: &mut dyn Task, p: RemotePtr<Void>, ok: &mut bool) -> usize {
+fn read_ptr_arch<Arch: Architecture>(t: &dyn Task, p: RemotePtr<Void>, ok: &mut bool) -> usize {
     let res = read_val_mem(t, RemotePtr::<Arch::unsigned_word>::cast(p), Some(ok));
     res.try_into().unwrap()
 }
 
-fn read_ptr(t: &mut dyn Task, p: RemotePtr<Void>, ok: &mut bool) -> usize {
+fn read_ptr(t: &dyn Task, p: RemotePtr<Void>, ok: &mut bool) -> usize {
     let arch = t.arch();
     rd_arch_function_selfless!(read_ptr_arch, arch, t, p, ok)
 }

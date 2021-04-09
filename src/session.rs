@@ -54,7 +54,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
     fn as_session_inner_mut(&mut self) -> &mut SessionInner;
 
     /// DIFF NOTE: Simply called on_destroy() in rr.
-    fn on_destroy_task(&self, _t: &mut dyn Task) {
+    fn on_destroy_task(&self, _t: &dyn Task) {
         // DIFF NOTE: Don't need to remove task from task
         // map like in rr. This is done in kill_all_tasks() or
         // Task::destroy() already.
@@ -134,11 +134,10 @@ pub trait Session: DerefMut<Target = SessionInner> {
         // method.
         let cc = self.clone_completion.replace(None).unwrap();
         for tgleader in &cc.address_spaces {
-            let rc = tgleader.clone_leader.upgrade().unwrap();
-            let mut leader = rc.borrow_mut();
+            let leader = tgleader.clone_leader.upgrade().unwrap();
             {
                 let mut found_syscall_buf = None;
-                let mut remote = AutoRemoteSyscalls::new(leader.as_mut());
+                let mut remote = AutoRemoteSyscalls::new(&**leader);
                 for (&mk, m) in &remote.vm().maps() {
                     if m.flags.contains(MappingFlags::IS_SYSCALLBUF) {
                         // DIFF NOTE: The whole reason why this approach is a bit different from rr because its
@@ -163,7 +162,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
             }
 
             {
-                let mut remote2 = AutoRemoteSyscalls::new(leader.as_mut());
+                let mut remote2 = AutoRemoteSyscalls::new(&**leader);
                 for tgmember in &tgleader.member_states {
                     let t_clone = task_common::os_clone_into(tgmember, &mut remote2);
                     self.on_create_task(t_clone);
@@ -171,12 +170,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
             }
 
             copy_state(
-                tgleader
-                    .clone_leader
-                    .upgrade()
-                    .unwrap()
-                    .borrow_mut()
-                    .as_mut(),
+                &**tgleader.clone_leader.upgrade().unwrap(),
                 &tgleader.clone_leader_state,
             );
         }
@@ -187,7 +181,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
     /// This method is simply called Session::clone in rr.
     fn clone_task(
         &self,
-        p: &mut dyn Task,
+        p: &dyn Task,
         flags: CloneFlags,
         stack: RemotePtr<Void>,
         tls: RemotePtr<Void>,
@@ -328,7 +322,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
     /// everything must be the same.
     ///
     /// DIFF NOTE: Additional param `t`. Makes things simpler.
-    fn post_exec(&self, t: &mut dyn Task) {
+    fn post_exec(&self, t: &dyn Task) {
         // We just saw a successful exec(), so from now on we know
         // that the address space layout for the replay tasks will
         // (should!) be the same as for the recorded tasks.  So we can
@@ -345,6 +339,6 @@ pub trait Session: DerefMut<Target = SessionInner> {
 }
 
 fn on_create_task_common<S: Session>(sess: &S, t: TaskSharedPtr) {
-    let rec_tid = t.borrow().rec_tid();
+    let rec_tid = t.rec_tid();
     sess.task_map.borrow_mut().insert(rec_tid, t);
 }

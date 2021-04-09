@@ -45,7 +45,7 @@ impl FdTable {
         self.tasks.borrow_mut()
     }
 
-    pub fn add_monitor(&self, t: &mut dyn Task, fd: i32, monitor: Box<dyn FileMonitor>) {
+    pub fn add_monitor(&self, t: &dyn Task, fd: i32, monitor: Box<dyn FileMonitor>) {
         // In the future we could support multiple monitors on an fd, but we don't
         // need to yet.
         ed_assert!(
@@ -72,7 +72,7 @@ impl FdTable {
     }
 
     /// DIFF NOTE: Changed this from u64 to usize
-    pub fn emulate_ioctl(&self, fd: i32, t: &mut RecordTask, result: &mut usize) -> bool {
+    pub fn emulate_ioctl(&self, fd: i32, t: &RecordTask, result: &mut usize) -> bool {
         match self.fds.borrow().get(&fd) {
             Some(f) => f.borrow_mut().emulate_ioctl(t, result),
             None => false,
@@ -80,7 +80,7 @@ impl FdTable {
     }
 
     /// DIFF NOTE: Changed this from u64 to usize
-    pub fn emulate_fcntl(&self, fd: i32, t: &mut RecordTask, result: &mut usize) -> bool {
+    pub fn emulate_fcntl(&self, fd: i32, t: &RecordTask, result: &mut usize) -> bool {
         match self.fds.borrow().get(&fd) {
             Some(f) => f.borrow_mut().emulate_fcntl(t, result),
             None => false,
@@ -101,7 +101,7 @@ impl FdTable {
         }
     }
 
-    pub fn filter_getdents(&self, fd: i32, t: &mut RecordTask) {
+    pub fn filter_getdents(&self, fd: i32, t: &RecordTask) {
         match self.fds.borrow().get(&fd) {
             Some(f) => f.borrow().filter_getdents(t),
             None => (),
@@ -131,7 +131,7 @@ impl FdTable {
     }
 
     /// DIFF NOTE: Additional param `active_task` to solve borrow issues.
-    pub fn did_dup(&self, from: i32, to: i32, active_task: &mut dyn Task) {
+    pub fn did_dup(&self, from: i32, to: i32, active_task: &dyn Task) {
         if self.fds.borrow().contains_key(&from) {
             if to >= SYSCALLBUF_FDS_DISABLED_SIZE && !self.fds.borrow().contains_key(&to) {
                 self.fd_count_beyond_limit
@@ -151,7 +151,7 @@ impl FdTable {
 
     /// DIFF NOTE: Additional param `active_task` to solve borrow possibility
     /// DIFF NOTE: Additional param `maybe_other_task` to solve borrow possibility due to a clone happening.
-    pub fn did_close(&self, fd: i32, active_task: &mut dyn Task, maybe_other_tasks: &[&dyn Task]) {
+    pub fn did_close(&self, fd: i32, active_task: &dyn Task, maybe_other_tasks: &[&dyn Task]) {
         log!(LogDebug, "Close fd {}", fd);
         if fd >= SYSCALLBUF_FDS_DISABLED_SIZE && self.fds.borrow().contains_key(&fd) {
             self.fd_count_beyond_limit
@@ -162,7 +162,7 @@ impl FdTable {
     }
 
     /// Method is called clone() in rr
-    pub fn clone_into_task(&self, t: &mut dyn Task) -> FdTableSharedPtr {
+    pub fn clone_into_task(&self, t: &dyn Task) -> FdTableSharedPtr {
         let file_mon = FdTable {
             tasks: Default::default(),
             fds: RefCell::new(self.fds.borrow().clone()),
@@ -198,12 +198,12 @@ impl FdTable {
 
     /// Regenerate syscallbuf_fds_disabled in task `t`.
     /// Called during initialization of the preload library.
-    pub fn init_syscallbuf_fds_disabled(&self, t: &mut dyn Task) {
+    pub fn init_syscallbuf_fds_disabled(&self, t: &dyn Task) {
         if !t.session().is_recording() {
             return;
         }
 
-        let rt = t.as_record_task_mut().unwrap();
+        let rt = t.as_record_task().unwrap();
 
         ed_assert!(&rt, self.task_set().has(rt.weak_self_ptr()));
 
@@ -227,7 +227,7 @@ impl FdTable {
         }
 
         for vm_t in rt.vm().task_set().iter_except(rt.weak_self_ptr()) {
-            for &fd in vm_t.borrow().fd_table().fds.borrow().keys() {
+            for &fd in vm_t.fd_table().fds.borrow().keys() {
                 debug_assert!(fd >= 0);
                 let mut adjusted_fd = fd;
                 if fd >= SYSCALLBUF_FDS_DISABLED_SIZE {
@@ -248,7 +248,7 @@ impl FdTable {
     /// scan /proc/<pid>/fd during recording and note any monitored fds that have
     /// been closed.
     /// This also updates our table to match reality.
-    pub fn fds_to_close_after_exec(&self, t: &mut RecordTask) -> Vec<i32> {
+    pub fn fds_to_close_after_exec(&self, t: &RecordTask) -> Vec<i32> {
         ed_assert!(t, self.task_set().has(t.weak_self_ptr()));
 
         let mut fds_to_close: Vec<i32> = Vec::new();
@@ -265,7 +265,7 @@ impl FdTable {
     }
 
     /// Close fds in list after an exec.
-    pub fn close_after_exec(&self, t: &mut ReplayTask, fds_to_close: &[i32]) {
+    pub fn close_after_exec(&self, t: &ReplayTask, fds_to_close: &[i32]) {
         ed_assert!(t, self.task_set().has(t.weak_self_ptr()));
 
         for &fd in fds_to_close {
@@ -286,7 +286,7 @@ impl FdTable {
     fn update_syscallbuf_fds_disabled(
         &self,
         mut fd: i32,
-        active_task: &mut dyn Task,
+        active_task: &dyn Task,
         maybe_other_tasks: &[&dyn Task],
     ) {
         debug_assert!(fd >= 0);
@@ -294,7 +294,7 @@ impl FdTable {
 
         let mut vms_updated: HashSet<AddressSpaceUid> = HashSet::new();
 
-        let mut process = |rt: &mut RecordTask| -> () {
+        let mut process = |rt: &RecordTask| -> () {
             let vm_uid = rt.vm().uid();
             if vms_updated.contains(&vm_uid) {
                 return;
@@ -325,15 +325,14 @@ impl FdTable {
         // It's possible for tasks with different VMs to share this fd table.
         // But tasks with the same VM might have different fd tables...
         if active_task.session().is_recording() {
-            process(active_task.as_record_task_mut().unwrap());
+            process(active_task.as_record_task().unwrap());
         } else {
             return;
         }
         for t in self.task_set().iter_except(active_task.weak_self_ptr()) {
-            ed_assert!(active_task, t.borrow().session().is_recording());
+            ed_assert!(active_task, t.session().is_recording());
 
-            let mut t_ref_task = t.borrow_mut();
-            let rt: &mut RecordTask = t_ref_task.as_record_task_mut().unwrap();
+            let rt: &RecordTask = t.as_record_task().unwrap();
             process(rt);
         }
     }
@@ -367,14 +366,12 @@ fn is_fd_monitored_in_any_task(
         rc_others.push(maybe_other_tasks[1].weak_self.upgrade().unwrap());
     }
     for rc in vm.task_set().iter_except(vm_task.weak_self_ptr()) {
-        let rc_b;
-        let t = if rc_others.len() >= 1 && Rc::ptr_eq(&rc_others[0], &rc) {
+        let t: &dyn Task = if rc_others.len() >= 1 && Rc::ptr_eq(&rc_others[0], &rc) {
             maybe_other_tasks[0]
         } else if rc_others.len() == 2 && Rc::ptr_eq(&rc_others[1], &rc) {
             maybe_other_tasks[1]
         } else {
-            rc_b = rc.borrow();
-            rc_b.as_ref()
+            &**rc
         };
 
         if t.fd_table().is_monitoring(fd)

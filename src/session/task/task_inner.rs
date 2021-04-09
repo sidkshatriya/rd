@@ -1162,6 +1162,7 @@ impl TaskInner {
 
     /// Return the virtual memory mapping (address space) of this
     /// task.
+    /// @TODO May want this to return &AddressSpaceSharedPtr
     pub fn vm(&self) -> AddressSpaceSharedPtr {
         self.as_.borrow().as_ref().unwrap().clone()
     }
@@ -1324,7 +1325,7 @@ impl TaskInner {
                                 .find_task_from_task_uid(self.vm().thread_locals_tuid());
 
                             maybe_t.map(|t| {
-                                t.borrow_mut().fetch_preload_thread_locals();
+                                t.fetch_preload_thread_locals();
                             });
                         }
                     };
@@ -1783,20 +1784,17 @@ impl TaskInner {
                 RD_NATIVE_ARCH,
                 weak_self.clone(),
             );
-            RefCell::new(t)
+            t
         });
 
         let tg = session.create_initial_tg(wrapped_t.clone());
-        *wrapped_t.borrow_mut().tg.borrow_mut() = Some(tg);
-        let addr_space = session.create_vm(wrapped_t.borrow_mut().as_mut(), None, None);
-        *wrapped_t.borrow_mut().as_.borrow_mut() = Some(addr_space);
-        let weak_t_ptr = wrapped_t.borrow().weak_self.clone();
-        *wrapped_t.borrow_mut().fds.borrow_mut() = Some(FdTable::create(weak_t_ptr));
-        {
-            let mut ref_task = wrapped_t.borrow_mut();
-            let fds: FdTableSharedPtr = ref_task.fds.borrow().as_ref().unwrap().clone();
-            setup_fd_table(ref_task.as_mut(), &fds, fd_number);
-        }
+        *wrapped_t.tg.borrow_mut() = Some(tg);
+        let addr_space = session.create_vm(&**wrapped_t, None, None);
+        *wrapped_t.as_.borrow_mut() = Some(addr_space);
+        let weak_t_ptr = wrapped_t.weak_self.clone();
+        *wrapped_t.fds.borrow_mut() = Some(FdTable::create(weak_t_ptr));
+        let fds: FdTableSharedPtr = wrapped_t.fds.borrow().as_ref().unwrap().clone();
+        setup_fd_table(&**wrapped_t, &fds, fd_number);
 
         // Install signal handler here, so that when creating the first RecordTask
         // it sees the exact same signal state in the parent as will be in the child.
@@ -1807,30 +1805,27 @@ impl TaskInner {
         );
         unsafe { sigaction(Signal::SIGALRM, &sa) }.unwrap();
 
-        {
-            let mut t = wrapped_t.borrow_mut();
-            t.wait(None);
-            if t.maybe_ptrace_event() == PTRACE_EVENT_EXIT {
-                fatal!(
-                    "Tracee died before reaching SIGSTOP\nChild's message: {:?}",
-                    session.read_spawned_task_error()
-                );
-            }
-            // SIGSTOP can be reported as a signal-stop or group-stop depending on
-            // whether PTRACE_SEIZE happened before or after it was delivered.
-            if t.status().maybe_stop_sig() != SIGSTOP
-                && t.status().maybe_group_stop_sig() != SIGSTOP
-            {
-                fatal!(
-                    "Unexpected stop {}\n Child's message: {:?}",
-                    t.status(),
-                    session.read_spawned_task_error()
-                );
-            }
-
-            t.clear_wait_status();
-            t.open_mem_fd();
+        wrapped_t.wait(None);
+        if wrapped_t.maybe_ptrace_event() == PTRACE_EVENT_EXIT {
+            fatal!(
+                "Tracee died before reaching SIGSTOP\nChild's message: {:?}",
+                session.read_spawned_task_error()
+            );
         }
+        // SIGSTOP can be reported as a signal-stop or group-stop depending on
+        // whether PTRACE_SEIZE happened before or after it was delivered.
+        if wrapped_t.status().maybe_stop_sig() != SIGSTOP
+            && wrapped_t.status().maybe_group_stop_sig() != SIGSTOP
+        {
+            fatal!(
+                "Unexpected stop {}\n Child's message: {:?}",
+                wrapped_t.status(),
+                session.read_spawned_task_error()
+            );
+        }
+
+        wrapped_t.clear_wait_status();
+        wrapped_t.open_mem_fd();
 
         wrapped_t
     }
@@ -1914,7 +1909,7 @@ fn create_seccomp_filter() -> SeccompFilter {
 // waitpid to return EINTR and that's all we need.
 extern "C" fn handle_alarm_signal(_sig: c_int) {}
 
-fn setup_fd_table(t: &mut dyn Task, fds: &FdTableSharedPtr, tracee_socket_fd_number: i32) {
+fn setup_fd_table(t: &dyn Task, fds: &FdTableSharedPtr, tracee_socket_fd_number: i32) {
     fds.add_monitor(t, STDOUT_FILENO, Box::new(StdioMonitor::new(STDOUT_FILENO)));
     fds.add_monitor(t, STDERR_FILENO, Box::new(StdioMonitor::new(STDERR_FILENO)));
     fds.add_monitor(

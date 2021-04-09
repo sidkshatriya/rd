@@ -42,7 +42,7 @@ impl ProcMemMonitor {
                     } else {
                         t.session()
                             .find_task_from_rec_tid(tid)
-                            .map_or(None, |ft| Some(ft.borrow().tuid()))
+                            .map_or(None, |ft| Some(ft.tuid()))
                     };
 
                     return ProcMemMonitor {
@@ -78,22 +78,20 @@ impl FileMonitor for ProcMemMonitor {
 
         let mut offset = lazy_offset.retrieve(false).unwrap();
         let target_rc;
-        let mut targetb;
-        let task = if lazy_offset.t.tuid() == tuid {
-            &mut *lazy_offset.t
+        let task: &dyn Task = if lazy_offset.t.tuid() == tuid {
+            &*lazy_offset.t
         } else {
             let maybe_target = lazy_offset.t.session().find_task_from_task_uid(tuid);
             match maybe_target {
                 None => return,
                 Some(target) => {
                     target_rc = target;
-                    targetb = target_rc.borrow_mut();
-                    targetb.as_mut()
+                    &**target_rc
                 }
             }
         };
 
-        let record_task = task.as_record_task_mut().unwrap();
+        let record_task = task.as_record_task().unwrap();
         for r in ranges {
             record_task.record_remote(RemotePtr::new(offset.try_into().unwrap()), r.length);
             offset += r.length as u64;

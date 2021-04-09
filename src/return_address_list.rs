@@ -20,14 +20,14 @@ impl ReturnAddressList {
     /// address list may not be actual return addresses (in optimized code,
     /// will probably not be), but they will be a function of the task's current
     /// state, so may be useful for distinguishing this state from other states.
-    pub fn new(t: &mut dyn Task) -> ReturnAddressList {
+    pub fn new(t: &dyn Task) -> ReturnAddressList {
         let mut result = Default::default();
         compute_return_addresses(&mut result, t);
         result
     }
 }
 
-fn read_bytes_no_breakpoints(t: &mut dyn Task, p: RemotePtr<u8>, out: &mut [u8]) -> bool {
+fn read_bytes_no_breakpoints(t: &dyn Task, p: RemotePtr<u8>, out: &mut [u8]) -> bool {
     if t.read_bytes_fallible(p, out) != Ok(out.len()) {
         return false;
     }
@@ -37,7 +37,7 @@ fn read_bytes_no_breakpoints(t: &mut dyn Task, p: RemotePtr<u8>, out: &mut [u8])
     true
 }
 
-fn return_addresses_x86ish<Arch: Architecture>(result: &mut ReturnAddressList, t: &mut dyn Task) {
+fn return_addresses_x86ish<Arch: Architecture>(result: &mut ReturnAddressList, t: &dyn Task) {
     // Immediately after a function call the return address is on the stack at
     // SP. After BP is pushed, but before it's initialized for the new stack
     // frame, the return address is on the stack at SP+wordsize. Just
@@ -72,6 +72,6 @@ fn return_addresses_x86ish<Arch: Architecture>(result: &mut ReturnAddressList, t
     }
 }
 
-fn compute_return_addresses(result: &mut ReturnAddressList, t: &mut dyn Task) {
+fn compute_return_addresses(result: &mut ReturnAddressList, t: &dyn Task) {
     rd_arch_function_selfless!(return_addresses_x86ish, t.arch(), result, t);
 }

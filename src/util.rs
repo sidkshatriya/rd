@@ -994,7 +994,7 @@ pub fn read_exe_dir() -> OsString {
     OsString::from_vec(final_exe_path)
 }
 
-fn env_ptr<Arch: Architecture>(t: &mut dyn Task) -> RemotePtr<Arch::unsigned_word> {
+fn env_ptr<Arch: Architecture>(t: &dyn Task) -> RemotePtr<Arch::unsigned_word> {
     let mut stack_ptr: RemotePtr<Arch::unsigned_word> = RemotePtr::cast(t.regs_ref().sp());
 
     let argc = read_val_mem::<Arch::unsigned_word>(t, stack_ptr, None);
@@ -1008,7 +1008,7 @@ fn env_ptr<Arch: Architecture>(t: &mut dyn Task) -> RemotePtr<Arch::unsigned_wor
     stack_ptr
 }
 
-fn read_env_arch<Arch: Architecture>(t: &mut dyn Task) -> Vec<CString> {
+fn read_env_arch<Arch: Architecture>(t: &dyn Task) -> Vec<CString> {
     let mut stack_ptr = env_ptr::<Arch>(t);
     // Should now point to envp
     let mut result: Vec<CString> = Vec::new();
@@ -1023,15 +1023,15 @@ fn read_env_arch<Arch: Architecture>(t: &mut dyn Task) -> Vec<CString> {
     result
 }
 
-pub fn read_env(t: &mut dyn Task) -> Vec<CString> {
+pub fn read_env(t: &dyn Task) -> Vec<CString> {
     rd_arch_function_selfless!(read_env_arch, t.arch(), t)
 }
 
-pub fn read_auxv(t: &mut dyn Task) -> Vec<u8> {
+pub fn read_auxv(t: &dyn Task) -> Vec<u8> {
     rd_arch_function_selfless!(read_auxv_arch, t.arch(), t)
 }
 
-fn read_auxv_arch<Arch: Architecture>(t: &mut dyn Task) -> Vec<u8> {
+fn read_auxv_arch<Arch: Architecture>(t: &dyn Task) -> Vec<u8> {
     let mut stack_ptr = env_ptr::<Arch>(t);
 
     // Should now point to envp
@@ -1228,7 +1228,7 @@ pub fn trapped_instruction_len(insn: TrappedInstruction) -> usize {
 }
 
 /// XXX this probably needs to be extended to decode ignored prefixes
-pub fn trapped_instruction_at<T: Task>(t: &mut T, ip: RemoteCodePtr) -> TrappedInstruction {
+pub fn trapped_instruction_at<T: Task>(t: &T, ip: RemoteCodePtr) -> TrappedInstruction {
     let mut insn: [u8; RDTSCP_INSN.len()] = Default::default();
     let ret = t.read_bytes_fallible(ip.to_data_ptr::<u8>(), &mut insn);
     if ret.is_err() {
@@ -1666,13 +1666,13 @@ pub fn should_checksum(event: &Event, time: FrameTime) -> bool {
 /// Write a checksum of each mapped region in `t`'s address space to a
 /// special log, where it can be read by `validate_process_memory()`
 /// during replay
-pub fn checksum_process_memory(t: &mut dyn Task, global_time: FrameTime) {
+pub fn checksum_process_memory(t: &dyn Task, global_time: FrameTime) {
     iterate_checksums(t, ChecksumMode::StoreChecksums, global_time);
 }
 
 /// Validate the checksum of `t`'s address space that was written
 /// during recording
-pub fn validate_process_memory(t: &mut dyn Task, global_time: FrameTime) {
+pub fn validate_process_memory(t: &dyn Task, global_time: FrameTime) {
     iterate_checksums(t, ChecksumMode::ValidateChecksums, global_time);
 }
 
@@ -1710,7 +1710,7 @@ pub fn signal_bit(sig: Sig) -> sig_set_t {
     (1 as sig_set_t) << (sig.as_raw() - 1)
 }
 
-pub fn is_deterministic_signal(t: &mut dyn Task) -> SignalDeterministic {
+pub fn is_deterministic_signal(t: &dyn Task) -> SignalDeterministic {
     let signo = t.get_siginfo().si_signo;
     match signo {
         // These signals may be delivered deterministically;
@@ -1859,7 +1859,7 @@ const SIGBUS_CHECKSUM: u32 = 0x23456789;
 /// Either create and store checksums for each segment mapped in `t`'s
 /// address space, or validate an existing computed checksum.  Behavior
 /// is selected by `mode`.
-fn iterate_checksums(t: &mut dyn Task, mode: ChecksumMode, global_time: FrameTime) {
+fn iterate_checksums(t: &dyn Task, mode: ChecksumMode, global_time: FrameTime) {
     let mut filename_vec: Vec<u8> = t.trace_dir().into_vec();
     let append = format!("/{}_{}", global_time, t.rec_tid());
     filename_vec.extend_from_slice(append.as_bytes());
@@ -2106,8 +2106,7 @@ fn is_task_buffer(t: &dyn Task, m: &Mapping) -> bool {
     if t.scratch_ptr.get() == m.map.start() && t.scratch_size.get() == m.map.size() {
         return true;
     }
-    for t_rc in t.vm().task_set().iter_except(t.weak_self_ptr()) {
-        let tt = t_rc.borrow();
+    for tt in t.vm().task_set().iter_except(t.weak_self_ptr()) {
         if RemotePtr::cast(tt.syscallbuf_child.get()) == m.map.start()
             && tt.syscallbuf_size.get() == m.map.size()
         {
@@ -2134,7 +2133,7 @@ fn is_start_of_scratch_region(t: &dyn Task, start_addr: RemotePtr<Void>) -> bool
         if Rc::ptr_eq(tt_rc, &t_rc) {
             continue;
         }
-        if start_addr == tt_rc.borrow().scratch_ptr.get() {
+        if start_addr == tt_rc.scratch_ptr.get() {
             return true;
         }
     }

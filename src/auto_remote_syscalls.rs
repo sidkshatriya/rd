@@ -283,7 +283,7 @@ impl<'a, 'b> Drop for AutoRestoreMem<'a, 'b> {
             Some(child_addr) => {
                 // XXX what should we do if this task was sigkilled but the address
                 // space is used by other live tasks?
-                self.remote.task_mut().write_bytes_helper(
+                self.remote.task().write_bytes_helper(
                     child_addr,
                     &self.data,
                     None,
@@ -295,7 +295,7 @@ impl<'a, 'b> Drop for AutoRestoreMem<'a, 'b> {
 
         self.remote.initial_regs_mut().set_sp(new_sp);
         let initial_regs = self.remote.initial_regs_ref().clone();
-        self.remote.task_mut().set_regs(&initial_regs);
+        self.remote.task().set_regs(&initial_regs);
     }
 }
 
@@ -364,19 +364,19 @@ impl<'a, 'b> AutoRestoreMem<'a, 'b> {
         self.remote.initial_regs_mut().set_sp(new_sp);
 
         let initial_regs = self.remote.initial_regs_ref().clone();
-        self.remote.task_mut().set_regs(&initial_regs);
+        self.remote.task().set_regs(&initial_regs);
         self.addr = Some(self.remote.initial_regs_ref().sp());
 
         let mut ok = true;
         self.remote
-            .task_mut()
+            .task()
             .read_bytes_helper(self.addr.unwrap(), &mut self.data, Some(&mut ok));
         // @TODO what do we do if ok is false due to read_bytes_helper call above?
         // Adding a debug_assert!() for now.
         debug_assert!(ok);
         match maybe_mem {
             Some(mem) => {
-                self.remote.task_mut().write_bytes_helper(
+                self.remote.task().write_bytes_helper(
                     self.addr.unwrap(),
                     mem,
                     Some(&mut ok),
@@ -403,7 +403,7 @@ impl<'a, 'b> AutoRestoreMem<'a, 'b> {
 ///
 /// Note: We do NOT want Copy or Clone.
 pub struct AutoRemoteSyscalls<'a> {
-    t: &'a mut dyn Task,
+    t: &'a dyn Task,
     initial_regs: Registers,
     initial_ip: RemoteCodePtr,
     initial_sp: RemotePtr<Void>,
@@ -428,15 +428,15 @@ impl<'a> AutoRemoteSyscalls<'a> {
     /// the caller *must* ensure the callee will not receive any
     /// signals.  This code does not attempt to deal with signals.
     ///
-    /// Note: In case you're wondering why this takes &mut dyn Task
+    /// Note: In case you're wondering why this takes &dyn Task
     /// instead of &mut TaskInner, that is because of the call to
     /// resume_execution() (in AutoRemoteSyscalls::syscall_base()) calls will_resume_execution()
     /// which is a "virtual" method -- effectively in our rust implementation
     /// that means that will_resume_execution() must live in a Task trait impl
     /// And since struct TaskInner does NOT (deliberately) impl the Task trait
-    /// AutoRemoteSyscalls needs to take a &mut dyn Task instead of &mut TaskInner.
+    /// AutoRemoteSyscalls needs to take a &dyn Task instead of &mut TaskInner.
     pub fn new_with_mem_params(
-        t: &mut dyn Task,
+        t: &dyn Task,
         enable_mem_params: MemParamsEnabled,
     ) -> AutoRemoteSyscalls {
         let initial_regs = t.regs_ref().clone();
@@ -477,7 +477,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
     }
 
     /// You mostly want to use this convenience method.
-    pub fn new(t: &mut dyn Task) -> AutoRemoteSyscalls {
+    pub fn new(t: &dyn Task) -> AutoRemoteSyscalls {
         Self::new_with_mem_params(t, MemParamsEnabled::EnableMemoryParams)
     }
 
@@ -546,7 +546,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
     ///  doing.  *ESPECIALLY* don't call this on a `t` other than
     ///  the one passed to the constructor, unless you really know
     ///  what you're doing.
-    pub fn restore_state_to(&mut self, maybe_other_task: Option<&mut dyn Task>) {
+    pub fn restore_state_to(&mut self, maybe_other_task: Option<&dyn Task>) {
         match maybe_other_task {
             Some(other_t) => {
                 // Unmap our scratch region if required
@@ -587,7 +587,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
                 if self.scratch_mem_was_mapped {
                     let sp = self.fixed_sp.unwrap().as_usize() - 4096;
                     let mut remote = AutoRemoteSyscalls::new_with_mem_params(
-                        self.task_mut(),
+                        self.task(),
                         MemParamsEnabled::DisableMemoryParams,
                     );
 
@@ -737,7 +737,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
     }
 
     #[inline]
-    pub fn task_mut(&mut self) -> &mut dyn Task {
+    pub fn task_mut(&mut self) -> &dyn Task {
         self.t
     }
 
@@ -958,7 +958,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
             "Should not already have syscallbuf initialized!"
         );
 
-        self.task_mut()
+        self.task()
             .syscallbuf_child
             .set(RemotePtr::cast(km.start()));
 
@@ -1198,7 +1198,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
 
         // AutoRemoteSyscalls may have gotten unlucky and picked the old stack
         // segment as it's scratch space, reevaluate that choice
-        let mut remote2 = AutoRemoteSyscalls::new(self.task_mut());
+        let mut remote2 = AutoRemoteSyscalls::new(self.task());
 
         let new_m = remote2.steal_mapping(m, None);
 
@@ -1214,7 +1214,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         // rr does not do this, however, it makes sense to do this because short reads (and zero
         // length reads in some instances) DONT result in an error.
         // So if an error was reported, its probably a good idea to fatal!() here.
-        let result = remote2.task_mut().read_bytes_fallible(free_mem, buf);
+        let result = remote2.task().read_bytes_fallible(free_mem, buf);
         if result.is_err() {
             fatal!("Error while reading fallibly");
         }
@@ -1347,7 +1347,7 @@ fn is_usable_area(km: &KernelMapping) -> bool {
         && (km.flags().contains(MapFlags::MAP_PRIVATE))
 }
 
-fn ignore_signal(t: &mut dyn Task) -> bool {
+fn ignore_signal(t: &dyn Task) -> bool {
     let maybe_sig: MaybeStopSignal = t.maybe_stop_sig();
     if !maybe_sig.is_sig() {
         return false;
@@ -1358,7 +1358,7 @@ fn ignore_signal(t: &mut dyn Task) -> bool {
             return true;
         }
     } else if t.session().is_recording() {
-        let rt = t.as_record_task_mut().unwrap();
+        let rt = t.as_record_task().unwrap();
         // Better to use unwrap_sig() here as we've already made sure that maybe_sig.is_sig() above.
         if maybe_sig.unwrap_sig() != rt.session().as_record().unwrap().syscallbuf_desched_sig() {
             rt.stash_sig();
@@ -1391,7 +1391,7 @@ impl<Arch: Architecture> Clone for SocketcallArgs<Arch> {
 impl<Arch: Architecture> Copy for SocketcallArgs<Arch> {}
 
 fn write_socketcall_args<Arch: Architecture>(
-    t: &mut dyn Task,
+    t: &dyn Task,
     remote_mem: RemotePtr<SocketcallArgs<Arch>>,
     arg1: Arch::signed_long,
     arg2: Arch::signed_long,
@@ -1453,17 +1453,12 @@ fn child_sendmsg<Arch: Architecture>(
     let mut ok = true;
     let mut msg = Arch::msghdr::default();
     Arch::set_msghdr(&mut msg, remote_cmsgbuf, cmsgbuf_size, remote_msgdata, 1);
-    write_val_mem(remote_buf.task_mut(), remote_msg, &msg, Some(&mut ok));
+    write_val_mem(remote_buf.task(), remote_msg, &msg, Some(&mut ok));
 
     let mut msgdata = Arch::iovec::default();
     // iov_base: doesn't matter much, we ignore the data
     Arch::set_iovec(&mut msgdata, RemotePtr::cast(remote_msg), 1);
-    write_val_mem(
-        remote_buf.task_mut(),
-        remote_msgdata,
-        &msgdata,
-        Some(&mut ok),
-    );
+    write_val_mem(remote_buf.task(), remote_msgdata, &msgdata, Some(&mut ok));
 
     let cmsg_data_off = rd_kernel_abi_arch_function!(cmsg_data_offset, Arch::arch());
     let mut cmsghdr = Arch::cmsghdr::default();
@@ -1484,12 +1479,7 @@ fn child_sendmsg<Arch: Architecture>(
     // Copy the fd into the cmsgbuf
     cmsgbuf[cmsg_data_off..cmsg_data_off + size_of_val(&fd)].copy_from_slice(&fd.to_le_bytes());
 
-    write_mem(
-        remote_buf.task_mut(),
-        remote_cmsgbuf,
-        &cmsgbuf,
-        Some(&mut ok),
-    );
+    write_mem(remote_buf.task(), remote_cmsgbuf, &cmsgbuf, Some(&mut ok));
 
     if !ok {
         return -ESRCH as isize;
@@ -1508,7 +1498,7 @@ fn child_sendmsg<Arch: Architecture>(
 
     let addr: Arch::unsigned_long = remote_msg.as_usize().try_into().unwrap();
     write_socketcall_args::<Arch>(
-        remote_buf.task_mut(),
+        remote_buf.task(),
         sc_args.unwrap(),
         child_sock.into(),
         Arch::as_signed_long(addr),

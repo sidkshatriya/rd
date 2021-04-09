@@ -7,7 +7,7 @@
 //! (b) Some utility methods which because of their template parameters cannot be added to the
 //!     Task trait. This makes calling them a tad bit more inconvenient as we _cannot_ invoke using
 //!     the self.func_name() style. They are included in this file because they take &dyn Task or
-//!     &mut dyn Task as their first parameter. It would have been confusing to include them
+//!     &dyn Task as their first parameter. It would have been confusing to include them
 //!     in task_inner.rs
 //! (c) Some misc methods that did not fit elsewhere...
 
@@ -160,7 +160,6 @@ use nix::{
 };
 use sig::Sig;
 use std::{
-    cell::RefCell,
     cmp::{max, min},
     convert::TryInto,
     ffi::{c_void, CStr, CString, OsStr},
@@ -178,7 +177,7 @@ use std::{
 /// first. If necessary we force the tracee to open the file
 /// itself and smuggle the fd back to us.
 /// Returns false if the process no longer exists.
-pub(super) fn open_mem_fd_common<T: Task>(task: &mut T) -> bool {
+pub(super) fn open_mem_fd_common<T: Task>(task: &T) -> bool {
     // Use ptrace to read/write during open_mem_fd
     task.vm().set_mem_fd(ScopedFd::new());
 
@@ -254,7 +253,7 @@ pub(super) fn open_mem_fd_common<T: Task>(task: &mut T) -> bool {
 /// - Returns Ok(usize) if 0 or more bytes could be read. All bytes requested may not have been
 /// read.
 pub(super) fn read_bytes_fallible_common<T: Task>(
-    task: &mut T,
+    task: &T,
     addr: RemotePtr<Void>,
     buf: &mut [u8],
 ) -> Result<usize, ()> {
@@ -328,7 +327,7 @@ pub(super) fn read_bytes_fallible_common<T: Task>(
 /// If the data can't all be read, then if `maybe_ok` is None, asserts otherwise
 /// sets the inner mutable bool to false.
 pub(super) fn read_bytes_helper_common<T: Task>(
-    task: &mut T,
+    task: &T,
     addr: RemotePtr<Void>,
     buf: &mut [u8],
     maybe_ok: Option<&mut bool>,
@@ -362,7 +361,7 @@ pub(super) fn read_bytes_helper_common<T: Task>(
 /// If the data can't all be read, then if `ok` is non-null, sets *ok to
 /// false, otherwise asserts.
 pub fn read_bytes_helper_for<T: Task, D>(
-    task: &mut dyn Task,
+    task: &dyn Task,
     addr: RemotePtr<D>,
     data: &mut D,
     ok: Option<&mut bool>,
@@ -375,7 +374,7 @@ pub fn read_bytes_helper_for<T: Task, D>(
 ///
 /// Read and return the C string located at `child_addr` in
 /// this address space.
-pub(super) fn read_c_str_common<T: Task>(task: &mut T, child_addr: RemotePtr<u8>) -> CString {
+pub(super) fn read_c_str_common<T: Task>(task: &T, child_addr: RemotePtr<u8>) -> CString {
     // XXX handle invalid C strings
     // e.g. c-strings that don't end even when an unmapped region of memory
     // is reached.
@@ -410,11 +409,7 @@ pub(super) fn read_c_str_common<T: Task>(task: &mut T, child_addr: RemotePtr<u8>
 /// that's PROT_NONE.
 /// Also, writing through MAP_SHARED readonly mappings fails (even if the
 /// file was opened read-write originally), so we handle that here too.
-pub(super) fn safe_pwrite64(
-    t: &mut dyn Task,
-    buf: &[u8],
-    addr: RemotePtr<Void>,
-) -> Result<usize, ()> {
+pub(super) fn safe_pwrite64(t: &dyn Task, buf: &[u8], addr: RemotePtr<Void>) -> Result<usize, ()> {
     let mut mappings_to_fix: Vec<(MemoryRangeKey, ProtFlags)> = Vec::new();
     let buf_size = buf.len();
     for (k, m) in &t.vm().maps_containing_or_after(floor_page_size(addr)) {
@@ -469,7 +464,7 @@ pub(super) fn safe_pwrite64(
 ///
 /// `flags` is bits from WriteFlags.
 pub(super) fn write_bytes_helper_common<T: Task>(
-    task: &mut T,
+    task: &T,
     addr: RemotePtr<Void>,
     buf: &[u8],
     ok: Option<&mut bool>,
@@ -540,7 +535,7 @@ pub(super) fn write_bytes_helper_common<T: Task>(
 /// Read `val` from `child_addr`.
 /// If the data can't all be read, then if `ok` is non-null
 /// sets *ok to false, otherwise asserts.
-pub fn read_val_mem<D>(task: &mut dyn Task, child_addr: RemotePtr<D>, ok: Option<&mut bool>) -> D {
+pub fn read_val_mem<D>(task: &dyn Task, child_addr: RemotePtr<D>, ok: Option<&mut bool>) -> D {
     let mut v: D = unsafe { zeroed() };
     let u8_slice = unsafe { slice::from_raw_parts_mut(&raw mut v as *mut u8, size_of::<D>()) };
     task.read_bytes_helper(RemotePtr::cast(child_addr), u8_slice, ok);
@@ -550,7 +545,7 @@ pub fn read_val_mem<D>(task: &mut dyn Task, child_addr: RemotePtr<D>, ok: Option
 /// Just like read_val_mem() for those occations where unsafe { zeroed() } for init
 /// is not a good idea.
 pub fn read_val_with_default_mem<D: Default>(
-    task: &mut dyn Task,
+    task: &dyn Task,
     child_addr: RemotePtr<D>,
     ok: Option<&mut bool>,
 ) -> D {
@@ -564,7 +559,7 @@ pub fn read_val_with_default_mem<D: Default>(
 ///
 /// Read `count` values from `child_addr`.
 pub fn read_mem<D: Clone>(
-    task: &mut dyn Task,
+    task: &dyn Task,
     child_addr: RemotePtr<D>,
     count: usize,
     ok: Option<&mut bool>,
@@ -579,7 +574,7 @@ pub fn read_mem<D: Clone>(
 
 /// Forwarded method definition
 ///
-pub(super) fn syscallbuf_data_size_common<T: Task>(task: &mut T) -> usize {
+pub(super) fn syscallbuf_data_size_common<T: Task>(task: &T) -> usize {
     let addr: RemotePtr<u32> = RemotePtr::cast(task.syscallbuf_child.get());
     read_val_mem::<u32>(task, addr + offset_of!(syscallbuf_hdr, num_rec_bytes), None) as usize
         + size_of::<syscallbuf_hdr>()
@@ -588,13 +583,13 @@ pub(super) fn syscallbuf_data_size_common<T: Task>(task: &mut T) -> usize {
 /// Forwarded method definition
 ///
 /// Write `N` bytes from `buf` to `child_addr`, or don't return.
-pub(super) fn write_bytes_common<T: Task>(task: &mut T, child_addr: RemotePtr<Void>, buf: &[u8]) {
+pub(super) fn write_bytes_common<T: Task>(task: &T, child_addr: RemotePtr<Void>, buf: &[u8]) {
     write_bytes_helper_common(task, child_addr, buf, None, WriteFlags::empty())
 }
 
 /// Forwarded method definition
 ///
-pub(super) fn next_syscallbuf_record_common<T: Task>(task: &mut T) -> RemotePtr<syscallbuf_record> {
+pub(super) fn next_syscallbuf_record_common<T: Task>(task: &T) -> RemotePtr<syscallbuf_record> {
     // Next syscallbuf record is size_of the syscallbuf header + number of bytes in buffer
     let addr = RemotePtr::<u8>::cast(task.syscallbuf_child.get() + 1usize);
     let num_rec_bytes_addr = RemotePtr::<u8>::cast(task.syscallbuf_child.get())
@@ -609,7 +604,7 @@ pub(super) fn next_syscallbuf_record_common<T: Task>(task: &mut T) -> RemotePtr<
 /// Forwarded method definition
 ///
 pub(super) fn stored_record_size_common<T: Task>(
-    task: &mut T,
+    task: &T,
     record: RemotePtr<syscallbuf_record>,
 ) -> usize {
     let size_field_addr: RemotePtr<u8> =
@@ -628,7 +623,7 @@ pub(super) fn stored_record_size_common<T: Task>(
 ///
 /// Write single `val` to `child_addr`.
 pub fn write_val_mem<D: 'static>(
-    task: &mut dyn Task,
+    task: &dyn Task,
     child_addr: RemotePtr<D>,
     val: &D,
     ok: Option<&mut bool>,
@@ -640,7 +635,7 @@ pub fn write_val_mem<D: 'static>(
 ///
 /// Write single `val` to `child_addr` and optionally specify a flag.
 pub fn write_val_mem_with_flags<D: 'static>(
-    task: &mut dyn Task,
+    task: &dyn Task,
     child_addr: RemotePtr<D>,
     val: &D,
     ok: Option<&mut bool>,
@@ -656,7 +651,7 @@ pub fn write_val_mem_with_flags<D: 'static>(
 ///
 /// Write array of `val`s to `child_addr`.
 pub fn write_mem<D: 'static>(
-    task: &mut dyn Task,
+    task: &dyn Task,
     child_addr: RemotePtr<D>,
     val: &[D],
     ok: Option<&mut bool>,
@@ -677,7 +672,7 @@ pub fn write_mem<D: 'static>(
 /// Force the wait status of this to `status`, as if
 /// `wait()/try_wait()` had returned it. Call this whenever a waitpid
 /// returned activity for this past.
-pub(super) fn did_waitpid_common<T: Task>(task: &mut T, mut status: WaitStatus) {
+pub(super) fn did_waitpid_common<T: Task>(task: &T, mut status: WaitStatus) {
     // After PTRACE_INTERRUPT, any next two stops may be a group stop caused by
     // that PTRACE_INTERRUPT (or neither may be). This is because PTRACE_INTERRUPT
     // generally lets other stops win (and thus doesn't inject it's own stop), but
@@ -903,7 +898,7 @@ fn single_step_coalesce_cutoff() -> usize {
 ///
 /// All tracee execution goes through here.
 pub(super) fn resume_execution_common<T: Task>(
-    task: &mut T,
+    task: &T,
     how: ResumeRequest,
     wait_how: WaitRequest,
     tick_period: TicksRequest,
@@ -1032,7 +1027,7 @@ pub(super) fn resume_execution_common<T: Task>(
     }
 }
 
-fn work_around_knl_string_singlestep_bug<T: Task>(task: &mut T) {
+fn work_around_knl_string_singlestep_bug<T: Task>(task: &T) {
     let cx: usize = task.regs_ref().cx();
     let cutoff: usize = single_step_coalesce_cutoff();
     // The extra cx >= cutoff check is just an optimization, to avoid the
@@ -1114,7 +1109,7 @@ pub(in super::super) fn os_clone_into(
 /// in the process into which the copy of this task will be
 /// created.  `task_leader` will perform the actual OS calls to
 /// create the new child.
-fn os_fork_into(t: &mut dyn Task, session: SessionSharedPtr) -> TaskSharedPtr {
+fn os_fork_into(t: &dyn Task, session: SessionSharedPtr) -> TaskSharedPtr {
     let rec_tid = t.rec_tid();
     let serial = t.serial.get();
     let mut remote =
@@ -1146,12 +1141,12 @@ fn os_fork_into(t: &mut dyn Task, session: SessionSharedPtr) -> TaskSharedPtr {
     // did to make the clone() call.  So we have to "finish" the
     // remote calls (i.e. undo fudged state) in the child too,
     // even though we never made any syscalls there.
-    remote.restore_state_to(Some(child.borrow_mut().as_mut()));
+    remote.restore_state_to(Some(&**child));
 
     child
 }
 
-fn on_syscall_exit_common_arch<Arch: Architecture>(t: &mut dyn Task, sys: i32, regs: &Registers) {
+fn on_syscall_exit_common_arch<Arch: Architecture>(t: &dyn Task, sys: i32, regs: &Registers) {
     t.session().accumulate_syscall_performed();
 
     if regs.original_syscallno() == SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO {
@@ -1203,8 +1198,8 @@ fn on_syscall_exit_common_arch<Arch: Architecture>(t: &mut dyn Task, sys: i32, r
                     );
                 }
                 Some(found_t) => {
-                    return found_t.borrow().vm().protect(
-                        found_t.borrow().as_ref(),
+                    return found_t.vm().protect(
+                        &**found_t,
                         addr,
                         num_bytes,
                         ProtFlags::from_bits(prot).unwrap(),
@@ -1311,10 +1306,7 @@ fn on_syscall_exit_common_arch<Arch: Architecture>(t: &mut dyn Task, sys: i32, r
             ));
         }
         let mut offset = LazyOffset::new(t, &regs, sys);
-        offset
-            .task_mut()
-            .fd_table()
-            .did_write(fd, ranges, &mut offset);
+        offset.task().fd_table().did_write(fd, ranges, &mut offset);
         return;
     }
 
@@ -1338,10 +1330,7 @@ fn on_syscall_exit_common_arch<Arch: Architecture>(t: &mut dyn Task, sys: i32, r
             }
         }
         let mut offset = LazyOffset::new(t, &regs, sys);
-        offset
-            .task_mut()
-            .fd_table()
-            .did_write(fd, ranges, &mut offset);
+        offset.task().fd_table().did_write(fd, ranges, &mut offset);
         return;
     }
 
@@ -1358,7 +1347,7 @@ fn on_syscall_exit_common_arch<Arch: Architecture>(t: &mut dyn Task, sys: i32, r
 /// Use 'regs' instead of t.regs_ref() because some registers may not be
 /// set properly in the task yet.
 pub(super) fn on_syscall_exit_common(
-    t: &mut dyn Task,
+    t: &dyn Task,
     syscallno: i32,
     arch: SupportedArch,
     regs: &Registers,
@@ -1370,7 +1359,7 @@ pub(super) fn on_syscall_exit_common(
 
 /// Call this method when this task has exited a successful execve() syscall.
 /// At this point it is safe to make remote syscalls.
-pub(super) fn post_exec_syscall_common(t: &mut dyn Task) {
+pub(super) fn post_exec_syscall_common(t: &dyn Task) {
     let arch = t.arch();
     t.canonicalize_regs(arch);
     t.vm().post_exec_syscall(t);
@@ -1391,26 +1380,25 @@ pub(super) fn post_exec_syscall_common(t: &mut dyn Task) {
 /// DIFF NOTE: Simply called post_exec(...) in rr
 /// Not to be confused with another post_exec() in rr that does not
 /// take any arguments
-pub(super) fn post_exec_for_exe_common<T: Task>(t: &mut T, exe_file: &OsStr) {
+pub(super) fn post_exec_for_exe_common<T: Task>(t: &T, exe_file: &OsStr) {
     let mut stopped_task_in_address_space = None;
     let mut other_task_in_address_space = false;
     for task in t.vm().task_set().iter_except(t.weak_self_ptr()) {
         other_task_in_address_space = true;
-        if task.borrow().is_stopped.get() {
+        if task.is_stopped.get() {
             stopped_task_in_address_space = Some(task);
             break;
         }
     }
     match stopped_task_in_address_space {
-        Some(stopped_task) => {
-            let mut stopped = stopped_task.borrow_mut();
+        Some(stopped) => {
             // Note this is `t` and NOT `stopped`
             let syscallbuf_child = t.syscallbuf_child.get();
             let syscallbuf_size = t.syscallbuf_size.get();
             let scratch_ptr = t.scratch_ptr.get();
             let scratch_size = t.scratch_size.get();
 
-            let mut remote = AutoRemoteSyscalls::new(stopped.as_mut());
+            let mut remote = AutoRemoteSyscalls::new(&**stopped);
             unmap_buffers_for(
                 &mut remote,
                 Some(t),
@@ -1483,7 +1471,7 @@ fn prname_from_exe_image(exe_image: &OsStr) -> &OsStr {
 ///
 /// Determine why a SIGTRAP occurred. Uses debug_status() but doesn't
 /// consume it.
-pub(super) fn compute_trap_reasons_common<T: Task>(t: &mut T) -> TrapReasons {
+pub(super) fn compute_trap_reasons_common<T: Task>(t: &T) -> TrapReasons {
     ed_assert_eq!(t, t.maybe_stop_sig(), SIGTRAP);
     let mut reasons = TrapReasons::default();
     let status = t.debug_status();
@@ -1574,14 +1562,14 @@ pub(super) fn compute_trap_reasons_common<T: Task>(t: &mut T) -> TrapReasons {
     reasons
 }
 
-pub(super) fn at_preload_init_common<T: Task>(t: &mut T) {
+pub(super) fn at_preload_init_common<T: Task>(t: &T) {
     t.vm().at_preload_init(t);
     do_preload_init(t);
 
     t.fd_table().init_syscallbuf_fds_disabled(t);
 }
 
-fn do_preload_init_arch<Arch: Architecture, T: Task>(t: &mut T) {
+fn do_preload_init_arch<Arch: Architecture, T: Task>(t: &T) {
     let addr_val = t.regs_ref().arg1();
     let params = read_val_mem(
         t,
@@ -1594,8 +1582,7 @@ fn do_preload_init_arch<Arch: Architecture, T: Task>(t: &mut T) {
         .set(Arch::as_rptr(params.breakpoint_table).to_code_ptr());
     t.stopping_breakpoint_table_entry_size
         .set(params.breakpoint_table_entry_size.try_into().unwrap());
-    for rc_t in t.vm().task_set().iter_except(t.weak_self_ptr()) {
-        let tt = rc_t.borrow();
+    for tt in t.vm().task_set().iter_except(t.weak_self_ptr()) {
         tt.preload_globals.set(Arch::as_rptr(params.globals));
 
         tt.stopping_breakpoint_table
@@ -1611,12 +1598,12 @@ fn do_preload_init_arch<Arch: Architecture, T: Task>(t: &mut T) {
     write_val_mem(t, addr, &is_replaying, None);
 }
 
-fn do_preload_init<T: Task>(t: &mut T) {
+fn do_preload_init<T: Task>(t: &T) {
     rd_arch_task_function_selfless!(T, do_preload_init_arch, t.arch(), t);
 }
 
 pub(in super::super) fn clone_task_common(
-    clone_this: &mut dyn Task,
+    clone_this: &dyn Task,
     reason: CloneReason,
     flags: CloneFlags,
     stack: RemotePtr<Void>,
@@ -1703,58 +1690,52 @@ pub(in super::super) fn clone_task_common(
         t.seccomp_bpf_enabled
             .set(clone_this.seccomp_bpf_enabled.get());
 
-        RefCell::new(t)
+        t
     });
 
     let weak_self_ptr = Rc::downgrade(&rc_t);
-    let mut ref_t = rc_t.borrow_mut();
     // FdTable is either shared or copied, so the contents of
     // syscallbuf_fds_disabled_child are still valid.
     if flags.contains(CloneFlags::CLONE_SHARE_FILES) {
-        *ref_t.fds.borrow_mut() = clone_this.fds.borrow().clone();
-        ref_t
-            .fd_table()
-            .task_set_mut()
-            .insert(weak_self_ptr.clone());
+        *rc_t.fds.borrow_mut() = clone_this.fds.borrow().clone();
+        rc_t.fd_table().task_set_mut().insert(weak_self_ptr.clone());
     } else {
-        *ref_t.fds.borrow_mut() = Some(clone_this.fd_table().clone_into_task(ref_t.as_mut()));
+        *rc_t.fds.borrow_mut() = Some(clone_this.fd_table().clone_into_task(&**rc_t));
     }
 
-    ref_t.top_of_stack.set(stack);
+    rc_t.top_of_stack.set(stack);
     // Clone children, both thread and fork, inherit the parent
     // prname.
-    *ref_t.prname.borrow_mut() = clone_this.prname.borrow().clone();
+    *rc_t.prname.borrow_mut() = clone_this.prname.borrow().clone();
 
     // wait() before trying to do anything that might need to
     // use ptrace to access memory
-    ref_t.wait(None);
+    rc_t.wait(None);
 
-    ref_t.post_wait_clone(clone_this, flags);
+    rc_t.post_wait_clone(clone_this, flags);
     if flags.contains(CloneFlags::CLONE_SHARE_THREAD_GROUP) {
-        *ref_t.tg.borrow_mut() = clone_this.tg.borrow().clone();
+        *rc_t.tg.borrow_mut() = clone_this.tg.borrow().clone();
     } else {
-        *ref_t.tg.borrow_mut() =
-            Some(new_task_session.clone_tg(ref_t.as_mut(), clone_this.thread_group()));
+        *rc_t.tg.borrow_mut() = Some(new_task_session.clone_tg(&**rc_t, clone_this.thread_group()));
     }
-    ref_t
-        .thread_group()
+    rc_t.thread_group()
         .borrow_mut()
         .task_set_mut()
         .insert(weak_self_ptr.clone());
 
-    ref_t.open_mem_fd_if_needed();
-    *ref_t.thread_areas_.borrow_mut() = clone_this.thread_areas_.borrow().clone();
+    rc_t.open_mem_fd_if_needed();
+    *rc_t.thread_areas_.borrow_mut() = clone_this.thread_areas_.borrow().clone();
     if flags.contains(CloneFlags::CLONE_SET_TLS) {
-        set_thread_area_from_clone(ref_t.as_mut(), tls);
+        set_thread_area_from_clone(&**rc_t, tls);
     }
 
-    ref_t.vm().task_set_mut().insert(weak_self_ptr.clone());
+    rc_t.vm().task_set_mut().insert(weak_self_ptr.clone());
 
     if reason == CloneReason::TraceeClone {
         if !flags.contains(CloneFlags::CLONE_SHARE_VM) {
             // Unmap syscallbuf and scratch for tasks running the original address
             // space.
-            let mut remote = AutoRemoteSyscalls::new(ref_t.as_mut());
+            let mut remote = AutoRemoteSyscalls::new(&**rc_t);
             // Leak the scratch buffer for the task we cloned from. We need to do
             // this because we may be using part of it for the syscallbuf stack
             // and unmapping it now would cause a crash in the new task.
@@ -1766,45 +1747,44 @@ pub(in super::super) fn clone_task_common(
                 unmap_buffers_for(
                     &mut remote,
                     None,
-                    tt.borrow().syscallbuf_child.get(),
-                    tt.borrow().syscallbuf_size.get(),
-                    tt.borrow().scratch_ptr.get(),
-                    tt.borrow().scratch_size.get(),
+                    tt.syscallbuf_child.get(),
+                    tt.syscallbuf_size.get(),
+                    tt.scratch_ptr.get(),
+                    tt.scratch_size.get(),
                 );
             }
-            clone_this.vm().did_fork_into(remote.task_mut());
+            clone_this.vm().did_fork_into(remote.task());
         }
 
         if flags.contains(CloneFlags::CLONE_SHARE_FILES) {
             // Clear our desched_fd_child so that we don't try to close it.
             // It should only be closed in `clone_this`.
-            ref_t.desched_fd_child.set(-1);
-            ref_t.cloned_file_data_fd_child.set(-1);
+            rc_t.desched_fd_child.set(-1);
+            rc_t.cloned_file_data_fd_child.set(-1);
         } else {
             // Close syscallbuf fds for tasks using the original fd table.
-            let mut remote = AutoRemoteSyscalls::new(ref_t.as_mut());
+            let mut remote = AutoRemoteSyscalls::new(&**rc_t);
             close_buffers_for(&mut remote, Some(clone_this), None);
             for tt in clone_this
                 .fd_table()
                 .task_set()
                 .iter_except(clone_this.weak_self_ptr())
             {
-                close_buffers_for(&mut remote, Some(tt.borrow().as_ref()), Some(clone_this))
+                close_buffers_for(&mut remote, Some(&**tt), Some(clone_this))
             }
         }
     }
 
-    ref_t.post_vm_clone(reason, flags, clone_this);
+    rc_t.post_vm_clone(reason, flags, clone_this);
 
-    drop(ref_t);
     rc_t
 }
 
-fn set_thread_area_from_clone(t: &mut dyn Task, tls: RemotePtr<u8>) {
+fn set_thread_area_from_clone(t: &dyn Task, tls: RemotePtr<u8>) {
     rd_arch_function_selfless!(set_thread_area_from_clone_arch, t.arch(), t, tls)
 }
 
-fn set_thread_area_from_clone_arch<Arch: Architecture>(t: &mut dyn Task, tls: RemotePtr<Void>) {
+fn set_thread_area_from_clone_arch<Arch: Architecture>(t: &dyn Task, tls: RemotePtr<Void>) {
     if Arch::CLONE_TLS_TYPE == CloneTLSType::UserDescPointer {
         t.set_thread_area(RemotePtr::cast(tls));
     }
@@ -1813,7 +1793,7 @@ fn set_thread_area_from_clone_arch<Arch: Architecture>(t: &mut dyn Task, tls: Re
 // DIFF NOTE: Param list different from rr version
 fn unmap_buffers_for(
     remote: &mut AutoRemoteSyscalls,
-    maybe_context: Option<&mut dyn Task>,
+    maybe_context: Option<&dyn Task>,
     saved_syscallbuf_child: RemotePtr<syscallbuf_hdr>,
     other_syscallbuf_size: usize,
     other_scratch_ptr: RemotePtr<Void>,
@@ -1888,9 +1868,9 @@ pub fn close_buffers_for(
         }
 
         remote
-            .task_mut()
+            .task()
             .fd_table()
-            .did_close(desched_fd_child, remote.task_mut(), v.as_slice());
+            .did_close(desched_fd_child, remote.task(), v.as_slice());
     }
     if cloned_file_data_fd_child >= 0 {
         rd_infallible_syscall!(
@@ -1898,19 +1878,18 @@ pub fn close_buffers_for(
             syscall_number_for_close(arch),
             cloned_file_data_fd_child
         );
-        remote.task_mut().fd_table().did_close(
-            cloned_file_data_fd_child,
-            remote.task_mut(),
-            v.as_slice(),
-        );
+        remote
+            .task()
+            .fd_table()
+            .did_close(cloned_file_data_fd_child, remote.task(), v.as_slice());
     }
 }
 
 pub(super) fn post_vm_clone_common<T: Task>(
-    t: &mut T,
+    t: &T,
     reason: CloneReason,
     flags: CloneFlags,
-    origin: &mut dyn Task,
+    origin: &dyn Task,
 ) -> bool {
     let mut created_preload_thread_locals_mapping: bool = false;
     if !flags.contains(CloneFlags::CLONE_SHARE_VM) {
@@ -1926,12 +1905,12 @@ pub(super) fn post_vm_clone_common<T: Task>(
 
 /// Forwarded method definition
 ///
-pub(super) fn destroy_buffers_common<T: Task>(t: &mut T) {
+pub(super) fn destroy_buffers_common<T: Task>(t: &T) {
     let saved_syscallbuf_child = t.syscallbuf_child.get();
     let mut remote = AutoRemoteSyscalls::new(t);
     // Clear syscallbuf_child now so nothing tries to use it while tearing
     // down buffers.
-    remote.task_mut().syscallbuf_child.set(RemotePtr::null());
+    remote.task().syscallbuf_child.set(RemotePtr::null());
     let syscallbuf_size = remote.task().syscallbuf_size.get();
     let scratch_ptr = remote.task().scratch_ptr.get();
     let scratch_size = remote.task().scratch_size.get();
@@ -1943,10 +1922,10 @@ pub(super) fn destroy_buffers_common<T: Task>(t: &mut T) {
         scratch_ptr,
         scratch_size,
     );
-    remote.task_mut().scratch_ptr.set(RemotePtr::null());
+    remote.task().scratch_ptr.set(RemotePtr::null());
     close_buffers_for(&mut remote, None, None);
-    remote.task_mut().desched_fd_child.set(-1);
-    remote.task_mut().cloned_file_data_fd_child.set(-1);
+    remote.task().desched_fd_child.set(-1);
+    remote.task().cloned_file_data_fd_child.set(-1);
 }
 
 pub(super) fn task_drop_common<T: Task>(t: &T) {
@@ -1995,7 +1974,7 @@ pub(super) fn task_drop_common<T: Task>(t: &T) {
 
 /// Forwarded method definition
 ///
-pub(super) fn set_thread_area_common<T: Task>(t: &mut T, tls: RemotePtr<user_desc>) {
+pub(super) fn set_thread_area_common<T: Task>(t: &T, tls: RemotePtr<user_desc>) {
     // We rely on the fact that user_desc is word-size-independent.
     let desc: user_desc = read_val_mem(t, tls, None);
     set_thread_area_core(&mut t.thread_areas_.borrow_mut(), desc)
@@ -2018,13 +1997,12 @@ fn process_shmdt(t: &dyn Task, addr: RemotePtr<Void>) {
     t.vm().unmap(t, addr, size);
 }
 
-fn process_ptrace<Arch: Architecture>(regs: &Registers, t: &mut dyn Task) {
+fn process_ptrace<Arch: Architecture>(regs: &Registers, t: &dyn Task) {
     let pid = regs.arg2_signed() as pid_t;
     let maybe_tracee = t.session().find_task_from_rec_tid(pid);
     match regs.arg1() as u32 {
         PTRACE_SETREGS => {
-            let tracee_rc = maybe_tracee.unwrap();
-            let tracee = tracee_rc.borrow();
+            let tracee = maybe_tracee.unwrap();
             let data = read_mem(
                 t,
                 RemotePtr::<u8>::from(regs.arg4()),
@@ -2062,8 +2040,7 @@ fn process_ptrace<Arch: Architecture>(regs: &Registers, t: &mut dyn Task) {
         PTRACE_SETREGSET => {
             match regs.arg3() as u32 {
                 NT_PRSTATUS => {
-                    let tracee_rc = maybe_tracee.unwrap();
-                    let tracee = tracee_rc.borrow();
+                    let tracee = maybe_tracee.unwrap();
                     let set =
                         ptrace_get_regs_set::<Arch>(t, regs, size_of::<Arch::user_regs_struct>());
                     let mut r = tracee.regs_ref().clone();
@@ -2071,8 +2048,7 @@ fn process_ptrace<Arch: Architecture>(regs: &Registers, t: &mut dyn Task) {
                     tracee.set_regs(&r);
                 }
                 NT_FPREGSET => {
-                    let tracee_rc = maybe_tracee.unwrap();
-                    let tracee = tracee_rc.borrow();
+                    let tracee = maybe_tracee.unwrap();
                     let set =
                         ptrace_get_regs_set::<Arch>(t, regs, size_of::<Arch::user_fpregs_struct>());
                     let mut r: ExtraRegisters = tracee.extra_regs_ref().clone();
@@ -2080,8 +2056,7 @@ fn process_ptrace<Arch: Architecture>(regs: &Registers, t: &mut dyn Task) {
                     tracee.set_extra_regs(&r);
                 }
                 NT_X86_XSTATE => {
-                    let tracee_rc = maybe_tracee.unwrap();
-                    let tracee = tracee_rc.borrow();
+                    let tracee = maybe_tracee.unwrap();
                     let format = tracee.extra_regs_ref().format();
                     match format {
                         Format::XSave => {
@@ -2131,8 +2106,7 @@ fn process_ptrace<Arch: Architecture>(regs: &Registers, t: &mut dyn Task) {
             return;
         }
         PTRACE_POKEUSER => {
-            let tracee_rc = maybe_tracee.unwrap();
-            let tracee = tracee_rc.borrow();
+            let tracee = maybe_tracee.unwrap();
             let addr: usize = regs.arg3();
             let data: Arch::unsigned_word = Arch::as_unsigned_word(regs.arg4());
             if addr < size_of::<Arch::user_regs_struct>() {
@@ -2160,8 +2134,7 @@ fn process_ptrace<Arch: Architecture>(regs: &Registers, t: &mut dyn Task) {
             match code {
                 ARCH_GET_FS | ARCH_GET_GS => (),
                 ARCH_SET_FS | ARCH_SET_GS => {
-                    let tracee_rc = maybe_tracee.unwrap();
-                    let tracee = tracee_rc.borrow();
+                    let tracee = maybe_tracee.unwrap();
                     let mut r: Registers = tracee.regs_ref().clone();
                     if regs.arg3() == 0 {
                         // Work around a kernel bug in pre-4.7 kernels, where setting
@@ -2181,8 +2154,11 @@ fn process_ptrace<Arch: Architecture>(regs: &Registers, t: &mut dyn Task) {
                 }
                 _ => {
                     let tracee_rc = maybe_tracee.unwrap();
-                    let tracee = tracee_rc.borrow_mut();
-                    ed_assert!(tracee.as_ref(), false, "Should have detected this earlier");
+                    ed_assert!(
+                        tracee_rc.as_ref(),
+                        false,
+                        "Should have detected this earlier"
+                    );
                 }
             };
             return;
@@ -2192,7 +2168,7 @@ fn process_ptrace<Arch: Architecture>(regs: &Registers, t: &mut dyn Task) {
 }
 
 fn ptrace_get_regs_set<Arch: Architecture>(
-    t: &mut dyn Task,
+    t: &dyn Task,
     regs: &Registers,
     min_size: usize,
 ) -> Vec<u8> {
@@ -2208,7 +2184,7 @@ fn ptrace_get_regs_set<Arch: Architecture>(
 
 /// Forwarded method definition
 ///
-pub(super) fn detect_syscall_arch_common<T: Task>(task: &mut T) -> SupportedArch {
+pub(super) fn detect_syscall_arch_common<T: Task>(task: &T) -> SupportedArch {
     let mut syscall_arch = SupportedArch::X64;
     let arch = task.arch();
     let code_ptr = task.regs_ref().ip().decrement_by_syscall_insn_length(arch);
@@ -2219,7 +2195,7 @@ pub(super) fn detect_syscall_arch_common<T: Task>(task: &mut T) -> SupportedArch
 
 /// Forwarded method definition
 ///
-pub(super) fn set_syscallbuf_locked_common<T: Task>(t: &mut T, locked: bool) {
+pub(super) fn set_syscallbuf_locked_common<T: Task>(t: &T, locked: bool) {
     if t.syscallbuf_child.get().is_null() {
         return;
     }
@@ -2241,7 +2217,7 @@ pub(super) fn set_syscallbuf_locked_common<T: Task>(t: &mut T, locked: bool) {
 
 /// Forwarded method definition
 ///
-pub(super) fn reset_syscallbuf_common<T: Task>(t: &mut T) {
+pub(super) fn reset_syscallbuf_common<T: Task>(t: &T) {
     let syscallbuf_child_addr = t.syscallbuf_child.get();
     if syscallbuf_child_addr.is_null() {
         return;
@@ -2324,7 +2300,7 @@ pub(super) fn reset_syscallbuf_common<T: Task>(t: &mut T) {
 /// Some task state must be copied into this by injecting and
 /// running syscalls in this task.  Other state is metadata
 /// that can simply be copied over in local memory
-pub(in super::super) fn copy_state(t: &mut dyn Task, state: &CapturedState) {
+pub(in super::super) fn copy_state(t: &dyn Task, state: &CapturedState) {
     t.set_regs(&state.regs);
     t.set_extra_regs(&state.extra_regs);
     {
@@ -2341,12 +2317,12 @@ pub(in super::super) fn copy_state(t: &mut dyn Task, state: &CapturedState) {
                 PR_SET_NAME,
                 child_addr.as_usize()
             );
-            remote_prname.task_mut().update_prname(child_addr);
+            remote_prname.task().update_prname(child_addr);
         }
 
         copy_tls(state, &mut remote);
-        *remote.task_mut().thread_areas_.borrow_mut() = state.thread_areas.clone();
-        remote.task_mut().syscallbuf_size.set(state.syscallbuf_size);
+        *remote.task().thread_areas_.borrow_mut() = state.thread_areas.clone();
+        remote.task().syscallbuf_size.set(state.syscallbuf_size);
 
         ed_assert!(
             remote.task(),
@@ -2355,12 +2331,9 @@ pub(in super::super) fn copy_state(t: &mut dyn Task, state: &CapturedState) {
         );
         if !state.syscallbuf_child.is_null() {
             // All these fields are preserved by the fork.
+            remote.task().desched_fd_child.set(state.desched_fd_child);
             remote
-                .task_mut()
-                .desched_fd_child
-                .set(state.desched_fd_child);
-            remote
-                .task_mut()
+                .task()
                 .cloned_file_data_fd_child
                 .set(state.cloned_file_data_fd_child);
             if state.cloned_file_data_fd_child >= 0 {
@@ -2370,10 +2343,7 @@ pub(in super::super) fn copy_state(t: &mut dyn Task, state: &CapturedState) {
                     SEEK_SET,
                 );
             }
-            remote
-                .task_mut()
-                .syscallbuf_child
-                .set(state.syscallbuf_child);
+            remote.task().syscallbuf_child.set(state.syscallbuf_child);
         }
     }
 
@@ -2460,7 +2430,7 @@ fn os_clone(
 
     // This should have been set in the remote clone syscall made in perform_remote_clone()
     let new_tid = remote.new_tid().unwrap();
-    let child = remote.task_mut().clone_task(
+    let child = remote.task().clone_task(
         reason,
         clone_flags_to_task_flags(base_flags),
         stack,
@@ -2528,7 +2498,7 @@ fn perform_remote_clone_arch<Arch: Architecture>(
 
 /// Forwarded method definition
 ///
-pub(super) fn destroy_common<T: Task>(t: &mut T, maybe_detach: Option<bool>) {
+pub(super) fn destroy_common<T: Task>(t: &T, maybe_detach: Option<bool>) {
     let detach = maybe_detach.unwrap_or(true);
     if detach {
         debug_assert!(t.session().tasks().get(&t.rec_tid()).is_some());
@@ -2553,7 +2523,7 @@ pub(super) fn destroy_common<T: Task>(t: &mut T, maybe_detach: Option<bool>) {
 ///
 /// Currently does nothing
 pub(super) fn post_wait_clone_common<T: Task>(
-    _clone_to: &mut T,
+    _clone_to: &T,
     _clone_from: &dyn Task,
     _flags: CloneFlags,
 ) {
