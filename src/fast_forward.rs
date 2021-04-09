@@ -277,16 +277,16 @@ pub fn fast_forward_through_instruction<T: Task>(
         // can increase the size of the watched area to conserve watch registers.
         // So, disable watchpoints temporarily.
         t.vm().save_watchpoints();
-        t.vm().remove_all_watchpoints(t, None);
+        t.vm().remove_all_watchpoints();
         t.resume_execution(
             ResumeRequest::ResumeCont,
             WaitRequest::ResumeWait,
             TicksRequest::ResumeUnlimitedTicks,
             None,
         );
-        t.vm().restore_watchpoints(t);
+        t.vm().restore_watchpoints();
         t.vm()
-            .remove_breakpoint(limit_ip, BreakpointType::BkptInternal, t);
+            .remove_breakpoint(limit_ip, BreakpointType::BkptInternal);
         result.did_fast_forward = true;
         // We should have reached the breakpoint
         ed_assert_eq!(t, t.maybe_stop_sig(), SIGTRAP);

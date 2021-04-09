@@ -804,8 +804,7 @@ impl Task for RecordTask {
 
     fn did_wait(&self) {
         for p in self.syscallbuf_syscall_entry_breakpoints() {
-            self.vm()
-                .remove_breakpoint(p, BreakpointType::BkptInternal, self);
+            self.vm().remove_breakpoint(p, BreakpointType::BkptInternal);
         }
         if self.break_at_syscallbuf_final_instruction.get() {
             let final_exit_instruction = self
@@ -813,7 +812,7 @@ impl Task for RecordTask {
                 .borrow()
                 .syscallbuf_final_exit_instruction;
             self.vm()
-                .remove_breakpoint(final_exit_instruction, BreakpointType::BkptInternal, self);
+                .remove_breakpoint(final_exit_instruction, BreakpointType::BkptInternal);
         }
 
         if self.stashed_signals_blocking_more_signals.get() {

@@ -804,7 +804,7 @@ pub(super) fn did_waitpid_common<T: Task>(task: &T, mut status: WaitStatus) {
                 task.set_regs(&r);
             }
             task.vm()
-                .remove_breakpoint(bkpt_addr, BreakpointType::BkptInternal, task);
+                .remove_breakpoint(bkpt_addr, BreakpointType::BkptInternal);
             task.did_set_breakpoint_after_cpuid.set(false);
         }
         if (task.singlestepping_instruction.get() == TrappedInstruction::Pushf
@@ -909,13 +909,13 @@ pub(super) fn resume_execution_common<T: Task>(
         TicksRequest::ResumeNoTicks => (),
         TicksRequest::ResumeUnlimitedTicks => {
             task.hpc.borrow_mut().reset(0);
-            task.activate_preload_thread_locals(None);
+            task.activate_preload_thread_locals();
         }
         TicksRequest::ResumeWithTicksRequest(tr) => {
             ed_assert!(task, tr <= MAX_TICKS_REQUEST);
             let adjusted_tr = max(1, tr);
             task.hpc.borrow_mut().reset(adjusted_tr);
-            task.activate_preload_thread_locals(None);
+            task.activate_preload_thread_locals();
         }
     }
     let sig_string = match maybe_sig {

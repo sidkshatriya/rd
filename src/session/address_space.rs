@@ -685,9 +685,8 @@ pub mod address_space {
         }
         /// Call this after a new task has been cloned within this
         /// address space.
-        /// DIFF NOTE: Additional param `active_task`
-        pub fn after_clone(&self, active_task: &dyn Task, cloned_from_thread: Option<&dyn Task>) {
-            self.allocate_watchpoints(active_task, cloned_from_thread);
+        pub fn after_clone(&self) {
+            self.allocate_watchpoints();
         }
 
         /// Call this after a successful execve syscall has completed. At this point
@@ -823,6 +822,9 @@ pub mod address_space {
         /// non-writeable memory. When this returns true, the breakpoint can't be
         /// overwritten by the tracee without an intervening mprotect or mmap
         /// syscall.
+        /// DIFF NOTE: Extra param active_task. Otherwise we need to define arch()
+        /// for the address space like in rr which gets the arch of the first task
+        /// in the task_set()
         pub fn is_breakpoint_in_private_read_only_memory(
             &self,
             addr: RemoteCodePtr,
@@ -1369,13 +1371,7 @@ pub mod address_space {
         /// Remove a `type` reference to the breakpoint at `addr`.  If
         /// the removed reference was the last, the breakpoint is
         /// destroyed.
-        /// DIFF NOTE: Additional param `active_task`
-        pub fn remove_breakpoint(
-            &self,
-            addr: RemoteCodePtr,
-            type_: BreakpointType,
-            active_task: &dyn Task,
-        ) {
+        pub fn remove_breakpoint(&self, addr: RemoteCodePtr, type_: BreakpointType) {
             let mut can_destroy_bp = false;
             match self.breakpoints.borrow_mut().get_mut(&addr) {
                 Some(bp) => {
@@ -1386,20 +1382,19 @@ pub mod address_space {
                 _ => (),
             }
             if can_destroy_bp {
-                self.destroy_breakpoint_at(addr, active_task);
+                self.destroy_breakpoint_at(addr);
             }
         }
         /// Destroy all breakpoints in this VM, regardless of their
         /// reference counts.
-        /// DIFF NOTE: Additional param `active_task`
-        pub fn remove_all_breakpoints(&self, active_task: &dyn Task) {
+        pub fn remove_all_breakpoints(&self) {
             let mut bps_to_destroy = Vec::new();
             for bp in self.breakpoints.borrow().keys() {
                 bps_to_destroy.push(*bp);
             }
 
             for bp in bps_to_destroy {
-                self.destroy_breakpoint_at(bp, active_task)
+                self.destroy_breakpoint_at(bp)
             }
         }
 
@@ -1433,13 +1428,11 @@ pub mod address_space {
         /// Manage watchpoints.  Analogous to breakpoint-managing
         /// methods above, except that watchpoints can be set for an
         /// address range.
-        /// DIFF NOTE: Additional param `active_task`
         pub fn add_watchpoint(
             &self,
             addr: RemotePtr<Void>,
             num_bytes: usize,
             type_: WatchType,
-            active_task: &dyn Task,
         ) -> bool {
             let range = range_for_watchpoint(addr, num_bytes);
             if self.watchpoints.borrow_mut().get_mut(&range).is_none() {
@@ -1457,35 +1450,22 @@ pub mod address_space {
                 .unwrap()
                 .watch(Self::access_bits_of(type_));
 
-            self.allocate_watchpoints(active_task, None)
+            self.allocate_watchpoints()
         }
 
-        /// DIFF NOTE: Additional param `active_task`
-        pub fn remove_watchpoint(
-            &self,
-            addr: RemotePtr<Void>,
-            num_bytes: usize,
-            type_: WatchType,
-            active_task: &dyn Task,
-        ) {
+        pub fn remove_watchpoint(&self, addr: RemotePtr<Void>, num_bytes: usize, type_: WatchType) {
             let r = range_for_watchpoint(addr, num_bytes);
             if let Some(wp) = self.watchpoints.borrow_mut().get_mut(&r) {
                 if 0 == wp.unwatch(Self::access_bits_of(type_)) {
                     self.watchpoints.borrow_mut().remove(&r);
                 }
             }
-            self.allocate_watchpoints(active_task, None);
+            self.allocate_watchpoints();
         }
 
-        /// DIFF NOTE: Additional param `active_task` and `maybe_cloned_from_thread`
-        /// To solve already borrowed possibility in the task.
-        pub fn remove_all_watchpoints(
-            &self,
-            active_task: &dyn Task,
-            maybe_cloned_from_thread: Option<&dyn Task>,
-        ) {
+        pub fn remove_all_watchpoints(&self) {
             self.watchpoints.borrow_mut().clear();
-            self.allocate_watchpoints(active_task, maybe_cloned_from_thread);
+            self.allocate_watchpoints();
         }
         pub fn all_watchpoints(&self) -> Vec<WatchConfig> {
             self.get_watchpoints_internal(WatchPointFilter::AllWatchpoints)
@@ -1499,11 +1479,10 @@ pub mod address_space {
                 .push(self.watchpoints.borrow().clone());
         }
         /// Pop all watchpoint state from the saved-state stack.
-        /// DIFF NOTE: Additional param `active_task`
-        pub fn restore_watchpoints(&self, active_task: &dyn Task) -> bool {
+        pub fn restore_watchpoints(&self) -> bool {
             debug_assert!(!self.saved_watchpoints.borrow().is_empty());
             *self.watchpoints.borrow_mut() = self.saved_watchpoints.borrow_mut().pop().unwrap();
-            self.allocate_watchpoints(active_task, None)
+            self.allocate_watchpoints()
         }
 
         /// Notify that at least one watchpoint was hit --- recheck them all.
@@ -2646,52 +2625,12 @@ pub mod address_space {
         /// Construct a minimal set of watchpoints to be enabled based
         /// on `set_watchpoint()` calls, and program them for each task
         /// in this address space.
-        /// DIFF NOTE: Additional param `active_task` and `cloned_from_thread`.
-        /// In most situations `cloned_from_thread` can be set to None.
-        /// To solve already borrowed possibility for the tasks
-        fn allocate_watchpoints(
-            &self,
-            active_task: &dyn Task,
-            maybe_cloned_from_thread: Option<&dyn Task>,
-        ) -> bool {
+        fn allocate_watchpoints(&self) -> bool {
             let mut regs = self.get_watch_configs(WillSetTaskState::SettingTaskState);
-
-            let mut except_vec = Vec::new();
-            let mut active_task_same_task_set = false;
-            if self.task_set().has(active_task.weak_self_ptr()) {
-                except_vec.push(active_task.weak_self_ptr());
-                active_task_same_task_set = true;
-            }
-
-            let mut cloned_from_thread_same_task_set = false;
-            match maybe_cloned_from_thread.as_ref() {
-                Some(cloned_from_thread) => {
-                    if self.task_set().has(cloned_from_thread.weak_self_ptr()) {
-                        except_vec.push(cloned_from_thread.weak_self_ptr());
-                        cloned_from_thread_same_task_set = true;
-                    }
-                }
-                None => (),
-            }
 
             if regs.len() <= 0x7f {
                 let mut ok = true;
-                if active_task_same_task_set && !active_task.set_debug_regs(&regs) {
-                    ok = false;
-                }
-
-                if cloned_from_thread_same_task_set {
-                    match maybe_cloned_from_thread.as_ref() {
-                        Some(cloned_from_thread) => {
-                            if !cloned_from_thread.set_debug_regs(&regs) {
-                                ok = false;
-                            }
-                        }
-                        None => (),
-                    }
-                }
-
-                for t in self.task_set().iter_except_vec(except_vec.clone()) {
+                for t in self.task_set().iter() {
                     if !t.set_debug_regs(&regs) {
                         ok = false;
                     }
@@ -2702,14 +2641,7 @@ pub mod address_space {
             }
 
             regs.clear();
-            if active_task_same_task_set {
-                active_task.set_debug_regs(&regs);
-            }
-            if cloned_from_thread_same_task_set {
-                maybe_cloned_from_thread
-                    .map(|cloned_from_thread| cloned_from_thread.set_debug_regs(&mut regs));
-            }
-            for t2 in self.task_set().iter_except_vec(except_vec) {
+            for t2 in self.task_set().iter() {
                 t2.set_debug_regs(&regs);
             }
 
@@ -2800,11 +2732,11 @@ pub mod address_space {
         /// Assumes there IS a breakpoint at `addr` or will panic
         ///
         /// Called destroy_breakpoint() in rr.
-        /// DIFF NOTE: Additional param `active_task`
-        fn destroy_breakpoint_at(&self, addr: RemoteCodePtr, active_task: &dyn Task) {
-            // @TODO In an earlier version of this method there was the possibility that there was
-            // no task in the task set. In the new version we always assume there is an active
-            // task. Check whether this assumption will not cause any problems.
+        fn destroy_breakpoint_at(&self, addr: RemoteCodePtr) {
+            if self.task_set().is_empty() {
+                return;
+            }
+            let task = self.task_set().iter().next().unwrap();
             let data = self
                 .breakpoints
                 .borrow()
@@ -2813,7 +2745,7 @@ pub mod address_space {
                 .overwritten_data;
             log!(LogDebug, "Writing back {:#x} at {}", data, addr);
             write_val_mem_with_flags::<u8>(
-                active_task,
+                &**task,
                 addr.to_data_ptr::<u8>(),
                 &data,
                 None,

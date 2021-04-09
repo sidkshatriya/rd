@@ -1247,7 +1247,7 @@ impl ReplaySession {
                     t.set_regs(&r);
                     t.canonicalize_regs(self.current_trace_frame().event().syscall_event().arch());
                     t.validate_regs(Default::default());
-                    self.clear_syscall_bp(t);
+                    self.clear_syscall_bp();
                 } else {
                     return Completion::Incomplete;
                 }
@@ -1625,8 +1625,7 @@ impl ReplaySession {
                     // Case (0) above: interrupt for the debugger.
                     log!(LogDebug, "    trap was debugger singlestep/breakpoint");
                     if did_set_internal_breakpoint {
-                        t.vm()
-                            .remove_breakpoint(ip, BreakpointType::BkptInternal, t);
+                        t.vm().remove_breakpoint(ip, BreakpointType::BkptInternal);
                     }
                     return Completion::Incomplete;
                 }
@@ -1685,8 +1684,7 @@ impl ReplaySession {
             // and it's simpler to start out knowing that the
             // breakpoint isn't set.
             if did_set_internal_breakpoint {
-                t.vm()
-                    .remove_breakpoint(ip, BreakpointType::BkptInternal, t);
+                t.vm().remove_breakpoint(ip, BreakpointType::BkptInternal);
                 did_set_internal_breakpoint = false;
             }
 
@@ -1805,7 +1803,6 @@ impl ReplaySession {
             t.vm().remove_breakpoint(
                 RemoteCodePtr::from(self.current_step.get().flush().stop_breakpoint_addr),
                 BreakpointType::BkptInternal,
-                t,
             );
 
             // Account for buffered syscalls just completed
@@ -1975,15 +1972,10 @@ impl ReplaySession {
         }
     }
 
-    // DIFF NOTE: Additional Param `active_task`
-    fn clear_syscall_bp(&self, active_task: &dyn Task) {
+    fn clear_syscall_bp(&self) {
         let mut maybe_bp_vm = self.syscall_bp_vm.borrow_mut();
         maybe_bp_vm.as_ref().map(|bp_vm| {
-            bp_vm.remove_breakpoint(
-                self.syscall_bp_addr.get(),
-                BreakpointType::BkptInternal,
-                active_task,
-            )
+            bp_vm.remove_breakpoint(self.syscall_bp_addr.get(), BreakpointType::BkptInternal)
         });
         *maybe_bp_vm = None;
         self.syscall_bp_addr.set(RemoteCodePtr::null());
@@ -2436,7 +2428,7 @@ fn guard_overshoot(
         // have been had it not hit the breakpoint (if it did
         // hit the breakpoint).
         t.vm()
-            .remove_breakpoint(target_ip, BreakpointType::BkptInternal, t);
+            .remove_breakpoint(target_ip, BreakpointType::BkptInternal);
         if t.regs_ref().ip() == target_ip.increment_by_bkpt_insn_length(t.arch()) {
             t.move_ip_before_breakpoint();
         }

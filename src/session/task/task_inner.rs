@@ -1268,7 +1268,7 @@ impl TaskInner {
     }
 
     pub fn setup_preload_thread_locals(&self) {
-        self.activate_preload_thread_locals(None);
+        self.activate_preload_thread_locals();
         rd_arch_function_selfless!(setup_preload_thread_locals_arch, self.arch(), self);
     }
 
@@ -1306,29 +1306,19 @@ impl TaskInner {
         self.thread_locals.borrow()
     }
 
-    // DIFF NOTE: Takes an additional param maybe_active_task
-    pub fn activate_preload_thread_locals(&self, maybe_active_task: Option<&TaskInner>) {
+    pub fn activate_preload_thread_locals(&self) {
         // Switch thread-locals to the new task.
         if self.tuid() != self.vm().thread_locals_tuid() {
             let maybe_local_addr = preload_thread_locals_local_addr(&self.vm());
             match maybe_local_addr {
                 Some(local_addr) => {
-                    match maybe_active_task {
-                        Some(active_task)
-                            if active_task.tuid() == self.vm().thread_locals_tuid() =>
-                        {
-                            active_task.fetch_preload_thread_locals();
-                        }
-                        _ => {
-                            let maybe_t = self
-                                .session()
-                                .find_task_from_task_uid(self.vm().thread_locals_tuid());
+                    let maybe_t = self
+                        .session()
+                        .find_task_from_task_uid(self.vm().thread_locals_tuid());
 
-                            maybe_t.map(|t| {
-                                t.fetch_preload_thread_locals();
-                            });
-                        }
-                    };
+                    maybe_t.map(|t| {
+                        t.fetch_preload_thread_locals();
+                    });
 
                     unsafe {
                         copy_nonoverlapping(
@@ -2097,7 +2087,7 @@ fn setup_preload_thread_locals_from_clone_arch<Arch: Architecture>(
 
     match maybe_local_addr {
         Some(local_addr) => {
-            t.activate_preload_thread_locals(Some(origin));
+            t.activate_preload_thread_locals();
             let locals = local_addr.as_ptr() as *mut preload_thread_locals<Arch>;
             let origin_locals =
                 origin.fetch_preload_thread_locals().as_ptr() as *mut preload_thread_locals<Arch>;

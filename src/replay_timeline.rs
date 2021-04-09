@@ -505,7 +505,7 @@ impl ReplayTimeline {
     /// place multiple breakpoints with conditions on the same location.
     pub fn remove_breakpoint(&mut self, t: &ReplayTask, addr: RemoteCodePtr) {
         if self.breakpoints_applied {
-            t.vm().remove_breakpoint(addr, BreakpointType::BkptUser, t);
+            t.vm().remove_breakpoint(addr, BreakpointType::BkptUser);
         }
         ed_assert!(t, self.has_breakpoint_at_address(t, addr));
         let tb = TimelineBreakpoint {
@@ -529,7 +529,7 @@ impl ReplayTimeline {
         // Apply breakpoints now; we need to actually try adding this breakpoint
         // to see if it works.
         self.apply_breakpoints_and_watchpoints();
-        if !t.vm().add_watchpoint(addr, num_bytes, type_, t) {
+        if !t.vm().add_watchpoint(addr, num_bytes, type_) {
             return false;
         }
         self.watchpoints.insert(
@@ -556,7 +556,7 @@ impl ReplayTimeline {
         type_: WatchType,
     ) {
         if self.breakpoints_applied {
-            t.vm().remove_watchpoint(addr, num_bytes, type_, t);
+            t.vm().remove_watchpoint(addr, num_bytes, type_);
         }
         ed_assert!(t, self.has_watchpoint_at_address(t, addr, num_bytes, type_));
         let wt = TimelineWatchpoint {
@@ -1054,7 +1054,6 @@ impl ReplayTimeline {
         if self.breakpoints_applied {
             return;
         }
-        let t = self.current_session().current_task().unwrap();
         self.breakpoints_applied = true;
         self.apply_breakpoints_internal();
         for wp in self.watchpoints.keys() {
@@ -1066,7 +1065,7 @@ impl ReplayTimeline {
             // several watchpoints at once on a given AddressSpace.
             match maybe_vm {
                 Some(vm) if wp.watch_type != WatchType::WatchExec => {
-                    vm.add_watchpoint(wp.addr, wp.size, wp.watch_type, &**t);
+                    vm.add_watchpoint(wp.addr, wp.size, wp.watch_type);
                 }
                 _ => (),
             }
@@ -1083,12 +1082,11 @@ impl ReplayTimeline {
         }
         self.breakpoints_applied = false;
         self.unapply_breakpoints_internal();
-        let t = self.current_session().current_task().unwrap();
         for wp in self.watchpoints.keys() {
             let maybe_vm = self.current_session().find_address_space(wp.uid);
             match maybe_vm {
                 Some(vm) if wp.watch_type != WatchType::WatchExec => {
-                    vm.remove_watchpoint(wp.addr, wp.size, wp.watch_type, &**t);
+                    vm.remove_watchpoint(wp.addr, wp.size, wp.watch_type);
                 }
                 _ => (),
             }
@@ -1113,7 +1111,7 @@ impl ReplayTimeline {
             let maybe_vm = self.current_session().find_address_space(wp.uid);
             match maybe_vm {
                 Some(vm) if wp.watch_type == WatchType::WatchExec => {
-                    vm.add_watchpoint(wp.addr, wp.size, wp.watch_type, &**t);
+                    vm.add_watchpoint(wp.addr, wp.size, wp.watch_type);
                 }
                 _ => (),
             }
@@ -1121,18 +1119,17 @@ impl ReplayTimeline {
     }
 
     fn unapply_breakpoints_internal(&self) {
-        let t = self.current_session().current_task().unwrap();
         for bp in self.breakpoints.keys() {
             let maybe_vm = self.current_session().find_address_space(bp.uid);
             match maybe_vm {
-                Some(vm) => vm.remove_breakpoint(bp.addr, BreakpointType::BkptUser, &**t),
+                Some(vm) => vm.remove_breakpoint(bp.addr, BreakpointType::BkptUser),
                 None => (),
             }
             for wp in self.watchpoints.keys() {
                 let maybe_vm = self.current_session().find_address_space(wp.uid);
                 match maybe_vm {
                     Some(vm) if wp.watch_type == WatchType::WatchExec => {
-                        vm.remove_watchpoint(wp.addr, wp.size, wp.watch_type, &**t);
+                        vm.remove_watchpoint(wp.addr, wp.size, wp.watch_type);
                     }
                     _ => (),
                 }
@@ -1191,7 +1188,7 @@ impl ReplayTimeline {
                     let vm = t.vm();
                     vm.add_breakpoint(&**t, mark_addr, BreakpointType::BkptUser);
                     self.current_session().replay_step(RunCommand::RunContinue);
-                    vm.remove_breakpoint(mark_addr, BreakpointType::BkptUser, &**t);
+                    vm.remove_breakpoint(mark_addr, BreakpointType::BkptUser);
                 }
             }
         }
@@ -1557,7 +1554,7 @@ impl ReplayTimeline {
                 .current_session()
                 .replay_step_with_constraints(&constraints);
             t.vm()
-                .remove_breakpoint(mark_addr_code, BreakpointType::BkptUser, &**t);
+                .remove_breakpoint(mark_addr_code, BreakpointType::BkptUser);
             // If we hit our breakpoint and there is no client breakpoint there,
             // pretend we didn't hit it.
             if result.break_status.breakpoint_hit && !self.has_breakpoint_at_address(&**t, t.ip()) {
