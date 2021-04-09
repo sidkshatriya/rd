@@ -2392,7 +2392,7 @@ fn maybe_emulate_wait(
     syscall_state: &mut TaskSyscallState,
     options: i32,
 ) -> bool {
-    for child in &t.emulated_ptrace_tracees {
+    for child in t.emulated_ptrace_tracees.borrow().iter() {
         let rt_childb = child.borrow();
         let rt_child = rt_childb.as_rec_unwrap();
         if t.is_waiting_for_ptrace(rt_child) && rt_child.emulated_stop_pending.get() {

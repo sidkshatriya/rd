@@ -430,7 +430,7 @@ pub struct RecordTask {
     ///
     /// Task for which we're emulating ptrace of this task, or None
     pub emulated_ptracer: Option<TaskSharedWeakPtr>,
-    pub emulated_ptrace_tracees: WeakTaskPtrSet,
+    pub emulated_ptrace_tracees: RefCell<WeakTaskPtrSet>,
     pub emulated_ptrace_event_msg: Cell<usize>,
     /// @TODO Do we want to make this a queue?
     /// Saved emulated-ptrace signals
@@ -1323,7 +1323,10 @@ impl RecordTask {
         match new_maybe_tracer {
             Some(tracer) => {
                 ed_assert!(self, self.emulated_ptracer.is_none());
-                tracer.emulated_ptrace_tracees.insert(self.weak_self_ptr());
+                tracer
+                    .emulated_ptrace_tracees
+                    .borrow_mut()
+                    .insert(self.weak_self_ptr());
                 self.emulated_ptracer = Some(tracer.weak_self_ptr());
             }
             None => {
@@ -1336,7 +1339,10 @@ impl RecordTask {
                 let removed_tracer = self.emulated_ptracer.take().unwrap();
                 let tracer = old_maybe_tracer.unwrap();
                 ed_assert!(self, removed_tracer.ptr_eq(&tracer.weak_self));
-                tracer.emulated_ptrace_tracees.erase(self.weak_self_ptr());
+                tracer
+                    .emulated_ptrace_tracees
+                    .borrow_mut()
+                    .erase(self.weak_self_ptr());
             }
         }
     }
@@ -1460,7 +1466,7 @@ impl RecordTask {
             }
         }
 
-        for tracee_rc in &self.emulated_ptrace_tracees {
+        for tracee_rc in self.emulated_ptrace_tracees.borrow().iter() {
             let mut traceeb = tracee_rc.borrow_mut();
             let tracee = traceeb.as_rec_mut_unwrap();
             if tracee.emulated_ptrace_sigchld_pending.get() {
@@ -3034,7 +3040,7 @@ impl RecordTask {
     ) {
         let mut need_signal = false;
         let mut wake_task = None;
-        for tracee_rc in &self.emulated_ptrace_tracees {
+        for tracee_rc in self.emulated_ptrace_tracees.borrow().iter() {
             let tracee_rc_weak = Rc::downgrade(&tracee_rc);
             let traceeb;
             let tracee = match maybe_active_child {
@@ -3285,6 +3291,7 @@ impl Drop for RecordTask {
                     .as_record_task_mut()
                     .unwrap()
                     .emulated_ptrace_tracees
+                    .borrow_mut()
                     .erase(self.weak_self_ptr());
                 if self.emulated_ptrace_options.get() & PTRACE_O_TRACEEXIT != 0 {
                     ed_assert!(
@@ -3297,7 +3304,7 @@ impl Drop for RecordTask {
             None => (),
         }
 
-        for tt in self.emulated_ptrace_tracees.iter() {
+        for tt in self.emulated_ptrace_tracees.borrow().iter() {
             let mut bt = tt.borrow_mut();
             let t = bt.as_record_task_mut().unwrap();
             // XXX emulate PTRACE_O_EXITKILL
