@@ -202,14 +202,8 @@ pub fn handle_signal(
 
     let emulated_ptracer = t.emulated_ptracer();
     match emulated_ptracer {
-        Some(tracer) => {
-            t.emulate_ptrace_stop(
-                WaitStatus::for_stop_sig(sig),
-                tracer.as_rec_unwrap(),
-                Some(&si),
-                None,
-                None,
-            );
+        Some(_tracer) => {
+            t.emulate_ptrace_stop(WaitStatus::for_stop_sig(sig), Some(&si), None);
             // Record an event so that replay progresses the tracee to the
             // current point before we notify the tracer.
             // If the signal is deterministic, record it as an EV_SIGNAL so that

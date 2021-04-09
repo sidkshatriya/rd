@@ -2598,23 +2598,17 @@ fn prepare_exit(t: &RecordTask, exit_code: i32) {
 
     let emulated_ptracer = t.emulated_ptracer();
     match emulated_ptracer {
-        Some(tracer_rc) => {
+        Some(_tracer_rc) => {
             if t.emulated_ptrace_options.get() & PTRACE_O_TRACEEXIT != 0 {
                 // Ensure that do_ptrace_exit_stop can run later.
                 t.emulated_ptrace_queued_exit_stop.set(true);
-                t.emulate_ptrace_stop(
-                    WaitStatus::for_ptrace_event(PTRACE_EVENT_EXIT),
-                    tracer_rc.as_rec_unwrap(),
-                    None,
-                    None,
-                    None,
-                );
+                t.emulate_ptrace_stop(WaitStatus::for_ptrace_event(PTRACE_EVENT_EXIT), None, None);
             } else {
-                do_ptrace_exit_stop(t, Some(tracer_rc.as_rec_unwrap()));
+                do_ptrace_exit_stop(t);
             }
         }
         None => {
-            do_ptrace_exit_stop(t, None);
+            do_ptrace_exit_stop(t);
         }
     }
 }
@@ -2640,22 +2634,16 @@ fn check_signals_while_exiting(t: &RecordTask) {
     }
 }
 
-/// DIFF NOTE: Takes the extra param `maybe_tracer` unlike rr.
-fn do_ptrace_exit_stop(t: &RecordTask, maybe_tracer: Option<&RecordTask>) {
+fn do_ptrace_exit_stop(t: &RecordTask) {
     // Notify ptracer of the exit if it's not going to receive it from the
     // kernel because it's not the parent. (The kernel has similar logic to
     // deliver two stops in this case.)
     t.emulated_ptrace_queued_exit_stop.set(false);
+    let maybe_tracer = t.emulated_ptracer();
     match maybe_tracer {
         Some(tracer) if t.is_clone_child() || t.get_parent_pid() != tracer.real_tgid() => {
             // This is a bit wrong; this is an exit stop, not a signal/ptrace stop.
-            t.emulate_ptrace_stop(
-                WaitStatus::for_exit_code(t.exit_code.get()),
-                tracer,
-                None,
-                None,
-                None,
-            );
+            t.emulate_ptrace_stop(WaitStatus::for_exit_code(t.exit_code.get()), None, None);
         }
         _ => (),
     }
@@ -2847,12 +2835,10 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
         process_execve(t, syscall_state);
         let emulated_ptracer = t.emulated_ptracer();
         match emulated_ptracer {
-            Some(tracer_rc) => {
+            Some(_tracer_rc) => {
                 if t.emulated_ptrace_options.get() & PTRACE_O_TRACEEXEC != 0 {
                     t.emulate_ptrace_stop(
                         WaitStatus::for_ptrace_event(PTRACE_EVENT_EXEC),
-                        tracer_rc.as_rec_unwrap(),
-                        None,
                         None,
                         None,
                     );
@@ -5936,7 +5922,7 @@ fn prepare_clone<Arch: Architecture>(t: &RecordTask, syscall_state: &mut TaskSys
     {
         // There MUST be a ptracer present. Hence the unwrap().
         let emulated_ptracer = t.emulated_ptracer_unwrap();
-        new_task.set_emulated_ptracer(Some(emulated_ptracer.as_rec_unwrap()), None);
+        new_task.set_emulated_ptracer(Some(emulated_ptracer.as_rec_unwrap()));
         new_task
             .emulated_ptrace_seized
             .set(t.emulated_ptrace_seized.get());
@@ -5944,16 +5930,10 @@ fn prepare_clone<Arch: Architecture>(t: &RecordTask, syscall_state: &mut TaskSys
             .emulated_ptrace_options
             .set(t.emulated_ptrace_options.get());
         t.emulated_ptrace_event_msg.set(new_task.rec_tid() as usize);
-        t.emulate_ptrace_stop(
-            WaitStatus::for_ptrace_event(ptrace_event),
-            emulated_ptracer.as_rec_unwrap(),
-            None,
-            None,
-            Some(new_task),
-        );
+        t.emulate_ptrace_stop(WaitStatus::for_ptrace_event(ptrace_event), None, None);
         // ptrace(2) man page says that SIGSTOP is used here, but it's really
         // SIGTRAP (in 4.4.4-301.fc23.x86_64 anyway).
-        new_task.apply_group_stop(sig::SIGTRAP, Some(t));
+        new_task.apply_group_stop(sig::SIGTRAP);
     }
 
     // Restore our register modifications now, so that the emulated ptracer will
@@ -6320,13 +6300,7 @@ fn widen_buffer_signed(buf: &[u8]) -> i64 {
     }
 }
 
-/// DIFF NOTE: Has an extra param `tracer`
-fn prepare_ptrace_cont(
-    tracee: &RecordTask,
-    maybe_sig: Option<Sig>,
-    command: u32,
-    tracer: &RecordTask,
-) {
+fn prepare_ptrace_cont(tracee: &RecordTask, maybe_sig: Option<Sig>, command: u32) {
     match maybe_sig {
         Some(sig) => {
             let si = tracee.take_ptrace_signal_siginfo(sig);
@@ -6361,7 +6335,7 @@ fn prepare_ptrace_cont(
     }
 
     if tracee.emulated_ptrace_queued_exit_stop.get() {
-        do_ptrace_exit_stop(tracee, Some(tracer));
+        do_ptrace_exit_stop(tracee);
     }
 }
 
@@ -6493,11 +6467,11 @@ fn prepare_ptrace_traceme(
     }
 }
 
-fn ptrace_attach_to_already_stopped_task(t: &RecordTask, tracer: &RecordTask) {
+fn ptrace_attach_to_already_stopped_task(t: &RecordTask) {
     ed_assert_eq!(t, t.emulated_stop_type.get(), EmulatedStopType::GroupStop);
     // tracee is already stopped because of a group-stop signal.
     // Sending a SIGSTOP won't work, but we don't need to.
-    t.force_emulate_ptrace_stop(WaitStatus::for_stop_sig(sig::SIGSTOP), tracer, None);
+    t.force_emulate_ptrace_stop(WaitStatus::for_stop_sig(sig::SIGSTOP));
     let mut si = siginfo_t_signal::default();
     si.si_signo = SIGSTOP;
     si.si_code = SI_USER;
@@ -6517,7 +6491,7 @@ fn prepare_ptrace<Arch: Architecture>(
             match maybe_tracee {
                 Some(tracee_rc) => {
                     let tracee = tracee_rc.as_rec_unwrap();
-                    tracee.set_emulated_ptracer(Some(t), None);
+                    tracee.set_emulated_ptracer(Some(t));
                     tracee.emulated_ptrace_seized.set(false);
                     tracee.emulated_ptrace_options.set(0);
                     syscall_state.emulate_result(0);
@@ -6527,7 +6501,7 @@ fn prepare_ptrace<Arch: Architecture>(
                         // generate any ptrace event if that thread isn't being ptraced.
                         tracee.tgkill(sig::SIGSTOP);
                     } else {
-                        ptrace_attach_to_already_stopped_task(tracee, t);
+                        ptrace_attach_to_already_stopped_task(tracee);
                     }
                 }
                 None => (),
@@ -6538,7 +6512,7 @@ fn prepare_ptrace<Arch: Architecture>(
             match maybe_tracer {
                 Some(tracer_rc) => {
                     let tracer = tracer_rc.as_rec_unwrap();
-                    t.set_emulated_ptracer(Some(tracer), None);
+                    t.set_emulated_ptracer(Some(tracer));
                     t.emulated_ptrace_seized.set(false);
                     t.emulated_ptrace_options.set(0);
                     syscall_state.emulate_result(0);
@@ -6555,13 +6529,13 @@ fn prepare_ptrace<Arch: Architecture>(
                     } else {
                         if verify_ptrace_options(t, syscall_state) {
                             let tracee = tracee_rc.as_rec_unwrap();
-                            tracee.set_emulated_ptracer(Some(t), None);
+                            tracee.set_emulated_ptracer(Some(t));
                             tracee.emulated_ptrace_seized.set(true);
                             tracee
                                 .emulated_ptrace_options
                                 .set(t.regs_ref().arg4() as u32);
                             if tracee.emulated_stop_type.get() == EmulatedStopType::GroupStop {
-                                ptrace_attach_to_already_stopped_task(tracee, t);
+                                ptrace_attach_to_already_stopped_task(tracee);
                             }
                             syscall_state.emulate_result(0);
                         }
@@ -6969,7 +6943,6 @@ fn prepare_ptrace<Arch: Architecture>(
                             tracee,
                             Sig::try_from(t.regs_ref().arg4() as i32).ok(),
                             command,
-                            t,
                         );
                         syscall_state.emulate_result(0);
                     }
@@ -6987,13 +6960,8 @@ fn prepare_ptrace<Arch: Architecture>(
                     tracee.emulated_ptrace_cont_command.set(0);
                     tracee.emulated_stop_pending.set(false);
                     tracee.emulated_ptrace_queued_exit_stop.set(false);
-                    prepare_ptrace_cont(
-                        tracee,
-                        Sig::try_from(t.regs_ref().arg4() as i32).ok(),
-                        0,
-                        t,
-                    );
-                    tracee.set_emulated_ptracer(None, Some(t));
+                    prepare_ptrace_cont(tracee, Sig::try_from(t.regs_ref().arg4() as i32).ok(), 0);
+                    tracee.set_emulated_ptracer(None);
                     syscall_state.emulate_result(0);
                 }
                 None => (),
