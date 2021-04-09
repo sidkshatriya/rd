@@ -98,7 +98,7 @@ pub(super) fn kill_all_tasks<S: Session>(sess: &S) {
             unsafe {
                 syscall(SYS_tgkill, t.real_tgid(), t.tid(), SIGKILL);
             }
-            t.thread_group().borrow().destabilize(&**t);
+            t.thread_group().borrow().destabilize();
         }
         // NOTE: It is NOT necessary to call destroy() on the task here.
     }

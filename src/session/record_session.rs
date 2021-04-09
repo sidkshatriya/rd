@@ -1324,7 +1324,7 @@ impl RecordSession {
                         Some(sig),
                     );
                     log!(LogWarn,   "Delivered core-dumping signal; may misrecord CLONE_CHILD_CLEARTID memory race");
-                    t.thread_group().borrow().destabilize(t);
+                    t.thread_group().borrow().destabilize();
                 }
 
                 t.signal_delivered(sig);
@@ -3081,7 +3081,7 @@ fn handle_ptrace_exit_event(t: &RecordTask) -> bool {
             LogWarn,
             "unstable exit; may misrecord CLONE_CHILD_CLEARTID memory race"
         );
-        t.thread_group().borrow().destabilize(t);
+        t.thread_group().borrow().destabilize();
     }
 
     record_robust_futex_changes(t);
