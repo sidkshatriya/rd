@@ -1212,8 +1212,8 @@ impl RecordSession {
     /// Must call t.stashed_signal_processed() once we're ready to unmask signals.
     fn signal_state_changed(&self, t: &mut RecordTask, step_state: &mut StepState) {
         let sig = Sig::try_from(t.ev().signal_event().siginfo.si_signo).unwrap();
-
-        match t.ev().event_type() {
+        let event_type = t.ev().event_type();
+        match event_type {
             EventType::EvSignal => {
                 // This event is used by the replayer to advance to
                 // the point of signal delivery.
@@ -1374,7 +1374,8 @@ impl RecordSession {
     }
 
     fn syscall_state_changed(&self, t: &mut RecordTask, step_state: &mut StepState) {
-        match t.ev().syscall_event().state {
+        let state = t.ev().syscall_event().state;
+        match state {
             SyscallState::EnteringSyscallPtrace => {
                 debug_exec_state("EXEC_SYSCALL_ENTRY_PTRACE", t);
                 step_state.continue_type = ContinueType::DontContinue;

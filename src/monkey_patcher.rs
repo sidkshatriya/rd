@@ -980,7 +980,7 @@ fn task_safe_for_syscall_patching(
             return false;
         }
     }
-    for e in &t.pending_events {
+    for e in t.pending_events.borrow().iter() {
         if e.is_syscall_event() {
             let ip = e.syscall_event().regs.ip();
             if start <= ip && ip < end {

@@ -3553,7 +3553,7 @@ fn handle_opened_file(t: &mut RecordTask, fd: i32, flags: i32) -> OsString {
         Some(mon) => {
             // Write absolute file name
             {
-                let syscall = t.ev_mut().syscall_event_mut();
+                let mut syscall = RefMut::map(t.ev_mut(), |r| r.syscall_event_mut());
                 syscall.opened.push(OpenedFd {
                     path: pathname.clone(),
                     fd,

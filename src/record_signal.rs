@@ -69,6 +69,7 @@ use libc::{
 };
 use nix::sys::mman::MapFlags;
 use std::{
+    cell::RefMut,
     cmp::{max, min},
     convert::TryFrom,
     ffi::OsString,
@@ -845,13 +846,13 @@ fn handle_desched_event(t: &mut RecordTask, si: &siginfo_t) {
         t.push_event(Event::new_syscall_interruption_event(
             SyscallEventData::new(call, t.arch()),
         ));
-        let ev = t.ev_mut().syscall_event_mut();
+        let mut ev = RefMut::map(t.ev_mut(), |r| r.syscall_event_mut());
         ev.desched_rec = next_desched_rec;
     }
 
     {
         let regs = t.regs_ref().clone();
-        let ev = t.ev_mut().syscall_event_mut();
+        let mut ev = RefMut::map(t.ev_mut(), |r| r.syscall_event_mut());
         ev.regs = regs;
     }
     // For some syscalls (at least poll) but not all (at least not read),
@@ -869,7 +870,7 @@ fn handle_desched_event(t: &mut RecordTask, si: &siginfo_t) {
     ) as i32;
 
     {
-        let ev = t.ev_mut().syscall_event_mut();
+        let mut ev = RefMut::map(t.ev_mut(), |r| r.syscall_event_mut());
         ev.regs.set_original_syscallno(call as isize);
     }
 

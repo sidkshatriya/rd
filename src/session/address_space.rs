@@ -3,7 +3,6 @@ pub mod kernel_mapping;
 pub mod memory_range;
 
 use crate::{
-    event::Event,
     kernel_abi::{is_execve_syscall, SupportedArch},
     log::LogLevel::LogError,
     preload_interface::{RD_PAGE_ADDR, RD_PAGE_SYSCALL_INSTRUCTION_END, RD_PAGE_SYSCALL_STUB_SIZE},
@@ -3324,7 +3323,7 @@ fn thread_group_in_exec(t: &dyn Task) -> bool {
     {
         let rf = tt.borrow();
         let rt = rf.as_record_task().unwrap();
-        let ev: &Event = rt.ev();
+        let ev = rt.ev();
         if ev.is_syscall_event()
             && is_execve_syscall(ev.syscall_event().number, ev.syscall_event().arch())
         {

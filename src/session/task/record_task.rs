@@ -530,7 +530,7 @@ pub struct RecordTask {
     /// The current stack of events being processed.  (We use a
     /// deque instead of a stack because we need to iterate the
     /// events.)
-    pub pending_events: VecDeque<Event>,
+    pub pending_events: RefCell<VecDeque<Event>>,
     /// Stashed signal-delivery state, ready to be delivered at
     /// next opportunity.
     pub stashed_signals: VecDeque<Box<StashedSignal>>,
@@ -723,7 +723,7 @@ impl Task for RecordTask {
     }
 
     fn log_pending_events(&self) {
-        let depth = self.pending_events.len();
+        let depth = self.pending_events.borrow().len();
 
         debug_assert!(depth > 0);
         if 1 == depth {
@@ -733,9 +733,12 @@ impl Task for RecordTask {
 
         // The event at depth 0 is the placeholder event, which isn't
         // useful to log.  Skip it.
-        let mut iter = self.pending_events.iter().skip(1);
-        while let Some(it) = iter.next_back() {
-            it.log();
+        {
+            let b = self.pending_events.borrow();
+            let mut iter = b.iter().skip(1);
+            while let Some(it) = iter.next_back() {
+                it.log();
+            }
         }
     }
 
@@ -2176,7 +2179,7 @@ impl RecordTask {
             log!(LogDebug, "  interrupted {} != {}", self.ev(), call_name);
             skip = true;
         } else {
-            let old_regs = &self.ev().syscall_event().regs;
+            let old_regs = Ref::map(self.ev(), |r| &r.syscall_event().regs);
             if !(old_regs.arg1() == self.regs_ref().arg1()
                 && old_regs.arg2() == self.regs_ref().arg2()
                 && old_regs.arg3() == self.regs_ref().arg3()
@@ -2215,16 +2218,16 @@ impl RecordTask {
     /// then delivering the signal may restart the first syscall
     /// and this method will return true.
     pub fn at_may_restart_syscall(&self) -> bool {
-        let depth = self.pending_events.len();
-        let prev_ev: Option<&Event> = if depth > 2 {
-            Some(&self.pending_events[depth - 2])
+        let depth = self.pending_events.borrow().len();
+        let prev_ev_type: Option<EventType> = if depth > 2 {
+            Some(self.pending_events.borrow()[depth - 2].event_type())
         } else {
             None
         };
         EventType::EvSyscallInterruption == self.ev().event_type()
             || (EventType::EvSignalDelivery == self.ev().event_type()
-                && prev_ev.is_some()
-                && EventType::EvSyscallInterruption == prev_ev.unwrap().event_type())
+                && prev_ev_type.is_some()
+                && EventType::EvSyscallInterruption == prev_ev_type.unwrap())
     }
 
     /// Return true if this is at an arm-desched-event syscall.
@@ -2308,7 +2311,7 @@ impl RecordTask {
     /// Returns true when the task is in a signal handler in an interrupted
     /// system call being handled by syscall buffering.
     pub fn running_inside_desched(&self) -> bool {
-        for e in &self.pending_events {
+        for e in self.pending_events.borrow().iter() {
             if e.event_type() == EventType::EvDesched {
                 return e.desched_event().rec != self.desched_rec();
             }
@@ -2483,7 +2486,7 @@ impl RecordTask {
     /// helpers pop the event at top of the stack, which must be of
     /// the specified type.
     pub fn push_event(&mut self, ev: Event) {
-        self.pending_events.push_back(ev);
+        self.pending_events.borrow_mut().push_back(ev);
     }
 
     pub fn push_syscall_event(&mut self, no: i32) {
@@ -2492,7 +2495,7 @@ impl RecordTask {
     }
 
     pub fn pop_event(&mut self, expected_type: EventType) {
-        let e = self.pending_events.pop_back().unwrap();
+        let e = self.pending_events.borrow_mut().pop_back().unwrap();
         ed_assert_eq!(self, e.event_type(), expected_type);
     }
 
@@ -2524,13 +2527,14 @@ impl RecordTask {
         self.pop_event(EventType::EvSyscallInterruption);
     }
 
-    /// Return the event at the top of this's stack.
-    pub fn ev(&self) -> &Event {
-        self.pending_events.back().unwrap()
+    /// Return the event at the top of self's stack.
+    pub fn ev(&self) -> Ref<Event> {
+        Ref::map(self.pending_events.borrow(), |b| b.back().unwrap())
     }
 
-    pub fn ev_mut(&mut self) -> &mut Event {
-        self.pending_events.back_mut().unwrap()
+    /// Return the event at the top of self's stack.
+    pub fn ev_mut(&mut self) -> RefMut<Event> {
+        RefMut::map(self.pending_events.borrow_mut(), |b| b.back_mut().unwrap())
     }
 
     /// Call this before recording events or data.  Records
@@ -3366,7 +3370,7 @@ impl Drop for RecordTask {
         // We expect tasks to usually exit by a call to exit() or
         // exit_group(), so it's not helpful to warn about that.
         if EventType::EvSentinel != self.ev().event_type()
-            && (self.pending_events.len() > 2
+            && (self.pending_events.borrow().len() > 2
                 || !(self.ev().event_type() == EventType::EvSyscall
                     && (is_exit_syscall(
                         self.ev().syscall_event().number,
