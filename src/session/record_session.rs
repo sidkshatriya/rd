@@ -1993,7 +1993,7 @@ impl RecordSession {
             && !is_in_privileged_syscall(t)
         {
             // There MUST be an emulated ptracer
-            let emulated_ptracer = t.emulated_ptracer.as_ref().unwrap().upgrade().unwrap();
+            let emulated_ptracer = t.emulated_ptracer_unwrap();
             t.ev_mut().syscall_event_mut().state = SyscallState::EnteringSyscallPtrace;
             t.emulate_ptrace_stop(
                 WaitStatus::for_syscall(t),
@@ -2638,7 +2638,7 @@ fn save_interrupted_syscall_ret_in_syscallbuf(t: &mut RecordTask, retval: isize)
 fn maybe_trigger_emulated_ptrace_syscall_exit_stop(t: &mut RecordTask) {
     if t.emulated_ptrace_cont_command.get() == PTRACE_SYSCALL {
         // We MUST have an emulated ptracer
-        let emulated_ptracer = t.emulated_ptracer.as_ref().unwrap().upgrade().unwrap();
+        let emulated_ptracer = t.emulated_ptracer_unwrap();
         t.emulate_ptrace_stop(
             WaitStatus::for_syscall(t),
             emulated_ptracer.borrow().as_rec_unwrap(),
@@ -2650,7 +2650,7 @@ fn maybe_trigger_emulated_ptrace_syscall_exit_stop(t: &mut RecordTask) {
         || t.emulated_ptrace_cont_command.get() == PTRACE_SYSEMU_SINGLESTEP
     {
         // We MUST have an emulated ptracer
-        let emulated_ptracer = t.emulated_ptracer.as_ref().unwrap().upgrade().unwrap();
+        let emulated_ptracer = t.emulated_ptracer_unwrap();
         // Deliver the singlestep trap now that we've finished executing the
         // syscall.
         t.emulate_ptrace_stop(

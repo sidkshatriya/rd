@@ -2607,7 +2607,7 @@ fn prepare_exit(t: &mut RecordTask, exit_code: i32) {
     t.enter_syscall();
     check_signals_while_exiting(t);
 
-    let emulated_ptracer = t.emulated_ptracer.as_ref().map(|w| w.upgrade().unwrap());
+    let emulated_ptracer = t.emulated_ptracer();
     match emulated_ptracer {
         Some(tracer_rc) => {
             if t.emulated_ptrace_options.get() & PTRACE_O_TRACEEXIT != 0 {
@@ -2856,7 +2856,7 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
             .scheduler()
             .did_exit_execve(t);
         process_execve(t, syscall_state);
-        let emulated_ptracer = t.emulated_ptracer.as_ref().map(|w| w.upgrade().unwrap());
+        let emulated_ptracer = t.emulated_ptracer();
         match emulated_ptracer {
             Some(tracer_rc) => {
                 if t.emulated_ptrace_options.get() & PTRACE_O_TRACEEXEC != 0 {
@@ -3161,6 +3161,7 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
                     // @TODO Check this code again
                     if tracee
                         .emulated_ptracer
+                        .borrow()
                         .as_ref()
                         .map_or(false, |w| w.ptr_eq(&t.weak_self))
                     {
@@ -5969,7 +5970,7 @@ fn prepare_clone<Arch: Architecture>(t: &mut RecordTask, syscall_state: &mut Tas
         && (flags & CLONE_UNTRACED == 0)
     {
         // There MUST be a ptracer present. Hence the unwrap().
-        let emulated_ptracer = t.emulated_ptracer.as_ref().unwrap().upgrade().unwrap();
+        let emulated_ptracer = t.emulated_ptracer_unwrap();
         new_task.set_emulated_ptracer(
             Some(emulated_ptracer.borrow_mut().as_rec_mut_unwrap()),
             None,
@@ -6302,6 +6303,7 @@ fn verify_ptrace_target(
                     let tracee = rc_traceeb.as_rec_mut_unwrap();
                     if tracee
                         .emulated_ptracer
+                        .borrow()
                         .as_ref()
                         .map_or(true, |ep| !ep.ptr_eq(&tracer.weak_self))
                         || tracee.emulated_stop_type.get() == EmulatedStopType::NotStopped
@@ -6493,7 +6495,7 @@ fn check_ptracer_compatible(tracer: &RecordTask, tracee: &RecordTask) -> bool {
     // Don't allow a 32-bit process to trace a 64-bit process. That doesn't
     // make much sense (manipulating registers gets crazy), and would be hard to
     // support.
-    if tracee.emulated_ptracer.is_some()
+    if tracee.emulated_ptracer.borrow().is_some()
         || tracee.tgid() == tracer.tgid()
         || (tracer.arch() == SupportedArch::X86 && tracee.arch() == SupportedArch::X64)
     {

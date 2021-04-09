@@ -169,7 +169,7 @@ impl MonkeyPatcher {
             return false;
         }
 
-        if t.emulated_ptracer.is_some() {
+        if t.emulated_ptracer.borrow().is_some() {
             // Syscall patching can confuse ptracers, which may be surprised to see
             // a syscall instruction at the current IP but then when running
             // forwards, that the syscall occurs deep in the preload library instead.

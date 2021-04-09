@@ -429,7 +429,7 @@ pub struct RecordTask {
     /// ptrace emulation state
     ///
     /// Task for which we're emulating ptrace of this task, or None
-    pub emulated_ptracer: Option<TaskSharedWeakPtr>,
+    pub emulated_ptracer: RefCell<Option<TaskSharedWeakPtr>>,
     pub emulated_ptrace_tracees: RefCell<WeakTaskPtrSet>,
     pub emulated_ptrace_event_msg: Cell<usize>,
     /// @TODO Do we want to make this a queue?
@@ -519,7 +519,7 @@ pub struct RecordTask {
     /// Signal delivered by the kernel when this task terminates
     /// DIFF NOTE: We have an Option<> here which is different from rr.
     /// In rr None is indicated by 0
-    pub termination_signal: Option<Sig>,
+    pub termination_signal: Cell<Option<Sig>>,
 
     /// Our value for PR_GET/SET_TSC (one of PR_TSC_ENABLED, PR_TSC_SIGSEGV).
     pub tsc_mode: Cell<i32>,
@@ -965,6 +965,22 @@ impl Task for RecordTask {
 pub type SyscallStateSharedPtr = Rc<RefCell<Option<TaskSyscallState>>>;
 
 impl RecordTask {
+    pub fn emulated_ptracer_unwrap(&self) -> TaskSharedPtr {
+        self.emulated_ptracer
+            .borrow()
+            .as_ref()
+            .unwrap()
+            .upgrade()
+            .unwrap()
+    }
+
+    pub fn emulated_ptracer(&self) -> Option<TaskSharedPtr> {
+        self.emulated_ptracer
+            .borrow()
+            .as_ref()
+            .map(|w| w.upgrade().unwrap())
+    }
+
     pub fn syscall_state_shr_ptr(&self) -> SyscallStateSharedPtr {
         self.syscall_state.clone()
     }
@@ -984,7 +1000,7 @@ impl RecordTask {
             time_at_start_of_last_timeslice: Default::default(),
             priority: Default::default(),
             in_round_robin_queue: Default::default(),
-            emulated_ptracer: None,
+            emulated_ptracer: Default::default(),
             emulated_ptrace_event_msg: Default::default(),
             emulated_ptrace_options: Default::default(),
             emulated_ptrace_cont_command: Default::default(),
@@ -1006,7 +1022,7 @@ impl RecordTask {
             robust_futex_list_len: Default::default(),
             own_namespace_rec_tid: Cell::new(tid),
             exit_code: Cell::new(0),
-            termination_signal: None,
+            termination_signal: Default::default(),
             tsc_mode: Cell::new(PR_TSC_ENABLE),
             cpuid_mode: Cell::new(1),
             stashed_signals: Default::default(),
@@ -1274,14 +1290,17 @@ impl RecordTask {
         // The signal mask is inherited across execve so we don't need to invalidate.
         let exe_file = exe_path(self);
         self.post_exec_for_exe(&exe_file);
-        match &self.emulated_ptracer {
-            Some(emulated_ptracer) => ed_assert!(
-                self,
-                !(emulated_ptracer.upgrade().unwrap().borrow().arch() == SupportedArch::X86
-                    && self.arch() == SupportedArch::X64),
-                "We don't support a 32-bit process tracing a 64-bit process"
-            ),
-            None => (),
+        {
+            let maybe_emulated_ptracer = self.emulated_ptracer.borrow().clone();
+            match maybe_emulated_ptracer {
+                Some(emulated_ptracer) => ed_assert!(
+                    self,
+                    !(emulated_ptracer.upgrade().unwrap().borrow().arch() == SupportedArch::X86
+                        && self.arch() == SupportedArch::X64),
+                    "We don't support a 32-bit process tracing a 64-bit process"
+                ),
+                None => (),
+            }
         }
 
         // Clear robust_list state to match kernel state. If this task is cloned
@@ -1325,15 +1344,15 @@ impl RecordTask {
     ) {
         match new_maybe_tracer {
             Some(tracer) => {
-                ed_assert!(self, self.emulated_ptracer.is_none());
+                ed_assert!(self, self.emulated_ptracer.borrow().is_none());
                 tracer
                     .emulated_ptrace_tracees
                     .borrow_mut()
                     .insert(self.weak_self_ptr());
-                self.emulated_ptracer = Some(tracer.weak_self_ptr());
+                *self.emulated_ptracer.borrow_mut() = Some(tracer.weak_self_ptr());
             }
             None => {
-                ed_assert!(self, self.emulated_ptracer.is_some());
+                ed_assert!(self, self.emulated_ptracer.borrow().is_some());
                 ed_assert!(
                     self,
                     self.emulated_stop_type.get() == EmulatedStopType::NotStopped
@@ -1421,6 +1440,7 @@ impl RecordTask {
         ed_assert!(
             self,
             self.emulated_ptracer
+                .borrow()
                 .as_ref()
                 .unwrap()
                 .ptr_eq(&tracer.weak_self)
@@ -1566,7 +1586,8 @@ impl RecordTask {
     /// Returns true if this task is in a waitpid or similar that would return
     /// when t's status changes due to a ptrace event.
     pub fn is_waiting_for_ptrace(&self, t: &RecordTask) -> bool {
-        match t.emulated_ptracer.as_ref() {
+        let maybe_weak_ptracer = t.emulated_ptracer.borrow().clone();
+        match maybe_weak_ptracer {
             Some(ptracer)
                 // DIFF NOTE: First check the more specific condition and then check if they are part of same thread group
                 // This is there in rd to prevent already borrowed possibility
@@ -1644,8 +1665,11 @@ impl RecordTask {
                 self.emulated_stop_type.get(),
                 EmulatedStopType::NotStopped
             );
-            let maybe_emulated_ptrace =
-                self.emulated_ptracer.as_ref().map(|w| w.upgrade().unwrap());
+            let maybe_emulated_ptrace = self
+                .emulated_ptracer
+                .borrow()
+                .as_ref()
+                .map(|w| w.upgrade().unwrap());
             match maybe_emulated_ptrace {
                 None => {
                     self.emulated_stop_type.set(EmulatedStopType::GroupStop);
@@ -2857,11 +2881,11 @@ impl RecordTask {
     /// Return true if this is a "clone child" per the wait(2) man page.
     pub fn is_clone_child(&self) -> bool {
         // @TODO Is this what we want? Should we unwrap?
-        self.termination_signal != Some(sig::SIGCHLD)
+        self.termination_signal.get() != Some(sig::SIGCHLD)
     }
 
     pub fn set_termination_signal(&mut self, maybe_sig: Option<Sig>) {
-        self.termination_signal = maybe_sig;
+        self.termination_signal.set(maybe_sig);
     }
 
     /// When a signal triggers an emulated a ptrace-stop for this task,
@@ -3312,7 +3336,8 @@ impl Drop for RecordTask {
             return;
         }
 
-        match &self.emulated_ptracer {
+        let maybe_weak_emulated_ptracer = self.emulated_ptracer.borrow().clone();
+        match maybe_weak_emulated_ptracer {
             Some(weak_emulated_ptracer) => {
                 weak_emulated_ptracer
                     .upgrade()
@@ -3340,9 +3365,13 @@ impl Drop for RecordTask {
             // XXX emulate PTRACE_O_EXITKILL
             ed_assert!(
                 self,
-                t.emulated_ptracer.as_ref().unwrap().ptr_eq(&self.weak_self)
+                t.emulated_ptracer
+                    .borrow()
+                    .as_ref()
+                    .unwrap()
+                    .ptr_eq(&self.weak_self)
             );
-            t.emulated_ptracer = None;
+            *t.emulated_ptracer.borrow_mut() = None;
             t.emulated_ptrace_options.set(0);
             t.emulated_stop_pending.set(false);
             t.emulated_stop_type.set(EmulatedStopType::NotStopped);
