@@ -1541,18 +1541,26 @@ impl RecordTask {
     /// that was saved by `save_ptrace_signal_siginfo`. If no such siginfo was
     /// saved, make one up.
     pub fn take_ptrace_signal_siginfo(&mut self, sig: Sig) -> siginfo_t {
+        let mut remove_index = None;
         for (i, it) in self.saved_ptrace_siginfos.borrow().iter().enumerate() {
             if it.si_signo == sig.as_raw() {
                 let si = *it;
-                self.saved_ptrace_siginfos.borrow_mut().remove(i);
-                return si;
+                remove_index = Some((i, si));
             }
         }
 
-        let mut si = siginfo_t::default();
-        si.si_signo = sig.as_raw();
+        match remove_index {
+            Some((i, si)) => {
+                self.saved_ptrace_siginfos.borrow_mut().remove(i);
+                si
+            }
+            None => {
+                let mut si = siginfo_t::default();
+                si.si_signo = sig.as_raw();
 
-        si
+                si
+            }
+        }
     }
 
     /// Returns true if this task is in a waitpid or similar that would return
@@ -2845,13 +2853,15 @@ impl RecordTask {
     /// save the siginfo so a later emulated ptrace-continue with this signal
     /// number can use it.
     pub fn save_ptrace_signal_siginfo(&mut self, si: &siginfo_t) {
+        let mut remove_index = None;
         for (i, it) in self.saved_ptrace_siginfos.borrow().iter().enumerate() {
             if it.si_signo == si.si_signo {
-                self.saved_ptrace_siginfos.borrow_mut().remove(i);
+                remove_index = Some(i);
                 break;
             }
         }
 
+        remove_index.map(|i| self.saved_ptrace_siginfos.borrow_mut().remove(i));
         self.saved_ptrace_siginfos.borrow_mut().push(*si);
     }
 
