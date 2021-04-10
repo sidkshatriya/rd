@@ -811,7 +811,6 @@ fn rep_process_syscall_arch<Arch: Architecture>(
     }
 
     if nsys == Arch::PERF_EVENT_OPEN {
-        // @TODO Need to look at this again. There could be lurking already borrowed issues.
         let pid = trace_regs.arg2_signed() as pid_t;
         let maybe_target = t.session().find_task_from_rec_tid(pid);
         let cpu = trace_regs.arg3_signed() as i32;

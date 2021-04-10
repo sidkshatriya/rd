@@ -429,6 +429,8 @@ pub struct RecordTask {
     /// ptrace emulation state
     ///
     /// Task for which we're emulating ptrace of this task, or None
+    /// @TODO This could also be RefCell<TaskSharedWeakPtr>. Weak::new()
+    /// could be used to indicate no ptracer.
     pub emulated_ptracer: RefCell<Option<TaskSharedWeakPtr>>,
     pub emulated_ptrace_tracees: RefCell<WeakTaskPtrSet>,
     pub emulated_ptrace_event_msg: Cell<usize>,
@@ -1547,19 +1549,9 @@ impl RecordTask {
     /// Returns true if this task is in a waitpid or similar that would return
     /// when t's status changes due to a ptrace event.
     pub fn is_waiting_for_ptrace(&self, t: &RecordTask) -> bool {
-        let maybe_weak_ptracer = t.emulated_ptracer.borrow().clone();
-        match maybe_weak_ptracer {
-            Some(ptracer)
-                // DIFF NOTE: First check the more specific condition and then check if they are part of same thread group
-                // This is there in rd to prevent already borrowed possibility
-                if ptracer.ptr_eq(&self.weak_self)
-                    || Rc::ptr_eq(
-                        &ptracer.upgrade().unwrap().thread_group(),
-                        &self.thread_group(),
-                    ) =>
-            {
-                ()
-            }
+        let maybe_ptracer = t.emulated_ptracer();
+        match maybe_ptracer {
+            Some(ptracer) if Rc::ptr_eq(&ptracer.thread_group(), &self.thread_group()) => (),
             _ => return false,
         }
         // XXX need to check |options| to make sure this task is eligible!!
@@ -3252,12 +3244,10 @@ impl Drop for RecordTask {
             return;
         }
 
-        let maybe_weak_emulated_ptracer = self.emulated_ptracer.borrow().clone();
-        match maybe_weak_emulated_ptracer {
-            Some(weak_emulated_ptracer) => {
-                weak_emulated_ptracer
-                    .upgrade()
-                    .unwrap()
+        let maybe_emulated_ptracer = self.emulated_ptracer();
+        match maybe_emulated_ptracer {
+            Some(emulated_ptracer) => {
+                emulated_ptracer
                     .as_record_task()
                     .unwrap()
                     .emulated_ptrace_tracees
