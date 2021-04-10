@@ -75,23 +75,12 @@ pub(super) enum ExplicitCheckpoint {
     NotExplicit,
 }
 
+#[derive(Clone)]
 pub(super) struct Checkpoint {
-    /// DIFF NOTE: This is an option in rd but a plain Mark in rr
-    maybe_mark: Option<replay_timeline::Mark>,
-    last_continue_tuid: TaskUid,
-    is_explicit: ExplicitCheckpoint,
-    where_: OsString,
-}
-
-impl Default for Checkpoint {
-    fn default() -> Self {
-        Checkpoint {
-            maybe_mark: None,
-            last_continue_tuid: Default::default(),
-            is_explicit: ExplicitCheckpoint::NotExplicit,
-            where_: Default::default(),
-        }
-    }
+    pub mark: replay_timeline::Mark,
+    pub last_continue_tuid: TaskUid,
+    pub is_explicit: ExplicitCheckpoint,
+    pub where_: OsString,
 }
 
 impl Checkpoint {
@@ -107,7 +96,7 @@ impl Checkpoint {
             timeline.mark()
         };
         Checkpoint {
-            maybe_mark: Some(mark),
+            mark,
             last_continue_tuid,
             is_explicit: e,
             where_: where_.to_owned(),
@@ -145,7 +134,9 @@ pub struct GdbServer {
     interrupt_pending: bool,
     timeline: Option<ReplayTimelineSharedPtr>,
     emergency_debug_session: SessionSharedWeakPtr,
-    debugger_restart_checkpoint: Checkpoint,
+    /// DIFF NOTE: This get simply initialized to the default Checkpoint constructor
+    /// in rr. We have an more explicit Option<>
+    debugger_restart_checkpoint: Option<Checkpoint>,
     /// gdb checkpoints, indexed by ID
     pub(super) checkpoints: HashMap<usize, Checkpoint>,
     /// Set of symbols to look for, for qSymbol

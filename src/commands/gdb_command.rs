@@ -3,13 +3,15 @@ use crate::{
     commands::gdb_server::{Checkpoint, ExplicitCheckpoint, GdbServer},
     replay_timeline::Mark,
     session::task::Task,
+    util::str0_to_isize,
 };
 use std::{
     collections::HashMap,
+    convert::TryInto,
     ffi::{OsStr, OsString},
     io::Write,
     ops::{Deref, DerefMut},
-    os::unix::ffi::OsStringExt,
+    os::unix::ffi::{OsStrExt, OsStringExt},
     sync::atomic::{AtomicUsize, Ordering},
 };
 
@@ -203,8 +205,18 @@ fn gdb_command_list_init() -> HashMap<String, Box<dyn GdbCommand>> {
         String::from("checkpoint"),
         Box::new(SimpleGdbCommand::new(
             String::from("checkpoint"),
-            "create a checkpoint representing a point in the execution\n",
+            "create a checkpoint representing a point in the execution\n\
+                            use the 'restart' command to return to the checkpoint",
             &invoke_checkpoint,
+        )),
+    );
+
+    command_list.insert(
+        String::from("delete_checkpoint"),
+        Box::new(SimpleGdbCommand::new(
+            String::from("delete checkpoint"),
+            "remove a checkpoint created with the 'checkpoint' command",
+            &invoke_delete_checkpoint,
         )),
     );
 
@@ -344,4 +356,34 @@ fn invoke_checkpoint(gdb_server: &mut GdbServer, _t: &dyn Task, args: &[OsString
     let mut rets = Vec::<u8>::new();
     write!(rets, "Checkpoint {} at {:?}", checkpoint_id, where_).unwrap();
     OsString::from_vec(rets)
+}
+
+fn invoke_delete_checkpoint(
+    gdb_server: &mut GdbServer,
+    _t: &dyn Task,
+    args: &[OsString],
+) -> OsString {
+    let mut ignore = Default::default();
+    let id: usize = str0_to_isize(args[1].as_bytes(), &mut ignore)
+        .unwrap()
+        .try_into()
+        .unwrap();
+    // Clone it because we want to then delete it
+    let it = gdb_server.checkpoints.get(&id).cloned();
+    match it {
+        Some(checkpoint) => {
+            if checkpoint.is_explicit == ExplicitCheckpoint::Explicit {
+                gdb_server
+                    .get_timeline_mut()
+                    .remove_explicit_checkpoint(&checkpoint.mark);
+            }
+            gdb_server.checkpoints.remove(&id);
+            let ret = format!("Deleted checkpoint {}.", id);
+            OsString::from(ret)
+        }
+        None => {
+            let ret = format!("No checkpoint number {}.", id);
+            OsString::from(ret)
+        }
+    }
 }
