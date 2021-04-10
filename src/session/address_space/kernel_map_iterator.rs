@@ -50,7 +50,7 @@ impl KernelMapIterator {
             !thread_group_in_exec(task),
             "Task-group in execve, so reading /proc/.../maps may trigger kernel deadlock!"
         );
-        let tid = task.tid;
+        let tid = task.tid();
         KernelMapIterator {
             tid,
             buf_reader: Self::init(tid),

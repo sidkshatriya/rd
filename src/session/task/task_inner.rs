@@ -73,7 +73,7 @@ use crate::{
         SessionSharedWeakPtr,
     },
     taskish_uid::TaskUid,
-    thread_group::{ThreadGroupRef, ThreadGroupRefMut, ThreadGroupSharedPtr},
+    thread_group::ThreadGroupSharedPtr,
     ticks::Ticks,
     trace::{trace_frame::FrameTime, trace_stream::TraceStream},
     util::{
@@ -136,7 +136,7 @@ use nix::{
 };
 use owning_ref::OwningHandle;
 use std::{
-    cell::{Cell, Ref, RefCell},
+    cell::{Cell, Ref, RefCell, RefMut},
     cmp::{max, min},
     ffi::{c_void, CStr, CString, OsStr, OsString},
     mem::{size_of, size_of_val},
@@ -144,7 +144,7 @@ use std::{
     os::{raw::c_int, unix::ffi::OsStrExt},
     ptr,
     ptr::{copy_nonoverlapping, NonNull},
-    rc::{Rc, Weak},
+    rc::Rc,
 };
 
 #[cfg(target_arch = "x86")]
@@ -280,7 +280,7 @@ pub struct TaskInner {
     pub unstable: Cell<bool>,
     /// exit(), or exit_group() with one task, has been called, so
     /// the exit can be treated as stable.
-    pub stable_exit: bool,
+    pub stable_exit: Cell<bool>,
 
     /// Imagine that task A passes buffer `b` to the read()
     /// syscall.  Imagine that, after A is switched out for task B,
@@ -322,111 +322,110 @@ pub struct TaskInner {
     ///
     /// `scratch_ptr` points at the mapped address in the child,
     /// and `size` is the total available space.
-    pub scratch_ptr: RemotePtr<Void>,
+    pub scratch_ptr: Cell<RemotePtr<Void>>,
     /// The full size of the scratch buffer.
     /// The last page of the scratch buffer is used as an alternate stack
     /// for the syscallbuf code. So the usable size is less than this.
     ///
     /// DIFF NOTE: In rr this is a signed value i.e. isize
-    pub scratch_size: usize,
+    pub scratch_size: Cell<usize>,
 
     /// The child's desched counter event fd number
-    pub desched_fd_child: i32,
+    pub desched_fd_child: Cell<i32>,
     /// The child's cloned_file_data_fd
-    pub cloned_file_data_fd_child: i32,
+    pub cloned_file_data_fd_child: Cell<i32>,
 
-    pub hpc: PerfCounters,
+    pub hpc: RefCell<PerfCounters>,
 
     /// This is always the "real" tid of the tracee.
-    pub tid: pid_t,
+    pub tid: Cell<pid_t>,
     /// This is always the recorded tid of the tracee.  During
     /// recording, it's synonymous with `tid`, and during replay
     /// it's the tid that was recorded.
-    pub rec_tid: pid_t,
+    pub rec_tid: Cell<pid_t>,
 
-    pub syscallbuf_size: usize,
+    pub syscallbuf_size: Cell<usize>,
     /// Points at the tracee's mapping of the buffer.
-    pub syscallbuf_child: RemotePtr<syscallbuf_hdr>,
+    pub syscallbuf_child: Cell<RemotePtr<syscallbuf_hdr>>,
     /// XXX Move these fields to ReplayTask
-    pub stopping_breakpoint_table: RemoteCodePtr,
-    pub stopping_breakpoint_table_entry_size: usize,
+    pub stopping_breakpoint_table: Cell<RemoteCodePtr>,
+    pub stopping_breakpoint_table_entry_size: Cell<usize>,
 
-    /// DIFF NOTE: In rr null is used to denote no preload globals
-    pub preload_globals: Option<RemotePtr<preload_globals>>,
-    pub thread_locals: ThreadLocals,
+    pub preload_globals: Cell<RemotePtr<preload_globals>>,
+    pub thread_locals: RefCell<ThreadLocals>,
 
     /// These are private
-    pub(in super::super) serial: u32,
+    pub(in super::super) serial: Cell<u32>,
     /// The address space of this task.
-    pub(in super::super) as_: Option<AddressSpaceSharedPtr>,
+    pub(in super::super) as_: RefCell<Option<AddressSpaceSharedPtr>>,
     /// The file descriptor table of this task.
-    pub(in super::super) fds: Option<FdTableSharedPtr>,
+    pub(in super::super) fds: RefCell<Option<FdTableSharedPtr>>,
     /// Task's OS name.
-    pub(in super::super) prname: OsString,
+    pub(in super::super) prname: RefCell<OsString>,
     /// Count of all ticks seen by this task since tracees became
     /// consistent and the task last wait()ed.
-    pub(in super::super) ticks: Ticks,
+    pub(in super::super) ticks: Cell<Ticks>,
     /// When `is_stopped`, these are our child registers.
-    pub(in super::super) registers: Registers,
+    pub(in super::super) registers: RefCell<Registers>,
     /// Where we last resumed execution
-    pub(in super::super) address_of_last_execution_resume: RemoteCodePtr,
-    pub(in super::super) how_last_execution_resumed: ResumeRequest,
+    pub(in super::super) address_of_last_execution_resume: Cell<RemoteCodePtr>,
+    pub(in super::super) how_last_execution_resumed: Cell<ResumeRequest>,
     /// In certain circumstances, due to hardware bugs, we need to fudge the
     /// cx register. If so, we record the orginal value here. See comments in
     /// Task.cc
     /// DIFF NOTE: In rr this is a u64. We use usize.
-    pub(in super::super) last_resume_orig_cx: usize,
+    pub(in super::super) last_resume_orig_cx: Cell<usize>,
     /// The instruction type we're singlestepping through.
-    pub(in super::super) singlestepping_instruction: TrappedInstruction,
+    pub(in super::super) singlestepping_instruction: Cell<TrappedInstruction>,
     /// True if we set a breakpoint after a singlestepped CPUID instruction.
     /// We need this in addition to `singlestepping_instruction` because that
     /// might be CPUID but we failed to set the breakpoint.
-    pub(in super::super) did_set_breakpoint_after_cpuid: bool,
+    pub(in super::super) did_set_breakpoint_after_cpuid: Cell<bool>,
     /// True when we know via waitpid() that the task is stopped and we haven't
     /// resumed it.
-    pub(in super::super) is_stopped: bool,
+    pub(in super::super) is_stopped: Cell<bool>,
     /// True when the seccomp filter has been enabled via prctl(). This happens
     /// in the first system call issued by the initial tracee (after it returns
     /// from kill(SIGSTOP) to synchronize with the tracer).
-    pub(in super::super) seccomp_bpf_enabled: bool,
+    pub(in super::super) seccomp_bpf_enabled: Cell<bool>,
     /// True when we consumed a PTRACE_EVENT_EXIT that was about to race with
     /// a resume_execution, that was issued while stopped (i.e. SIGKILL).
-    pub(in super::super) detected_unexpected_exit: bool,
+    pub(in super::super) detected_unexpected_exit: Cell<bool>,
     /// True when 'registers' has changes that haven't been flushed back to the
     /// task yet.
-    pub(in super::super) registers_dirty: bool,
+    pub(in super::super) registers_dirty: Cell<bool>,
     /// DIFF NOTE: This is an option in rd. In rr there is `extra_registers_known`
     /// which we don't need.
-    pub(in super::super) extra_registers: Option<ExtraRegisters>,
+    pub(in super::super) extra_registers: RefCell<Option<ExtraRegisters>>,
     /// A weak pointer to the  session we're part of.
     pub(in super::super) session_: SessionSharedWeakPtr,
     /// The thread group this belongs to.
-    pub(in super::super) tg: Option<ThreadGroupSharedPtr>,
+    pub(in super::super) tg: RefCell<Option<ThreadGroupSharedPtr>>,
     /// Entries set by `set_thread_area()` or the `tls` argument to `clone()`
     /// (when that's a user_desc). May be more than one due to different
     /// entry_numbers.
-    pub(in super::super) thread_areas_: Vec<user_desc>,
+    pub(in super::super) thread_areas_: RefCell<Vec<user_desc>>,
     /// The `stack` argument passed to `clone()`, which for
     /// "threads" is the top of the user-allocated stack.
-    pub(in super::super) top_of_stack: RemotePtr<Void>,
+    pub(in super::super) top_of_stack: Cell<RemotePtr<Void>>,
     /// The most recent status of this task as returned by
     /// waitpid().
-    pub(in super::super) wait_status: WaitStatus,
+    pub(in super::super) wait_status: Cell<WaitStatus>,
     /// The most recent siginfo (captured when wait_status shows pending_sig())
     /// @TODO Should this be an Option??
-    pub(in super::super) pending_siginfo: siginfo_t,
+    pub(in super::super) pending_siginfo: Cell<siginfo_t>,
     /// True when a PTRACE_EXIT_EVENT has been observed in the wait_status
     /// for this task.
-    pub(in super::super) seen_ptrace_exit_event: bool,
+    pub(in super::super) seen_ptrace_exit_event: Cell<bool>,
     /// A counter for the number of stops for which the stop may have been caused
     /// by PTRACE_INTERRUPT. See description in do_waitpid
-    pub(in super::super) expecting_ptrace_interrupt_stop: u32,
+    pub(in super::super) expecting_ptrace_interrupt_stop: Cell<u32>,
 
     /// Important. Weak dyn Task pointer to self.
     pub weak_self: TaskSharedWeakPtr,
     /// DIFF NOTE: Not present in rr
     /// Slightly different from `serial` which is liable to change on an exec
-    pub stable_serial: u32,
+    pub stable_serial: Cell<u32>,
 }
 
 pub type DebugRegs = Vec<WatchConfig>;
@@ -448,8 +447,7 @@ pub struct CapturedState {
     pub syscallbuf_size: usize,
     // DIFF NOTE: Removed. This does not seem to be used.
     // pub num_syscallbuf_bytes: usize,
-    /// DIFF NOTE: None to indicate no preload_globals
-    pub preload_globals: Option<RemotePtr<preload_globals>>,
+    pub preload_globals: RemotePtr<preload_globals>,
     pub scratch_ptr: RemotePtr<Void>,
     /// DIFF NOTE: This is signed in rr
     pub scratch_size: usize,
@@ -544,6 +542,16 @@ impl DebugControl {
 }
 
 impl TaskInner {
+    #[inline]
+    pub fn tid(&self) -> pid_t {
+        self.tid.get()
+    }
+
+    #[inline]
+    pub fn rec_tid(&self) -> pid_t {
+        self.rec_tid.get()
+    }
+
     pub fn weak_self_ptr(&self) -> TaskSharedWeakPtr {
         self.weak_self.clone()
     }
@@ -556,20 +564,20 @@ impl TaskInner {
     /// enters a consistent state. Prior to that, the task state
     /// can vary based on how rd set up the child process. We have to flush
     /// out any state that might have been affected by that.
-    pub fn flush_inconsistent_state(&mut self) {
-        self.ticks = 0;
+    pub fn flush_inconsistent_state(&self) {
+        self.ticks.set(0);
     }
 
     /// Return total number of ticks ever executed by this task.
     /// Updates tick count from the current performance counter values if
     /// necessary.
     pub fn tick_count(&self) -> Ticks {
-        self.ticks
+        self.ticks.get()
     }
 
     /// Stat `fd` in the context of this task's fd table.
     pub fn stat_fd(&self, fd: i32) -> FileStat {
-        let path = format!("/proc/{}/fd/{}", self.tid, fd);
+        let path = format!("/proc/{}/fd/{}", self.tid(), fd);
         let res = stat(path.as_str());
         ed_assert!(self, res.is_ok());
         res.unwrap()
@@ -577,7 +585,7 @@ impl TaskInner {
 
     /// Lstat `fd` in the context of this task's fd table.
     pub fn lstat_fd(&self, fd: i32) -> FileStat {
-        let path = format!("/proc/{}/fd/{}", self.tid, fd);
+        let path = format!("/proc/{}/fd/{}", self.tid(), fd);
         let res = lstat(path.as_str());
         ed_assert!(self, res.is_ok());
         res.unwrap()
@@ -585,14 +593,14 @@ impl TaskInner {
 
     /// Open `fd` in the context of this task's fd table.
     pub fn open_fd(&self, fd: i32, flags: OFlag) -> ScopedFd {
-        let path = format!("/proc/{}/fd/{}", self.tid, fd);
+        let path = format!("/proc/{}/fd/{}", self.tid(), fd);
         ScopedFd::open_path(path.as_str(), flags)
     }
 
     /// Get the name of the file referenced by `fd` in the context of this
     /// task's fd table.
     pub fn file_name_of_fd(&self, fd: i32) -> OsString {
-        let path = format!("/proc/{}/fd/{}", self.tid, fd);
+        let path = format!("/proc/{}/fd/{}", self.tid(), fd);
         let res = readlink(path.as_str());
         // @TODO like rr, returns an empty string if the file name could not be obtained
         // Is this behavior what we want though?
@@ -602,10 +610,10 @@ impl TaskInner {
     /// Syscalls have side effects on registers (e.g. setting the flags register).
     /// Perform those side effects on `registers` to make it look like a syscall
     /// happened.
-    pub fn canonicalize_regs(&mut self, syscall_arch: SupportedArch) {
-        ed_assert!(self, self.is_stopped);
-
-        match self.registers.arch() {
+    pub fn canonicalize_regs(&self, syscall_arch: SupportedArch) {
+        ed_assert!(self, self.is_stopped.get());
+        let arch = self.registers.borrow().arch();
+        match arch {
             SupportedArch::X64 => {
                 match syscall_arch {
                     SupportedArch::X86 => {
@@ -616,10 +624,10 @@ impl TaskInner {
                         // which, though possible, does not appear to actually be done by any
                         // real application (contrary to int $0x80, which is accessible from 64bit
                         // mode as well).
-                        self.registers.set_r8(0x0);
-                        self.registers.set_r9(0x0);
-                        self.registers.set_r10(0x0);
-                        self.registers.set_r11(0x0);
+                        self.registers.borrow_mut().set_r8(0x0);
+                        self.registers.borrow_mut().set_r9(0x0);
+                        self.registers.borrow_mut().set_r10(0x0);
+                        self.registers.borrow_mut().set_r11(0x0);
                     }
                     SupportedArch::X64 => {
                         // x86-64 'syscall' instruction copies RFLAGS to R11 on syscall entry.
@@ -635,7 +643,7 @@ impl TaskInner {
                         // Ubuntu/Debian kernels.
                         // Making this match the flags makes this operation idempotent, which is
                         // helpful.
-                        self.registers.set_r11(0x246);
+                        self.registers.borrow_mut().set_r11(0x246);
                         // x86-64 'syscall' instruction copies return address to RCX on syscall
                         // entry. rd-related kernel activity normally sets RCX to -1 at some point
                         // during syscall execution, but apparently in some (unknown) situations
@@ -646,7 +654,7 @@ impl TaskInner {
                         // want to clobber that.
                         // For untraced syscalls, the untraced-syscall entry point code (see
                         // write_rd_page) does this itself.
-                        self.registers.set_cx(-1isize as usize);
+                        self.registers.borrow_mut().set_cx(-1isize as usize);
                     }
                 };
                 // On kernel 3.13.0-68-generic #111-Ubuntu SMP we have observed a failed
@@ -655,7 +663,7 @@ impl TaskInner {
                 // consistent.
                 // 0x246 is ZF+PF+IF+reserved, the result clearing a register using
                 // "xor reg, reg".
-                self.registers.set_flags(0x246);
+                self.registers.borrow_mut().set_flags(0x246);
             }
             SupportedArch::X86 => {
                 // The x86 SYSENTER handling in Linux modifies EBP and EFLAGS on entry.
@@ -665,11 +673,11 @@ impl TaskInner {
                 // In a VMWare guest, the modifications to EFLAGS appear to be
                 // nondeterministic. Cover that up by setting EFLAGS to reasonable values
                 // now.
-                self.registers.set_flags(0x246);
+                self.registers.borrow_mut().set_flags(0x246);
             }
         }
 
-        self.registers_dirty = true;
+        self.registers_dirty.set(true);
     }
 
     /// Return the ptrace message pid associated with the current ptrace
@@ -689,29 +697,31 @@ impl TaskInner {
 
     /// Return the siginfo at the signal-stop of `self`.
     /// Not meaningful unless this is actually at a signal stop.
-    pub fn get_siginfo(&self) -> &siginfo_t {
-        &self.pending_siginfo
+    /// NOTE: This does not return a reference like in rr
+    pub fn get_siginfo(&self) -> siginfo_t {
+        self.pending_siginfo.get()
     }
 
     /// Return the current $ip of this.
     pub fn ip(&self) -> RemoteCodePtr {
-        self.registers.ip()
+        self.registers.borrow().ip()
     }
 
     /// Emulate a jump to a new IP, updating the ticks counter as appropriate.
-    pub fn emulate_jump(&mut self, ip: RemoteCodePtr) {
+    pub fn emulate_jump(&self, ip: RemoteCodePtr) {
         let mut r = self.regs_ref().clone();
         r.set_ip(ip);
         self.set_regs(&r);
-        self.ticks += PerfCounters::ticks_for_unconditional_indirect_branch(self);
+        self.ticks
+            .set(self.ticks.get() + PerfCounters::ticks_for_unconditional_indirect_branch(self));
     }
 
     /// Return true if this is at an arm-desched-event or
     /// disarm-desched-event syscall.
     pub fn is_desched_event_syscall(&self) -> bool {
         is_ioctl_syscall(self.regs_ref().original_syscallno() as i32, self.arch())
-            && self.desched_fd_child != -1
-            && self.desched_fd_child == self.regs_ref().arg1_signed() as i32
+            && self.desched_fd_child.get() != -1
+            && self.desched_fd_child.get() == self.regs_ref().arg1_signed() as i32
     }
 
     /// Return true when this task is in a traced syscall made by the
@@ -765,7 +775,7 @@ impl TaskInner {
 
     /// Assuming ip() is just past a breakpoint instruction, adjust
     /// ip() backwards to point at that breakpoint insn.
-    pub fn move_ip_before_breakpoint(&mut self) {
+    pub fn move_ip_before_breakpoint(&self) {
         // TODO: assert that this is at a breakpoint trap.
         let mut r: Registers = self.regs_ref().clone();
         let arch = self.arch();
@@ -775,31 +785,37 @@ impl TaskInner {
 
     /// Return the "task name"; i.e. what `prctl(PR_GET_NAME)` or
     /// /proc/tid/comm would say that the task's name is.
-    pub fn name(&self) -> &OsStr {
-        &self.prname
+    pub fn name(&self) -> Ref<OsString> {
+        self.prname.borrow()
     }
 
     /// Return true if this task has execed.
     pub fn execed(&self) -> bool {
-        self.thread_group().execed
+        self.thread_group().borrow().execed
     }
 
     /// Return the current regs of this.
-    pub fn regs_ref(&self) -> &Registers {
-        ed_assert!(self, self.is_stopped);
-        &self.registers
+    pub fn regs_ref(&self) -> Ref<Registers> {
+        ed_assert!(self, self.is_stopped.get());
+        self.registers.borrow()
+    }
+
+    /// NOTE: Use carefully, clones the registers!
+    pub fn regs(&self) -> Registers {
+        ed_assert!(self, self.is_stopped.get());
+        self.registers.borrow().clone()
     }
 
     /// Return the current regs of this.
-    pub fn regs_mut(&mut self) -> &mut Registers {
-        &mut self.registers
+    pub fn regs_mut(&self) -> RefMut<Registers> {
+        self.registers.borrow_mut()
     }
 
     /// DIFF NOTE: simply `extra_regs()` in rr
     /// Return the extra registers of this.
-    pub fn extra_regs_ref(&mut self) -> &ExtraRegisters {
-        if self.extra_registers.is_none() {
-            let arch_ = self.registers.arch();
+    pub fn extra_regs_ref(&self) -> Ref<ExtraRegisters> {
+        if self.extra_registers.borrow().is_none() {
+            let arch_ = self.registers.borrow().arch();
             let format_ = Format::XSave;
             let mut data_ = Vec::<u8>::new();
             let er: ExtraRegisters;
@@ -857,15 +873,15 @@ impl TaskInner {
                     arch_,
                 };
             }
-            self.extra_registers = Some(er);
+            *self.extra_registers.borrow_mut() = Some(er);
         }
 
-        self.extra_registers.as_ref().unwrap()
+        Ref::map(self.extra_registers.borrow(), |e| e.as_ref().unwrap())
     }
 
     /// Return the current arch of this. This can change due to exec().
     pub fn arch(&self) -> SupportedArch {
-        self.registers.arch()
+        self.registers.borrow().arch()
     }
 
     /// Return the debug status (DR6 on x86). The debug status is always cleared
@@ -897,28 +913,28 @@ impl TaskInner {
     }
 
     /// Set the tracee's registers to `regs`. Lazy.
-    pub fn set_regs(&mut self, regs: &Registers) {
-        ed_assert!(self, self.is_stopped);
-        self.registers = regs.clone();
-        self.registers_dirty = true;
+    pub fn set_regs(&self, regs: &Registers) {
+        ed_assert!(self, self.is_stopped.get());
+        *self.registers.borrow_mut() = regs.clone();
+        self.registers_dirty.set(true);
     }
 
     /// Ensure registers are flushed back to the underlying task.
-    pub fn flush_regs(&mut self) {
-        if self.registers_dirty {
-            ed_assert!(self, self.is_stopped);
-            let ptrace_regs = self.registers.get_ptrace();
+    pub fn flush_regs(&self) {
+        if self.registers_dirty.get() {
+            ed_assert!(self, self.is_stopped.get());
+            let ptrace_regs = self.registers.borrow().get_ptrace();
             self.ptrace_if_alive(
                 PTRACE_SETREGS,
                 0usize.into(),
                 &mut PtraceData::ReadFrom(u8_slice(&ptrace_regs)),
             );
-            self.registers_dirty = false;
+            self.registers_dirty.set(false);
         }
     }
 
     /// Set the tracee's extra registers to `regs`.
-    pub fn set_extra_regs(&mut self, regs: &ExtraRegisters) {
+    pub fn set_extra_regs(&self, regs: &ExtraRegisters) {
         ed_assert!(self, !regs.is_empty(), "Trying to set empty ExtraRegisters");
         ed_assert!(
             self,
@@ -969,7 +985,7 @@ impl TaskInner {
                 unreachable!();
             }
         }
-        self.extra_registers = Some(er);
+        *self.extra_registers.borrow_mut() = Some(er);
     }
 
     /// Program the debug registers to the vector of watchpoint
@@ -1039,7 +1055,7 @@ impl TaskInner {
     /// Set the thread area at index `idx` to desc and reflect this
     /// into the OS task. Returns 0 on success, errno otherwise
     /// DIFF NOTE: idx is a i32 in rr
-    pub fn emulate_set_thread_area(&mut self, idx: u32, mut desc: user_desc) -> i32 {
+    pub fn emulate_set_thread_area(&self, idx: u32, mut desc: user_desc) -> i32 {
         Errno::clear();
         // @TODO Is the cast `idx as usize` what we want?
         self.fallible_ptrace(
@@ -1051,7 +1067,7 @@ impl TaskInner {
             return errno();
         }
         desc.entry_number = idx;
-        set_thread_area_core(&mut self.thread_areas_, desc);
+        set_thread_area_core(&mut self.thread_areas_.borrow_mut(), desc);
         0
     }
 
@@ -1070,70 +1086,59 @@ impl TaskInner {
         errno()
     }
 
-    pub fn thread_areas(&self) -> &[user_desc] {
-        &self.thread_areas_
+    pub fn thread_areas(&self) -> Ref<Vec<user_desc>> {
+        self.thread_areas_.borrow()
     }
 
-    pub fn set_status(&mut self, status: WaitStatus) {
-        self.wait_status = status;
+    pub fn set_status(&self, status: WaitStatus) {
+        self.wait_status.set(status);
     }
 
     /// Return true when the task is running, false if it's stopped.
     pub fn is_running(&self) -> bool {
-        !self.is_stopped
+        !self.is_stopped.get()
     }
 
     /// Return the status of this as of the last successful wait()/try_wait() call.
     pub fn status(&self) -> WaitStatus {
-        self.wait_status
+        self.wait_status.get()
     }
 
     /// Return the ptrace event as of the last call to `wait()/try_wait()`.
     pub fn maybe_ptrace_event(&self) -> MaybePtraceEvent {
-        self.wait_status.maybe_ptrace_event()
+        self.wait_status.get().maybe_ptrace_event()
     }
 
     /// Return the signal that's pending for this as of the last call to `wait()/try_wait()`.
     pub fn maybe_stop_sig(&self) -> MaybeStopSignal {
-        self.wait_status.maybe_stop_sig()
+        self.wait_status.get().maybe_stop_sig()
     }
 
     pub fn maybe_group_stop_sig(&self) -> MaybeStopSignal {
-        self.wait_status.maybe_group_stop_sig()
+        self.wait_status.get().maybe_group_stop_sig()
     }
 
-    pub fn clear_wait_status(&mut self) {
-        self.wait_status = WaitStatus::default();
-    }
-
-    /// Return the thread group this belongs to.
-    pub fn thread_group(&self) -> ThreadGroupRef {
-        self.tg.as_ref().unwrap().borrow()
+    pub fn clear_wait_status(&self) {
+        self.wait_status.set(WaitStatus::default());
     }
 
     /// Return the thread group this belongs to.
-    pub fn thread_group_mut(&self) -> ThreadGroupRefMut {
-        self.tg.as_ref().unwrap().borrow_mut()
-    }
-
-    /// Use thread_group() and thread_group_mut() in preference to this
-    /// But could be useful in place for borrow related purposes
-    pub fn thread_group_shr_ptr(&self) -> ThreadGroupSharedPtr {
-        self.tg.as_ref().unwrap().clone()
+    pub fn thread_group(&self) -> ThreadGroupSharedPtr {
+        self.tg.borrow().as_ref().unwrap().clone()
     }
 
     /// Return the id of this task's recorded thread group.
     pub fn tgid(&self) -> pid_t {
-        self.thread_group().tgid
+        self.thread_group().borrow().tgid
     }
 
     /// Return id of real OS thread group
     pub fn real_tgid(&self) -> pid_t {
-        self.thread_group().real_tgid
+        self.thread_group().borrow().real_tgid
     }
 
     pub fn tuid(&self) -> TaskUid {
-        TaskUid::new_with(self.rec_tid, self.serial)
+        TaskUid::new_with(self.rec_tid(), self.serial.get())
     }
 
     /// Return the dir of the trace we're using.
@@ -1157,22 +1162,13 @@ impl TaskInner {
 
     /// Return the virtual memory mapping (address space) of this
     /// task.
-    pub fn vm(&self) -> &AddressSpace {
-        &self.as_.as_ref().unwrap()
+    /// @TODO May want this to return &AddressSpaceSharedPtr
+    pub fn vm(&self) -> AddressSpaceSharedPtr {
+        self.as_.borrow().as_ref().unwrap().clone()
     }
 
-    /// Useful for tricky situations when we need to pass a reference to task to
-    /// the AddressSpace methods for instance
-    pub fn vm_shr_ptr(&self) -> AddressSpaceSharedPtr {
-        self.as_.as_ref().unwrap().clone()
-    }
-
-    pub fn fd_table(&self) -> &FdTable {
-        self.fds.as_ref().unwrap()
-    }
-
-    pub fn fd_table_shr_ptr(&self) -> FdTableSharedPtr {
-        self.fds.as_ref().unwrap().clone()
+    pub fn fd_table(&self) -> FdTableSharedPtr {
+        self.fds.borrow().as_ref().unwrap().clone()
     }
 
     /// Currently we don't allow recording across uid changes, so we can
@@ -1235,7 +1231,7 @@ impl TaskInner {
         Errno::clear();
         self.fallible_ptrace(request, addr, data);
         if errno() == ESRCH {
-            log!(LogDebug, "ptrace_if_alive tid {} was not alive", self.tid);
+            log!(LogDebug, "ptrace_if_alive tid {} was not alive", self.tid());
             return false;
         }
         ed_assert!(
@@ -1243,7 +1239,7 @@ impl TaskInner {
             errno() == 0,
             "ptrace({}, {}, addr={}, data={:?}) failed with errno: {}",
             ptrace_req_name(request),
-            self.tid,
+            self.tid(),
             addr,
             data.get_data_slice(),
             errno_name(errno())
@@ -1252,31 +1248,31 @@ impl TaskInner {
     }
 
     pub fn is_dying(&self) -> bool {
-        self.seen_ptrace_exit_event || self.detected_unexpected_exit
+        self.seen_ptrace_exit_event.get() || self.detected_unexpected_exit.get()
     }
 
     pub fn last_execution_resume(&self) -> RemoteCodePtr {
-        self.address_of_last_execution_resume
+        self.address_of_last_execution_resume.get()
     }
 
     pub fn usable_scratch_size(&self) -> usize {
-        max(0, self.scratch_size as isize - page_size() as isize) as usize
+        max(0, self.scratch_size.get() as isize - page_size() as isize) as usize
     }
 
     pub fn syscallbuf_alt_stack(&self) -> RemotePtr<Void> {
-        if self.scratch_ptr.is_null() {
+        if self.scratch_ptr.get().is_null() {
             RemotePtr::null()
         } else {
-            self.scratch_ptr + self.scratch_size
+            self.scratch_ptr.get() + self.scratch_size.get()
         }
     }
 
-    pub fn setup_preload_thread_locals(&mut self) {
-        self.activate_preload_thread_locals(None);
+    pub fn setup_preload_thread_locals(&self) {
+        self.activate_preload_thread_locals();
         rd_arch_function_selfless!(setup_preload_thread_locals_arch, self.arch(), self);
     }
 
-    pub fn setup_preload_thread_locals_from_clone(&mut self, origin: &mut TaskInner) {
+    pub fn setup_preload_thread_locals_from_clone(&self, origin: &TaskInner) {
         rd_arch_function_selfless!(
             setup_preload_thread_locals_from_clone_arch,
             self.arch(),
@@ -1285,57 +1281,48 @@ impl TaskInner {
         )
     }
 
-    pub fn fetch_preload_thread_locals(&mut self) -> &ThreadLocals {
+    pub fn fetch_preload_thread_locals(&self) -> Ref<ThreadLocals> {
         if self.tuid() == self.vm().thread_locals_tuid() {
-            let maybe_local_addr = preload_thread_locals_local_addr(self.vm());
+            let maybe_local_addr = preload_thread_locals_local_addr(&self.vm());
             match maybe_local_addr {
                 Some(local_addr) => unsafe {
                     copy_nonoverlapping(
-                        local_addr.as_ptr().cast::<u8>(),
-                        (&raw mut self.thread_locals).cast::<u8>(),
+                        local_addr.as_ptr() as *const u8,
+                        self.thread_locals.as_ptr().cast::<u8>(),
                         PRELOAD_THREAD_LOCALS_SIZE,
                     );
                 },
                 None => {
                     // The mapping might have been removed by crazy application code.
                     // That's OK, assuming the preload library was removed too.
+                    let mut ar = self.thread_locals.borrow_mut();
                     for i in 0..PRELOAD_THREAD_LOCALS_SIZE {
-                        self.thread_locals[i] = 0u8;
+                        ar[i] = 0u8;
                     }
                 }
             }
         }
 
-        &self.thread_locals
+        self.thread_locals.borrow()
     }
 
-    // DIFF NOTE: Takes an additional param maybe_active_task
-    pub fn activate_preload_thread_locals(&mut self, maybe_active_task: Option<&mut TaskInner>) {
+    pub fn activate_preload_thread_locals(&self) {
         // Switch thread-locals to the new task.
         if self.tuid() != self.vm().thread_locals_tuid() {
             let maybe_local_addr = preload_thread_locals_local_addr(&self.vm());
             match maybe_local_addr {
                 Some(local_addr) => {
-                    match maybe_active_task {
-                        Some(active_task)
-                            if active_task.tuid() == self.vm().thread_locals_tuid() =>
-                        {
-                            active_task.fetch_preload_thread_locals();
-                        }
-                        _ => {
-                            let maybe_t = self
-                                .session()
-                                .find_task_from_task_uid(self.vm().thread_locals_tuid());
+                    let maybe_t = self
+                        .session()
+                        .find_task_from_task_uid(self.vm().thread_locals_tuid());
 
-                            maybe_t.map(|t| {
-                                t.borrow_mut().fetch_preload_thread_locals();
-                            });
-                        }
-                    };
+                    maybe_t.map(|t| {
+                        t.fetch_preload_thread_locals();
+                    });
 
                     unsafe {
                         copy_nonoverlapping(
-                            &self.thread_locals as *const u8,
+                            self.thread_locals.as_ptr() as *const u8,
                             local_addr.as_ptr().cast::<u8>(),
                             PRELOAD_THREAD_LOCALS_SIZE,
                         );
@@ -1353,87 +1340,92 @@ impl TaskInner {
         rec_tid: Option<pid_t>,
         serial: u32,
         a: SupportedArch,
+        weak_self: TaskSharedWeakPtr,
     ) -> TaskInner {
         let adjusted_rec_tid = rec_tid.unwrap_or(tid);
         let stable_serial = session.next_task_stable_serial();
         TaskInner {
-            unstable: Cell::new(false),
-            stable_exit: false,
+            unstable: Default::default(),
+            stable_exit: Default::default(),
             scratch_ptr: Default::default(),
-            scratch_size: 0,
+            scratch_size: Default::default(),
             // This will be initialized when the syscall buffer is
-            desched_fd_child: -1,
+            desched_fd_child: Cell::new(-1),
             // This will be initialized when the syscall buffer is
-            cloned_file_data_fd_child: -1,
-            hpc: PerfCounters::new(tid, session.ticks_semantics()),
-            tid,
-            rec_tid: adjusted_rec_tid,
-            syscallbuf_size: 0,
-            stopping_breakpoint_table_entry_size: 0,
-            serial,
-            stable_serial,
-            prname: "???".into(),
-            ticks: 0,
-            registers: Registers::new(a),
-            how_last_execution_resumed: ResumeRequest::ResumeCont,
-            last_resume_orig_cx: 0,
-            did_set_breakpoint_after_cpuid: false,
-            is_stopped: false,
-            seccomp_bpf_enabled: false,
-            detected_unexpected_exit: false,
-            registers_dirty: false,
-            extra_registers: None,
+            cloned_file_data_fd_child: Cell::new(-1),
+            hpc: RefCell::new(PerfCounters::new(tid, session.ticks_semantics())),
+            tid: Cell::new(tid),
+            rec_tid: Cell::new(adjusted_rec_tid),
+            syscallbuf_size: Default::default(),
+            stopping_breakpoint_table_entry_size: Default::default(),
+            serial: Cell::new(serial),
+            stable_serial: Cell::new(stable_serial),
+            prname: RefCell::new("???".into()),
+            ticks: Default::default(),
+            registers: RefCell::new(Registers::new(a)),
+            how_last_execution_resumed: Cell::new(ResumeRequest::ResumeCont),
+            last_resume_orig_cx: Default::default(),
+            did_set_breakpoint_after_cpuid: Default::default(),
+            is_stopped: Default::default(),
+            seccomp_bpf_enabled: Default::default(),
+            detected_unexpected_exit: Default::default(),
+            registers_dirty: Default::default(),
+            extra_registers: Default::default(),
             session_: session.weak_self.clone(),
             top_of_stack: Default::default(),
-            seen_ptrace_exit_event: false,
-            thread_locals: array_init::array_init(|_| 0),
-            expecting_ptrace_interrupt_stop: 0,
+            seen_ptrace_exit_event: Default::default(),
+            thread_locals: RefCell::new([0u8; PRELOAD_THREAD_LOCALS_SIZE]),
+            expecting_ptrace_interrupt_stop: Default::default(),
             // DIFF NOTE: These are not explicitly set in rr
             syscallbuf_child: Default::default(),
-            preload_globals: None,
+            preload_globals: Default::default(),
             as_: Default::default(),
             fds: Default::default(),
             address_of_last_execution_resume: Default::default(),
-            singlestepping_instruction: TrappedInstruction::None,
+            singlestepping_instruction: Default::default(),
             tg: Default::default(),
-            thread_areas_: vec![],
+            thread_areas_: Default::default(),
             wait_status: Default::default(),
             pending_siginfo: Default::default(),
-            weak_self: Weak::new(),
+            weak_self,
             stopping_breakpoint_table: Default::default(),
         }
     }
 
     /// DIFF NOTE: There are no stable serials in rr
     pub fn stable_serial(&self) -> u32 {
-        self.stable_serial
+        self.stable_serial.get()
     }
 
     /// Grab state from this task into a structure that we can use to
     /// initialize a new task via os_clone_into/os_fork_into and copy_state.
-    pub(in super::super) fn capture_state(&mut self) -> CapturedState {
+    pub(in super::super) fn capture_state(&self) -> CapturedState {
+        let thread_areas = self.thread_areas_.borrow().clone();
+        let extra_regs = self.extra_regs_ref().clone();
+        let regs = self.regs_ref().clone();
+        let prname = self.prname.borrow().clone();
         CapturedState {
-            rec_tid: self.rec_tid,
-            serial: self.serial,
-            regs: self.regs_ref().clone(),
-            extra_regs: self.extra_regs_ref().clone(),
-            prname: self.prname.clone(),
-            thread_areas: self.thread_areas_.clone(),
-            desched_fd_child: self.desched_fd_child,
-            cloned_file_data_fd_child: self.cloned_file_data_fd_child,
-            cloned_file_data_offset: if self.cloned_file_data_fd_child > 0 {
-                get_fd_offset(self.tid, self.cloned_file_data_fd_child)
+            rec_tid: self.rec_tid(),
+            serial: self.serial.get(),
+            regs,
+            extra_regs,
+            prname,
+            thread_areas,
+            desched_fd_child: self.desched_fd_child.get(),
+            cloned_file_data_fd_child: self.cloned_file_data_fd_child.get(),
+            cloned_file_data_offset: if self.cloned_file_data_fd_child.get() > 0 {
+                get_fd_offset(self.tid(), self.cloned_file_data_fd_child.get())
             } else {
                 0
             },
-            syscallbuf_child: self.syscallbuf_child,
-            syscallbuf_size: self.syscallbuf_size,
-            preload_globals: self.preload_globals,
-            scratch_ptr: self.scratch_ptr,
-            scratch_size: self.scratch_size,
-            wait_status: self.wait_status,
-            ticks: self.ticks,
-            top_of_stack: self.top_of_stack,
+            syscallbuf_child: self.syscallbuf_child.get(),
+            syscallbuf_size: self.syscallbuf_size.get(),
+            preload_globals: self.preload_globals.get(),
+            scratch_ptr: self.scratch_ptr.get(),
+            scratch_size: self.scratch_size.get(),
+            wait_status: self.wait_status.get(),
+            ticks: self.ticks.get(),
+            top_of_stack: self.top_of_stack.get(),
             thread_locals: self.fetch_preload_thread_locals().clone(),
         }
     }
@@ -1448,16 +1440,21 @@ impl TaskInner {
     ) -> isize {
         let res = match data {
             PtraceData::WriteInto(data) => unsafe {
-                ptrace(request, self.tid, addr.as_usize(), (*data).as_mut_ptr())
+                ptrace(request, self.tid(), addr.as_usize(), (*data).as_mut_ptr())
             },
             PtraceData::ReadFrom(data) => unsafe {
-                ptrace(request, self.tid, addr.as_usize(), (*data).as_ptr())
+                ptrace(request, self.tid(), addr.as_usize(), (*data).as_ptr())
             },
             PtraceData::ReadWord(data) => unsafe {
-                ptrace(request, self.tid, addr.as_usize(), (*data) as *const u8)
+                ptrace(request, self.tid(), addr.as_usize(), (*data) as *const u8)
             },
             PtraceData::None => unsafe {
-                ptrace(request, self.tid, addr.as_usize(), ptr::null() as *const u8)
+                ptrace(
+                    request,
+                    self.tid(),
+                    addr.as_usize(),
+                    ptr::null() as *const u8,
+                )
             },
         };
         res as isize
@@ -1479,7 +1476,7 @@ impl TaskInner {
             errno == 0,
             "ptrace({}, {}, addr={}, data={:?}) failed with errno: {}",
             ptrace_req_name(request),
-            self.tid,
+            self.tid(),
             addr,
             data.get_data_slice(),
             errno
@@ -1769,22 +1766,25 @@ impl TaskInner {
             fatal!("PTRACE_SEIZE failed for tid `{}`{}", tid, hint);
         }
         let next_t_serial = session.next_task_serial();
-        let t = session.new_task(tid, rec_tid, next_t_serial, RD_NATIVE_ARCH);
-        let wrapped_t = Rc::new(RefCell::new(t));
-        // Set the weak self pointer of the task
-        wrapped_t.borrow_mut().weak_self = Rc::downgrade(&wrapped_t);
+        let wrapped_t = Rc::new_cyclic(|weak_self| {
+            let t = session.new_task(
+                tid,
+                rec_tid,
+                next_t_serial,
+                RD_NATIVE_ARCH,
+                weak_self.clone(),
+            );
+            t
+        });
 
         let tg = session.create_initial_tg(wrapped_t.clone());
-        wrapped_t.borrow_mut().tg = Some(tg);
-        let addr_space = session.create_vm(wrapped_t.borrow_mut().as_mut(), None, None);
-        wrapped_t.borrow_mut().as_ = Some(addr_space);
-        let weak_t_ptr = wrapped_t.borrow().weak_self.clone();
-        wrapped_t.borrow_mut().fds = Some(FdTable::create(weak_t_ptr));
-        {
-            let mut ref_task = wrapped_t.borrow_mut();
-            let fds: FdTableSharedPtr = ref_task.fds.as_ref().unwrap().clone();
-            setup_fd_table(ref_task.as_mut(), &fds, fd_number);
-        }
+        *wrapped_t.tg.borrow_mut() = Some(tg);
+        let addr_space = session.create_vm(&**wrapped_t, None, None);
+        *wrapped_t.as_.borrow_mut() = Some(addr_space);
+        let weak_t_ptr = wrapped_t.weak_self.clone();
+        *wrapped_t.fds.borrow_mut() = Some(FdTable::create(weak_t_ptr));
+        let fds: FdTableSharedPtr = wrapped_t.fds.borrow().as_ref().unwrap().clone();
+        setup_fd_table(&**wrapped_t, &fds, fd_number);
 
         // Install signal handler here, so that when creating the first RecordTask
         // it sees the exact same signal state in the parent as will be in the child.
@@ -1795,30 +1795,27 @@ impl TaskInner {
         );
         unsafe { sigaction(Signal::SIGALRM, &sa) }.unwrap();
 
-        {
-            let mut t = wrapped_t.borrow_mut();
-            t.wait(None);
-            if t.maybe_ptrace_event() == PTRACE_EVENT_EXIT {
-                fatal!(
-                    "Tracee died before reaching SIGSTOP\nChild's message: {:?}",
-                    session.read_spawned_task_error()
-                );
-            }
-            // SIGSTOP can be reported as a signal-stop or group-stop depending on
-            // whether PTRACE_SEIZE happened before or after it was delivered.
-            if t.status().maybe_stop_sig() != SIGSTOP
-                && t.status().maybe_group_stop_sig() != SIGSTOP
-            {
-                fatal!(
-                    "Unexpected stop {}\n Child's message: {:?}",
-                    t.status(),
-                    session.read_spawned_task_error()
-                );
-            }
-
-            t.clear_wait_status();
-            t.open_mem_fd();
+        wrapped_t.wait(None);
+        if wrapped_t.maybe_ptrace_event() == PTRACE_EVENT_EXIT {
+            fatal!(
+                "Tracee died before reaching SIGSTOP\nChild's message: {:?}",
+                session.read_spawned_task_error()
+            );
         }
+        // SIGSTOP can be reported as a signal-stop or group-stop depending on
+        // whether PTRACE_SEIZE happened before or after it was delivered.
+        if wrapped_t.status().maybe_stop_sig() != SIGSTOP
+            && wrapped_t.status().maybe_group_stop_sig() != SIGSTOP
+        {
+            fatal!(
+                "Unexpected stop {}\n Child's message: {:?}",
+                wrapped_t.status(),
+                session.read_spawned_task_error()
+            );
+        }
+
+        wrapped_t.clear_wait_status();
+        wrapped_t.open_mem_fd();
 
         wrapped_t
     }
@@ -1902,7 +1899,7 @@ fn create_seccomp_filter() -> SeccompFilter {
 // waitpid to return EINTR and that's all we need.
 extern "C" fn handle_alarm_signal(_sig: c_int) {}
 
-fn setup_fd_table(t: &mut dyn Task, fds: &FdTableSharedPtr, tracee_socket_fd_number: i32) {
+fn setup_fd_table(t: &dyn Task, fds: &FdTableSharedPtr, tracee_socket_fd_number: i32) {
     fds.add_monitor(t, STDOUT_FILENO, Box::new(StdioMonitor::new(STDOUT_FILENO)));
     fds.add_monitor(t, STDERR_FILENO, Box::new(StdioMonitor::new(STDERR_FILENO)));
     fds.add_monitor(
@@ -2067,7 +2064,7 @@ fn preload_thread_locals_local_addr(as_: &AddressSpace) -> Option<NonNull<c_void
 }
 
 fn setup_preload_thread_locals_arch<Arch: Architecture>(t: &TaskInner) {
-    let maybe_local_addr = preload_thread_locals_local_addr(t.vm());
+    let maybe_local_addr = preload_thread_locals_local_addr(&t.vm());
 
     match maybe_local_addr {
         Some(local_addr) => {
@@ -2083,14 +2080,14 @@ fn setup_preload_thread_locals_arch<Arch: Architecture>(t: &TaskInner) {
 }
 
 fn setup_preload_thread_locals_from_clone_arch<Arch: Architecture>(
-    t: &mut TaskInner,
-    origin: &mut TaskInner,
+    t: &TaskInner,
+    origin: &TaskInner,
 ) {
-    let maybe_local_addr = preload_thread_locals_local_addr(t.vm());
+    let maybe_local_addr = preload_thread_locals_local_addr(&t.vm());
 
     match maybe_local_addr {
         Some(local_addr) => {
-            t.activate_preload_thread_locals(Some(origin));
+            t.activate_preload_thread_locals();
             let locals = local_addr.as_ptr() as *mut preload_thread_locals<Arch>;
             let origin_locals =
                 origin.fetch_preload_thread_locals().as_ptr() as *mut preload_thread_locals<Arch>;

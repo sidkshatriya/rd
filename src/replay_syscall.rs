@@ -143,7 +143,6 @@ use nix::{
     unistd::{access, lseek, read, AccessFlags, Whence},
 };
 use std::{
-    cell::RefMut,
     cmp::min,
     convert::TryInto,
     ffi::{CString, OsStr, OsString},
@@ -156,7 +155,7 @@ use trace_stream::{MappedDataSource, TraceRemoteFd};
 ///
 /// DIFF NOTE: Params maybe_expect_syscallno2 and maybe_new_tid and treatment slightly different.
 fn __ptrace_cont(
-    t: &mut ReplayTask,
+    t: &ReplayTask,
     resume_how: ResumeRequest,
     syscall_arch: SupportedArch,
     expect_syscallno: i32,
@@ -165,7 +164,7 @@ fn __ptrace_cont(
 ) {
     maybe_expect_syscallno2.map(|n| debug_assert!(n >= 0));
     let new_tid = maybe_new_tid.unwrap_or(-1);
-    let wait_for: pid_t = if new_tid >= 0 { -1 as pid_t } else { t.tid };
+    let wait_for: pid_t = if new_tid >= 0 { -1 as pid_t } else { t.tid() };
 
     let expect_syscallno2 = maybe_expect_syscallno2.unwrap_or(-1);
     t.resume_execution(
@@ -189,11 +188,11 @@ fn __ptrace_cont(
         ed_assert!(t, ret >= 0);
         if ret == new_tid {
             // Check that we only do this once
-            ed_assert_ne!(t, t.tid, new_tid);
+            ed_assert_ne!(t, t.tid(), new_tid);
             // Update the serial as if this task was really created by cloning the old task.
             t.set_real_tid_and_update_serial(new_tid);
         }
-        ed_assert_eq!(t, ret, t.tid);
+        ed_assert_eq!(t, ret, t.tid());
         t.did_waitpid(WaitStatus::new(raw_status));
 
         // DIFF NOTE: @TODO The `if` statement logic may create a slight divergence from rr.
@@ -234,7 +233,7 @@ fn __ptrace_cont(
 }
 
 /// DIFF NOTE: In rd we're returning a `None` if this was not a write syscall
-fn maybe_dump_written_string(t: &mut ReplayTask) -> Option<OsString> {
+fn maybe_dump_written_string(t: &ReplayTask) -> Option<OsString> {
     if !is_write_syscall(t.regs_ref().original_syscallno() as i32, t.arch()) {
         return None;
     }
@@ -242,20 +241,19 @@ fn maybe_dump_written_string(t: &mut ReplayTask) -> Option<OsString> {
     let mut buf = Vec::<u8>::with_capacity(len);
     buf.resize(len, 0u8);
     // DIFF NOTE: Here we're actually expecting there to be no Err(_), hence the unwrap()
-    let nread = t
-        .read_bytes_fallible(t.regs_ref().arg2().into(), &mut buf)
-        .unwrap();
+    let arg2 = t.regs_ref().arg2();
+    let nread = t.read_bytes_fallible(arg2.into(), &mut buf).unwrap();
     buf.truncate(nread);
     Some(OsString::from_vec(buf))
 }
 
-fn init_scratch_memory(t: &mut ReplayTask, km: &KernelMapping, data: &trace_stream::MappedData) {
+fn init_scratch_memory(t: &ReplayTask, km: &KernelMapping, data: &trace_stream::MappedData) {
     ed_assert_eq!(t, data.source, trace_stream::MappedDataSource::SourceZero);
 
-    t.scratch_ptr = km.start();
-    t.scratch_size = km.size();
-    let sz = t.scratch_size;
-    let scratch_ptr = t.scratch_ptr;
+    t.scratch_ptr.set(km.start());
+    t.scratch_size.set(km.size());
+    let sz = t.scratch_size.get();
+    let scratch_ptr = t.scratch_ptr.get();
     // Make the scratch buffer read/write during replay so that
     // preload's sys_read can use it to buffer cloned data.
     ed_assert!(
@@ -283,7 +281,7 @@ fn init_scratch_memory(t: &mut ReplayTask, km: &KernelMapping, data: &trace_stre
         }
         t.vm().map(
             t,
-            t.scratch_ptr,
+            t.scratch_ptr.get(),
             sz,
             km.prot(),
             km.flags(),
@@ -312,7 +310,7 @@ fn init_scratch_memory(t: &mut ReplayTask, km: &KernelMapping, data: &trace_stre
 /// that don't actually use scratch space don't ever try to restore
 /// saved scratch memory during replay.  So, this helper can be used
 /// for that class of syscalls.
-fn maybe_noop_restore_syscallbuf_scratch(t: &mut ReplayTask) {
+fn maybe_noop_restore_syscallbuf_scratch(t: &ReplayTask) {
     if t.is_in_untraced_syscall() {
         // Untraced syscalls always have t's arch
         log!(
@@ -348,7 +346,7 @@ fn read_task_trace_event(t: &ReplayTask, task_event_type: TraceTaskEventType) ->
     tte.unwrap()
 }
 
-fn prepare_clone<Arch: Architecture>(t: &mut ReplayTask) {
+fn prepare_clone<Arch: Architecture>(t: &ReplayTask) {
     let trace_frame = t.current_trace_frame();
     let trace_frame_regs = trace_frame.regs_ref().clone();
     let syscall_event = trace_frame.event().syscall_event();
@@ -467,9 +465,9 @@ fn prepare_clone<Arch: Architecture>(t: &mut ReplayTask) {
     let tte = read_task_trace_event(t, TraceTaskEventType::Clone);
     ed_assert!(
         t,
-        tte.clone_variant().parent_tid() == t.rec_tid,
+        tte.clone_variant().parent_tid() == t.rec_tid(),
         "Expected tid {}, got {}",
-        t.rec_tid,
+        t.rec_tid(),
         tte.clone_variant().parent_tid()
     );
     let rec_tid = tte.tid();
@@ -490,8 +488,7 @@ fn prepare_clone<Arch: Architecture>(t: &mut ReplayTask) {
         Some(rec_tid),
     );
 
-    let mut new_task_ref = new_task_shr_ptr.borrow_mut();
-    let new_task: &mut ReplayTask = new_task_ref.as_replay_task_mut().unwrap();
+    let new_task: &ReplayTask = new_task_shr_ptr.as_replay_task().unwrap();
 
     if Arch::CLONE as isize == t.regs_ref().original_syscallno() {
         // FIXME: what if registers are non-null and contain an invalid address?
@@ -523,10 +520,8 @@ fn prepare_clone<Arch: Architecture>(t: &mut ReplayTask) {
         // be useful to inherit breakpoints (along with their
         // refcounts) across a non-VM-sharing clone, but for
         // now we never want to do this.
-        new_task.vm_shr_ptr().remove_all_breakpoints(new_task);
-        new_task
-            .vm_shr_ptr()
-            .remove_all_watchpoints(new_task, Some(t));
+        new_task.vm().remove_all_breakpoints();
+        new_task.vm().remove_all_watchpoints();
 
         let mut remote = AutoRemoteSyscalls::new(new_task);
         for (&k, m) in &t.vm().maps() {
@@ -555,11 +550,11 @@ fn prepare_clone<Arch: Architecture>(t: &mut ReplayTask) {
 
     init_scratch_memory(new_task, &km, &data);
 
-    new_task.vm_shr_ptr().after_clone(new_task, Some(t));
+    new_task.vm().after_clone();
 }
 
 /// DIFF NOTE: This simply returns a ReplayTraceStep instead of modifying one.
-pub fn rep_prepare_run_to_syscall(t: &mut ReplayTask, step: &mut ReplayTraceStep) {
+pub fn rep_prepare_run_to_syscall(t: &ReplayTask, step: &mut ReplayTraceStep) {
     let sys_num = t.current_trace_frame().event().syscall_event().number;
     let sys_arch = t.current_trace_frame().event().syscall_event().arch();
     let sys_name = t
@@ -592,14 +587,14 @@ pub fn rep_prepare_run_to_syscall(t: &mut ReplayTask, step: &mut ReplayTraceStep
     // system call that we assigned a negative number because it doesn't
     // exist in this architecture.
     if is_rdcall_notify_syscall_hook_exit_syscall(sys_num, sys_arch) {
-        ed_assert!(t, !t.syscallbuf_child.is_null());
-        let child_addr: RemotePtr<u8> = RemotePtr::<u8>::cast(t.syscallbuf_child)
+        ed_assert!(t, !t.syscallbuf_child.get().is_null());
+        let child_addr: RemotePtr<u8> = RemotePtr::<u8>::cast(t.syscallbuf_child.get())
             + offset_of!(syscallbuf_hdr, notify_on_syscall_hook_exit);
         write_val_mem(t, child_addr, &1u8, None);
     }
 }
 
-pub fn rep_process_syscall(t: &mut ReplayTask, step: &mut ReplayTraceStep) {
+pub fn rep_process_syscall(t: &ReplayTask, step: &mut ReplayTraceStep) {
     let arch: SupportedArch;
     let trace_regs: Registers;
     {
@@ -613,7 +608,7 @@ pub fn rep_process_syscall(t: &mut ReplayTask, step: &mut ReplayTraceStep) {
 }
 
 fn rep_process_syscall_arch<Arch: Architecture>(
-    t: &mut ReplayTask,
+    t: &ReplayTask,
     step: &mut ReplayTraceStep,
     trace_regs: &Registers,
 ) {
@@ -766,7 +761,7 @@ fn rep_process_syscall_arch<Arch: Architecture>(
         r.set_ip(r.ip().decrement_by_syscall_insn_length(r.arch()));
         t.set_regs(&r);
         if nsys == Arch::MPROTECT {
-            t.vm_shr_ptr().fixup_mprotect_growsdown_parameters(t);
+            t.vm().fixup_mprotect_growsdown_parameters(t);
         }
         __ptrace_cont(
             t,
@@ -816,7 +811,6 @@ fn rep_process_syscall_arch<Arch: Architecture>(
     }
 
     if nsys == Arch::PERF_EVENT_OPEN {
-        // @TODO Need to look at this again. There could be lurking already borrowed issues.
         let pid = trace_regs.arg2_signed() as pid_t;
         let maybe_target = t.session().find_task_from_rec_tid(pid);
         let cpu = trace_regs.arg3_signed() as i32;
@@ -831,10 +825,10 @@ fn rep_process_syscall_arch<Arch: Architecture>(
             if VirtualPerfCounterMonitor::should_virtualize(&attr) {
                 let monitor: Box<dyn FileMonitor> = Box::new(VirtualPerfCounterMonitor::new(
                     t,
-                    maybe_target.unwrap().borrow().as_ref(),
+                    &**maybe_target.unwrap(),
                     &attr,
                 ));
-                t.fd_table_shr_ptr().add_monitor(t, fd, monitor);
+                t.fd_table().add_monitor(t, fd, monitor);
             }
         }
         // Falls through to the next case
@@ -851,12 +845,14 @@ fn rep_process_syscall_arch<Arch: Architecture>(
     }
 
     if nsys == Arch::OPENAT {
-        handle_opened_files(t, t.regs_ref().arg3() as i32);
+        let arg3 = t.regs_ref().arg3();
+        handle_opened_files(t, arg3 as i32);
         return;
     }
 
     if nsys == Arch::OPEN {
-        handle_opened_files(t, t.regs_ref().arg2() as i32);
+        let arg2 = t.regs_ref().arg2();
+        handle_opened_files(t, arg2 as i32);
         return;
     }
 
@@ -872,16 +868,14 @@ fn rep_process_syscall_arch<Arch: Architecture>(
         let dest_pid = t.regs_ref().arg1() as pid_t;
         let iov_cnt = t.regs_ref().arg5();
         let t_rc: TaskSharedPtr;
-        let mut t_b: RefMut<Box<dyn Task>>;
-        let maybe_dest = if dest_pid == t.rec_tid {
+        let maybe_dest = if dest_pid == t.rec_tid() {
             Some(t)
         } else {
             // Recorded data records may be for another process.
             match t.session().find_task_from_rec_tid(dest_pid) {
                 Some(found_rc) => {
                     t_rc = found_rc;
-                    t_b = t_rc.borrow_mut();
-                    Some(t_b.as_replay_task_mut().unwrap())
+                    Some(t_rc.as_replay_task().unwrap())
                 }
                 None => None,
             }
@@ -898,10 +892,11 @@ fn rep_process_syscall_arch<Arch: Architecture>(
     }
 
     if nsys == Arch::READ {
-        if t.cloned_file_data_fd_child >= 0 {
+        if t.cloned_file_data_fd_child.get() >= 0 {
             let fd: i32 = t.regs_ref().arg1() as i32;
             let file_name = t.file_name_of_fd(fd);
-            if !file_name.is_empty() && file_name == t.file_name_of_fd(t.cloned_file_data_fd_child)
+            if !file_name.is_empty()
+                && file_name == t.file_name_of_fd(t.cloned_file_data_fd_child.get())
             {
                 // This is a read of the cloned-data file. Replay logic depends on
                 // this file's offset actually advancing.
@@ -932,7 +927,7 @@ fn rep_process_syscall_arch<Arch: Architecture>(
     }
 }
 
-fn process_init_buffers(t: &mut ReplayTask, step: &mut ReplayTraceStep) {
+fn process_init_buffers(t: &ReplayTask, step: &mut ReplayTraceStep) {
     step.action = ReplayTraceStepType::TstepRetire;
 
     // Proceed to syscall exit so we can run our own syscalls. */
@@ -946,15 +941,15 @@ fn process_init_buffers(t: &mut ReplayTask, step: &mut ReplayTraceStep) {
 
     ed_assert!(
         t,
-        RemotePtr::cast(t.syscallbuf_child) == rec_child_map_addr,
+        RemotePtr::cast(t.syscallbuf_child.get()) == rec_child_map_addr,
         "Should have mapped syscallbuf at {}, but it's at {}",
         rec_child_map_addr,
-        t.syscallbuf_child
+        t.syscallbuf_child.get()
     );
     t.validate_regs(ReplayTaskIgnore::default());
 }
 
-fn process_brk(t: &mut ReplayTask) {
+fn process_brk(t: &ReplayTask) {
     let mut data = MappedData::default();
     let km: KernelMapping = t
         .trace_reader_mut()
@@ -972,7 +967,7 @@ fn process_brk(t: &mut ReplayTask) {
             -1,
             0,
         );
-        remote.task().vm_shr_ptr().map(
+        remote.task().vm().map(
             remote.task(),
             km.start(),
             km.size(),
@@ -999,7 +994,7 @@ fn process_brk(t: &mut ReplayTask) {
         );
         remote
             .task()
-            .vm_shr_ptr()
+            .vm()
             .unmap(remote.task(), km.start(), km.size());
     }
 }
@@ -1013,11 +1008,11 @@ fn non_negative_syscall(sys: i32) -> i32 {
 }
 
 /// Call this when `t` has just entered a syscall.
-pub fn rep_after_enter_syscall(t: &mut ReplayTask) {
+pub fn rep_after_enter_syscall(t: &ReplayTask) {
     rd_arch_function_selfless!(rep_after_enter_syscall_arch, t.arch(), t)
 }
 
-fn rep_after_enter_syscall_arch<Arch: Architecture>(t: &mut ReplayTask) {
+fn rep_after_enter_syscall_arch<Arch: Architecture>(t: &ReplayTask) {
     // @TODO: The cast as i32 is like the behavior in rr. Any potential edge cases??
     let sys: i32 = non_negative_syscall(t.regs_ref().original_syscallno() as i32);
 
@@ -1035,42 +1030,45 @@ fn rep_after_enter_syscall_arch<Arch: Architecture>(t: &mut ReplayTask) {
     if sys == Arch::PTRACE {
         let pid: pid_t = t.regs_ref().arg2_signed() as pid_t;
         // DIFF NOTE: This assertion is not there in rr.
-        ed_assert_ne!(t, pid, t.rec_tid);
+        ed_assert_ne!(t, pid, t.rec_tid());
         let maybe_target = t.session().find_task_from_rec_tid(pid);
         match maybe_target {
             None => (),
-            Some(target) => match t.regs_ref().arg1() as u32 {
-                PTRACE_POKETEXT | PTRACE_POKEDATA => {
-                    target
-                        .borrow_mut()
-                        .as_replay_task_mut()
-                        .unwrap()
-                        .apply_all_data_records_from_trace();
-                }
-                PTRACE_SYSCALL
-                | PTRACE_SINGLESTEP
-                | PTRACE_SYSEMU
-                | PTRACE_SYSEMU_SINGLESTEP
-                | PTRACE_CONT
-                | PTRACE_DETACH => {
-                    let command = t.regs_ref().arg1() as u32;
-                    target
-                        .borrow_mut()
-                        .set_syscallbuf_locked(command != PTRACE_CONT && command != PTRACE_DETACH);
-                }
-                PTRACE_SET_THREAD_AREA => {
-                    let mut ok = true;
-                    let child_addr = t.regs_ref().arg4();
-                    let desc: user_desc =
-                        read_val_mem(t, RemotePtr::<user_desc>::from(child_addr), Some(&mut ok));
-                    if ok {
+            Some(target) => {
+                let arg1 = t.regs_ref().arg1();
+                match arg1 as u32 {
+                    PTRACE_POKETEXT | PTRACE_POKEDATA => {
                         target
-                            .borrow_mut()
-                            .emulate_set_thread_area(t.regs_ref().arg3() as u32, desc);
+                            .as_replay_task()
+                            .unwrap()
+                            .apply_all_data_records_from_trace();
                     }
+                    PTRACE_SYSCALL
+                    | PTRACE_SINGLESTEP
+                    | PTRACE_SYSEMU
+                    | PTRACE_SYSEMU_SINGLESTEP
+                    | PTRACE_CONT
+                    | PTRACE_DETACH => {
+                        let command = t.regs_ref().arg1() as u32;
+                        target.set_syscallbuf_locked(
+                            command != PTRACE_CONT && command != PTRACE_DETACH,
+                        );
+                    }
+                    PTRACE_SET_THREAD_AREA => {
+                        let mut ok = true;
+                        let child_addr = t.regs_ref().arg4();
+                        let desc: user_desc = read_val_mem(
+                            t,
+                            RemotePtr::<user_desc>::from(child_addr),
+                            Some(&mut ok),
+                        );
+                        if ok {
+                            target.emulate_set_thread_area(t.regs_ref().arg3() as u32, desc);
+                        }
+                    }
+                    _ => (),
                 }
-                _ => (),
-            },
+            }
         }
     }
 
@@ -1083,7 +1081,7 @@ fn rep_after_enter_syscall_arch<Arch: Architecture>(t: &mut ReplayTask) {
     }
 
     if sys == Arch::EXIT_GROUP {
-        if t.thread_group().task_set().len() == 1 {
+        if t.thread_group().borrow().task_set().len() == 1 {
             // See above.
             t.destroy_buffers();
         }
@@ -1094,7 +1092,7 @@ fn rep_after_enter_syscall_arch<Arch: Architecture>(t: &mut ReplayTask) {
 
 // DIFF NOTE: This does not take an extra param `trace_frame` as it can be
 // obtained from `t` itself
-pub fn process_execve(t: &mut ReplayTask, step: &mut ReplayTraceStep) {
+pub fn process_execve(t: &ReplayTask, step: &mut ReplayTraceStep) {
     step.action = ReplayTraceStepType::TstepRetire;
     let frame_arch = t.current_trace_frame().regs_ref().arch();
     // First, exec a stub program
@@ -1106,7 +1104,7 @@ pub fn process_execve(t: &mut ReplayTask, step: &mut ReplayTraceStep) {
     // different tgid.
     let mut maybe_memory_task = None;
     for task in t.vm().task_set().iter_except(t.weak_self_ptr()) {
-        if task.borrow().tgid() != t.tgid() {
+        if task.tgid() != t.tgid() {
             maybe_memory_task = Some(task);
             break;
         }
@@ -1167,14 +1165,14 @@ pub fn process_execve(t: &mut ReplayTask, step: &mut ReplayTraceStep) {
     );
     // Complete the syscall. The tid of the task will be the thread-group-leader
     // tid, no matter what tid it was before.
-    let tgid: pid_t = t.thread_group().real_tgid;
+    let tgid: pid_t = t.thread_group().borrow().real_tgid;
     __ptrace_cont(
         t,
         ResumeRequest::ResumeSyscall,
         t.arch(),
         expect_syscallno,
         Some(syscall_number_for_execve(frame_arch)),
-        if tgid == t.tid { None } else { Some(tgid) },
+        if tgid == t.tid() { None } else { Some(tgid) },
     );
     if t.regs_ref().syscall_result() != 0 {
         // @TODO check this. Is this what we want -- especially the cast to i32?
@@ -1193,12 +1191,9 @@ pub fn process_execve(t: &mut ReplayTask, step: &mut ReplayTraceStep) {
     // later we may try to unmap this task's syscallbuf.
     match maybe_memory_task {
         None => (),
-        Some(ref memory_task) => write_mem(
-            memory_task.borrow_mut().as_mut(),
-            remote_mem,
-            saved_data.as_slice(),
-            None,
-        ),
+        Some(ref memory_task) => {
+            write_mem(&***memory_task, remote_mem, saved_data.as_slice(), None)
+        }
     }
 
     let mut kms: Vec<KernelMapping> = Vec::new();
@@ -1276,7 +1271,7 @@ pub fn process_execve(t: &mut ReplayTask, step: &mut ReplayTraceStep) {
         .syscall_event()
         .exec_fds_to_close
         .clone();
-    t.fd_table_shr_ptr().close_after_exec(t, &fds_to_close);
+    t.fd_table().close_after_exec(t, &fds_to_close);
 
     {
         let arch = t.arch();
@@ -1305,10 +1300,7 @@ pub fn process_execve(t: &mut ReplayTask, step: &mut ReplayTraceStep) {
                 m.start().as_usize(),
                 m.size()
             );
-            remote
-                .task()
-                .vm_shr_ptr()
-                .unmap(remote.task_mut(), m.start(), m.size());
+            remote.task().vm().unmap(remote.task(), m.start(), m.size());
         }
         // We will have unmapped the stack memory that `remote` would have used for
         // memory parameters. Fortunately process_mapped_region below doesn't
@@ -1359,10 +1351,10 @@ pub fn process_execve(t: &mut ReplayTask, step: &mut ReplayTraceStep) {
     t.apply_all_data_records_from_trace();
 
     // Now it's safe to save the auxv data
-    t.vm_shr_ptr().save_auxv(t);
+    t.vm().save_auxv(t);
 
     // Notify outer rd if there is one
-    unsafe { syscall(SYS_rdcall_reload_auxv as _, t.tid) };
+    unsafe { syscall(SYS_rdcall_reload_auxv as _, t.tid()) };
 }
 
 pub fn restore_mapped_region(
@@ -1418,8 +1410,8 @@ pub fn restore_mapped_region(
         }
     }
 
-    remote.task().vm_shr_ptr().map(
-        remote.task_mut(),
+    remote.task().vm().map(
+        remote.task(),
         km.start(),
         km.size(),
         km.prot(),
@@ -1512,7 +1504,7 @@ fn find_exec_stub(arch: SupportedArch) -> CString {
     CString::new(exe_path).unwrap()
 }
 
-fn handle_opened_files(t: &mut ReplayTask, flags_raw: i32) {
+fn handle_opened_files(t: &ReplayTask, flags_raw: i32) {
     // @TODO The from_bits_unchecked seems to be needed here cause in x86 there is a flag that
     // is not recognized here by OFlag::from_bits(flags_raw).unwrap(). Check again?
     let flags = unsafe { OFlag::from_bits_unchecked(flags_raw) };
@@ -1549,14 +1541,14 @@ fn handle_opened_files(t: &mut ReplayTask, flags_raw: i32) {
             ed_assert!(t, false, "Why did we write filename {:?}", o.path);
             unreachable!();
         }
-        t.fd_table_shr_ptr().add_monitor(t, o.fd, file_monitor);
+        t.fd_table().add_monitor(t, o.fd, file_monitor);
     }
 }
 
 // DIFF NOTE: This does not take an extra param `trace_frame` as it can be
 // obtained from `t` itself
 fn process_mmap(
-    t: &mut ReplayTask,
+    t: &ReplayTask,
     mut length: usize,
     prot_raw: i32,
     flags_raw: i32,
@@ -1600,7 +1592,7 @@ fn process_mmap(
             let mut extra_fds: Vec<TraceRemoteFd> = Vec::new();
             let mut skip_monitoring_mapped_fd: bool = false;
             let mut km: KernelMapping = remote
-                .task_mut()
+                .task()
                 .as_replay_task()
                 .unwrap()
                 .trace_reader_mut()
@@ -1632,7 +1624,7 @@ fn process_mmap(
                 );
                 let km_sub: KernelMapping =
                     km.subrange(km.start(), km.start() + ceil_page_size(map_bytes));
-                remote.task().vm_shr_ptr().map(
+                remote.task().vm().map(
                     remote.task(),
                     km.start(),
                     map_bytes,
@@ -1658,7 +1650,7 @@ fn process_mmap(
                 if flags.contains(MapFlags::MAP_SHARED) {
                     if !skip_monitoring_mapped_fd {
                         extra_fds.push(TraceRemoteFd {
-                            tid: remote.task().rec_tid,
+                            tid: remote.task().rec_tid(),
                             fd,
                         });
                     }
@@ -1703,7 +1695,7 @@ fn process_mmap(
                 .flags()
                 .share_private_mappings
         {
-            let vm_shr_ptr = remote.task().vm_shr_ptr();
+            let vm_shr_ptr = remote.task().vm();
             let mapping = vm_shr_ptr.mapping_of(addr).unwrap().clone();
             remote.make_private_shared(mapping);
         }
@@ -1770,7 +1762,7 @@ fn finish_shared_mmap<'a>(
     // kernel-bug-workarounds when writing to tracee memory see the up-to-date
     // virtual map.
     let offset_bytes: u64 = page_size() as u64 * offset_pages as u64;
-    remote.task().vm_shr_ptr().map(
+    remote.task().vm().map(
         remote.task(),
         rec_addr,
         km.size(),
@@ -1788,7 +1780,7 @@ fn finish_shared_mmap<'a>(
     );
 
     write_mapped_data(
-        remote.task_mut().as_replay_task_mut().unwrap(),
+        remote.task().as_replay_task().unwrap(),
         rec_addr,
         km.size(),
         data,
@@ -1803,7 +1795,7 @@ fn finish_shared_mmap<'a>(
         emufile.borrow().emu_path()
     );
 
-    let process = |rt: &mut dyn Task, fd: &TraceRemoteFd| -> () {
+    let process = |rt: &dyn Task, fd: &TraceRemoteFd| -> () {
         let maybe_mon = rt.fd_table().get_monitor(fd.fd);
         match maybe_mon {
             Some(file_mon_shr_ptr) => {
@@ -1819,19 +1811,18 @@ fn finish_shared_mmap<'a>(
             }
             None => {
                 let fm = Box::new(MmappedFileMonitor::new_from_emufile(rt, emufile.clone()));
-                rt.fd_table_shr_ptr().add_monitor(rt, fd.fd, fm);
+                rt.fd_table().add_monitor(rt, fd.fd, fm);
             }
         };
     };
 
     for fd in fds {
-        if remote.task().rec_tid == fd.tid {
-            process(remote.task_mut(), fd);
+        if remote.task().rec_tid() == fd.tid {
+            process(remote.task(), fd);
         } else {
             match remote.task().session().find_task_from_rec_tid(fd.tid) {
                 Some(shr_ptr) => {
-                    let mut t_b = shr_ptr.borrow_mut();
-                    process(t_b.as_mut(), fd);
+                    process(&**shr_ptr, fd);
                 }
                 None => {
                     ed_assert!(remote.task(), false, "Can't find task {}", fd.tid);
@@ -1866,8 +1857,8 @@ fn finish_private_mmap(
     // Update AddressSpace before loading data from the trace. This ensures our
     // kernel-bug-workarounds when writing to tracee memory see the up-to-date
     // virtual map.
-    remote.task().vm_shr_ptr().map(
-        remote.task_mut(),
+    remote.task().vm().map(
+        remote.task(),
         rec_addr,
         length,
         prot,
@@ -1885,7 +1876,7 @@ fn finish_private_mmap(
 
     // Restore the map region we copied.
     write_mapped_data(
-        remote.task_mut().as_replay_task_mut().unwrap(),
+        remote.task().as_replay_task().unwrap(),
         rec_addr,
         km.size(),
         data,
@@ -1893,7 +1884,7 @@ fn finish_private_mmap(
 }
 
 fn write_mapped_data(
-    t: &mut ReplayTask,
+    t: &ReplayTask,
     mut rec_addr: RemotePtr<Void>,
     mut size: usize,
     data: &MappedData,
@@ -1997,7 +1988,7 @@ fn finish_anonymous_mmap(
         maybe_emu_file = Some(emu_file);
     }
 
-    remote.task().vm_shr_ptr().map(
+    remote.task().vm().map(
         remote.task(),
         rec_addr,
         length,
@@ -2016,7 +2007,7 @@ fn finish_anonymous_mmap(
 }
 
 /// DIFF NOTE: Take trace_regs as param. rr takes trace_frame instead.
-fn process_mremap(t: &mut ReplayTask, trace_regs: &Registers, step: &mut ReplayTraceStep) {
+fn process_mremap(t: &ReplayTask, trace_regs: &Registers, step: &mut ReplayTraceStep) {
     step.action = ReplayTraceStepType::TstepRetire;
 
     let original_syscallno: i32 = trace_regs.original_syscallno() as i32;
@@ -2027,11 +2018,10 @@ fn process_mremap(t: &mut ReplayTask, trace_regs: &Registers, step: &mut ReplayT
 
     // The recorded mremap call succeeded, so we know the original mapping can be
     // treated as a single mapping.
-    t.vm_shr_ptr()
-        .ensure_replay_matches_single_recorded_mapping(
-            t,
-            MemoryRange::new_range(old_addr, old_size),
-        );
+    t.vm().ensure_replay_matches_single_recorded_mapping(
+        t,
+        MemoryRange::new_range(old_addr, old_size),
+    );
 
     let mut data = MappedData::default();
     t.trace_reader_mut()
@@ -2120,11 +2110,8 @@ fn process_mremap(t: &mut ReplayTask, trace_regs: &Registers, step: &mut ReplayT
                     -1,
                     0,
                 );
-                remote
-                    .task()
-                    .vm_shr_ptr()
-                    .unmap(remote.task(), new_addr, new_size);
-                remote.task().vm_shr_ptr().map(
+                remote.task().vm().unmap(remote.task(), new_addr, new_size);
+                remote.task().vm().map(
                     remote.task(),
                     new_addr,
                     new_size,
@@ -2141,7 +2128,7 @@ fn process_mremap(t: &mut ReplayTask, trace_regs: &Registers, step: &mut ReplayT
                     None,
                 );
                 remote
-                    .task_mut()
+                    .task()
                     .write_bytes_helper(new_addr, &buf, None, WriteFlags::empty());
                 mapping = remote.task().vm().mapping_of(new_addr).unwrap().clone();
             }
@@ -2170,7 +2157,7 @@ fn process_mremap(t: &mut ReplayTask, trace_regs: &Registers, step: &mut ReplayT
 
 /// DIFF NOTE: Takes `trace_regs` instead of trace frame as a param
 fn process_shmat(
-    t: &mut ReplayTask,
+    t: &ReplayTask,
     trace_regs: &Registers,
     shm_flags: i32,
     step: &mut ReplayTraceStep,
@@ -2213,7 +2200,7 @@ fn process_shmat(
 
 /// DIFF NOTE: Takes `trace_regs` instead of trace frame as a param
 fn process_shmdt(
-    t: &mut ReplayTask,
+    t: &ReplayTask,
     trace_regs: &Registers,
     addr: RemotePtr<Void>,
     step: &mut ReplayTraceStep,

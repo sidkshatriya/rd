@@ -67,7 +67,7 @@ impl DiversionSession {
     /// Try make progress in this diversion session. Run task t if possible.
     pub fn diversion_step(
         &self,
-        _t: &mut dyn Task,
+        _t: &dyn Task,
         _command: Option<RunCommand>,
         _signal_to_deliver: Option<Sig>,
     ) -> DiversionResult {

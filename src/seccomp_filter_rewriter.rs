@@ -62,7 +62,7 @@ impl SeccompFilterRewriter {
     /// Assuming `t` is set up for a prctl or seccomp syscall that
     /// installs a seccomp-bpf filter, patch the filter to signal the tracer
     /// instead of silently delivering an errno, and install it.
-    pub fn install_patched_seccomp_filter(&mut self, t: &mut RecordTask) {
+    pub fn install_patched_seccomp_filter(&mut self, t: &RecordTask) {
         let arch = t.arch();
         rd_arch_function_selfless!(
             install_patched_seccomp_filter_arch,
@@ -77,7 +77,7 @@ impl SeccompFilterRewriter {
     /// PTRACE_EVENT_EXIT probably got in the way.
     pub fn map_filter_data_to_real_result(
         &self,
-        t: &mut RecordTask,
+        t: &RecordTask,
         value: u16,
         result: &mut u32,
     ) -> bool {
@@ -106,7 +106,7 @@ const fn BPF_RVAL(code: u16) -> u32 {
 }
 
 fn install_patched_seccomp_filter_arch<Arch: Architecture>(
-    t: &mut RecordTask,
+    t: &RecordTask,
     result_to_index: &mut HashMap<u32, u16>,
     index_to_result: &mut Vec<u32>,
 ) {
@@ -183,12 +183,12 @@ fn install_patched_seccomp_filter_arch<Arch: Architecture>(
         );
         let code_ptr: RemotePtr<sock_filter> = RemotePtr::cast(mem.get().unwrap());
 
-        write_mem(mem.task_mut(), code_ptr, &f.filters, None);
+        write_mem(mem.task(), code_ptr, &f.filters, None);
 
         prog.len = f.filters.len().try_into().unwrap();
         prog.filter = Arch::from_remote_ptr(code_ptr);
         let prog_ptr = RemotePtr::<sock_fprog<Arch>>::cast(code_ptr + f.filters.len());
-        write_val_mem(mem.task_mut(), prog_ptr, &prog, None);
+        write_val_mem(mem.task(), prog_ptr, &prog, None);
 
         log!(LogDebug, "About to install seccomp filter");
         ret = mem.syscall(orig_syscallno, &[arg1, arg2, prog_ptr.as_usize()]);
@@ -197,24 +197,29 @@ fn install_patched_seccomp_filter_arch<Arch: Architecture>(
     set_syscall_result(t, ret);
 
     if !t.regs_ref().syscall_failed() {
-        t.prctl_seccomp_status = 2;
+        t.prctl_seccomp_status.set(2);
         if is_seccomp_syscall(orig_syscallno, t.arch())
             && (arg2 & SECCOMP_FILTER_FLAG_TSYNC as usize != 0)
         {
-            for tt in t.thread_group().task_set().iter_except(t.weak_self_ptr()) {
-                tt.borrow_mut().as_rec_mut_unwrap().prctl_seccomp_status = 2;
+            for tt in t
+                .thread_group()
+                .borrow()
+                .task_set()
+                .iter_except(t.weak_self_ptr())
+            {
+                tt.as_rec_unwrap().prctl_seccomp_status.set(2);
             }
         }
     }
 }
 
-fn set_syscall_result(t: &mut RecordTask, ret: isize) {
+fn set_syscall_result(t: &RecordTask, ret: isize) {
     let mut r: Registers = t.regs_ref().clone();
     r.set_syscall_result_signed(ret);
     t.set_regs(&r);
 }
 
-fn pass_through_seccomp_filter(t: &mut RecordTask) {
+fn pass_through_seccomp_filter(t: &RecordTask) {
     let ret: isize;
     {
         let arg1 = t.regs_ref().arg1();

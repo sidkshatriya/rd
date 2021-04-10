@@ -148,7 +148,7 @@ impl FileMonitor for MmappedFileMonitor {
                             if v.uid() == offset.t.vm().uid() {
                                 let result = offset
                                     .t
-                                    .as_record_task_mut()
+                                    .as_record_task()
                                     .unwrap()
                                     .record_remote_range_fallible(km.intersect(&mr));
                                 if let Ok(nread) = result {
@@ -163,9 +163,8 @@ impl FileMonitor for MmappedFileMonitor {
                                     // If the task here has execed, we may not be able to record its
                                     // memory any longer, so loop through all tasks in this address
                                     // space in turn in case any *didn't* exec.
-                                    let mut rt_ref = t_rc.borrow_mut();
-                                    let result = rt_ref
-                                        .as_record_task_mut()
+                                    let result = t_rc
+                                        .as_record_task()
                                         .unwrap()
                                         .record_remote_range_fallible(km.intersect(&mr));
                                     if let Ok(nread) = result {

@@ -102,7 +102,7 @@ impl GdbExpression {
 
     /// If evaluation succeeds, store the final result in result and return true.
     /// Otherwise return false.
-    pub fn evaluate(&self, t: &mut dyn Task, result: &mut GdbExpressionValue) -> bool {
+    pub fn evaluate(&self, t: &dyn Task, result: &mut GdbExpressionValue) -> bool {
         if self.bytecode_variants.is_empty() {
             return false;
         }
@@ -217,7 +217,7 @@ impl<'a> ExpressionState<'a> {
         v
     }
 
-    pub fn load<T: Into<u64>>(&mut self, t: &mut dyn Task) {
+    pub fn load<T: Into<u64>>(&mut self, t: &dyn Task) {
         let addr = self.pop().i as usize;
         if self.error {
             // Don't do unnecessary syscalls if we're already in an error state.
@@ -240,7 +240,7 @@ impl<'a> ExpressionState<'a> {
         self.push(self.stack[self.stack.len() - 1 - offset].i);
     }
 
-    pub fn step(&mut self, t: &mut dyn Task) {
+    pub fn step(&mut self, t: &dyn Task) {
         debug_assert!(!self.error);
         let operands: BinaryOperands;
         // @TODO Will the catch all case `_` deal with even invalid enum values?
@@ -450,7 +450,7 @@ impl<'a> ExpressionState<'a> {
                     }
                 };
                 let extra_regs = t.extra_regs_ref().clone();
-                let v: GdbRegisterValue = GdbServer::get_reg(t.regs_ref(), &extra_regs, r);
+                let v: GdbRegisterValue = GdbServer::get_reg(&t.regs_ref(), &extra_regs, r);
 
                 if !v.defined {
                     self.set_error();

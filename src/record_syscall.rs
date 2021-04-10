@@ -659,7 +659,7 @@ use nix::{
     unistd::{getpid, ttyname, unlink},
 };
 use std::{
-    cell::RefCell,
+    cell::RefMut,
     cmp::{max, min},
     convert::{TryFrom, TryInto},
     env,
@@ -691,13 +691,14 @@ struct rdcall_params<Arch: Architecture> {
 
 /// Prepare `t` to enter its current syscall event.  Return Switchable::AllowSwitch if
 /// a context-switch is allowed for `t`, Switchable::PreventSwitch if not.
-pub fn rec_prepare_syscall(t: &mut RecordTask) -> Switchable {
-    if t.syscall_state.is_none() {
+pub fn rec_prepare_syscall(t: &RecordTask) -> Switchable {
+    let no_syscall_state = t.syscall_state.borrow().is_none();
+    if no_syscall_state {
         let mut new_ts = TaskSyscallState::new(t);
         new_ts.init(t);
-        t.syscall_state = Some(Rc::new(RefCell::new(new_ts)));
+        *t.syscall_state.borrow_mut() = Some(new_ts);
     } else {
-        t.syscall_state_unwrap().borrow_mut().init(t);
+        t.syscall_state.borrow_mut().as_mut().unwrap().init(t);
     }
 
     let s = rec_prepare_syscall_internal(t);
@@ -705,16 +706,20 @@ pub fn rec_prepare_syscall(t: &mut RecordTask) -> Switchable {
     if is_sigreturn(syscallno, t.ev().syscall_event().arch()) {
         // There isn't going to be an exit event for this syscall, so remove
         // syscall_state now.
-        t.syscall_state = None;
+        *t.syscall_state.borrow_mut() = None;
         return s;
     }
 
-    t.syscall_state_unwrap().borrow_mut().done_preparing(t, s)
+    t.syscall_state_shr_ptr()
+        .borrow_mut()
+        .as_mut()
+        .unwrap()
+        .done_preparing(t, s)
 }
 
 /// DIFF NOTE: Does not take separate TaskSyscallState param
 /// as that can be gotten from t directly
-fn rec_prepare_syscall_internal(t: &mut RecordTask) -> Switchable {
+fn rec_prepare_syscall_internal(t: &RecordTask) -> Switchable {
     let arch: SupportedArch = t.ev().syscall_event().arch();
     let regs = t.regs_ref().clone();
     with_converted_registers(&regs, arch, |converted_regs| {
@@ -724,10 +729,7 @@ fn rec_prepare_syscall_internal(t: &mut RecordTask) -> Switchable {
 
 /// DIFF NOTE: Does not take separate TaskSyscallState param
 /// as that can be gotten from t directly
-fn rec_prepare_syscall_arch<Arch: Architecture>(
-    t: &mut RecordTask,
-    regs: &Registers,
-) -> Switchable {
+fn rec_prepare_syscall_arch<Arch: Architecture>(t: &RecordTask, regs: &Registers) -> Switchable {
     let sys = t.ev().syscall_event().number;
 
     if t.regs_ref().original_syscallno() == SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO {
@@ -735,8 +737,8 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         return Switchable::PreventSwitch;
     }
 
-    let syscall_state_shr = t.syscall_state_unwrap();
-    let mut syscall_state = syscall_state_shr.borrow_mut();
+    let syscall_state_shr = t.syscall_state.clone();
+    let mut syscall_state = RefMut::map(syscall_state_shr.borrow_mut(), |b| b.as_mut().unwrap());
     syscall_state.syscall_entry_registers = regs.clone();
 
     if !t.desched_rec().is_null() {
@@ -749,7 +751,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         // However there is one case where we use scratch memory: when
         // sys_read's block-cloning path is interrupted. In that case, record
         // the scratch memory.
-        if sys == Arch::READ && regs.arg2() == t.scratch_ptr.as_usize() {
+        if sys == Arch::READ && regs.arg2() == t.scratch_ptr.get().as_usize() {
             syscall_state.reg_parameter_with_size(
                 2,
                 ParamSize::from_syscall_result_with_size::<Arch::ssize_t>(regs.arg3()),
@@ -798,7 +800,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         // Save the event. We can't record it here because the exec might fail.
         let raw_filename = t.read_c_str(RemotePtr::from(regs.arg1()));
         syscall_state.exec_saved_event = Some(Box::new(TraceTaskEvent::for_exec(
-            t.tid,
+            t.tid(),
             &OsString::from_vec(raw_filename.into_bytes()),
             &cmd_line,
         )));
@@ -825,7 +827,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
     }
 
     if sys == Arch::EXIT_GROUP {
-        if t.thread_group().task_set().len() == 1 {
+        if t.thread_group().borrow().task_set().len() == 1 {
             prepare_exit(t, regs.arg1() as i32);
             return Switchable::AllowSwitch;
         }
@@ -852,7 +854,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
                     r.set_arg1_signed(-1);
                     t.set_regs(&r);
                     let val = t.regs_ref().arg2() as i32;
-                    t.cpuid_mode = if val != 0 { 1 } else { 0 };
+                    t.cpuid_mode.set(if val != 0 { 1 } else { 0 });
                     syscall_state.emulate_result(0);
                 }
             }
@@ -863,7 +865,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
                     let mut r: Registers = t.regs_ref().clone();
                     r.set_arg1_signed(-1);
                     t.set_regs(&r);
-                    syscall_state.emulate_result_signed(t.cpuid_mode as isize);
+                    syscall_state.emulate_result_signed(t.cpuid_mode.get() as isize);
                 }
             }
 
@@ -914,18 +916,22 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
                     r.set_arg1_signed(-1);
                     t.set_regs(&r);
                     syscall_state.emulate_result(0);
-                    t.thread_group_mut().dumpable = false;
+                    t.thread_group().borrow_mut().dumpable = false;
                 } else if regs.arg2() == 1 {
-                    t.thread_group_mut().dumpable = true;
+                    t.thread_group().borrow_mut().dumpable = true;
                 }
             }
 
             PR_GET_DUMPABLE => {
-                syscall_state.emulate_result(if t.thread_group().dumpable { 1 } else { 0 });
+                syscall_state.emulate_result(if t.thread_group().borrow().dumpable {
+                    1
+                } else {
+                    0
+                });
             }
 
             PR_GET_SECCOMP => {
-                syscall_state.emulate_result(t.prctl_seccomp_status as usize);
+                syscall_state.emulate_result(t.prctl_seccomp_status.get() as usize);
             }
 
             PR_GET_TSC => {
@@ -936,7 +942,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
                 syscall_state.emulate_result(0);
                 let child_addr =
                     syscall_state.reg_parameter::<i32>(2, Some(ArgMode::InOutNoScratch), None);
-                let tsc_mode = t.tsc_mode;
+                let tsc_mode = t.tsc_mode.get();
                 write_val_mem(t, child_addr, &tsc_mode, None);
             }
 
@@ -950,7 +956,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
                     syscall_state.emulate_result_signed(-EINVAL as isize);
                 } else {
                     syscall_state.emulate_result(0);
-                    t.tsc_mode = val;
+                    t.tsc_mode.set(val);
                 }
             }
 
@@ -1064,7 +1070,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
     if sys == Arch::MPROTECT {
         // Since we're stripping MAP_GROWSDOWN from kernel mmap calls, we need
         // to implement PROT_GROWSDOWN ourselves.
-        t.vm_shr_ptr().fixup_mprotect_growsdown_parameters(t);
+        t.vm().fixup_mprotect_growsdown_parameters(t);
         return Switchable::PreventSwitch;
     }
 
@@ -1100,7 +1106,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         let mut offset = LazyOffset::new(t, regs, sys);
         if offset
             .task()
-            .fd_table_shr_ptr()
+            .fd_table()
             .emulate_read(fd, &ranges, &mut offset, &mut result)
         {
             // Don't perform this syscall.
@@ -1153,7 +1159,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
     if sys == Arch::FCNTL || sys == Arch::FCNTL64 {
         let fd = regs.arg1() as i32;
         let mut result: usize = 0;
-        if t.fd_table_shr_ptr().emulate_fcntl(fd, t, &mut result) {
+        if t.fd_table().emulate_fcntl(fd, t, &mut result) {
             // Don't perform this syscall.
             let mut r: Registers = regs.clone();
             r.set_arg1_signed(-1);
@@ -1397,15 +1403,15 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         }
         let pid: pid_t = regs.arg1_signed() as pid_t;
         if pid < -1 {
-            t.in_wait_type = WaitType::WaitTypePgid;
-            t.in_wait_pid = -pid;
+            t.in_wait_type.set(WaitType::WaitTypePgid);
+            t.in_wait_pid.set(-pid);
         } else if pid == -1 {
-            t.in_wait_type = WaitType::WaitTypeAny;
+            t.in_wait_type.set(WaitType::WaitTypeAny);
         } else if pid == 0 {
-            t.in_wait_type = WaitType::WaitTypeSamePgid;
+            t.in_wait_type.set(WaitType::WaitTypeSamePgid);
         } else {
-            t.in_wait_type = WaitType::WaitTypePid;
-            t.in_wait_pid = pid;
+            t.in_wait_type.set(WaitType::WaitTypePid);
+            t.in_wait_pid.set(pid);
         }
         let options = regs.arg3() as i32;
         if maybe_emulate_wait(t, &mut syscall_state, options) {
@@ -1422,16 +1428,16 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
     if sys == Arch::WAITID {
         syscall_state.reg_parameter::<Arch::siginfo_t>(3, Some(ArgMode::InOut), None);
         // Kludge
-        t.in_wait_pid = regs.arg2() as id_t as pid_t;
+        t.in_wait_pid.set(regs.arg2() as id_t as pid_t);
         match regs.arg1() as idtype_t {
             P_ALL => {
-                t.in_wait_type = WaitType::WaitTypeAny;
+                t.in_wait_type.set(WaitType::WaitTypeAny);
             }
             P_PID => {
-                t.in_wait_type = WaitType::WaitTypePid;
+                t.in_wait_type.set(WaitType::WaitTypePid);
             }
             P_PGID => {
-                t.in_wait_type = WaitType::WaitTypePgid;
+                t.in_wait_type.set(WaitType::WaitTypePgid);
             }
             _ => {
                 syscall_state.expect_errno = EINVAL;
@@ -1562,15 +1568,13 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         if regs.arg1() as u32 == PRIO_PROCESS {
             let tid = regs.arg2_signed() as pid_t;
             let found_rc: TaskSharedPtr;
-            let mut found_b;
-            let maybe_target = if tid == t.rec_tid || tid == 0 {
+            let maybe_target = if tid == t.rec_tid() || tid == 0 {
                 Some(t)
             } else {
                 match t.session().find_task_from_rec_tid(tid) {
                     Some(found) => {
                         found_rc = found;
-                        found_b = found_rc.borrow_mut();
-                        Some(found_b.as_rec_mut_unwrap())
+                        Some(found_rc.as_rec_unwrap())
                     }
                     None => None,
                 }
@@ -1581,7 +1585,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
                     log!(
                         LogDebug,
                         "Setting nice value for tid {} to {}",
-                        target.tid,
+                        target.tid(),
                         regs.arg3()
                     );
                     target
@@ -1680,7 +1684,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
     if sys == SYS_rdcall_init_buffers as i32 {
         // This is purely for testing purposes. See signal_during_preload_init.
         if send_signal_during_init_buffers() {
-            unsafe { libc::syscall(SYS_tgkill, t.tgid(), t.tid, SIGCHLD) };
+            unsafe { libc::syscall(SYS_tgkill, t.tgid(), t.tid(), SIGCHLD) };
         }
         syscall_state.reg_parameter::<rdcall_init_buffers_params<Arch>>(
             1,
@@ -2224,7 +2228,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(
         let mut offset = LazyOffset::new(t, regs, sys);
         if offset
             .task()
-            .fd_table_shr_ptr()
+            .fd_table()
             .emulate_read(fd, &ranges, &mut offset, &mut result)
         {
             // Don't perform this syscall.
@@ -2342,7 +2346,7 @@ fn is_blacklisted_memfd(name: &CStr) -> bool {
 }
 
 fn maybe_blacklist_connect<Arch: Architecture>(
-    t: &mut RecordTask,
+    t: &RecordTask,
     addr_ptr: RemotePtr<Void>,
     addrlen: socklen_t,
 ) -> Switchable {
@@ -2378,26 +2382,20 @@ fn is_blacklisted_socket(filename_in: &[i8; 108]) -> Option<&str> {
     }
 }
 
-fn maybe_emulate_wait(
-    t: &mut RecordTask,
-    syscall_state: &mut TaskSyscallState,
-    options: i32,
-) -> bool {
-    for child in &t.emulated_ptrace_tracees {
-        let rt_childb = child.borrow();
-        let rt_child = rt_childb.as_rec_unwrap();
-        if t.is_waiting_for_ptrace(rt_child) && rt_child.emulated_stop_pending {
+fn maybe_emulate_wait(t: &RecordTask, syscall_state: &mut TaskSyscallState, options: i32) -> bool {
+    for child in t.emulated_ptrace_tracees.borrow().iter() {
+        let rt_child = child.as_rec_unwrap();
+        if t.is_waiting_for_ptrace(rt_child) && rt_child.emulated_stop_pending.get() {
             syscall_state.emulate_wait_for_child = Some(Rc::downgrade(&child));
             return true;
         }
     }
     if options & WUNTRACED != 0 {
-        for child_process in t.thread_group().children() {
+        for child_process in t.thread_group().borrow().children() {
             for child in child_process.borrow().task_set() {
-                let rchildb = child.borrow();
-                let rchild = rchildb.as_rec_unwrap();
-                if rchild.emulated_stop_type == EmulatedStopType::GroupStop
-                    && rchild.emulated_stop_pending
+                let rchild = child.as_rec_unwrap();
+                if rchild.emulated_stop_type.get() == EmulatedStopType::GroupStop
+                    && rchild.emulated_stop_pending.get()
                     && t.is_waiting_for(rchild)
                 {
                     syscall_state.emulate_wait_for_child = Some(Rc::downgrade(&child));
@@ -2411,7 +2409,7 @@ fn maybe_emulate_wait(
 }
 
 fn protect_rd_sigs_sa_mask(
-    t: &mut RecordTask,
+    t: &RecordTask,
     p: RemotePtr<Void>,
     maybe_save: Option<&mut [u8]>,
 ) -> bool {
@@ -2420,7 +2418,7 @@ fn protect_rd_sigs_sa_mask(
 }
 
 fn protect_rd_sigs_sa_mask_arch<Arch: Architecture>(
-    t: &mut RecordTask,
+    t: &RecordTask,
     p: RemotePtr<Void>,
     maybe_save: Option<&mut [u8]>,
 ) -> bool {
@@ -2455,7 +2453,7 @@ fn protect_rd_sigs_sa_mask_arch<Arch: Architecture>(
     true
 }
 
-fn protect_rd_sigs(t: &mut RecordTask, p: RemotePtr<Void>, maybe_save: Option<&mut [u8]>) -> bool {
+fn protect_rd_sigs(t: &RecordTask, p: RemotePtr<Void>, maybe_save: Option<&mut [u8]>) -> bool {
     let setp = RemotePtr::<sig_set_t>::cast(p);
     if setp.is_null() {
         return false;
@@ -2486,7 +2484,7 @@ fn protect_rd_sigs(t: &mut RecordTask, p: RemotePtr<Void>, maybe_save: Option<&m
     true
 }
 
-fn record_ranges(t: &mut RecordTask, ranges: &[file_monitor::Range], size: usize) {
+fn record_ranges(t: &RecordTask, ranges: &[file_monitor::Range], size: usize) {
     let mut s = size;
     for r in ranges {
         let bytes = min(s, r.length);
@@ -2497,7 +2495,7 @@ fn record_ranges(t: &mut RecordTask, ranges: &[file_monitor::Range], size: usize
     }
 }
 
-fn prepare_mmap_register_params(t: &mut RecordTask) {
+fn prepare_mmap_register_params(t: &RecordTask) {
     let mut r: Registers = t.regs_ref().clone();
     if t.session().as_record().unwrap().enable_chaos()
         && (r.arg4_signed() & (MAP_FIXED as isize | MAP_32BIT as isize) == 0)
@@ -2509,7 +2507,7 @@ fn prepare_mmap_register_params(t: &mut RecordTask) {
             // Ensure stacks can grow to the minimum size we choose
             len = max(AddressSpace::chaos_mode_min_stack_size(), len);
         }
-        let addr: RemotePtr<Void> = t.vm_shr_ptr().chaos_mode_find_free_memory(t, len);
+        let addr: RemotePtr<Void> = t.vm().chaos_mode_find_free_memory(t, len);
         if !addr.is_null() {
             r.set_arg1(addr.as_usize() + len - r.arg2());
             // Note that we don't set MapFlags::MAP_FIXED here. If anything goes wrong (e.g.
@@ -2526,13 +2524,13 @@ fn prepare_mmap_register_params(t: &mut RecordTask) {
 /// Call this when the tracee has already entered SYS_exit/SYS_exit_group. The
 /// tracee will be returned at a state in which it has entered (or
 /// re-entered) SYS_exit/SYS_exit_group.
-fn prepare_exit(t: &mut RecordTask, exit_code: i32) {
+fn prepare_exit(t: &RecordTask, exit_code: i32) {
     // RecordSession is responsible for ensuring we don't get here with
     // pending signals.
     ed_assert!(t, !t.has_any_stashed_sig());
 
-    t.stable_exit = true;
-    t.exit_code = exit_code;
+    t.stable_exit.set(true);
+    t.exit_code.set(exit_code);
     t.session()
         .as_record()
         .unwrap()
@@ -2598,30 +2596,24 @@ fn prepare_exit(t: &mut RecordTask, exit_code: i32) {
     t.enter_syscall();
     check_signals_while_exiting(t);
 
-    let emulated_ptracer = t.emulated_ptracer.as_ref().map(|w| w.upgrade().unwrap());
+    let emulated_ptracer = t.emulated_ptracer();
     match emulated_ptracer {
-        Some(tracer_rc) => {
-            if t.emulated_ptrace_options & PTRACE_O_TRACEEXIT != 0 {
+        Some(_tracer_rc) => {
+            if t.emulated_ptrace_options.get() & PTRACE_O_TRACEEXIT != 0 {
                 // Ensure that do_ptrace_exit_stop can run later.
-                t.emulated_ptrace_queued_exit_stop = true;
-                t.emulate_ptrace_stop(
-                    WaitStatus::for_ptrace_event(PTRACE_EVENT_EXIT),
-                    tracer_rc.borrow().as_rec_unwrap(),
-                    None,
-                    None,
-                    None,
-                );
+                t.emulated_ptrace_queued_exit_stop.set(true);
+                t.emulate_ptrace_stop(WaitStatus::for_ptrace_event(PTRACE_EVENT_EXIT), None, None);
             } else {
-                do_ptrace_exit_stop(t, Some(tracer_rc.borrow().as_rec_unwrap()));
+                do_ptrace_exit_stop(t);
             }
         }
         None => {
-            do_ptrace_exit_stop(t, None);
+            do_ptrace_exit_stop(t);
         }
     }
 }
 
-fn check_signals_while_exiting(t: &mut RecordTask) {
+fn check_signals_while_exiting(t: &RecordTask) {
     let maybe_s = t.peek_stashed_sig_to_deliver();
     match maybe_s {
         Some(s) => {
@@ -2642,38 +2634,32 @@ fn check_signals_while_exiting(t: &mut RecordTask) {
     }
 }
 
-/// DIFF NOTE: Takes the extra param `maybe_tracer` unlike rr.
-fn do_ptrace_exit_stop(t: &mut RecordTask, maybe_tracer: Option<&RecordTask>) {
+fn do_ptrace_exit_stop(t: &RecordTask) {
     // Notify ptracer of the exit if it's not going to receive it from the
     // kernel because it's not the parent. (The kernel has similar logic to
     // deliver two stops in this case.)
-    t.emulated_ptrace_queued_exit_stop = false;
+    t.emulated_ptrace_queued_exit_stop.set(false);
+    let maybe_tracer = t.emulated_ptracer();
     match maybe_tracer {
         Some(tracer) if t.is_clone_child() || t.get_parent_pid() != tracer.real_tgid() => {
             // This is a bit wrong; this is an exit stop, not a signal/ptrace stop.
-            t.emulate_ptrace_stop(
-                WaitStatus::for_exit_code(t.exit_code),
-                tracer,
-                None,
-                None,
-                None,
-            );
+            t.emulate_ptrace_stop(WaitStatus::for_exit_code(t.exit_code.get()), None, None);
         }
         _ => (),
     }
 }
 
-pub fn rec_prepare_restart_syscall(t: &mut RecordTask) {
+pub fn rec_prepare_restart_syscall(t: &RecordTask) {
     rec_prepare_restart_syscall_internal(t);
-    t.syscall_state = None;
+    *t.syscall_state.borrow_mut() = None;
 }
 
-pub fn rec_prepare_restart_syscall_internal(t: &mut RecordTask) {
+pub fn rec_prepare_restart_syscall_internal(t: &RecordTask) {
     let arch = t.arch();
     rd_arch_function_selfless!(rec_prepare_restart_syscall_arch, arch, t);
 }
 
-fn rec_prepare_restart_syscall_arch<Arch: Architecture>(t: &mut RecordTask) {
+fn rec_prepare_restart_syscall_arch<Arch: Architecture>(t: &RecordTask) {
     let sys: i32 = t.ev().syscall_event().number;
     if sys == Arch::NANOSLEEP || sys == Arch::CLOCK_NANOSLEEP || sys == Arch::CLOCK_NANOSLEEP_TIME64
     {
@@ -2688,8 +2674,10 @@ fn rec_prepare_restart_syscall_arch<Arch: Architecture>(t: &mut RecordTask) {
         // that, we do what the kernel does, and update the
         // outparam at the -ERESTART_RESTART interruption
         // regardless.
-        t.syscall_state_unwrap()
+        t.syscall_state_shr_ptr()
             .borrow_mut()
+            .as_mut()
+            .unwrap()
             .process_syscall_results(t);
     }
     if sys == Arch::PPOLL
@@ -2705,46 +2693,54 @@ fn rec_prepare_restart_syscall_arch<Arch: Architecture>(t: &mut RecordTask) {
     if sys == Arch::WAIT4 || sys == Arch::WAITID || sys == Arch::WAITPID {
         let mut r: Registers = t.regs_ref().clone();
         let original_syscallno = t
-            .syscall_state_unwrap()
+            .syscall_state
             .borrow()
+            .as_ref()
+            .unwrap()
             .syscall_entry_registers
             .original_syscallno();
         r.set_original_syscallno(original_syscallno);
         t.set_regs(&r);
         let arch = t.arch();
         t.canonicalize_regs(arch);
-        t.in_wait_type = WaitType::WaitTypeNone;
+        t.in_wait_type.set(WaitType::WaitTypeNone);
     }
 }
 
-pub fn rec_process_syscall(t: &mut RecordTask) {
-    let syscall_state_shr = t.syscall_state_unwrap();
-    let mut syscall_state = syscall_state_shr.borrow_mut();
-    let sys_ev_arch = t.ev().syscall_event().arch();
-    let sys_ev_number = t.ev().syscall_event().number;
-    if sys_ev_arch != t.arch() {
-        static DID_WARN: AtomicBool = AtomicBool::new(false);
-        if !DID_WARN.load(Ordering::SeqCst) {
-            log!(
-                LogWarn,
-                "Cross architecture syscall detected. Support is best effort"
-            );
-            DID_WARN.store(true, Ordering::SeqCst);
+pub fn rec_process_syscall(t: &RecordTask) {
+    let syscall_state_shr = t.syscall_state_shr_ptr();
+    {
+        let mut syscall_state =
+            RefMut::map(syscall_state_shr.borrow_mut(), |b| b.as_mut().unwrap());
+        let sys_ev_arch = t.ev().syscall_event().arch();
+        let sys_ev_number = t.ev().syscall_event().number;
+        if sys_ev_arch != t.arch() {
+            static DID_WARN: AtomicBool = AtomicBool::new(false);
+            if !DID_WARN.load(Ordering::SeqCst) {
+                log!(
+                    LogWarn,
+                    "Cross architecture syscall detected. Support is best effort"
+                );
+                DID_WARN.store(true, Ordering::SeqCst);
+            }
         }
+        rec_process_syscall_internal(t, sys_ev_arch, &mut syscall_state);
+        syscall_state.process_syscall_results(t);
+        let regs = t.regs_ref().clone();
+        t.on_syscall_exit(sys_ev_number, sys_ev_arch, &regs);
     }
-    rec_process_syscall_internal(t, sys_ev_arch, &mut syscall_state);
-    syscall_state.process_syscall_results(t);
-    let regs = t.regs_ref().clone();
-    t.on_syscall_exit(sys_ev_number, sys_ev_arch, &regs);
-    t.syscall_state = None;
+    *t.syscall_state.borrow_mut() = None;
 
     MonitoredSharedMemory::check_all(t);
 }
 
 /// N.B.: `arch` is the the architecture of the syscall, which may be different
 ///         from the architecture of the call (e.g. x86_64 may invoke x86 syscalls)
+///
+/// @TODO Passing syscall_state around like this is fine but one needs to keep in
+/// mind the borrow_mut-s on TaskSyscallState. More robust approach??
 pub fn rec_process_syscall_internal(
-    t: &mut RecordTask,
+    t: &RecordTask,
     arch: SupportedArch,
     syscall_state: &mut TaskSyscallState,
 ) {
@@ -2752,7 +2748,7 @@ pub fn rec_process_syscall_internal(
 }
 
 pub fn rec_process_syscall_arch<Arch: Architecture>(
-    t: &mut RecordTask,
+    t: &RecordTask,
     syscall_state: &mut TaskSyscallState,
 ) {
     let sys: i32 = t.ev().syscall_event().number;
@@ -2765,7 +2761,7 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
     log!(
         LogDebug,
         "{}: processing: {} -- time: {}",
-        t.tid,
+        t.tid(),
         t.ev(),
         t.trace_time()
     );
@@ -2774,7 +2770,7 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
     if !rec.is_null() {
         // If the syscallbuf has already been unmapped, there's no need to record
         // the entry.
-        if !t.syscallbuf_child.is_null() {
+        if !t.syscallbuf_child.get().is_null() {
             let num_bytes = read_val_mem(
                 t,
                 RemotePtr::<u32>::cast(rec.as_rptr_u8() + offset_of!(syscallbuf_record, size)),
@@ -2837,18 +2833,16 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
             .scheduler()
             .did_exit_execve(t);
         process_execve(t, syscall_state);
-        let emulated_ptracer = t.emulated_ptracer.as_ref().map(|w| w.upgrade().unwrap());
+        let emulated_ptracer = t.emulated_ptracer();
         match emulated_ptracer {
-            Some(tracer_rc) => {
-                if t.emulated_ptrace_options & PTRACE_O_TRACEEXEC != 0 {
+            Some(_tracer_rc) => {
+                if t.emulated_ptrace_options.get() & PTRACE_O_TRACEEXEC != 0 {
                     t.emulate_ptrace_stop(
                         WaitStatus::for_ptrace_event(PTRACE_EVENT_EXEC),
-                        tracer_rc.borrow().as_rec_unwrap(),
-                        None,
                         None,
                         None,
                     );
-                } else if !t.emulated_ptrace_seized {
+                } else if !t.emulated_ptrace_seized.get() {
                     // Inject legacy SIGTRAP-after-exec
                     t.tgkill(sig::SIGTRAP);
                 }
@@ -2859,12 +2853,10 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
     }
 
     if sys == Arch::MREMAP {
-        process_mremap(
-            t,
-            t.regs_ref().arg1().into(),
-            t.regs_ref().arg2(),
-            t.regs_ref().arg3(),
-        );
+        let arg1 = t.regs_ref().arg1();
+        let arg2 = t.regs_ref().arg2();
+        let arg3 = t.regs_ref().arg3();
+        process_mremap(t, arg1.into(), arg2, arg3);
         return;
     }
 
@@ -2877,18 +2869,16 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
     }
 
     if sys == Arch::IPC {
-        match t.regs_ref().arg1() as u32 {
+        let arg1 = t.regs_ref().arg1();
+        match arg1 as u32 {
             SHMAT => {
                 // DIFF NOTE: Arch::unsigned_long in rr
                 let child_addr = RemotePtr::<Arch::unsigned_word>::from(t.regs_ref().arg4());
                 let out_ptr = read_val_mem(t, child_addr, None);
                 let out_rptr = RemotePtr::<Void>::new(out_ptr.try_into().unwrap());
-                process_shmat(
-                    t,
-                    t.regs_ref().arg2_signed() as i32,
-                    t.regs_ref().arg3_signed() as i32,
-                    out_rptr,
-                );
+                let arg2_signed = t.regs_ref().arg2_signed();
+                let arg3_signed = t.regs_ref().arg3_signed();
+                process_shmat(t, arg2_signed as i32, arg3_signed as i32, out_rptr);
             }
             _ => (),
         }
@@ -2915,20 +2905,16 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
             let child_addr = RemotePtr::<perf_event_attr>::from(t.regs_ref().arg1());
             let attr = read_val_mem(t, child_addr, None);
             let tid = t.regs_ref().arg2_signed() as pid_t;
-            let monitor = if t.tid != tid {
+            let monitor = if t.tid() != tid {
                 Box::new(VirtualPerfCounterMonitor::new(
                     t,
-                    t.session()
-                        .find_task_from_rec_tid(tid)
-                        .unwrap()
-                        .borrow()
-                        .as_ref(),
+                    &**t.session().find_task_from_rec_tid(tid).unwrap(),
                     &attr,
                 ))
             } else {
                 Box::new(VirtualPerfCounterMonitor::new(t, t, &attr))
             };
-            t.fd_table_shr_ptr().add_monitor(t, fd, monitor);
+            t.fd_table().add_monitor(t, fd, monitor);
         }
         return;
     }
@@ -2975,7 +2961,7 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
 
     if sys == Arch::SCHED_GETAFFINITY {
         let pid = t.regs_ref().arg1() as pid_t;
-        if !t.regs_ref().syscall_failed() && (pid == 0 || pid == t.rec_tid) {
+        if !t.regs_ref().syscall_failed() && (pid == 0 || pid == t.rec_tid()) {
             if t.regs_ref().syscall_result() > size_of::<cpu_set_t>() {
                 log!(
                     LogWarn,
@@ -3019,7 +3005,8 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
         t.set_regs(&r);
 
         if !t.regs_ref().syscall_failed() {
-            match t.regs_ref().arg1() as u32 {
+            let arg1 = t.regs_ref().arg1();
+            match arg1 as u32 {
                 SYS_RECVMSG => {
                     let child_addr = RemotePtr::<recvmsg_args<Arch>>::from(t.regs_ref().arg2());
                     let args = read_val_mem(t, child_addr, None);
@@ -3042,50 +3029,47 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
     }
 
     if sys == Arch::PROCESS_VM_READV {
-        record_iovec_output::<Arch>(
-            t,
-            None,
-            RemotePtr::<iovec<Arch>>::from(t.regs_ref().arg2()),
-            t.regs_ref().arg3() as u32,
-        );
+        let arg2 = t.regs_ref().arg2();
+        let arg3 = t.regs_ref().arg3();
+        record_iovec_output::<Arch>(t, None, RemotePtr::<iovec<Arch>>::from(arg2), arg3 as u32);
         return;
     }
 
     if sys == Arch::PROCESS_VM_WRITEV {
         let tid = t.regs_ref().arg1() as i32;
         let task_rc: TaskSharedPtr;
-        let mut taskb;
         let dest_task;
-        let maybe_dest = if tid == t.tid {
+        let maybe_dest = if tid == t.tid() {
             None
         } else {
             match t.session().find_task_from_rec_tid(tid) {
                 None => return,
                 Some(rc) => {
                     task_rc = rc;
-                    taskb = task_rc.borrow_mut();
-                    dest_task = taskb.as_rec_mut_unwrap();
+                    dest_task = task_rc.as_rec_unwrap();
                     Some(dest_task)
                 }
             }
         };
+        let arg4 = t.regs_ref().arg4();
+        let arg5 = t.regs_ref().arg5();
         record_iovec_output::<Arch>(
             t,
             maybe_dest,
-            RemotePtr::<iovec<Arch>>::from(t.regs_ref().arg4()),
-            t.regs_ref().arg5() as u32,
+            RemotePtr::<iovec<Arch>>::from(arg4),
+            arg5 as u32,
         );
         return;
     }
 
     if sys == Arch::GETDENTS || sys == Arch::GETDENTS64 {
         let fd = t.regs_ref().arg1() as i32;
-        t.fd_table_shr_ptr().filter_getdents(fd, t);
+        t.fd_table().filter_getdents(fd, t);
         return;
     }
 
     if sys == Arch::WAITPID || sys == Arch::WAIT4 || sys == Arch::WAITID {
-        t.in_wait_type = WaitType::WaitTypeNone;
+        t.in_wait_type.set(WaitType::WaitTypeNone);
         // Restore possibly-modified registers
         let mut r: Registers = t.regs_ref().clone();
         r.set_arg1(syscall_state.syscall_entry_registers.arg1());
@@ -3099,11 +3083,10 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
         match maybe_tracee {
             Some(tracee_weak) => {
                 let tracee_rc = tracee_weak.upgrade().unwrap();
-                let mut traceeb = tracee_rc.borrow_mut();
-                let tracee = traceeb.as_rec_mut_unwrap();
+                let tracee = tracee_rc.as_rec_unwrap();
                 // Finish emulation of ptrace result or stop-signal
                 let mut r: Registers = t.regs_ref().clone();
-                r.set_syscall_result(tracee.tid as usize);
+                r.set_syscall_result(tracee.tid() as usize);
                 t.set_regs(&r);
                 if sys == Arch::WAITID {
                     let sip: RemotePtr<siginfo_t<Arch>> = r.arg3().into();
@@ -3117,13 +3100,13 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
                 } else {
                     let statusp: RemotePtr<i32> = r.arg2().into();
                     if !statusp.is_null() {
-                        write_val_mem(t, statusp, &tracee.emulated_stop_code.get(), None);
+                        write_val_mem(t, statusp, &tracee.emulated_stop_code.get().get(), None);
                     }
                 }
                 if sys == Arch::WAITID && (r.arg4() & WNOWAIT as usize != 0) {
                     // Leave the child in a waitable state
                 } else {
-                    if tracee.emulated_stop_code.exit_code().is_some() {
+                    if tracee.emulated_stop_code.get().exit_code().is_some() {
                         // If we stopped the tracee to deliver this notification,
                         // now allow it to continue to exit properly and notify its
                         // real parent.
@@ -3132,7 +3115,7 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
                             tracee.ev().is_syscall_event()
                                 && SyscallState::ProcessingSyscall
                                     == tracee.ev().syscall_event().state
-                                && tracee.stable_exit
+                                && tracee.stable_exit.get()
                         );
                         // Continue the task since we didn't in enter_syscall
                         tracee.resume_execution(
@@ -3146,21 +3129,20 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
                     // @TODO Check this code again
                     if tracee
                         .emulated_ptracer
+                        .borrow()
                         .as_ref()
                         .map_or(false, |w| w.ptr_eq(&t.weak_self))
                     {
-                        tracee.emulated_stop_pending = false;
+                        tracee.emulated_stop_pending.set(false);
                     } else {
-                        tracee.emulated_stop_pending = false;
+                        tracee.emulated_stop_pending.set(false);
                         for thread in tracee
                             .thread_group()
+                            .borrow()
                             .task_set()
                             .iter_except(tracee.weak_self_ptr())
                         {
-                            thread
-                                .borrow_mut()
-                                .as_rec_mut_unwrap()
-                                .emulated_stop_pending = false;
+                            thread.as_rec_unwrap().emulated_stop_pending.set(false);
                         }
                     }
                 }
@@ -3219,7 +3201,7 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
 
     if sys == SYS_rdcall_notify_syscall_hook_exit as i32 {
         let child_addr = remote_ptr_field!(
-            t.syscallbuf_child,
+            t.syscallbuf_child.get(),
             syscallbuf_hdr,
             notify_on_syscall_hook_exit
         );
@@ -3319,7 +3301,7 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
             .write_mapped_region(t, &km, &km.fake_stat(), &[], None, None);
         ed_assert_eq!(t, d, RecordInTrace::DontRecordInTrace);
         let addr = t.regs_ref().syscall_result().into();
-        t.vm_shr_ptr().brk(t, addr, km.prot());
+        t.vm().brk(t, addr, km.prot());
         return;
     }
 
@@ -3414,7 +3396,7 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
     }
 }
 
-fn fake_gcrypt_file(t: &mut RecordTask, r: &mut Registers) {
+fn fake_gcrypt_file(t: &RecordTask, r: &mut Registers) {
     // We hijacked this call to deal with /etc/gcrypt/hwf.deny.
     let file = create_temporary_file(b"rd-gcrypt-hwf-deny-XXXXXX");
 
@@ -3482,7 +3464,7 @@ fn is_gcrypt_deny_file(f: &OsStr) -> bool {
     f.as_bytes() == b"/etc/gcrypt/hwf.deny"
 }
 
-fn handle_opened_file(t: &mut RecordTask, fd: i32, flags: i32) -> OsString {
+fn handle_opened_file(t: &RecordTask, fd: i32, flags: i32) -> OsString {
     let mut pathname = t.file_name_of_fd(fd);
     let st = t.stat_fd(fd);
 
@@ -3536,7 +3518,7 @@ fn handle_opened_file(t: &mut RecordTask, fd: i32, flags: i32) -> OsString {
         Some(mon) => {
             // Write absolute file name
             {
-                let syscall = t.ev_mut().syscall_event_mut();
+                let mut syscall = RefMut::map(t.ev_mut(), |r| r.syscall_event_mut());
                 syscall.opened.push(OpenedFd {
                     path: pathname.clone(),
                     fd,
@@ -3544,7 +3526,7 @@ fn handle_opened_file(t: &mut RecordTask, fd: i32, flags: i32) -> OsString {
                     inode: st.st_ino,
                 });
             }
-            t.fd_table_shr_ptr().add_monitor(t, fd, mon);
+            t.fd_table().add_monitor(t, fd, mon);
         }
         None => (),
     }
@@ -3608,7 +3590,7 @@ fn is_mapped_shared(t: &dyn Task, st: &libc::stat) -> bool {
 }
 
 fn process_mmap(
-    t: &mut RecordTask,
+    t: &RecordTask,
     length: usize,
     prot_raw: i32,
     flags_raw: i32,
@@ -3632,7 +3614,7 @@ fn process_mmap(
             // Anonymous mappings are by definition not backed by any file-like
             // object, and are initialized to zero, so there's no nondeterminism to
             // record.
-            km = t.vm_shr_ptr().map(
+            km = t.vm().map(
                 t,
                 addr,
                 size,
@@ -3694,7 +3676,7 @@ fn process_mmap(
         effectively_anonymous = true;
     }
 
-    let km = t.vm_shr_ptr().map(
+    let km = t.vm().map(
         t,
         addr,
         size,
@@ -3766,17 +3748,15 @@ fn process_mmap(
         // in the tracee, recording memory records. Those should be recorded now, after the
         // memory region data itself. Needs to be consistent with replay_syscall.
         if monitor_this_fd {
-            extra_fds.push(TraceRemoteFd { tid: t.tid, fd });
+            extra_fds.push(TraceRemoteFd { tid: t.tid(), fd });
         }
         for f in &extra_fds {
             let rc_t;
-            let mut tb;
-            let tt: &mut dyn Task = if f.tid == t.tid {
+            let tt: &dyn Task = if f.tid == t.tid() {
                 t
             } else {
                 rc_t = t.session().find_task_from_rec_tid(f.tid).unwrap();
-                tb = rc_t.borrow_mut();
-                tb.as_mut()
+                &**rc_t
             };
 
             if tt.fd_table().is_monitoring(f.fd) {
@@ -3793,7 +3773,7 @@ fn process_mmap(
                     .revive();
             } else {
                 let mon = Box::new(MmappedFileMonitor::new(tt, f.fd));
-                tt.fd_table_shr_ptr().add_monitor(tt, f.fd, mon);
+                tt.fd_table().add_monitor(tt, f.fd, mon);
             }
         }
 
@@ -3824,7 +3804,7 @@ fn process_mmap(
 }
 
 fn monitor_fd_for_mapping(
-    mapped_t: &mut dyn Task,
+    mapped_t: &dyn Task,
     mapped_fd: i32,
     file: &libc::stat,
     extra_fds: &mut Vec<TraceRemoteFd>,
@@ -3832,15 +3812,13 @@ fn monitor_fd_for_mapping(
     let mut tables: WeakPtrSet<FdTable> = WeakPtrSet::new();
     let mut found_our_mapping = false;
     let mut our_mapping_writable = false;
-    let mapped_table = Rc::downgrade(&mapped_t.fd_table_shr_ptr());
+    let mapped_table = Rc::downgrade(&mapped_t.fd_table());
     let mapped_t_weak = mapped_t.weak_self_ptr();
     for (_, ts) in mapped_t.session().tasks().iter() {
-        let tb;
         let t: &dyn Task = if mapped_t_weak.ptr_eq(&Rc::downgrade(ts)) {
             mapped_t
         } else {
-            tb = ts.borrow();
-            tb.as_ref()
+            &***ts
         };
         if t.unstable.get() {
             // This task isn't a problem because it's exiting and won't write to its
@@ -3849,12 +3827,12 @@ fn monitor_fd_for_mapping(
             // probably fail.
             continue;
         }
-        let table = Rc::downgrade(&t.fd_table_shr_ptr());
+        let table = Rc::downgrade(&t.fd_table());
         if !tables.insert(table.clone()) {
             continue;
         }
 
-        let dir_path = format!("/proc/{}/fd", t.tid);
+        let dir_path = format!("/proc/{}/fd", t.tid());
 
         let dir = match read_dir(&dir_path) {
             Ok(dir) => dir,
@@ -3893,7 +3871,7 @@ fn monitor_fd_for_mapping(
                 // Ignore non-writable fds since they can't modify memory
                 continue;
             }
-            extra_fds.push(TraceRemoteFd { tid: t.tid, fd });
+            extra_fds.push(TraceRemoteFd { tid: t.tid(), fd });
         }
     }
     ed_assert!(mapped_t, found_our_mapping, "Can't find fd for mapped file");
@@ -3906,14 +3884,13 @@ enum ScratchAddrType {
     DynamicAddress,
 }
 
-fn process_execve(t: &mut RecordTask, syscall_state: &mut TaskSyscallState) {
+fn process_execve(t: &RecordTask, syscall_state: &mut TaskSyscallState) {
     if t.regs_ref().syscall_failed() {
         return;
     }
 
     t.post_exec_syscall();
-    t.ev_mut().syscall_event_mut().exec_fds_to_close =
-        t.fd_table_shr_ptr().fds_to_close_after_exec(t);
+    t.ev_mut().syscall_event_mut().exec_fds_to_close = t.fd_table().fds_to_close_after_exec(t);
 
     check_privileged_exe(t);
 
@@ -4014,7 +3991,7 @@ fn process_execve(t: &mut RecordTask, syscall_state: &mut TaskSyscallState) {
                 rd_infallible_syscall!(remote, munmap_no, vvar.start().as_usize(), vvar.size());
                 remote
                     .task()
-                    .vm_shr_ptr()
+                    .vm()
                     .unmap(remote.task(), vvar.start(), vvar.size());
             }
             None => (),
@@ -4034,9 +4011,9 @@ fn process_execve(t: &mut RecordTask, syscall_state: &mut TaskSyscallState) {
                     None,
                 );
             ed_assert_eq!(remote.task(), mode, RecordInTrace::RecordInTrace);
-            let buf = read_mem(remote.task_mut(), km.start(), km.size(), None);
+            let buf = read_mem(remote.task(), km.start(), km.size(), None);
             remote.task().as_rec_unwrap().trace_writer_mut().write_raw(
-                remote.task().rec_tid,
+                remote.task().rec_tid(),
                 &buf,
                 km.start(),
             );
@@ -4063,7 +4040,7 @@ fn process_execve(t: &mut RecordTask, syscall_state: &mut TaskSyscallState) {
                 );
             }
             remote.infallible_mmap_syscall(Some(km.start()), km.size(), km.prot(), flags, -1, 0);
-            write_mem(remote.task_mut(), km.start(), &buf, None);
+            write_mem(remote.task(), km.start(), &buf, None);
         }
     }
 
@@ -4072,7 +4049,7 @@ fn process_execve(t: &mut RecordTask, syscall_state: &mut TaskSyscallState) {
     // the trace.
     let mut pages_to_record: Vec<RemotePtr<Void>> = Vec::new();
 
-    for (_, m) in &t.vm_shr_ptr().maps() {
+    for (_, m) in &t.vm().maps() {
         let km = m.map.clone();
         if km.start() == AddressSpace::rd_page_start()
             || km.start() == AddressSpace::preload_thread_locals_start()
@@ -4129,7 +4106,7 @@ fn process_execve(t: &mut RecordTask, syscall_state: &mut TaskSyscallState) {
 
     // Patch LD_PRELOAD and VDSO after saving the mappings. Replay will apply
     // patches to the saved mappings.
-    t.vm_shr_ptr()
+    t.vm()
         .monkeypatcher()
         .unwrap()
         .borrow_mut()
@@ -4142,7 +4119,7 @@ fn process_execve(t: &mut RecordTask, syscall_state: &mut TaskSyscallState) {
 /// here.
 const FIXED_SCRATCH_PTR: usize = 0x68000000;
 
-fn init_scratch_memory(t: &mut RecordTask, maybe_addr_type: Option<ScratchAddrType>) {
+fn init_scratch_memory(t: &RecordTask, maybe_addr_type: Option<ScratchAddrType>) {
     let addr_type = maybe_addr_type.unwrap_or(ScratchAddrType::DynamicAddress);
     let scratch_size = 512 * page_size();
     // The PROT_EXEC looks scary, and it is, but it's to prevent
@@ -4156,10 +4133,10 @@ fn init_scratch_memory(t: &mut RecordTask, maybe_addr_type: Option<ScratchAddrTy
         let mut remote = AutoRemoteSyscalls::new(t);
 
         if addr_type == ScratchAddrType::DynamicAddress {
-            remote.task_mut().scratch_ptr =
-                remote.infallible_mmap_syscall(None, scratch_size, prot, flags, -1, 0);
+            let res = remote.infallible_mmap_syscall(None, scratch_size, prot, flags, -1, 0);
+            remote.task().scratch_ptr.set(res);
         } else {
-            remote.task_mut().scratch_ptr = remote.infallible_mmap_syscall(
+            let res = remote.infallible_mmap_syscall(
                 Some(RemotePtr::from(FIXED_SCRATCH_PTR)),
                 scratch_size,
                 prot,
@@ -4167,21 +4144,22 @@ fn init_scratch_memory(t: &mut RecordTask, maybe_addr_type: Option<ScratchAddrTy
                 -1,
                 0,
             );
+            remote.task().scratch_ptr.set(res);
         }
-        remote.task_mut().scratch_size = scratch_size;
+        remote.task().scratch_size.set(scratch_size);
     }
 
     t.setup_preload_thread_locals();
 
     // record this mmap for the replay
-    let mut r: Registers = t.regs_ref().clone();
+    let mut r: Registers = t.regs();
     let saved_result = r.syscall_result();
-    r.set_syscall_result(t.scratch_ptr.as_usize());
+    r.set_syscall_result(t.scratch_ptr.get().as_usize());
     t.set_regs(&r);
 
-    let km = t.vm_shr_ptr().map(
+    let km = t.vm().map(
         t,
-        t.scratch_ptr,
+        t.scratch_ptr.get(),
         scratch_size,
         prot,
         flags,
@@ -4206,7 +4184,7 @@ fn init_scratch_memory(t: &mut RecordTask, maybe_addr_type: Option<ScratchAddrTy
     t.set_regs(&r);
 }
 
-fn check_privileged_exe(t: &mut RecordTask) {
+fn check_privileged_exe(t: &RecordTask) {
     // Check if the executable we just execed has setuid bits or file capabilities
     // If so (and rd doesn't have CAP_SYS_ADMIN, which would have let us avoid,
     // no_new privs), they may have been ignored, due to our no_new_privs setting
@@ -4224,13 +4202,13 @@ fn check_privileged_exe(t: &mut RecordTask) {
         // namespace - as a result we must have at least as much privilege).
         // Nevertheless, we still need to stop the hpc counters, since
         // the executable may be privileged with respect to its namespace.
-        t.hpc.stop();
+        t.hpc.borrow_mut().stop();
     } else if is_privileged_executable(t, t.vm().exe_image()) {
         if has_effective_caps(1 << CAP_SYS_ADMIN) {
             // perf_events may have decided to stop counting for security reasons.
             // To be safe, close all perf counters now, to force re-opening the
             // perf file descriptors the next time we resume the task.
-            t.hpc.stop();
+            t.hpc.borrow_mut().stop();
         } else {
             // Only issue the warning once. If it's a problem, the user will likely
             // find out soon enough. If not, no need to keep bothering them.
@@ -4247,7 +4225,7 @@ fn check_privileged_exe(t: &mut RecordTask) {
     }
 }
 
-fn get_exe_entry(t: &mut RecordTask) -> RemotePtr<Void> {
+fn get_exe_entry(t: &RecordTask) -> RemotePtr<Void> {
     let v = read_auxv(t);
     let mut i: usize = 0;
     let wsize: usize = word_size(t.arch());
@@ -4266,8 +4244,8 @@ fn get_exe_entry(t: &mut RecordTask) -> RemotePtr<Void> {
     RemotePtr::null()
 }
 
-type AfterSyscallAction = Box<dyn Fn(&mut RecordTask) -> ()>;
-type ArgMutator = Box<dyn Fn(&mut RecordTask, RemotePtr<Void>, Option<&mut [u8]>) -> bool>;
+type AfterSyscallAction = Box<dyn Fn(&RecordTask) -> ()>;
+type ArgMutator = Box<dyn Fn(&RecordTask, RemotePtr<Void>, Option<&mut [u8]>) -> bool>;
 
 /// When tasks enter syscalls that may block and so must be
 /// prepared for a context-switch, and the syscall params
@@ -4392,7 +4370,7 @@ impl TaskSyscallState {
             return;
         }
 
-        self.scratch = t.scratch_ptr;
+        self.scratch = t.scratch_ptr.get();
     }
 
     /// Identify a syscall memory parameter whose address is in register 'arg'
@@ -4466,7 +4444,7 @@ impl TaskSyscallState {
     /// DIFF NOTE: Takes `t` as param
     fn mem_ptr_parameter<T>(
         &mut self,
-        t: &mut RecordTask,
+        t: &RecordTask,
         addr_of_buf_ptr: RemotePtr<Void>,
         maybe_mode: Option<ArgMode>,
         maybe_mutator: Option<ArgMutator>,
@@ -4491,7 +4469,7 @@ impl TaskSyscallState {
     /// DIFF NOTE: Takes `t` as param
     fn mem_ptr_parameter_inferred<Arch: Architecture, T>(
         &mut self,
-        t: &mut RecordTask,
+        t: &RecordTask,
         addr_of_buf_ptr: RemotePtr<Ptr<Arch::unsigned_word, T>>,
         maybe_mode: Option<ArgMode>,
         maybe_mutator: Option<ArgMutator>,
@@ -4516,7 +4494,7 @@ impl TaskSyscallState {
     /// DIFF NOTE: Takes `t` as param
     fn mem_ptr_parameter_with_size(
         &mut self,
-        t: &mut RecordTask,
+        t: &RecordTask,
         addr_of_buf_ptr: RemotePtr<Void>,
         param_size: ParamSize,
         maybe_mode: Option<ArgMode>,
@@ -4599,12 +4577,7 @@ impl TaskSyscallState {
     /// computes the actual size to use for parameter param_index.
     ///
     /// DIFF NOTE: Takes t as param
-    fn eval_param_size(
-        &self,
-        t: &mut RecordTask,
-        i: usize,
-        actual_sizes: &mut Vec<usize>,
-    ) -> usize {
+    fn eval_param_size(&self, t: &RecordTask, i: usize, actual_sizes: &mut Vec<usize>) -> usize {
         assert_eq!(actual_sizes.len(), i);
         assert!(self.weak_task.ptr_eq(&t.weak_self));
 
@@ -4632,7 +4605,7 @@ impl TaskSyscallState {
     /// otherwise returns 'sw'.
     ///
     /// DIFF NOTE: Takes t as param
-    fn done_preparing(&mut self, t: &mut RecordTask, mut sw: Switchable) -> Switchable {
+    fn done_preparing(&mut self, t: &RecordTask, mut sw: Switchable) -> Switchable {
         assert!(self.weak_task.ptr_eq(&t.weak_self));
 
         if self.preparation_done {
@@ -4679,24 +4652,26 @@ impl TaskSyscallState {
     }
 
     /// DIFF NOTE: Takes t as param
-    fn done_preparing_internal(&mut self, t: &mut RecordTask, sw: Switchable) -> Switchable {
+    fn done_preparing_internal(&mut self, t: &RecordTask, sw: Switchable) -> Switchable {
         ed_assert!(t, !self.preparation_done);
 
         self.preparation_done = true;
         self.write_back = WriteBack::WriteBack;
         self.switchable = sw;
 
-        if t.scratch_ptr.is_null() {
+        if t.scratch_ptr.get().is_null() {
             return self.switchable;
         }
 
-        ed_assert!(t, self.scratch >= t.scratch_ptr);
+        ed_assert!(t, self.scratch >= t.scratch_ptr.get());
 
-        if sw == Switchable::AllowSwitch && self.scratch > t.scratch_ptr + t.usable_scratch_size() {
+        if sw == Switchable::AllowSwitch
+            && self.scratch > t.scratch_ptr.get() + t.usable_scratch_size()
+        {
             log!(LogWarn,
          "`{}' needed a scratch buffer of size {}, but only {} was available.  Disabling context switching: deadlock may follow.",
              t.ev().syscall_event().syscall_name(),
-        self.scratch.as_usize() - t.scratch_ptr.as_usize(),
+        self.scratch.as_usize() - t.scratch_ptr.get().as_usize(),
         t.usable_scratch_size());
 
             self.switchable = Switchable::PreventSwitch;
@@ -4755,7 +4730,7 @@ impl TaskSyscallState {
     /// original destinations, update registers, etc.
     ///
     /// DIFF NOTE: Takes t as param
-    fn process_syscall_results(&mut self, t: &mut RecordTask) {
+    fn process_syscall_results(&mut self, t: &RecordTask) {
         assert!(self.weak_task.ptr_eq(&t.weak_self));
         ed_assert!(t, self.preparation_done);
 
@@ -4765,8 +4740,8 @@ impl TaskSyscallState {
         // EFAULT.
         let mut actual_sizes: Vec<usize> = Vec::new();
         if self.scratch_enabled {
-            let scratch_num_bytes: usize = self.scratch - t.scratch_ptr;
-            let child_addr = RemotePtr::<u8>::cast(t.scratch_ptr);
+            let scratch_num_bytes: usize = self.scratch - t.scratch_ptr.get();
+            let child_addr = RemotePtr::<u8>::cast(t.scratch_ptr.get());
             let data = read_mem(t, child_addr, scratch_num_bytes, None);
             let mut r: Registers = t.regs_ref().clone();
             // Step 1: compute actual sizes of all buffers and copy outputs
@@ -4776,7 +4751,7 @@ impl TaskSyscallState {
                 if self.write_back == WriteBack::WriteBack
                     && (param.mode == ArgMode::InOut || param.mode == ArgMode::Out)
                 {
-                    let offset = param.scratch.as_usize() - t.scratch_ptr.as_usize();
+                    let offset = param.scratch.as_usize() - t.scratch_ptr.get().as_usize();
                     let d = &data[offset..offset + size];
                     write_mem(t, param.dest, d, None);
                 }
@@ -4807,7 +4782,7 @@ impl TaskSyscallState {
                         if memory_cleaned_up {
                             t.record_remote(param.dest, size);
                         } else {
-                            let offset = param.scratch.as_usize() - t.scratch_ptr.as_usize();
+                            let offset = param.scratch.as_usize() - t.scratch_ptr.get().as_usize();
                             let d = &data[offset..offset + size];
                             t.record_local(param.dest, d);
                         }
@@ -4849,7 +4824,7 @@ impl TaskSyscallState {
     /// made.
     ///
     /// DIFF NOTE: Takes t as param
-    pub fn abort_syscall_results(&mut self, t: &mut RecordTask) {
+    pub fn abort_syscall_results(&mut self, t: &RecordTask) {
         assert!(self.weak_task.ptr_eq(&t.weak_self));
         ed_assert!(t, self.preparation_done);
 
@@ -4946,7 +4921,7 @@ impl ParamSize {
     /// p points to a tracee location that is already initialized with a
     /// "maximum buffer size" passed in by the tracee, and which will be filled
     /// in with the size of the data by the kernel when the syscall exits.
-    fn from_initialized_mem<T>(t: &mut dyn Task, p: RemotePtr<T>) -> ParamSize {
+    fn from_initialized_mem<T>(t: &dyn Task, p: RemotePtr<T>) -> ParamSize {
         let mut r = ParamSize::from(if p.is_null() {
             0
         } else {
@@ -5003,7 +4978,7 @@ impl ParamSize {
         r
     }
 
-    fn eval(&self, t: &mut dyn Task, already_consumed: usize) -> usize {
+    fn eval(&self, t: &dyn Task, already_consumed: usize) -> usize {
         let mut s: usize = self.incoming_size;
         if !self.mem_ptr.is_null() {
             let mem_size: usize;
@@ -5084,7 +5059,7 @@ impl Default for ArgMode {
 }
 
 fn set_remote_ptr_arch<Arch: Architecture>(
-    t: &mut dyn Task,
+    t: &dyn Task,
     addr: RemotePtr<Void>,
     value: RemotePtr<Void>,
 ) {
@@ -5097,21 +5072,18 @@ fn set_remote_ptr_arch<Arch: Architecture>(
     );
 }
 
-fn set_remote_ptr(t: &mut dyn Task, addr: RemotePtr<Void>, value: RemotePtr<Void>) {
+fn set_remote_ptr(t: &dyn Task, addr: RemotePtr<Void>, value: RemotePtr<Void>) {
     let arch = t.arch();
     rd_arch_function_selfless!(set_remote_ptr_arch, arch, t, addr, value);
 }
 
-fn get_remote_ptr_arch<Arch: Architecture>(
-    t: &mut dyn Task,
-    addr: RemotePtr<Void>,
-) -> RemotePtr<Void> {
+fn get_remote_ptr_arch<Arch: Architecture>(t: &dyn Task, addr: RemotePtr<Void>) -> RemotePtr<Void> {
     let typed_addr = RemotePtr::<Arch::unsigned_word>::cast(addr);
     let old = read_val_mem(t, typed_addr, None);
     RemotePtr::from(old.try_into().unwrap())
 }
 
-fn get_remote_ptr(t: &mut dyn Task, addr: RemotePtr<Void>) -> RemotePtr<Void> {
+fn get_remote_ptr(t: &dyn Task, addr: RemotePtr<Void>) -> RemotePtr<Void> {
     let arch = t.arch();
     rd_arch_function_selfless!(get_remote_ptr_arch, arch, t, addr)
 }
@@ -5300,12 +5272,12 @@ const IOCTL_MASK_SIZE_JSIOCGBTNMAP: u32 = ioctl_mask_size(_JSIOCGBTNMAP);
 const IOCTL_MASK_SIZE_JSIOCGNAME_0: u32 = ioctl_mask_size(_JSIOCGNAME_0);
 
 fn prepare_ioctl<Arch: Architecture>(
-    t: &mut RecordTask,
+    t: &RecordTask,
     syscall_state: &mut TaskSyscallState,
 ) -> Switchable {
     let fd = t.regs_ref().arg1() as i32;
     let mut result: usize = 0;
-    if t.fd_table_shr_ptr().emulate_ioctl(fd, t, &mut result) {
+    if t.fd_table().emulate_ioctl(fd, t, &mut result) {
         // Don't perform this syscall.
         let mut r: Registers = t.regs_ref().clone();
         r.set_arg1_signed(-1);
@@ -5800,7 +5772,7 @@ const fn ioctl_mask_size(req: u32) -> u32 {
     req & !(_IOC_SIZEMASK << _IOC_SIZESHIFT)
 }
 
-fn record_page_below_stack_ptr(t: &mut RecordTask) {
+fn record_page_below_stack_ptr(t: &RecordTask) {
     // Record.the page above the top of `t`'s stack.  The SIOC* ioctls
     // have been observed to write beyond the end of tracees' stacks, as
     // if they had allocated scratch space for themselves.  All we can do
@@ -5809,7 +5781,7 @@ fn record_page_below_stack_ptr(t: &mut RecordTask) {
     t.record_remote(child_addr, page_size());
 }
 
-fn prepare_clone<Arch: Architecture>(t: &mut RecordTask, syscall_state: &mut TaskSyscallState) {
+fn prepare_clone<Arch: Architecture>(t: &RecordTask, syscall_state: &mut TaskSyscallState) {
     // DIFF NOTE: rr uses a usize here
     let flags: i32;
     let mut params: CloneParameters = Default::default();
@@ -5910,11 +5882,10 @@ fn prepare_clone<Arch: Architecture>(t: &mut RecordTask, syscall_state: &mut Tas
         new_tid,
         None,
     );
-    let mut new_task_b = new_task_shr_ptr.borrow_mut();
-    let new_task = new_task_b.as_rec_mut_unwrap();
+    let new_task = new_task_shr_ptr.as_rec_unwrap();
 
     // Restore modified registers in cloned task
-    let mut new_r: Registers = new_task.regs_ref().clone();
+    let mut new_r: Registers = new_task.regs();
     new_r.set_original_syscallno(syscall_state.syscall_entry_registers.original_syscallno());
     new_r.set_arg1(syscall_state.syscall_entry_registers.arg1());
     let arch = new_task.arch();
@@ -5938,36 +5909,31 @@ fn prepare_clone<Arch: Architecture>(t: &mut RecordTask, syscall_state: &mut Tas
     }
     t.trace_writer_mut()
         .write_task_event(&TraceTaskEvent::for_clone(
-            new_task.tid,
-            t.tid,
-            new_task.own_namespace_rec_tid,
+            new_task.tid(),
+            t.tid(),
+            new_task.own_namespace_rec_tid.get(),
             flags,
         ));
 
     init_scratch_memory(new_task, None);
 
-    if t.emulated_ptrace_options & ptrace_option_for_event(ptrace_event) != 0
+    if t.emulated_ptrace_options.get() & ptrace_option_for_event(ptrace_event) != 0
         && (flags & CLONE_UNTRACED == 0)
     {
         // There MUST be a ptracer present. Hence the unwrap().
-        let emulated_ptracer = t.emulated_ptracer.as_ref().unwrap().upgrade().unwrap();
-        new_task.set_emulated_ptracer(
-            Some(emulated_ptracer.borrow_mut().as_rec_mut_unwrap()),
-            None,
-        );
-        new_task.emulated_ptrace_seized = t.emulated_ptrace_seized;
-        new_task.emulated_ptrace_options = t.emulated_ptrace_options;
-        t.emulated_ptrace_event_msg = new_task.rec_tid as usize;
-        t.emulate_ptrace_stop(
-            WaitStatus::for_ptrace_event(ptrace_event),
-            emulated_ptracer.borrow().as_rec_unwrap(),
-            None,
-            None,
-            Some(new_task),
-        );
+        let emulated_ptracer = t.emulated_ptracer_unwrap();
+        new_task.set_emulated_ptracer(Some(emulated_ptracer.as_rec_unwrap()));
+        new_task
+            .emulated_ptrace_seized
+            .set(t.emulated_ptrace_seized.get());
+        new_task
+            .emulated_ptrace_options
+            .set(t.emulated_ptrace_options.get());
+        t.emulated_ptrace_event_msg.set(new_task.rec_tid() as usize);
+        t.emulate_ptrace_stop(WaitStatus::for_ptrace_event(ptrace_event), None, None);
         // ptrace(2) man page says that SIGSTOP is used here, but it's really
         // SIGTRAP (in 4.4.4-301.fc23.x86_64 anyway).
-        new_task.apply_group_stop(sig::SIGTRAP, Some(t));
+        new_task.apply_group_stop(sig::SIGTRAP);
     }
 
     // Restore our register modifications now, so that the emulated ptracer will
@@ -5995,16 +5961,16 @@ fn ptrace_option_for_event(ptrace_event: u32) -> u32 {
     }
 }
 
-fn maybe_pause_instead_of_waiting(t: &mut RecordTask, options: i32) {
-    if t.in_wait_type != WaitType::WaitTypePid || (options & WNOHANG != 0) {
+fn maybe_pause_instead_of_waiting(t: &RecordTask, options: i32) {
+    if t.in_wait_type.get() != WaitType::WaitTypePid || (options & WNOHANG != 0) {
         return;
     }
 
-    let maybe_child: Option<TaskSharedPtr> = t.session().find_task_from_rec_tid(t.in_wait_pid);
+    let maybe_child: Option<TaskSharedPtr> =
+        t.session().find_task_from_rec_tid(t.in_wait_pid.get());
     match maybe_child {
         Some(child_rc) => {
-            let mut childb = child_rc.borrow_mut();
-            let child = childb.as_rec_mut_unwrap();
+            let child = child_rc.as_rec_unwrap();
             if !t.is_waiting_for_ptrace(child) || t.is_waiting_for(child) {
                 return;
             }
@@ -6024,12 +5990,7 @@ fn maybe_pause_instead_of_waiting(t: &mut RecordTask, options: i32) {
     t.set_regs(&r);
 }
 
-fn process_mremap(
-    t: &mut RecordTask,
-    old_addr: RemotePtr<Void>,
-    old_length: usize,
-    new_length: usize,
-) {
+fn process_mremap(t: &RecordTask, old_addr: RemotePtr<Void>, old_length: usize, new_length: usize) {
     if t.regs_ref().syscall_failed() {
         // We purely emulate failed mremaps.
         return;
@@ -6096,7 +6057,7 @@ fn send_signal_during_init_buffers() -> bool {
 }
 
 fn prepare_recvmsg<Arch: Architecture>(
-    t: &mut RecordTask,
+    t: &RecordTask,
     syscall_state: &mut TaskSyscallState,
     msgp: RemotePtr<msghdr<Arch>>,
     io_size: ParamSize,
@@ -6147,7 +6108,7 @@ fn prepare_recvmsg<Arch: Architecture>(
 }
 
 fn prepare_recvmmsg<Arch: Architecture>(
-    t: &mut RecordTask,
+    t: &RecordTask,
     syscall_state: &mut TaskSyscallState,
     mmsgp: RemotePtr<mmsghdr<Arch>>,
     vlen: usize,
@@ -6165,7 +6126,7 @@ fn prepare_recvmmsg<Arch: Architecture>(
     }
 }
 
-fn check_scm_rights_fd<Arch: Architecture>(t: &mut RecordTask, msg: &msghdr<Arch>) {
+fn check_scm_rights_fd<Arch: Architecture>(t: &RecordTask, msg: &msghdr<Arch>) {
     if Arch::size_t_as_usize(msg.msg_controllen) < size_of::<cmsghdr<Arch>>() {
         return;
     }
@@ -6218,7 +6179,7 @@ fn block_sock_opt(level: i32, optname: u32, syscall_state: &mut TaskSyscallState
 }
 
 fn prepare_setsockopt<Arch: Architecture>(
-    t: &mut RecordTask,
+    t: &RecordTask,
     syscall_state: &mut TaskSyscallState,
     args: &setsockopt_args<Arch>,
 ) -> Switchable {
@@ -6266,21 +6227,21 @@ fn prepare_setsockopt<Arch: Architecture>(
 }
 
 fn verify_ptrace_target(
-    tracer: &mut RecordTask,
+    tracer: &RecordTask,
     syscall_state: &mut TaskSyscallState,
     pid: pid_t,
 ) -> Option<TaskSharedPtr> {
-    if tracer.rec_tid != pid {
+    if tracer.rec_tid() != pid {
         match tracer.session().find_task_from_rec_tid(pid) {
             Some(rc_tracee) => {
                 {
-                    let mut rc_traceeb = rc_tracee.borrow_mut();
-                    let tracee = rc_traceeb.as_rec_mut_unwrap();
+                    let tracee = rc_tracee.as_rec_unwrap();
                     if tracee
                         .emulated_ptracer
+                        .borrow()
                         .as_ref()
                         .map_or(true, |ep| !ep.ptr_eq(&tracer.weak_self))
-                        || tracee.emulated_stop_type == EmulatedStopType::NotStopped
+                        || tracee.emulated_stop_type.get() == EmulatedStopType::NotStopped
                     {
                         syscall_state.emulate_result_signed(-ESRCH as isize);
                         return None;
@@ -6339,13 +6300,7 @@ fn widen_buffer_signed(buf: &[u8]) -> i64 {
     }
 }
 
-/// DIFF NOTE: Has an extra param `tracer`
-fn prepare_ptrace_cont(
-    tracee: &mut RecordTask,
-    maybe_sig: Option<Sig>,
-    command: u32,
-    tracer: &RecordTask,
-) {
+fn prepare_ptrace_cont(tracee: &RecordTask, maybe_sig: Option<Sig>, command: u32) {
     match maybe_sig {
         Some(sig) => {
             let si = tracee.take_ptrace_signal_siginfo(sig);
@@ -6362,10 +6317,10 @@ fn prepare_ptrace_cont(
         None => (),
     }
 
-    tracee.emulated_stop_type = EmulatedStopType::NotStopped;
-    tracee.emulated_stop_pending = false;
-    tracee.emulated_stop_code = WaitStatus::default();
-    tracee.emulated_ptrace_cont_command = command;
+    tracee.emulated_stop_type.set(EmulatedStopType::NotStopped);
+    tracee.emulated_stop_pending.set(false);
+    tracee.emulated_stop_code.set(WaitStatus::default());
+    tracee.emulated_ptrace_cont_command.set(command);
 
     if tracee.ev().is_syscall_event()
         && SyscallState::ProcessingSyscall == tracee.ev().syscall_event().state
@@ -6379,13 +6334,13 @@ fn prepare_ptrace_cont(
         );
     }
 
-    if tracee.emulated_ptrace_queued_exit_stop {
-        do_ptrace_exit_stop(tracee, Some(tracer));
+    if tracee.emulated_ptrace_queued_exit_stop.get() {
+        do_ptrace_exit_stop(tracee);
     }
 }
 
 fn ptrace_get_reg_set<Arch: Architecture>(
-    t: &mut RecordTask,
+    t: &RecordTask,
     syscall_state: &mut TaskSyscallState,
     regs: &[u8],
 ) {
@@ -6411,7 +6366,7 @@ fn ptrace_get_reg_set<Arch: Architecture>(
 }
 
 fn ptrace_verify_set_reg_set<Arch: Architecture>(
-    t: &mut RecordTask,
+    t: &RecordTask,
     min_size: usize,
     syscall_state: &mut TaskSyscallState,
 ) {
@@ -6424,7 +6379,7 @@ fn ptrace_verify_set_reg_set<Arch: Architecture>(
     }
 }
 
-fn verify_ptrace_options(t: &mut RecordTask, syscall_state: &mut TaskSyscallState) -> bool {
+fn verify_ptrace_options(t: &RecordTask, syscall_state: &mut TaskSyscallState) -> bool {
     // We "support" PTRACE_O_SYSGOOD because we don't support PTRACE_SYSCALL yet
     let supported_ptrace_options = PTRACE_O_TRACESYSGOOD
         | PTRACE_O_TRACEEXIT
@@ -6457,7 +6412,7 @@ fn prepare_ptrace_attach(
             syscall_state.emulate_result_signed(-ESRCH as isize);
             return None;
         }
-        Some(tracee) if !check_ptracer_compatible(t, tracee.borrow().as_rec_unwrap()) => {
+        Some(tracee) if !check_ptracer_compatible(t, tracee.as_rec_unwrap()) => {
             syscall_state.emulate_result_signed(-EPERM as isize);
             return None;
         }
@@ -6469,7 +6424,7 @@ fn check_ptracer_compatible(tracer: &RecordTask, tracee: &RecordTask) -> bool {
     // Don't allow a 32-bit process to trace a 64-bit process. That doesn't
     // make much sense (manipulating registers gets crazy), and would be hard to
     // support.
-    if tracee.emulated_ptracer.is_some()
+    if tracee.emulated_ptracer.borrow().is_some()
         || tracee.tgid() == tracer.tgid()
         || (tracer.arch() == SupportedArch::X86 && tracee.arch() == SupportedArch::X64)
     {
@@ -6486,7 +6441,7 @@ fn get_ptrace_partner(t: &RecordTask, pid: pid_t) -> Option<TaskSharedPtr> {
     // sandboxes anyway.
     // This could be supported, but would require some work to translate
     // rd's pids to/from the ptracer's pid namespace.
-    ed_assert!(t, is_same_namespace("pid", t.tid, getpid().as_raw()));
+    ed_assert!(t, is_same_namespace("pid", t.tid(), getpid().as_raw()));
     // NOTE for the case when find_task_from_rec_tid() returns `None`:
     //   XXX This prevents a tracee from attaching to a process which isn't
     //   under rd's control. We could support this but it would complicate
@@ -6504,7 +6459,7 @@ fn prepare_ptrace_traceme(
             syscall_state.emulate_result_signed(-ESRCH as isize);
             None
         }
-        Some(tracer) if !check_ptracer_compatible(tracer.borrow().as_rec_unwrap(), t) => {
+        Some(tracer) if !check_ptracer_compatible(tracer.as_rec_unwrap(), t) => {
             syscall_state.emulate_result_signed(-EPERM as isize);
             None
         }
@@ -6512,11 +6467,11 @@ fn prepare_ptrace_traceme(
     }
 }
 
-fn ptrace_attach_to_already_stopped_task(t: &mut RecordTask, tracer: &mut RecordTask) {
-    ed_assert_eq!(t, t.emulated_stop_type, EmulatedStopType::GroupStop);
+fn ptrace_attach_to_already_stopped_task(t: &RecordTask) {
+    ed_assert_eq!(t, t.emulated_stop_type.get(), EmulatedStopType::GroupStop);
     // tracee is already stopped because of a group-stop signal.
     // Sending a SIGSTOP won't work, but we don't need to.
-    t.force_emulate_ptrace_stop(WaitStatus::for_stop_sig(sig::SIGSTOP), tracer, None);
+    t.force_emulate_ptrace_stop(WaitStatus::for_stop_sig(sig::SIGSTOP));
     let mut si = siginfo_t_signal::default();
     si.si_signo = SIGSTOP;
     si.si_code = SI_USER;
@@ -6524,7 +6479,7 @@ fn ptrace_attach_to_already_stopped_task(t: &mut RecordTask, tracer: &mut Record
 }
 
 fn prepare_ptrace<Arch: Architecture>(
-    t: &mut RecordTask,
+    t: &RecordTask,
     syscall_state: &mut TaskSyscallState,
 ) -> Switchable {
     let pid = t.regs_ref().arg2_signed() as pid_t;
@@ -6535,19 +6490,18 @@ fn prepare_ptrace<Arch: Architecture>(
             let maybe_tracee = prepare_ptrace_attach(t, pid, syscall_state);
             match maybe_tracee {
                 Some(tracee_rc) => {
-                    let mut traceeb = tracee_rc.borrow_mut();
-                    let tracee = traceeb.as_rec_mut_unwrap();
-                    tracee.set_emulated_ptracer(Some(t), None);
-                    tracee.emulated_ptrace_seized = false;
-                    tracee.emulated_ptrace_options = 0;
+                    let tracee = tracee_rc.as_rec_unwrap();
+                    tracee.set_emulated_ptracer(Some(t));
+                    tracee.emulated_ptrace_seized.set(false);
+                    tracee.emulated_ptrace_options.set(0);
                     syscall_state.emulate_result(0);
-                    if tracee.emulated_stop_type == EmulatedStopType::NotStopped {
+                    if tracee.emulated_stop_type.get() == EmulatedStopType::NotStopped {
                         // Send SIGSTOP to this specific thread. Otherwise the kernel might
                         // deliver SIGSTOP to some other thread of the process, and we won't
                         // generate any ptrace event if that thread isn't being ptraced.
                         tracee.tgkill(sig::SIGSTOP);
                     } else {
-                        ptrace_attach_to_already_stopped_task(tracee, t);
+                        ptrace_attach_to_already_stopped_task(tracee);
                     }
                 }
                 None => (),
@@ -6557,11 +6511,10 @@ fn prepare_ptrace<Arch: Architecture>(
             let maybe_tracer = prepare_ptrace_traceme(t, syscall_state);
             match maybe_tracer {
                 Some(tracer_rc) => {
-                    let mut tracerb = tracer_rc.borrow_mut();
-                    let tracer = tracerb.as_rec_mut_unwrap();
-                    t.set_emulated_ptracer(Some(tracer), None);
-                    t.emulated_ptrace_seized = false;
-                    t.emulated_ptrace_options = 0;
+                    let tracer = tracer_rc.as_rec_unwrap();
+                    t.set_emulated_ptracer(Some(tracer));
+                    t.emulated_ptrace_seized.set(false);
+                    t.emulated_ptrace_options.set(0);
                     syscall_state.emulate_result(0);
                 }
                 None => (),
@@ -6575,13 +6528,14 @@ fn prepare_ptrace<Arch: Architecture>(
                         syscall_state.emulate_result_signed(-EIO as isize);
                     } else {
                         if verify_ptrace_options(t, syscall_state) {
-                            let mut traceeb = tracee_rc.borrow_mut();
-                            let tracee = traceeb.as_rec_mut_unwrap();
-                            tracee.set_emulated_ptracer(Some(t), None);
-                            tracee.emulated_ptrace_seized = true;
-                            tracee.emulated_ptrace_options = t.regs_ref().arg4() as u32;
-                            if tracee.emulated_stop_type == EmulatedStopType::GroupStop {
-                                ptrace_attach_to_already_stopped_task(tracee, t);
+                            let tracee = tracee_rc.as_rec_unwrap();
+                            tracee.set_emulated_ptracer(Some(t));
+                            tracee.emulated_ptrace_seized.set(true);
+                            tracee
+                                .emulated_ptrace_options
+                                .set(t.regs_ref().arg4() as u32);
+                            if tracee.emulated_stop_type.get() == EmulatedStopType::GroupStop {
+                                ptrace_attach_to_already_stopped_task(tracee);
                             }
                             syscall_state.emulate_result(0);
                         }
@@ -6594,10 +6548,11 @@ fn prepare_ptrace<Arch: Architecture>(
             let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
             match maybe_tracee {
                 Some(tracee_rc) => {
-                    let mut traceeb = tracee_rc.borrow_mut();
-                    let tracee = traceeb.as_rec_mut_unwrap();
+                    let tracee = tracee_rc.as_rec_unwrap();
                     if verify_ptrace_options(t, syscall_state) {
-                        tracee.emulated_ptrace_options = t.regs_ref().arg4() as u32;
+                        tracee
+                            .emulated_ptrace_options
+                            .set(t.regs_ref().arg4() as u32);
                         syscall_state.emulate_result(0);
                     }
                 }
@@ -6608,13 +6563,12 @@ fn prepare_ptrace<Arch: Architecture>(
             let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
             match maybe_tracee {
                 Some(tracee_rc) => {
-                    let mut traceeb = tracee_rc.borrow_mut();
-                    let tracee = traceeb.as_rec_mut_unwrap();
+                    let tracee = tracee_rc.as_rec_unwrap();
                     let datap = syscall_state.reg_parameter::<Arch::unsigned_long>(4, None, None);
                     write_val_mem(
                         t,
                         datap,
-                        &Arch::usize_as_ulong(tracee.emulated_ptrace_event_msg),
+                        &Arch::usize_as_ulong(tracee.emulated_ptrace_event_msg.get()),
                         None,
                     );
                     syscall_state.emulate_result(0);
@@ -6626,11 +6580,10 @@ fn prepare_ptrace<Arch: Architecture>(
             let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
             match maybe_tracee {
                 Some(tracee_rc) => {
-                    let mut traceeb = tracee_rc.borrow_mut();
-                    let tracee = traceeb.as_rec_mut_unwrap();
+                    let tracee = tracee_rc.as_rec_unwrap();
                     let datap = syscall_state.reg_parameter::<siginfo_t<Arch>>(4, None, None);
                     let mut dest: siginfo_t<Arch> = unsafe { mem::zeroed() };
-                    set_arch_siginfo(tracee.get_saved_ptrace_siginfo(), &mut dest);
+                    set_arch_siginfo(&tracee.get_saved_ptrace_siginfo(), &mut dest);
                     write_val_mem(t, datap, &dest, None);
                     syscall_state.emulate_result(0);
                 }
@@ -6642,8 +6595,7 @@ fn prepare_ptrace<Arch: Architecture>(
             let data = syscall_state.reg_parameter::<Arch::user_regs_struct>(4, None, None);
             match maybe_tracee {
                 Some(tracee_rc) => {
-                    let mut traceeb = tracee_rc.borrow_mut();
-                    let tracee = traceeb.as_rec_mut_unwrap();
+                    let tracee = tracee_rc.as_rec_unwrap();
                     let regs: Vec<u8> = tracee.regs_ref().get_ptrace_for_arch(Arch::arch());
                     ed_assert_eq!(t, regs.len(), data.referent_size());
                     t.write_bytes_helper(
@@ -6661,8 +6613,7 @@ fn prepare_ptrace<Arch: Architecture>(
             let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
             match maybe_tracee {
                 Some(tracee_rc) => {
-                    let mut traceeb = tracee_rc.borrow_mut();
-                    let tracee = traceeb.as_rec_mut_unwrap();
+                    let tracee = tracee_rc.as_rec_unwrap();
                     let data =
                         syscall_state.reg_parameter::<Arch::user_fpregs_struct>(4, None, None);
                     let regs: Vec<u8> =
@@ -6687,8 +6638,7 @@ fn prepare_ptrace<Arch: Architecture>(
                 let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
                 match maybe_tracee {
                     Some(tracee_rc) => {
-                        let mut traceeb = tracee_rc.borrow_mut();
-                        let tracee = traceeb.as_rec_mut_unwrap();
+                        let tracee = tracee_rc.as_rec_unwrap();
                         let data =
                             syscall_state.reg_parameter::<x86::user_fpxregs_struct>(4, None, None);
                         let regs = tracee.extra_regs_ref().get_user_fpxregs_struct();
@@ -6699,54 +6649,55 @@ fn prepare_ptrace<Arch: Architecture>(
                 }
             }
         }
-        PTRACE_GETREGSET => match t.regs_ref().arg3() as u32 {
-            NT_PRSTATUS => {
-                let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
-                match maybe_tracee {
-                    Some(tracee_rc) => {
-                        let mut traceeb = tracee_rc.borrow_mut();
-                        let tracee = traceeb.as_rec_mut_unwrap();
-                        let regs = tracee.regs_ref().get_ptrace_for_arch(Arch::arch());
-                        ptrace_get_reg_set::<Arch>(t, syscall_state, &regs);
-                    }
-                    None => (),
-                }
-            }
-            NT_FPREGSET => {
-                let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
-                match maybe_tracee {
-                    Some(tracee_rc) => {
-                        let mut traceeb = tracee_rc.borrow_mut();
-                        let tracee = traceeb.as_rec_mut_unwrap();
-                        let regs = tracee.extra_regs_ref().get_user_fpregs_struct(Arch::arch());
-                        ptrace_get_reg_set::<Arch>(t, syscall_state, &regs);
-                    }
-                    None => (),
-                }
-            }
-            NT_X86_XSTATE => {
-                let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
-                match maybe_tracee {
-                    Some(tracee_rc) => {
-                        let mut traceeb = tracee_rc.borrow_mut();
-                        let tracee = traceeb.as_rec_mut_unwrap();
-                        match tracee.extra_regs_ref().format() {
-                            Format::XSave => ptrace_get_reg_set::<Arch>(
-                                t,
-                                syscall_state,
-                                tracee.extra_regs_ref().data_bytes(),
-                            ),
-                            _ => syscall_state.emulate_result_signed(-EINVAL as isize),
+        PTRACE_GETREGSET => {
+            let arg3 = t.regs_ref().arg3();
+            match arg3 as u32 {
+                NT_PRSTATUS => {
+                    let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
+                    match maybe_tracee {
+                        Some(tracee_rc) => {
+                            let tracee = tracee_rc.as_rec_unwrap();
+                            let regs = tracee.regs_ref().get_ptrace_for_arch(Arch::arch());
+                            ptrace_get_reg_set::<Arch>(t, syscall_state, &regs);
                         }
+                        None => (),
                     }
-                    None => (),
+                }
+                NT_FPREGSET => {
+                    let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
+                    match maybe_tracee {
+                        Some(tracee_rc) => {
+                            let tracee = tracee_rc.as_rec_unwrap();
+                            let regs = tracee.extra_regs_ref().get_user_fpregs_struct(Arch::arch());
+                            ptrace_get_reg_set::<Arch>(t, syscall_state, &regs);
+                        }
+                        None => (),
+                    }
+                }
+                NT_X86_XSTATE => {
+                    let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
+                    match maybe_tracee {
+                        Some(tracee_rc) => {
+                            let tracee = tracee_rc.as_rec_unwrap();
+                            let format = tracee.extra_regs_ref().format();
+                            match format {
+                                Format::XSave => ptrace_get_reg_set::<Arch>(
+                                    t,
+                                    syscall_state,
+                                    tracee.extra_regs_ref().data_bytes(),
+                                ),
+                                _ => syscall_state.emulate_result_signed(-EINVAL as isize),
+                            }
+                        }
+                        None => (),
+                    }
+                }
+                _ => {
+                    syscall_state.expect_errno = EINVAL;
+                    emulate = false;
                 }
             }
-            _ => {
-                syscall_state.expect_errno = EINVAL;
-                emulate = false;
-            }
-        },
+        }
         PTRACE_SETREGS => {
             let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
             if maybe_tracee.is_some() {
@@ -6779,7 +6730,8 @@ fn prepare_ptrace<Arch: Architecture>(
         PTRACE_SETREGSET => {
             // The actual register effects are performed by
             // Task::on_syscall_exit_arch
-            match t.regs_ref().arg3() as u32 {
+            let arg3 = t.regs_ref().arg3();
+            match arg3 as u32 {
                 NT_PRSTATUS => {
                     let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
                     if maybe_tracee.is_some() {
@@ -6804,12 +6756,12 @@ fn prepare_ptrace<Arch: Architecture>(
                     let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
                     match maybe_tracee {
                         Some(tracee_rc) => {
-                            let format = tracee_rc.borrow_mut().extra_regs_ref().format();
+                            let format = tracee_rc.extra_regs_ref().format();
                             match format {
                                 Format::XSave => {
                                     ptrace_verify_set_reg_set::<Arch>(
                                         t,
-                                        tracee_rc.borrow_mut().extra_regs_ref().data_size(),
+                                        tracee_rc.extra_regs_ref().data_size(),
                                         syscall_state,
                                     );
                                 }
@@ -6837,8 +6789,7 @@ fn prepare_ptrace<Arch: Architecture>(
                     let datap = syscall_state.reg_parameter::<Arch::unsigned_word>(4, None, None);
                     let addr = RemotePtr::<Arch::unsigned_word>::from(t.regs_ref().arg3());
                     let mut ok = true;
-                    let mut traceeb = tracee_rc.borrow_mut();
-                    let tracee = traceeb.as_rec_mut_unwrap();
+                    let tracee = tracee_rc.as_rec_unwrap();
                     let v = read_val_mem(tracee, addr, Some(&mut ok));
                     if ok {
                         write_val_mem(t, datap, &v, None);
@@ -6854,8 +6805,7 @@ fn prepare_ptrace<Arch: Architecture>(
             let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
             match maybe_tracee {
                 Some(tracee_rc) => {
-                    let mut traceeb = tracee_rc.borrow_mut();
-                    let tracee = traceeb.as_rec_mut_unwrap();
+                    let tracee = tracee_rc.as_rec_unwrap();
                     let addr = RemotePtr::<Arch::unsigned_word>::from(t.regs_ref().arg3());
                     let data = Arch::as_unsigned_word(t.regs_ref().arg4());
                     let mut ok = true;
@@ -6875,8 +6825,7 @@ fn prepare_ptrace<Arch: Architecture>(
         PTRACE_PEEKUSER => {
             let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
             match maybe_tracee {
-                Some(tracee_rc) => {
-                    let tracee = tracee_rc.borrow();
+                Some(tracee) => {
                     // The actual syscall returns the data via the 'data' out-parameter.
                     // The behavior of returning the data as the system call result is
                     // provided by the glibc wrapper.
@@ -6988,14 +6937,12 @@ fn prepare_ptrace<Arch: Architecture>(
                         // Invalid signals in ptrace resume cause EIO
                         syscall_state.emulate_result_signed(-EIO as isize);
                     } else {
-                        let mut traceeb = tracee_rc.borrow_mut();
-                        let tracee = traceeb.as_rec_mut_unwrap();
+                        let tracee = tracee_rc.as_rec_unwrap();
                         tracee.set_syscallbuf_locked(command != PTRACE_CONT);
                         prepare_ptrace_cont(
                             tracee,
                             Sig::try_from(t.regs_ref().arg4() as i32).ok(),
                             command,
-                            t,
                         );
                         syscall_state.emulate_result(0);
                     }
@@ -7007,20 +6954,14 @@ fn prepare_ptrace<Arch: Architecture>(
             let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
             match maybe_tracee {
                 Some(tracee_rc) => {
-                    let mut traceeb = tracee_rc.borrow_mut();
-                    let tracee = traceeb.as_rec_mut_unwrap();
+                    let tracee = tracee_rc.as_rec_unwrap();
                     tracee.set_syscallbuf_locked(false);
-                    tracee.emulated_ptrace_options = 0;
-                    tracee.emulated_ptrace_cont_command = 0;
-                    tracee.emulated_stop_pending = false;
-                    tracee.emulated_ptrace_queued_exit_stop = false;
-                    prepare_ptrace_cont(
-                        tracee,
-                        Sig::try_from(t.regs_ref().arg4() as i32).ok(),
-                        0,
-                        t,
-                    );
-                    tracee.set_emulated_ptracer(None, Some(t));
+                    tracee.emulated_ptrace_options.set(0);
+                    tracee.emulated_ptrace_cont_command.set(0);
+                    tracee.emulated_stop_pending.set(false);
+                    tracee.emulated_ptrace_queued_exit_stop.set(false);
+                    prepare_ptrace_cont(tracee, Sig::try_from(t.regs_ref().arg4() as i32).ok(), 0);
+                    tracee.set_emulated_ptracer(None);
                     syscall_state.emulate_result(0);
                 }
                 None => (),
@@ -7030,8 +6971,7 @@ fn prepare_ptrace<Arch: Architecture>(
             let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
             match maybe_tracee {
                 Some(tracee_rc) => {
-                    let mut traceeb = tracee_rc.borrow_mut();
-                    let tracee = traceeb.as_rec_mut_unwrap();
+                    let tracee = tracee_rc.as_rec_unwrap();
                     // The tracee could already be dead, in which case sending it a signal
                     // would move it out of the exit stop, preventing us from doing our
                     // clean up work.
@@ -7045,8 +6985,7 @@ fn prepare_ptrace<Arch: Architecture>(
         PTRACE_GET_THREAD_AREA | PTRACE_SET_THREAD_AREA => {
             let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
             match maybe_tracee {
-                Some(tracee_rc) => {
-                    let mut tracee = tracee_rc.borrow_mut();
+                Some(tracee) => {
                     if tracee.arch() != SupportedArch::X86 {
                         // This syscall should fail if the tracee is not x86
                         syscall_state.expect_errno = EIO;
@@ -7092,8 +7031,7 @@ fn prepare_ptrace<Arch: Architecture>(
             match maybe_tracee {
                 None => (),
                 Some(tracee_rc) => {
-                    let mut traceeb = tracee_rc.borrow_mut();
-                    let tracee = traceeb.as_rec_mut_unwrap();
+                    let tracee = tracee_rc.as_rec_unwrap();
                     if tracee.arch() != SupportedArch::X64 {
                         // This syscall should fail if the tracee is not
                         // x86_64
@@ -7145,8 +7083,8 @@ fn prepare_ptrace<Arch: Architecture>(
 
 /// if `maybe_dest` is `None` then this is interpreted to mean that `dest` is `t` also
 fn record_iovec_output<Arch: Architecture>(
-    t: &mut RecordTask,
-    maybe_dest: Option<&mut RecordTask>,
+    t: &RecordTask,
+    maybe_dest: Option<&RecordTask>,
     piov: RemotePtr<iovec<Arch>>,
     iov_cnt: u32,
 ) {
@@ -7215,7 +7153,7 @@ fn prepare_shmctl<Arch: Architecture>(
 }
 
 fn prepare_socketcall<Arch: Architecture>(
-    t: &mut RecordTask,
+    t: &RecordTask,
     syscall_state: &mut TaskSyscallState,
 ) -> Switchable {
     // int socketcall(int call, unsigned long *args) {
@@ -7225,7 +7163,8 @@ fn prepare_socketcall<Arch: Architecture>(
     // }
     //
     // (from http://lxr.linux.no/#linux+v3.6.3/net/socket.c#L2354)
-    match t.regs_ref().arg1() as u32 {
+    let arg1 = t.regs_ref().arg1();
+    match arg1 as u32 {
         // int socket(int domain, int type, int protocol);
         // int bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen);
         // int listen(int sockfd, int backlog)
@@ -7510,7 +7449,7 @@ fn is_privileged_executable(t: &RecordTask, path: &OsStr) -> bool {
 }
 
 fn in_same_mount_namespace_as(t: &RecordTask) -> bool {
-    let proc_ns_mount = format!("/proc/{}/ns/mnt", t.tid);
+    let proc_ns_mount = format!("/proc/{}/ns/mnt", t.tid());
     let my_buf = stat("/proc/self/ns/mnt").unwrap();
     let their_buf = stat(proc_ns_mount.as_str()).unwrap();
     my_buf.st_ino == their_buf.st_ino
@@ -7532,7 +7471,7 @@ union _semun {
 }
 
 fn prepare_semctl<Arch: Architecture>(
-    t: &mut RecordTask,
+    t: &RecordTask,
     syscall_state: &mut TaskSyscallState,
     semid: i32,
     cmd: u32,
@@ -7610,7 +7549,7 @@ fn _shmctl(shmid: i32, mut cmd: u32, buf: &mut shmid64_ds) -> i32 {
     unsafe { libc::syscall(libc::SYS_shmctl, shmid, cmd, buf) as i32 }
 }
 
-fn process_shmat(t: &mut RecordTask, shmid: i32, shm_flags: i32, addr: RemotePtr<Void>) {
+fn process_shmat(t: &RecordTask, shmid: i32, shm_flags: i32, addr: RemotePtr<Void>) {
     if t.regs_ref().syscall_failed() {
         // We purely emulate failed shmats.
         return;
@@ -7634,8 +7573,8 @@ fn process_shmat(t: &mut RecordTask, shmid: i32, shm_flags: i32, addr: RemotePtr
     // any other way to get the correct device number. (The inode number seems to
     // be the shm key.) This should be OK since SysV shmem is not used very much
     // and reading /proc/<pid>/maps should be reasonably cheap.
-    let kernel_info: KernelMapping = read_kernel_mapping(t.tid, addr);
-    let km: KernelMapping = t.vm_shr_ptr().map(
+    let kernel_info: KernelMapping = read_kernel_mapping(t.tid(), addr);
+    let km: KernelMapping = t.vm().map(
         t,
         addr,
         size,
@@ -7671,10 +7610,10 @@ fn process_shmat(t: &mut RecordTask, shmid: i32, shm_flags: i32, addr: RemotePtr
 /// This doesn't currently handle shared mappings very well. A file mapped
 /// shared in multiple locations will be recorded once per location.
 /// This doesn't handle mappings of the file into other address spaces.
-fn record_file_change(t: &mut RecordTask, fd: i32, offset: u64, length: u64) {
+fn record_file_change(t: &RecordTask, fd: i32, offset: u64, length: u64) {
     let file_name = t.file_name_of_fd(fd);
 
-    for (_, m) in &t.vm_shr_ptr().maps() {
+    for (_, m) in &t.vm().maps() {
         if m.map.fsname() == file_name {
             let start = max(offset, m.map.file_offset_bytes());
             let end = min(
@@ -7691,15 +7630,16 @@ fn record_file_change(t: &mut RecordTask, fd: i32, offset: u64, length: u64) {
     }
 }
 
-fn record_v4l2_buffer_contents<Arch: Architecture>(t: &mut RecordTask) {
+fn record_v4l2_buffer_contents<Arch: Architecture>(t: &RecordTask) {
     let bufp: RemotePtr<v4l2_buffer<Arch>> = t.regs_ref().arg3().into();
     let buf = read_val_mem(t, bufp, None);
 
     match buf.memory {
         V4L2_MEMORY_MMAP => {
+            let arg1_signed = t.regs_ref().arg1_signed();
             record_file_change(
                 t,
-                t.regs_ref().arg1_signed() as i32,
+                arg1_signed as i32,
                 unsafe { buf.m.offset as u64 },
                 buf.length as u64,
             );
@@ -7711,7 +7651,7 @@ fn record_v4l2_buffer_contents<Arch: Architecture>(t: &mut RecordTask) {
     }
 }
 
-fn record_usbdevfs_reaped_urb<Arch: Architecture>(t: &mut RecordTask) {
+fn record_usbdevfs_reaped_urb<Arch: Architecture>(t: &RecordTask) {
     if t.regs_ref().syscall_failed() {
         return;
     }
@@ -7745,7 +7685,7 @@ fn record_usbdevfs_reaped_urb<Arch: Architecture>(t: &mut RecordTask) {
 }
 
 fn prepare_bpf<Arch: Architecture>(
-    t: &mut RecordTask,
+    t: &RecordTask,
     syscall_state: &mut TaskSyscallState,
 ) -> Switchable {
     let cmd = t.regs_ref().arg1() as u32;

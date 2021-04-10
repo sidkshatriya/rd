@@ -35,7 +35,7 @@ impl FileMonitor for ProcFdDirMonitor {
         FileMonitorType::ProcFd
     }
 
-    fn filter_getdents(&self, t: &mut RecordTask) {
+    fn filter_getdents(&self, t: &RecordTask) {
         ed_assert!(t, !t.session().is_replaying());
         match self.maybe_tuid {
             None => (),
@@ -69,12 +69,12 @@ impl ProcFdDirMonitor {
                     let tid_str = String::from_utf8_lossy(tid_os_str.as_bytes());
                     let maybe_tid = tid_str.parse::<pid_t>();
                     let tid = maybe_tid.unwrap();
-                    let maybe_found = if t.rec_tid == tid {
+                    let maybe_found = if t.rec_tid() == tid {
                         Some(t.tuid())
                     } else {
                         t.session()
                             .find_task_from_rec_tid(tid)
-                            .map_or(None, |ft| Some(ft.borrow().tuid()))
+                            .map_or(None, |ft| Some(ft.tuid()))
                     };
 
                     return Self {
@@ -178,7 +178,7 @@ fn filter_dirent_structs<Arch: Architecture>(
     bytes
 }
 
-fn filter_dirents_arch<Arch: Architecture>(t: &mut RecordTask) {
+fn filter_dirents_arch<Arch: Architecture>(t: &RecordTask) {
     let mut regs = t.regs_ref().clone();
     let ptr = RemotePtr::<u8>::from(regs.arg2());
     let len: usize = regs.arg3();
@@ -231,7 +231,7 @@ fn filter_dirents_arch<Arch: Architecture>(t: &mut RecordTask) {
     }
 }
 
-fn filter_dirents(t: &mut RecordTask) {
+fn filter_dirents(t: &RecordTask) {
     let arch = t.arch();
     rd_arch_function_selfless!(filter_dirents_arch, arch, t);
 }

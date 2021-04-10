@@ -526,6 +526,12 @@ pub enum TrappedInstruction {
     Pushf16 = 6,
 }
 
+impl Default for TrappedInstruction {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
 pub fn is_kernel_trap(si_code: i32) -> bool {
     // XXX unable to find docs on which of these "should" be
     // right.  The SI_KERNEL code is seen in the int3 test, so we
@@ -988,7 +994,7 @@ pub fn read_exe_dir() -> OsString {
     OsString::from_vec(final_exe_path)
 }
 
-fn env_ptr<Arch: Architecture>(t: &mut dyn Task) -> RemotePtr<Arch::unsigned_word> {
+fn env_ptr<Arch: Architecture>(t: &dyn Task) -> RemotePtr<Arch::unsigned_word> {
     let mut stack_ptr: RemotePtr<Arch::unsigned_word> = RemotePtr::cast(t.regs_ref().sp());
 
     let argc = read_val_mem::<Arch::unsigned_word>(t, stack_ptr, None);
@@ -1002,7 +1008,7 @@ fn env_ptr<Arch: Architecture>(t: &mut dyn Task) -> RemotePtr<Arch::unsigned_wor
     stack_ptr
 }
 
-fn read_env_arch<Arch: Architecture>(t: &mut dyn Task) -> Vec<CString> {
+fn read_env_arch<Arch: Architecture>(t: &dyn Task) -> Vec<CString> {
     let mut stack_ptr = env_ptr::<Arch>(t);
     // Should now point to envp
     let mut result: Vec<CString> = Vec::new();
@@ -1017,15 +1023,15 @@ fn read_env_arch<Arch: Architecture>(t: &mut dyn Task) -> Vec<CString> {
     result
 }
 
-pub fn read_env(t: &mut dyn Task) -> Vec<CString> {
+pub fn read_env(t: &dyn Task) -> Vec<CString> {
     rd_arch_function_selfless!(read_env_arch, t.arch(), t)
 }
 
-pub fn read_auxv(t: &mut dyn Task) -> Vec<u8> {
+pub fn read_auxv(t: &dyn Task) -> Vec<u8> {
     rd_arch_function_selfless!(read_auxv_arch, t.arch(), t)
 }
 
-fn read_auxv_arch<Arch: Architecture>(t: &mut dyn Task) -> Vec<u8> {
+fn read_auxv_arch<Arch: Architecture>(t: &dyn Task) -> Vec<u8> {
     let mut stack_ptr = env_ptr::<Arch>(t);
 
     // Should now point to envp
@@ -1152,7 +1158,7 @@ fn extract_clone_parameters_arch<Arch: Architecture>(regs: &Registers) -> CloneP
 }
 
 pub fn extract_clone_parameters(t: &dyn Task) -> CloneParameters {
-    rd_arch_function_selfless!(extract_clone_parameters_arch, t.arch(), t.regs_ref())
+    rd_arch_function_selfless!(extract_clone_parameters_arch, t.arch(), &t.regs_ref())
 }
 
 /// Convert the flags passed to the clone() syscall, `flags_arg`, into
@@ -1222,7 +1228,7 @@ pub fn trapped_instruction_len(insn: TrappedInstruction) -> usize {
 }
 
 /// XXX this probably needs to be extended to decode ignored prefixes
-pub fn trapped_instruction_at<T: Task>(t: &mut T, ip: RemoteCodePtr) -> TrappedInstruction {
+pub fn trapped_instruction_at<T: Task>(t: &T, ip: RemoteCodePtr) -> TrappedInstruction {
     let mut insn: [u8; RDTSCP_INSN.len()] = Default::default();
     let ret = t.read_bytes_fallible(ip.to_data_ptr::<u8>(), &mut insn);
     if ret.is_err() {
@@ -1660,13 +1666,13 @@ pub fn should_checksum(event: &Event, time: FrameTime) -> bool {
 /// Write a checksum of each mapped region in `t`'s address space to a
 /// special log, where it can be read by `validate_process_memory()`
 /// during replay
-pub fn checksum_process_memory(t: &mut dyn Task, global_time: FrameTime) {
+pub fn checksum_process_memory(t: &dyn Task, global_time: FrameTime) {
     iterate_checksums(t, ChecksumMode::StoreChecksums, global_time);
 }
 
 /// Validate the checksum of `t`'s address space that was written
 /// during recording
-pub fn validate_process_memory(t: &mut dyn Task, global_time: FrameTime) {
+pub fn validate_process_memory(t: &dyn Task, global_time: FrameTime) {
     iterate_checksums(t, ChecksumMode::ValidateChecksums, global_time);
 }
 
@@ -1704,9 +1710,9 @@ pub fn signal_bit(sig: Sig) -> sig_set_t {
     (1 as sig_set_t) << (sig.as_raw() - 1)
 }
 
-pub fn is_deterministic_signal(t: &mut dyn Task) -> SignalDeterministic {
-    let si = t.get_siginfo();
-    match si.si_signo {
+pub fn is_deterministic_signal(t: &dyn Task) -> SignalDeterministic {
+    let signo = t.get_siginfo().si_signo;
+    match signo {
         // These signals may be delivered deterministically;
         // we'll check for sure below.
         SIGILL | SIGBUS | SIGFPE | SIGSEGV =>
@@ -1719,7 +1725,7 @@ pub fn is_deterministic_signal(t: &mut dyn Task) -> SignalDeterministic {
         // kernel delivered it, then it must have been
         // delivered deterministically. */
         {
-            if si.si_code > 0 {
+            if t.get_siginfo().si_code > 0 {
                 SignalDeterministic::DeterministicSig
             } else {
                 SignalDeterministic::NondeterministicSig
@@ -1853,9 +1859,9 @@ const SIGBUS_CHECKSUM: u32 = 0x23456789;
 /// Either create and store checksums for each segment mapped in `t`'s
 /// address space, or validate an existing computed checksum.  Behavior
 /// is selected by `mode`.
-fn iterate_checksums(t: &mut dyn Task, mode: ChecksumMode, global_time: FrameTime) {
+fn iterate_checksums(t: &dyn Task, mode: ChecksumMode, global_time: FrameTime) {
     let mut filename_vec: Vec<u8> = t.trace_dir().into_vec();
-    let append = format!("/{}_{}", global_time, t.rec_tid);
+    let append = format!("/{}_{}", global_time, t.rec_tid());
     filename_vec.extend_from_slice(append.as_bytes());
     let filename = OsString::from_vec(filename_vec);
     let mut checksum_data = match mode {
@@ -1885,8 +1891,8 @@ fn iterate_checksums(t: &mut dyn Task, mode: ChecksumMode, global_time: FrameTim
 
     let mut in_replay: u8 = 0;
     let mut in_replay_flag = RemotePtr::null();
-    if !t.preload_globals.unwrap_or(RemotePtr::null()).is_null() {
-        in_replay_flag = remote_ptr_field!(t.preload_globals.unwrap(), preload_globals, in_replay);
+    if !t.preload_globals.get().is_null() {
+        in_replay_flag = remote_ptr_field!(t.preload_globals.get(), preload_globals, in_replay);
         in_replay = read_val_mem(t, in_replay_flag, None);
         write_val_mem(t, in_replay_flag, &0u8, None);
     }
@@ -1924,7 +1930,7 @@ fn iterate_checksums(t: &mut dyn Task, mode: ChecksumMode, global_time: FrameTim
             });
 
             let mem_range = MemoryRange::from_range(rec_start, rec_end);
-            t.vm_shr_ptr()
+            t.vm()
                 .ensure_replay_matches_single_recorded_mapping(t, mem_range);
         },
         ChecksumData::StoreChecksums(_) => (),
@@ -1932,7 +1938,7 @@ fn iterate_checksums(t: &mut dyn Task, mode: ChecksumMode, global_time: FrameTim
 
     {
         let mut checksum_iter = checksums.iter();
-        let vm = t.vm_shr_ptr();
+        let vm = t.vm();
         let maps = vm.maps();
         let mut maps_iter = maps.into_iter();
         while let Some((_, mp)) = maps_iter.next() {
@@ -2092,20 +2098,21 @@ fn notify_checksum_error(
 
 /// DIFF NOTE: Takes `t` instead of the address space as param
 fn is_task_buffer(t: &dyn Task, m: &Mapping) -> bool {
-    if RemotePtr::cast(t.syscallbuf_child) == m.map.start() && t.syscallbuf_size == m.map.size() {
+    if RemotePtr::cast(t.syscallbuf_child.get()) == m.map.start()
+        && t.syscallbuf_size.get() == m.map.size()
+    {
         return true;
     }
-    if t.scratch_ptr == m.map.start() && t.scratch_size == m.map.size() {
+    if t.scratch_ptr.get() == m.map.start() && t.scratch_size.get() == m.map.size() {
         return true;
     }
-    for t_rc in t.vm().task_set().iter_except(t.weak_self_ptr()) {
-        let tt = t_rc.borrow();
-        if RemotePtr::cast(tt.syscallbuf_child) == m.map.start()
-            && tt.syscallbuf_size == m.map.size()
+    for tt in t.vm().task_set().iter_except(t.weak_self_ptr()) {
+        if RemotePtr::cast(tt.syscallbuf_child.get()) == m.map.start()
+            && tt.syscallbuf_size.get() == m.map.size()
         {
             return true;
         }
-        if tt.scratch_ptr == m.map.start() && tt.scratch_size == m.map.size() {
+        if tt.scratch_ptr.get() == m.map.start() && tt.scratch_size.get() == m.map.size() {
             return true;
         }
     }
@@ -2117,7 +2124,7 @@ fn is_task_buffer(t: &dyn Task, m: &Mapping) -> bool {
 /// Should instead only look at the address space of the task in
 /// question.
 fn is_start_of_scratch_region(t: &dyn Task, start_addr: RemotePtr<Void>) -> bool {
-    if start_addr == t.scratch_ptr {
+    if start_addr == t.scratch_ptr.get() {
         return true;
     }
 
@@ -2126,7 +2133,7 @@ fn is_start_of_scratch_region(t: &dyn Task, start_addr: RemotePtr<Void>) -> bool
         if Rc::ptr_eq(tt_rc, &t_rc) {
             continue;
         }
-        if start_addr == tt_rc.borrow().scratch_ptr {
+        if start_addr == tt_rc.scratch_ptr.get() {
             return true;
         }
     }

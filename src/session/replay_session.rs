@@ -59,6 +59,7 @@ use crate::{
             task_inner::{ResumeRequest, SaveTraceeFdNumber, TaskInner, TicksRequest, WaitRequest},
             Task,
             TaskSharedPtr,
+            TaskSharedWeakPtr,
         },
         Session,
         SessionSharedPtr,
@@ -637,7 +638,7 @@ impl ReplaySession {
                 self.advance_to_next_trace_frame();
             }
             if self.current_step.get().action == ReplayTraceStepType::TstepExitTask {
-                result.break_status.task = rc_t.borrow().weak_self.clone();
+                result.break_status.task = rc_t.weak_self.clone();
                 result.break_status.task_exit = true;
             }
             return result;
@@ -646,9 +647,9 @@ impl ReplaySession {
             let rc_t = maybe_rc_t.as_ref().unwrap().clone();
             self.fast_forward_status.set(FastForwardStatus::new());
             // Now we know `t` hasn't died, so save it in break_status.
-            result.break_status.task = rc_t.borrow().weak_self.clone();
-            let mut dt = rc_t.borrow_mut();
-            let t = dt.as_replay_task_mut().unwrap();
+            result.break_status.task = rc_t.weak_self.clone();
+
+            let t = rc_t.as_replay_task().unwrap();
             // Advance towards fulfilling `current_step`.
             if self.try_one_trace_step(t, &constraints) == Completion::Incomplete {
                 if EventType::EvTraceTermination == self.current_trace_frame().event().event_type()
@@ -740,8 +741,7 @@ impl ReplaySession {
         match maybe_rc_t {
             None => (),
             Some(rc_t) => {
-                let mut dt = rc_t.borrow_mut();
-                let t = dt.as_replay_task_mut().unwrap();
+                let t = rc_t.as_replay_task().unwrap();
 
                 let frame = self.current_trace_frame();
                 let ev = frame.event();
@@ -770,8 +770,7 @@ impl ReplaySession {
         match maybe_next_task {
             None => (),
             Some(next_task_shr_ptr) => {
-                let next_task_t = next_task_shr_ptr.borrow_mut();
-                let next_task = next_task_t.as_replay_task().unwrap();
+                let next_task = next_task_shr_ptr.as_replay_task().unwrap();
                 if next_task.vm().first_run_event() == 0 && self.done_initial_exec() {
                     next_task
                         .vm()
@@ -799,14 +798,14 @@ impl ReplaySession {
             None => self.revive_task_for_exec(ev, trace_frame_tid),
             Some(ts) => ts,
         };
-        let mut dyn_t = t_shr_ptr.borrow_mut();
-        let t = dyn_t.as_replay_task_mut().unwrap();
+
+        let t = t_shr_ptr.as_replay_task().unwrap();
 
         log!(
             LogDebug,
             "[event {}] {}: replaying {}; state {}",
             self.current_frame_time(),
-            t.rec_tid,
+            t.rec_tid(),
             ev,
             if ev.is_syscall_event() {
                 format!("{}", ev.syscall_event().state)
@@ -815,8 +814,8 @@ impl ReplaySession {
             }
         );
 
-        if !t.syscallbuf_child.is_null() {
-            let syscallbuf_hdr: RemotePtr<u8> = RemotePtr::cast(t.syscallbuf_child);
+        if !t.syscallbuf_child.get().is_null() {
+            let syscallbuf_hdr: RemotePtr<u8> = RemotePtr::cast(t.syscallbuf_child.get());
             let syscallbuf_num_rec_bytes: RemotePtr<u32> =
                 RemotePtr::cast(syscallbuf_hdr + offset_of!(syscallbuf_hdr, num_rec_bytes));
             let syscallbuf_abort_commit: RemotePtr<u8> =
@@ -840,7 +839,7 @@ impl ReplaySession {
                 current_step.action = ReplayTraceStepType::TstepExitTask;
             }
             EventType::EvSyscallbufAbortCommit => {
-                let child_addr = RemotePtr::<u8>::cast(t.syscallbuf_child)
+                let child_addr = RemotePtr::<u8>::cast(t.syscallbuf_child.get())
                     + offset_of!(syscallbuf_hdr, abort_commit);
                 write_val_mem(t, child_addr, &1u8, None);
                 t.apply_all_data_records_from_trace();
@@ -942,7 +941,7 @@ impl ReplaySession {
         }
 
         self.current_step.set(current_step);
-        drop(dyn_t);
+
         t_shr_ptr
     }
 
@@ -950,12 +949,12 @@ impl ReplaySession {
     /// tracee for replaying the records.
     ///
     /// DIFF NOTE: Extra param compared to rr
-    fn prepare_syscallbuf_records(&self, t: &mut ReplayTask, current_step: &mut ReplayTraceStep) {
+    fn prepare_syscallbuf_records(&self, t: &ReplayTask, current_step: &mut ReplayTraceStep) {
         // Read the recorded syscall buffer back into the buffer region.
         let buf = t.trace_reader_mut().read_raw_data();
         ed_assert!(t, buf.data.len() >= size_of::<syscallbuf_hdr>());
-        ed_assert!(t, buf.data.len() <= t.syscallbuf_size);
-        ed_assert_eq!(t, buf.addr, RemotePtr::cast(t.syscallbuf_child));
+        ed_assert!(t, buf.data.len() <= t.syscallbuf_size.get());
+        ed_assert_eq!(t, buf.addr, RemotePtr::cast(t.syscallbuf_child.get()));
 
         let mut recorded_hdr: syscallbuf_hdr = Default::default();
         unsafe {
@@ -968,7 +967,7 @@ impl ReplaySession {
         // Don't overwrite syscallbuf_hdr. That needs to keep tracking the current
         // syscallbuf state.
         t.write_bytes_helper(
-            RemotePtr::cast(t.syscallbuf_child + 1usize),
+            RemotePtr::cast(t.syscallbuf_child.get() + 1usize),
             &buf.data[size_of::<syscallbuf_hdr>()..],
             None,
             WriteFlags::empty(),
@@ -977,12 +976,16 @@ impl ReplaySession {
         let num_rec_bytes = recorded_hdr.num_rec_bytes;
         ed_assert!(
             t,
-            num_rec_bytes as usize + size_of::<syscallbuf_hdr>() <= t.syscallbuf_size
+            num_rec_bytes as usize + size_of::<syscallbuf_hdr>() <= t.syscallbuf_size.get()
         );
 
         current_step.action = ReplayTraceStepType::TstepFlushSyscallbuf;
-        let stop_breakpoint_addr = t.stopping_breakpoint_table.to_data_ptr::<Void>().as_usize()
-            + (num_rec_bytes as usize / 8) * t.stopping_breakpoint_table_entry_size;
+        let stop_breakpoint_addr = t
+            .stopping_breakpoint_table
+            .get()
+            .to_data_ptr::<Void>()
+            .as_usize()
+            + (num_rec_bytes as usize / 8) * t.stopping_breakpoint_table_entry_size.get();
         current_step.data = ReplayTraceStepData::Flush(ReplayFlushBufferedSyscallState {
             stop_breakpoint_addr,
         });
@@ -1018,7 +1021,7 @@ impl ReplaySession {
         }
 
         let t_rc = tg.borrow().task_set().iter().next().unwrap();
-        let t_rec_tid = t_rc.borrow().rec_tid;
+        let t_rec_tid = t_rc.rec_tid();
         log!(
             LogDebug,
             "Changing task tid from {} to {}",
@@ -1027,7 +1030,7 @@ impl ReplaySession {
         );
         let t_rc_removed = self.task_map.borrow_mut().remove(&t_rec_tid).unwrap();
         debug_assert!(Rc::ptr_eq(&t_rc_removed, &t_rc));
-        t_rc.borrow_mut().rec_tid = trace_frame_tid;
+        t_rc.rec_tid.set(trace_frame_tid);
         self.task_map.borrow_mut().insert(trace_frame_tid, t_rc);
         // The real tid is not changing yet. It will, in process_execve.
         t_rc_removed
@@ -1037,7 +1040,7 @@ impl ReplaySession {
         self.replay_step_with_constraints(&StepConstraints::new(command))
     }
 
-    fn emulate_signal_delivery(&self, t: &mut ReplayTask, sig: Sig) -> Completion {
+    fn emulate_signal_delivery(&self, t: &ReplayTask, sig: Sig) -> Completion {
         let maybe_t = self.current_task();
         match maybe_t {
             None => {
@@ -1095,11 +1098,7 @@ impl ReplaySession {
     /// When the syscall trace frame is non-null, we continue to the syscall by
     /// setting a breakpoint instead of running until we execute a system
     /// call instruction. In that case we will not actually enter the kernel.
-    fn cont_syscall_boundary(
-        &self,
-        t: &mut ReplayTask,
-        constraints: &StepConstraints,
-    ) -> Completion {
+    fn cont_syscall_boundary(&self, t: &ReplayTask, constraints: &StepConstraints) -> Completion {
         let mut ticks_request: TicksRequest = TicksRequest::ResumeUnlimitedTicks;
         if constraints.ticks_target <= self.trace_frame.borrow().ticks() {
             if !compute_ticks_request(t, constraints, &mut ticks_request) {
@@ -1151,7 +1150,7 @@ impl ReplaySession {
                 t.get_siginfo()
             );
         }
-        if t.seccomp_bpf_enabled
+        if t.seccomp_bpf_enabled.get()
             && self.syscall_seccomp_ordering_.get()
                 == PtraceSyscallSeccompOrdering::SyscallBeforeSeccompUnknown
         {
@@ -1189,7 +1188,7 @@ impl ReplaySession {
 
     /// Advance to the next syscall entry (or virtual entry) according to constraints
     /// Return `Complete` if successful, or `Incomplete` if an unhandled trap occurred.
-    fn enter_syscall(&self, t: &mut ReplayTask, constraints: &StepConstraints) -> Completion {
+    fn enter_syscall(&self, t: &ReplayTask, constraints: &StepConstraints) -> Completion {
         if t.regs_ref().matches(self.current_trace_frame().regs_ref())
             && t.tick_count() == self.current_trace_frame().ticks()
         {
@@ -1213,10 +1212,8 @@ impl ReplaySession {
                 // completes, the breakpoint is cleared).
                 debug_assert!(
                     self.syscall_bp_vm.borrow().is_none()
-                        || Rc::ptr_eq(
-                            self.syscall_bp_vm.borrow().as_ref().unwrap(),
-                            t.as_.as_ref().unwrap()
-                        ) && syscall_instruction == self.syscall_bp_addr.get()
+                        || Rc::ptr_eq(self.syscall_bp_vm.borrow().as_ref().unwrap(), &t.vm())
+                            && syscall_instruction == self.syscall_bp_addr.get()
                             && t.vm().get_breakpoint_type_at_addr(syscall_instruction)
                                 != BreakpointType::BkptNone
                 );
@@ -1226,15 +1223,12 @@ impl ReplaySession {
                 // overwritten by the tracee. It could even be dynamically generated and
                 // not generated yet.
                 if self.syscall_bp_vm.borrow().is_none()
-                    && t.vm_shr_ptr()
+                    && t.vm()
                         .is_breakpoint_in_private_read_only_memory(syscall_instruction, t)
-                    && t.vm_shr_ptr().add_breakpoint(
-                        t,
-                        syscall_instruction,
-                        BreakpointType::BkptInternal,
-                    )
+                    && t.vm()
+                        .add_breakpoint(t, syscall_instruction, BreakpointType::BkptInternal)
                 {
-                    *self.syscall_bp_vm.borrow_mut() = Some(t.as_.as_ref().unwrap().clone());
+                    *self.syscall_bp_vm.borrow_mut() = Some(t.vm());
                     self.syscall_bp_addr.set(syscall_instruction);
                 }
             }
@@ -1253,7 +1247,7 @@ impl ReplaySession {
                     t.set_regs(&r);
                     t.canonicalize_regs(self.current_trace_frame().event().syscall_event().arch());
                     t.validate_regs(Default::default());
-                    self.clear_syscall_bp(t);
+                    self.clear_syscall_bp();
                 } else {
                     return Completion::Incomplete;
                 }
@@ -1275,7 +1269,7 @@ impl ReplaySession {
         Completion::Complete
     }
 
-    fn exit_syscall(&self, t: &mut ReplayTask) -> Completion {
+    fn exit_syscall(&self, t: &ReplayTask) -> Completion {
         let arch = self.current_step.get().syscall().arch;
         let sys = self.current_step.get().syscall().number;
         t.on_syscall_exit(sys, arch, self.current_trace_frame().regs_ref());
@@ -1295,8 +1289,8 @@ impl ReplaySession {
         Completion::Complete
     }
 
-    fn exit_task(&self, t: &mut ReplayTask) -> Completion {
-        ed_assert!(t, !t.seen_ptrace_exit_event);
+    fn exit_task(&self, t: &ReplayTask) -> Completion {
+        ed_assert!(t, !t.seen_ptrace_exit_event.get());
         // Apply robust-futex updates captured during recording.
         t.apply_all_data_records_from_trace();
         end_task(t);
@@ -1304,11 +1298,7 @@ impl ReplaySession {
         Completion::Complete
     }
 
-    fn handle_unrecorded_cpuid_fault(
-        &self,
-        t: &mut ReplayTask,
-        constraints: &StepConstraints,
-    ) -> bool {
+    fn handle_unrecorded_cpuid_fault(&self, t: &ReplayTask, constraints: &StepConstraints) -> bool {
         if t.maybe_stop_sig() != SIGSEGV
             || !SessionInner::has_cpuid_faulting()
             || self.trace_in.borrow().uses_cpuid_faulting()
@@ -1364,7 +1354,7 @@ impl ReplaySession {
         );
     }
 
-    fn check_pending_sig(&self, t: &mut ReplayTask) {
+    fn check_pending_sig(&self, t: &ReplayTask) {
         if t.maybe_stop_sig().is_not_sig() {
             let syscall_arch = t.detect_syscall_arch();
             ed_assert!(
@@ -1393,7 +1383,7 @@ impl ReplaySession {
     /// processed a CPUID trap.
     fn continue_or_step(
         &self,
-        t: &mut ReplayTask,
+        t: &ReplayTask,
         constraints: &StepConstraints,
         tick_request: TicksRequest,
         maybe_resume_how: Option<ResumeRequest>,
@@ -1461,7 +1451,7 @@ impl ReplaySession {
 
     fn emulate_deterministic_signal(
         &self,
-        t: &mut ReplayTask,
+        t: &ReplayTask,
         sig: Sig,
         constraints: &StepConstraints,
     ) -> Completion {
@@ -1526,7 +1516,7 @@ impl ReplaySession {
 
     fn emulate_async_signal(
         &self,
-        t: &mut ReplayTask,
+        t: &ReplayTask,
         constraints: &StepConstraints,
         ticks: Ticks,
     ) -> Completion {
@@ -1635,8 +1625,7 @@ impl ReplaySession {
                     // Case (0) above: interrupt for the debugger.
                     log!(LogDebug, "    trap was debugger singlestep/breakpoint");
                     if did_set_internal_breakpoint {
-                        t.vm_shr_ptr()
-                            .remove_breakpoint(ip, BreakpointType::BkptInternal, t);
+                        t.vm().remove_breakpoint(ip, BreakpointType::BkptInternal);
                     }
                     return Completion::Incomplete;
                 }
@@ -1695,8 +1684,7 @@ impl ReplaySession {
             // and it's simpler to start out knowing that the
             // breakpoint isn't set.
             if did_set_internal_breakpoint {
-                t.vm_shr_ptr()
-                    .remove_breakpoint(ip, BreakpointType::BkptInternal, t);
+                t.vm().remove_breakpoint(ip, BreakpointType::BkptInternal);
                 did_set_internal_breakpoint = false;
             }
 
@@ -1723,8 +1711,7 @@ impl ReplaySession {
                 // no slower than single-stepping our way to
                 // the target execution point.
                 log!(LogDebug, "    breaking on target $ip");
-                t.vm_shr_ptr()
-                    .add_breakpoint(t, ip, BreakpointType::BkptInternal);
+                t.vm().add_breakpoint(t, ip, BreakpointType::BkptInternal);
                 did_set_internal_breakpoint = true;
                 self.continue_or_step(t, constraints, TicksRequest::ResumeUnlimitedTicks, None);
                 SIGTRAP_run_command = constraints.command;
@@ -1783,12 +1770,12 @@ impl ReplaySession {
         }
     }
 
-    fn flush_syscallbuf(&self, t: &mut ReplayTask, constraints: &StepConstraints) -> Completion {
+    fn flush_syscallbuf(&self, t: &ReplayTask, constraints: &StepConstraints) -> Completion {
         let mut user_breakpoint_at_addr: bool;
 
         loop {
             let mut next_rec = t.next_syscallbuf_record();
-            let child_addr: RemotePtr<u8> = RemotePtr::cast(t.syscallbuf_child)
+            let child_addr: RemotePtr<u8> = RemotePtr::cast(t.syscallbuf_child.get())
                 + offset_of!(syscallbuf_hdr, mprotect_record_count_completed);
             let skip_mprotect_records = read_val_mem::<u32>(t, RemotePtr::cast(child_addr), None);
 
@@ -1797,7 +1784,7 @@ impl ReplaySession {
                 return Completion::Incomplete;
             }
 
-            let added: bool = t.vm_shr_ptr().add_breakpoint(
+            let added: bool = t.vm().add_breakpoint(
                 t,
                 RemoteCodePtr::from(self.current_step.get().flush().stop_breakpoint_addr),
                 BreakpointType::BkptInternal,
@@ -1813,10 +1800,9 @@ impl ReplaySession {
                 self.current_step.get().flush().stop_breakpoint_addr,
             )) != BreakpointType::BkptInternal;
 
-            t.vm_shr_ptr().remove_breakpoint(
+            t.vm().remove_breakpoint(
                 RemoteCodePtr::from(self.current_step.get().flush().stop_breakpoint_addr),
                 BreakpointType::BkptInternal,
-                t,
             );
 
             // Account for buffered syscalls just completed
@@ -1867,7 +1853,7 @@ impl ReplaySession {
         }
     }
 
-    fn patch_next_syscall(&self, t: &mut ReplayTask, constraints: &StepConstraints) -> Completion {
+    fn patch_next_syscall(&self, t: &ReplayTask, constraints: &StepConstraints) -> Completion {
         if self.cont_syscall_boundary(t, constraints) == Completion::Incomplete {
             return Completion::Incomplete;
         }
@@ -1900,8 +1886,8 @@ impl ReplaySession {
                         -1,
                         0,
                     );
-                    remote.task().vm_shr_ptr().map(
-                        remote.task_mut(),
+                    remote.task().vm().map(
+                        remote.task(),
                         km.start(),
                         km.size(),
                         km.prot(),
@@ -1930,7 +1916,7 @@ impl ReplaySession {
     /// Try to execute step, adjusting for `constraints` if needed.  Return `Complete` if
     /// step was made, or `Incomplete` if there was a trap or step needs
     /// more work.
-    fn try_one_trace_step(&self, t: &mut ReplayTask, constraints: &StepConstraints) -> Completion {
+    fn try_one_trace_step(&self, t: &ReplayTask, constraints: &StepConstraints) -> Completion {
         if constraints.ticks_target > 0
             && !self.trace_frame.borrow().event().has_ticks_slop()
             && t.current_trace_frame().ticks() > constraints.ticks_target
@@ -1986,15 +1972,10 @@ impl ReplaySession {
         }
     }
 
-    // DIFF NOTE: Additional Param `active_task`
-    fn clear_syscall_bp(&self, active_task: &mut dyn Task) {
+    fn clear_syscall_bp(&self) {
         let mut maybe_bp_vm = self.syscall_bp_vm.borrow_mut();
         maybe_bp_vm.as_ref().map(|bp_vm| {
-            bp_vm.remove_breakpoint(
-                self.syscall_bp_addr.get(),
-                BreakpointType::BkptInternal,
-                active_task,
-            )
+            bp_vm.remove_breakpoint(self.syscall_bp_addr.get(), BreakpointType::BkptInternal)
         });
         *maybe_bp_vm = None;
         self.syscall_bp_addr.set(RemoteCodePtr::null());
@@ -2002,9 +1983,9 @@ impl ReplaySession {
 }
 
 /// Returns mprotect record count
-fn apply_mprotect_records(t: &mut ReplayTask, skip_mprotect_records: u32) -> u32 {
+fn apply_mprotect_records(t: &ReplayTask, skip_mprotect_records: u32) -> u32 {
     let final_mprotect_record_count_addr = RemotePtr::<u32>::cast(
-        RemotePtr::<u8>::cast(t.syscallbuf_child)
+        RemotePtr::<u8>::cast(t.syscallbuf_child.get())
             + offset_of!(syscallbuf_hdr, mprotect_record_count),
     );
 
@@ -2012,8 +1993,9 @@ fn apply_mprotect_records(t: &mut ReplayTask, skip_mprotect_records: u32) -> u32
         read_val_mem::<u32>(t, final_mprotect_record_count_addr, None);
 
     if skip_mprotect_records < final_mprotect_record_count {
+        assert!(!t.preload_globals.get().is_null());
         let records_addr = RemotePtr::<mprotect_record>::cast(
-            RemotePtr::<u8>::cast(t.preload_globals.unwrap())
+            RemotePtr::<u8>::cast(t.preload_globals.get())
                 + offset_of!(preload_globals, mprotect_records),
         ) + skip_mprotect_records;
 
@@ -2026,7 +2008,7 @@ fn apply_mprotect_records(t: &mut ReplayTask, skip_mprotect_records: u32) -> u32
 
         for (i, r) in records.iter().enumerate() {
             let completed_count_addr = RemotePtr::<u32>::cast(
-                RemotePtr::<u8>::cast(t.syscallbuf_child)
+                RemotePtr::<u8>::cast(t.syscallbuf_child.get())
                     + offset_of!(syscallbuf_hdr, mprotect_record_count_completed),
             );
             let completed_count: u32 = read_val_mem(t, completed_count_addr, None);
@@ -2037,7 +2019,7 @@ fn apply_mprotect_records(t: &mut ReplayTask, skip_mprotect_records: u32) -> u32
                     continue;
                 }
             }
-            t.vm_shr_ptr().protect(
+            t.vm().protect(
                 t,
                 RemotePtr::from(r.start),
                 r.size as usize,
@@ -2047,7 +2029,7 @@ fn apply_mprotect_records(t: &mut ReplayTask, skip_mprotect_records: u32) -> u32
                 unsafe {
                     libc::syscall(
                         SYS_rdcall_mprotect_record as _,
-                        t.tid,
+                        t.tid(),
                         r.start as usize,
                         r.size as usize,
                         r.prot,
@@ -2069,7 +2051,7 @@ fn apply_mprotect_records(t: &mut ReplayTask, skip_mprotect_records: u32) -> u32
 /// Killing tasks with fatal signals doesn't work because a fatal signal will
 /// try to kill all the tasks in the thread group. Instead we inject an `exit`
 /// syscall, which is apparently the only way to kill one specific thread.
-fn end_task(t: &mut ReplayTask) {
+fn end_task(t: &ReplayTask) {
     ed_assert_ne!(t, t.maybe_ptrace_event(), PTRACE_EVENT_EXIT);
 
     t.destroy_buffers();
@@ -2087,7 +2069,7 @@ fn end_task(t: &mut ReplayTask) {
     );
     ed_assert_eq!(t, t.maybe_ptrace_event(), PTRACE_EVENT_EXIT);
 
-    t.stable_exit = true;
+    t.stable_exit.set(true);
     t.destroy(None);
 }
 
@@ -2134,8 +2116,9 @@ impl Session for ReplaySession {
         rec_tid: Option<pid_t>,
         serial: u32,
         a: SupportedArch,
+        weak_self: TaskSharedWeakPtr,
     ) -> Box<dyn Task> {
-        let t = ReplayTask::new(self, tid, rec_tid, serial, a);
+        let t = ReplayTask::new(self, tid, rec_tid, serial, a, weak_self);
         Box::new(t)
     }
 
@@ -2236,7 +2219,7 @@ fn check_xsave_compatibility(trace_in: &TraceReader) {
     }
 }
 
-fn process_grow_map(t: &mut ReplayTask) {
+fn process_grow_map(t: &ReplayTask) {
     let mut data = MappedData::default();
     let km = t
         .trace_reader_mut()
@@ -2251,7 +2234,7 @@ fn treat_signal_event_as_deterministic(ev: &SignalEventData) -> bool {
     ev.deterministic == SignalDeterministic::DeterministicSig && ev.siginfo.si_signo != SIGBUS
 }
 
-fn perform_interrupted_syscall(t: &mut ReplayTask) {
+fn perform_interrupted_syscall(t: &ReplayTask) {
     t.finish_emulated_syscall();
     let mut remote = AutoRemoteSyscalls::new(t);
     let r: Registers = remote.task().regs_ref().clone();
@@ -2297,7 +2280,7 @@ fn perform_interrupted_syscall(t: &mut ReplayTask) {
 /// perhaps pipeline depth and things of that nature are involved.  But
 /// those reasons if they exit are currently not understood.
 fn compute_ticks_request(
-    t: &mut ReplayTask,
+    t: &ReplayTask,
     constraints: &StepConstraints,
     ticks_request: &mut TicksRequest,
 ) -> bool {
@@ -2341,7 +2324,7 @@ fn has_deterministic_ticks(ev: &Event, step: ReplayTraceStep) -> bool {
     ReplayTraceStepType::TstepProgramAsyncSignalInterrupt != step.action
 }
 
-fn debug_memory(t: &mut ReplayTask) {
+fn debug_memory(t: &ReplayTask) {
     let current_time = t.current_frame_time();
     if should_dump_memory(t.current_trace_frame().event(), current_time) {
         unimplemented!()
@@ -2356,7 +2339,7 @@ fn debug_memory(t: &mut ReplayTask) {
     }
 }
 
-fn guard_unexpected_signal(t: &mut ReplayTask) {
+fn guard_unexpected_signal(t: &ReplayTask) {
     if ReplaySession::is_ignored_signal(t.maybe_stop_sig().get_raw_repr())
         || t.maybe_stop_sig() == SIGTRAP
     {
@@ -2384,7 +2367,7 @@ fn guard_unexpected_signal(t: &mut ReplayTask) {
 }
 
 fn is_same_execution_point(
-    t: &mut ReplayTask,
+    t: &ReplayTask,
     rec_regs: &Registers,
     ticks_left: i64,
     mismatched_regs: &mut Option<Registers>,
@@ -2407,7 +2390,7 @@ fn is_same_execution_point(
             Registers::compare_register_files(
                 Some(t),
                 "(rep)",
-                t.regs_ref(),
+                &t.regs_ref(),
                 "(rec)",
                 rec_regs,
                 MismatchBehavior::LogMismatches,
@@ -2415,7 +2398,8 @@ fn is_same_execution_point(
         }
         return false;
     }
-    if !Registers::compare_register_files(Some(t), "rep", t.regs_ref(), "rec", rec_regs, behavior) {
+    if !Registers::compare_register_files(Some(t), "rep", &t.regs_ref(), "rec", rec_regs, behavior)
+    {
         log!(
             LogDebug,
             "  not same execution point: regs differ (@{})",
@@ -2430,7 +2414,7 @@ fn is_same_execution_point(
 }
 
 fn guard_overshoot(
-    t: &mut ReplayTask,
+    t: &ReplayTask,
     target_regs: &Registers,
     target_ticks: Ticks,
     remaining_ticks: i64,
@@ -2443,8 +2427,8 @@ fn guard_overshoot(
         // set, and restore the tracee's $ip to what it would
         // have been had it not hit the breakpoint (if it did
         // hit the breakpoint).
-        t.vm_shr_ptr()
-            .remove_breakpoint(target_ip, BreakpointType::BkptInternal, t);
+        t.vm()
+            .remove_breakpoint(target_ip, BreakpointType::BkptInternal);
         if t.regs_ref().ip() == target_ip.increment_by_bkpt_insn_length(t.arch()) {
             t.move_ip_before_breakpoint();
         }
@@ -2457,7 +2441,7 @@ fn guard_overshoot(
                 Registers::compare_register_files(
                     Some(t),
                     "rep overshoot",
-                    t.regs_ref(),
+                    &t.regs_ref(),
                     "rec",
                     cmr,
                     MismatchBehavior::LogMismatches,
@@ -2468,7 +2452,7 @@ fn guard_overshoot(
                 Registers::compare_register_files(
                     Some(t),
                     "rep overshoot",
-                    t.regs_ref(),
+                    &t.regs_ref(),
                     "rec",
                     target_regs,
                     MismatchBehavior::LogMismatches,

@@ -80,13 +80,6 @@ impl<T> WeakPtrSet<T> {
         }
     }
 
-    pub fn iter_except_vec(&self, tw_vec: Vec<Weak<T>>) -> ExceptVecSetIterator<T> {
-        ExceptVecSetIterator {
-            hash_set_iterator: self.0.iter(),
-            except: tw_vec,
-        }
-    }
-
     pub fn insert(&mut self, t: Weak<T>) -> bool {
         // Make this message more specific e.g. are we dealing with a task or thread group etc.
         log!(LogDebug, "adding an item to set {:?}", t.as_ptr());
@@ -124,11 +117,6 @@ pub struct ExceptSetIterator<'a, T> {
     except: Weak<T>,
 }
 
-pub struct ExceptVecSetIterator<'a, T> {
-    hash_set_iterator: Iter<'a, WeakPtrWrap<T>>,
-    except: Vec<Weak<T>>,
-}
-
 impl<T> Iterator for SetIterator<'_, T> {
     type Item = Rc<T>;
 
@@ -143,21 +131,6 @@ impl<T> Iterator for ExceptSetIterator<'_, T> {
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(WeakPtrWrap(it)) = self.hash_set_iterator.next() {
             if it.ptr_eq(&self.except) {
-                continue;
-            } else {
-                return Some(it.upgrade().unwrap());
-            }
-        }
-        None
-    }
-}
-
-impl<T> Iterator for ExceptVecSetIterator<'_, T> {
-    type Item = Rc<T>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        while let Some(WeakPtrWrap(it)) = self.hash_set_iterator.next() {
-            if self.except.iter().any(|v| v.ptr_eq(it)) {
                 continue;
             } else {
                 return Some(it.upgrade().unwrap());

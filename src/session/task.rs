@@ -34,11 +34,10 @@ use crate::{
 use libc::{pid_t, waitpid, EINTR, ENOSYS, SIGSTOP, SIGTRAP, WNOHANG, __WALL};
 use nix::errno::errno;
 use std::{
-    cell::RefCell,
     ffi::{CString, OsStr, OsString},
     fmt::{self, Debug, Formatter},
     io::{stderr, Write},
-    ops::DerefMut,
+    ops::Deref,
     os::unix::ffi::OsStringExt,
     ptr,
     rc::{Rc, Weak},
@@ -53,22 +52,22 @@ pub mod replay_task;
 pub mod task_common;
 pub mod task_inner;
 
-pub type TaskSharedPtr = Rc<RefCell<Box<dyn Task>>>;
-pub type TaskSharedWeakPtr = Weak<RefCell<Box<dyn Task>>>;
-pub type WeakTaskPtrSet = WeakPtrSet<RefCell<Box<dyn Task>>>;
+pub type TaskSharedPtr = Rc<Box<dyn Task>>;
+pub type TaskSharedWeakPtr = Weak<Box<dyn Task>>;
+pub type WeakTaskPtrSet = WeakPtrSet<Box<dyn Task>>;
 
 impl Debug for &dyn Task {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.write_str(&format!(
             "Task(tid: {} rec_tid:{}, serial:{})",
-            self.tid,
-            self.rec_tid,
+            self.tid(),
+            self.rec_tid(),
             self.tuid().serial()
         ))
     }
 }
 
-pub trait Task: DerefMut<Target = TaskInner> {
+pub trait Task: Deref<Target = TaskInner> {
     /// Return a new Task cloned from `clone_this`. `flags` are a set of
     /// CloneFlags (see above) that determine which resources are
     /// shared or copied to the new child.  `new_tid` is the tid
@@ -79,7 +78,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
     /// NOTE: - Called simply Task::clone() in rr
     ///       - Sets the weak_self pointer for the task
     fn clone_task(
-        &mut self,
+        &self,
         reason: CloneReason,
         flags: CloneFlags,
         stack: RemotePtr<Void>,
@@ -93,15 +92,15 @@ pub trait Task: DerefMut<Target = TaskInner> {
 
     /// Lock or unlock the syscallbuf to prevent the preload library from using it.
     /// Only has an effect if the syscallbuf has been initialized.
-    fn set_syscallbuf_locked(&mut self, locked: bool);
+    fn set_syscallbuf_locked(&self, locked: bool);
 
     /// Call this to reset syscallbuf_hdr->num_rec_bytes and zero out the data
     /// recorded in the syscall buffer. This makes for more deterministic behavior
     /// especially during replay, where during checkpointing we only save and
     /// restore the recorded data area.
-    fn reset_syscallbuf(&mut self);
+    fn reset_syscallbuf(&self);
 
-    fn detect_syscall_arch(&mut self) -> SupportedArch;
+    fn detect_syscall_arch(&self) -> SupportedArch;
 
     /// DIFF NOTE: Unlike rr, it is NOT compulsory to always call this method
     /// to cleanup a task. Call this method when you need to explicitly remove
@@ -110,7 +109,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
     /// which is to remove the corresponding TaskSharedPtr entry from the
     /// task_map. See kill_all_tasks() for an example where the task map
     /// is being pop-ed from.
-    fn destroy(&mut self, maybe_detach: Option<bool>);
+    fn destroy(&self, maybe_detach: Option<bool>);
 
     /// Destroy in the tracee task the scratch buffer and syscallbuf (if
     /// syscallbuf_child is non-null).
@@ -118,10 +117,10 @@ pub trait Task: DerefMut<Target = TaskInner> {
     /// executed; if it's not, results are undefined.
     ///
     /// Must be idempotent
-    fn destroy_buffers(&mut self);
+    fn destroy_buffers(&self);
 
     /// Calls open_mem_fd if this task's AddressSpace doesn't already have one.
-    fn open_mem_fd_if_needed(&mut self) {
+    fn open_mem_fd_if_needed(&self) {
         if !self.vm().mem_fd().is_open() {
             self.open_mem_fd();
         }
@@ -130,45 +129,34 @@ pub trait Task: DerefMut<Target = TaskInner> {
     /// DIFF NOTE: @TODO method is protected in rr
     ///
     /// Internal method called after the first wait() during a clone().
-    fn post_wait_clone(&mut self, clone_from: &dyn Task, flags: CloneFlags);
+    fn post_wait_clone(&self, clone_from: &dyn Task, flags: CloneFlags);
 
     /// DIFF NOTE: @TODO method is protected in rr
     ///
     /// Internal method called after the clone to fix up the new address space.
-    fn post_vm_clone(
-        &mut self,
-        reason: CloneReason,
-        flags: CloneFlags,
-        origin: &mut dyn Task,
-    ) -> bool;
+    fn post_vm_clone(&self, reason: CloneReason, flags: CloneFlags, origin: &dyn Task) -> bool;
 
-    fn post_exec_syscall(&mut self);
+    fn post_exec_syscall(&self);
 
-    fn post_exec_for_exe(&mut self, exe_file: &OsStr);
+    fn post_exec_for_exe(&self, exe_file: &OsStr);
 
     fn resume_execution(
-        &mut self,
+        &self,
         how: ResumeRequest,
         wait_how: WaitRequest,
         tick_period: TicksRequest,
         maybe_sig: Option<Sig>,
     );
 
-    fn stored_record_size(&mut self, record: RemotePtr<syscallbuf_record>) -> usize;
+    fn stored_record_size(&self, record: RemotePtr<syscallbuf_record>) -> usize;
 
-    fn did_waitpid(&mut self, status: WaitStatus);
+    fn did_waitpid(&self, status: WaitStatus);
 
-    fn next_syscallbuf_record(&mut self) -> RemotePtr<syscallbuf_record>;
+    fn next_syscallbuf_record(&self) -> RemotePtr<syscallbuf_record>;
 
     fn as_task_inner(&self) -> &TaskInner;
 
-    fn as_task_inner_mut(&mut self) -> &mut TaskInner;
-
     fn as_record_task(&self) -> Option<&RecordTask> {
-        None
-    }
-
-    fn as_record_task_mut(&mut self) -> Option<&mut RecordTask> {
         None
     }
 
@@ -176,15 +164,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
         panic!("Not a RecordTask!")
     }
 
-    fn as_rec_mut_unwrap(&mut self) -> &mut RecordTask {
-        panic!("Not a RecordTask!")
-    }
-
     fn as_replay_task(&self) -> Option<&ReplayTask> {
-        None
-    }
-
-    fn as_replay_task_mut(&mut self) -> Option<&mut ReplayTask> {
         None
     }
 
@@ -197,11 +177,11 @@ pub trait Task: DerefMut<Target = TaskInner> {
     /// attributes need to be updated based on the finishing syscall.
     /// Use 'regs' instead of this->regs() because some registers may not be
     /// set properly in the task yet.
-    fn on_syscall_exit(&mut self, syscallno: i32, arch: SupportedArch, regs: &Registers);
+    fn on_syscall_exit(&self, syscallno: i32, arch: SupportedArch, regs: &Registers);
 
     /// Hook called by `resume_execution`.
     fn will_resume_execution(
-        &mut self,
+        &self,
         _resume_req: ResumeRequest,
         _wait_req: WaitRequest,
         _ticks_req: TicksRequest,
@@ -212,18 +192,18 @@ pub trait Task: DerefMut<Target = TaskInner> {
     }
 
     /// Hook called by `did_waitpid`.
-    fn did_wait(&mut self) {
+    fn did_wait(&self) {
         // Do nothing. However, for example, RecordTask::did_wait() overrides this.
     }
 
     /// Return the pid of the task in its own pid namespace.
     /// Only RecordTasks actually change pid namespaces.
     fn own_namespace_tid(&self) -> pid_t {
-        self.tid
+        self.tid()
     }
 
     /// Called when SYS_rdcall_init_preload has happened.
-    fn at_preload_init(&mut self);
+    fn at_preload_init(&self);
 
     /// Dump attributes of this process, including pending events,
     /// to `out`, which defaults to stderr.
@@ -234,9 +214,9 @@ pub trait Task: DerefMut<Target = TaskInner> {
             out,
             "  {:?}(tid:{} rec_tid:{} status:{}{})<{:?}>\n",
             self.prname,
-            self.tid,
-            self.rec_tid,
-            self.wait_status,
+            self.tid(),
+            self.rec_tid(),
+            self.wait_status.get(),
             if self.unstable.get() { " UNSTABLE" } else { "" },
             self as *const _
         )
@@ -253,11 +233,11 @@ pub trait Task: DerefMut<Target = TaskInner> {
     /// We're currently in user-space with registers set up to perform a system
     /// call. Continue into the kernel and stop where we can modify the syscall
     /// state.
-    fn enter_syscall(&mut self) {
-        let mut need_ptrace_syscall_event = !self.seccomp_bpf_enabled
+    fn enter_syscall(&self) {
+        let mut need_ptrace_syscall_event = !self.seccomp_bpf_enabled.get()
             || self.session().syscall_seccomp_ordering()
                 == PtraceSyscallSeccompOrdering::SeccompBeforeSyscall;
-        let mut need_seccomp_event = self.seccomp_bpf_enabled;
+        let mut need_seccomp_event = self.seccomp_bpf_enabled.get();
         while need_ptrace_syscall_event || need_seccomp_event {
             let resume_how = if need_ptrace_syscall_event {
                 ResumeRequest::ResumeSyscall
@@ -278,7 +258,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
             }
             ed_assert!(self, !self.maybe_ptrace_event().is_ptrace_event());
             if self.session().is_recording() && self.maybe_group_stop_sig().is_sig() {
-                self.as_record_task_mut().unwrap().stash_group_stop();
+                self.as_record_task().unwrap().stash_group_stop();
                 continue;
             }
 
@@ -302,7 +282,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
             {
                 continue;
             }
-            self.as_record_task_mut().unwrap().stash_sig();
+            self.as_record_task().unwrap().stash_sig();
         }
     }
 
@@ -311,12 +291,12 @@ pub trait Task: DerefMut<Target = TaskInner> {
     /// Continue into the kernel to perform the syscall and stop at the
     /// PTRACE_SYSCALL syscall-exit trap. Returns false if we see the process exit
     /// before that.
-    fn exit_syscall(&mut self) -> bool {
+    fn exit_syscall(&self) -> bool {
         // If PTRACE_SYSCALL_BEFORE_SECCOMP, we are inconsistent about
         // whether we process the syscall on the syscall entry trap or
         // on the seccomp trap. Detect if we are on the former and
         // just bring us forward to the seccomp trap.
-        let mut will_see_seccomp: bool = self.seccomp_bpf_enabled
+        let mut will_see_seccomp: bool = self.seccomp_bpf_enabled.get()
             && (self.session().syscall_seccomp_ordering()
                 == PtraceSyscallSeccompOrdering::SyscallBeforeSeccomp)
             && !self.is_ptrace_seccomp_event();
@@ -346,7 +326,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
                 continue;
             }
             ed_assert!(self, self.session().is_recording());
-            self.as_record_task_mut().unwrap().stash_sig();
+            self.as_record_task().unwrap().stash_sig();
         }
 
         true
@@ -356,7 +336,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
     /// `cont_sysemu()` or `cont_sysemu_singlestep()`, but that's
     /// not checked.  If so, step over the system call instruction
     /// to "exit" the emulated syscall.
-    fn finish_emulated_syscall(&mut self) {
+    fn finish_emulated_syscall(&self) {
         // XXX verify that this can't be interrupted by a breakpoint trap
         let r = self.regs_ref().clone();
 
@@ -371,13 +351,13 @@ pub trait Task: DerefMut<Target = TaskInner> {
         );
 
         self.set_regs(&r);
-        self.wait_status = Default::default();
+        self.wait_status.set(Default::default());
     }
 
     /// Assuming we've just entered a syscall, exit that syscall and reset
     /// state to reenter the syscall just as it was called the first time.
     /// Returns false if we see the process exit instead.
-    fn exit_syscall_and_prepare_restart(&mut self) -> bool {
+    fn exit_syscall_and_prepare_restart(&self) -> bool {
         let mut r: Registers = self.regs_ref().clone();
         let syscallno: i32 = r.original_syscallno() as i32;
         log!(
@@ -412,29 +392,29 @@ pub trait Task: DerefMut<Target = TaskInner> {
 
     /// Return true if the status of this has changed, but don't
     /// block.
-    fn try_wait(&mut self) -> bool {
+    fn try_wait(&self) -> bool {
         if self.wait_unexpected_exit() {
             return true;
         }
 
         let mut raw_status: i32 = 0;
-        let ret = unsafe { waitpid(self.tid, &mut raw_status, WNOHANG | __WALL) } as i32;
+        let ret = unsafe { waitpid(self.tid(), &mut raw_status, WNOHANG | __WALL) } as i32;
         ed_assert!(
             self,
             0 <= ret,
             "waitpid({}, NOHANG) failed with {}",
-            self.tid,
+            self.tid(),
             ret
         );
         log!(
             LogDebug,
             "waitpid({}, NOHANG) returns {}, status {}",
-            self.tid,
+            self.tid(),
             ret,
             WaitStatus::new(raw_status)
         );
 
-        if ret == self.tid {
+        if ret == self.tid() {
             self.did_waitpid(WaitStatus::new(raw_status));
             return true;
         }
@@ -445,10 +425,10 @@ pub trait Task: DerefMut<Target = TaskInner> {
     /// Block until the status of self changes. wait() expects the wait to end
     /// with the process in a stopped state. If interrupt_after_elapsed > 0,
     /// interrupt the task after that many seconds have elapsed.
-    fn wait(&mut self, maybe_interrupt_after_elapsed: Option<f64>) {
+    fn wait(&self, maybe_interrupt_after_elapsed: Option<f64>) {
         let interrupt_after_elapsed = maybe_interrupt_after_elapsed.unwrap_or(0.0);
         debug_assert!(interrupt_after_elapsed >= 0.0);
-        log!(LogDebug, "going into blocking waitpid({}) ...", self.tid);
+        log!(LogDebug, "going into blocking waitpid({}) ...", self.tid());
         ed_assert!(self, !self.unstable.get(), "Don't wait for unstable tasks");
         ed_assert!(
             self,
@@ -471,7 +451,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
                 }
             }
             let mut raw_status: i32 = 0;
-            ret = unsafe { waitpid(self.tid, &mut raw_status, libc::__WALL) };
+            ret = unsafe { waitpid(self.tid(), &mut raw_status, libc::__WALL) };
             status = WaitStatus::new(raw_status);
             if interrupt_after_elapsed > 0.0 {
                 let timer: itimerval = Default::default();
@@ -493,10 +473,10 @@ pub trait Task: DerefMut<Target = TaskInner> {
                 log!(
                     LogWarn,
                     "Synthesizing PTRACE_EVENT_EXIT for zombie process {}",
-                    self.tid
+                    self.tid()
                 );
                 status = WaitStatus::for_ptrace_event(PTRACE_EVENT_EXIT);
-                ret = self.tid;
+                ret = self.tid();
                 // XXX could this leave unreaped zombies lying around?
                 break;
             }
@@ -504,7 +484,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
             if !sent_wait_interrupt && (interrupt_after_elapsed > 0.0) {
                 self.ptrace_if_alive(PTRACE_INTERRUPT, RemotePtr::null(), &mut PtraceData::None);
                 sent_wait_interrupt = true;
-                self.expecting_ptrace_interrupt_stop = 2;
+                self.expecting_ptrace_interrupt_stop.set(2);
             }
         }
 
@@ -519,7 +499,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
             // Verify that we have not actually seen a PTRACE_EXIT_EVENT.
             ed_assert!(
                 self,
-                !self.seen_ptrace_exit_event,
+                !self.seen_ptrace_exit_event.get(),
                 "A PTRACE_EXIT_EVENT was observed for this task, but somehow forgotten"
             );
 
@@ -527,7 +507,7 @@ pub trait Task: DerefMut<Target = TaskInner> {
             log!(
                 LogWarn,
                 "Synthesizing PTRACE_EVENT_EXIT for process {} exited with {}",
-                self.tid,
+                self.tid(),
                 status.exit_code().unwrap()
             );
             status = WaitStatus::for_ptrace_event(PTRACE_EVENT_EXIT);
@@ -536,15 +516,15 @@ pub trait Task: DerefMut<Target = TaskInner> {
         log!(
             LogDebug,
             "  waitpid({}) returns {}; status {}",
-            self.tid,
+            self.tid(),
             ret,
             status
         );
         ed_assert!(
             self,
-            self.tid == ret,
+            self.tid() == ret,
             "waitpid({}) failed with {}",
-            self.tid,
+            self.tid(),
             ret
         );
 
@@ -563,59 +543,59 @@ pub trait Task: DerefMut<Target = TaskInner> {
 
     /// Return true if an unexpected exit was already detected for this task and
     /// it is ready to be reported.
-    fn wait_unexpected_exit(&mut self) -> bool {
-        if self.detected_unexpected_exit {
+    fn wait_unexpected_exit(&self) -> bool {
+        if self.detected_unexpected_exit.get() {
             log!(
                 LogDebug,
                 "Unexpected (SIGKILL) exit was detected; reporting it now"
             );
             self.did_waitpid(WaitStatus::for_ptrace_event(PTRACE_EVENT_EXIT));
-            self.detected_unexpected_exit = false;
+            self.detected_unexpected_exit.set(false);
             return true;
         }
         false
     }
 
-    fn open_mem_fd(&mut self) -> bool;
+    fn open_mem_fd(&self) -> bool;
 
-    fn read_bytes_fallible(&mut self, addr: RemotePtr<Void>, buf: &mut [u8]) -> Result<usize, ()>;
+    fn read_bytes_fallible(&self, addr: RemotePtr<Void>, buf: &mut [u8]) -> Result<usize, ()>;
 
-    fn read_bytes_helper(&mut self, addr: RemotePtr<Void>, buf: &mut [u8], ok: Option<&mut bool>);
+    fn read_bytes_helper(&self, addr: RemotePtr<Void>, buf: &mut [u8], ok: Option<&mut bool>);
 
     /// Read bytes from `child_addr` into `buf`, or don't
     /// return.
-    fn read_bytes(&mut self, child_addr: RemotePtr<Void>, buf: &mut [u8]);
+    fn read_bytes(&self, child_addr: RemotePtr<Void>, buf: &mut [u8]);
 
-    fn read_c_str(&mut self, child_addr: RemotePtr<u8>) -> CString;
+    fn read_c_str(&self, child_addr: RemotePtr<u8>) -> CString;
 
     fn write_bytes_helper(
-        &mut self,
+        &self,
         addr: RemotePtr<Void>,
         buf: &[u8],
         ok: Option<&mut bool>,
         flags: WriteFlags,
     );
 
-    fn syscallbuf_data_size(&mut self) -> usize;
+    fn syscallbuf_data_size(&self) -> usize;
 
-    fn write_bytes(&mut self, child_addr: RemotePtr<Void>, buf: &[u8]);
+    fn write_bytes(&self, child_addr: RemotePtr<Void>, buf: &[u8]);
 
     /// Call this after the tracee successfully makes a
     /// `prctl(PR_SET_NAME)` call to change the task name to the
     /// string pointed at in the tracee's address space by
     /// `child_addr`.
-    fn update_prname(&mut self, child_addr: RemotePtr<Void>) {
+    fn update_prname(&self, child_addr: RemotePtr<Void>) {
         let mut buf = vec![0u8; 16];
         let res = self.read_bytes_fallible(child_addr, &mut buf);
         ed_assert!(self, res.is_ok());
         let bytes_read = res.unwrap();
         ed_assert!(self, bytes_read > 0);
-        self.prname = OsString::from_vec(buf);
+        *self.prname.borrow_mut() = OsString::from_vec(buf);
     }
 
-    fn compute_trap_reasons(&mut self) -> TrapReasons;
+    fn compute_trap_reasons(&self) -> TrapReasons;
 
-    fn set_thread_area(&mut self, tls: RemotePtr<user_desc>);
+    fn set_thread_area(&self, tls: RemotePtr<user_desc>);
 }
 
 fn is_signal_triggered_by_ptrace_interrupt(group_stop_sig: MaybeStopSignal) -> bool {

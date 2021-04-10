@@ -259,7 +259,7 @@ fn when_tid(_: &mut GdbServer, t: &dyn Task, _: &[OsString]) -> OsString {
     }
 
     let mut rets = Vec::<u8>::new();
-    write!(rets, "Current tid: {}", t.tid).unwrap();
+    write!(rets, "Current tid: {}", t.tid()).unwrap();
     OsString::from_vec(rets)
 }
 

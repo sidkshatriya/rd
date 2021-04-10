@@ -200,7 +200,7 @@ impl SessionInner {
     /// If `exec_count` is not specified it is assumed to be 0.
     pub fn create_vm(
         &self,
-        t: &mut dyn Task,
+        t: &dyn Task,
         maybe_exe: Option<&OsStr>,
         maybe_exec_count: Option<u32>,
     ) -> AddressSpaceSharedPtr {
@@ -230,7 +230,7 @@ impl SessionInner {
             addr_space = AddressSpace::new_after_fork_or_session_clone(
                 self.weak_self.clone(),
                 &vm,
-                t.rec_tid,
+                t.rec_tid(),
                 t.tuid().serial(),
                 0,
             );
@@ -266,10 +266,9 @@ impl SessionInner {
         let tid: i32;
         let tuid_serial: u32;
         {
-            let tb = t.borrow();
-            rec_tid = tb.rec_tid;
-            tid = tb.tid;
-            tuid_serial = tb.tuid().serial();
+            rec_tid = t.rec_tid();
+            tid = t.tid();
+            tuid_serial = t.tuid().serial();
         }
 
         let tg = ThreadGroup::new(self.weak_self.clone(), None, rec_tid, tid, tid, tuid_serial);
@@ -423,7 +422,7 @@ impl SessionInner {
 
     pub(super) fn diagnose_debugger_trap(
         &self,
-        t: &mut dyn Task,
+        t: &dyn Task,
         run_command: RunCommand,
     ) -> BreakStatus {
         self.assert_fully_initialized();
@@ -463,7 +462,7 @@ impl SessionInner {
                 break_status.breakpoint_hit = true;
             } else if maybe_stop_sig.is_sig() && maybe_stop_sig != perf_counters::TIME_SLICE_SIGNAL
             {
-                break_status.signal = Some(Box::new(*t.get_siginfo()));
+                break_status.signal = Some(Box::new(t.get_siginfo()));
                 log!(
                     LogDebug,
                     "Got signal {:?} (expected sig {})",

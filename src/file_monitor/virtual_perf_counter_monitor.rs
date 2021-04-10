@@ -127,7 +127,7 @@ impl VirtualPerfCounterMonitor {
         self.target_tuid_
     }
 
-    pub fn synthesize_signal(&mut self, t: &mut RecordTask) {
+    pub fn synthesize_signal(&mut self, t: &RecordTask) {
         // Use NativeArch here because different versions of system headers
         // have inconsistent field naming.
         let mut si: USiginfo = unsafe { mem::zeroed() };
@@ -183,7 +183,7 @@ impl VirtualPerfCounterMonitor {
 
             _ => (),
         }
-        self.target_ticks_ = target.borrow().tick_count() + after;
+        self.target_ticks_ = target.tick_count() + after;
     }
 
     fn disable_interrupt(&self) {
@@ -211,8 +211,9 @@ impl FileMonitor for VirtualPerfCounterMonitor {
         FileMonitorType::VirtualPerfCounter
     }
 
-    fn emulate_ioctl(&mut self, t: &mut RecordTask, result: &mut usize) -> bool {
-        match t.regs_ref().arg2() as _ {
+    fn emulate_ioctl(&mut self, t: &RecordTask, result: &mut usize) -> bool {
+        let arg2 = t.regs_ref().arg2();
+        match arg2 as _ {
             PERF_EVENT_IOC_ENABLE => {
                 *result = 0;
                 self.enabled = true;
@@ -224,11 +225,11 @@ impl FileMonitor for VirtualPerfCounterMonitor {
             PERF_EVENT_IOC_RESET => {
                 *result = 0;
                 let target_tid = self.target_tuid().tid();
-                if target_tid == t.tid {
+                if target_tid == t.tid() {
                     self.initial_ticks = t.tick_count();
                 } else {
                     let target = t.session().find_task_from_rec_tid(target_tid).unwrap();
-                    self.initial_ticks = target.borrow().tick_count();
+                    self.initial_ticks = target.tick_count();
                 }
             }
             PERF_EVENT_IOC_PERIOD => {
@@ -250,9 +251,10 @@ impl FileMonitor for VirtualPerfCounterMonitor {
         true
     }
 
-    fn emulate_fcntl(&mut self, t: &mut RecordTask, result: &mut usize) -> bool {
+    fn emulate_fcntl(&mut self, t: &RecordTask, result: &mut usize) -> bool {
         *result = (-EINVAL as isize) as usize;
-        match t.regs_ref().arg2() as u32 {
+        let arg2 = t.regs_ref().arg2();
+        match arg2 as u32 {
             F_SETOWN_EX => {
                 let child_addr = RemotePtr::<f_owner_ex>::from(t.regs_ref().arg3());
                 let owner = read_val_mem(t, child_addr, None);
@@ -311,10 +313,10 @@ impl FileMonitor for VirtualPerfCounterMonitor {
             .find_task_from_task_uid(self.target_tuid());
         match maybe_target {
             Some(target) => {
-                let val = if lazy_offset.t.tid == self.target_tuid().tid() {
+                let val = if lazy_offset.t.tid() == self.target_tuid().tid() {
                     lazy_offset.t.tick_count() - self.initial_ticks
                 } else {
-                    target.borrow().tick_count() - self.initial_ticks
+                    target.tick_count() - self.initial_ticks
                 };
                 *result = write_ranges(lazy_offset.t, ranges, &val.to_le_bytes());
             }
@@ -327,7 +329,7 @@ impl FileMonitor for VirtualPerfCounterMonitor {
     }
 }
 
-fn write_ranges(t: &mut dyn Task, ranges: &[Range], p: &[u8]) -> usize {
+fn write_ranges(t: &dyn Task, ranges: &[Range], p: &[u8]) -> usize {
     let mut s: usize = p.len();
     let mut result: usize = 0;
     for r in ranges {
