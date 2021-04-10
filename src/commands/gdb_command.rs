@@ -220,6 +220,15 @@ fn gdb_command_list_init() -> HashMap<String, Box<dyn GdbCommand>> {
         )),
     );
 
+    command_list.insert(
+        String::from("info checkpoints"),
+        Box::new(SimpleGdbCommand::new(
+            String::from("info checkpoints"),
+            "list all checkpoints created with the 'checkpoint' command",
+            &invoke_info_checkpoints,
+        )),
+    );
+
     command_list
 }
 
@@ -386,4 +395,19 @@ fn invoke_delete_checkpoint(
             OsString::from(ret)
         }
     }
+}
+
+fn invoke_info_checkpoints(
+    gdb_server: &mut GdbServer,
+    _t: &dyn Task,
+    _args: &[OsString],
+) -> OsString {
+    if gdb_server.checkpoints.len() == 0 {
+        return OsString::from("No checkpoints.");
+    }
+    let mut out: String = String::from("ID\tWhen\tWhere");
+    for (&id, c) in gdb_server.checkpoints.iter() {
+        out.push_str(&format!("\n{}\t{}\t{:?}", id, c.mark.time(), c.where_));
+    }
+    OsString::from(out)
 }
