@@ -51,7 +51,7 @@ impl MemoryRange {
         self.start_ <= p && p < self.end_
     }
 
-    pub fn intersect(&self, other: &MemoryRange) -> MemoryRange {
+    pub fn intersect(&self, other: MemoryRange) -> MemoryRange {
         let s = max(self.start_, other.start_);
         let e = min(self.end_, other.end_);
         MemoryRange {

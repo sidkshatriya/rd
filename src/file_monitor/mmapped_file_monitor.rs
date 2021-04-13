@@ -150,7 +150,7 @@ impl FileMonitor for MmappedFileMonitor {
                                     .t
                                     .as_record_task()
                                     .unwrap()
-                                    .record_remote_range_fallible(km.intersect(&mr));
+                                    .record_remote_range_fallible(km.intersect(mr));
                                 if let Ok(nread) = result {
                                     if nread > 0 {
                                         done = true;
@@ -166,7 +166,7 @@ impl FileMonitor for MmappedFileMonitor {
                                     let result = t_rc
                                         .as_record_task()
                                         .unwrap()
-                                        .record_remote_range_fallible(km.intersect(&mr));
+                                        .record_remote_range_fallible(km.intersect(mr));
                                     if let Ok(nread) = result {
                                         if nread > 0 {
                                             break;

@@ -21,7 +21,7 @@ use crate::{
     replay_timeline::{self, ReplayTimeline, ReplayTimelineSharedPtr, RunDirection},
     scoped_fd::ScopedFd,
     session::{
-        address_space::MappingFlags,
+        address_space::{memory_range::MemoryRange, MappingFlags},
         diversion_session::DiversionSession,
         replay_session::ReplaySession,
         session_inner::BreakStatus,
@@ -34,11 +34,21 @@ use crate::{
     taskish_uid::{TaskUid, ThreadGroupUid},
     thread_db::ThreadDb,
     trace::trace_frame::FrameTime,
-    util::{cpuid, word_size, AVX_FEATURE_FLAG, CPUID_GETFEATURES, OSXSAVE_FEATURE_FLAG},
+    util::{
+        cpuid,
+        find,
+        floor_page_size,
+        page_size,
+        word_size,
+        AVX_FEATURE_FLAG,
+        CPUID_GETFEATURES,
+        OSXSAVE_FEATURE_FLAG,
+    },
 };
 use libc::{pid_t, SIGKILL, SIGTRAP};
 use std::{
     cell::{Ref, RefCell, RefMut},
+    cmp::min,
     collections::{HashMap, HashSet},
     convert::{TryFrom, TryInto},
     ffi::{OsStr, OsString},
@@ -816,4 +826,50 @@ impl BreakpointCondition for GdbBreakpointCondition {
         }
         return false;
     }
+}
+
+fn breakpoint_condition(request: &GdbRequest) -> Option<Box<dyn BreakpointCondition>> {
+    if request.watch().conditions.is_empty() {
+        return None;
+    }
+    Some(Box::new(GdbBreakpointCondition::new(
+        &request.watch().conditions,
+    )))
+}
+
+fn search_memory(t: &dyn Task, where_: MemoryRange, find_s: &[u8]) -> Option<RemotePtr<Void>> {
+    // DIFF NOTE: This assert is not present in rd
+    assert!(find_s.len() > 0);
+    let mut buf = Vec::<u8>::new();
+    buf.resize(page_size() + find_s.len() - 1, 0);
+    for (_, m) in &t.vm().maps() {
+        let mut r = MemoryRange::from_range(m.map.start(), m.map.end() + (find_s.len() - 1))
+            .intersect(where_);
+        // We basically read page by page here, but we read past the end of the
+        // page to handle the case where a found string crosses page boundaries.
+        // This approach isn't great for handling long search strings but gdb's find
+        // command isn't really suited to that.
+        // Reading page by page lets us avoid problems where some pages in a
+        // mapping aren't readable (e.g. reading beyond end of file).
+        while r.size() >= find_s.len() {
+            let l = min(buf.len(), r.size());
+            let res = t.read_bytes_fallible(r.start(), &mut buf[0..l]);
+            match res {
+                Ok(nread) if nread >= find_s.len() => {
+                    let maybe_offset = find(&buf[0..nread], find_s);
+                    if maybe_offset.is_some() {
+                        let result = Some(r.start() + maybe_offset.unwrap());
+                        return result;
+                    }
+                }
+                // @TODO Check again. This means that any Err(()) might be ignored. Is this what we want?
+                _ => (),
+            }
+            r = MemoryRange::from_range(
+                min(r.end(), floor_page_size(r.start()) + page_size()),
+                r.end(),
+            );
+        }
+    }
+    None
 }
