@@ -1,5 +1,6 @@
 use crate::{
     bindings::signal::siginfo_t,
+    breakpoint_condition::BreakpointCondition,
     commands::gdb_command_handler::GdbCommandHandler,
     extra_registers::ExtraRegisters,
     gdb_connection::{
@@ -10,6 +11,7 @@ use crate::{
         GdbRequest,
         GdbThreadId,
     },
+    gdb_expression::{GdbExpression, GdbExpressionValue},
     gdb_register::{GdbRegister, DREG_64_YMM15H, DREG_ORIG_EAX, DREG_ORIG_RAX, DREG_YMM7H},
     kernel_abi::{syscall_number_for_execve, SupportedArch},
     log::LogDebug,
@@ -787,4 +789,31 @@ fn is_last_thread_exit(break_status: &BreakStatus) -> bool {
             .task_set()
             .len()
             == 1
+}
+
+struct GdbBreakpointCondition {
+    expressions: Vec<GdbExpression>,
+}
+
+impl GdbBreakpointCondition {
+    pub fn new(bytecodes: &[Vec<u8>]) -> GdbBreakpointCondition {
+        let mut expressions = Vec::new();
+        for b in bytecodes {
+            expressions.push(GdbExpression::new(b));
+        }
+        Self { expressions }
+    }
+}
+
+impl BreakpointCondition for GdbBreakpointCondition {
+    fn evaluate(&self, t: &dyn Task) -> bool {
+        for e in &self.expressions {
+            let mut v: GdbExpressionValue = Default::default();
+            // Break if evaluation fails or the result is nonzero
+            if !e.evaluate(t, &mut v) || v.i != 0 {
+                return true;
+            }
+        }
+        return false;
+    }
 }

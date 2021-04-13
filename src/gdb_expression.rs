@@ -72,9 +72,9 @@ enum Opcode {
 }
 
 /// DIFF NOTE: Simply called Value in rr
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Default, Eq, PartialEq)]
 pub struct GdbExpressionValue {
-    i: i64,
+    pub i: i64,
 }
 
 impl GdbExpressionValue {
