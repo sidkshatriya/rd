@@ -384,8 +384,46 @@ impl GdbServer {
         unimplemented!();
     }
 
-    fn at_target() -> bool {
-        unimplemented!();
+    fn at_target(&self) -> bool {
+        // Don't launch the debugger for the initial rd fork child.
+        // No one ever wants that to happen.
+        if !self.get_timeline().current_session().done_initial_exec() {
+            return false;
+        }
+        let maybe_t = self.get_timeline().current_session().current_task();
+        if maybe_t.is_none() {
+            return false;
+        }
+        let t = maybe_t.unwrap();
+        if !self.get_timeline().can_add_checkpoint() {
+            return false;
+        }
+        if self.stop_replaying_to_target {
+            return true;
+        }
+        // When we decide to create the debugger, we may end up
+        // creating a checkpoint.  In that case, we want the
+        // checkpoint to retain the state it had *before* we started
+        // replaying the next frame.  Otherwise, the TraceIfstream
+        // will be one frame ahead of its tracee tree.
+        //
+        // So we make the decision to create the debugger based on the
+        // frame we're *about to* replay, without modifying the
+        // TraceIfstream.
+        // NB: we'll happily attach to whichever task within the
+        // group happens to be scheduled here.  We don't take
+        // "attach to process" to mean "attach to thread-group
+        // leader".
+        let timeline = self.get_timeline();
+        let ret = timeline.current_session().current_trace_frame().time() >
+             self.target.event &&
+         (self.target.pid.is_none() || t.tgid() == self.target.pid.unwrap()) &&
+         (!self.target.require_exec || t.execed()) &&
+         // Ensure we're at the start of processing an event. We don't
+         // want to attach while we're finishing an exec() since that's a
+         // slightly confusing state for ReplayTimeline's reverse execution.
+         !timeline.current_session().current_step_key().in_execution();
+        ret
     }
 
     fn activate_debugger() {
