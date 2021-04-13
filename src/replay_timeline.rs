@@ -234,6 +234,10 @@ impl ReplayTimeline {
         self.current.as_ref().unwrap().as_replay().unwrap()
     }
 
+    pub fn current_session_shr_ptr(&self) -> SessionSharedPtr {
+        self.current.as_ref().unwrap().clone()
+    }
+
     pub fn weak_self_ptr(&self) -> ReplayTimelineSharedWeakPtr {
         self.weak_self.clone()
     }

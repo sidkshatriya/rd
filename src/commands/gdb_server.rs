@@ -3,7 +3,8 @@ use crate::{
     commands::gdb_command_handler::GdbCommandHandler,
     extra_registers::ExtraRegisters,
     gdb_connection::{GdbConnection, GdbRegisterValue, GdbRegisterValueData, GdbRequest},
-    gdb_register::GdbRegister,
+    gdb_register::{GdbRegister, DREG_64_YMM15H, DREG_ORIG_EAX, DREG_ORIG_RAX, DREG_YMM7H},
+    kernel_abi::SupportedArch,
     registers::Registers,
     replay_timeline::{self, ReplayTimeline, ReplayTimelineSharedPtr},
     scoped_fd::ScopedFd,
@@ -24,7 +25,7 @@ use libc::pid_t;
 use std::{
     cell::{Ref, RefCell, RefMut},
     collections::{HashMap, HashSet},
-    convert::TryInto,
+    convert::{TryFrom, TryInto},
     ffi::{OsStr, OsString},
     rc::{Rc, Weak},
 };
@@ -149,6 +150,14 @@ pub struct GdbServer {
 }
 
 impl GdbServer {
+    fn dbg(&self) -> &GdbConnection {
+        &*self.dbg.as_ref().unwrap()
+    }
+
+    fn dbg_mut(&mut self) -> &mut GdbConnection {
+        &mut *self.dbg.as_mut().unwrap()
+    }
+
     pub fn get_timeline(&self) -> Ref<ReplayTimeline> {
         self.timeline.as_ref().unwrap().borrow()
     }
@@ -298,12 +307,41 @@ impl GdbServer {
         self.stop_replaying_to_target = true;
     }
 
-    fn current_session() -> SessionSharedPtr {
-        unimplemented!()
+    fn current_session(&self) -> SessionSharedPtr {
+        if self.get_timeline().is_running() {
+            self.get_timeline().current_session_shr_ptr()
+        } else {
+            self.emergency_debug_session.upgrade().unwrap()
+        }
     }
 
-    fn dispatch_regs_request(_regs: &Registers, _extra_regs: &ExtraRegisters) {
-        unimplemented!()
+    fn dispatch_regs_request(&mut self, regs: &Registers, extra_regs: &ExtraRegisters) {
+        // Send values for all the registers we sent XML register descriptions for.
+        // Those descriptions are controlled by GdbConnection::cpu_features().
+        let have_avx = (self.dbg().cpu_features() & GdbConnection::CPU_AVX) != 0;
+        let end = match regs.arch() {
+            SupportedArch::X86 => {
+                if have_avx {
+                    DREG_YMM7H
+                } else {
+                    DREG_ORIG_EAX
+                }
+            }
+            SupportedArch::X64 => {
+                if have_avx {
+                    DREG_64_YMM15H
+                } else {
+                    DREG_ORIG_RAX
+                }
+            }
+        };
+        let mut rs: Vec<GdbRegisterValue> = Vec::new();
+        let mut r = GdbRegister::try_from(0).unwrap();
+        while r <= end {
+            rs.push(GdbServer::get_reg(regs, extra_regs, r));
+            r = (r + 1).unwrap();
+        }
+        self.dbg_mut().reply_get_regs(&rs);
     }
 
     fn maybe_intercept_mem_request(_target: &dyn Task, _req: &GdbRequest, _result: &[u8]) {
