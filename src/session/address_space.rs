@@ -1019,6 +1019,10 @@ pub mod address_space {
             RefMut::map(self.mapping_of_mut(addr).unwrap(), |m| &mut m.flags)
         }
 
+        pub fn mapping_flags_of(&self, addr: RemotePtr<Void>) -> MappingFlags {
+            self.mapping_of(addr).unwrap().flags
+        }
+
         /// If the given memory region is mapped into the local address space, obtain
         /// the local address from which the `size` bytes at `addr` can be accessed.
         ///

@@ -6,9 +6,11 @@ use crate::{
     gdb_register::{GdbRegister, DREG_64_YMM15H, DREG_ORIG_EAX, DREG_ORIG_RAX, DREG_YMM7H},
     kernel_abi::SupportedArch,
     registers::Registers,
+    remote_code_ptr::RemoteCodePtr,
     replay_timeline::{self, ReplayTimeline, ReplayTimelineSharedPtr},
     scoped_fd::ScopedFd,
     session::{
+        address_space::MappingFlags,
         diversion_session::DiversionSession,
         replay_session::ReplaySession,
         session_inner::BreakStatus,
@@ -20,6 +22,7 @@ use crate::{
     taskish_uid::{TaskUid, ThreadGroupUid},
     thread_db::ThreadDb,
     trace::trace_frame::FrameTime,
+    util::word_size,
 };
 use libc::pid_t;
 use std::{
@@ -344,8 +347,22 @@ impl GdbServer {
         self.dbg_mut().reply_get_regs(&rs);
     }
 
-    fn maybe_intercept_mem_request(_target: &dyn Task, _req: &GdbRequest, _result: &[u8]) {
-        unimplemented!()
+    fn maybe_intercept_mem_request(target: &dyn Task, req: &GdbRequest, result: &mut [u8]) {
+        // Crazy hack!
+        // When gdb tries to read the word at the top of the stack, and we're in our
+        // dynamically-generated stub code, tell it the value is zero, so that gdb's
+        // stack-walking code doesn't find a bogus value that it treats as a return
+        // address and sets a breakpoint there, potentially corrupting program data.
+        // gdb sometimes reads a whole block of memory around the stack pointer so
+        // handle cases where the top-of-stack word is contained in a larger range.
+        let size = word_size(target.arch());
+        if target.regs_ref().sp() >= req.mem().addr
+            && target.regs_ref().sp() + size <= req.mem().addr + req.mem().len
+            && is_in_patch_stubs(target, target.ip())
+        {
+            let offset = target.regs_ref().sp().as_usize() - req.mem().addr.as_usize();
+            result[offset..offset + size].fill(0);
+        }
     }
 
     /// Process the single debugger request |req| inside the session |session|.
@@ -576,4 +593,12 @@ fn get_reg(
         Some(siz) => Some(siz),
         None => extra_regs.read_register(buf, regname),
     }
+}
+
+fn is_in_patch_stubs(t: &dyn Task, ip: RemoteCodePtr) -> bool {
+    let p = ip.to_data_ptr();
+    t.vm().mapping_of(p).is_some()
+        && t.vm()
+            .mapping_flags_of(p)
+            .contains(MappingFlags::IS_PATCH_STUBS)
 }
