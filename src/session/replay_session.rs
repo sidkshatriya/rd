@@ -407,6 +407,17 @@ impl Drop for ReplaySession {
 }
 
 impl ReplaySession {
+    /// Returns true if the next step for this session is to exit a syscall with
+    /// the given number.
+    pub fn next_step_is_successful_syscall_exit(&self, syscallno: i32) -> bool {
+        self.current_step.get().action == ReplayTraceStepType::TstepNone
+            && self.trace_frame.borrow().event().is_syscall_event()
+            && self.trace_frame.borrow().event().syscall_event().number == syscallno
+            && self.trace_frame.borrow().event().syscall_event().state
+                == SyscallState::ExitingSyscall
+            && !self.trace_frame.borrow().regs_ref().syscall_failed()
+    }
+
     pub fn get_trace_start_time(&self) -> f64 {
         self.trace_start_time.get()
     }

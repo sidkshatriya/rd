@@ -162,7 +162,7 @@ impl GdbThreadId {
     const ANY: GdbThreadId = GdbThreadId::new(0, 0);
     const ALL: GdbThreadId = GdbThreadId::new(-1, -1);
 
-    const fn new(pid: pid_t, tid: pid_t) -> Self {
+    pub const fn new(pid: pid_t, tid: pid_t) -> Self {
         GdbThreadId { pid, tid }
     }
 }
@@ -599,7 +599,7 @@ pub mod gdb_request {
 
 #[derive(Copy, Clone)]
 pub struct GdbConnectionFeatures {
-    reverse_execution: bool,
+    pub reverse_execution: bool,
 }
 
 impl Default for GdbConnectionFeatures {

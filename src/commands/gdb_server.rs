@@ -2,29 +2,39 @@ use crate::{
     bindings::signal::siginfo_t,
     commands::gdb_command_handler::GdbCommandHandler,
     extra_registers::ExtraRegisters,
-    gdb_connection::{GdbConnection, GdbRegisterValue, GdbRegisterValueData, GdbRequest},
+    gdb_connection::{
+        GdbConnection,
+        GdbConnectionFeatures,
+        GdbRegisterValue,
+        GdbRegisterValueData,
+        GdbRequest,
+        GdbThreadId,
+    },
     gdb_register::{GdbRegister, DREG_64_YMM15H, DREG_ORIG_EAX, DREG_ORIG_RAX, DREG_YMM7H},
-    kernel_abi::SupportedArch,
+    kernel_abi::{syscall_number_for_execve, SupportedArch},
+    log::LogDebug,
     registers::Registers,
     remote_code_ptr::RemoteCodePtr,
-    replay_timeline::{self, ReplayTimeline, ReplayTimelineSharedPtr},
+    remote_ptr::{RemotePtr, Void},
+    replay_timeline::{self, ReplayTimeline, ReplayTimelineSharedPtr, RunDirection},
     scoped_fd::ScopedFd,
     session::{
         address_space::MappingFlags,
         diversion_session::DiversionSession,
         replay_session::ReplaySession,
         session_inner::BreakStatus,
-        task::Task,
+        task::{Task, TaskSharedPtr},
         Session,
         SessionSharedPtr,
         SessionSharedWeakPtr,
     },
+    sig::Sig,
     taskish_uid::{TaskUid, ThreadGroupUid},
     thread_db::ThreadDb,
     trace::trace_frame::FrameTime,
-    util::word_size,
+    util::{cpuid, word_size, AVX_FEATURE_FLAG, CPUID_GETFEATURES, OSXSAVE_FEATURE_FLAG},
 };
-use libc::pid_t;
+use libc::{pid_t, SIGKILL, SIGTRAP};
 use std::{
     cell::{Ref, RefCell, RefMut},
     collections::{HashMap, HashSet},
@@ -442,8 +452,68 @@ impl GdbServer {
 
     /// If |break_status| indicates a stop that we should report to gdb,
     /// report it. |req| is the resume request that generated the stop.
-    fn maybe_notify_stop(_req: &GdbRequest, _break_status: &BreakStatus) {
-        unimplemented!();
+    fn maybe_notify_stop(&mut self, req: &GdbRequest, break_status: &BreakStatus) {
+        let mut do_stop = false;
+        let mut watch_addr: RemotePtr<Void> = Default::default();
+        if !break_status.watchpoints_hit.is_empty() {
+            do_stop = true;
+            self.stop_siginfo = Default::default();
+            self.stop_siginfo.si_signo = SIGTRAP;
+            watch_addr = break_status.watchpoints_hit[0].addr;
+            log!(LogDebug, "Stopping for watchpoint at {}", watch_addr);
+        }
+        if break_status.breakpoint_hit || break_status.singlestep_complete {
+            do_stop = true;
+            self.stop_siginfo = Default::default();
+            self.stop_siginfo.si_signo = SIGTRAP;
+            if break_status.breakpoint_hit {
+                log!(LogDebug, "Stopping for breakpoint");
+            } else {
+                log!(LogDebug, "Stopping for singlestep");
+            }
+        }
+        if break_status.signal.is_some() {
+            do_stop = true;
+            self.stop_siginfo = **break_status.signal.as_ref().unwrap();
+            log!(LogDebug, "Stopping for signal {}", self.stop_siginfo);
+        }
+        if is_last_thread_exit(break_status) && self.dbg().features().reverse_execution {
+            do_stop = true;
+            self.stop_siginfo = Default::default();
+            if req.cont().run_direction == RunDirection::RunForward {
+                // The exit of the last task in a thread group generates a fake SIGKILL,
+                // when reverse-execution is enabled, because users often want to run
+                // backwards from the end of the task.
+                self.stop_siginfo.si_signo = SIGKILL;
+                log!(LogDebug, "Stopping for synthetic SIGKILL");
+            } else {
+                // The start of the debuggee task-group should trigger a silent stop.
+                self.stop_siginfo.si_signo = 0;
+                log!(
+                    LogDebug,
+                    "Stopping at start of execution while running backwards"
+                );
+            }
+        }
+        let mut t = break_status.task.upgrade().unwrap();
+        let in_exec_task = is_in_exec(&self.get_timeline());
+        if in_exec_task.is_some() {
+            do_stop = true;
+            self.stop_siginfo = Default::default();
+            t = in_exec_task.unwrap();
+            log!(LogDebug, "Stopping at exec");
+        }
+        let tguid = t.thread_group().borrow().tguid();
+        if do_stop && tguid == self.debuggee_tguid {
+            // Notify the debugger and process any new requests
+            // that might have triggered before resuming.
+            let signo = self.stop_siginfo.si_signo;
+            let threadid = get_threadid(&**t);
+            self.dbg_mut()
+                .notify_stop(threadid, Sig::try_from(signo).ok(), watch_addr);
+            self.last_continue_tuid = t.tuid();
+            self.last_query_tuid = t.tuid();
+        }
     }
 
     /// Return the checkpoint stored as |checkpoint_id| or nullptr if there
@@ -601,4 +671,82 @@ fn is_in_patch_stubs(t: &dyn Task, ip: RemoteCodePtr) -> bool {
         && t.vm()
             .mapping_flags_of(p)
             .contains(MappingFlags::IS_PATCH_STUBS)
+}
+
+/// Wait for exactly one gdb host to connect to this remote target on
+/// the specified IP address |host|, port |port|.  If |probe| is nonzero,
+/// a unique port based on |start_port| will be searched for.  Otherwise,
+/// if |port| is already bound, this function will fail.
+///
+/// Pass the |tgid| of the task on which this debug-connection request
+/// is being made.  The remaining debugging session will be limited to
+/// traffic regarding |tgid|, but clients don't need to and shouldn't
+/// need to assume that.
+///
+/// If we're opening this connection on behalf of a known client, pass
+/// an fd in |client_params_fd|; we'll write the allocated port and |exe_image|
+/// through the fd before waiting for a connection. |exe_image| is the
+/// process that will be debugged by client, or null ptr if there isn't
+/// a client.
+///
+/// This function is infallible: either it will return a valid
+/// debugging context, or it won't return.
+fn await_connection(
+    t: &dyn Task,
+    listen_fd: &ScopedFd,
+    features: GdbConnectionFeatures,
+) -> Box<GdbConnection> {
+    let mut dbg = Box::new(GdbConnection::new(t.tgid(), features));
+    let arch = t.arch();
+    dbg.set_cpu_features(get_cpu_features(arch));
+    dbg.await_debugger(listen_fd);
+    dbg
+}
+
+fn get_cpu_features(arch: SupportedArch) -> u32 {
+    let mut cpu_features = match arch {
+        SupportedArch::X86 => 0,
+        SupportedArch::X64 => GdbConnection::CPU_64BIT,
+    };
+
+    let avx_cpuid_flags = AVX_FEATURE_FLAG | OSXSAVE_FEATURE_FLAG;
+    let cpuid_data = cpuid(CPUID_GETFEATURES, 0);
+    // We're assuming here that AVX support on the system making the recording
+    // is the same as the AVX support during replay. But if that's not true,
+    // rd is totally broken anyway.
+    if (cpuid_data.ecx & avx_cpuid_flags) == avx_cpuid_flags {
+        cpu_features |= GdbConnection::CPU_AVX;
+    }
+
+    cpu_features
+}
+
+fn is_in_exec(timeline: &ReplayTimeline) -> Option<TaskSharedPtr> {
+    let t = timeline.current_session().current_task()?;
+    let arch = t.arch();
+    if timeline
+        .current_session()
+        .next_step_is_successful_syscall_exit(syscall_number_for_execve(arch))
+    {
+        Some(t)
+    } else {
+        None
+    }
+}
+
+fn get_threadid(t: &dyn Task) -> GdbThreadId {
+    GdbThreadId::new(t.tgid(), t.rec_tid())
+}
+
+fn is_last_thread_exit(break_status: &BreakStatus) -> bool {
+    break_status.task_exit
+        && break_status
+            .task
+            .upgrade()
+            .unwrap()
+            .thread_group()
+            .borrow()
+            .task_set()
+            .len()
+            == 1
 }
