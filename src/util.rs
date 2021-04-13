@@ -1199,11 +1199,11 @@ pub fn is_zombie_process(pid: pid_t) -> bool {
     return state.is_empty() || state[0].is_empty() || state[0].as_bytes()[0] == b'Z';
 }
 
-pub fn u8_slice<D: Sized>(data: &D) -> &[u8] {
+pub fn u8_slice<'a, D: Sized>(data: &'a D) -> &'a [u8] {
     unsafe { slice::from_raw_parts(data as *const D as *const u8, size_of::<D>()) }
 }
 
-pub fn u8_slice_mut<D: Sized>(data: &mut D) -> &mut [u8] {
+pub fn u8_slice_mut<'a, D: Sized>(data: &'a mut D) -> &'a mut [u8] {
     unsafe { slice::from_raw_parts_mut(data as *mut D as *mut u8, size_of::<D>()) }
 }
 

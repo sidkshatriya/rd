@@ -11,7 +11,7 @@ use crate::{
     scoped_fd::ScopedFd,
     session::SessionSharedPtr,
     sig::Sig,
-    util::{resource_path, str0_to_isize, str16_to_isize, str16_to_usize},
+    util::{resource_path, str0_to_isize, str16_to_isize, str16_to_usize, u8_slice, u8_slice_mut},
 };
 use libc::pid_t;
 use memchr::memchr;
@@ -73,7 +73,7 @@ pub struct GdbRegisterValue {
 
 #[derive(Clone, Debug)]
 pub enum GdbRegisterValueData {
-    Value([u8; GdbRegisterValue::MAX_SIZE]),
+    ValueGeneric([u8; GdbRegisterValue::MAX_SIZE]),
     Value1(u8),
     Value2(u16),
     Value4(u32),
@@ -89,8 +89,7 @@ impl Default for GdbRegisterValueData {
 
 impl GdbRegisterValue {
     // Max register size
-    const MAX_SIZE: usize = MAX_REG_SIZE_BYTES;
-
+    pub const MAX_SIZE: usize = MAX_REG_SIZE_BYTES;
     pub fn value1(&self) -> u8 {
         match self.value {
             GdbRegisterValueData::Value1(v) => v,
@@ -109,16 +108,38 @@ impl GdbRegisterValue {
             _ => panic!("Unexpected GdbRegisterValue: {:?}", self),
         }
     }
+
     pub fn value8(&self) -> u64 {
         match self.value {
             GdbRegisterValueData::Value8(v) => v,
             _ => panic!("Unexpected GdbRegisterValue: {:?}", self),
         }
     }
-    pub fn value(&self) -> Vec<u8> {
-        match self.value {
-            GdbRegisterValueData::Value(v) => v[0..self.size].to_owned(),
+
+    pub fn value_generic(&self) -> &[u8] {
+        match &self.value {
+            GdbRegisterValueData::ValueGeneric(v) => &v[0..self.size],
             _ => panic!("Unexpected GdbRegisterValue: {:?}", self),
+        }
+    }
+
+    pub fn value(&mut self) -> &[u8] {
+        match &mut self.value {
+            GdbRegisterValueData::ValueGeneric(v) => &v[0..self.size],
+            GdbRegisterValueData::Value1(v) => u8_slice(v),
+            GdbRegisterValueData::Value2(v) => u8_slice(v),
+            GdbRegisterValueData::Value4(v) => u8_slice(v),
+            GdbRegisterValueData::Value8(v) => u8_slice(v),
+        }
+    }
+
+    pub fn value_mut(&mut self) -> &mut [u8] {
+        match &mut self.value {
+            GdbRegisterValueData::ValueGeneric(v) => &mut v[0..self.size],
+            GdbRegisterValueData::Value1(v) => u8_slice_mut(v),
+            GdbRegisterValueData::Value2(v) => u8_slice_mut(v),
+            GdbRegisterValueData::Value4(v) => u8_slice_mut(v),
+            GdbRegisterValueData::Value8(v) => u8_slice_mut(v),
         }
     }
 }
@@ -2628,7 +2649,7 @@ fn print_reg_value(reg: &GdbRegisterValue, buf: &mut Vec<u8>) {
         // gdb wants the register value in native endianness.
         // reg.value read in native endianness is exactly that.
         match reg.value {
-            GdbRegisterValueData::Value(v) => {
+            GdbRegisterValueData::ValueGeneric(v) => {
                 for i in 0..reg.size {
                     write!(buf, "{:02x}", v[i]).unwrap();
                 }
@@ -2928,7 +2949,7 @@ fn read_reg_value(strp: &mut &[u8], reg: &mut GdbRegisterValue) {
         2 => GdbRegisterValueData::Value2(u16::from_le_bytes(buf[0..2].try_into().unwrap())),
         4 => GdbRegisterValueData::Value4(u32::from_le_bytes(buf[0..4].try_into().unwrap())),
         8 => GdbRegisterValueData::Value8(u64::from_le_bytes(buf[0..8].try_into().unwrap())),
-        _ => GdbRegisterValueData::Value(buf),
+        _ => GdbRegisterValueData::ValueGeneric(buf),
     };
 
     *strp = numstr;

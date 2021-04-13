@@ -323,7 +323,7 @@ impl Registers {
     /// be large enough to hold any register supported by the target.
     /// Return the size of the register in bytes. If None is returned it
     /// indicates that no value was written to `buf`.
-    fn read_register(&self, buf: &mut [u8], regno: GdbRegister) -> Option<usize> {
+    pub fn read_register(&self, buf: &mut [u8], regno: GdbRegister) -> Option<usize> {
         let regs = self.get_regs_info();
         if let Some(rv) = regs.get(&regno) {
             match rv.nbytes {

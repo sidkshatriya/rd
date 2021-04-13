@@ -2,7 +2,7 @@ use crate::{
     bindings::signal::siginfo_t,
     commands::gdb_command_handler::GdbCommandHandler,
     extra_registers::ExtraRegisters,
-    gdb_connection::{GdbConnection, GdbRegisterValue, GdbRequest},
+    gdb_connection::{GdbConnection, GdbRegisterValue, GdbRegisterValueData, GdbRequest},
     gdb_register::GdbRegister,
     registers::Registers,
     replay_timeline::{self, ReplayTimeline, ReplayTimelineSharedPtr},
@@ -24,6 +24,7 @@ use libc::pid_t;
 use std::{
     cell::{Ref, RefCell, RefMut},
     collections::{HashMap, HashSet},
+    convert::TryInto,
     ffi::{OsStr, OsString},
     rc::{Rc, Weak},
 };
@@ -205,11 +206,59 @@ impl GdbServer {
 
     /// Return the register `which`, which may not have a defined value.
     pub fn get_reg(
-        _regs: &Registers,
-        _extra_regs: &ExtraRegisters,
-        _which: GdbRegister,
+        regs: &Registers,
+        extra_regs: &ExtraRegisters,
+        which: GdbRegister,
     ) -> GdbRegisterValue {
-        unimplemented!()
+        let mut buf = [0u8; GdbRegisterValue::MAX_SIZE];
+        let maybe_size = get_reg(regs, extra_regs, &mut buf, which);
+        match maybe_size {
+            Some(1) => GdbRegisterValue {
+                name: which,
+                value: GdbRegisterValueData::Value1(buf[0]),
+                defined: true,
+                size: 1,
+            },
+            Some(2) => GdbRegisterValue {
+                name: which,
+                value: GdbRegisterValueData::Value2(u16::from_le_bytes(
+                    buf[0..2].try_into().unwrap(),
+                )),
+                defined: true,
+                size: 2,
+            },
+            Some(4) => GdbRegisterValue {
+                name: which,
+                value: GdbRegisterValueData::Value4(u32::from_le_bytes(
+                    buf[0..4].try_into().unwrap(),
+                )),
+                defined: true,
+                size: 4,
+            },
+            Some(8) => GdbRegisterValue {
+                name: which,
+                value: GdbRegisterValueData::Value8(u64::from_le_bytes(
+                    buf[0..8].try_into().unwrap(),
+                )),
+                defined: true,
+                size: 8,
+            },
+            Some(siz) if siz <= GdbRegisterValue::MAX_SIZE => GdbRegisterValue {
+                name: which,
+                value: GdbRegisterValueData::ValueGeneric(buf.try_into().unwrap()),
+                defined: true,
+                size: siz,
+            },
+            Some(siz) => {
+                panic!("Unexpected GdbRegister size: {}", siz);
+            }
+            None => GdbRegisterValue {
+                name: which,
+                value: GdbRegisterValueData::ValueGeneric(Default::default()),
+                defined: false,
+                size: 0,
+            },
+        }
     }
 
     /// Actually run the server. Returns only when the debugger disconnects.
@@ -466,4 +515,27 @@ end
 "##;
     ss.push_str(s);
     ss
+}
+
+/// Attempt to find the value of `regname` (a DebuggerRegister name), and if so:
+/// (i) write it to `buf`;
+/// (ii) return the size of written data as on Option<usize>
+///
+/// If None is returned, the value of `buf` is meaningless.
+///
+/// This helper can fetch the values of both general-purpose
+/// and "extra" registers.
+///
+/// NB: `buf` must be large enough to hold the largest register
+/// value that can be named by `regname`.
+fn get_reg(
+    regs: &Registers,
+    extra_regs: &ExtraRegisters,
+    buf: &mut [u8],
+    regname: GdbRegister,
+) -> Option<usize> {
+    match regs.read_register(buf, regname) {
+        Some(siz) => Some(siz),
+        None => extra_regs.read_register(buf, regname),
+    }
 }
