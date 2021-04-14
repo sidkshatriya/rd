@@ -134,12 +134,12 @@ If you want to pass arguments to the program:
 $ rd record <program to be recorded> -- <arguments>
 ```
 
-Example:
+_Example_:
 ```bash
 $ rd record ls -- -l
 ```
 
-Notes:
+_Notes_:
   * The recording functionality is mostly complete
 
 ### Replaying using `rr`
