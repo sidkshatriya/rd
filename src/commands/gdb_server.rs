@@ -1,3 +1,4 @@
+#[allow(unused_imports)]
 use crate::{
     bindings::signal::siginfo_t,
     breakpoint_condition::BreakpointCondition,
@@ -5,24 +6,31 @@ use crate::{
     extra_registers::ExtraRegisters,
     gdb_connection::{
         GdbConnection, GdbConnectionFeatures, GdbRegisterValue, GdbRegisterValueData, GdbRequest,
-        GdbRequestType, GdbThreadId, DREQ_REMOVE_HW_BREAK, DREQ_REMOVE_RDWR_WATCH,
-        DREQ_REMOVE_RD_WATCH, DREQ_REMOVE_WR_WATCH, DREQ_SET_HW_BREAK, DREQ_SET_RDWR_WATCH,
-        DREQ_SET_RD_WATCH, DREQ_SET_WR_WATCH,
+        GdbRequestType, GdbThreadId, DREQ_CONT, DREQ_DETACH, DREQ_FILE_CLOSE, DREQ_FILE_OPEN,
+        DREQ_FILE_PREAD, DREQ_FILE_SETFS, DREQ_GET_AUXV, DREQ_GET_CURRENT_THREAD,
+        DREQ_GET_EXEC_FILE, DREQ_GET_IS_THREAD_ALIVE, DREQ_GET_MEM, DREQ_GET_OFFSETS, DREQ_GET_REG,
+        DREQ_GET_REGS, DREQ_GET_STOP_REASON, DREQ_GET_THREAD_EXTRA_INFO, DREQ_GET_THREAD_LIST,
+        DREQ_INTERRUPT, DREQ_NONE, DREQ_QSYMBOL, DREQ_RD_CMD, DREQ_READ_SIGINFO,
+        DREQ_REMOVE_HW_BREAK, DREQ_REMOVE_RDWR_WATCH, DREQ_REMOVE_RD_WATCH, DREQ_REMOVE_SW_BREAK,
+        DREQ_REMOVE_WR_WATCH, DREQ_RESTART, DREQ_SEARCH_MEM, DREQ_SET_CONTINUE_THREAD,
+        DREQ_SET_HW_BREAK, DREQ_SET_MEM, DREQ_SET_QUERY_THREAD, DREQ_SET_RDWR_WATCH,
+        DREQ_SET_RD_WATCH, DREQ_SET_REG, DREQ_SET_SW_BREAK, DREQ_SET_WR_WATCH, DREQ_TLS,
+        DREQ_WRITE_SIGINFO,
     },
     gdb_expression::{GdbExpression, GdbExpressionValue},
     gdb_register::{GdbRegister, DREG_64_YMM15H, DREG_ORIG_EAX, DREG_ORIG_RAX, DREG_YMM7H},
     kernel_abi::{syscall_number_for_execve, SupportedArch},
-    log::LogDebug,
+    log::{LogDebug, LogInfo},
     registers::Registers,
     remote_code_ptr::RemoteCodePtr,
     remote_ptr::{RemotePtr, Void},
     replay_timeline::{self, ReplayTimeline, ReplayTimelineSharedPtr, RunDirection},
-    scoped_fd::ScopedFd,
+    scoped_fd::{ScopedFd, ScopedFdSharedWeakPtr},
     session::{
         address_space::{memory_range::MemoryRange, MappingFlags, WatchType},
         diversion_session::DiversionSession,
-        replay_session::ReplaySession,
-        session_inner::BreakStatus,
+        replay_session::{ReplaySession, ReplayStatus},
+        session_inner::{BreakStatus, RunCommand},
         task::{Task, TaskSharedPtr},
         Session, SessionSharedPtr, SessionSharedWeakPtr,
     },
@@ -31,18 +39,22 @@ use crate::{
     thread_db::ThreadDb,
     trace::trace_frame::FrameTime,
     util::{
-        cpuid, find, floor_page_size, page_size, word_size, AVX_FEATURE_FLAG, CPUID_GETFEATURES,
-        OSXSAVE_FEATURE_FLAG,
+        cpuid, find, floor_page_size, open_socket, page_size, u8_slice, word_size, ProbePort,
+        AVX_FEATURE_FLAG, CPUID_GETFEATURES, OSXSAVE_FEATURE_FLAG,
     },
 };
 use libc::{pid_t, SIGKILL, SIGTRAP};
+use nix::unistd::{getpid, write};
 use std::{
-    cell::{Ref, RefCell, RefMut},
+    cell::{Ref, RefMut},
     cmp::min,
     collections::{HashMap, HashSet},
     convert::{TryFrom, TryInto},
     ffi::{OsStr, OsString},
-    rc::{Rc, Weak},
+    io::{stderr, Write},
+    mem,
+    os::unix::ffi::OsStrExt,
+    rc::Rc,
 };
 
 const LOCALHOST_ADDR: &'static str = "127.0.0.1";
@@ -60,15 +72,15 @@ pub struct Target {
 pub struct ConnectionFlags {
     /// `None` to let GdbServer choose the port, a positive integer to select a
     /// specific port to listen on.
-    pub dbg_port: Option<usize>,
+    pub dbg_port: Option<u16>,
     pub dbg_host: OsString,
     /// If keep_listening is true, wait for another
     /// debugger connection after the first one is terminated.
     pub keep_listening: bool,
-    /// If not Weak::new(), then when the gdbserver is set up, we write its connection
+    /// If not None, then when the gdbserver is set up, we write its connection
     /// parameters through this pipe. GdbServer::launch_gdb is passed the
     /// other end of this pipe to exec gdb with the parameters.
-    pub debugger_params_write_pipe: Weak<RefCell<ScopedFd>>,
+    pub debugger_params_write_pipe: Option<ScopedFdSharedWeakPtr>,
     // Name of the debugger to suggest. Only used if debugger_params_write_pipe
     // is Weak::new().
     pub debugger_name: OsString,
@@ -80,7 +92,7 @@ impl Default for ConnectionFlags {
             dbg_port: None,
             dbg_host: OsString::new(),
             keep_listening: false,
-            debugger_params_write_pipe: Weak::new(),
+            debugger_params_write_pipe: None,
             debugger_name: OsString::new(),
         }
     }
@@ -286,8 +298,109 @@ impl GdbServer {
     }
 
     /// Actually run the server. Returns only when the debugger disconnects.
-    pub fn serve_replay(&self, _flags: &ConnectionFlags) {
-        unimplemented!()
+    pub fn serve_replay(&mut self, flags: &ConnectionFlags) {
+        loop {
+            let result = self
+                .get_timeline_mut()
+                .replay_step_forward(RunCommand::RunContinue, self.target.event);
+            if result.status == ReplayStatus::ReplayExited {
+                log!(LogInfo, "Debugger was not launched before end of trace");
+                return;
+            }
+            if self.at_target() {
+                break;
+            }
+        }
+
+        let mut port: u16 = match flags.dbg_port {
+            Some(port) => port,
+            None => getpid().as_raw() as u16,
+        };
+        // Don't probe if the user specified a port.  Explicitly
+        // selecting a port is usually done by scripts, which would
+        // presumably break if a different port were to be selected by
+        // rd (otherwise why would they specify a port in the first
+        // place).  So fail with a clearer error message.
+        let probe = match flags.dbg_port {
+            Some(_port) => ProbePort::DontProbe,
+            None => ProbePort::ProbePort,
+        };
+        // We MUST have a current task
+        let t = self
+            .get_timeline()
+            .current_session()
+            .current_task()
+            .unwrap();
+        let listen_fd: ScopedFd = open_socket(&flags.dbg_host, &mut port, probe);
+        if flags.debugger_params_write_pipe.is_some() {
+            let params = DebuggerParams {
+                exe_image: t.vm().exe_image().to_owned(),
+                host: flags.dbg_host.as_bytes().try_into().unwrap(),
+                port,
+            };
+            let fd = flags
+                .debugger_params_write_pipe
+                .as_ref()
+                .unwrap()
+                .upgrade()
+                .unwrap()
+                .borrow()
+                .as_raw();
+            let nwritten = write(fd, u8_slice(&params)).unwrap();
+            // DIFF NOTE: This is a debug_assert in rr
+            assert_eq!(nwritten, mem::size_of_val(&params));
+        } else {
+            eprintln!("Launch gdb with");
+            write_debugger_launch_command(
+                &**t,
+                &flags.dbg_host,
+                port,
+                &flags.debugger_name,
+                &mut stderr(),
+            );
+        }
+
+        if flags.debugger_params_write_pipe.is_some() {
+            flags
+                .debugger_params_write_pipe
+                .as_ref()
+                .unwrap()
+                .upgrade()
+                .unwrap()
+                .borrow_mut()
+                .close();
+        }
+        self.debuggee_tguid = t.thread_group().borrow().tguid();
+
+        let first_run_event = t.vm().first_run_event();
+        if first_run_event > 0 {
+            self.get_timeline_mut()
+                .set_reverse_execution_barrier_event(first_run_event);
+        }
+
+        loop {
+            log!(LogDebug, "initializing debugger connection");
+            self.dbg = Some(await_connection(
+                &**t,
+                &listen_fd,
+                GdbConnectionFeatures::default(),
+            ));
+            self.activate_debugger();
+
+            // @TODO Check this
+            let mut last_resume_request: GdbRequest = Default::default();
+            while self.debug_one_step(&mut last_resume_request) == ContinueOrStop::ContinueDebugging
+            {
+                // Do nothing here, but we need the side effect in debug_one_step()
+            }
+
+            self.get_timeline_mut().remove_breakpoints_and_watchpoints();
+            if !flags.keep_listening {
+                break;
+            }
+        }
+
+        log!(LogDebug, "debugger server exiting ...");
     }
 
     /// exec()'s gdb using parameters read from params_pipe_fd (and sent through
@@ -312,7 +425,7 @@ impl GdbServer {
 
     // A string containing the default gdbinit script that we load into gdb.
     pub fn init_script() -> &'static str {
-        unimplemented!()
+        gdb_rd_macros()
     }
 
     /// Called from a signal handler (or other thread) during serve_replay,
@@ -428,7 +541,7 @@ impl GdbServer {
         ret
     }
 
-    fn activate_debugger() {
+    fn activate_debugger(&self) {
         unimplemented!();
     }
 
@@ -448,7 +561,7 @@ impl GdbServer {
         unimplemented!();
     }
 
-    fn debug_one_step(_last_resume_request: &GdbRequest) -> ContinueOrStop {
+    fn debug_one_step(&self, _last_resume_request: &mut GdbRequest) -> ContinueOrStop {
         unimplemented!();
     }
 
@@ -574,6 +687,16 @@ impl GdbServer {
     fn open_file(_session: &dyn Session, _file_name: &OsStr) -> i32 {
         unimplemented!()
     }
+}
+
+fn write_debugger_launch_command(
+    _t: &dyn Task,
+    _dbg_host: &OsStr,
+    _port: u16,
+    _debugger_name: &OsStr,
+    _stderr: &mut dyn Write,
+) -> () {
+    unimplemented!()
 }
 
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -891,4 +1014,11 @@ fn watchpoint_type(req: GdbRequestType) -> WatchType {
         }
         _ => fatal!("Unknown dbg request {}", req),
     }
+}
+
+struct DebuggerParams {
+    exe_image: OsString,
+    /// INET_ADDRSTRLEN
+    host: [u8; 16],
+    port: u16,
 }

@@ -8,9 +8,10 @@ use std::{
     cell::RefCell,
     fmt::{self, Display, Formatter},
     os::unix::io::RawFd,
-    rc::Rc,
+    rc::{Rc, Weak},
 };
 
+pub type ScopedFdSharedWeakPtr = Weak<RefCell<ScopedFd>>;
 pub type ScopedFdSharedPtr = Rc<RefCell<ScopedFd>>;
 
 // We DON'T want this to be Copy or Clone because of the Drop.

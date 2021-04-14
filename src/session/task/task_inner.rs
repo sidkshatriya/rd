@@ -33,7 +33,7 @@ use crate::{
     registers::Registers,
     remote_code_ptr::RemoteCodePtr,
     remote_ptr::{RemotePtr, Void},
-    scoped_fd::ScopedFd,
+    scoped_fd::{ScopedFd, ScopedFdSharedPtr},
     seccomp_bpf::SeccompFilter,
     session::{
         address_space::{
@@ -1548,7 +1548,7 @@ impl TaskInner {
     pub(in super::super) fn spawn<'a, 'b>(
         session: &'a dyn Session,
         error_fd: &ScopedFd,
-        sock_fd_out: Rc<RefCell<ScopedFd>>,
+        sock_fd_out: ScopedFdSharedPtr,
         tracee_socket_fd_number: SaveTraceeFdNumber<'b>,
         exe_path: &OsStr,
         argv: &[OsString],

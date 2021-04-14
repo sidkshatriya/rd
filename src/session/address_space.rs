@@ -654,7 +654,6 @@ pub mod address_space {
 
         /// The time of the first event that ran code for a task in this address space.
         /// 0 if no such event has occurred.
-        /// @TODO should this be an Option?
         first_run_event_: Cell<FrameTime>,
     }
 

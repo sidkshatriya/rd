@@ -2414,3 +2414,13 @@ static mut INSTRUCTION_TRACE_AT_EVENT_LAST: FrameTime = 0;
 pub fn trace_instructions_up_to_event(event: FrameTime) -> bool {
     unsafe { event > INSTRUCTION_TRACE_AT_EVENT_START && event <= INSTRUCTION_TRACE_AT_EVENT_LAST }
 }
+
+#[derive(Copy, Clone)]
+pub enum ProbePort {
+    DontProbe,
+    ProbePort,
+}
+
+pub fn open_socket(_dbg_host: &OsStr, _port: &mut u16, _probe: ProbePort) -> ScopedFd {
+    unimplemented!()
+}

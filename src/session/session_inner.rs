@@ -5,7 +5,7 @@ use crate::{
     log::LogLevel::LogDebug,
     perf_counters::{self, PerfCounters, TicksSemantics},
     remote_ptr::{RemotePtr, Void},
-    scoped_fd::ScopedFd,
+    scoped_fd::{ScopedFd, ScopedFdSharedPtr},
     session::{
         address_space::{
             address_space::{AddressSpace, AddressSpaceSharedPtr, AddressSpaceSharedWeakPtr},
@@ -368,7 +368,7 @@ impl SessionInner {
         "/rd-shared-"
     }
 
-    pub fn tracee_socket_fd(&self) -> Rc<RefCell<ScopedFd>> {
+    pub fn tracee_socket_fd(&self) -> ScopedFdSharedPtr {
         self.tracee_socket.clone()
     }
 
@@ -573,7 +573,7 @@ pub struct SessionInner {
 
     pub(super) statistics_: RefCell<Statistics>,
 
-    pub(super) tracee_socket: Rc<RefCell<ScopedFd>>,
+    pub(super) tracee_socket: ScopedFdSharedPtr,
     pub(super) tracee_socket_fd_number: Cell<i32>,
     pub(super) next_task_serial_: Cell<u32>,
     /// DIFF NOTE: Not present in rr
