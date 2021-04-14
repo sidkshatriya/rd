@@ -2,14 +2,8 @@
 
 use crate::{
     kernel_abi::{
-        x64,
-        x86,
-        CloneParameterOrdering,
-        CloneTLSType,
-        MmapCallingSemantics,
-        Ptr,
-        SelectCallingSemantics,
-        SupportedArch,
+        x64, x86, CloneParameterOrdering, CloneTLSType, MmapCallingSemantics, Ptr,
+        SelectCallingSemantics, SupportedArch,
     },
     remote_ptr::{RemotePtr, Void},
 };

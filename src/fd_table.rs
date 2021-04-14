@@ -7,10 +7,7 @@ use crate::{
     session::{
         address_space::address_space::AddressSpace,
         task::{
-            record_task::RecordTask,
-            replay_task::ReplayTask,
-            Task,
-            TaskSharedWeakPtr,
+            record_task::RecordTask, replay_task::ReplayTask, Task, TaskSharedWeakPtr,
             WeakTaskPtrSet,
         },
     },

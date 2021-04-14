@@ -1,7 +1,6 @@
 use bindgen::{
     callbacks::{EnumVariantValue, ParseCallbacks},
-    Builder,
-    CargoCallbacks,
+    Builder, CargoCallbacks,
 };
 use cmake::Config;
 use std::{env, path::PathBuf, process::Command};

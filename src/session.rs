@@ -12,9 +12,7 @@ use crate::{
         task::{
             task_common,
             task_inner::{CloneFlags, WriteFlags},
-            Task,
-            TaskSharedPtr,
-            TaskSharedWeakPtr,
+            Task, TaskSharedPtr, TaskSharedWeakPtr,
         },
     },
     taskish_uid::{AddressSpaceUid, TaskUid, ThreadGroupUid},

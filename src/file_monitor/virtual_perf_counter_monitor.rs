@@ -2,21 +2,14 @@ use crate::{
     bindings::{
         fcntl::{f_owner_ex, F_OWNER_TID, F_SETFL, F_SETOWN_EX, F_SETSIG},
         perf_event::{
-            perf_event_attr,
-            PERF_EVENT_IOC_DISABLE,
-            PERF_EVENT_IOC_ENABLE,
-            PERF_EVENT_IOC_PERIOD,
+            perf_event_attr, PERF_EVENT_IOC_DISABLE, PERF_EVENT_IOC_ENABLE, PERF_EVENT_IOC_PERIOD,
             PERF_EVENT_IOC_RESET,
         },
         signal::siginfo_t,
     },
     event::SignalDeterministic,
     file_monitor::{
-        FileMonitor,
-        FileMonitorSharedPtr,
-        FileMonitorSharedWeakPtr,
-        FileMonitorType,
-        LazyOffset,
+        FileMonitor, FileMonitorSharedPtr, FileMonitorSharedWeakPtr, FileMonitorType, LazyOffset,
         Range,
     },
     log::LogLevel::LogDebug,

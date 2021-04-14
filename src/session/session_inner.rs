@@ -9,14 +9,11 @@ use crate::{
     session::{
         address_space::{
             address_space::{AddressSpace, AddressSpaceSharedPtr, AddressSpaceSharedWeakPtr},
-            BreakpointType,
-            WatchConfig,
+            BreakpointType, WatchConfig,
         },
         task::{
             task_inner::{CapturedState, TrapReasons},
-            Task,
-            TaskSharedPtr,
-            TaskSharedWeakPtr,
+            Task, TaskSharedPtr, TaskSharedWeakPtr,
         },
         SessionSharedWeakPtr,
     },

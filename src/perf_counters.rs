@@ -2,14 +2,8 @@ use crate::{
     bindings::{
         fcntl::{f_owner_ex, F_OWNER_TID, F_SETOWN_EX, F_SETSIG},
         perf_event::{
-            perf_event_attr,
-            perf_type_id,
-            PERF_COUNT_HW_CPU_CYCLES,
-            PERF_EVENT_IOC_DISABLE,
-            PERF_EVENT_IOC_ENABLE,
-            PERF_EVENT_IOC_PERIOD,
-            PERF_EVENT_IOC_RESET,
-            PERF_TYPE_HARDWARE,
+            perf_event_attr, perf_type_id, PERF_COUNT_HW_CPU_CYCLES, PERF_EVENT_IOC_DISABLE,
+            PERF_EVENT_IOC_ENABLE, PERF_EVENT_IOC_PERIOD, PERF_EVENT_IOC_RESET, PERF_TYPE_HARDWARE,
             PERF_TYPE_RAW,
         },
     },

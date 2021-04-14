@@ -1,11 +1,7 @@
 use crate::{scoped_fd::ScopedFd, util::write_all};
 use brotli_sys::{
-    BrotliEncoderCompressStream,
-    BrotliEncoderCreateInstance,
-    BrotliEncoderDestroyInstance,
-    BrotliEncoderSetParameter,
-    BROTLI_OPERATION_FINISH,
-    BROTLI_OPERATION_PROCESS,
+    BrotliEncoderCompressStream, BrotliEncoderCreateInstance, BrotliEncoderDestroyInstance,
+    BrotliEncoderSetParameter, BROTLI_OPERATION_FINISH, BROTLI_OPERATION_PROCESS,
     BROTLI_PARAM_QUALITY,
 };
 use nix::{fcntl::OFlag, sys::stat::Mode, unistd::fsync};

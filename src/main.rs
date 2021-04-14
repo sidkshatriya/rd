@@ -94,9 +94,7 @@ use crate::{
     util::raise_resource_limits,
 };
 use commands::{
-    exit_result::ExitResult,
-    record_command::RecordCommand,
-    replay_command::ReplayCommand,
+    exit_result::ExitResult, record_command::RecordCommand, replay_command::ReplayCommand,
 };
 use nix::sys::{
     signal::{sigaction, SaFlags, SigAction, SigHandler, SigSet, Signal},

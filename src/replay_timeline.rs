@@ -10,16 +10,11 @@ use crate::{
     session::{
         address_space::{BreakpointType, WatchType},
         replay_session::{
-            ReplayResult,
-            ReplaySession,
-            ReplayStatus,
-            ReplayStepKey,
-            StepConstraints,
+            ReplayResult, ReplaySession, ReplayStatus, ReplayStepKey, StepConstraints,
         },
         session_inner::{BreakStatus, RunCommand},
         task::{replay_task::ReplayTask, Task},
-        Session,
-        SessionSharedPtr,
+        Session, SessionSharedPtr,
     },
     taskish_uid::{AddressSpaceUid, TaskUid},
     ticks::Ticks,

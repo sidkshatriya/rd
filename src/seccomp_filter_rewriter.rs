@@ -5,10 +5,7 @@ use crate::{
     bindings::kernel::{sock_filter, BPF_K, BPF_RET},
     kernel_abi::is_seccomp_syscall,
     kernel_supplement::{
-        SECCOMP_FILTER_FLAG_TSYNC,
-        SECCOMP_RET_ALLOW,
-        SECCOMP_RET_DATA,
-        SECCOMP_RET_TRACE,
+        SECCOMP_FILTER_FLAG_TSYNC, SECCOMP_RET_ALLOW, SECCOMP_RET_DATA, SECCOMP_RET_TRACE,
     },
     log::LogDebug,
     registers::Registers,

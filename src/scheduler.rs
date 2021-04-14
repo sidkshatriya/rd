@@ -48,12 +48,9 @@ use crate::{
         task::{
             record_task::{EmulatedStopType, RecordTask},
             task_inner::{ResumeRequest, TicksRequest, WaitRequest},
-            Task,
-            TaskSharedPtr,
-            TaskSharedWeakPtr,
+            Task, TaskSharedPtr, TaskSharedWeakPtr,
         },
-        SessionSharedPtr,
-        SessionSharedWeakPtr,
+        SessionSharedPtr, SessionSharedWeakPtr,
     },
     sig,
     ticks::Ticks,
@@ -72,8 +69,7 @@ use std::{
     cell::{Cell, RefCell},
     cmp::min,
     collections::{BTreeSet, VecDeque},
-    mem,
-    ptr,
+    mem, ptr,
     rc::{Rc, Weak},
 };
 

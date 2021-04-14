@@ -9,11 +9,7 @@ use crate::{
     log::{notifying_abort, LogInfo, LogWarn},
     scheduler::TicksHowMany,
     session::record_session::{
-        DisableCPUIDFeatures,
-        RecordResult,
-        RecordSession,
-        SyscallBuffering,
-        TraceUuid,
+        DisableCPUIDFeatures, RecordResult, RecordSession, SyscallBuffering, TraceUuid,
     },
     sig,
     sig::Sig,

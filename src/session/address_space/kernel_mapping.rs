@@ -4,16 +4,8 @@ use crate::{
     util::{find, page_size},
 };
 use libc::{
-    c_long,
-    dev_t,
-    ino_t,
-    stat,
-    MAP_ANONYMOUS,
-    MAP_GROWSDOWN,
-    MAP_NORESERVE,
-    MAP_PRIVATE,
-    MAP_SHARED,
-    MAP_STACK,
+    c_long, dev_t, ino_t, stat, MAP_ANONYMOUS, MAP_GROWSDOWN, MAP_NORESERVE, MAP_PRIVATE,
+    MAP_SHARED, MAP_STACK,
 };
 use nix::sys::{
     mman::{MapFlags, ProtFlags},

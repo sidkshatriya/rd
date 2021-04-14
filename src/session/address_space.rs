@@ -190,12 +190,8 @@ pub mod address_space {
         auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem},
         emu_fs::EmuFileSharedPtr,
         kernel_abi::{
-            syscall_instruction,
-            syscall_number_for_brk,
-            syscall_number_for_close,
-            syscall_number_for_munmap,
-            syscall_number_for_openat,
-            SupportedArch,
+            syscall_instruction, syscall_number_for_brk, syscall_number_for_close,
+            syscall_number_for_munmap, syscall_number_for_openat, SupportedArch,
         },
         log::LogLevel::LogDebug,
         monitored_shared_memory::MonitoredSharedMemorySharedPtr,
@@ -219,12 +215,9 @@ pub mod address_space {
                 record_task::RecordTask,
                 task_common::{read_mem, read_val_mem, write_val_mem, write_val_mem_with_flags},
                 task_inner::WriteFlags,
-                Task,
-                TaskSharedPtr,
-                WeakTaskPtrSet,
+                Task, TaskSharedPtr, WeakTaskPtrSet,
             },
-            SessionSharedPtr,
-            SessionSharedWeakPtr,
+            SessionSharedPtr, SessionSharedWeakPtr,
         },
         taskish_uid::{AddressSpaceUid, TaskUid},
         trace::trace_frame::FrameTime,
@@ -232,17 +225,8 @@ pub mod address_space {
     };
     use core::ffi::c_void;
     use libc::{
-        dev_t,
-        ino_t,
-        pid_t,
-        stat,
-        EACCES,
-        ENOENT,
-        MADV_DOFORK,
-        MADV_DONTFORK,
-        O_RDONLY,
-        PROT_GROWSDOWN,
-        PROT_GROWSUP,
+        dev_t, ino_t, pid_t, stat, EACCES, ENOENT, MADV_DOFORK, MADV_DONTFORK, O_RDONLY,
+        PROT_GROWSDOWN, PROT_GROWSUP,
     };
     use nix::{fcntl::OFlag, sys::mman::munmap, unistd::getpid};
     use std::{
@@ -251,9 +235,7 @@ pub mod address_space {
         collections::{
             btree_map::{Range, RangeMut},
             hash_map::Iter as HashMapIter,
-            BTreeMap,
-            HashMap,
-            HashSet,
+            BTreeMap, HashMap, HashSet,
         },
         ffi::{OsStr, OsString},
         ops::{

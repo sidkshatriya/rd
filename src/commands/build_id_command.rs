@@ -4,8 +4,7 @@ use goblin::elf::{note, Elf};
 use std::{
     ffi::OsStr,
     fmt::Write,
-    fs,
-    io,
+    fs, io,
     io::{stdin, BufRead, BufReader},
     os::unix::ffi::OsStrExt,
     path::Path,

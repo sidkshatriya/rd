@@ -6,11 +6,8 @@ use crate::{
     kernel_metadata::syscall_name,
     log::{LogDebug, LogWarn},
     preload_interface::{
-        syscall_patch_hook,
-        NEXT_INSTRUCTION_BYTES_LEN,
-        SYSCALLBUF_LIB_FILENAME_32,
-        SYSCALLBUF_LIB_FILENAME_BASE,
-        SYSCALLBUF_LIB_FILENAME_PADDED,
+        syscall_patch_hook, NEXT_INSTRUCTION_BYTES_LEN, SYSCALLBUF_LIB_FILENAME_32,
+        SYSCALLBUF_LIB_FILENAME_BASE, SYSCALLBUF_LIB_FILENAME_PADDED,
     },
     preload_interface_arch::rdcall_init_preload_params,
     remote_code_ptr::RemoteCodePtr,
