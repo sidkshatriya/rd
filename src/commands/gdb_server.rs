@@ -25,7 +25,7 @@ use crate::{
     remote_code_ptr::RemoteCodePtr,
     remote_ptr::{RemotePtr, Void},
     replay_timeline::{self, ReplayTimeline, ReplayTimelineSharedPtr, RunDirection},
-    scoped_fd::{ScopedFd, ScopedFdSharedWeakPtr},
+    scoped_fd::{ScopedFd, ScopedFdSharedPtr, ScopedFdSharedWeakPtr},
     session::{
         address_space::{memory_range::MemoryRange, MappingFlags, WatchType},
         diversion_session::DiversionSession,
@@ -84,6 +84,16 @@ pub struct ConnectionFlags {
     // Name of the debugger to suggest. Only used if debugger_params_write_pipe
     // is Weak::new().
     pub debugger_name: OsString,
+}
+
+impl ConnectionFlags {
+    pub fn debugger_params_write_pipe_unwrap(&self) -> ScopedFdSharedPtr {
+        self.debugger_params_write_pipe
+            .as_ref()
+            .unwrap()
+            .upgrade()
+            .unwrap()
+    }
 }
 
 impl Default for ConnectionFlags {
@@ -338,14 +348,7 @@ impl GdbServer {
                 host: flags.dbg_host.as_bytes().try_into().unwrap(),
                 port,
             };
-            let fd = flags
-                .debugger_params_write_pipe
-                .as_ref()
-                .unwrap()
-                .upgrade()
-                .unwrap()
-                .borrow()
-                .as_raw();
+            let fd = flags.debugger_params_write_pipe_unwrap().borrow().as_raw();
             let nwritten = write(fd, u8_slice(&params)).unwrap();
             // DIFF NOTE: This is a debug_assert in rr
             assert_eq!(nwritten, mem::size_of_val(&params));
@@ -362,11 +365,7 @@ impl GdbServer {
 
         if flags.debugger_params_write_pipe.is_some() {
             flags
-                .debugger_params_write_pipe
-                .as_ref()
-                .unwrap()
-                .upgrade()
-                .unwrap()
+                .debugger_params_write_pipe_unwrap()
                 .borrow_mut()
                 .close();
         }
@@ -541,8 +540,76 @@ impl GdbServer {
         ret
     }
 
-    fn activate_debugger(&self) {
-        unimplemented!();
+    fn activate_debugger(&mut self) {
+        let event_now = self
+            .get_timeline()
+            .current_session()
+            .current_trace_frame()
+            .time();
+        // We MUST have a task
+        let t = self
+            .get_timeline()
+            .current_session()
+            .current_task()
+            .unwrap();
+        if self.target.event > 0 || self.target.pid.is_some() {
+            if self.stop_replaying_to_target {
+                // @TODO There should be a bell in message
+                eprint!(
+                    "\n\
+               --------------------------------------------------\n\
+                --. Interrupted; attached to NON-TARGET process {} at event {}.\n\
+               --------------------------------------------------\n",
+                    t.tgid(),
+                    event_now
+                );
+            } else {
+                // @TODO There should be a bell in message
+                eprint!(
+                    "\n\
+               --------------------------------------------------\n\
+                --. Reached target process {} at event {}.\n\
+               --------------------------------------------------\n",
+                    t.tgid(),
+                    event_now
+                );
+            }
+        }
+
+        // Store the current tgid and event as the "execution target"
+        // for the next replay session, if we end up restarting.  This
+        // allows us to determine if a later session has reached this
+        // target without necessarily replaying up to this point.
+        self.target.pid = Some(t.tgid());
+        self.target.require_exec = false;
+        self.target.event = event_now;
+
+        self.last_query_tuid = t.tuid();
+        self.last_continue_tuid = t.tuid();
+
+        // Have the "checkpoint" be the original replay
+        // session, and then switch over to using the cloned
+        // session.  The cloned tasks will look like children
+        // of the clonees, so this scheme prevents |pstree|
+        // output from getting /too/ far out of whack.
+        let where_ = OsString::from("???");
+        let can_add_checkpoint = self.get_timeline().can_add_checkpoint();
+        let checkpoint = if can_add_checkpoint {
+            Checkpoint::new(
+                &mut self.get_timeline_mut(),
+                self.last_continue_tuid,
+                ExplicitCheckpoint::Explicit,
+                &where_,
+            )
+        } else {
+            Checkpoint::new(
+                &mut self.get_timeline_mut(),
+                self.last_continue_tuid,
+                ExplicitCheckpoint::NotExplicit,
+                &where_,
+            )
+        };
+        self.debugger_restart_checkpoint = Some(checkpoint);
     }
 
     fn restart_session(_req: &GdbRequest) {
