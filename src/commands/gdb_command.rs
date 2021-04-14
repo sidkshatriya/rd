@@ -12,7 +12,7 @@ use std::{
     io::Write,
     ops::{Deref, DerefMut},
     os::unix::ffi::{OsStrExt, OsStringExt},
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::atomic::{AtomicU64, Ordering},
 };
 
 /// DIFF NOTE: Simply called GdbCommand in rr
@@ -346,7 +346,7 @@ fn forward(gdb_server: &mut GdbServer, t: &dyn Task, _: &[OsString]) -> OsString
 }
 
 fn invoke_checkpoint(gdb_server: &mut GdbServer, _t: &dyn Task, args: &[OsString]) -> OsString {
-    static NEXT_CHECKPOINT_ID: AtomicUsize = AtomicUsize::new(0);
+    static NEXT_CHECKPOINT_ID: AtomicU64 = AtomicU64::new(0);
     let where_ = &args[1];
     let checkpoint_id = NEXT_CHECKPOINT_ID.fetch_add(1, Ordering::SeqCst);
 
@@ -373,7 +373,7 @@ fn invoke_delete_checkpoint(
     args: &[OsString],
 ) -> OsString {
     let mut ignore = Default::default();
-    let id: usize = str0_to_isize(args[1].as_bytes(), &mut ignore)
+    let id: u64 = str0_to_isize(args[1].as_bytes(), &mut ignore)
         .unwrap()
         .try_into()
         .unwrap();

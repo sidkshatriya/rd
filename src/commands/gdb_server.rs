@@ -6,8 +6,8 @@ use crate::{
     extra_registers::ExtraRegisters,
     gdb_connection::{
         GdbConnection, GdbConnectionFeatures, GdbRegisterValue, GdbRegisterValueData, GdbRequest,
-        GdbRequestType, GdbThreadId, DREQ_CONT, DREQ_DETACH, DREQ_FILE_CLOSE, DREQ_FILE_OPEN,
-        DREQ_FILE_PREAD, DREQ_FILE_SETFS, DREQ_GET_AUXV, DREQ_GET_CURRENT_THREAD,
+        GdbRequestType, GdbRestartType, GdbThreadId, DREQ_CONT, DREQ_DETACH, DREQ_FILE_CLOSE,
+        DREQ_FILE_OPEN, DREQ_FILE_PREAD, DREQ_FILE_SETFS, DREQ_GET_AUXV, DREQ_GET_CURRENT_THREAD,
         DREQ_GET_EXEC_FILE, DREQ_GET_IS_THREAD_ALIVE, DREQ_GET_MEM, DREQ_GET_OFFSETS, DREQ_GET_REG,
         DREQ_GET_REGS, DREQ_GET_STOP_REASON, DREQ_GET_THREAD_EXTRA_INFO, DREQ_GET_THREAD_LIST,
         DREQ_INTERRUPT, DREQ_NONE, DREQ_QSYMBOL, DREQ_RD_CMD, DREQ_READ_SIGINFO,
@@ -29,7 +29,7 @@ use crate::{
     session::{
         address_space::{memory_range::MemoryRange, MappingFlags, WatchType},
         diversion_session::DiversionSession,
-        replay_session::{ReplaySession, ReplayStatus},
+        replay_session::{ReplayResult, ReplaySession, ReplayStatus},
         session_inner::{BreakStatus, RunCommand},
         task::{Task, TaskSharedPtr},
         Session, SessionSharedPtr, SessionSharedWeakPtr,
@@ -177,7 +177,7 @@ pub struct GdbServer {
     /// in rr. We have an more explicit Option<>
     debugger_restart_checkpoint: Option<Checkpoint>,
     /// gdb checkpoints, indexed by ID
-    pub(super) checkpoints: HashMap<usize, Checkpoint>,
+    pub(super) checkpoints: HashMap<FrameTime, Checkpoint>,
     /// Set of symbols to look for, for qSymbol
     symbols: HashSet<String>,
     files: HashMap<i32, ScopedFd>,
@@ -612,8 +612,94 @@ impl GdbServer {
         self.debugger_restart_checkpoint = Some(checkpoint);
     }
 
-    fn restart_session(_req: &GdbRequest) {
-        unimplemented!();
+    fn restart_session(&mut self, req: &GdbRequest) {
+        debug_assert_eq!(req.type_, DREQ_RESTART);
+        debug_assert!(self.dbg.is_some());
+
+        self.in_debuggee_end_state = false;
+        self.get_timeline_mut().remove_breakpoints_and_watchpoints();
+
+        let mut maybe_checkpoint_to_restore = None;
+        if req.restart().type_ == GdbRestartType::RestartFromCheckpoint {
+            let maybe_it = self.checkpoints.get(&req.restart().param).cloned();
+            match maybe_it {
+                None => {
+                    println!("Checkpoint {} not found.", req.restart().param_str);
+                    println!("Valid checkpoints:");
+                    for &i in self.checkpoints.keys() {
+                        println!(" {}", i);
+                    }
+                    println!();
+                    self.dbg_mut().notify_restart_failed();
+                    return;
+                }
+                Some(c) => {
+                    maybe_checkpoint_to_restore = Some(c);
+                }
+            }
+        } else if req.restart().type_ == GdbRestartType::RestartFromPrevious {
+            maybe_checkpoint_to_restore = self.debugger_restart_checkpoint.clone();
+        }
+
+        self.interrupt_pending = true;
+
+        if let Some(checkpoint) = maybe_checkpoint_to_restore {
+            self.get_timeline_mut().seek_to_mark(&checkpoint.mark);
+            self.last_query_tuid = checkpoint.last_continue_tuid;
+            self.last_continue_tuid = checkpoint.last_continue_tuid;
+            if self
+                .debugger_restart_checkpoint
+                .as_ref()
+                .unwrap()
+                .is_explicit
+                == ExplicitCheckpoint::Explicit
+            {
+                self.get_timeline_mut().remove_explicit_checkpoint(
+                    &self.debugger_restart_checkpoint.as_ref().unwrap().mark,
+                );
+            }
+            self.debugger_restart_checkpoint = Some(checkpoint);
+            let can_add_checkpoint = self.get_timeline().can_add_checkpoint();
+            if can_add_checkpoint {
+                self.get_timeline_mut().add_explicit_checkpoint();
+            }
+            return;
+        }
+
+        self.stop_replaying_to_target = false;
+
+        debug_assert_eq!(req.restart().type_, GdbRestartType::RestartFromEvent);
+        // Note that we don't reset the target pid; we intentionally keep targeting
+        // the same process no matter what is running when we hit the event.
+        self.target.event = req.restart().param;
+        self.target.event = min(self.final_event - 1, self.target.event);
+        self.get_timeline_mut()
+            .seek_to_before_event(self.target.event);
+        loop {
+            let result = self
+                .get_timeline_mut()
+                .replay_step_forward(RunCommand::RunContinue, self.target.event);
+            // We should never reach the end of the trace without hitting the stop
+            // condition below.
+            debug_assert_ne!(result.status, ReplayStatus::ReplayExited);
+            if is_last_thread_exit(&result.break_status)
+                && result
+                    .break_status
+                    .task_unwrap()
+                    .thread_group()
+                    .borrow()
+                    .tgid
+                    == self.target.pid.unwrap()
+            {
+                // Debuggee task is about to exit. Stop here.
+                self.in_debuggee_end_state = true;
+                break;
+            }
+            if self.at_target() {
+                break;
+            }
+        }
+        self.activate_debugger();
     }
 
     fn process_debugger_requests(_state: Option<ReportState>) -> GdbRequest {

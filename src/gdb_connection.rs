@@ -471,7 +471,7 @@ impl GdbRequest {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum GdbRestartType {
     RestartFromPrevious,
     RestartFromEvent,
@@ -518,6 +518,7 @@ pub mod gdb_request {
     use crate::{
         remote_ptr::{RemotePtr, Void},
         replay_timeline::RunDirection,
+        trace::trace_frame::FrameTime,
     };
     use libc::pid_t;
 
@@ -542,7 +543,7 @@ pub mod gdb_request {
 
     #[derive(Default, Clone)]
     pub struct Restart {
-        pub param: i32,
+        pub param: FrameTime,
         /// @TODO Made this a String because its value seems to only come from
         /// decode_ascii_encoded_hex_str
         pub param_str: String,
@@ -2077,7 +2078,8 @@ impl GdbConnection {
                     event_str,
                 );
                 self.req.restart_mut().type_ = GdbRestartType::RestartFromPrevious;
-                self.req.restart_mut().param = -1;
+                // @TODO Will this be OK?
+                self.req.restart_mut().param = u64::MAX;
             }
 
             return true;

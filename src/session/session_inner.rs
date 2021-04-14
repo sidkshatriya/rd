@@ -68,6 +68,10 @@ impl Default for BreakStatus {
 
 /// In general, multiple break reasons can apply simultaneously.
 impl BreakStatus {
+    pub fn task_unwrap(&self) -> TaskSharedPtr {
+        self.task.upgrade().unwrap()
+    }
+
     pub fn new() -> BreakStatus {
         BreakStatus {
             task: Default::default(),
