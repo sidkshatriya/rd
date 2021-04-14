@@ -2434,3 +2434,13 @@ mod tests {
         assert_eq!(b"mango", sl);
     }
 }
+
+/// Setting these causes us to trace instructions after
+/// instruction_trace_at_event_start up to and including
+/// instruction_trace_at_event_last
+static mut INSTRUCTION_TRACE_AT_EVENT_START: FrameTime = 0;
+static mut INSTRUCTION_TRACE_AT_EVENT_LAST: FrameTime = 0;
+
+pub fn trace_instructions_up_to_event(event: FrameTime) -> bool {
+    unsafe { event > INSTRUCTION_TRACE_AT_EVENT_START && event <= INSTRUCTION_TRACE_AT_EVENT_LAST }
+}

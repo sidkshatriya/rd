@@ -9,7 +9,16 @@ use crate::{
         GdbRegisterValue,
         GdbRegisterValueData,
         GdbRequest,
+        GdbRequestType,
         GdbThreadId,
+        DREQ_REMOVE_HW_BREAK,
+        DREQ_REMOVE_RDWR_WATCH,
+        DREQ_REMOVE_RD_WATCH,
+        DREQ_REMOVE_WR_WATCH,
+        DREQ_SET_HW_BREAK,
+        DREQ_SET_RDWR_WATCH,
+        DREQ_SET_RD_WATCH,
+        DREQ_SET_WR_WATCH,
     },
     gdb_expression::{GdbExpression, GdbExpressionValue},
     gdb_register::{GdbRegister, DREG_64_YMM15H, DREG_ORIG_EAX, DREG_ORIG_RAX, DREG_YMM7H},
@@ -21,7 +30,7 @@ use crate::{
     replay_timeline::{self, ReplayTimeline, ReplayTimelineSharedPtr, RunDirection},
     scoped_fd::ScopedFd,
     session::{
-        address_space::{memory_range::MemoryRange, MappingFlags},
+        address_space::{memory_range::MemoryRange, MappingFlags, WatchType},
         diversion_session::DiversionSession,
         replay_session::ReplaySession,
         session_inner::BreakStatus,
@@ -872,4 +881,33 @@ fn search_memory(t: &dyn Task, where_: MemoryRange, find_s: &[u8]) -> Option<Rem
         }
     }
     None
+}
+
+fn get_threadid_from_tuid(session: &dyn Session, tuid: TaskUid) -> GdbThreadId {
+    let maybe_t = session.find_task_from_task_uid(tuid);
+    let pid = match maybe_t {
+        Some(t) => t.tgid(),
+        None => GdbThreadId::ANY.pid,
+    };
+    GdbThreadId::new(pid, tuid.tid())
+}
+
+fn matches_threadid(t: &dyn Task, target: GdbThreadId) -> bool {
+    (target.pid <= 0 || target.pid == t.tgid()) && (target.tid <= 0 || target.tid == t.rec_tid())
+}
+
+fn watchpoint_type(req: GdbRequestType) -> WatchType {
+    match req {
+        DREQ_SET_HW_BREAK | DREQ_REMOVE_HW_BREAK => WatchType::WatchExec,
+        DREQ_SET_WR_WATCH | DREQ_REMOVE_WR_WATCH => WatchType::WatchWrite,
+        // NB| x86 doesn't support read-only watchpoints (who would
+        // ever want to use one?) so we treat them as readwrite
+        // watchpoints and hope that gdb can figure out what's going
+        // on.  That is, if a user ever tries to set a read
+        // watchpoint.
+        DREQ_REMOVE_RDWR_WATCH | DREQ_SET_RDWR_WATCH | DREQ_REMOVE_RD_WATCH | DREQ_SET_RD_WATCH => {
+            WatchType::WatchReadWrite
+        }
+        _ => fatal!("Unknown dbg request {}", req),
+    }
 }

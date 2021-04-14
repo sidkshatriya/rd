@@ -159,8 +159,8 @@ impl Default for GdbThreadId {
 }
 
 impl GdbThreadId {
-    const ANY: GdbThreadId = GdbThreadId::new(0, 0);
-    const ALL: GdbThreadId = GdbThreadId::new(-1, -1);
+    pub const ANY: GdbThreadId = GdbThreadId::new(0, 0);
+    pub const ALL: GdbThreadId = GdbThreadId::new(-1, -1);
 
     pub const fn new(pid: pid_t, tid: pid_t) -> Self {
         GdbThreadId { pid, tid }
