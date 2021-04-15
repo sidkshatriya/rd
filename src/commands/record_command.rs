@@ -152,12 +152,10 @@ impl RecordCommand {
                     }
                     if force_syscall_buffer {
                         SyscallBuffering::EnableSycallBuf
+                    } else if no_syscall_buffer {
+                        SyscallBuffering::DisableSyscallBuf
                     } else {
-                        if no_syscall_buffer {
-                            SyscallBuffering::DisableSyscallBuf
-                        } else {
-                            SyscallBuffering::EnableSycallBuf
-                        }
+                        SyscallBuffering::EnableSycallBuf
                     }
                 },
                 syscall_buffer_size: syscall_buffer_size.unwrap_or(1024 * 1024),

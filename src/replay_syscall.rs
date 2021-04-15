@@ -1738,7 +1738,7 @@ fn finish_shared_mmap<'a>(
         emufile.borrow().emu_path()
     );
 
-    let process = |rt: &dyn Task, fd: &TraceRemoteFd| -> () {
+    let process = |rt: &dyn Task, fd: &TraceRemoteFd| {
         let maybe_mon = rt.fd_table().get_monitor(fd.fd);
         match maybe_mon {
             Some(file_mon_shr_ptr) => {

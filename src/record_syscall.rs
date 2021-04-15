@@ -3775,7 +3775,7 @@ fn get_exe_entry(t: &RecordTask) -> RemotePtr<Void> {
     RemotePtr::null()
 }
 
-type AfterSyscallAction = Box<dyn Fn(&RecordTask) -> ()>;
+type AfterSyscallAction = Box<dyn Fn(&RecordTask)>;
 type ArgMutator = Box<dyn Fn(&RecordTask, RemotePtr<Void>, Option<&mut [u8]>) -> bool>;
 
 /// When tasks enter syscalls that may block and so must be
@@ -6057,19 +6057,17 @@ fn prepare_ptrace<Arch: Architecture>(
                 Some(tracee_rc) => {
                     if t.regs_ref().arg3() != 0 {
                         syscall_state.emulate_result_signed(-EIO as isize);
-                    } else {
-                        if verify_ptrace_options(t, syscall_state) {
-                            let tracee = tracee_rc.as_rec_unwrap();
-                            tracee.set_emulated_ptracer(Some(t));
-                            tracee.emulated_ptrace_seized.set(true);
-                            tracee
-                                .emulated_ptrace_options
-                                .set(t.regs_ref().arg4() as u32);
-                            if tracee.emulated_stop_type.get() == EmulatedStopType::GroupStop {
-                                ptrace_attach_to_already_stopped_task(tracee);
-                            }
-                            syscall_state.emulate_result(0);
+                    } else if verify_ptrace_options(t, syscall_state) {
+                        let tracee = tracee_rc.as_rec_unwrap();
+                        tracee.set_emulated_ptracer(Some(t));
+                        tracee.emulated_ptrace_seized.set(true);
+                        tracee
+                            .emulated_ptrace_options
+                            .set(t.regs_ref().arg4() as u32);
+                        if tracee.emulated_stop_type.get() == EmulatedStopType::GroupStop {
+                            ptrace_attach_to_already_stopped_task(tracee);
                         }
+                        syscall_state.emulate_result(0);
                     }
                 }
                 None => (),

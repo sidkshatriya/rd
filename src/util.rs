@@ -519,18 +519,14 @@ pub fn tmp_dir() -> OsString {
     }
 
     maybe_dir = var_os("TMPDIR");
-    match maybe_dir {
-        Some(dir) => {
-            ensure_dir(&dir, "temporary file directory (TMPDIR)", Mode::S_IRWXU);
-            return dir;
-        }
-        None => (),
+    if let Some(dir) = maybe_dir {
+        ensure_dir(&dir, "temporary file directory (TMPDIR)", Mode::S_IRWXU);
+        return dir;
     }
 
     // Don't try to create "/tmp", that probably won't work well.
-    match access("/tmp", AccessFlags::W_OK) {
-        Err(e) => fatal!("Can't write to temporary file directory /tmp: {:?}", e),
-        Ok(_) => (),
+    if let Err(e) = access("/tmp", AccessFlags::W_OK) {
+        fatal!("Can't write to temporary file directory /tmp: {:?}", e)
     }
 
     OsString::from("/tmp")
@@ -587,9 +583,8 @@ pub fn ensure_dir(dir: &OsStr, dir_type: &str, mode: Mode) {
         fatal!("{:?} exists but isn't a directory.", dir);
     }
 
-    match access(d, AccessFlags::W_OK) {
-        Err(e) => fatal!("Can't write to {} {:?}: {:?}", dir_type, dir, e),
-        Ok(_) => (),
+    if let Err(e) = access(d, AccessFlags::W_OK) {
+        fatal!("Can't write to {} {:?}: {:?}", dir_type, dir, e)
     }
 }
 
@@ -653,9 +648,7 @@ pub fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
         if rest.starts_with(needle) {
             return Some(i);
         }
-        if it.next().is_none() {
-            return None;
-        }
+        it.next()?;
         i += 1;
     }
     unreachable!()
@@ -1156,7 +1149,7 @@ pub fn clone_flags_to_task_flags(flags_arg: i32) -> CloneFlags {
 
 pub fn to_timeval(t: f64) -> timeval {
     let tv_sec: c_long = t.floor() as c_long;
-    let tv_usec: c_long = ((t - tv_sec as f64) * 1000_000.0).floor() as c_long;
+    let tv_usec: c_long = ((t - tv_sec as f64) * 1_000_000.0).floor() as c_long;
     timeval { tv_sec, tv_usec }
 }
 

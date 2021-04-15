@@ -69,16 +69,21 @@ lazy_static! {
         // @TODO Ok to simply add Sync + Send?
         let mut f: Box<dyn Write + Sync + Send>;
         if let Some(filename) = maybe_filename {
-            f = Box::new(File::create(&filename).expect(&format!("Error. Could not create filename `{:?}' specified in environment variable RD_LOG_FILE", filename)));
+            f = Box::new(
+                File::create(&filename)
+                    .unwrap_or_else(|e|panic!("Could not create filename `{:?}' specified in environment variable RD_LOG_FILE: {:?}", filename, e)));
         } else if let Some(append_filename) = maybe_append_filename {
-            f = Box::new(OpenOptions::new().append(true).create(true).open(&append_filename).expect(&format!("Error. Could not append to filename `{:?}' specified in env variable RD_APPEND_LOG_FILE", append_filename)));
+            f = Box::new(
+                OpenOptions::new().append(true).create(true).open(&append_filename)
+                    .unwrap_or_else(|e|panic!("Could not append to filename `{:?}' specified in env variable RD_APPEND_LOG_FILE: {:?}", append_filename, e)));
         } else {
             f = Box::new(io::stderr());
         }
 
         let maybe_buf_size = env::var("RD_LOG_BUFFER");
         if let Ok(buf_size) = maybe_buf_size {
-            let log_buffer_size = buf_size.parse::<usize>().expect(&format!("Error. Could not parse `{:?}' in environment var `RD_LOG_BUFFER' as a number", buf_size));
+            let log_buffer_size = buf_size.parse::<usize>()
+                .unwrap_or_else(|e|panic!("Could not parse `{:?}' in environment var `RD_LOG_BUFFER' as a number: {:?}", buf_size, e));
             f = Box::new(BufWriter::with_capacity(log_buffer_size, f));
         }
 

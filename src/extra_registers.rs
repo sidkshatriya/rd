@@ -563,7 +563,6 @@ fn xsave_register_data(arch: SupportedArch, regno_param: GdbRegister) -> RegData
                 regno =
                     ((regno - DREG_FIRST_FXSAVE_REG).unwrap() + DREG_64_FIRST_FXSAVE_REG).unwrap();
             }
-            ()
         }
         X64 => (),
     }

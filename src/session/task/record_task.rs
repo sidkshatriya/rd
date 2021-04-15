@@ -2211,12 +2211,10 @@ impl RecordTask {
     pub fn desched_rec(&self) -> RemotePtr<syscallbuf_record> {
         if self.ev().is_syscall_event() {
             self.ev().syscall_event().desched_rec
+        } else if EventType::EvDesched == self.ev().event_type() {
+            self.ev().desched_event().rec
         } else {
-            if EventType::EvDesched == self.ev().event_type() {
-                self.ev().desched_event().rec
-            } else {
-                RemotePtr::null()
-            }
+            RemotePtr::null()
         }
     }
 

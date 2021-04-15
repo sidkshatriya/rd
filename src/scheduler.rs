@@ -200,7 +200,7 @@ pub enum TicksHowMany {
     DefaultMaxTicks = 500_000,
 
     /// Don't allow max_ticks to get above this value.
-    MaxMaxTicks = 1000_000_000,
+    MaxMaxTicks = 1_000_000_000,
 }
 
 /// Schedule a new runnable task (which may be the same as current()).

@@ -433,13 +433,11 @@ fn decode_x86_string_instruction(code: &InstructionBuf) -> Result<DecodedInstruc
     if code.code_buf[last_i] & 1 != 0 {
         decoded.operand_size = if found_REXW_prefix {
             8
+        } else if found_operand_prefix {
+            2
         } else {
-            if found_operand_prefix {
-                2
-            } else {
-                4
-            }
-        };
+            4
+        }
     } else {
         decoded.operand_size = 1;
     }
