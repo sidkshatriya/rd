@@ -1056,7 +1056,7 @@ impl Registers {
     }
 
     pub fn write_register_file(&self, f: &mut dyn Write) -> io::Result<()> {
-        write!(f, "Printing register file:\n")?;
+        writeln!(f, "Printing register file:")?;
         let regs_info = self.get_regs_info();
         for (_, rv) in regs_info {
             if rv.nbytes == 0 {
@@ -1096,9 +1096,9 @@ impl Registers {
                 },
             }
 
-            write!(f, "\n")?;
+            writeln!(f)?;
         }
-        write!(f, "\n")?;
+        writeln!(f)?;
 
         Ok(())
     }

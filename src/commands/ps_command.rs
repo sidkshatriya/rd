@@ -46,7 +46,7 @@ type TidPidMap = HashMap<pid_t, pid_t>;
 impl PsCommand {
     fn ps(&mut self, out: &mut dyn Write) -> io::Result<()> {
         let mut trace = TraceReader::new(self.trace_dir.as_ref());
-        write!(out, "PID\tPPID\tEXIT\tCMD\n")?;
+        writeln!(out, "PID\tPPID\tEXIT\tCMD")?;
 
         let mut events: Vec<TraceTaskEvent> = Vec::new();
         while let Some(r) = trace.read_task_event(None) {
@@ -98,7 +98,7 @@ impl PsCommand {
                         None => {
                             // The main thread exited. All other threads must too, so there
                             // is no more opportunity for e's pid to exec.
-                            write!(out, "(forked without exec)\n")?
+                            writeln!(out, "(forked without exec)")?
                         }
                         Some(cmd_line_index) => {
                             write_exec_cmd_line(&events[cmd_line_index], out)?;
@@ -202,5 +202,5 @@ fn write_exec_cmd_line(event: &TraceTaskEvent, out: &mut dyn Write) -> io::Resul
         // WORKAROUND. OsString debug print has leading and trailing `"`
         write!(out, "{}", word_s.trim_matches('"'))?;
     }
-    write!(out, "\n")
+    writeln!(out)
 }

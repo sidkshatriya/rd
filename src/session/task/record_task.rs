@@ -106,7 +106,6 @@ use std::{
     convert::{TryFrom, TryInto},
     error::Error,
     ffi::{c_void, CString, OsStr, OsString},
-    mem,
     mem::size_of,
     ops::Deref,
     ptr::{self, copy_nonoverlapping},
@@ -1378,7 +1377,8 @@ impl RecordTask {
             let tracee = tracee_rc.as_rec_unwrap();
             if tracee.emulated_ptrace_sigchld_pending.get() {
                 tracee.emulated_ptrace_sigchld_pending.set(false);
-                let sia: &mut siginfo_t_arch<NativeArch> = unsafe { mem::transmute(si) };
+                let sia: &mut siginfo_t_arch<NativeArch> =
+                    unsafe { &mut *(si as *mut siginfo_t as *mut siginfo_t_arch<NativeArch>) };
                 tracee.set_siginfo_for_waited_task::<NativeArch>(sia);
                 sia._sifields._rt.si_sigval_.sival_int = 0;
                 return true;
@@ -1390,7 +1390,8 @@ impl RecordTask {
                 let rchild = child.as_rec_unwrap();
                 if rchild.emulated_sigchld_pending.get() {
                     rchild.emulated_sigchld_pending.set(false);
-                    let sia: &mut siginfo_t_arch<NativeArch> = unsafe { mem::transmute(si) };
+                    let sia: &mut siginfo_t_arch<NativeArch> =
+                        unsafe { &mut *(si as *mut siginfo_t as *mut siginfo_t_arch<NativeArch>) };
                     rchild.set_siginfo_for_waited_task::<NativeArch>(sia);
                     sia._sifields._rt.si_sigval_.sival_int = 0;
                     return true;

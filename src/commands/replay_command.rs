@@ -263,8 +263,8 @@ impl ReplayCommand {
                 let rectime: f64 = replay_session.trace_reader().recording_time();
                 let elapsed_usec: u64 = to_microseconds(&now) - to_microseconds(&last_dump_time);
                 let stats: Statistics = replay_session.statistics();
-                write!(out,
-          "[ReplayStatistics] ticks {} syscalls {} bytes_written {} microseconds {} %%realtime {:.0}%%\n",
+                writeln!(out,
+          "[ReplayStatistics] ticks {} syscalls {} bytes_written {} microseconds {} %%realtime {:.0}%%",
           stats.ticks_processed - last_stats.ticks_processed,
           stats.syscalls_performed - last_stats.syscalls_performed,
           stats.bytes_written - last_stats.bytes_written,

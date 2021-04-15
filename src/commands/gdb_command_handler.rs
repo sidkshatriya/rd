@@ -152,7 +152,7 @@ end
         match maybe_cmd {
             None => {
                 let mut msg: Vec<u8> = Vec::new();
-                write!(msg, "Command {:?} not found.\n", args[0]).unwrap();
+                writeln!(msg, "Command {:?} not found.", args[0]).unwrap();
                 gdb_escape(&msg)
             }
             Some(cmd) => {

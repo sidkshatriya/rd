@@ -934,7 +934,7 @@ impl TaskInner {
     /// is returned, the caller is guaranteed that no watchpoint
     /// has been enabled; either all of `regs` is enabled and true
     /// is returned, or none are and false is returned.
-    pub fn set_debug_regs(&self, regs: &DebugRegs) -> bool {
+    pub fn set_debug_regs(&self, regs: &[WatchConfig]) -> bool {
         // Reset the debug status since we're about to change the set
         // of programmed watchpoints.
         self.set_debug_reg(6, 0);

@@ -456,7 +456,7 @@ fn prepare_clone<Arch: Architecture>(t: &ReplayTask) {
     new_task.canonicalize_regs(new_task_arch);
 
     if Arch::CLONE as isize != t.regs_ref().original_syscallno()
-        || !(CLONE_VM as usize & r.arg1() == CLONE_VM as usize)
+        || CLONE_VM as usize & r.arg1() == 0
     {
         // It's hard to imagine a scenario in which it would
         // be useful to inherit breakpoints (along with their

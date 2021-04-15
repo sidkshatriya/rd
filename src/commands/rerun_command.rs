@@ -700,7 +700,7 @@ impl ReRunCommand {
                 }
             }
         }
-        write!(out, "\n")?;
+        writeln!(out)?;
         Ok(())
     }
 }

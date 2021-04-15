@@ -363,9 +363,7 @@ impl ReplayTimeline {
             && m_key == from.ptr.borrow().proto.key
             && result.break_status.signal.is_none()
         {
-            if !self.marks.contains_key(&m_key) {
-                self.marks.insert(m_key, Vec::new());
-            }
+            self.marks.entry(m_key).or_insert(Vec::new());
             let mark_vector = &self.marks[&m_key];
             for i in 0..mark_vector.len() {
                 if Rc::ptr_eq(&mark_vector[i], &from.ptr) {

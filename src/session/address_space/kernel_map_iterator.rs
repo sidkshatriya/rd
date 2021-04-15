@@ -102,8 +102,7 @@ impl KernelMapIterator {
 
         // Ignore leading spaces
         let mut start_index = 0;
-        let mut it = filename_unescaped.iter();
-        while let Some(c) = it.next() {
+        for c in filename_unescaped {
             if *c == b' ' {
                 start_index += 1;
             } else {

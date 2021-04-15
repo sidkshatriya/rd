@@ -617,6 +617,6 @@ fn dump_last_events(trace_stream: &TraceStream, f: &mut dyn Write) -> io::Result
         event_spec: Some((start, Some(end))),
     };
 
-    write!(f, "Tail of trace dump: {}-{}\n", start, end)?;
+    writeln!(f, "Tail of trace dump: {}-{}", start, end)?;
     dump_command.dump(f)
 }

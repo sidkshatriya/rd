@@ -72,11 +72,11 @@ impl DumpCommand {
         let mut trace = TraceReader::new(self.trace_dir.as_ref());
 
         if self.raw_dump {
-            write!(
+            writeln!(
                 f,
                 "global_time tid reason ticks \
             hw_interrupts page_faults instructions \
-            eax ebx ecx edx esi edi ebp orig_eax esp eip eflags\n"
+            eax ebx ecx edx esi edi ebp orig_eax esp eip eflags"
             )?;
         }
 
@@ -93,9 +93,9 @@ impl DumpCommand {
         let ub = trace.uncompressed_bytes();
         let cb = trace.compressed_bytes();
 
-        write!(
+        writeln!(
             f,
-            "// Uncompressed bytes {}, compressed bytes {}, ratio {:.2}\n",
+            "// Uncompressed bytes {}, compressed bytes {}, ratio {:.2}",
             ub,
             cb,
             ub / cb
@@ -199,13 +199,13 @@ impl DumpCommand {
                         }
 
                         // DIFF NOTE: If length is 0 then rr outputs `(nil)` instead of `0x0`
-                        write!(
+                        writeln!(
                             f,
                             "  {{ map_file:{:?}, addr:{:#x}, length:{:#x}, \
                         prot_flags:{:?}, file_offset:{:#x}, \
                         device:{}, inode:{}, \
                         data_file:{:?}, data_offset:{:#x}, \
-                        file_size:{:#x} }}\n",
+                        file_size:{:#x} }}",
                             fsname,
                             km.start().as_usize(),
                             km.size(),
@@ -223,9 +223,9 @@ impl DumpCommand {
                 while let Some(data) = trace.read_raw_data_metadata_for_frame() {
                     if self.dump_recorded_data_metadata {
                         // DIFF NOTE rr prints `(nil)` if addr is 0 or length is 0.
-                        write!(
+                        writeln!(
                             f,
-                            "  {{ tid:{}, addr:{:#x}, length:{:#x} }}\n",
+                            "  {{ tid:{}, addr:{:#x}, length:{:#x} }}",
                             data.rec_tid,
                             data.addr.as_usize(),
                             data.size
@@ -233,7 +233,7 @@ impl DumpCommand {
                     }
                 }
                 if !self.raw_dump {
-                    write!(f, "}}\n")?;
+                    writeln!(f, "}}")?;
                 }
             } else {
                 loop {
@@ -268,9 +268,9 @@ impl RdCommand for DumpCommand {
 fn dump_task_event(out: &mut dyn Write, event: &TraceTaskEvent) -> io::Result<()> {
     match event.event_variant() {
         TraceTaskEventVariant::Clone(ev) => {
-            write!(
+            writeln!(
                 out,
-                "  TraceTaskEvent::CLONE tid={} parent={} clone_flags={:#x}\n",
+                "  TraceTaskEvent::CLONE tid={} parent={} clone_flags={:#x}",
                 event.tid(),
                 ev.parent_tid(),
                 ev.clone_flags()
@@ -281,17 +281,17 @@ fn dump_task_event(out: &mut dyn Write, event: &TraceTaskEvent) -> io::Result<()
             // WORKAROUND: rr does not display the quotes which the Debug string representation will
             // unfortunately have. So strip it.
             let filename_trimmed = filename.trim_matches('"');
-            write!(
+            writeln!(
                 out,
-                "  TraceTaskEvent::EXEC tid={} file={}\n",
+                "  TraceTaskEvent::EXEC tid={} file={}",
                 event.tid(),
                 filename_trimmed
             )?;
         }
         TraceTaskEventVariant::Exit(ev) => {
-            write!(
+            writeln!(
                 out,
-                "  TraceTaskEvent::EXIT tid={} status={}\n",
+                "  TraceTaskEvent::EXIT tid={} status={}",
                 event.tid(),
                 ev.exit_status().get(),
             )?;
@@ -323,9 +323,9 @@ unsafe fn dump_syscallbuf_data(
     while record_ptr.lt(&end_ptr) {
         let record = record_ptr as *const syscallbuf_record;
         // Buffered syscalls always use the task arch
-        write!(
+        writeln!(
             out,
-            "  {{ syscall:'{}', ret:{:#x}, size:{:#x} }}\n",
+            "  {{ syscall:'{}', ret:{:#x}, size:{:#x} }}",
             syscall_name((*record).syscallno as i32, frame.regs_ref().arch()),
             (*record).ret,
             (*record).size

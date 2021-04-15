@@ -48,11 +48,11 @@ impl RemoteCodePtr {
     }
 
     pub fn decrement_by_bkpt_insn_length(self, _arch: SupportedArch) -> RemoteCodePtr {
-        self - 1 as usize
+        self - 1usize
     }
 
     pub fn increment_by_bkpt_insn_length(self, _arch: SupportedArch) -> RemoteCodePtr {
-        self + 1 as usize
+        self + 1usize
     }
 
     pub fn to_data_ptr<T>(self) -> RemotePtr<T> {

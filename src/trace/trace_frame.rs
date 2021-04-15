@@ -109,7 +109,7 @@ impl TraceFrame {
         if self.event().is_syscall_event() {
             write!(out, "(state:{}) ", self.event().syscall_event().state)?;
         }
-        write!(out, "tid:{}, ticks:{}\n", self.tid(), self.ticks())?;
+        writeln!(out, "tid:{}, ticks:{}", self.tid(), self.ticks())?;
         if !self.event().record_regs() {
             return Ok(());
         }
@@ -119,7 +119,7 @@ impl TraceFrame {
             write!(out, " ")?;
             self.recorded_extra_regs.write_register_file_compact(out)?;
         }
-        write!(out, "\n")
+        writeln!(out)
     }
     /// Log a human-readable representation of this to `maybe_out`
     /// (defaulting to stdout), including a newline character.  An
@@ -139,11 +139,11 @@ impl TraceFrame {
             self.ticks()
         )?;
         if !self.event().record_regs() {
-            write!(out, "\n")?;
+            writeln!(out)?;
             return Ok(());
         }
 
         self.regs_ref().write_register_file_for_trace_raw(out)?;
-        write!(out, "\n")
+        writeln!(out)
     }
 }

@@ -740,7 +740,7 @@ fn parse_u32(s: &str) -> Result<u32, Box<dyn Error>> {
             clap::ErrorKind::InvalidValue,
         )))
     } else {
-        let res = u32::from_str_radix(ts, 10)?;
+        let res = ts.parse::<u32>()?;
         Ok(res)
     }
 }
