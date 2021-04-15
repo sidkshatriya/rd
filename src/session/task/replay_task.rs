@@ -206,7 +206,7 @@ impl ReplayTask {
     /// Restore the next chunk of saved data from the trace to this.
     pub fn set_data_from_trace(&self, maybe_other: Option<&ReplayTask>) -> usize {
         let buf: RawData = self.trace_reader_mut().read_raw_data();
-        if !buf.addr.is_null() && buf.data.len() > 0 {
+        if !buf.addr.is_null() && !buf.data.is_empty() {
             if buf.rec_tid == self.rec_tid() {
                 self.write_bytes_helper(buf.addr, &buf.data, None, WriteFlags::empty());
                 self.vm()
@@ -254,7 +254,7 @@ impl ReplayTask {
             let maybe_buf = self.trace_reader_mut().read_raw_data_for_frame().clone();
             match maybe_buf {
                 Some(buf) => {
-                    if !buf.addr.is_null() && buf.data.len() > 0 {
+                    if !buf.addr.is_null() && !buf.data.is_empty() {
                         if buf.rec_tid == self.rec_tid() {
                             self.write_bytes_helper(buf.addr, &buf.data, None, WriteFlags::empty());
                             self.vm()

@@ -555,8 +555,7 @@ impl Registers {
             X64(_) => size_of::<x64::user_regs_struct>(),
         };
 
-        let mut v: Vec<u8> = Vec::with_capacity(l);
-        v.resize(l, 0);
+        let mut v: Vec<u8> = vec![0; l];
         v.copy_from_slice(tmp_regs.get_ptrace_for_self_arch());
         v
     }
@@ -1115,7 +1114,7 @@ impl Registers {
         nbytes: usize,
         register_ptr: *const u8,
     ) -> io::Result<()> {
-        if name.len() > 0 {
+        if !name.is_empty() {
             write!(f, "{}:", name)?
         } else {
             write!(f, " ")?

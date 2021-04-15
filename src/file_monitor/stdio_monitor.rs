@@ -81,8 +81,7 @@ impl FileMonitor for StdioMonitor {
             Some(rs) => {
                 if rs.flags().redirect_stdio && rs.visible_execution() {
                     for r in ranges {
-                        let mut buf: Vec<u8> = Vec::with_capacity(r.length);
-                        buf.resize(r.length, 0);
+                        let mut buf: Vec<u8> = vec![0; r.length];
                         l.t.read_bytes_helper(r.data, &mut buf, None);
                         let maybe_result = write(self.original_fd, &buf);
                         match maybe_result {
