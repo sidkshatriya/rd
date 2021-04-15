@@ -195,7 +195,7 @@ impl CompressedReader {
             &mut header_arr,
             &mut offset,
         )? {
-            let header: BlockHeader = unsafe { transmute(header_arr.clone()) };
+            let header: BlockHeader = unsafe { transmute(header_arr) };
             uncompressed_bytes += header.uncompressed_length as u64;
             offset += header.compressed_length as u64;
         }

@@ -239,7 +239,7 @@ impl ExtraRegisters {
             }
         }
 
-        return true;
+        true
     }
 
     pub fn format(&self) -> Format {
@@ -459,7 +459,7 @@ impl ExtraRegisters {
                     .unwrap(),
             );
 
-            xinuse = xinuse | 1;
+            xinuse |= 1;
             self.data_[XINUSE_OFFSET..XINUSE_OFFSET + 8].copy_from_slice(&xinuse.to_le_bytes());
         }
     }
@@ -497,7 +497,7 @@ fn features_used(data: &[u8], layout: &XSaveLayout) -> u64 {
         if fl_offset + fl_size as usize <= layout.full_size
             && all_zeros(&data[fl_offset..fl_offset + fl_size])
         {
-            features = features & !pkru_bit
+            features &= !pkru_bit
         }
     }
 

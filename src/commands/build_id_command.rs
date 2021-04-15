@@ -36,12 +36,12 @@ impl BuildIdCommand {
                 }
                 // Even though there a build id could not be found, we return an empty
                 // Vec i.e. an empty build id -- this mimics the behavior in rr.
-                return Ok(Vec::new());
+                Ok(Vec::new())
             }
             Err(_) => {
                 // Even though there was an error is parsing the elf file, we return an empty
                 // Vec -- this mimics the behavior in rr.
-                return Ok(Vec::new());
+                Ok(Vec::new())
             }
         }
     }

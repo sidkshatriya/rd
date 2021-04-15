@@ -154,7 +154,7 @@ impl SignalEventData {
         disposition: SignalResolvedDisposition,
     ) -> SignalEventData {
         SignalEventData {
-            siginfo: siginfo.clone(),
+            siginfo: *siginfo,
             deterministic,
             disposition,
         }
@@ -406,30 +406,30 @@ impl Event {
     }
 
     pub fn is_syscall_event(&self) -> bool {
-        match self.event_type {
-            EventType::EvSyscall | EventType::EvSyscallInterruption => true,
-            _ => false,
-        }
+        matches!(
+            self.event_type,
+            EventType::EvSyscall | EventType::EvSyscallInterruption
+        )
     }
 
     pub fn is_signal_event(&self) -> bool {
-        match self.event_type {
-            EventType::EvSignal | EventType::EvSignalHandler | EventType::EvSignalDelivery => true,
-            _ => false,
-        }
+        matches!(
+            self.event_type,
+            EventType::EvSignal | EventType::EvSignalHandler | EventType::EvSignalDelivery
+        )
     }
 
     pub fn record_regs(&self) -> bool {
-        match self.event_type {
+        matches!(
+            self.event_type,
             EventType::EvInstructionTrap
-            | EventType::EvPatchSyscall
-            | EventType::EvSched
-            | EventType::EvSyscall
-            | EventType::EvSignal
-            | EventType::EvSignalDelivery
-            | EventType::EvSignalHandler => true,
-            _ => false,
-        }
+                | EventType::EvPatchSyscall
+                | EventType::EvSched
+                | EventType::EvSyscall
+                | EventType::EvSignal
+                | EventType::EvSignalDelivery
+                | EventType::EvSignalHandler
+        )
     }
 
     pub fn record_extra_regs(&self) -> bool {
@@ -451,14 +451,14 @@ impl Event {
     }
 
     pub fn has_ticks_slop(&self) -> bool {
-        match self.event_type {
+        matches!(
+            self.event_type,
             EventType::EvSyscallbufAbortCommit
-            | EventType::EvSyscallbufFlush
-            | EventType::EvSyscallbufReset
-            | EventType::EvDesched
-            | EventType::EvGrowMap => true,
-            _ => false,
-        }
+                | EventType::EvSyscallbufFlush
+                | EventType::EvSyscallbufReset
+                | EventType::EvDesched
+                | EventType::EvGrowMap
+        )
     }
 
     /// Dump info about this to INFO log.
