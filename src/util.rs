@@ -2266,18 +2266,12 @@ pub fn str0_to_isize<'a>(
                             if cap.get(1).is_some() && cap[1][0] == b'-' {
                                 let mut num_str_neg = vec![b'-'];
                                 num_str_neg.extend_from_slice(num_str);
-                                match isize::from_str_radix(
-                                    std::str::from_utf8(&num_str_neg).unwrap(),
-                                    10,
-                                ) {
+                                match std::str::from_utf8(&num_str_neg).unwrap().parse::<isize>() {
                                     Ok(num) => Ok(num),
                                     Err(e) => Err(Box::new(e)),
                                 }
                             } else {
-                                match isize::from_str_radix(
-                                    std::str::from_utf8(num_str).unwrap(),
-                                    10,
-                                ) {
+                                match std::str::from_utf8(num_str).unwrap().parse::<isize>() {
                                     Ok(num) => Ok(num),
                                     Err(e) => Err(Box::new(e)),
                                 }

@@ -774,9 +774,9 @@ impl TaskInner {
                 data_.resize(vec.iov_len, 0u8);
 
                 er = ExtraRegisters {
-                    data_,
                     format_,
                     arch_,
+                    data_,
                 };
                 // The kernel may return less than the full XSTATE
                 er.validate(self);
@@ -807,9 +807,9 @@ impl TaskInner {
                     );
                 }
                 er = ExtraRegisters {
-                    data_,
                     format_,
                     arch_,
+                    data_,
                 };
             }
             *self.extra_registers.borrow_mut() = Some(er);
@@ -1255,9 +1255,9 @@ impl TaskInner {
                         .session()
                         .find_task_from_task_uid(self.vm().thread_locals_tuid());
 
-                    maybe_t.map(|t| {
+                    if let Some(t) = maybe_t {
                         t.fetch_preload_thread_locals();
-                    });
+                    }
 
                     unsafe {
                         copy_nonoverlapping(
@@ -1365,7 +1365,7 @@ impl TaskInner {
             wait_status: self.wait_status.get(),
             ticks: self.ticks.get(),
             top_of_stack: self.top_of_stack.get(),
-            thread_locals: self.fetch_preload_thread_locals().clone(),
+            thread_locals: *self.fetch_preload_thread_locals(),
         }
     }
 

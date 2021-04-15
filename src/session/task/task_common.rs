@@ -171,7 +171,7 @@ pub(super) fn open_mem_fd_common<T: Task>(task: &T) -> bool {
         );
         return false;
     }
-    remote.task().vm().set_mem_fd(fd.try_into().unwrap());
+    remote.task().vm().set_mem_fd(fd);
     true
 }
 
@@ -2270,7 +2270,7 @@ pub(in super::super) fn copy_state(t: &dyn Task, state: &CapturedState) {
 
     t.preload_globals.set(state.preload_globals);
     ed_assert!(t, t.vm().thread_locals_tuid() != t.tuid());
-    *t.thread_locals.borrow_mut() = state.thread_locals.clone();
+    *t.thread_locals.borrow_mut() = state.thread_locals;
     // The scratch buffer (for now) is merely a private mapping in
     // the remote task.  The CoW copy made by fork()'ing the
     // address space has the semantics we want.  It's not used in
@@ -2330,10 +2330,10 @@ fn os_clone(
     maybe_tls: Option<RemotePtr<Void>>,
     maybe_ctid: Option<RemotePtr<i32>>,
 ) -> TaskSharedPtr {
-    let stack = maybe_stack.unwrap_or(RemotePtr::null());
-    let ptid = maybe_ptid.unwrap_or(RemotePtr::null());
-    let tls = maybe_tls.unwrap_or(RemotePtr::null());
-    let ctid = maybe_ctid.unwrap_or(RemotePtr::null());
+    let stack = maybe_stack.unwrap_or_default();
+    let ptid = maybe_ptid.unwrap_or_default();
+    let tls = maybe_tls.unwrap_or_default();
+    let ctid = maybe_ctid.unwrap_or_default();
 
     let mut ret: isize;
     loop {

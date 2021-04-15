@@ -329,8 +329,8 @@ impl ExtraRegisters {
 
                 let result = convert_fxsave_to_x86_fpregs(&regs);
                 let l = std::mem::size_of::<x86::user_fpregs_struct>();
-                let mut new_vec: Vec<u8> = Vec::with_capacity(l);
-                new_vec.resize(l, 0);
+                let mut new_vec: Vec<u8> = vec![0; l];
+
                 unsafe {
                     copy_nonoverlapping(&raw const result as *const u8, new_vec.as_mut_ptr(), l);
                 }
@@ -339,8 +339,8 @@ impl ExtraRegisters {
             X64 => {
                 debug_assert!(self.data_.len() >= std::mem::size_of::<x64::user_fpregs_struct>());
                 let l = std::mem::size_of::<x64::user_fpregs_struct>();
-                let mut new_vec: Vec<u8> = Vec::with_capacity(l);
-                new_vec.resize(l, 0);
+                let mut new_vec: Vec<u8> = vec![0; l];
+
                 new_vec[0..l].copy_from_slice(&self.data_[0..l]);
                 new_vec
             }

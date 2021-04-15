@@ -108,12 +108,12 @@ pub(super) fn kill_all_tasks<S: Session>(sess: &S) {
     // getting drop()-ed and the thread group and address spaces would
     // not have been able to reach out to session and do this themselves.
     // (search for try_session() method in code base for more info)
-    let vm_uids: Vec<AddressSpaceUid> = sess.vm_map().keys().map(|k| *k).collect();
+    let vm_uids: Vec<AddressSpaceUid> = sess.vm_map().keys().copied().collect();
     for vm_uid in vm_uids {
         sess.on_destroy_vm(vm_uid);
     }
 
-    let tg_uids: Vec<ThreadGroupUid> = sess.thread_group_map().keys().map(|k| *k).collect();
+    let tg_uids: Vec<ThreadGroupUid> = sess.thread_group_map().keys().copied().collect();
     for tg_uid in tg_uids {
         sess.on_destroy_tg(tg_uid);
     }

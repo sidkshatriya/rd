@@ -258,9 +258,7 @@ impl ReplayTimeline {
             key,
         )));
 
-        if !self.marks.contains_key(&key) {
-            self.marks.insert(key, Vec::new());
-        }
+        self.marks.entry(key).or_insert(Vec::new());
         let len = self.marks[&key].len();
         if len == 0
             || (self.current_at_or_after_mark.is_some()
@@ -626,9 +624,7 @@ impl ReplayTimeline {
             }
         }
 
-        if !self.marks.contains_key(&key) {
-            self.marks.insert(key, Vec::new());
-        }
+        self.marks.entry(key).or_insert(Vec::new());
         // Check if any of the marks with the same key as 'mark', but not after
         // 'mark', are usable.
         let mark_vector = &self.marks[&key];
@@ -1259,9 +1255,7 @@ impl ReplayTimeline {
             } else {
                 // Return one of the checkpoints at *it.
                 self.current = None;
-                if !self.marks.contains_key(&it) {
-                    self.marks.insert(it, Vec::new());
-                }
+                self.marks.entry(it).or_insert(Vec::new());
                 for mark_it in &self.marks[&it] {
                     if mark_it.borrow().checkpoint.is_some() {
                         self.current = Some(
@@ -1426,7 +1420,7 @@ impl ReplayTimeline {
         }
 
         log!(LogDebug, "Made no progress");
-        return false;
+        false
     }
 
     fn update_strategy_and_fix_watchpoint_quirk(

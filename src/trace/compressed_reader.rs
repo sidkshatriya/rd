@@ -215,8 +215,8 @@ impl CompressedReader {
     }
 
     fn refill_buffer(&mut self) -> io::Result<()> {
-        let mut header_vec: Vec<u8> = Vec::with_capacity(size_of::<BlockHeader>());
-        header_vec.resize(size_of::<BlockHeader>(), 0u8);
+        let mut header_vec: Vec<u8> = vec![0; size_of::<BlockHeader>()];
+
         if false
             == read_all(
                 &self.fd.as_ref().unwrap().borrow(),
@@ -239,8 +239,8 @@ impl CompressedReader {
             );
         }
 
-        let mut compressed_buf: Vec<u8> = Vec::with_capacity(header.compressed_length as usize);
-        compressed_buf.resize(header.compressed_length as usize, 0);
+        let mut compressed_buf: Vec<u8> = vec![0; header.compressed_length as usize];
+
         if false
             == read_all(
                 &self.fd.as_ref().unwrap().borrow(),

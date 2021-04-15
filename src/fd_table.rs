@@ -187,7 +187,7 @@ impl FdTable {
     }
 
     pub fn get_monitor(&self, fd: i32) -> Option<FileMonitorSharedPtr> {
-        self.fds.borrow().get(&fd).map(|f| f.clone())
+        self.fds.borrow().get(&fd).cloned()
     }
 
     /// Regenerate syscallbuf_fds_disabled in task `t`.

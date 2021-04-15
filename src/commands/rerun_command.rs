@@ -184,21 +184,20 @@ fn find_seg_reg(reg: &str) -> Option<u8> {
 }
 
 fn treat_event_completion_as_singlestep_complete(ev: &Event) -> bool {
-    match ev.event_type() {
-        EventType::EvPatchSyscall | EventType::EvInstructionTrap | EventType::EvSyscall => true,
-        _ => false,
-    }
+    matches!(
+        ev.event_type(),
+        EventType::EvPatchSyscall | EventType::EvInstructionTrap | EventType::EvSyscall
+    )
 }
 
 /// Return true if the final "event" state change doesn't really change any
 /// user-visible state and is therefore not to be considered a singlestep for
 /// our purposes.
 fn ignore_singlestep_for_event(ev: &Event) -> bool {
-    match ev.event_type() {
-        // These don't actually change user-visible state, so we skip them.
-        EventType::EvSignal | EventType::EvSignalDelivery => true,
-        _ => false,
-    }
+    matches!(
+        ev.event_type(),
+        EventType::EvSignal | EventType::EvSignalDelivery
+    )
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -421,7 +420,7 @@ impl ReRunCommand {
             if cmd != RunCommand::RunContinue {
                 {
                     let old_task =
-                        old_task_tuid.map_or(None, |id| replay_session.find_task_from_task_uid(id));
+                        old_task_tuid.and_then(|id| replay_session.find_task_from_task_uid(id));
                     let after_ip: RemoteCodePtr = old_task.as_ref().map_or(0.into(), |t| t.ip());
                     debug_assert!(after_time >= before_time && after_time <= before_time + 1);
 

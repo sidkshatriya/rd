@@ -185,7 +185,7 @@ pub fn fast_forward_through_instruction<T: Task>(
         let mut iterations: usize = cur_cx - 1;
 
         // Bound `iterations` to ensure we stop before reachng any `states`.
-        let mut it = states.into_iter();
+        let mut it = states.iter();
         let mut extra_state_iterated = false;
         loop {
             let state = match it.next() {
@@ -567,13 +567,13 @@ fn is_string_instruction_at<T: Task>(t: &T, ip: RemoteCodePtr) -> bool {
             // @TODO check this!
             Ok(_) => (),
         }
-        bare_ip = bare_ip + 1usize;
+        bare_ip += 1usize;
     }
 }
 
 fn is_string_instruction_before<T: Task>(t: &T, ip: RemoteCodePtr) -> bool {
     let mut bare_ip = ip.to_data_ptr::<u8>();
-    bare_ip = bare_ip - 1usize;
+    bare_ip -= 1usize;
     match fallible_read_byte(t, bare_ip) {
         Err(()) => return false,
         Ok(byte) if !is_string_instruction(byte) => return false,
@@ -581,7 +581,7 @@ fn is_string_instruction_before<T: Task>(t: &T, ip: RemoteCodePtr) -> bool {
     }
 
     loop {
-        bare_ip = bare_ip - 1usize;
+        bare_ip -= 1usize;
         match fallible_read_byte(t, bare_ip) {
             Err(()) => {
                 return false;

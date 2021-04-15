@@ -77,7 +77,7 @@ impl FileMonitor for StdioMonitor {
         let session_rc = l.t.session();
 
         match session_rc.as_replay() {
-            None => return,
+            None => {}
             Some(rs) => {
                 if rs.flags().redirect_stdio && rs.visible_execution() {
                     for r in ranges {

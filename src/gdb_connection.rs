@@ -957,7 +957,7 @@ impl GdbConnection {
         debug_assert_eq!(DREQ_GET_MEM, self.req.type_);
         debug_assert!(mem.len() <= self.req.mem().len);
 
-        if self.req.mem().len > 0 && mem.len() == 0 {
+        if self.req.mem().len > 0 && mem.is_empty() {
             self.write_packet_bytes(b"E01");
         } else {
             self.write_hex_bytes_packet(mem);
@@ -1070,8 +1070,7 @@ impl GdbConnection {
         if threads.is_empty() {
             self.write_packet_bytes(b"l");
         } else {
-            let mut buf = Vec::<u8>::new();
-            buf.push(b'm');
+            let mut buf = vec![b'm'];
             for &t in threads {
                 if self.tgid != t.pid {
                     continue;
@@ -1265,7 +1264,7 @@ impl GdbConnection {
             return true;
         }
         parser_assert!(self.inbuf.is_empty());
-        return poll_incoming(&self.sock_fd, 0 /*don't wait*/);
+        poll_incoming(&self.sock_fd, 0 /*don't wait*/)
     }
 
     pub fn features(&self) -> GdbConnectionFeatures {
@@ -1325,7 +1324,7 @@ impl GdbConnection {
 
         while write_index < self.outbuf.len() {
             poll_outgoing(&self.sock_fd, -1 /*wait forever*/);
-            let result = unistd::write(self.sock_fd.as_raw(), &mut self.outbuf[write_index..]);
+            let result = unistd::write(self.sock_fd.as_raw(), &self.outbuf[write_index..]);
             match result {
                 Err(e) => {
                     log!(
@@ -1449,7 +1448,7 @@ impl GdbConnection {
             }
         }
 
-        parser_assert!(1 <= self.inbuf.len());
+        parser_assert!(!self.inbuf.is_empty());
         parser_assert!(b'$' == self.inbuf[0] || INTERRUPT_CHAR == self.inbuf[0]);
 
         true
@@ -1542,7 +1541,7 @@ impl GdbConnection {
             args = &args[1..];
             len = str16_to_usize(args, &mut args).unwrap();
             // Assert that its not the end
-            parser_assert!(args.len() > 0);
+            parser_assert!(!args.is_empty());
         } else {
             parser_assert_eq!(args[0], b':');
             args = &args[1..];
@@ -1626,7 +1625,7 @@ impl GdbConnection {
         }
 
         self.write_packet_bytes(b"");
-        return false;
+        false
     }
 
     /// Return true if we need to do something in a debugger request,
@@ -1638,10 +1637,7 @@ impl GdbConnection {
             None => payload,
         };
 
-        let maybe_args = match maybe_args_loc {
-            Some(l) => Some(&payload[l + 1..]),
-            None => None,
-        };
+        let maybe_args = maybe_args_loc.map(|l| &payload[l + 1..]);
 
         if name == b"RDCmd" {
             log!(
@@ -1874,25 +1870,22 @@ impl GdbConnection {
             None => payload,
         };
 
-        let maybe_args = match maybe_args_loc {
-            Some(l) => Some(&payload[l + 1..]),
-            None => None,
-        };
+        let maybe_args = maybe_args_loc.map(|l| &payload[l + 1..]);
 
         if name == b"Cont" {
             let mut args = maybe_args.unwrap();
             let mut actions: Vec<GdbContAction> = Vec::new();
             let mut maybe_default_action: Option<GdbContAction> = None;
 
-            while args.len() > 0 {
+            while !args.is_empty() {
                 let mut cmd = args;
                 // Skip to `:` or `;`
-                while args.len() > 0 && args[0] != b':' && args[0] != b';' {
+                while !args.is_empty() && args[0] != b':' && args[0] != b';' {
                     args = &args[1..];
                 }
                 let mut is_default = true;
                 let mut target = GdbThreadId::new(-1, -1);
-                if args.len() > 0 {
+                if !args.is_empty() {
                     if args[0] == b':' {
                         is_default = false;
                         args = &args[1..];
@@ -1943,7 +1936,7 @@ impl GdbConnection {
                     }
                 }
                 match maybe_endptr {
-                    Some(endptr) if endptr.len() > 0 => {
+                    Some(endptr) if !endptr.is_empty() => {
                         unhandled_req!(
                             self,
                             "Unhandled vCont command parameters {}",
@@ -2021,13 +2014,13 @@ impl GdbConnection {
                 }
                 None => (),
             }
-            if filename.len() > 0 {
+            if !filename.is_empty() {
                 fatal!(
                     "gdb wants us to run the exe image `{}', but we don't support that.",
                     String::from_utf8_lossy(filename)
                 );
             }
-            if args.len() == 0 {
+            if args.is_empty() {
                 self.req.restart_mut().type_ = GdbRestartType::RestartFromPrevious;
                 return true;
             }
@@ -2071,7 +2064,7 @@ impl GdbConnection {
                     self.req.restart().param
                 );
             }
-            if endp.len() > 0 {
+            if !endp.is_empty() {
                 log!(
                     LogDebug,
                     "Couldn't parse event string `{}'; restarting from previous",
@@ -2169,7 +2162,7 @@ impl GdbConnection {
             "Unhandled gdb vpacket: v{}",
             String::from_utf8_lossy(name)
         );
-        return false;
+        false
     }
 
     /// Return true if we need to do something in a debugger request,
@@ -2183,7 +2176,7 @@ impl GdbConnection {
                 Some(self.resume_thread),
                 None,
             ));
-            return true;
+            true
         } else if payload == b"s" {
             self.req = GdbRequest::new(DREQ_CONT);
             self.req.cont_mut().run_direction = RunDirection::RunBackward;
@@ -2192,14 +2185,14 @@ impl GdbConnection {
                 Some(self.resume_thread),
                 None,
             ));
-            return true;
+            true
         } else {
             unhandled_req!(
                 self,
                 "Unhandled gdb bpacket: b{}",
                 String::from_utf8_lossy(payload)
             );
-            return false;
+            false
         }
     }
 
@@ -2846,7 +2839,7 @@ fn request_needs_immediate_response(req: &GdbRequest) -> bool {
 fn parse_threadid<'a>(mut text: &'a [u8], new_text: &mut &'a [u8]) -> GdbThreadId {
     let mut t = GdbThreadId::new(-1, -1);
     let mut multiprocess = false;
-    parser_assert!(text.len() > 0);
+    parser_assert!(!text.is_empty());
     if text[0] == b'p' {
         multiprocess = true;
         text = &text[1..];
