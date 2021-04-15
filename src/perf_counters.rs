@@ -132,7 +132,7 @@ fn get_cpu_microarch() -> CpuMicroarch {
         Some(forced_uarch) => {
             for pmu in &PMU_CONFIGS {
                 let name: String = pmu.name.to_lowercase();
-                if name.find(&forced_uarch).is_some() {
+                if name.contains(&forced_uarch) {
                     log!(LogInfo, "Using forced uarch {}", pmu.name);
                     return pmu.uarch;
                 }

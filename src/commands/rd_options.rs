@@ -673,7 +673,7 @@ fn parse_signal_name(maybe_signal_name: &str) -> Result<Sig, Box<dyn Error>> {
     } else {
         for i in 1i32..NUM_SIGNALS as i32 {
             let sig_name = signal_name(i);
-            if maybe_sig_trimmed == &sig_name {
+            if maybe_sig_trimmed == sig_name {
                 let sig = Sig::try_from(i)?;
                 return Ok(sig);
             } else {

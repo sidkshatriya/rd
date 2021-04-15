@@ -20,8 +20,7 @@ impl FileMonitor for MagicSaveDataMonitor {
                 let rec_task = l.t.as_record_task().unwrap();
                 rec_task.record_remote(r.data, r.length);
             } else if l.t.session().is_replaying() {
-                let mut bytes: Vec<u8> = Vec::with_capacity(r.length);
-                bytes.resize(r.length, 0u8);
+                let mut bytes: Vec<u8> = vec![0; r.length];
                 l.t.read_bytes_helper(r.data, &mut bytes, None);
                 let rep_task = l.t.as_replay_task().unwrap();
                 let rec = rep_task

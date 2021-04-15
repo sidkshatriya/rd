@@ -1050,12 +1050,10 @@ impl RecordSession {
         match event_type {
             EventType::EvNoop => {
                 t.pop_noop();
-
             }
             EventType::EvInstructionTrap => {
                 t.record_current_event();
                 t.pop_event(event_type);
-
             }
             EventType::EvSentinel
             | EventType::EvSignalHandler
@@ -1067,7 +1065,6 @@ impl RecordSession {
                 let syscall_arch = t.detect_syscall_arch();
                 t.canonicalize_regs(syscall_arch);
                 self.process_syscall_entry(t, step_state, step_result, syscall_arch);
-
             }
 
             _ => (),
@@ -1314,7 +1311,6 @@ impl RecordSession {
                 // The syscallno may have been changed by the ptracer
                 let osno = t.regs_ref().original_syscallno() as i32;
                 t.ev_mut().syscall_event_mut().number = osno;
-
             }
             SyscallState::EnteringSyscall => {
                 debug_exec_state("EXEC_SYSCALL_ENTRY", t);
@@ -1359,8 +1355,6 @@ impl RecordSession {
                     );
                     arm_desched_event(t);
                 }
-
-
             }
 
             SyscallState::ProcessingSyscall => {
@@ -1377,7 +1371,6 @@ impl RecordSession {
 
                 t.ev_mut().syscall_event_mut().state = SyscallState::ExitingSyscall;
                 step_state.continue_type = ContinueType::DontContinue;
-
             }
             SyscallState::ExitingSyscall => {
                 debug_exec_state("EXEC_SYSCALL_DONE", t);
@@ -1509,7 +1502,6 @@ impl RecordSession {
                 if !is_in_privileged_syscall(t) {
                     maybe_trigger_emulated_ptrace_syscall_exit_stop(t);
                 }
-
             }
 
             _ => fatal!("Unknown exec state {}", t.ev().syscall_event().state),

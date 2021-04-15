@@ -1248,7 +1248,12 @@ pub struct RegisterValue {
 impl RegisterValue {
     pub fn new(name: &'static str, offset: usize, nbytes: usize) -> RegisterValue {
         let comparison_mask: u64 = RegisterValue::mask_for_nbytes(nbytes);
-        RegisterValue { name, offset, nbytes, comparison_mask }
+        RegisterValue {
+            name,
+            offset,
+            nbytes,
+            comparison_mask,
+        }
     }
 
     pub fn new_with_mask(
@@ -1262,7 +1267,12 @@ impl RegisterValue {
             (comparison_mask & !RegisterValue::mask_for_nbytes(nbytes)),
             0
         );
-        RegisterValue { name, offset, nbytes, comparison_mask }
+        RegisterValue {
+            name,
+            offset,
+            nbytes,
+            comparison_mask,
+        }
     }
 
     pub fn new_with_mask_with_size_override(
@@ -1281,7 +1291,12 @@ impl RegisterValue {
         if size_override > 0 {
             nbytes = size_override;
         }
-        RegisterValue { name, offset, nbytes, comparison_mask }
+        RegisterValue {
+            name,
+            offset,
+            nbytes,
+            comparison_mask,
+        }
     }
 
     pub fn mask_for_nbytes(nbytes: usize) -> u64 {

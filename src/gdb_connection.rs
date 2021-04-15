@@ -845,9 +845,9 @@ impl GdbConnection {
                 thread
             );
             self.resume_thread = thread;
-            self.query_thread = self.resume_thread;
         }
 
+        self.query_thread = self.resume_thread;
         self.consume_request();
     }
 
@@ -2726,7 +2726,7 @@ fn to_gdb_signum(maybe_sig: Option<Sig>) -> i32 {
                 return sig + 14;
             }
             log!(LogWarn, "Unknown signal {}", sig);
-            return 143; // GDB_libc::SIGNAL_UNKNOWN
+            143 // GDB_libc::SIGNAL_UNKNOWN
         }
     }
 }
@@ -2766,10 +2766,7 @@ fn gdb_open_flags_to_system_flags(flags: i32) -> i32 {
 }
 
 fn request_needs_immediate_response(req: &GdbRequest) -> bool {
-    match req.type_ {
-        DREQ_NONE | DREQ_CONT => false,
-        _ => true,
-    }
+    !matches!(req.type_, DREQ_NONE | DREQ_CONT)
 }
 
 /// Parse and return a gdb thread-id from `text`.  `new_text` is a slice whose
@@ -2786,7 +2783,7 @@ fn parse_threadid<'a>(mut text: &'a [u8], new_text: &mut &'a [u8]) -> GdbThreadI
     }
 
     t.pid = str16_to_isize(text, &mut text).unwrap().try_into().unwrap();
-    if text.len() == 0 {
+    if text.is_empty() {
         if multiprocess {
             t.tid = -1;
         } else {

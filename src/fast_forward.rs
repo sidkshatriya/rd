@@ -503,8 +503,9 @@ fn is_ignorable_prefix<T: Task>(t: &T, byte: u8) -> bool {
         // REX prefix
         return t.arch() == SupportedArch::X64;
     }
-    match byte {
-     0x26| // ES override
+    matches!(
+        byte,
+        0x26| // ES override
      0x2E| // CS override
      0x36| // SS override
      0x3E| // DS override
@@ -512,10 +513,8 @@ fn is_ignorable_prefix<T: Task>(t: &T, byte: u8) -> bool {
      0x65| // GS override
      0x66| // operand-size override
      0x67| // address-size override
-     0xF0  // LOCK
-     => true,
-    _ => false
-  }
+     0xF0
+    )
 }
 
 fn is_rep_prefix(byte: u8) -> bool {
@@ -523,8 +522,9 @@ fn is_rep_prefix(byte: u8) -> bool {
 }
 
 fn is_string_instruction(byte: u8) -> bool {
-    match byte {
-     0xA4| // MOVSB
+    matches!(
+        byte,
+        0xA4| // MOVSB
      0xA5| // MOVSW
      0xA6| // CMPSB
      0xA7| // CMPSW
@@ -533,10 +533,8 @@ fn is_string_instruction(byte: u8) -> bool {
      0xAC| // LODSB
      0xAD| // LODSW
      0xAE| // SCASB
-     0xAF  // SCASW
-     => true,
-    _=> false
-  }
+     0xAF
+    )
 }
 
 fn fallible_read_byte<T: Task>(t: &T, ip: RemotePtr<u8>) -> Result<u8, ()> {

@@ -291,7 +291,7 @@ impl GdbServer {
             },
             Some(siz) if siz <= GdbRegisterValue::MAX_SIZE => GdbRegisterValue {
                 name: which,
-                value: GdbRegisterValueData::ValueGeneric(buf.try_into().unwrap()),
+                value: GdbRegisterValueData::ValueGeneric(buf),
                 defined: true,
                 size: siz,
             },
@@ -802,11 +802,11 @@ impl GdbServer {
             }
         }
         let mut t = break_status.task.upgrade().unwrap();
-        let in_exec_task = is_in_exec(&self.get_timeline());
-        if in_exec_task.is_some() {
+        let maybe_in_exec_task = is_in_exec(&self.get_timeline());
+        if let Some(in_exec_task) = maybe_in_exec_task {
             do_stop = true;
             self.stop_siginfo = Default::default();
-            t = in_exec_task.unwrap();
+            t = in_exec_task;
             log!(LogDebug, "Stopping at exec");
         }
         let tguid = t.thread_group().borrow().tguid();
@@ -1090,7 +1090,7 @@ impl BreakpointCondition for GdbBreakpointCondition {
                 return true;
             }
         }
-        return false;
+        false
     }
 }
 
@@ -1105,7 +1105,7 @@ fn breakpoint_condition(request: &GdbRequest) -> Option<Box<dyn BreakpointCondit
 
 fn search_memory(t: &dyn Task, where_: MemoryRange, find_s: &[u8]) -> Option<RemotePtr<Void>> {
     // DIFF NOTE: This assert is not present in rd
-    assert!(find_s.len() > 0);
+    assert_ne!(find_s.len(), 0);
     let mut buf = Vec::<u8>::new();
     buf.resize(page_size() + find_s.len() - 1, 0);
     for (_, m) in &t.vm().maps() {
@@ -1123,8 +1123,8 @@ fn search_memory(t: &dyn Task, where_: MemoryRange, find_s: &[u8]) -> Option<Rem
             match res {
                 Ok(nread) if nread >= find_s.len() => {
                     let maybe_offset = find(&buf[0..nread], find_s);
-                    if maybe_offset.is_some() {
-                        let result = Some(r.start() + maybe_offset.unwrap());
+                    if let Some(off) = maybe_offset {
+                        let result = Some(r.start() + off);
                         return result;
                     }
                 }

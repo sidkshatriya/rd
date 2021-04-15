@@ -74,7 +74,7 @@ impl ProcFdDirMonitor {
                     } else {
                         t.session()
                             .find_task_from_rec_tid(tid)
-                            .map_or(None, |ft| Some(ft.tuid()))
+                            .and_then(|ft| Some(ft.tuid()))
                     };
 
                     return Self {

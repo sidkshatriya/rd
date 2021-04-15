@@ -53,10 +53,7 @@ impl PsCommand {
             events.push(r);
         }
 
-        let not_exec = match events[0].event_variant() {
-            TraceTaskEventVariant::Exec(_) => false,
-            _ => true,
-        };
+        let not_exec = !matches!(events[0].event_variant(), TraceTaskEventVariant::Exec(_));
         if events.is_empty() || not_exec {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,

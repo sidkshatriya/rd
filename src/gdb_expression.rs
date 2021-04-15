@@ -365,25 +365,15 @@ impl<'a> ExpressionState<'a> {
                 self.push(a & n_mask)
             }
 
-            OP_ref8 => {
-                self.load::<u8>(t)
-            }
+            OP_ref8 => self.load::<u8>(t),
 
-            OP_ref16 => {
-                self.load::<u16>(t)
-            }
+            OP_ref16 => self.load::<u16>(t),
 
-            OP_ref32 => {
-                self.load::<u32>(t)
-            }
+            OP_ref32 => self.load::<u32>(t),
 
-            OP_ref64 => {
-                self.load::<u64>(t)
-            }
+            OP_ref64 => self.load::<u64>(t),
 
-            OP_dup => {
-                self.pick(0)
-            }
+            OP_dup => self.pick(0),
 
             OP_swap => {
                 operands = self.pop_a_b();
@@ -393,7 +383,6 @@ impl<'a> ExpressionState<'a> {
 
             OP_pop => {
                 self.pop_a();
-
             }
 
             OP_pick => {
@@ -414,11 +403,9 @@ impl<'a> ExpressionState<'a> {
                 if self.pop_a() != 0 {
                     self.pc = offset as usize;
                 }
-
             }
             OP_goto => {
                 self.pc = self.fetch::<u16>() as usize;
-
             }
 
             OP_const8 => {
@@ -464,19 +451,16 @@ impl<'a> ExpressionState<'a> {
                     8 => self.push(v.value8() as i64),
                     _ => {
                         self.set_error();
-                        return;
                     }
                 }
             }
 
             OP_end => {
                 self.end = true;
-
             }
             // @TODO Does the transmute play well with this?
             _ => {
                 self.set_error();
-
             }
         }
     }

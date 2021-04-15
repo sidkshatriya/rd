@@ -173,7 +173,7 @@ fn get_log_module(filename: &str, l: &mut MutexGuard<LogGlobals>) -> LogModule {
     } else {
         let name = filename_to_module_name(filename);
         let level = get_log_level(&name, l);
-        let m = LogModule { level, name };
+        let m = LogModule { name, level };
         l.log_modules_cache.insert(filename.to_owned(), m.clone());
         m
     }
