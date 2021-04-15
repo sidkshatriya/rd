@@ -208,9 +208,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
     /// NOTE: Method is simply called Session::find_task() in rr
     fn find_task_from_rec_tid(&self, rec_tid: pid_t) -> Option<TaskSharedPtr> {
         self.finish_initializing();
-        self.tasks()
-            .get(&rec_tid)
-            .map_or(None, |shr_ptr| Some(shr_ptr.clone()))
+        self.tasks().get(&rec_tid).cloned()
     }
 
     /// NOTE: Method is simply called Session::find task() in rr

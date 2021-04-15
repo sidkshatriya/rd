@@ -479,12 +479,7 @@ impl ReplaySession {
 
     /// @TODO Check this
     pub fn is_ignored_signal(sig: Option<Sig>) -> bool {
-        match sig {
-            // TIME_SLICE_SIGNALs can be queued but not delivered before we stop
-            // execution for some other reason. Ignore them.
-            Some(TIME_SLICE_SIGNAL) => true,
-            _ => false,
-        }
+        matches!(sig, Some(TIME_SLICE_SIGNAL))
     }
 
     pub fn flags(&self) -> &Flags {
@@ -1960,9 +1955,9 @@ impl ReplaySession {
 
     fn clear_syscall_bp(&self) {
         let mut maybe_bp_vm = self.syscall_bp_vm.borrow_mut();
-        maybe_bp_vm.as_ref().map(|bp_vm| {
+        if let Some(bp_vm) = maybe_bp_vm.as_ref() {
             bp_vm.remove_breakpoint(self.syscall_bp_addr.get(), BreakpointType::BkptInternal)
-        });
+        }
         *maybe_bp_vm = None;
         self.syscall_bp_addr.set(RemoteCodePtr::null());
     }

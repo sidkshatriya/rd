@@ -51,7 +51,7 @@ use std::{
     convert::TryFrom,
     ffi::OsString,
     intrinsics::copy_nonoverlapping,
-    mem::{self, size_of},
+    mem::size_of,
     ptr,
 };
 
@@ -340,7 +340,7 @@ fn try_grow_map(t: &RecordTask, si: &siginfo_t) -> bool {
     ed_assert_eq!(t, si.si_signo, SIGSEGV);
 
     // Use kernel_abi to avoid odd inconsistencies between distros
-    let arch_si = unsafe { mem::transmute::<&siginfo_t, &native_arch::siginfo_t>(si) };
+    let arch_si = unsafe { &*(si as *const siginfo_t as *const native_arch::siginfo_t) };
     let addr = unsafe { arch_si._sifields._sigfault.si_addr_ }.rptr();
 
     if t.vm().mapping_of(addr).is_some() {
@@ -556,7 +556,7 @@ pub fn handle_syscallbuf_breakpoint(t: &RecordTask) -> bool {
         None,
     );
 
-    let armed_desched_event = if res != 0 { true } else { false };
+    let armed_desched_event = res != 0;
     if armed_desched_event {
         disarm_desched_event(t);
     }

@@ -381,7 +381,7 @@ pub fn xsave_feature_string(xsave_features: u64) -> String {
         ret += "HDC ";
     }
 
-    if ret.len() > 0 {
+    if !ret.is_empty() {
         ret.trim_end().to_string()
     } else {
         ret

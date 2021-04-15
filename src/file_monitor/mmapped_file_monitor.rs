@@ -176,7 +176,7 @@ impl FileMonitor for MmappedFileMonitor {
                             }
                         }
                     }
-                    local_offset = local_offset + r.length as u64;
+                    local_offset += r.length as u64;
                 }
             }
         }

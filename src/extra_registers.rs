@@ -239,7 +239,7 @@ impl ExtraRegisters {
             }
         }
 
-        return true;
+        true
     }
 
     pub fn format(&self) -> Format {
@@ -329,8 +329,8 @@ impl ExtraRegisters {
 
                 let result = convert_fxsave_to_x86_fpregs(&regs);
                 let l = std::mem::size_of::<x86::user_fpregs_struct>();
-                let mut new_vec: Vec<u8> = Vec::with_capacity(l);
-                new_vec.resize(l, 0);
+                let mut new_vec: Vec<u8> = vec![0; l];
+
                 unsafe {
                     copy_nonoverlapping(&raw const result as *const u8, new_vec.as_mut_ptr(), l);
                 }
@@ -339,8 +339,8 @@ impl ExtraRegisters {
             X64 => {
                 debug_assert!(self.data_.len() >= std::mem::size_of::<x64::user_fpregs_struct>());
                 let l = std::mem::size_of::<x64::user_fpregs_struct>();
-                let mut new_vec: Vec<u8> = Vec::with_capacity(l);
-                new_vec.resize(l, 0);
+                let mut new_vec: Vec<u8> = vec![0; l];
+
                 new_vec[0..l].copy_from_slice(&self.data_[0..l]);
                 new_vec
             }
@@ -459,7 +459,7 @@ impl ExtraRegisters {
                     .unwrap(),
             );
 
-            xinuse = xinuse | 1;
+            xinuse |= 1;
             self.data_[XINUSE_OFFSET..XINUSE_OFFSET + 8].copy_from_slice(&xinuse.to_le_bytes());
         }
     }
@@ -497,7 +497,7 @@ fn features_used(data: &[u8], layout: &XSaveLayout) -> u64 {
         if fl_offset + fl_size as usize <= layout.full_size
             && all_zeros(&data[fl_offset..fl_offset + fl_size])
         {
-            features = features & !pkru_bit
+            features &= !pkru_bit
         }
     }
 
@@ -563,7 +563,6 @@ fn xsave_register_data(arch: SupportedArch, regno_param: GdbRegister) -> RegData
                 regno =
                     ((regno - DREG_FIRST_FXSAVE_REG).unwrap() + DREG_64_FIRST_FXSAVE_REG).unwrap();
             }
-            ()
         }
         X64 => (),
     }

@@ -55,7 +55,7 @@ fn return_addresses_x86ish<Arch: Architecture>(result: &mut ReturnAddressList, t
     // been set. We don't want these results to vary because we call this in
     // some contexts with internal breakpoints set and in other contexts without
     // them set.
-    let sp = t.regs_ref().sp().into();
+    let sp = t.regs_ref().sp();
     if read_bytes_no_breakpoints(t, sp, &mut frame_sl) {
         result.addresses[0] = Arch::size_t_as_usize(frame[0]).into();
         result.addresses[1] = Arch::size_t_as_usize(frame[1]).into();

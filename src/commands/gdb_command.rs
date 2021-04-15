@@ -234,7 +234,7 @@ fn gdb_command_list_init() -> HashMap<String, Box<dyn GdbCommand>> {
 
 fn elapsed_time(_: &mut GdbServer, t: &dyn Task, _: &[OsString]) -> OsString {
     if !t.session().is_replaying() {
-        return GdbCommandHandler::cmd_end_diversion().to_owned();
+        return GdbCommandHandler::cmd_end_diversion();
     }
 
     let replay_t = t.as_replay_task().unwrap();
@@ -313,7 +313,7 @@ fn back(gdb_server: &mut GdbServer, t: &dyn Task, _: &[OsString]) -> OsString {
     }
     // @TODO Avoid unsafe?
     unsafe {
-        if BACK_STACK.len() == 0 {
+        if BACK_STACK.is_empty() {
             return OsString::from("Can't go back. No more history entries.");
         }
         FORWARD_STACK.push(CURRENT_HISTORY_CP.as_ref().unwrap().clone());
@@ -332,7 +332,7 @@ fn forward(gdb_server: &mut GdbServer, t: &dyn Task, _: &[OsString]) -> OsString
     }
     // @TODO Avoid unsafe?
     unsafe {
-        if FORWARD_STACK.len() == 0 {
+        if FORWARD_STACK.is_empty() {
             return OsString::from("Can't go forward. No more history entries.");
         }
         BACK_STACK.push(CURRENT_HISTORY_CP.as_ref().unwrap().clone());
@@ -402,7 +402,7 @@ fn invoke_info_checkpoints(
     _t: &dyn Task,
     _args: &[OsString],
 ) -> OsString {
-    if gdb_server.checkpoints.len() == 0 {
+    if gdb_server.checkpoints.is_empty() {
         return OsString::from("No checkpoints.");
     }
     let mut out: String = String::from("ID\tWhen\tWhere");

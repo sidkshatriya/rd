@@ -1,7 +1,7 @@
 use crate::{
     scoped_fd::{ScopedFd, ScopedFdSharedPtr},
     trace::compressed_writer::BlockHeader,
-    util::read_to_end,
+    util::{read_to_end, u8_slice_mut},
 };
 use brotli_sys::{BrotliDecoderDecompress, BROTLI_DECODER_RESULT_SUCCESS};
 use nix::{
@@ -16,7 +16,7 @@ use std::{
     ffi::OsStr,
     io,
     io::{BufRead, ErrorKind, Read},
-    mem::{size_of, transmute},
+    mem::size_of,
     ptr::copy_nonoverlapping,
     rc::Rc,
 };
@@ -189,13 +189,12 @@ impl CompressedReader {
     pub fn uncompressed_bytes(&self) -> io::Result<u64> {
         let mut offset: u64 = 0;
         let mut uncompressed_bytes: u64 = 0;
-        let mut header_arr = [0u8; size_of::<BlockHeader>()];
+        let mut header = BlockHeader::default();
         while read_all(
             &self.fd.as_ref().unwrap().borrow(),
-            &mut header_arr,
+            u8_slice_mut(&mut header),
             &mut offset,
         )? {
-            let header: BlockHeader = unsafe { transmute(header_arr.clone()) };
             uncompressed_bytes += header.uncompressed_length as u64;
             offset += header.compressed_length as u64;
         }
@@ -215,8 +214,8 @@ impl CompressedReader {
     }
 
     fn refill_buffer(&mut self) -> io::Result<()> {
-        let mut header_vec: Vec<u8> = Vec::with_capacity(size_of::<BlockHeader>());
-        header_vec.resize(size_of::<BlockHeader>(), 0u8);
+        let mut header_vec: Vec<u8> = vec![0; size_of::<BlockHeader>()];
+
         if false
             == read_all(
                 &self.fd.as_ref().unwrap().borrow(),
@@ -239,8 +238,8 @@ impl CompressedReader {
             );
         }
 
-        let mut compressed_buf: Vec<u8> = Vec::with_capacity(header.compressed_length as usize);
-        compressed_buf.resize(header.compressed_length as usize, 0);
+        let mut compressed_buf: Vec<u8> = vec![0; header.compressed_length as usize];
+
         if false
             == read_all(
                 &self.fd.as_ref().unwrap().borrow(),

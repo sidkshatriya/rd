@@ -227,10 +227,10 @@ impl MonkeyPatcher {
                 // this check since the function doesn't do anything except execute our
                 // syscall and return.
                 // Otherwise the Linux 4.12 VDSO triggers the interfering-branch check.
-                if !self
+                if self
                     .patched_vdso_syscalls
                     .get(&ip.decrement_by_syscall_insn_length(arch))
-                    .is_some()
+                    .is_none()
                 {
                     let mut i = 0;
                     while i + 2 <= bytes_count {
@@ -283,7 +283,7 @@ impl MonkeyPatcher {
                         return false;
                     }
 
-                    do_patch = Some(hook.clone());
+                    do_patch = Some(*hook);
                     break;
                 }
             }
@@ -379,7 +379,7 @@ impl MonkeyPatcher {
 
             let debug_elf_map;
             let mut maybe_original = None;
-            if elf_obj.syms.len() == 0 {
+            if elf_obj.syms.is_empty() {
                 let fsname = t
                     .vm()
                     .mapping_of(start)
@@ -484,7 +484,7 @@ impl MonkeyPatcher {
 }
 
 fn open_debug_file(bytes: &[u8], fsname: OsString) -> Option<ScopedFd> {
-    let path = PathBuf::from(fsname.clone());
+    let path = PathBuf::from(fsname);
     let dirname = path.parent()?;
     let mut debug_so_path = PathBuf::from("/usr/lib/debug");
     for component in dirname.components() {
@@ -525,10 +525,7 @@ fn open_debug_file(bytes: &[u8], fsname: OsString) -> Option<ScopedFd> {
 }
 
 fn has_name(tab: &Strtab, index: usize, name: &str) -> bool {
-    match tab.get(index) {
-        Some(Ok(found_name)) if found_name == name => true,
-        _ => false,
-    }
+    matches!(tab.get(index), Some(Ok(found_name)) if found_name == name)
 }
 
 fn patch_at_preload_init_arch<Arch: Architecture>(t: &RecordTask, patcher: &mut MonkeyPatcher) {
@@ -553,8 +550,7 @@ fn patch_at_preload_init_arch_x86arch(t: &RecordTask, patcher: &mut MonkeyPatche
     // we don't need to prepare remote syscalls here.
     let syscallhook_vsyscall_entry = X86Arch::as_rptr(params.syscallhook_vsyscall_entry);
 
-    let mut patch = Vec::<u8>::with_capacity(X86SysenterVsyscallSyscallHook::SIZE);
-    patch.resize(X86SysenterVsyscallSyscallHook::SIZE, 0);
+    let mut patch = vec![0; X86SysenterVsyscallSyscallHook::SIZE];
 
     if safe_for_syscall_patching(
         kernel_vsyscall.to_code_ptr(),
@@ -884,8 +880,8 @@ fn patch_syscall_with_hook_x86ish<
     t: &RecordTask,
     hook: &syscall_patch_hook,
 ) -> bool {
-    let mut jump_patch = Vec::<u8>::with_capacity(JumpPatch::SIZE);
-    jump_patch.resize(JumpPatch::SIZE, 0);
+    let mut jump_patch = vec![0; JumpPatch::SIZE];
+
     // We're patching in a relative jump, so we need to compute the offset from
     // the end of the jump to our actual destination.
     let jump_patch_start = t.regs_ref().ip().to_data_ptr::<u8>();
@@ -900,8 +896,8 @@ fn patch_syscall_with_hook_x86ish<
         return false;
     }
 
-    let mut stub_patch = Vec::<u8>::with_capacity(ExtendedJumpPatch::SIZE);
-    stub_patch.resize(ExtendedJumpPatch::SIZE, 0);
+    let mut stub_patch = vec![0; ExtendedJumpPatch::SIZE];
+
     let return_addr = jump_patch_start.as_usize() as u64
         + syscall_instruction_length(SupportedArch::X64) as u64
         + hook.next_instruction_length as u64;
@@ -952,17 +948,14 @@ fn patch_syscall_with_hook(
 ) -> bool {
     let arch = t.arch();
     match arch {
-        SupportedArch::X86 => {
-            return patch_syscall_with_hook_x86ish::<
-                X86SysenterVsyscallSyscallHook,
-                X86SyscallStubExtendedJump,
-            >(patcher, t, hook);
-        }
-        SupportedArch::X64 => {
-            return patch_syscall_with_hook_x86ish::<X64JumpMonkeypatch, X64SyscallStubExtendedJump>(
-                patcher, t, hook,
-            );
-        }
+        SupportedArch::X86 => patch_syscall_with_hook_x86ish::<
+            X86SysenterVsyscallSyscallHook,
+            X86SyscallStubExtendedJump,
+        >(patcher, t, hook),
+        SupportedArch::X64 => patch_syscall_with_hook_x86ish::<
+            X64JumpMonkeypatch,
+            X64SyscallStubExtendedJump,
+        >(patcher, t, hook),
     }
 }
 
@@ -1034,8 +1027,7 @@ fn find_section_file_offsets<'a>(elf_obj: &Elf<'a>, section_name: &str) -> Optio
 fn erase_section<'a>(elf_obj: &Elf<'a>, t: &RecordTask, section_name: &str) {
     match find_section_file_offsets(elf_obj, section_name) {
         Some(offsets) => {
-            let mut zeroes: Vec<u8> = Vec::with_capacity(offsets.end - offsets.start);
-            zeroes.resize(offsets.end - offsets.start, 0);
+            let zeroes: Vec<u8> = vec![0; offsets.end - offsets.start];
             write_and_record_bytes(t, t.vm().vdso().start() + offsets.start, &zeroes);
         }
         None => {
@@ -1137,13 +1129,8 @@ fn file_may_need_instrumentation(map: &address_space::Mapping) -> bool {
 
     match file_path.file_name() {
         Some(file_name) => {
-            if find(file_name.as_bytes(), b"ld").is_some()
+            find(file_name.as_bytes(), b"ld").is_some()
                 || find(file_name.as_bytes(), b"libpthread").is_some()
-            {
-                true
-            } else {
-                false
-            }
         }
         None => false,
     }

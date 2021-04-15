@@ -152,12 +152,10 @@ impl RecordCommand {
                     }
                     if force_syscall_buffer {
                         SyscallBuffering::EnableSycallBuf
+                    } else if no_syscall_buffer {
+                        SyscallBuffering::DisableSyscallBuf
                     } else {
-                        if no_syscall_buffer {
-                            SyscallBuffering::DisableSyscallBuf
-                        } else {
-                            SyscallBuffering::EnableSycallBuf
-                        }
+                        SyscallBuffering::EnableSycallBuf
                     }
                 },
                 syscall_buffer_size: syscall_buffer_size.unwrap_or(1024 * 1024),
@@ -260,15 +258,13 @@ impl RecordCommand {
         match step_result {
             RecordResult::StepContinue => {
                 // SIGTERM interrupted us.
-                return WaitStatus::for_fatal_sig(sig::SIGTERM);
+                WaitStatus::for_fatal_sig(sig::SIGTERM)
             }
-            RecordResult::StepExited(wait_status) => {
-                return wait_status;
-            }
+            RecordResult::StepExited(wait_status) => wait_status,
 
             RecordResult::StepSpawnFailed(message) => {
                 eprintln!("\n{:?}", message);
-                return WaitStatus::for_exit_code(EX_UNAVAILABLE as i32);
+                WaitStatus::for_exit_code(EX_UNAVAILABLE as i32)
             }
         }
     }

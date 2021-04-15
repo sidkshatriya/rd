@@ -40,9 +40,7 @@ impl ProcMemMonitor {
                     let maybe_found = if t.rec_tid() == tid {
                         Some(t.tuid())
                     } else {
-                        t.session()
-                            .find_task_from_rec_tid(tid)
-                            .map_or(None, |ft| Some(ft.tuid()))
+                        t.session().find_task_from_rec_tid(tid).map(|ft| ft.tuid())
                     };
 
                     return ProcMemMonitor {

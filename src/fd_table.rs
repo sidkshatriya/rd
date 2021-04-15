@@ -187,7 +187,7 @@ impl FdTable {
     }
 
     pub fn get_monitor(&self, fd: i32) -> Option<FileMonitorSharedPtr> {
-        self.fds.borrow().get(&fd).map(|f| f.clone())
+        self.fds.borrow().get(&fd).cloned()
     }
 
     /// Regenerate syscallbuf_fds_disabled in task `t`.
@@ -281,7 +281,7 @@ impl FdTable {
 
         let mut vms_updated: HashSet<AddressSpaceUid> = HashSet::new();
 
-        let mut process = |rt: &RecordTask| -> () {
+        let mut process = |rt: &RecordTask| {
             let vm_uid = rt.vm().uid();
             if vms_updated.contains(&vm_uid) {
                 return;

@@ -269,14 +269,14 @@ impl TraceWriter {
                             // DIFF NOTE: Offsets in rd are u64 and i64 in rr
                             data.set_write_offset(offset as i64);
                         }
-                        None if e.exec_fds_to_close.len() > 0 => {
+                        None if !e.exec_fds_to_close.is_empty() => {
                             let mut list =
                                 data.init_exec_fds_to_close(e.exec_fds_to_close.len() as u32);
                             for (i, &fd) in e.exec_fds_to_close.iter().enumerate() {
                                 list.set(i as u32, fd);
                             }
                         }
-                        None if e.opened.len() > 0 => {
+                        None if !e.opened.is_empty() => {
                             let mut open = data.init_opened_fds(e.opened.len() as u32);
                             for i in 0..e.opened.len() {
                                 let mut o = open.reborrow().get(i as u32);
@@ -368,10 +368,10 @@ impl TraceWriter {
                     .files_assumed_immutable
                     .get(&(stat.st_dev, stat.st_ino));
 
-                if assumed_immutable.is_some() {
+                if let Some(name) = assumed_immutable {
                     src.reborrow()
                         .init_file()
-                        .set_backing_file_name(assumed_immutable.unwrap().as_bytes());
+                        .set_backing_file_name(name.as_bytes());
                 } else if km.flags().contains(MapFlags::MAP_PRIVATE)
                     && self.try_clone_file(t, &file_name, &mut backing_file_name)
                 {
@@ -490,7 +490,7 @@ impl TraceWriter {
     /// restored to.
     pub fn write_raw(&mut self, rec_tid: pid_t, d: &[u8], addr: RemotePtr<Void>) {
         let data = self.writer_mut(Substream::RawData);
-        data.write(d).unwrap();
+        data.write_all(d).unwrap();
         self.raw_recs.push(RawDataMetadata {
             addr,
             rec_tid,

@@ -247,100 +247,100 @@ impl<'a> ExpressionState<'a> {
         match unsafe { transmute(self.fetch::<u8>()) } {
             OP_add => {
                 operands = self.pop_a_b();
-                return self.push(operands.a + operands.b);
+                self.push(operands.a + operands.b)
             }
 
             OP_sub => {
                 operands = self.pop_a_b();
-                return self.push(operands.a - operands.b);
+                self.push(operands.a - operands.b)
             }
 
             OP_mul => {
                 operands = self.pop_a_b();
-                return self.push(operands.a * operands.b);
+                self.push(operands.a * operands.b)
             }
 
             OP_div_signed => {
                 operands = self.pop_a_b();
                 let d = self.nonzero(operands.b);
-                return self.push(operands.a / d);
+                self.push(operands.a / d)
             }
 
             OP_div_unsigned => {
                 operands = self.pop_a_b();
                 let d = self.nonzero(operands.b) as u64;
-                return self.push((operands.a as u64 / d) as i64);
+                self.push((operands.a as u64 / d) as i64)
             }
 
             OP_rem_signed => {
                 operands = self.pop_a_b();
                 let b = self.nonzero(operands.b);
-                return self.push(operands.a % b);
+                self.push(operands.a % b)
             }
 
             OP_rem_unsigned => {
                 operands = self.pop_a_b();
                 let b = self.nonzero(operands.b) as u64;
-                return self.push((operands.a as u64 % b) as i64);
+                self.push((operands.a as u64 % b) as i64)
             }
 
             OP_lsh => {
                 operands = self.pop_a_b();
-                return self.push(operands.a << operands.b);
+                self.push(operands.a << operands.b)
             }
 
             OP_rsh_signed => {
                 operands = self.pop_a_b();
-                return self.push(operands.a >> operands.b);
+                self.push(operands.a >> operands.b)
             }
 
             OP_rsh_unsigned => {
                 operands = self.pop_a_b();
-                return self.push((operands.a as u64 >> operands.b as u64) as i64);
+                self.push((operands.a as u64 >> operands.b as u64) as i64)
             }
 
             OP_log_not => {
                 let a = self.pop_a();
-                return self.push(!a);
+                self.push(!a)
             }
 
             OP_bit_and => {
                 operands = self.pop_a_b();
-                return self.push(operands.a & operands.b);
+                self.push(operands.a & operands.b)
             }
 
             OP_bit_or => {
                 operands = self.pop_a_b();
-                return self.push(operands.a | operands.b);
+                self.push(operands.a | operands.b)
             }
 
             OP_bit_xor => {
                 operands = self.pop_a_b();
-                return self.push(operands.a ^ operands.b);
+                self.push(operands.a ^ operands.b)
             }
 
             OP_bit_not => {
                 let a = self.pop_a();
-                return self.push(!a);
+                self.push(!a)
             }
 
             OP_equal => {
                 operands = self.pop_a_b();
-                return self.push(if operands.a == operands.b { 1 } else { 0 });
+                self.push(if operands.a == operands.b { 1 } else { 0 })
             }
 
             OP_less_signed => {
                 operands = self.pop_a_b();
-                return self.push(if operands.a < operands.b { 1 } else { 0 });
+                self.push(if operands.a < operands.b { 1 } else { 0 })
             }
 
             OP_less_unsigned => {
                 operands = self.pop_a_b();
-                return self.push(if (operands.a as u64) < (operands.b as u64) {
+                self.push(if (operands.a as u64) < (operands.b as u64) {
                     1
                 } else {
                     0
-                });
+                })
             }
 
             OP_ext => {
@@ -352,7 +352,7 @@ impl<'a> ExpressionState<'a> {
                 let a = self.pop_a();
                 let n_mask = (1i64 << n) - 1;
                 let sign_bit = (a >> (n - 1)) & 1;
-                return self.push((sign_bit * !n_mask) | (a & n_mask));
+                self.push((sign_bit * !n_mask) | (a & n_mask))
             }
 
             OP_zero_ext => {
@@ -362,43 +362,32 @@ impl<'a> ExpressionState<'a> {
                 }
                 let a = self.pop_a();
                 let n_mask: i64 = (1i64 << n as i64) - 1;
-                return self.push(a & n_mask);
+                self.push(a & n_mask)
             }
 
-            OP_ref8 => {
-                return self.load::<u8>(t);
-            }
+            OP_ref8 => self.load::<u8>(t),
 
-            OP_ref16 => {
-                return self.load::<u16>(t);
-            }
+            OP_ref16 => self.load::<u16>(t),
 
-            OP_ref32 => {
-                return self.load::<u32>(t);
-            }
+            OP_ref32 => self.load::<u32>(t),
 
-            OP_ref64 => {
-                return self.load::<u64>(t);
-            }
+            OP_ref64 => self.load::<u64>(t),
 
-            OP_dup => {
-                return self.pick(0);
-            }
+            OP_dup => self.pick(0),
 
             OP_swap => {
                 operands = self.pop_a_b();
                 self.push(operands.b);
-                return self.push(operands.a);
+                self.push(operands.a)
             }
 
             OP_pop => {
                 self.pop_a();
-                return;
             }
 
             OP_pick => {
                 let offset = self.fetch::<u8>() as usize;
-                return self.pick(offset);
+                self.pick(offset)
             }
 
             OP_rot => {
@@ -407,38 +396,36 @@ impl<'a> ExpressionState<'a> {
                 let a = self.pop_a();
                 self.push(c);
                 self.push(b);
-                return self.push(a);
+                self.push(a)
             }
             OP_if_goto => {
                 let offset = self.fetch::<u16>();
                 if self.pop_a() != 0 {
                     self.pc = offset as usize;
                 }
-                return;
             }
             OP_goto => {
                 self.pc = self.fetch::<u16>() as usize;
-                return;
             }
 
             OP_const8 => {
                 let a = self.fetch::<u8>() as i64;
-                return self.push(a);
+                self.push(a)
             }
 
             OP_const16 => {
                 let a = self.fetch::<u16>() as i64;
-                return self.push(a);
+                self.push(a)
             }
 
             OP_const32 => {
                 let a = self.fetch::<u32>() as i64;
-                return self.push(a);
+                self.push(a)
             }
 
             OP_const64 => {
                 let a = self.fetch::<u64>() as i64;
-                return self.push(a);
+                self.push(a)
             }
 
             OP_reg => {
@@ -457,26 +444,23 @@ impl<'a> ExpressionState<'a> {
                     return;
                 }
 
-                return match v.size {
+                match v.size {
                     1 => self.push(v.value1() as i64),
                     2 => self.push(v.value2() as i64),
                     4 => self.push(v.value4() as i64),
                     8 => self.push(v.value8() as i64),
                     _ => {
                         self.set_error();
-                        return;
                     }
-                };
+                }
             }
 
             OP_end => {
                 self.end = true;
-                return;
             }
             // @TODO Does the transmute play well with this?
             _ => {
                 self.set_error();
-                return;
             }
         }
     }

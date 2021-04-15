@@ -210,7 +210,7 @@ fn parse_cmd(mut s: &[u8]) -> Vec<OsString> {
         args.push(OsString::from_vec(gdb_unescape(&s[0..pos])));
         s = &s[pos + 1..];
     }
-    if s.len() > 0 {
+    if !s.is_empty() {
         args.push(OsString::from_vec(gdb_unescape(s)));
     }
     args
@@ -224,7 +224,7 @@ fn gdb_macro_binding(cmd: &Box<dyn GdbCommand>) -> String {
         }
         auto_args_str.push_str(&format!("{:?}", arg));
     }
-    auto_args_str.push_str("]");
+    auto_args_str.push(']');
     let mut ret = format!("python RRCmd({}, {})\n", cmd.name(), auto_args_str);
     if !cmd.docs().is_empty() {
         ret.push_str(&format!("document {}\n{}\nend\n", cmd.name(), cmd.docs()));

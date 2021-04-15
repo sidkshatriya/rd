@@ -171,7 +171,7 @@ pub(super) fn open_mem_fd_common<T: Task>(task: &T) -> bool {
         );
         return false;
     }
-    remote.task().vm().set_mem_fd(fd.try_into().unwrap());
+    remote.task().vm().set_mem_fd(fd);
     true
 }
 
@@ -187,7 +187,7 @@ pub(super) fn read_bytes_fallible_common<T: Task>(
     addr: RemotePtr<Void>,
     buf: &mut [u8],
 ) -> Result<usize, ()> {
-    if buf.len() == 0 {
+    if buf.is_empty() {
         return Ok(0);
     }
 
@@ -317,8 +317,7 @@ pub(super) fn read_c_str_common<T: Task>(task: &T, child_addr: RemotePtr<u8>) ->
         // next page and so forth.
         let end_of_page: RemotePtr<Void> = ceil_page_size(p.as_usize() + 1).into();
         let nbytes: usize = end_of_page - p;
-        let mut buf = Vec::<u8>::with_capacity(nbytes);
-        buf.resize(nbytes, 0);
+        let mut buf = vec![0; nbytes];
         task.read_bytes_helper(p, &mut buf, None);
         for i in 0..nbytes {
             if 0 == buf[i] {
@@ -1558,7 +1557,7 @@ pub(in super::super) fn clone_task_common(
     let new_task_session = new_task_session;
 
     let rc_t = Rc::new_cyclic(|weak_self| {
-        let mut t: Box<dyn Task> = new_task_session.new_task(
+        let t: Box<dyn Task> = new_task_session.new_task(
             new_tid,
             new_rec_tid,
             new_serial,
@@ -1587,7 +1586,7 @@ pub(in super::super) fn clone_task_common(
                             // Release the borrow because we may want to modify the vm MemoryMap
                             drop(mapping);
                             t.vm().map(
-                                &mut *t,
+                                &*t,
                                 m_start,
                                 m_size,
                                 m_prot,
@@ -1608,7 +1607,7 @@ pub(in super::super) fn clone_task_common(
                 };
             }
         } else {
-            *t.as_.borrow_mut() = Some(new_task_session.clone_vm(&mut *t, clone_this.vm()));
+            *t.as_.borrow_mut() = Some(new_task_session.clone_vm(&*t, clone_this.vm()));
         }
 
         t.syscallbuf_size.set(clone_this.syscallbuf_size.get());
@@ -1785,7 +1784,9 @@ pub fn close_buffers_for(remote: &mut AutoRemoteSyscalls, maybe_other: Option<&d
         ),
     };
     let mut v = Vec::new();
-    maybe_other.map(|other| v.push(other));
+    if let Some(other) = maybe_other {
+        v.push(other)
+    }
     if desched_fd_child >= 0 {
         if remote.task().session().is_recording() {
             rd_infallible_syscall!(remote, syscall_number_for_close(arch), desched_fd_child);
@@ -2270,7 +2271,7 @@ pub(in super::super) fn copy_state(t: &dyn Task, state: &CapturedState) {
 
     t.preload_globals.set(state.preload_globals);
     ed_assert!(t, t.vm().thread_locals_tuid() != t.tuid());
-    *t.thread_locals.borrow_mut() = state.thread_locals.clone();
+    *t.thread_locals.borrow_mut() = state.thread_locals;
     // The scratch buffer (for now) is merely a private mapping in
     // the remote task.  The CoW copy made by fork()'ing the
     // address space has the semantics we want.  It's not used in
@@ -2330,10 +2331,10 @@ fn os_clone(
     maybe_tls: Option<RemotePtr<Void>>,
     maybe_ctid: Option<RemotePtr<i32>>,
 ) -> TaskSharedPtr {
-    let stack = maybe_stack.unwrap_or(RemotePtr::null());
-    let ptid = maybe_ptid.unwrap_or(RemotePtr::null());
-    let tls = maybe_tls.unwrap_or(RemotePtr::null());
-    let ctid = maybe_ctid.unwrap_or(RemotePtr::null());
+    let stack = maybe_stack.unwrap_or_default();
+    let ptid = maybe_ptid.unwrap_or_default();
+    let tls = maybe_tls.unwrap_or_default();
+    let ctid = maybe_ctid.unwrap_or_default();
 
     let mut ret: isize;
     loop {

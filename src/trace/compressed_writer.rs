@@ -104,8 +104,7 @@ impl CompressedWriter {
                 | OFlag::O_LARGEFILE,
             Mode::S_IRUSR,
         );
-        let mut buffer: Vec<u8> = Vec::with_capacity(block_size * (num_threads + 2));
-        buffer.resize(block_size * (num_threads + 2), 0);
+        let buffer: Vec<u8> = vec![0; block_size * (num_threads + 2)];
 
         let mut thread_pos: Vec<Option<u64>> = Vec::with_capacity(num_threads);
         thread_pos.resize(num_threads, None);

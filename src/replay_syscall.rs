@@ -181,8 +181,7 @@ fn maybe_dump_written_string(t: &ReplayTask) -> Option<OsString> {
         return None;
     }
     let len = min(1000, t.regs_ref().arg3());
-    let mut buf = Vec::<u8>::with_capacity(len);
-    buf.resize(len, 0u8);
+    let mut buf = vec![0; len];
     // DIFF NOTE: Here we're actually expecting there to be no Err(_), hence the unwrap()
     let arg2 = t.regs_ref().arg2();
     let nread = t.read_bytes_fallible(arg2.into(), &mut buf).unwrap();
@@ -1738,7 +1737,7 @@ fn finish_shared_mmap<'a>(
         emufile.borrow().emu_path()
     );
 
-    let process = |rt: &dyn Task, fd: &TraceRemoteFd| -> () {
+    let process = |rt: &dyn Task, fd: &TraceRemoteFd| {
         let maybe_mon = rt.fd_table().get_monitor(fd.fd);
         match maybe_mon {
             Some(file_mon_shr_ptr) => {
@@ -2122,7 +2121,7 @@ fn process_shmat(
             km.size(),
             prot,
             flags,
-            &vec![],
+            &[],
             0,
             &km,
             &data,

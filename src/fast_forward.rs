@@ -185,7 +185,7 @@ pub fn fast_forward_through_instruction<T: Task>(
         let mut iterations: usize = cur_cx - 1;
 
         // Bound `iterations` to ensure we stop before reachng any `states`.
-        let mut it = states.into_iter();
+        let mut it = states.iter();
         let mut extra_state_iterated = false;
         loop {
             let state = match it.next() {
@@ -433,13 +433,11 @@ fn decode_x86_string_instruction(code: &InstructionBuf) -> Result<DecodedInstruc
     if code.code_buf[last_i] & 1 != 0 {
         decoded.operand_size = if found_REXW_prefix {
             8
+        } else if found_operand_prefix {
+            2
         } else {
-            if found_operand_prefix {
-                2
-            } else {
-                4
-            }
-        };
+            4
+        }
     } else {
         decoded.operand_size = 1;
     }
@@ -505,8 +503,9 @@ fn is_ignorable_prefix<T: Task>(t: &T, byte: u8) -> bool {
         // REX prefix
         return t.arch() == SupportedArch::X64;
     }
-    match byte {
-     0x26| // ES override
+    matches!(
+        byte,
+        0x26| // ES override
      0x2E| // CS override
      0x36| // SS override
      0x3E| // DS override
@@ -514,10 +513,8 @@ fn is_ignorable_prefix<T: Task>(t: &T, byte: u8) -> bool {
      0x65| // GS override
      0x66| // operand-size override
      0x67| // address-size override
-     0xF0  // LOCK
-     => true,
-    _ => false
-  }
+     0xF0
+    )
 }
 
 fn is_rep_prefix(byte: u8) -> bool {
@@ -525,8 +522,9 @@ fn is_rep_prefix(byte: u8) -> bool {
 }
 
 fn is_string_instruction(byte: u8) -> bool {
-    match byte {
-     0xA4| // MOVSB
+    matches!(
+        byte,
+        0xA4| // MOVSB
      0xA5| // MOVSW
      0xA6| // CMPSB
      0xA7| // CMPSW
@@ -535,10 +533,8 @@ fn is_string_instruction(byte: u8) -> bool {
      0xAC| // LODSB
      0xAD| // LODSW
      0xAE| // SCASB
-     0xAF  // SCASW
-     => true,
-    _=> false
-  }
+     0xAF
+    )
 }
 
 fn fallible_read_byte<T: Task>(t: &T, ip: RemotePtr<u8>) -> Result<u8, ()> {
@@ -569,13 +565,13 @@ fn is_string_instruction_at<T: Task>(t: &T, ip: RemoteCodePtr) -> bool {
             // @TODO check this!
             Ok(_) => (),
         }
-        bare_ip = bare_ip + 1usize;
+        bare_ip += 1usize;
     }
 }
 
 fn is_string_instruction_before<T: Task>(t: &T, ip: RemoteCodePtr) -> bool {
     let mut bare_ip = ip.to_data_ptr::<u8>();
-    bare_ip = bare_ip - 1usize;
+    bare_ip -= 1usize;
     match fallible_read_byte(t, bare_ip) {
         Err(()) => return false,
         Ok(byte) if !is_string_instruction(byte) => return false,
@@ -583,7 +579,7 @@ fn is_string_instruction_before<T: Task>(t: &T, ip: RemoteCodePtr) -> bool {
     }
 
     loop {
-        bare_ip = bare_ip - 1usize;
+        bare_ip -= 1usize;
         match fallible_read_byte(t, bare_ip) {
             Err(()) => {
                 return false;

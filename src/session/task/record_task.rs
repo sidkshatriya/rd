@@ -106,7 +106,8 @@ use std::{
     convert::{TryFrom, TryInto},
     error::Error,
     ffi::{c_void, CString, OsStr, OsString},
-    mem::{self, size_of},
+    mem,
+    mem::size_of,
     ops::Deref,
     ptr::{self, copy_nonoverlapping},
     rc::{Rc, Weak},
@@ -582,7 +583,7 @@ impl Task for RecordTask {
             let mut sigset = !self.session().as_record().unwrap().rd_signal_mask();
             match maybe_sig {
                 // We're injecting a signal, so make sure that signal is unblocked.
-                Some(sig) => sigset = sigset & !signal_bit(sig),
+                Some(sig) => sigset &= !signal_bit(sig),
                 None => (),
             }
             let ret = self.fallible_ptrace(
@@ -1741,7 +1742,7 @@ impl RecordTask {
 
     /// Set the siginfo for the signal-stop of self.
     pub fn set_siginfo(&self, si: &siginfo_t) {
-        self.pending_siginfo.set(si.clone());
+        self.pending_siginfo.set(*si);
         self.ptrace_if_alive(
             PTRACE_SETSIGINFO,
             RemotePtr::null(),
@@ -1947,7 +1948,7 @@ impl RecordTask {
         self.stashed_signals.borrow_mut().insert(
             0,
             Box::new(StashedSignal {
-                siginfo: si.clone(),
+                siginfo: *si,
                 deterministic,
             }),
         );
@@ -1966,7 +1967,7 @@ impl RecordTask {
     pub fn stashed_sig_not_synthetic_sigchld(&self) -> Option<siginfo_t> {
         for it in self.stashed_signals.borrow().iter() {
             if !is_synthetic_sigchld(&it.siginfo) {
-                return Some(it.siginfo.clone());
+                return Some(it.siginfo);
             }
         }
         None
@@ -2211,12 +2212,10 @@ impl RecordTask {
     pub fn desched_rec(&self) -> RemotePtr<syscallbuf_record> {
         if self.ev().is_syscall_event() {
             self.ev().syscall_event().desched_rec
+        } else if EventType::EvDesched == self.ev().event_type() {
+            self.ev().desched_event().rec
         } else {
-            if EventType::EvDesched == self.ev().event_type() {
-                self.ev().desched_event().rec
-            } else {
-                RemotePtr::null()
-            }
+            RemotePtr::null()
         }
     }
 

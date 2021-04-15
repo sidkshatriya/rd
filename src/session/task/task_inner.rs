@@ -543,7 +543,7 @@ impl TaskInner {
         let res = readlink(path.as_str());
         // @TODO like rr, returns an empty string if the file name could not be obtained
         // Is this behavior what we want though?
-        res.unwrap_or(OsString::new())
+        res.unwrap_or_default()
     }
 
     /// Syscalls have side effects on registers (e.g. setting the flags register).
@@ -774,9 +774,9 @@ impl TaskInner {
                 data_.resize(vec.iov_len, 0u8);
 
                 er = ExtraRegisters {
-                    data_,
                     format_,
                     arch_,
+                    data_,
                 };
                 // The kernel may return less than the full XSTATE
                 er.validate(self);
@@ -807,9 +807,9 @@ impl TaskInner {
                     );
                 }
                 er = ExtraRegisters {
-                    data_,
                     format_,
                     arch_,
+                    data_,
                 };
             }
             *self.extra_registers.borrow_mut() = Some(er);
@@ -1255,9 +1255,9 @@ impl TaskInner {
                         .session()
                         .find_task_from_task_uid(self.vm().thread_locals_tuid());
 
-                    maybe_t.map(|t| {
+                    if let Some(t) = maybe_t {
                         t.fetch_preload_thread_locals();
-                    });
+                    }
 
                     unsafe {
                         copy_nonoverlapping(
@@ -1365,7 +1365,7 @@ impl TaskInner {
             wait_status: self.wait_status.get(),
             ticks: self.ticks.get(),
             top_of_stack: self.top_of_stack.get(),
-            thread_locals: self.fetch_preload_thread_locals().clone(),
+            thread_locals: *self.fetch_preload_thread_locals(),
         }
     }
 
@@ -1600,32 +1600,38 @@ impl TaskInner {
             maybe_cpu_index = session.cpu_binding(&trace);
         }
         let is_recording = session.is_recording();
-        maybe_cpu_index.map(|mut cpu_index| {
-                    // Set CPU affinity now, after we've created any helper threads
-                    // (so they aren't affected), but before we create any
-                    // tracees (so they are all affected).
-                    // Note that we're binding rd itself to the same CPU as the
-                    // tracees, since this seems to help performance.
+        if let Some(mut cpu_index) = maybe_cpu_index {
+            // Set CPU affinity now, after we've created any helper threads
+            // (so they aren't affected), but before we create any
+            // tracees (so they are all affected).
+            // Note that we're binding rd itself to the same CPU as the
+            // tracees, since this seems to help performance.
+            if !set_cpu_affinity(cpu_index) {
+                if SessionInner::has_cpuid_faulting() && !is_recording {
+                    cpu_index = choose_cpu(BindCPU::RandomCPU).unwrap();
                     if !set_cpu_affinity(cpu_index) {
-                        if SessionInner::has_cpuid_faulting() && !is_recording {
-                            cpu_index = choose_cpu(BindCPU::RandomCPU).unwrap();
-                            if !set_cpu_affinity(cpu_index) {
-                                fatal!("Can't bind to requested CPU {} even after we re-selected it", cpu_index)
-                            }
-                            // DIFF NOTE: The logic is slightly different in rr.
-                            if cpu_index != maybe_cpu_index.unwrap() {
-                                log!(LogWarn,
+                        fatal!(
+                            "Can't bind to requested CPU {} even after we re-selected it",
+                            cpu_index
+                        )
+                    }
+                    // DIFF NOTE: The logic is slightly different in rr.
+                    if cpu_index != maybe_cpu_index.unwrap() {
+                        log!(LogWarn,
                                      "Bound to CPU {} instead of selected {} because the latter is not available;\n\
                                 Hoping tracee doesn't use LSL instruction!", cpu_index, maybe_cpu_index.unwrap());
-                            }
-
-                            let mut trace_mut = session.trace_stream_mut().unwrap();
-                            trace_mut.set_bound_cpu(Some(cpu_index));
-                        } else {
-                            fatal!("Can't bind to requested CPU {}, and CPUID faulting not available", cpu_index)
-                        }
                     }
-                });
+
+                    let mut trace_mut = session.trace_stream_mut().unwrap();
+                    trace_mut.set_bound_cpu(Some(cpu_index));
+                } else {
+                    fatal!(
+                        "Can't bind to requested CPU {}, and CPUID faulting not available",
+                        cpu_index
+                    )
+                }
+            }
+        }
 
         let mut tid: pid_t;
         // After fork() in a multithreaded program, the child can safely call only
@@ -1798,7 +1804,7 @@ fn run_initial_child(
     let num_its = start + 5;
     let mut sum: u32 = 0;
     for i in start..num_its {
-        sum = sum + i;
+        sum += i;
     }
     unsafe { syscall(SYS_write, -1, &sum, size_of_val(&sum)) };
 

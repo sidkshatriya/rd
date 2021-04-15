@@ -168,13 +168,13 @@ impl KernelMapIterator {
         let mut prot = ProtFlags::empty();
         perms_s
             .find('r')
-            .map_or((), |_| prot = prot | ProtFlags::PROT_READ);
+            .map_or((), |_| prot |= ProtFlags::PROT_READ);
         perms_s
             .find('w')
-            .map_or((), |_| prot = prot | ProtFlags::PROT_WRITE);
+            .map_or((), |_| prot |= ProtFlags::PROT_WRITE);
         perms_s
             .find('x')
-            .map_or((), |_| prot = prot | ProtFlags::PROT_EXEC);
+            .map_or((), |_| prot |= ProtFlags::PROT_EXEC);
         prot
     }
 
@@ -182,10 +182,10 @@ impl KernelMapIterator {
         let mut map_flags = MapFlags::empty();
         perms_s
             .find('p')
-            .map_or((), |_| map_flags = map_flags | MapFlags::MAP_PRIVATE);
+            .map_or((), |_| map_flags |= MapFlags::MAP_PRIVATE);
         perms_s
             .find('s')
-            .map_or((), |_| map_flags = map_flags | MapFlags::MAP_SHARED);
+            .map_or((), |_| map_flags |= MapFlags::MAP_SHARED);
         map_flags
     }
 

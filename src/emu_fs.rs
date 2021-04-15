@@ -192,6 +192,7 @@ impl EmuFile {
                 unsafe {
                     data_ptr = data_ptr.add(ret as usize);
                 }
+                amount -= ret as usize;
                 offset += ret as u64;
             }
         }
@@ -411,11 +412,8 @@ fn create_memfd_file(
 
     let cname = CString::new(name.clone()).unwrap();
     let result = memfd_create(&cname, MemFdCreateFlag::empty());
-    if result.is_ok() {
-        Some((
-            ScopedFd::from_raw(result.unwrap()),
-            OsString::from_vec(name),
-        ))
+    if let Ok(fd) = result {
+        Some((ScopedFd::from_raw(fd), OsString::from_vec(name)))
     } else {
         None
     }

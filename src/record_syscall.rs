@@ -629,11 +629,10 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(t: &RecordTask, regs: &Registers
     {
         let fd = regs.arg1() as i32;
         let mut result: usize = 0;
-        let mut ranges = Vec::<file_monitor::Range>::new();
-        ranges.push(file_monitor::Range::new(
+        let ranges: Vec<file_monitor::Range> = vec![file_monitor::Range::new(
             RemotePtr::from(regs.arg2()),
             regs.arg3(),
-        ));
+        )];
         let mut offset = LazyOffset::new(t, regs, sys);
         if offset
             .task()
@@ -1169,8 +1168,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(t: &RecordTask, regs: &Registers
             2 => {
                 let remote_buf = RemotePtr::<u8>::from(regs.arg3());
                 // Assume no filesystem type name is more than 1K
-                let mut buf = Vec::<u8>::with_capacity(1024);
-                buf.resize(1024, 0);
+                let mut buf = vec![0; 1024];
                 match t.read_bytes_fallible(remote_buf, &mut buf) {
                     Ok(nread) if nread > 0 => {
                         syscall_state.reg_parameter_with_size(
@@ -1870,10 +1868,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(t: &RecordTask, regs: &Registers
 }
 
 fn is_blacklisted_memfd(name: &CStr) -> bool {
-    match name.to_str() {
-        Ok(name_str) if name_str == "pulseaudio" => true,
-        _ => false,
-    }
+    matches!(name.to_str(), Ok(name_str) if name_str == "pulseaudio")
 }
 
 fn maybe_blacklist_connect<Arch: Architecture>(
@@ -1902,7 +1897,7 @@ fn maybe_blacklist_connect<Arch: Architecture>(
 }
 
 fn is_blacklisted_socket(filename_in: &[i8; 108]) -> Option<&str> {
-    let filename: &[u8; 108] = unsafe { mem::transmute(filename_in) };
+    let filename: &[u8; 108] = unsafe { &*(filename_in as *const [i8; 108] as *const [u8; 108]) };
     // Blacklist the nscd socket because glibc communicates with the daemon over
     // shared memory rd can't handle.
     let nsd = b"/var/run/nscd/socket\0";
@@ -3554,11 +3549,11 @@ fn process_execve(t: &RecordTask, syscall_state: &mut TaskSyscallState) {
             let flags = (km.flags() & !MapFlags::MAP_GROWSDOWN) | MapFlags::MAP_ANONYMOUS;
             let munmap_no: i32 = syscall_number_for_munmap(remote.arch());
             rd_infallible_syscall!(remote, munmap_no, km.start().as_usize(), km.size());
-            if !remote
+            if remote
                 .task()
                 .vm()
                 .mapping_of(km.start() - page_size())
-                .is_some()
+                .is_none()
             {
                 // Unmap an extra page at the start; this seems to be necessary
                 // to properly wipe out the growsdown mapping. Doing it as a separate
@@ -3775,7 +3770,7 @@ fn get_exe_entry(t: &RecordTask) -> RemotePtr<Void> {
     RemotePtr::null()
 }
 
-type AfterSyscallAction = Box<dyn Fn(&RecordTask) -> ()>;
+type AfterSyscallAction = Box<dyn Fn(&RecordTask)>;
 type ArgMutator = Box<dyn Fn(&RecordTask, RemotePtr<Void>, Option<&mut [u8]>) -> bool>;
 
 /// When tasks enter syscalls that may block and so must be
@@ -4503,7 +4498,7 @@ impl ParamSize {
 
     /// Indicate that the size will be at most 'max'.
     fn limit_size(&self, max: usize) -> ParamSize {
-        let mut r = self.clone();
+        let mut r = *self;
         r.incoming_size = min(r.incoming_size, max);
 
         r
@@ -4629,7 +4624,7 @@ fn extra_expected_errno_info<Arch: Architecture>(
     syscall_state: &mut TaskSyscallState,
 ) -> String {
     match syscall_state.expect_errno {
-        ENOSYS => return format!("; execution of syscall unsupported by rd"),
+        ENOSYS => return "; execution of syscall unsupported by rd".to_string(),
         EINVAL => {
             let sys = t.regs_ref().original_syscallno() as i32;
             if sys == Arch::IOCTL {
@@ -4701,7 +4696,7 @@ fn extra_expected_errno_info<Arch: Architecture>(
         _ => (),
     }
 
-    return String::new();
+    String::new()
 }
 
 const IOCTL_MASK_SIZE_TUNSETIFF: u32 = ioctl_mask_size(_TUNSETIFF);
@@ -5941,11 +5936,11 @@ fn prepare_ptrace_attach(
     match maybe_tracee {
         None => {
             syscall_state.emulate_result_signed(-ESRCH as isize);
-            return None;
+            None
         }
         Some(tracee) if !check_ptracer_compatible(t, tracee.as_rec_unwrap()) => {
             syscall_state.emulate_result_signed(-EPERM as isize);
-            return None;
+            None
         }
         Some(tracee) => Some(tracee),
     }
@@ -6057,19 +6052,17 @@ fn prepare_ptrace<Arch: Architecture>(
                 Some(tracee_rc) => {
                     if t.regs_ref().arg3() != 0 {
                         syscall_state.emulate_result_signed(-EIO as isize);
-                    } else {
-                        if verify_ptrace_options(t, syscall_state) {
-                            let tracee = tracee_rc.as_rec_unwrap();
-                            tracee.set_emulated_ptracer(Some(t));
-                            tracee.emulated_ptrace_seized.set(true);
-                            tracee
-                                .emulated_ptrace_options
-                                .set(t.regs_ref().arg4() as u32);
-                            if tracee.emulated_stop_type.get() == EmulatedStopType::GroupStop {
-                                ptrace_attach_to_already_stopped_task(tracee);
-                            }
-                            syscall_state.emulate_result(0);
+                    } else if verify_ptrace_options(t, syscall_state) {
+                        let tracee = tracee_rc.as_rec_unwrap();
+                        tracee.set_emulated_ptracer(Some(t));
+                        tracee.emulated_ptrace_seized.set(true);
+                        tracee
+                            .emulated_ptrace_options
+                            .set(t.regs_ref().arg4() as u32);
+                        if tracee.emulated_stop_type.get() == EmulatedStopType::GroupStop {
+                            ptrace_attach_to_already_stopped_task(tracee);
                         }
+                        syscall_state.emulate_result(0);
                     }
                 }
                 None => (),
@@ -6972,10 +6965,7 @@ fn is_privileged_executable(t: &RecordTask, path: &OsStr) -> bool {
         ed_assert!(t, errno() == ENODATA || errno() == ENOTSUP);
 
         let maybe_buf = stat(path);
-        match maybe_buf {
-            Ok(buf) if buf.st_mode & (S_ISUID | S_ISGID) != 0 => true,
-            _ => false,
-        }
+        matches!(maybe_buf, Ok(buf) if buf.st_mode & (S_ISUID | S_ISGID) != 0)
     }
 }
 
@@ -7174,7 +7164,6 @@ fn record_v4l2_buffer_contents<Arch: Architecture>(t: &RecordTask) {
                 unsafe { buf.m.offset as u64 },
                 buf.length as u64,
             );
-            return;
         }
         _ => {
             ed_assert!(t, false, "Unhandled V4L2 memory type {}", buf.memory);
@@ -7221,9 +7210,7 @@ fn prepare_bpf<Arch: Architecture>(
 ) -> Switchable {
     let cmd = t.regs_ref().arg1() as u32;
     match cmd {
-        BPF_MAP_CREATE | BPF_MAP_UPDATE_ELEM | BPF_MAP_DELETE_ELEM => {
-            return Switchable::PreventSwitch;
-        }
+        BPF_MAP_CREATE | BPF_MAP_UPDATE_ELEM | BPF_MAP_DELETE_ELEM => Switchable::PreventSwitch,
         BPF_PROG_LOAD => {
             let argsp =
                 syscall_state.reg_parameter::<arch_structs::bpf_attr>(2, Some(ArgMode::In), None);
@@ -7235,14 +7222,14 @@ fn prepare_bpf<Arch: Architecture>(
                 None,
                 None,
             );
-            return Switchable::PreventSwitch;
+            Switchable::PreventSwitch
         }
         // These are hard to support because we have to track the key_size/value_size :-(
         // BPF_MAP_LOOKUP_ELEM
         // BPF_MAP_GET_NEXT_KEY
         _ => {
             syscall_state.expect_errno = EINVAL;
-            return Switchable::PreventSwitch;
+            Switchable::PreventSwitch
         }
     }
 }

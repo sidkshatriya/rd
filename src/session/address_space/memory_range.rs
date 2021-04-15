@@ -184,7 +184,7 @@ mod test {
 
         let mut range = m.range((Unbounded, Included(mrk_9to11)));
         while range.next().is_some() {
-            found = found + 1;
+            found += 1;
         }
         assert_eq!(found, 1);
         let mut range2 = m.range((Unbounded, Included(mrk_9to11)));
@@ -298,7 +298,7 @@ mod test {
         ));
 
         while range.next().is_some() {
-            found = found + 1;
+            found += 1;
         }
         assert_eq!(found, 1);
     }

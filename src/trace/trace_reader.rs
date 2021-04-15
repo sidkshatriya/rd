@@ -154,11 +154,11 @@ impl TraceReader {
         let arch = from_trace_arch(frame.get_arch().unwrap());
         ret.recorded_regs = Registers::new(arch);
         let reg_data = frame.get_registers().unwrap().get_raw().unwrap();
-        if reg_data.len() > 0 {
+        if !reg_data.is_empty() {
             ret.recorded_regs.set_from_ptrace_for_arch(arch, reg_data);
         }
         let extra_reg_data = frame.get_extra_registers().unwrap().get_raw().unwrap();
-        if extra_reg_data.len() > 0 {
+        if !extra_reg_data.is_empty() {
             let ok = ret.recorded_extra_regs.set_to_raw_data(
                 arch,
                 Format::XSave,
@@ -281,8 +281,7 @@ impl TraceReader {
             }
 
             if !restore {
-                if maybe_data.is_some() {
-                    let data = maybe_data.unwrap();
+                if let Some(data) = maybe_data {
                     if map.get_frame_time() < 0 {
                         fatal!("Invalid frameTime");
                     }
@@ -292,8 +291,7 @@ impl TraceReader {
                         fatal!("Invalid stat size");
                     }
                     data.file_size_bytes = map.get_stat_size() as usize;
-                    if maybe_extra_fds.is_some() {
-                        let extra_fds = maybe_extra_fds.unwrap();
+                    if let Some(extra_fds) = maybe_extra_fds {
                         if map.has_extra_fds() {
                             let fds_reader = map.get_extra_fds().unwrap();
                             for fd in fds_reader.iter() {
@@ -305,7 +303,9 @@ impl TraceReader {
                         }
                     }
 
-                    skip_monitoring_mapped_fd.map(|fd| *fd = map.get_skip_monitoring_mapped_fd());
+                    if let Some(fd) = skip_monitoring_mapped_fd {
+                        *fd = map.get_skip_monitoring_mapped_fd()
+                    }
                     let src = map.get_source();
                     match src.which().unwrap() {
                         m_map::source::Zero(()) => data.source = SourceZero,
@@ -423,7 +423,9 @@ impl TraceReader {
 
         let task: task_event::Reader = task_msg.get_root::<task_event::Reader>().unwrap();
         let tid_ = i32_to_tid(task.get_tid());
-        maybe_time.map(|frame_time| *frame_time = task.get_frame_time() as u64);
+        if let Some(frame_time) = maybe_time {
+            *frame_time = task.get_frame_time() as u64
+        }
         let te: TraceTaskEvent;
         match task.which().unwrap() {
             task_event::Clone(r) => {
@@ -544,7 +546,7 @@ impl TraceReader {
             self.raw_recs = saved_raw_recs;
             Some(frame)
         } else {
-            return None;
+            None
         }
     }
 

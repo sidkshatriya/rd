@@ -845,9 +845,9 @@ impl GdbConnection {
                 thread
             );
             self.resume_thread = thread;
-            self.query_thread = self.resume_thread;
         }
 
+        self.query_thread = self.resume_thread;
         self.consume_request();
     }
 
@@ -957,7 +957,7 @@ impl GdbConnection {
         debug_assert_eq!(DREQ_GET_MEM, self.req.type_);
         debug_assert!(mem.len() <= self.req.mem().len);
 
-        if self.req.mem().len > 0 && mem.len() == 0 {
+        if self.req.mem().len > 0 && mem.is_empty() {
             self.write_packet_bytes(b"E01");
         } else {
             self.write_hex_bytes_packet(mem);
@@ -1070,8 +1070,7 @@ impl GdbConnection {
         if threads.is_empty() {
             self.write_packet_bytes(b"l");
         } else {
-            let mut buf = Vec::<u8>::new();
-            buf.push(b'm');
+            let mut buf = vec![b'm'];
             for &t in threads {
                 if self.tgid != t.pid {
                     continue;
@@ -1265,7 +1264,7 @@ impl GdbConnection {
             return true;
         }
         parser_assert!(self.inbuf.is_empty());
-        return poll_incoming(&self.sock_fd, 0 /*don't wait*/);
+        poll_incoming(&self.sock_fd, 0 /*don't wait*/)
     }
 
     pub fn features(&self) -> GdbConnectionFeatures {
@@ -1325,7 +1324,7 @@ impl GdbConnection {
 
         while write_index < self.outbuf.len() {
             poll_outgoing(&self.sock_fd, -1 /*wait forever*/);
-            let result = unistd::write(self.sock_fd.as_raw(), &mut self.outbuf[write_index..]);
+            let result = unistd::write(self.sock_fd.as_raw(), &self.outbuf[write_index..]);
             match result {
                 Err(e) => {
                     log!(
@@ -1449,7 +1448,7 @@ impl GdbConnection {
             }
         }
 
-        parser_assert!(1 <= self.inbuf.len());
+        parser_assert!(!self.inbuf.is_empty());
         parser_assert!(b'$' == self.inbuf[0] || INTERRUPT_CHAR == self.inbuf[0]);
 
         true
@@ -1542,7 +1541,7 @@ impl GdbConnection {
             args = &args[1..];
             len = str16_to_usize(args, &mut args).unwrap();
             // Assert that its not the end
-            parser_assert!(args.len() > 0);
+            parser_assert!(!args.is_empty());
         } else {
             parser_assert_eq!(args[0], b':');
             args = &args[1..];
@@ -1626,7 +1625,7 @@ impl GdbConnection {
         }
 
         self.write_packet_bytes(b"");
-        return false;
+        false
     }
 
     /// Return true if we need to do something in a debugger request,
@@ -1638,10 +1637,7 @@ impl GdbConnection {
             None => payload,
         };
 
-        let maybe_args = match maybe_args_loc {
-            Some(l) => Some(&payload[l + 1..]),
-            None => None,
-        };
+        let maybe_args = maybe_args_loc.map(|l| &payload[l + 1..]);
 
         if name == b"RDCmd" {
             log!(
@@ -1874,25 +1870,22 @@ impl GdbConnection {
             None => payload,
         };
 
-        let maybe_args = match maybe_args_loc {
-            Some(l) => Some(&payload[l + 1..]),
-            None => None,
-        };
+        let maybe_args = maybe_args_loc.map(|l| &payload[l + 1..]);
 
         if name == b"Cont" {
             let mut args = maybe_args.unwrap();
             let mut actions: Vec<GdbContAction> = Vec::new();
             let mut maybe_default_action: Option<GdbContAction> = None;
 
-            while args.len() > 0 {
+            while !args.is_empty() {
                 let mut cmd = args;
                 // Skip to `:` or `;`
-                while args.len() > 0 && args[0] != b':' && args[0] != b';' {
+                while !args.is_empty() && args[0] != b':' && args[0] != b';' {
                     args = &args[1..];
                 }
                 let mut is_default = true;
                 let mut target = GdbThreadId::new(-1, -1);
-                if args.len() > 0 {
+                if !args.is_empty() {
                     if args[0] == b':' {
                         is_default = false;
                         args = &args[1..];
@@ -1943,7 +1936,7 @@ impl GdbConnection {
                     }
                 }
                 match maybe_endptr {
-                    Some(endptr) if endptr.len() > 0 => {
+                    Some(endptr) if !endptr.is_empty() => {
                         unhandled_req!(
                             self,
                             "Unhandled vCont command parameters {}",
@@ -2021,13 +2014,13 @@ impl GdbConnection {
                 }
                 None => (),
             }
-            if filename.len() > 0 {
+            if !filename.is_empty() {
                 fatal!(
                     "gdb wants us to run the exe image `{}', but we don't support that.",
                     String::from_utf8_lossy(filename)
                 );
             }
-            if args.len() == 0 {
+            if args.is_empty() {
                 self.req.restart_mut().type_ = GdbRestartType::RestartFromPrevious;
                 return true;
             }
@@ -2071,7 +2064,7 @@ impl GdbConnection {
                     self.req.restart().param
                 );
             }
-            if endp.len() > 0 {
+            if !endp.is_empty() {
                 log!(
                     LogDebug,
                     "Couldn't parse event string `{}'; restarting from previous",
@@ -2169,7 +2162,7 @@ impl GdbConnection {
             "Unhandled gdb vpacket: v{}",
             String::from_utf8_lossy(name)
         );
-        return false;
+        false
     }
 
     /// Return true if we need to do something in a debugger request,
@@ -2183,7 +2176,7 @@ impl GdbConnection {
                 Some(self.resume_thread),
                 None,
             ));
-            return true;
+            true
         } else if payload == b"s" {
             self.req = GdbRequest::new(DREQ_CONT);
             self.req.cont_mut().run_direction = RunDirection::RunBackward;
@@ -2192,14 +2185,14 @@ impl GdbConnection {
                 Some(self.resume_thread),
                 None,
             ));
-            return true;
+            true
         } else {
             unhandled_req!(
                 self,
                 "Unhandled gdb bpacket: b{}",
                 String::from_utf8_lossy(payload)
             );
-            return false;
+            false
         }
     }
 
@@ -2479,7 +2472,7 @@ impl GdbConnection {
         }
 
         // If we processed the request internally, consume it.
-        if ret == false {
+        if !ret {
             self.consume_request();
         }
 
@@ -2684,105 +2677,45 @@ fn to_gdb_signum(maybe_sig: Option<Sig>) -> i32 {
         None => return 0,
     };
     match sig {
-        libc::SIGHUP => {
-            return 1;
-        }
-        libc::SIGINT => {
-            return 2;
-        }
-        libc::SIGQUIT => {
-            return 3;
-        }
-        libc::SIGILL => {
-            return 4;
-        }
-        libc::SIGTRAP => {
-            return 5;
-        }
+        libc::SIGHUP => 1,
+        libc::SIGINT => 2,
+        libc::SIGQUIT => 3,
+        libc::SIGILL => 4,
+        libc::SIGTRAP => 5,
         libc::SIGABRT => {
             // libc::SIGIOT
-            return 6;
+            6
         }
-        libc::SIGBUS => {
-            return 10;
-        }
-        libc::SIGFPE => {
-            return 8;
-        }
-        libc::SIGKILL => {
-            return 9;
-        }
-        libc::SIGUSR1 => {
-            return 30;
-        }
-        libc::SIGSEGV => {
-            return 11;
-        }
-        libc::SIGUSR2 => {
-            return 31;
-        }
-        libc::SIGPIPE => {
-            return 13;
-        }
-        libc::SIGALRM => {
-            return 14;
-        }
-        libc::SIGTERM => {
-            return 15;
-        }
+        libc::SIGBUS => 10,
+        libc::SIGFPE => 8,
+        libc::SIGKILL => 9,
+        libc::SIGUSR1 => 30,
+        libc::SIGSEGV => 11,
+        libc::SIGUSR2 => 31,
+        libc::SIGPIPE => 13,
+        libc::SIGALRM => 14,
+        libc::SIGTERM => 15,
         // gdb hasn't heard of libc::SIGSTKFLT, so this is
         // arbitrarily made up.  libc::SIGDANGER just sounds cool
         libc::SIGSTKFLT => {
-            return 38; // GDB_libc::SIGNAL_DANGER
+            38 // GDB_libc::SIGNAL_DANGER
         }
-        /* case libc::SIGCLD */ libc::SIGCHLD => {
-            return 20;
-        }
-        libc::SIGCONT => {
-            return 19;
-        }
-        libc::SIGSTOP => {
-            return 17;
-        }
-        libc::SIGTSTP => {
-            return 18;
-        }
-        libc::SIGTTIN => {
-            return 21;
-        }
-        libc::SIGTTOU => {
-            return 22;
-        }
-        libc::SIGURG => {
-            return 16;
-        }
-        libc::SIGXCPU => {
-            return 24;
-        }
-        libc::SIGXFSZ => {
-            return 25;
-        }
-        libc::SIGVTALRM => {
-            return 26;
-        }
-        libc::SIGPROF => {
-            return 27;
-        }
-        libc::SIGWINCH => {
-            return 28;
-        }
-        /* case libc::SIGPOLL */ libc::SIGIO => {
-            return 23;
-        }
-        libc::SIGPWR => {
-            return 32;
-        }
-        libc::SIGSYS => {
-            return 12;
-        }
-        32 => {
-            return 77;
-        }
+        /* case libc::SIGCLD */ libc::SIGCHLD => 20,
+        libc::SIGCONT => 19,
+        libc::SIGSTOP => 17,
+        libc::SIGTSTP => 18,
+        libc::SIGTTIN => 21,
+        libc::SIGTTOU => 22,
+        libc::SIGURG => 16,
+        libc::SIGXCPU => 24,
+        libc::SIGXFSZ => 25,
+        libc::SIGVTALRM => 26,
+        libc::SIGPROF => 27,
+        libc::SIGWINCH => 28,
+        /* case libc::SIGPOLL */ libc::SIGIO => 23,
+        libc::SIGPWR => 32,
+        libc::SIGSYS => 12,
+        32 => 77,
         _ => {
             if 33 <= sig && sig <= 63 {
                 // GDB_libc::SIGNAL_REALTIME_33 is numbered 45, hence this offset
@@ -2793,7 +2726,7 @@ fn to_gdb_signum(maybe_sig: Option<Sig>) -> i32 {
                 return sig + 14;
             }
             log!(LogWarn, "Unknown signal {}", sig);
-            return 143; // GDB_libc::SIGNAL_UNKNOWN
+            143 // GDB_libc::SIGNAL_UNKNOWN
         }
     }
 }
@@ -2833,10 +2766,7 @@ fn gdb_open_flags_to_system_flags(flags: i32) -> i32 {
 }
 
 fn request_needs_immediate_response(req: &GdbRequest) -> bool {
-    match req.type_ {
-        DREQ_NONE | DREQ_CONT => false,
-        _ => true,
-    }
+    !matches!(req.type_, DREQ_NONE | DREQ_CONT)
 }
 
 /// Parse and return a gdb thread-id from `text`.  `new_text` is a slice whose
@@ -2846,14 +2776,14 @@ fn request_needs_immediate_response(req: &GdbRequest) -> bool {
 fn parse_threadid<'a>(mut text: &'a [u8], new_text: &mut &'a [u8]) -> GdbThreadId {
     let mut t = GdbThreadId::new(-1, -1);
     let mut multiprocess = false;
-    parser_assert!(text.len() > 0);
+    parser_assert!(!text.is_empty());
     if text[0] == b'p' {
         multiprocess = true;
         text = &text[1..];
     }
 
     t.pid = str16_to_isize(text, &mut text).unwrap().try_into().unwrap();
-    if text.len() == 0 {
+    if text.is_empty() {
         if multiprocess {
             t.tid = -1;
         } else {

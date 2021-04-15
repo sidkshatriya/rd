@@ -218,7 +218,7 @@ pub fn get_syscall_instruction_arch(
             } else {
                 return false;
             }
-            return true;
+            true
         }
     }
 }

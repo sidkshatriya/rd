@@ -555,8 +555,7 @@ impl Registers {
             X64(_) => size_of::<x64::user_regs_struct>(),
         };
 
-        let mut v: Vec<u8> = Vec::with_capacity(l);
-        v.resize(l, 0);
+        let mut v: Vec<u8> = vec![0; l];
         v.copy_from_slice(tmp_regs.get_ptrace_for_self_arch());
         v
     }
@@ -641,10 +640,10 @@ impl Registers {
     /// Returns true if syscall_result() indicates a syscall restart.
     pub fn syscall_may_restart(&self) -> bool {
         // Note the negation
-        match -self.syscall_result_signed() as u32 {
-            ERESTART_RESTARTBLOCK | ERESTARTNOINTR | ERESTARTNOHAND | ERESTARTSYS => true,
-            _ => false,
-        }
+        matches!(
+            -self.syscall_result_signed() as u32,
+            ERESTART_RESTARTBLOCK | ERESTARTNOINTR | ERESTARTNOHAND | ERESTARTSYS
+        )
     }
 
     pub fn ip(&self) -> RemoteCodePtr {
@@ -1115,7 +1114,7 @@ impl Registers {
         nbytes: usize,
         register_ptr: *const u8,
     ) -> io::Result<()> {
-        if name.len() > 0 {
+        if !name.is_empty() {
             write!(f, "{}:", name)?
         } else {
             write!(f, " ")?
@@ -1164,8 +1163,7 @@ fn convert_x86_widen<F1, F2>(
     x86: &x86::user_regs_struct,
     widen: F1,
     widen_signed: F2,
-) -> ()
-where
+) where
     F1: Fn(&mut u64, i32),
     F2: Fn(&mut u64, i32),
 {
@@ -1193,8 +1191,7 @@ fn convert_x86_narrow<F1, F2>(
     x64: &x64::user_regs_struct,
     narrow: F1,
     narrow_signed: F2,
-) -> ()
-where
+) where
     F1: Fn(&mut i32, u64),
     F2: Fn(&mut i32, u64),
 {
@@ -1253,8 +1250,8 @@ impl RegisterValue {
         RegisterValue {
             name,
             offset,
-            comparison_mask,
             nbytes,
+            comparison_mask,
         }
     }
 
@@ -1272,8 +1269,8 @@ impl RegisterValue {
         RegisterValue {
             name,
             offset,
-            comparison_mask,
             nbytes,
+            comparison_mask,
         }
     }
 
@@ -1296,8 +1293,8 @@ impl RegisterValue {
         RegisterValue {
             name,
             offset,
-            comparison_mask,
             nbytes,
+            comparison_mask,
         }
     }
 

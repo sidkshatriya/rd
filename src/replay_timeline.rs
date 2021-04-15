@@ -258,17 +258,14 @@ impl ReplayTimeline {
             key,
         )));
 
-        if !self.marks.contains_key(&key) {
-            self.marks.insert(key, Vec::new());
-        }
+        self.marks.entry(key).or_insert(Vec::new());
         let len = self.marks[&key].len();
-        if len == 0 {
-            self.marks.get_mut(&key).unwrap().push(m.clone());
-        } else if self.current_at_or_after_mark.is_some()
-            && Rc::ptr_eq(
-                &self.current_at_or_after_mark.as_ref().unwrap(),
-                &self.marks[&key][len - 1],
-            )
+        if len == 0
+            || (self.current_at_or_after_mark.is_some()
+                && Rc::ptr_eq(
+                    &self.current_at_or_after_mark.as_ref().unwrap(),
+                    &self.marks[&key][len - 1],
+                ))
         {
             self.marks.get_mut(&key).unwrap().push(m.clone());
         } else {
@@ -288,8 +285,7 @@ impl ReplayTimeline {
                 "mark() replaying to find mark location for {}",
                 *m.borrow()
             );
-            let mut new_marks = Vec::<InternalMarkSharedPtr>::new();
-            new_marks.push(m.clone());
+            let mut new_marks: Vec<InternalMarkSharedPtr> = vec![m.clone()];
 
             // Allow coalescing of multiple repetitions of a single x86 string
             // instruction (as long as we don't reach one of our mark_vector states).
@@ -627,9 +623,7 @@ impl ReplayTimeline {
             }
         }
 
-        if !self.marks.contains_key(&key) {
-            self.marks.insert(key, Vec::new());
-        }
+        self.marks.entry(key).or_insert(Vec::new());
         // Check if any of the marks with the same key as 'mark', but not after
         // 'mark', are usable.
         let mark_vector = &self.marks[&key];
@@ -1260,9 +1254,7 @@ impl ReplayTimeline {
             } else {
                 // Return one of the checkpoints at *it.
                 self.current = None;
-                if !self.marks.contains_key(&it) {
-                    self.marks.insert(it, Vec::new());
-                }
+                self.marks.entry(it).or_insert(Vec::new());
                 for mark_it in &self.marks[&it] {
                     if mark_it.borrow().checkpoint.is_some() {
                         self.current = Some(
@@ -1427,7 +1419,7 @@ impl ReplayTimeline {
         }
 
         log!(LogDebug, "Made no progress");
-        return false;
+        false
     }
 
     fn update_strategy_and_fix_watchpoint_quirk(

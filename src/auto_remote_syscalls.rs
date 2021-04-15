@@ -65,7 +65,7 @@ use std::{
     mem::{self, size_of, size_of_val, zeroed},
     ops::{Deref, DerefMut},
     os::unix::ffi::OsStrExt,
-    ptr::{copy_nonoverlapping, NonNull},
+    ptr::{self, copy_nonoverlapping, NonNull},
     slice,
     sync::atomic::{AtomicUsize, Ordering},
 };
@@ -285,8 +285,7 @@ impl<'a, 'b> AutoRestoreMem<'a, 'b> {
         mem: Option<&[u8]>,
         len: usize,
     ) -> AutoRestoreMem<'a, 'b> {
-        let mut v = Vec::with_capacity(len);
-        v.resize(len, 0);
+        let v = vec![0u8; len];
         let mut result = AutoRestoreMem {
             remote,
             addr: None,
@@ -295,7 +294,9 @@ impl<'a, 'b> AutoRestoreMem<'a, 'b> {
             saved_sp: 0usize.into(),
             len,
         };
-        mem.map(|s| assert_eq!(len, s.len()));
+        if let Some(s) = mem {
+            assert_eq!(len, s.len())
+        }
         result.init(mem);
         result
     }
@@ -630,7 +631,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         child_fd: i32,
         offset_pages: u64,
     ) -> RemotePtr<Void> {
-        let addr_hint = maybe_addr_hint.unwrap_or(RemotePtr::null());
+        let addr_hint = maybe_addr_hint.unwrap_or_default();
         // The first syscall argument is called "arg 1", so
         // our syscall-arg-index template parameter starts
         // with "1".
@@ -1096,7 +1097,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         // Here we map the shared memory segment into ours.
         let map_addr = unsafe {
             libc::mmap(
-                0 as *mut c_void,
+                ptr::null_mut::<c_void>(),
                 size,
                 (ProtFlags::PROT_READ | ProtFlags::PROT_WRITE).bits() as _,
                 flags.bits(),
@@ -1107,7 +1108,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         if map_addr as isize == -1 {
             fatal!("Failed to mmap shmem region");
         }
-        if !maybe_map_hint.unwrap_or(RemotePtr::null()).is_null() {
+        if !maybe_map_hint.unwrap_or_default().is_null() {
             flags |= MapFlags::MAP_FIXED;
         }
         // Here we map the shared memory segment into the tracee.
@@ -1200,7 +1201,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
             sz
         );
         remote2.task().vm().unmap(remote2.task(), free_mem, sz);
-        return true;
+        true
     }
 
     /// Recreate an mmap region that is shared between rd and the tracee. The caller
@@ -1301,7 +1302,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
             OsStr::from_bytes(&name),
             Some(m.map.prot()),
             Some(m.map.flags() & (MapFlags::MAP_GROWSDOWN | MapFlags::MAP_STACK)),
-            monitored.clone(),
+            monitored,
         );
 
         self.vm().mapping_of(km.start()).unwrap().clone()
@@ -1353,11 +1354,7 @@ struct SocketcallArgs<Arch: Architecture> {
 /// We derive Copy and Clone manually as the struct is marked packed.
 impl<Arch: Architecture> Clone for SocketcallArgs<Arch> {
     fn clone(&self) -> Self {
-        SocketcallArgs {
-            // Wrapped in unsafe because of:
-            // warning: borrow of packed field is unsafe and requires unsafe function or block (error E0133)
-            args: unsafe { self.args.clone() },
-        }
+        SocketcallArgs { args: self.args }
     }
 }
 
@@ -1388,7 +1385,7 @@ fn allocate_bytes(
 ) -> RemotePtr<Void> {
     let r = *buf_end;
     // Note the mutation of buf_end here. A sort of bump pointer.
-    *buf_end = *buf_end + align_size(size);
+    *buf_end += align_size(size);
     if (*buf_end - remote_buf.get().unwrap()) > remote_buf.len() {
         fatal!("overflow");
     }

@@ -7,6 +7,20 @@
 #![feature(slice_ptr_get)]
 #![feature(array_methods)]
 #![feature(arc_new_cyclic)]
+// Can disallow some of these in the future
+#![allow(clippy::upper_case_acronyms)]
+#![allow(clippy::write_with_newline)]
+#![allow(clippy::redundant_static_lifetimes)]
+#![allow(clippy::assertions_on_constants)]
+#![allow(clippy::single_match)]
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::manual_range_contains)]
+#![allow(clippy::module_inception)]
+#![allow(clippy::enum_variant_names)]
+#![allow(clippy::needless_range_loop)]
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::wrong_self_convention)]
+#![allow(clippy::let_and_return)]
 // @TODO To many results for "never used". Disable for now.
 #![allow(dead_code)]
 
