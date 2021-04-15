@@ -640,10 +640,10 @@ impl Registers {
     /// Returns true if syscall_result() indicates a syscall restart.
     pub fn syscall_may_restart(&self) -> bool {
         // Note the negation
-        match -self.syscall_result_signed() as u32 {
-            ERESTART_RESTARTBLOCK | ERESTARTNOINTR | ERESTARTNOHAND | ERESTARTSYS => true,
-            _ => false,
-        }
+        matches!(
+            -self.syscall_result_signed() as u32,
+            ERESTART_RESTARTBLOCK | ERESTARTNOINTR | ERESTARTNOHAND | ERESTARTSYS
+        )
     }
 
     pub fn ip(&self) -> RemoteCodePtr {

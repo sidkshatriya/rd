@@ -543,7 +543,7 @@ impl TaskInner {
         let res = readlink(path.as_str());
         // @TODO like rr, returns an empty string if the file name could not be obtained
         // Is this behavior what we want though?
-        res.unwrap_or(OsString::new())
+        res.unwrap_or_default()
     }
 
     /// Syscalls have side effects on registers (e.g. setting the flags register).

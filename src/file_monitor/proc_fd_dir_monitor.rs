@@ -72,9 +72,7 @@ impl ProcFdDirMonitor {
                     let maybe_found = if t.rec_tid() == tid {
                         Some(t.tuid())
                     } else {
-                        t.session()
-                            .find_task_from_rec_tid(tid)
-                            .and_then(|ft| Some(ft.tuid()))
+                        t.session().find_task_from_rec_tid(tid).map(|ft| ft.tuid())
                     };
 
                     return Self {

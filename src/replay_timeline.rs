@@ -285,8 +285,7 @@ impl ReplayTimeline {
                 "mark() replaying to find mark location for {}",
                 *m.borrow()
             );
-            let mut new_marks = Vec::<InternalMarkSharedPtr>::new();
-            new_marks.push(m.clone());
+            let mut new_marks: Vec<InternalMarkSharedPtr> = vec![m.clone()];
 
             // Allow coalescing of multiple repetitions of a single x86 string
             // instruction (as long as we don't reach one of our mark_vector states).

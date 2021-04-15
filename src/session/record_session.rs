@@ -1524,7 +1524,7 @@ impl RecordSession {
                 match t.peek_stashed_sig_to_deliver() {
                     Some(ssig_obtained) => {
                         ssig_addr = ssig_obtained;
-                        ssig = unsafe { (*ssig_obtained).clone() };
+                        ssig = unsafe { *ssig_obtained };
                         si.linux_api = ssig.siginfo;
                         sig = Sig::try_from(unsafe { si.linux_api.si_signo }).unwrap();
                         if Some(sig) == self.get_ignore_sig() {
@@ -2629,7 +2629,7 @@ fn find_helper_library<T: AsRef<OsStr>>(basepath: T) -> Option<OsString> {
     for suffix in &["lib64/rd/", "lib/rd/"] {
         let mut lib_path = OsString::from(resource_path());
         lib_path.push(suffix);
-        let mut file_name = OsString::from(lib_path.clone());
+        let mut file_name = lib_path.clone();
         file_name.push(basepath.as_ref());
         if access(file_name.as_bytes(), AccessFlags::F_OK).is_ok() {
             return Some(lib_path);
@@ -2926,9 +2926,9 @@ fn note_entering_syscall(t: &RecordTask) {
 
 fn rec_abort_prepared_syscall(t: &RecordTask) {
     let shared_ptr = t.syscall_state.clone();
-    shared_ptr.borrow_mut().as_mut().map(|state| {
+    if let Some(state) = shared_ptr.borrow_mut().as_mut() {
         state.abort_syscall_results(t);
-    });
+    }
     *t.syscall_state.borrow_mut() = None;
 }
 
@@ -3147,10 +3147,7 @@ fn syscall_not_restarted(t: &RecordTask) {
 
 fn is_in_privileged_syscall(t: &RecordTask) -> bool {
     let maybe_syscall_type = AddressSpace::rd_page_syscall_from_exit_point(t.ip());
-    match maybe_syscall_type {
-        Some(syscall_type) if syscall_type.privileged == Privileged::Privileged => true,
-        _ => false,
-    }
+    matches!(maybe_syscall_type, Some(syscall_type) if syscall_type.privileged == Privileged::Privileged)
 }
 
 fn record_exit(t: &RecordTask, exit_status: WaitStatus) {

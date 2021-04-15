@@ -103,7 +103,7 @@ impl BreakStatus {
         let mut result = Vec::new();
         for w in &self.watchpoints_hit {
             if w.type_ != WatchType::WatchExec {
-                result.push(w.clone());
+                result.push(*w);
             }
         }
 
