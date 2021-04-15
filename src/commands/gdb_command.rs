@@ -234,7 +234,7 @@ fn gdb_command_list_init() -> HashMap<String, Box<dyn GdbCommand>> {
 
 fn elapsed_time(_: &mut GdbServer, t: &dyn Task, _: &[OsString]) -> OsString {
     if !t.session().is_replaying() {
-        return GdbCommandHandler::cmd_end_diversion().to_owned();
+        return GdbCommandHandler::cmd_end_diversion();
     }
 
     let replay_t = t.as_replay_task().unwrap();

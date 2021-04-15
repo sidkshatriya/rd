@@ -2472,7 +2472,7 @@ impl GdbConnection {
         }
 
         // If we processed the request internally, consume it.
-        if ret == false {
+        if !ret {
             self.consume_request();
         }
 
@@ -2677,105 +2677,45 @@ fn to_gdb_signum(maybe_sig: Option<Sig>) -> i32 {
         None => return 0,
     };
     match sig {
-        libc::SIGHUP => {
-            return 1;
-        }
-        libc::SIGINT => {
-            return 2;
-        }
-        libc::SIGQUIT => {
-            return 3;
-        }
-        libc::SIGILL => {
-            return 4;
-        }
-        libc::SIGTRAP => {
-            return 5;
-        }
+        libc::SIGHUP => 1,
+        libc::SIGINT => 2,
+        libc::SIGQUIT => 3,
+        libc::SIGILL => 4,
+        libc::SIGTRAP => 5,
         libc::SIGABRT => {
             // libc::SIGIOT
-            return 6;
+            6
         }
-        libc::SIGBUS => {
-            return 10;
-        }
-        libc::SIGFPE => {
-            return 8;
-        }
-        libc::SIGKILL => {
-            return 9;
-        }
-        libc::SIGUSR1 => {
-            return 30;
-        }
-        libc::SIGSEGV => {
-            return 11;
-        }
-        libc::SIGUSR2 => {
-            return 31;
-        }
-        libc::SIGPIPE => {
-            return 13;
-        }
-        libc::SIGALRM => {
-            return 14;
-        }
-        libc::SIGTERM => {
-            return 15;
-        }
+        libc::SIGBUS => 10,
+        libc::SIGFPE => 8,
+        libc::SIGKILL => 9,
+        libc::SIGUSR1 => 30,
+        libc::SIGSEGV => 11,
+        libc::SIGUSR2 => 31,
+        libc::SIGPIPE => 13,
+        libc::SIGALRM => 14,
+        libc::SIGTERM => 15,
         // gdb hasn't heard of libc::SIGSTKFLT, so this is
         // arbitrarily made up.  libc::SIGDANGER just sounds cool
         libc::SIGSTKFLT => {
-            return 38; // GDB_libc::SIGNAL_DANGER
+            38 // GDB_libc::SIGNAL_DANGER
         }
-        /* case libc::SIGCLD */ libc::SIGCHLD => {
-            return 20;
-        }
-        libc::SIGCONT => {
-            return 19;
-        }
-        libc::SIGSTOP => {
-            return 17;
-        }
-        libc::SIGTSTP => {
-            return 18;
-        }
-        libc::SIGTTIN => {
-            return 21;
-        }
-        libc::SIGTTOU => {
-            return 22;
-        }
-        libc::SIGURG => {
-            return 16;
-        }
-        libc::SIGXCPU => {
-            return 24;
-        }
-        libc::SIGXFSZ => {
-            return 25;
-        }
-        libc::SIGVTALRM => {
-            return 26;
-        }
-        libc::SIGPROF => {
-            return 27;
-        }
-        libc::SIGWINCH => {
-            return 28;
-        }
-        /* case libc::SIGPOLL */ libc::SIGIO => {
-            return 23;
-        }
-        libc::SIGPWR => {
-            return 32;
-        }
-        libc::SIGSYS => {
-            return 12;
-        }
-        32 => {
-            return 77;
-        }
+        /* case libc::SIGCLD */ libc::SIGCHLD => 20,
+        libc::SIGCONT => 19,
+        libc::SIGSTOP => 17,
+        libc::SIGTSTP => 18,
+        libc::SIGTTIN => 21,
+        libc::SIGTTOU => 22,
+        libc::SIGURG => 16,
+        libc::SIGXCPU => 24,
+        libc::SIGXFSZ => 25,
+        libc::SIGVTALRM => 26,
+        libc::SIGPROF => 27,
+        libc::SIGWINCH => 28,
+        /* case libc::SIGPOLL */ libc::SIGIO => 23,
+        libc::SIGPWR => 32,
+        libc::SIGSYS => 12,
+        32 => 77,
         _ => {
             if 33 <= sig && sig <= 63 {
                 // GDB_libc::SIGNAL_REALTIME_33 is numbered 45, hence this offset
