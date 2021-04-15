@@ -257,7 +257,7 @@ pub mod address_space {
             }
         }
 
-        return None;
+        None
     }
 
     #[derive(Clone)]
@@ -695,7 +695,7 @@ pub mod address_space {
                 None,
             );
             let mut flags = self.mapping_flags_of_mut(Self::preload_thread_locals_start());
-            *flags = *flags | MappingFlags::IS_THREAD_LOCALS;
+            *flags |= MappingFlags::IS_THREAD_LOCALS;
         }
 
         /// Change the program data break of this address space to
@@ -834,9 +834,8 @@ pub mod address_space {
         /// be an explicit instruction, even if there's no breakpoint set via our API.
         pub fn is_breakpoint_instruction(t: &dyn Task, ip: RemoteCodePtr) -> bool {
             let mut ok = true;
-            return read_val_mem::<u8>(t, ip.to_data_ptr::<u8>(), Some(&mut ok))
-                == Self::BREAKPOINT_INSN
-                && ok;
+            read_val_mem::<u8>(t, ip.to_data_ptr::<u8>(), Some(&mut ok)) == Self::BREAKPOINT_INSN
+                && ok
         }
 
         /// The buffer `dest` of length `dest.len()` represents the contents of tracee
@@ -1119,8 +1118,8 @@ pub mod address_space {
                         m.map.subrange(m.map.start(), rem.start()),
                         m.recorded_map.subrange(m.recorded_map.start(), rem.start()),
                         m.emu_file.clone(),
-                        m.mapped_file_stat.clone(),
-                        m.local_addr.clone(),
+                        m.mapped_file_stat,
+                        m.local_addr,
                         monitored,
                     );
                     underflow.flags = m.flags;
@@ -1146,7 +1145,7 @@ pub mod address_space {
                         .subrange(new_start, new_end)
                         .set_prot(new_prot),
                     m.emu_file.clone(),
-                    m.mapped_file_stat.clone(),
+                    m.mapped_file_stat,
                     new_local_addr,
                     new_monitored,
                 );
@@ -1170,7 +1169,7 @@ pub mod address_space {
                         m.map.subrange(rem.end(), m.map.end()),
                         m.recorded_map.subrange(rem.end(), m.map.end()),
                         m.emu_file.clone(),
-                        m.mapped_file_stat.clone(),
+                        m.mapped_file_stat,
                         new_local,
                         new_monitored,
                     );
@@ -1878,7 +1877,7 @@ pub mod address_space {
             required_space: usize,
             maybe_after: Option<RemotePtr<Void>>,
         ) -> RemotePtr<Void> {
-            let after = maybe_after.unwrap_or(RemotePtr::null());
+            let after = maybe_after.unwrap_or_default();
             let maps = self.maps_starting_at(after);
             let mut iter = maps.into_iter();
             // This has to succeed otherwise we panic!
@@ -2005,8 +2004,7 @@ pub mod address_space {
 
                 if !(mapping.map.flags().contains(MapFlags::MAP_ANONYMOUS)) {
                     // Direct-mapped piece. Turn it into an anonymous mapping.
-                    let mut buffer: Vec<u8> = Vec::with_capacity(mapping.map.size());
-                    buffer.resize(mapping.map.size(), 0);
+                    let mut buffer: Vec<u8> = vec![0; mapping.map.size()];
                     t.read_bytes_helper(mapping.map.start(), &mut buffer, None);
                     {
                         let mut remote = AutoRemoteSyscalls::new(t);
@@ -2148,10 +2146,10 @@ pub mod address_space {
             leader_serial: u32,
             exec_count: u32,
         ) -> AddressSpace {
-            let maybe_monkey_patcher = match o.monkeypatch_state.as_ref() {
-                Some(rc) => Some(Rc::new(RefCell::new(rc.borrow().clone()))),
-                None => None,
-            };
+            let maybe_monkey_patcher = o
+                .monkeypatch_state
+                .as_ref()
+                .map(|rc| Rc::new(RefCell::new(rc.borrow().clone())));
             let mut addr_space = AddressSpace {
                 exe: o.exe.clone(),
                 leader_tid_: leader_tid,
@@ -2235,7 +2233,7 @@ pub mod address_space {
                         // MAP_GROWSDOWN segments really occupy one additional page before
                         // the start address shown by /proc/<pid>/maps --- unless that page
                         // is already occupied by another mapping.
-                        if !self.mapping_of(start - page_size()).is_some() {
+                        if self.mapping_of(start - page_size()).is_none() {
                             start -= page_size();
                         }
                     }
@@ -2287,7 +2285,7 @@ pub mod address_space {
                         m.map.subrange(m.map.start(), rem.start()),
                         m.recorded_map.subrange(m.map.start(), rem.start()),
                         m.emu_file.clone(),
-                        m.mapped_file_stat.clone(),
+                        m.mapped_file_stat,
                         m.local_addr,
                         monitored,
                     );
@@ -2661,7 +2659,7 @@ pub mod address_space {
                 }
 
                 let mut last_kv = forward_iterator.next().unwrap();
-                while let Some(next_kv) = forward_iterator.next() {
+                for next_kv in forward_iterator {
                     if !is_coalescable(&last_kv.1, &next_kv.1) {
                         break;
                     } else {
@@ -2679,7 +2677,7 @@ pub mod address_space {
                     first_kv.1.map.extend(last_kv.0.end()),
                     first_kv.1.recorded_map.extend(last_kv.0.end()),
                     first_kv.1.emu_file.clone(),
-                    first_kv.1.mapped_file_stat.clone(),
+                    first_kv.1.mapped_file_stat,
                     first_kv.1.local_addr,
                     first_kv.1.monitored_shared_memory.clone(),
                 );
@@ -2934,8 +2932,9 @@ pub mod address_space {
                     None => (),
                 }
             }
-            self.try_session()
-                .map(|sess| sess.on_destroy_vm(self.uid()));
+            if let Some(sess) = self.try_session() {
+                sess.on_destroy_vm(self.uid())
+            }
         }
     }
 }
@@ -3027,7 +3026,7 @@ fn stringify_flags(flags: MappingFlags) -> &'static str {
         return " [patch_stubs]";
     }
 
-    return "[unknown_flags]";
+    "[unknown_flags]"
 }
 
 fn exit_ip_from_index(i: usize) -> RemoteCodePtr {
@@ -3079,7 +3078,7 @@ fn is_coalescable(mleft: &Mapping, mright: &Mapping) -> bool {
         return false;
     }
 
-    return mleft.flags == mright.flags;
+    mleft.flags == mright.flags
 }
 
 /// Return true iff `mleft` and `mright` are located adjacently in memory
@@ -3113,7 +3112,7 @@ fn is_adjacent_mapping(
         return false;
     }
 
-    return true;
+    true
 }
 
 fn normalized_file_names_equal(
@@ -3149,7 +3148,7 @@ fn strip_deleted(s: &OsStr) -> &OsStr {
 }
 
 fn remove_range(ranges: &mut BTreeSet<MemoryRange>, range: MemoryRange) {
-    while let Some(matched_range) = ranges.get(&range).map(|r| *r) {
+    while let Some(matched_range) = ranges.get(&range).copied() {
         // Must remove first before we add because of possible overlaps
         ranges.remove(&matched_range);
 
@@ -3322,7 +3321,7 @@ fn assert_segments_match(t: &dyn Task, m: &KernelMapping, km: &KernelMapping) {
     } else if m.inode() != km.inode() {
         err = "inodes differ";
     }
-    if err.len() > 0 {
+    if !err.is_empty() {
         log!(
             LogError,
             "cached mmap:\n{}\n/proc/{}/maps:\n{}\n",
@@ -3390,7 +3389,7 @@ pub extern "C" fn rd_syscall_addr() {
 
 /// DIFF NOTE: n is signed in rr
 const fn dr_watchpoint(n: u32) -> u32 {
-    return 1u32 << n;
+    1u32 << n
 }
 
 /// DIFF NOTE: regs is an signed i.e. i8 array in rr
