@@ -262,13 +262,12 @@ impl ReplayTimeline {
             self.marks.insert(key, Vec::new());
         }
         let len = self.marks[&key].len();
-        if len == 0 {
-            self.marks.get_mut(&key).unwrap().push(m.clone());
-        } else if self.current_at_or_after_mark.is_some()
-            && Rc::ptr_eq(
-                &self.current_at_or_after_mark.as_ref().unwrap(),
-                &self.marks[&key][len - 1],
-            )
+        if len == 0
+            || (self.current_at_or_after_mark.is_some()
+                && Rc::ptr_eq(
+                    &self.current_at_or_after_mark.as_ref().unwrap(),
+                    &self.marks[&key][len - 1],
+                ))
         {
             self.marks.get_mut(&key).unwrap().push(m.clone());
         } else {

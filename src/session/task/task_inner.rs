@@ -1600,32 +1600,38 @@ impl TaskInner {
             maybe_cpu_index = session.cpu_binding(&trace);
         }
         let is_recording = session.is_recording();
-        maybe_cpu_index.map(|mut cpu_index| {
-                    // Set CPU affinity now, after we've created any helper threads
-                    // (so they aren't affected), but before we create any
-                    // tracees (so they are all affected).
-                    // Note that we're binding rd itself to the same CPU as the
-                    // tracees, since this seems to help performance.
+        if let Some(mut cpu_index) = maybe_cpu_index {
+            // Set CPU affinity now, after we've created any helper threads
+            // (so they aren't affected), but before we create any
+            // tracees (so they are all affected).
+            // Note that we're binding rd itself to the same CPU as the
+            // tracees, since this seems to help performance.
+            if !set_cpu_affinity(cpu_index) {
+                if SessionInner::has_cpuid_faulting() && !is_recording {
+                    cpu_index = choose_cpu(BindCPU::RandomCPU).unwrap();
                     if !set_cpu_affinity(cpu_index) {
-                        if SessionInner::has_cpuid_faulting() && !is_recording {
-                            cpu_index = choose_cpu(BindCPU::RandomCPU).unwrap();
-                            if !set_cpu_affinity(cpu_index) {
-                                fatal!("Can't bind to requested CPU {} even after we re-selected it", cpu_index)
-                            }
-                            // DIFF NOTE: The logic is slightly different in rr.
-                            if cpu_index != maybe_cpu_index.unwrap() {
-                                log!(LogWarn,
+                        fatal!(
+                            "Can't bind to requested CPU {} even after we re-selected it",
+                            cpu_index
+                        )
+                    }
+                    // DIFF NOTE: The logic is slightly different in rr.
+                    if cpu_index != maybe_cpu_index.unwrap() {
+                        log!(LogWarn,
                                      "Bound to CPU {} instead of selected {} because the latter is not available;\n\
                                 Hoping tracee doesn't use LSL instruction!", cpu_index, maybe_cpu_index.unwrap());
-                            }
-
-                            let mut trace_mut = session.trace_stream_mut().unwrap();
-                            trace_mut.set_bound_cpu(Some(cpu_index));
-                        } else {
-                            fatal!("Can't bind to requested CPU {}, and CPUID faulting not available", cpu_index)
-                        }
                     }
-                });
+
+                    let mut trace_mut = session.trace_stream_mut().unwrap();
+                    trace_mut.set_bound_cpu(Some(cpu_index));
+                } else {
+                    fatal!(
+                        "Can't bind to requested CPU {}, and CPUID faulting not available",
+                        cpu_index
+                    )
+                }
+            }
+        }
 
         let mut tid: pid_t;
         // After fork() in a multithreaded program, the child can safely call only
@@ -1798,7 +1804,7 @@ fn run_initial_child(
     let num_its = start + 5;
     let mut sum: u32 = 0;
     for i in start..num_its {
-        sum = sum + i;
+        sum += i;
     }
     unsafe { syscall(SYS_write, -1, &sum, size_of_val(&sum)) };
 

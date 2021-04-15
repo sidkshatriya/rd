@@ -192,6 +192,7 @@ impl EmuFile {
                 unsafe {
                     data_ptr = data_ptr.add(ret as usize);
                 }
+                amount -= ret as usize;
                 offset += ret as u64;
             }
         }

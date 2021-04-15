@@ -210,7 +210,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
         self.finish_initializing();
         self.tasks()
             .get(&rec_tid)
-            .map_or(None, |shr_ptr| Some(shr_ptr.clone()))
+            .and_then(|shr_ptr| Some(shr_ptr.clone()))
     }
 
     /// NOTE: Method is simply called Session::find task() in rr

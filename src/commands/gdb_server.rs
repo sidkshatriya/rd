@@ -848,7 +848,7 @@ fn write_debugger_launch_command(
     _port: u16,
     _debugger_name: &OsStr,
     _stderr: &mut dyn Write,
-) -> () {
+) {
     unimplemented!()
 }
 

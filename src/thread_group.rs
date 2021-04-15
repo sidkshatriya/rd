@@ -77,8 +77,9 @@ impl Drop for ThreadGroup {
         // Is there any scenario where this assert may not hold but
         // but the program is still correct?
         assert_eq!(self.task_set().len(), 0);
-        self.try_session()
-            .map(|sess| sess.on_destroy_tg(self.tguid()));
+        if let Some(sess) = self.try_session() {
+            sess.on_destroy_tg(self.tguid())
+        }
     }
 }
 

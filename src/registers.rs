@@ -1164,8 +1164,7 @@ fn convert_x86_widen<F1, F2>(
     x86: &x86::user_regs_struct,
     widen: F1,
     widen_signed: F2,
-) -> ()
-where
+) where
     F1: Fn(&mut u64, i32),
     F2: Fn(&mut u64, i32),
 {
@@ -1193,8 +1192,7 @@ fn convert_x86_narrow<F1, F2>(
     x64: &x64::user_regs_struct,
     narrow: F1,
     narrow_signed: F2,
-) -> ()
-where
+) where
     F1: Fn(&mut i32, u64),
     F2: Fn(&mut i32, u64),
 {

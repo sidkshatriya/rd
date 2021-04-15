@@ -518,7 +518,7 @@ impl ReRunCommand {
 
     fn write_value(&self, name: &str, value: &[u8], out: &mut dyn Write) -> io::Result<()> {
         if self.raw_dump {
-            out.write(value)?;
+            out.write_all(value)?;
         } else {
             write!(out, "{}:0x", name)?;
             write_hex(value, out)?;

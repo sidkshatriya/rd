@@ -281,7 +281,7 @@ impl FdTable {
 
         let mut vms_updated: HashSet<AddressSpaceUid> = HashSet::new();
 
-        let mut process = |rt: &RecordTask| -> () {
+        let mut process = |rt: &RecordTask| {
             let vm_uid = rt.vm().uid();
             if vms_updated.contains(&vm_uid) {
                 return;

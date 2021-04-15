@@ -9,6 +9,12 @@
 #![feature(arc_new_cyclic)]
 // @TODO To many results for "never used". Disable for now.
 #![allow(dead_code)]
+#![allow(clippy::upper_case_acronyms)]
+#![allow(clippy::clippy::write_with_newline)]
+#![allow(clippy::clippy::redundant_static_lifetimes)]
+#![allow(clippy::clippy::clippy::assertions_on_constants)]
+#![allow(clippy::clippy::clippy::single_match)]
+#![allow(clippy::clippy::clippy::clippy::collapsible_if)]
 
 #[macro_use]
 extern crate bitflags;

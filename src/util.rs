@@ -208,10 +208,7 @@ pub fn xsave_area_size() -> usize {
 
 pub fn running_under_rd() -> bool {
     let result = var_os("RUNNING_UNDER_RD");
-    match result {
-        Some(var_val) if !var_val.is_empty() => true,
-        _ => false,
-    }
+    matches!(result, Some(var_val) if !var_val.is_empty())
 }
 
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -548,7 +545,7 @@ pub fn ensure_dir(dir: &OsStr, dir_type: &str, mode: Mode) {
     // There might be other things that need to be done like removing repeated slashes (`/`) etc.
     //
     // Remove any trailing slashes
-    while d.len() > 0 && d[d.len() - 1] == b'/' {
+    while !d.is_empty() && d[d.len() - 1] == b'/' {
         d = &d[0..d.len() - 1];
     }
 
@@ -656,7 +653,7 @@ pub fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
         if rest.starts_with(needle) {
             return Some(i);
         }
-        if let None = it.next() {
+        if it.next().is_none() {
             return None;
         }
         i += 1;
@@ -779,7 +776,7 @@ pub fn should_copy_mmap_region(mapping: &KernelMapping, stat: &libc::stat) -> bo
         );
         return true;
     }
-    if !(0o222 & stat.st_mode != 0) {
+    if 0o222 & stat.st_mode == 0 {
         // We couldn't write the file because it's read only.
         // But it's not a root-owned file (therefore not a
         // system file), so it's likely that it could be
@@ -807,7 +804,7 @@ pub fn should_copy_mmap_region(mapping: &KernelMapping, stat: &libc::stat) -> bo
         );
     }
 
-    return true;
+    true
 }
 
 pub fn has_fs_name(path: &OsStr) -> bool {
@@ -903,8 +900,8 @@ pub fn xcr0() -> u64 {
 }
 
 pub fn good_random(out: &mut [u8]) {
-    for i in 0..out.len() {
-        out[i] = random::<u8>();
+    for o in out {
+        *o = random::<u8>();
     }
 }
 
@@ -1018,7 +1015,7 @@ fn read_auxv_arch<Arch: Architecture>(t: &dyn Task) -> Vec<u8> {
         stack_ptr += 2;
         let pair = [pair_vec[0], pair_vec[1]];
         let pair_size = size_of_val(&pair);
-        result.resize(result.len() + pair_size, 0u8.into());
+        result.resize(result.len() + pair_size, 0u8);
         unsafe {
             copy_nonoverlapping(
                 pair.as_ptr() as *const u8,
@@ -1582,7 +1579,7 @@ pub fn has_effective_caps(mut caps: u64) -> bool {
         if (data[i].effective & caps as u32) != caps as u32 {
             return false;
         }
-        caps = caps >> 32;
+        caps >>= 32;
     }
 
     true

@@ -1301,7 +1301,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
             OsStr::from_bytes(&name),
             Some(m.map.prot()),
             Some(m.map.flags() & (MapFlags::MAP_GROWSDOWN | MapFlags::MAP_STACK)),
-            monitored.clone(),
+            monitored,
         );
 
         self.vm().mapping_of(km.start()).unwrap().clone()
@@ -1353,11 +1353,7 @@ struct SocketcallArgs<Arch: Architecture> {
 /// We derive Copy and Clone manually as the struct is marked packed.
 impl<Arch: Architecture> Clone for SocketcallArgs<Arch> {
     fn clone(&self) -> Self {
-        SocketcallArgs {
-            // Wrapped in unsafe because of:
-            // warning: borrow of packed field is unsafe and requires unsafe function or block (error E0133)
-            args: unsafe { self.args.clone() },
-        }
+        SocketcallArgs { args: self.args }
     }
 }
 
@@ -1388,7 +1384,7 @@ fn allocate_bytes(
 ) -> RemotePtr<Void> {
     let r = *buf_end;
     // Note the mutation of buf_end here. A sort of bump pointer.
-    *buf_end = *buf_end + align_size(size);
+    *buf_end += align_size(size);
     if (*buf_end - remote_buf.get().unwrap()) > remote_buf.len() {
         fatal!("overflow");
     }

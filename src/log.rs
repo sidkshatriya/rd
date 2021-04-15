@@ -244,7 +244,7 @@ pub fn is_logging(level: LogLevel, filename: &str, _line: u32, _func_name: &str)
 impl Drop for NewLineTerminatingOstream {
     fn drop(&mut self) {
         if self.enabled {
-            self.write(b"\n").unwrap();
+            self.write_all(b"\n").unwrap();
             // This flushes self.message *to* the log file
             // (which could be stderr or a log file or a buffered writer that wraps stderr
             //  or a buffered writer that wraps some log file).
@@ -257,7 +257,7 @@ impl Drop for NewLineTerminatingOstream {
 impl Write for NewLineTerminatingOstream {
     /// Write the text stored in the `message` member to the log file.
     fn flush(&mut self) -> Result<()> {
-        if self.message.len() > 0 && self.enabled {
+        if !self.message.is_empty() && self.enabled {
             self.lock.log_file.write_all(&self.message)?;
             // We DONT flush the log file. This is handled automatically.
         }
@@ -317,9 +317,8 @@ macro_rules! log {
                 module_path!(),
                 false
             );
-            match maybe_stream {
-                Some(mut stream) => write!(stream, $($args)+).unwrap(),
-                None => ()
+            if let Some(mut stream) = maybe_stream {
+                write!(stream, $($args)+).unwrap();
             }
         }
     };
@@ -346,9 +345,8 @@ macro_rules! fatal {
                     module_path!(),
                     true
                 );
-                match maybe_stream {
-                   Some(mut stream) => write!(stream, $($args)+).unwrap(),
-                   None => ()
+                if let Some(mut stream) = maybe_stream {
+                    write!(stream, $($args)+).unwrap();
                 }
             }
             crate::log::notifying_abort(backtrace::Backtrace::new());
@@ -400,12 +398,9 @@ macro_rules! ed_assert {
                         module_path!(),
                         true
                     );
-                    match maybe_stream {
-                       Some(mut stream) => {
-                           write!(stream, "\n (task {} (rec: {}) at time {})\n", t.tid(), t.rec_tid(), t.trace_time()).unwrap();
-                           write!(stream, " -> Assertion `{}' failed to hold. ", stringify!($cond)).unwrap();
-                       },
-                       None => ()
+                    if let Some(mut stream) = maybe_stream {
+                        write!(stream, "\n (task {} (rec: {}) at time {})\n", t.tid(), t.rec_tid(), t.trace_time()).unwrap();
+                        write!(stream, " -> Assertion `{}' failed to hold. ", stringify!($cond)).unwrap();
                     }
                }
                crate::log::emergency_debug(t);
@@ -428,13 +423,10 @@ macro_rules! ed_assert {
                         module_path!(),
                         true
                     );
-                    match maybe_stream {
-                       Some(mut stream) => {
-                           write!(stream, "\n (task {} (rec: {}) at time {})\n", t.tid(), t.rec_tid(), t.trace_time()).unwrap();
-                           write!(stream, " -> Assertion `{}' failed to hold. ", stringify!($cond)).unwrap();
-                           write!(stream, $($args)+).unwrap();
-                       },
-                       None => ()
+                    if let Some(mut stream) = maybe_stream {
+                        write!(stream, "\n (task {} (rec: {}) at time {})\n", t.tid(), t.rec_tid(), t.trace_time()).unwrap();
+                        write!(stream, " -> Assertion `{}' failed to hold. ", stringify!($cond)).unwrap();
+                        write!(stream, $($args)+).unwrap();
                     }
                }
                crate::log::emergency_debug(t);
@@ -463,14 +455,10 @@ macro_rules! ed_assert_eq {
                         module_path!(),
                         true
                     );
-                    match maybe_stream {
-                       Some(mut stream) => {
-                           write!(stream, "\n (task {} (rec: {}) at time {})\n", t.tid(), t.rec_tid(), t.trace_time()).unwrap();
-                           write!(
-                               stream, " -> Assertion `{} == {}` failed to hold.\n    Left: `{:?}`, Right: `{:?}`\n",
+                    if let Some(mut stream) = maybe_stream {
+                        write!(stream, "\n (task {} (rec: {}) at time {})\n", t.tid(), t.rec_tid(), t.trace_time()).unwrap();
+                        write!(stream, " -> Assertion `{} == {}` failed to hold.\n    Left: `{:?}`, Right: `{:?}`\n",
                                stringify!($cond1), stringify!($cond2), val1, val2).unwrap();
-                        },
-                       None => ()
                     }
                }
                crate::log::emergency_debug(t);
@@ -495,15 +483,11 @@ macro_rules! ed_assert_eq {
                         module_path!(),
                         true
                     );
-                    match maybe_stream {
-                       Some(mut stream) => {
-                           write!(stream, "\n (task {} (rec: {}) at time {})\n", t.tid(), t.rec_tid(), t.trace_time()).unwrap();
-                           write!(
-                               stream, " -> Assertion `{} == {}` failed to hold.\n    Left: `{:?}`, Right: `{:?}`\n",
+                    if let Some(mut stream) = maybe_stream {
+                        write!(stream, "\n (task {} (rec: {}) at time {})\n", t.tid(), t.rec_tid(), t.trace_time()).unwrap();
+                        write!(stream, " -> Assertion `{} == {}` failed to hold.\n    Left: `{:?}`, Right: `{:?}`\n",
                                stringify!($cond1), stringify!($cond2), val1, val2).unwrap();
-                           write!(stream, $($args)+).unwrap();
-                       },
-                       None => ()
+                        write!(stream, $($args)+).unwrap();
                     }
                }
                crate::log::emergency_debug(t);
@@ -532,14 +516,10 @@ macro_rules! ed_assert_ne {
                         module_path!(),
                         true
                     );
-                    match maybe_stream {
-                       Some(mut stream) => {
-                           write!(stream, "\n (task {} (rec: {}) at time {})\n", t.tid(), t.rec_tid(), t.trace_time()).unwrap();
-                           write!(
-                               stream, " -> Assertion `{} != {}` failed to hold.\n    Left: `{:?}`, Right: `{:?}`\n",
+                    if let Some(mut stream) = maybe_stream {
+                        write!(stream, "\n (task {} (rec: {}) at time {})\n", t.tid(), t.rec_tid(), t.trace_time()).unwrap();
+                        write!(stream, " -> Assertion `{} != {}` failed to hold.\n    Left: `{:?}`, Right: `{:?}`\n",
                                stringify!($cond1), stringify!($cond2), val1, val2).unwrap();
-                        },
-                       None => ()
                     }
                }
                crate::log::emergency_debug(t);
@@ -564,15 +544,11 @@ macro_rules! ed_assert_ne {
                         module_path!(),
                         true
                     );
-                    match maybe_stream {
-                       Some(mut stream) => {
-                           write!(stream, "\n (task {} (rec: {}) at time {})\n", t.tid(), t.rec_tid(), t.trace_time()).unwrap();
-                           write!(
-                               stream, " -> Assertion `{} != {}` failed to hold.\n    Left: `{:?}`, Right: `{:?}`\n",
+                    if let Some(mut stream) = maybe_stream {
+                        write!(stream, "\n (task {} (rec: {}) at time {})\n", t.tid(), t.rec_tid(), t.trace_time()).unwrap();
+                        write!(stream, " -> Assertion `{} != {}` failed to hold.\n    Left: `{:?}`, Right: `{:?}`\n",
                                stringify!($cond1), stringify!($cond2), val1, val2).unwrap();
-                           write!(stream, $($args)+).unwrap();
-                       },
-                       None => ()
+                        write!(stream, $($args)+).unwrap();
                     }
                }
                crate::log::emergency_debug(t);
@@ -599,7 +575,7 @@ pub fn emergency_debug(t: &TaskInner) {
 
     if probably_not_interactive(None)
         && !Flags::get().force_things
-        && !env::var("RUNNING_UNDER_TEST_MONITOR").is_ok()
+        && env::var("RUNNING_UNDER_TEST_MONITOR").is_err()
     {
         Errno::clear();
         fatal!("(session doesn't look interactive, aborting emergency debugging)");
