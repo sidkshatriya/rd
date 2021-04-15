@@ -5941,11 +5941,11 @@ fn prepare_ptrace_attach(
     match maybe_tracee {
         None => {
             syscall_state.emulate_result_signed(-ESRCH as isize);
-            return None;
+            None
         }
         Some(tracee) if !check_ptracer_compatible(t, tracee.as_rec_unwrap()) => {
             syscall_state.emulate_result_signed(-EPERM as isize);
-            return None;
+            None
         }
         Some(tracee) => Some(tracee),
     }

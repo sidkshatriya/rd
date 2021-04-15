@@ -548,7 +548,7 @@ fn parse_trace_id(maybe_trace_id: &str) -> Result<TraceUuid, Box<dyn Error>> {
     let mut digit = 0u8; // This counts only hex digits (i.e. not hypens)
     let mut group = 0usize;
     let mut acc = 0u8;
-    let mut it = maybe_trace_id.trim().bytes();
+    let it = maybe_trace_id.trim().bytes();
     let err: Result<TraceUuid, Box<dyn Error>> = Err(Box::new(clap::Error::with_description(
         &format!(
             "Could not convert `{}` to Trace UUID.\n\
@@ -560,7 +560,7 @@ fn parse_trace_id(maybe_trace_id: &str) -> Result<TraceUuid, Box<dyn Error>> {
     )));
 
     let mut buf = TraceUuid::zero();
-    while let Some(c) = it.next() {
+    for c in it {
         if digit > SUM_GROUP_LENS[4] {
             return err;
         }
@@ -734,7 +734,7 @@ fn parse_u32(s: &str) -> Result<u32, Box<dyn Error>> {
     } else if ts.starts_with("0o") {
         let res = u32::from_str_radix(&ts[2..], 8)?;
         Ok(res)
-    } else if ts.starts_with("0") {
+    } else if ts.starts_with('0') {
         Err(Box::new(clap::Error::with_description(
             "Octal values should have a prefix of 0o",
             clap::ErrorKind::InvalidValue,

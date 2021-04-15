@@ -132,7 +132,7 @@ fn get_cpu_microarch() -> CpuMicroarch {
         Some(forced_uarch) => {
             for pmu in &PMU_CONFIGS {
                 let name: String = pmu.name.to_lowercase();
-                if let Some(_) = name.find(&forced_uarch) {
+                if name.find(&forced_uarch).is_some() {
                     log!(LogInfo, "Using forced uarch {}", pmu.name);
                     return pmu.uarch;
                 }
@@ -283,7 +283,7 @@ fn system_has_ioc_period_bug() -> bool {
 fn supports_txp_and_has_kvm_in_txcp_bug() -> (bool, bool) {
     let mut count: u64 = 0;
     let mut attr: perf_event_attr = PMU_ATTRIBUTES.ticks_attr;
-    attr.config = attr.config | IN_TXCP;
+    attr.config |= IN_TXCP;
     attr.__bindgen_anon_1.sample_period = 0;
     let (fd, disabled_txcp) = start_counter(0, -1, &mut attr);
     if fd.is_open() && !disabled_txcp {
@@ -600,7 +600,7 @@ fn start_counter(tid: pid_t, group_fd: i32, attr: &mut perf_event_attr) -> (Scop
     {
         // The kernel might not support IN_TXCP, so try again without it.
         let mut tmp_attr: perf_event_attr = *attr;
-        tmp_attr.config = tmp_attr.config & !IN_TXCP;
+        tmp_attr.config &= !IN_TXCP;
         fd = unsafe {
             libc::syscall(
                 libc::SYS_perf_event_open,
@@ -826,7 +826,7 @@ impl PerfCounters {
                     // used,
                     // and check that.
                     attr.__bindgen_anon_1.sample_period = 0;
-                    attr.config = attr.config | IN_TX;
+                    attr.config |= IN_TX;
                     self.fd_ticks_in_transaction =
                         start_counter(self.tid, self.fd_ticks_interrupt.as_raw(), &mut attr).0;
                 } else {
@@ -844,7 +844,7 @@ impl PerfCounters {
                     // also always reset the counter even when no overflow condition
                     // was reported.''
                     attr.__bindgen_anon_1.sample_period = 0;
-                    attr.config = attr.config | IN_TXCP;
+                    attr.config |= IN_TXCP;
                     self.fd_ticks_measure =
                         start_counter(self.tid, self.fd_ticks_interrupt.as_raw(), &mut attr).0;
                 }
@@ -1031,7 +1031,7 @@ impl PerfCounters {
         if !self.fd_ticks_measure.is_open() {
             if self.fd_minus_ticks_measure.is_open() {
                 let minus_measure_val = read_counter(&self.fd_minus_ticks_measure);
-                interrupt_val = interrupt_val - minus_measure_val;
+                interrupt_val -= minus_measure_val;
             }
             ed_assert!(
                 t,
