@@ -3,7 +3,8 @@ use crate::{
     bindings::kernel::{gettimeofday, timeval},
     commands::{gdb_server, RdCommand},
     flags::Flags,
-    log::LogLevel::LogInfo,
+    kernel_metadata::errno_name,
+    log::{LogDebug, LogInfo},
     scoped_fd::ScopedFd,
     session::{
         replay_session,
@@ -14,8 +15,9 @@ use crate::{
     util::{check_for_leaks, running_under_rd},
 };
 use io::stderr;
-use libc::pid_t;
+use libc::{pid_t, WEXITSTATUS, WIFEXITED, WIFSIGNALED};
 use nix::{
+    errno::errno,
     fcntl::OFlag,
     sys::signal::{sigaction, SaFlags, SigAction, SigHandler, SigSet, Signal},
     unistd::{close, fork, getpid, getppid, pipe2, ForkResult},
@@ -297,8 +299,7 @@ impl ReplayCommand {
         Ok(())
     }
 
-    // DIFF NOTE: In rr a result code e.g. 0 is return. We simply return Ok(()) if there is no error.
-    fn replay(&self) -> io::Result<()> {
+    fn replay(&self) -> ExitResult<()> {
         let mut target = gdb_server::Target::default();
         match self.process_created_how {
             CreatedHow::CreatedExec => {
@@ -318,7 +319,9 @@ impl ReplayCommand {
         // complicate the process tree and confuse users.
         if self.dont_launch_debugger {
             if target.event == FrameTime::MAX {
-                self.serve_replay_no_debugger(&mut stderr())?;
+                if let Err(e) = self.serve_replay_no_debugger(&mut stderr()) {
+                    return ExitResult::Err(Box::new(e), 1);
+                }
             } else {
                 let session = ReplaySession::create(self.trace_dir.as_ref(), self.session_flags());
                 let conn_flags = ConnectionFlags {
@@ -332,7 +335,7 @@ impl ReplayCommand {
             }
 
             check_for_leaks();
-            return Ok(());
+            return ExitResult::Ok(());
         }
 
         let debugger_params_pipe: [i32; 2];
@@ -345,45 +348,113 @@ impl ReplayCommand {
             }
         }
 
-        let waiting_for_child = unsafe { fork().unwrap() };
-        if let ForkResult::Child = waiting_for_child {
-            // Ensure only the parent has the read end of the pipe open. Then if
-            // the parent dies, our writes to the pipe will error out.
-            // DIFF NOTE: Unlike rr we require close to be successful
-            close(debugger_params_pipe[0]).unwrap();
+        let fork_result = unsafe { fork().unwrap() };
+        match fork_result {
+            ForkResult::Child => {
+                // Ensure only the parent has the read end of the pipe open. Then if
+                // the parent dies, our writes to the pipe will error out.
+                // DIFF NOTE: Unlike rr we require close to be successful
+                close(debugger_params_pipe[0]).unwrap();
 
-            {
-                unsafe { libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM) };
+                {
+                    unsafe { libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM) };
 
-                let debugger_params_write_pipe =
-                    Rc::new(RefCell::new(ScopedFd::from_raw(debugger_params_pipe[1])));
-                let session = ReplaySession::create(self.trace_dir.as_ref(), self.session_flags());
-                let conn_flags = ConnectionFlags {
-                    dbg_port: self.dbg_port,
-                    dbg_host: self.dbg_host.clone(),
-                    keep_listening: self.keep_listening,
-                    debugger_params_write_pipe: Some(Rc::downgrade(&debugger_params_write_pipe)),
-                    debugger_name: self.gdb_binary_file_path.clone().into(),
-                };
-                let mut server = GdbServer::new(session, &target);
+                    let debugger_params_write_pipe =
+                        Rc::new(RefCell::new(ScopedFd::from_raw(debugger_params_pipe[1])));
+                    let session =
+                        ReplaySession::create(self.trace_dir.as_ref(), self.session_flags());
+                    let conn_flags = ConnectionFlags {
+                        dbg_port: self.dbg_port,
+                        dbg_host: self.dbg_host.clone(),
+                        keep_listening: self.keep_listening,
+                        debugger_params_write_pipe: Some(Rc::downgrade(
+                            &debugger_params_write_pipe,
+                        )),
+                        debugger_name: self.gdb_binary_file_path.clone().into(),
+                    };
+                    let mut server = GdbServer::new(session, &target);
+                    let sa = SigAction::new(
+                        SigHandler::Handler(handle_sigint_in_child),
+                        SaFlags::SA_RESTART,
+                        SigSet::empty(),
+                    );
+                    unsafe { SERVER_PTR = &raw mut server };
+                    if let Err(e) = unsafe { sigaction(Signal::SIGINT, &sa) } {
+                        fatal!("Couldn't set sigaction for SIGINT: {:?}", e);
+                    }
+
+                    server.serve_replay(&conn_flags);
+                }
+                // Everything should have been cleaned up by now.
+                check_for_leaks();
+            }
+            ForkResult::Parent { child } => {
+                // Ensure only the child has the write end of the pipe open. Then if
+                // the child dies, our reads from the pipe will return EOF.
+                close(debugger_params_pipe[1]).unwrap();
+                log!(LogDebug, "{} : forked debugger server {}", getpid(), child);
                 let sa = SigAction::new(
-                    SigHandler::Handler(handle_sigint_in_child),
+                    SigHandler::Handler(handle_sigint_in_parent),
                     SaFlags::SA_RESTART,
                     SigSet::empty(),
                 );
-                unsafe { SERVER_PTR = &raw mut server };
                 if let Err(e) = unsafe { sigaction(Signal::SIGINT, &sa) } {
                     fatal!("Couldn't set sigaction for SIGINT: {:?}", e);
                 }
 
-                server.serve_replay(&conn_flags);
+                {
+                    let params_pipe_read_fd = ScopedFd::from_raw(debugger_params_pipe[0]);
+                    GdbServer::launch_gdb(
+                        &params_pipe_read_fd,
+                        &self.gdb_binary_file_path,
+                        &self.gdb_options,
+                    );
+                }
+                // Child must have died before we were able to get debugger parameters
+                // and exec gdb. Exit with the exit status of the child.
+                loop {
+                    let mut status: i32 = 0;
+                    let ret = unsafe { libc::waitpid(child.as_raw(), &mut status, 0) };
+                    let err = errno();
+                    log!(
+                        LogDebug,
+                        "{}: waitpid({}) returned {} ({}); status: {:x}",
+                        getpid(),
+                        child,
+                        errno_name(err),
+                        err,
+                        status
+                    );
+                    if child.as_raw() != ret {
+                        if libc::EINTR == err {
+                            continue;
+                        }
+                        fatal!("{}: waitpid({}) failed", getpid(), child);
+                    }
+                    if WIFEXITED(status) || WIFSIGNALED(status) {
+                        log!(LogInfo, "Debugger server died.  Exiting.");
+                        if WIFEXITED(status) {
+                            return ExitResult::err_from(
+                                io::Error::new(
+                                    io::ErrorKind::Other,
+                                    "Debugger server died.  Exiting.",
+                                ),
+                                WEXITSTATUS(status),
+                            );
+                        } else {
+                            return ExitResult::err_from(
+                                io::Error::new(
+                                    io::ErrorKind::Other,
+                                    "Debugger server died.  Exiting.",
+                                ),
+                                WEXITSTATUS(status),
+                            );
+                        }
+                    }
+                }
             }
-            // Everything should have been cleaned up by now.
-            check_for_leaks();
-            return Ok(());
         }
-
-        unimplemented!()
+        ExitResult::Ok(())
     }
 }
 
@@ -439,10 +510,7 @@ impl RdCommand for ReplayCommand {
             );
         }
 
-        match self.replay() {
-            Ok(()) => ExitResult::Ok(()),
-            Err(e) => ExitResult::err_from(e, 1),
-        }
+        self.replay()
     }
 }
 
@@ -457,4 +525,21 @@ extern "C" fn handle_sigint_in_child(sig: i32) {
             (*SERVER_PTR).interrupt_replay_to_target();
         }
     }
+}
+
+/// Handling ctrl-C during replay:
+/// We want the entire group of processes to remain a single process group
+/// since that allows shell job control to work best.
+/// We want ctrl-C to not reach tracees, because that would disturb replay.
+/// That's taken care of by Task::set_up_process.
+/// We allow terminal SIGINT to go directly to the parent and the child (rd).
+/// rd's SIGINT handler |handle_SIGINT_in_child| just interrupts the replay
+/// if we're in the process of replaying to a target event, otherwise it
+/// does nothing.
+/// Before the parent execs gdb, its SIGINT handler does nothing. After exec,
+/// the signal handler is reset to default so gdb behaves as normal (which is
+/// why we use a signal handler instead of SIG_IGN).
+extern "C" fn handle_sigint_in_parent(sig: i32) {
+    debug_assert_eq!(sig, libc::SIGINT);
+    // Just ignore it.
 }

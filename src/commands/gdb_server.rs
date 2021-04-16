@@ -53,6 +53,7 @@ use std::{
     ffi::{OsStr, OsString},
     io::{stderr, Write},
     mem,
+    path::Path,
     rc::Rc,
 };
 
@@ -407,8 +408,8 @@ impl GdbServer {
     /// the pipe passed to serve_replay_with_debugger).
     pub fn launch_gdb(
         _params_pipe_fd: &ScopedFd,
-        _gdb_binary_file_path: &OsString,
-        _gdb_options: Vec<OsString>,
+        _gdb_binary_file_path: &Path,
+        _gdb_options: &[OsString],
     ) {
         unimplemented!()
     }
