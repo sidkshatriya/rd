@@ -177,7 +177,7 @@ pub struct GdbServer {
     /// in rr. We have an more explicit Option<>
     debugger_restart_checkpoint: Option<Checkpoint>,
     /// gdb checkpoints, indexed by ID
-    pub(super) checkpoints: HashMap<FrameTime, Checkpoint>,
+    pub(super) checkpoints: HashMap<u64, Checkpoint>,
     /// Set of symbols to look for, for qSymbol
     symbols: HashSet<String>,
     files: HashMap<i32, ScopedFd>,
@@ -187,19 +187,19 @@ pub struct GdbServer {
 }
 
 impl GdbServer {
-    fn dbg(&self) -> &GdbConnection {
+    fn dbg_unwrap(&self) -> &GdbConnection {
         &*self.dbg.as_ref().unwrap()
     }
 
-    fn dbg_mut(&mut self) -> &mut GdbConnection {
+    fn dbg_mut_unwrap(&mut self) -> &mut GdbConnection {
         &mut *self.dbg.as_mut().unwrap()
     }
 
-    pub fn get_timeline(&self) -> Ref<ReplayTimeline> {
+    pub fn timeline_unwrap(&self) -> Ref<ReplayTimeline> {
         self.timeline.as_ref().unwrap().borrow()
     }
 
-    pub fn get_timeline_mut(&self) -> RefMut<ReplayTimeline> {
+    pub fn timeline_unwrap_mut(&self) -> RefMut<ReplayTimeline> {
         self.timeline.as_ref().unwrap().borrow_mut()
     }
 
@@ -311,7 +311,7 @@ impl GdbServer {
     pub fn serve_replay(&mut self, flags: &ConnectionFlags) {
         loop {
             let result = self
-                .get_timeline_mut()
+                .timeline_unwrap_mut()
                 .replay_step_forward(RunCommand::RunContinue, self.target.event);
             if result.status == ReplayStatus::ReplayExited {
                 log!(LogInfo, "Debugger was not launched before end of trace");
@@ -337,7 +337,7 @@ impl GdbServer {
         };
         // We MUST have a current task
         let t = self
-            .get_timeline()
+            .timeline_unwrap()
             .current_session()
             .current_task()
             .unwrap();
@@ -373,7 +373,7 @@ impl GdbServer {
 
         let first_run_event = t.vm().first_run_event();
         if first_run_event > 0 {
-            self.get_timeline_mut()
+            self.timeline_unwrap_mut()
                 .set_reverse_execution_barrier_event(first_run_event);
         }
 
@@ -393,7 +393,8 @@ impl GdbServer {
                 // Do nothing here, but we need the side effect in debug_one_step()
             }
 
-            self.get_timeline_mut().remove_breakpoints_and_watchpoints();
+            self.timeline_unwrap_mut()
+                .remove_breakpoints_and_watchpoints();
             if !flags.keep_listening {
                 break;
             }
@@ -435,8 +436,8 @@ impl GdbServer {
     }
 
     fn current_session(&self) -> SessionSharedPtr {
-        if self.get_timeline().is_running() {
-            self.get_timeline().current_session_shr_ptr()
+        if self.timeline_unwrap().is_running() {
+            self.timeline_unwrap().current_session_shr_ptr()
         } else {
             self.emergency_debug_session.upgrade().unwrap()
         }
@@ -445,7 +446,7 @@ impl GdbServer {
     fn dispatch_regs_request(&mut self, regs: &Registers, extra_regs: &ExtraRegisters) {
         // Send values for all the registers we sent XML register descriptions for.
         // Those descriptions are controlled by GdbConnection::cpu_features().
-        let have_avx = (self.dbg().cpu_features() & GdbConnection::CPU_AVX) != 0;
+        let have_avx = (self.dbg_unwrap().cpu_features() & GdbConnection::CPU_AVX) != 0;
         let end = match regs.arch() {
             SupportedArch::X86 => {
                 if have_avx {
@@ -468,7 +469,7 @@ impl GdbServer {
             rs.push(GdbServer::get_reg(regs, extra_regs, r));
             r = (r + 1).unwrap();
         }
-        self.dbg_mut().reply_get_regs(&rs);
+        self.dbg_mut_unwrap().reply_get_regs(&rs);
     }
 
     fn maybe_intercept_mem_request(target: &dyn Task, req: &GdbRequest, result: &mut [u8]) {
@@ -501,15 +502,15 @@ impl GdbServer {
     fn at_target(&self) -> bool {
         // Don't launch the debugger for the initial rd fork child.
         // No one ever wants that to happen.
-        if !self.get_timeline().current_session().done_initial_exec() {
+        if !self.timeline_unwrap().current_session().done_initial_exec() {
             return false;
         }
-        let maybe_t = self.get_timeline().current_session().current_task();
+        let maybe_t = self.timeline_unwrap().current_session().current_task();
         if maybe_t.is_none() {
             return false;
         }
         let t = maybe_t.unwrap();
-        if !self.get_timeline().can_add_checkpoint() {
+        if !self.timeline_unwrap().can_add_checkpoint() {
             return false;
         }
         if self.stop_replaying_to_target {
@@ -528,7 +529,7 @@ impl GdbServer {
         // group happens to be scheduled here.  We don't take
         // "attach to process" to mean "attach to thread-group
         // leader".
-        let timeline = self.get_timeline();
+        let timeline = self.timeline_unwrap();
         let ret = timeline.current_session().current_trace_frame().time() >
              self.target.event &&
          (self.target.pid.is_none() || t.tgid() == self.target.pid.unwrap()) &&
@@ -542,13 +543,13 @@ impl GdbServer {
 
     fn activate_debugger(&mut self) {
         let event_now = self
-            .get_timeline()
+            .timeline_unwrap()
             .current_session()
             .current_trace_frame()
             .time();
         // We MUST have a task
         let t = self
-            .get_timeline()
+            .timeline_unwrap()
             .current_session()
             .current_task()
             .unwrap();
@@ -593,17 +594,17 @@ impl GdbServer {
         // of the clonees, so this scheme prevents |pstree|
         // output from getting /too/ far out of whack.
         let where_ = OsString::from("???");
-        let can_add_checkpoint = self.get_timeline().can_add_checkpoint();
+        let can_add_checkpoint = self.timeline_unwrap().can_add_checkpoint();
         let checkpoint = if can_add_checkpoint {
             Checkpoint::new(
-                &mut self.get_timeline_mut(),
+                &mut self.timeline_unwrap_mut(),
                 self.last_continue_tuid,
                 ExplicitCheckpoint::Explicit,
                 &where_,
             )
         } else {
             Checkpoint::new(
-                &mut self.get_timeline_mut(),
+                &mut self.timeline_unwrap_mut(),
                 self.last_continue_tuid,
                 ExplicitCheckpoint::NotExplicit,
                 &where_,
@@ -617,7 +618,8 @@ impl GdbServer {
         debug_assert!(self.dbg.is_some());
 
         self.in_debuggee_end_state = false;
-        self.get_timeline_mut().remove_breakpoints_and_watchpoints();
+        self.timeline_unwrap_mut()
+            .remove_breakpoints_and_watchpoints();
 
         let mut maybe_checkpoint_to_restore = None;
         if req.restart().type_ == GdbRestartType::RestartFromCheckpoint {
@@ -630,7 +632,7 @@ impl GdbServer {
                         println!(" {}", i);
                     }
                     println!();
-                    self.dbg_mut().notify_restart_failed();
+                    self.dbg_mut_unwrap().notify_restart_failed();
                     return;
                 }
                 Some(c) => {
@@ -644,7 +646,7 @@ impl GdbServer {
         self.interrupt_pending = true;
 
         if let Some(checkpoint) = maybe_checkpoint_to_restore {
-            self.get_timeline_mut().seek_to_mark(&checkpoint.mark);
+            self.timeline_unwrap_mut().seek_to_mark(&checkpoint.mark);
             self.last_query_tuid = checkpoint.last_continue_tuid;
             self.last_continue_tuid = checkpoint.last_continue_tuid;
             if self
@@ -654,14 +656,14 @@ impl GdbServer {
                 .is_explicit
                 == ExplicitCheckpoint::Explicit
             {
-                self.get_timeline_mut().remove_explicit_checkpoint(
+                self.timeline_unwrap_mut().remove_explicit_checkpoint(
                     &self.debugger_restart_checkpoint.as_ref().unwrap().mark,
                 );
             }
             self.debugger_restart_checkpoint = Some(checkpoint);
-            let can_add_checkpoint = self.get_timeline().can_add_checkpoint();
+            let can_add_checkpoint = self.timeline_unwrap().can_add_checkpoint();
             if can_add_checkpoint {
-                self.get_timeline_mut().add_explicit_checkpoint();
+                self.timeline_unwrap_mut().add_explicit_checkpoint();
             }
             return;
         }
@@ -673,11 +675,11 @@ impl GdbServer {
         // the same process no matter what is running when we hit the event.
         self.target.event = req.restart().param;
         self.target.event = min(self.final_event - 1, self.target.event);
-        self.get_timeline_mut()
+        self.timeline_unwrap_mut()
             .seek_to_before_event(self.target.event);
         loop {
             let result = self
-                .get_timeline_mut()
+                .timeline_unwrap_mut()
                 .replay_step_forward(RunCommand::RunContinue, self.target.event);
             // We should never reach the end of the trace without hitting the stop
             // condition below.
@@ -783,7 +785,7 @@ impl GdbServer {
             self.stop_siginfo = **break_status.signal.as_ref().unwrap();
             log!(LogDebug, "Stopping for signal {}", self.stop_siginfo);
         }
-        if is_last_thread_exit(break_status) && self.dbg().features().reverse_execution {
+        if is_last_thread_exit(break_status) && self.dbg_unwrap().features().reverse_execution {
             do_stop = true;
             self.stop_siginfo = Default::default();
             if req.cont().run_direction == RunDirection::RunForward {
@@ -802,7 +804,7 @@ impl GdbServer {
             }
         }
         let mut t = break_status.task.upgrade().unwrap();
-        let maybe_in_exec_task = is_in_exec(&self.get_timeline());
+        let maybe_in_exec_task = is_in_exec(&self.timeline_unwrap());
         if let Some(in_exec_task) = maybe_in_exec_task {
             do_stop = true;
             self.stop_siginfo = Default::default();
@@ -815,7 +817,7 @@ impl GdbServer {
             // that might have triggered before resuming.
             let signo = self.stop_siginfo.si_signo;
             let threadid = get_threadid(&**t);
-            self.dbg_mut()
+            self.dbg_mut_unwrap()
                 .notify_stop(threadid, Sig::try_from(signo).ok(), watch_addr);
             self.last_continue_tuid = t.tuid();
             self.last_query_tuid = t.tuid();

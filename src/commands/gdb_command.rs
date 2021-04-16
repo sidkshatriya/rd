@@ -299,7 +299,7 @@ fn rd_history_push(gdb_server: &mut GdbServer, t: &dyn Task, _: &[OsString]) -> 
             BACK_STACK.push(CURRENT_HISTORY_CP.as_ref().unwrap().clone());
         }
 
-        CURRENT_HISTORY_CP = Some(gdb_server.get_timeline_mut().mark());
+        CURRENT_HISTORY_CP = Some(gdb_server.timeline_unwrap_mut().mark());
         FORWARD_STACK.clear();
     }
 
@@ -319,7 +319,7 @@ fn back(gdb_server: &mut GdbServer, t: &dyn Task, _: &[OsString]) -> OsString {
         CURRENT_HISTORY_CP = Some(BACK_STACK.pop().unwrap());
 
         gdb_server
-            .get_timeline_mut()
+            .timeline_unwrap_mut()
             .seek_to_mark(CURRENT_HISTORY_CP.as_ref().unwrap());
     }
     OsString::new()
@@ -337,7 +337,7 @@ fn forward(gdb_server: &mut GdbServer, t: &dyn Task, _: &[OsString]) -> OsString
         BACK_STACK.push(CURRENT_HISTORY_CP.as_ref().unwrap().clone());
         CURRENT_HISTORY_CP = Some(FORWARD_STACK.pop().unwrap());
         gdb_server
-            .get_timeline_mut()
+            .timeline_unwrap_mut()
             .seek_to_mark(CURRENT_HISTORY_CP.as_ref().unwrap());
     }
 
@@ -349,13 +349,13 @@ fn invoke_checkpoint(gdb_server: &mut GdbServer, _t: &dyn Task, args: &[OsString
     let where_ = &args[1];
     let checkpoint_id = NEXT_CHECKPOINT_ID.fetch_add(1, Ordering::SeqCst);
 
-    let e = if gdb_server.get_timeline().can_add_checkpoint() {
+    let e = if gdb_server.timeline_unwrap().can_add_checkpoint() {
         ExplicitCheckpoint::Explicit
     } else {
         ExplicitCheckpoint::NotExplicit
     };
     let checkpoint = Checkpoint::new(
-        &mut gdb_server.get_timeline_mut(),
+        &mut gdb_server.timeline_unwrap_mut(),
         gdb_server.last_continue_tuid,
         e,
         where_,
@@ -378,7 +378,7 @@ fn invoke_delete_checkpoint(
         Some(checkpoint) => {
             if checkpoint.is_explicit == ExplicitCheckpoint::Explicit {
                 gdb_server
-                    .get_timeline_mut()
+                    .timeline_unwrap_mut()
                     .remove_explicit_checkpoint(&checkpoint.mark);
             }
             gdb_server.checkpoints.remove(&id);
