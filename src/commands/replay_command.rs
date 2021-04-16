@@ -370,7 +370,7 @@ impl ReplayCommand {
                         debugger_params_write_pipe: Some(Rc::downgrade(
                             &debugger_params_write_pipe,
                         )),
-                        debugger_name: self.gdb_binary_file_path.clone().into(),
+                        debugger_name: self.gdb_binary_file_path.clone(),
                     };
                     let mut server = GdbServer::new(session, &target);
                     let sa = SigAction::new(
@@ -447,7 +447,7 @@ impl ReplayCommand {
                                     io::ErrorKind::Other,
                                     "Debugger server died.  Exiting.",
                                 ),
-                                WEXITSTATUS(status),
+                                1,
                             );
                         }
                     }

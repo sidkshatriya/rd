@@ -53,7 +53,7 @@ use std::{
     ffi::{OsStr, OsString},
     io::{stderr, Write},
     mem,
-    path::Path,
+    path::{Path, PathBuf},
     rc::Rc,
 };
 
@@ -84,7 +84,7 @@ pub struct ConnectionFlags {
     pub debugger_params_write_pipe: Option<ScopedFdSharedWeakPtr>,
     // Name of the debugger to suggest. Only used if debugger_params_write_pipe
     // is Weak::new().
-    pub debugger_name: OsString,
+    pub debugger_name: PathBuf,
 }
 
 impl ConnectionFlags {
@@ -104,7 +104,7 @@ impl Default for ConnectionFlags {
             dbg_host: String::new(),
             keep_listening: false,
             debugger_params_write_pipe: None,
-            debugger_name: OsString::new(),
+            debugger_name: PathBuf::new(),
         }
     }
 }
@@ -849,7 +849,7 @@ fn write_debugger_launch_command(
     _t: &dyn Task,
     _dbg_host: &str,
     _port: u16,
-    _debugger_name: &OsStr,
+    _debugger_name: &Path,
     _stderr: &mut dyn Write,
 ) {
     unimplemented!()
