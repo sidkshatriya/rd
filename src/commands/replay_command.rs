@@ -4,22 +4,28 @@ use crate::{
     commands::{gdb_server, RdCommand},
     flags::Flags,
     log::LogLevel::LogInfo,
+    scoped_fd::ScopedFd,
     session::{
         replay_session,
         session_inner::{RunCommand, Statistics},
         SessionSharedPtr,
     },
     trace::trace_frame::FrameTime,
-    util::running_under_rd,
+    util::{check_for_leaks, running_under_rd},
 };
 use io::stderr;
 use libc::pid_t;
-use nix::unistd::{getpid, getppid};
+use nix::{
+    fcntl::OFlag,
+    sys::signal::{sigaction, SaFlags, SigAction, SigHandler, SigSet, Signal},
+    unistd::{close, fork, getpid, getppid, pipe2, ForkResult},
+};
 use replay_session::{ReplaySession, ReplayStatus};
-use std::{ffi::OsString, io, io::Write, path::PathBuf, ptr};
+use std::{cell::RefCell, ffi::OsString, io, io::Write, path::PathBuf, ptr, rc::Rc};
 
 use super::{
     exit_result::ExitResult,
+    gdb_server::{ConnectionFlags, GdbServer},
     rd_options::{PidOrCommand, RdOptions, RdSubCommand},
 };
 
@@ -137,8 +143,8 @@ impl ReplayCommand {
                     flags.dont_launch_debugger = true;
                 }
 
-                if debugger_file.is_some() {
-                    flags.gdb_binary_file_path = debugger_file.unwrap();
+                if let Some(file) = debugger_file {
+                    flags.gdb_binary_file_path = file;
                 }
 
                 if onfork.is_some() {
@@ -146,13 +152,13 @@ impl ReplayCommand {
                     flags.process_created_how = CreatedHow::CreatedFork;
                 }
 
-                if goto_event.is_some() {
-                    flags.goto_event = goto_event.unwrap();
+                if let Some(ge) = goto_event {
+                    flags.goto_event = ge;
                 }
 
                 flags.keep_listening = keep_listening;
-                if debugger_option.is_some() {
-                    flags.gdb_options.push(debugger_option.unwrap());
+                if let Some(opt) = debugger_option {
+                    flags.gdb_options.push(opt);
                 }
                 flags.gdb_options.extend(debugger_options);
 
@@ -173,8 +179,8 @@ impl ReplayCommand {
 
                 flags.redirect = !no_redirect_output;
 
-                if dbghost.is_some() {
-                    flags.dbg_host = dbghost.unwrap();
+                if let Some(host) = dbghost {
+                    flags.dbg_host = host;
                     flags.dont_launch_debugger = true;
                 }
 
@@ -183,13 +189,13 @@ impl ReplayCommand {
                     flags.dont_launch_debugger = true;
                 }
 
-                if trace_event.is_some() {
-                    flags.singlestep_to_event = trace_event.unwrap();
+                if let Some(te) = trace_event {
+                    flags.singlestep_to_event = te;
                 }
 
-                if gdb_x_file.is_some() {
+                if let Some(file) = gdb_x_file {
                     flags.gdb_options.push("-x".into());
-                    flags.gdb_options.push(gdb_x_file.unwrap());
+                    flags.gdb_options.push(file);
                 }
 
                 flags.share_private_mappings = share_private_mappings;
@@ -314,15 +320,75 @@ impl ReplayCommand {
             if target.event == FrameTime::MAX {
                 self.serve_replay_no_debugger(&mut stderr())?;
             } else {
-                unimplemented!();
+                let session = ReplaySession::create(self.trace_dir.as_ref(), self.session_flags());
+                let conn_flags = ConnectionFlags {
+                    dbg_port: self.dbg_port,
+                    dbg_host: self.dbg_host.clone(),
+                    keep_listening: self.keep_listening,
+                    debugger_params_write_pipe: None,
+                    debugger_name: self.gdb_binary_file_path.clone().into(),
+                };
+                GdbServer::new(session, &target).serve_replay(&conn_flags);
             }
 
-            // @TODO
+            check_for_leaks();
+            return Ok(());
         }
 
-        Ok(())
+        let debugger_params_pipe: [i32; 2];
+        match pipe2(OFlag::O_CLOEXEC) {
+            Ok((fd1, fd2)) => {
+                debugger_params_pipe = [fd1, fd2];
+            }
+            Err(e) => {
+                fatal!("Couldn't open debugger params pipe: {:?}", e);
+            }
+        }
+
+        let waiting_for_child = unsafe { fork().unwrap() };
+        if let ForkResult::Child = waiting_for_child {
+            // Ensure only the parent has the read end of the pipe open. Then if
+            // the parent dies, our writes to the pipe will error out.
+            // DIFF NOTE: Unlike rr we require close to be successful
+            close(debugger_params_pipe[0]).unwrap();
+
+            {
+                unsafe { libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM) };
+
+                let debugger_params_write_pipe =
+                    Rc::new(RefCell::new(ScopedFd::from_raw(debugger_params_pipe[1])));
+                let session = ReplaySession::create(self.trace_dir.as_ref(), self.session_flags());
+                let conn_flags = ConnectionFlags {
+                    dbg_port: self.dbg_port,
+                    dbg_host: self.dbg_host.clone(),
+                    keep_listening: self.keep_listening,
+                    debugger_params_write_pipe: Some(Rc::downgrade(&debugger_params_write_pipe)),
+                    debugger_name: self.gdb_binary_file_path.clone().into(),
+                };
+                let mut server = GdbServer::new(session, &target);
+                let sa = SigAction::new(
+                    SigHandler::Handler(handle_sigint_in_child),
+                    SaFlags::SA_RESTART,
+                    SigSet::empty(),
+                );
+                unsafe { SERVER_PTR = &raw mut server };
+                if let Err(e) = unsafe { sigaction(Signal::SIGINT, &sa) } {
+                    fatal!("Couldn't set sigaction for SIGINT: {:?}", e);
+                }
+
+                server.serve_replay(&conn_flags);
+            }
+            // Everything should have been cleaned up by now.
+            check_for_leaks();
+            return Ok(());
+        }
+
+        unimplemented!()
     }
 }
+
+/// Uses the same approach as rr but not very pretty!
+static mut SERVER_PTR: *mut GdbServer = std::ptr::null_mut();
 
 impl RdCommand for ReplayCommand {
     fn run(&mut self) -> ExitResult<()> {
@@ -362,6 +428,7 @@ impl RdCommand for ReplayCommand {
                 );
             }
         }
+
         if self.keep_listening && self.dbg_port.is_none() {
             return ExitResult::err_from(
                 io::Error::new(
@@ -381,4 +448,13 @@ impl RdCommand for ReplayCommand {
 
 fn to_microseconds(tv: &timeval) -> u64 {
     (tv.tv_sec as u64) * 1000000 + (tv.tv_usec as u64)
+}
+
+extern "C" fn handle_sigint_in_child(sig: i32) {
+    debug_assert_eq!(sig, libc::SIGINT);
+    unsafe {
+        if !SERVER_PTR.is_null() {
+            (*SERVER_PTR).interrupt_replay_to_target();
+        }
+    }
 }

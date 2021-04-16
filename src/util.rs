@@ -2410,7 +2410,7 @@ pub enum ProbePort {
     ProbePort,
 }
 
-pub fn open_socket(dbg_host: &OsStr, port: &mut u16, probe: ProbePort) -> ScopedFd {
+pub fn open_socket(dbg_host: &str, port: &mut u16, probe: ProbePort) -> ScopedFd {
     let maybe_sock = socket(
         AddressFamily::Inet,
         SockType::Stream,
@@ -2429,10 +2429,7 @@ pub fn open_socket(dbg_host: &OsStr, port: &mut u16, probe: ProbePort) -> Scoped
         fatal!("Could not set SO_REUSEADDR on socket: {:?}", e);
     }
 
-    let ip_addr: net::IpAddr = str::from_utf8(dbg_host.as_bytes())
-        .unwrap()
-        .parse()
-        .unwrap();
+    let ip_addr: net::IpAddr = dbg_host.parse().unwrap();
 
     // @TODO Check this again
     loop {

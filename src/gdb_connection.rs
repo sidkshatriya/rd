@@ -1239,7 +1239,8 @@ impl GdbConnection {
     ///
     /// DIFF NOTE: The checkpoint id is signed in rr
     /// DIFF NOTE: In rr we pass in a ReplaySession shared pointer
-    fn created_checkpoint(_checkpoint: SessionSharedPtr, _checkpoint_id: u32) {
+    /// @TODO: Where is the implementation??
+    fn created_checkpoint(_checkpoint: SessionSharedPtr, _checkpoint_id: u64) {
         unimplemented!()
     }
 
@@ -1247,11 +1248,13 @@ impl GdbConnection {
     /// does not exist.
     ///
     /// DIFF NOTE: The checkpoint id is signed in rr
-    pub fn delete_checkpoint(_checkpoint_id: u32) {
+    /// @TODO Where is the implementation??
+    pub fn delete_checkpoint(_checkpoint_id: u64) {
         unimplemented!()
     }
 
     /// Get the checkpoint with the given id. Return null if not found.
+    /// @TODO Where is the implementation??
     pub fn get_checkpoint(_checkpoint_id: u32) -> SessionSharedPtr {
         unimplemented!()
     }

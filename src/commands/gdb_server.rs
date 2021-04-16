@@ -53,7 +53,6 @@ use std::{
     ffi::{OsStr, OsString},
     io::{stderr, Write},
     mem,
-    os::unix::ffi::OsStrExt,
     rc::Rc,
 };
 
@@ -73,7 +72,8 @@ pub struct ConnectionFlags {
     /// `None` to let GdbServer choose the port, a positive integer to select a
     /// specific port to listen on.
     pub dbg_port: Option<u16>,
-    pub dbg_host: OsString,
+    /// @TODO Should this be an OsString?
+    pub dbg_host: String,
     /// If keep_listening is true, wait for another
     /// debugger connection after the first one is terminated.
     pub keep_listening: bool,
@@ -100,7 +100,7 @@ impl Default for ConnectionFlags {
     fn default() -> ConnectionFlags {
         ConnectionFlags {
             dbg_port: None,
-            dbg_host: OsString::new(),
+            dbg_host: String::new(),
             keep_listening: false,
             debugger_params_write_pipe: None,
             debugger_name: OsString::new(),
@@ -846,7 +846,7 @@ impl GdbServer {
 
 fn write_debugger_launch_command(
     _t: &dyn Task,
-    _dbg_host: &OsStr,
+    _dbg_host: &str,
     _port: u16,
     _debugger_name: &OsStr,
     _stderr: &mut dyn Write,
