@@ -3,15 +3,14 @@ use crate::{
     commands::gdb_server::{Checkpoint, ExplicitCheckpoint, GdbServer},
     replay_timeline::Mark,
     session::task::Task,
-    util::str0_to_isize,
 };
 use std::{
     collections::HashMap,
-    convert::TryInto,
     ffi::{OsStr, OsString},
     io::Write,
     ops::{Deref, DerefMut},
     os::unix::ffi::{OsStrExt, OsStringExt},
+    str,
     sync::atomic::{AtomicU64, Ordering},
 };
 
@@ -52,7 +51,7 @@ pub trait GdbCommand: DerefMut<Target = BaseGdbCommand> {
     /// Handle the RD Cmd and return a string response to be echo'd
     /// to the user.
     ///
-    /// NOTE: args[0] is the command name
+    /// NOTE: args\[0\] is the command name
     fn invoke(&self, gdb_server: &mut GdbServer, t: &dyn Task, args: &[OsString]) -> OsString;
 }
 
@@ -372,11 +371,7 @@ fn invoke_delete_checkpoint(
     _t: &dyn Task,
     args: &[OsString],
 ) -> OsString {
-    let mut ignore = Default::default();
-    let id: u64 = str0_to_isize(args[1].as_bytes(), &mut ignore)
-        .unwrap()
-        .try_into()
-        .unwrap();
+    let id: u64 = str::parse::<u64>(str::from_utf8(args[1].as_bytes()).unwrap()).unwrap();
     // Clone it because we want to then delete it
     let it = gdb_server.checkpoints.get(&id).cloned();
     match it {

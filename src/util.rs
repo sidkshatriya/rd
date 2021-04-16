@@ -40,11 +40,15 @@ use libc::{
     _SC_NPROCESSORS_ONLN,
 };
 use nix::{
-    errno::errno,
+    errno::{errno, Errno},
     sched::{sched_setaffinity, CpuSet},
     sys::{
         mman::{MapFlags, ProtFlags},
         signal::{sigaction, SaFlags, SigAction, SigHandler, SigSet, Signal},
+        socket::{
+            bind, listen, setsockopt, socket, sockopt, AddressFamily, InetAddr, SockAddr, SockFlag,
+            SockProtocol, SockType,
+        },
         stat::{stat, FileStat, Mode, SFlag},
         statfs::{statfs, TMPFS_MAGIC},
         uio::pread,
@@ -53,7 +57,7 @@ use nix::{
         access, ftruncate, getpid, isatty, mkdir, mkstemp, read, sysconf, write, AccessFlags, Pid,
         SysconfVar::PAGE_SIZE,
     },
-    NixPath,
+    Error as NixError, NixPath,
 };
 use rand::random;
 use regex::bytes::Regex;
@@ -69,6 +73,7 @@ use std::{
     io::{BufRead, BufReader, BufWriter, Error, ErrorKind, Read, Write},
     mem,
     mem::{size_of, size_of_val, zeroed},
+    net,
     os::{
         raw::c_long,
         unix::ffi::{OsStrExt, OsStringExt},
@@ -76,7 +81,7 @@ use std::{
     path::Path,
     ptr::copy_nonoverlapping,
     rc::Rc,
-    slice,
+    slice, str,
     sync::Mutex,
 };
 
@@ -2399,12 +2404,59 @@ pub fn trace_instructions_up_to_event(event: FrameTime) -> bool {
     unsafe { event > INSTRUCTION_TRACE_AT_EVENT_START && event <= INSTRUCTION_TRACE_AT_EVENT_LAST }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub enum ProbePort {
     DontProbe,
     ProbePort,
 }
 
-pub fn open_socket(_dbg_host: &OsStr, _port: &mut u16, _probe: ProbePort) -> ScopedFd {
-    unimplemented!()
+pub fn open_socket(dbg_host: &OsStr, port: &mut u16, probe: ProbePort) -> ScopedFd {
+    let maybe_sock = socket(
+        AddressFamily::Inet,
+        SockType::Stream,
+        SockFlag::SOCK_CLOEXEC,
+        Some(SockProtocol::Tcp),
+    );
+
+    let listen_fd = match maybe_sock {
+        Ok(fd) => ScopedFd::from_raw(fd),
+        Err(e) => {
+            fatal!("Couldn't create socket: {:?}", e)
+        }
+    };
+
+    if let Err(e) = setsockopt(listen_fd.as_raw(), sockopt::ReuseAddr, &true) {
+        fatal!("Could not set SO_REUSEADDR on socket: {:?}", e);
+    }
+
+    let ip_addr: net::IpAddr = str::from_utf8(dbg_host.as_bytes())
+        .unwrap()
+        .parse()
+        .unwrap();
+
+    // @TODO Check this again
+    loop {
+        let sock_addr = net::SocketAddr::new(ip_addr, *port);
+        let addr = SockAddr::new_inet(InetAddr::from_std(&sock_addr));
+
+        match bind(listen_fd.as_raw(), &addr) {
+            Err(NixError::Sys(Errno::EADDRINUSE))
+            | Err(NixError::Sys(Errno::EACCES))
+            | Err(NixError::Sys(Errno::EINVAL)) => {}
+            Err(e) => fatal!("Couldn't bind to port: {:?}", e),
+            Ok(()) => match listen(listen_fd.as_raw(), 1) {
+                Err(NixError::Sys(Errno::EADDRINUSE)) => (),
+                Err(e) => {
+                    fatal!("Couldn't listen on port {}: {:?}", *port, e)
+                }
+                Ok(()) => break,
+            },
+        }
+
+        if probe == ProbePort::ProbePort {
+            *port += 1;
+        }
+    }
+
+    listen_fd
 }
