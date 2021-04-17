@@ -2030,7 +2030,7 @@ impl ReplayTimeline {
             + MICROSECONDS_PER_BYTE_WRITTEN * stats.bytes_written as f64
             + MICROSECONDS_CONSTANT;
 
-        progress as u64
+        progress as i64
     }
 
     /// Called when the current session has moved forward to a new execution
@@ -2514,9 +2514,7 @@ pub enum CheckpointStrategy {
 /// An estimate of how much progress a session has made. This should roughly
 /// correlate to the time required to replay from the start of a session
 /// to the current point, in microseconds.
-///
-/// DIFF NOTE: This is a i64 in rr
-pub type Progress = u64;
+pub type Progress = i64;
 
 fn equal_regs(r1: &Registers, r2: &Registers) -> bool {
     // Compare ip()s first since they will usually fail to match, especially
