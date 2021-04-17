@@ -43,7 +43,10 @@ impl BaseGdbCommand {
 
     /// Setup all the automatic auto_args for our commands.
     pub fn init_auto_args() {
-        unimplemented!()
+        gdb_command_map_mut()
+            .get_mut("checkpoint")
+            .unwrap()
+            .add_auto_arg(&OsString::from("rd-where"));
     }
 }
 
@@ -108,36 +111,30 @@ impl GdbCommand for SimpleGdbCommand {
     }
 }
 
-lazy_static! {
-    static ref GDB_COMMAND_LIST: GdbCommandListWrapper =
-        GdbCommandListWrapper(gdb_command_list_init());
-}
+static mut GDB_COMMAND_MAP_PTR: *mut GdbCommandMap = std::ptr::null_mut();
+type GdbCommandMap = HashMap<String, Box<dyn GdbCommand>>;
 
-struct GdbCommandListWrapper(HashMap<String, Box<dyn GdbCommand>>);
-
-/// Done to satisfy error in lazy_static!()
-/// Should be OK since everything should be one thread
-unsafe impl Sync for GdbCommandListWrapper {}
-
-impl Deref for GdbCommandListWrapper {
-    type Target = HashMap<String, Box<dyn GdbCommand>>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
+pub(super) fn gdb_command_map() -> &'static GdbCommandMap {
+    unsafe {
+        if GDB_COMMAND_MAP_PTR.is_null() {
+            let gdb_box = Box::new(gdb_command_map_init());
+            GDB_COMMAND_MAP_PTR = Box::into_raw(gdb_box);
+        }
+        &*GDB_COMMAND_MAP_PTR
     }
 }
 
-impl DerefMut for GdbCommandListWrapper {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+pub(super) fn gdb_command_map_mut() -> &'static mut GdbCommandMap {
+    unsafe {
+        if GDB_COMMAND_MAP_PTR.is_null() {
+            let gdb_box = Box::new(gdb_command_map_init());
+            GDB_COMMAND_MAP_PTR = Box::into_raw(gdb_box);
+        }
+        &mut *GDB_COMMAND_MAP_PTR
     }
 }
 
-pub(super) fn gdb_command_list() -> &'static HashMap<String, Box<dyn GdbCommand>> {
-    GDB_COMMAND_LIST.deref()
-}
-
-fn gdb_command_list_init() -> HashMap<String, Box<dyn GdbCommand>> {
+fn gdb_command_map_init() -> HashMap<String, Box<dyn GdbCommand>> {
     let mut command_list: HashMap<String, Box<dyn GdbCommand>> = HashMap::new();
 
     command_list.insert(String::from("elapsed-time"), Box::new(SimpleGdbCommand::new(

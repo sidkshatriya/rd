@@ -1,6 +1,6 @@
 use crate::{
     commands::{
-        gdb_command::{gdb_command_list, BaseGdbCommand, GdbCommand},
+        gdb_command::{gdb_command_map, BaseGdbCommand, GdbCommand},
         gdb_server::GdbServer,
     },
     log::LogDebug,
@@ -122,7 +122,7 @@ end
 
         ss.push_str(s);
 
-        for it in gdb_command_list().values() {
+        for it in gdb_command_map().values() {
             ss.push_str(&gdb_macro_binding(it));
         }
 
@@ -173,7 +173,7 @@ end
     }
 
     pub fn command_for_name(name: &str) -> Option<&Box<dyn GdbCommand>> {
-        gdb_command_list().get(name)
+        gdb_command_map().get(name)
     }
 
     /// Special return value for commands that immediately ends a diversion session

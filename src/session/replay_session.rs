@@ -428,7 +428,13 @@ impl ReplaySession {
     /// Return true if we're in a state where it's OK to clone. For example,
     /// we can't clone in some syscalls.
     pub fn can_clone(&self) -> bool {
-        unimplemented!()
+        self.finish_initializing();
+
+        if let Some(_task) = self.current_task() {
+            return self.done_initial_exec() && can_checkpoint_at(&self.current_trace_frame());
+        }
+
+        false
     }
 
     /// Like `clone()`, but return a session in "diversion" mode,
@@ -2448,4 +2454,27 @@ fn guard_overshoot(
             -remaining_ticks
         );
     }
+}
+
+/// Return true if it's possible/meaningful to make a checkpoint at the
+/// |frame| that |t| will replay.
+fn can_checkpoint_at(frame: &TraceFrame) -> bool {
+    let ev = frame.event();
+    if ev.has_ticks_slop() {
+        return false;
+    }
+    match ev.event_type() {
+    EventType::EvExit|
+    // At exits, we can't clone the exiting tasks, so
+    // don't event bother trying to checkpoint.
+    EventType::EvSyscallbufReset|
+    // RESETs are usually inserted in between syscall
+    // entry/exit.  Do not attempting to checkpoint at
+    // RESETs.  Users would never want to do that anyway.
+    EventType::EvTraceTermination=>
+      // There's nothing to checkpoint at the end of a trace.
+      return false,
+    _=>
+      return true,
+  }
 }

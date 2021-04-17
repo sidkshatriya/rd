@@ -94,6 +94,7 @@ impl ReplayStepToMarkStrategy {
 /// This class manages a set of ReplaySessions corresponding to different points
 /// in the same recording. It provides an API for explicitly managing
 /// checkpoints along this timeline and navigating to specific events.
+#[derive(Default)]
 pub struct ReplayTimeline {
     weak_self: ReplayTimelineSharedWeakPtr,
     current: Option<SessionSharedPtr>,
@@ -155,12 +156,6 @@ pub struct ReplayTimeline {
     /// A single checkpoint that's very close to the current point, used to
     /// accelerate a sequence of reverse singlestep operations.
     reverse_exec_short_checkpoint: Option<Mark>,
-}
-
-impl Default for ReplayTimeline {
-    fn default() -> Self {
-        unimplemented!()
-    }
 }
 
 impl Drop for ReplayTimeline {
