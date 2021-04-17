@@ -2,7 +2,7 @@
 
 set -e
 
-if [ -z "${PREFIX}" ]; then
+if [[ -z "${PREFIX}" ]]; then
     echo "No PREFIX specified. Dont know where to install rd files!"
     echo ""
     echo "e.g. $ PREFIX=~/myrd ./install.sh"
@@ -11,7 +11,7 @@ if [ -z "${PREFIX}" ]; then
     exit 1
 fi
 
-if [ -d "${PREFIX}" ]; then
+if [[ -d "${PREFIX}" ]]; then
     echo "Installing rd to: ${PREFIX}"
     echo "NOTE: ${PREFIX}/bin, ${PREFIX}/lib, ${PREFIX}/share will be populated with rd files..."
 else
@@ -19,7 +19,14 @@ else
     install -v -d "${PREFIX}"
 fi
 
-cargo install --locked --force --path . --root "${PREFIX}"
+if [[ -n "${DEBUG}" ]]; then
+    echo "Debug version will be compiled"
+    DEBUG="--debug"
+fi
+
+set -x
+cargo install ${DEBUG} --locked --force --path . --root "${PREFIX}"
+set +x
 
 echo "Installing additional files and directories"
 install -v -d "${PREFIX}/share/rd"
