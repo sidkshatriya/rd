@@ -61,6 +61,8 @@ impl ScopedFd {
         self.fd
     }
 
+    /// After running the method, the destructor of ScopedFd
+    /// will not close this fd
     pub fn extract(&mut self) -> RawFd {
         let result = self.fd;
         self.fd = -1;

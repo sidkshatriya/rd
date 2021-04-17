@@ -2457,3 +2457,14 @@ pub fn open_socket(dbg_host: &str, port: &mut u16, probe: ProbePort) -> ScopedFd
 
     listen_fd
 }
+
+pub fn flat_env(envp: &[(OsString, OsString)]) -> Vec<OsString> {
+    envp.iter()
+        .map(|(k, v)| -> OsString {
+            let mut kv = k.clone();
+            kv.push("=");
+            kv.push(v);
+            kv
+        })
+        .collect()
+}

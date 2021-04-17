@@ -38,21 +38,29 @@ use crate::{
     taskish_uid::{TaskUid, ThreadGroupUid},
     thread_db::ThreadDb,
     trace::trace_frame::FrameTime,
+    util::write_all,
     util::{
-        cpuid, find, floor_page_size, open_socket, page_size, u8_slice, word_size, ProbePort,
-        AVX_FEATURE_FLAG, CPUID_GETFEATURES, OSXSAVE_FEATURE_FLAG,
+        cpuid, create_temporary_file, find, flat_env, floor_page_size, open_socket, page_size,
+        to_cstring_array, u8_slice, u8_slice_mut, word_size, ProbePort, AVX_FEATURE_FLAG,
+        CPUID_GETFEATURES, OSXSAVE_FEATURE_FLAG,
     },
 };
 use libc::{pid_t, SIGKILL, SIGTRAP};
-use nix::unistd::{getpid, write};
+use nix::{
+    errno::Errno,
+    unistd::{execvpe, getpid, read, unlink, write},
+    Error,
+};
 use std::{
     cell::{Ref, RefMut},
     cmp::min,
     collections::{HashMap, HashSet},
     convert::{TryFrom, TryInto},
-    ffi::{OsStr, OsString},
+    env,
+    ffi::{CString, OsStr, OsString},
     io::{stderr, Write},
     mem,
+    os::unix::ffi::{OsStrExt, OsStringExt},
     path::{Path, PathBuf},
     rc::Rc,
 };
@@ -344,8 +352,12 @@ impl GdbServer {
             .unwrap();
         let listen_fd: ScopedFd = open_socket(&flags.dbg_host, &mut port, probe);
         if flags.debugger_params_write_pipe.is_some() {
+            let c_exe_image = CString::new(t.vm().exe_image().as_bytes()).unwrap();
+            assert!(c_exe_image.as_bytes_with_nul().len() <= libc::PATH_MAX as usize);
+            let mut exe_image = [0u8; libc::PATH_MAX as usize];
+            exe_image.copy_from_slice(c_exe_image.as_bytes_with_nul());
             let params = DebuggerParams {
-                exe_image: t.vm().exe_image().to_owned(),
+                exe_image,
                 host: flags.dbg_host.as_bytes().try_into().unwrap(),
                 port,
             };
@@ -407,11 +419,65 @@ impl GdbServer {
     /// exec()'s gdb using parameters read from params_pipe_fd (and sent through
     /// the pipe passed to serve_replay_with_debugger).
     pub fn launch_gdb(
-        _params_pipe_fd: &ScopedFd,
-        _gdb_binary_file_path: &Path,
-        _gdb_options: &[OsString],
+        params_pipe_fd: &ScopedFd,
+        gdb_binary_file_path: &Path,
+        gdb_options: &[OsString],
     ) {
-        unimplemented!()
+        let macros = gdb_rd_macros();
+        let gdb_command_file = create_gdb_command_file(macros);
+
+        let mut params = DebuggerParams::default();
+        let mut res;
+        loop {
+            res = read(params_pipe_fd.as_raw(), u8_slice_mut(&mut params));
+            match res {
+                Ok(0) => {
+                    // pipe was closed. Probably rd failed/died.
+                    return;
+                }
+                Err(Error::Sys(Errno::EINTR)) => continue,
+                _ => break,
+            }
+        }
+        // DIFF NOTE: This is a debug_assert in rr
+        assert_eq!(res.unwrap(), mem::size_of_val(&params));
+
+        let mut args = Vec::new();
+        args.push(gdb_binary_file_path.into());
+        push_default_gdb_options(&mut args);
+        args.push("-x".into());
+        args.push(gdb_command_file);
+        let mut did_set_remote = false;
+        let host = OsStr::from_bytes(&params.host).to_str().unwrap();
+        let exe_image = OsString::from_vec(Vec::from(params.exe_image));
+        for i in 0..gdb_options.len() {
+            if !did_set_remote
+                && gdb_options[i].as_bytes() == b"-ex"
+                && i + 1 < gdb_options.len()
+                && needs_target(&gdb_options[i + 1])
+            {
+                push_target_remote_cmd(&mut args, host, params.port);
+                did_set_remote = true;
+            }
+            args.push(gdb_options[i].clone());
+        }
+        if !did_set_remote {
+            push_target_remote_cmd(&mut args, host, params.port);
+        }
+        args.push(exe_image);
+
+        // @TODO Probably more efficient to just obtain the environment without key, value pairs?
+        let mut env: Vec<(OsString, OsString)> = env::vars_os().collect();
+        env.push(("GDB_UNDER_RD".into(), "1".into()));
+
+        log!(LogDebug, "launching {:?}", args);
+
+        execvpe(
+            &CString::new(gdb_binary_file_path.to_str().unwrap()).unwrap(),
+            &to_cstring_array(&args),
+            &to_cstring_array(&flat_env(&env)),
+        )
+        .unwrap_or_else(|_| fatal!("Failed to exec gdb."));
     }
 
     /// Start a debugging connection for |t| and return when there are no
@@ -845,6 +911,26 @@ impl GdbServer {
     }
 }
 
+fn needs_target(option: &OsStr) -> bool {
+    option.as_bytes() == b"continue"
+}
+
+fn create_gdb_command_file(macros: &str) -> OsString {
+    let mut file = create_temporary_file(b"rd-gdb-commands-XXXXXX");
+    // This fd is just leaked. That's fine since we only call this once
+    // per rr invocation at the moment.
+    let fd = file.fd.extract();
+    // DIFF NOTE: Unlike rr, we require unlink to be successful
+    unlink(file.name.as_os_str()).unwrap();
+
+    // DIFF NOTE: rr uses write in unistd.h
+    write_all(fd, macros.as_bytes());
+
+    let mut procfile = Vec::new();
+    write!(procfile, "/proc/{}/fd/{}", getpid(), fd).unwrap();
+    OsString::from_vec(procfile)
+}
+
 fn write_debugger_launch_command(
     _t: &dyn Task,
     _dbg_host: &str,
@@ -1173,8 +1259,51 @@ fn watchpoint_type(req: GdbRequestType) -> WatchType {
 }
 
 struct DebuggerParams {
-    exe_image: OsString,
+    exe_image: [u8; libc::PATH_MAX as usize],
     /// INET_ADDRSTRLEN
     host: [u8; 16],
     port: u16,
+}
+
+impl Default for DebuggerParams {
+    fn default() -> Self {
+        unsafe { mem::zeroed() }
+    }
+}
+
+fn push_default_gdb_options(vec: &mut Vec<OsString>) {
+    // The gdb protocol uses the "vRun" packet to reload
+    // remote targets.  The packet is specified to be like
+    // "vCont", in which gdb waits infinitely long for a
+    // stop reply packet.  But in practice, gdb client
+    // expects the vRun to complete within the remote-reply
+    // timeout, after which it issues vCont.  The timeout
+    // causes gdb<-->rd communication to go haywire.
+    //
+    // rd can take a very long time indeed to send the
+    // stop-reply to gdb after restarting replay; the time
+    // to reach a specified execution target is
+    // theoretically unbounded.  Timing out on vRun is
+    // technically a gdb bug, but because the rd replay and
+    // the gdb reload models don't quite match up, we'll
+    // work around it on the rd side by disabling the
+    // remote-reply timeout.
+    vec.push("-l".into());
+    vec.push("10000".into());
+    // For now, avoid requesting binary files through vFile. That is slow and
+    // hard to make work correctly, because gdb requests files based on the
+    // names it sees in memory and in ELF, and those names may be symlinks to
+    // the filenames in the trace, so it's hard to match those names to files in
+    // the trace.
+    vec.push("-ex".into());
+    vec.push("set sysroot /".into());
+}
+
+fn push_target_remote_cmd(vec: &mut Vec<OsString>, host: &str, port: u16) {
+    vec.push("-ex".into());
+    let mut ss = Vec::<u8>::new();
+    // If we omit the address, then gdb can try to resolve "localhost" which
+    // in some broken environments may not actually resolve to the local host
+    write!(ss, "target extended-remote {}:{}", host, port).unwrap();
+    vec.push(OsString::from_vec(ss));
 }
