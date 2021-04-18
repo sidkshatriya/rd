@@ -1038,7 +1038,7 @@ pub(in super::super) fn os_clone_into(
 /// in the process into which the copy of this task will be
 /// created.  `task_leader` will perform the actual OS calls to
 /// create the new child.
-fn os_fork_into(t: &dyn Task, session: SessionSharedPtr) -> TaskSharedPtr {
+pub(in super::super) fn os_fork_into(t: &dyn Task, session: SessionSharedPtr) -> TaskSharedPtr {
     let rec_tid = t.rec_tid();
     let serial = t.serial.get();
     let mut remote =

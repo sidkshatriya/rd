@@ -160,7 +160,7 @@ impl Default for PtraceSyscallSeccompOrdering {
 }
 
 /// struct is NOT pub
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub(super) struct AddressSpaceClone {
     /// @TODO need to think about this
     pub clone_leader: TaskSharedWeakPtr,
@@ -173,6 +173,14 @@ pub(super) struct AddressSpaceClone {
 #[derive(Clone)]
 pub(super) struct CloneCompletion {
     pub address_spaces: Vec<AddressSpaceClone>,
+}
+
+impl Default for CloneCompletion {
+    fn default() -> Self {
+        CloneCompletion {
+            address_spaces: Vec::new(),
+        }
+    }
 }
 
 impl Clone for SessionInner {

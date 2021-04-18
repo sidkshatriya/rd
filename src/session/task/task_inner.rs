@@ -400,6 +400,31 @@ pub struct CapturedState {
     pub wait_status: WaitStatus,
 }
 
+impl Default for CapturedState {
+    fn default() -> Self {
+        CapturedState {
+            ticks: Default::default(),
+            regs: Default::default(),
+            extra_regs: Default::default(),
+            prname: Default::default(),
+            thread_areas: Default::default(),
+            syscallbuf_child: Default::default(),
+            syscallbuf_size: Default::default(),
+            preload_globals: Default::default(),
+            scratch_ptr: Default::default(),
+            scratch_size: Default::default(),
+            top_of_stack: Default::default(),
+            cloned_file_data_offset: Default::default(),
+            thread_locals: unsafe { std::mem::zeroed() },
+            rec_tid: Default::default(),
+            serial: Default::default(),
+            desched_fd_child: Default::default(),
+            cloned_file_data_fd_child: Default::default(),
+            wait_status: Default::default(),
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 /// @TODO VISIBILITY originally this was NOT pub. Adjust?
 pub enum CloneReason {

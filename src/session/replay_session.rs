@@ -454,7 +454,7 @@ impl ReplaySession {
         let emufs = self.emu_fs.clone();
         let session_emufs = session.emu_fs.clone();
         self.copy_state_to_session(
-            &mut session,
+            session.weak_self_ptr().upgrade().unwrap(),
             &emufs.borrow(),
             &mut session_emufs.borrow_mut(),
         );

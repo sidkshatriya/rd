@@ -2,9 +2,14 @@ use crate::{
     auto_remote_syscalls::AutoRemoteSyscalls,
     emu_fs::EmuFs,
     kernel_abi::SupportedArch,
+    log::LogDebug,
     remote_ptr::{RemotePtr, Void},
     session::{
-        address_space::{address_space::AddressSpaceSharedPtr, MappingFlags},
+        address_space::{
+            address_space::{AddressSpaceSharedPtr, Mapping},
+            memory_range::MemoryRangeKey,
+            MappingFlags,
+        },
         diversion_session::DiversionSession,
         record_session::RecordSession,
         replay_session::ReplaySession,
@@ -19,13 +24,16 @@ use crate::{
     thread_group::{ThreadGroup, ThreadGroupSharedPtr},
     trace::trace_stream::TraceStream,
 };
+use address_space::address_space::AddressSpace;
 use libc::pid_t;
+use nix::sys::mman::MapFlags;
+use session_inner::{AddressSpaceClone, CloneCompletion};
 use std::{
     cell::{Ref, RefMut},
     ops::DerefMut,
     rc::{Rc, Weak},
 };
-use task::task_inner::CloneReason;
+use task::{task_common::os_fork_into, task_inner::CloneReason};
 use task_common::copy_state;
 
 pub mod address_space;
@@ -119,11 +127,78 @@ pub trait Session: DerefMut<Target = SessionInner> {
     /// NOTE: called Session::copy_state_to() in rr.
     fn copy_state_to_session(
         &self,
-        _dest: &mut SessionInner,
-        _emu_fs: &EmuFs,
-        _dest_emu_fs: &mut EmuFs,
+        dest: SessionSharedPtr,
+        emu_fs: &EmuFs,
+        dest_emu_fs: &mut EmuFs,
     ) {
-        unimplemented!()
+        self.assert_fully_initialized();
+        debug_assert!(dest.clone_completion.borrow().is_none());
+
+        let mut completion = CloneCompletion::default();
+
+        for (_uid, vm_weak) in self.vm_map.borrow().iter() {
+            // Pick an arbitrary task to be group leader. The actual group leader
+            // might have died already.
+            let vm = vm_weak.upgrade().unwrap();
+            let group_leader = vm.task_set().iter().next().unwrap();
+            log!(
+                LogDebug,
+                "  forking tg {} (real: {})",
+                group_leader.tgid(),
+                group_leader.real_tgid()
+            );
+
+            let mut group: AddressSpaceClone = AddressSpaceClone::default();
+
+            let clone_leader: TaskSharedPtr = os_fork_into(&**group_leader, dest.clone());
+            group.clone_leader = Rc::downgrade(&clone_leader);
+            dest.on_create_task(clone_leader.clone());
+            log!(LogDebug, "  forked new group leader {}", clone_leader.tid());
+
+            {
+                let mut remote = AutoRemoteSyscalls::new(&**clone_leader);
+                let mut shared_maps_to_clone = Vec::new();
+                for (&k, m) in &clone_leader.vm().maps() {
+                    // Special case the syscallbuf as a performance optimization. The amount
+                    // of data we need to capture is usually significantly smaller than the
+                    // size of the mapping, so allocating the whole mapping here would be
+                    // wasteful.
+                    if m.flags.contains(MappingFlags::IS_SYSCALLBUF) {
+                        group
+                            .captured_memory
+                            .push((m.map.start(), capture_syscallbuf(&m, &**clone_leader)));
+                    } else if m.local_addr.is_some() {
+                        ed_assert_eq!(
+                            &**clone_leader,
+                            m.map.start(),
+                            AddressSpace::preload_thread_locals_start()
+                        );
+                    } else if m.recorded_map.flags().contains(MapFlags::MAP_SHARED)
+                        && emu_fs.has_file_for(&m.recorded_map)
+                    {
+                        shared_maps_to_clone.push(k);
+                    }
+                }
+                // Do this in a separate loop to avoid iteration invalidation issues
+                for k in shared_maps_to_clone {
+                    remap_shared_mmap(&mut remote, emu_fs, dest_emu_fs, k);
+                }
+
+                for t in vm.task_set().iter() {
+                    if Rc::ptr_eq(&group_leader, &t) {
+                        continue;
+                    }
+                    log!(LogDebug, "    cloning {}", t.rec_tid());
+
+                    group.member_states.push(t.capture_state());
+                }
+            }
+            group.clone_leader_state = group_leader.capture_state();
+            completion.address_spaces.push(group);
+        }
+        *dest.clone_completion.borrow_mut() = Some(Box::new(completion));
+
+        debug_assert!(dest.vms().len() > 0);
     }
 
     /// Call this before doing anything that requires access to the full set
@@ -337,6 +412,19 @@ pub trait Session: DerefMut<Target = SessionInner> {
         t.flush_inconsistent_state();
         self.spawned_task_error_fd_.borrow_mut().close();
     }
+}
+
+fn remap_shared_mmap(
+    _remote: &mut AutoRemoteSyscalls,
+    _emu_fs: &EmuFs,
+    _dest_emu_fs: &mut EmuFs,
+    _k: MemoryRangeKey,
+) {
+    unimplemented!()
+}
+
+fn capture_syscallbuf(_m: &Mapping, _clone_leader: &dyn Task) -> Vec<u8> {
+    unimplemented!()
 }
 
 fn on_create_task_common<S: Session>(sess: &S, t: TaskSharedPtr) {
