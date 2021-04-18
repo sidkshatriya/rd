@@ -3,6 +3,7 @@ use crate::{
     emu_fs::EmuFs,
     kernel_abi::SupportedArch,
     log::LogDebug,
+    preload_interface::syscallbuf_hdr,
     remote_ptr::{RemotePtr, Void},
     session::{
         address_space::{
@@ -15,8 +16,8 @@ use crate::{
         replay_session::ReplaySession,
         session_inner::{AddressSpaceMap, SessionInner, TaskMap, ThreadGroupMap},
         task::{
-            task_common,
-            task_inner::{CloneFlags, WriteFlags},
+            task_common::{self, copy_state, os_fork_into, read_mem, read_val_mem},
+            task_inner::{CloneFlags, CloneReason, WriteFlags},
             Task, TaskSharedPtr, TaskSharedWeakPtr,
         },
     },
@@ -30,11 +31,10 @@ use nix::sys::mman::MapFlags;
 use session_inner::{AddressSpaceClone, CloneCompletion};
 use std::{
     cell::{Ref, RefMut},
+    mem::size_of,
     ops::DerefMut,
     rc::{Rc, Weak},
 };
-use task::{task_common::os_fork_into, task_inner::CloneReason};
-use task_common::copy_state;
 
 pub mod address_space;
 pub mod diversion_session;
@@ -423,8 +423,26 @@ fn remap_shared_mmap(
     unimplemented!()
 }
 
-fn capture_syscallbuf(_m: &Mapping, _clone_leader: &dyn Task) -> Vec<u8> {
-    unimplemented!()
+fn capture_syscallbuf(m: &Mapping, clone_leader: &dyn Task) -> Vec<u8> {
+    let start = m.map.start();
+    let data_size: usize;
+    let num_byes_addr =
+        RemotePtr::<u32>::cast(remote_ptr_field!(start, syscallbuf_hdr, num_rec_bytes));
+    if read_val_mem(
+        clone_leader,
+        remote_ptr_field!(start, syscallbuf_hdr, locked),
+        None,
+    ) != 0u8
+    {
+        // There may be an incomplete syscall record after num_rec_bytes that
+        // we need to capture here. We don't know how big that record is,
+        // so just record the entire buffer. This should not be common.
+        data_size = m.map.size();
+    } else {
+        data_size =
+            read_val_mem(clone_leader, num_byes_addr, None) as usize + size_of::<syscallbuf_hdr>();
+    }
+    read_mem(clone_leader, start, data_size, None)
 }
 
 fn on_create_task_common<S: Session>(sess: &S, t: TaskSharedPtr) {
