@@ -353,12 +353,15 @@ impl GdbServer {
         let listen_fd: ScopedFd = open_socket(&flags.dbg_host, &mut port, probe);
         if flags.debugger_params_write_pipe.is_some() {
             let c_exe_image = CString::new(t.vm().exe_image().as_bytes()).unwrap();
-            assert!(c_exe_image.as_bytes_with_nul().len() <= libc::PATH_MAX as usize);
+            let len = c_exe_image.as_bytes_with_nul().len();
+            assert!(len <= libc::PATH_MAX as usize);
             let mut exe_image = [0u8; libc::PATH_MAX as usize];
-            exe_image.copy_from_slice(c_exe_image.as_bytes_with_nul());
+            exe_image[0..len].copy_from_slice(&c_exe_image.as_bytes_with_nul());
+            let mut host = [0u8; 16];
+            host[0..flags.dbg_host.len()].copy_from_slice(flags.dbg_host.as_bytes());
             let params = DebuggerParams {
                 exe_image,
-                host: flags.dbg_host.as_bytes().try_into().unwrap(),
+                host,
                 port,
             };
             let fd = flags.debugger_params_write_pipe_unwrap().borrow().as_raw();
@@ -448,8 +451,11 @@ impl GdbServer {
         args.push("-x".into());
         args.push(gdb_command_file);
         let mut did_set_remote = false;
-        let host = OsStr::from_bytes(&params.host).to_str().unwrap();
-        let exe_image = OsString::from_vec(Vec::from(params.exe_image));
+        let host = OsStr::from_bytes(params.host.split(|&c| c == 0).next().unwrap())
+            .to_str()
+            .unwrap();
+        let exe_image =
+            OsStr::from_bytes(params.exe_image.split(|&c| c == 0).next().unwrap()).to_owned();
         for i in 0..gdb_options.len() {
             if !did_set_remote
                 && gdb_options[i].as_bytes() == b"-ex"
@@ -1027,7 +1033,7 @@ define hookpost-run
 end
 set unwindonsignal on
 handle SIGURG stop
-set prompt (rd)
+set prompt (rd) 
 python
 import re
 m = re.compile('.* ([0-9]+)\\.([0-9]+)(\\.([0-9]+))?.*').match(gdb.execute('show version', False, True))

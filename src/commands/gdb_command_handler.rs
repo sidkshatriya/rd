@@ -136,7 +136,6 @@ frame
 end
 "##,
         );
-
         ss
     }
 
@@ -225,7 +224,7 @@ fn gdb_macro_binding(cmd: &Box<dyn GdbCommand>) -> String {
         auto_args_str.push_str(&format!("{:?}", arg));
     }
     auto_args_str.push(']');
-    let mut ret = format!("python RRCmd({}, {})\n", cmd.name(), auto_args_str);
+    let mut ret = format!("python RDCmd('{}', {})\n", cmd.name(), auto_args_str);
     if !cmd.docs().is_empty() {
         ret.push_str(&format!("document {}\n{}\nend\n", cmd.name(), cmd.docs()));
     }

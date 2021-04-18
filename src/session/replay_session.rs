@@ -448,22 +448,28 @@ impl ReplaySession {
         self.finish_initializing();
         self.clear_syscall_bp();
 
-        let mut session = self.clone();
-        log!(LogDebug, "  deepfork session is {}", session.unique_id);
+        let mut replay_session = self.clone();
+        log!(
+            LogDebug,
+            "  deepfork session is {}",
+            replay_session.unique_id
+        );
 
         let emufs = self.emu_fs.clone();
-        let session_emufs = session.emu_fs.clone();
+        let session_emufs = replay_session.emu_fs.clone();
+        let session_shr_ptr = Rc::new_cyclic(move |w| {
+            replay_session.weak_self = w.clone();
+            let b: Box<dyn Session> = Box::new(replay_session);
+            b
+        });
+
         self.copy_state_to_session(
-            session.weak_self_ptr().upgrade().unwrap(),
+            session_shr_ptr.clone(),
             &emufs.borrow(),
             &mut session_emufs.borrow_mut(),
         );
 
-        Rc::new_cyclic(move |w| {
-            session.weak_self = w.clone();
-            let b: Box<dyn Session> = Box::new(session);
-            b
-        })
+        session_shr_ptr
     }
 
     /// Return true if we're in a state where it's OK to clone. For example,
