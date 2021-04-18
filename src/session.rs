@@ -117,7 +117,12 @@ pub trait Session: DerefMut<Target = SessionInner> {
     fn on_create_task(&self, t: TaskSharedPtr);
 
     /// NOTE: called Session::copy_state_to() in rr.
-    fn copy_state_to_session(&self, _dest: &SessionInner, _emu_fs: &EmuFs, _dest_emu_fs: EmuFs) {
+    fn copy_state_to_session(
+        &self,
+        _dest: &mut SessionInner,
+        _emu_fs: &EmuFs,
+        _dest_emu_fs: &mut EmuFs,
+    ) {
         unimplemented!()
     }
 

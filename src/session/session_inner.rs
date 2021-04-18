@@ -36,6 +36,8 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
+static NONCE: AtomicUsize = AtomicUsize::new(1);
+
 #[derive(Clone)]
 pub struct BreakStatus {
     /// The triggering Task. This may be different from session->current_task()
@@ -171,6 +173,31 @@ pub(super) struct AddressSpaceClone {
 #[derive(Clone)]
 pub(super) struct CloneCompletion {
     pub address_spaces: Vec<AddressSpaceClone>,
+}
+
+impl Clone for SessionInner {
+    /// This does the job of Session::Session(Session& other) in rr
+    fn clone(&self) -> Self {
+        SessionInner {
+            statistics_: self.statistics_.clone(),
+            next_task_serial_: self.next_task_serial_.clone(),
+            next_task_stable_serial_: self.next_task_stable_serial_.clone(),
+            done_initial_exec_: self.done_initial_exec_.clone(),
+            visible_execution_: self.visible_execution_.clone(),
+            tracee_socket: self.tracee_socket.clone(),
+            tracee_socket_fd_number: self.tracee_socket_fd_number.clone(),
+            ticks_semantics_: self.ticks_semantics_,
+            unique_id: NONCE.fetch_add(1, Ordering::SeqCst),
+            // Implied
+            weak_self: Default::default(),
+            vm_map: Default::default(),
+            task_map: Default::default(),
+            thread_group_map: Default::default(),
+            clone_completion: Default::default(),
+            spawned_task_error_fd_: Default::default(),
+            syscall_seccomp_ordering_: Default::default(),
+        }
+    }
 }
 
 /// Sessions track the global state of a set of tracees corresponding
@@ -385,7 +412,6 @@ impl SessionInner {
     }
 
     pub(super) fn new() -> SessionInner {
-        static NONCE: AtomicUsize = AtomicUsize::new(1);
         let s = SessionInner {
             unique_id: NONCE.fetch_add(1, Ordering::SeqCst),
             weak_self: Default::default(),

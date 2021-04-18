@@ -14,7 +14,7 @@ use std::os::raw::c_int;
 /// that cause instruction sequences related to CPUID to be optimized,
 /// eliminating the user-space execution of a conditional branch between two
 /// CPUID instructions (in some circumstances).
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct CPUIDBugDetector {
     trace_rcb_count_at_last_geteuid: u64,
     actual_rcb_count_at_last_geteuid: u64,

@@ -275,20 +275,23 @@ pub struct EmuFs {
 }
 
 impl EmuFs {
-    /// Create and return a new emufs.
+    /// Create and return a new emufs
+    /// @TODO Is this method really needed?
     pub fn create() -> EmuFsSharedPtr {
         EmuFs::new()
     }
 
-    /// Note that this is a NOT pub
+    /// Note that this is NOT pub
     fn new() -> EmuFsSharedPtr {
-        let fs = EmuFs {
+        let mut fs = EmuFs {
             files: HashMap::new(),
             weak_self: Weak::new(),
         };
-        let shared_fs = Rc::new(RefCell::new(fs));
-        shared_fs.borrow_mut().weak_self = Rc::downgrade(&shared_fs);
-        shared_fs
+
+        Rc::new_cyclic(move |w| {
+            fs.weak_self = w.clone();
+            RefCell::new(fs)
+        })
     }
 
     /// Return the EmuFile for `recorded_map`, which must exist or this won't

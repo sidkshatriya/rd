@@ -381,6 +381,27 @@ impl Drop for ReplaySession {
     }
 }
 
+impl Clone for ReplaySession {
+    fn clone(&self) -> Self {
+        ReplaySession {
+            session_inner: self.as_session_inner().clone(),
+            emu_fs: EmuFs::create(),
+            trace_in: self.trace_in.clone(),
+            trace_frame: self.trace_frame.clone(),
+            current_step: self.current_step.clone(),
+            ticks_at_start_of_event: self.ticks_at_start_of_event.clone(),
+            cpuid_bug_detector: self.cpuid_bug_detector.clone(),
+            last_siginfo_: self.last_siginfo_.clone(),
+            flags_: self.flags_,
+            fast_forward_status: self.fast_forward_status.clone(),
+            trace_start_time: self.trace_start_time.clone(),
+            // Implied
+            syscall_bp_vm: Default::default(),
+            syscall_bp_addr: Default::default(),
+        }
+    }
+}
+
 impl ReplaySession {
     /// Returns true if the next step for this session is to exit a syscall with
     /// the given number.
@@ -422,7 +443,27 @@ impl ReplaySession {
     ///
     /// DIFF NOTE: Simply called clone() in rr
     pub fn clone_replay(&self) -> SessionSharedPtr {
-        unimplemented!()
+        log!(LogDebug, "Deepforking ReplaySession {} ...", self.unique_id);
+
+        self.finish_initializing();
+        self.clear_syscall_bp();
+
+        let mut session = self.clone();
+        log!(LogDebug, "  deepfork session is {}", session.unique_id);
+
+        let emufs = self.emu_fs.clone();
+        let session_emufs = session.emu_fs.clone();
+        self.copy_state_to_session(
+            &mut session,
+            &emufs.borrow(),
+            &mut session_emufs.borrow_mut(),
+        );
+
+        Rc::new_cyclic(move |w| {
+            session.weak_self = w.clone();
+            let b: Box<dyn Session> = Box::new(session);
+            b
+        })
     }
 
     /// Return true if we're in a state where it's OK to clone. For example,
