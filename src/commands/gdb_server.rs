@@ -31,9 +31,10 @@ use crate::{
         diversion_session::DiversionSession,
         replay_session::{ReplayResult, ReplaySession, ReplayStatus},
         session_inner::{BreakStatus, RunCommand},
-        task::{Task, TaskSharedPtr},
+        task::{replay_task::ReplayTask, Task, TaskSharedPtr},
         Session, SessionSharedPtr, SessionSharedWeakPtr,
     },
+    sig,
     sig::Sig,
     taskish_uid::{TaskUid, ThreadGroupUid},
     thread_db::ThreadDb,
@@ -52,7 +53,7 @@ use nix::{
     Error,
 };
 use std::{
-    cell::{Ref, RefMut},
+    cell::{Ref, RefCell, RefMut},
     cmp::min,
     collections::{HashMap, HashSet},
     convert::{TryFrom, TryInto},
@@ -152,11 +153,13 @@ impl Checkpoint {
     }
 }
 
+pub type GdbConnectionSharedPtr = Rc<RefCell<GdbConnection>>;
+
 pub struct GdbServer {
     target: Target,
     /// dbg is initially null. Once the debugger connection is established, it
     /// never changes.
-    dbg: Option<Box<GdbConnection>>,
+    dbg: Option<GdbConnectionSharedPtr>,
     /// When dbg is non-null, the ThreadGroupUid of the task being debugged. Never
     /// changes once the connection is established --- we don't currently
     /// support switching gdb between debuggee processes.
@@ -196,12 +199,12 @@ pub struct GdbServer {
 }
 
 impl GdbServer {
-    fn dbg_unwrap(&self) -> &GdbConnection {
-        &*self.dbg.as_ref().unwrap()
+    fn dbg_unwrap(&self) -> Ref<GdbConnection> {
+        self.dbg.as_ref().unwrap().borrow()
     }
 
-    fn dbg_mut_unwrap(&mut self) -> &mut GdbConnection {
-        &mut *self.dbg.as_mut().unwrap()
+    fn dbg_unwrap_mut(&mut self) -> RefMut<GdbConnection> {
+        self.dbg.as_ref().unwrap().borrow_mut()
     }
 
     pub fn timeline_unwrap(&self) -> Ref<ReplayTimeline> {
@@ -236,9 +239,9 @@ impl GdbServer {
         }
     }
 
-    fn new_from(dbg: Box<GdbConnection>, t: &dyn Task) -> GdbServer {
+    fn new_from(dbg: GdbConnection, t: &dyn Task) -> GdbServer {
         GdbServer {
-            dbg: Some(dbg),
+            dbg: Some(Rc::new(RefCell::new(dbg))),
             debuggee_tguid: t.thread_group().borrow().tguid(),
             last_continue_tuid: t.tuid(),
             last_query_tuid: Default::default(),
@@ -395,11 +398,11 @@ impl GdbServer {
 
         loop {
             log!(LogDebug, "initializing debugger connection");
-            self.dbg = Some(await_connection(
+            self.dbg = Some(Rc::new(RefCell::new(await_connection(
                 &**t,
                 &listen_fd,
                 GdbConnectionFeatures::default(),
-            ));
+            ))));
             self.activate_debugger();
 
             // @TODO Check this
@@ -542,7 +545,7 @@ impl GdbServer {
             rs.push(GdbServer::get_reg(regs, extra_regs, r));
             r = (r + 1).unwrap();
         }
-        self.dbg_mut_unwrap().reply_get_regs(&rs);
+        self.dbg_unwrap_mut().reply_get_regs(&rs);
     }
 
     fn maybe_intercept_mem_request(target: &dyn Task, req: &GdbRequest, result: &mut [u8]) {
@@ -705,7 +708,7 @@ impl GdbServer {
                         println!(" {}", i);
                     }
                     println!();
-                    self.dbg_mut_unwrap().notify_restart_failed();
+                    self.dbg_unwrap_mut().notify_restart_failed();
                     return;
                 }
                 Some(c) => {
@@ -777,20 +780,186 @@ impl GdbServer {
         self.activate_debugger();
     }
 
-    fn process_debugger_requests(_state: Option<ReportState>) -> GdbRequest {
+    fn process_debugger_requests(&self, _state: Option<ReportState>) -> GdbRequest {
         unimplemented!();
     }
 
-    fn detach_or_restart(_req: &GdbRequest, _s: &mut ContinueOrStop) -> bool {
+    fn detach_or_restart(&self, _req: &GdbRequest, _s: &mut ContinueOrStop) -> bool {
         unimplemented!();
     }
 
-    fn handle_exited_state(_last_resume_request: &GdbRequest) -> ContinueOrStop {
+    fn handle_exited_state(&self, _last_resume_request: &GdbRequest) -> ContinueOrStop {
         unimplemented!();
     }
 
-    fn debug_one_step(&self, _last_resume_request: &mut GdbRequest) -> ContinueOrStop {
-        unimplemented!();
+    fn debug_one_step(&mut self, last_resume_request: &mut GdbRequest) -> ContinueOrStop {
+        let mut result: ReplayResult = Default::default();
+        let mut req: GdbRequest;
+
+        if self.in_debuggee_end_state {
+            // Treat the state where the last thread is about to exit like
+            // termination.
+            req = self.process_debugger_requests(None);
+            // If it's a forward execution request, fake the exited state.
+            if req.is_resume_request() && req.cont().run_direction == RunDirection::RunForward {
+                if self.interrupt_pending {
+                    // Just process this. We're getting it after a restart.
+                } else {
+                    return self.handle_exited_state(last_resume_request);
+                }
+            } else {
+                if req.type_ != DREQ_DETACH {
+                    self.in_debuggee_end_state = false;
+                }
+            }
+            // Otherwise (e.g. detach, restart, interrupt or reverse-exec) process
+            // the request as normal.
+        } else if !self.interrupt_pending || last_resume_request.type_ == DREQ_NONE {
+            req = self.process_debugger_requests(None);
+        } else {
+            req = last_resume_request.clone();
+        }
+
+        let mut s: ContinueOrStop = Default::default();
+        if self.detach_or_restart(&req, &mut s) {
+            *last_resume_request = GdbRequest::default();
+            return s;
+        }
+
+        if req.is_resume_request() {
+            *last_resume_request = req.clone();
+        } else {
+            debug_assert_eq!(req.type_, DREQ_INTERRUPT);
+            self.interrupt_pending = true;
+            req = last_resume_request.clone();
+            debug_assert!(req.is_resume_request());
+        }
+
+        if self.interrupt_pending {
+            let t = self
+                .timeline_unwrap()
+                .current_session()
+                .current_task()
+                .unwrap();
+            if t.thread_group().borrow().tguid() == self.debuggee_tguid {
+                self.interrupt_pending = false;
+                let threadid = get_threadid(&**t);
+                let maybe_sig = if self.in_debuggee_end_state {
+                    Some(sig::SIGKILL)
+                } else {
+                    None
+                };
+                self.dbg_unwrap_mut()
+                    .notify_stop(threadid, maybe_sig, RemotePtr::null());
+                self.stop_siginfo = Default::default();
+                return ContinueOrStop::ContinueDebugging;
+            }
+        }
+
+        if req.cont().run_direction == RunDirection::RunForward {
+            if is_in_exec(&self.timeline_unwrap()).is_some()
+                && self
+                    .timeline_unwrap()
+                    .current_session()
+                    .current_task()
+                    .unwrap()
+                    .thread_group()
+                    .borrow()
+                    .tguid()
+                    == self.debuggee_tguid
+            {
+                // Don't go any further forward. maybe_notify_stop will generate a
+                // stop.
+                result = ReplayResult::default();
+            } else {
+                let mut signal_to_deliver: Option<Sig> = None;
+                let task = self
+                    .timeline_unwrap()
+                    .current_session()
+                    .current_task()
+                    .unwrap();
+                let command: RunCommand =
+                    compute_run_command_from_actions(&**task, &req, &mut signal_to_deliver);
+                // Ignore gdb's |signal_to_deliver|; we just have to follow the replay.
+                result = self
+                    .timeline_unwrap_mut()
+                    .replay_step_forward(command, self.target.event);
+            }
+            if result.status == ReplayStatus::ReplayExited {
+                return self.handle_exited_state(&last_resume_request);
+            }
+        } else {
+            let mut allowed_tasks: Vec<AllowedTasks> = Vec::new();
+            // Convert the tids in GdbContActions into TaskUids to avoid issues
+            // if tids get reused.
+            let command: RunCommand = compute_run_command_for_reverse_exec(
+                self.timeline_unwrap().current_session(),
+                self.debuggee_tguid,
+                &req,
+                &mut allowed_tasks,
+            );
+            let debugee_tguid = self.debuggee_tguid;
+            let stop_filter = move |t: &ReplayTask| -> bool {
+                if t.thread_group().borrow().tguid() != debugee_tguid {
+                    return false;
+                }
+                // If gdb's requested actions don't allow the task to run, we still
+                // let it run (we can't do anything else, since we're replaying), but
+                // we won't report stops in that task.
+                for a in &allowed_tasks {
+                    if a.task.tid() == 0 || a.task == t.tuid() {
+                        return true;
+                    }
+                }
+                return false;
+            };
+            let gdb_connection = self.dbg.as_ref().unwrap().clone();
+            let interrupt_check = move || -> bool { gdb_connection.borrow_mut().sniff_packet() };
+            match command {
+                RunCommand::RunContinue => {
+                    result = self
+                        .timeline_unwrap_mut()
+                        .reverse_continue(&stop_filter, &interrupt_check);
+                }
+                RunCommand::RunSinglestep => {
+                    let t = self
+                        .timeline_unwrap()
+                        .current_session()
+                        .find_task_from_task_uid(self.last_continue_tuid)
+                        .unwrap();
+                    result = self.timeline_unwrap_mut().reverse_singlestep(
+                        self.last_continue_tuid,
+                        t.tick_count(),
+                        &stop_filter,
+                        &interrupt_check,
+                    );
+                }
+                _ => debug_assert!(false),
+            }
+
+            if result.status == ReplayStatus::ReplayExited {
+                return self.handle_exited_state(last_resume_request);
+            }
+        }
+        if !req.suppress_debugger_stop {
+            self.maybe_notify_stop(&req, &result.break_status);
+        }
+        if req.cont().run_direction == RunDirection::RunForward
+            && is_last_thread_exit(&result.break_status)
+            && result
+                .break_status
+                .task
+                .upgrade()
+                .unwrap()
+                .thread_group()
+                .borrow()
+                .tguid()
+                == self.debuggee_tguid
+        {
+            self.in_debuggee_end_state = true;
+        }
+
+        ContinueOrStop::ContinueDebugging
     }
 
     /// If 'req' is a reverse-singlestep, try to obtain the resulting state
@@ -890,7 +1059,7 @@ impl GdbServer {
             // that might have triggered before resuming.
             let signo = self.stop_siginfo.si_signo;
             let threadid = get_threadid(&**t);
-            self.dbg_mut_unwrap()
+            self.dbg_unwrap_mut()
                 .notify_stop(threadid, Sig::try_from(signo).ok(), watch_addr);
             self.last_continue_tuid = t.tuid();
             self.last_query_tuid = t.tuid();
@@ -915,6 +1084,23 @@ impl GdbServer {
     fn open_file(_session: &dyn Session, _file_name: &OsStr) -> i32 {
         unimplemented!()
     }
+}
+
+fn compute_run_command_for_reverse_exec(
+    _current_session: &ReplaySession,
+    _debuggee_tguid: ThreadGroupUid,
+    _req: &GdbRequest,
+    _allowed_tasks: &mut Vec<AllowedTasks>,
+) -> RunCommand {
+    unimplemented!()
+}
+
+fn compute_run_command_from_actions(
+    _task: &dyn Task,
+    _req: &GdbRequest,
+    _signal_to_deliver: &mut Option<Sig>,
+) -> RunCommand {
+    unimplemented!()
 }
 
 fn needs_target(option: &OsStr) -> bool {
@@ -957,6 +1143,13 @@ enum ReportState {
 enum ContinueOrStop {
     ContinueDebugging,
     StopDebugging,
+}
+
+impl Default for ContinueOrStop {
+    fn default() -> Self {
+        // Purely arbitrary
+        Self::ContinueDebugging
+    }
 }
 
 lazy_static! {
@@ -1106,8 +1299,8 @@ fn await_connection(
     t: &dyn Task,
     listen_fd: &ScopedFd,
     features: GdbConnectionFeatures,
-) -> Box<GdbConnection> {
-    let mut dbg = Box::new(GdbConnection::new(t.tgid(), features));
+) -> GdbConnection {
+    let mut dbg = GdbConnection::new(t.tgid(), features);
     let arch = t.arch();
     dbg.set_cpu_features(get_cpu_features(arch));
     dbg.await_debugger(listen_fd);
@@ -1312,4 +1505,10 @@ fn push_target_remote_cmd(vec: &mut Vec<OsString>, host: &str, port: u16) {
     // in some broken environments may not actually resolve to the local host
     write!(ss, "target extended-remote {}:{}", host, port).unwrap();
     vec.push(OsString::from_vec(ss));
+}
+
+struct AllowedTasks {
+    /// tid 0 means 'any member of debuggee_tguid'
+    task: TaskUid,
+    command: RunCommand,
 }
