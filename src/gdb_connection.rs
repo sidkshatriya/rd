@@ -529,7 +529,7 @@ pub mod gdb_request {
         /// On second thoughts might it be a good idea to keep len? Gdb explicitly specifies len and
         /// data is sent e.g. qSearch
         pub len: usize,
-        /// For SET_MEM requests, the |len| raw bytes that are to be written.
+        /// For SET_MEM requests, the `len` raw bytes that are to be written.
         /// For SEARCH_MEM requests, the bytes to search for.
         pub data: Vec<u8>,
     }
@@ -876,7 +876,7 @@ impl GdbConnection {
         self.consume_request();
     }
 
-    /// Reply with the target thread's `auxv` pairs. |auxv.empty()|
+    /// Reply with the target thread's `auxv` pairs. `auxv.empty()`
     /// if there was an error reading the auxiliary vector.
     pub fn reply_get_auxv(&mut self, auxv: &[u8]) {
         debug_assert_eq!(DREQ_GET_AUXV, self.req.type_);
@@ -903,7 +903,7 @@ impl GdbConnection {
         self.consume_request();
     }
 
-    /// |alive| is true if the requested thread is alive, false if dead.
+    /// `alive` is true if the requested thread is alive, false if dead.
     pub fn reply_get_is_thread_alive(&mut self, alive: bool) {
         debug_assert_eq!(DREQ_GET_IS_THREAD_ALIVE, self.req.type_);
 
@@ -916,7 +916,7 @@ impl GdbConnection {
         self.consume_request();
     }
 
-    /// |info| is a string containing data about the request target that
+    /// `info` is a string containing data about the request target that
     /// might be relevant to the debugger user.
     pub fn reply_get_thread_extra_info(&mut self, info: &OsStr) {
         debug_assert_eq!(DREQ_GET_THREAD_EXTRA_INFO, self.req.type_);
@@ -1282,7 +1282,7 @@ impl GdbConnection {
         self.cpu_features_
     }
 
-    /// Wait for a debugger client to connect to |dbg|'s socket.  Blocks
+    /// Wait for a debugger client to connect to `dbg`'s socket.  Blocks
     /// indefinitely.
     pub fn await_debugger(&mut self, listen_fd: &ScopedFd) {
         self.sock_fd = ScopedFd::from_raw(accept(listen_fd.as_raw()).unwrap());
@@ -2672,7 +2672,7 @@ fn print_reg_value(reg: &GdbRegisterValue, buf: &mut Vec<u8>) {
     }
 }
 
-/// Translate linux-x86 |sig| to gdb's internal numbering.  Translation
+/// Translate linux-x86 `sig` to gdb's internal numbering.  Translation
 /// made according to gdb/include/gdb/signals.def.
 fn to_gdb_signum(maybe_sig: Option<Sig>) -> i32 {
     let sig = match maybe_sig {
@@ -2855,7 +2855,7 @@ fn read_target_desc(file_name: &[u8]) -> Result<Vec<u8>, Error> {
     Ok(text_buf)
 }
 
-/// Read the encoded register value in |strp| into |reg|.  |strp| may
+/// Read the encoded register value in `strp` into `reg`.  `strp` may
 /// be mutated.
 fn read_reg_value(strp: &mut &[u8], reg: &mut GdbRegisterValue) {
     let mut numstr = *strp;

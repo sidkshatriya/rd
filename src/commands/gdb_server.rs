@@ -831,8 +831,8 @@ impl GdbServer {
         unimplemented!();
     }
 
-    /// If |break_status| indicates a stop that we should report to gdb,
-    /// report it. |req| is the resume request that generated the stop.
+    /// If `break_status` indicates a stop that we should report to gdb,
+    /// report it. `req` is the resume request that generated the stop.
     fn maybe_notify_stop(&mut self, req: &GdbRequest, break_status: &BreakStatus) {
         let mut do_stop = false;
         let mut watch_addr: RemotePtr<Void> = Default::default();
