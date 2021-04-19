@@ -5,17 +5,17 @@ use crate::{
     commands::gdb_command_handler::GdbCommandHandler,
     extra_registers::ExtraRegisters,
     gdb_connection::{
-        GdbConnection, GdbConnectionFeatures, GdbRegisterValue, GdbRegisterValueData, GdbRequest,
-        GdbRequestType, GdbRestartType, GdbThreadId, DREQ_CONT, DREQ_DETACH, DREQ_FILE_CLOSE,
-        DREQ_FILE_OPEN, DREQ_FILE_PREAD, DREQ_FILE_SETFS, DREQ_GET_AUXV, DREQ_GET_CURRENT_THREAD,
-        DREQ_GET_EXEC_FILE, DREQ_GET_IS_THREAD_ALIVE, DREQ_GET_MEM, DREQ_GET_OFFSETS, DREQ_GET_REG,
-        DREQ_GET_REGS, DREQ_GET_STOP_REASON, DREQ_GET_THREAD_EXTRA_INFO, DREQ_GET_THREAD_LIST,
-        DREQ_INTERRUPT, DREQ_NONE, DREQ_QSYMBOL, DREQ_RD_CMD, DREQ_READ_SIGINFO,
-        DREQ_REMOVE_HW_BREAK, DREQ_REMOVE_RDWR_WATCH, DREQ_REMOVE_RD_WATCH, DREQ_REMOVE_SW_BREAK,
-        DREQ_REMOVE_WR_WATCH, DREQ_RESTART, DREQ_SEARCH_MEM, DREQ_SET_CONTINUE_THREAD,
-        DREQ_SET_HW_BREAK, DREQ_SET_MEM, DREQ_SET_QUERY_THREAD, DREQ_SET_RDWR_WATCH,
-        DREQ_SET_RD_WATCH, DREQ_SET_REG, DREQ_SET_SW_BREAK, DREQ_SET_WR_WATCH, DREQ_TLS,
-        DREQ_WRITE_SIGINFO,
+        GdbActionType, GdbConnection, GdbConnectionFeatures, GdbRegisterValue,
+        GdbRegisterValueData, GdbRequest, GdbRequestType, GdbRestartType, GdbThreadId, DREQ_CONT,
+        DREQ_DETACH, DREQ_FILE_CLOSE, DREQ_FILE_OPEN, DREQ_FILE_PREAD, DREQ_FILE_SETFS,
+        DREQ_GET_AUXV, DREQ_GET_CURRENT_THREAD, DREQ_GET_EXEC_FILE, DREQ_GET_IS_THREAD_ALIVE,
+        DREQ_GET_MEM, DREQ_GET_OFFSETS, DREQ_GET_REG, DREQ_GET_REGS, DREQ_GET_STOP_REASON,
+        DREQ_GET_THREAD_EXTRA_INFO, DREQ_GET_THREAD_LIST, DREQ_INTERRUPT, DREQ_NONE, DREQ_QSYMBOL,
+        DREQ_RD_CMD, DREQ_READ_SIGINFO, DREQ_REMOVE_HW_BREAK, DREQ_REMOVE_RDWR_WATCH,
+        DREQ_REMOVE_RD_WATCH, DREQ_REMOVE_SW_BREAK, DREQ_REMOVE_WR_WATCH, DREQ_RESTART,
+        DREQ_SEARCH_MEM, DREQ_SET_CONTINUE_THREAD, DREQ_SET_HW_BREAK, DREQ_SET_MEM,
+        DREQ_SET_QUERY_THREAD, DREQ_SET_RDWR_WATCH, DREQ_SET_RD_WATCH, DREQ_SET_REG,
+        DREQ_SET_SW_BREAK, DREQ_SET_WR_WATCH, DREQ_TLS, DREQ_WRITE_SIGINFO,
     },
     gdb_expression::{GdbExpression, GdbExpressionValue},
     gdb_register::{GdbRegister, DREG_64_YMM15H, DREG_ORIG_EAX, DREG_ORIG_RAX, DREG_YMM7H},
@@ -24,7 +24,7 @@ use crate::{
     registers::Registers,
     remote_code_ptr::RemoteCodePtr,
     remote_ptr::{RemotePtr, Void},
-    replay_timeline::{self, ReplayTimeline, ReplayTimelineSharedPtr, RunDirection},
+    replay_timeline::{self, Mark, ReplayTimeline, ReplayTimelineSharedPtr, RunDirection},
     scoped_fd::{ScopedFd, ScopedFdSharedPtr, ScopedFdSharedWeakPtr},
     session::{
         address_space::{memory_range::MemoryRange, MappingFlags, WatchType},
@@ -791,7 +791,7 @@ impl GdbServer {
             let state = maybe_state.unwrap_or(ReportState::ReportNormal);
             let mut req = self.dbg_unwrap_mut().get_request();
             req.suppress_debugger_stop = false;
-            self.try_lazy_reverse_singlesteps(&req);
+            self.try_lazy_reverse_singlesteps(&mut req);
 
             if req.type_ == DREQ_READ_SIGINFO {
                 let mut si_bytes = vec![0u8; req.mem().len];
@@ -1042,8 +1042,60 @@ impl GdbServer {
     /// reverse-singlestep/get-registers pairs, and this makes those much
     /// more efficient by avoiding having to actually reverse-singlestep the
     /// session.
-    fn try_lazy_reverse_singlesteps(&self, _req: &GdbRequest) {
-        unimplemented!();
+    fn try_lazy_reverse_singlesteps(&mut self, req: &mut GdbRequest) {
+        if !self.timeline_unwrap().is_running() {
+            return;
+        }
+
+        let mut now: Option<Mark> = None;
+        let mut need_seek = false;
+        let maybe_t = self.timeline_unwrap().current_session().current_task();
+        while maybe_t.is_some()
+            && req.type_ == DREQ_CONT
+            && req.cont().run_direction == RunDirection::RunBackward
+            && req.cont().actions.len() == 1
+            && req.cont().actions[0].type_ == GdbActionType::ActionStep
+            && req.cont().actions[0].maybe_signal_to_deliver.is_none()
+            && matches_threadid(&***maybe_t.as_ref().unwrap(), req.cont().actions[0].target)
+            && !req.suppress_debugger_stop
+        {
+            let t = maybe_t.as_ref().unwrap();
+            if now.is_none() {
+                now = Some(self.timeline_unwrap_mut().mark());
+            }
+            let previous = self
+                .timeline_unwrap_mut()
+                .lazy_reverse_singlestep(now.as_ref().unwrap(), t.as_replay_task().unwrap());
+            if previous.is_none() {
+                break;
+            }
+
+            now = previous;
+            need_seek = true;
+            let mut break_status = BreakStatus::default();
+            break_status.task = t.weak_self_ptr();
+            break_status.singlestep_complete = true;
+            log!(LogDebug, "  using lazy reverse-singlestep");
+            self.maybe_notify_stop(req, &break_status);
+
+            loop {
+                *req = self.dbg_unwrap_mut().get_request();
+                req.suppress_debugger_stop = false;
+                if req.type_ != DREQ_GET_REGS {
+                    break;
+                }
+                log!(LogDebug, "  using lazy reverse-singlestep registers");
+                self.dispatch_regs_request(
+                    &now.as_ref().unwrap().regs(),
+                    &now.as_ref().unwrap().extra_regs(),
+                );
+            }
+        }
+
+        if need_seek {
+            self.timeline_unwrap_mut()
+                .seek_to_mark(now.as_ref().unwrap());
+        }
     }
 
     /// Process debugger requests made in |diversion_session| until action needs
