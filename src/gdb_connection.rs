@@ -196,6 +196,8 @@ pub enum GdbRequestValue {
     GdbRequestFileOpen(gdb_request::FileOpen),
     GdbRequestFilePread(gdb_request::FilePread),
     GdbRequestFileClose(gdb_request::FileClose),
+    GdbRequestTarget(gdb_request::Target),
+    GdbRequestNoAddlData,
 }
 
 impl Default for GdbRequestValue {
@@ -226,6 +228,19 @@ impl GdbRequest {
             DREQ_FILE_OPEN => GdbRequestValue::GdbRequestFileOpen(Default::default()),
             DREQ_FILE_PREAD => GdbRequestValue::GdbRequestFilePread(Default::default()),
             DREQ_FILE_CLOSE => GdbRequestValue::GdbRequestFileClose(Default::default()),
+            DREQ_GET_AUXV
+            | DREQ_GET_EXEC_FILE
+            | DREQ_GET_IS_THREAD_ALIVE
+            | DREQ_GET_THREAD_EXTRA_INFO
+            | DREQ_SET_CONTINUE_THREAD
+            | DREQ_SET_QUERY_THREAD => GdbRequestValue::GdbRequestTarget(Default::default()),
+            DREQ_GET_CURRENT_THREAD
+            | DREQ_GET_OFFSETS
+            | DREQ_GET_REGS
+            | DREQ_GET_STOP_REASON
+            | DREQ_GET_THREAD_LIST
+            | DREQ_INTERRUPT
+            | DREQ_DETACH => GdbRequestValue::GdbRequestNoAddlData,
             _ => panic!("Unknown DREQ: {}", type_),
         };
 
@@ -514,7 +529,7 @@ impl GdbContAction {
 }
 
 pub mod gdb_request {
-    use super::{GdbContAction, GdbRestartType};
+    use super::{GdbContAction, GdbRestartType, GdbThreadId};
     use crate::{
         remote_ptr::{RemotePtr, Void},
         replay_timeline::RunDirection,
@@ -560,6 +575,7 @@ pub mod gdb_request {
     pub struct Tls {
         pub offset: usize,
         pub load_module: RemotePtr<Void>,
+        pub target: GdbThreadId,
     }
 
     #[derive(Default, Clone)]
@@ -595,6 +611,11 @@ pub mod gdb_request {
     #[derive(Default, Clone)]
     pub struct FileClose {
         pub fd: i32,
+    }
+
+    #[derive(Default, Clone)]
+    pub struct Target {
+        pub thread_id: GdbThreadId,
     }
 }
 
