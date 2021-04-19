@@ -63,6 +63,7 @@ use std::{
     mem,
     os::unix::ffi::{OsStrExt, OsStringExt},
     path::{Path, PathBuf},
+    ptr,
     rc::Rc,
 };
 
@@ -571,7 +572,12 @@ impl GdbServer {
     /// Callers should implement any special semantics they want for
     /// particular debugger requests before calling this helper, to do
     /// generic processing.
-    fn dispatch_debugger_request(_session: &dyn Session, _req: &GdbRequest, _state: ReportState) {
+    fn dispatch_debugger_request(
+        &self,
+        _session: &dyn Session,
+        _req: &GdbRequest,
+        _state: ReportState,
+    ) {
         unimplemented!();
     }
 
@@ -780,8 +786,73 @@ impl GdbServer {
         self.activate_debugger();
     }
 
-    fn process_debugger_requests(&self, _state: Option<ReportState>) -> GdbRequest {
-        unimplemented!();
+    fn process_debugger_requests(&mut self, maybe_state: Option<ReportState>) -> GdbRequest {
+        loop {
+            let state = maybe_state.unwrap_or(ReportState::ReportNormal);
+            let mut req = self.dbg_unwrap_mut().get_request();
+            req.suppress_debugger_stop = false;
+            self.try_lazy_reverse_singlesteps(&req);
+
+            if req.type_ == DREQ_READ_SIGINFO {
+                let mut si_bytes = vec![0u8; req.mem().len];
+                let num_bytes = min(si_bytes.len(), mem::size_of_val(&self.stop_siginfo));
+                unsafe {
+                    ptr::copy_nonoverlapping(
+                        &self.stop_siginfo as *const siginfo_t as *const u8,
+                        si_bytes.as_mut_ptr(),
+                        num_bytes,
+                    );
+                }
+                self.dbg_unwrap_mut().reply_read_siginfo(&si_bytes);
+
+                // READ_SIGINFO is usually the start of a diversion. It can also be
+                // triggered by "print $_siginfo" but that is rare so we just assume it's
+                // a diversion start; if "print $_siginfo" happens we'll print the correct
+                // siginfo and then incorrectly start a diversion and go haywire :-(.
+                // Ideally we'd come up with a better way to detect diversions so that
+                // "print $_siginfo" works.
+                req = self.divert(self.timeline_unwrap().current_session());
+                if req.type_ == DREQ_NONE {
+                    continue;
+                }
+                // Carry on to process the request that was rejected by
+                // the diversion session
+            }
+
+            if req.is_resume_request() {
+                if let Some(t) = self
+                    .current_session()
+                    .find_task_from_task_uid(self.last_continue_tuid)
+                {
+                    maybe_singlestep_for_event(&**t, &req);
+                }
+                return req;
+            }
+
+            if req.type_ == DREQ_INTERRUPT {
+                log!(LogDebug, "  request to interrupt");
+                return req;
+            }
+
+            if req.type_ == DREQ_RESTART {
+                // Debugger client requested that we restart execution
+                // from the beginning.  Restart our debug session.
+                log!(
+                    LogDebug,
+                    "  request to restart at event {}",
+                    req.restart().param
+                );
+                return req;
+            }
+            if req.type_ == DREQ_DETACH {
+                log!(LogDebug, "  debugger detached");
+                self.dbg_unwrap_mut().reply_detach();
+                return req;
+            }
+
+            let session = self.current_session();
+            self.dispatch_debugger_request(&**session, &req, state);
+        }
     }
 
     fn detach_or_restart(&self, _req: &GdbRequest, _s: &mut ContinueOrStop) -> bool {
@@ -971,7 +1042,7 @@ impl GdbServer {
     /// reverse-singlestep/get-registers pairs, and this makes those much
     /// more efficient by avoiding having to actually reverse-singlestep the
     /// session.
-    fn try_lazy_reverse_singlesteps(_req: &GdbRequest) {
+    fn try_lazy_reverse_singlesteps(&self, _req: &GdbRequest) {
         unimplemented!();
     }
 
@@ -996,7 +1067,7 @@ impl GdbServer {
     /// request made that wasn't handled by the diversion session.  That
     /// is, the first request that should be handled by |replay| upon
     /// resuming execution in that session.
-    fn divert(_replay: &ReplaySession) -> GdbRequest {
+    fn divert(&self, _replay: &ReplaySession) -> GdbRequest {
         unimplemented!();
     }
 
@@ -1084,6 +1155,10 @@ impl GdbServer {
     fn open_file(_session: &dyn Session, _file_name: &OsStr) -> i32 {
         unimplemented!()
     }
+}
+
+fn maybe_singlestep_for_event(_t: &dyn Task, _req: &GdbRequest) -> () {
+    unimplemented!()
 }
 
 fn compute_run_command_for_reverse_exec(

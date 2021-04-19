@@ -722,7 +722,7 @@ impl GdbConnection {
     /// steps.  A new request may need to be serviced.
     ///
     /// DIFF NOTE: @TODO? In rr this returns a GdbRequest, here we return a reference
-    pub fn get_request(&mut self) -> &GdbRequest {
+    pub fn get_request(&mut self) -> GdbRequest {
         if DREQ_RESTART == self.req.type_ {
             log!(LogDebug, "consuming RESTART request");
             self.notify_restart();
@@ -732,7 +732,7 @@ impl GdbConnection {
             // but that's OK.
             self.req = GdbRequest::new(DREQ_GET_STOP_REASON);
             self.req.target = self.query_thread;
-            return &self.req;
+            return self.req.clone();
         }
 
         // Can't ask for the next request until you've satisfied the
@@ -745,7 +745,7 @@ impl GdbConnection {
             // There's no new request data available and gdb has
             // already asked us to resume.  OK, do that (or keep
             // doing that) now.
-            return &self.req;
+            return self.req.clone();
         }
 
         loop {
@@ -756,13 +756,13 @@ impl GdbConnection {
 
             if !self.connection_alive_ {
                 self.req = GdbRequest::new(DREQ_DETACH);
-                return &self.req;
+                return self.req.clone();
             }
 
             if self.process_packet() {
                 // We couldn't process the packet internally,
                 // so the target has to do something.
-                return &self.req;
+                return self.req.clone();
             }
 
             // The packet we got was "internal", gdb details.
