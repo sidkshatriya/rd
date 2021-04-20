@@ -543,9 +543,16 @@ impl GdbServer {
         };
         let mut rs: Vec<GdbRegisterValue> = Vec::new();
         let mut r = GdbRegister::try_from(0).unwrap();
-        while r <= end {
+        loop {
             rs.push(GdbServer::get_reg(regs, extra_regs, r));
-            r = (r + 1).unwrap();
+            if let Ok(res) = r + 1 {
+                if res > end {
+                    break;
+                }
+                r = res;
+            } else {
+                break;
+            }
         }
         self.dbg_unwrap_mut().reply_get_regs(&rs);
     }
@@ -1524,7 +1531,9 @@ impl GdbServer {
     /// Handle GDB file open requests. If we can serve this read request, add
     /// an entry to `files` with the file contents and return our internal
     /// file descriptor.
-    fn open_file(&self, _session: &dyn Session, _file_name: &OsStr) -> i32 {
+    fn open_file(&self, _session: &dyn Session, file_name: &OsStr) -> i32 {
+        log!(LogDebug, "Trying to open {:?}", file_name);
+
         unimplemented!()
     }
 }
