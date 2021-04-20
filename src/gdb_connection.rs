@@ -2118,9 +2118,9 @@ impl GdbConnection {
         }
 
         if name.starts_with(b"File:") {
-            let operation = &payload[..5];
+            let operation = &payload[5..];
             if operation.starts_with(b"open:") {
-                let file_name_end_loc = memchr(b',', &operation[5..]).unwrap();
+                let file_name_end_loc = memchr(b',', operation).unwrap();
                 let file_name = &operation[5..file_name_end_loc];
                 self.req = GdbRequest::new(DREQ_FILE_OPEN);
                 self.req.file_open_mut().file_name = decode_ascii_encoded_hex_str(file_name);
@@ -2662,7 +2662,7 @@ fn decode_ascii_encoded_hex_str(encoded: &[u8]) -> String {
     let enc_len = encoded.len();
     parser_assert_eq!(enc_len % 2, 0);
     let mut decoded_str = String::new();
-    for i in 0..enc_len {
+    for i in 0..enc_len / 2 {
         let enc_byte_str = std::str::from_utf8(&encoded[2 * i..2 * i + 2]).unwrap();
         let c_u8 = u8::from_str_radix(enc_byte_str, 16).unwrap();
         // @TODO Why should this be the case? the hex string is ascii encoded but why

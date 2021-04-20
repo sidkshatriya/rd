@@ -587,7 +587,6 @@ impl GdbServer {
         state: ReportState,
     ) {
         debug_assert!(!req.is_resume_request());
-
         // These requests don't require a target task.
         match req.type_ {
             DREQ_RESTART => {
