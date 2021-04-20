@@ -26,11 +26,11 @@ use nix::{
 };
 use std::{
     convert::TryInto,
-    ffi::OsStr,
+    ffi::{OsStr, OsString},
     fmt::{self, Display, Write as OtherWrite},
     io::Write,
     mem::size_of_val,
-    os::unix::ffi::OsStrExt,
+    os::unix::ffi::{OsStrExt, OsStringExt},
 };
 
 include!(concat!(
@@ -1579,8 +1579,8 @@ impl GdbConnection {
             parser_assert_eq!(b',', args[0]);
             args = &args[1..];
             len = str16_to_usize(args, &mut args).unwrap();
-            // Assert that its not the end
-            parser_assert!(!args.is_empty());
+            // Assert that it's the end
+            parser_assert!(args.is_empty());
         } else {
             parser_assert_eq!(args[0], b':');
             args = &args[1..];
@@ -2874,7 +2874,7 @@ fn read_target_desc(file_name: &[u8]) -> Result<Vec<u8>, Error> {
     path.extend_from_slice(file_name);
     let f = ScopedFd::open_path(path.as_slice(), OFlag::O_RDONLY);
     // DIFF NOTE: This is a debug assert in rr. Why?
-    assert!(f.is_open());
+    assert!(f.is_open(), "Could not open {:?}", OsString::from_vec(path));
     let mut buf = [0u8; 4 * 1024];
     let mut text_buf = Vec::<u8>::with_capacity(4 * 1024);
     loop {
