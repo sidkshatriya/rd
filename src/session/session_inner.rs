@@ -601,7 +601,8 @@ pub struct SessionInner {
     pub(super) weak_self: SessionSharedWeakPtr,
     /// All these members are NOT pub
     pub(super) vm_map: RefCell<AddressSpaceMap>,
-    pub(super) task_map: RefCell<TaskMap>,
+    /// @TODO Need to make this pub to iterate through all tasks in gdb_server.rs for instance
+    pub task_map: RefCell<TaskMap>,
     pub(super) thread_group_map: RefCell<ThreadGroupMap>,
 
     /// If non-None, data required to finish initializing the tasks of this

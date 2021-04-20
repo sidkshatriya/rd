@@ -376,6 +376,15 @@ impl GdbRequest {
             ),
         }
     }
+    pub fn target(&self) -> &gdb_request::Target {
+        match &self.value {
+            GdbRequestValue::GdbRequestTarget(v) => v,
+            _ => panic!(
+                "Unexpected GdbRequestValue enum variant. GdbRequestType was: {}",
+                self.type_
+            ),
+        }
+    }
     pub fn mem_mut(&mut self) -> &mut gdb_request::Mem {
         match &mut self.value {
             GdbRequestValue::GdbRequestMem(v) => v,
@@ -478,6 +487,15 @@ impl GdbRequest {
     pub fn file_close_mut(&mut self) -> &mut gdb_request::FileClose {
         match &mut self.value {
             GdbRequestValue::GdbRequestFileClose(v) => v,
+            _ => panic!(
+                "Unexpected GdbRequestValue enum variant. GdbRequestType was: {}",
+                self.type_
+            ),
+        }
+    }
+    pub fn target_mut(&mut self) -> &mut gdb_request::Target {
+        match &mut self.value {
+            GdbRequestValue::GdbRequestTarget(v) => v,
             _ => panic!(
                 "Unexpected GdbRequestValue enum variant. GdbRequestType was: {}",
                 self.type_

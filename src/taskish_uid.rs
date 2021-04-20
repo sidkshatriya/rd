@@ -5,6 +5,7 @@ use crate::{
 use libc::pid_t;
 use std::{
     cmp::Ordering,
+    fmt,
     hash::{Hash, Hasher},
     marker::PhantomData,
     ops::Deref,
@@ -16,6 +17,12 @@ pub struct TaskishUid<T> {
     tid_: pid_t,
     serial_: u32,
     phantom_data: PhantomData<T>,
+}
+
+impl<T> fmt::Debug for TaskishUid<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "(tid: {}, serial: {})", self.tid_, self.serial_)
+    }
 }
 
 impl<T> Default for TaskishUid<T> {

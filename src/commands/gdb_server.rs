@@ -39,6 +39,7 @@ use crate::{
     taskish_uid::{TaskUid, ThreadGroupUid},
     thread_db::ThreadDb,
     trace::trace_frame::FrameTime,
+    util::read_to_end,
     util::write_all,
     util::{
         cpuid, create_temporary_file, find, flat_env, floor_page_size, open_socket, page_size,
@@ -48,7 +49,7 @@ use crate::{
 };
 use libc::{pid_t, SIGKILL, SIGTRAP};
 use nix::{
-    errno::Errno,
+    errno::{errno, Errno},
     unistd::{execvpe, getpid, read, unlink, write},
     Error,
 };
@@ -573,12 +574,131 @@ impl GdbServer {
     /// particular debugger requests before calling this helper, to do
     /// generic processing.
     fn dispatch_debugger_request(
-        &self,
-        _session: &dyn Session,
-        _req: &GdbRequest,
-        _state: ReportState,
+        &mut self,
+        session: &dyn Session,
+        req: &GdbRequest,
+        state: ReportState,
     ) {
-        unimplemented!();
+        debug_assert!(!req.is_resume_request());
+
+        // These requests don't require a target task.
+        match req.type_ {
+            DREQ_RESTART => {
+                // DIFF NOTE: This is a debug_assert in rr
+                assert!(false);
+            }
+            DREQ_GET_CURRENT_THREAD => {
+                let threadid = get_threadid_from_tuid(session, self.last_continue_tuid);
+                self.dbg_unwrap_mut().reply_get_current_thread(threadid);
+                return;
+            }
+            DREQ_GET_OFFSETS => {
+                // TODO
+                self.dbg_unwrap_mut().reply_get_offsets();
+                return;
+            }
+            DREQ_GET_THREAD_LIST => {
+                let mut tids: Vec<GdbThreadId> = Vec::new();
+                if state != ReportState::ReportThreadsDead {
+                    for (_, t) in session.task_map.borrow().iter() {
+                        let threadid = get_threadid_from_tuid(session, t.tuid());
+                        tids.push(threadid);
+                    }
+                }
+                self.dbg_unwrap_mut().reply_get_thread_list(&tids);
+                return;
+            }
+            DREQ_INTERRUPT => {
+                let maybe_t = session.find_task_from_task_uid(self.last_continue_tuid);
+                assert!(
+                    session.is_diversion(),
+                    "Replay interrupts should be handled at a higher level"
+                );
+                if let Some(t) = maybe_t {
+                    debug_assert_eq!(t.thread_group().borrow().tguid(), self.debuggee_tguid);
+                    let threadid = get_threadid(&**t);
+                    self.dbg_unwrap_mut()
+                        .notify_stop(threadid, None, RemotePtr::null());
+                    self.last_query_tuid = t.tuid();
+                    self.last_continue_tuid = t.tuid();
+                } else {
+                    self.dbg_unwrap_mut().notify_stop(
+                        GdbThreadId::default(),
+                        None,
+                        RemotePtr::null(),
+                    );
+                }
+                self.stop_siginfo = Default::default();
+                return;
+            }
+            DREQ_GET_EXEC_FILE => {
+                // We shouldn't normally receive this since we try to pass the exe file
+                // name on gdb's command line, but the user might start gdb manually
+                // and this is easy to support in some other debugger or
+                // configuration needs it.
+                let mut maybe_t = None;
+                if req.target().thread_id.tid != 0 {
+                    let maybe_tg = session.find_thread_group_from_pid(req.target().thread_id.tid);
+                    if let Some(tg) = maybe_tg {
+                        maybe_t = Some(tg.borrow().task_set().iter().next().unwrap());
+                    }
+                } else {
+                    maybe_t = session.find_task_from_task_uid(self.last_continue_tuid);
+                }
+                if let Some(t) = maybe_t {
+                    self.dbg_unwrap_mut()
+                        .reply_get_exec_file(t.vm().exe_image());
+                } else {
+                    self.dbg_unwrap_mut().reply_get_exec_file(OsStr::new(""));
+                }
+                return;
+            }
+            DREQ_FILE_SETFS => {
+                // Only the filesystem as seen by the remote stub is supported currently
+                self.file_scope_pid = req.file_setfs().pid;
+                self.dbg_unwrap_mut().reply_setfs(0);
+                return;
+            }
+            DREQ_FILE_OPEN => {
+                // We only support reading files
+                if req.file_open().flags == libc::O_RDONLY {
+                    let fd = self.open_file(session, OsStr::new(&req.file_open().file_name));
+                    self.dbg_unwrap_mut()
+                        .reply_open(fd, if fd >= 0 { 0 } else { libc::ENOENT });
+                } else {
+                    self.dbg_unwrap_mut().reply_open(-1, libc::EACCES);
+                }
+                return;
+            }
+            DREQ_FILE_PREAD => {
+                let it = self.files.get(&req.file_pread().fd);
+                if let Some(sfd) = it {
+                    let size = min(req.file_pread().size, 1024 * 1024);
+                    let mut data = vec![0u8; size];
+                    let bytes = read_to_end(sfd, req.file_pread().offset, &mut data);
+                    match bytes {
+                        Ok(nread) => self.dbg_unwrap_mut().reply_pread(&data[0..nread], 0),
+                        Err(_) => self.dbg_unwrap_mut().reply_pread(&[], errno()),
+                    }
+                } else {
+                    self.dbg_unwrap_mut().reply_pread(&[], libc::EBADF);
+                }
+                return;
+            }
+            DREQ_FILE_CLOSE => {
+                let found = self.files.get(&req.file_pread().fd).is_some();
+                if found {
+                    self.files.remove(&req.file_pread().fd);
+                    self.dbg_unwrap_mut().reply_close(0);
+                } else {
+                    self.dbg_unwrap_mut().reply_close(libc::EBADF);
+                }
+                return;
+            }
+            _ => (),
+        }
+
+        unimplemented!()
     }
 
     fn at_target(&self) -> bool {
@@ -1204,7 +1324,7 @@ impl GdbServer {
     /// Handle GDB file open requests. If we can serve this read request, add
     /// an entry to `files` with the file contents and return our internal
     /// file descriptor.
-    fn open_file(_session: &dyn Session, _file_name: &OsStr) -> i32 {
+    fn open_file(&self, _session: &dyn Session, _file_name: &OsStr) -> i32 {
         unimplemented!()
     }
 }
