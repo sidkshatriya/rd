@@ -637,8 +637,9 @@ impl GdbServer {
                 // and this is easy to support in some other debugger or
                 // configuration needs it.
                 let mut maybe_t = None;
-                if req.target().thread_id.tid != 0 {
-                    let maybe_tg = session.find_thread_group_from_pid(req.target().thread_id.tid);
+                if req.maybe_target().unwrap().tid != 0 {
+                    let maybe_tg =
+                        session.find_thread_group_from_pid(req.maybe_target().unwrap().tid);
                     if let Some(tg) = maybe_tg {
                         maybe_t = Some(tg.borrow().task_set().iter().next().unwrap());
                     }
@@ -693,6 +694,49 @@ impl GdbServer {
                 } else {
                     self.dbg_unwrap_mut().reply_close(libc::EBADF);
                 }
+                return;
+            }
+            _ => (),
+        }
+
+        let is_query = req.type_ != DREQ_SET_CONTINUE_THREAD;
+        let maybe_target: Option<TaskSharedPtr> = match req.maybe_target() {
+            Some(thread_id) if thread_id.tid > 0 => session.find_task_from_rec_tid(thread_id.tid),
+            _ => session.find_task_from_task_uid(if is_query {
+                self.last_query_tuid
+            } else {
+                self.last_continue_tuid
+            }),
+        };
+
+        if let Some(t) = maybe_target.as_ref() {
+            if is_query {
+                self.last_query_tuid = t.tuid();
+            } else {
+                self.last_continue_tuid = t.tuid();
+            }
+        };
+        // These requests query or manipulate which task is the
+        // target, so it's OK if the task doesn't exist.
+        match req.type_ {
+            DREQ_GET_IS_THREAD_ALIVE => {
+                self.dbg_unwrap_mut()
+                    .reply_get_is_thread_alive(maybe_target.is_some());
+                return;
+            }
+            DREQ_GET_THREAD_EXTRA_INFO => {
+                self.dbg_unwrap_mut()
+                    .reply_get_thread_extra_info(&maybe_target.as_ref().unwrap().name());
+                return;
+            }
+            DREQ_SET_CONTINUE_THREAD => {
+                self.dbg_unwrap_mut()
+                    .reply_select_thread(maybe_target.is_some());
+                return;
+            }
+            DREQ_SET_QUERY_THREAD => {
+                self.dbg_unwrap_mut()
+                    .reply_select_thread(maybe_target.is_some());
                 return;
             }
             _ => (),

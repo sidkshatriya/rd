@@ -196,7 +196,7 @@ pub enum GdbRequestValue {
     GdbRequestFileOpen(gdb_request::FileOpen),
     GdbRequestFilePread(gdb_request::FilePread),
     GdbRequestFileClose(gdb_request::FileClose),
-    GdbRequestTarget(gdb_request::Target),
+    GdbRequestWithTarget(GdbThreadId),
     GdbRequestNoAddlData,
 }
 
@@ -233,7 +233,7 @@ impl GdbRequest {
             | DREQ_GET_IS_THREAD_ALIVE
             | DREQ_GET_THREAD_EXTRA_INFO
             | DREQ_SET_CONTINUE_THREAD
-            | DREQ_SET_QUERY_THREAD => GdbRequestValue::GdbRequestTarget(Default::default()),
+            | DREQ_SET_QUERY_THREAD => GdbRequestValue::GdbRequestWithTarget(Default::default()),
             DREQ_GET_CURRENT_THREAD
             | DREQ_GET_OFFSETS
             | DREQ_GET_REGS
@@ -376,15 +376,17 @@ impl GdbRequest {
             ),
         }
     }
-    pub fn target(&self) -> &gdb_request::Target {
+
+    /// NOTE that this is slightly different than the above:
+    /// Returns an Option and checks for two enum variants
+    pub fn maybe_target(&self) -> Option<&GdbThreadId> {
         match &self.value {
-            GdbRequestValue::GdbRequestTarget(v) => v,
-            _ => panic!(
-                "Unexpected GdbRequestValue enum variant. GdbRequestType was: {}",
-                self.type_
-            ),
+            GdbRequestValue::GdbRequestWithTarget(v) => Some(v),
+            GdbRequestValue::GdbRequestTls(v) => Some(&v.target),
+            _ => None,
         }
     }
+
     pub fn mem_mut(&mut self) -> &mut gdb_request::Mem {
         match &mut self.value {
             GdbRequestValue::GdbRequestMem(v) => v,
@@ -493,13 +495,13 @@ impl GdbRequest {
             ),
         }
     }
-    pub fn target_mut(&mut self) -> &mut gdb_request::Target {
+    /// NOTE that this is slightly different than the above:
+    /// Returns an Option and checks for two enum variants
+    pub fn maybe_target_mut(&mut self) -> Option<&mut GdbThreadId> {
         match &mut self.value {
-            GdbRequestValue::GdbRequestTarget(v) => v,
-            _ => panic!(
-                "Unexpected GdbRequestValue enum variant. GdbRequestType was: {}",
-                self.type_
-            ),
+            GdbRequestValue::GdbRequestWithTarget(v) => Some(v),
+            GdbRequestValue::GdbRequestTls(v) => Some(&mut v.target),
+            _ => None,
         }
     }
 }
@@ -629,11 +631,6 @@ pub mod gdb_request {
     #[derive(Default, Clone)]
     pub struct FileClose {
         pub fd: i32,
-    }
-
-    #[derive(Default, Clone)]
-    pub struct Target {
-        pub thread_id: GdbThreadId,
     }
 }
 
