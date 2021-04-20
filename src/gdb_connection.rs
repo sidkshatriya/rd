@@ -123,8 +123,8 @@ impl GdbRegisterValue {
         }
     }
 
-    pub fn value(&mut self) -> &[u8] {
-        match &mut self.value {
+    pub fn value(&self) -> &[u8] {
+        match &self.value {
             GdbRegisterValueData::ValueGeneric(v) => &v[0..self.size],
             GdbRegisterValueData::Value1(v) => u8_slice(v),
             GdbRegisterValueData::Value2(v) => u8_slice(v),
@@ -1092,10 +1092,10 @@ impl GdbConnection {
     }
 
     /// Reply to the DREQ_GET_STOP_REASON request.
-    pub fn reply_get_stop_reason(&mut self, which: GdbThreadId, sig: Sig) {
+    pub fn reply_get_stop_reason(&mut self, which: GdbThreadId, maybe_sig: Option<Sig>) {
         debug_assert_eq!(DREQ_GET_STOP_REASON, self.req.type_);
 
-        self.send_stop_reply_packet(which, Some(sig), RemotePtr::null());
+        self.send_stop_reply_packet(which, maybe_sig, RemotePtr::null());
 
         self.consume_request();
     }
@@ -1175,10 +1175,10 @@ impl GdbConnection {
     }
 
     /// Send a manual text response to a rd cmd (maintenance) packet.
-    pub fn reply_rd_cmd(&mut self, text: &str) {
+    pub fn reply_rd_cmd(&mut self, text: &[u8]) {
         debug_assert_eq!(DREQ_RD_CMD, self.req.type_);
 
-        self.write_packet_bytes(text.as_bytes());
+        self.write_packet_bytes(text);
 
         self.consume_request();
     }
@@ -1579,7 +1579,7 @@ impl GdbConnection {
             parser_assert_eq!(b',', args[0]);
             args = &args[1..];
             len = str16_to_usize(args, &mut args).unwrap();
-            // Assert that it's the end
+            // Assert that its the end
             parser_assert!(args.is_empty());
         } else {
             parser_assert_eq!(args[0], b':');

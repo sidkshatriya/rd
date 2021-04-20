@@ -349,8 +349,7 @@ impl Registers {
         }
     }
 
-    /// Update the register named `reg_name` to `value` with
-    /// `value_size` number of bytes.
+    /// Update the register named `regno` to `value`
     pub fn write_register(&mut self, value: &[u8], regno: GdbRegister) {
         let regs = self.get_regs_info();
         if let Some(rv) = regs.get(&regno) {

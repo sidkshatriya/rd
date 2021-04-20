@@ -20,7 +20,7 @@ use crate::{
     gdb_expression::{GdbExpression, GdbExpressionValue},
     gdb_register::{GdbRegister, DREG_64_YMM15H, DREG_ORIG_EAX, DREG_ORIG_RAX, DREG_YMM7H},
     kernel_abi::{syscall_number_for_execve, SupportedArch},
-    log::{LogDebug, LogInfo},
+    log::{LogDebug, LogError, LogInfo, LogWarn},
     registers::Registers,
     remote_code_ptr::RemoteCodePtr,
     remote_ptr::{RemotePtr, Void},
@@ -31,7 +31,7 @@ use crate::{
         diversion_session::DiversionSession,
         replay_session::{ReplayResult, ReplaySession, ReplayStatus},
         session_inner::{BreakStatus, RunCommand},
-        task::{replay_task::ReplayTask, Task, TaskSharedPtr},
+        task::{replay_task::ReplayTask, task_inner::WriteFlags, Task, TaskSharedPtr},
         Session, SessionSharedPtr, SessionSharedWeakPtr,
     },
     sig,
@@ -55,7 +55,7 @@ use nix::{
 };
 use std::{
     cell::{Ref, RefCell, RefMut},
-    cmp::min,
+    cmp::{max, min},
     collections::{HashMap, HashSet},
     convert::{TryFrom, TryInto},
     env,
@@ -168,7 +168,7 @@ pub struct GdbServer {
     /// NOTE: @TODO Zero if not set. Change to option?
     debuggee_tguid: ThreadGroupUid,
     /// ThreadDb for debuggee ThreadGroup
-    thread_db: Box<ThreadDb>,
+    thread_db: Option<Box<ThreadDb>>,
     /// The TaskUid of the last continued task.
     /// NOTE: @TODO Zero if not set. Change to option?
     pub(super) last_continue_tuid: TaskUid,
@@ -700,6 +700,7 @@ impl GdbServer {
         }
 
         let is_query = req.type_ != DREQ_SET_CONTINUE_THREAD;
+        // @TODO Check this
         let maybe_target: Option<TaskSharedPtr> = match req.maybe_target() {
             Some(thread_id) if thread_id.tid > 0 => session.find_task_from_rec_tid(thread_id.tid),
             _ => session.find_task_from_task_uid(if is_query {
@@ -741,8 +742,163 @@ impl GdbServer {
             }
             _ => (),
         }
-
-        unimplemented!()
+        // These requests require a valid target task.  We don't trust
+        // the debugger to use the information provided above to only
+        // query valid tasks.
+        if maybe_target.is_none() {
+            self.dbg_unwrap_mut().notify_no_such_thread(req);
+            return;
+        }
+        let target = maybe_target.unwrap();
+        match req.type_ {
+            DREQ_GET_AUXV => {
+                self.dbg_unwrap_mut()
+                    .reply_get_auxv(&target.vm().saved_auxv());
+                return;
+            }
+            DREQ_GET_MEM => {
+                let mut mem: Vec<u8> = vec![0u8; req.mem().len];
+                let nread = target.read_bytes_fallible(req.mem().addr, &mut mem);
+                mem.resize(max(0, nread.unwrap_or(0)), 0u8);
+                target
+                    .vm()
+                    .replace_breakpoints_with_original_values(&mut mem, req.mem().addr);
+                Self::maybe_intercept_mem_request(&**target, req, &mut mem);
+                self.dbg_unwrap_mut().reply_get_mem(&mem);
+                return;
+            }
+            DREQ_SET_MEM => {
+                // gdb has been observed to send requests of length 0 at
+                // odd times
+                // (e.g. before sending the magic write to create a checkpoint)
+                if req.mem().len == 0 {
+                    self.dbg_unwrap_mut().reply_set_mem(true);
+                    return;
+                }
+                // We only allow the debugger to write memory if the
+                // memory will be written to an diversion session.
+                // Arbitrary writes to replay sessions cause
+                // divergence.
+                if !session.is_diversion() {
+                    log!(
+                        LogError,
+                        "Attempt to write memory outside diversion session"
+                    );
+                    self.dbg_unwrap_mut().reply_set_mem(false);
+                    return;
+                }
+                log!(
+                    LogDebug,
+                    "Writing {} bytes to {}",
+                    req.mem().len,
+                    req.mem().addr
+                );
+                // TODO fallible
+                target.write_bytes_helper(
+                    req.mem().addr,
+                    &req.mem().data,
+                    None,
+                    WriteFlags::empty(),
+                );
+                self.dbg_unwrap_mut().reply_set_mem(true);
+                return;
+            }
+            DREQ_SEARCH_MEM => {
+                let range = MemoryRange::new_range(req.mem().addr, req.mem().len);
+                let found_addr = search_memory(&**target, range, &req.mem().data);
+                self.dbg_unwrap_mut().reply_search_mem(
+                    found_addr.is_some(),
+                    found_addr.unwrap_or(RemotePtr::null()),
+                );
+                return;
+            }
+            DREQ_GET_REG => {
+                let reg =
+                    Self::get_reg(&target.regs_ref(), &target.extra_regs_ref(), req.reg().name);
+                self.dbg_unwrap_mut().reply_get_reg(&reg);
+                return;
+            }
+            DREQ_GET_REGS => {
+                self.dispatch_regs_request(&target.regs_ref(), &target.extra_regs_ref());
+                return;
+            }
+            DREQ_SET_REG => {
+                if !session.is_diversion() {
+                    // gdb sets orig_eax to -1 during a restart. For a
+                    // replay session this is not correct (we might be
+                    // restarting from an rr checkpoint inside a system
+                    // call, and we must not tamper with replay state), so
+                    // just ignore it.
+                    if target.arch() == SupportedArch::X86 && req.reg().name == DREG_ORIG_EAX
+                        || (target.arch() == SupportedArch::X64 && req.reg().name == DREG_ORIG_RAX)
+                    {
+                        self.dbg_unwrap_mut().reply_set_reg(true);
+                        return;
+                    }
+                    log!(
+                        LogError,
+                        "Attempt to write register outside diversion session"
+                    );
+                    self.dbg_unwrap_mut().reply_set_reg(false);
+                    return;
+                }
+                if req.reg().defined {
+                    let mut regs = target.regs();
+                    regs.write_register(req.reg().value(), req.reg().name);
+                    target.set_regs(&regs);
+                }
+                self.dbg_unwrap_mut()
+                    .reply_set_reg(true /*currently infallible*/);
+                return;
+            }
+            DREQ_GET_STOP_REASON => {
+                let threadid = get_threadid_from_tuid(session, self.last_continue_tuid);
+                let sig = Sig::try_from(self.stop_siginfo.si_signo).ok();
+                self.dbg_unwrap_mut().reply_get_stop_reason(
+                    threadid, // @TODO What if signal number is 0?
+                    sig,
+                );
+                return;
+            }
+            DREQ_SET_SW_BREAK => {
+                unimplemented!()
+            }
+            DREQ_SET_HW_BREAK | DREQ_SET_RD_WATCH | DREQ_SET_WR_WATCH | DREQ_SET_RDWR_WATCH => {
+                unimplemented!()
+            }
+            DREQ_REMOVE_SW_BREAK => {
+                unimplemented!()
+            }
+            DREQ_REMOVE_HW_BREAK
+            | DREQ_REMOVE_RD_WATCH
+            | DREQ_REMOVE_WR_WATCH
+            | DREQ_REMOVE_RDWR_WATCH => {
+                unimplemented!()
+            }
+            DREQ_READ_SIGINFO => {
+                unimplemented!()
+            }
+            DREQ_WRITE_SIGINFO => {
+                log!(
+                    LogWarn,
+                    "WRITE_SIGINFO request outside of diversion session"
+                );
+                self.dbg_unwrap_mut().reply_write_siginfo();
+                return;
+            }
+            DREQ_RD_CMD => {
+                let text = GdbCommandHandler::process_command(self, &**target, req.text());
+                self.dbg_unwrap_mut().reply_rd_cmd(&text);
+                return;
+            }
+            DREQ_QSYMBOL => {
+                unimplemented!()
+            }
+            DREQ_TLS => {
+                unimplemented!()
+            }
+            _ => fatal!("Unknown debugger request {}", req.type_),
+        }
     }
 
     fn at_target(&self) -> bool {
