@@ -63,7 +63,7 @@ use std::{
     io::{stderr, Write},
     mem,
     os::unix::ffi::{OsStrExt, OsStringExt},
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
     ptr,
     rc::Rc,
 };
@@ -1530,11 +1530,62 @@ impl GdbServer {
     /// Handle GDB file open requests. If we can serve this read request, add
     /// an entry to `files` with the file contents and return our internal
     /// file descriptor.
-    fn open_file(&self, _session: &dyn Session, file_name: &OsStr) -> i32 {
-        log!(LogDebug, "Trying to open {:?}", file_name);
+    fn open_file(&mut self, session: &dyn Session, pathname: &OsStr) -> i32 {
+        // XXX should we require file_scope_pid == 0 here?
+        log!(LogDebug, "Trying to open {:?}", pathname);
 
-        unimplemented!()
+        let mut content = ScopedFd::new();
+        let pathname = Path::new(pathname);
+        let mut components = pathname.components();
+        let maybe_rootdir = components.next();
+        let maybe_proc = components.next();
+        let maybe_pid_os_str = components.next();
+        let maybe_task = components.next();
+        let maybe_tid_os_str = components.next();
+        let maybe_maps = components.next();
+        if (maybe_rootdir, maybe_proc, maybe_task, maybe_maps)
+            == (
+                Some(Component::RootDir),
+                Some(Component::Normal(OsStr::new("proc"))),
+                Some(Component::Normal(OsStr::new("task"))),
+                Some(Component::Normal(OsStr::new("maps"))),
+            )
+            && maybe_pid_os_str.is_some()
+            && maybe_tid_os_str.is_some()
+        {
+            let maybe_pid_str =
+                std::str::from_utf8(maybe_pid_os_str.unwrap().as_os_str().as_bytes()).ok();
+            let maybe_tid_str =
+                std::str::from_utf8(maybe_tid_os_str.unwrap().as_os_str().as_bytes()).ok();
+            match (maybe_pid_str, maybe_tid_str) {
+                (Some(pid_s), Some(tid_s)) if pid_s == tid_s => {
+                    let maybe_pid = pid_s.parse::<pid_t>().ok();
+                    let maybe_tid = tid_s.parse::<pid_t>().ok();
+                    match (maybe_pid, maybe_tid) {
+                        (Some(pid), Some(tid)) if pid == tid => {
+                            if let Some(t) = session.find_task_from_rec_tid(tid) {
+                                content = generate_fake_proc_maps(&**t)
+                            } else {
+                                return -1;
+                            }
+                        }
+                        _ => return -1,
+                    }
+                }
+                _ => return -1,
+            }
+        }
+        let mut ret_fd: i32 = 0;
+        while let Some(_) = self.files.get(&ret_fd) {
+            ret_fd += 1;
+        }
+        self.files.insert(ret_fd, content);
+        ret_fd
     }
+}
+
+fn generate_fake_proc_maps(_t: &dyn Task) -> ScopedFd {
+    unimplemented!()
 }
 
 fn maybe_singlestep_for_event(_t: &dyn Task, _req: &GdbRequest) -> () {
@@ -1578,6 +1629,7 @@ fn create_gdb_command_file(macros: &str) -> OsString {
     OsString::from_vec(procfile)
 }
 
+/// DIFF NOTE: Called print_debugger_launch_command() in rr
 fn write_debugger_launch_command(
     t: &dyn Task,
     dbg_host: &str,
