@@ -1,13 +1,17 @@
 use crate::{
     bindings::thread_db,
+    log::LogDebug,
     remote_ptr::{RemotePtr, Void},
     thread_group::ThreadGroup,
 };
 use libc::pid_t;
 use std::{
     collections::{HashMap, HashSet},
-    ffi::{c_void, OsString},
+    ffi::{c_void, CStr, OsStr, OsString},
+    os::unix::ffi::OsStrExt,
 };
+
+const LIBRARY_NAME: &'static [u8] = b"libthread_db.so.1\0";
 
 type TdTaDeleteFn = extern "C" fn(ta: *mut thread_db::td_thragent_t) -> thread_db::td_err_e;
 
@@ -29,6 +33,8 @@ type TdTaNewFn = extern "C" fn(
     ta: *mut *mut thread_db::td_thragent_t,
 ) -> thread_db::td_err_e;
 
+type TdSymbolListFn = extern "C" fn() -> *mut *const ::std::os::raw::c_char;
+
 /// This is declared as incomplete by the libthread_db API and is
 /// expected to be defined by the API user.  We define it to hold just
 /// pointers back to the thread group and to the ThreadDb object.
@@ -37,6 +43,16 @@ struct ps_prochandle {
     thread_group: *mut ThreadGroup,
     db: *mut ThreadDb,
     tgid: pid_t,
+}
+
+impl Default for ps_prochandle {
+    fn default() -> Self {
+        Self {
+            thread_group: std::ptr::null_mut(),
+            db: std::ptr::null_mut(),
+            tgid: 0,
+        }
+    }
 }
 
 /// This provides an interface to libthread_db.so to help with TLS
@@ -71,14 +87,104 @@ pub struct ThreadDb {
     thread_db_library: *mut c_void,
 
     /// Functions from libthread_db.
-    td_ta_delete_fn: TdTaDeleteFn,
-    td_thr_tls_get_addr_fn: TdThrTlsGetAddrFn,
-    td_ta_map_lwp2thr_fn: TdTaMapLwp2ThrFn,
-    td_ta_new_fn: TdTaNewFn,
+    td_ta_delete_fn: *mut TdTaDeleteFn,
+    td_thr_tls_get_addr_fn: *mut TdThrTlsGetAddrFn,
+    td_ta_map_lwp2thr_fn: *mut TdTaMapLwp2ThrFn,
+    td_ta_new_fn: *mut TdTaNewFn,
 
     /// Set of all symbol names.
-    symbol_names: HashSet<OsString>,
+    symbol_names: HashSet<&'static CStr>,
 
     /// Map from symbol names to addresses.
     symbols: HashMap<OsString, RemotePtr<Void>>,
+}
+
+impl Default for ThreadDb {
+    fn default() -> Self {
+        ThreadDb {
+            loaded: false,
+            prochandle: Default::default(),
+            internal_handle: std::ptr::null_mut(),
+            thread_db_library: std::ptr::null_mut(),
+            td_ta_delete_fn: std::ptr::null_mut(),
+            td_thr_tls_get_addr_fn: std::ptr::null_mut(),
+            td_ta_map_lwp2thr_fn: std::ptr::null_mut(),
+            td_ta_new_fn: std::ptr::null_mut(),
+            symbol_names: Default::default(),
+            symbols: Default::default(),
+        }
+    }
+}
+
+impl ThreadDb {
+    /// @TODO DIFF NOTE: private in rr
+    pub fn load_library(&mut self) -> bool {
+        if !self.thread_db_library.is_null() {
+            log!(LogDebug, "load_library already loaded: {:?}", self.loaded);
+            return self.loaded;
+        }
+
+        self.thread_db_library =
+            unsafe { libc::dlopen(LIBRARY_NAME.as_ptr() as _, libc::RTLD_NOW) };
+        if self.thread_db_library.is_null() {
+            log!(LogDebug, "load_library dlopen failed: {:?}", unsafe {
+                CStr::from_ptr(libc::dlerror())
+            });
+            return false;
+        }
+
+        let td_symbol_list_fn: *mut TdSymbolListFn;
+
+        self.td_thr_tls_get_addr_fn =
+            self.find_function(b"td_thr_tls_get_addr") as *mut TdThrTlsGetAddrFn;
+        if self.td_thr_tls_get_addr_fn.is_null() {
+            return false;
+        }
+
+        self.td_ta_delete_fn = self.find_function(b"td_ta_delete") as *mut TdTaDeleteFn;
+        if self.td_ta_delete_fn.is_null() {
+            return false;
+        }
+
+        td_symbol_list_fn = self.find_function(b"td_symbol_list") as *mut TdSymbolListFn;
+        if td_symbol_list_fn.is_null() {
+            return false;
+        }
+
+        self.td_ta_new_fn = self.find_function(b"td_ta_new") as *mut TdTaNewFn;
+        if self.td_ta_new_fn.is_null() {
+            return false;
+        }
+
+        self.td_ta_map_lwp2thr_fn =
+            self.find_function(b"td_ta_map_lwp2thr") as *mut TdTaMapLwp2ThrFn;
+        if self.td_ta_map_lwp2thr_fn.is_null() {
+            return false;
+        }
+
+        unsafe {
+            let mut syms = (*td_symbol_list_fn)();
+            while !std::ptr::eq(*syms, std::ptr::null()) {
+                // @TODO Is CStr what we want here?
+                self.symbol_names.insert(CStr::from_ptr(*syms));
+                syms = syms.add(1);
+            }
+        }
+        // Good to go.
+        self.loaded = true;
+        log!(LogDebug, "load_library OK");
+        true
+    }
+
+    fn find_function(&self, name: &[u8]) -> *mut c_void {
+        let ret = unsafe { libc::dlsym(self.thread_db_library, name.as_ptr() as _) };
+        if ret.is_null() {
+            log!(
+                LogDebug,
+                "load_library failed to find {:?}",
+                OsStr::from_bytes(&name[0..name.len() - 1])
+            );
+        }
+        ret
+    }
 }
