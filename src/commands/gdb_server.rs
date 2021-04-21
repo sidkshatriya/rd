@@ -1579,13 +1579,24 @@ fn create_gdb_command_file(macros: &str) -> OsString {
 }
 
 fn write_debugger_launch_command(
-    _t: &dyn Task,
-    _dbg_host: &str,
-    _port: u16,
-    _debugger_name: &Path,
-    _stderr: &mut dyn Write,
+    t: &dyn Task,
+    dbg_host: &str,
+    port: u16,
+    debugger_name: &Path,
+    out: &mut dyn Write,
 ) {
-    unimplemented!()
+    let mut options: Vec<OsString> = Vec::new();
+    push_default_gdb_options(&mut options);
+    push_target_remote_cmd(&mut options, dbg_host, port);
+    out.write_all(debugger_name.as_os_str().as_bytes()).unwrap();
+    for opt in &options {
+        out.write_all(b" '").unwrap();
+        out.write_all(opt.as_bytes()).unwrap();
+        out.write_all(b"'").unwrap();
+    }
+    out.write_all(b" ").unwrap();
+    out.write_all(t.vm().exe_image().as_bytes()).unwrap();
+    out.write_all(b"\n").unwrap();
 }
 
 #[derive(Copy, Clone, Eq, PartialEq)]

@@ -24,7 +24,7 @@ use std::{
     io,
     io::{stdout, Write},
     mem::size_of,
-    os::unix::ffi::OsStringExt,
+    os::unix::ffi::{OsStrExt, OsStringExt},
     path::PathBuf,
 };
 
@@ -277,16 +277,9 @@ fn dump_task_event(out: &mut dyn Write, event: &TraceTaskEvent) -> io::Result<()
             )?;
         }
         TraceTaskEventVariant::Exec(ev) => {
-            let filename = format!("{:?}", ev.file_name());
-            // WORKAROUND: rr does not display the quotes which the Debug string representation will
-            // unfortunately have. So strip it.
-            let filename_trimmed = filename.trim_matches('"');
-            writeln!(
-                out,
-                "  TraceTaskEvent::EXEC tid={} file={}",
-                event.tid(),
-                filename_trimmed
-            )?;
+            write!(out, "  TraceTaskEvent::EXEC tid={} file=", event.tid())?;
+            out.write_all(ev.file_name().as_bytes())?;
+            out.write_all(b"\n")?;
         }
         TraceTaskEventVariant::Exit(ev) => {
             writeln!(
