@@ -13,9 +13,9 @@ use crate::{
 use libc::pid_t;
 use std::{
     collections::HashMap,
-    fmt::Write as fmtWrite,
     io,
     io::{stdout, Write},
+    os::unix::ffi::OsStrExt,
     path::PathBuf,
 };
 
@@ -197,10 +197,7 @@ fn write_exec_cmd_line(event: &TraceTaskEvent, out: &mut dyn Write) -> io::Resul
         } else {
             first = false;
         }
-        let mut word_s = String::new();
-        write!(word_s, "{:?}", word).unwrap();
-        // WORKAROUND. OsString debug print has leading and trailing `"`
-        write!(out, "{}", word_s.trim_matches('"'))?;
+        out.write_all(word.as_bytes())?;
     }
     writeln!(out)
 }
