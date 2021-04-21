@@ -9,3 +9,4 @@ pub mod prctl;
 pub mod ptrace;
 pub mod signal;
 pub mod sysexits;
+pub mod thread_db;
