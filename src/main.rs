@@ -7,6 +7,7 @@
 #![feature(slice_ptr_get)]
 #![feature(array_methods)]
 #![feature(arc_new_cyclic)]
+#![feature(format_args_capture)]
 // Can disallow some of these in the future
 #![allow(clippy::upper_case_acronyms)]
 #![allow(clippy::write_with_newline)]

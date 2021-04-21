@@ -50,7 +50,11 @@ use crate::{
 use libc::{pid_t, SIGKILL, SIGTRAP};
 use nix::{
     errno::{errno, Errno},
-    unistd::{execvpe, getpid, read, unlink, write},
+    sys::{
+        mman::{MapFlags, ProtFlags},
+        stat::{major, minor},
+    },
+    unistd::{dup, execvpe, getpid, read, unlink, write},
     Error,
 };
 use std::{
@@ -60,9 +64,13 @@ use std::{
     convert::{TryFrom, TryInto},
     env,
     ffi::{CString, OsStr, OsString},
+    fs::File,
     io::{stderr, Write},
     mem,
-    os::unix::ffi::{OsStrExt, OsStringExt},
+    os::unix::{
+        ffi::{OsStrExt, OsStringExt},
+        io::FromRawFd,
+    },
     path::{Component, Path, PathBuf},
     ptr,
     rc::Rc,
@@ -693,9 +701,9 @@ impl GdbServer {
                 return;
             }
             DREQ_FILE_CLOSE => {
-                let found = self.files.get(&req.file_pread().fd).is_some();
+                let found = self.files.get(&req.file_close().fd).is_some();
                 if found {
-                    self.files.remove(&req.file_pread().fd);
+                    self.files.remove(&req.file_close().fd);
                     self.dbg_unwrap_mut().reply_close(0);
                 } else {
                     self.dbg_unwrap_mut().reply_close(libc::EBADF);
@@ -1584,8 +1592,72 @@ impl GdbServer {
     }
 }
 
-fn generate_fake_proc_maps(_t: &dyn Task) -> ScopedFd {
-    unimplemented!()
+fn generate_fake_proc_maps(t: &dyn Task) -> ScopedFd {
+    let file = create_temporary_file(b"rd-fake-proc-maps-XXXXXX");
+    unlink(file.name.as_os_str()).unwrap();
+
+    let fd = match dup(file.fd.as_raw()) {
+        Ok(fd) => fd,
+        Err(e) => {
+            fatal!("Cannot dup: {:?}", e)
+        }
+    };
+    // @TODO : rr has fdopen(fd, "w").
+    // Is this equivalent in all cases?
+    let mut f = unsafe { File::from_raw_fd(fd) };
+
+    let addr_min_width: usize = if word_size(t.arch()) == 8 { 10 } else { 8 };
+    for (&_, m) in &t.vm().maps() {
+        let s: String = format!(
+            "{:0addr_min_width$x}-{:0addr_min_width$x} {}{}{}{} {:08x} {:02x}:{:02x} {}",
+            m.recorded_map.start().as_usize(),
+            m.recorded_map.end().as_usize(),
+            if m.recorded_map.prot().contains(ProtFlags::PROT_READ) {
+                "r"
+            } else {
+                "-"
+            },
+            if m.recorded_map.prot().contains(ProtFlags::PROT_WRITE) {
+                "w"
+            } else {
+                "-"
+            },
+            if m.recorded_map.prot().contains(ProtFlags::PROT_EXEC) {
+                "x"
+            } else {
+                "-"
+            },
+            if m.recorded_map.flags().contains(MapFlags::MAP_SHARED) {
+                "s"
+            } else {
+                "p"
+            },
+            m.recorded_map.file_offset_bytes(),
+            major(m.recorded_map.device()),
+            minor(m.recorded_map.device()),
+            m.recorded_map.inode()
+        );
+        f.write_all(s.as_bytes()).unwrap();
+        let mut len = s.len();
+        while len < 72 {
+            f.write_all(b" ").unwrap();
+            len += 1;
+        }
+        f.write_all(b" ").unwrap();
+
+        let mut name = Vec::<u8>::new();
+        let fsname = m.recorded_map.fsname();
+        for &b in fsname.as_bytes() {
+            if b == b'\n' {
+                name.extend_from_slice(b"\\012");
+            } else {
+                name.push(b);
+            }
+        }
+        f.write_all(&name).unwrap();
+        f.write_all(b"\n").unwrap();
+    }
+    file.fd
 }
 
 fn maybe_singlestep_for_event(_t: &dyn Task, _req: &GdbRequest) -> () {

@@ -1238,7 +1238,7 @@ impl GdbConnection {
             self.send_file_error_reply(err);
         } else {
             let mut buf = Vec::<u8>::new();
-            write!(buf, "F{:x};", fd).unwrap();
+            write!(buf, "F{:x}", fd).unwrap();
             self.write_packet_bytes(&buf);
         }
 
