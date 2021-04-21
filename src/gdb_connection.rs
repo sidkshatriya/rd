@@ -11,6 +11,7 @@ use crate::{
     scoped_fd::ScopedFd,
     session::SessionSharedPtr,
     sig::Sig,
+    util,
     util::{resource_path, str0_to_isize, str16_to_isize, str16_to_usize, u8_slice, u8_slice_mut},
 };
 use libc::pid_t;
@@ -1751,8 +1752,7 @@ impl GdbConnection {
             // TODO process these
             log!(LogDebug, "gdb supports {:?}", OsStr::from_bytes(args));
 
-            // @TODO
-            // let _multiprocess_supported_ = find(args, b"multiprocess+").is_some();
+            self.multiprocess_supported_ = util::find(args, b"multiprocess+").is_some();
 
             let mut supported = Vec::<u8>::new();
             // Encourage gdb to use very large packets since we support any packet size
