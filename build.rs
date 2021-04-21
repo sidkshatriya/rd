@@ -167,6 +167,7 @@ fn main() {
         "kernel_supplement",
         "packet",
         "personality",
+        "thread_db",
         "misc_for_ioctl",
     ];
 
