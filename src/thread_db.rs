@@ -93,7 +93,7 @@ pub struct ThreadDb {
     td_ta_new_fn: TdTaNewFn,
 
     /// Set of all symbol names.
-    symbol_names: HashSet<&'static CStr>,
+    symbol_names: HashSet<OsString>,
 
     /// Map from symbol names to addresses.
     symbols: HashMap<OsString, RemotePtr<Void>>,
@@ -111,6 +111,27 @@ impl Drop for ThreadDb {
 }
 
 impl ThreadDb {
+    /// DIFF NOTE: Does NOT take a thread group as a param
+    pub fn get_symbols_and_clear_map(&mut self) -> Vec<OsString> {
+        // If we think the symbol locations might have changed, then we
+        // probably need to recreate the handle.
+        if !self.internal_handle.is_null() {
+            (self.td_ta_delete_fn)(self.internal_handle);
+            self.internal_handle = std::ptr::null_mut();
+        }
+        // DIFF NOTE: In rr there is a call to load_libary() here.
+        // Prima-facie we don't need it?
+        self.symbols.clear();
+        // @TODO Check this
+        self.prochandle.thread_group = std::ptr::null_mut();
+        self.symbol_names.iter().cloned().collect()
+    }
+
+    pub fn register_symbol(&mut self, name: OsString, address: RemotePtr<Void>) {
+        log!(LogDebug, "register_symbol {:?}", name);
+        self.symbols.insert(name, address);
+    }
+
     pub fn new(tgid: pid_t) -> Box<ThreadDb> {
         let thread_db_library = unsafe { libc::dlopen(LIBRARY_NAME.as_ptr() as _, libc::RTLD_NOW) };
         if thread_db_library.is_null() {
@@ -149,12 +170,11 @@ impl ThreadDb {
         }
         let td_ta_map_lwp2thr_fn: TdTaMapLwp2ThrFn = unsafe { mem::transmute(ptr) };
 
-        let mut symbol_names: HashSet<&CStr> = HashSet::new();
+        let mut symbol_names: HashSet<OsString> = HashSet::new();
         unsafe {
             let mut syms = td_symbol_list_fn();
             while !std::ptr::eq(*syms, std::ptr::null()) {
-                // @TODO Is CStr what we want here?
-                symbol_names.insert(CStr::from_ptr(*syms));
+                symbol_names.insert(OsStr::from_bytes(CStr::from_ptr(*syms).to_bytes()).to_owned());
                 syms = syms.add(1);
             }
         }
@@ -177,8 +197,12 @@ impl ThreadDb {
         b
     }
 
-    fn query_symbol(&self, _symbol: &CStr, _addr: &mut RemotePtr<u8>) -> bool {
-        unimplemented!()
+    fn query_symbol(&self, symbol: &OsStr, addr: &mut RemotePtr<u8>) -> bool {
+        if let Some(&found) = self.symbols.get(symbol) {
+            *addr = found;
+            return true;
+        }
+        false
     }
 }
 
@@ -202,9 +226,9 @@ pub unsafe extern "C" fn ps_pglobal_lookup(
     sym_addr: *mut thread_db::psaddr_t,
 ) -> thread_db::ps_err_e {
     let mut addr = RemotePtr::<Void>::null();
-    let cstr_symbol = CStr::from_ptr(symbol);
-    if !(*(*h).db).query_symbol(cstr_symbol, &mut addr) {
-        log!(LogDebug, "ps_pglobal_lookup {:?} failed", cstr_symbol);
+    let osstr_symbol = OsStr::from_bytes(CStr::from_ptr(symbol).to_bytes());
+    if !(*(*h).db).query_symbol(osstr_symbol, &mut addr) {
+        log!(LogDebug, "ps_pglobal_lookup {:?} failed", osstr_symbol);
         return thread_db::PS_NOSYM;
     }
     *sym_addr = addr.as_usize() as _;

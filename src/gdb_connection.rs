@@ -1186,10 +1186,10 @@ impl GdbConnection {
 
     /// Send a qSymbol response to gdb, requesting the address of the
     /// symbol `name`.
-    pub fn send_qsymbol(&mut self, name: &str) {
+    pub fn send_qsymbol(&mut self, name: &[u8]) {
         debug_assert_eq!(DREQ_QSYMBOL, self.req.type_);
 
-        self.write_hex_bytes_packet_with_prefix(b"qSymbol:", name.as_bytes());
+        self.write_hex_bytes_packet_with_prefix(b"qSymbol:", name);
 
         self.consume_request();
     }
@@ -1427,10 +1427,7 @@ impl GdbConnection {
             }
         }
 
-        log!(
-            LogDebug,
-            " ***** NOTE: writing binary data, upcoming debug output may be truncated"
-        );
+        log!(LogDebug, " ***** NOTE: writing binary data");
 
         self.write_packet_bytes(&buf);
     }

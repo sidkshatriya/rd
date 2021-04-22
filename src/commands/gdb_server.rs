@@ -60,7 +60,7 @@ use nix::{
 use std::{
     cell::{Ref, RefCell, RefMut},
     cmp::{max, min},
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     convert::{TryFrom, TryInto},
     env,
     ffi::{CString, OsStr, OsString},
@@ -201,7 +201,8 @@ pub struct GdbServer {
     /// gdb checkpoints, indexed by ID
     pub(super) checkpoints: HashMap<u64, Checkpoint>,
     /// Set of symbols to look for, for qSymbol
-    symbols: HashSet<String>,
+    symbols: Vec<OsString>,
+    symbols_loc: Option<usize>,
     files: HashMap<i32, ScopedFd>,
     /// The pid for gdb's last vFile:setfs
     /// NOTE: @TODO Zero if not set. Change to option?
@@ -209,6 +210,14 @@ pub struct GdbServer {
 }
 
 impl GdbServer {
+    fn thread_db_mut_unwrap(&mut self) -> &mut ThreadDb {
+        self.thread_db.as_mut().unwrap()
+    }
+
+    fn thread_db_unwrap(&self) -> &ThreadDb {
+        self.thread_db.as_ref().unwrap()
+    }
+
     fn dbg_unwrap(&self) -> Ref<GdbConnection> {
         self.dbg.as_ref().unwrap().borrow()
     }
@@ -244,6 +253,7 @@ impl GdbServer {
             debugger_restart_checkpoint: Default::default(),
             checkpoints: Default::default(),
             symbols: Default::default(),
+            symbols_loc: Default::default(),
             files: Default::default(),
             file_scope_pid: Default::default(),
         }
@@ -268,6 +278,7 @@ impl GdbServer {
             debugger_restart_checkpoint: Default::default(),
             checkpoints: Default::default(),
             symbols: Default::default(),
+            symbols_loc: Default::default(),
             files: Default::default(),
         }
     }
@@ -906,7 +917,46 @@ impl GdbServer {
                 return;
             }
             DREQ_QSYMBOL => {
-                unimplemented!()
+                // When gdb sends "qSymbol::", it means that gdb is ready to
+                // respond to symbol requests.  This can be sent multiple times
+                // during the course of a session -- gdb sends it whenever
+                // something in the inferior has changed, making it possible
+                // that previous failed symbol lookups could now succeed.  In
+                // response to a qSymbol request from gdb, we either send back a
+                // qSymbol response, requesting the address of a symbol; or we
+                // send back OK.  We have to do this as an ordinary response and
+                // maintain our own state explicitly, as opposed to simply
+                // reading another packet from gdb, because when gdb looks up a
+                // symbol it might send other requests that must be served.  So,
+                // we keep a copy of the symbol names, and an iterator into this
+                // copy.  When gdb sends a plain "qSymbol::" packet, because gdb
+                // has detected some change in the inferior state that might
+                // enable more symbol lookups, we restart the iterator.
+                if self.thread_db.is_none() {
+                    self.thread_db = Some(ThreadDb::new(self.debuggee_tguid.tid()));
+                }
+
+                let name = OsStr::from_bytes(req.sym().name.as_bytes()).to_owned();
+                if req.sym().has_address {
+                    // Got a response holding a previously-requested symbol's name
+                    // and address.
+                    self.thread_db_mut_unwrap()
+                        .register_symbol(name, req.sym().address);
+                } else if name.as_bytes().is_empty() {
+                    // Plain "qSymbol::" request.
+                    self.symbols = self.thread_db_mut_unwrap().get_symbols_and_clear_map();
+                    self.symbols_loc = Some(0);
+                }
+
+                if self.symbols_loc == Some(self.symbols.len()) || self.symbols_loc == None {
+                    self.dbg_unwrap_mut().qsymbols_finished();
+                } else {
+                    let symbol = self.symbols[self.symbols_loc.unwrap()].clone();
+                    self.symbols_loc = Some(self.symbols_loc.unwrap() + 1);
+                    self.dbg_unwrap_mut().send_qsymbol(symbol.as_bytes());
+                }
+
+                return;
             }
             DREQ_TLS => {
                 unimplemented!()
