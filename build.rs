@@ -29,6 +29,7 @@ fn main() {
     // @TODO What about cases where there is a custom target dir?
     target_dir.push("target");
     let path = PathBuf::from(out_dir);
+    println!("cargo:rustc-link-arg-bins=-Wl,--dynamic-list=scripts/dynamic_list_for_ld.txt");
 
     Config::new(".")
         .define("CMAKE_BUILD_TYPE", "Release")
