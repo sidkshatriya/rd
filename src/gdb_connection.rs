@@ -2336,7 +2336,7 @@ impl GdbConnection {
             }
             b'M' => {
                 // We can't allow the debugger to write arbitrary data
-                // to memory, or the replay may diverge. */
+                // to memory, or the replay may diverge.
                 // TODO: parse this packet in case some oddball gdb
                 // decides to send it instead of 'X'
                 self.write_packet_bytes(b"");
@@ -2689,13 +2689,19 @@ fn print_reg_value(reg: &GdbRegisterValue, buf: &mut Vec<u8>) {
                 write!(buf, "{:02x}", v).unwrap();
             }
             GdbRegisterValueData::Value2(v) => {
-                write!(buf, "{:04x}", v).unwrap();
+                for &b in &v.to_le_bytes() {
+                    write!(buf, "{:02x}", b).unwrap();
+                }
             }
             GdbRegisterValueData::Value4(v) => {
-                write!(buf, "{:08x}", v).unwrap();
+                for &b in &v.to_le_bytes() {
+                    write!(buf, "{:02x}", b).unwrap();
+                }
             }
             GdbRegisterValueData::Value8(v) => {
-                write!(buf, "{:016x}", v).unwrap();
+                for &b in &v.to_le_bytes() {
+                    write!(buf, "{:02x}", b).unwrap();
+                }
             }
         }
     } else {
