@@ -92,7 +92,6 @@ pub struct ConnectionFlags {
     /// `None` to let GdbServer choose the port, a positive integer to select a
     /// specific port to listen on.
     pub dbg_port: Option<u16>,
-    /// @TODO Should this be an OsString?
     pub dbg_host: String,
     /// If keep_listening is true, wait for another
     /// debugger connection after the first one is terminated.

@@ -572,7 +572,7 @@ pub mod gdb_request {
 
     #[derive(Default, Clone)]
     pub struct Watch {
-        pub addr: usize,
+        pub addr: RemotePtr<Void>,
         pub kind: i32,
         pub conditions: Vec<Vec<u8>>,
     }
@@ -2449,7 +2449,7 @@ impl GdbConnection {
                         .unwrap()
                         .try_into()
                         .unwrap();
-                    if b';' == payload_sl[0] {
+                    if !payload_sl.is_empty() && b';' == payload_sl[0] {
                         payload_sl = &payload_sl[1..];
                         while b'X' == payload_sl[0] {
                             payload_sl = &payload_sl[1..];
