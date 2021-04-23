@@ -594,7 +594,7 @@ pub mod gdb_request {
 
     #[derive(Default, Clone)]
     pub struct Tls {
-        pub offset: usize,
+        pub offset: u64,
         pub load_module: RemotePtr<Void>,
         pub target: GdbThreadId,
     }
@@ -1724,9 +1724,10 @@ impl GdbConnection {
             let offset = str16_to_usize(args, &mut args).unwrap();
             parser_assert_eq!(args[0], b',');
             args = &args[1..];
+            // @TODO Specialized method to handle u64?
             let load_module = str16_to_usize(args, &mut args).unwrap();
             parser_assert_eq!(args.len(), 0);
-            self.req.tls_mut().offset = offset;
+            self.req.tls_mut().offset = offset as u64;
             self.req.tls_mut().load_module = load_module.into();
             return true;
         }

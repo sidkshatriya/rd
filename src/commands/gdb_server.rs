@@ -1021,7 +1021,21 @@ impl GdbServer {
                 return;
             }
             DREQ_TLS => {
-                unimplemented!()
+                if !self.thread_db.is_none() {
+                    self.thread_db = Some(ThreadDb::new(self.debuggee_tguid.tid()));
+                }
+                let mut address = Default::default();
+                let tg_shr = target.thread_group();
+                let mut tg = tg_shr.borrow_mut();
+                let ok = self.thread_db.as_mut().unwrap().get_tls_address(
+                    &mut tg,
+                    target.rec_tid.get(),
+                    req.tls().offset,
+                    req.tls().load_module,
+                    &mut address,
+                );
+                self.dbg_unwrap_mut().reply_tls_addr(ok, address);
+                return;
             }
             _ => fatal!("Unknown debugger request {}", req.type_),
         }

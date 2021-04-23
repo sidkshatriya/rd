@@ -114,7 +114,7 @@ impl ThreadDb {
     /// |load_module| are as specified in the qGetTLSAddr packet.  If the
     /// address is found, set |*result| and return true.  Otherwise,
     /// return false.
-    fn get_tls_address(
+    pub fn get_tls_address(
         &mut self,
         thread_group: &mut ThreadGroup,
         rec_tid: pid_t,
