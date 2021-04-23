@@ -133,6 +133,13 @@ pub enum RunCommand {
     RunSinglestepFastForward,
 }
 
+impl Default for RunCommand {
+    fn default() -> Self {
+        // Arbitrary
+        Self::RunContinue
+    }
+}
+
 #[inline]
 pub fn is_singlestep(command: RunCommand) -> bool {
     command == RunCommand::RunSinglestep || command == RunCommand::RunSinglestepFastForward

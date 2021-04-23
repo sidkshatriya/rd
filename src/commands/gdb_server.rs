@@ -1802,12 +1802,31 @@ fn maybe_singlestep_for_event(t: &dyn Task, req: &mut GdbRequest) -> () {
 }
 
 fn compute_run_command_for_reverse_exec(
-    _current_session: &ReplaySession,
-    _debuggee_tguid: ThreadGroupUid,
-    _req: &GdbRequest,
-    _allowed_tasks: &mut Vec<AllowedTasks>,
+    session: &ReplaySession,
+    debuggee_tguid: ThreadGroupUid,
+    req: &GdbRequest,
+    allowed_tasks: &mut Vec<AllowedTasks>,
 ) -> RunCommand {
-    unimplemented!()
+    // Singlestep if any of the actions request singlestepping.
+    let mut result: RunCommand = RunCommand::RunContinue;
+    for action in &req.cont().actions {
+        if action.target.pid > 0 && action.target.pid != debuggee_tguid.tid() {
+            continue;
+        }
+        let mut allowed: AllowedTasks = Default::default();
+        allowed.command = RunCommand::RunContinue;
+        if action.type_ == GdbActionType::ActionStep {
+            result = RunCommand::RunSinglestep;
+            allowed.command = RunCommand::RunSinglestep;
+        }
+        if action.target.tid > 0 {
+            if let Some(t) = session.find_task_from_rec_tid(action.target.tid) {
+                allowed.task = t.tuid();
+            }
+        }
+        allowed_tasks.push(allowed);
+    }
+    result
 }
 
 fn compute_run_command_from_actions(
@@ -2252,6 +2271,7 @@ fn push_target_remote_cmd(vec: &mut Vec<OsString>, host: &str, port: u16) {
     vec.push(OsString::from_vec(ss));
 }
 
+#[derive(Default)]
 struct AllowedTasks {
     /// tid 0 means 'any member of debuggee_tguid'
     task: TaskUid,
