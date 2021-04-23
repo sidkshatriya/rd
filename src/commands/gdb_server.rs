@@ -76,6 +76,7 @@ use std::{
     },
     path::{Component, Path, PathBuf},
     ptr,
+    ptr::copy_nonoverlapping,
     rc::Rc,
 };
 
@@ -953,7 +954,16 @@ impl GdbServer {
                 unimplemented!()
             }
             DREQ_READ_SIGINFO => {
-                unimplemented!()
+                let mut si_bytes = vec![0u8; req.mem().len];
+                unsafe {
+                    copy_nonoverlapping(
+                        &self.stop_siginfo as *const _ as *const u8,
+                        si_bytes.as_mut_ptr() as *mut u8,
+                        min(si_bytes.len(), mem::size_of_val(&self.stop_siginfo)),
+                    )
+                };
+                self.dbg_unwrap_mut().reply_read_siginfo(&si_bytes);
+                return;
             }
             DREQ_WRITE_SIGINFO => {
                 log!(
@@ -1304,8 +1314,22 @@ impl GdbServer {
         }
     }
 
-    fn handle_exited_state(&self, _last_resume_request: &GdbRequest) -> ContinueOrStop {
-        unimplemented!();
+    fn handle_exited_state(&mut self, last_resume_request: &mut GdbRequest) -> ContinueOrStop {
+        // TODO return real exit code, if it's useful.
+        self.dbg_unwrap_mut().notify_exit_code(0);
+        let final_event = self
+            .timeline_unwrap()
+            .current_session()
+            .trace_reader()
+            .time();
+        self.final_event = final_event;
+        let req: GdbRequest = self.process_debugger_requests(Some(ReportState::ReportThreadsDead));
+        let mut s = ContinueOrStop::default();
+        if self.detach_or_restart(&req, &mut s) {
+            *last_resume_request = GdbRequest::new(DREQ_NONE);
+            return s;
+        }
+        fatal!("Received continue/interrupt request after end-of-trace.");
     }
 
     fn debug_one_step(&mut self, last_resume_request: &mut GdbRequest) -> ContinueOrStop {
@@ -1402,7 +1426,7 @@ impl GdbServer {
                     .replay_step_forward(command, self.target.event);
             }
             if result.status == ReplayStatus::ReplayExited {
-                return self.handle_exited_state(&last_resume_request);
+                return self.handle_exited_state(last_resume_request);
             }
         } else {
             let mut allowed_tasks: Vec<AllowedTasks> = Vec::new();
@@ -1638,6 +1662,7 @@ impl GdbServer {
 
     /// Return the checkpoint stored as |checkpoint_id| or nullptr if there
     /// isn't one.
+    /// @TODO Where is the implementation?
     fn get_checkpoint(_checkpoint_id: u32) -> SessionSharedPtr {
         unimplemented!()
     }

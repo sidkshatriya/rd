@@ -2408,7 +2408,7 @@ impl InternalMark {
                 write!(out, ",").unwrap();
             }
         }
-        write!(out, "]}}").unwrap();
+        writeln!(out, "]}}").unwrap();
     }
 }
 

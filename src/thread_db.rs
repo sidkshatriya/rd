@@ -32,7 +32,7 @@ type TdTaMapLwp2ThrFn = extern "C" fn(
 ) -> thread_db::td_err_e;
 
 type TdTaNewFn = extern "C" fn(
-    ps: *mut thread_db::ps_prochandle,
+    ps: *mut ps_prochandle,
     ta: *mut *mut thread_db::td_thragent_t,
 ) -> thread_db::td_err_e;
 
@@ -62,20 +62,19 @@ impl Default for ps_prochandle {
 /// lookup. In principle there could be one instance per process, but we only
 /// support one instance for the GdbServer's target process.
 ///
-/// The overall approach is that a libthread_db.so is loaded into rr
-/// when this class is initialized (see |load_library|).  This provides
-/// the GdbServer with a list of symbols whose addresses might be
+/// The overall approach is that a libthread_db.so is loaded into rd
+/// This provides the GdbServer with a list of symbols whose addresses might be
 /// needed in order to resolve TLS accesses.
 ///
 /// Then, when the address of a TLS variable is requested by the
-/// debugger, GdbServer calls |get_tls_address|.  This uses the
+/// debugger, GdbServer calls `get_tls_address`.  This uses the
 /// libthread_db "new" function ("td_ta_new"); if this succeeds then
 /// ThreadDb proceeds to use other APIs to find the desired address.
 ///
 /// ThreadDb works on a callback model, using symbols provided by the
 /// hosting application.  These are all defined in ThreadDb.cc.
 ///
-/// DIFF NOTE: loaded struct member not there in rd
+/// DIFF NOTE: `loaded` struct member not there in rd
 pub struct ThreadDb {
     /// The external handle for this thread, for libthread_db.
     prochandle: ps_prochandle,
@@ -111,6 +110,64 @@ impl Drop for ThreadDb {
 }
 
 impl ThreadDb {
+    /// Look up a TLS address for thread |rec_tid|.  |offset| and
+    /// |load_module| are as specified in the qGetTLSAddr packet.  If the
+    /// address is found, set |*result| and return true.  Otherwise,
+    /// return false.
+    fn get_tls_address(
+        &mut self,
+        thread_group: &mut ThreadGroup,
+        rec_tid: pid_t,
+        offset: u64,
+        load_module: RemotePtr<Void>,
+        result: &mut RemotePtr<Void>,
+    ) -> bool {
+        self.prochandle.thread_group = thread_group as *mut _;
+        if !self.initialize() {
+            self.prochandle.thread_group = std::ptr::null_mut();
+            return false;
+        }
+
+        let mut th: thread_db::td_thrhandle_t = Default::default();
+        if (self.td_ta_map_lwp2thr_fn)(self.internal_handle, rec_tid, &mut th) != thread_db::TD_OK {
+            self.prochandle.thread_group = std::ptr::null_mut();
+            return false;
+        }
+
+        let load_module_addr: thread_db::psaddr_t = load_module.as_usize() as *mut _;
+        let mut addr: thread_db::psaddr_t = std::ptr::null_mut();
+        if (self.td_thr_tls_get_addr_fn)(&th, load_module_addr, offset, &mut addr)
+            != thread_db::TD_OK
+        {
+            self.prochandle.thread_group = std::ptr::null_mut();
+            return false;
+        }
+        self.prochandle.thread_group = std::ptr::null_mut();
+        *result = RemotePtr::from(addr as usize);
+        true
+    }
+
+    fn initialize(&mut self) -> bool {
+        if !self.internal_handle.is_null() {
+            return true;
+        }
+
+        // DIFF NOTE: There is a call to load_library here: not needed??
+
+        if (self.td_ta_new_fn)(&mut self.prochandle, &mut self.internal_handle) != thread_db::TD_OK
+        {
+            log!(LogDebug, "initialize td_ta_new_fn failed");
+            return false;
+        }
+
+        log!(LogDebug, "initialize OK");
+        true
+    }
+
+    /// Return a set of the names of all the symbols that might be needed
+    /// by libthread_db.  Also clears the current mapping of symbol names
+    /// to addresses.
+    ///
     /// DIFF NOTE: Does NOT take a thread group as a param
     pub fn get_symbols_and_clear_map(&mut self) -> Vec<OsString> {
         // If we think the symbol locations might have changed, then we
@@ -127,6 +184,7 @@ impl ThreadDb {
         self.symbol_names.iter().cloned().collect()
     }
 
+    /// Note that the symbol |name| has the given address.
     pub fn register_symbol(&mut self, name: OsString, address: RemotePtr<Void>) {
         log!(LogDebug, "register_symbol {:?}", name);
         self.symbols.insert(name, address);
@@ -197,6 +255,8 @@ impl ThreadDb {
         b
     }
 
+    /// Look up the symbol |name|.  If found, set |*address| and return
+    /// true.  If not found, return false.
     fn query_symbol(&self, symbol: &OsStr, addr: &mut RemotePtr<u8>) -> bool {
         if let Some(&found) = self.symbols.get(symbol) {
             *addr = found;

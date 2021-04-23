@@ -98,10 +98,16 @@ pub struct RecordCommand {
     pub args: Vec<OsString>,
 }
 
+static mut STATIC_SESSION: *mut RecordSession = std::ptr::null_mut();
+
 /// This can be called during debugging to close the trace so it can be used
 /// later.
 pub fn force_close_record_session() {
-    unimplemented!()
+    unsafe {
+        if !STATIC_SESSION.is_null() {
+            (*STATIC_SESSION).terminate_recording();
+        }
+    }
 }
 
 static TERM_REQUEST: AtomicBool = AtomicBool::new(false);
