@@ -169,7 +169,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
                             .push((m.map.start(), capture_syscallbuf(&m, &**clone_leader)));
                     } else if m.local_addr.is_some() {
                         ed_assert_eq!(
-                            &**clone_leader,
+                            clone_leader,
                             m.map.start(),
                             AddressSpace::preload_thread_locals_start()
                         );

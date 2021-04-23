@@ -889,7 +889,7 @@ impl GdbServer {
             }
             DREQ_SET_SW_BREAK => {
                 ed_assert_eq!(
-                    &**target,
+                    target,
                     req.watch().kind,
                     mem::size_of_val(&BREAKPOINT_INSN) as i32,
                     "Debugger setting bad breakpoint insn"
@@ -916,7 +916,7 @@ impl GdbServer {
                         req.watch().addr.to_code_ptr(),
                         BreakpointType::BkptUser,
                     );
-                    ed_assert!(&**target, diversion_ok);
+                    ed_assert!(target, diversion_ok);
                 }
                 self.dbg_unwrap_mut().reply_watchpoint_request(ok);
                 return;

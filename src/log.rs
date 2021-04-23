@@ -390,8 +390,7 @@ macro_rules! ed_assert {
     ($task:expr, $cond:expr) => {
         {
             use crate::session::task::task_inner::TaskInner;
-            // For type checking. Will use this param later though.
-            let t : &TaskInner = $task;
+            let t : &TaskInner = $task.as_task_inner();
             if !$cond {
                 {
                     use std::io::Write;
@@ -415,8 +414,7 @@ macro_rules! ed_assert {
     ($task:expr, $cond:expr, $($args:tt)+) => {
         {
             use crate::session::task::task_inner::TaskInner;
-            // For type checking. Will use this param later though.
-            let t : &TaskInner = $task;
+            let t : &TaskInner = $task.as_task_inner();
             if !$cond {
                 {
                     use std::io::Write;
@@ -445,8 +443,7 @@ macro_rules! ed_assert_eq {
     ($task:expr, $cond1:expr, $cond2:expr) => {
         {
             use crate::session::task::task_inner::TaskInner;
-            // For type checking. Will use this param later though.
-            let t : &TaskInner = $task;
+            let t : &TaskInner = $task.as_task_inner();
             let val1 = $cond1;
             let val2 = $cond2;
             if val1 != val2 {
@@ -473,8 +470,7 @@ macro_rules! ed_assert_eq {
     ($task:expr, $cond1:expr, $cond2:expr, $($args:tt)+) => {
         {
             use crate::session::task::task_inner::TaskInner;
-            // For type checking. Will use this param later though.
-            let t : &TaskInner = $task;
+            let t : &TaskInner = $task.as_task_inner();
             let val1 = $cond1;
             let val2 = $cond2;
             if val1 != val2 {
@@ -506,8 +502,7 @@ macro_rules! ed_assert_ne {
     ($task:expr, $cond1:expr, $cond2:expr) => {
         {
             use crate::session::task::task_inner::TaskInner;
-            // For type checking. Will use this param later though.
-            let t : &TaskInner = $task;
+            let t : &TaskInner = $task.as_task_inner();
             let val1 = $cond1;
             let val2 = $cond2;
             if val1 == val2 {
@@ -534,8 +529,7 @@ macro_rules! ed_assert_ne {
     ($task:expr, $cond1:expr, $cond2:expr, $($args:tt)+) => {
         {
             use crate::session::task::task_inner::TaskInner;
-            // For type checking. Will use this param later though.
-            let t : &TaskInner = $task;
+            let t : &TaskInner = $task.as_task_inner();
             let val1 = $cond1;
             let val2 = $cond2;
             if val1 == val2 {

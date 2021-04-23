@@ -506,6 +506,11 @@ impl DebugControl {
 }
 
 impl TaskInner {
+    /// Convenient nop. Useful for the ed_assert!(), ed_assert_eq!() etc macros
+    pub fn as_task_inner(&self) -> &TaskInner {
+        self
+    }
+
     #[inline]
     pub fn tid(&self) -> pid_t {
         self.tid.get()
