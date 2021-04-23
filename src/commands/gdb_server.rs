@@ -5,7 +5,7 @@ use crate::{
     commands::gdb_command_handler::GdbCommandHandler,
     extra_registers::ExtraRegisters,
     gdb_connection::{
-        GdbActionType, GdbConnection, GdbConnectionFeatures, GdbRegisterValue,
+        GdbActionType, GdbConnection, GdbConnectionFeatures, GdbContAction, GdbRegisterValue,
         GdbRegisterValueData, GdbRequest, GdbRequestType, GdbRestartType, GdbThreadId, DREQ_CONT,
         DREQ_DETACH, DREQ_FILE_CLOSE, DREQ_FILE_OPEN, DREQ_FILE_PREAD, DREQ_FILE_SETFS,
         DREQ_GET_AUXV, DREQ_GET_CURRENT_THREAD, DREQ_GET_EXEC_FILE, DREQ_GET_IS_THREAD_ALIVE,
@@ -27,7 +27,10 @@ use crate::{
     replay_timeline::{self, Mark, ReplayTimeline, ReplayTimelineSharedPtr, RunDirection},
     scoped_fd::{ScopedFd, ScopedFdSharedPtr, ScopedFdSharedWeakPtr},
     session::{
-        address_space::{memory_range::MemoryRange, MappingFlags, WatchType},
+        address_space::{
+            address_space::BREAKPOINT_INSN, memory_range::MemoryRange, BreakpointType,
+            MappingFlags, WatchType,
+        },
         diversion_session::DiversionSession,
         replay_session::{ReplayResult, ReplaySession, ReplayStatus},
         session_inner::{BreakStatus, RunCommand},
@@ -43,8 +46,8 @@ use crate::{
     util::write_all,
     util::{
         cpuid, create_temporary_file, find, flat_env, floor_page_size, open_socket, page_size,
-        to_cstring_array, u8_slice, u8_slice_mut, word_size, ProbePort, AVX_FEATURE_FLAG,
-        CPUID_GETFEATURES, OSXSAVE_FEATURE_FLAG,
+        to_cstring_array, trace_instructions_up_to_event, u8_slice, u8_slice_mut, word_size,
+        ProbePort, AVX_FEATURE_FLAG, CPUID_GETFEATURES, OSXSAVE_FEATURE_FLAG,
     },
 };
 use libc::{pid_t, SIGKILL, SIGTRAP};
@@ -885,13 +888,63 @@ impl GdbServer {
                 return;
             }
             DREQ_SET_SW_BREAK => {
-                unimplemented!()
+                ed_assert_eq!(
+                    &**target,
+                    req.watch().kind,
+                    mem::size_of_val(&BREAKPOINT_INSN) as i32,
+                    "Debugger setting bad breakpoint insn"
+                );
+                // Mirror all breakpoint/watchpoint sets/unsets to the target process
+                // if it's not part of the timeline (i.e. it's a diversion).
+                let replay_task = self
+                    .timeline_unwrap()
+                    .current_session()
+                    .find_task_from_task_uid(target.tuid())
+                    .unwrap();
+                let ok = self.timeline_unwrap_mut().add_breakpoint(
+                    replay_task.as_replay_task().unwrap(),
+                    req.watch().addr.to_code_ptr(),
+                    breakpoint_condition(req),
+                );
+                if ok
+                    && !session
+                        .weak_self()
+                        .ptr_eq(self.timeline_unwrap().current_session().weak_self())
+                {
+                    let diversion_ok = target.vm().add_breakpoint(
+                        &**target,
+                        req.watch().addr.to_code_ptr(),
+                        BreakpointType::BkptUser,
+                    );
+                    ed_assert!(&**target, diversion_ok);
+                }
+                self.dbg_unwrap_mut().reply_watchpoint_request(ok);
+                return;
             }
             DREQ_SET_HW_BREAK | DREQ_SET_RD_WATCH | DREQ_SET_WR_WATCH | DREQ_SET_RDWR_WATCH => {
                 unimplemented!()
             }
             DREQ_REMOVE_SW_BREAK => {
-                unimplemented!()
+                let replay_task = self
+                    .timeline_unwrap()
+                    .current_session()
+                    .find_task_from_task_uid(target.tuid())
+                    .unwrap();
+                self.timeline_unwrap_mut().remove_breakpoint(
+                    replay_task.as_replay_task().unwrap(),
+                    req.watch().addr.to_code_ptr(),
+                );
+                if !session
+                    .weak_self()
+                    .ptr_eq(self.timeline_unwrap().current_session().weak_self())
+                {
+                    target.vm().remove_breakpoint(
+                        req.watch().addr.to_code_ptr(),
+                        BreakpointType::BkptUser,
+                    );
+                }
+                self.dbg_unwrap_mut().reply_watchpoint_request(true);
+                return;
             }
             DREQ_REMOVE_HW_BREAK
             | DREQ_REMOVE_RD_WATCH
@@ -1207,7 +1260,7 @@ impl GdbServer {
                     .current_session()
                     .find_task_from_task_uid(self.last_continue_tuid)
                 {
-                    maybe_singlestep_for_event(&**t, &req);
+                    maybe_singlestep_for_event(&**t, &mut req);
                 }
                 return req;
             }
@@ -1238,8 +1291,17 @@ impl GdbServer {
         }
     }
 
-    fn detach_or_restart(&self, _req: &GdbRequest, _s: &mut ContinueOrStop) -> bool {
-        unimplemented!();
+    fn detach_or_restart(&mut self, req: &GdbRequest, s: &mut ContinueOrStop) -> bool {
+        if DREQ_RESTART == req.type_ {
+            self.restart_session(req);
+            *s = ContinueOrStop::ContinueDebugging;
+            true
+        } else if DREQ_DETACH == req.type_ {
+            *s = ContinueOrStop::StopDebugging;
+            true
+        } else {
+            false
+        }
     }
 
     fn handle_exited_state(&self, _last_resume_request: &GdbRequest) -> ContinueOrStop {
@@ -1551,24 +1613,26 @@ impl GdbServer {
                 );
             }
         }
-        let mut t = break_status.task.upgrade().unwrap();
+        let mut maybe_t = break_status.task.upgrade();
         let maybe_in_exec_task = is_in_exec(&self.timeline_unwrap());
         if let Some(in_exec_task) = maybe_in_exec_task {
             do_stop = true;
             self.stop_siginfo = Default::default();
-            t = in_exec_task;
+            maybe_t = Some(in_exec_task);
             log!(LogDebug, "Stopping at exec");
         }
-        let tguid = t.thread_group().borrow().tguid();
-        if do_stop && tguid == self.debuggee_tguid {
-            // Notify the debugger and process any new requests
-            // that might have triggered before resuming.
-            let signo = self.stop_siginfo.si_signo;
-            let threadid = get_threadid(&**t);
-            self.dbg_unwrap_mut()
-                .notify_stop(threadid, Sig::try_from(signo).ok(), watch_addr);
-            self.last_continue_tuid = t.tuid();
-            self.last_query_tuid = t.tuid();
+        if do_stop {
+            let t = maybe_t.unwrap();
+            if t.thread_group().borrow().tguid() == self.debuggee_tguid {
+                // Notify the debugger and process any new requests
+                // that might have triggered before resuming.
+                let signo = self.stop_siginfo.si_signo;
+                let threadid = get_threadid(&**t);
+                self.dbg_unwrap_mut()
+                    .notify_stop(threadid, Sig::try_from(signo).ok(), watch_addr);
+                self.last_continue_tuid = t.tuid();
+                self.last_query_tuid = t.tuid();
+            }
         }
     }
 
@@ -1709,8 +1773,32 @@ fn generate_fake_proc_maps(t: &dyn Task) -> ScopedFd {
     file.fd
 }
 
-fn maybe_singlestep_for_event(_t: &dyn Task, _req: &GdbRequest) -> () {
-    unimplemented!()
+fn maybe_singlestep_for_event(t: &dyn Task, req: &mut GdbRequest) -> () {
+    if !t.session().is_replaying() {
+        return;
+    }
+    let rt = t.as_replay_task().unwrap();
+    if trace_instructions_up_to_event(
+        rt.session()
+            .as_replay()
+            .unwrap()
+            .current_trace_frame()
+            .time(),
+    ) {
+        eprint!("Stepping: ");
+        rt.regs_ref()
+            .write_register_file_compact(&mut stderr())
+            .unwrap();
+        eprint!(" ticks:{}", rt.tick_count());
+        *req = GdbRequest::new(DREQ_CONT);
+        req.suppress_debugger_stop = true;
+        let thread_id = get_threadid_from_tuid(&**rt.session(), rt.tuid());
+        req.cont_mut().actions.push(GdbContAction::new(
+            Some(GdbActionType::ActionStep),
+            Some(thread_id),
+            None,
+        ));
+    }
 }
 
 fn compute_run_command_for_reverse_exec(
@@ -1723,11 +1811,29 @@ fn compute_run_command_for_reverse_exec(
 }
 
 fn compute_run_command_from_actions(
-    _task: &dyn Task,
-    _req: &GdbRequest,
-    _signal_to_deliver: &mut Option<Sig>,
+    t: &dyn Task,
+    req: &GdbRequest,
+    maybe_signal_to_deliver: &mut Option<Sig>,
 ) -> RunCommand {
-    unimplemented!()
+    for action in &req.cont().actions {
+        if matches_threadid(t, action.target) {
+            // We can only run task |t|; neither diversion nor replay sessions
+            // support running multiple threads. So even if gdb tells us to continue
+            // multiple threads, we don't do that.
+            *maybe_signal_to_deliver = action.maybe_signal_to_deliver;
+            return if action.type_ == GdbActionType::ActionStep {
+                RunCommand::RunSinglestep
+            } else {
+                RunCommand::RunContinue
+            };
+        }
+    }
+    // gdb told us to run (or step) some thread that's not |t|, without resuming
+    // |t|. It sometimes does this even though its target thread is entering a
+    // blocking syscall and |t| must run before gdb's target thread can make
+    // progress. So, allow |t| to run anyway.
+    *maybe_signal_to_deliver = None;
+    RunCommand::RunContinue
 }
 
 fn needs_target(option: &OsStr) -> bool {

@@ -92,7 +92,7 @@ impl VirtualPerfCounterMonitor {
         attr: &perf_event_attr,
     ) -> VirtualPerfCounterMonitor {
         let mut v = VirtualPerfCounterMonitor {
-            session: t.session().weak_self_ptr(),
+            session: t.session().weak_self_clone(),
             initial_ticks: target.tick_count(),
             target_ticks_: 0,
             target_tuid_: target.tuid(),

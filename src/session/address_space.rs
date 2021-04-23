@@ -592,6 +592,8 @@ pub mod address_space {
         }
     }
 
+    pub const BREAKPOINT_INSN: u8 = AddressSpace::BREAKPOINT_INSN;
+
     /// Models the address space for a set of tasks.  This includes the set
     /// of mapped pages, and the resources those mappings refer to.
     pub struct AddressSpace {

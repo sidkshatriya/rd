@@ -217,8 +217,12 @@ impl Clone for SessionInner {
 /// Multiple sessions can coexist in the same process.  This
 /// is required when using replay checkpoints, for example.
 impl SessionInner {
-    pub fn weak_self_ptr(&self) -> SessionSharedWeakPtr {
+    pub fn weak_self_clone(&self) -> SessionSharedWeakPtr {
         self.weak_self.clone()
+    }
+
+    pub fn weak_self(&self) -> &SessionSharedWeakPtr {
+        &self.weak_self
     }
 
     /// Returns true after the tracee has done the initial exec in Task::spawn.
