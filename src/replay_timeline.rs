@@ -228,7 +228,7 @@ impl ReplayTimeline {
         self.current.as_ref().unwrap().clone()
     }
 
-    pub fn weak_self_ptr(&self) -> ReplayTimelineSharedWeakPtr {
+    pub fn weak_self_clone(&self) -> ReplayTimelineSharedWeakPtr {
         self.weak_self.clone()
     }
 
@@ -248,7 +248,7 @@ impl ReplayTimeline {
 
         let key = self.current_mark_key();
         let m = Rc::new(RefCell::new(InternalMark::new(
-            self.weak_self_ptr(),
+            self.weak_self_clone(),
             self.current_session(),
             key,
         )));
@@ -331,7 +331,7 @@ impl ReplayTimeline {
                         .singlestep_to_next_mark_no_signal = true;
                 }
                 new_marks.push(Rc::new(RefCell::new(InternalMark::new(
-                    self.weak_self_ptr(),
+                    self.weak_self_clone(),
                     self.current_session(),
                     key,
                 ))));

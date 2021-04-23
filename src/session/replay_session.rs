@@ -1085,7 +1085,7 @@ impl ReplaySession {
             Some(newtask) => {
                 ed_assert!(
                     t,
-                    t.weak_self_ptr().ptr_eq(&Rc::downgrade(&newtask)),
+                    t.weak_self_clone().ptr_eq(&Rc::downgrade(&newtask)),
                     "emulate_signal_delivery changed task"
                 );
 

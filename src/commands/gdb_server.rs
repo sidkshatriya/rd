@@ -1518,7 +1518,7 @@ impl GdbServer {
             now = previous;
             need_seek = true;
             let mut break_status = BreakStatus::default();
-            break_status.task = t.weak_self_ptr();
+            break_status.task = t.weak_self_clone();
             break_status.singlestep_complete = true;
             log!(LogDebug, "  using lazy reverse-singlestep");
             self.maybe_notify_stop(req, &break_status);

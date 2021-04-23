@@ -1045,7 +1045,7 @@ pub fn process_execve(t: &ReplayTask, step: &mut ReplayTraceStep) {
     // determine this by checking if this address space has any tasks with a
     // different tgid.
     let mut maybe_memory_task = None;
-    for task in t.vm().task_set().iter_except(t.weak_self_ptr()) {
+    for task in t.vm().task_set().iter_except(t.weak_self_clone()) {
         if task.tgid() != t.tgid() {
             maybe_memory_task = Some(task);
             break;

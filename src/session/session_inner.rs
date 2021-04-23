@@ -248,7 +248,7 @@ impl SessionInner {
         let exec_count = maybe_exec_count.unwrap_or(0);
         self.assert_fully_initialized();
         let as_ = AddressSpace::new_after_execve(t, exe, exec_count);
-        as_.task_set_mut().insert(t.weak_self_ptr());
+        as_.task_set_mut().insert(t.weak_self_clone());
         let as_uid = as_.uid();
         let shr_ptr = Rc::new(as_);
         self.vm_map
@@ -466,7 +466,7 @@ impl SessionInner {
     ) -> BreakStatus {
         self.assert_fully_initialized();
         let mut break_status = BreakStatus::new();
-        break_status.task = t.weak_self_ptr();
+        break_status.task = t.weak_self_clone();
 
         let maybe_stop_sig = t.maybe_stop_sig();
         if maybe_stop_sig.is_not_sig() {

@@ -69,7 +69,7 @@ impl Drop for ThreadGroup {
                     .unwrap()
                     .borrow_mut()
                     .children_mut()
-                    .erase(self.weak_self_ptr());
+                    .erase(self.weak_self_clone());
             }
             None => (),
         }
@@ -224,7 +224,7 @@ impl ThreadGroup {
         self.session_.upgrade()
     }
 
-    pub fn session_weak_ptr(&self) -> &SessionSharedWeakPtr {
+    pub fn session_weak(&self) -> &SessionSharedWeakPtr {
         &self.session_
     }
 
@@ -232,7 +232,7 @@ impl ThreadGroup {
         self.parent_.as_ref().map(|wp| wp.upgrade().unwrap())
     }
 
-    pub fn parent_weak_ptr(&self) -> Option<ThreadGroupSharedWeakPtr> {
+    pub fn parent_weak_clone(&self) -> Option<ThreadGroupSharedWeakPtr> {
         self.parent_.clone()
     }
 
@@ -248,7 +248,7 @@ impl ThreadGroup {
         ThreadGroupUid::new_with(self.tgid, self.serial)
     }
 
-    pub fn weak_self_ptr(&self) -> ThreadGroupSharedWeakPtr {
+    pub fn weak_self_clone(&self) -> ThreadGroupSharedWeakPtr {
         self.weak_self.clone()
     }
 }

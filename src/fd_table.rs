@@ -163,7 +163,7 @@ impl FdTable {
             fd_count_beyond_limit: Cell::new(self.fd_count_beyond_limit.get()),
         };
 
-        file_mon.tasks.borrow_mut().insert(t.weak_self_ptr());
+        file_mon.tasks.borrow_mut().insert(t.weak_self_clone());
         Rc::new(file_mon)
     }
 
@@ -199,7 +199,7 @@ impl FdTable {
 
         let rt = t.as_record_task().unwrap();
 
-        ed_assert!(&rt, self.task_set().has(rt.weak_self_ptr()));
+        ed_assert!(&rt, self.task_set().has(rt.weak_self_clone()));
 
         if rt.preload_globals.get().is_null() {
             return;
@@ -220,7 +220,7 @@ impl FdTable {
             disabled[adjusted_fd as usize] = 1;
         }
 
-        for vm_t in rt.vm().task_set().iter_except(rt.weak_self_ptr()) {
+        for vm_t in rt.vm().task_set().iter_except(rt.weak_self_clone()) {
             for &fd in vm_t.fd_table().fds.borrow().keys() {
                 debug_assert!(fd >= 0);
                 let mut adjusted_fd = fd;
@@ -243,7 +243,7 @@ impl FdTable {
     /// been closed.
     /// This also updates our table to match reality.
     pub fn fds_to_close_after_exec(&self, t: &RecordTask) -> Vec<i32> {
-        ed_assert!(t, self.task_set().has(t.weak_self_ptr()));
+        ed_assert!(t, self.task_set().has(t.weak_self_clone()));
 
         let mut fds_to_close: Vec<i32> = Vec::new();
         for &fd in self.fds.borrow().keys() {
@@ -260,7 +260,7 @@ impl FdTable {
 
     /// Close fds in list after an exec.
     pub fn close_after_exec(&self, t: &ReplayTask, fds_to_close: &[i32]) {
-        ed_assert!(t, self.task_set().has(t.weak_self_ptr()));
+        ed_assert!(t, self.task_set().has(t.weak_self_clone()));
 
         for &fd in fds_to_close {
             self.did_close(fd)

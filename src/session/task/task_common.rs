@@ -1218,7 +1218,7 @@ fn on_syscall_exit_common_arch<Arch: Architecture>(t: &dyn Task, sys: i32, regs:
 
     if sys == Arch::UNSHARE {
         if regs.arg1() & CLONE_FILES as usize != 0 {
-            t.fd_table().task_set_mut().erase(t.weak_self_ptr());
+            t.fd_table().task_set_mut().erase(t.weak_self_clone());
             *t.fds.borrow_mut() = Some(t.fd_table().clone_into_task(t));
         }
         return;
@@ -1312,7 +1312,7 @@ pub(super) fn post_exec_syscall_common(t: &dyn Task) {
 pub(super) fn post_exec_for_exe_common<T: Task>(t: &T, exe_file: &OsStr) {
     let mut stopped_task_in_address_space = None;
     let mut other_task_in_address_space = false;
-    for task in t.vm().task_set().iter_except(t.weak_self_ptr()) {
+    for task in t.vm().task_set().iter_except(t.weak_self_clone()) {
         other_task_in_address_space = true;
         if task.is_stopped.get() {
             stopped_task_in_address_space = Some(task);
@@ -1355,8 +1355,8 @@ pub(super) fn post_exec_for_exe_common<T: Task>(t: &T, exe_file: &OsStr) {
     }
     t.session().post_exec(t);
 
-    t.vm().task_set_mut().erase(t.weak_self_ptr());
-    t.fd_table().task_set_mut().erase(t.weak_self_ptr());
+    t.vm().task_set_mut().erase(t.weak_self_clone());
+    t.fd_table().task_set_mut().erase(t.weak_self_clone());
 
     *t.extra_registers.borrow_mut() = None;
     let mut e = t.extra_regs_ref().clone();
@@ -1511,7 +1511,7 @@ fn do_preload_init_arch<Arch: Architecture, T: Task>(t: &T) {
         .set(Arch::as_rptr(params.breakpoint_table).to_code_ptr());
     t.stopping_breakpoint_table_entry_size
         .set(params.breakpoint_table_entry_size.try_into().unwrap());
-    for tt in t.vm().task_set().iter_except(t.weak_self_ptr()) {
+    for tt in t.vm().task_set().iter_except(t.weak_self_clone()) {
         tt.preload_globals.set(Arch::as_rptr(params.globals));
 
         tt.stopping_breakpoint_table
@@ -1671,7 +1671,7 @@ pub(in super::super) fn clone_task_common(
             for tt in clone_this
                 .vm()
                 .task_set()
-                .iter_except(clone_this.weak_self_ptr())
+                .iter_except(clone_this.weak_self_clone())
             {
                 unmap_buffers_for(
                     &mut remote,
@@ -1697,7 +1697,7 @@ pub(in super::super) fn clone_task_common(
             for tt in clone_this
                 .fd_table()
                 .task_set()
-                .iter_except(clone_this.weak_self_ptr())
+                .iter_except(clone_this.weak_self_clone())
             {
                 close_buffers_for(&mut remote, Some(&**tt))
             }
@@ -1887,9 +1887,9 @@ pub(super) fn task_drop_common<T: Task>(t: &T) {
     t.thread_group()
         .borrow_mut()
         .task_set_mut()
-        .erase(t.weak_self_ptr());
-    t.vm().task_set_mut().erase(t.weak_self_ptr());
-    t.fd_table().task_set_mut().erase(t.weak_self_ptr());
+        .erase(t.weak_self_clone());
+    t.vm().task_set_mut().erase(t.weak_self_clone());
+    t.fd_table().task_set_mut().erase(t.weak_self_clone());
 
     log!(LogDebug, "  dead");
 }

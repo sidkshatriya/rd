@@ -516,11 +516,11 @@ impl TaskInner {
         self.rec_tid.get()
     }
 
-    pub fn weak_self_ptr(&self) -> TaskSharedWeakPtr {
+    pub fn weak_self_clone(&self) -> TaskSharedWeakPtr {
         self.weak_self.clone()
     }
 
-    pub fn weak_self_ptr_ref(&self) -> &TaskSharedWeakPtr {
+    pub fn weak_self(&self) -> &TaskSharedWeakPtr {
         &self.weak_self
     }
 

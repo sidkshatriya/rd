@@ -1618,7 +1618,7 @@ pub mod address_space {
         /// Verify that this cached address space matches what the
         /// kernel thinks it should be.
         pub fn verify(&self, t: &dyn Task) {
-            ed_assert!(t, self.task_set().has(t.weak_self_ptr()));
+            ed_assert!(t, self.task_set().has(t.weak_self_clone()));
 
             if thread_group_in_exec(t) {
                 return;
@@ -3227,7 +3227,7 @@ fn thread_group_in_exec(t: &dyn Task) -> bool {
         .thread_group()
         .borrow()
         .task_set()
-        .iter_except(t.weak_self_ptr())
+        .iter_except(t.weak_self_clone())
     {
         let rt = tt.as_record_task().unwrap();
         let ev = rt.ev();

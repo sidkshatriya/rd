@@ -1250,8 +1250,8 @@ impl RecordTask {
                 tracer
                     .emulated_ptrace_tracees
                     .borrow_mut()
-                    .insert(self.weak_self_ptr());
-                *self.emulated_ptracer.borrow_mut() = Some(tracer.weak_self_ptr());
+                    .insert(self.weak_self_clone());
+                *self.emulated_ptracer.borrow_mut() = Some(tracer.weak_self_clone());
             }
             None => {
                 ed_assert!(self, self.emulated_ptracer.borrow().is_some());
@@ -1264,7 +1264,7 @@ impl RecordTask {
                     .as_rec_unwrap()
                     .emulated_ptrace_tracees
                     .borrow_mut()
-                    .erase(self.weak_self_ptr());
+                    .erase(self.weak_self_clone());
                 self.emulated_ptracer.take().unwrap();
             }
         }
@@ -1596,7 +1596,7 @@ impl RecordTask {
                     .thread_group()
                     .borrow()
                     .task_set()
-                    .iter_except(self.weak_self_ptr())
+                    .iter_except(self.weak_self_clone())
                 {
                     t.as_record_task().unwrap().apply_group_stop(sig);
                 }
@@ -1652,7 +1652,7 @@ impl RecordTask {
             .thread_group()
             .borrow()
             .task_set()
-            .iter_except(self.weak_self_ptr())
+            .iter_except(self.weak_self_clone())
         {
             let rt = t.as_rec_unwrap();
             log!(
@@ -2933,7 +2933,7 @@ impl RecordTask {
             .thread_group()
             .borrow()
             .task_set()
-            .iter_except(self.weak_self_ptr())
+            .iter_except(self.weak_self_clone())
         {
             let rt = t.as_rec_unwrap();
             if rt.is_waiting_for(rchild) {
@@ -3171,7 +3171,7 @@ impl Drop for RecordTask {
                     .unwrap()
                     .emulated_ptrace_tracees
                     .borrow_mut()
-                    .erase(self.weak_self_ptr());
+                    .erase(self.weak_self_clone());
                 if self.emulated_ptrace_options.get() & PTRACE_O_TRACEEXIT != 0 {
                     ed_assert!(
                         self,

@@ -987,7 +987,7 @@ fn safe_for_syscall_patching(
     end: RemoteCodePtr,
     exclude: &RecordTask,
 ) -> bool {
-    let exclude_rc = exclude.weak_self_ptr().upgrade().unwrap();
+    let exclude_rc = exclude.weak_self_clone().upgrade().unwrap();
     for (_, rt) in exclude.session().tasks().iter() {
         if Rc::ptr_eq(rt, &exclude_rc) {
             continue;

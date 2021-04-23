@@ -332,7 +332,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
         self.assert_fully_initialized();
         // If tg already belongs to our session this is a fork to create a new
         // taskgroup, otherwise it's a session-clone of an existing taskgroup
-        if self.weak_self.ptr_eq(tg.borrow().session_weak_ptr()) {
+        if self.weak_self.ptr_eq(tg.borrow().session_weak()) {
             ThreadGroup::new(
                 self.weak_self.clone(),
                 Some(Rc::downgrade(&tg)),

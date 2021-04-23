@@ -159,7 +159,7 @@ impl FileMonitor for MmappedFileMonitor {
                             }
 
                             if !done {
-                                for t_rc in v.task_set().iter_except(offset.t.weak_self_ptr()) {
+                                for t_rc in v.task_set().iter_except(offset.t.weak_self_clone()) {
                                     // If the task here has execed, we may not be able to record its
                                     // memory any longer, so loop through all tasks in this address
                                     // space in turn in case any *didn't* exec.

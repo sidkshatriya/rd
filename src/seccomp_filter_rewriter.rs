@@ -202,7 +202,7 @@ fn install_patched_seccomp_filter_arch<Arch: Architecture>(
                 .thread_group()
                 .borrow()
                 .task_set()
-                .iter_except(t.weak_self_ptr())
+                .iter_except(t.weak_self_clone())
             {
                 tt.as_rec_unwrap().prctl_seccomp_status.set(2);
             }

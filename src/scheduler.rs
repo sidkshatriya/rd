@@ -603,7 +603,7 @@ impl Scheduler {
             t.tid()
         );
 
-        let rc_t = t.weak_self_ptr().upgrade().unwrap();
+        let rc_t = t.weak_self_clone().upgrade().unwrap();
         ed_assert!(t, Rc::ptr_eq(&self.current().unwrap(), &rc_t));
         self.maybe_pop_round_robin_task(t);
         ed_assert!(t, !t.in_round_robin_queue.get());
@@ -620,7 +620,7 @@ impl Scheduler {
         self.task_priority_set.borrow_mut().clear();
         self.task_round_robin_queue
             .borrow_mut()
-            .push_back(t.weak_self_ptr());
+            .push_back(t.weak_self_clone());
         t.in_round_robin_queue.set(true);
         self.expire_timeslice();
     }
@@ -642,7 +642,7 @@ impl Scheduler {
 
     ///  De-register a thread. This function should be called when a thread exits.
     pub fn on_destroy_task(&self, t: &RecordTask) {
-        let weak = t.weak_self_ptr();
+        let weak = t.weak_self_clone();
         let maybe_curr = self.current_.borrow().clone();
         match maybe_curr {
             Some(curr) if curr.ptr_eq(&weak) => *self.current_.borrow_mut() = None,
@@ -807,7 +807,7 @@ impl Scheduler {
                                 && task_priority_setb.contains(&PriorityTup(
                                     priority,
                                     t.stable_serial(),
-                                    t.weak_self_ptr(),
+                                    t.weak_self_clone(),
                                 )) =>
                         {
                             let (lte, gt): (Vec<&PriorityTup>, Vec<&PriorityTup>) =
@@ -880,7 +880,7 @@ impl Scheduler {
             self.task_priority_set.borrow_mut().insert(PriorityTup(
                 t.priority.get(),
                 t.stable_serial(),
-                t.weak_self_ptr(),
+                t.weak_self_clone(),
             ));
         }
     }
@@ -969,13 +969,13 @@ impl Scheduler {
         self.task_priority_set.borrow_mut().remove(&PriorityTup(
             t.priority.get(),
             t.stable_serial(),
-            t.weak_self_ptr(),
+            t.weak_self_clone(),
         ));
         t.priority.set(value);
         self.task_priority_set.borrow_mut().insert(PriorityTup(
             t.priority.get(),
             t.stable_serial(),
-            t.weak_self_ptr(),
+            t.weak_self_clone(),
         ));
     }
 
@@ -1055,7 +1055,7 @@ impl Scheduler {
                     None,
                 );
                 *by_waitpid = true;
-                *self.must_run_task.borrow_mut() = Some(t.weak_self_ptr());
+                *self.must_run_task.borrow_mut() = Some(t.weak_self_clone());
                 log!(
                     LogDebug,
                     "  Got {} out of emulated stop due to pending SIGCONT",
@@ -1082,7 +1082,7 @@ impl Scheduler {
             // this event earlier and already called did_waitpid for us. Just pretend
             // we did that here.
             *by_waitpid = true;
-            *self.must_run_task.borrow_mut() = Some(t.weak_self_ptr());
+            *self.must_run_task.borrow_mut() = Some(t.weak_self_clone());
             return true;
         } else if EventType::EvSyscall == t.ev().event_type()
             && SyscallState::ProcessingSyscall == t.ev().syscall_event().state
@@ -1093,7 +1093,7 @@ impl Scheduler {
             // behave predictably, do a blocking wait.
             t.wait(None);
             *by_waitpid = true;
-            *self.must_run_task.borrow_mut() = Some(t.weak_self_ptr());
+            *self.must_run_task.borrow_mut() = Some(t.weak_self_clone());
             log!(LogDebug, "  sched_yield ready with status {}", t.status());
             return true;
         }
@@ -1108,7 +1108,7 @@ impl Scheduler {
         let did_wait_for_t: bool = t.try_wait();
         if did_wait_for_t {
             *by_waitpid = true;
-            *self.must_run_task.borrow_mut() = Some(t.weak_self_ptr());
+            *self.must_run_task.borrow_mut() = Some(t.weak_self_clone());
             log!(LogDebug, "  ready with status {}", t.status());
             return true;
         }

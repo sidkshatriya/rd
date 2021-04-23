@@ -2071,7 +2071,7 @@ fn is_task_buffer(t: &dyn Task, m: &Mapping) -> bool {
     if t.scratch_ptr.get() == m.map.start() && t.scratch_size.get() == m.map.size() {
         return true;
     }
-    for tt in t.vm().task_set().iter_except(t.weak_self_ptr()) {
+    for tt in t.vm().task_set().iter_except(t.weak_self_clone()) {
         if RemotePtr::cast(tt.syscallbuf_child.get()) == m.map.start()
             && tt.syscallbuf_size.get() == m.map.size()
         {
@@ -2093,7 +2093,7 @@ fn is_start_of_scratch_region(t: &dyn Task, start_addr: RemotePtr<Void>) -> bool
         return true;
     }
 
-    let t_rc = t.weak_self_ptr().upgrade().unwrap();
+    let t_rc = t.weak_self_clone().upgrade().unwrap();
     for (_, tt_rc) in t.session().tasks().iter() {
         if Rc::ptr_eq(tt_rc, &t_rc) {
             continue;

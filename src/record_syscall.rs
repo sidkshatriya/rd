@@ -2666,7 +2666,7 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
                             .thread_group()
                             .borrow()
                             .task_set()
-                            .iter_except(tracee.weak_self_ptr())
+                            .iter_except(tracee.weak_self_clone())
                         {
                             thread.as_rec_unwrap().emulated_stop_pending.set(false);
                         }
@@ -3339,7 +3339,7 @@ fn monitor_fd_for_mapping(
     let mut found_our_mapping = false;
     let mut our_mapping_writable = false;
     let mapped_table = Rc::downgrade(&mapped_t.fd_table());
-    let mapped_t_weak = mapped_t.weak_self_ptr();
+    let mapped_t_weak = mapped_t.weak_self_clone();
     for (_, ts) in mapped_t.session().tasks().iter() {
         let t: &dyn Task = if mapped_t_weak.ptr_eq(&Rc::downgrade(ts)) {
             mapped_t
@@ -3869,7 +3869,7 @@ impl TaskSyscallState {
     // DIFF NOTE: Unlike rr, you need to specify `t` (but as a tuid) right from the beginning
     pub fn new(task: &dyn Task) -> Self {
         Self {
-            weak_task: task.weak_self_ptr(),
+            weak_task: task.weak_self_clone(),
             param_list: Default::default(),
             scratch: Default::default(),
             after_syscall_actions: Default::default(),
