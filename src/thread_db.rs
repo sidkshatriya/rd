@@ -1,7 +1,9 @@
 use crate::{
     bindings::{kernel::user_regs_struct, thread_db},
+    kernel_abi::SupportedArch,
     log::LogDebug,
     remote_ptr::{RemotePtr, Void},
+    session::task::TaskSharedPtr,
     thread_group::ThreadGroup,
 };
 use libc::pid_t;
@@ -399,17 +401,44 @@ pub unsafe extern "C" fn ps_getpid(h: *mut ps_prochandle) -> libc::pid_t {
 pub unsafe extern "C" fn ps_get_thread_area(
     h: *mut ps_prochandle,
     rec_tid: thread_db::lwpid_t,
-    _val: i32,
-    _base: *mut thread_db::psaddr_t,
+    val: i32,
+    base: *mut thread_db::psaddr_t,
 ) -> thread_db::ps_err_e {
     if (*h).thread_group.is_null() {
         fatal!("unexpected ps_get_thread_area call with uninitialized thread_group");
     }
     // DIFF NOTE: In rr there is simply a debug_assert to make sure task is not null; we unwrap
-    let _task = (*(*h).thread_group)
+    let task: TaskSharedPtr = (*(*h).thread_group)
         .session()
         .find_task_from_rec_tid(rec_tid)
         .unwrap();
 
-    unimplemented!()
+    if task.arch() == SupportedArch::X86 {
+        let uval = val as u32;
+        for area in task.thread_areas().iter() {
+            if area.entry_number == uval {
+                *base = area.base_addr as *mut c_void;
+                return thread_db::PS_OK;
+            }
+        }
+        log!(LogDebug, "ps_get_thread_area 32 failed");
+        return thread_db::PS_ERR;
+    }
+
+    let result;
+    match val {
+        libc::FS => {
+            result = task.regs_ref().fs_base();
+        }
+        libc::GS => {
+            result = task.regs_ref().gs_base();
+        }
+        _ => {
+            log!(LogDebug, "ps_get_thread_area PS_BADADDR");
+            return thread_db::PS_BADADDR;
+        }
+    }
+
+    *base = result as *mut c_void;
+    thread_db::PS_OK
 }
