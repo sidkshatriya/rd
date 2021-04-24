@@ -573,7 +573,7 @@ pub mod gdb_request {
     #[derive(Default, Clone)]
     pub struct Watch {
         pub addr: RemotePtr<Void>,
-        pub kind: i32,
+        pub kind: usize,
         pub conditions: Vec<Vec<u8>>,
     }
 
@@ -2446,10 +2446,9 @@ impl GdbConnection {
                         str16_to_usize(payload_sl, &mut payload_sl).unwrap().into();
                     parser_assert_eq!(b',', payload_sl[0]);
                     payload_sl = &payload_sl[1..];
-                    self.req.watch_mut().kind = str16_to_isize(payload_sl, &mut payload_sl)
-                        .unwrap()
-                        .try_into()
-                        .unwrap();
+                    self.req.watch_mut().kind =
+                        str16_to_usize(payload_sl, &mut payload_sl).unwrap();
+
                     if !payload_sl.is_empty() && b';' == payload_sl[0] {
                         payload_sl = &payload_sl[1..];
                         while b'X' == payload_sl[0] {

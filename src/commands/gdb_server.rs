@@ -892,7 +892,7 @@ impl GdbServer {
                 ed_assert_eq!(
                     target,
                     req.watch().kind,
-                    mem::size_of_val(&BREAKPOINT_INSN) as i32,
+                    mem::size_of_val(&BREAKPOINT_INSN),
                     "Debugger setting bad breakpoint insn"
                 );
                 // Mirror all breakpoint/watchpoint sets/unsets to the target process
@@ -923,7 +923,32 @@ impl GdbServer {
                 return;
             }
             DREQ_SET_HW_BREAK | DREQ_SET_RD_WATCH | DREQ_SET_WR_WATCH | DREQ_SET_RDWR_WATCH => {
-                unimplemented!()
+                let task = self
+                    .timeline_unwrap()
+                    .current_session()
+                    .find_task_from_task_uid(target.tuid())
+                    .unwrap();
+                let ok = self.timeline_unwrap_mut().add_watchpoint(
+                    task.as_replay_task().unwrap(),
+                    req.watch().addr,
+                    req.watch().kind,
+                    watchpoint_type(req.type_),
+                    breakpoint_condition(req),
+                );
+                if ok
+                    && !session
+                        .weak_self()
+                        .ptr_eq(self.timeline_unwrap().current_session().weak_self())
+                {
+                    let diversion_ok = target.vm().add_watchpoint(
+                        req.watch().addr,
+                        req.watch().kind,
+                        watchpoint_type(req.type_),
+                    );
+                    ed_assert!(target, diversion_ok);
+                }
+                self.dbg_unwrap_mut().reply_watchpoint_request(ok);
+                return;
             }
             DREQ_REMOVE_SW_BREAK => {
                 let replay_task = self
@@ -951,7 +976,29 @@ impl GdbServer {
             | DREQ_REMOVE_RD_WATCH
             | DREQ_REMOVE_WR_WATCH
             | DREQ_REMOVE_RDWR_WATCH => {
-                unimplemented!()
+                let task = self
+                    .timeline_unwrap()
+                    .current_session()
+                    .find_task_from_task_uid(target.tuid())
+                    .unwrap();
+                self.timeline_unwrap_mut().remove_watchpoint(
+                    task.as_replay_task().unwrap(),
+                    req.watch().addr,
+                    req.watch().kind,
+                    watchpoint_type(req.type_),
+                );
+                if !session
+                    .weak_self()
+                    .ptr_eq(self.timeline_unwrap().current_session().weak_self())
+                {
+                    target.vm().remove_watchpoint(
+                        req.watch().addr,
+                        req.watch().kind,
+                        watchpoint_type(req.type_),
+                    );
+                }
+                self.dbg_unwrap_mut().reply_watchpoint_request(true);
+                return;
             }
             DREQ_READ_SIGINFO => {
                 let mut si_bytes = vec![0u8; req.mem().len];
