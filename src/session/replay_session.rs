@@ -1475,12 +1475,17 @@ impl ReplaySession {
         Completion::Complete
     }
 
-    fn advance_to_ticks_target(
-        &self,
-        _t: &ReplayTask,
-        _constraints: &StepConstraints,
-    ) -> Completion {
-        unimplemented!();
+    fn advance_to_ticks_target(&self, t: &ReplayTask, constraints: &StepConstraints) -> Completion {
+        loop {
+            let mut ticks_request = TicksRequest::default();
+            if !compute_ticks_request(t, constraints, &mut ticks_request) {
+                return Completion::Incomplete;
+            }
+            self.continue_or_step(t, constraints, ticks_request, None);
+            if t.maybe_stop_sig() == sig::SIGTRAP {
+                return Completion::Incomplete;
+            }
+        }
     }
 
     fn emulate_deterministic_signal(

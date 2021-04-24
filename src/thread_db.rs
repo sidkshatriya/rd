@@ -239,6 +239,8 @@ impl ThreadDb {
             }
         }
         log!(LogDebug, "load_library OK");
+        // Enclose in a Box so as to keep prochandle.db
+        // which is a kind of self pointer, stable
         let mut b = Box::new(ThreadDb {
             prochandle: Default::default(),
             internal_handle: std::ptr::null_mut(),
@@ -251,7 +253,7 @@ impl ThreadDb {
             symbols: Default::default(),
         });
 
-        b.prochandle.db = &raw mut *b;
+        b.prochandle.db = &mut *b as *mut ThreadDb;
         b.prochandle.tgid = tgid;
 
         b

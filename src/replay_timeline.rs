@@ -258,7 +258,7 @@ impl ReplayTimeline {
         if len == 0
             || (self.current_at_or_after_mark.is_some()
                 && Rc::ptr_eq(
-                    &self.current_at_or_after_mark.as_ref().unwrap(),
+                    self.current_at_or_after_mark.as_ref().unwrap(),
                     &self.marks[&key][len - 1],
                 ))
         {
@@ -332,7 +332,7 @@ impl ReplayTimeline {
                 }
                 new_marks.push(Rc::new(RefCell::new(InternalMark::new(
                     self.weak_self_clone(),
-                    self.current_session(),
+                    tmp_session_replay,
                     key,
                 ))));
             }
@@ -624,7 +624,7 @@ impl ReplayTimeline {
         let mut i = mark_vector.len() as isize - 1;
         while i >= 0 {
             let m = &mark_vector[i as usize];
-            if Rc::ptr_eq(&m, &mark.ptr) {
+            if Rc::ptr_eq(m, &mark.ptr) {
                 at_or_before_mark = true;
             }
             if at_or_before_mark && m.borrow().checkpoint.is_some() {
