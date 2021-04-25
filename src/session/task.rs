@@ -96,13 +96,6 @@ pub trait Task: Deref<Target = TaskInner> {
 
     fn detect_syscall_arch(&self) -> SupportedArch;
 
-    /// DIFF NOTE: Unlike rr, it is NOT compulsory to always call this method
-    /// to cleanup a task. Call this method when you need to explicitly remove
-    /// the entry the task_map in SessionInner.
-    /// If this method is NOT called then simply do what this method is doing
-    /// which is to remove the corresponding TaskSharedPtr entry from the
-    /// task_map. See kill_all_tasks() for an example where the task map
-    /// is being pop-ed from.
     fn destroy(&self, maybe_detach: Option<bool>);
 
     /// Destroy in the tracee task the scratch buffer and syscallbuf (if

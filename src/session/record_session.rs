@@ -2543,7 +2543,8 @@ impl Session for RecordSession {
     }
 
     fn on_destroy_task(&self, t: &dyn Task) {
-        self.scheduler().on_destroy_task(t.as_rec_unwrap())
+        self.scheduler().on_destroy_task(t.as_rec_unwrap());
+        t.session().tasks_mut().remove(&t.rec_tid());
     }
 
     fn as_session_inner(&self) -> &SessionInner {

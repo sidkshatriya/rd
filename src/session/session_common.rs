@@ -100,7 +100,8 @@ pub(super) fn kill_all_tasks<S: Session>(sess: &S) {
             }
             t.thread_group().borrow().destabilize();
         }
-        // NOTE: It is NOT necessary to call destroy() on the task here.
+
+        t.destroy(None);
     }
 
     // Manually clean up the vm map and thread group map

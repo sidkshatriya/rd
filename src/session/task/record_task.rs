@@ -640,7 +640,128 @@ impl Task for RecordTask {
 
     /// Forwarded method
     fn destroy(&self, maybe_detach: Option<bool>) {
-        destroy_common(self, maybe_detach)
+        destroy_common(self, maybe_detach);
+        // DIFF NOTE: This is a bit different from rr
+        // The main issue is that record task related cleanup often requires session()
+        // When the parent session is being drop-ped upgrading the weak session
+        // shared pointer to a normal shared pointer does not succeed
+        //
+        // In normal situations this `if` statement wont trigger as a session will be
+        // available while a task is being drop-ed.
+        if self.try_session().is_none() {
+            log!(
+                    LogWarn,
+                    "parent session is being drop-ped. Doing basic task cleanup but skipping various RecordTask specific cleanups."
+                );
+
+            task_drop_common(self);
+            return;
+        }
+
+        let maybe_emulated_ptracer = self.emulated_ptracer();
+        match maybe_emulated_ptracer {
+            Some(emulated_ptracer) => {
+                emulated_ptracer
+                    .as_record_task()
+                    .unwrap()
+                    .emulated_ptrace_tracees
+                    .borrow_mut()
+                    .erase(self.weak_self_clone());
+                if self.emulated_ptrace_options.get() & PTRACE_O_TRACEEXIT != 0 {
+                    ed_assert!(
+                        self,
+                        self.stable_exit.get(),
+                        "PTRACE_O_TRACEEXIT only supported for stable exits for now"
+                    );
+                }
+            }
+            None => (),
+        }
+
+        for tt in self.emulated_ptrace_tracees.borrow().iter() {
+            let t = tt.as_record_task().unwrap();
+            // XXX emulate PTRACE_O_EXITKILL
+            ed_assert!(
+                self,
+                t.emulated_ptracer
+                    .borrow()
+                    .as_ref()
+                    .unwrap()
+                    .ptr_eq(&self.weak_self)
+            );
+            *t.emulated_ptracer.borrow_mut() = None;
+            t.emulated_ptrace_options.set(0);
+            t.emulated_stop_pending.set(false);
+            t.emulated_stop_type.set(EmulatedStopType::NotStopped);
+        }
+
+        // Task::destroy has already done PTRACE_DETACH so the task can complete
+        // exiting.
+        // The kernel explicitly only clears the futex if the address space is shared.
+        // If the address space has no other users then the futex will not be cleared
+        // even if it lives in shared memory which other tasks can read.
+        // Unstable exits may result in the kernel *not* clearing the
+        // futex, for example for fatal signals.  So we would
+        // deadlock waiting on the futex.
+        if !self.unstable.get() && !self.tid_futex.get().is_null() && self.vm().task_set().len() > 1
+        {
+            // clone()'d tasks can have a pid_t* |ctid| argument
+            // that's written with the new task's pid.  That
+            // pointer can also be used as a futex: when the task
+            // dies, the original ctid value is cleared and a
+            // FUTEX_WAKE is done on the address. So
+            // pthread_join() is basically a standard futex wait
+            // loop.
+            log!(
+                LogDebug,
+                " waiting for tid futex {} to be cleared ...",
+                self.tid_futex.get()
+            );
+
+            if self.futex_wait(self.tid_futex.get(), 0).is_ok() {
+                let val = 0;
+                self.record_local_for(self.tid_futex.get(), &val);
+            }
+        }
+
+        // Write the exit event here so that the value recorded above is captured.
+        // Don't flush syscallbuf. Whatever triggered the exit (syscall, signal)
+        // should already have flushed it, if it was running. If it was blocked,
+        // then the syscallbuf would already have been flushed too. The exception
+        // is kill_all_tasks() in which case it's OK to just drop the last chunk of
+        // execution. Trying to flush syscallbuf for an exiting task could be bad,
+        // e.g. it could be in the middle of syscallbuf code that's supposed to be
+        // atomic. For the same reasons don't allow syscallbuf to be reset here.
+        self.record_event(
+            Some(Event::exit()),
+            Some(FlushSyscallbuf::DontFlushSyscallbuf),
+            Some(AllowSyscallbufReset::DontResetSyscallbuf),
+            None,
+        );
+
+        // We expect tasks to usually exit by a call to exit() or
+        // exit_group(), so it's not helpful to warn about that.
+        if EventType::EvSentinel != self.ev().event_type()
+            && (self.pending_events.borrow().len() > 2
+                || !(self.ev().event_type() == EventType::EvSyscall
+                    && (is_exit_syscall(
+                        self.ev().syscall_event().number,
+                        self.ev().syscall_event().regs.arch(),
+                    ) || is_exit_group_syscall(
+                        self.ev().syscall_event().number,
+                        self.ev().syscall_event().regs.arch(),
+                    ))))
+        {
+            log!(
+                LogWarn,
+                "{} still has pending events.  From top down:",
+                self.tid()
+            );
+            self.log_pending_events();
+        }
+
+        // Important !!
+        task_drop_common(self);
     }
 
     fn log_pending_events(&self) {
@@ -3142,132 +3263,6 @@ fn exe_path(t: &RecordTask) -> OsString {
 
 fn is_unstoppable_signal(sig: Sig) -> bool {
     sig == sig::SIGSTOP || sig == sig::SIGKILL
-}
-
-impl Drop for RecordTask {
-    fn drop(&mut self) {
-        // DIFF NOTE: This is a bit different from rr
-        // The main issue is that record task related cleanup often requires session()
-        // When the parent session is being drop-ped upgrading the weak session
-        // shared pointer to a normal shared pointer does not succeed
-        //
-        // In normal situations this `if` statement wont trigger as a session will be
-        // available while a task is being drop-ed.
-        if self.try_session().is_none() {
-            log!(
-                LogWarn,
-                "parent session is being drop-ped. Doing basic task cleanup but skipping various RecordTask specific cleanups."
-            );
-
-            task_drop_common(self);
-            return;
-        }
-
-        let maybe_emulated_ptracer = self.emulated_ptracer();
-        match maybe_emulated_ptracer {
-            Some(emulated_ptracer) => {
-                emulated_ptracer
-                    .as_record_task()
-                    .unwrap()
-                    .emulated_ptrace_tracees
-                    .borrow_mut()
-                    .erase(self.weak_self_clone());
-                if self.emulated_ptrace_options.get() & PTRACE_O_TRACEEXIT != 0 {
-                    ed_assert!(
-                        self,
-                        self.stable_exit.get(),
-                        "PTRACE_O_TRACEEXIT only supported for stable exits for now"
-                    );
-                }
-            }
-            None => (),
-        }
-
-        for tt in self.emulated_ptrace_tracees.borrow().iter() {
-            let t = tt.as_record_task().unwrap();
-            // XXX emulate PTRACE_O_EXITKILL
-            ed_assert!(
-                self,
-                t.emulated_ptracer
-                    .borrow()
-                    .as_ref()
-                    .unwrap()
-                    .ptr_eq(&self.weak_self)
-            );
-            *t.emulated_ptracer.borrow_mut() = None;
-            t.emulated_ptrace_options.set(0);
-            t.emulated_stop_pending.set(false);
-            t.emulated_stop_type.set(EmulatedStopType::NotStopped);
-        }
-
-        // Task::destroy has already done PTRACE_DETACH so the task can complete
-        // exiting.
-        // The kernel explicitly only clears the futex if the address space is shared.
-        // If the address space has no other users then the futex will not be cleared
-        // even if it lives in shared memory which other tasks can read.
-        // Unstable exits may result in the kernel *not* clearing the
-        // futex, for example for fatal signals.  So we would
-        // deadlock waiting on the futex.
-        if !self.unstable.get() && !self.tid_futex.get().is_null() && self.vm().task_set().len() > 1
-        {
-            // clone()'d tasks can have a pid_t* |ctid| argument
-            // that's written with the new task's pid.  That
-            // pointer can also be used as a futex: when the task
-            // dies, the original ctid value is cleared and a
-            // FUTEX_WAKE is done on the address. So
-            // pthread_join() is basically a standard futex wait
-            // loop.
-            log!(
-                LogDebug,
-                " waiting for tid futex {} to be cleared ...",
-                self.tid_futex.get()
-            );
-
-            if self.futex_wait(self.tid_futex.get(), 0).is_ok() {
-                let val = 0;
-                self.record_local_for(self.tid_futex.get(), &val);
-            }
-        }
-
-        // Write the exit event here so that the value recorded above is captured.
-        // Don't flush syscallbuf. Whatever triggered the exit (syscall, signal)
-        // should already have flushed it, if it was running. If it was blocked,
-        // then the syscallbuf would already have been flushed too. The exception
-        // is kill_all_tasks() in which case it's OK to just drop the last chunk of
-        // execution. Trying to flush syscallbuf for an exiting task could be bad,
-        // e.g. it could be in the middle of syscallbuf code that's supposed to be
-        // atomic. For the same reasons don't allow syscallbuf to be reset here.
-        self.record_event(
-            Some(Event::exit()),
-            Some(FlushSyscallbuf::DontFlushSyscallbuf),
-            Some(AllowSyscallbufReset::DontResetSyscallbuf),
-            None,
-        );
-
-        // We expect tasks to usually exit by a call to exit() or
-        // exit_group(), so it's not helpful to warn about that.
-        if EventType::EvSentinel != self.ev().event_type()
-            && (self.pending_events.borrow().len() > 2
-                || !(self.ev().event_type() == EventType::EvSyscall
-                    && (is_exit_syscall(
-                        self.ev().syscall_event().number,
-                        self.ev().syscall_event().regs.arch(),
-                    ) || is_exit_group_syscall(
-                        self.ev().syscall_event().number,
-                        self.ev().syscall_event().regs.arch(),
-                    ))))
-        {
-            log!(
-                LogWarn,
-                "{} still has pending events.  From top down:",
-                self.tid()
-            );
-            self.log_pending_events();
-        }
-
-        // Important !!
-        task_drop_common(self);
-    }
 }
 
 fn get_ppid(pid: pid_t) -> Result<pid_t, Box<dyn Error>> {

@@ -66,12 +66,6 @@ impl Deref for ReplayTask {
     }
 }
 
-impl Drop for ReplayTask {
-    fn drop(&mut self) {
-        task_drop_common(self);
-    }
-}
-
 #[repr(u32)]
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub enum ReplayTaskIgnore {
@@ -412,7 +406,8 @@ impl Task for ReplayTask {
 
     /// Forwarded method
     fn destroy(&self, maybe_detach: Option<bool>) {
-        destroy_common(self, maybe_detach)
+        destroy_common(self, maybe_detach);
+        task_drop_common(self);
     }
 
     /// Forwarded method

@@ -1868,6 +1868,10 @@ pub(super) fn task_drop_common<T: Task>(t: &T) {
                 t.syscallbuf_size.get(),
             );
         }
+
+        if let Some(sess) = t.try_session() {
+            sess.on_destroy_task(t);
+        }
     } else {
         ed_assert!(t, t.seen_ptrace_exit_event.get());
         ed_assert!(t, t.syscallbuf_child.get().is_null());
@@ -1882,6 +1886,8 @@ pub(super) fn task_drop_common<T: Task>(t: &T) {
                 ed_assert_eq!(t, ret, t.thread_group().borrow().real_tgid);
             }
         }
+
+        t.session().on_destroy_task(t);
     }
 
     t.thread_group()
@@ -2423,7 +2429,6 @@ fn perform_remote_clone_arch<Arch: Architecture>(
 pub(super) fn destroy_common<T: Task>(t: &T, maybe_detach: Option<bool>) {
     let detach = maybe_detach.unwrap_or(true);
     if detach {
-        debug_assert!(t.session().tasks().get(&t.rec_tid()).is_some());
         log!(
             LogDebug,
             "task {} (rec:{}) is dying ...",
@@ -2433,12 +2438,6 @@ pub(super) fn destroy_common<T: Task>(t: &T, maybe_detach: Option<bool>) {
 
         t.fallible_ptrace(PTRACE_DETACH, RemotePtr::null(), &mut PtraceData::None);
     }
-
-    // DIFF NOTE: Call to on_destroy_task() happens in the destroy() method rather than in drop.
-    t.session().on_destroy_task(t);
-
-    // Removing the entry from the HashMap causes the drop() to happen
-    t.session().tasks_mut().remove(&t.rec_tid());
 }
 
 /// Forwarded method definition
