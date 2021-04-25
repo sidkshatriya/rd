@@ -2451,23 +2451,24 @@ impl GdbConnection {
 
                     if !payload_sl.is_empty() && b';' == payload_sl[0] {
                         payload_sl = &payload_sl[1..];
-                        while b'X' == payload_sl[0] {
+                        while !payload_sl.is_empty() && b'X' == payload_sl[0] {
                             payload_sl = &payload_sl[1..];
-                            let len: usize = str16_to_isize(payload_sl, &mut payload_sl)
-                                .unwrap()
-                                .try_into()
-                                .unwrap();
+                            let len: usize = str16_to_usize(payload_sl, &mut payload_sl).unwrap();
+
                             parser_assert_eq!(b',', payload_sl[0]);
                             payload_sl = &payload_sl[1..];
                             let mut bytes = Vec::<u8>::new();
                             for _ in 0..len {
                                 parser_assert!(payload_sl.len() >= 2);
+                                let mut end_of_byte = Default::default();
                                 bytes.push(
-                                    str16_to_usize(&payload_sl[0..2], &mut payload_sl)
+                                    str16_to_usize(&payload_sl[0..2], &mut end_of_byte)
                                         .unwrap()
                                         .try_into()
                                         .unwrap(),
                                 );
+                                parser_assert_eq!(end_of_byte.len(), 0);
+                                payload_sl = &payload_sl[2..];
                             }
                             self.req.watch_mut().conditions.push(bytes);
                         }
