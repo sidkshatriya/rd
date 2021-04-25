@@ -5,12 +5,7 @@ use crate::{
     remote_ptr::RemotePtr,
     session::task::{task_common::read_val_mem, Task},
 };
-use std::{
-    convert::TryFrom,
-    intrinsics::transmute,
-    mem::size_of,
-    ops::{BitOr, Shl},
-};
+use std::{convert::TryFrom, intrinsics::transmute, mem::size_of};
 use Opcode::*;
 
 /// Extracted from
@@ -187,7 +182,7 @@ impl<'a> ExpressionState<'a> {
     }
 
     pub fn nonzero(&mut self, v: i64) -> i64 {
-        if v != 0 {
+        if v == 0 {
             self.set_error();
             return 1;
         }
@@ -200,20 +195,53 @@ impl<'a> ExpressionState<'a> {
         self.stack.push(Value::new(i));
     }
 
-    pub fn fetch<T>(&mut self) -> T
-    where
-        T: Default + BitOr<T, Output = T> + From<u8> + Shl<usize, Output = T>,
-    {
-        if self.pc + size_of::<T>() > self.bytecode.len() {
+    /// @TODO find a better approach later.
+    /// Ideally fetch_u8(), fetch_u16(), fetch_u32() and fetch_u64() should be a single template method
+    /// However since we're using a non-trait method `overflowing_shl`, for simplicity we just have
+    /// 4 methods for now.
+    pub fn fetch_u8(&mut self) -> u8 {
+        if self.pc + size_of::<u8>() > self.bytecode.len() {
             self.set_error();
-            // DIFF NOTE: rr returns -1 which not be available for all types.
-            return T::default();
+            return u8::MAX;
         }
-        let mut v = T::default();
-        for i in 0..size_of::<T>() {
-            v = (v << 8usize) | T::from(self.bytecode[self.pc + i]);
+        let v: u8 = self.bytecode[self.pc];
+        self.pc += size_of::<u8>();
+        v
+    }
+    pub fn fetch_u16(&mut self) -> u16 {
+        if self.pc + size_of::<u16>() > self.bytecode.len() {
+            self.set_error();
+            return u16::MAX;
         }
-        self.pc += size_of::<T>();
+        let mut v: u16 = 0;
+        for i in 0..size_of::<u16>() {
+            v = v.overflowing_shl(8).0 | u8::from(self.bytecode[self.pc + i]) as u16;
+        }
+        self.pc += size_of::<u16>();
+        v
+    }
+    pub fn fetch_u32(&mut self) -> u32 {
+        if self.pc + size_of::<u32>() > self.bytecode.len() {
+            self.set_error();
+            return u32::MAX;
+        }
+        let mut v: u32 = 0;
+        for i in 0..size_of::<u32>() {
+            v = v.overflowing_shl(8).0 | u8::from(self.bytecode[self.pc + i]) as u32;
+        }
+        self.pc += size_of::<u32>();
+        v
+    }
+    pub fn fetch_u64(&mut self) -> u64 {
+        if self.pc + size_of::<u64>() > self.bytecode.len() {
+            self.set_error();
+            return u64::MAX;
+        }
+        let mut v: u64 = 0;
+        for i in 0..size_of::<u64>() {
+            v = v.overflowing_shl(8).0 | u8::from(self.bytecode[self.pc + i]) as u64;
+        }
+        self.pc += size_of::<u64>();
         v
     }
 
@@ -244,32 +272,32 @@ impl<'a> ExpressionState<'a> {
         debug_assert!(!self.error);
         let operands: BinaryOperands;
         // @TODO Will the catch all case `_` deal with even invalid enum values?
-        match unsafe { transmute(self.fetch::<u8>()) } {
+        match unsafe { transmute(self.fetch_u8()) } {
             OP_add => {
                 operands = self.pop_a_b();
-                self.push(operands.a + operands.b)
+                self.push(operands.a.overflowing_add(operands.b).0)
             }
 
             OP_sub => {
                 operands = self.pop_a_b();
-                self.push(operands.a - operands.b)
+                self.push(operands.a.overflowing_sub(operands.b).0)
             }
 
             OP_mul => {
                 operands = self.pop_a_b();
-                self.push(operands.a * operands.b)
+                self.push(operands.a.overflowing_mul(operands.b).0)
             }
 
             OP_div_signed => {
                 operands = self.pop_a_b();
                 let d = self.nonzero(operands.b);
-                self.push(operands.a / d)
+                self.push(operands.a.overflowing_div(d).0)
             }
 
             OP_div_unsigned => {
                 operands = self.pop_a_b();
                 let d = self.nonzero(operands.b) as u64;
-                self.push((operands.a as u64 / d) as i64)
+                self.push((operands.a as u64).overflowing_div(d).0 as i64)
             }
 
             OP_rem_signed => {
@@ -286,17 +314,17 @@ impl<'a> ExpressionState<'a> {
 
             OP_lsh => {
                 operands = self.pop_a_b();
-                self.push(operands.a << operands.b)
+                self.push(operands.a.overflowing_shl(operands.b as u32).0)
             }
 
             OP_rsh_signed => {
                 operands = self.pop_a_b();
-                self.push(operands.a >> operands.b)
+                self.push(operands.a.overflowing_shr(operands.b as u32).0)
             }
 
             OP_rsh_unsigned => {
                 operands = self.pop_a_b();
-                self.push((operands.a as u64 >> operands.b as u64) as i64)
+                self.push((operands.a as u64).overflowing_shr(operands.b as u32).0 as i64)
             }
 
             OP_log_not => {
@@ -344,24 +372,24 @@ impl<'a> ExpressionState<'a> {
             }
 
             OP_ext => {
-                let x = self.fetch::<u8>() as i64;
+                let x = self.fetch_u8() as i64;
                 let n = self.nonzero(x);
                 if n >= 64 {
                     return;
                 }
                 let a = self.pop_a();
                 let n_mask = (1i64 << n) - 1;
-                let sign_bit = (a >> (n - 1)) & 1;
+                let sign_bit = a.overflowing_shr((n - 1) as u32).0 & 1;
                 self.push((sign_bit * !n_mask) | (a & n_mask))
             }
 
             OP_zero_ext => {
-                let n = self.fetch::<u8>();
+                let n = self.fetch_u8();
                 if n >= 64 {
                     return;
                 }
                 let a = self.pop_a();
-                let n_mask: i64 = (1i64 << n as i64) - 1;
+                let n_mask: i64 = (1i64 << n) - 1;
                 self.push(a & n_mask)
             }
 
@@ -386,7 +414,7 @@ impl<'a> ExpressionState<'a> {
             }
 
             OP_pick => {
-                let offset = self.fetch::<u8>() as usize;
+                let offset = self.fetch_u8() as usize;
                 self.pick(offset)
             }
 
@@ -399,37 +427,37 @@ impl<'a> ExpressionState<'a> {
                 self.push(a)
             }
             OP_if_goto => {
-                let offset = self.fetch::<u16>();
+                let offset = self.fetch_u16();
                 if self.pop_a() != 0 {
                     self.pc = offset as usize;
                 }
             }
             OP_goto => {
-                self.pc = self.fetch::<u16>() as usize;
+                self.pc = self.fetch_u16() as usize;
             }
 
             OP_const8 => {
-                let a = self.fetch::<u8>() as i64;
+                let a = self.fetch_u8() as i64;
                 self.push(a)
             }
 
             OP_const16 => {
-                let a = self.fetch::<u16>() as i64;
+                let a = self.fetch_u16() as i64;
                 self.push(a)
             }
 
             OP_const32 => {
-                let a = self.fetch::<u32>() as i64;
+                let a = self.fetch_u32() as i64;
                 self.push(a)
             }
 
             OP_const64 => {
-                let a = self.fetch::<u64>() as i64;
+                let a = self.fetch_u64() as i64;
                 self.push(a)
             }
 
             OP_reg => {
-                let r = match GdbRegister::try_from(self.fetch::<u16>() as u32) {
+                let r = match GdbRegister::try_from(self.fetch_u16() as u32) {
                     Ok(r) => r,
                     Err(_e) => {
                         self.set_error();
