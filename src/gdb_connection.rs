@@ -2425,7 +2425,7 @@ impl GdbConnection {
             }
             b'z' | b'Z' => {
                 let mut payload_sl: &[u8] = &payload;
-                let type_: u32 = str16_to_isize(payload_sl, &mut payload_sl)
+                let type_: u32 = str16_to_usize(payload_sl, &mut payload_sl)
                     .unwrap()
                     .try_into()
                     .unwrap();

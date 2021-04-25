@@ -521,7 +521,7 @@ pub mod address_space {
                 write_count: 0,
                 // @TODO is this default what we really need?
                 debug_regs_for_exec_read: Vec::new(),
-                value_bytes: Vec::with_capacity(num_bytes),
+                value_bytes: vec![0u8; num_bytes],
                 valid: false,
                 changed: false,
             }
@@ -1441,10 +1441,14 @@ pub mod address_space {
 
         pub fn remove_watchpoint(&self, addr: RemotePtr<Void>, num_bytes: usize, type_: WatchType) {
             let r = range_for_watchpoint(addr, num_bytes);
+            let mut remove_r = false;
             if let Some(wp) = self.watchpoints.borrow_mut().get_mut(&r) {
                 if 0 == wp.unwatch(Self::access_bits_of(type_)) {
-                    self.watchpoints.borrow_mut().remove(&r);
+                    remove_r = true;
                 }
+            }
+            if remove_r {
+                self.watchpoints.borrow_mut().remove(&r);
             }
             self.allocate_watchpoints();
         }
