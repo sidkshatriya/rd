@@ -1915,9 +1915,10 @@ impl GdbConnection {
             let mut maybe_default_action: Option<GdbContAction> = None;
 
             while !args.is_empty() {
-                let mut cmd = args;
+                let mut cmd = Vec::new();
                 // Skip to `:` or `;`
                 while !args.is_empty() && args[0] != b':' && args[0] != b';' {
+                    cmd.push(args[0]);
                     args = &args[1..];
                 }
                 let mut is_default = true;
@@ -1941,24 +1942,31 @@ impl GdbConnection {
 
                 let action: GdbActionType;
                 let mut maybe_signal_to_deliver: Option<Sig> = None;
+                parser_assert!(!cmd.is_empty());
                 let cmd0 = cmd[0];
-                cmd = &cmd[1..];
+                let cmd_maybe_sig = &cmd[1..];
                 let mut maybe_endptr = None;
                 match cmd0 {
                     b'C' => {
                         let mut endptr: &[u8] = Default::default();
                         action = GdbActionType::ActionContinue;
-                        maybe_signal_to_deliver =
-                            str16_to_usize(cmd, &mut endptr).unwrap().try_into().ok();
+                        maybe_signal_to_deliver = str16_to_usize(cmd_maybe_sig, &mut endptr)
+                            .unwrap()
+                            .try_into()
+                            .ok();
                         maybe_endptr = Some(endptr);
                     }
                     b'c' => {
                         action = GdbActionType::ActionContinue;
                     }
                     b'S' => {
+                        let mut endptr: &[u8] = Default::default();
                         action = GdbActionType::ActionStep;
-                        maybe_signal_to_deliver =
-                            str16_to_usize(cmd, &mut cmd).unwrap().try_into().ok();
+                        maybe_signal_to_deliver = str16_to_usize(cmd_maybe_sig, &mut endptr)
+                            .unwrap()
+                            .try_into()
+                            .ok();
+                        maybe_endptr = Some(endptr);
                     }
                     b's' => {
                         action = GdbActionType::ActionStep;
@@ -1966,8 +1974,8 @@ impl GdbConnection {
                     _ => {
                         unhandled_req!(
                             self,
-                            "Unhandled vCont command {}",
-                            String::from_utf8_lossy(cmd)
+                            "Unhandled vCont command {:?}",
+                            OsStr::from_bytes(&cmd)
                         );
                         return false;
                     }
@@ -1976,8 +1984,8 @@ impl GdbConnection {
                     Some(endptr) if !endptr.is_empty() => {
                         unhandled_req!(
                             self,
-                            "Unhandled vCont command parameters {}",
-                            String::from_utf8_lossy(cmd)
+                            "Unhandled vCont command parameters {:?}",
+                            OsStr::from_bytes(endptr)
                         );
                         return false;
                     }
@@ -2009,11 +2017,8 @@ impl GdbConnection {
                 }
             }
 
-            match maybe_default_action {
-                Some(default_action) => {
-                    actions.push(default_action);
-                }
-                None => (),
+            if let Some(default_action) = maybe_default_action {
+                actions.push(default_action);
             }
 
             self.req = GdbRequest::new(DREQ_CONT);
