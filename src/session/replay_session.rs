@@ -77,7 +77,7 @@ use nix::sys::mman::{MapFlags, ProtFlags};
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
     cmp::min,
-    convert::TryInto,
+    convert::{TryFrom, TryInto},
     ffi::{OsStr, OsString},
     intrinsics::copy_nonoverlapping,
     mem::size_of,
@@ -2004,8 +2004,13 @@ impl ReplaySession {
         break_status: &mut BreakStatus,
     ) {
         if constraints.ticks_target > 0 {
-            let ticks_left = constraints.ticks_target - t.tick_count();
-            if ticks_left <= PerfCounters::skid_size() {
+            // @TODO
+            // It does seem possible for ticks_left to be negative. Not sure if this is a bug.
+            // e.g. check the `string_instructions_multiwatch` test -- while continuing in gdb for
+            // the watch to trigger, one can find an instance where this happens
+            let ticks_left: isize = isize::try_from(constraints.ticks_target).unwrap()
+                - isize::try_from(t.tick_count()).unwrap();
+            if ticks_left <= PerfCounters::skid_size() as isize {
                 break_status.approaching_ticks_target = true;
             }
         }
