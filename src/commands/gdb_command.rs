@@ -342,7 +342,7 @@ fn forward(gdb_server: &mut GdbServer, t: &dyn Task, _: &[OsString]) -> OsString
 }
 
 fn invoke_checkpoint(gdb_server: &mut GdbServer, _t: &dyn Task, args: &[OsString]) -> OsString {
-    static NEXT_CHECKPOINT_ID: AtomicU64 = AtomicU64::new(0);
+    static NEXT_CHECKPOINT_ID: AtomicU64 = AtomicU64::new(1);
     let where_ = &args[1];
     let checkpoint_id = NEXT_CHECKPOINT_ID.fetch_add(1, Ordering::SeqCst);
 
