@@ -58,7 +58,7 @@ pub type EmuFileSharedPtr = Rc<RefCell<EmuFile>>;
 pub type EmuFsSharedWeakPtr = Weak<RefCell<EmuFs>>;
 pub type EmuFileSharedWeakPtr = Weak<RefCell<EmuFile>>;
 
-type FileMap = HashMap<FileId, Weak<RefCell<EmuFile>>>;
+type FileMap = HashMap<FileId, EmuFileSharedWeakPtr>;
 
 /// We DONT want this to be either Copy or Clone.
 pub struct EmuFile {
@@ -144,9 +144,9 @@ impl EmuFile {
 
     /// Return a copy of this file.  See `create()` for the meaning
     /// of `fs_tag`.
-    fn clone_file(&self) -> EmuFileSharedPtr {
+    fn clone_file(&self, owner: EmuFsSharedWeakPtr) -> EmuFileSharedPtr {
         let f = EmuFile::create(
-            self.owner.clone(),
+            owner,
             &self.emu_path(),
             self.device(),
             self.inode(),
@@ -308,7 +308,7 @@ impl EmuFs {
     }
 
     pub fn clone_file(&mut self, emu_file: EmuFileSharedPtr) -> EmuFileSharedPtr {
-        let f = emu_file.borrow().clone_file();
+        let f = emu_file.borrow().clone_file(self.weak_self.clone());
         self.files
             .insert(FileId::from_emu_file(&emu_file.borrow()), Rc::downgrade(&f));
         f
