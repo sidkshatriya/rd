@@ -1068,7 +1068,7 @@ impl GdbServer {
                 return;
             }
             DREQ_TLS => {
-                if !self.thread_db.is_none() {
+                if self.thread_db.is_none() {
                     self.thread_db = Some(ThreadDb::new(self.debuggee_tguid.tid()));
                 }
                 let mut address = Default::default();
