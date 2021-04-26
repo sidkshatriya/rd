@@ -757,8 +757,6 @@ impl GdbConnection {
     ///
     /// The target should peek at the debugger request in between execution
     /// steps.  A new request may need to be serviced.
-    ///
-    /// DIFF NOTE: @TODO? In rr this returns a GdbRequest, here we return a reference
     pub fn get_request(&mut self) -> GdbRequest {
         if DREQ_RESTART == self.req.type_ {
             log!(LogDebug, "consuming RESTART request");

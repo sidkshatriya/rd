@@ -179,9 +179,8 @@ impl ThreadDb {
             self.internal_handle = std::ptr::null_mut();
         }
         // DIFF NOTE: In rr there is a call to load_libary() here.
-        // Prima-facie we don't need it?
+        // We don't need it
         self.symbols.clear();
-        // @TODO Check this
         self.prochandle.thread_group = std::ptr::null_mut();
         self.symbol_names.iter().cloned().collect()
     }
