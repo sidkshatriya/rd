@@ -1,9 +1,13 @@
 use crate::{
-    auto_remote_syscalls::AutoRemoteSyscalls,
+    auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem},
     emu_fs::EmuFs,
-    kernel_abi::SupportedArch,
+    kernel_abi::{
+        syscall_number_for_close, syscall_number_for_munmap, syscall_number_for_openat,
+        SupportedArch,
+    },
     log::LogDebug,
     preload_interface::syscallbuf_hdr,
+    rd::RD_RESERVED_ROOT_DIR_FD,
     remote_ptr::{RemotePtr, Void},
     session::{
         address_space::{
@@ -24,6 +28,7 @@ use crate::{
     taskish_uid::{AddressSpaceUid, TaskUid, ThreadGroupUid},
     thread_group::{ThreadGroup, ThreadGroupSharedPtr},
     trace::trace_stream::TraceStream,
+    util::page_size,
 };
 use address_space::address_space::AddressSpace;
 use libc::pid_t;
@@ -411,12 +416,92 @@ pub trait Session: DerefMut<Target = SessionInner> {
 }
 
 fn remap_shared_mmap(
-    _remote: &mut AutoRemoteSyscalls,
-    _emu_fs: &EmuFs,
-    _dest_emu_fs: &mut EmuFs,
-    _k: MemoryRangeKey,
+    remote: &mut AutoRemoteSyscalls,
+    emu_fs: &EmuFs,
+    dest_emu_fs: &mut EmuFs,
+    k: MemoryRangeKey,
 ) {
-    unimplemented!()
+    let m = remote.vm().mapping_of(k.start()).unwrap().clone();
+    log!(
+        LogDebug,
+        "    remapping shared region at {}-{}",
+        m.map.start(),
+        m.map.end()
+    );
+    let arch = remote.arch();
+    rd_infallible_syscall!(
+        remote,
+        syscall_number_for_munmap(arch),
+        m.map.start().as_usize(),
+        m.map.size()
+    );
+
+    let emu_file;
+    if let Some(file) = dest_emu_fs.at(&m.recorded_map) {
+        emu_file = file;
+    } else {
+        emu_file = dest_emu_fs.clone_file(emu_fs.at(&m.recorded_map).unwrap());
+    }
+
+    // TODO: this duplicates some code in replay_syscall.cc, but
+    // it's somewhat nontrivial to factor that code out.
+    let remote_fd: i32;
+    {
+        let path = emu_file.borrow().proc_path();
+        let arch = remote.arch();
+        let mut child_path = AutoRestoreMem::push_cstr(remote, path.as_str());
+        // Always open the emufs file O_RDWR, even if the current mapping prot
+        // is read-only. We might mprotect it to read-write later.
+        // skip leading '/' since we want the path to be relative to the root fd
+        let addr: RemotePtr<Void> = child_path.get().unwrap() + 1usize;
+        let res = rd_infallible_syscall!(
+            child_path,
+            syscall_number_for_openat(arch),
+            RD_RESERVED_ROOT_DIR_FD,
+            addr.as_usize(),
+            libc::O_RDWR
+        );
+        if 0 > res {
+            fatal!("Couldn't open {} in tracee", path);
+        }
+        remote_fd = res as i32;
+    }
+    let real_file = remote.task().stat_fd(remote_fd);
+    let real_file_name = remote.task().file_name_of_fd(remote_fd);
+    // XXX this condition is x86/x64-specific, I imagine.
+    remote.infallible_mmap_syscall(
+        Some(m.map.start()),
+        m.map.size(),
+        m.map.prot(),
+        // The remapped segment *must* be
+        // remapped at the same address,
+        // or else many things will go
+        // haywire.
+        (m.map.flags() & !MapFlags::MAP_ANONYMOUS) | MapFlags::MAP_FIXED,
+        remote_fd,
+        m.map.file_offset_bytes() / page_size() as u64,
+    );
+
+    // We update the AddressSpace mapping too, since that tracks the real file
+    // name and we need to update that.
+    remote.vm().map(
+        remote.task(),
+        m.map.start(),
+        m.map.size(),
+        m.map.prot(),
+        m.map.flags(),
+        m.map.file_offset_bytes(),
+        &real_file_name,
+        real_file.st_dev,
+        real_file.st_ino,
+        None,
+        Some(&m.recorded_map),
+        Some(emu_file),
+        None,
+        None,
+    );
+    let arch = remote.arch();
+    remote.infallible_syscall(syscall_number_for_close(arch), &[remote_fd as usize]);
 }
 
 fn capture_syscallbuf(m: &Mapping, clone_leader: &dyn Task) -> Vec<u8> {

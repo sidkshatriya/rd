@@ -294,8 +294,7 @@ impl EmuFs {
         })
     }
 
-    /// Return the EmuFile for `recorded_map`, which must exist or this won't
-    /// return.
+    /// Return the EmuFile for `recorded_map`
     pub fn at(&self, recorded_map: &KernelMapping) -> Option<EmuFileSharedPtr> {
         self.files
             .get(&FileId::from_kernel_mapping(recorded_map))
