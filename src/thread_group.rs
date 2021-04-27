@@ -13,6 +13,7 @@ use std::{
 
 pub type ThreadGroupSharedPtr = Rc<RefCell<ThreadGroup>>;
 pub type ThreadGroupSharedWeakPtr = Weak<RefCell<ThreadGroup>>;
+pub type WeakThreadGroupPtrSet = WeakPtrSet<RefCell<ThreadGroup>>;
 
 /// Tracks a group of tasks with an associated ID, set from the
 /// original "thread group leader", the child of `fork()` which became
@@ -51,7 +52,7 @@ pub struct ThreadGroup {
     /// DIFF NOTE: Different from rr where nullptr is used.
     parent_: Option<ThreadGroupSharedWeakPtr>,
 
-    children_: WeakPtrSet<RefCell<ThreadGroup>>,
+    children_: WeakThreadGroupPtrSet,
 
     serial: u32,
     weak_self: ThreadGroupSharedWeakPtr,
@@ -69,7 +70,7 @@ impl Drop for ThreadGroup {
                     .unwrap()
                     .borrow_mut()
                     .children_mut()
-                    .erase(self.weak_self_clone());
+                    .erase_tg(self);
             }
             None => (),
         }
@@ -136,7 +137,7 @@ impl ThreadGroup {
                 .unwrap()
                 .borrow_mut()
                 .children_
-                .insert(tg_weak);
+                .insert_tg(&tg_shared.borrow());
         }
         session.upgrade().unwrap().on_create_tg(&tg_shared);
         tg_shared

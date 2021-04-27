@@ -1,6 +1,7 @@
 use crate::{
     log::LogLevel::LogDebug,
     session::task::{Task, WeakTaskPtrSet},
+    thread_group::{ThreadGroup, WeakThreadGroupPtrSet},
 };
 use std::{
     collections::{hash_set::Iter, HashSet},
@@ -60,6 +61,30 @@ pub struct WeakPtrSet<T>(HashSet<WeakPtrWrap<T>>);
 impl<T> Clone for WeakPtrSet<T> {
     fn clone(&self) -> Self {
         WeakPtrSet(self.0.clone())
+    }
+}
+
+impl WeakThreadGroupPtrSet {
+    pub fn insert_tg(&mut self, tg: &ThreadGroup) -> bool {
+        log!(
+            LogDebug,
+            "adding thread group {} (real tgid: {}) to set {:?}",
+            tg.tgid,
+            tg.real_tgid,
+            self as *const _
+        );
+        self.0.insert(WeakPtrWrap(tg.weak_self_clone()))
+    }
+
+    pub fn erase_tg(&mut self, tg: &ThreadGroup) -> bool {
+        log!(
+            LogDebug,
+            "removing thread group {} (real tgid: {}) from set {:?}",
+            tg.tgid,
+            tg.real_tgid,
+            self as *const _
+        );
+        self.0.remove(&WeakPtrWrap(tg.weak_self_clone()))
     }
 }
 
