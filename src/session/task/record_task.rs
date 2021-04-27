@@ -666,7 +666,7 @@ impl Task for RecordTask {
                     .unwrap()
                     .emulated_ptrace_tracees
                     .borrow_mut()
-                    .erase(self.weak_self_clone());
+                    .erase_task(self);
                 if self.emulated_ptrace_options.get() & PTRACE_O_TRACEEXIT != 0 {
                     ed_assert!(
                         self,
@@ -1371,7 +1371,7 @@ impl RecordTask {
                 tracer
                     .emulated_ptrace_tracees
                     .borrow_mut()
-                    .insert(self.weak_self_clone());
+                    .insert_task(self);
                 *self.emulated_ptracer.borrow_mut() = Some(tracer.weak_self_clone());
             }
             None => {
@@ -1385,7 +1385,7 @@ impl RecordTask {
                     .as_rec_unwrap()
                     .emulated_ptrace_tracees
                     .borrow_mut()
-                    .erase(self.weak_self_clone());
+                    .erase_task(self);
                 self.emulated_ptracer.take().unwrap();
             }
         }

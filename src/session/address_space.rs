@@ -2176,7 +2176,7 @@ pub mod address_space {
                 first_run_event_: Default::default(),
                 watchpoints: o.watchpoints.clone(),
                 breakpoints: o.breakpoints.clone(),
-                // rr does not explicitly initialize these.
+                // rd does not explicitly initialize these.
                 child_mem_fd: Default::default(),
                 dont_fork: Default::default(),
                 task_set: Default::default(),

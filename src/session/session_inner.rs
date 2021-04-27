@@ -255,7 +255,7 @@ impl SessionInner {
         let exec_count = maybe_exec_count.unwrap_or(0);
         self.assert_fully_initialized();
         let as_ = AddressSpace::new_after_execve(t, exe, exec_count);
-        as_.task_set_mut().insert(t.weak_self_clone());
+        as_.task_set_mut().insert_task(t);
         let as_uid = as_.uid();
         let shr_ptr = Rc::new(as_);
         self.vm_map
@@ -319,7 +319,7 @@ impl SessionInner {
         }
 
         let tg = ThreadGroup::new(self.weak_self.clone(), None, rec_tid, tid, tid, tuid_serial);
-        tg.borrow_mut().task_set_mut().insert(Rc::downgrade(&t));
+        tg.borrow_mut().task_set_mut().insert_task(&**t);
         tg
     }
 

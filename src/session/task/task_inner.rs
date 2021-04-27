@@ -1756,8 +1756,7 @@ impl TaskInner {
         *wrapped_t.tg.borrow_mut() = Some(tg);
         let addr_space = session.create_vm(&**wrapped_t, None, None);
         *wrapped_t.as_.borrow_mut() = Some(addr_space);
-        let weak_t_ptr = wrapped_t.weak_self.clone();
-        *wrapped_t.fds.borrow_mut() = Some(FdTable::create(weak_t_ptr));
+        *wrapped_t.fds.borrow_mut() = Some(FdTable::create(&**wrapped_t));
         let fds: FdTableSharedPtr = wrapped_t.fds.borrow().as_ref().unwrap().clone();
         setup_fd_table(&**wrapped_t, &fds, fd_number);
 

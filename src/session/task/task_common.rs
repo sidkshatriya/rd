@@ -1218,7 +1218,7 @@ fn on_syscall_exit_common_arch<Arch: Architecture>(t: &dyn Task, sys: i32, regs:
 
     if sys == Arch::UNSHARE {
         if regs.arg1() & CLONE_FILES as usize != 0 {
-            t.fd_table().task_set_mut().erase(t.weak_self_clone());
+            t.fd_table().task_set_mut().erase_task(t);
             *t.fds.borrow_mut() = Some(t.fd_table().clone_into_task(t));
         }
         return;
@@ -1355,8 +1355,8 @@ pub(super) fn post_exec_for_exe_common<T: Task>(t: &T, exe_file: &OsStr) {
     }
     t.session().post_exec(t);
 
-    t.vm().task_set_mut().erase(t.weak_self_clone());
-    t.fd_table().task_set_mut().erase(t.weak_self_clone());
+    t.vm().task_set_mut().erase_task(t);
+    t.fd_table().task_set_mut().erase_task(t);
 
     *t.extra_registers.borrow_mut() = None;
     let mut e = t.extra_regs_ref().clone();
@@ -1622,12 +1622,11 @@ pub(in super::super) fn clone_task_common(
         t
     });
 
-    let weak_self_ptr = Rc::downgrade(&rc_t);
     // FdTable is either shared or copied, so the contents of
     // syscallbuf_fds_disabled_child are still valid.
     if flags.contains(CloneFlags::CLONE_SHARE_FILES) {
         *rc_t.fds.borrow_mut() = clone_this.fds.borrow().clone();
-        rc_t.fd_table().task_set_mut().insert(weak_self_ptr.clone());
+        rc_t.fd_table().task_set_mut().insert_task(&**rc_t);
     } else {
         *rc_t.fds.borrow_mut() = Some(clone_this.fd_table().clone_into_task(&**rc_t));
     }
@@ -1650,7 +1649,7 @@ pub(in super::super) fn clone_task_common(
     rc_t.thread_group()
         .borrow_mut()
         .task_set_mut()
-        .insert(weak_self_ptr.clone());
+        .insert_task(&**rc_t);
 
     rc_t.open_mem_fd_if_needed();
     *rc_t.thread_areas_.borrow_mut() = clone_this.thread_areas_.borrow().clone();
@@ -1658,7 +1657,7 @@ pub(in super::super) fn clone_task_common(
         set_thread_area_from_clone(&**rc_t, tls);
     }
 
-    rc_t.vm().task_set_mut().insert(weak_self_ptr.clone());
+    rc_t.vm().task_set_mut().insert_task(&**rc_t);
 
     if reason == CloneReason::TraceeClone {
         if !flags.contains(CloneFlags::CLONE_SHARE_VM) {
@@ -1890,12 +1889,9 @@ pub(super) fn task_drop_common<T: Task>(t: &T) {
         t.session().on_destroy_task(t);
     }
 
-    t.thread_group()
-        .borrow_mut()
-        .task_set_mut()
-        .erase(t.weak_self_clone());
-    t.vm().task_set_mut().erase(t.weak_self_clone());
-    t.fd_table().task_set_mut().erase(t.weak_self_clone());
+    t.thread_group().borrow_mut().task_set_mut().erase_task(t);
+    t.vm().task_set_mut().erase_task(t);
+    t.fd_table().task_set_mut().erase_task(t);
 
     log!(LogDebug, "  dead");
 }

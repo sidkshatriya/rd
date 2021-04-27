@@ -1,4 +1,7 @@
-use crate::log::LogLevel::LogDebug;
+use crate::{
+    log::LogLevel::LogDebug,
+    session::task::{Task, WeakTaskPtrSet},
+};
 use std::{
     collections::{hash_set::Iter, HashSet},
     hash::{Hash, Hasher},
@@ -60,6 +63,30 @@ impl<T> Clone for WeakPtrSet<T> {
     }
 }
 
+impl WeakTaskPtrSet {
+    pub fn insert_task(&mut self, t: &dyn Task) -> bool {
+        log!(
+            LogDebug,
+            "adding task {} (rec: {}) to set {:?}",
+            t.tid(),
+            t.rec_tid(),
+            self as *const _
+        );
+        self.0.insert(WeakPtrWrap(t.weak_self_clone()))
+    }
+
+    pub fn erase_task(&mut self, t: &dyn Task) -> bool {
+        log!(
+            LogDebug,
+            "removing task {} (rec: {}) from set {:?}",
+            t.tid(),
+            t.rec_tid(),
+            self as *const _
+        );
+        self.0.remove(&WeakPtrWrap(t.weak_self_clone()))
+    }
+}
+
 impl<T> WeakPtrSet<T> {
     pub fn new() -> WeakPtrSet<T> {
         WeakPtrSet(HashSet::new())
@@ -81,14 +108,22 @@ impl<T> WeakPtrSet<T> {
     }
 
     pub fn insert(&mut self, t: Weak<T>) -> bool {
-        // Make this message more specific e.g. are we dealing with a task or thread group etc.
-        log!(LogDebug, "adding an item to set {:?}", t.as_ptr());
+        log!(
+            LogDebug,
+            "adding item {:?} to set {:?}",
+            t.as_ptr(),
+            self as *const _
+        );
         self.0.insert(WeakPtrWrap(t))
     }
 
     pub fn erase(&mut self, t: Weak<T>) -> bool {
-        // Make this message more specific e.g. are we dealing with a task or thread group etc.
-        log!(LogDebug, "removing an item from set {:?}", t.as_ptr());
+        log!(
+            LogDebug,
+            "removing item {:?} from set {:?}",
+            t.as_ptr(),
+            self as *const _
+        );
         self.0.remove(&WeakPtrWrap(t))
     }
 

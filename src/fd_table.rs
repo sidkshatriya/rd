@@ -6,10 +6,7 @@ use crate::{
     remote_ptr::RemotePtr,
     session::{
         address_space::address_space::AddressSpace,
-        task::{
-            record_task::RecordTask, replay_task::ReplayTask, Task, TaskSharedWeakPtr,
-            WeakTaskPtrSet,
-        },
+        task::{record_task::RecordTask, replay_task::ReplayTask, Task, WeakTaskPtrSet},
     },
     taskish_uid::AddressSpaceUid,
     weak_ptr_set::WeakPtrSet,
@@ -163,18 +160,18 @@ impl FdTable {
             fd_count_beyond_limit: Cell::new(self.fd_count_beyond_limit.get()),
         };
 
-        file_mon.tasks.borrow_mut().insert(t.weak_self_clone());
+        file_mon.tasks.borrow_mut().insert_task(t);
         Rc::new(file_mon)
     }
 
-    pub fn create(wt: TaskSharedWeakPtr) -> FdTableSharedPtr {
+    pub fn create(t: &dyn Task) -> FdTableSharedPtr {
         let file_mon = FdTable {
             tasks: RefCell::new(WeakPtrSet::new()),
             fds: Default::default(),
             fd_count_beyond_limit: Cell::new(0),
         };
 
-        file_mon.tasks.borrow_mut().insert(wt);
+        file_mon.tasks.borrow_mut().insert_task(t);
         Rc::new(file_mon)
     }
 

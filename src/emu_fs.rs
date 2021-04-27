@@ -142,8 +142,7 @@ impl EmuFile {
         }
     }
 
-    /// Return a copy of this file.  See `create()` for the meaning
-    /// of `fs_tag`.
+    /// Return a copy of this file
     fn clone_file(&self, owner: EmuFsSharedWeakPtr) -> EmuFileSharedPtr {
         let f = EmuFile::create(
             owner,
