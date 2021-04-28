@@ -20,6 +20,7 @@ use crate::{
                 WaitRequest, WriteFlags,
             },
         },
+        Session,
     },
     sig::Sig,
     util::{is_zombie_process, to_timeval},
@@ -96,7 +97,7 @@ pub trait Task: Deref<Target = TaskInner> {
 
     fn detect_syscall_arch(&self) -> SupportedArch;
 
-    fn destroy(&self, maybe_detach: Option<bool>);
+    fn destroy(&self, maybe_detach: Option<bool>, sess: &dyn Session);
 
     /// Destroy in the tracee task the scratch buffer and syscallbuf (if
     /// syscallbuf_child is non-null).

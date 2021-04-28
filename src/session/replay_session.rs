@@ -2114,7 +2114,7 @@ fn end_task(t: &ReplayTask) {
     ed_assert_eq!(t, t.maybe_ptrace_event(), PTRACE_EVENT_EXIT);
 
     t.stable_exit.set(true);
-    t.destroy(None);
+    t.destroy(None, &**t.session());
 }
 
 impl Deref for ReplaySession {

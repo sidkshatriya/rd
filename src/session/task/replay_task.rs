@@ -405,9 +405,9 @@ impl Task for ReplayTask {
     }
 
     /// Forwarded method
-    fn destroy(&self, maybe_detach: Option<bool>) {
+    fn destroy(&self, maybe_detach: Option<bool>, sess: &dyn Session) {
         destroy_common(self, maybe_detach);
-        task_drop_common(self);
+        task_drop_common(self, sess);
     }
 
     /// Forwarded method

@@ -65,7 +65,7 @@ use crate::{
             },
             Task, TaskSharedPtr, PRELOAD_THREAD_LOCALS_SIZE,
         },
-        SessionSharedPtr,
+        Session, SessionSharedPtr,
     },
     sig,
     ticks::Ticks,
@@ -1849,7 +1849,7 @@ pub(super) fn destroy_buffers_common<T: Task>(t: &T) {
     remote.task().cloned_file_data_fd_child.set(-1);
 }
 
-pub(super) fn task_drop_common<T: Task>(t: &T) {
+pub(super) fn task_drop_common<T: Task>(t: &T, sess: &dyn Session) {
     if t.unstable.get() {
         log!(
             LogWarn,
@@ -1868,9 +1868,7 @@ pub(super) fn task_drop_common<T: Task>(t: &T) {
             );
         }
 
-        if let Some(sess) = t.try_session() {
-            sess.on_destroy_task(t);
-        }
+        sess.on_destroy_task(t);
     } else {
         ed_assert!(t, t.seen_ptrace_exit_event.get());
         ed_assert!(t, t.syscallbuf_child.get().is_null());
@@ -1886,7 +1884,7 @@ pub(super) fn task_drop_common<T: Task>(t: &T) {
             }
         }
 
-        t.session().on_destroy_task(t);
+        sess.on_destroy_task(t);
     }
 
     t.thread_group().borrow_mut().task_set_mut().erase_task(t);

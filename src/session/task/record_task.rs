@@ -639,25 +639,8 @@ impl Task for RecordTask {
     }
 
     /// Forwarded method
-    fn destroy(&self, maybe_detach: Option<bool>) {
+    fn destroy(&self, maybe_detach: Option<bool>, sess: &dyn Session) {
         destroy_common(self, maybe_detach);
-        // DIFF NOTE: This is a bit different from rr
-        // The main issue is that record task related cleanup often requires session()
-        // When the parent session is being drop-ped upgrading the weak session
-        // shared pointer to a normal shared pointer does not succeed
-        //
-        // In normal situations this `if` statement wont trigger as a session will be
-        // available while a task is being drop-ed.
-        if self.try_session().is_none() {
-            log!(
-                    LogWarn,
-                    "parent session is being drop-ped. Doing basic task cleanup but skipping various RecordTask specific cleanups."
-                );
-
-            task_drop_common(self);
-            return;
-        }
-
         let maybe_emulated_ptracer = self.emulated_ptracer();
         match maybe_emulated_ptracer {
             Some(emulated_ptracer) => {
@@ -761,7 +744,7 @@ impl Task for RecordTask {
         }
 
         // Important !!
-        task_drop_common(self);
+        task_drop_common(self, sess);
     }
 
     fn log_pending_events(&self) {

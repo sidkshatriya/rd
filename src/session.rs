@@ -66,7 +66,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
 
     /// DIFF NOTE: Simply called on_destroy() in rr.
     fn on_destroy_task(&self, t: &dyn Task) {
-        t.session().tasks_mut().remove(&t.rec_tid());
+        self.tasks_mut().remove(&t.rec_tid());
     }
 
     fn as_record(&self) -> Option<&RecordSession> {

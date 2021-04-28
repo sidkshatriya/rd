@@ -1011,7 +1011,7 @@ impl RecordSession {
                     record_exit(t.as_rec_unwrap(), WaitStatus::default());
 
                     // DIFF NOTE: OK to call destroy(). We just ask it to skip PTRACE_DETACH.
-                    t.destroy(Some(false));
+                    t.destroy(Some(false), &**t.session());
                     // Steal the exec'ing task and make it the thread-group leader, and
                     // carry on!
                     *t = self.revive_task_for_exec(tid);
@@ -2544,7 +2544,7 @@ impl Session for RecordSession {
 
     fn on_destroy_task(&self, t: &dyn Task) {
         self.scheduler().on_destroy_task(t.as_rec_unwrap());
-        t.session().tasks_mut().remove(&t.rec_tid());
+        self.tasks_mut().remove(&t.rec_tid());
     }
 
     fn as_session_inner(&self) -> &SessionInner {
@@ -3018,8 +3018,7 @@ fn handle_ptrace_exit_event(t: &RecordTask) -> bool {
     }
 
     record_exit(t, exit_status);
-    // Delete t. t's destructor writes the final EV_EXIT.
-    t.destroy(None);
+    t.destroy(None, &**t.session());
 
     true
 }
