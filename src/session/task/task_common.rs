@@ -1867,8 +1867,23 @@ pub(super) fn task_drop_common<T: Task>(t: &T, sess: &dyn Session) {
                 t.syscallbuf_size.get(),
             );
         }
-
-        sess.on_destroy_task(t);
+        // The session is being dropped so we cant run things like
+        // finish_initializing() that is run in fn tasks_mut()
+        // This is a workaround
+        if let None = t.try_session() {
+            if sess.is_recording() {
+                sess.as_record()
+                    .unwrap()
+                    .scheduler()
+                    .on_destroy_task(t.as_rec_unwrap());
+            }
+            sess.as_session_inner()
+                .task_map
+                .borrow_mut()
+                .remove(&t.rec_tid());
+        } else {
+            sess.on_destroy_task(t);
+        }
     } else {
         ed_assert!(t, t.seen_ptrace_exit_event.get());
         ed_assert!(t, t.syscallbuf_child.get().is_null());
