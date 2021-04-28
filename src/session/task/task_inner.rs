@@ -1131,7 +1131,6 @@ impl TaskInner {
 
     /// Return the virtual memory mapping (address space) of this
     /// task.
-    /// @TODO May want this to return &AddressSpaceSharedPtr
     pub fn vm(&self) -> AddressSpaceSharedPtr {
         self.as_.borrow().as_ref().unwrap().clone()
     }

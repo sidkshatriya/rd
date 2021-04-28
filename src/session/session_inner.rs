@@ -360,8 +360,8 @@ impl SessionInner {
     }
 
     /// Return the set of AddressSpaces being tracked in this session.
-    pub fn vms(&self) -> Vec<Rc<AddressSpace>> {
-        let res: Vec<Rc<AddressSpace>> = self
+    pub fn vms(&self) -> Vec<AddressSpaceSharedPtr> {
+        let res: Vec<AddressSpaceSharedPtr> = self
             .vm_map
             .borrow()
             .iter()
