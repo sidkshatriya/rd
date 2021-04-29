@@ -576,7 +576,7 @@ impl TraceReader {
 
     /// Open the trace in 'dir'. When 'dir' is the `None`, open the
     /// latest trace.
-    pub fn new<T: AsRef<OsStr>>(maybe_dir: Option<&T>) -> TraceReader {
+    pub fn new<T: AsRef<OsStr>>(maybe_dir: Option<T>) -> TraceReader {
         let mut trace_stream = TraceStream::new(&resolve_trace_name(maybe_dir), 1);
 
         let mut readers: HashMap<Substream, CompressedReader> = HashMap::new();
@@ -833,16 +833,16 @@ fn i32_to_tid(tid: i32) -> pid_t {
     tid
 }
 
-fn resolve_trace_name<T: AsRef<OsStr>>(maybe_trace_name: Option<&T>) -> OsString {
+fn resolve_trace_name<T: AsRef<OsStr>>(maybe_trace_name: Option<T>) -> OsString {
     if maybe_trace_name.is_none() {
         return latest_trace_symlink();
     }
 
-    let trace_name = maybe_trace_name.unwrap().as_ref();
+    let trace_name = maybe_trace_name.unwrap().as_ref().to_os_string();
     // Single-component paths are looked up first in the current directory, next
     // in the default trace dir.
     if find(trace_name.as_bytes(), b"/").is_none() {
-        if dir_exists(trace_name) {
+        if dir_exists(trace_name.as_os_str()) {
             return trace_name.to_os_string();
         }
 
@@ -854,5 +854,5 @@ fn resolve_trace_name<T: AsRef<OsStr>>(maybe_trace_name: Option<&T>) -> OsString
         }
     }
 
-    trace_name.to_os_string()
+    trace_name
 }

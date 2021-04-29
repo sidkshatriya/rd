@@ -11,7 +11,9 @@ use crate::{
         session_inner::{RunCommand, Statistics},
         SessionSharedPtr,
     },
-    trace::trace_frame::FrameTime,
+    trace::{
+        trace_frame::FrameTime, trace_reader::TraceReader, trace_task_event::TraceTaskEventType,
+    },
     util::{check_for_leaks, running_under_rd},
 };
 use io::stderr;
@@ -23,7 +25,15 @@ use nix::{
     unistd::{close, fork, getpid, getppid, pipe2, ForkResult},
 };
 use replay_session::{ReplaySession, ReplayStatus};
-use std::{cell::RefCell, ffi::OsString, io, io::Write, path::PathBuf, ptr, rc::Rc};
+use std::{
+    cell::RefCell,
+    ffi::{OsStr, OsString},
+    io,
+    io::Write,
+    path::PathBuf,
+    ptr,
+    rc::Rc,
+};
 
 use super::{
     exit_result::ExitResult,
@@ -468,7 +478,28 @@ impl RdCommand for ReplayCommand {
         }
 
         if self.process_created_how != CreatedHow::CreatedNone {
-            unimplemented!()
+            if let Some(pid) = self.target_process {
+                if !pid_exists(self.trace_dir.as_ref(), pid) {
+                    return ExitResult::err_from(
+                        io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            format!("No process {} found in trace. Try 'rd ps'.", pid),
+                        ),
+                        2,
+                    );
+                }
+                if self.process_created_how == CreatedHow::CreatedExec
+                    && !pid_execs(self.trace_dir.as_ref(), pid)
+                {
+                    return ExitResult::err_from(
+                        io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            format!("Process {} never exec()ed. Try 'rd ps', or use '-f'.", pid),
+                        ),
+                        2,
+                    );
+                }
+            }
         }
 
         if self.dump_interval.is_some() && !self.dont_launch_debugger {
@@ -542,4 +573,26 @@ extern "C" fn handle_sigint_in_child(sig: i32) {
 extern "C" fn handle_sigint_in_parent(sig: i32) {
     debug_assert_eq!(sig, libc::SIGINT);
     // Just ignore it.
+}
+
+fn pid_exists<T: AsRef<OsStr>>(maybe_trace_dir: Option<T>, pid: pid_t) -> bool {
+    let mut trace = TraceReader::new(maybe_trace_dir);
+
+    while let Some(e) = trace.read_task_event(None) {
+        if e.tid() == pid {
+            return true;
+        }
+    }
+    false
+}
+
+fn pid_execs<T: AsRef<OsStr>>(maybe_trace_dir: Option<T>, pid: pid_t) -> bool {
+    let mut trace = TraceReader::new(maybe_trace_dir);
+
+    while let Some(e) = trace.read_task_event(None) {
+        if e.tid() == pid && e.event_type() == TraceTaskEventType::Exec {
+            return true;
+        }
+    }
+    false
 }
