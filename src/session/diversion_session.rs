@@ -1,6 +1,7 @@
 use super::{on_create_task_common, session_common::kill_all_tasks, task::TaskSharedPtr};
 use crate::{
     emu_fs::{EmuFs, EmuFsSharedPtr},
+    log::LogDebug,
     session::{
         session_inner::{BreakStatus, RunCommand, SessionInner},
         task::Task,
@@ -36,6 +37,11 @@ pub struct DiversionSession {
 
 impl Drop for DiversionSession {
     fn drop(&mut self) {
+        log!(
+            LogDebug,
+            "DiversionSession having session id: {} dropped",
+            self.session_inner.unique_id
+        );
         unimplemented!()
     }
 }

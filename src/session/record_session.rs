@@ -282,8 +282,8 @@ impl Drop for RecordSession {
         debug_assert!(self.vm_map.borrow().is_empty());
         log!(
             LogDebug,
-            "RecordSession {:?} destroyed",
-            self as *const Self
+            "RecordSession having session id: {} dropped",
+            self.session_inner.unique_id
         );
     }
 }

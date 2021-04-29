@@ -2925,9 +2925,7 @@ pub mod address_space {
 
     impl Drop for AddressSpace {
         fn drop(&mut self) {
-            // DIFF NOTE: @TODO this assertion is not present in rr.
-            // Might there be any situations where the program is correct but
-            // the assertion fails to hold?
+            // DIFF NOTE: This assertion is not present in rr.
             debug_assert_eq!(self.task_set().len(), 0);
             for (_, m) in self.mem.borrow().iter() {
                 match m.local_addr {
@@ -2941,6 +2939,8 @@ pub mod address_space {
             if let Some(sess) = self.try_session() {
                 sess.on_destroy_vm(self.uid())
             }
+
+            log!(LogDebug, "Dropped AddressSpace {:?}", self.uid());
         }
     }
 }

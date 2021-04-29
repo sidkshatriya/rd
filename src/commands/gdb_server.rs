@@ -371,59 +371,70 @@ impl GdbServer {
             Some(_port) => ProbePort::DontProbe,
             None => ProbePort::ProbePort,
         };
-        // We MUST have a current task
-        let t = self
-            .timeline_unwrap()
-            .current_session()
-            .current_task()
-            .unwrap();
-        let listen_fd: ScopedFd = open_socket(&flags.dbg_host, &mut port, probe);
-        if flags.debugger_params_write_pipe.is_some() {
-            let c_exe_image = CString::new(t.vm().exe_image().as_bytes()).unwrap();
-            let len = c_exe_image.as_bytes_with_nul().len();
-            assert!(len <= libc::PATH_MAX as usize);
-            let mut exe_image = [0u8; libc::PATH_MAX as usize];
-            exe_image[0..len].copy_from_slice(&c_exe_image.as_bytes_with_nul());
-            let mut host = [0u8; 16];
-            host[0..flags.dbg_host.len()].copy_from_slice(flags.dbg_host.as_bytes());
-            let params = DebuggerParams {
-                exe_image,
-                host,
-                port,
-            };
-            let fd = flags.debugger_params_write_pipe_unwrap().borrow().as_raw();
-            let nwritten = write(fd, u8_slice(&params)).unwrap();
-            // DIFF NOTE: This is a debug_assert in rr
-            assert_eq!(nwritten, mem::size_of_val(&params));
-        } else {
-            eprintln!("Launch gdb with");
-            write_debugger_launch_command(
-                &**t,
-                &flags.dbg_host,
-                port,
-                &flags.debugger_name,
-                &mut stderr(),
-            );
-        }
 
-        if flags.debugger_params_write_pipe.is_some() {
-            flags
-                .debugger_params_write_pipe_unwrap()
-                .borrow_mut()
-                .close();
-        }
-        self.debuggee_tguid = t.thread_group().borrow().tguid();
+        let listen_fd: ScopedFd;
+        let t_tgid: pid_t;
+        let t_arch: SupportedArch;
+        {
+            // We MUST have a current task
+            let t = self
+                .timeline_unwrap()
+                .current_session()
+                .current_task()
+                .unwrap();
 
-        let first_run_event = t.vm().first_run_event();
-        if first_run_event > 0 {
-            self.timeline_unwrap_mut()
-                .set_reverse_execution_barrier_event(first_run_event);
+            t_tgid = t.tgid();
+            t_arch = t.arch();
+            listen_fd = open_socket(&flags.dbg_host, &mut port, probe);
+
+            if flags.debugger_params_write_pipe.is_some() {
+                let c_exe_image = CString::new(t.vm().exe_image().as_bytes()).unwrap();
+                let len = c_exe_image.as_bytes_with_nul().len();
+                assert!(len <= libc::PATH_MAX as usize);
+                let mut exe_image = [0u8; libc::PATH_MAX as usize];
+                exe_image[0..len].copy_from_slice(&c_exe_image.as_bytes_with_nul());
+                let mut host = [0u8; 16];
+                host[0..flags.dbg_host.len()].copy_from_slice(flags.dbg_host.as_bytes());
+                let params = DebuggerParams {
+                    exe_image,
+                    host,
+                    port,
+                };
+                let fd = flags.debugger_params_write_pipe_unwrap().borrow().as_raw();
+                let nwritten = write(fd, u8_slice(&params)).unwrap();
+                // DIFF NOTE: This is a debug_assert in rr
+                assert_eq!(nwritten, mem::size_of_val(&params));
+            } else {
+                eprintln!("Launch gdb with");
+                write_debugger_launch_command(
+                    &**t,
+                    &flags.dbg_host,
+                    port,
+                    &flags.debugger_name,
+                    &mut stderr(),
+                );
+            }
+
+            if flags.debugger_params_write_pipe.is_some() {
+                flags
+                    .debugger_params_write_pipe_unwrap()
+                    .borrow_mut()
+                    .close();
+            }
+            self.debuggee_tguid = t.thread_group().borrow().tguid();
+
+            let first_run_event = t.vm().first_run_event();
+            if first_run_event > 0 {
+                self.timeline_unwrap_mut()
+                    .set_reverse_execution_barrier_event(first_run_event);
+            }
         }
 
         loop {
             log!(LogDebug, "initializing debugger connection");
             self.dbg = Some(Rc::new(RefCell::new(await_connection(
-                &**t,
+                t_tgid,
+                t_arch,
                 &listen_fd,
                 GdbConnectionFeatures::default(),
             ))));
@@ -438,6 +449,7 @@ impl GdbServer {
 
             self.timeline_unwrap_mut()
                 .remove_breakpoints_and_watchpoints();
+
             if !flags.keep_listening {
                 break;
             }
@@ -2145,13 +2157,15 @@ fn is_in_patch_stubs(t: &dyn Task, ip: RemoteCodePtr) -> bool {
 ///
 /// This function is infallible: either it will return a valid
 /// debugging context, or it won't return.
+///
+/// DIFF NOTE: Just takes the task params it needs
 fn await_connection(
-    t: &dyn Task,
+    tgid: pid_t,
+    arch: SupportedArch,
     listen_fd: &ScopedFd,
     features: GdbConnectionFeatures,
 ) -> GdbConnection {
-    let mut dbg = GdbConnection::new(t.tgid(), features);
-    let arch = t.arch();
+    let mut dbg = GdbConnection::new(tgid, features);
     dbg.set_cpu_features(get_cpu_features(arch));
     dbg.await_debugger(listen_fd);
     dbg

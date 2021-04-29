@@ -363,20 +363,21 @@ pub struct Flags {
 
 impl Drop for ReplaySession {
     fn drop(&mut self) {
+        // Dont hold an Rc to an AddressSpace
+        *self.syscall_bp_vm.borrow_mut() = None;
+
         // We won't permanently leak any OS resources by not ensuring
         // we've cleaned up here, but sessions can be created and
         // destroyed many times, and we don't want to temporarily hog
         // resources.
         self.kill_all_tasks();
-        // Drop any AddressSpace
-        *self.syscall_bp_vm.borrow_mut() = None;
         debug_assert!(self.task_map.borrow().is_empty());
         debug_assert!(self.vm_map.borrow().is_empty());
         debug_assert_eq!(self.emufs().size(), 0);
         log!(
             LogDebug,
-            "ReplaySession {:?} destroyed",
-            self as *const Self
+            "ReplaySession having session id: {} dropped",
+            self.session_inner.unique_id
         );
     }
 }
