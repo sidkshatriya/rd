@@ -41,6 +41,7 @@ use task_inner::TrapReasons;
 
 use super::SessionSharedPtr;
 use crate::weak_ptr_set::WeakPtrSet;
+use crate::util::find;
 
 pub mod record_task;
 pub mod replay_task;
@@ -578,6 +579,8 @@ pub trait Task: Deref<Target = TaskInner> {
         ed_assert!(self, res.is_ok());
         let bytes_read = res.unwrap();
         ed_assert!(self, bytes_read > 0);
+        let null_at = find(&buf, b"\0").unwrap_or(bytes_read);
+        buf.resize(null_at, 0u8);
         *self.prname.borrow_mut() = OsString::from_vec(buf);
     }
 

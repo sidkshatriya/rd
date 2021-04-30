@@ -69,6 +69,7 @@ use std::{
     slice,
     sync::atomic::{AtomicUsize, Ordering},
 };
+use std::fmt::Debug;
 
 macro_rules! rd_syscall {
     ($slf:expr, $syscallno:expr) => {
@@ -303,7 +304,7 @@ impl<'a, 'b> AutoRestoreMem<'a, 'b> {
 
     /// Convenience constructor for pushing a C string `str`, including
     /// the trailing '\0' byte.
-    pub fn push_cstr<P: ?Sized + NixPath>(
+    pub fn push_cstr<P: ?Sized + NixPath + Debug>(
         remote: &'a mut AutoRemoteSyscalls<'b>,
         s: &P,
     ) -> AutoRestoreMem<'a, 'b> {
@@ -316,7 +317,7 @@ impl<'a, 'b> AutoRestoreMem<'a, 'b> {
                 c.to_bytes_with_nul().len(),
             )
         })
-        .unwrap()
+        .unwrap_or_else(|e|fatal!("Unable to push_cstr {:?}: {:?}", s, e))
     }
 
     /// Get a pointer to the reserved memory.
