@@ -1134,13 +1134,13 @@ impl GdbServer {
         // leader".
         let timeline = self.timeline_unwrap();
         let ret = timeline.current_session().current_trace_frame().time() >
-             self.target.event &&
-         (self.target.pid.is_none() || t.tgid() == self.target.pid.unwrap()) &&
-         (!self.target.require_exec || t.execed()) &&
-         // Ensure we're at the start of processing an event. We don't
-         // want to attach while we're finishing an exec() since that's a
-         // slightly confusing state for ReplayTimeline's reverse execution.
-         !timeline.current_session().current_step_key().in_execution();
+            self.target.event &&
+            (self.target.pid.is_none() || t.tgid() == self.target.pid.unwrap()) &&
+            (!self.target.require_exec || t.execed()) &&
+            // Ensure we're at the start of processing an event. We don't
+            // want to attach while we're finishing an exec() since that's a
+            // slightly confusing state for ReplayTimeline's reverse execution.
+            !timeline.current_session().current_step_key().in_execution();
         ret
     }
 
@@ -1761,10 +1761,10 @@ impl GdbServer {
         let maybe_rootdir = components.next();
         let maybe_proc = components.next();
         let maybe_pid_os_str = components.next();
-        let maybe_task = components.next();
+        let maybe_task_or_maps = components.next();
         let maybe_tid_os_str = components.next();
         let maybe_maps = components.next();
-        if (maybe_rootdir, maybe_proc, maybe_task, maybe_maps)
+        if (maybe_rootdir, maybe_proc, maybe_task_or_maps, maybe_maps)
             == (
                 Some(Component::RootDir),
                 Some(Component::Normal(OsStr::new("proc"))),
@@ -1779,12 +1779,38 @@ impl GdbServer {
             let maybe_tid_str =
                 std::str::from_utf8(maybe_tid_os_str.unwrap().as_os_str().as_bytes()).ok();
             match (maybe_pid_str, maybe_tid_str) {
-                (Some(pid_s), Some(tid_s)) if pid_s == tid_s => {
+                (Some(pid_s), Some(tid_s)) => {
                     let maybe_pid = pid_s.parse::<pid_t>().ok();
                     let maybe_tid = tid_s.parse::<pid_t>().ok();
                     match (maybe_pid, maybe_tid) {
                         (Some(pid), Some(tid)) if pid == tid => {
                             if let Some(t) = session.find_task_from_rec_tid(tid) {
+                                content = generate_fake_proc_maps(&**t)
+                            } else {
+                                return -1;
+                            }
+                        }
+                        _ => return -1,
+                    }
+                }
+                _ => return -1,
+            }
+        } else if (maybe_rootdir, maybe_proc, maybe_task_or_maps)
+            == (
+                Some(Component::RootDir),
+                Some(Component::Normal(OsStr::new("proc"))),
+                Some(Component::Normal(OsStr::new("maps"))),
+            )
+            && maybe_pid_os_str.is_some()
+        {
+            let maybe_pid_str =
+                std::str::from_utf8(maybe_pid_os_str.unwrap().as_os_str().as_bytes()).ok();
+            match maybe_pid_str {
+                Some(pid_s) => {
+                    let maybe_pid = pid_s.parse::<pid_t>().ok();
+                    match maybe_pid {
+                        Some(pid) => {
+                            if let Some(t) = session.find_task_from_rec_tid(pid) {
                                 content = generate_fake_proc_maps(&**t)
                             } else {
                                 return -1;
