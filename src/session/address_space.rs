@@ -3365,8 +3365,12 @@ pub fn read_kernel_mapping(tid: pid_t, addr: RemotePtr<Void>) -> KernelMapping {
         }
     }
 
-    // Assume this method always is able to find the mapping
-    panic!("Unable to find any mapping at {:#x}", addr.as_usize());
+    // This is like rr. We return the empty kernel mapping
+    // We could make this function return an Option<KernelMapping>
+    // But for now, leave as it is in rr because certain tests
+    // e.g. mprotect_single depend on this kind of behavior.
+    // @TODO Make better in the future by returning Option<KernelMapping>
+    KernelMapping::new()
 }
 
 /// Just a place that rd's AutoSyscall functionality can use as a syscall
