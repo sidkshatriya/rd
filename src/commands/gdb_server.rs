@@ -678,9 +678,10 @@ impl GdbServer {
                 // and this is easy to support in some other debugger or
                 // configuration needs it.
                 let mut maybe_t = None;
-                if req.maybe_target().unwrap().tid != 0 {
-                    let maybe_tg =
-                        session.find_thread_group_from_pid(req.maybe_target().unwrap().tid);
+                // DIFF NOTE: @TODO This is simply req.target.tid in rr
+                // Since -1 will succeed there, a > 0 requirement has been added.
+                if req.target.tid > 0 {
+                    let maybe_tg = session.find_thread_group_from_pid(req.target.tid);
                     if let Some(tg) = maybe_tg {
                         maybe_t = Some(tg.borrow().task_set().iter().next().unwrap());
                     }
@@ -741,14 +742,14 @@ impl GdbServer {
         }
 
         let is_query = req.type_ != DREQ_SET_CONTINUE_THREAD;
-        // @TODO Check this
-        let maybe_target: Option<TaskSharedPtr> = match req.maybe_target() {
-            Some(thread_id) if thread_id.tid > 0 => session.find_task_from_rec_tid(thread_id.tid),
-            _ => session.find_task_from_task_uid(if is_query {
+        let maybe_target: Option<TaskSharedPtr> = if req.target.tid > 0 {
+            session.find_task_from_rec_tid(req.target.tid)
+        } else {
+            session.find_task_from_task_uid(if is_query {
                 self.last_query_tuid
             } else {
                 self.last_continue_tuid
-            }),
+            })
         };
 
         if let Some(t) = maybe_target.as_ref() {

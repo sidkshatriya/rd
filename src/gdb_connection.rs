@@ -197,7 +197,6 @@ pub enum GdbRequestValue {
     GdbRequestFileOpen(gdb_request::FileOpen),
     GdbRequestFilePread(gdb_request::FilePread),
     GdbRequestFileClose(gdb_request::FileClose),
-    GdbRequestWithTarget(GdbThreadId),
     GdbRequestNoAddlData,
 }
 
@@ -234,8 +233,8 @@ impl GdbRequest {
             | DREQ_GET_IS_THREAD_ALIVE
             | DREQ_GET_THREAD_EXTRA_INFO
             | DREQ_SET_CONTINUE_THREAD
-            | DREQ_SET_QUERY_THREAD => GdbRequestValue::GdbRequestWithTarget(Default::default()),
-            DREQ_GET_CURRENT_THREAD
+            | DREQ_SET_QUERY_THREAD
+            | DREQ_GET_CURRENT_THREAD
             | DREQ_GET_OFFSETS
             | DREQ_GET_REGS
             | DREQ_GET_STOP_REASON
@@ -378,16 +377,6 @@ impl GdbRequest {
         }
     }
 
-    /// NOTE that this is slightly different than the above:
-    /// Returns an Option and checks for two enum variants
-    pub fn maybe_target(&self) -> Option<&GdbThreadId> {
-        match &self.value {
-            GdbRequestValue::GdbRequestWithTarget(v) => Some(v),
-            GdbRequestValue::GdbRequestTls(v) => Some(&v.target),
-            _ => None,
-        }
-    }
-
     pub fn mem_mut(&mut self) -> &mut gdb_request::Mem {
         match &mut self.value {
             GdbRequestValue::GdbRequestMem(v) => v,
@@ -496,15 +485,6 @@ impl GdbRequest {
             ),
         }
     }
-    /// NOTE that this is slightly different than the above:
-    /// Returns an Option and checks for two enum variants
-    pub fn maybe_target_mut(&mut self) -> Option<&mut GdbThreadId> {
-        match &mut self.value {
-            GdbRequestValue::GdbRequestWithTarget(v) => Some(v),
-            GdbRequestValue::GdbRequestTls(v) => Some(&mut v.target),
-            _ => None,
-        }
-    }
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -550,7 +530,7 @@ impl GdbContAction {
 }
 
 pub mod gdb_request {
-    use super::{GdbContAction, GdbRestartType, GdbThreadId};
+    use super::{GdbContAction, GdbRestartType};
     use crate::{
         remote_ptr::{RemotePtr, Void},
         replay_timeline::RunDirection,
@@ -596,7 +576,6 @@ pub mod gdb_request {
     pub struct Tls {
         pub offset: u64,
         pub load_module: RemotePtr<Void>,
-        pub target: GdbThreadId,
     }
 
     #[derive(Default, Clone)]

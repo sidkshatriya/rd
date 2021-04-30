@@ -40,8 +40,7 @@ use std::{
 use task_inner::TrapReasons;
 
 use super::SessionSharedPtr;
-use crate::weak_ptr_set::WeakPtrSet;
-use crate::util::find;
+use crate::{util::find, weak_ptr_set::WeakPtrSet};
 
 pub mod record_task;
 pub mod replay_task;

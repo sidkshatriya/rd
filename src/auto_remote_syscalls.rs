@@ -61,6 +61,7 @@ use std::{
     cmp::{max, min},
     convert::TryInto,
     ffi::{OsStr, OsString},
+    fmt::Debug,
     io::Write,
     mem::{self, size_of, size_of_val, zeroed},
     ops::{Deref, DerefMut},
@@ -69,7 +70,6 @@ use std::{
     slice,
     sync::atomic::{AtomicUsize, Ordering},
 };
-use std::fmt::Debug;
 
 macro_rules! rd_syscall {
     ($slf:expr, $syscallno:expr) => {
@@ -317,7 +317,7 @@ impl<'a, 'b> AutoRestoreMem<'a, 'b> {
                 c.to_bytes_with_nul().len(),
             )
         })
-        .unwrap_or_else(|e|fatal!("Unable to push_cstr {:?}: {:?}", s, e))
+        .unwrap_or_else(|e| fatal!("Unable to push_cstr {:?}: {:?}", s, e))
     }
 
     /// Get a pointer to the reserved memory.
