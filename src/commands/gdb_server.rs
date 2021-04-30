@@ -63,7 +63,7 @@ use nix::{
 use std::{
     cell::{Ref, RefCell, RefMut},
     cmp::{max, min},
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     convert::{TryFrom, TryInto},
     env,
     ffi::{CString, OsStr, OsString},
@@ -202,7 +202,8 @@ pub struct GdbServer {
     /// in rr. We have an more explicit Option<>
     debugger_restart_checkpoint: Option<Checkpoint>,
     /// gdb checkpoints, indexed by ID
-    pub(super) checkpoints: HashMap<u64, Checkpoint>,
+    /// Use a BTreeMap so that result is sorted by checkpoint id
+    pub(super) checkpoints: BTreeMap<u64, Checkpoint>,
     /// Set of symbols to look for, for qSymbol
     symbols: Vec<OsString>,
     symbols_loc: Option<usize>,
