@@ -208,7 +208,7 @@ fn gdb_command_map_init() -> HashMap<String, Box<dyn GdbCommand>> {
     );
 
     command_list.insert(
-        String::from("delete_checkpoint"),
+        String::from("delete checkpoint"),
         Box::new(SimpleGdbCommand::new(
             String::from("delete checkpoint"),
             "remove a checkpoint created with the 'checkpoint' command",
