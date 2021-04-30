@@ -359,7 +359,8 @@ fn invoke_checkpoint(gdb_server: &mut GdbServer, _t: &dyn Task, args: &[OsString
     );
     gdb_server.checkpoints.insert(checkpoint_id, checkpoint);
     let mut rets = Vec::<u8>::new();
-    write!(rets, "Checkpoint {} at {:?}", checkpoint_id, where_).unwrap();
+    write!(rets, "Checkpoint {} at ", checkpoint_id).unwrap();
+    rets.extend_from_slice(where_.as_bytes());
     OsString::from_vec(rets)
 }
 
@@ -397,9 +398,11 @@ fn invoke_info_checkpoints(
     if gdb_server.checkpoints.is_empty() {
         return OsString::from("No checkpoints.");
     }
-    let mut out: String = String::from("ID\tWhen\tWhere");
+    let mut out = Vec::new();
+    out.extend_from_slice(b"ID\tWhen\tWhere");
     for (&id, c) in gdb_server.checkpoints.iter() {
-        out.push_str(&format!("\n{}\t{}\t{:?}", id, c.mark.time(), c.where_));
+        write!(out, "\n{}\t{}\t", id, c.mark.time()).unwrap();
+        out.extend_from_slice(c.where_.as_bytes());
     }
-    OsString::from(out)
+    OsString::from_vec(out)
 }
