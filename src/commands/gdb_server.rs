@@ -601,7 +601,7 @@ impl GdbServer {
         // handle cases where the top-of-stack word is contained in a larger range.
         let size = word_size(target.arch());
         if target.regs_ref().sp() >= req.mem().addr
-            && target.regs_ref().sp() + size <= req.mem().addr + req.mem().len
+            && target.regs_ref().sp() + size <= req.mem().addr + result.len()
             && is_in_patch_stubs(target, target.ip())
         {
             let offset = target.regs_ref().sp().as_usize() - req.mem().addr.as_usize();
