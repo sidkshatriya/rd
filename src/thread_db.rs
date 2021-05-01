@@ -8,7 +8,7 @@ use crate::{
 };
 use libc::pid_t;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashSet},
     ffi::{c_void, CStr, OsStr, OsString},
     mem,
     os::{raw::c_char, unix::ffi::OsStrExt},
@@ -97,7 +97,7 @@ pub struct ThreadDb {
     symbol_names: HashSet<OsString>,
 
     /// Map from symbol names to addresses.
-    symbols: HashMap<OsString, RemotePtr<Void>>,
+    symbols: BTreeMap<OsString, RemotePtr<Void>>,
 }
 
 impl Drop for ThreadDb {

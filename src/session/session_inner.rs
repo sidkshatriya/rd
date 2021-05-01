@@ -149,7 +149,7 @@ pub fn is_singlestep(command: RunCommand) -> bool {
 /// (effectively), so that if the first task dies and its tid is recycled,
 /// we don't get confused. TaskMap is indexed by tid since there can never be
 /// two Tasks with the same tid at the same time.
-pub type AddressSpaceMap = HashMap<AddressSpaceUid, AddressSpaceSharedWeakPtr>;
+pub type AddressSpaceMap = BTreeMap<AddressSpaceUid, AddressSpaceSharedWeakPtr>;
 pub type TaskMap = BTreeMap<pid_t, TaskSharedPtr>;
 pub type ThreadGroupMap = HashMap<ThreadGroupUid, ThreadGroupSharedWeakPtr>;
 
