@@ -244,7 +244,8 @@ pub trait Session: DerefMut<Target = SessionInner> {
                 let mut remote2 = AutoRemoteSyscalls::new(&**leader);
                 for tgmember in &tgleader.member_states {
                     let t_clone = task_common::os_clone_into(tgmember, &mut remote2);
-                    self.on_create_task(t_clone);
+                    self.on_create_task(t_clone.clone());
+                    copy_state(&**t_clone, tgmember);
                 }
             }
 
