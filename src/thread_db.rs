@@ -8,7 +8,7 @@ use crate::{
 };
 use libc::pid_t;
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, BTreeSet},
     ffi::{c_void, CStr, OsStr, OsString},
     mem,
     os::{raw::c_char, unix::ffi::OsStrExt},
@@ -94,7 +94,7 @@ pub struct ThreadDb {
     td_ta_new_fn: TdTaNewFn,
 
     /// Set of all symbol names.
-    symbol_names: HashSet<OsString>,
+    symbol_names: BTreeSet<OsString>,
 
     /// Map from symbol names to addresses.
     symbols: BTreeMap<OsString, RemotePtr<Void>>,
@@ -229,7 +229,7 @@ impl ThreadDb {
         }
         let td_ta_map_lwp2thr_fn: TdTaMapLwp2ThrFn = unsafe { mem::transmute(ptr) };
 
-        let mut symbol_names: HashSet<OsString> = HashSet::new();
+        let mut symbol_names: BTreeSet<OsString> = Default::default();
         unsafe {
             let mut syms = td_symbol_list_fn();
             while !std::ptr::eq(*syms, std::ptr::null()) {
