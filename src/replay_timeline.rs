@@ -1972,7 +1972,7 @@ impl ReplayTimeline {
                 );
             }
             self.no_watchpoints_hit_interval_end =
-                if self.no_watchpoints_hit_interval_start.is_none() {
+                if self.no_watchpoints_hit_interval_start.is_some() {
                     Some(end)
                 } else {
                     None
