@@ -712,11 +712,6 @@ impl<'a> AutoRemoteSyscalls<'a> {
     }
 
     #[inline]
-    pub fn task_mut(&mut self) -> &dyn Task {
-        self.t
-    }
-
-    #[inline]
     pub fn vm(&self) -> AddressSpaceSharedPtr {
         self.t.vm()
     }
