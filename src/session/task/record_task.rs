@@ -622,8 +622,7 @@ impl Task for RecordTask {
                 // (and must not) perform more than one blocking syscall for any given
                 // buffered syscall.
                 for p in self.syscallbuf_syscall_entry_breakpoints() {
-                    self.vm()
-                        .add_breakpoint(self, p, BreakpointType::BkptInternal);
+                    self.vm().add_breakpoint(p, BreakpointType::BkptInternal);
                 }
             }
             let addr = self
@@ -632,8 +631,7 @@ impl Task for RecordTask {
                 .syscallbuf_final_exit_instruction;
 
             if self.break_at_syscallbuf_final_instruction.get() {
-                self.vm()
-                    .add_breakpoint(self, addr, BreakpointType::BkptInternal);
+                self.vm().add_breakpoint(addr, BreakpointType::BkptInternal);
             }
         }
     }

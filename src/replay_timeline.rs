@@ -475,7 +475,7 @@ impl ReplayTimeline {
         // Apply breakpoints now; we need to actually try adding this breakpoint
         // to see if it works.
         self.apply_breakpoints_and_watchpoints();
-        if !t.vm().add_breakpoint(t, addr, BreakpointType::BkptUser) {
+        if !t.vm().add_breakpoint(addr, BreakpointType::BkptUser) {
             return false;
         }
         self.breakpoints.insert(
@@ -1080,7 +1080,6 @@ impl ReplayTimeline {
     }
 
     fn apply_breakpoints_internal(&self) {
-        let t = self.current_session().current_task().unwrap();
         for bp in self.breakpoints.keys() {
             let maybe_vm = self.current_session().find_address_space(bp.uid);
             // XXX handle cases where we can't apply a breakpoint right now. Later
@@ -1088,7 +1087,7 @@ impl ReplayTimeline {
             // be created) and we should reapply breakpoints then.
             match maybe_vm {
                 Some(vm) => {
-                    vm.add_breakpoint(&**t, bp.addr, BreakpointType::BkptUser);
+                    vm.add_breakpoint(bp.addr, BreakpointType::BkptUser);
                 }
                 _ => (),
             }
@@ -1172,7 +1171,7 @@ impl ReplayTimeline {
                 } else {
                     // Get a shared reference to t.vm() in case t dies during replay_step
                     let vm = t.vm();
-                    vm.add_breakpoint(&**t, mark_addr, BreakpointType::BkptUser);
+                    vm.add_breakpoint(mark_addr, BreakpointType::BkptUser);
                     self.current_session().replay_step(RunCommand::RunContinue);
                     vm.remove_breakpoint(mark_addr, BreakpointType::BkptUser);
                 }
@@ -1529,9 +1528,9 @@ impl ReplayTimeline {
                 .mapping_of(mark_addr)
                 .map_or(false, |m| m.map.prot().contains(ProtFlags::PROT_EXEC)))
         {
-            let succeeded: bool =
-                t.vm()
-                    .add_breakpoint(&**t, mark_addr_code, BreakpointType::BkptUser);
+            let succeeded: bool = t
+                .vm()
+                .add_breakpoint(mark_addr_code, BreakpointType::BkptUser);
             ed_assert!(&t, succeeded);
             let constraints: StepConstraints = strategy.setup_step_constraints();
             result = self

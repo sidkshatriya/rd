@@ -1261,7 +1261,7 @@ impl ReplaySession {
                     && t.vm()
                         .is_breakpoint_in_private_read_only_memory(syscall_instruction, t)
                     && t.vm()
-                        .add_breakpoint(t, syscall_instruction, BreakpointType::BkptInternal)
+                        .add_breakpoint(syscall_instruction, BreakpointType::BkptInternal)
                 {
                     *self.syscall_bp_vm.borrow_mut() = Some(t.vm());
                     self.syscall_bp_addr.set(syscall_instruction);
@@ -1751,7 +1751,7 @@ impl ReplaySession {
                 // no slower than single-stepping our way to
                 // the target execution point.
                 log!(LogDebug, "    breaking on target $ip");
-                t.vm().add_breakpoint(t, ip, BreakpointType::BkptInternal);
+                t.vm().add_breakpoint(ip, BreakpointType::BkptInternal);
                 did_set_internal_breakpoint = true;
                 self.continue_or_step(t, constraints, TicksRequest::ResumeUnlimitedTicks, None);
                 SIGTRAP_run_command = constraints.command;
@@ -1825,7 +1825,6 @@ impl ReplaySession {
             }
 
             let added: bool = t.vm().add_breakpoint(
-                t,
                 RemoteCodePtr::from(self.current_step.get().flush().stop_breakpoint_addr),
                 BreakpointType::BkptInternal,
             );

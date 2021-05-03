@@ -926,11 +926,9 @@ impl GdbServer {
                         .weak_self()
                         .ptr_eq(self.timeline_unwrap().current_session().weak_self())
                 {
-                    let diversion_ok = target.vm().add_breakpoint(
-                        &**target,
-                        req.watch().addr.to_code_ptr(),
-                        BreakpointType::BkptUser,
-                    );
+                    let diversion_ok = target
+                        .vm()
+                        .add_breakpoint(req.watch().addr.to_code_ptr(), BreakpointType::BkptUser);
                     ed_assert!(target, diversion_ok);
                 }
                 self.dbg_unwrap_mut().reply_watchpoint_request(ok);

@@ -271,7 +271,7 @@ pub fn fast_forward_through_instruction<T: Task>(
         t.set_regs(&tmp);
         let ok = t
             .vm()
-            .add_breakpoint(t, limit_ip, BreakpointType::BkptInternal);
+            .add_breakpoint(limit_ip, BreakpointType::BkptInternal);
         ed_assert!(t, ok, "Failed to add breakpoint");
         // Watchpoints can fire spuriously because configure_watch_registers
         // can increase the size of the watched area to conserve watch registers.

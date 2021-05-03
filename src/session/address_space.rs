@@ -1314,15 +1314,7 @@ pub mod address_space {
         }
 
         /// Ensure a breakpoint of `type` is set at `addr`.
-        ///
-        /// DIFF NOTE: In rr a random task is pulled out from the task set
-        /// Here we explicitly pass in the task to perform any read/writes
-        pub fn add_breakpoint(
-            &self,
-            t: &dyn Task,
-            addr: RemoteCodePtr,
-            type_: BreakpointType,
-        ) -> bool {
+        pub fn add_breakpoint(&self, addr: RemoteCodePtr, type_: BreakpointType) -> bool {
             let found = self.breakpoints.borrow().get(&addr).is_some();
             if found {
                 self.breakpoints
@@ -1331,16 +1323,17 @@ pub mod address_space {
                     .unwrap()
                     .do_ref(type_);
             } else {
+                let rc_t = self.task_set().iter().next().unwrap();
                 let mut overwritten_data = [0u8; 1];
                 let read_result =
-                    t.read_bytes_fallible(addr.to_data_ptr::<u8>(), &mut overwritten_data);
+                    rc_t.read_bytes_fallible(addr.to_data_ptr::<u8>(), &mut overwritten_data);
                 match read_result {
                     Ok(read) if read == size_of::<u8>() => (),
                     _ => return false,
                 }
 
                 write_val_mem_with_flags::<u8>(
-                    t,
+                    &**rc_t,
                     addr.to_data_ptr::<u8>(),
                     &Self::BREAKPOINT_INSN,
                     None,
@@ -2720,7 +2713,7 @@ pub mod address_space {
         ///
         /// Assumes there IS a breakpoint at `addr` or will panic
         ///
-        /// Called destroy_breakpoint() in rr.
+        /// DIFF NOTE: Called destroy_breakpoint() in rr.
         fn destroy_breakpoint_at(&self, addr: RemoteCodePtr) {
             if self.task_set().is_empty() {
                 return;
