@@ -2065,7 +2065,9 @@ impl GdbConnection {
                 let param = str0_to_isize(event_strb, &mut endp).unwrap();
                 self.req.restart_mut().type_ = GdbRestartType::RestartFromCheckpoint;
                 self.req.restart_mut().param_str = String::from_utf8_lossy(event_strb).into();
-                self.req.restart_mut().param = param.try_into().unwrap();
+                // Note the unwrap_or_default()
+                // A reply with param 0 will cause gdb to gracefully say the checkpoint was invalid
+                self.req.restart_mut().param = param.try_into().unwrap_or_default();
                 log!(
                     LogDebug,
                     "next replayer restarting from checkpoint {}",
