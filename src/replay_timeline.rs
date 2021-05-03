@@ -1734,7 +1734,9 @@ impl ReplayTimeline {
         );
 
         let mut outer: Mark = origin.clone();
-        let ticks_target: Ticks = step_ticks - 1;
+        // DIFF NOTE: @TODO In rr ticks_target is signed so this would become -1
+        // IMPORTANT: Need to figure out if there are any edge case issues here
+        let ticks_target: Ticks = if step_ticks == 0 { 0 } else { step_ticks - 1 };
 
         loop {
             let mut end: Mark = outer;
