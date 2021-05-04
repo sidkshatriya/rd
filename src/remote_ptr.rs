@@ -17,6 +17,17 @@ macro_rules! remote_ptr_field {
     };
 }
 
+/// Most operations in RemotePtr are Wrapping.
+///
+/// This is because many of these operations indirectly originate in the program being
+/// recorded/replayed so we must allow overflow/underflow to take place.
+///
+/// If we don't have Wrapping operations then some tests would fail in rd
+/// e.g. clone_bad_stack in debug mode
+///
+/// Note: This issue is relevant only for debug mode in Rust where operations are checked
+/// for overflow/underflow by default. In release mode the operations are unchecked
+/// by default so we don't need Wrapping.
 #[derive(Hash, Debug)]
 /// Manually derive Copy, Clone due to quirks with PhantomData
 pub struct RemotePtr<T> {
