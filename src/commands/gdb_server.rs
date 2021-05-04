@@ -1535,14 +1535,15 @@ impl GdbServer {
                         .reverse_continue(&stop_filter, &interrupt_check);
                 }
                 RunCommand::RunSinglestep => {
-                    let t = self
+                    let tick_count = self
                         .timeline_unwrap()
                         .current_session()
                         .find_task_from_task_uid(self.last_continue_tuid)
-                        .unwrap();
+                        .unwrap()
+                        .tick_count();
                     result = self.timeline_unwrap_mut().reverse_singlestep(
                         self.last_continue_tuid,
-                        t.tick_count(),
+                        tick_count,
                         &stop_filter,
                         &interrupt_check,
                     );
