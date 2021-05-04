@@ -215,24 +215,17 @@ pub trait Session: DerefMut<Target = SessionInner> {
         for tgleader in &cc.address_spaces {
             let leader = tgleader.clone_leader.upgrade().unwrap();
             {
-                let mut found_syscall_buf = None;
                 let mut remote = AutoRemoteSyscalls::new(&**leader);
+                let mut mk_vec = Vec::new();
                 for (&mk, m) in &remote.vm().maps() {
                     if m.flags.contains(MappingFlags::IS_SYSCALLBUF) {
-                        // DIFF NOTE: The whole reason why this approach is a bit different from rr because its
-                        // its tougher to iterate and modify a map at the same time in rust vs c++.
-                        found_syscall_buf = Some(mk);
-                        // DIFF NOTE: We are assuming only a single syscall buffer in the memory maps.
-                        break;
+                        mk_vec.push(mk);
                     }
                 }
 
-                match found_syscall_buf {
-                    Some(k) => {
-                        // Creating this mapping was delayed in capture_state for performance
-                        remote.recreate_shared_mmap(k, None, None);
-                    }
-                    None => (),
+                for mk in mk_vec {
+                    // Creating this mapping was delayed in capture_state for performance
+                    remote.recreate_shared_mmap(mk, None, None);
                 }
             }
 
