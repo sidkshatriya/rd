@@ -4,6 +4,7 @@ use std::{
     convert::TryInto,
     fmt::{Display, Formatter, Result},
     marker::PhantomData,
+    num::Wrapping,
     ops::{Add, AddAssign, Sub, SubAssign},
 };
 
@@ -19,7 +20,7 @@ macro_rules! remote_ptr_field {
 #[derive(Hash, Debug)]
 /// Manually derive Copy, Clone due to quirks with PhantomData
 pub struct RemotePtr<T> {
-    ptr: usize,
+    ptr: Wrapping<usize>,
     /// Since this struct does not "own" a `T`, upon recommendation of the Rust PhantomData docs,
     /// there is a `PhantomData<*const T>` here and not simply a `PhantomData<T>`.
     /// This also makes sense because this struct is a kind of pointer to `T`.
@@ -40,38 +41,41 @@ impl<T> Copy for RemotePtr<T> {}
 impl<T> Default for RemotePtr<T> {
     fn default() -> Self {
         RemotePtr {
-            ptr: 0,
+            ptr: Wrapping(0),
             phantom: PhantomData,
         }
     }
 }
 
 impl<T> RemotePtr<T> {
+    #[inline]
     pub fn null() -> RemotePtr<T> {
         RemotePtr {
-            ptr: 0,
+            ptr: Wrapping(0),
             phantom: PhantomData,
         }
     }
 
+    #[inline]
     pub fn new(val: usize) -> RemotePtr<T> {
         RemotePtr {
-            ptr: val,
+            ptr: Wrapping(val),
             phantom: PhantomData,
         }
     }
 
+    #[inline]
     pub fn as_usize(&self) -> usize {
-        self.ptr
+        self.ptr.0
     }
 
     /// As the name indicates this is just a cast. No try_into().unwrap() here!
     pub fn as_isize(&self) -> isize {
-        self.ptr as isize
+        self.ptr.0 as isize
     }
 
     pub fn is_null(&self) -> bool {
-        self.ptr == 0
+        self.ptr.0 == 0
     }
 
     pub fn referent_size(&self) -> usize {
@@ -79,15 +83,18 @@ impl<T> RemotePtr<T> {
     }
 
     pub fn cast<U>(r: RemotePtr<U>) -> RemotePtr<T> {
-        RemotePtr::<T>::new(r.ptr)
+        Self {
+            ptr: r.ptr,
+            phantom: PhantomData,
+        }
     }
 
     pub fn to_code_ptr(self) -> RemoteCodePtr {
-        RemoteCodePtr::from_val(self.ptr)
+        RemoteCodePtr::from_val(self.ptr.0)
     }
 
     pub fn as_rptr_u8(self) -> RemotePtr<u8> {
-        RemotePtr::<u8>::new(self.ptr)
+        RemotePtr::<u8>::new(self.ptr.0)
     }
 }
 
@@ -101,9 +108,11 @@ impl<T> Add<usize> for RemotePtr<T> {
     type Output = Self;
 
     fn add(self, delta: usize) -> Self::Output {
-        // Will automatically deal with underflow in debug mode.
-        let result: usize = self.as_usize() + delta * std::mem::size_of::<T>();
-        Self::new(result)
+        let result = self.ptr + Wrapping(delta) * Wrapping(std::mem::size_of::<T>());
+        Self {
+            ptr: result,
+            phantom: PhantomData,
+        }
     }
 }
 
@@ -111,9 +120,11 @@ impl<T> Add<u32> for RemotePtr<T> {
     type Output = Self;
 
     fn add(self, delta: u32) -> Self::Output {
-        // Will automatically deal with overflow in debug mode.
-        let result: usize = self.as_usize() + (delta as usize) * std::mem::size_of::<T>();
-        Self::new(result)
+        let result = self.ptr + Wrapping(delta as usize) * Wrapping(std::mem::size_of::<T>());
+        Self {
+            ptr: result,
+            phantom: PhantomData,
+        }
     }
 }
 
@@ -124,8 +135,11 @@ impl<T> Add<isize> for RemotePtr<T> {
         if delta < 0 {
             return Sub::<usize>::sub(self, delta.abs() as usize);
         }
-        let result: usize = self.as_usize() + (delta as usize) * std::mem::size_of::<T>();
-        Self::new(result)
+        let result = self.ptr + Wrapping(delta as usize) * Wrapping(std::mem::size_of::<T>());
+        Self {
+            ptr: result,
+            phantom: PhantomData,
+        }
     }
 }
 
@@ -133,9 +147,11 @@ impl<T> Sub<usize> for RemotePtr<T> {
     type Output = Self;
 
     fn sub(self, delta: usize) -> Self::Output {
-        // Will automatically deal with underflow in debug mode.
-        let result: usize = self.as_usize() - delta * std::mem::size_of::<T>();
-        Self::new(result)
+        let result = self.ptr - Wrapping(delta) * Wrapping(std::mem::size_of::<T>());
+        Self {
+            ptr: result,
+            phantom: PhantomData,
+        }
     }
 }
 
@@ -143,9 +159,11 @@ impl<T> Sub<u32> for RemotePtr<T> {
     type Output = Self;
 
     fn sub(self, delta: u32) -> Self::Output {
-        // Will automatically deal with underflow in debug mode.
-        let result: usize = self.as_usize() - (delta as usize) * std::mem::size_of::<T>();
-        Self::new(result)
+        let result = self.ptr - Wrapping(delta as usize) * Wrapping(std::mem::size_of::<T>());
+        Self {
+            ptr: result,
+            phantom: PhantomData,
+        }
     }
 }
 
@@ -156,9 +174,8 @@ impl<T> Sub<RemotePtr<T>> for RemotePtr<T> {
     type Output = usize;
 
     fn sub(self, rhs: RemotePtr<T>) -> Self::Output {
-        // Will automatically deal with underflow in debug mode.
-        let delta: usize = self.as_usize() - rhs.as_usize();
-        delta / std::mem::size_of::<T>()
+        let delta = self.ptr - rhs.ptr;
+        (delta / Wrapping(std::mem::size_of::<T>())).0
     }
 }
 
@@ -210,13 +227,13 @@ impl<T> Into<usize> for RemotePtr<T> {
 
 impl<T> SubAssign<usize> for RemotePtr<T> {
     fn sub_assign(&mut self, rhs: usize) {
-        self.ptr = self.ptr - rhs * std::mem::size_of::<T>();
+        self.ptr = self.ptr - Wrapping(rhs) * Wrapping(std::mem::size_of::<T>());
     }
 }
 
 impl<T> AddAssign<usize> for RemotePtr<T> {
     fn add_assign(&mut self, rhs: usize) {
-        self.ptr = self.ptr + rhs * std::mem::size_of::<T>();
+        self.ptr = self.ptr + Wrapping(rhs) * Wrapping(std::mem::size_of::<T>());
     }
 }
 
