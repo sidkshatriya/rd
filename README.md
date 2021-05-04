@@ -103,7 +103,7 @@ The port is currently in progress and not ready for end-user usage. However deve
 The following work:
 * `rd rerun`
 * `rd replay -a`
-  * Interactive replay (which uses a debugger like gdb) is not yet supported
+  * Interactive replay (which uses a debugger like gdb) is not yet supported (_please watch this space!_)
   * In other words, non-interative replay (`-a` flag) is currently supported
 * `rd record`
   * The recording functionality is mostly complete
