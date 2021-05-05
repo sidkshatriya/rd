@@ -111,18 +111,18 @@ impl GdbExpression {
                     return false;
                 }
                 state.step(t);
-
-                let v: Value = state.pop();
-                if state.error {
-                    return false;
-                }
-                if first {
-                    *result = v;
-                    first = false;
-                } else if *result != v {
-                    return false;
-                }
                 steps += 1;
+            }
+
+            let v: Value = state.pop();
+            if state.error {
+                return false;
+            }
+            if first {
+                *result = v;
+                first = false;
+            } else if *result != v {
+                return false;
             }
         }
 
