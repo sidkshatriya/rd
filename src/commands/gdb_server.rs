@@ -1160,7 +1160,7 @@ impl GdbServer {
                 eprint!(
                     "\n\
                --------------------------------------------------\n\
-                --. Interrupted; attached to NON-TARGET process {} at event {}.\n\
+               ---> Interrupted; attached to NON-TARGET process {} at event {}.\n\
                --------------------------------------------------\n",
                     t.tgid(),
                     event_now
@@ -1170,7 +1170,7 @@ impl GdbServer {
                 eprint!(
                     "\n\
                --------------------------------------------------\n\
-                --. Reached target process {} at event {}.\n\
+               ---> Reached target process {} at event {}.\n\
                --------------------------------------------------\n",
                     t.tgid(),
                     event_now

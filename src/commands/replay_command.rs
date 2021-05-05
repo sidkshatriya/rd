@@ -14,7 +14,7 @@ use crate::{
     trace::{
         trace_frame::FrameTime, trace_reader::TraceReader, trace_task_event::TraceTaskEventType,
     },
-    util::{check_for_leaks, running_under_rd},
+    util::{check_for_leaks, find, running_under_rd},
 };
 use io::stderr;
 use libc::{pid_t, WEXITSTATUS, WIFEXITED, WIFSIGNALED};
@@ -30,6 +30,7 @@ use std::{
     ffi::{OsStr, OsString},
     io,
     io::Write,
+    os::unix::ffi::OsStrExt,
     path::PathBuf,
     ptr,
     rc::Rc,
@@ -473,8 +474,20 @@ static mut SERVER_PTR: *mut GdbServer = std::ptr::null_mut();
 
 impl RdCommand for ReplayCommand {
     fn run(&mut self) -> ExitResult<()> {
-        if self.target_command.is_some() {
-            unimplemented!()
+        if let Some(ref target_command) = self.target_command {
+            self.target_process = find_pid_for_command(self.trace_dir.as_ref(), target_command);
+            if let None = self.target_process {
+                return ExitResult::err_from(
+                    io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        format!(
+                            "No process {:?} found in trace. Try 'rd ps'.",
+                            target_command
+                        ),
+                    ),
+                    2,
+                );
+            }
         }
 
         if self.process_created_how != CreatedHow::CreatedNone {
@@ -595,4 +608,31 @@ fn pid_execs<T: AsRef<OsStr>>(maybe_trace_dir: Option<T>, pid: pid_t) -> bool {
         }
     }
     false
+}
+
+fn find_pid_for_command<T: AsRef<OsStr>>(
+    maybe_trace_dir: Option<T>,
+    command_os_str: &OsStr,
+) -> Option<pid_t> {
+    let mut trace = TraceReader::new(maybe_trace_dir);
+    while let Some(e) = trace.read_task_event(None) {
+        if e.event_type() != TraceTaskEventType::Exec {
+            continue;
+        }
+        if e.exec_variant().cmd_line().is_empty() {
+            continue;
+        }
+        let cmd: &[u8] = e.exec_variant().cmd_line()[0].as_bytes();
+        let command: &[u8] = command_os_str.as_bytes();
+        let mut command_with_slash = vec![b'/'];
+        command_with_slash.extend_from_slice(command_os_str.as_bytes());
+
+        if cmd == command
+            || (cmd.len() > command.len()
+                && find(cmd, &command_with_slash) == Some(cmd.len() - command_with_slash.len()))
+        {
+            return Some(e.tid());
+        }
+    }
+    None
 }
