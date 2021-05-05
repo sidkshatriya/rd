@@ -329,7 +329,8 @@ impl<'a> ExpressionState<'a> {
 
             OP_log_not => {
                 let a = self.pop_a();
-                self.push(!a)
+                let b = if a == 0 { 1 } else { 0 };
+                self.push(b)
             }
 
             OP_bit_and => {
