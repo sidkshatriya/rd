@@ -51,12 +51,19 @@ pub struct DiversionSession {
 
 impl Drop for DiversionSession {
     fn drop(&mut self) {
+        // We won't permanently leak any OS resources by not ensuring
+        // we've cleaned up here, but sessions can be created and
+        // destroyed many times, and we don't want to temporarily hog
+        // resources.
+        self.kill_all_tasks();
+        debug_assert!(self.task_map.borrow().is_empty());
+        debug_assert!(self.vm_map.borrow().is_empty());
+        debug_assert_eq!(self.emufs().size(), 0);
         log!(
             LogDebug,
             "DiversionSession having session id: {} dropped",
             self.session_inner.unique_id
         );
-        unimplemented!()
     }
 }
 
@@ -305,15 +312,17 @@ fn execute_syscall(t: &dyn Task) {
     t.finish_emulated_syscall();
 
     let mut remote = AutoRemoteSyscalls::new(t);
-    let original_syscallno = remote.initial_regs_ref().original_syscallno() as i32;
-    let arg1 = remote.initial_regs_ref().arg1();
-    let arg2 = remote.initial_regs_ref().arg2();
-    let arg3 = remote.initial_regs_ref().arg3();
-    let arg4 = remote.initial_regs_ref().arg4();
-    let arg5 = remote.initial_regs_ref().arg5();
-    let arg6 = remote.initial_regs_ref().arg6();
-
-    remote.syscall(original_syscallno, &[arg1, arg2, arg3, arg4, arg5, arg6]);
+    remote.syscall(
+        remote.initial_regs_ref().original_syscallno() as i32,
+        &[
+            remote.initial_regs_ref().arg1(),
+            remote.initial_regs_ref().arg2(),
+            remote.initial_regs_ref().arg3(),
+            remote.initial_regs_ref().arg4(),
+            remote.initial_regs_ref().arg5(),
+            remote.initial_regs_ref().arg6(),
+        ],
+    );
     remote
         .initial_regs_mut()
         .set_syscall_result(t.regs_ref().syscall_result());

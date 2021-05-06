@@ -240,6 +240,7 @@ impl GdbRequest {
             | DREQ_GET_STOP_REASON
             | DREQ_GET_THREAD_LIST
             | DREQ_INTERRUPT
+            | DREQ_WRITE_SIGINFO
             | DREQ_DETACH => GdbRequestValue::GdbRequestNoAddlData,
             _ => panic!("Unknown DREQ: {}", type_),
         };
