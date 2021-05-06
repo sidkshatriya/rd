@@ -5,6 +5,7 @@ use crate::{
         RdCommand,
     },
     event::EventType,
+    flags::Flags,
     kernel_metadata::syscall_name,
     log::notifying_abort,
     preload_interface::{stored_record_size, syscallbuf_hdr, syscallbuf_record},
@@ -198,25 +199,57 @@ impl DumpCommand {
                             fsname = OsString::from("<ZERO>");
                         }
 
-                        // DIFF NOTE: If length is 0 then rr outputs `(nil)` instead of `0x0`
-                        writeln!(
-                            f,
-                            "  {{ map_file:{:?}, addr:{:#x}, length:{:#x}, \
-                        prot_flags:{:?}, file_offset:{:#x}, \
-                        device:{}, inode:{}, \
-                        data_file:{:?}, data_offset:{:#x}, \
-                        file_size:{:#x} }}",
-                            fsname,
-                            km.start().as_usize(),
-                            km.size(),
-                            OsString::from_vec(prot_flags),
-                            km.file_offset_bytes(),
-                            km.device(),
-                            km.inode(),
-                            data.filename,
-                            data.data_offset_bytes,
-                            data.file_size_bytes
-                        )?;
+                        // In extra compatibility mode the dump has the characters printed
+                        // as-is. Otherwise we get a OsString {:?} render which seems more
+                        // reasonable by default
+                        if Flags::get().extra_compat {
+                            write!(f, "  {{ map_file:\"")?;
+                            // For example: if a filename contains a special character line \n then we want it
+                            // to be printed literally. See the file_name_newline test for instance
+                            f.write_all(fsname.as_bytes())?;
+                            // DIFF NOTE: If length is 0 then rr outputs `(nil)` instead of `0x0`
+                            write!(
+                                f,
+                                "\", addr:{:#x}, length:{:#x}, \
+                                prot_flags:{:?}, file_offset:{:#x}, \
+                                device:{}, inode:{}, \
+                                data_file:\"",
+                                km.start().as_usize(),
+                                km.size(),
+                                OsString::from_vec(prot_flags),
+                                km.file_offset_bytes(),
+                                km.device(),
+                                km.inode(),
+                            )?;
+                            // For example: if a filename contains a special character line \n then we want it
+                            // to be printed literally. See the file_name_newline test for instance
+                            f.write_all(data.filename.as_bytes())?;
+                            writeln!(
+                                f,
+                                "\", data_offset:{:#x}, file_size:{:#x} }}",
+                                data.data_offset_bytes, data.file_size_bytes
+                            )?;
+                        } else {
+                            // DIFF NOTE: If length is 0 then rr outputs `(nil)` instead of `0x0`
+                            writeln!(
+                                f,
+                                "  {{ map_file:{:?}, addr:{:#x}, length:{:#x}, \
+                                prot_flags:{:?}, file_offset:{:#x}, \
+                                device:{}, inode:{}, \
+                                data_file:{:?}, data_offset:{:#x}, \
+                                file_size:{:#x} }}",
+                                fsname,
+                                km.start().as_usize(),
+                                km.size(),
+                                OsString::from_vec(prot_flags),
+                                km.file_offset_bytes(),
+                                km.device(),
+                                km.inode(),
+                                data.filename,
+                                data.data_offset_bytes,
+                                data.file_size_bytes
+                            )?;
+                        }
                     }
                 }
 
