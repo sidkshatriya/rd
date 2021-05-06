@@ -1777,7 +1777,7 @@ impl GdbServer {
                 compute_run_command_from_actions(&**t, &req, &mut maybe_signal_to_deliver);
             let result = diversion_session.as_diversion().unwrap().diversion_step(
                 &**t,
-                Some(command),
+                command,
                 maybe_signal_to_deliver,
             );
 

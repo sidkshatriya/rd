@@ -1,10 +1,19 @@
 use super::{on_create_task_common, session_common::kill_all_tasks, task::TaskSharedPtr};
 use crate::{
+    arch::Architecture,
+    auto_remote_syscalls::AutoRemoteSyscalls,
+    bindings::ptrace::PTRACE_EVENT_EXIT,
     emu_fs::{EmuFs, EmuFsSharedPtr},
+    kernel_metadata::syscall_name,
     log::LogDebug,
+    preload_interface::preload_globals,
     session::{
         session_inner::{BreakStatus, RunCommand, SessionInner},
-        task::Task,
+        task::{
+            task_common::write_val_mem,
+            task_inner::{ResumeRequest, TicksRequest, WaitRequest},
+            Task,
+        },
         Session,
     },
     sig::Sig,
@@ -53,6 +62,14 @@ pub enum DiversionStatus {
     DiversionExited,
 }
 
+impl Default for DiversionStatus {
+    fn default() -> Self {
+        // Arbitrary
+        Self::DiversionContinue
+    }
+}
+
+#[derive(Default)]
 pub struct DiversionResult {
     pub status: DiversionStatus,
     pub break_status: BreakStatus,
@@ -77,11 +94,80 @@ impl DiversionSession {
     /// Try make progress in this diversion session. Run task t if possible.
     pub fn diversion_step(
         &self,
-        _t: &dyn Task,
-        _command: Option<RunCommand>,
-        _signal_to_deliver: Option<Sig>,
+        t: &dyn Task,
+        command: RunCommand,
+        signal_to_deliver: Option<Sig>,
     ) -> DiversionResult {
-        unimplemented!()
+        debug_assert_ne!(command, RunCommand::RunSinglestepFastForward);
+        self.assert_fully_initialized();
+
+        let mut result: DiversionResult = Default::default();
+
+        // An exit might have occurred while processing a previous syscall.
+        if t.maybe_ptrace_event() == PTRACE_EVENT_EXIT {
+            result.status = DiversionStatus::DiversionExited;
+            return result;
+        }
+
+        // Disable syscall buffering during diversions
+        if !t.preload_globals.get().is_null() {
+            let child_addr =
+                remote_ptr_field!(t.preload_globals.get(), preload_globals, in_diversion);
+            write_val_mem(t, child_addr, &1, None);
+        }
+        t.set_syscallbuf_locked(true);
+
+        match command {
+            RunCommand::RunContinue => {
+                log!(LogDebug, "Continuing to next syscall");
+                t.resume_execution(
+                    ResumeRequest::ResumeSysemu,
+                    WaitRequest::ResumeWait,
+                    TicksRequest::ResumeUnlimitedTicks,
+                    signal_to_deliver,
+                );
+            }
+            RunCommand::RunSinglestep => {
+                log!(LogDebug, "Stepping to next insn/syscall");
+                t.resume_execution(
+                    ResumeRequest::ResumeSysemuSinglestep,
+                    WaitRequest::ResumeWait,
+                    TicksRequest::ResumeUnlimitedTicks,
+                    signal_to_deliver,
+                );
+            }
+            _ => {
+                fatal!("Illegal run command {:?}", command);
+            }
+        }
+
+        if t.maybe_ptrace_event() == PTRACE_EVENT_EXIT {
+            result.status = DiversionStatus::DiversionExited;
+            return result;
+        }
+
+        result.status = DiversionStatus::DiversionContinue;
+        if t.maybe_stop_sig().is_sig() {
+            log!(LogDebug, "Pending signal: {}", t.get_siginfo());
+            result.break_status = self.diagnose_debugger_trap(t, command);
+            log!(
+                LogDebug,
+                "Diversion break at ip={}; break={}, watch={}, singlestep={}",
+                t.ip(),
+                result.break_status.breakpoint_hit,
+                !result.break_status.watchpoints_hit.is_empty(),
+                result.break_status.singlestep_complete
+            );
+            ed_assert!(
+                t,
+                !result.break_status.singlestep_complete || command == RunCommand::RunSinglestep
+            );
+            return result;
+        }
+
+        process_syscall(t, t.regs_ref().original_syscallno() as i32);
+        self.check_for_watchpoint_changes(t, &mut result.break_status);
+        result
     }
 }
 
@@ -120,4 +206,98 @@ impl Session for DiversionSession {
     fn on_create_task(&self, t: TaskSharedPtr) {
         on_create_task_common(self, t);
     }
+}
+
+fn process_syscall(t: &dyn Task, syscallno: i32) {
+    let arch = t.arch();
+    rd_arch_function_selfless!(process_syscall_arch, arch, t, syscallno)
+}
+
+fn process_syscall_arch<Arch: Architecture>(t: &dyn Task, syscallno: i32) {
+    log!(
+        LogDebug,
+        "Processing {}",
+        syscall_name(syscallno, Arch::arch())
+    );
+
+    if syscallno == Arch::IOCTL && t.is_desched_event_syscall() {
+        // The arm/disarm-desched ioctls are emulated as no-ops.
+        // However, because the rr preload library expects these
+        // syscalls to succeed and aborts if they don't, we fudge a
+        // "0" return value.
+        finish_emulated_syscall_with_ret(t, 0);
+        return;
+    }
+
+    // We blacklist these syscalls because the params include
+    // namespaced identifiers that are different in replay than
+    // recording, and during replay they may refer to different,
+    // live resources.  For example, if a recorded tracees kills
+    // one of its threads, then during replay that killed pid
+    // might refer to a live process outside the tracee tree.  We
+    // don't want diversion tracees randomly shooting down other
+    // processes!
+    //
+    // We optimistically assume that filesystem operations were
+    // intended by the user.
+    //
+    // There's a potential problem with "fd confusion": in the
+    // diversion tasks, fds returned from open() during replay are
+    // emulated.  But those fds may accidentally refer to live fds
+    // in the task fd table.  So write()s etc may not be writing
+    // to the file the tracee expects.  However, the only real fds
+    // that leak into tracees are the stdio fds, and there's not
+    // much harm that can be caused by accidental writes to them.
+    if syscallno == Arch::IPC
+        || syscallno == Arch::KILL
+        || syscallno == Arch::RT_SIGQUEUEINFO
+        || syscallno == Arch::RT_TGSIGQUEUEINFO
+        || syscallno == Arch::TGKILL
+        || syscallno == Arch::TKILL
+    {
+        log!(
+            LogDebug,
+            "Suppressing syscall {}",
+            syscall_name(syscallno, t.arch())
+        );
+
+        return;
+    }
+
+    log!(
+        LogDebug,
+        "Executing syscall {}",
+        syscall_name(syscallno, t.arch())
+    );
+    execute_syscall(t)
+}
+
+fn finish_emulated_syscall_with_ret(t: &dyn Task, ret: isize) {
+    t.finish_emulated_syscall();
+    let mut r = t.regs_ref().clone();
+    r.set_syscall_result_signed(ret);
+    t.set_regs(&r);
+}
+
+/// Execute the syscall contained in |t|'s current register set.  The
+/// return value of the syscall is set for |t|'s registers, to be
+/// returned to the tracee task.
+fn execute_syscall(t: &dyn Task) {
+    t.finish_emulated_syscall();
+
+    let mut remote = AutoRemoteSyscalls::new(t);
+    remote.syscall(
+        remote.initial_regs_ref().original_syscallno() as i32,
+        &[
+            remote.initial_regs_ref().arg1(),
+            remote.initial_regs_ref().arg2(),
+            remote.initial_regs_ref().arg3(),
+            remote.initial_regs_ref().arg4(),
+            remote.initial_regs_ref().arg5(),
+            remote.initial_regs_ref().arg6(),
+        ],
+    );
+    remote
+        .initial_regs_mut()
+        .set_syscall_result(t.regs_ref().syscall_result());
 }
