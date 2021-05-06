@@ -497,7 +497,11 @@ impl ReRunCommand {
         };
 
         loop {
-            let result = diversion_session.diversion_step(&**t, Some(cmd), None);
+            let result =
+                diversion_session
+                    .as_diversion()
+                    .unwrap()
+                    .diversion_step(&**t, Some(cmd), None);
             self.write_regs(&**t, 0, 0, &mut stdout())?;
             match result.break_status.signal {
                 Some(siginfo) => {

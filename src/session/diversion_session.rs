@@ -12,7 +12,6 @@ use crate::{
 use std::{
     cell::{Ref, RefMut},
     ops::{Deref, DerefMut},
-    rc::Rc,
 };
 
 /// A DiversionSession lets you run task(s) forward without replay.
@@ -59,18 +58,22 @@ pub struct DiversionResult {
     pub break_status: BreakStatus,
 }
 
-pub type DiversionSessionSharedPtr = Rc<DiversionSession>;
-
 impl DiversionSession {
     pub fn emufs(&self) -> Ref<'_, EmuFs> {
         self.emu_fs.borrow()
     }
+
     pub fn emufs_mut(&self) -> RefMut<'_, EmuFs> {
         self.emu_fs.borrow_mut()
     }
+
     pub fn new() -> DiversionSession {
-        unimplemented!()
+        DiversionSession {
+            session_inner: SessionInner::new(),
+            emu_fs: EmuFs::create(),
+        }
     }
+
     /// Try make progress in this diversion session. Run task t if possible.
     pub fn diversion_step(
         &self,

@@ -43,7 +43,7 @@ use crate::{
             address_space::{AddressSpace, AddressSpaceSharedPtr},
             BreakpointType, Enabled, Traced,
         },
-        diversion_session::DiversionSessionSharedPtr,
+        diversion_session::DiversionSession,
         replay_session::ReplayTraceStepType::TstepNone,
         session_inner::{BreakStatus, RunCommand, SessionInner},
         task::{
@@ -487,8 +487,37 @@ impl ReplaySession {
 
     /// Like `clone()`, but return a session in "diversion" mode,
     /// which allows free execution.
-    pub fn clone_diversion(&self) -> DiversionSessionSharedPtr {
-        unimplemented!()
+    pub fn clone_diversion(&self) -> SessionSharedPtr {
+        self.finish_initializing();
+        self.clear_syscall_bp();
+
+        log!(
+            LogDebug,
+            "Deepforking ReplaySession {} to DiversionSession...",
+            self.unique_id()
+        );
+
+        let mut d_session = DiversionSession::new();
+        d_session.ticks_semantics_ = self.ticks_semantics_;
+        d_session.tracee_socket = self.tracee_socket.clone();
+        d_session.tracee_socket_fd_number = self.tracee_socket_fd_number.clone();
+        let session = Rc::new_cyclic(move |w| {
+            d_session.weak_self = w.clone();
+            let b: Box<dyn Session> = Box::new(d_session);
+            b
+        });
+
+        log!(LogDebug, "  deepfork session is {}", session.unique_id());
+
+        self.copy_state_to_session(
+            session.clone(),
+            &self.emufs(),
+            &mut session.as_diversion().unwrap().emufs_mut(),
+        );
+
+        session.finish_initializing();
+
+        session
     }
 
     pub fn emufs(&self) -> Ref<'_, EmuFs> {

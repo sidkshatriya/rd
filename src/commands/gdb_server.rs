@@ -1747,7 +1747,7 @@ impl GdbServer {
         let saved_query_tuid = self.last_query_tuid;
 
         while self.diverter_process_debugger_requests(
-            &*diversion_session,
+            diversion_session.as_diversion().unwrap(),
             &mut diversion_refcount,
             &mut req,
         ) {
@@ -1757,7 +1757,7 @@ impl GdbServer {
                 // We don't support reverse execution in a diversion. Just issue
                 // an immediate stop.
                 let thread_id =
-                    get_threadid_from_tuid(&*diversion_session, self.last_continue_tuid);
+                    get_threadid_from_tuid(&**diversion_session, self.last_continue_tuid);
                 self.dbg_unwrap_mut()
                     .notify_stop(thread_id, None, RemotePtr::null());
                 self.stop_siginfo = Default::default();
@@ -1775,8 +1775,11 @@ impl GdbServer {
             let mut maybe_signal_to_deliver = None;
             let command =
                 compute_run_command_from_actions(&**t, &req, &mut maybe_signal_to_deliver);
-            let result =
-                diversion_session.diversion_step(&**t, Some(command), maybe_signal_to_deliver);
+            let result = diversion_session.as_diversion().unwrap().diversion_step(
+                &**t,
+                Some(command),
+                maybe_signal_to_deliver,
+            );
 
             if result.status == DiversionStatus::DiversionExited {
                 diversion_refcount = 0;
