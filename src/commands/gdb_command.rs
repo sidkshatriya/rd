@@ -266,7 +266,7 @@ fn when_ticks(_: &mut GdbServer, t: &dyn Task, _: &[OsString]) -> OsString {
     }
 
     let mut rets = Vec::<u8>::new();
-    write!(rets, "Current ticks: {}", t.tick_count()).unwrap();
+    write!(rets, "Current tick: {}", t.tick_count()).unwrap();
     OsString::from_vec(rets)
 }
 
