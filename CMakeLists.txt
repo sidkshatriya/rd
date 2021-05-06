@@ -205,6 +205,29 @@ set_target_properties(rd_exec_stub
 set_source_files_properties(src/exec_stub.c
                             COMPILE_FLAGS "-fno-stack-protector")
 
+set(RD_GDB_RESOURCES
+  32bit-avx.xml
+  32bit-core.xml
+  32bit-linux.xml
+  32bit-sse.xml
+  64bit-avx.xml
+  64bit-core.xml
+  64bit-linux.xml
+  64bit-seg.xml
+  64bit-sse.xml
+  amd64-avx-linux.xml
+  amd64-linux.xml
+  i386-avx-linux.xml
+  i386-linux.xml
+)
+foreach(file ${RD_GDB_RESOURCES})
+  configure_file("${CMAKE_CURRENT_SOURCE_DIR}/third-party/gdb/${file}"
+                 "${CMAKE_CURRENT_BINARY_DIR}/share/rd/${file}"
+                 COPYONLY)
+  install(FILES third-party/gdb/${file}
+          DESTINATION ${CMAKE_INSTALL_DATADIR}/rd)
+endforeach(file)
+
 foreach(file ${PRELOAD_SOURCE_FILES})
   configure_file("${CMAKE_CURRENT_SOURCE_DIR}/src/preload/${file}"
                  "${CMAKE_CURRENT_BINARY_DIR}/share/rd/src/preload/${file}"
