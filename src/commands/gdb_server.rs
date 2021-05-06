@@ -1647,12 +1647,75 @@ impl GdbServer {
     /// The received request is returned through |req|.
     /// Returns true if diversion should continue, false if it should end.
     fn diverter_process_debugger_requests(
-        &self,
-        _diversion_session: &DiversionSession,
-        _diversion_refcount: &mut usize,
-        _req: &GdbRequest,
+        &mut self,
+        diversion_session: &DiversionSession,
+        diversion_refcount: &mut usize,
+        req: &mut GdbRequest,
     ) -> bool {
-        unimplemented!()
+        loop {
+            *req = self.dbg_unwrap_mut().get_request();
+
+            if req.is_resume_request() {
+                return *diversion_refcount > 0;
+            }
+
+            match req.type_ {
+                DREQ_RESTART | DREQ_DETACH => {
+                    *diversion_refcount = 0;
+                    return false;
+                }
+                DREQ_READ_SIGINFO => {
+                    log!(LogDebug, "Adding ref to diversion session");
+                    *diversion_refcount += 1;
+                    // TODO: maybe share with replayer.cc?
+                    let si_bytes = vec![0u8; req.mem().len];
+                    self.dbg_unwrap_mut().reply_read_siginfo(&si_bytes);
+                    continue;
+                }
+
+                DREQ_SET_QUERY_THREAD => {
+                    if req.target.tid > 0 {
+                        if let Some(next) = diversion_session.find_task_from_rec_tid(req.target.tid)
+                        {
+                            self.last_query_tuid = next.tuid();
+                        }
+                    }
+                }
+
+                DREQ_WRITE_SIGINFO => {
+                    log!(LogDebug, "Removing reference to diversion session ...");
+                    debug_assert!(*diversion_refcount > 0);
+                    *diversion_refcount -= 1;
+                    if *diversion_refcount == 0 {
+                        log!(LogDebug, "  ... dying at next continue request");
+                    }
+                    self.dbg_unwrap_mut().reply_write_siginfo();
+                    continue;
+                }
+                DREQ_RD_CMD => {
+                    debug_assert_eq!(req.type_, DREQ_RD_CMD);
+                    let maybe_task =
+                        diversion_session.find_task_from_task_uid(self.last_continue_tuid);
+                    if let Some(task) = maybe_task {
+                        let reply = GdbCommandHandler::process_command(self, &**task, req.text());
+                        // Certain commands cause the diversion to end immediately
+                        // while other commands must work within a diversion.
+                        if reply == GdbCommandHandler::cmd_end_diversion().as_bytes() {
+                            *diversion_refcount = 0;
+                            return false;
+                        }
+                        self.dbg_unwrap_mut().reply_rd_cmd(&reply);
+                        continue;
+                    } else {
+                        *diversion_refcount = 0;
+                        return false;
+                    }
+                }
+
+                _ => (),
+            };
+            self.dispatch_debugger_request(diversion_session, req, ReportState::ReportNormal);
+        }
     }
 
     /// Create a new diversion session using |replay| session as the
