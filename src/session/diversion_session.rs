@@ -1,9 +1,14 @@
-use super::{on_create_task_common, session_common::kill_all_tasks, task::TaskSharedPtr};
+use super::{
+    on_create_task_common,
+    session_common::kill_all_tasks,
+    task::{replay_task::ReplayTask, TaskSharedPtr, TaskSharedWeakPtr},
+};
 use crate::{
     arch::Architecture,
     auto_remote_syscalls::AutoRemoteSyscalls,
     bindings::ptrace::PTRACE_EVENT_EXIT,
     emu_fs::{EmuFs, EmuFsSharedPtr},
+    kernel_abi::SupportedArch,
     kernel_metadata::syscall_name,
     log::LogDebug,
     preload_interface::preload_globals,
@@ -18,6 +23,7 @@ use crate::{
     },
     sig::Sig,
 };
+use libc::pid_t;
 use std::{
     cell::{Ref, RefMut},
     ops::{Deref, DerefMut},
@@ -165,7 +171,8 @@ impl DiversionSession {
             return result;
         }
 
-        process_syscall(t, t.regs_ref().original_syscallno() as i32);
+        let sys_no = t.regs_ref().original_syscallno() as i32;
+        process_syscall(t, sys_no);
         self.check_for_watchpoint_changes(t, &mut result.break_status);
         result
     }
@@ -186,6 +193,18 @@ impl DerefMut for DiversionSession {
 }
 
 impl Session for DiversionSession {
+    fn new_task(
+        &self,
+        tid: pid_t,
+        rec_tid: Option<pid_t>,
+        serial: u32,
+        a: SupportedArch,
+        weak_self: TaskSharedWeakPtr,
+    ) -> Box<dyn Task> {
+        let t = ReplayTask::new(self, tid, rec_tid, serial, a, weak_self);
+        Box::new(t)
+    }
+
     // Forwarded method
     fn kill_all_tasks(&self) {
         kill_all_tasks(self)
@@ -286,17 +305,15 @@ fn execute_syscall(t: &dyn Task) {
     t.finish_emulated_syscall();
 
     let mut remote = AutoRemoteSyscalls::new(t);
-    remote.syscall(
-        remote.initial_regs_ref().original_syscallno() as i32,
-        &[
-            remote.initial_regs_ref().arg1(),
-            remote.initial_regs_ref().arg2(),
-            remote.initial_regs_ref().arg3(),
-            remote.initial_regs_ref().arg4(),
-            remote.initial_regs_ref().arg5(),
-            remote.initial_regs_ref().arg6(),
-        ],
-    );
+    let original_syscallno = remote.initial_regs_ref().original_syscallno() as i32;
+    let arg1 = remote.initial_regs_ref().arg1();
+    let arg2 = remote.initial_regs_ref().arg2();
+    let arg3 = remote.initial_regs_ref().arg3();
+    let arg4 = remote.initial_regs_ref().arg4();
+    let arg5 = remote.initial_regs_ref().arg5();
+    let arg6 = remote.initial_regs_ref().arg6();
+
+    remote.syscall(original_syscallno, &[arg1, arg2, arg3, arg4, arg5, arg6]);
     remote
         .initial_regs_mut()
         .set_syscall_result(t.regs_ref().syscall_result());

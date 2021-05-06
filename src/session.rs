@@ -101,14 +101,12 @@ pub trait Session: DerefMut<Target = SessionInner> {
 
     fn new_task(
         &self,
-        _tid: pid_t,
-        _rec_tid: Option<pid_t>,
-        _serial: u32,
-        _a: SupportedArch,
-        _weak_self: TaskSharedWeakPtr,
-    ) -> Box<dyn Task> {
-        unimplemented!()
-    }
+        tid: pid_t,
+        rec_tid: Option<pid_t>,
+        serial: u32,
+        a: SupportedArch,
+        weak_self: TaskSharedWeakPtr,
+    ) -> Box<dyn Task>;
 
     fn trace_stream(&self) -> Option<Ref<'_, TraceStream>> {
         None
