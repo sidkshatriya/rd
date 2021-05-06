@@ -224,6 +224,10 @@ impl Clone for SessionInner {
 /// Multiple sessions can coexist in the same process.  This
 /// is required when using replay checkpoints, for example.
 impl SessionInner {
+    pub fn unique_id(&self) -> usize {
+        self.unique_id
+    }
+
     pub fn weak_self_clone(&self) -> SessionSharedWeakPtr {
         self.weak_self.clone()
     }

@@ -31,7 +31,7 @@ use crate::{
             address_space::BREAKPOINT_INSN, memory_range::MemoryRange, BreakpointType,
             MappingFlags, WatchType,
         },
-        diversion_session::DiversionSession,
+        diversion_session::{DiversionSession, DiversionStatus},
         replay_session::{ReplayResult, ReplaySession, ReplayStatus},
         session_inner::{BreakStatus, RunCommand},
         task::{replay_task::ReplayTask, task_inner::WriteFlags, Task, TaskSharedPtr},
@@ -1330,7 +1330,8 @@ impl GdbServer {
                 // siginfo and then incorrectly start a diversion and go haywire :-(.
                 // Ideally we'd come up with a better way to detect diversions so that
                 // "print $_siginfo" works.
-                req = self.divert(self.timeline_unwrap().current_session());
+                let curr_sess = self.timeline_unwrap().current_session_shr_ptr();
+                req = self.divert(curr_sess.as_replay().unwrap());
                 if req.type_ == DREQ_NONE {
                     continue;
                 }
@@ -1646,8 +1647,9 @@ impl GdbServer {
     /// The received request is returned through |req|.
     /// Returns true if diversion should continue, false if it should end.
     fn diverter_process_debugger_requests(
+        &self,
         _diversion_session: &DiversionSession,
-        _diversion_refcount: &mut u32,
+        _diversion_refcount: &mut usize,
         _req: &GdbRequest,
     ) -> bool {
         unimplemented!()
@@ -1662,8 +1664,75 @@ impl GdbServer {
     /// request made that wasn't handled by the diversion session.  That
     /// is, the first request that should be handled by |replay| upon
     /// resuming execution in that session.
-    fn divert(&self, _replay: &ReplaySession) -> GdbRequest {
-        unimplemented!();
+    fn divert(&mut self, replay: &ReplaySession) -> GdbRequest {
+        let mut req: GdbRequest = Default::default();
+        log!(
+            LogDebug,
+            "Starting debugging diversion for {}",
+            replay.unique_id()
+        );
+
+        if self.timeline_unwrap().is_running() {
+            // Ensure breakpoints and watchpoints are applied before we fork the
+            // diversion, to ensure the diversion is consistent with the timeline
+            // breakpoint/watchpoint state.
+            self.timeline_unwrap_mut()
+                .apply_breakpoints_and_watchpoints();
+        }
+        let diversion_session = replay.clone_diversion();
+        let mut diversion_refcount: usize = 1;
+        let saved_query_tuid = self.last_query_tuid;
+
+        while self.diverter_process_debugger_requests(
+            &*diversion_session,
+            &mut diversion_refcount,
+            &mut req,
+        ) {
+            debug_assert!(req.is_resume_request());
+
+            if req.cont().run_direction == RunDirection::RunBackward {
+                // We don't support reverse execution in a diversion. Just issue
+                // an immediate stop.
+                let thread_id =
+                    get_threadid_from_tuid(&*diversion_session, self.last_continue_tuid);
+                self.dbg_unwrap_mut()
+                    .notify_stop(thread_id, None, RemotePtr::null());
+                self.stop_siginfo = Default::default();
+                self.last_query_tuid = self.last_continue_tuid;
+                continue;
+            }
+
+            let maybe_t = diversion_session.find_task_from_task_uid(self.last_continue_tuid);
+            if maybe_t.is_none() {
+                diversion_refcount = 0;
+                req = GdbRequest::new(DREQ_NONE);
+                break;
+            }
+            let t = maybe_t.unwrap();
+            let mut maybe_signal_to_deliver = None;
+            let command =
+                compute_run_command_from_actions(&**t, &req, &mut maybe_signal_to_deliver);
+            let result =
+                diversion_session.diversion_step(&**t, Some(command), maybe_signal_to_deliver);
+
+            if result.status == DiversionStatus::DiversionExited {
+                diversion_refcount = 0;
+                req = GdbRequest::new(DREQ_NONE);
+                break;
+            }
+
+            debug_assert_eq!(result.status, DiversionStatus::DiversionContinue);
+
+            self.maybe_notify_stop(&req, &result.break_status);
+        }
+
+        log!(LogDebug, "... ending debugging diversion");
+        debug_assert!(diversion_refcount == 0);
+
+        diversion_session.kill_all_tasks();
+
+        self.last_query_tuid = saved_query_tuid;
+        req
     }
 
     /// If `break_status` indicates a stop that we should report to gdb,

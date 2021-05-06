@@ -10,7 +10,7 @@ use crate::{
     sig::Sig,
 };
 use std::{
-    cell::{Ref, RefCell, RefMut},
+    cell::{Ref, RefMut},
     ops::{Deref, DerefMut},
     rc::Rc,
 };
@@ -46,6 +46,7 @@ impl Drop for DiversionSession {
     }
 }
 
+#[derive(Eq, PartialEq, Debug)]
 pub enum DiversionStatus {
     /// Some execution was done. diversion_step() can be called again.
     DiversionContinue,
@@ -58,7 +59,7 @@ pub struct DiversionResult {
     pub break_status: BreakStatus,
 }
 
-pub type DiversionSessionSharedPtr = Rc<RefCell<DiversionSession>>;
+pub type DiversionSessionSharedPtr = Rc<DiversionSession>;
 
 impl DiversionSession {
     pub fn emufs(&self) -> Ref<'_, EmuFs> {

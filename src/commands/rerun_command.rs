@@ -477,8 +477,9 @@ impl ReRunCommand {
 
     fn run_diversion_function(&self, replay: &ReplaySession, task: &dyn Task) -> io::Result<()> {
         let diversion_session = replay.clone_diversion();
-        let diversion_ref = diversion_session.borrow_mut();
-        let t = diversion_ref.find_task_from_task_uid(task.tuid()).unwrap();
+        let t = diversion_session
+            .find_task_from_task_uid(task.tuid())
+            .unwrap();
         let mut regs = t.regs();
         // align stack;
         let sp = RemotePtr::<usize>::new((regs.sp().as_usize() & !0xf) - 1);
@@ -496,9 +497,7 @@ impl ReRunCommand {
         };
 
         loop {
-            let result = diversion_session
-                .borrow()
-                .diversion_step(&**t, Some(cmd), None);
+            let result = diversion_session.diversion_step(&**t, Some(cmd), None);
             self.write_regs(&**t, 0, 0, &mut stdout())?;
             match result.break_status.signal {
                 Some(siginfo) => {
