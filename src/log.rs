@@ -379,7 +379,7 @@ pub fn notifying_abort(bt: Backtrace) {
 }
 
 /// Write the backtrace to stderr.
-fn dump_rd_stack(bt: Backtrace) {
+pub fn dump_rd_stack(bt: Backtrace) {
     eprintln!("=== Start rd backtrace:");
     eprintln!("{:?}", bt);
     eprintln!("=== End rd backtrace");

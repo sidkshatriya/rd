@@ -1130,9 +1130,13 @@ impl TaskInner {
     }
 
     /// Return the virtual memory mapping (address space) of this
-    /// task.
+    /// task. Will panic if vm does not exist!
     pub fn vm(&self) -> AddressSpaceSharedPtr {
         self.as_.borrow().as_ref().unwrap().clone()
+    }
+
+    pub fn vm_exists(&self) -> bool {
+        self.as_.borrow().is_some()
     }
 
     pub fn fd_table(&self) -> FdTableSharedPtr {

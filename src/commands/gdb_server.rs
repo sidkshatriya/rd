@@ -20,6 +20,7 @@ use crate::{
     gdb_expression::{GdbExpression, GdbExpressionValue},
     gdb_register::{GdbRegister, DREG_64_YMM15H, DREG_ORIG_EAX, DREG_ORIG_RAX, DREG_YMM7H},
     kernel_abi::{syscall_number_for_execve, SupportedArch},
+    log::dump_rd_stack,
     log::{LogDebug, LogError, LogInfo, LogWarn},
     registers::Registers,
     remote_code_ptr::RemoteCodePtr,
@@ -532,8 +533,47 @@ impl GdbServer {
     /// This helper doesn't attempt to determine whether blocking rr on a
     /// debugger connection might be a bad idea.  It will always open the debug
     /// socket and block awaiting a connection.
-    pub fn emergency_debug(_t: &dyn Task) {
-        unimplemented!()
+    pub fn emergency_debug(t: &dyn Task) {
+        // See the comment in |guard_overshoot()| explaining why we do
+        // this.  Unlike in that context though, we don't know if |t|
+        // overshot an internal breakpoint.  If it did, cover that
+        // breakpoint up.
+        if t.vm_exists() {
+            t.vm().remove_all_breakpoints();
+        }
+
+        // Don't launch a debugger on fatal errors; the user is most
+        // likely already in a debugger, and wouldn't be able to
+        // control another session. Instead, launch a new GdbServer and wait for
+        // the user to connect from another window.
+        let mut features: GdbConnectionFeatures = Default::default();
+        // Don't advertise reverse_execution to gdb becase a) it won't work and
+        // b) some gdb versions will fail if the user doesn't turn off async
+        // mode (and we don't want to require users to do that)
+        features.reverse_execution = false;
+        let mut port: u16 = t.tid() as u16;
+        let listen_fd = open_socket(LOCALHOST_ADDR, &mut port, ProbePort::ProbePort);
+
+        let maybe_test_monitor_pid = env::var("RUNNING_UNDER_TEST_MONITOR");
+        if let Ok(test_monitor_pid) = maybe_test_monitor_pid {
+            let pid = test_monitor_pid.parse::<pid_t>().unwrap();
+            assert!(pid > 0);
+            // Tell test-monitor to wake up and take a snapshot. It will also
+            // connect the emergency debugger so let that happen.
+            // DIFF NOTE: Unlike rr, we have an unwrap for File::create() i.e. The file create must succeed
+            let mut gdb_cmd = File::create("gdb_cmd").unwrap();
+            write_debugger_launch_command(t, LOCALHOST_ADDR, port, Path::new("gdb"), &mut gdb_cmd);
+            unsafe { libc::kill(pid, libc::SIGURG) };
+        } else {
+            dump_rd_stack(backtrace::Backtrace::new());
+            eprint!("Launch gdb with\n  ");
+            write_debugger_launch_command(t, LOCALHOST_ADDR, port, Path::new("gdb"), &mut stderr());
+        }
+        let tgid = t.tgid();
+        let arch = t.arch();
+        let dbg = await_connection(tgid, arch, &listen_fd, features);
+
+        GdbServer::new_from(dbg, t).process_debugger_requests(None);
     }
 
     // A string containing the default gdbinit script that we load into gdb.
