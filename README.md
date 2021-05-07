@@ -2,7 +2,7 @@
 
 The Record & Debug Tool (`rd`) is a Rust language port of the [rr-debugger/rr](https://github.com/rr-debugger/rr) debugger.
 
-With `rd` you can _record_ linux program executions. Subsequently you can replay these executions back exactly and _debug_ them in the gdb front-end. If you know how to use `rr` then you already know how to use `rd`.
+With `rd` you can _record_ Linux program executions. Subsequently you can replay these executions back exactly and _debug_ them in the gdb front-end. If you know how to use `rr` then you already know how to use `rd`.
 
 Why is it a good idea to port `rr` to Rust? See [below](https://github.com/sidkshatriya/rd#why-implement-in-rust).
 
@@ -43,7 +43,7 @@ $ cargo build
 
 In general, use release mode as the debug mode can be much slower. Run `rd` in debug mode if you run into issues or are working on developing `rd`.
 
-The program has been tested to compile and run properly on a 64-bit Ubuntu 20.04 installation at the moment only. 
+The program has been tested to compile and run properly on a **64-bit Ubuntu 20.04** installation at the moment only. 
 
 Please file a ticket if `rd` does not work properly for your specific Linux distribution. In general, if `rr` compiles and runs properly in your Linux distro, `rd` should do the same.
 
@@ -113,6 +113,8 @@ The following work:
 * `rd buildid`
 * `rd dump`
 * `rd traceinfo`
+
+A 64-bit build of `rd` supports the record/replay of _both_ 32 & 64-bit Linux programs. However, building and running `rd` to record/replay 32-bit programs in a 32-bit Linux distribution is currently _not_ supported.
 
 ## Tips and Suggestions
 
