@@ -231,6 +231,16 @@ impl GdbServer {
         self.dbg.as_ref().unwrap().borrow_mut()
     }
 
+    /// DIFF NOTE: This method is not present in rr. We need this
+    /// because our timeline is stored in an Option<>
+    pub fn timeline_is_running(&self) -> bool {
+        if let Some(tline) = self.timeline.as_ref() {
+            tline.borrow().is_running()
+        } else {
+            false
+        }
+    }
+
     pub fn timeline_unwrap(&self) -> Ref<ReplayTimeline> {
         self.timeline.as_ref().unwrap().borrow()
     }
@@ -589,7 +599,7 @@ impl GdbServer {
     }
 
     fn current_session(&self) -> SessionSharedPtr {
-        if self.timeline_unwrap().is_running() {
+        if self.timeline_is_running() {
             self.timeline_unwrap().current_session_shr_ptr()
         } else {
             self.emergency_debug_session.upgrade().unwrap()
@@ -1627,7 +1637,7 @@ impl GdbServer {
     /// more efficient by avoiding having to actually reverse-singlestep the
     /// session.
     fn try_lazy_reverse_singlesteps(&mut self, req: &mut GdbRequest) {
-        if !self.timeline_unwrap().is_running() {
+        if !self.timeline_is_running() {
             return;
         }
 
@@ -1775,7 +1785,7 @@ impl GdbServer {
             replay.unique_id()
         );
 
-        if self.timeline_unwrap().is_running() {
+        if self.timeline_is_running() {
             // Ensure breakpoints and watchpoints are applied before we fork the
             // diversion, to ensure the diversion is consistent with the timeline
             // breakpoint/watchpoint state.

@@ -276,7 +276,7 @@ fn read_task_trace_event(t: &ReplayTask, task_event_type: TraceTaskEventType) ->
             ed_assert!(
                 t,
                 false,
-                "Unable to find TraceTaskEvent; trace is corrupt (did you kill -9 rd?)"
+                "Unable to find TraceTaskEvent; trace is corrupt (did you `kill -9 rd` ?)"
             )
         }
 
