@@ -748,14 +748,14 @@ fn write_reg(
     f: &mut dyn io::Write,
 ) -> io::Result<()> {
     let mut buf: [u8; 128] = [0; 128];
-    let len = r.read_register(&mut buf, low);
-    debug_assert!(len.is_some() && len.unwrap() <= 64);
-    let mut final_len = len.unwrap();
+    let len = r.read_register(&mut buf, low).unwrap();
+    debug_assert!(len <= 64);
+    let mut final_len = len;
     if hi != 0 {
-        let len2 = r.read_register(buf.get_mut(len.unwrap()..).unwrap(), hi);
-        if len2.is_some() {
-            debug_assert_eq!(len.unwrap(), len2.unwrap());
-            final_len += len2.unwrap();
+        let maybe_len2 = r.read_register(buf.get_mut(len..).unwrap(), hi);
+        if let Some(len2) = maybe_len2 {
+            debug_assert_eq!(len, len2);
+            final_len += len2;
         }
     }
 

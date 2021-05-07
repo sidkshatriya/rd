@@ -500,8 +500,7 @@ impl GdbServer {
         // DIFF NOTE: This is a debug_assert in rr
         assert_eq!(res.unwrap(), mem::size_of_val(&params));
 
-        let mut args = Vec::new();
-        args.push(gdb_binary_file_path.into());
+        let mut args = vec![gdb_binary_file_path.into()];
         push_default_gdb_options(&mut args);
         args.push("-x".into());
         args.push(gdb_command_file);
