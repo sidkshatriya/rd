@@ -108,7 +108,7 @@ The port is substantially complete and is ready for end-user usage and developer
 The following work:
 * `rd rerun`
 * `rd replay`
-  * Both interactive replay (which uses a debugger like gdb) and non-interative replay (`-a` flag) are supported
+  * Both interactive replay (which uses the gdb front-end) and non-interative replay (`-a` flag) are supported
 * `rd record`
 * `rd buildid`
 * `rd dump`
