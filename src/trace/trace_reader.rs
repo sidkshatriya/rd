@@ -843,7 +843,7 @@ fn resolve_trace_name<T: AsRef<OsStr>>(maybe_trace_name: Option<T>) -> OsString 
     // in the default trace dir.
     if find(trace_name.as_bytes(), b"/").is_none() {
         if dir_exists(trace_name.as_os_str()) {
-            return trace_name.to_os_string();
+            return trace_name;
         }
 
         let mut resolved_trace_name: Vec<u8> = Vec::from(trace_save_dir().as_bytes());

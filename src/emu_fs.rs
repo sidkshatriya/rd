@@ -352,7 +352,7 @@ impl EmuFs {
     pub fn log(&self) {
         let addr = self as *const _ as *const u8 as usize;
         log!(LogError, "EmuFs {:#x} with {} files:", addr, self.size());
-        for (_, v) in &self.files {
+        for v in self.files.values() {
             let emu_path = v.upgrade().unwrap().borrow().emu_path().to_owned();
             log!(LogError, "  {:?}", emu_path);
         }

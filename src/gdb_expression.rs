@@ -215,7 +215,7 @@ impl<'a> ExpressionState<'a> {
         }
         let mut v: u16 = 0;
         for i in 0..size_of::<u16>() {
-            v = v.overflowing_shl(8).0 | u8::from(self.bytecode[self.pc + i]) as u16;
+            v = v.overflowing_shl(8).0 | self.bytecode[self.pc + i] as u16;
         }
         self.pc += size_of::<u16>();
         v
@@ -227,7 +227,7 @@ impl<'a> ExpressionState<'a> {
         }
         let mut v: u32 = 0;
         for i in 0..size_of::<u32>() {
-            v = v.overflowing_shl(8).0 | u8::from(self.bytecode[self.pc + i]) as u32;
+            v = v.overflowing_shl(8).0 | self.bytecode[self.pc + i] as u32;
         }
         self.pc += size_of::<u32>();
         v
@@ -239,7 +239,7 @@ impl<'a> ExpressionState<'a> {
         }
         let mut v: u64 = 0;
         for i in 0..size_of::<u64>() {
-            v = v.overflowing_shl(8).0 | u8::from(self.bytecode[self.pc + i]) as u64;
+            v = v.overflowing_shl(8).0 | self.bytecode[self.pc + i] as u64;
         }
         self.pc += size_of::<u64>();
         v

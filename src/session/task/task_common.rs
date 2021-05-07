@@ -812,8 +812,8 @@ fn is_long_mode_segment(segment: u32) -> bool {
 /// The value of rcx above which the CPU doesn't properly handle singlestep for
 /// string instructions. Right now, since only once CPU has this quirk, this
 /// value is hardcoded, but could depend on the CPU architecture in the future.
-fn single_step_coalesce_cutoff() -> usize {
-    return 16;
+const fn single_step_coalesce_cutoff() -> usize {
+    16
 }
 
 /// Forwarded method definition

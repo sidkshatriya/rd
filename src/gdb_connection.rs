@@ -754,7 +754,7 @@ impl GdbConnection {
         // current one, for requests that need an immediate
         // response.
         // DIFF NOTE: This is gated behind a #ifdef DEBUG in rr.
-        debug_assert_eq!(request_needs_immediate_response(&self.req), false);
+        debug_assert!(!request_needs_immediate_response(&self.req));
 
         if !self.sniff_packet() && self.req.is_resume_request() {
             // There's no new request data available and gdb has

@@ -1672,7 +1672,7 @@ pub fn check_for_leaks() {
 }
 
 pub fn signal_bit(sig: Sig) -> sig_set_t {
-    (1 as sig_set_t) << (sig.as_raw() - 1)
+    1 << (sig.as_raw() - 1)
 }
 
 pub fn is_deterministic_signal(t: &dyn Task) -> SignalDeterministic {
@@ -1971,12 +1971,8 @@ fn iterate_checksums(t: &dyn Task, mode: ChecksumMode, global_time: FrameTime) {
                 }
                 ChecksumData::StoreChecksums(checksums_file) => {
                     if !checksum_segment_filter(&m) {
-                        write!(
-                            checksums_file,
-                            "({:x}) {}\n",
-                            IGNORED_CHECKSUM, raw_map_line
-                        )
-                        .unwrap();
+                        writeln!(checksums_file, "({:x}) {}", IGNORED_CHECKSUM, raw_map_line)
+                            .unwrap();
                         continue;
                     }
                 }
@@ -2018,7 +2014,7 @@ fn iterate_checksums(t: &dyn Task, mode: ChecksumMode, global_time: FrameTime) {
 
             match &mut checksum_data {
                 ChecksumData::StoreChecksums(file) => {
-                    write!(file, "({:x}) {}\n", checksum, raw_map_line).unwrap();
+                    writeln!(file, "({:x}) {}", checksum, raw_map_line).unwrap();
                 }
                 ChecksumData::ValidateChecksums(_file) => {
                     ed_assert!(t, t.session().is_replaying());

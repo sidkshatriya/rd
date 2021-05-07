@@ -1216,7 +1216,7 @@ impl TaskInner {
             data.get_data_slice(),
             errno_name(errno())
         );
-        return true;
+        true
     }
 
     pub fn is_dying(&self) -> bool {

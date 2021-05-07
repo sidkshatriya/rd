@@ -198,9 +198,9 @@ pub trait Task: Deref<Target = TaskInner> {
     fn dump(&self, maybe_out: Option<&mut dyn Write>) {
         let err = &mut stderr();
         let out = maybe_out.unwrap_or(err);
-        write!(
+        writeln!(
             out,
-            "  {:?}(tid:{} rec_tid:{} status:{}{})<{:?}>\n",
+            "  {:?}(tid:{} rec_tid:{} status:{}{})<{:?}>",
             self.prname,
             self.tid(),
             self.rec_tid(),

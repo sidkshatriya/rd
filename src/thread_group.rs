@@ -129,7 +129,7 @@ impl ThreadGroup {
 
         let tg_shared = Rc::new(RefCell::new(tg));
         let tg_weak = Rc::downgrade(&tg_shared);
-        tg_shared.borrow_mut().weak_self = tg_weak.clone();
+        tg_shared.borrow_mut().weak_self = tg_weak;
 
         if let Some(ref parent) = tg_shared.borrow().parent_ {
             parent
