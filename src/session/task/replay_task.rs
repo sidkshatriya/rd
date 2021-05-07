@@ -4,7 +4,7 @@ use super::{
         destroy_buffers_common, destroy_common, detect_syscall_arch_common, on_syscall_exit_common,
         post_exec_for_exe_common, post_exec_syscall_common, post_vm_clone_common,
         post_wait_clone_common, read_val_mem, reset_syscallbuf_common,
-        set_syscallbuf_locked_common, task_drop_common,
+        set_syscallbuf_locked_common, task_cleanup_common,
     },
     task_inner::{CloneFlags, CloneReason, TrapReasons},
     TaskSharedPtr, TaskSharedWeakPtr,
@@ -407,7 +407,7 @@ impl Task for ReplayTask {
     /// Forwarded method
     fn destroy(&self, maybe_detach: Option<bool>, sess: &dyn Session) {
         destroy_common(self, maybe_detach);
-        task_drop_common(self, sess);
+        task_cleanup_common(self, sess);
     }
 
     /// Forwarded method

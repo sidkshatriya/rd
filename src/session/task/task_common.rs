@@ -1849,7 +1849,7 @@ pub(super) fn destroy_buffers_common<T: Task>(t: &T) {
     remote.task().cloned_file_data_fd_child.set(-1);
 }
 
-pub(super) fn task_drop_common<T: Task>(t: &T, sess: &dyn Session) {
+pub(super) fn task_cleanup_common<T: Task>(t: &T, sess: &dyn Session) {
     if t.unstable.get() {
         log!(
             LogWarn,

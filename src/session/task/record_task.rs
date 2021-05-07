@@ -2,7 +2,7 @@ use super::{
     task_common::{
         self, at_preload_init_common, clone_task_common, destroy_common, post_vm_clone_common,
         post_wait_clone_common, read_mem, read_val_mem, reset_syscallbuf_common,
-        set_syscallbuf_locked_common, task_drop_common, write_val_mem,
+        set_syscallbuf_locked_common, task_cleanup_common, write_val_mem,
     },
     task_inner::PtraceData,
     TaskSharedPtr, TaskSharedWeakPtr,
@@ -742,7 +742,7 @@ impl Task for RecordTask {
         }
 
         // Important !!
-        task_drop_common(self, sess);
+        task_cleanup_common(self, sess);
     }
 
     fn log_pending_events(&self) {
