@@ -35,7 +35,11 @@ use crate::{
         diversion_session::{DiversionSession, DiversionStatus},
         replay_session::{ReplayResult, ReplaySession, ReplayStatus},
         session_inner::{BreakStatus, RunCommand},
-        task::{replay_task::ReplayTask, task_inner::WriteFlags, Task, TaskSharedPtr},
+        task::{
+            replay_task::ReplayTask,
+            task_inner::{TaskInner, WriteFlags},
+            Task, TaskSharedPtr,
+        },
         Session, SessionSharedPtr, SessionSharedWeakPtr,
     },
     sig,
@@ -274,7 +278,7 @@ impl GdbServer {
         }
     }
 
-    fn new_from(dbg: GdbConnection, t: &dyn Task) -> GdbServer {
+    fn new_from(dbg: GdbConnection, t: &TaskInner) -> GdbServer {
         GdbServer {
             dbg: Some(Rc::new(RefCell::new(dbg))),
             debuggee_tguid: t.thread_group().borrow().tguid(),
@@ -543,7 +547,7 @@ impl GdbServer {
     /// This helper doesn't attempt to determine whether blocking rr on a
     /// debugger connection might be a bad idea.  It will always open the debug
     /// socket and block awaiting a connection.
-    pub fn emergency_debug(t: &dyn Task) {
+    pub fn emergency_debug(t: &TaskInner) {
         // See the comment in |guard_overshoot()| explaining why we do
         // this.  Unlike in that context though, we don't know if |t|
         // overshot an internal breakpoint.  If it did, cover that
@@ -2187,7 +2191,7 @@ fn create_gdb_command_file(macros: &str) -> OsString {
 
 /// DIFF NOTE: Called print_debugger_launch_command() in rr
 fn write_debugger_launch_command(
-    t: &dyn Task,
+    t: &TaskInner,
     dbg_host: &str,
     port: u16,
     debugger_name: &Path,

@@ -1,4 +1,4 @@
-use crate::kernel_metadata::errno_name;
+use crate::{commands::gdb_server::GdbServer, kernel_metadata::errno_name};
 use backtrace::Backtrace;
 use nix::{
     errno::{errno, Errno},
@@ -580,13 +580,9 @@ pub fn emergency_debug(t: &TaskInner) {
         fatal!("(session doesn't look interactive, aborting emergency debugging)");
     }
 
-    // @TODO gdb emergency debug
-
     flush_log_buffer();
 
-    // DIFF NOTE: This Errno::clear() is not there in rr. Makes sense to have
-    // here though as there is no gdb emergency debug.
-    Errno::clear();
+    GdbServer::emergency_debug(t);
     fatal!("Can't resume execution from invalid state");
 }
 
