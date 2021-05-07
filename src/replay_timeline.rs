@@ -600,7 +600,7 @@ impl ReplayTimeline {
     /// Reset the current session to the last available session before event
     /// 'time'. Useful if you want to run up to that event.
     pub fn seek_to_before_event(&mut self, time: FrameTime) {
-        self.seek_to_before_key(MarkKey::new(time, 0, ReplayStepKey::new()));
+        self.seek_to_before_key(MarkKey::new(time, 0, ReplayStepKey::default()));
     }
 
     /// Reset the current session to the last checkpointed session before (or at)

@@ -54,12 +54,10 @@ impl<T> Eq for TaskishUid<T> {}
 
 impl<T> Ord for TaskishUid<T> {
     fn cmp(&self, other: &Self) -> Ordering {
-        if self.tid_ < other.tid_ {
-            Ordering::Less
-        } else if self.tid_ == other.tid_ {
-            self.serial_.cmp(&other.serial_)
-        } else {
-            Ordering::Greater
+        match self.tid_.cmp(&other.tid_) {
+            Ordering::Less => Ordering::Less,
+            Ordering::Equal => self.serial_.cmp(&other.serial_),
+            Ordering::Greater => Ordering::Greater,
         }
     }
 }

@@ -996,6 +996,7 @@ impl RecordTask {
 
     /// Every Task owned by a RecordSession is a RecordTask. Functionality that
     /// only applies during recording belongs here.
+    #[allow(clippy::new_ret_no_self)]
     pub fn new(
         session: &RecordSession,
         tid: pid_t,

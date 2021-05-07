@@ -310,15 +310,17 @@ pub struct ReplayStepKey {
     action: ReplayTraceStepType,
 }
 
-impl ReplayStepKey {
+impl Default for ReplayStepKey {
     /// Construct the "none" key; this value is before or equal to every other
     /// key value.
-    pub fn new() -> ReplayStepKey {
+    fn default() -> ReplayStepKey {
         ReplayStepKey {
             action: ReplayTraceStepType::TstepNone,
         }
     }
+}
 
+impl ReplayStepKey {
     pub fn new_with(action: ReplayTraceStepType) -> ReplayStepKey {
         ReplayStepKey { action }
     }

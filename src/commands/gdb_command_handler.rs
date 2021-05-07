@@ -171,8 +171,12 @@ end
         }
     }
 
-    pub fn command_for_name(name: &str) -> Option<&Box<dyn GdbCommand>> {
-        gdb_command_map().get(name)
+    pub fn command_for_name(name: &str) -> Option<&dyn GdbCommand> {
+        if let Some(v) = gdb_command_map().get(name) {
+            Some(&**v)
+        } else {
+            None
+        }
     }
 
     /// Special return value for commands that immediately ends a diversion session
