@@ -629,10 +629,12 @@ pub(super) fn did_waitpid_common<T: Task>(task: &T, mut status: WaitStatus) {
                     .expire_timeslice();
             }
             status = WaitStatus::for_stop_sig(TIME_SLICE_SIGNAL);
-            let mut pending_siginfo: siginfo_t = Default::default();
-            pending_siginfo.si_signo = TIME_SLICE_SIGNAL.as_raw();
+            let mut pending_siginfo = siginfo_t {
+                si_code: POLL_IN as i32,
+                si_signo: TIME_SLICE_SIGNAL.as_raw(),
+                ..Default::default()
+            };
             pending_siginfo._sifields._sigpoll.si_fd = task.hpc.borrow().ticks_interrupt_fd();
-            pending_siginfo.si_code = POLL_IN as i32;
             task.pending_siginfo.set(pending_siginfo);
             siginfo_overridden = true;
             task.expecting_ptrace_interrupt_stop.set(0);

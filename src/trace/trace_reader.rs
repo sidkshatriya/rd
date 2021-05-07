@@ -1,3 +1,5 @@
+#![allow(clippy::useless_conversion)]
+
 use crate::{
     bindings::{signal::siginfo_t, sysexits::EX_DATAERR},
     event::{

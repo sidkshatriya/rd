@@ -499,10 +499,11 @@ impl ReplaySession {
             self.unique_id()
         );
 
-        let mut d_session = DiversionSession::new();
+        let mut d_session = DiversionSession::default();
         d_session.ticks_semantics_ = self.ticks_semantics_;
         d_session.tracee_socket = self.tracee_socket.clone();
         d_session.tracee_socket_fd_number = self.tracee_socket_fd_number.clone();
+
         let session = Rc::new_cyclic(move |w| {
             d_session.weak_self = w.clone();
             let b: Box<dyn Session> = Box::new(d_session);

@@ -64,7 +64,7 @@ impl KernelMapping {
             flags_: MapFlags::empty(),
             offset: 0,
             fsname_: OsString::from(""),
-            mr: MemoryRange::new(),
+            mr: MemoryRange::default(),
         }
     }
 

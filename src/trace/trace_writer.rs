@@ -1,8 +1,9 @@
-use crate::extra_registers::ExtraRegisters;
+#![allow(clippy::useless_conversion)]
 
 use crate::{
     bindings::signal::siginfo_t,
     event::{Event, EventType, SignalDeterministic, SignalResolvedDisposition, SyscallState},
+    extra_registers::ExtraRegisters,
     kernel_abi::{syscall_number_for_restart_syscall, RD_NATIVE_ARCH},
     kernel_supplement::{btrfs_ioctl_clone_range_args, BTRFS_IOC_CLONE_, BTRFS_IOC_CLONE_RANGE_},
     log::LogLevel::LogDebug,

@@ -1773,7 +1773,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(t: &RecordTask, regs: &Registers
             syscall_state.mem_ptr_parameter_with_size(
                 t,
                 remote_ptr_field!(iovecsp + i, iovec<Arch>, iov_base),
-                ParamSize::from(io_size.limit_size(Arch::size_t_as_usize(iovecs[i].iov_len))),
+                io_size.limit_size(Arch::size_t_as_usize(iovecs[i].iov_len)),
                 None,
                 None,
             );

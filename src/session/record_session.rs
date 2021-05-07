@@ -294,6 +294,7 @@ impl RecordSession {
     ///   whole RecordCommand for simplicity.
     /// - This method also incorporates functionality from rr setup_session_from_flags()
     ///   method
+    #[allow(clippy::new_ret_no_self)]
     pub fn new(
         exe_path: &OsStr,
         // We don't use flags.extra_env. We augment flags.extra_env producing `envp`.

@@ -123,7 +123,7 @@ end
         ss.push_str(s);
 
         for it in gdb_command_map().values() {
-            ss.push_str(&gdb_macro_binding(it));
+            ss.push_str(&gdb_macro_binding(&**it));
         }
 
         ss.push_str(
@@ -219,7 +219,7 @@ fn parse_cmd(mut s: &[u8]) -> Vec<OsString> {
     args
 }
 
-fn gdb_macro_binding(cmd: &Box<dyn GdbCommand>) -> String {
+fn gdb_macro_binding(cmd: &dyn GdbCommand) -> String {
     let mut auto_args_str = String::from("[");
     for (i, arg) in cmd.auto_args().iter().enumerate() {
         if i > 0 {

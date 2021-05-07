@@ -1561,12 +1561,10 @@ impl RecordTask {
                 self.saved_ptrace_siginfos.borrow_mut().remove(i);
                 si
             }
-            None => {
-                let mut si = siginfo_t::default();
-                si.si_signo = sig.as_raw();
-
-                si
-            }
+            None => siginfo_t {
+                si_signo: sig.as_raw(),
+                ..Default::default()
+            },
         }
     }
 
@@ -3100,8 +3098,10 @@ impl RecordTask {
         // but at some point the pending SIGCHLD will be delivered and then
         // send_synthetic_SIGCHLD_if_necessary will be called again to deliver a new
         // SIGCHLD if necessary.
-        let mut si = siginfo_t::default();
-        si.si_code = SI_QUEUE;
+        let mut si = siginfo_t {
+            si_code: SI_QUEUE,
+            ..Default::default()
+        };
         si._sifields._rt.si_sigval.sival_int = SIGCHLD_SYNTHETIC;
         match wake_task {
             Some((tgid, tid, sigchld_blocked)) => {

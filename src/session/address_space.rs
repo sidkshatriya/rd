@@ -1200,14 +1200,16 @@ pub mod address_space {
             if t.regs_ref().arg3() & PROT_GROWSDOWN as usize == PROT_GROWSDOWN as usize {
                 let mut r: Registers = t.regs_ref().clone();
                 let maybe_mapping = self.mapping_of(r.arg1().into());
-                if r.arg1() == floor_page_size(r.arg1()) && maybe_mapping.is_some() {
-                    let km_flags = maybe_mapping.as_ref().unwrap().map.flags();
-                    let new_start = maybe_mapping.unwrap().map.start();
-                    if km_flags.contains(MapFlags::MAP_GROWSDOWN) {
-                        r.set_arg2(r.arg1() + r.arg2() - new_start.as_usize());
-                        r.set_arg1(new_start.as_usize());
-                        r.set_arg3(r.arg3() & !(PROT_GROWSDOWN as usize));
-                        t.set_regs(&r);
+                if r.arg1() == floor_page_size(r.arg1()) {
+                    if let Some(mapping) = maybe_mapping {
+                        let km_flags = mapping.map.flags();
+                        let new_start = mapping.map.start();
+                        if km_flags.contains(MapFlags::MAP_GROWSDOWN) {
+                            r.set_arg2(r.arg1() + r.arg2() - new_start.as_usize());
+                            r.set_arg1(new_start.as_usize());
+                            r.set_arg3(r.arg3() & !(PROT_GROWSDOWN as usize));
+                            t.set_regs(&r);
+                        }
                     }
                 }
             }

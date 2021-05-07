@@ -12,15 +12,17 @@ pub struct MemoryRange {
     pub(super) end_: RemotePtr<Void>,
 }
 
-/// Note: The end point (end_) is implicitly NOT included in the MemoryRange
-impl MemoryRange {
-    pub fn new() -> MemoryRange {
+impl Default for MemoryRange {
+    fn default() -> Self {
         MemoryRange {
             start_: RemotePtr::null(),
             end_: RemotePtr::null(),
         }
     }
+}
 
+/// Note: The end point (end_) is implicitly NOT included in the MemoryRange
+impl MemoryRange {
     pub fn new_range(addr: RemotePtr<Void>, num_bytes: usize) -> MemoryRange {
         // If there is an overflow in addition, rust should panic in debug mode.
         // So no need for debug_assert!(result.start_ <= result.end_).
@@ -100,15 +102,10 @@ impl PartialOrd for MemoryRangeKey {
 impl Ord for MemoryRangeKey {
     fn cmp(&self, other: &Self) -> Ordering {
         if !self.0.intersects(&other.0) {
-            if self.0.start_ < other.0.start_ {
-                Ordering::Less
-            } else if self.0.start_ > other.0.start_ {
-                Ordering::Greater
-            } else {
-                // Tricky case. Used for single point comparison with starting of interval
-                // e.g. MemoryRange::from_addr(addr, addr).
-                Ordering::Equal
-            }
+            // Note: The Ordering::Equal case in the below cmp is used
+            // for single point comparison with starting of interval
+            // e.g. MemoryRange::from_addr(addr, addr).
+            self.0.start_.cmp(&other.0.start_)
         } else {
             Ordering::Equal
         }

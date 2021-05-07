@@ -88,6 +88,15 @@ pub struct DiversionResult {
     pub break_status: BreakStatus,
 }
 
+impl Default for DiversionSession {
+    fn default() -> Self {
+        DiversionSession {
+            session_inner: SessionInner::new(),
+            emu_fs: EmuFs::create(),
+        }
+    }
+}
+
 impl DiversionSession {
     pub fn emufs(&self) -> Ref<'_, EmuFs> {
         self.emu_fs.borrow()
@@ -95,13 +104,6 @@ impl DiversionSession {
 
     pub fn emufs_mut(&self) -> RefMut<'_, EmuFs> {
         self.emu_fs.borrow_mut()
-    }
-
-    pub fn new() -> DiversionSession {
-        DiversionSession {
-            session_inner: SessionInner::new(),
-            emu_fs: EmuFs::create(),
-        }
     }
 
     /// Try make progress in this diversion session. Run task t if possible.

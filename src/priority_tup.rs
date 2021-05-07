@@ -21,18 +21,10 @@ impl Eq for PriorityTup {}
 
 impl Ord for PriorityTup {
     fn cmp(&self, other: &Self) -> Ordering {
-        if self.0 < other.0 {
-            Ordering::Less
-        } else if self.0 == other.0 {
-            if self.1 < other.1 {
-                Ordering::Less
-            } else if self.1 > other.1 {
-                Ordering::Greater
-            } else {
-                Ordering::Equal
-            }
-        } else {
-            Ordering::Greater
+        match self.0.cmp(&other.0) {
+            Ordering::Less => Ordering::Less,
+            Ordering::Equal => self.1.cmp(&other.1),
+            Ordering::Greater => Ordering::Greater,
         }
     }
 }

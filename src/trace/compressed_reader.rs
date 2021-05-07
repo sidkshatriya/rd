@@ -216,6 +216,7 @@ impl CompressedReader {
     fn refill_buffer(&mut self) -> io::Result<()> {
         let mut header_vec: Vec<u8> = vec![0; size_of::<BlockHeader>()];
 
+        #[allow(clippy::bool_comparison)]
         if false
             == read_all(
                 &self.fd.as_ref().unwrap().borrow(),
@@ -240,6 +241,7 @@ impl CompressedReader {
 
         let mut compressed_buf: Vec<u8> = vec![0; header.compressed_length as usize];
 
+        #[allow(clippy::bool_comparison)]
         if false
             == read_all(
                 &self.fd.as_ref().unwrap().borrow(),
