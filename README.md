@@ -1,8 +1,28 @@
 # `rd` The Record & Debug Tool
 
-`rd` is a Rust language port of the [rr-debugger/rr](https://github.com/rr-debugger/rr) debugger.
+The Record & Debug Tool (`rd`) is a Rust language port of the [rr-debugger/rr](https://github.com/rr-debugger/rr) debugger.
 
-The port is  _in-progress_ but many things work already (see [below](https://github.com/sidkshatriya/rd#what-works)).
+With `rd` you can _record_ linux program executions. Subsequently you can replay these executions back exactly and _debug_ them in the gdb front-end. If you know how to use `rr` then you already know how to use `rd`.
+
+Why is it a good idea to port `rr` to Rust? See [below](https://github.com/sidkshatriya/rd).
+
+**Current Status** : The port is substantially complete and is currently of an alpha level quality. You should be able to use `rd` for the tasks you would ordinarily use `rr` for. The `rr` project keeps accumulating features and fixes and many of them have not found their way into `rd` yet. However, the expectation is that `rd` should be reasonably robust, complete and usable now. Please report any issues!
+
+## Credits
+
+The `rd` project would not have been possible without the work done in the [rr-debugger/rr](https://github.com/rr-debugger/rr) project. Many human-years of development effort have gone into making `rr` the truly amazing piece of software that it is.
+
+The `rd` project is grateful to all the contributors of the `rr-debugger/rr` project.
+
+## Background 
+
+`rd` works on the same principles as `rr`. Please see [rr-debugger/rr](https://github.com/rr-debugger/rr) where you will find further information. More specifically, an excellent technical overview of `rr` can be found at [arXiv:1705.05937](https://arxiv.org/abs/1705.05937).
+
+## Contributions
+
+Contributions to the Record and Debug Tool (`rd`) are welcome and encouraged!
+
+By contributing to `rd` you agree to license your contributions under the MIT license without any additional terms or conditions.
 
 ## Building 
 
@@ -74,57 +94,32 @@ $ rd record ls -- -l
 
 # Non-interatively replays the ls -l recording
 $ rd replay -a
+
+# Interatively replays the ls -l recording
+$ rd replay
 ```
 
 Please note that the `install.sh` script is rudimentary. _As always, check (and modify as necessary) the unix permissions/ownership of the files and directories created_, especially, if you install to a location like `~/.local` `/usr/local` etc. In general it is recommended to install `rd` to a separate directory in `$HOME` e.g. `~/myrd`, `~/rd` etc. as that interferes the least with your existing system.
 
-## Credits
-
-The `rd` project would not have been possible without the work done in the [rr-debugger/rr](https://github.com/rr-debugger/rr) project. Many human-years of development effort have gone into making `rr` the truly amazing piece of software that it is.
-
-The `rd` project is grateful to all the contributors of the `rr-debugger/rr` project.
-
-## Background 
-
-`rd` works on the same principles as `rr`. Please see [rr-debugger/rr](https://github.com/rr-debugger/rr) where you will find further information. More specifically, an excellent technical overview of `rr` can be found at [arXiv:1705.05937](https://arxiv.org/abs/1705.05937).
-
-## Contributions
-
-Contributions to the Record and Debug Tool (`rd`) are welcome and encouraged!
-
-By contributing to `rd` you agree to license your contributions under the MIT license without any additional terms or conditions.
-
 ## What works
 
-The port is currently in progress and not ready for end-user usage. However developers interested in contributing to this project will find there is a lot to work with and build upon. The project already contains 50,000+ lines of ported over Rust code.
-
-`rd` can now record program runs (i.e. traces) on its own now (just like `rr`). See below for details.
+The port is substantially complete and is ready for end-user usage and developer contributions. The project contains 55,000+ lines of ported over Rust code.
 
 The following work:
 * `rd rerun`
-* `rd replay -a`
-  * Interactive replay (which uses a debugger like gdb) is not yet supported (_please watch this space!_)
-  * In other words, non-interative replay (`-a` flag) is currently supported
+* `rd replay`
+  * Both interactive replay (which uses a debugger like gdb) and non-interative replay (`-a` flag) are supported
 * `rd record`
-  * The recording functionality is mostly complete
 * `rd buildid`
 * `rd dump`
 * `rd traceinfo`
 
 ## Tips and Suggestions
 
-### Logging
+### Recording & Debugging program runs
 
-The various logging levels are `debug`, `info`, `warn`, `info` and `fatal`. To log at `warn` by default and `debug` for all messages from the `auto_remote_syscalls` rust module (as an example) do:
+#### To record a program
 
-```bash
-$ RD_LOG=all:warn,auto_remote_syscalls:debug rd /* rd params here */
-```
-
-### Recording program runs (i.e. traces)
-
-`rd` can record program runs (i.e. traces) on its own (just like `rr`). Recording with syscall buffers enabled or disabled are both supported. 
- 
 ```bash
 $ rd record <program to be recorded>
 ```
@@ -138,25 +133,29 @@ _Example_:
 ```bash
 $ rd record ls -- -l
 ```
+#### To replay and debug the last recorded program in the gdb front-end
+```bash
+$ rd replay
+```
+### Logging
 
-_Notes_:
-  * The recording functionality is mostly complete
-
-### Replaying using `rr`
-
-As mentioned above `rd` cannot do interactive replay i.e. in the gdb debugger yet. 
-
-Non-interative replay i.e. `rd replay -a` is supported though. 
-
-If you want replay via gdb, you can record using `rd` and replay using `rr`.
+The various logging levels are `debug`, `info`, `warn`, `info` and `fatal`. To log at `warn` by default and `debug` for all messages from the `auto_remote_syscalls` rust module (as an example) do:
 
 ```bash
-$ rd record ls 
-rd: Saving execution to trace directory "/home/abcxyz/.local/share/rd/ls-3".
-base_file_monitor.rs	    mmapped_file_monitor.rs   proc_fd_dir_monitor.rs  stdio_monitor.rs
-magic_save_data_monitor.rs  preserve_file_monitor.rs  proc_mem_monitor.rs     virtual_perf_counter_monitor.rs
-
-# Now we can replay *interactively*  using rr
-# Assuming rr is in your PATH, add the exact directory on the first line after rd is invoked
-$ rr replay /home/abcxyz/.local/share/rd/ls-3
+$ RD_LOG=all:warn,auto_remote_syscalls:debug rd /* rd params here */
 ```
+
+## Why implement in Rust?
+Here are some (necessarily subjective) reasons why it might be a good idea to have a Rust port of `rr`.
+
+### Reduce complexity, increase reliability
+`rr` is written in C/C++. C/C++ is a complex beast. As the Linux userspace/kernel interface gets more and more complex and gathers even more quirks, the `rr` codebase gets more and more complex too. With Rust the hope is that we have a clean and modern language that allows us to manage the complexity of record/replay. Of course, we still need to deal with the inherent complexity of record/replay but Rust helps with writing robust and reliable code. Once the code is written it is also easier to doing refactorings with more confidence in Rust. 
+
+### Reduce barriers to understanding and contribution
+Once you understand the core principles, Rust can be easier than C/C++ to grok. Hopefully this will allow more people to inspect, improve and offer fixes to the `rd` codebase.
+
+### Provide an alternative, compatible implementation
+Just like there can be multiple compilers for the same language, it might be a good idea to have multiple compatible implementations of `rr`. This might help with debugging weird bugs and optimize various implementations around different parameters.
+
+### Be a playground for experimental features
+This is something for the future. The hope is `rd` can become a playground for experimentation and implement some innovative features in record/replay. Also `rd` has access to the awesome Rust cargo ecosystem which means that functionality already implemented elsewhere can be added to it much more easily.
