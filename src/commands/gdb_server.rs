@@ -564,7 +564,6 @@ impl GdbServer {
         // mode (and we don't want to require users to do that)
         let features: GdbConnectionFeatures = GdbConnectionFeatures {
             reverse_execution: false,
-            ..Default::default()
         };
         let mut port: u16 = t.tid() as u16;
         let listen_fd = open_socket(LOCALHOST_ADDR, &mut port, ProbePort::ProbePort);
@@ -1671,9 +1670,11 @@ impl GdbServer {
 
             now = previous;
             need_seek = true;
-            let mut break_status = BreakStatus::default();
-            break_status.task = t.weak_self_clone();
-            break_status.singlestep_complete = true;
+            let break_status = BreakStatus {
+                task: t.weak_self_clone(),
+                singlestep_complete: true,
+                ..Default::default()
+            };
             log!(LogDebug, "  using lazy reverse-singlestep");
             self.maybe_notify_stop(req, &break_status);
 
@@ -2128,8 +2129,10 @@ fn compute_run_command_for_reverse_exec(
         if action.target.pid > 0 && action.target.pid != debuggee_tguid.tid() {
             continue;
         }
-        let mut allowed: AllowedTasks = Default::default();
-        allowed.command = RunCommand::RunContinue;
+        let mut allowed = AllowedTasks {
+            command: RunCommand::RunContinue,
+            ..Default::default()
+        };
         if action.type_ == GdbActionType::ActionStep {
             result = RunCommand::RunSinglestep;
             allowed.command = RunCommand::RunSinglestep;

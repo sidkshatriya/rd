@@ -605,9 +605,7 @@ pub fn pwrite_all_fallible(fd: i32, buf_initial: &[u8], mut offset: isize) -> Re
         let ret: isize =
             unsafe { pwrite64(fd, buf.as_ptr().cast::<c_void>(), cur_size, offset as i64) };
 
-        if written > 0 && ret <= 0 {
-            return Ok(written);
-        } else if written == 0 && ret == 0 {
+        if (written > 0 && ret <= 0) || (written == 0 && ret == 0) {
             return Ok(written);
         } else if ret < 0 {
             return Err(());

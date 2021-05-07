@@ -208,8 +208,7 @@ impl RecordCommand {
                 copy_preload_src,
                 syscallbuf_desched_sig: syscall_buffer_sig.unwrap_or(sig::SIGPWR),
                 args: {
-                    let mut args = Vec::new();
-                    args.push(exe);
+                    let mut args = vec![exe];
                     args.extend(exe_args);
                     args
                 },

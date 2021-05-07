@@ -373,10 +373,11 @@ fn decode_x86_string_instruction(code: &InstructionBuf) -> Result<DecodedInstruc
     #[allow(non_snake_case)]
     let mut found_REXW_prefix = false;
 
-    let mut decoded = DecodedInstruction::default();
-    decoded.modifies_flags = false;
-    decoded.uses_si = false;
-
+    let mut decoded = DecodedInstruction {
+        modifies_flags: false,
+        uses_si: false,
+        ..Default::default()
+    };
     let mut done = false;
     let mut last_i: usize = 0;
     for i in 0..code.code_buf_len {

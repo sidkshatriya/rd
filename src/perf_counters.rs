@@ -823,11 +823,11 @@ impl PerfCounters {
             }
 
             if !PMU_BUGS_AND_EXTRA.only_one_counter && PMU_BUGS_AND_EXTRA.supports_txcp {
+                attr.__bindgen_anon_1.sample_period = 0;
                 if PMU_BUGS_AND_EXTRA.has_kvm_in_txcp_bug {
                     // IN_TXCP isn't going to work reliably. Assume that HLE/RTM are not
                     // used,
                     // and check that.
-                    attr.__bindgen_anon_1.sample_period = 0;
                     attr.config |= IN_TX;
                     self.fd_ticks_in_transaction =
                         start_counter(self.tid, self.fd_ticks_interrupt.as_raw(), &mut attr).0;
@@ -845,7 +845,6 @@ impl PerfCounters {
                     // value after clearing the counter configured to use IN_TXCP and
                     // also always reset the counter even when no overflow condition
                     // was reported.''
-                    attr.__bindgen_anon_1.sample_period = 0;
                     attr.config |= IN_TXCP;
                     self.fd_ticks_measure =
                         start_counter(self.tid, self.fd_ticks_interrupt.as_raw(), &mut attr).0;

@@ -1417,6 +1417,7 @@ pub(super) fn compute_trap_reasons_common<T: Task>(t: &T) -> TrapReasons {
             reasons.singlestep = true;
         } else {
             let ti: TrappedInstruction = trapped_instruction_at(t, addr_last_execution_resume);
+            #[allow(clippy::if_same_then_else)]
             if ti == TrappedInstruction::CpuId
                 && t.ip()
                     == addr_last_execution_resume

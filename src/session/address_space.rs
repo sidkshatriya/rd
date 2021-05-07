@@ -2079,7 +2079,7 @@ pub mod address_space {
             exec_count: u32,
         ) -> AddressSpace {
             let patcher = if t.session().is_recording() {
-                Some(Rc::new(RefCell::new(MonkeyPatcher::new())))
+                Some(Rc::new(RefCell::new(MonkeyPatcher::default())))
             } else {
                 None
             };

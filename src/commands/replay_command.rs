@@ -223,9 +223,9 @@ impl ReplayCommand {
 
                 flags.cpu_unbound = cpu_unbound;
 
-                if interpreter.is_some() {
+                if let Some(inter) = interpreter {
                     flags.gdb_options.push("-i".into());
-                    flags.gdb_options.push(OsString::from(interpreter.unwrap()));
+                    flags.gdb_options.push(OsString::from(inter));
                 }
 
                 flags.trace_dir = trace_dir;
@@ -340,7 +340,7 @@ impl ReplayCommand {
                     dbg_host: self.dbg_host.clone(),
                     keep_listening: self.keep_listening,
                     debugger_params_write_pipe: None,
-                    debugger_name: self.gdb_binary_file_path.clone().into(),
+                    debugger_name: self.gdb_binary_file_path.clone(),
                 };
                 GdbServer::new(session, &target).serve_replay(&conn_flags);
             }
@@ -476,7 +476,7 @@ impl RdCommand for ReplayCommand {
     fn run(&mut self) -> ExitResult<()> {
         if let Some(ref target_command) = self.target_command {
             self.target_process = find_pid_for_command(self.trace_dir.as_ref(), target_command);
-            if let None = self.target_process {
+            if self.target_process.is_none() {
                 return ExitResult::err_from(
                     io::Error::new(
                         io::ErrorKind::InvalidInput,

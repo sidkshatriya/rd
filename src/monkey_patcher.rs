@@ -106,6 +106,19 @@ impl ExtendedJumpPage {
     }
 }
 
+impl Default for MonkeyPatcher {
+    fn default() -> Self {
+        MonkeyPatcher {
+            x86_vsyscall: Default::default(),
+            extended_jump_pages: vec![],
+            patched_vdso_syscalls: Default::default(),
+            syscallbuf_stubs: Default::default(),
+            syscall_hooks: vec![],
+            tried_to_patch_syscall_addresses: Default::default(),
+        }
+    }
+}
+
 /// A class encapsulating patching state. There is one instance of this
 /// class per tracee address space. Currently this class performs the following
 /// tasks:
@@ -122,17 +135,6 @@ impl ExtendedJumpPage {
 ///
 /// MonkeyPatcher only runs during recording, never replay.
 impl MonkeyPatcher {
-    pub fn new() -> MonkeyPatcher {
-        MonkeyPatcher {
-            x86_vsyscall: Default::default(),
-            extended_jump_pages: vec![],
-            patched_vdso_syscalls: Default::default(),
-            syscallbuf_stubs: Default::default(),
-            syscall_hooks: vec![],
-            tried_to_patch_syscall_addresses: Default::default(),
-        }
-    }
-
     /// Apply any necessary patching immediately after exec.
     /// In this hook we patch everything that doesn't depend on the preload
     /// library being loaded.

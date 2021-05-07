@@ -769,19 +769,16 @@ fn parse_disable_cpuid_features_ext(
     disable_cpuid_features_ext: &str,
 ) -> Result<(u32, u32, u32), Box<dyn Error>> {
     let feat: Vec<&str> = disable_cpuid_features_ext.trim().splitn(3, ',').collect();
-    let u1: u32;
+    let u1 = parse_u32(&feat[0])?;
     let u2: u32;
     let u3: u32;
     if feat.len() == 1 {
-        u1 = parse_u32(&feat[0])?;
         u2 = 0;
         u3 = 0;
     } else if feat.len() == 2 {
-        u1 = parse_u32(&feat[0])?;
         u2 = parse_u32(&feat[1])?;
         u3 = 0;
     } else {
-        u1 = parse_u32(&feat[0])?;
         u2 = parse_u32(&feat[1])?;
         u3 = parse_u32(&feat[2])?;
     }

@@ -182,9 +182,9 @@ impl TryFrom<u32> for GdbRegister {
     }
 }
 
-impl Into<usize> for GdbRegister {
-    fn into(self) -> usize {
-        self.as_usize()
+impl From<GdbRegister> for usize {
+    fn from(r: GdbRegister) -> Self {
+        r.as_usize()
     }
 }
 
@@ -222,13 +222,7 @@ impl Sub<u32> for GdbRegister {
 
 impl PartialOrd<u32> for GdbRegister {
     fn partial_cmp(&self, other: &u32) -> Option<Ordering> {
-        if self.0 < *other {
-            Some(Ordering::Less)
-        } else if self.0 == *other {
-            Some(Ordering::Equal)
-        } else {
-            Some(Ordering::Greater)
-        }
+        self.0.partial_cmp(other)
     }
 }
 

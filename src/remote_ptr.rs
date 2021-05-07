@@ -224,9 +224,9 @@ impl<T> From<u64> for RemotePtr<T> {
     }
 }
 
-impl<T> Into<usize> for RemotePtr<T> {
-    fn into(self) -> usize {
-        self.as_usize()
+impl<T> From<RemotePtr<T>> for usize {
+    fn from(p: RemotePtr<T>) -> Self {
+        p.as_usize()
     }
 }
 
