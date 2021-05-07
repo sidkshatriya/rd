@@ -25,6 +25,7 @@
 #![allow(clippy::collapsible_else_if)]
 #![allow(clippy::needless_return)]
 #![allow(clippy::or_fun_call)]
+#![allow(clippy::needless_lifetimes)]
 // @TODO To many results for "never used". Disable for now.
 #![allow(dead_code)]
 

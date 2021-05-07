@@ -319,10 +319,8 @@ impl TraceReader {
                             if backing_file_name_int[0] != b'/' {
                                 backing_file_name_vec.extend_from_slice(self.dir().as_bytes());
                                 backing_file_name_vec.extend_from_slice(b"/");
-                                backing_file_name_vec.extend_from_slice(backing_file_name_int);
-                            } else {
-                                backing_file_name_vec.extend_from_slice(backing_file_name_int);
                             }
+                            backing_file_name_vec.extend_from_slice(backing_file_name_int);
                             let backing_file_name = OsStr::from_bytes(&backing_file_name_vec);
                             let uid = map.get_stat_uid();
                             let gid = map.get_stat_gid();

@@ -432,8 +432,10 @@ pub trait Task: Deref<Target = TaskInner> {
         let mut ret: pid_t;
         loop {
             if interrupt_after_elapsed > 0.0 {
-                let mut timer: itimerval = Default::default();
-                timer.it_value = to_timeval(interrupt_after_elapsed);
+                let timer = itimerval {
+                    it_value: to_timeval(interrupt_after_elapsed),
+                    ..Default::default()
+                };
                 unsafe {
                     setitimer(ITIMER_REAL as u32, &timer, ptr::null_mut());
                 }

@@ -197,7 +197,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
         }
         *dest.clone_completion.borrow_mut() = Some(Box::new(completion));
 
-        debug_assert!(dest.vms().len() > 0);
+        debug_assert!(!dest.vms().is_empty());
     }
 
     /// Call this before doing anything that requires access to the full set

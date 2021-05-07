@@ -396,7 +396,7 @@ pub(super) fn write_bytes_helper_common<T: Task>(
     task: &T,
     addr: RemotePtr<Void>,
     buf: &[u8],
-    ok: Option<&mut bool>,
+    maybe_ok: Option<&mut bool>,
     flags: WriteFlags,
 ) {
     let buf_size = buf.len();
@@ -415,8 +415,10 @@ pub(super) fn write_bytes_helper_common<T: Task>(
             task.vm().notify_written(addr, nwritten, flags);
         }
 
-        if ok.is_some() && nwritten < buf_size {
-            *ok.unwrap() = false;
+        if let Some(ok) = maybe_ok {
+            if nwritten < buf_size {
+                *ok = false;
+            }
         }
         return;
     }
@@ -427,7 +429,7 @@ pub(super) fn write_bytes_helper_common<T: Task>(
     if let Ok(0) = nwritten_result {
         task.open_mem_fd();
         // Try again
-        return task.write_bytes_helper(addr, buf, ok, flags);
+        return task.write_bytes_helper(addr, buf, maybe_ok, flags);
     }
     if errno() == EPERM {
         fatal!(
@@ -439,9 +441,9 @@ pub(super) fn write_bytes_helper_common<T: Task>(
     }
 
     let nwritten = nwritten_result.unwrap_or(0);
-    if ok.is_some() {
+    if let Some(ok) = maybe_ok {
         if nwritten < buf_size {
-            *ok.unwrap() = false;
+            *ok = false;
         }
     } else {
         ed_assert_eq!(
@@ -1871,7 +1873,7 @@ pub(super) fn task_cleanup_common<T: Task>(t: &T, sess: &dyn Session) {
         // The session is being dropped so we cant run things like
         // finish_initializing() that is run in fn tasks_mut()
         // This is a workaround
-        if let None = t.try_session() {
+        if t.try_session().is_none() {
             if sess.is_recording() {
                 sess.as_record()
                     .unwrap()

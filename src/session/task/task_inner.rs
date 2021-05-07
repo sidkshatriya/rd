@@ -1675,9 +1675,10 @@ impl TaskInner {
         let argv_array = to_cstring_array(argv);
         let envp_array = to_cstring_array(envp);
         let mut filter: SeccompFilter = create_seccomp_filter();
-        let mut prog: sock_fprog = Default::default();
-        prog.len = filter.filters.len() as u16;
-        prog.filter = filter.filters.as_mut_ptr();
+        let prog = sock_fprog {
+            len: filter.filters.len() as u16,
+            filter: filter.filters.as_mut_ptr(),
+        };
         loop {
             tid = unsafe { fork() };
             // fork() can fail with EAGAIN due to temporary load issues. In such

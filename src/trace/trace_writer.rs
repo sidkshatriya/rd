@@ -611,11 +611,12 @@ impl TraceWriter {
             fatal!("Unable to create {:?}", version_clone_path);
         }
 
-        let mut clone_args: btrfs_ioctl_clone_range_args = Default::default();
-        clone_args.src_fd = tw.version_fd.as_raw() as i64;
-        clone_args.src_offset = 0;
-        clone_args.src_length = buf.len() as u64;
-        clone_args.dest_offset = 0;
+        let clone_args = btrfs_ioctl_clone_range_args {
+            src_fd: tw.version_fd.as_raw() as i64,
+            src_offset: 0,
+            src_length: buf.len() as u64,
+            dest_offset: 0,
+        };
         let ret = unsafe {
             libc::ioctl(
                 version_clone_fd.as_raw(),

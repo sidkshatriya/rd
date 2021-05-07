@@ -1095,9 +1095,11 @@ pub struct CloneParameters {
 
 /// Extract various clone(2) parameters out of the given Task's registers.
 fn extract_clone_parameters_arch<Arch: Architecture>(regs: &Registers) -> CloneParameters {
-    let mut result = CloneParameters::default();
-    result.stack = RemotePtr::from(regs.arg2());
-    result.ptid = RemotePtr::from(regs.arg3());
+    let mut result = CloneParameters {
+        stack: RemotePtr::from(regs.arg2()),
+        ptid: RemotePtr::from(regs.arg3()),
+        ..Default::default()
+    };
     if Arch::CLONE_PARAMETER_ORDERING == CloneParameterOrdering::FlagsStackParentTLSChild {
         result.tls = RemotePtr::from(regs.arg4());
         result.ctid = RemotePtr::from(regs.arg5());

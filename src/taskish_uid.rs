@@ -25,12 +25,6 @@ impl<T> fmt::Debug for TaskishUid<T> {
     }
 }
 
-impl<T> Default for TaskishUid<T> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl<T> Hash for TaskishUid<T> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.tid_.hash(state);
@@ -63,13 +57,7 @@ impl<T> Ord for TaskishUid<T> {
         if self.tid_ < other.tid_ {
             Ordering::Less
         } else if self.tid_ == other.tid_ {
-            if self.serial_ < other.serial_ {
-                Ordering::Less
-            } else if self.serial_ == other.serial_ {
-                Ordering::Equal
-            } else {
-                Ordering::Greater
-            }
+            self.serial_.cmp(&other.serial_)
         } else {
             Ordering::Greater
         }
@@ -82,19 +70,21 @@ impl<T> PartialOrd for TaskishUid<T> {
     }
 }
 
-/// An ID that's unique within a Session (but consistent across
-/// multiple ReplaySessions for the same trace), used by Tasks, ThreadGroups
-/// and AddressSpaces.
-/// This is needed because tids can be recycled during a long-running session.
-impl<T> TaskishUid<T> {
-    pub fn new() -> TaskishUid<T> {
+impl<T> Default for TaskishUid<T> {
+    fn default() -> Self {
         TaskishUid {
             tid_: 0,
             serial_: 0,
             phantom_data: PhantomData,
         }
     }
+}
 
+/// An ID that's unique within a Session (but consistent across
+/// multiple ReplaySessions for the same trace), used by Tasks, ThreadGroups
+/// and AddressSpaces.
+/// This is needed because tids can be recycled during a long-running session.
+impl<T> TaskishUid<T> {
     pub fn new_with(tid: pid_t, serial: u32) -> TaskishUid<T> {
         TaskishUid {
             tid_: tid,
@@ -118,14 +108,15 @@ pub struct AddressSpaceUid {
     exec_count: u32,
 }
 
-impl AddressSpaceUid {
-    pub fn new() -> AddressSpaceUid {
+impl Default for AddressSpaceUid {
+    fn default() -> Self {
         AddressSpaceUid {
-            taskish: TaskishUid::new(),
+            taskish: TaskishUid::default(),
             exec_count: 0,
         }
     }
-
+}
+impl AddressSpaceUid {
     pub fn new_with(tid: pid_t, serial: u32, exec_count: u32) -> AddressSpaceUid {
         AddressSpaceUid {
             taskish: TaskishUid::new_with(tid, serial),
