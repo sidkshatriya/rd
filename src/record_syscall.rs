@@ -2653,15 +2653,13 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
                     }
 
                     // @TODO Check this code again
-                    if tracee
+                    tracee.emulated_stop_pending.set(false);
+                    if !tracee
                         .emulated_ptracer
                         .borrow()
                         .as_ref()
                         .map_or(false, |w| w.ptr_eq(&t.weak_self))
                     {
-                        tracee.emulated_stop_pending.set(false);
-                    } else {
-                        tracee.emulated_stop_pending.set(false);
                         for thread in tracee
                             .thread_group()
                             .borrow()
@@ -4472,21 +4470,22 @@ impl ParamSize {
     /// the data by the kernel when the syscall exits, but the location
     /// is uninitialized before the syscall.
     fn from_mem<T>(p: RemotePtr<T>) -> ParamSize {
-        let mut r = ParamSize::default();
-        r.mem_ptr = RemotePtr::cast(p);
-        r.read_size = size_of::<T>();
-
-        r
+        ParamSize {
+            mem_ptr: RemotePtr::cast(p),
+            read_size: size_of::<T>(),
+            ..Default::default()
+        }
     }
 
     /// When the syscall exits, the syscall result will be of type T and contain
     /// the size of the data. 'incoming_size', if present, is a bound on the size
     /// of the data.
     fn from_syscall_result<T>() -> ParamSize {
-        let mut r = ParamSize::default();
-        r.from_syscall = true;
-        r.read_size = size_of::<T>();
-        r
+        ParamSize {
+            from_syscall: true,
+            read_size: size_of::<T>(),
+            ..Default::default()
+        }
     }
 
     fn from_syscall_result_with_size<T>(incoming_size: usize) -> ParamSize {
@@ -5998,9 +5997,11 @@ fn ptrace_attach_to_already_stopped_task(t: &RecordTask) {
     // tracee is already stopped because of a group-stop signal.
     // Sending a SIGSTOP won't work, but we don't need to.
     t.force_emulate_ptrace_stop(WaitStatus::for_stop_sig(sig::SIGSTOP));
-    let mut si = siginfo_t_signal::default();
-    si.si_signo = SIGSTOP;
-    si.si_code = SI_USER;
+    let si = siginfo_t_signal {
+        si_signo: SIGSTOP,
+        si_code: SI_USER,
+        ..Default::default()
+    };
     t.save_ptrace_signal_siginfo(&si);
 }
 

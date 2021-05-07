@@ -105,9 +105,11 @@ fn __ptrace_cont(
     maybe_expect_syscallno2: Option<i32>,
     maybe_new_tid: Option<pid_t>,
 ) {
-    maybe_expect_syscallno2.map(|n| debug_assert!(n >= 0));
+    if let Some(n) = maybe_expect_syscallno2 {
+        debug_assert!(n >= 0)
+    };
     let new_tid = maybe_new_tid.unwrap_or(-1);
-    let wait_for: pid_t = if new_tid >= 0 { -1 as pid_t } else { t.tid() };
+    let wait_for: pid_t = if new_tid >= 0 { -1 } else { t.tid() };
 
     let expect_syscallno2 = maybe_expect_syscallno2.unwrap_or(-1);
     t.resume_execution(
@@ -758,19 +760,18 @@ fn rep_process_syscall_arch<Arch: Architecture>(
         let cpu = trace_regs.arg3_signed() as i32;
         let flags = trace_regs.arg5() as u32;
         let fd = trace_regs.syscall_result_signed() as i32;
-        if maybe_target.is_some() && cpu == -1 && flags == 0 {
-            let attr = read_val_mem(
-                t,
-                RemotePtr::<perf_event_attr>::from(trace_regs.arg1()),
-                None,
-            );
-            if VirtualPerfCounterMonitor::should_virtualize(&attr) {
-                let monitor: Box<dyn FileMonitor> = Box::new(VirtualPerfCounterMonitor::new(
+        if let Some(target) = maybe_target {
+            if cpu == -1 && flags == 0 {
+                let attr = read_val_mem(
                     t,
-                    &**maybe_target.unwrap(),
-                    &attr,
-                ));
-                t.fd_table().add_monitor(t, fd, monitor);
+                    RemotePtr::<perf_event_attr>::from(trace_regs.arg1()),
+                    None,
+                );
+                if VirtualPerfCounterMonitor::should_virtualize(&attr) {
+                    let monitor: Box<dyn FileMonitor> =
+                        Box::new(VirtualPerfCounterMonitor::new(t, &**target, &attr));
+                    t.fd_table().add_monitor(t, fd, monitor);
+                }
             }
         }
         // Falls through to the next case
@@ -1466,11 +1467,8 @@ fn handle_opened_files(t: &ReplayTask, flags_raw: i32) {
             .emufs()
             .find(o.device, o.inode);
         let file_monitor: Box<dyn FileMonitor>;
-        if maybe_emu_file.is_some() {
-            file_monitor = Box::new(MmappedFileMonitor::new_from_emufile(
-                t,
-                maybe_emu_file.unwrap(),
-            ));
+        if let Some(emu_file) = maybe_emu_file {
+            file_monitor = Box::new(MmappedFileMonitor::new_from_emufile(t, emu_file));
         } else if o.path == "terminal" {
             file_monitor = Box::new(StdioMonitor::new(STDERR_FILENO));
         } else if is_proc_mem_file(&o.path) {

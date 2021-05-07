@@ -1025,9 +1025,10 @@ impl ReplayTimeline {
     pub fn new(session: SessionSharedPtr) -> Rc<RefCell<ReplayTimeline>> {
         let mut timeline = ReplayTimeline::default();
         timeline.current = Some(session);
-        let rc = Rc::new(RefCell::new(timeline));
-        rc.borrow_mut().weak_self = Rc::downgrade(&rc);
-        rc
+        Rc::new_cyclic(move |w| {
+            timeline.weak_self = w.clone();
+            RefCell::new(timeline)
+        })
     }
 
     /// We track the set of breakpoints/watchpoints requested by the client.

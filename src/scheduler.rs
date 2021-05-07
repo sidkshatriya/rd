@@ -286,10 +286,6 @@ impl Scheduler {
     /// which case, result.by_waitpid will be true.
     pub fn reschedule(&self, switchable: Switchable) -> Rescheduled {
         let mut result = Rescheduled::default();
-        result.interrupted_by_signal = false;
-        result.by_waitpid = false;
-        result.started_new_timeslice = false;
-
         log!(LogDebug, "Scheduling next task");
 
         *self.must_run_task.borrow_mut() = None;

@@ -1553,9 +1553,6 @@ impl GdbServer {
                     .timeline_unwrap_mut()
                     .replay_step_forward(command, self.target.event);
             }
-            if result.status == ReplayStatus::ReplayExited {
-                return self.handle_exited_state(last_resume_request);
-            }
         } else {
             let mut allowed_tasks: Vec<AllowedTasks> = Vec::new();
             // Convert the tids in GdbContActions into TaskUids to avoid issues
@@ -1605,11 +1602,12 @@ impl GdbServer {
                 }
                 _ => debug_assert!(false),
             }
-
-            if result.status == ReplayStatus::ReplayExited {
-                return self.handle_exited_state(last_resume_request);
-            }
         }
+
+        if result.status == ReplayStatus::ReplayExited {
+            return self.handle_exited_state(last_resume_request);
+        }
+
         if !req.suppress_debugger_stop {
             self.maybe_notify_stop(&req, &result.break_status);
         }
@@ -1941,6 +1939,7 @@ impl GdbServer {
     /// Handle GDB file open requests. If we can serve this read request, add
     /// an entry to `files` with the file contents and return our internal
     /// file descriptor.
+    #[allow(clippy::unnecessary_unwrap)]
     fn open_file(&mut self, session: &dyn Session, pathname: &OsStr) -> i32 {
         // XXX should we require file_scope_pid == 0 here?
         log!(LogDebug, "Trying to open {:?}", pathname);

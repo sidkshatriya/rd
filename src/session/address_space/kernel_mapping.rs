@@ -41,6 +41,20 @@ pub struct KernelMapping {
     offset: u64,
 }
 
+impl Default for KernelMapping {
+    fn default() -> Self {
+        KernelMapping {
+            device_: 0,
+            inode_: 0,
+            prot_: ProtFlags::empty(),
+            flags_: MapFlags::empty(),
+            offset: 0,
+            fsname_: OsString::from(""),
+            mr: MemoryRange::default(),
+        }
+    }
+}
+
 impl KernelMapping {
     pub const NO_DEVICE: dev_t = 0;
     pub const NO_INODE: ino_t = 0;
@@ -55,18 +69,6 @@ impl KernelMapping {
     pub const MAP_FLAGS_MASK: MapFlags = MapFlags::from_bits_truncate(
         MAP_ANONYMOUS | MAP_NORESERVE | MAP_PRIVATE | MAP_SHARED | MAP_STACK | MAP_GROWSDOWN,
     );
-
-    pub fn new() -> KernelMapping {
-        KernelMapping {
-            device_: 0,
-            inode_: 0,
-            prot_: ProtFlags::empty(),
-            flags_: MapFlags::empty(),
-            offset: 0,
-            fsname_: OsString::from(""),
-            mr: MemoryRange::default(),
-        }
-    }
 
     pub fn new_with_opts(
         start: RemotePtr<Void>,

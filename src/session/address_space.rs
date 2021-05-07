@@ -3365,7 +3365,7 @@ pub fn read_kernel_mapping(tid: pid_t, addr: RemotePtr<Void>) -> KernelMapping {
     // But for now, leave as it is in rr because certain tests
     // e.g. mprotect_single depend on this kind of behavior.
     // @TODO Make better in the future by returning Option<KernelMapping>
-    KernelMapping::new()
+    KernelMapping::default()
 }
 
 /// Just a place that rd's AutoSyscall functionality can use as a syscall

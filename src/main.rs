@@ -10,7 +10,6 @@
 #![feature(format_args_capture)]
 // Can disallow some of these in the future
 #![allow(clippy::upper_case_acronyms)]
-#![allow(clippy::write_with_newline)]
 #![allow(clippy::redundant_static_lifetimes)]
 #![allow(clippy::assertions_on_constants)]
 #![allow(clippy::single_match)]
