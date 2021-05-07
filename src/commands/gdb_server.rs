@@ -279,7 +279,7 @@ impl GdbServer {
             dbg: Some(Rc::new(RefCell::new(dbg))),
             debuggee_tguid: t.thread_group().borrow().tguid(),
             last_continue_tuid: t.tuid(),
-            last_query_tuid: Default::default(),
+            last_query_tuid: t.tuid(),
             final_event: u64::MAX,
             stop_replaying_to_target: false,
             interrupt_pending: false,
