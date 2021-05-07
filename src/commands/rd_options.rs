@@ -728,11 +728,11 @@ fn parse_stats(maybe_stats: &str) -> Result<u32, Box<dyn Error>> {
 
 fn parse_u32(s: &str) -> Result<u32, Box<dyn Error>> {
     let ts: &str = s.trim();
-    if ts.starts_with("0x") {
-        let res = u32::from_str_radix(&ts[2..], 16)?;
+    if let Some(stripped) = ts.strip_prefix("0x") {
+        let res = u32::from_str_radix(stripped, 16)?;
         Ok(res)
-    } else if ts.starts_with("0o") {
-        let res = u32::from_str_radix(&ts[2..], 8)?;
+    } else if let Some(stripped) = ts.strip_prefix("0o") {
+        let res = u32::from_str_radix(stripped, 8)?;
         Ok(res)
     } else if ts.starts_with('0') {
         Err(Box::new(clap::Error::with_description(
@@ -755,13 +755,11 @@ fn parse_disable_cpuid_features(
     disable_cpuid_features: &str,
 ) -> Result<(u32, u32), Box<dyn Error>> {
     let feat: Vec<&str> = disable_cpuid_features.trim().splitn(2, ',').collect();
-    let u1: u32;
+    let u1 = parse_u32(&feat[0])?;
     let u2: u32;
     if feat.len() == 1 {
-        u1 = parse_u32(&feat[0])?;
         u2 = 0;
     } else {
-        u1 = parse_u32(&feat[0])?;
         u2 = parse_u32(&feat[1])?;
     }
     Ok((u1, u2))

@@ -198,13 +198,7 @@ impl<T> PartialOrd for RemotePtr<T> {
 
 impl<T> Ord for RemotePtr<T> {
     fn cmp(&self, other: &Self) -> Ordering {
-        if self.ptr < other.ptr {
-            Ordering::Less
-        } else if self.ptr == other.ptr {
-            Ordering::Equal
-        } else {
-            Ordering::Greater
-        }
+        self.ptr.cmp(&other.ptr)
     }
 }
 

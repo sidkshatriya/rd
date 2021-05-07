@@ -559,11 +559,13 @@ impl GdbServer {
         // likely already in a debugger, and wouldn't be able to
         // control another session. Instead, launch a new GdbServer and wait for
         // the user to connect from another window.
-        let mut features: GdbConnectionFeatures = Default::default();
         // Don't advertise reverse_execution to gdb becase a) it won't work and
         // b) some gdb versions will fail if the user doesn't turn off async
         // mode (and we don't want to require users to do that)
-        features.reverse_execution = false;
+        let features: GdbConnectionFeatures = GdbConnectionFeatures {
+            reverse_execution: false,
+            ..Default::default()
+        };
         let mut port: u16 = t.tid() as u16;
         let listen_fd = open_socket(LOCALHOST_ADDR, &mut port, ProbePort::ProbePort);
 
@@ -2010,7 +2012,7 @@ impl GdbServer {
             }
         }
         let mut ret_fd: i32 = 0;
-        while let Some(_) = self.files.get(&ret_fd) {
+        while self.files.get(&ret_fd).is_some() {
             ret_fd += 1;
         }
         self.files.insert(ret_fd, content);
@@ -2086,7 +2088,7 @@ fn generate_fake_proc_maps(t: &dyn Task) -> ScopedFd {
     file.fd
 }
 
-fn maybe_singlestep_for_event(t: &dyn Task, req: &mut GdbRequest) -> () {
+fn maybe_singlestep_for_event(t: &dyn Task, req: &mut GdbRequest) {
     if !t.session().is_replaying() {
         return;
     }

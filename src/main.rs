@@ -22,6 +22,9 @@
 #![allow(clippy::too_many_arguments)]
 #![allow(clippy::wrong_self_convention)]
 #![allow(clippy::let_and_return)]
+#![allow(clippy::collapsible_else_if)]
+#![allow(clippy::needless_return)]
+#![allow(clippy::or_fun_call)]
 // @TODO To many results for "never used". Disable for now.
 #![allow(dead_code)]
 

@@ -1003,7 +1003,7 @@ impl Registers {
     ) -> io::Result<()> {
         let regs_info = self.get_regs_info();
         let mut first = true;
-        for (_, rv) in regs_info {
+        for rv in regs_info.values() {
             if rv.nbytes == 0 {
                 continue;
             }
@@ -1057,7 +1057,7 @@ impl Registers {
     pub fn write_register_file(&self, f: &mut dyn Write) -> io::Result<()> {
         writeln!(f, "Printing register file:")?;
         let regs_info = self.get_regs_info();
-        for (_, rv) in regs_info {
+        for rv in regs_info.values() {
             if rv.nbytes == 0 {
                 continue;
             }
