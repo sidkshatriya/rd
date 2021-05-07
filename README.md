@@ -4,7 +4,7 @@ The Record & Debug Tool (`rd`) is a Rust language port of the [rr-debugger/rr](h
 
 With `rd` you can _record_ linux program executions. Subsequently you can replay these executions back exactly and _debug_ them in the gdb front-end. If you know how to use `rr` then you already know how to use `rd`.
 
-Why is it a good idea to port `rr` to Rust? See [below](https://github.com/sidkshatriya/rd).
+Why is it a good idea to port `rr` to Rust? See [below](https://github.com/sidkshatriya/rd#why-implement-in-rust).
 
 **Current Status** : The port is substantially complete and is currently of an alpha level quality. You should be able to use `rd` for the tasks you would ordinarily use `rr` for. The `rr` project keeps accumulating features and fixes and many of them have not found their way into `rd` yet. However, the expectation is that `rd` should be reasonably robust, complete and usable now. Please report any issues!
 
