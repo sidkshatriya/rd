@@ -14,6 +14,8 @@ The `rd` project would not have been possible without the work done in the [rr-d
 
 The `rd` project is grateful to all the contributors of the `rr-debugger/rr` project.
 
+For more details see [CREDITS.md](CREDITS.md)
+
 ## Background 
 
 `rd` works on the same principles as `rr`. Please see [rr-debugger/rr](https://github.com/rr-debugger/rr) where you will find further information. More specifically, an excellent technical overview of `rr` can be found at [arXiv:1705.05937](https://arxiv.org/abs/1705.05937).
