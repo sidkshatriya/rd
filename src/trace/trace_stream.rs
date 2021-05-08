@@ -241,7 +241,7 @@ pub(super) fn make_trace_dir(exe_path: &OsStr, maybe_output_trace_dir: Option<&O
             }
         }
         None => {
-            // save trace dir set in _RD_TRACE_DIR/_RR_TRACE_DIR or in the default trace dir
+            // save trace dir set in _RD_TRACE_DIR or in the default trace dir
             ensure_dir(
                 trace_save_dir().as_os_str(),
                 "trace directory",
@@ -321,13 +321,9 @@ pub(super) fn default_rd_trace_dir() -> OsString {
 
 pub(super) fn trace_save_dir() -> OsString {
     let maybe_output_dir = env::var_os("_RD_TRACE_DIR");
-    let maybe_output_dir2 = env::var_os("_RR_TRACE_DIR");
     match maybe_output_dir {
         Some(dir) if !dir.is_empty() => dir,
-        _ => match maybe_output_dir2 {
-            Some(dir2) if !dir2.is_empty() => dir2,
-            _ => default_rd_trace_dir(),
-        },
+        _ => default_rd_trace_dir(),
     }
 }
 

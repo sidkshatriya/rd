@@ -386,7 +386,7 @@ pub enum RdSubCommand {
         #[structopt(long = "num-cores", parse(try_from_str = parse_num_cores))]
         num_cores: Option<u32>,
 
-        /// set the output trace directory. _RR_TRACE_DIR gets ignored.
+        /// set the output trace directory. _RD_TRACE_DIR gets ignored.
         /// Directory name is given name, not the application name.
         #[structopt(short = "o", long = "output-trace-dir")]
         output_trace_dir: Option<OsString>,
