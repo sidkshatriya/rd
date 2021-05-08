@@ -378,8 +378,8 @@ pub fn notifying_abort(bt: Backtrace) {
     if let Ok(test_monitor_pid) = maybe_test_monitor_pid {
         let pid = test_monitor_pid.parse::<pid_t>().unwrap();
         assert!(pid > 0);
-        // Tell test-monitor to wake up and take a snapshot. It will also
-        // connect the emergency debugger so let that happen.
+        // Tell test-monitor to wake up and take a snapshot, and wait for it to
+        // do so.
         unsafe {
             libc::kill(pid, libc::SIGURG);
             libc::sleep(10000)
