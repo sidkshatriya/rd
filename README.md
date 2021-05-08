@@ -43,7 +43,7 @@ Alternatively, build in debug mode . Things will run much more slowly as the cod
 $ cargo build 
 ```
 
-In general, use release mode as the debug mode can be much slower. Run `rd` in debug mode if you run into issues or are working on developing `rd`.
+In general, **use release mode as the debug mode can be much slower**. Run `rd` in debug mode if you run into issues or are working on developing `rd`.
 
 The program has been tested to compile and run properly on a **64-bit Ubuntu 20.04** installation at the moment only. 
 
