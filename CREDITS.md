@@ -136,4 +136,4 @@ $ git log abd344288878c9b4046e0b8664927992947a46eb --format="%an" | sort | uniq 
 
 **Thank you all once again for all your efforts on rr!**
 
-The `rd` project also has ported over a number of commits that appeared _after_ rr commit `abd344288878c9b4046e0b8664927992947a46eb`: in those cases, `rd` commit log messages should provide more information.
+The `rd` project also has selectively ported over a number of commits that appeared _after_ rr commit `abd344288878c9b4046e0b8664927992947a46eb`: in those cases, `rd` commit log messages should provide more information.
