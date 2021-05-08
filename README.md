@@ -83,10 +83,11 @@ It can get pretty tiresome to keep running `rd` via cargo. A simple script `inst
 
 ```bash
 $ cd rd
+# builds release mode and installs to ~/myrd
 $ PREFIX=~/myrd ./install.sh
 ```
 
-This installs rd at `$HOME/myrd`. Files will be stored at `~/myrd/bin`, `~/myrd/lib` and `~/myrd/share`. The install script is extremely simple and can be easily understood. You may also want to add `~/myrd/bin` to your `PATH` at this point.
+This builds `rd` in release mode and then installs `rd` at `$HOME/myrd`. Files will be stored at `~/myrd/bin`, `~/myrd/lib` and `~/myrd/share`. The install script is extremely simple and can be easily understood. The `rd` executable will be in `$HOME/myrd/bin`. You may also want to add `~/myrd/bin` to your `PATH` at this point.
 
 Assuming that `~/myrd/bin`is in your `PATH` it is very easy to invoke `rd` now.
 
@@ -102,6 +103,16 @@ $ rd replay
 ```
 
 Please note that the `install.sh` script is rudimentary. _As always, check (and modify as necessary) the unix permissions/ownership of the files and directories created_, especially, if you install to a location like `~/.local` `/usr/local` etc. In general it is recommended to install `rd` to a separate directory in `$HOME` e.g. `~/myrd`, `~/rd` etc. as that interferes the least with your existing system.
+
+### Installing a debug build
+
+If you want to build and install a debug build (warning: a debug build is going to be **much slower** than the release build), then:
+
+```bash
+$ cd rd
+# builds debug mode and installs to ~/myrd
+$ PREFIX=~/myrd DEBUG=1 ./install.sh
+```
 
 ## What works
 
