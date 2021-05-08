@@ -410,7 +410,6 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(t: &RecordTask, regs: &Registers
     // int prctl(int option, unsigned long arg2, unsigned long arg3, unsigned
     // long arg4, unsigned long arg5);
     if sys == Arch::PRCTL {
-        // @TODO This is a arg1_signed() as i32 in rr
         match regs.arg1() as u32 {
             PR_GET_CHILD_SUBREAPER
             | PR_GET_ENDIAN

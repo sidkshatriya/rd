@@ -28,6 +28,9 @@ macro_rules! remote_ptr_field {
 /// Note: This issue is relevant only for debug mode in Rust where operations are checked
 /// for overflow/underflow by default. In release mode the operations are unchecked
 /// by default so we don't need Wrapping.
+///
+/// @TODO Clippy complains about Hash been automatically derived while PartialEq
+/// being manually defined
 #[derive(Hash, Debug)]
 /// Manually derive Copy, Clone due to quirks with PhantomData
 pub struct RemotePtr<T> {

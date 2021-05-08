@@ -1,5 +1,6 @@
 use crate::{commands::gdb_server::GdbServer, kernel_metadata::errno_name};
 use backtrace::Backtrace;
+use libc::pid_t;
 use nix::{
     errno::{errno, Errno},
     sys::signal::{sigaction, SaFlags, SigAction, SigHandler, SigSet, Signal},
@@ -373,8 +374,20 @@ macro_rules! clean_fatal {
 /// Dump the stacktrace and abort.
 pub fn notifying_abort(bt: Backtrace) {
     flush_log_buffer();
-    // @TODO running under test monitor stuff.
-    dump_rd_stack(bt);
+    let maybe_test_monitor_pid = env::var("RUNNING_UNDER_TEST_MONITOR");
+    if let Ok(test_monitor_pid) = maybe_test_monitor_pid {
+        let pid = test_monitor_pid.parse::<pid_t>().unwrap();
+        assert!(pid > 0);
+        // Tell test-monitor to wake up and take a snapshot. It will also
+        // connect the emergency debugger so let that happen.
+        unsafe {
+            libc::kill(pid, libc::SIGURG);
+            libc::sleep(10000)
+        };
+    } else {
+        dump_rd_stack(bt);
+    }
+
     std::process::abort();
 }
 
