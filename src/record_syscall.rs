@@ -495,7 +495,6 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(t: &RecordTask, regs: &Registers
             }
 
             PR_SET_NO_NEW_PRIVS => {
-                // @TODO in rr there is a cast to unsigned long
                 if regs.arg2() != 1 {
                     syscall_state.expect_errno = EINVAL;
                 }

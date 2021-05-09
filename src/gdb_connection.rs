@@ -1181,12 +1181,11 @@ impl GdbConnection {
         self.consume_request();
     }
 
-    /// Respond to a qGetTLSAddr packet.  If `ok` is true, then respond
-    /// with `address`.  If `ok` is false, respond with an error.
-    pub fn reply_tls_addr(&mut self, ok: bool, addr: RemotePtr<Void>) {
+    /// Respond to a qGetTLSAddr packet.
+    pub fn reply_tls_addr(&mut self, maybe_addr: Option<RemotePtr<Void>>) {
         debug_assert_eq!(DREQ_TLS, self.req.type_);
 
-        if ok {
+        if let Some(addr) = maybe_addr {
             let mut buf = Vec::<u8>::new();
             write!(buf, "{:x};", addr.as_usize()).unwrap();
             self.write_packet_bytes(&buf);

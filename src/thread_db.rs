@@ -38,7 +38,7 @@ type TdTaNewFn = extern "C" fn(
     ta: *mut *mut thread_db::td_thragent_t,
 ) -> thread_db::td_err_e;
 
-type TdSymbolListFn = extern "C" fn() -> *mut *const ::std::os::raw::c_char;
+type TdSymbolListFn = extern "C" fn() -> *mut *const c_char;
 
 /// This is declared as incomplete by the libthread_db API and is
 /// expected to be defined by the API user.  We define it to hold just
@@ -112,28 +112,26 @@ impl Drop for ThreadDb {
 }
 
 impl ThreadDb {
-    /// Look up a TLS address for thread |rec_tid|.  |offset| and
-    /// |load_module| are as specified in the qGetTLSAddr packet.  If the
-    /// address is found, set |*result| and return true.  Otherwise,
-    /// return false.
+    /// Look up a TLS address for thread `rec_tid`.  `offset` and
+    /// `load_module` are as specified in the qGetTLSAddr packet.  If the
+    /// address is found return in an Option<>. Otherwise return `None`.
     pub fn get_tls_address(
         &mut self,
         thread_group: &mut ThreadGroup,
         rec_tid: pid_t,
         offset: u64,
         load_module: RemotePtr<Void>,
-        result: &mut RemotePtr<Void>,
-    ) -> bool {
+    ) -> Option<RemotePtr<Void>> {
         self.prochandle.thread_group = thread_group as *mut _;
         if !self.initialize() {
             self.prochandle.thread_group = std::ptr::null_mut();
-            return false;
+            return None;
         }
 
         let mut th: thread_db::td_thrhandle_t = Default::default();
         if (self.td_ta_map_lwp2thr_fn)(self.internal_handle, rec_tid, &mut th) != thread_db::TD_OK {
             self.prochandle.thread_group = std::ptr::null_mut();
-            return false;
+            return None;
         }
 
         let load_module_addr: thread_db::psaddr_t = load_module.as_usize() as *mut _;
@@ -142,11 +140,10 @@ impl ThreadDb {
             != thread_db::TD_OK
         {
             self.prochandle.thread_group = std::ptr::null_mut();
-            return false;
+            return None;
         }
         self.prochandle.thread_group = std::ptr::null_mut();
-        *result = RemotePtr::from(addr as usize);
-        true
+        Some(RemotePtr::from(addr as usize))
     }
 
     fn initialize(&mut self) -> bool {
@@ -154,7 +151,7 @@ impl ThreadDb {
             return true;
         }
 
-        // DIFF NOTE: There is a call to load_library here: not needed??
+        // DIFF NOTE: There is a call to load_library here: we dont need it
 
         if (self.td_ta_new_fn)(&mut self.prochandle, &mut self.internal_handle) != thread_db::TD_OK
         {
@@ -178,14 +175,13 @@ impl ThreadDb {
             (self.td_ta_delete_fn)(self.internal_handle);
             self.internal_handle = std::ptr::null_mut();
         }
-        // DIFF NOTE: In rr there is a call to load_libary() here.
-        // We don't need it
+        // DIFF NOTE: In rr there is a call to load_libary() here -- we don't need it
         self.symbols.clear();
         self.prochandle.thread_group = std::ptr::null_mut();
         self.symbol_names.iter().cloned().collect()
     }
 
-    /// Note that the symbol |name| has the given address.
+    /// Note that the symbol `name` has the given address.
     pub fn register_symbol(&mut self, name: OsString, address: RemotePtr<Void>) {
         log!(LogDebug, "register_symbol {:?}", name);
         self.symbols.insert(name, address);
@@ -258,14 +254,9 @@ impl ThreadDb {
         b
     }
 
-    /// Look up the symbol |name|.  If found, set |*address| and return
-    /// true.  If not found, return false.
-    fn query_symbol(&self, symbol: &OsStr, addr: &mut RemotePtr<u8>) -> bool {
-        if let Some(&found) = self.symbols.get(symbol) {
-            *addr = found;
-            return true;
-        }
-        false
+    /// Look up the symbol `symbol`. If not found return `None`
+    fn query_symbol(&self, symbol: &OsStr) -> Option<RemotePtr<Void>> {
+        self.symbols.get(symbol).copied()
     }
 }
 
@@ -288,19 +279,23 @@ pub unsafe extern "C" fn ps_pglobal_lookup(
     symbol: *const c_char,
     sym_addr: *mut thread_db::psaddr_t,
 ) -> thread_db::ps_err_e {
-    let mut addr = RemotePtr::<Void>::null();
     let osstr_symbol = OsStr::from_bytes(CStr::from_ptr(symbol).to_bytes());
-    if !(*(*h).db).query_symbol(osstr_symbol, &mut addr) {
-        log!(LogDebug, "ps_pglobal_lookup {:?} failed", osstr_symbol);
-        return thread_db::PS_NOSYM;
+    if let Some(addr) = (*(*h).db).query_symbol(osstr_symbol) {
+        *sym_addr = addr.as_usize() as _;
+        log!(
+            LogDebug,
+            "ps_pglobal_lookup {:?} OK",
+            CStr::from_ptr(symbol)
+        );
+        thread_db::PS_OK
+    } else {
+        log!(
+            LogDebug,
+            "ps_pglobal_lookup() for {:?} failed",
+            osstr_symbol
+        );
+        thread_db::PS_NOSYM
     }
-    *sym_addr = addr.as_usize() as _;
-    log!(
-        LogDebug,
-        "ps_pglobal_lookup {:?} OK",
-        CStr::from_ptr(symbol)
-    );
-    thread_db::PS_OK
 }
 
 #[no_mangle]
@@ -311,7 +306,7 @@ pub unsafe extern "C" fn ps_pdread(
     len: libc::size_t,
 ) -> thread_db::ps_err_e {
     if (*h).thread_group.is_null() {
-        fatal!("unexpected ps_pdread call with uninitialized thread_group");
+        fatal!("unexpected ps_pdread() call with uninitialized thread_group");
     }
     let mut ok = true;
     let uaddr = RemotePtr::<u8>::new(addr as usize);
@@ -321,7 +316,7 @@ pub unsafe extern "C" fn ps_pdread(
     let task = (*(*h).thread_group).task_set().iter().next().unwrap();
     let buf = slice::from_raw_parts_mut(buffer as *mut u8, len);
     task.read_bytes_helper(uaddr, buf, Some(&mut ok));
-    log!(LogDebug, "ps_pdread {:?}", ok);
+    log!(LogDebug, "ps_pdread(): {:?}", ok);
     if ok {
         thread_db::PS_OK
     } else {
@@ -336,7 +331,7 @@ pub unsafe extern "C" fn ps_pdwrite(
     _: *const c_void,
     _: thread_db::size_t,
 ) -> thread_db::ps_err_e {
-    fatal!("ps_pdwrite not implemented");
+    fatal!("fn ps_pdwrite() not implemented");
 }
 
 #[no_mangle]
@@ -346,7 +341,7 @@ pub unsafe extern "C" fn ps_lgetregs(
     result: *mut thread_db::elf_greg_t,
 ) -> thread_db::ps_err_e {
     if (*h).thread_group.is_null() {
-        fatal!("unexpected ps_lgetregs call with uninitialized thread_group");
+        fatal!("unexpected ps_lgetregs() call with uninitialized thread_group");
     }
     // DIFF NOTE: In rr there is simply a debug_assert to make sure task is not null; we unwrap
     let task = (*(*h).thread_group)
@@ -360,7 +355,7 @@ pub unsafe extern "C" fn ps_lgetregs(
         result as *mut u8,
         mem::size_of_val(&regs),
     );
-    log!(LogDebug, "ps_lgetregs OK");
+    log!(LogDebug, "ps_lgetregs() returns OK");
     thread_db::PS_OK
 }
 
@@ -370,7 +365,7 @@ pub unsafe extern "C" fn ps_lsetregs(
     _: thread_db::lwpid_t,
     _: *mut thread_db::elf_greg_t,
 ) -> thread_db::ps_err_e {
-    fatal!("ps_lsetregs not implemented");
+    fatal!("fn ps_lsetregs() not implemented");
 }
 
 #[no_mangle]
@@ -379,7 +374,7 @@ pub unsafe extern "C" fn ps_lgetfpregs(
     _: thread_db::lwpid_t,
     _: *mut thread_db::prfpregset_t,
 ) -> thread_db::ps_err_e {
-    fatal!("ps_lgetfpregs not implemented");
+    fatal!("fn ps_lgetfpregs() not implemented");
 }
 
 #[no_mangle]
@@ -388,13 +383,13 @@ pub extern "C" fn ps_lsetfpregs(
     _: thread_db::lwpid_t,
     _: *const thread_db::prfpregset_t,
 ) -> thread_db::ps_err_e {
-    fatal!("ps_lsetfpregs not implemented");
+    fatal!("fn ps_lsetfpregs() not implemented");
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn ps_getpid(h: *mut ps_prochandle) -> libc::pid_t {
     let tgid = (*h).tgid;
-    log!(LogDebug, "ps_getpid {}", tgid);
+    log!(LogDebug, "ps_getpid: {}", tgid);
     tgid
 }
 
@@ -406,7 +401,7 @@ pub unsafe extern "C" fn ps_get_thread_area(
     base: *mut thread_db::psaddr_t,
 ) -> thread_db::ps_err_e {
     if (*h).thread_group.is_null() {
-        fatal!("unexpected ps_get_thread_area call with uninitialized thread_group");
+        fatal!("unexpected ps_get_thread_area() call with uninitialized thread_group");
     }
     // DIFF NOTE: In rr there is simply a debug_assert to make sure task is not null; we unwrap
     let task: TaskSharedPtr = (*(*h).thread_group)
@@ -422,7 +417,7 @@ pub unsafe extern "C" fn ps_get_thread_area(
                 return thread_db::PS_OK;
             }
         }
-        log!(LogDebug, "ps_get_thread_area 32 failed");
+        log!(LogDebug, "ps_get_thread_area() 32-bit failed");
         return thread_db::PS_ERR;
     }
 
@@ -435,7 +430,11 @@ pub unsafe extern "C" fn ps_get_thread_area(
             result = task.regs_ref().gs_base();
         }
         _ => {
-            log!(LogDebug, "ps_get_thread_area PS_BADADDR");
+            log!(
+                LogDebug,
+                "ps_get_thread_area() returns PS_BADADDR for: {:x}",
+                val
+            );
             return thread_db::PS_BADADDR;
         }
     }

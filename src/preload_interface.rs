@@ -213,7 +213,6 @@ pub struct syscallbuf_record {
     /// TODO: static_assert this can repr >= buffer size
     pub size: u32,
     /// Extra recorded outparam data starts here.
-    /// @TODO how to deal with this?
     pub extra_data: [u8; 0],
 }
 
