@@ -996,7 +996,7 @@ impl TaskInner {
     }
 
     /// @TODO should this be a GdbRegister type?
-    /// @TODO Better way to indicate failure than return 0?
+    /// @TODO Implemented better way to indicate failure than just return 0.
     pub fn get_debug_reg(&self, regno: usize) -> usize {
         Errno::clear();
         let result = self.fallible_ptrace(
@@ -1731,7 +1731,6 @@ impl TaskInner {
             // (or PTRACE_SEIZEing) the wrong process.
             let tmp_errno = errno();
 
-            // @TODO: Might want to do a proper unwrap after the kill invocation?
             kill(Pid::from_raw(tid), Signal::SIGKILL).unwrap_or(());
             unsafe { *__errno_location() = tmp_errno };
 

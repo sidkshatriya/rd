@@ -486,7 +486,7 @@ impl Scheduler {
                         if EINTR == errno() {
                             log!(LogDebug, "  waitpid(-1) interrupted");
                             let curr = self.current().unwrap();
-                            // @TODO If we were interruped then self.current_ must be Some()
+                            // @TODO If we were interrupted then self.current_ must be Some()
                             // Is that a fair assumption??
                             ed_assert!(&curr, self.must_run_task.borrow().is_none());
 

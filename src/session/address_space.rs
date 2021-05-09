@@ -1725,7 +1725,6 @@ pub mod address_space {
         ) -> RemoteCodePtr {
             for (i, e) in ENTRY_POINTS.iter().enumerate() {
                 if e.traced == traced && e.privileged == privileged && e.enabled == enabled {
-                    // @TODO check this.
                     return exit_ip_from_index(i);
                 }
             }
@@ -1740,7 +1739,6 @@ pub mod address_space {
         ) -> RemoteCodePtr {
             for (i, e) in ENTRY_POINTS.iter().enumerate() {
                 if e.traced == traced && e.privileged == privileged && e.enabled == enabled {
-                    // @TODO check this.
                     return entry_ip_from_index(i);
                 }
             }

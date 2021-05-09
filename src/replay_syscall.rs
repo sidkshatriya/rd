@@ -1846,10 +1846,7 @@ fn write_mapped_data(
                 data.data_offset_bytes,
                 offset
             );
-            let mut buf: Vec<u8> = Vec::new();
-            // Read 16 pages at a time at most
-            // @TODO Any performance implications of this resize??
-            buf.resize(page_size() * 16, 0);
+            let mut buf: Vec<u8> = vec![0; page_size() * 16];
             while size > 0 {
                 let to_read = min(size, buf.len());
                 match read(file.as_raw(), &mut buf[0..to_read]) {

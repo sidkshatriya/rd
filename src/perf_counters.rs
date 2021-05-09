@@ -34,7 +34,7 @@ lazy_static! {
 pub fn init_pmu() {
     // PMU_BUGS_AND_EXTRA/PMU_ATTRIBUTES are static ref and get initialized lazily
     // Here as a side effect they get initialized by storing in a boolean.
-    // @TODO this needs to be set in a boolean explicitly. Otherwise there is a mutex locking issue
+    // NOTE: this needs to be pulled out into a boolean explicitly. Otherwise there is a mutex locking issue
     let only_one_counter = PMU_BUGS_AND_EXTRA.only_one_counter;
     log!(
         LogDebug,

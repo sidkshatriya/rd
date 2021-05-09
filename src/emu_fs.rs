@@ -277,11 +277,6 @@ impl EmuFs {
     /// Create and return a new emufs
     /// @TODO Is this method really needed?
     pub fn create() -> EmuFsSharedPtr {
-        EmuFs::new()
-    }
-
-    /// Note that this is NOT pub
-    fn new() -> EmuFsSharedPtr {
         let mut fs = EmuFs {
             files: HashMap::new(),
             weak_self: Weak::new(),

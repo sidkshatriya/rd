@@ -949,11 +949,9 @@ impl GdbServer {
             }
             DREQ_GET_STOP_REASON => {
                 let threadid = get_threadid_from_tuid(session, self.last_continue_tuid);
-                let sig = Sig::try_from(self.stop_siginfo.si_signo).ok();
-                self.dbg_unwrap_mut().reply_get_stop_reason(
-                    threadid, // @TODO What if signal number is 0?
-                    sig,
-                );
+                let maybe_sig = Sig::try_from(self.stop_siginfo.si_signo).ok();
+                self.dbg_unwrap_mut()
+                    .reply_get_stop_reason(threadid, maybe_sig);
                 return;
             }
             DREQ_SET_SW_BREAK => {

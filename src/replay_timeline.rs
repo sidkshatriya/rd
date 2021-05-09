@@ -2399,7 +2399,6 @@ impl InternalMark {
         self.proto.regs.write_register_file(out).unwrap();
         write!(out, ",return_addresses=[").unwrap();
         for i in 0..ReturnAddressList::COUNT {
-            // @TODO: Check this. This is %p in rr
             write!(
                 out,
                 "{:08x}",

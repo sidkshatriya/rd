@@ -116,7 +116,6 @@ impl FdTable {
         }
     }
 
-    /// @TODO Do we want offset to be a move?
     pub fn did_write(&self, fd: i32, ranges: Vec<Range>, offset: &mut LazyOffset) {
         match self.fds.borrow().get(&fd) {
             Some(f) => f.borrow_mut().did_write(&ranges, offset),
