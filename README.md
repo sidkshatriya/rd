@@ -164,7 +164,7 @@ $ RD_LOG=all:warn,auto_remote_syscalls:debug rd /* rd params here */
 Here are some (necessarily subjective) reasons why it might be a good idea to have a Rust port of `rr`.
 
 ### Reduce complexity, increase reliability
-`rr` is written in C/C++. C/C++ is a complex beast. As the Linux userspace/kernel interface gets more and more complex and gathers even more quirks, the `rr` codebase gets more and more complex too. With Rust the hope is that we have a clean and modern language that allows us to manage the complexity of record/replay. Of course, we still need to deal with the inherent complexity of record/replay but Rust helps with writing robust and reliable code. Once the code is written it is also easier to doing refactorings with more confidence in Rust. 
+`rr` is written in C/C++. C/C++ is a complex beast. As the Linux userspace/kernel interface gets more and more complex and gathers even more quirks, the `rr` codebase gets more and more complex too. With Rust the hope is that we have a clean and modern language that allows us to manage the complexity of record/replay. Of course, we still need to deal with the inherent complexity of record/replay but Rust helps with writing robust and reliable code. Once the code is written it is also easier to do refactorings with more confidence in Rust. 
 
 ### Reduce barriers to understanding and contribution
 Once you understand the core principles, Rust can be easier than C/C++ to grok. Hopefully this will allow more people to inspect, improve and offer fixes to the `rd` codebase.

@@ -4,7 +4,7 @@ The `rd` project would not have been possible without the work done in the [rr-d
 
 The `rd` project is grateful to all the contributors of the `rr-debugger/rr` project.
 
-The `rd` project was ported over from the `rr` codebase as of commit [`abd344288878c9b4046e0b8664927992947a46eb`](https://github.com/rr-debugger/rr/commit/abd344288878c9b4046e0b8664927992947a46eb). 
+The `rd` project was ported over from the `rr` codebase as of commit [`abd344288878c9b4046e0b8664927992947a46eb`](https://github.com/rr-debugger/rr/commits/abd344288878c9b4046e0b8664927992947a46eb). 
 
 The following are the contributors to the `rr` project till commit `abd344288878c9b4046e0b8664927992947a46eb` found via the following invocation:
 
