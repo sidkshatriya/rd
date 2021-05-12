@@ -28,6 +28,24 @@ By contributing to `rd` you agree to license your contributions under the [MIT L
 
 For more details see [CONTRIBUTING.md](CONTRIBUTING.md)
 
+## Requirements
+
+As `rd` is a port of `rr`, core requirements are essentially the same: 
+* Intel processors with Nehalem (2010) or later microarchitecture
+* Linux >= 3.11
+* sysctl `kernel.perf_event_paranoid` should be [<= 1](https://github.com/rr-debugger/rr/wiki/Building-And-Installing#os-configuration)
+* Linux should have access to CPU performance counters:
+  * If you are running on bare-metal then you should not have to worry about this
+  * If you wish to run `rd` in KVM/VMWare Workstation/VMWare Fusion etc. consult [this](https://github.com/rr-debugger/rr/wiki/Building-And-Installing#virtual-machine-guests) rr resource
+
+However, because `rd` is not as complete and mature as `rr` there are some additional restrictions:
+* AMD Architectures are currently not supported on `rd`. Please use `rr` if you need to use AMD.
+* `rr` has experimental Aarch64 support. This support has not yet been ported to `rd`.
+* Only 64-bit Linux distributions are currently supported (Hopefully this should not be a big issue because both 32-bit and 64-bit programs _are_ supported on 64-bit distributions)
+  * 32-bit Linux distributions are currently not supported
+
+`rd` has unfortunatately not received testing in a variety of Linux distributions apart from Ubuntu 20.04. In general if `rr` works on your current setup, `rd` should work there too -- except for the additional restrictions outlined above. Please report any problems!
+
 ## Building 
 
 rd requires a nightly version of the rust `x86_64-unknown-linux-gnu` toolchain to compile.
