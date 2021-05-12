@@ -24,7 +24,9 @@ For more details see [CREDITS.md](CREDITS.md)
 
 Contributions to the Record and Debug Tool (`rd`) are welcome and encouraged!
 
-By contributing to `rd` you agree to license your contributions under the MIT license without any additional terms or conditions.
+By contributing to `rd` you agree to license your contributions under the [MIT License](CONTRIBUTING.md#mit-license-text) without any additional terms or conditions.
+
+For more details see [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ## Building 
 
