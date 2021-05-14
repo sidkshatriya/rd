@@ -43,3 +43,4 @@ verify_syscall_numbers = []
 
 [profile.release]
 lto = true
+codegen-units = 1
