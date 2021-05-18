@@ -497,7 +497,6 @@ fn prepare_clone<Arch: Architecture>(t: &ReplayTask) {
     new_task.vm().after_clone();
 }
 
-/// DIFF NOTE: This simply returns a ReplayTraceStep instead of modifying one.
 pub fn rep_prepare_run_to_syscall(t: &ReplayTask, step: &mut ReplayTraceStep) {
     let sys_num = t.current_trace_frame().event().syscall_event().number;
     let sys_arch = t.current_trace_frame().event().syscall_event().arch();

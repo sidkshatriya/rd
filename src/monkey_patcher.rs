@@ -269,21 +269,21 @@ impl MonkeyPatcher {
                         return false;
                     }
 
+                    // Get out of executing the current syscall before we patch it.
+                    if !t.exit_syscall_and_prepare_restart() {
+                        return false;
+                    }
+
                     let sl = &following_bytes[0..min(bytes_count, NEXT_INSTRUCTION_BYTES_LEN)];
                     log!(
                         LogDebug,
-                        "Patched syscall at: {} syscall: {} tid: {} bytes: {:?} at time: {}",
+                        "Patching syscall at: {} syscall: {} tid: {} bytes: {:?} at time: {}",
                         ip,
                         syscall_name(syscallno as i32, t.arch()),
                         t.tid(),
                         sl,
                         t.trace_time()
                     );
-
-                    // Get out of executing the current syscall before we patch it.
-                    if !t.exit_syscall_and_prepare_restart() {
-                        return false;
-                    }
 
                     do_patch = Some(*hook);
                     break;
@@ -292,7 +292,6 @@ impl MonkeyPatcher {
         }
 
         let success = match do_patch {
-            // DIFF NOTE: @TODO rr seems to return true unconditionally?
             Some(hook) => patch_syscall_with_hook(self, t, &hook),
             None => false,
         };
@@ -624,7 +623,7 @@ fn write_and_record_mem<T>(t: &RecordTask, child_addr: RemotePtr<T>, vals: &[T])
 /// we should modify the environment passed to the exec call. This function
 /// failing isn't necessarily fatal; a tracee might not rely on the functions
 /// overridden by the preload library, or might override them itself (e.g.
-/// because we're recording an rr replay).
+/// because we're recording an rd replay).
 fn setup_library_path_arch<Arch: Architecture>(
     t: &RecordTask,
     env_var: &OsStr,
@@ -1211,7 +1210,7 @@ fn addr_to_offset<'a>(elf_obj: &Elf<'a>, addr: usize, offset: &mut usize) -> boo
 
 /// VDSOs are filled with overhead critical functions related to getting the
 /// time and current CPU.  We need to ensure that these syscalls get redirected
-/// into actual trap-into-the-kernel syscalls so rr can intercept them.
+/// into actual trap-into-the-kernel syscalls so rd can intercept them.
 ///
 /// Monkeypatch x86-32 vdso syscalls immediately after exec. The vdso syscalls
 /// will cause replay to fail if called by the dynamic loader or some library's
@@ -1353,7 +1352,7 @@ fn locate_and_verify_kernel_vsyscall(t: &RecordTask, elf_obj: &Elf) -> RemotePtr
 
 /// VDSOs are filled with overhead critical functions related to getting the
 /// time and current CPU.  We need to ensure that these syscalls get redirected
-/// into actual trap-into-the-kernel syscalls so rr can intercept them.
+/// into actual trap-into-the-kernel syscalls so rd can intercept them.
 ///
 /// Monkeypatch x86-64 vdso syscalls immediately after exec. The vdso syscalls
 /// will cause replay to fail if called by the dynamic loader or some library's

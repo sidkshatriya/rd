@@ -583,7 +583,7 @@ fn read_counter(fd: &ScopedFd) -> u64 {
         Ok(nread) if nread == size_of::<u64>() => u64::from_le_bytes(buf),
         // In rd we check the result for success unlike rr.
         _ => {
-            fatal!("Could not read pert counter successfully");
+            fatal!("Could not read perf counter successfully");
         }
     }
 }
