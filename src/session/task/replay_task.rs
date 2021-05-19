@@ -245,7 +245,7 @@ impl ReplayTask {
     /// Restore all remaining chunks of saved data for the current trace frame.
     pub fn apply_all_data_records_from_trace(&self) {
         loop {
-            let maybe_buf = self.trace_reader_mut().read_raw_data_for_frame().clone();
+            let maybe_buf = self.trace_reader_mut().read_raw_data_for_frame();
             match maybe_buf {
                 Some(buf) => {
                     if !buf.addr.is_null() && !buf.data.is_empty() {

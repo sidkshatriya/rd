@@ -495,11 +495,10 @@ impl TraceReader {
         }
         let rec = self.raw_recs.pop().unwrap();
         let mut d = RawData {
-            data: Vec::<u8>::new(),
+            data: vec![0u8; rec.size],
             addr: rec.addr,
             rec_tid: rec.rec_tid,
         };
-        d.data.resize(rec.size, 0);
         let nread = self
             .reader_mut(Substream::RawData)
             .read(&mut d.data)
