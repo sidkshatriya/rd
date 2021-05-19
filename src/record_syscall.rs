@@ -4139,7 +4139,7 @@ impl TaskSyscallState {
 
         // Step 3: Execute mutators. This must run even if the scratch steps do not.
         for param in &mut self.param_list {
-            if param.maybe_mutator.is_some() {
+            if let Some(ref mutator_fn) = param.maybe_mutator {
                 // Mutated parameters must be IN. If we have scratch space, we don't need
                 // to save anything.
                 let mut saved_data_loc: Option<&mut [u8]> = None;
@@ -4151,7 +4151,7 @@ impl TaskSyscallState {
                         &mut self.saved_data[prev_size..prev_size + param.num_bytes.incoming_size],
                     );
                 }
-                if !param.maybe_mutator.as_ref().unwrap()(
+                if !mutator_fn(
                     t,
                     if self.scratch_enabled {
                         param.scratch
@@ -4528,10 +4528,8 @@ impl ParamSize {
             let mut syscall_size: usize =
                 max(0isize, t.regs_ref().syscall_result_signed()) as usize;
             syscall_size = match self.read_size {
-                // @TODO Is this what we want?
                 4 => syscall_size as u32 as usize,
-                // @TODO Is this what we want?
-                8 => syscall_size as u64 as usize,
+                8 => syscall_size,
                 _ => {
                     ed_assert!(t, false, "Unknown read_size");
                     return 0;
