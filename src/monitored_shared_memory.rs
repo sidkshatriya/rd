@@ -19,7 +19,7 @@ use crate::{
     remote_ptr::{RemotePtr, Void},
     scoped_fd::ScopedFd,
     session::{
-        address_space::{address_space, memory_range::MemoryRangeKey},
+        address_space::{self, memory_range::MemoryRangeKey},
         task::record_task::RecordTask,
     },
 };

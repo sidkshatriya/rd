@@ -37,7 +37,7 @@ use crate::{
     seccomp_bpf::SeccompFilter,
     session::{
         address_space::{
-            address_space::{AddressSpace, AddressSpaceSharedPtr},
+            AddressSpace, AddressSpaceSharedPtr,
             MappingFlags, Traced, WatchConfig, WatchType,
         },
         session_inner::SessionInner,

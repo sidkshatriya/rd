@@ -129,7 +129,7 @@ use crate::{
     seccomp_filter_rewriter::SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO,
     session::{
         address_space::{
-            address_space::AddressSpace, kernel_mapping::KernelMapping, read_kernel_mapping,
+            AddressSpace, kernel_mapping::KernelMapping, read_kernel_mapping,
         },
         record_session::set_arch_siginfo,
         session_inner::SessionInner,

@@ -8,7 +8,7 @@ use crate::{
     scoped_fd::{ScopedFd, ScopedFdSharedPtr},
     session::{
         address_space::{
-            address_space::{AddressSpace, AddressSpaceSharedPtr, AddressSpaceSharedWeakPtr},
+            AddressSpace, AddressSpaceSharedPtr, AddressSpaceSharedWeakPtr,
             BreakpointType, WatchConfig,
         },
         task::{

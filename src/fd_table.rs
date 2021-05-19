@@ -5,7 +5,7 @@ use crate::{
     preload_interface::{preload_globals, SYSCALLBUF_FDS_DISABLED_SIZE},
     remote_ptr::RemotePtr,
     session::{
-        address_space::address_space::AddressSpace,
+        address_space::AddressSpace,
         task::{record_task::RecordTask, replay_task::ReplayTask, Task, WeakTaskPtrSet},
     },
     taskish_uid::AddressSpaceUid,

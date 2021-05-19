@@ -11,7 +11,7 @@ use crate::{
     remote_ptr::{RemotePtr, Void},
     session::{
         address_space::{
-            address_space::{AddressSpaceSharedPtr, Mapping},
+            AddressSpaceSharedPtr, Mapping,
             memory_range::MemoryRangeKey,
             MappingFlags,
         },
@@ -30,7 +30,7 @@ use crate::{
     trace::trace_stream::TraceStream,
     util::page_size,
 };
-use address_space::address_space::AddressSpace;
+use address_space::AddressSpace;
 use libc::pid_t;
 use nix::sys::mman::MapFlags;
 use session_inner::{AddressSpaceClone, CloneCompletion};

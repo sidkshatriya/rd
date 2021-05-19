@@ -12,7 +12,7 @@ use crate::{
     remote_ptr::RemotePtr,
     seccomp_bpf::SeccompFilter,
     session::{
-        address_space::{address_space::AddressSpace, Privileged},
+        address_space::{AddressSpace, Privileged},
         task::{
             record_task::RecordTask,
             task_common::{read_mem, read_val_mem, write_mem, write_val_mem},

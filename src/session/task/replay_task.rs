@@ -24,7 +24,7 @@ use crate::{
     registers::{MismatchBehavior, Registers},
     remote_ptr::{RemotePtr, Void},
     session::{
-        address_space::address_space::AddressSpace,
+        address_space::AddressSpace,
         task::{
             task_common::{
                 did_waitpid_common, next_syscallbuf_record_common, open_mem_fd_common,

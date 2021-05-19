@@ -1,5 +1,5 @@
 use super::{
-    address_space::{address_space::AddressSpace, Privileged},
+    address_space::{AddressSpace, Privileged},
     on_create_task_common,
     session_common::kill_all_tasks,
     session_inner::PtraceSyscallSeccompOrdering,

@@ -7,7 +7,7 @@ use crate::{
     remote_code_ptr::RemoteCodePtr,
     remote_ptr::RemotePtr,
     session::{
-        address_space::{address_space::AddressSpace, Enabled},
+        address_space::{AddressSpace, Enabled},
         task::{task_common::read_mem, Task},
     },
 };

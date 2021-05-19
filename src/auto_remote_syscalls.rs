@@ -21,7 +21,7 @@ use crate::{
     scoped_fd::ScopedFd,
     session::{
         address_space::{
-            address_space::{AddressSpace, AddressSpaceSharedPtr, Mapping},
+            AddressSpace, AddressSpaceSharedPtr, Mapping,
             kernel_mapping::KernelMapping,
             memory_range::{MemoryRange, MemoryRangeKey},
             Enabled, MappingFlags, Privileged, Traced,

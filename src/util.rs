@@ -16,7 +16,7 @@ use crate::{
     scoped_fd::ScopedFd,
     session::{
         address_space::{
-            address_space::{AddressSpace, Mapping},
+            AddressSpace, Mapping,
             kernel_map_iterator::KernelMapIterator,
             kernel_mapping::KernelMapping,
             memory_range::MemoryRange,

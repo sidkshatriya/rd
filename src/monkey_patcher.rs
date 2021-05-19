@@ -14,7 +14,7 @@ use crate::{
     remote_ptr::{RemotePtr, Void},
     scoped_fd::ScopedFd,
     session::{
-        address_space::{address_space, kernel_mapping::KernelMapping, MappingFlags},
+        address_space::{self, kernel_mapping::KernelMapping, MappingFlags},
         task::{
             record_task::RecordTask,
             task_common::{read_mem, read_val_mem},
