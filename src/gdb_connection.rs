@@ -9,7 +9,6 @@ use crate::{
     remote_ptr::{RemotePtr, Void},
     replay_timeline::RunDirection,
     scoped_fd::ScopedFd,
-    session::SessionSharedPtr,
     sig::Sig,
     util,
     util::{resource_path, str0_to_isize, str16_to_isize, str16_to_usize, u8_slice, u8_slice_mut},
@@ -1246,31 +1245,6 @@ impl GdbConnection {
         }
 
         self.consume_request();
-    }
-
-    /// Create a checkpoint of the given Session with the given id. Delete the
-    /// existing checkpoint with that id if there is one.
-    ///
-    /// DIFF NOTE: The checkpoint id is signed in rr
-    /// DIFF NOTE: In rr we pass in a ReplaySession shared pointer
-    /// @TODO: Where is the implementation??
-    fn created_checkpoint(_checkpoint: SessionSharedPtr, _checkpoint_id: u64) {
-        unimplemented!()
-    }
-
-    /// Delete the checkpoint with the given id. Silently fail if the checkpoint
-    /// does not exist.
-    ///
-    /// DIFF NOTE: The checkpoint id is signed in rr
-    /// @TODO Where is the implementation??
-    pub fn delete_checkpoint(_checkpoint_id: u64) {
-        unimplemented!()
-    }
-
-    /// Get the checkpoint with the given id. Return null if not found.
-    /// @TODO Where is the implementation??
-    pub fn get_checkpoint(_checkpoint_id: u32) -> SessionSharedPtr {
-        unimplemented!()
     }
 
     /// Return true if there's a new packet to be read/process (whether

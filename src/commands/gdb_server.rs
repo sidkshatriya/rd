@@ -1918,19 +1918,6 @@ impl GdbServer {
         }
     }
 
-    /// Return the checkpoint stored as |checkpoint_id| or nullptr if there
-    /// isn't one.
-    /// @TODO Where is the implementation?
-    fn get_checkpoint(_checkpoint_id: u32) -> SessionSharedPtr {
-        unimplemented!()
-    }
-
-    /// Delete the checkpoint stored as |checkpoint_id| if it exists, or do
-    /// nothing if it doesn't exist.
-    fn delete_checkpoint(_checkpoint_id: u32) {
-        unimplemented!()
-    }
-
     /// Handle GDB file open requests. If we can serve this read request, add
     /// an entry to `files` with the file contents and return our internal
     /// file descriptor.
