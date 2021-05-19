@@ -39,10 +39,7 @@ use crate::{
     },
     scoped_fd::ScopedFd,
     session::{
-        address_space::{
-            AddressSpace, AddressSpaceSharedPtr,
-            BreakpointType, Enabled, Traced,
-        },
+        address_space::{AddressSpace, AddressSpaceSharedPtr, BreakpointType, Enabled, Traced},
         diversion_session::DiversionSession,
         replay_session::ReplayTraceStepType::TstepNone,
         session_inner::{BreakStatus, RunCommand, SessionInner},

@@ -21,10 +21,10 @@ use crate::{
     scoped_fd::ScopedFd,
     session::{
         address_space::{
-            AddressSpace, AddressSpaceSharedPtr, Mapping,
             kernel_mapping::KernelMapping,
             memory_range::{MemoryRange, MemoryRangeKey},
-            Enabled, MappingFlags, Privileged, Traced,
+            AddressSpace, AddressSpaceSharedPtr, Enabled, Mapping, MappingFlags, Privileged,
+            Traced,
         },
         replay_session::ReplaySession,
         session_inner::SessionInner,

@@ -53,8 +53,8 @@ use crate::{
     seccomp_filter_rewriter::SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO,
     session::{
         address_space::{
-            AddressSpace, kernel_mapping::KernelMapping,
-            memory_range::MemoryRangeKey, BreakpointType, DebugStatus,
+            kernel_mapping::KernelMapping, memory_range::MemoryRangeKey, AddressSpace,
+            BreakpointType, DebugStatus,
         },
         session_inner::SessionInner,
         task::{

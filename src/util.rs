@@ -16,11 +16,8 @@ use crate::{
     scoped_fd::ScopedFd,
     session::{
         address_space::{
-            AddressSpace, Mapping,
-            kernel_map_iterator::KernelMapIterator,
-            kernel_mapping::KernelMapping,
-            memory_range::MemoryRange,
-            MappingFlags,
+            kernel_map_iterator::KernelMapIterator, kernel_mapping::KernelMapping,
+            memory_range::MemoryRange, AddressSpace, Mapping, MappingFlags,
         },
         session_inner::SessionInner,
         task::{

@@ -29,8 +29,7 @@ use crate::{
     scoped_fd::{ScopedFd, ScopedFdSharedPtr, ScopedFdSharedWeakPtr},
     session::{
         address_space::{
-            BREAKPOINT_INSN, memory_range::MemoryRange, BreakpointType,
-            MappingFlags, WatchType,
+            memory_range::MemoryRange, BreakpointType, MappingFlags, WatchType, BREAKPOINT_INSN,
         },
         diversion_session::{DiversionSession, DiversionStatus},
         replay_session::{ReplayResult, ReplaySession, ReplayStatus},

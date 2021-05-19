@@ -8,8 +8,8 @@ use crate::{
     scoped_fd::{ScopedFd, ScopedFdSharedPtr},
     session::{
         address_space::{
-            AddressSpace, AddressSpaceSharedPtr, AddressSpaceSharedWeakPtr,
-            BreakpointType, WatchConfig,
+            AddressSpace, AddressSpaceSharedPtr, AddressSpaceSharedWeakPtr, BreakpointType,
+            WatchConfig,
         },
         task::{
             task_inner::{CapturedState, TrapReasons},

@@ -11,9 +11,7 @@ use crate::{
     remote_ptr::{RemotePtr, Void},
     session::{
         address_space::{
-            AddressSpaceSharedPtr, Mapping,
-            memory_range::MemoryRangeKey,
-            MappingFlags,
+            memory_range::MemoryRangeKey, AddressSpaceSharedPtr, Mapping, MappingFlags,
         },
         diversion_session::DiversionSession,
         record_session::RecordSession,

@@ -37,8 +37,7 @@ use crate::{
     seccomp_bpf::SeccompFilter,
     session::{
         address_space::{
-            AddressSpace, AddressSpaceSharedPtr,
-            MappingFlags, Traced, WatchConfig, WatchType,
+            AddressSpace, AddressSpaceSharedPtr, MappingFlags, Traced, WatchConfig, WatchType,
         },
         session_inner::SessionInner,
         task::{task_common::set_thread_area_core, Task, TaskSharedPtr, TaskSharedWeakPtr},

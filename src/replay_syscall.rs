@@ -40,10 +40,9 @@ use crate::{
     seccomp_filter_rewriter::SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO,
     session::{
         address_space::{
-            AddressSpace,
             kernel_mapping::KernelMapping,
             memory_range::{MemoryRange, MemoryRangeKey},
-            MappingFlags,
+            AddressSpace, MappingFlags,
         },
         replay_session::{
             ReplaySession, ReplayTraceStep, ReplayTraceStepData, ReplayTraceStepSyscall,

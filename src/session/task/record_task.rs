@@ -52,8 +52,7 @@ use crate::{
     seccomp_filter_rewriter::SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO,
     session::{
         address_space::{
-            AddressSpace, memory_range::MemoryRange, BreakpointType, Enabled,
-            Privileged, Traced,
+            memory_range::MemoryRange, AddressSpace, BreakpointType, Enabled, Privileged, Traced,
         },
         record_session::RecordSession,
         task::{

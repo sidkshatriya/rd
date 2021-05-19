@@ -28,7 +28,7 @@ use crate::{
             kernel_map_iterator::KernelMapIterator,
             kernel_mapping::KernelMapping,
             memory_range::{MemoryRange, MemoryRangeKey},
-            BreakpointType::BkptNone
+            BreakpointType::BkptNone,
         },
         task::{
             record_task::RecordTask,

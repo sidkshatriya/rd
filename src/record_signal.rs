@@ -24,7 +24,7 @@ use crate::{
     remote_code_ptr::RemoteCodePtr,
     remote_ptr::{RemotePtr, Void},
     session::{
-        address_space::{AddressSpace, kernel_mapping::KernelMapping},
+        address_space::{kernel_mapping::KernelMapping, AddressSpace},
         session_inner::PtraceSyscallSeccompOrdering,
         task::{
             record_task::{FlushSyscallbuf, RecordTask, SignalDisposition},
