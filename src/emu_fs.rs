@@ -35,12 +35,16 @@ use crate::{
     log::{LogDebug, LogError},
     scoped_fd::ScopedFd,
     session::address_space::kernel_mapping::KernelMapping,
-    util::resize_shmem_segment,
+    util::{resize_shmem_segment, tmp_dir},
 };
 use libc::{c_void, dev_t, ino_t, pread64, pwrite64};
 use nix::{
-    sys::memfd::{memfd_create, MemFdCreateFlag},
-    unistd::getpid,
+    fcntl::OFlag,
+    sys::{
+        memfd::{memfd_create, MemFdCreateFlag},
+        stat::Mode,
+    },
+    unistd::{getpid, unlink},
 };
 use std::{
     cell::RefCell,
@@ -417,9 +421,43 @@ fn create_memfd_file(
 
 /// Used only when memfd_create is not available, i.e. Linux < 3.17
 fn create_tmpfs_file(
-    _orig_path: &OsStr,
-    _orig_device: dev_t,
-    _orig_inode: ino_t,
+    orig_path: &OsStr,
+    orig_device: dev_t,
+    orig_inode: ino_t,
 ) -> Option<(ScopedFd, OsString)> {
-    unimplemented!()
+    let path_tag = replace_char(orig_path, b'/', b'\\');
+    let mut name = tmp_dir().into_vec();
+    name.extend_from_slice(
+        format!(
+            "/rd-emufs-{}-dev-{}-inode-{}-",
+            getpid(),
+            orig_device,
+            orig_inode
+        )
+        .as_bytes(),
+    );
+    name.extend_from_slice(&path_tag);
+    let name_os = OsString::from_vec(name);
+    let fd = ScopedFd::open_path_with_mode(
+        name_os.as_os_str(),
+        OFlag::O_CREAT | OFlag::O_EXCL | OFlag::O_RDWR | OFlag::O_CLOEXEC,
+        Mode::S_IRWXU,
+    );
+    // DIFF NOTE: This assert is not there in rr
+    assert!(fd.is_open());
+    // DIFF NOTE: rr does not make sure unlink succeeded, unlike us
+    unlink(name_os.as_os_str()).unwrap();
+    Some((fd, name_os))
+}
+
+fn replace_char(s: &OsStr, orig: u8, replacement: u8) -> Vec<u8> {
+    let mut out = Vec::<u8>::with_capacity(s.len());
+    for &c in s.as_bytes() {
+        if c == orig {
+            out.push(replacement);
+        } else {
+            out.push(c);
+        }
+    }
+    out
 }

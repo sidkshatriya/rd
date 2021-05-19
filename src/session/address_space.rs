@@ -2058,9 +2058,7 @@ impl AddressSpace {
             child_mem_fd: Default::default(),
             privileged_traced_syscall_ip_: Default::default(),
             saved_auxv_: Default::default(),
-            // Is this what we want?
             task_set: Default::default(),
-            // Is TaskUid::new() what we want?
             thread_locals_tuid_: Default::default(),
             // These are set below. Are both OK??
             traced_syscall_ip_: Default::default(),
