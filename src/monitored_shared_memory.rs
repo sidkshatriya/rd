@@ -113,7 +113,7 @@ impl MonitoredSharedMemory {
             "Subranges in monitored shared memory not supported yet!"
         );
 
-        unimplemented!()
+        unreachable!()
     }
 
     fn check_for_changes(&self, t: &RecordTask, m: address_space::Mapping) {

@@ -1544,12 +1544,6 @@ impl TaskInner {
         nwritten
     }
 
-    /// Try writing 'buf' to 'addr' by replacing pages in the tracee
-    /// address-space using a temporary file. This may work around PaX issues.
-    pub(in super::super) fn try_replace_pages(&self, _addr: RemotePtr<Void>, _buf: &[u8]) -> bool {
-        unimplemented!()
-    }
-
     /// Return the TraceStream that we're using, if in recording or replay.
     /// Returns `None` if we're not in record or replay.
     pub(in super::super) fn trace_stream(

@@ -1,4 +1,4 @@
-use super::{exit_result::ExitResult, gdb_command_handler::GdbCommandHandler, RdCommand};
+use super::gdb_command_handler::GdbCommandHandler;
 use crate::{
     commands::gdb_server::{Checkpoint, ExplicitCheckpoint, GdbServer},
     replay_timeline::Mark,
@@ -56,12 +56,6 @@ pub trait GdbCommand: DerefMut<Target = BaseGdbCommand> {
     ///
     /// NOTE: args\[0\] is the command name
     fn invoke(&self, gdb_server: &mut GdbServer, t: &dyn Task, args: &[OsString]) -> OsString;
-}
-
-impl RdCommand for BaseGdbCommand {
-    fn run(&mut self) -> ExitResult<()> {
-        unimplemented!()
-    }
 }
 
 type InvokerFn = dyn Fn(&mut GdbServer, &dyn Task, &[OsString]) -> OsString;
