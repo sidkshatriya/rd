@@ -2473,8 +2473,7 @@ fn breakpoint_condition(request: &GdbRequest) -> Option<Box<dyn BreakpointCondit
 fn search_memory(t: &dyn Task, where_: MemoryRange, find_s: &[u8]) -> Option<RemotePtr<Void>> {
     // DIFF NOTE: This assert is not present in rd
     assert_ne!(find_s.len(), 0);
-    let mut buf = Vec::<u8>::new();
-    buf.resize(page_size() + find_s.len() - 1, 0);
+    let mut buf = vec![0u8; page_size() + find_s.len() - 1];
     for (_, m) in &t.vm().maps() {
         let mut r = MemoryRange::from_range(m.map.start(), m.map.end() + (find_s.len() - 1))
             .intersect(where_);

@@ -495,8 +495,7 @@ pub fn read_mem<D: Clone>(
     count: usize,
     ok: Option<&mut bool>,
 ) -> Vec<D> {
-    let mut v: Vec<D> = Vec::with_capacity(count);
-    v.resize(count, unsafe { zeroed() });
+    let mut v: Vec<D> = vec![unsafe { zeroed() }; count];
     let u8_slice =
         unsafe { slice::from_raw_parts_mut(v.as_mut_ptr() as *mut u8, count * size_of::<D>()) };
     task.read_bytes_helper(RemotePtr::cast(child_addr), u8_slice, ok);

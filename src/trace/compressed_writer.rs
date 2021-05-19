@@ -106,9 +106,7 @@ impl CompressedWriter {
         );
         let buffer: Vec<u8> = vec![0; block_size * (num_threads + 2)];
 
-        let mut thread_pos: Vec<Option<u64>> = Vec::with_capacity(num_threads);
-        thread_pos.resize(num_threads, None);
-
+        let thread_pos: Vec<Option<u64>> = vec![None; num_threads];
         let mut error = false;
         if !fd.is_open() {
             error = true;
@@ -161,11 +159,11 @@ impl CompressedWriter {
                             let block_size = block_size;
                             let cond_var = cond_var;
                             // Add slop for incompressible data
-                            let mut outputbuf = Vec::<u8>::new();
-                            outputbuf.resize(
-                                ((block_size as f64 * 1.1) as usize) + size_of::<BlockHeader>(),
-                                0u8,
-                            );
+                            let mut outputbuf = vec![
+                                0u8;
+                                ((block_size as f64 * 1.1) as usize)
+                                    + size_of::<BlockHeader>()
+                            ];
                             let mut header: BlockHeader = Default::default();
 
                             loop {

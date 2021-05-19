@@ -667,8 +667,7 @@ impl TraceReader {
         if cpuid_records_bytes.len() != len * size_of::<CPUIDRecord>() {
             fatal!("Invalid CPUID records length");
         }
-        let mut cpuid_records_: Vec<CPUIDRecord> = Vec::with_capacity(len);
-        cpuid_records_.resize(len, Default::default());
+        let mut cpuid_records_: Vec<CPUIDRecord> = vec![Default::default(); len];
         unsafe {
             copy_nonoverlapping(
                 cpuid_records_bytes.as_ptr(),

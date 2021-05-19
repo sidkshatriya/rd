@@ -935,8 +935,7 @@ fn patch_syscall_with_hook_x86ish<
     let nops_bufsize: usize = syscall_instruction_length(SupportedArch::X64)
         + hook.next_instruction_length as usize
         - jump_patch.len();
-    let mut nops = Vec::<u8>::with_capacity(nops_bufsize);
-    nops.resize(nops_bufsize, NOP);
+    let nops = vec![NOP; nops_bufsize];
     write_and_record_mem(t, jump_patch_start + jump_patch.len(), &nops);
 
     true
@@ -1222,8 +1221,7 @@ fn patch_after_exec_arch_x86arch(t: &RecordTask, patcher: &mut MonkeyPatcher) {
     let vdso_start = t.vm().vdso().start();
     let vdso_size = t.vm().vdso().size();
 
-    let mut data = Vec::new();
-    data.resize(vdso_size, 0u8);
+    let mut data = vec![0u8; vdso_size];
     t.read_bytes_helper(vdso_start, &mut data, None);
     let elf_obj = match Elf::parse(&data) {
         Ok(elfo) => elfo,
@@ -1369,8 +1367,7 @@ fn patch_after_exec_arch_x64arch(t: &RecordTask, patcher: &mut MonkeyPatcher) {
     let vdso_start = t.vm().vdso().start();
     let vdso_size = t.vm().vdso().size();
 
-    let mut data = Vec::new();
-    data.resize(vdso_size, 0u8);
+    let mut data = vec![0u8; vdso_size];
     t.read_bytes_helper(t.vm().vdso().start(), &mut data, None);
     let elf_obj = match Elf::parse(&data) {
         Ok(elfo) => elfo,

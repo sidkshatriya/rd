@@ -2030,8 +2030,7 @@ fn process_mremap(t: &ReplayTask, trace_regs: &Registers, step: &mut ReplayTrace
                 // Replace mapping with anonymous mapping to cover full mapped region.
                 // Don't just read the file data, since this could be a private mapping
                 // with some data changed.
-                let mut buf = Vec::<u8>::new();
-                buf.resize(old_size, 0);
+                let mut buf = vec![0u8; old_size];
                 t.read_bytes_helper(new_addr, &mut buf, None);
                 let mut remote = AutoRemoteSyscalls::new(t);
                 // Shared non-EmuFs mappings must be of immutable files so it's OK to

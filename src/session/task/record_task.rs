@@ -2620,11 +2620,7 @@ impl RecordTask {
         // Write the entire buffer in one shot without parsing it,
         // because replay will take care of that.
         if self.is_running() {
-            let mut buf = Vec::<u8>::new();
-            buf.resize(
-                size_of::<syscallbuf_hdr>() + hdr.num_rec_bytes as usize,
-                0u8,
-            );
+            let mut buf = vec![0u8; size_of::<syscallbuf_hdr>() + hdr.num_rec_bytes as usize];
             unsafe {
                 copy_nonoverlapping(
                     &raw const hdr as *const u8,

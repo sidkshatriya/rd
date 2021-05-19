@@ -1977,8 +1977,7 @@ fn iterate_checksums(t: &dyn Task, mode: ChecksumMode, global_time: FrameTime) {
                     }
                 }
             }
-            let mut mem = Vec::<u8>::new();
-            mem.resize(m.map.size(), 0);
+            let mut mem = vec![0u8; m.map.size()];
             let maybe_valid_mem_len = t.read_bytes_fallible(m.map.start(), &mut mem);
             // Areas not read are treated as zero. We have to do this because
             // mappings not backed by valid file data are not readable during

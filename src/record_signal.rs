@@ -248,8 +248,7 @@ fn restore_signal_state(t: &RecordTask, sig: Sig, signal_was_blocked: SignalBloc
         {
             let mut remote = AutoRemoteSyscalls::new(t);
             let sigset_size: usize = sigaction_sigset_size(remote.arch());
-            let mut bytes = Vec::<u8>::new();
-            bytes.resize(sigset_size, 0u8);
+            let mut bytes = vec![0u8; sigset_size];
             let mask: sig_set_t = signal_bit(sig);
             ed_assert!(remote.task(), sigset_size >= size_of::<sig_set_t>());
             unsafe {
