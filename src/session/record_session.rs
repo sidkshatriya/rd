@@ -362,18 +362,14 @@ impl RecordSession {
         let error_fd: ScopedFd = rec_sess.create_spawn_task_error_pipe();
         let socket_fd = rec_sess.tracee_socket_fd();
 
-        let mut rc: SessionSharedPtr = Rc::new(Box::new(rec_sess));
-        let weak_self = Rc::downgrade(&rc);
-        // We never change the weak_self pointer so its a good idea to use
-        // a bit of unsafe here otherwise we would unecessarily need a RefCell.
-        let rs = unsafe {
-            let s = Rc::get_mut_unchecked(&mut rc);
-            s.weak_self = weak_self.clone();
-            // Use this to also set things that shouldn't change.
-            s.as_record_mut().unwrap()
-        };
+        let mut rc: SessionSharedPtr = Rc::new_cyclic(move |weak| {
+            rec_sess.weak_self = weak.clone();
+            let b: Box<dyn Session> = Box::new(rec_sess);
+            b
+        });
 
-        rs.scheduler().set_session_weak_ptr(weak_self);
+        let rs = rc.as_record().unwrap();
+        rs.scheduler().set_session_weak_ptr(rc.weak_self_clone());
 
         if flags.chaos {
             rs.scheduler().set_enable_chaos(flags.chaos);
@@ -390,7 +386,7 @@ impl RecordSession {
         }
 
         let t = TaskInner::spawn(
-            (*rc).as_ref(),
+            &**rc,
             &error_fd,
             socket_fd,
             SaveTraceeFdNumber::SaveToSession,

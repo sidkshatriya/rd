@@ -651,13 +651,14 @@ impl ReplaySession {
         let sock_fd_out = session.tracee_socket_fd();
         let tid = session.trace_reader_mut().peek_frame().unwrap().tid();
 
-        let mut rc: SessionSharedPtr = Rc::new(Box::new(session));
-        let weak_self = Rc::downgrade(&rc);
-        // We never change the weak_self pointer so its a good idea to use
-        // a bit of unsafe here.
-        unsafe { Rc::get_mut_unchecked(&mut rc) }.weak_self = weak_self;
+        let rc: SessionSharedPtr = Rc::new_cyclic(move |weak| {
+            session.weak_self = weak.clone();
+            let b: Box<dyn Session> = Box::new(session);
+            b
+        });
+
         let t = TaskInner::spawn(
-            (*rc).as_ref(),
+            &**rc,
             &error_fd,
             sock_fd_out,
             SaveTraceeFdNumber::SaveToSession,

@@ -1864,8 +1864,7 @@ const SIGBUS_CHECKSUM: u32 = 0x23456789;
 /// is selected by `mode`.
 fn iterate_checksums(t: &dyn Task, mode: ChecksumMode, global_time: FrameTime) {
     let mut filename_vec: Vec<u8> = t.trace_dir().into_vec();
-    let append = format!("/{}_{}", global_time, t.rec_tid());
-    filename_vec.extend_from_slice(append.as_bytes());
+    write!(filename_vec, "/{}_{}", global_time, t.rec_tid()).unwrap();
     let filename = OsString::from_vec(filename_vec);
     let mut checksum_data = match mode {
         ChecksumMode::StoreChecksums => {
