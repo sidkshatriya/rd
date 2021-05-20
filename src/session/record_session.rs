@@ -2923,8 +2923,7 @@ fn note_entering_syscall(t: &RecordTask) {
 }
 
 fn rec_abort_prepared_syscall(t: &RecordTask) {
-    let shared_ptr = t.syscall_state.clone();
-    if let Some(state) = shared_ptr.borrow_mut().as_mut() {
+    if let Some(state) = t.syscall_state.borrow_mut().as_mut() {
         state.abort_syscall_results(t);
     }
     *t.syscall_state.borrow_mut() = None;

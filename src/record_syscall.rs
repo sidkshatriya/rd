@@ -239,7 +239,7 @@ pub fn rec_prepare_syscall(t: &RecordTask) -> Switchable {
         return s;
     }
 
-    t.syscall_state_shr_ptr()
+    t.syscall_state
         .borrow_mut()
         .as_mut()
         .unwrap()
@@ -266,8 +266,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(t: &RecordTask, regs: &Registers
         return Switchable::PreventSwitch;
     }
 
-    let syscall_state_shr = t.syscall_state.clone();
-    let mut syscall_state = RefMut::map(syscall_state_shr.borrow_mut(), |b| b.as_mut().unwrap());
+    let mut syscall_state = RefMut::map(t.syscall_state.borrow_mut(), |b| b.as_mut().unwrap());
     syscall_state.syscall_entry_registers = regs.clone();
 
     if !t.desched_rec().is_null() {
@@ -2196,7 +2195,7 @@ fn rec_prepare_restart_syscall_arch<Arch: Architecture>(t: &RecordTask) {
         // that, we do what the kernel does, and update the
         // outparam at the -ERESTART_RESTART interruption
         // regardless.
-        t.syscall_state_shr_ptr()
+        t.syscall_state
             .borrow_mut()
             .as_mut()
             .unwrap()
@@ -2230,10 +2229,8 @@ fn rec_prepare_restart_syscall_arch<Arch: Architecture>(t: &RecordTask) {
 }
 
 pub fn rec_process_syscall(t: &RecordTask) {
-    let syscall_state_shr = t.syscall_state_shr_ptr();
     {
-        let mut syscall_state =
-            RefMut::map(syscall_state_shr.borrow_mut(), |b| b.as_mut().unwrap());
+        let mut syscall_state = RefMut::map(t.syscall_state.borrow_mut(), |b| b.as_mut().unwrap());
         let sys_ev_arch = t.ev().syscall_event().arch();
         let sys_ev_number = t.ev().syscall_event().number;
         if sys_ev_arch != t.arch() {

@@ -469,7 +469,7 @@ pub struct RecordTask {
     /// DIFF NOTE: This field does not exist in rr
     /// Since the property system is not used intensively in rr its
     /// simpler just to add this single field instead.
-    pub syscall_state: SyscallStateSharedPtr,
+    pub syscall_state: RefCell<Option<TaskSyscallState>>,
 }
 
 impl Deref for RecordTask {
@@ -970,8 +970,6 @@ impl Task for RecordTask {
     }
 }
 
-pub type SyscallStateSharedPtr = Rc<RefCell<Option<TaskSyscallState>>>;
-
 impl RecordTask {
     pub fn emulated_ptracer_unwrap(&self) -> TaskSharedPtr {
         self.emulated_ptracer
@@ -987,10 +985,6 @@ impl RecordTask {
             .borrow()
             .as_ref()
             .map(|w| w.upgrade().unwrap())
-    }
-
-    pub fn syscall_state_shr_ptr(&self) -> SyscallStateSharedPtr {
-        self.syscall_state.clone()
     }
 
     /// Every Task owned by a RecordSession is a RecordTask. Functionality that
