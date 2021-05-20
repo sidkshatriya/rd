@@ -61,11 +61,11 @@ use crate::{
         trace_stream::{MappedData, TraceStream},
     },
     util::{
-        cpuid, cpuid_compatible, default_action, find_cpuid_record, running_under_rd,
-        should_checksum, should_dump_memory, trapped_instruction_at, trapped_instruction_len,
-        validate_process_memory, xcr0, xsave_enabled, CPUIDData, Completion, SignalAction,
-        TrappedInstruction, CPUID_GETFEATURES, CPUID_GETXSAVE, OSXSAVE_FEATURE_FLAG,
-        XSAVEC_FEATURE_FLAG,
+        cpuid, cpuid_compatible, default_action, dump_process_memory, find_cpuid_record,
+        running_under_rd, should_checksum, should_dump_memory, trapped_instruction_at,
+        trapped_instruction_len, validate_process_memory, xcr0, xsave_enabled, CPUIDData,
+        Completion, SignalAction, TrappedInstruction, CPUID_GETFEATURES, CPUID_GETXSAVE,
+        OSXSAVE_FEATURE_FLAG, XSAVEC_FEATURE_FLAG,
     },
     wait_status::WaitStatus,
 };
@@ -2400,7 +2400,7 @@ fn has_deterministic_ticks(ev: &Event, step: ReplayTraceStep) -> bool {
 fn debug_memory(t: &ReplayTask) {
     let current_time = t.current_frame_time();
     if should_dump_memory(t.current_trace_frame().event(), current_time) {
-        unimplemented!()
+        dump_process_memory(t, current_time, "rep");
     }
 
     if t.session().done_initial_exec()

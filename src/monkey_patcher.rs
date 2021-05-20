@@ -325,12 +325,6 @@ impl MonkeyPatcher {
         }
     }
 
-    /// Try to allocate a stub from the sycall patching stub buffer. Returns null
-    /// if there's no buffer or we've run out of free stubs.
-    pub fn allocate_stub(_t: &RecordTask, _bytes: usize) -> RemotePtr<u8> {
-        unimplemented!()
-    }
-
     /// Apply any necessary patching immediately after an mmap. We use this to
     /// patch libpthread.so.
     pub fn patch_after_mmap(

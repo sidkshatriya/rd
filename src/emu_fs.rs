@@ -427,15 +427,14 @@ fn create_tmpfs_file(
 ) -> Option<(ScopedFd, OsString)> {
     let path_tag = replace_char(orig_path, b'/', b'\\');
     let mut name = tmp_dir().into_vec();
-    name.extend_from_slice(
-        format!(
-            "/rd-emufs-{}-dev-{}-inode-{}-",
-            getpid(),
-            orig_device,
-            orig_inode
-        )
-        .as_bytes(),
-    );
+    write!(
+        name,
+        "/rd-emufs-{}-dev-{}-inode-{}-",
+        getpid(),
+        orig_device,
+        orig_inode
+    )
+    .unwrap();
     name.extend_from_slice(&path_tag);
     let name_os = OsString::from_vec(name);
     let fd = ScopedFd::open_path_with_mode(

@@ -38,6 +38,7 @@ use libc::{
 };
 use nix::{
     errno::{errno, Errno},
+    fcntl::{open, OFlag},
     sched::{sched_setaffinity, CpuSet},
     sys::{
         mman::{MapFlags, ProtFlags},
@@ -73,7 +74,10 @@ use std::{
     net,
     os::{
         raw::c_long,
-        unix::ffi::{OsStrExt, OsStringExt},
+        unix::{
+            ffi::{OsStrExt, OsStringExt},
+            io::FromRawFd,
+        },
     },
     path::Path,
     ptr::copy_nonoverlapping,
@@ -1596,8 +1600,45 @@ pub fn should_dump_memory(event: &Event, time: FrameTime) -> bool {
 
 /// Dump all of the memory in `t`'s address to the file
 /// "<trace_dir>/<t.tid>_<global_time>_<tag>"
-pub fn dump_process_memory(_t: &dyn Task, _global_time: FrameTime, _tag: &str) {
-    unimplemented!()
+pub fn dump_process_memory(t: &dyn Task, global_time: FrameTime, tag: &str) {
+    let filename = format_dump_filename(t, global_time, tag);
+    let dump_file_fd = open(
+        filename.as_os_str(),
+        OFlag::O_WRONLY | OFlag::O_CREAT | OFlag::O_TRUNC | OFlag::O_CLOEXEC,
+        Mode::S_IWUSR | Mode::S_IRUSR,
+    )
+    .unwrap();
+    let dump_file_raw = unsafe { File::from_raw_fd(dump_file_fd) };
+    let mut dump_file = BufWriter::new(dump_file_raw);
+
+    for (_, m) in &t.vm().maps() {
+        let mut mem = vec![0u8; m.map.size()];
+
+        let mem_len = t.read_bytes_fallible(m.map.start(), &mut mem).unwrap_or(0);
+
+        if !is_start_of_scratch_region(t, m.map.start()) {
+            dump_binary_chunk(
+                &mut dump_file,
+                m.map.str(true),
+                &mem[0..mem_len],
+                m.map.start(),
+            );
+        }
+    }
+}
+
+fn dump_binary_chunk(dump_file: &mut dyn Write, label: String, buf: &[u8], start: RemotePtr<u8>) {
+    writeln!(dump_file, "{}", label).unwrap();
+    for i in (0..buf.len()).step_by(4) {
+        let word = u32::from_le_bytes(buf[i..i + 4].try_into().unwrap());
+        writeln!(dump_file, "{:#010x} | [{:#x}]", word, start.as_usize() + i).unwrap();
+    }
+}
+
+fn format_dump_filename(t: &dyn Task, global_time: FrameTime, tag: &str) -> OsString {
+    let mut filename = t.trace_dir().into_vec();
+    write!(filename, "/{}_{}_{}", t.rec_tid(), global_time, tag).unwrap();
+    OsString::from_vec(filename)
 }
 
 /// Return true if the user has requested `t`'s memory be
