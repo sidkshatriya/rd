@@ -108,7 +108,7 @@ pub fn handle_signal(
     let sig = Sig::try_from(si.si_signo).unwrap();
     log!(
         LogDebug,
-        "{}: handling signal {} (pevent: {}, event: {}",
+        "{}: handling signal {} (pevent: {}, event: {})",
         t.tid(),
         sig,
         t.maybe_ptrace_event(),

@@ -645,6 +645,17 @@ impl Registers {
         )
     }
 
+    pub fn syscall_restart_type(&self) -> String {
+        // Note the negation
+        match -self.syscall_result_signed() as u32 {
+            ERESTART_RESTARTBLOCK => "-ERESTART_RESTARTBLOCK".into(),
+            ERESTARTNOINTR => "-ERESTARTNOINTR".into(),
+            ERESTARTNOHAND => "-ERESTARTNOHAND".into(),
+            ERESTARTSYS => "-ERESTARTSYS".into(),
+            _ => format!("{:x}", self.syscall_result()),
+        }
+    }
+
     pub fn ip(&self) -> RemoteCodePtr {
         let addr = rd_get_reg!(self, eip, rip);
         RemoteCodePtr::from_val(addr)

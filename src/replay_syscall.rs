@@ -574,9 +574,10 @@ fn rep_process_syscall_arch<Arch: Architecture>(
         t.set_return_value_from_trace();
         log!(
             LogDebug,
-            "  {} interrupted by {} at {}, may restart",
+            "  {} interrupted by {} ({}) at {}, may restart",
             syscall_name(sys, Arch::arch()),
-            trace_regs.syscall_result(),
+            trace_regs.syscall_result_signed(),
+            trace_regs.syscall_restart_type(),
             trace_regs.ip()
         );
     }

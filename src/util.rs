@@ -1726,7 +1726,7 @@ pub fn is_deterministic_signal(t: &dyn Task) -> SignalDeterministic {
         //
         // So if the signal is maybe-synchronous, and the
         // kernel delivered it, then it must have been
-        // delivered deterministically. */
+        // delivered deterministically.
         {
             if t.get_siginfo().si_code > 0 {
                 SignalDeterministic::DeterministicSig

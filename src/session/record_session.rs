@@ -745,7 +745,7 @@ impl RecordSession {
             return true;
         }
 
-        if maybe_sig == sig::SIGTRAP && handle_syscallbuf_breakpoint(t.as_rec_unwrap()) {
+        if sig == sig::SIGTRAP && handle_syscallbuf_breakpoint(t.as_rec_unwrap()) {
             return true;
         }
 
