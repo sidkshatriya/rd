@@ -570,7 +570,6 @@ impl RecordSession {
             return result;
         }
 
-        // @TODO This assumes that unwrap() will always succeed
         let mut t = self.scheduler().current().unwrap();
         match maybe_prev_task {
             Some(prev_task)
@@ -660,7 +659,6 @@ impl RecordSession {
                 self.syscall_state_changed(t.as_rec_unwrap(), &mut step_state);
             }
         } else if rescheduled.by_waitpid && self.handle_signal_event(&mut t, &mut step_state) {
-            // @TODO Is this what we want here?
             // Do nothing
         } else {
             self.runnable_state_changed(
@@ -735,7 +733,7 @@ impl RecordSession {
             log!(
                 LogWarn,
                 "Dropping {} because it can't be delivered yet",
-                maybe_sig
+                sig
             );
 
             // These signals might have effects on the sigmask.
