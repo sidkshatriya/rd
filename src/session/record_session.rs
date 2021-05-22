@@ -829,7 +829,7 @@ impl RecordSession {
             }
 
             let si = rt.get_siginfo();
-            // This implementation will of course fall over if rr tries to
+            // This implementation will of course fall over if rd tries to
             // record itself.
             //
             // NB: we can't check that the ticks is >= the programmed

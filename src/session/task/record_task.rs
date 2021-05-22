@@ -574,7 +574,7 @@ impl Task for RecordTask {
             // We assume the kernel can't report a new signal of the same number
             // in response to us injecting a signal. XXX is this true??? We don't
             // have much choice, signal injection won't work if we block the signal.
-            // We leave rr signals unblocked. TIME_SLICE_SIGNAL has to be unblocked
+            // We leave rd signals unblocked. TIME_SLICE_SIGNAL has to be unblocked
             // because blocking it seems to cause problems for some hardware/kernel
             // configurations (see https://github.com/rr-debugger/rr/issues/1979),
             // causing them to stop counting events.
@@ -595,13 +595,12 @@ impl Task for RecordTask {
                 }
                 ed_assert_eq!(self, errno(), EINVAL);
             } else {
-                log!(LogDebug,  "Set signal mask to block all signals (bar SYSCALLBUF_DESCHED_SIGNAL/TIME_SLICE_SIGNAL) while we \
-                       have a stashed signal");
+                log!(LogDebug,  "Set signal mask to block all signals (bar SYSCALLBUF_DESCHED_SIGNAL/TIME_SLICE_SIGNAL) while we have a stashed signal");
             }
         }
 
         // TicksRequest::ResumeNoTicks means that tracee code is not going to run so there's no
-        // need to set breakpoints and in fact they might interfere with rr
+        // need to set breakpoints and in fact they might interfere with rd
         // processing.
         if ticks_request != TicksRequest::ResumeNoTicks {
             if !self.at_may_restart_syscall() {
@@ -1995,6 +1994,7 @@ impl RecordTask {
                 siginfo,
                 deterministic,
             }));
+
         // Once we've stashed a signal, stop at the next traced/untraced syscall to
         // check whether we need to process the signal before it runs.
         self.stashed_signals_blocking_more_signals.set(true);

@@ -1322,21 +1322,21 @@ fn ignore_signal(t: &dyn Task) -> bool {
     if !maybe_sig.is_sig() {
         return false;
     }
-
+    let sig = maybe_sig.unwrap_sig();
     if t.session().is_replaying() {
-        if ReplaySession::is_ignored_signal(Some(maybe_sig.unwrap_sig())) {
+        if ReplaySession::is_ignored_signal(Some(sig)) {
             return true;
         }
     } else if t.session().is_recording() {
         let rt = t.as_record_task().unwrap();
-        // Better to use unwrap_sig() here as we've already made sure that maybe_sig.is_sig() above.
-        if maybe_sig.unwrap_sig() != rt.session().as_record().unwrap().syscallbuf_desched_sig() {
+        if sig != rt.session().as_record().unwrap().syscallbuf_desched_sig() {
             rt.stash_sig();
         }
         return true;
     }
-    ed_assert!(t, false, "Unexpected signal {}", maybe_sig.unwrap_sig());
-    false
+
+    ed_assert!(t, false, "Unexpected signal {}", sig);
+    unreachable!()
 }
 
 /// The ABI of the socketcall syscall is a nightmare; the first arg to

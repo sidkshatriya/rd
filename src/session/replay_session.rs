@@ -560,7 +560,13 @@ impl ReplaySession {
         found
     }
 
-    /// @TODO Check this
+    /// Return true if |sig| is a signal that may be generated during
+    /// replay but should be ignored.  For example, SIGCHLD can be
+    /// delivered at almost point during replay when tasks exit, but it's
+    /// not part of the recording and shouldn't be delivered.
+    ///
+    /// TODO: can we do some clever sigprocmask'ing to avoid pending
+    /// signals altogether?
     pub fn is_ignored_signal(sig: Option<Sig>) -> bool {
         matches!(sig, Some(TIME_SLICE_SIGNAL))
     }
