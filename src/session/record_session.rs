@@ -693,7 +693,7 @@ impl RecordSession {
 
         // We try to inject a signal if there's one pending; otherwise we continue
         // task execution.
-        if !self.prepare_to_inject_signal(&t, &mut step_state)
+        if !self.prepare_to_inject_signal(t.as_rec_unwrap(), &mut step_state)
             && step_state.continue_type != ContinueType::DontContinue
         {
             // Ensure that we aren't allowing switches away from a running task.
@@ -1503,7 +1503,7 @@ impl RecordSession {
         }
     }
 
-    fn prepare_to_inject_signal(&self, t_shr: &TaskSharedPtr, step_state: &mut StepState) -> bool {
+    fn prepare_to_inject_signal(&self, t: &RecordTask, step_state: &mut StepState) -> bool {
         if !self.done_initial_exec() || step_state.continue_type != ContinueType::Continue {
             return false;
         }
@@ -1513,41 +1513,38 @@ impl RecordSession {
         let mut sig: Sig;
         let mut ssig_addr: *const StashedSignal;
 
-        {
-            let t = t_shr.as_rec_unwrap();
-            loop {
-                match t.peek_stashed_sig_to_deliver() {
-                    Some(ssig_obtained) => {
-                        ssig_addr = ssig_obtained;
-                        ssig = unsafe { *ssig_obtained };
-                        si.linux_api = ssig.siginfo;
-                        sig = Sig::try_from(unsafe { si.linux_api.si_signo }).unwrap();
-                        if Some(sig) == self.get_ignore_sig() {
-                            log!(LogDebug, "Declining to deliver {} by user request", sig);
-                            t.pop_stash_sig(ssig_addr);
-                            t.stashed_signal_processed();
-                        } else {
-                            break;
-                        }
+        loop {
+            match t.peek_stashed_sig_to_deliver() {
+                Some(ssig_obtained) => {
+                    ssig_addr = ssig_obtained;
+                    ssig = unsafe { *ssig_obtained };
+                    si.linux_api = ssig.siginfo;
+                    sig = Sig::try_from(unsafe { si.linux_api.si_signo }).unwrap();
+                    if Some(sig) == self.get_ignore_sig() {
+                        log!(LogDebug, "Declining to deliver {} by user request", sig);
+                        t.pop_stash_sig(ssig_addr);
+                        t.stashed_signal_processed();
+                    } else {
+                        break;
                     }
-                    None => return false,
                 }
-            }
-
-            if ssig.deterministic == SignalDeterministic::DeterministicSig
-                && ssig.siginfo.si_signo == SIGSYS
-                && t.is_sig_blocked(sig::SIGSYS)
-            {
-                // Our synthesized deterministic SIGSYS (seccomp trap) needs to match the
-                // kernel behavior of unblocking the signal and resetting disposition to
-                // default.
-                t.unblock_signal(sig::SIGSYS);
-                t.set_sig_handler_default(sig::SIGSYS);
+                None => return false,
             }
         }
 
+        if ssig.deterministic == SignalDeterministic::DeterministicSig
+            && ssig.siginfo.si_signo == SIGSYS
+            && t.is_sig_blocked(sig::SIGSYS)
+        {
+            // Our synthesized deterministic SIGSYS (seccomp trap) needs to match the
+            // kernel behavior of unblocking the signal and resetting disposition to
+            // default.
+            t.unblock_signal(sig::SIGSYS);
+            t.set_sig_handler_default(sig::SIGSYS);
+        }
+
         let res = handle_signal(
-            t_shr.as_rec_unwrap(),
+            t,
             unsafe { si.linux_api },
             ssig.deterministic,
             SignalBlocked::SigUnblocked,
@@ -1580,15 +1577,14 @@ impl RecordSession {
                 );
                 // Signal is now a pending event on `t`'s event stack
 
-                if t_shr.as_rec_unwrap().ev().event_type() == EventType::EvSched {
-                    if t_shr.as_rec_unwrap().maybe_in_spinlock() {
+                if t.ev().event_type() == EventType::EvSched {
+                    if t.maybe_in_spinlock() {
                         // So that we can provide a shared pointer to the scheduler
                         log!(
                             LogDebug,
                             "Detected possible spinlock, forcing one round-robin"
                         );
-                        self.scheduler()
-                            .schedule_one_round_robin(t_shr.as_rec_unwrap());
+                        self.scheduler().schedule_one_round_robin(t);
                     }
                     // Allow switching after a SCHED. We'll flush the SCHED if and only
                     // if we really do a switch.
@@ -1598,9 +1594,9 @@ impl RecordSession {
         }
 
         step_state.continue_type = ContinueType::DontContinue;
-        t_shr.as_rec_unwrap().pop_stash_sig(ssig_addr);
-        if t_shr.as_rec_unwrap().ev().event_type() != EventType::EvSignal {
-            t_shr.as_rec_unwrap().stashed_signal_processed();
+        t.pop_stash_sig(ssig_addr);
+        if t.ev().event_type() != EventType::EvSignal {
+            t.stashed_signal_processed();
         }
 
         true
@@ -1877,7 +1873,7 @@ impl RecordSession {
             if ticks == 0 {
                 *step_result = RecordResult::StepSpawnFailed(
                     "rd internal recorder error: Performance counter doesn't seem to \n\
-                     be working. Are you perhaps running rr in a VM but didn't enable \n\
+                     be working. Are you perhaps running rd in a VM but didn't enable \n\
                      perf-counter virtualization?"
                         .into(),
                 );
