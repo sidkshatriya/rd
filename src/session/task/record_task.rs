@@ -841,6 +841,12 @@ impl Task for RecordTask {
             // state, because we do not allow stashed_signals_blocking_more_signals
             // to hold across syscalls (traced or untraced) that change the signal mask.
             ed_assert!(self, !self.blocked_sigs_dirty.get());
+            log!(
+                LogDebug,
+                "Restoring sigmask to {:#x} for tid:{}",
+                self.blocked_sigs.get(),
+                self.tid()
+            );
             self.xptrace(
                 PTRACE_SETSIGMASK,
                 RemotePtr::<Void>::from(size_of::<sig_set_t>()),
@@ -2876,8 +2882,9 @@ impl RecordTask {
             self.blocked_sigs.set(self.read_sigmask_from_process());
             log!(
                 LogDebug,
-                "Refreshed sigmask, now {:#x}",
-                self.blocked_sigs.get()
+                "Refreshed sigmask, now {:#x} for tid:{}",
+                self.blocked_sigs.get(),
+                self.tid()
             );
             self.blocked_sigs_dirty.set(false);
         }
