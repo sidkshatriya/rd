@@ -6,6 +6,7 @@ use crate::{
     kernel_abi::{syscall_instruction_length, syscall_number_for_gettid, SupportedArch},
     kernel_metadata::syscall_name,
     log::LogLevel::{LogDebug, LogWarn},
+    perf_counters,
     preload_interface::{syscallbuf_record, PRELOAD_THREAD_LOCALS_SIZE},
     registers::Registers,
     remote_ptr::{RemotePtr, Void},
@@ -267,6 +268,7 @@ pub trait Task: Deref<Target = TaskInner> {
                 self.maybe_stop_sig(),
             );
             if self.maybe_stop_sig() == self.session().as_record().unwrap().syscallbuf_desched_sig()
+                || self.maybe_stop_sig() == perf_counters::TIME_SLICE_SIGNAL
             {
                 continue;
             }
