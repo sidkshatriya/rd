@@ -5,3 +5,4 @@ pub mod trace_reader;
 pub mod trace_stream;
 pub mod trace_task_event;
 pub mod trace_writer;
+pub mod lexical_key;
