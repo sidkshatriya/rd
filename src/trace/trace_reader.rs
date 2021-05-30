@@ -565,6 +565,7 @@ impl TraceReader {
         }
         total
     }
+
     pub fn compressed_bytes(&self) -> u64 {
         let mut total: u64 = 0;
         for w in self.readers.values() {
@@ -576,7 +577,10 @@ impl TraceReader {
     /// Open the trace in 'dir'. When 'dir' is the `None`, open the
     /// latest trace.
     pub fn new<T: AsRef<OsStr>>(maybe_dir: Option<T>) -> TraceReader {
-        let mut trace_stream = TraceStream::new(&resolve_trace_name(maybe_dir), 1);
+        // Set the global time at 0, so that when we tick it for the first
+        // event, it matches the initial global time at recording, 1.
+        // We don't know bind_to_cpu right now, will calculate it later and set it
+        let mut trace_stream = TraceStream::new(&resolve_trace_name(maybe_dir), 0, None);
 
         let mut readers: HashMap<Substream, CompressedReader> = HashMap::new();
         for &s in SUBSTREAMS.iter() {
@@ -685,9 +689,6 @@ impl TraceReader {
         }
         uuid_.bytes = uuid_from_trace.try_into().unwrap();
 
-        // Set the global time at 0, so that when we tick it for the first
-        // event, it matches the initial global time at recording, 1.
-        trace_stream.global_time = 0;
         TraceReader {
             trace_stream,
             xcr0_,
@@ -734,6 +735,7 @@ impl TraceReader {
     pub fn preload_thread_locals_recorded(&self) -> bool {
         self.preload_thread_locals_recorded_
     }
+
     pub fn uuid(&self) -> &TraceUuid {
         &self.uuid_
     }

@@ -229,7 +229,7 @@ impl RecordCommand {
 
         match self.print_trace_dir_fd {
             Some(fd) => {
-                let dir = rec_session.trace_writer().dir();
+                let dir = rec_session.trace_writer().trace_stream().dir().to_owned();
                 write_all(fd, dir.as_bytes());
                 write_all(fd, b"\n");
             }
@@ -237,9 +237,9 @@ impl RecordCommand {
         }
 
         if self.copy_preload_src {
-            let dir = rec_session.trace_writer().dir();
-            copy_preload_sources_to_trace(dir.as_os_str());
-            save_rd_git_revision(dir);
+            let dir = rec_session.trace_writer().trace_stream().dir().to_owned();
+            copy_preload_sources_to_trace(&dir);
+            save_rd_git_revision(&dir);
         }
 
         // Install signal handlers after creating the session, to ensure they're not

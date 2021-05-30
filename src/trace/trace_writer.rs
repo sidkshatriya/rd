@@ -1,5 +1,6 @@
 #![allow(clippy::useless_conversion)]
 
+use super::trace_frame::FrameTime;
 use crate::{
     bindings::signal::siginfo_t,
     event::{Event, EventType, SignalDeterministic, SignalResolvedDisposition, SyscallState},
@@ -20,9 +21,8 @@ use crate::{
     trace::{
         compressed_writer::CompressedWriter,
         trace_stream::{
-            latest_trace_symlink, make_trace_dir, substream, to_trace_arch, MappedData,
-            MappedDataSource, RawDataMetadata, Substream, TraceRemoteFd, TraceStream, SUBSTREAMS,
-            TRACE_VERSION,
+            latest_trace_symlink, make_trace_dir, substream, to_trace_arch, RawDataMetadata,
+            Substream, TraceRemoteFd, TraceStream, SUBSTREAMS, TRACE_VERSION,
         },
         trace_task_event::{TraceTaskEvent, TraceTaskEventVariant},
     },
@@ -118,11 +118,7 @@ pub enum CloseStatus {
 /// rd has just started recording (or perhaps died during startup) (or perhaps
 /// that isn't a trace directory at all).
 pub struct TraceWriter {
-    trace_stream: TraceStream,
-    /// @TODO This does not need to be be dynamic as the number of entries is known at
-    /// compile time. This could be a [CompressedWriter; SUBSTREAM_COUNT] or a Box of
-    /// the same.
-    writers: HashMap<Substream, CompressedWriter>,
+    trace_writer_backend: Box<dyn TraceWriterBackend>,
     /// Files that have already been mapped without being copied to the trace,
     /// i.e. that we have already assumed to be immutable.
     /// We store the file name under which we assumed it to be immutable, since
@@ -140,21 +136,19 @@ pub struct TraceWriter {
     supports_file_data_cloning_: bool,
 }
 
-impl Deref for TraceWriter {
-    type Target = TraceStream;
-
-    fn deref(&self) -> &Self::Target {
-        &self.trace_stream
-    }
-}
-
-impl DerefMut for TraceWriter {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.trace_stream
-    }
-}
-
 impl TraceWriter {
+    pub fn time(&self) -> FrameTime {
+        self.trace_writer_backend.time()
+    }
+
+    pub fn trace_stream(&self) -> &TraceStream {
+        self.trace_writer_backend.deref()
+    }
+
+    pub fn trace_stream_mut(&mut self) -> &mut TraceStream {
+        self.trace_writer_backend.deref_mut()
+    }
+
     pub fn supports_file_data_cloning(&self) -> bool {
         self.supports_file_data_cloning_
     }
@@ -295,13 +289,15 @@ impl TraceWriter {
             }
         }
 
-        let events = self.writer_mut(Substream::Events);
-        match write_message(events, &frame_msg) {
+        match self
+            .trace_writer_backend
+            .write_message(Substream::Events, &frame_msg)
+        {
             Err(e) => fatal!("Unable to write events: {:?}", e),
             Ok(_) => (),
         }
 
-        self.tick_time()
+        self.trace_stream_mut().tick_time()
     }
 
     /// Write mapped-region record to the trace.
@@ -324,7 +320,7 @@ impl TraceWriter {
         {
             let mut map = map_msg.init_root::<m_map::Builder>();
             // DIFF NOTE: global_time is a u64 in rd and i64 on rr
-            map.set_frame_time(self.global_time as i64);
+            map.set_frame_time(self.time() as i64);
             map.set_start(km.start().as_usize() as u64);
             map.set_end(km.end().as_usize() as u64);
             map.set_fsname(km.fsname().as_bytes());
@@ -430,8 +426,11 @@ impl TraceWriter {
                 RecordInTrace::DontRecordInTrace
             }
         }
-        let mmaps = self.writer_mut(Substream::Mmaps);
-        match write_message(mmaps, &map_msg) {
+
+        match self
+            .trace_writer_backend
+            .write_message(Substream::Mmaps, &map_msg)
+        {
             Err(e) => fatal!("Unable to write mmaps: {:?}", e),
             Ok(_) => (),
         }
@@ -440,58 +439,13 @@ impl TraceWriter {
         record_in_trace
     }
 
-    pub fn write_mapped_region_to_alternative_stream(
-        mmaps: &mut CompressedWriter,
-        data: &MappedData,
-        km: &KernelMapping,
-        extra_fds: &[TraceRemoteFd],
-        skip_monitoring_mapped_fd: bool,
-    ) {
-        let mut map_msg = message::Builder::new_default();
-        {
-            let mut map = map_msg.init_root::<m_map::Builder>();
-            // DIFF NOTE: global_time is a u64 in rd and i64 on rr
-            map.set_frame_time(data.time as i64);
-            map.set_start(km.start().as_usize() as u64);
-            map.set_end(km.end().as_usize() as u64);
-            map.set_fsname(km.fsname().as_bytes());
-            map.set_device(km.device());
-            map.set_inode(km.inode().into());
-            map.set_prot(km.prot().bits());
-            map.set_flags(km.flags().bits());
-            // DIFF NOTE: file offset is a u64 in rr and i64 in rd
-            map.set_file_offset_bytes(km.file_offset_bytes() as i64);
-            map.set_stat_size(data.file_size_bytes as i64);
-            let mut fds = map.reborrow().init_extra_fds(extra_fds.len() as u32);
-            for (i, _) in extra_fds.iter().enumerate() {
-                let mut e = fds.reborrow().get(i as u32);
-                let r = &extra_fds[i];
-                e.set_tid(r.tid);
-                e.set_fd(r.fd);
-            }
-            map.set_skip_monitoring_mapped_fd(skip_monitoring_mapped_fd);
-            let mut src = map.get_source();
-            match data.source {
-                MappedDataSource::SourceFile => src
-                    .init_file()
-                    .set_backing_file_name(data.filename.as_bytes()),
-                MappedDataSource::SourceTrace => src.set_trace(()),
-                MappedDataSource::SourceZero => src.set_zero(()),
-            }
-        }
-
-        match write_message(mmaps, &map_msg) {
-            Err(e) => fatal!("Unable to write mmaps: {:?}", e),
-            Ok(_) => (),
-        }
-    }
-
     /// Write a raw-data record to the trace.
     /// 'addr' is the address in the tracee where the data came from/will be
     /// restored to.
     pub fn write_raw(&mut self, rec_tid: pid_t, d: &[u8], addr: RemotePtr<Void>) {
-        let data = self.writer_mut(Substream::RawData);
-        data.write_all(d).unwrap();
+        self.trace_writer_backend
+            .write_data(Substream::RawData, d)
+            .unwrap();
         self.raw_recs.push(RawDataMetadata {
             addr,
             rec_tid,
@@ -504,7 +458,7 @@ impl TraceWriter {
         let mut task_msg = message::Builder::new_default();
         let mut task = task_msg.init_root::<task_event::Builder>();
         // DIFF NOTE: This is a u64 in rd and an i64 in rr
-        task.set_frame_time(self.global_time as i64);
+        task.set_frame_time(self.time() as i64);
         task.set_tid(event.tid());
 
         match event.event_variant() {
@@ -529,21 +483,12 @@ impl TraceWriter {
             }
         }
 
-        let tasks = self.writer_mut(Substream::Tasks);
-        match write_message(tasks, &task_msg) {
-            Err(e) => fatal!("Unable to write tasks: {:?}", e),
-            Ok(_) => (),
+        if let Err(e) = self
+            .trace_writer_backend
+            .write_message(Substream::Tasks, &task_msg)
+        {
+            fatal!("Unable to write tasks: {:?}", e);
         }
-    }
-
-    /// Return true iff all trace files are "good".
-    pub fn good(&self) -> bool {
-        for w in self.writers.values() {
-            if !w.good() {
-                return false;
-            }
-        }
-        true
     }
 
     /// Create a trace where the traces are bound to cpu `bind_to_cpu`. This
@@ -558,11 +503,14 @@ impl TraceWriter {
         ticks_semantics_: TicksSemantics,
     ) -> TraceWriter {
         let mut tw = TraceWriter {
-            trace_stream: TraceStream::new(&make_trace_dir(file_name, output_trace_dir), 1),
             ticks_semantics_,
             mmap_count: 0,
             has_cpuid_faulting_: false,
-            writers: Default::default(),
+            trace_writer_backend: Box::new(TraceWriterFileBackend::new(
+                file_name,
+                output_trace_dir,
+                bind_to_cpu,
+            )),
             files_assumed_immutable: Default::default(),
             raw_recs: vec![],
             cpuid_records: vec![],
@@ -570,16 +518,7 @@ impl TraceWriter {
             supports_file_data_cloning_: false,
         };
 
-        tw.bind_to_cpu = bind_to_cpu;
-
-        for &s in Substream::iter() {
-            tw.writers.insert(
-                s,
-                CompressedWriter::new(&tw.path(s), substream(s).block_size, substream(s).threads),
-            );
-        }
-
-        let ver_path = tw.incomplete_version_path();
+        let ver_path = tw.trace_stream().incomplete_version_path();
         tw.version_fd = ScopedFd::open_path_with_mode(
             ver_path.as_os_str(),
             OFlag::O_WRONLY | OFlag::O_CREAT | OFlag::O_EXCL,
@@ -600,7 +539,7 @@ impl TraceWriter {
         write_all(tw.version_fd.as_raw(), buf.as_bytes());
 
         // Test if file data cloning is supported
-        let mut version_clone_path_vec: Vec<u8> = tw.trace_dir.clone().into_vec();
+        let mut version_clone_path_vec: Vec<u8> = tw.trace_stream().dir().to_owned().into_vec();
         version_clone_path_vec.extend_from_slice(b"/tmp_clone");
         let version_clone_path = OsString::from_vec(version_clone_path_vec);
         let version_clone_fd = ScopedFd::open_path_with_mode(
@@ -634,7 +573,7 @@ impl TraceWriter {
         if !probably_not_interactive(Some(STDOUT_FILENO)) {
             println!(
                 "rd: Saving execution to trace directory {:?}.",
-                tw.trace_dir,
+                tw.trace_stream().dir(),
             );
         }
         tw
@@ -666,15 +605,16 @@ impl TraceWriter {
     ///  buffered data is flushed.
     /// If `uuid` is `None` then a uuid will be generated for you.
     pub fn close(&mut self, status: CloseStatus, maybe_uuid: Option<TraceUuid>) {
-        for s in &SUBSTREAMS {
-            let mut w = self.writers.remove(s).unwrap();
-            w.close(None);
-        }
+        self.trace_writer_backend.close();
 
         let mut header_msg = message::Builder::new_default();
         let mut header = header_msg.init_root::<header::Builder>();
         // DIFF NOTE: In rd the bound cpu is an Option<u32>. In rr it is signed.
-        header.set_bind_to_cpu(self.bind_to_cpu.map_or(-1, |c| c.try_into().unwrap()));
+        header.set_bind_to_cpu(
+            self.trace_stream()
+                .bind_to_cpu
+                .map_or(-1, |c| c.try_into().unwrap()),
+        );
         header.set_has_cpuid_faulting(self.has_cpuid_faulting_);
         let cpuid_data = unsafe {
             slice::from_raw_parts::<u8>(
@@ -704,14 +644,14 @@ impl TraceWriter {
         match write_message(&mut f, &header_msg) {
             Err(e) => fatal!(
                 "Unable to write {:?}: {:?}",
-                self.incomplete_version_path(),
+                self.trace_stream().incomplete_version_path(),
                 e
             ),
             Ok(_) => (),
         }
 
-        let incomplete_path = self.incomplete_version_path();
-        let path = self.version_path();
+        let incomplete_path = self.trace_stream().incomplete_version_path();
+        let path = self.trace_stream().version_path();
         match rename(&incomplete_path, &path) {
             Err(e) => fatal!("Unable to create version file {:?}: {:?}", path, e),
             Ok(_) => (),
@@ -739,7 +679,7 @@ impl TraceWriter {
 
         // Link only the trace name, not the full path, so moving a directory full
         // of traces around doesn't break the latest-trace link.
-        let trace_name_path = Path::new(&self.trace_dir);
+        let trace_name_path = Path::new(self.trace_stream().dir());
         let trace_name = trace_name_path.file_name().unwrap();
         match symlink(trace_name, &link_name) {
             Err(e) if errno() != EEXIST => {
@@ -765,7 +705,7 @@ impl TraceWriter {
         path.extend_from_slice(base_file_name.as_bytes());
 
         let mut dest_path = Vec::<u8>::new();
-        dest_path.extend_from_slice(self.dir().as_bytes());
+        dest_path.extend_from_slice(self.trace_stream().dir().as_bytes());
         dest_path.extend_from_slice(b"/");
         dest_path.extend_from_slice(&path);
 
@@ -778,6 +718,7 @@ impl TraceWriter {
         new_name.push(OsStr::from_bytes(&path));
         true
     }
+
     fn try_clone_file(&self, t: &RecordTask, file_name: &OsStr, new_name: &mut OsString) -> bool {
         if !t.session().as_record().unwrap().use_file_cloning() {
             return false;
@@ -793,7 +734,7 @@ impl TraceWriter {
             return false;
         }
         let mut dest_path = Vec::<u8>::new();
-        dest_path.extend_from_slice(self.dir().as_bytes());
+        dest_path.extend_from_slice(self.trace_stream().dir().as_bytes());
         dest_path.extend_from_slice(b"/");
         dest_path.extend_from_slice(&path);
 
@@ -830,7 +771,7 @@ impl TraceWriter {
             return false;
         }
         let mut dest_path = Vec::<u8>::new();
-        dest_path.extend_from_slice(self.dir().as_bytes());
+        dest_path.extend_from_slice(self.trace_stream().dir().as_bytes());
         dest_path.extend_from_slice(b"/");
         dest_path.extend_from_slice(&path);
 
@@ -846,13 +787,6 @@ impl TraceWriter {
         new_name.clear();
         new_name.push(OsStr::from_bytes(&path));
         copy_file(dest.as_raw(), src.as_raw())
-    }
-
-    fn writer(&self, s: Substream) -> &CompressedWriter {
-        self.writers.get(&s).unwrap()
-    }
-    fn writer_mut(&mut self, s: Substream) -> &mut CompressedWriter {
-        self.writers.get_mut(&s).unwrap()
     }
 }
 
@@ -932,5 +866,126 @@ fn to_trace_ticks_semantics(semantics: TicksSemantics) -> TraceTicksSemantics {
             TraceTicksSemantics::RetiredConditionalBranches
         }
         TicksSemantics::TicksTakenBranches => TraceTicksSemantics::TakenBranches,
+    }
+}
+
+trait TraceWriterBackend: DerefMut<Target = TraceStream> {
+    fn write_message(
+        &mut self,
+        stream: Substream,
+        msg: &message::Builder<message::HeapAllocator>,
+    ) -> Result<(), Box<dyn std::error::Error>>;
+
+    fn write_data(
+        &mut self,
+        stream: Substream,
+        buf: &[u8],
+    ) -> Result<(), Box<dyn std::error::Error>>;
+
+    fn close(&mut self);
+}
+
+struct TraceWriterFileBackend {
+    trace_stream: TraceStream,
+    /// @TODO This does not need to be be dynamic as the number of entries is known at
+    /// compile time. This could be a [CompressedWriter; SUBSTREAM_COUNT] or a Box of
+    /// the same.
+    writers: HashMap<Substream, CompressedWriter>,
+}
+
+impl Deref for TraceWriterFileBackend {
+    type Target = TraceStream;
+
+    fn deref(&self) -> &Self::Target {
+        &self.trace_stream
+    }
+}
+
+impl DerefMut for TraceWriterFileBackend {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.trace_stream
+    }
+}
+
+impl TraceWriterFileBackend {
+    fn new(
+        file_name: &OsStr,
+        output_trace_dir: Option<&OsStr>,
+        bind_to_cpu: Option<u32>,
+    ) -> TraceWriterFileBackend {
+        let trace_stream =
+            TraceStream::new(&make_trace_dir(file_name, output_trace_dir), 1, bind_to_cpu);
+        let mut tw = TraceWriterFileBackend {
+            trace_stream,
+            writers: HashMap::new(),
+        };
+
+        for &s in Substream::iter() {
+            let filename = tw.path(s);
+            tw.writers.insert(
+                s,
+                CompressedWriter::new(&filename, substream(s).block_size, substream(s).threads),
+            );
+        }
+        tw
+    }
+
+    fn writer(&self, s: Substream) -> &CompressedWriter {
+        self.writers.get(&s).unwrap()
+    }
+
+    fn writer_mut(&mut self, s: Substream) -> &mut CompressedWriter {
+        self.writers.get_mut(&s).unwrap()
+    }
+
+    /// Return true iff all trace files are "good".
+    pub fn good(&self) -> bool {
+        for w in self.writers.values() {
+            if !w.good() {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Return the path of the file for the given substream.
+    fn path(&self, s: Substream) -> OsString {
+        let mut path_vec: Vec<u8> = Vec::from(self.trace_dir.as_bytes());
+        path_vec.extend_from_slice(b"/");
+        path_vec.extend_from_slice(substream(s).name.as_bytes());
+        OsString::from_vec(path_vec)
+    }
+}
+
+impl TraceWriterBackend for TraceWriterFileBackend {
+    fn close(&mut self) {
+        for s in &SUBSTREAMS {
+            let mut w = self.writers.remove(s).unwrap();
+            w.close(None);
+        }
+    }
+
+    fn write_message(
+        &mut self,
+        stream: Substream,
+        msg: &message::Builder<message::HeapAllocator>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let events = self.writer_mut(stream);
+        match write_message(events, msg) {
+            Ok(()) => Ok(()),
+            Err(e) => Err(Box::new(e)),
+        }
+    }
+
+    fn write_data(
+        &mut self,
+        stream: Substream,
+        buf: &[u8],
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let raw_stream = self.writer_mut(stream);
+        match raw_stream.write_all(buf) {
+            Ok(()) => Ok(()),
+            Err(e) => Err(Box::new(e)),
+        }
     }
 }

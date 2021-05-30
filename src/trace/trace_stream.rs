@@ -112,13 +112,14 @@ impl Default for MappedDataSource {
 /// writing code together for easier coordination.
 impl TraceStream {
     /// Return the directory storing this trace's files.
-    pub fn dir(&self) -> OsString {
-        self.trace_dir.to_owned()
+    pub fn dir(&self) -> &OsStr {
+        &self.trace_dir
     }
 
     pub fn bound_to_cpu(&self) -> Option<u32> {
         self.bind_to_cpu
     }
+
     pub fn set_bound_cpu(&mut self, bound: Option<u32>) {
         self.bind_to_cpu = bound;
     }
@@ -135,15 +136,14 @@ impl TraceStream {
         OsString::from_vec(ss)
     }
 
-    pub fn mmaps_block_size() -> usize {
-        substream(Substream::Mmaps).block_size
-    }
-
-    pub(super) fn new(trace_dir: &OsStr, initial_time: FrameTime) -> TraceStream {
+    pub(super) fn new(
+        trace_dir: &OsStr,
+        initial_time: FrameTime,
+        bind_to_cpu: Option<u32>,
+    ) -> TraceStream {
         TraceStream {
             trace_dir: real_path(trace_dir),
-            // @TODO Is this what we want?
-            bind_to_cpu: Some(0),
+            bind_to_cpu,
             global_time: initial_time,
         }
     }

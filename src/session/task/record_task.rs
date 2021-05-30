@@ -1210,6 +1210,7 @@ impl RecordTask {
                     .as_record_task()
                     .unwrap()
                     .trace_writer()
+                    .trace_stream()
                     .file_data_clone_file_name(tuid);
                 let mut name = AutoRestoreMem::push_cstr(&mut remote, clone_file_name.as_os_str());
                 let filename_addr = name.get().unwrap();
@@ -1327,7 +1328,7 @@ impl RecordTask {
         self.cpuid_mode.set(1);
     }
 
-    pub fn trace_writer(&self) -> OwningHandle<SessionSharedPtr, Ref<'_, TraceWriter>> {
+    pub fn trace_writer(&self) -> OwningHandle<SessionSharedPtr, Ref<TraceWriter>> {
         let sess = self.session();
         let owning_handle = OwningHandle::new_with_fn(sess, |o| {
             unsafe { (*o).as_record() }.unwrap().trace_writer()
@@ -1335,7 +1336,7 @@ impl RecordTask {
         owning_handle
     }
 
-    pub fn trace_writer_mut(&self) -> OwningHandle<SessionSharedPtr, RefMut<'_, TraceWriter>> {
+    pub fn trace_writer_mut(&self) -> OwningHandle<SessionSharedPtr, RefMut<TraceWriter>> {
         let sess = self.session();
         let owning_handle = OwningHandle::new_with_fn(sess, |o| {
             unsafe { (*o).as_record() }.unwrap().trace_writer_mut()
