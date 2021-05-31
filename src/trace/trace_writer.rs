@@ -1,6 +1,9 @@
 #![allow(clippy::useless_conversion)]
 
-use super::{trace_frame::FrameTime, trace_stream::substreams_data};
+use super::{
+    trace_frame::FrameTime, trace_stream::substreams_data,
+    trace_writer_rocksdb::TraceWriterRocksDBBackend,
+};
 use crate::{
     bindings::signal::siginfo_t,
     event::{Event, EventType, SignalDeterministic, SignalResolvedDisposition, SyscallState},
@@ -506,7 +509,7 @@ impl TraceWriter {
             ticks_semantics_,
             mmap_count: 0,
             has_cpuid_faulting_: false,
-            trace_writer_backend: Box::new(TraceWriterFileBackend::new(
+            trace_writer_backend: Box::new(TraceWriterRocksDBBackend::new(
                 file_name,
                 output_trace_dir,
                 bind_to_cpu,

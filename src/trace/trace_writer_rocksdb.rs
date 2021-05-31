@@ -6,7 +6,7 @@ use super::{
 };
 use crate::{trace::lexical_key::LexicalKey128, util::get_num_cpus};
 use capnp::{message, serialize_packed};
-use rocksdb::{ColumnFamily, DB};
+use rocksdb::{ColumnFamily, WriteOptions, DB};
 use std::{
     ffi::OsStr,
     mem,
@@ -15,6 +15,7 @@ use std::{
 };
 
 pub struct TraceWriterRocksDBBackend {
+    default_write_options: WriteOptions,
     trace_stream: TraceStream,
     db: DB,
     current_seq: [u64; SUBSTREAM_COUNT],
@@ -43,13 +44,20 @@ impl TraceWriterRocksDBBackend {
         let trace_stream =
             TraceStream::new(&make_trace_dir(file_name, output_trace_dir), 1, bind_to_cpu);
 
+        let mut woptions = WriteOptions::default();
+        woptions.set_sync(false);
+        woptions.disable_wal(true);
+
         let mut rocks_db_folder = PathBuf::from(trace_stream.dir());
         rocks_db_folder.push("rocksdb");
         let mut options = rocksdb::Options::default();
         options.set_compression_type(rocksdb::DBCompressionType::Zstd);
         options.create_if_missing(true);
         options.create_missing_column_families(true);
-        options.increase_parallelism(get_num_cpus() as i32);
+        options.increase_parallelism(get_num_cpus() as i32 / 2);
+        options.set_num_levels(1);
+        options.set_compression_options(27, 9, 9, 32768);
+
         let db = DB::open_cf(
             &options,
             &rocks_db_folder,
@@ -58,6 +66,7 @@ impl TraceWriterRocksDBBackend {
         .unwrap();
 
         TraceWriterRocksDBBackend {
+            default_write_options: woptions,
             trace_stream,
             current_seq: unsafe { mem::zeroed() },
             db,
@@ -92,7 +101,10 @@ impl TraceWriterBackend for TraceWriterRocksDBBackend {
         let key = LexicalKey128::new(self.global_time, self.incr_current_seq(stream));
         let mut value = Vec::new();
         serialize_packed::write_message(&mut value, msg).unwrap();
-        match self.db.put_cf(self.cf(stream), key, value) {
+        match self
+            .db
+            .put_cf_opt(self.cf(stream), key, value, &self.default_write_options)
+        {
             Ok(()) => Ok(()),
             Err(e) => Err(Box::new(e)),
         }
@@ -104,7 +116,10 @@ impl TraceWriterBackend for TraceWriterRocksDBBackend {
         buf: &[u8],
     ) -> Result<(), Box<dyn std::error::Error>> {
         let key = LexicalKey128::new(self.global_time, self.incr_current_seq(stream));
-        match self.db.put_cf(self.cf(stream), key, buf) {
+        match self
+            .db
+            .put_cf_opt(self.cf(stream), key, buf, &self.default_write_options)
+        {
             Ok(()) => Ok(()),
             Err(e) => Err(Box::new(e)),
         }
