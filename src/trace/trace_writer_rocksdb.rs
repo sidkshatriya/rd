@@ -1,23 +1,24 @@
 use super::{
-    trace_stream::{
-        make_trace_dir, substream, substreams_data, Substream, TraceStream, SUBSTREAM_COUNT,
-    },
+    trace_stream::{make_trace_dir, substreams_data, Substream, TraceStream, SUBSTREAM_COUNT},
     trace_writer::TraceWriterBackend,
 };
 use crate::{trace::lexical_key::LexicalKey128, util::get_num_cpus};
 use capnp::{message, serialize_packed};
+use owning_ref::{OwningRef, RcRef};
 use rocksdb::{ColumnFamily, WriteOptions, DB};
 use std::{
     ffi::OsStr,
-    mem,
     ops::{Deref, DerefMut},
     path::PathBuf,
+    rc::Rc,
 };
 
 pub struct TraceWriterRocksDBBackend {
     default_write_options: WriteOptions,
     trace_stream: TraceStream,
-    db: DB,
+    // @TODO Make this into an array
+    cf_handles: Vec<OwningRef<Rc<DB>, ColumnFamily>>,
+    db: RcRef<DB>,
     current_seq: [u64; SUBSTREAM_COUNT],
 }
 
@@ -55,26 +56,35 @@ impl TraceWriterRocksDBBackend {
         options.create_if_missing(true);
         options.create_missing_column_families(true);
         options.increase_parallelism(get_num_cpus() as i32 / 2);
+        // @TODO Not sure about these
         options.set_num_levels(1);
-        options.set_compression_options(27, 9, 9, 32768);
+        options.set_compression_options(24, 9, 7, 32768);
 
-        let db = DB::open_cf(
-            &options,
-            &rocks_db_folder,
-            substreams_data().iter().map(|d| d.name),
-        )
-        .unwrap();
+        let db = RcRef::new(Rc::new(
+            DB::open_cf(
+                &options,
+                &rocks_db_folder,
+                substreams_data().iter().map(|d| d.name),
+            )
+            .unwrap(),
+        ));
+
+        let mut cf_handles = Vec::new();
+        for s in substreams_data() {
+            cf_handles.push(db.clone().map(|d| d.cf_handle(s.name).unwrap()));
+        }
 
         TraceWriterRocksDBBackend {
             default_write_options: woptions,
             trace_stream,
-            current_seq: unsafe { mem::zeroed() },
+            current_seq: Default::default(),
             db,
+            cf_handles,
         }
     }
 
     fn cf(&self, s: Substream) -> &ColumnFamily {
-        self.db.cf_handle(substream(s).name).unwrap()
+        &self.cf_handles[s as usize]
     }
 
     fn current_seq(&self, s: Substream) -> u64 {
