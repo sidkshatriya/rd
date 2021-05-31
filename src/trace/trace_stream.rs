@@ -15,7 +15,6 @@ use std::{
     io::Write,
     os::unix::ffi::{OsStrExt, OsStringExt},
     path::Path,
-    slice::Iter,
 };
 
 pub const TRACE_VERSION: u32 = 85;
@@ -24,7 +23,7 @@ pub const SUBSTREAM_COUNT: usize = 4;
 
 /// Update `substreams` and TRACE_VERSION when you update this list.
 #[repr(usize)]
-#[derive(Copy, Clone, Eq, PartialEq, Hash)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 pub enum Substream {
     /// Substream that stores events (trace frames).
     Events = 0,
@@ -36,59 +35,58 @@ pub enum Substream {
     Tasks = 3,
 }
 
-/// This needs to be kept in sync with the enum above
-pub const SUBSTREAMS: [Substream; SUBSTREAM_COUNT] = [
-    Substream::Events,
-    Substream::RawData,
-    Substream::Mmaps,
-    Substream::Tasks,
-];
+lazy_static! {
+    static ref SUBSTREAMS_DATA: [SubstreamData; SUBSTREAM_COUNT] = {
+        // NOTE: This needs to be kept in sync with the enum above
+        let arr = [
+            SubstreamData {
+                name: "events",
+                block_size: 1024 * 1024,
+                threads: 1,
+                substream: Substream::Events,
+            },
+            SubstreamData {
+                name: "data",
+                block_size: 1024 * 1024,
+                threads: min(8, get_num_cpus() as usize),
+                substream: Substream::RawData,
+            },
+            SubstreamData {
+                name: "mmaps",
+                block_size: 64 * 1024,
+                threads: 1,
+                substream: Substream::Mmaps,
+            },
+            SubstreamData {
+                name: "tasks",
+                block_size: 64 * 1024,
+                threads: 1,
+                substream: Substream::Tasks,
+            },
+        ];
 
-/// @TODO static mut should be OK but avoid it??
-/// NOTE: This needs to be kept in sync with the enum above
-pub(super) static mut SUBSTREAMS_DATA: [SubstreamData; SUBSTREAM_COUNT] = [
-    SubstreamData {
-        name: "events",
-        block_size: 1024 * 1024,
-        threads: 1,
-    },
-    SubstreamData {
-        name: "data",
-        block_size: 1024 * 1024,
-        // Will be set later. See the substream() fn.
-        threads: 0,
-    },
-    SubstreamData {
-        name: "mmaps",
-        block_size: 64 * 1024,
-        threads: 1,
-    },
-    SubstreamData {
-        name: "tasks",
-        block_size: 64 * 1024,
-        threads: 1,
-    },
-];
+        // Some sanity checks
+        for (i,v) in arr.iter().enumerate() {
+            assert_eq!(v.substream as usize, i);
+        }
 
-pub(super) fn substream(s: Substream) -> &'static SubstreamData {
-    if unsafe { SUBSTREAMS_DATA[Substream::RawData as usize].threads } == 0 {
-        unsafe {
-            SUBSTREAMS_DATA[Substream::RawData as usize].threads = min(8, get_num_cpus() as usize)
-        };
-    }
-    unsafe { &SUBSTREAMS_DATA[s as usize] }
+        arr
+    };
 }
 
-impl Substream {
-    pub fn iter() -> Iter<'static, Substream> {
-        SUBSTREAMS.iter()
-    }
+pub(super) fn substreams_data() -> &'static [SubstreamData; SUBSTREAM_COUNT] {
+    &*SUBSTREAMS_DATA
+}
+
+pub(super) fn substream(s: Substream) -> &'static SubstreamData {
+    &SUBSTREAMS_DATA[s as usize]
 }
 
 pub(super) struct SubstreamData {
     pub(super) name: &'static str,
     pub(super) block_size: usize,
     pub(super) threads: usize,
+    pub(super) substream: Substream,
 }
 
 /// For REMAP_MAPPING maps, the memory contents are preserved so we don't

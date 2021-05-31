@@ -1,5 +1,6 @@
 #![allow(clippy::useless_conversion)]
 
+use super::trace_stream::substreams_data;
 use crate::{
     bindings::{signal::siginfo_t, sysexits::EX_DATAERR},
     event::{
@@ -22,7 +23,7 @@ use crate::{
         trace_stream::{
             latest_trace_symlink, to_trace_arch, trace_save_dir, MappedData,
             MappedDataSource::{SourceFile, SourceTrace, SourceZero},
-            RawDataMetadata, Substream, TraceRemoteFd, TraceStream, SUBSTREAMS, TRACE_VERSION,
+            RawDataMetadata, Substream, TraceRemoteFd, TraceStream, TRACE_VERSION,
         },
         trace_task_event::{
             TraceTaskEvent, TraceTaskEventClone, TraceTaskEventExec, TraceTaskEventExit,
@@ -995,8 +996,11 @@ impl TraceReaderFileBackend {
         let trace_stream = TraceStream::new(&resolve_trace_name(maybe_dir), 0, None);
 
         let mut readers: HashMap<Substream, CompressedReader> = HashMap::new();
-        for &s in SUBSTREAMS.iter() {
-            readers.insert(s, CompressedReader::new(&trace_stream.path(s)));
+        for s in substreams_data() {
+            readers.insert(
+                s.substream,
+                CompressedReader::new(&trace_stream.path(s.substream)),
+            );
         }
 
         TraceReaderFileBackend {

@@ -1,6 +1,6 @@
 #![allow(clippy::useless_conversion)]
 
-use super::trace_frame::FrameTime;
+use super::{trace_frame::FrameTime, trace_stream::substreams_data};
 use crate::{
     bindings::signal::siginfo_t,
     event::{Event, EventType, SignalDeterministic, SignalResolvedDisposition, SyscallState},
@@ -22,7 +22,7 @@ use crate::{
         compressed_writer::CompressedWriter,
         trace_stream::{
             latest_trace_symlink, make_trace_dir, substream, to_trace_arch, RawDataMetadata,
-            Substream, TraceRemoteFd, TraceStream, SUBSTREAMS, TRACE_VERSION,
+            Substream, TraceRemoteFd, TraceStream, TRACE_VERSION,
         },
         trace_task_event::{TraceTaskEvent, TraceTaskEventVariant},
     },
@@ -869,7 +869,7 @@ fn to_trace_ticks_semantics(semantics: TicksSemantics) -> TraceTicksSemantics {
     }
 }
 
-trait TraceWriterBackend: DerefMut<Target = TraceStream> {
+pub(super) trait TraceWriterBackend: DerefMut<Target = TraceStream> {
     fn write_message(
         &mut self,
         stream: Substream,
@@ -920,11 +920,11 @@ impl TraceWriterFileBackend {
             writers: HashMap::new(),
         };
 
-        for &s in Substream::iter() {
-            let filename = tw.path(s);
+        for s in substreams_data() {
+            let filename = tw.path(s.substream);
             tw.writers.insert(
-                s,
-                CompressedWriter::new(&filename, substream(s).block_size, substream(s).threads),
+                s.substream,
+                CompressedWriter::new(&filename, s.block_size, s.threads),
             );
         }
         tw
@@ -959,8 +959,8 @@ impl TraceWriterFileBackend {
 
 impl TraceWriterBackend for TraceWriterFileBackend {
     fn close(&mut self) {
-        for s in &SUBSTREAMS {
-            let mut w = self.writers.remove(s).unwrap();
+        for s in substreams_data() {
+            let mut w = self.writers.remove(&s.substream).unwrap();
             w.close(None);
         }
     }
