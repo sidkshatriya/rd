@@ -1,4 +1,5 @@
 use crate::util::u8_slice;
+use std::convert::TryInto;
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -18,6 +19,14 @@ impl LexicalKey128 {
         LexicalKey128 {
             key1: key1.to_be_bytes(),
             key2: key2.to_be_bytes(),
+        }
+    }
+
+    pub fn from(data: &[u8]) -> LexicalKey128 {
+        assert_eq!(data.len(), 16);
+        LexicalKey128 {
+            key1: data[0..8].try_into().unwrap(),
+            key2: data[8..16].try_into().unwrap(),
         }
     }
 

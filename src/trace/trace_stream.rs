@@ -171,11 +171,6 @@ impl TraceStream {
         version_path.extend_from_slice(b"/incomplete");
         OsString::from_vec(version_path)
     }
-
-    /// Increment the global time and return the incremented value.
-    pub(super) fn tick_time(&mut self) {
-        self.global_time += 1
-    }
 }
 
 /// TraceStream stores all the data common to both recording and

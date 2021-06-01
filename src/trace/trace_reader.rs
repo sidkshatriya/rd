@@ -1,6 +1,6 @@
 #![allow(clippy::useless_conversion)]
 
-use super::trace_stream::substreams_data;
+use super::{trace_reader_rocksdb::TraceReaderRocksDBBackend, trace_stream::substreams_data};
 use crate::{
     bindings::{signal::siginfo_t, sysexits::EX_DATAERR},
     event::{
@@ -150,7 +150,7 @@ impl TraceReader {
             .unwrap();
         let frame: frame::Reader = frame_msg.get_root::<frame::Reader>().unwrap();
 
-        self.trace_stream_mut().tick_time();
+        self.trace_reader_backend.tick_time();
 
         let mem_writes = frame.get_mem_writes().unwrap();
         self.raw_recs = Vec::new();
@@ -578,7 +578,7 @@ impl TraceReader {
     /// latest trace.
     pub fn new<T: AsRef<OsStr>>(maybe_dir: Option<T>) -> TraceReader {
         let mut trace_reader_backend: Box<dyn TraceReaderBackend> =
-            Box::new(TraceReaderFileBackend::new(maybe_dir));
+            Box::new(TraceReaderRocksDBBackend::new(maybe_dir));
         let path = trace_reader_backend.version_path();
         let version_file: File = match File::open(&path) {
             Err(e) => {
@@ -817,7 +817,7 @@ fn i32_to_tid(tid: i32) -> pid_t {
     tid
 }
 
-fn resolve_trace_name<T: AsRef<OsStr>>(maybe_trace_name: Option<T>) -> OsString {
+pub(super) fn resolve_trace_name<T: AsRef<OsStr>>(maybe_trace_name: Option<T>) -> OsString {
     if maybe_trace_name.is_none() {
         return latest_trace_symlink();
     }
@@ -841,7 +841,7 @@ fn resolve_trace_name<T: AsRef<OsStr>>(maybe_trace_name: Option<T>) -> OsString 
     trace_name
 }
 
-trait TraceReaderBackend: DerefMut<Target = TraceStream> {
+pub(super) trait TraceReaderBackend: DerefMut<Target = TraceStream> {
     fn make_clone(&self) -> Box<dyn TraceReaderBackend>;
 
     fn read_message(
@@ -872,6 +872,10 @@ trait TraceReaderBackend: DerefMut<Target = TraceStream> {
 
     fn skip(&mut self, substream: Substream, size: usize)
         -> Result<(), Box<dyn std::error::Error>>;
+
+    fn tick_time(&mut self) {
+        self.global_time += 1;
+    }
 }
 
 impl TraceReaderBackend for TraceReaderFileBackend {

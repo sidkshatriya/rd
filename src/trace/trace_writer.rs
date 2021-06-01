@@ -300,7 +300,7 @@ impl TraceWriter {
             Ok(_) => (),
         }
 
-        self.trace_stream_mut().tick_time()
+        self.trace_writer_backend.tick_time()
     }
 
     /// Write mapped-region record to the trace.
@@ -886,6 +886,10 @@ pub(super) trait TraceWriterBackend: DerefMut<Target = TraceStream> {
     ) -> Result<(), Box<dyn std::error::Error>>;
 
     fn close(&mut self);
+
+    fn tick_time(&mut self) {
+        self.global_time += 1;
+    }
 }
 
 struct TraceWriterFileBackend {

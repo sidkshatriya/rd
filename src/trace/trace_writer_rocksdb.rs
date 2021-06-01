@@ -134,4 +134,9 @@ impl TraceWriterBackend for TraceWriterRocksDBBackend {
             Err(e) => Err(Box::new(e)),
         }
     }
+
+    fn tick_time(&mut self) {
+        self.global_time += 1;
+        self.current_seq = Default::default();
+    }
 }
