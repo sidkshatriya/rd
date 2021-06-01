@@ -5,10 +5,7 @@ use super::{
 use crate::{trace::lexical_key::LexicalKey128, util::get_num_cpus};
 use capnp::{message, serialize_packed};
 use owning_ref::{OwningRef, RcRef};
-use rocksdb::{
-    ColumnFamily, DBIteratorWithThreadMode, DBRawIteratorWithThreadMode, Direction, IteratorMode,
-    ReadOptions, WriteOptions, DB,
-};
+use rocksdb::{ColumnFamily, DBIteratorWithThreadMode, Direction, IteratorMode, ReadOptions, DB};
 use std::{
     convert::AsRef,
     ffi::OsStr,
