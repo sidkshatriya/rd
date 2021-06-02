@@ -48,14 +48,7 @@ impl TraceReaderRocksDBBackend {
         rocks_db_folder.push("rocksdb");
 
         let mut options = rocksdb::Options::default();
-
-        options.set_compression_type(rocksdb::DBCompressionType::Zstd);
-        options.increase_parallelism(get_num_cpus() as i32 / 2);
-
-        // @TODO Not sure about these
-        options.set_num_levels(0);
-        options.set_compression_options(24, 9, 7, 32768);
-        options.set_allow_mmap_reads(true);
+        options.increase_parallelism(get_num_cpus() as i32);
 
         let db = RcRef::new(Rc::new(
             DB::open_cf_for_read_only(

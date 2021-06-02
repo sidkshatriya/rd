@@ -52,19 +52,19 @@ impl TraceWriterRocksDBBackend {
         let mut rocks_db_folder = PathBuf::from(trace_stream.dir());
         rocks_db_folder.push("rocksdb");
         let mut options = rocksdb::Options::default();
-        options.set_compression_type(rocksdb::DBCompressionType::Zstd);
+        options.set_compression_type(rocksdb::DBCompressionType::Snappy);
         options.create_if_missing(true);
         options.create_missing_column_families(true);
-        options.increase_parallelism(get_num_cpus() as i32 / 2);
+        options.increase_parallelism(get_num_cpus() as i32);
 
         // @TODO Not sure about these
-        options.set_num_levels(1);
-        options.set_compression_options(24, 9, 7, 32768);
-        options.set_write_buffer_size(268435456);
-        options.set_compression_per_level(&[
-            rocksdb::DBCompressionType::Zstd,
-            rocksdb::DBCompressionType::Zstd,
-        ]);
+        // options.set_num_levels(1);
+        // options.set_compression_options(24, 9, 7, 32768);
+        // options.set_write_buffer_size(268435456);
+        // options.set_compression_per_level(&[
+        //    rocksdb::DBCompressionType::None,
+        //    rocksdb::DBCompressionType::Snappy,
+        // ]);
 
         let db = RcRef::new(Rc::new(
             DB::open_cf(
