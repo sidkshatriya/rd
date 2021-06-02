@@ -69,7 +69,7 @@ dependencies = [
  "cfg-if",
  "libc",
  "miniz_oxide",
- "object",
+ "object 0.24.0",
  "rustc-demangle",
 ]
 
@@ -394,14 +394,15 @@ dependencies = [
 
 [[package]]
 name = "nix"
-version = "0.20.0"
+version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa9b4819da1bc61c0ea48b63b7bc8604064dd43013e7cc325df098d49cd7c18a"
+checksum = "5c3728fec49d363a50a8828a190b379a446cc5cf085c06259bbbeb34447e4ec7"
 dependencies = [
  "bitflags",
  "cc",
  "cfg-if",
  "libc",
+ "memoffset",
 ]
 
 [[package]]
@@ -419,8 +420,15 @@ name = "object"
 version = "0.24.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1a5b3dd1c072ee7963717671d1ca129f1048fda25edea6b752bfc71ac8854170"
+
+[[package]]
+name = "object"
+version = "0.25.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4f26e9fafdc766a38d6929975130ddc0f3d4fda5c10a8ec7acf67fd01f13c1d1"
 dependencies = [
  "flate2",
+ "memchr",
 ]
 
 [[package]]
@@ -562,7 +570,7 @@ dependencies = [
  "memchr",
  "memoffset",
  "nix",
- "object",
+ "object 0.25.0",
  "owning_ref",
  "rand",
  "raw-cpuid",
