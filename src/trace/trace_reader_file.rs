@@ -53,10 +53,11 @@ impl TraceReaderBackend for TraceReaderFileBackend {
     fn read_data_exact(
         &mut self,
         substream: Substream,
-        buf: &mut [u8],
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        match self.reader_mut(substream).read_exact(buf) {
-            Ok(()) => Ok(()),
+        size: usize,
+    ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+        let mut buf = vec![0u8; size];
+        match self.reader_mut(substream).read_exact(&mut buf) {
+            Ok(()) => Ok(buf),
             Err(e) => Err(Box::new(e)),
         }
     }

@@ -515,14 +515,17 @@ impl TraceReader {
             return None;
         }
         let rec = self.raw_recs.pop().unwrap();
-        let mut d = RawData {
-            data: vec![0u8; rec.size],
+        let data = self
+            .trace_reader_backend
+            .read_data_exact(Substream::RawData, rec.size)
+            .unwrap();
+
+        let d = RawData {
+            data,
             addr: rec.addr,
             rec_tid: rec.rec_tid,
         };
-        self.trace_reader_backend
-            .read_data_exact(Substream::RawData, &mut d.data)
-            .unwrap();
+
         Some(d)
     }
 
@@ -861,8 +864,8 @@ pub(super) trait TraceReaderBackend: DerefMut<Target = TraceStream> {
     fn read_data_exact(
         &mut self,
         substream: Substream,
-        buf: &mut [u8],
-    ) -> Result<(), Box<dyn std::error::Error>>;
+        size: usize,
+    ) -> Result<Vec<u8>, Box<dyn std::error::Error>>;
 
     fn at_end(&self, substream: Substream) -> bool;
 

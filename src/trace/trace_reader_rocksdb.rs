@@ -124,13 +124,12 @@ impl TraceReaderBackend for TraceReaderRocksDBBackend {
     fn read_data_exact(
         &mut self,
         substream: Substream,
-        buf: &mut [u8],
-    ) -> Result<(), Box<dyn std::error::Error>> {
+        size: usize,
+    ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let (key, value) = self.iter(substream).next().unwrap();
         self.current_keys[substream as usize] = Some(LexicalKey128::from(&*key));
-        assert_eq!(value.len(), buf.len());
-        buf.copy_from_slice(&*value);
-        Ok(())
+        assert_eq!(value.len(), size);
+        Ok(Vec::from(value))
     }
 
     fn at_end(&self, substream: Substream) -> bool {
