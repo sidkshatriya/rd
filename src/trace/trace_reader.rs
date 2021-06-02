@@ -1,6 +1,11 @@
 #![allow(clippy::useless_conversion)]
 
+#[cfg(not(feature = "rocksdb"))]
+use super::trace_reader_file::TraceReaderFileBackend;
+
+#[cfg(feature = "rocksdb")]
 use super::trace_reader_rocksdb::TraceReaderRocksDBBackend;
+
 use crate::{
     bindings::{signal::siginfo_t, sysexits::EX_DATAERR},
     event::{
@@ -575,8 +580,14 @@ impl TraceReader {
     /// Open the trace in 'dir'. When 'dir' is the `None`, open the
     /// latest trace.
     pub fn new<T: AsRef<OsStr>>(maybe_dir: Option<T>) -> TraceReader {
+        #[cfg(feature = "rocksdb")]
         let mut trace_reader_backend: Box<dyn TraceReaderBackend> =
             Box::new(TraceReaderRocksDBBackend::new(maybe_dir));
+
+        #[cfg(not(feature = "rocksdb"))]
+        let mut trace_reader_backend: Box<dyn TraceReaderBackend> =
+            Box::new(TraceReaderFileBackend::new(maybe_dir));
+
         let path = trace_reader_backend.version_path();
         let version_file: File = match File::open(&path) {
             Err(e) => {

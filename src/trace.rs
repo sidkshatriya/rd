@@ -1,12 +1,17 @@
-pub mod compressed_reader;
-pub mod compressed_writer;
-pub mod lexical_key;
+mod compressed_reader;
+mod compressed_writer;
+mod lexical_key;
 pub mod trace_frame;
 pub mod trace_reader;
-pub mod trace_reader_file;
-pub mod trace_reader_rocksdb;
+mod trace_reader_file;
+
+#[cfg(feature = "rocksdb")]
+mod trace_reader_rocksdb;
+
 pub mod trace_stream;
 pub mod trace_task_event;
 pub mod trace_writer;
 pub mod trace_writer_file;
-pub mod trace_writer_rocksdb;
+
+#[cfg(feature = "rocksdb")]
+mod trace_writer_rocksdb;

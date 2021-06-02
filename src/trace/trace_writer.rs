@@ -1,9 +1,11 @@
 #![allow(clippy::useless_conversion)]
 
-use super::{
-    trace_frame::FrameTime, trace_stream::substreams_data,
-    trace_writer_rocksdb::TraceWriterRocksDBBackend,
-};
+#[cfg(feature = "rocksdb")]
+use super::trace_writer_rocksdb::TraceWriterRocksDBBackend;
+
+#[cfg(not(feature = "rocksdb"))]
+use super::trace_writer_file::TraceWriterFileBackend;
+
 use crate::{
     bindings::signal::siginfo_t,
     event::{Event, EventType, SignalDeterministic, SignalResolvedDisposition, SyscallState},
@@ -22,10 +24,10 @@ use crate::{
         task::record_task::RecordTask,
     },
     trace::{
-        compressed_writer::CompressedWriter,
+        trace_frame::FrameTime,
         trace_stream::{
-            latest_trace_symlink, make_trace_dir, substream, to_trace_arch, RawDataMetadata,
-            Substream, TraceRemoteFd, TraceStream, TRACE_VERSION,
+            latest_trace_symlink, to_trace_arch, RawDataMetadata, Substream, TraceRemoteFd,
+            TraceStream, TRACE_VERSION,
         },
         trace_task_event::{TraceTaskEvent, TraceTaskEventVariant},
     },
@@ -83,6 +85,7 @@ pub enum MappingOrigin {
     PatchMapping,
     RdBufferMapping,
 }
+
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub enum CloseStatus {
     /// Trace completed normally and can be replayed.
@@ -505,11 +508,29 @@ impl TraceWriter {
         output_trace_dir: Option<&OsStr>,
         ticks_semantics_: TicksSemantics,
     ) -> TraceWriter {
+        #[cfg(feature = "rocksdb")]
         let mut tw = TraceWriter {
             ticks_semantics_,
             mmap_count: 0,
             has_cpuid_faulting_: false,
             trace_writer_backend: Box::new(TraceWriterRocksDBBackend::new(
+                file_name,
+                output_trace_dir,
+                bind_to_cpu,
+            )),
+            files_assumed_immutable: Default::default(),
+            raw_recs: vec![],
+            cpuid_records: vec![],
+            version_fd: ScopedFd::new(),
+            supports_file_data_cloning_: false,
+        };
+
+        #[cfg(not(feature = "rocksdb"))]
+        let mut tw = TraceWriter {
+            ticks_semantics_,
+            mmap_count: 0,
+            has_cpuid_faulting_: false,
+            trace_writer_backend: Box::new(TraceWriterFileBackend::new(
                 file_name,
                 output_trace_dir,
                 bind_to_cpu,
@@ -889,110 +910,5 @@ pub(super) trait TraceWriterBackend: DerefMut<Target = TraceStream> {
 
     fn tick_time(&mut self) {
         self.global_time += 1;
-    }
-}
-
-struct TraceWriterFileBackend {
-    trace_stream: TraceStream,
-    /// @TODO This does not need to be be dynamic as the number of entries is known at
-    /// compile time. This could be a [CompressedWriter; SUBSTREAM_COUNT] or a Box of
-    /// the same.
-    writers: HashMap<Substream, CompressedWriter>,
-}
-
-impl Deref for TraceWriterFileBackend {
-    type Target = TraceStream;
-
-    fn deref(&self) -> &Self::Target {
-        &self.trace_stream
-    }
-}
-
-impl DerefMut for TraceWriterFileBackend {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.trace_stream
-    }
-}
-
-impl TraceWriterFileBackend {
-    fn new(
-        file_name: &OsStr,
-        output_trace_dir: Option<&OsStr>,
-        bind_to_cpu: Option<u32>,
-    ) -> TraceWriterFileBackend {
-        let trace_stream =
-            TraceStream::new(&make_trace_dir(file_name, output_trace_dir), 1, bind_to_cpu);
-        let mut tw = TraceWriterFileBackend {
-            trace_stream,
-            writers: HashMap::new(),
-        };
-
-        for s in substreams_data() {
-            let filename = tw.path(s.substream);
-            tw.writers.insert(
-                s.substream,
-                CompressedWriter::new(&filename, s.block_size, s.threads),
-            );
-        }
-        tw
-    }
-
-    fn writer(&self, s: Substream) -> &CompressedWriter {
-        self.writers.get(&s).unwrap()
-    }
-
-    fn writer_mut(&mut self, s: Substream) -> &mut CompressedWriter {
-        self.writers.get_mut(&s).unwrap()
-    }
-
-    /// Return true iff all trace files are "good".
-    pub fn good(&self) -> bool {
-        for w in self.writers.values() {
-            if !w.good() {
-                return false;
-            }
-        }
-        true
-    }
-
-    /// Return the path of the file for the given substream.
-    fn path(&self, s: Substream) -> OsString {
-        let mut path_vec: Vec<u8> = Vec::from(self.trace_dir.as_bytes());
-        path_vec.extend_from_slice(b"/");
-        path_vec.extend_from_slice(substream(s).name.as_bytes());
-        OsString::from_vec(path_vec)
-    }
-}
-
-impl TraceWriterBackend for TraceWriterFileBackend {
-    fn close(&mut self) {
-        for s in substreams_data() {
-            let mut w = self.writers.remove(&s.substream).unwrap();
-            w.close(None);
-        }
-    }
-
-    fn write_message(
-        &mut self,
-        stream: Substream,
-        msg: &message::Builder<message::HeapAllocator>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let events = self.writer_mut(stream);
-        match write_message(events, msg) {
-            Ok(()) => Ok(()),
-            Err(e) => Err(Box::new(e)),
-        }
-    }
-
-    fn write_data(
-        &mut self,
-        stream: Substream,
-        buf: &[u8],
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let raw_stream = self.writer_mut(stream);
-        match raw_stream.write_all(buf) {
-            Ok(()) => Ok(()),
-            Err(e) => Err(Box::new(e)),
-        }
     }
 }

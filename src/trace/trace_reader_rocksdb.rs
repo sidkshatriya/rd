@@ -53,8 +53,9 @@ impl TraceReaderRocksDBBackend {
         options.increase_parallelism(get_num_cpus() as i32 / 2);
 
         // @TODO Not sure about these
-        options.set_num_levels(1);
+        options.set_num_levels(0);
         options.set_compression_options(24, 9, 7, 32768);
+        options.set_allow_mmap_reads(true);
 
         let db = RcRef::new(Rc::new(
             DB::open_cf_for_read_only(

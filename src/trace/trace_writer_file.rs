@@ -12,7 +12,7 @@ use std::{
     os::unix::ffi::{OsStrExt, OsStringExt},
 };
 
-struct TraceWriterFileBackend {
+pub struct TraceWriterFileBackend {
     trace_stream: TraceStream,
     /// @TODO This does not need to be be dynamic as the number of entries is known at
     /// compile time. This could be a [CompressedWriter; SUBSTREAM_COUNT] or a Box of
@@ -35,7 +35,7 @@ impl DerefMut for TraceWriterFileBackend {
 }
 
 impl TraceWriterFileBackend {
-    fn new(
+    pub fn new(
         file_name: &OsStr,
         output_trace_dir: Option<&OsStr>,
         bind_to_cpu: Option<u32>,

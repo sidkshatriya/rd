@@ -120,13 +120,13 @@ impl DerefMut for TraceReaderFileBackend {
 }
 
 #[derive(Clone)]
-struct TraceReaderFileBackend {
+pub struct TraceReaderFileBackend {
     trace_stream: TraceStream,
     readers: HashMap<Substream, CompressedReader>,
 }
 
 impl TraceReaderFileBackend {
-    fn new<T: AsRef<OsStr>>(maybe_dir: Option<T>) -> TraceReaderFileBackend {
+    pub fn new<T: AsRef<OsStr>>(maybe_dir: Option<T>) -> TraceReaderFileBackend {
         // Set the global time at 0, so that when we tick it for the first
         // event, it matches the initial global time at recording, 1.
         // We don't know bind_to_cpu right now, will calculate it later and set it
