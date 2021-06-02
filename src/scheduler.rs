@@ -1160,7 +1160,11 @@ impl Scheduler {
             Ok(aff) => self.pretend_affinity_mask_.set(aff),
         }
 
-        let maybe_cpu: Option<u32> = self.record_session().trace_writer().bound_to_cpu();
+        let maybe_cpu: Option<u32> = self
+            .record_session()
+            .trace_writer()
+            .trace_stream()
+            .bound_to_cpu();
         let cpu = match maybe_cpu {
             None => {
                 // We only run one thread at a time but we're not limiting

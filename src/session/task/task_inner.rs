@@ -78,7 +78,6 @@ use std::{
     cmp::{max, min},
     ffi::{c_void, CStr, CString, OsStr, OsString},
     mem::{size_of, size_of_val},
-    ops::Deref,
     os::{raw::c_int, unix::ffi::OsStrExt},
     ptr,
     ptr::{copy_nonoverlapping, NonNull},
@@ -1113,7 +1112,7 @@ impl TaskInner {
     pub fn trace_dir(&self) -> OsString {
         let maybe_trace_stream = self.trace_stream();
         match maybe_trace_stream {
-            Some(trace_stream) => return trace_stream.dir(),
+            Some(trace_stream) => return trace_stream.dir().to_owned(),
             None => ed_assert!(self, false, "Trace directory not available"),
         }
 
@@ -1555,9 +1554,9 @@ impl TaskInner {
         let shr_ptr = self.session();
         let owning_handle =
             OwningHandle::new_with_fn(shr_ptr, |s| match unsafe { (*s).as_record() } {
-                Some(rec_sess) => Ref::map(rec_sess.trace_writer(), |tr| tr.deref()),
+                Some(rec_sess) => Ref::map(rec_sess.trace_writer(), |tr| tr.trace_stream()),
                 None => match unsafe { (*s).as_replay() } {
-                    Some(rep_sess) => Ref::map(rep_sess.trace_reader(), |tr| tr.deref()),
+                    Some(rep_sess) => Ref::map(rep_sess.trace_reader(), |tr| tr.trace_stream()),
                     None => unreachable!(),
                 },
             });

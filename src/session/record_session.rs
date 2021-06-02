@@ -1910,11 +1910,11 @@ impl RecordSession {
             .close(status, Some(*self.trace_id.clone()));
     }
 
-    pub fn trace_writer(&self) -> Ref<'_, TraceWriter> {
+    pub fn trace_writer(&self) -> Ref<TraceWriter> {
         self.trace_out.borrow()
     }
 
-    pub fn trace_writer_mut(&self) -> RefMut<'_, TraceWriter> {
+    pub fn trace_writer_mut(&self) -> RefMut<TraceWriter> {
         self.trace_out.borrow_mut()
     }
 
@@ -2562,14 +2562,14 @@ impl Session for RecordSession {
         self.scheduler().on_create_task(t);
     }
 
-    fn trace_stream(&self) -> Option<Ref<'_, TraceStream>> {
+    fn trace_stream(&self) -> Option<Ref<TraceStream>> {
         let r = self.trace_out.borrow();
-        Some(Ref::map(r, |t| t.deref()))
+        Some(Ref::map(r, |t| t.trace_stream()))
     }
 
-    fn trace_stream_mut(&self) -> Option<RefMut<'_, TraceStream>> {
+    fn trace_stream_mut(&self) -> Option<RefMut<TraceStream>> {
         let r = self.trace_out.borrow_mut();
-        Some(RefMut::map(r, |t| t.deref_mut()))
+        Some(RefMut::map(r, |t| t.trace_stream_mut()))
     }
 }
 

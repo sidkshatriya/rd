@@ -28,13 +28,12 @@ use std::{
 pub struct CompressedReader {
     /// Our fd might be the dup of another fd, so we can't rely on its current file position.
     /// Instead track the current position in fd_offset and use pread.
-    fd_offset: u64,
-    fd: Option<ScopedFdSharedPtr>,
-    eof: bool,
-    buffer: Vec<u8>,
-    buffer_read_pos: usize,
-    // Note that the struct members for saving state are not here as we have a separate struct
-    // to handle that
+    pub(super) fd_offset: u64,
+    pub(super) fd: Option<ScopedFdSharedPtr>,
+    pub(super) eof: bool,
+    pub(super) buffer: Vec<u8>,
+    pub(super) buffer_read_pos: usize,
+    pub(super) saved_state: Option<CompressedReaderState>,
 }
 
 impl Read for CompressedReader {
@@ -72,10 +71,11 @@ impl Read for CompressedReader {
     }
 }
 
+#[derive(Clone)]
 pub struct CompressedReaderState {
-    saved_fd_offset: u64,
-    saved_buffer: Vec<u8>,
-    saved_buffer_read_pos: usize,
+    pub(super) saved_fd_offset: u64,
+    pub(super) saved_buffer: Vec<u8>,
+    pub(super) saved_buffer_read_pos: usize,
 }
 
 impl Default for CompressedReaderState {
@@ -125,6 +125,7 @@ impl CompressedReader {
             eof,
             buffer: Vec::new(),
             buffer_read_pos,
+            saved_state: None,
         }
     }
 
@@ -161,27 +162,6 @@ impl CompressedReader {
     }
     pub fn close(&mut self) {
         self.fd.take();
-    }
-
-    /// Get the current state of the CompressedReader.
-    /// Slightly different approach from rr which has `save_state()`
-    /// Note: Therefore `discard_state()` method in rr is not needed.
-    pub fn get_state(&self) -> CompressedReaderState {
-        CompressedReaderState {
-            saved_fd_offset: self.fd_offset,
-            saved_buffer: self.buffer.clone(),
-            saved_buffer_read_pos: self.buffer_read_pos,
-        }
-    }
-    /// Restore previously obtained state.
-    /// Slightly different approach from rr -- you need to provide state to be restored.
-    pub fn restore_state(&mut self, state: CompressedReaderState) {
-        if state.saved_fd_offset < self.fd_offset {
-            self.eof = false;
-        }
-        self.fd_offset = state.saved_fd_offset;
-        self.buffer = state.saved_buffer;
-        self.buffer_read_pos = state.saved_buffer_read_pos;
     }
 
     /// Gathers stats on the file stream. These are independent of what's

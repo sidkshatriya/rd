@@ -2204,12 +2204,12 @@ impl Session for ReplaySession {
 
     fn trace_stream(&self) -> Option<Ref<'_, TraceStream>> {
         let r = self.trace_in.borrow();
-        Some(Ref::map(r, |t| t.deref()))
+        Some(Ref::map(r, |t| t.trace_stream()))
     }
 
     fn trace_stream_mut(&self) -> Option<RefMut<'_, TraceStream>> {
         let r = self.trace_in.borrow_mut();
-        Some(RefMut::map(r, |t| t.deref_mut()))
+        Some(RefMut::map(r, |t| t.trace_stream_mut()))
     }
 
     fn cpu_binding(&self, trace: &TraceStream) -> Option<u32> {

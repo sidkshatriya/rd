@@ -46,7 +46,7 @@ impl RdCommand for TraceInfoCommand {
 
         let uuid_bytes = trace.uuid().bytes;
         let xcr0 = trace.xcr0();
-        let bind_to_cpu = trace.bound_to_cpu();
+        let bind_to_cpu = trace.trace_stream().bound_to_cpu();
         let cpuid_faulting = trace.uses_cpuid_faulting();
         let ticks_semantics = match trace.ticks_semantics() {
             TicksSemantics::TicksRetiredConditionalBranches => "rcb".into(),

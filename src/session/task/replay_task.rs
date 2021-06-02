@@ -333,6 +333,7 @@ impl ReplayTask {
                     .as_replay_task()
                     .unwrap()
                     .trace_reader()
+                    .trace_stream()
                     .file_data_clone_file_name(tuid);
                 let fd: i32 = {
                     let mut name_restore =
