@@ -1,6 +1,6 @@
 use crate::{
     commands::rerun_command::TraceFields,
-    flags::{Checksum, DumpOn},
+    flags::{Checksum, DumpOn, StorageBackend},
     kernel_metadata::signal_name,
     kernel_supplement::NUM_SIGNALS,
     scheduler::TicksHowMany,
@@ -128,6 +128,13 @@ pub struct RdOptions {
     )]
     pub checksum: Option<Checksum>,
 
+    #[structopt(
+    long="storage",
+    parse(try_from_str = parse_storage_backend),
+    help = "<storage> := `file` (default) | `rocksdb` (experimental)\n\n",
+    )]
+    pub storage: Option<StorageBackend>,
+
     #[structopt(subcommand)]
     pub cmd: RdSubCommand,
 }
@@ -145,6 +152,37 @@ fn parse_resource_path(res_path: &OsStr) -> Result<PathBuf, OsString> {
             "{:?} is not a directory",
             canonicallized
         ))),
+    }
+}
+
+#[cfg(not(feature = "rocksdb"))]
+fn parse_storage_backend(storage: &str) -> Result<StorageBackend, Box<dyn Error>> {
+    if storage == "file" {
+        Ok(StorageBackend::File)
+    } else if storage == "rocksdb" {
+        Err(Box::new(clap::Error::with_description(
+            "`rocksdb` backend not available. Compile with --features rocksdb",
+            clap::ErrorKind::InvalidValue,
+        )))
+    } else {
+        Err(Box::new(clap::Error::with_description(
+            "Only `rocksdb` or `file` are valid options",
+            clap::ErrorKind::InvalidValue,
+        )))
+    }
+}
+
+#[cfg(feature = "rocksdb")]
+fn parse_storage_backend(storage: &str) -> Result<StorageBackend, Box<dyn Error>> {
+    if storage == "file" {
+        Ok(StorageBackend::File)
+    } else if storage == "rocksdb" {
+        Ok(StorageBackend::RocksDB)
+    } else {
+        Err(Box::new(clap::Error::with_description(
+            "Only `rocksdb` or `file` are valid options",
+            clap::ErrorKind::InvalidValue,
+        )))
     }
 }
 

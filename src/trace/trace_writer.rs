@@ -1,11 +1,12 @@
 #![allow(clippy::useless_conversion)]
 
 #[cfg(feature = "rocksdb")]
-use super::trace_writer_rocksdb::TraceWriterRocksDBBackend;
+use crate::{
+    flags::{Flags, StorageBackend},
+    trace::trace_writer_rocksdb::TraceWriterRocksDBBackend,
+};
 
-#[cfg(not(feature = "rocksdb"))]
 use super::trace_writer_file::TraceWriterFileBackend;
-
 use crate::{
     bindings::signal::siginfo_t,
     event::{Event, EventType, SignalDeterministic, SignalResolvedDisposition, SyscallState},
@@ -513,11 +514,18 @@ impl TraceWriter {
             ticks_semantics_,
             mmap_count: 0,
             has_cpuid_faulting_: false,
-            trace_writer_backend: Box::new(TraceWriterRocksDBBackend::new(
-                file_name,
-                output_trace_dir,
-                bind_to_cpu,
-            )),
+            trace_writer_backend: match Flags::get().storage_backend {
+                StorageBackend::RocksDB => Box::new(TraceWriterRocksDBBackend::new(
+                    file_name,
+                    output_trace_dir,
+                    bind_to_cpu,
+                )),
+                StorageBackend::File => Box::new(TraceWriterFileBackend::new(
+                    file_name,
+                    output_trace_dir,
+                    bind_to_cpu,
+                )),
+            },
             files_assumed_immutable: Default::default(),
             raw_recs: vec![],
             cpuid_records: vec![],

@@ -25,6 +25,19 @@ pub enum DumpOn {
     DumpOnSyscall(i32),
 }
 
+#[cfg(feature = "rocksdb")]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub enum StorageBackend {
+    File,
+    RocksDB,
+}
+
+#[cfg(not(feature = "rocksdb"))]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub enum StorageBackend {
+    File,
+}
+
 #[derive(Clone)]
 pub struct Flags {
     pub checksum: Checksum,
@@ -54,6 +67,8 @@ pub struct Flags {
     pub forced_uarch: Option<String>,
     /// User override for the path to page files and other resources.
     pub resource_path: Option<PathBuf>,
+    /// Storage Backend
+    pub storage_backend: StorageBackend,
 }
 
 impl Flags {
@@ -79,5 +94,6 @@ pub fn init_flags() -> Flags {
         disable_ptrace_exit_events: options.disable_ptrace_exit_events,
         forced_uarch: options.microarch,
         resource_path: options.resource_path,
+        storage_backend: options.storage.unwrap_or(StorageBackend::File),
     }
 }
