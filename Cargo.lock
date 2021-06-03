@@ -281,9 +281,9 @@ dependencies = [
 
 [[package]]
 name = "heck"
-version = "0.3.2"
+version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "87cbf45460356b7deeb5e3415b5563308c0a9b057c85e12b06ad551f98d0a6ac"
+checksum = "6d621efb26863f0e9924c6ac577e8275e5e6b77455db64ffa6c65c904e9e132c"
 dependencies = [
  "unicode-segmentation",
 ]
@@ -423,9 +423,9 @@ checksum = "1a5b3dd1c072ee7963717671d1ca129f1048fda25edea6b752bfc71ac8854170"
 
 [[package]]
 name = "object"
-version = "0.25.0"
+version = "0.25.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4f26e9fafdc766a38d6929975130ddc0f3d4fda5c10a8ec7acf67fd01f13c1d1"
+checksum = "9023c1c0973b327f073c7f2fceb9bcc049862f93a7d14c6feb46c8a56460a0d5"
 dependencies = [
  "flate2",
  "memchr",
@@ -570,7 +570,7 @@ dependencies = [
  "memchr",
  "memoffset",
  "nix",
- "object 0.25.0",
+ "object 0.25.1",
  "owning_ref",
  "rand",
  "raw-cpuid",
