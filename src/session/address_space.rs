@@ -73,7 +73,7 @@ use std::{
         Bound::{self, Included, Unbounded},
         Drop,
     },
-    os::unix::ffi::{OsStrExt, OsStringExt},
+    os::unix::ffi::OsStrExt,
     ptr::NonNull,
     rc::{Rc, Weak},
     sync::atomic::{AtomicUsize, Ordering},
@@ -3128,17 +3128,18 @@ fn range_for_watchpoint(addr: RemotePtr<Void>, num_bytes: usize) -> MemoryRange 
 }
 
 fn find_rd_page_file(t: &dyn Task) -> OsString {
-    let mut path: Vec<u8> = Vec::from(resource_path().as_bytes());
-    path.extend_from_slice(b"share/rd/rd_page_");
+    let mut path = resource_path().to_owned();
+    path.push("share/rd");
+    let mut file_name: OsString = OsString::from("rd_page_");
     match t.arch() {
-        SupportedArch::X86 => path.extend_from_slice(b"32"),
-        SupportedArch::X64 => path.extend_from_slice(b"64"),
+        SupportedArch::X86 => file_name.push("32"),
+        SupportedArch::X64 => file_name.push("64"),
     }
     if !t.session().is_recording() {
-        path.extend_from_slice(b"_replay");
+        file_name.push("_replay");
     }
-
-    OsString::from_vec(path)
+    path.push(file_name);
+    OsString::from(path)
 }
 
 fn read_all(t: &dyn Task, fd: &ScopedFd) -> Vec<u8> {

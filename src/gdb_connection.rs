@@ -26,11 +26,11 @@ use nix::{
 };
 use std::{
     convert::TryInto,
-    ffi::{OsStr, OsString},
+    ffi::OsStr,
     fmt::{self, Display, Write as OtherWrite},
     io::Write,
     mem::size_of_val,
-    os::unix::ffi::{OsStrExt, OsStringExt},
+    os::unix::ffi::OsStrExt,
 };
 
 include!(concat!(
@@ -2831,12 +2831,12 @@ fn target_description_name(cpu_features: u32) -> &'static [u8] {
 }
 
 fn read_target_desc(file_name: &[u8]) -> Result<Vec<u8>, Error> {
-    let mut path = resource_path().as_bytes().to_vec();
-    path.extend_from_slice(b"share/rd/");
-    path.extend_from_slice(file_name);
-    let f = ScopedFd::open_path(path.as_slice(), OFlag::O_RDONLY);
+    let mut path = resource_path().to_owned();
+    path.push("share/rd");
+    path.push(OsStr::from_bytes(file_name));
+    let f = ScopedFd::open_path(&path, OFlag::O_RDONLY);
     // DIFF NOTE: This is a debug assert in rr. Why?
-    assert!(f.is_open(), "Could not open {:?}", OsString::from_vec(path));
+    assert!(f.is_open(), "Could not open {:?}", path);
     let mut buf = [0u8; 4 * 1024];
     let mut text_buf = Vec::<u8>::with_capacity(4 * 1024);
     loop {

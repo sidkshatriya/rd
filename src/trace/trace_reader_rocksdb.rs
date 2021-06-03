@@ -8,9 +8,8 @@ use owning_ref::{OwningRef, RcRef};
 use rocksdb::{ColumnFamily, DBIteratorWithThreadMode, Direction, IteratorMode, ReadOptions, DB};
 use std::{
     convert::AsRef,
-    ffi::OsStr,
     ops::{Deref, DerefMut},
-    path::PathBuf,
+    path::{Path, PathBuf},
     rc::Rc,
 };
 
@@ -39,7 +38,7 @@ impl DerefMut for TraceReaderRocksDBBackend {
 }
 
 impl TraceReaderRocksDBBackend {
-    pub fn new<T: AsRef<OsStr>>(maybe_dir: Option<T>) -> TraceReaderRocksDBBackend {
+    pub fn new<T: AsRef<Path>>(maybe_dir: Option<T>) -> TraceReaderRocksDBBackend {
         // We don't know bind_to_cpu right now, will calculate it later and set it
         let trace_stream = TraceStream::new(&resolve_trace_name(maybe_dir), 0, None);
         let roptions = ReadOptions::default();

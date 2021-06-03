@@ -31,7 +31,7 @@ use std::{
     io,
     io::Write,
     os::unix::ffi::OsStrExt,
-    path::PathBuf,
+    path::{Path, PathBuf},
     ptr,
     rc::Rc,
 };
@@ -588,7 +588,7 @@ extern "C" fn handle_sigint_in_parent(sig: i32) {
     // Just ignore it.
 }
 
-fn pid_exists<T: AsRef<OsStr>>(maybe_trace_dir: Option<T>, pid: pid_t) -> bool {
+fn pid_exists<T: AsRef<Path>>(maybe_trace_dir: Option<T>, pid: pid_t) -> bool {
     let mut trace = TraceReader::new(maybe_trace_dir);
 
     while let Some(e) = trace.read_task_event(None) {
@@ -596,10 +596,11 @@ fn pid_exists<T: AsRef<OsStr>>(maybe_trace_dir: Option<T>, pid: pid_t) -> bool {
             return true;
         }
     }
+
     false
 }
 
-fn pid_execs<T: AsRef<OsStr>>(maybe_trace_dir: Option<T>, pid: pid_t) -> bool {
+fn pid_execs<T: AsRef<Path>>(maybe_trace_dir: Option<T>, pid: pid_t) -> bool {
     let mut trace = TraceReader::new(maybe_trace_dir);
 
     while let Some(e) = trace.read_task_event(None) {
@@ -607,10 +608,11 @@ fn pid_execs<T: AsRef<OsStr>>(maybe_trace_dir: Option<T>, pid: pid_t) -> bool {
             return true;
         }
     }
+
     false
 }
 
-fn find_pid_for_command<T: AsRef<OsStr>>(
+fn find_pid_for_command<T: AsRef<Path>>(
     maybe_trace_dir: Option<T>,
     command_os_str: &OsStr,
 ) -> Option<pid_t> {

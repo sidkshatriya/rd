@@ -1435,15 +1435,15 @@ fn finish_direct_mmap(
 }
 
 fn find_exec_stub(arch: SupportedArch) -> CString {
-    let mut exe_path: Vec<u8> = Vec::new();
-    exe_path.extend_from_slice(resource_path().as_bytes());
-    exe_path.extend_from_slice(b"bin/");
+    let mut exe_path = resource_path().to_owned();
+    exe_path.push("bin");
     if arch == SupportedArch::X86 && RD_NATIVE_ARCH == SupportedArch::X64 {
-        exe_path.extend_from_slice(b"rd_exec_stub_32");
+        exe_path.push("rd_exec_stub_32");
     } else {
-        exe_path.extend_from_slice(b"rd_exec_stub");
+        exe_path.push("rd_exec_stub");
     }
-    CString::new(exe_path).unwrap()
+
+    CString::new(exe_path.into_os_string().into_vec()).unwrap()
 }
 
 fn handle_opened_files(t: &ReplayTask, flags_raw: i32) {

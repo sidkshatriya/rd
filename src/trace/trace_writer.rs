@@ -695,7 +695,7 @@ impl TraceWriter {
         // very-recent trace, so that's good enough.
         //
         // DIFF NOTE: rr swallows any error on unlink. We don't for now.
-        match unlink(link_name.as_os_str()) {
+        match unlink(&link_name) {
             Err(Error::Sys(Errno::ENOENT)) => (),
             Err(e) => fatal!("Unable to unlink {:?}: {:?}", link_name, e),
             Ok(_) => (),

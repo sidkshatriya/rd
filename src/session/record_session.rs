@@ -100,6 +100,7 @@ use std::{
     fs, mem,
     ops::{Deref, DerefMut},
     os::unix::ffi::{OsStrExt, OsStringExt},
+    path::{Path, PathBuf},
     rc::Rc,
 };
 
@@ -445,7 +446,8 @@ impl RecordSession {
                     None => (),
                 }
 
-                ld_preload.extend_from_slice(syscall_buffer_lib_path.as_bytes());
+                ld_preload.extend_from_slice(OsString::from(syscall_buffer_lib_path).as_bytes());
+                ld_preload.push(b'/');
                 ld_preload.extend_from_slice(SYSCALLBUF_LIB_FILENAME_PADDED.as_bytes());
                 inject_ld_helper_library(&mut env, &OsStr::new("LD_PRELOAD"), ld_preload);
             }
@@ -2617,13 +2619,13 @@ fn check_perf_event_paranoid() {
     }
 }
 
-fn find_helper_library<T: AsRef<OsStr>>(basepath: T) -> Option<OsString> {
-    for suffix in &["lib64/rd/", "lib/rd/"] {
-        let mut lib_path = OsString::from(resource_path());
+fn find_helper_library<T: AsRef<Path>>(basepath: T) -> Option<PathBuf> {
+    for suffix in ["lib64/rd", "lib/rd"] {
+        let mut lib_path = resource_path().to_owned();
         lib_path.push(suffix);
         let mut file_name = lib_path.clone();
         file_name.push(basepath.as_ref());
-        if access(file_name.as_bytes(), AccessFlags::F_OK).is_ok() {
+        if access(&file_name, AccessFlags::F_OK).is_ok() {
             return Some(lib_path);
         }
     }

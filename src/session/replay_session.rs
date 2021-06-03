@@ -79,6 +79,7 @@ use std::{
     intrinsics::copy_nonoverlapping,
     mem::size_of,
     ops::{Deref, DerefMut},
+    path::Path,
     rc::{Rc, Weak},
 };
 
@@ -575,7 +576,7 @@ impl ReplaySession {
         &self.flags_
     }
 
-    fn new<T: AsRef<OsStr>>(dir: Option<&T>, flags: Flags) -> ReplaySession {
+    fn new<T: AsRef<Path>>(dir: Option<T>, flags: Flags) -> ReplaySession {
         let mut rs = ReplaySession {
             emu_fs: EmuFs::create(),
             trace_in: RefCell::new(TraceReader::new(dir)),
@@ -643,7 +644,7 @@ impl ReplaySession {
 
     /// Create a replay session that will use the trace directory specified
     /// by 'dir', or the latest trace if 'dir' is not supplied.
-    pub fn create<T: AsRef<OsStr>>(dir: Option<&T>, flags: Flags) -> SessionSharedPtr {
+    pub fn create<T: AsRef<Path>>(dir: Option<T>, flags: Flags) -> SessionSharedPtr {
         let mut session: ReplaySession = ReplaySession::new(dir, flags);
 
         // It doesn't really matter what we use for argv/env here, since

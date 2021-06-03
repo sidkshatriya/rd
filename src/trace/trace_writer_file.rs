@@ -54,6 +54,7 @@ impl TraceWriterFileBackend {
                 CompressedWriter::new(&filename, s.block_size, s.threads),
             );
         }
+
         tw
     }
 

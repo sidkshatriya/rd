@@ -14,7 +14,7 @@ use std::{
     ffi::{OsStr, OsString},
     io::Write,
     os::unix::ffi::{OsStrExt, OsStringExt},
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 pub const TRACE_VERSION: u32 = 85;
@@ -135,12 +135,12 @@ impl TraceStream {
     }
 
     pub(super) fn new(
-        trace_dir: &OsStr,
+        trace_dir: &Path,
         initial_time: FrameTime,
         bind_to_cpu: Option<u32>,
     ) -> TraceStream {
         TraceStream {
-            trace_dir: real_path(trace_dir),
+            trace_dir: real_path(trace_dir).into_os_string(),
             bind_to_cpu,
             global_time: initial_time,
         }
@@ -214,14 +214,17 @@ pub struct MappedData {
     pub file_size_bytes: usize,
 }
 
-pub(super) fn make_trace_dir(exe_path: &OsStr, maybe_output_trace_dir: Option<&OsStr>) -> OsString {
+pub(super) fn make_trace_dir<T: AsRef<Path>>(
+    exe_path: T,
+    maybe_output_trace_dir: Option<&OsStr>,
+) -> PathBuf {
     match maybe_output_trace_dir {
         Some(output_trace_dir) => {
             // DIFF NOTE: Make trace dirs only S_IRWXU to be conservative. rr adds Mode::S_IRWXG also.
             // save trace dir in given output trace dir with option -o
             let ret = mkdir(output_trace_dir, Mode::S_IRWXU);
             match ret {
-                Ok(_) => output_trace_dir.to_owned(),
+                Ok(_) => PathBuf::from(output_trace_dir),
                 Err(e) if EEXIST == errno() => {
                     // directory already exists
                     fatal!("Directory {:?} already exists: {:?}", output_trace_dir, e)
@@ -245,11 +248,10 @@ pub(super) fn make_trace_dir(exe_path: &OsStr, maybe_output_trace_dir: Option<&O
             let mut nonce = 0;
             let mut ret;
             let mut dir;
-            let mut ss: Vec<u8> = Vec::from(trace_save_dir().as_bytes());
-            ss.push(b'/');
-            ss.extend_from_slice(Path::new(exe_path).file_name().unwrap().as_bytes());
+            let mut ss = trace_save_dir();
+            ss.push(exe_path.as_ref().file_name().unwrap());
             loop {
-                dir = Vec::from(ss.as_slice());
+                dir = Vec::from(ss.as_os_str().as_bytes());
                 write!(dir, "-{}", nonce).unwrap();
                 nonce += 1;
                 // DIFF NOTE: Make trace dirs only S_IRWXU to be conservative. rr adds Mode::S_IRWXG also.
@@ -259,7 +261,7 @@ pub(super) fn make_trace_dir(exe_path: &OsStr, maybe_output_trace_dir: Option<&O
                 }
             }
 
-            let os_dir = OsString::from_vec(dir);
+            let os_dir = PathBuf::from(OsString::from_vec(dir));
             match ret {
                 Err(e) => fatal!("Unable to create trace directory {:?}: {:?}", os_dir, e),
                 Ok(_) => os_dir,
@@ -268,62 +270,70 @@ pub(super) fn make_trace_dir(exe_path: &OsStr, maybe_output_trace_dir: Option<&O
     }
 }
 
-/// @TODO Look at logic again carefully
-pub(super) fn default_rd_trace_dir() -> OsString {
-    let cached_dir: OsString;
-    let mut dot_dir: Vec<u8> = Vec::new();
+lazy_static! {
+    static ref CACHED_DEFAULT_RD_TRACE_DIR: PathBuf = find_rd_trace_dir();
+}
+
+pub(super) fn default_rd_trace_dir() -> &'static Path {
+    &*CACHED_DEFAULT_RD_TRACE_DIR
+}
+
+fn find_rd_trace_dir() -> PathBuf {
+    let mut rd_dot_dir;
     let maybe_home = env::var_os("HOME");
-    let home: OsString;
+    let home: PathBuf;
     match maybe_home {
         Some(found_home) if !found_home.is_empty() => {
-            dot_dir.extend_from_slice(found_home.as_bytes());
-            dot_dir.extend_from_slice(b"/.rd");
-            home = found_home;
+            rd_dot_dir = PathBuf::from(&found_home);
+            rd_dot_dir.push(".rd");
+            home = PathBuf::from(found_home);
         }
-        // @TODO This seems to be an implicit outcome of what we have in rr
-        _ => home = OsString::new(),
+        // Tricky case. Dealt with any edge cases?
+        _ => {
+            rd_dot_dir = PathBuf::new();
+            home = PathBuf::new()
+        }
     }
 
-    let mut xdg_dir: Vec<u8> = Vec::new();
+    let mut xdg_dir: PathBuf;
     let maybe_xdg_data_home = env::var_os("XDG_DATA_HOME");
     match maybe_xdg_data_home {
         Some(xdg_data_home) if !xdg_data_home.is_empty() => {
-            xdg_dir.extend_from_slice(xdg_data_home.as_bytes());
-            xdg_dir.extend_from_slice(b"/rd");
+            xdg_dir = PathBuf::from(xdg_data_home);
+            xdg_dir.push("rd");
         }
         _ => {
-            xdg_dir.extend_from_slice(home.as_bytes());
-            xdg_dir.extend_from_slice(b"/.local/share/rd");
+            xdg_dir = PathBuf::from(home);
+            xdg_dir.push(".local/share/rd");
         }
     }
 
+    let cached_dir;
     // If XDG dir does not exist but ~/.rd does, prefer ~/.rd for backwards
     // compatibility.
-    if dir_exists(xdg_dir.as_slice()) {
-        cached_dir = OsString::from_vec(xdg_dir);
-    } else if dir_exists(dot_dir.as_slice()) {
-        cached_dir = OsString::from_vec(dot_dir);
-    } else if !xdg_dir.is_empty() {
-        cached_dir = OsString::from_vec(xdg_dir);
+    if xdg_dir.is_absolute() && dir_exists(&xdg_dir) {
+        cached_dir = xdg_dir;
+    } else if rd_dot_dir.is_absolute() && dir_exists(&rd_dot_dir) {
+        cached_dir = rd_dot_dir;
     } else {
-        cached_dir = OsStr::from_bytes(b"/tmp/rd").to_os_string();
+        cached_dir = PathBuf::from("/tmp/rd");
     }
 
     cached_dir
 }
 
-pub(super) fn trace_save_dir() -> OsString {
+pub(super) fn trace_save_dir() -> PathBuf {
     let maybe_output_dir = env::var_os("_RD_TRACE_DIR");
     match maybe_output_dir {
-        Some(dir) if !dir.is_empty() => dir,
-        _ => default_rd_trace_dir(),
+        Some(dir) if !dir.is_empty() => dir.into(),
+        _ => default_rd_trace_dir().into(),
     }
 }
 
-pub(super) fn latest_trace_symlink() -> OsString {
-    let mut sym: Vec<u8> = Vec::from(trace_save_dir().as_bytes());
-    sym.extend_from_slice(b"/latest-trace");
-    OsString::from_vec(sym)
+pub(super) fn latest_trace_symlink() -> PathBuf {
+    let mut sym = trace_save_dir();
+    sym.push("latest-trace");
+    sym
 }
 
 pub(super) fn to_trace_arch(arch: SupportedArch) -> TraceArch {

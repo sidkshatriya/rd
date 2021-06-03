@@ -65,7 +65,8 @@ use std::{
     io::{BufRead, BufReader},
     mem::{size_of, swap},
     ops::{Deref, DerefMut},
-    os::unix::ffi::{OsStrExt, OsStringExt},
+    os::unix::ffi::OsStrExt,
+    path::{Path, PathBuf},
     process::exit,
     ptr::copy_nonoverlapping,
 };
@@ -582,7 +583,7 @@ impl TraceReader {
 
     /// Open the trace in 'dir'. When 'dir' is the `None`, open the
     /// latest trace.
-    pub fn new<T: AsRef<OsStr>>(maybe_dir: Option<T>) -> TraceReader {
+    pub fn new<T: AsRef<Path>>(maybe_dir: Option<T>) -> TraceReader {
         #[cfg(feature = "rocksdb")]
         let mut trace_reader_backend: Box<dyn TraceReaderBackend> =
             Box::new(TraceReaderRocksDBBackend::new(maybe_dir));
@@ -826,27 +827,27 @@ fn i32_to_tid(tid: i32) -> pid_t {
     if tid <= 0 {
         fatal!("Invalid tid");
     }
+
     tid
 }
 
-pub(super) fn resolve_trace_name<T: AsRef<OsStr>>(maybe_trace_name: Option<T>) -> OsString {
+pub(super) fn resolve_trace_name<T: AsRef<Path>>(maybe_trace_name: Option<T>) -> PathBuf {
     if maybe_trace_name.is_none() {
         return latest_trace_symlink();
     }
 
-    let trace_name = maybe_trace_name.unwrap().as_ref().to_os_string();
+    let trace_name = maybe_trace_name.unwrap().as_ref().to_owned();
     // Single-component paths are looked up first in the current directory, next
     // in the default trace dir.
-    if find(trace_name.as_bytes(), b"/").is_none() {
-        if dir_exists(trace_name.as_os_str()) {
+    if find(trace_name.as_os_str().as_bytes(), b"/").is_none() {
+        if dir_exists(&trace_name) {
             return trace_name;
         }
 
-        let mut resolved_trace_name: Vec<u8> = Vec::from(trace_save_dir().as_bytes());
-        resolved_trace_name.push(b'/');
-        resolved_trace_name.extend_from_slice(trace_name.as_bytes());
-        if dir_exists(resolved_trace_name.as_slice()) {
-            return OsString::from_vec(resolved_trace_name);
+        let mut resolved_trace_name = trace_save_dir();
+        resolved_trace_name.push(&trace_name);
+        if dir_exists(&resolved_trace_name) {
+            return resolved_trace_name;
         }
     }
 

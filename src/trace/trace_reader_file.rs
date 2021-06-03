@@ -6,9 +6,9 @@ use crate::trace::{
 use capnp::{message, message::ReaderOptions, serialize, serialize_packed::read_message};
 use std::{
     collections::HashMap,
-    ffi::OsStr,
     io::Read,
     ops::{Deref, DerefMut},
+    path::Path,
 };
 
 impl TraceReaderBackend for TraceReaderFileBackend {
@@ -127,7 +127,7 @@ pub struct TraceReaderFileBackend {
 }
 
 impl TraceReaderFileBackend {
-    pub fn new<T: AsRef<OsStr>>(maybe_dir: Option<T>) -> TraceReaderFileBackend {
+    pub fn new<T: AsRef<Path>>(maybe_dir: Option<T>) -> TraceReaderFileBackend {
         // Set the global time at 0, so that when we tick it for the first
         // event, it matches the initial global time at recording, 1.
         // We don't know bind_to_cpu right now, will calculate it later and set it

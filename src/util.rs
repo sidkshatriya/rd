@@ -79,7 +79,7 @@ use std::{
             io::FromRawFd,
         },
     },
-    path::Path,
+    path::{Path, PathBuf},
     ptr::copy_nonoverlapping,
     rc::Rc,
     slice, str,
@@ -541,56 +541,49 @@ pub fn tmp_dir() -> OsString {
 /// Create directory `dir`, creating parent directories as needed.
 /// `dir_type` is printed in error messages. Fails if the resulting directory
 /// is not writeable.
-pub fn ensure_dir(dir: &OsStr, dir_type: &str, mode: Mode) {
-    let mut d = dir.as_bytes();
-    // @TODO Better than doing this manually is there a method that will clean the dir up?
-    // There might be other things that need to be done like removing repeated slashes (`/`) etc.
-    //
-    // Remove any trailing slashes
-    while !d.is_empty() && d[d.len() - 1] == b'/' {
-        d = &d[0..d.len() - 1];
-    }
+pub fn ensure_dir<T: AsRef<Path>>(dir: T, dir_type: &str, mode: Mode) {
+    let dir_path = dir.as_ref();
 
-    let st: FileStat = match stat(d) {
+    let st: FileStat = match stat(dir_path) {
         Err(e) => {
             if errno() != ENOENT {
-                fatal!("Error accessing {} {:?}: {:?}", dir_type, dir, e);
+                fatal!("Error accessing {} {:?}: {:?}", dir_type, dir_path, e);
             }
 
-            let last_slash = d.iter().enumerate().rfind(|c| *c.1 == b'/');
-            match last_slash {
-                Some(pos) if pos.0 > 0 => {
-                    ensure_dir(OsStr::from_bytes(&d[0..pos.0]), dir_type, mode);
+            match dir_path.parent() {
+                Some(parent_dir) if parent_dir != Path::new("/") && parent_dir != Path::new("") => {
+                    ensure_dir(parent_dir, dir_type, mode);
                 }
                 _ => {
-                    fatal!("Can't find directory {:?}", dir);
+                    fatal!("Can't find directory {:?}", dir_path);
                 }
             }
 
             // Allow for a race condition where someone else creates the directory
-            match mkdir(d, mode) {
+            match mkdir(dir_path, mode) {
                 Err(e) if errno() != EEXIST => {
-                    fatal!("Can't create {} {:?}: {:?}", dir_type, dir, e)
+                    fatal!("Can't create {} {:?}: {:?}", dir_type, dir_path, e)
                 }
                 _ => (),
             }
 
-            match stat(d) {
+            match stat(dir_path) {
                 Err(e) => {
-                    fatal!("Can't stat {} {:?}: {:?}", dir_type, dir, e);
+                    fatal!("Can't stat {} {:?}: {:?}", dir_type, dir_path, e);
                 }
                 Ok(st) => st,
             }
         }
+
         Ok(st) => st,
     };
 
     if !SFlag::from_bits_truncate(st.st_mode).contains(SFlag::S_IFDIR) {
-        fatal!("{:?} exists but isn't a directory.", dir);
+        fatal!("{:?} exists but isn't a directory.", dir_path);
     }
 
-    if let Err(e) = access(d, AccessFlags::W_OK) {
-        fatal!("Can't write to {} {:?}: {:?}", dir_type, dir, e)
+    if let Err(e) = access(dir_path, AccessFlags::W_OK) {
+        fatal!("Can't write to {} {:?}: {:?}", dir_type, dir_path, e)
     }
 }
 
@@ -920,42 +913,40 @@ pub fn dir_exists<P: ?Sized + NixPath>(dir: &P) -> bool {
     stat(dir).is_ok()
 }
 
-pub fn real_path(path: &OsStr) -> OsString {
-    match Path::new(&path).canonicalize() {
-        Ok(p) => p.as_os_str().to_os_string(),
-        Err(e) => fatal!("Could not retreive path {:?}: {:?}", path, e),
+pub fn real_path<T: AsRef<Path>>(path: T) -> PathBuf {
+    match path.as_ref().canonicalize() {
+        Ok(p) => p,
+        Err(e) => fatal!("Could not retreive path {:?}: {:?}", path.as_ref(), e),
     }
 }
 
-pub fn resource_path() -> &'static OsStr {
-    let resource_path = Flags::get().resource_path.as_ref();
-    if resource_path.is_none() {
-        return RD_EXE_PATH.as_os_str();
+pub fn resource_path() -> &'static Path {
+    let maybe_resource_path = Flags::get().resource_path.as_ref();
+    if let Some(resource_path) = maybe_resource_path {
+        resource_path
+    } else {
+        &*RD_EXE_PATH_PARENT
     }
-
-    resource_path.unwrap().as_os_str()
 }
 
 lazy_static! {
-    static ref RD_EXE_PATH: OsString = rd_exe_path_init();
+    static ref RD_EXE_PATH_PARENT: PathBuf = rd_exe_path_parent_init();
 }
 
-fn rd_exe_path_init() -> OsString {
-    let mut exe_path = Vec::from(read_exe_dir().as_bytes());
-    exe_path.extend_from_slice(b"../");
-    OsString::from_vec(exe_path)
+fn rd_exe_path_parent_init() -> PathBuf {
+    let mut exe_path = read_exe_dir();
+    exe_path.push("..");
+    exe_path
 }
 
-pub fn read_exe_dir() -> OsString {
+pub fn read_exe_dir() -> PathBuf {
     // Get the mapping corresponding to the `read_exe_dir` method i.e. the method we're in!
     let km: KernelMapping = AddressSpace::read_local_kernel_mapping(
-        read_exe_dir as *const fn() -> OsString as *const u8,
+        read_exe_dir as *const fn() -> PathBuf as *const u8,
     );
+
     let exe_path = Path::new(km.fsname());
-    let mut final_exe_path = Vec::<u8>::new();
-    final_exe_path.extend_from_slice(exe_path.parent().unwrap().as_os_str().as_bytes());
-    final_exe_path.extend_from_slice(b"/");
-    OsString::from_vec(final_exe_path)
+    PathBuf::from(exe_path.parent().unwrap())
 }
 
 fn env_ptr<Arch: Architecture>(t: &dyn Task) -> RemotePtr<Arch::unsigned_word> {
