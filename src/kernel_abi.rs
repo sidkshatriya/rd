@@ -705,12 +705,6 @@ pub mod x64 {
         assert_eq_size!(kernel::iw_quality, iw_quality);
         assert_eq_align!(kernel::iw_quality, iw_quality);
 
-        assert_eq_size!(kernel::iwreq_data, iwreq_data);
-        assert_eq_align!(kernel::iwreq_data, iwreq_data);
-
-        assert_eq_size!(kernel::iwreq, iwreq);
-        assert_eq_align!(kernel::iwreq, iwreq);
-
         assert_eq_size!(kernel::ethtool_cmd, ethtool_cmd);
         assert_eq_align!(kernel::ethtool_cmd, ethtool_cmd);
 

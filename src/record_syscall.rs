@@ -4886,7 +4886,7 @@ fn prepare_ioctl<Arch: Architecture>(
         // tracees' stacks, but we record a stack page here
         // just in the behavior is driver-dependent.
         SIOCGIWFREQ | SIOCGIWMODE | SIOCGIWNAME | SIOCGIWRATE | SIOCGIWSENS => {
-            syscall_state.reg_parameter::<Arch::iwreq>(3, None, None);
+            syscall_state.reg_parameter::<iwreq<Arch>>(3, None, None);
             syscall_state.after_syscall_action(Box::new(record_page_below_stack_ptr));
             return Switchable::PreventSwitch;
         }

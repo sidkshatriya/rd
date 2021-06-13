@@ -566,36 +566,6 @@ pub struct iw_quality {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone)]
-pub union iwreq_data {
-    pub name: [u8; 16],
-    pub essid: iw_point,
-    pub nwid: iw_param,
-    pub freq: iw_freq,
-    pub sens: iw_param,
-    pub bitrate: iw_param,
-    pub txpower: iw_param,
-    pub rts: iw_param,
-    pub frag: iw_param,
-    pub mode: uint32_t,
-    pub retry: iw_param,
-    pub encoding: iw_point,
-    pub power: iw_param,
-    pub qual: iw_quality,
-    pub ap_addr: sockaddr,
-    pub addr: sockaddr,
-    pub param: iw_param,
-    pub data: iw_point,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct iwreq {
-    pub ifr_ifrn: ifr_ifrn,
-    pub u: iwreq_data,
-}
-
-#[repr(C)]
 #[derive(Copy, Clone, Default)]
 pub struct ethtool_cmd {
     pub cmd: uint32_t,
