@@ -454,17 +454,6 @@ pub struct dqinfo {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct ifmap {
-    pub mem_start: unsigned_long,
-    pub mem_end: unsigned_long,
-    pub base_addr: unsigned_short,
-    pub irq: u8,
-    pub dma: u8,
-    pub port: u8,
-}
-
-#[repr(C)]
 #[derive(Copy, Clone)]
 pub union ifs_ifsu {
     pub raw_hdlc: ptr<u8>,
