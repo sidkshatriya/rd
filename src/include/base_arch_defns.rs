@@ -1267,73 +1267,8 @@ pub struct sg_io_hdr {
     pub info: unsigned_int,
 }
 
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct bpf_attr_u1 {
-    pub map_type: __u32,
-    pub key_size: __u32,
-    pub value_size: __u32,
-    pub max_entries: __u32,
-    pub map_flags: __u32,
-    pub inner_map_fd: __u32,
-    pub numa_node: __u32,
-    pub map_name: [u8; 16],
-    pub map_ifindex: __u32,
-    pub btf_fd: __u32,
-    pub btf_key_type_id: __u32,
-    pub btf_value_type_id: __u32,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub union bpf_attr_u2_u1 {
-    pub value: ptr64<u8>,
-    pub next_key: ptr64<u8>,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct bpf_attr_u2 {
-    pub map_fd: __u32,
-    pub key: ptr64<u8>,
-    pub bpf_attr_u2_u1: bpf_attr_u2_u1,
-    pub flags: __u64,
-}
-
 #[repr(C, align(8))]
 #[derive(Copy, Clone, Default)]
 pub struct aligned_u64 {
     pub __val: u64,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct bpf_attr_u3 {
-    pub prog_type: __u32,
-    pub insn_cnt: __u32,
-    pub insns: ptr64<u8>,
-    pub license: ptr64<u8>,
-    pub log_level: __u32,
-    pub log_size: __u32,
-    pub log_buf: ptr64<char>,
-    pub kern_version: __u32,
-    pub prog_flags: __u32,
-    pub prog_name: [u8; 16],
-    pub prog_ifindex: __u32,
-    pub expected_attach_type: __u32,
-    pub prog_btf_fd: __u32,
-    pub func_info_rec_size: __u32,
-    pub func_info: aligned_u64,
-    pub func_info_cnt: __u32,
-    pub line_info_rec_size: __u32,
-    pub line_info: aligned_u64,
-    pub line_info_cnt: __u32,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub union bpf_attr {
-    pub bpf_attr_u1: bpf_attr_u1,
-    pub bpf_attr_u2: bpf_attr_u2,
-    pub bpf_attr_u3: bpf_attr_u3,
 }
