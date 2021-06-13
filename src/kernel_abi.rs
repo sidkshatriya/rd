@@ -681,9 +681,6 @@ pub mod x64 {
         assert_eq_size!(kernel::dqinfo, dqinfo);
         assert_eq_align!(kernel::dqinfo, dqinfo);
 
-        assert_eq_size!(kernel::if_settings, if_settings);
-        assert_eq_align!(kernel::if_settings, if_settings);
-
         assert_eq_size!(kernel::iw_param, iw_param);
         assert_eq_align!(kernel::iw_param, iw_param);
 
@@ -1138,9 +1135,6 @@ pub mod x86 {
 
         assert_eq_size!(kernel::dqinfo, dqinfo);
         assert_eq_align!(kernel::dqinfo, dqinfo);
-
-        assert_eq_size!(kernel::if_settings, if_settings);
-        assert_eq_align!(kernel::if_settings, if_settings);
 
         assert_eq_size!(kernel::iw_param, iw_param);
         assert_eq_align!(kernel::iw_param, iw_param);

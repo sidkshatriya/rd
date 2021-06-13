@@ -454,26 +454,6 @@ pub struct dqinfo {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone)]
-pub union ifs_ifsu {
-    pub raw_hdlc: ptr<u8>,
-    pub cisco: ptr<u8>,
-    pub fr: ptr<u8>,
-    pub fr_pvc: ptr<u8>,
-    pub fr_pvc_info: ptr<u8>,
-    pub sync: ptr<u8>,
-    pub tel: ptr<u8>,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct if_settings {
-    pub type_: unsigned_int,
-    pub size: unsigned_int,
-    pub ifs_ifsu: ifs_ifsu,
-}
-
-#[repr(C)]
 #[derive(Copy, Clone, Default)]
 pub struct iw_param {
     pub value: int32_t,
