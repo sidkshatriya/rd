@@ -744,12 +744,6 @@ pub mod x64 {
         assert_eq_size!(kernel::sched_param, sched_param);
         assert_eq_align!(kernel::sched_param, sched_param);
 
-        assert_eq_size!(kernel::v4l2_timecode, v4l2_timecode);
-        assert_eq_align!(kernel::v4l2_timecode, v4l2_timecode);
-
-        assert_eq_size!(kernel::v4l2_buffer, v4l2_buffer);
-        assert_eq_align!(kernel::v4l2_buffer, v4l2_buffer);
-
         assert_eq_size!(kernel::sock_filter, sock_filter);
         assert_eq_align!(kernel::sock_filter, sock_filter);
 
@@ -1198,12 +1192,6 @@ pub mod x86 {
 
         assert_eq_size!(kernel::sched_param, sched_param);
         assert_eq_align!(kernel::sched_param, sched_param);
-
-        assert_eq_size!(kernel::v4l2_timecode, v4l2_timecode);
-        assert_eq_align!(kernel::v4l2_timecode, v4l2_timecode);
-
-        assert_eq_size!(kernel::v4l2_buffer, v4l2_buffer);
-        assert_eq_align!(kernel::v4l2_buffer, v4l2_buffer);
 
         assert_eq_size!(kernel::sock_filter, sock_filter);
         assert_eq_align!(kernel::sock_filter, sock_filter);

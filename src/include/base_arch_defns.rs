@@ -894,46 +894,6 @@ pub const fn cmsg_len(len: usize) -> usize {
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
-pub struct v4l2_timecode {
-    pub type_: uint32_t,
-    pub flags: uint32_t,
-    pub frames: uint8_t,
-    pub seconds: uint8_t,
-    pub minutes: uint8_t,
-    pub hours: uint8_t,
-    pub userbits: [uint8_t; 4],
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub union v4l2_buffer_m {
-    pub offset: uint32_t,
-    pub userptr: unsigned_long,
-    pub planes: ptr<u8>,
-    pub fd: int32_t,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct v4l2_buffer {
-    pub index: uint32_t,
-    pub type_: uint32_t,
-    pub bytesused: uint32_t,
-    pub flags: uint32_t,
-    pub field: uint32_t,
-    pub __pad: [u8; STD_PAD],
-    pub timestamp: timeval,
-    pub timecode: v4l2_timecode,
-    pub sequence: uint32_t,
-    pub memory: uint32_t,
-    pub m: v4l2_buffer_m,
-    pub length: uint32_t,
-    pub reserved2: uint32_t,
-    pub reserved: uint32_t,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
 pub struct sock_filter {
     pub code: uint16_t,
     pub jt: uint8_t,

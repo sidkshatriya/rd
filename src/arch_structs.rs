@@ -939,7 +939,6 @@ pub struct v4l2_timecode {
 }
 
 assert_eq_size!(kernel::v4l2_timecode, v4l2_timecode);
-
 assert_eq_align!(kernel::v4l2_timecode, v4l2_timecode);
 
 #[repr(C)]
