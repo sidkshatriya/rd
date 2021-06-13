@@ -485,52 +485,6 @@ pub struct if_settings {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone)]
-pub union ifr_ifru {
-    pub ifru_addr: sockaddr,
-    pub ifru_dstaddr: sockaddr,
-    pub ifru_broadaddr: sockaddr,
-    pub ifru_netmask: sockaddr,
-    pub ifru_hwaddr: sockaddr,
-    pub ifru_flags: signed_short,
-    pub ifru_ivalue: signed_int,
-    pub ifru_mtu: signed_int,
-    pub ifru_map: ifmap,
-    pub ifru_slave: [u8; 16],
-    pub ifru_newname: [u8; 16],
-    pub ifru_data: ptr<u8>,
-    pub ifru_settings: if_settings,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub union ifr_ifrn {
-    pub ifrn_name: [u8; 16],
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct ifreq {
-    pub ifr_ifrn: ifr_ifrn,
-    pub ifr_ifru: ifr_ifru,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub union ifc_ifcu {
-    pub ifcu_buf: ptr<char>,
-    pub ifcu_req: ptr<ifreq>,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct ifconf {
-    pub ifc_len: signed_int,
-    pub __pad: [u8; STD_PAD],
-    pub ifc_ifcu: ifc_ifcu,
-}
-
-#[repr(C)]
 #[derive(Copy, Clone, Default)]
 pub struct iw_param {
     pub value: int32_t,

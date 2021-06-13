@@ -627,7 +627,6 @@ pub trait Architecture: 'static + Default {
     type f_owner_ex: Default + Copy + 'static;
     type user_desc: Default + Copy + 'static;
 
-    type ifreq: Copy + 'static;
     type termios: Copy + 'static;
     type termio: Copy + 'static;
     type snd_ctl_card_info: Copy + 'static;
@@ -1207,7 +1206,6 @@ impl Architecture for X86Arch {
     type f_owner_ex = x86::f_owner_ex;
     type user_desc = x86::user_desc;
 
-    type ifreq = x86::ifreq;
     type termios = x86::termios;
     type termio = x86::termio;
     type snd_ctl_card_info = x86::snd_ctl_card_info;
@@ -1835,7 +1833,6 @@ impl Architecture for X64Arch {
     type f_owner_ex = x64::f_owner_ex;
     type user_desc = x64::user_desc;
 
-    type ifreq = x64::ifreq;
     type termios = x64::termios;
     type termio = x64::termio;
     type snd_ctl_card_info = x64::snd_ctl_card_info;

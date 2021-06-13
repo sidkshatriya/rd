@@ -4877,7 +4877,7 @@ fn prepare_ioctl<Arch: Architecture>(
         SIOCGIFADDR | SIOCGIFDSTADDR | SIOCGIFBRDADDR | SIOCGIFHWADDR | SIOCGIFFLAGS
         | SIOCGIFPFLAGS | SIOCGIFTXQLEN | SIOCGIFINDEX | SIOCGIFMTU | SIOCGIFNAME
         | SIOCGIFNETMASK | SIOCGIFMETRIC | SIOCGIFMAP => {
-            syscall_state.reg_parameter::<Arch::ifreq>(3, None, None);
+            syscall_state.reg_parameter::<ifreq<Arch>>(3, None, None);
             syscall_state.after_syscall_action(Box::new(record_page_below_stack_ptr));
             return Switchable::PreventSwitch;
         }
@@ -5080,7 +5080,7 @@ fn prepare_ioctl<Arch: Architecture>(
                 // Reads and writes its parameter despite not having the _IOC_READ
                 // bit...
                 // And the parameter is an ifreq, not an int as in the ioctl definition!
-                syscall_state.reg_parameter::<Arch::ifreq>(3, None, None);
+                syscall_state.reg_parameter::<ifreq<Arch>>(3, None, None);
                 return Switchable::PreventSwitch;
             }
             _ => (),
