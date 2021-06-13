@@ -503,15 +503,6 @@ pub struct iw_point {
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
-pub struct iw_freq {
-    pub m: int32_t,
-    pub e: int16_t,
-    pub i: uint8_t,
-    pub flags: uint8_t,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
 pub struct iw_quality {
     pub qual: uint8_t,
     pub level: uint8_t,

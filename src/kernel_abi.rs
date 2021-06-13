@@ -693,9 +693,6 @@ pub mod x64 {
         assert_eq_size!(kernel::iw_point, iw_point);
         assert_eq_align!(kernel::iw_point, iw_point);
 
-        assert_eq_size!(kernel::iw_freq, iw_freq);
-        assert_eq_align!(kernel::iw_freq, iw_freq);
-
         assert_eq_size!(kernel::iw_quality, iw_quality);
         assert_eq_align!(kernel::iw_quality, iw_quality);
 
@@ -1151,29 +1148,14 @@ pub mod x86 {
         assert_eq_size!(kernel::if_settings, if_settings);
         assert_eq_align!(kernel::if_settings, if_settings);
 
-        assert_eq_size!(kernel::ifreq, ifreq);
-        assert_eq_align!(kernel::ifreq, ifreq);
-
-        assert_eq_size!(kernel::ifconf, ifconf);
-        assert_eq_align!(kernel::ifconf, ifconf);
-
         assert_eq_size!(kernel::iw_param, iw_param);
         assert_eq_align!(kernel::iw_param, iw_param);
 
         assert_eq_size!(kernel::iw_point, iw_point);
         assert_eq_align!(kernel::iw_point, iw_point);
 
-        assert_eq_size!(kernel::iw_freq, iw_freq);
-        assert_eq_align!(kernel::iw_freq, iw_freq);
-
         assert_eq_size!(kernel::iw_quality, iw_quality);
         assert_eq_align!(kernel::iw_quality, iw_quality);
-
-        assert_eq_size!(kernel::iwreq_data, iwreq_data);
-        assert_eq_align!(kernel::iwreq_data, iwreq_data);
-
-        assert_eq_size!(kernel::iwreq, iwreq);
-        assert_eq_align!(kernel::iwreq, iwreq);
 
         assert_eq_size!(kernel::ethtool_cmd, ethtool_cmd);
         assert_eq_align!(kernel::ethtool_cmd, ethtool_cmd);
