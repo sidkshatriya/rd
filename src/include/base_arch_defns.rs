@@ -95,14 +95,6 @@ pub struct msghdr {
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
-pub struct cmsghdr {
-    pub cmsg_len: size_t,
-    pub cmsg_level: int,
-    pub cmsg_type: int,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
 pub struct mmsghdr {
     pub msg_hdr: msghdr,
     pub msg_len: unsigned_int,
@@ -769,22 +761,6 @@ pub struct utsname {
 #[derive(Copy, Clone, Default)]
 pub struct sched_param {
     pub __sched_priority: int,
-}
-
-pub const fn cmsg_data_offset() -> usize {
-    cmsg_align(size_of::<cmsghdr>())
-}
-
-pub const fn cmsg_align(len: usize) -> usize {
-    (len + size_of::<size_t>() - 1) & !(size_of::<size_t>() - 1)
-}
-
-pub const fn cmsg_space(len: usize) -> usize {
-    cmsg_align(size_of::<cmsghdr>()) + cmsg_align(len)
-}
-
-pub const fn cmsg_len(len: usize) -> usize {
-    cmsg_align(size_of::<cmsghdr>()) + len
 }
 
 #[repr(C)]

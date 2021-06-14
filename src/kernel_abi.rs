@@ -620,9 +620,6 @@ pub mod x64 {
         assert_eq_size!(kernel::msghdr, msghdr);
         assert_eq_align!(kernel::msghdr, msghdr);
 
-        assert_eq_size!(kernel::cmsghdr, cmsghdr);
-        assert_eq_align!(kernel::cmsghdr, cmsghdr);
-
         assert_eq_size!(kernel::mmsghdr, mmsghdr);
         assert_eq_align!(kernel::mmsghdr, mmsghdr);
 
@@ -1056,9 +1053,6 @@ pub mod x86 {
 
         assert_eq_size!(kernel::msghdr, msghdr);
         assert_eq_align!(kernel::msghdr, msghdr);
-
-        assert_eq_size!(kernel::cmsghdr, cmsghdr);
-        assert_eq_align!(kernel::cmsghdr, cmsghdr);
 
         assert_eq_size!(kernel::mmsghdr, mmsghdr);
         assert_eq_align!(kernel::mmsghdr, mmsghdr);

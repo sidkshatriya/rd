@@ -1,5 +1,6 @@
 use crate::{
     arch::Architecture,
+    arch_structs::{cmsg_data_offset, cmsg_len, cmsg_space, cmsghdr},
     auto_remote_syscalls::MemParamsEnabled::{DisableMemoryParams, EnableMemoryParams},
     bindings::{kernel::SYS_SENDMSG, ptrace::PTRACE_EVENT_EXIT},
     kernel_abi::{
@@ -730,7 +731,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
             reserve::<Arch::sockaddr_un>(),
             reserve::<Arch::msghdr>()
                 // This is the aligned space. Don't need to align again.
-                + rd_kernel_abi_arch_function!(cmsg_space, Arch::arch(), size_of_val(&fd))
+                + cmsg_space::<Arch>(size_of_val(&fd))
                 + reserve::<Arch::iovec>(),
         );
         if has_socketcall_syscall(Arch::arch()) {
@@ -1402,7 +1403,7 @@ fn child_sendmsg<Arch: Architecture>(
     child_sock: i32,
     fd: i32,
 ) -> isize {
-    let cmsgbuf_size = rd_kernel_abi_arch_function!(cmsg_space, Arch::arch(), size_of_val(&fd));
+    let cmsgbuf_size = cmsg_space::<Arch>(size_of_val(&fd));
     let mut cmsgbuf = vec![0u8; cmsgbuf_size];
 
     // Pull the puppet strings to have the child send its fd
@@ -1426,20 +1427,19 @@ fn child_sendmsg<Arch: Architecture>(
     Arch::set_iovec(&mut msgdata, RemotePtr::cast(remote_msg), 1);
     write_val_mem(remote_buf.task(), remote_msgdata, &msgdata, Some(&mut ok));
 
-    let cmsg_data_off = rd_kernel_abi_arch_function!(cmsg_data_offset, Arch::arch());
-    let mut cmsghdr = Arch::cmsghdr::default();
-    Arch::set_csmsghdr(
-        &mut cmsghdr,
-        rd_kernel_abi_arch_function!(cmsg_len, Arch::arch(), size_of_val(&fd)),
-        SOL_SOCKET,
-        SCM_RIGHTS,
-    );
+    let cmsg_data_off = cmsg_data_offset::<Arch>();
+    let cmsghdr = cmsghdr::<Arch> {
+        cmsg_len: Arch::usize_as_size_t(cmsg_len::<Arch>(size_of_val(&fd))),
+        cmsg_level: SOL_SOCKET,
+        cmsg_type: SCM_RIGHTS,
+    };
+
     // Copy the cmsghdr into the cmsgbuf
     unsafe {
         copy_nonoverlapping(
             &raw const cmsghdr as *const u8,
             cmsgbuf.as_mut_ptr(),
-            size_of::<Arch::cmsghdr>(),
+            size_of::<cmsghdr<Arch>>(),
         );
     }
     // Copy the fd into the cmsgbuf

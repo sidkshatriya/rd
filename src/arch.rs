@@ -582,7 +582,6 @@ pub trait Architecture: 'static + Default {
         + 'static;
     type iovec: Copy + Default + 'static;
     type msghdr: Copy + Default + 'static;
-    type cmsghdr: Copy + Default + 'static;
     type sockaddr_un: Copy + 'static;
     type unsigned_word: Copy
         + Default
@@ -693,8 +692,6 @@ pub trait Architecture: 'static + Default {
         msg_iov: RemotePtr<Self::iovec>,
         msg_iovlen: usize,
     );
-
-    fn set_csmsghdr(msg: &mut Self::cmsghdr, cmsg_len: usize, cmsg_level: i32, cmsg_type: i32);
 }
 
 impl Architecture for X86Arch {
@@ -1165,7 +1162,6 @@ impl Architecture for X86Arch {
     type off_t = i32;
     type iovec = x86::iovec;
     type msghdr = x86::msghdr;
-    type cmsghdr = x86::cmsghdr;
     type sockaddr_un = x86::sockaddr_un;
     type user_regs_struct = x86::user_regs_struct;
     type user_fpregs_struct = x86::user_fpregs_struct;
@@ -1314,12 +1310,6 @@ impl Architecture for X86Arch {
         msg.msg_controllen = msg_controllen.try_into().unwrap();
         msg.msg_iov = msg_iov.into();
         msg.msg_iovlen = msg_iovlen.try_into().unwrap();
-    }
-
-    fn set_csmsghdr(cmsghdr: &mut Self::cmsghdr, cmsg_len: usize, cmsg_level: i32, cmsg_type: i32) {
-        cmsghdr.cmsg_len = cmsg_len.try_into().unwrap();
-        cmsghdr.cmsg_level = cmsg_level;
-        cmsghdr.cmsg_type = cmsg_type;
     }
 }
 
@@ -1791,7 +1781,6 @@ impl Architecture for X64Arch {
     type off_t = i64;
     type iovec = x64::iovec;
     type msghdr = x64::msghdr;
-    type cmsghdr = x64::cmsghdr;
     type sockaddr_un = x64::sockaddr_un;
     type user_regs_struct = x64::user_regs_struct;
     type user_fpregs_struct = x64::user_fpregs_struct;
@@ -1940,11 +1929,5 @@ impl Architecture for X64Arch {
         msg.msg_controllen = msg_controllen as _;
         msg.msg_iov = msg_iov.into();
         msg.msg_iovlen = msg_iovlen as _;
-    }
-
-    fn set_csmsghdr(cmsghdr: &mut Self::cmsghdr, cmsg_len: usize, cmsg_level: i32, cmsg_type: i32) {
-        cmsghdr.cmsg_len = cmsg_len as _;
-        cmsghdr.cmsg_level = cmsg_level;
-        cmsghdr.cmsg_type = cmsg_type;
     }
 }
