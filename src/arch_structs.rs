@@ -453,6 +453,10 @@ pub struct ipt_replace<Arch: Architecture> {
     // Plus hangoff here
 }
 
+// @TODO: "The corresponding header requires -fpermissive, which we don't pass. Skip this check"
+// assert_eq_size!(kernel::ipt_replace, ipt_replace<NativeArch>);
+// assert_eq_align!(kernel::ipt_replace, ipt_replace<NativeArch>);
+
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
 pub struct __sysctl_args<Arch: Architecture> {

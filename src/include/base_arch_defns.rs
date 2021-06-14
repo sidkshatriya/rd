@@ -35,13 +35,6 @@ pub const FD_SET_NUM: usize = MAX_FDS / (8 * size_of::<unsigned_long>());
 pub const SYSINFO_F_SIZE: usize = 20 - 2 * size_of::<__kernel_ulong_t>() - size_of::<uint32_t>();
 
 #[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct sockaddr {
-    pub sa_family: unsigned_short,
-    pub sa_data: [u8; 14],
-}
-
-#[repr(C)]
 #[derive(Copy, Clone)]
 pub struct sockaddr_un {
     pub sun_family: unsigned_short,
@@ -290,21 +283,6 @@ pub struct user_desc {
     pub data: unsigned_int,
 }
 
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct __user_cap_header_struct {
-    pub version: __u32,
-    pub pid: int,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct __user_cap_data_struct {
-    pub effective: __u32,
-    pub permitted: __u32,
-    pub inheritable: __u32,
-}
-
 // This structure uses fixed-size fields, but the padding rules
 // for 32-bit vs. 64-bit architectures dictate that it be
 // defined in full.
@@ -409,112 +387,10 @@ pub struct f_owner_ex {
     pub pid: __kernel_pid_t,
 }
 
-// Define various structures that package up syscall arguments.
-// The types of their members are part of the ABI, and defining
-// them here makes their definitions more concise.
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct accept_args {
-    pub sockfd: signed_int,
-    pub __pad: [u8; STD_PAD],
-    pub addr: ptr<sockaddr>,
-    pub addrlen: ptr<socklen_t>,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct accept4_args {
-    pub sockfd: signed_int,
-    pub __pad: [u8; STD_PAD],
-    pub addr: ptr<sockaddr>,
-    pub addrlen: ptr<socklen_t>,
-    pub flags: signed_long,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct getsockname_args {
-    pub sockfd: signed_int,
-    pub __pad: [u8; STD_PAD],
-    pub addr: ptr<sockaddr>,
-    pub addrlen: ptr<socklen_t>,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct getsockopt_args {
-    pub sockfd: signed_int,
-    pub level: signed_int,
-    pub optname: signed_int,
-    pub __pad: [u8; STD_PAD],
-    pub optval: ptr<u8>,
-    pub optlen: ptr<socklen_t>,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct setsockopt_args {
-    pub sockfd: signed_long,
-    pub level: signed_long,
-    pub optname: signed_long,
-    pub optval: ptr<u8>,
-    pub optlen: signed_long,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct connect_args {
-    pub sockfd: signed_long,
-    pub addr: ptr<u8>,
-    pub addrlen: socklen_t,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct recv_args {
-    pub sockfd: signed_int,
-    pub __pad: [u8; STD_PAD],
-    pub buf: ptr<u8>,
-    pub len: size_t,
-    pub flags: signed_int,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct recvfrom_args {
-    pub sockfd: signed_long,
-    pub buf: ptr<u8>,
-    pub len: size_t,
-    pub flags: signed_long,
-    pub src_addr: ptr<sockaddr>,
-    pub addrlen: ptr<socklen_t>,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct socketpair_args {
-    pub domain: signed_int,
-    pub type_: signed_int,
-    pub protocol: signed_int,
-    pub __pad: [u8; STD_PAD],
-    pub sv: ptr<signed_int>, // int sv[2]
-}
-
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
 pub struct fd_set {
     pub fds_bits: [unsigned_long; FD_SET_NUM],
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct select_args {
-    pub n_fds: signed_int,
-    pub __pad: [u8; STD_PAD],
-    pub read_fds: ptr<fd_set>,
-    pub write_fds: ptr<fd_set>,
-    pub except_fds: ptr<fd_set>,
-    pub timeout: ptr<timeval>,
 }
 
 ///  Some ipc calls require 7 params, so two of them are stashed into
@@ -524,19 +400,6 @@ pub struct select_args {
 pub struct ipc_kludge_args {
     pub msgbuf: ptr<u8>,
     pub msgtype: signed_long,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct __sysctl_args {
-    pub name: ptr<signed_int>,
-    pub nlen: signed_int,
-    pub __pad: [u8; STD_PAD],
-    pub oldval: ptr<u8>,
-    pub oldlenp: ptr<size_t>,
-    pub newval: ptr<u8>,
-    pub newlen: ptr<size_t>,
-    pub __rd_unused: [unsigned_long; 4],
 }
 
 #[repr(C)]
@@ -551,13 +414,6 @@ pub struct kernel_sigset_t {
 #[derive(Copy, Clone, Default)]
 pub struct sigset_t {
     pub __val: [unsigned_long; SIGSET_SIZE],
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct pselect6_arg6 {
-    pub ss: ptr<kernel_sigset_t>,
-    pub ss_len: size_t,
 }
 
 #[repr(C)]
@@ -799,29 +655,6 @@ pub struct mq_attr {
     pub mq_curmsgs: signed_long,
     pub __reserved: [signed_long; 4],
 }
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct xt_counters {
-    pub pcnt: uint64_t,
-    pub bcnt: uint64_t,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct ipt_replace {
-    pub name: [uint8_t; 32],
-    pub valid_hook: uint32_t,
-    pub num_entries: uint32_t,
-    pub size: uint32_t,
-    pub hook_entry: [uint32_t; 5],
-    pub underflow: [uint32_t; 5],
-    pub num_counters: uint32_t,
-    pub counters: ptr<xt_counters>,
-    // Plus hangoff here
-}
-// The corresponding header requires -fpermissive, which we don't pass. Skip
-// this check.
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]

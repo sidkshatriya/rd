@@ -599,9 +599,6 @@ pub mod x64 {
         assert_eq_align!(kernel::sigcontext, sigcontext);
         assert_eq_size!(kernel::sigcontext, sigcontext);
 
-        assert_eq_size!(kernel::sockaddr, sockaddr);
-        assert_eq_align!(kernel::sockaddr, sockaddr);
-
         assert_eq_size!(kernel::sockaddr_un, sockaddr_un);
         assert_eq_align!(kernel::sockaddr_un, sockaddr_un);
 
@@ -654,12 +651,6 @@ pub mod x64 {
         assert_eq_size!(kernel::user_desc, user_desc);
         assert_eq_align!(kernel::user_desc, user_desc);
 
-        assert_eq_size!(kernel::__user_cap_header_struct, __user_cap_header_struct);
-        assert_eq_align!(kernel::__user_cap_header_struct, __user_cap_header_struct);
-
-        assert_eq_size!(kernel::__user_cap_data_struct, __user_cap_data_struct);
-        assert_eq_align!(kernel::__user_cap_data_struct, __user_cap_data_struct);
-
         assert_eq_size!(kernel::dqblk, dqblk);
         assert_eq_align!(kernel::dqblk, dqblk);
 
@@ -686,9 +677,6 @@ pub mod x64 {
 
         assert_eq_size!(kernel::f_owner_ex, f_owner_ex);
         assert_eq_align!(kernel::f_owner_ex, f_owner_ex);
-
-        assert_eq_size!(kernel::__sysctl_args, __sysctl_args);
-        assert_eq_align!(kernel::__sysctl_args, __sysctl_args);
 
         assert_eq_size!(kernel::sigset_t, sigset_t);
         assert_eq_align!(kernel::sigset_t, sigset_t);
@@ -755,13 +743,6 @@ pub mod x64 {
 
         assert_eq_size!(kernel::mq_attr, mq_attr);
         assert_eq_align!(kernel::mq_attr, mq_attr);
-
-        assert_eq_size!(kernel::xt_counters, xt_counters);
-        assert_eq_align!(kernel::xt_counters, xt_counters);
-
-        // @TODO
-        // assert_eq_size!(kernel::ipt_replace, ipt_replace);
-        // assert_eq_align!(kernel::ipt_replace, ipt_replace);
 
         assert_eq_size!(kernel::ifbond, ifbond);
         assert_eq_align!(kernel::ifbond, ifbond);
@@ -1024,9 +1005,6 @@ pub mod x86 {
         assert_eq_align!(kernel::user, user);
         assert_eq_size!(kernel::user, user);
 
-        assert_eq_size!(kernel::sockaddr, sockaddr);
-        assert_eq_align!(kernel::sockaddr, sockaddr);
-
         assert_eq_size!(kernel::sockaddr_un, sockaddr_un);
         assert_eq_align!(kernel::sockaddr_un, sockaddr_un);
 
@@ -1079,12 +1057,6 @@ pub mod x86 {
         assert_eq_size!(kernel::user_desc, user_desc);
         assert_eq_align!(kernel::user_desc, user_desc);
 
-        assert_eq_size!(kernel::__user_cap_header_struct, __user_cap_header_struct);
-        assert_eq_align!(kernel::__user_cap_header_struct, __user_cap_header_struct);
-
-        assert_eq_size!(kernel::__user_cap_data_struct, __user_cap_data_struct);
-        assert_eq_align!(kernel::__user_cap_data_struct, __user_cap_data_struct);
-
         assert_eq_size!(kernel::dqblk, dqblk);
         assert_eq_align!(kernel::dqblk, dqblk);
 
@@ -1111,9 +1083,6 @@ pub mod x86 {
 
         assert_eq_size!(kernel::f_owner_ex, f_owner_ex);
         assert_eq_align!(kernel::f_owner_ex, f_owner_ex);
-
-        assert_eq_size!(kernel::__sysctl_args, __sysctl_args);
-        assert_eq_align!(kernel::__sysctl_args, __sysctl_args);
 
         assert_eq_size!(kernel::sigset_t, sigset_t);
         assert_eq_align!(kernel::sigset_t, sigset_t);
@@ -1180,13 +1149,6 @@ pub mod x86 {
 
         assert_eq_size!(kernel::mq_attr, mq_attr);
         assert_eq_align!(kernel::mq_attr, mq_attr);
-
-        assert_eq_size!(kernel::xt_counters, xt_counters);
-        assert_eq_align!(kernel::xt_counters, xt_counters);
-
-        // @TODO
-        // assert_eq_size!(kernel::ipt_replace, ipt_replace);
-        // assert_eq_align!(kernel::ipt_replace, ipt_replace);
 
         assert_eq_size!(kernel::ifbond, ifbond);
         assert_eq_align!(kernel::ifbond, ifbond);
