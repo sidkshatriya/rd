@@ -583,7 +583,6 @@ pub trait Architecture: 'static + Default {
     type iovec: Copy + Default + 'static;
     type msghdr: Copy + Default + 'static;
     type cmsghdr: Copy + Default + 'static;
-    type siginfo_t: 'static;
     type sockaddr_un: Copy + 'static;
     type unsigned_word: Copy
         + Default
@@ -1167,7 +1166,6 @@ impl Architecture for X86Arch {
     type iovec = x86::iovec;
     type msghdr = x86::msghdr;
     type cmsghdr = x86::cmsghdr;
-    type siginfo_t = x86::siginfo_t;
     type sockaddr_un = x86::sockaddr_un;
     type user_regs_struct = x86::user_regs_struct;
     type user_fpregs_struct = x86::user_fpregs_struct;
@@ -1794,7 +1792,6 @@ impl Architecture for X64Arch {
     type iovec = x64::iovec;
     type msghdr = x64::msghdr;
     type cmsghdr = x64::cmsghdr;
-    type siginfo_t = x64::siginfo_t;
     type sockaddr_un = x64::sockaddr_un;
     type user_regs_struct = x64::user_regs_struct;
     type user_fpregs_struct = x64::user_fpregs_struct;

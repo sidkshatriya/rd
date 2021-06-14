@@ -35,13 +35,6 @@ pub const FD_SET_NUM: usize = MAX_FDS / (8 * size_of::<unsigned_long>());
 pub const SYSINFO_F_SIZE: usize = 20 - 2 * size_of::<__kernel_ulong_t>() - size_of::<uint32_t>();
 
 #[repr(C)]
-#[derive(Copy, Clone)]
-pub union sigval_t {
-    pub sival_int: signed_int,
-    pub sival_ptr: ptr<u8>,
-}
-
-#[repr(C)]
 #[derive(Copy, Clone, Default)]
 pub struct sockaddr {
     pub sa_family: unsigned_short,
@@ -163,83 +156,6 @@ pub struct rusage {
     pub ru_nsignals: signed_long,
     pub ru_nvcsw: signed_long,
     pub ru_nivcsw: signed_long,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct siginfo_kill {
-    si_pid_: pid_t,
-    si_uid_: uid_t,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct siginfo_timer {
-    pub si_tid_: signed_int,
-    pub si_overrun_: signed_int,
-    pub si_sigval_: sigval_t,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct siginfo_rt {
-    pub si_pid_: pid_t,
-    pub si_uid_: uid_t,
-    pub si_sigval_: sigval_t,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct siginfo_sigchld {
-    pub si_pid_: pid_t,
-    pub si_uid_: uid_t,
-    pub si_status_: signed_int,
-    pub si_utime_: sigchld_clock_t,
-    pub si_stime_: sigchld_clock_t,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct siginfo_sigfault {
-    pub si_addr_: ptr<u8>,
-    pub si_addr_lsb_: signed_short,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct siginfo_sigpoll {
-    pub si_band_: signed_long,
-    pub si_fd_: signed_int,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct siginfo_sigsys {
-    pub _call_addr: ptr<u8>,
-    pub _syscall: signed_int,
-    pub _arch: unsigned_int,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub union siginfo_sifields {
-    pub padding: [i32; SIGINFO_PADDING],
-    pub _kill: siginfo_kill,
-    pub _timer: siginfo_timer,
-    pub _rt: siginfo_rt,
-    pub _sigchld: siginfo_sigchld,
-    pub _sigfault: siginfo_sigfault,
-    pub _sigpoll: siginfo_sigpoll,
-    pub _sigsys: siginfo_sigsys,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct siginfo_t {
-    pub si_signo: signed_int,
-    pub si_errno: signed_int,
-    pub si_code: signed_int,
-    pub _sifields: siginfo_sifields,
 }
 
 pub type cc_t = u8;
@@ -663,18 +579,6 @@ pub struct socketpair_args {
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
-pub struct mmap_args {
-    pub addr: ptr<u8>,
-    pub len: size_t,
-    pub prot: signed_int,
-    pub flags: signed_int,
-    pub fd: signed_int,
-    pub __pad: [u8; STD_PAD],
-    pub offset: off_t,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
 pub struct fd_set {
     pub fds_bits: [unsigned_long; FD_SET_NUM],
 }
@@ -731,15 +635,6 @@ pub struct sigset_t {
 pub struct pselect6_arg6 {
     pub ss: ptr<kernel_sigset_t>,
     pub ss_len: size_t,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct kernel_sigaction {
-    pub k_sa_handler: ptr<u8>,
-    pub sa_flags: unsigned_long,
-    pub sa_restorer: ptr<u8>,
-    pub sa_mask: kernel_sigset_t,
 }
 
 #[repr(C)]

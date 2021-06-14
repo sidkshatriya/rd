@@ -629,9 +629,6 @@ pub mod x64 {
         assert_eq_size!(kernel::rusage, rusage);
         assert_eq_align!(kernel::rusage, rusage);
 
-        assert_eq_size!(kernel::siginfo_t, siginfo_t);
-        assert_eq_align!(kernel::siginfo_t, siginfo_t);
-
         assert_eq_size!(kernel::termios, termios);
         assert_eq_align!(kernel::termios, termios);
 
@@ -1074,9 +1071,6 @@ pub mod x86 {
 
         assert_eq_size!(kernel::rusage, rusage);
         assert_eq_align!(kernel::rusage, rusage);
-
-        assert_eq_size!(kernel::siginfo_t, siginfo_t);
-        assert_eq_align!(kernel::siginfo_t, siginfo_t);
 
         assert_eq_size!(kernel::termios, termios);
         assert_eq_align!(kernel::termios, termios);
