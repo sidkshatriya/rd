@@ -744,12 +744,6 @@ pub mod x64 {
         assert_eq_size!(kernel::sock_filter, sock_filter);
         assert_eq_align!(kernel::sock_filter, sock_filter);
 
-        assert_eq_size!(kernel::robust_list, robust_list);
-        assert_eq_align!(kernel::robust_list, robust_list);
-
-        assert_eq_size!(kernel::robust_list_head, robust_list_head);
-        assert_eq_align!(kernel::robust_list_head, robust_list_head);
-
         assert_eq_size!(kernel::snd_ctl_card_info, snd_ctl_card_info);
         assert_eq_align!(kernel::snd_ctl_card_info, snd_ctl_card_info);
 
@@ -1186,12 +1180,6 @@ pub mod x86 {
 
         assert_eq_size!(kernel::sock_filter, sock_filter);
         assert_eq_align!(kernel::sock_filter, sock_filter);
-
-        assert_eq_size!(kernel::robust_list, robust_list);
-        assert_eq_align!(kernel::robust_list, robust_list);
-
-        assert_eq_size!(kernel::robust_list_head, robust_list_head);
-        assert_eq_align!(kernel::robust_list_head, robust_list_head);
 
         assert_eq_size!(kernel::snd_ctl_card_info, snd_ctl_card_info);
         assert_eq_align!(kernel::snd_ctl_card_info, snd_ctl_card_info);

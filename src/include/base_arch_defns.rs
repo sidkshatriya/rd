@@ -797,20 +797,6 @@ pub struct sock_filter {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct robust_list {
-    pub next: ptr<robust_list>,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct robust_list_head {
-    pub list: robust_list,
-    pub futex_offset: signed_long,
-    pub list_op_pending: ptr<robust_list>,
-}
-
-#[repr(C)]
 #[derive(Copy, Clone)]
 pub struct snd_ctl_card_info {
     pub card: int,
