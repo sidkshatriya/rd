@@ -614,12 +614,6 @@ pub mod x64 {
         assert_eq_size!(kernel::pollfd, pollfd);
         assert_eq_align!(kernel::pollfd, pollfd);
 
-        assert_eq_size!(kernel::iovec, iovec);
-        assert_eq_align!(kernel::iovec, iovec);
-
-        assert_eq_size!(kernel::msghdr, msghdr);
-        assert_eq_align!(kernel::msghdr, msghdr);
-
         assert_eq_size!(kernel::rusage, rusage);
         assert_eq_align!(kernel::rusage, rusage);
 
@@ -1044,12 +1038,6 @@ pub mod x86 {
 
         assert_eq_size!(kernel::pollfd, pollfd);
         assert_eq_align!(kernel::pollfd, pollfd);
-
-        assert_eq_size!(kernel::iovec, iovec);
-        assert_eq_align!(kernel::iovec, iovec);
-
-        assert_eq_size!(kernel::msghdr, msghdr);
-        assert_eq_align!(kernel::msghdr, msghdr);
 
         assert_eq_size!(kernel::rusage, rusage);
         assert_eq_align!(kernel::rusage, rusage);

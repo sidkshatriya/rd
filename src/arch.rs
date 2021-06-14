@@ -580,8 +580,6 @@ pub trait Architecture: 'static + Default {
         + From<u32>
         + TryFrom<usize, Error = TryFromIntError>
         + 'static;
-    type iovec: Copy + Default + 'static;
-    type msghdr: Copy + Default + 'static;
     type sockaddr_un: Copy + 'static;
     type unsigned_word: Copy
         + Default
@@ -653,8 +651,6 @@ pub trait Architecture: 'static + Default {
 
     fn arch() -> SupportedArch;
 
-    fn set_iovec(msgdata: &mut Self::iovec, iov_base: RemotePtr<Void>, iov_len: usize);
-
     fn as_signed_short(ss: i16) -> Self::signed_short;
 
     fn as_signed_long(ul: Self::unsigned_long) -> Self::signed_long;
@@ -682,16 +678,6 @@ pub trait Architecture: 'static + Default {
     fn usize_as_ulong(v: usize) -> Self::unsigned_long;
 
     fn as_unsigned_word(u: usize) -> Self::unsigned_word;
-
-    fn get_iovec(msgdata: &Self::iovec) -> (RemotePtr<Void>, usize);
-
-    fn set_msghdr(
-        msg: &mut Self::msghdr,
-        msg_control: RemotePtr<u8>,
-        msg_controllen: usize,
-        msg_iov: RemotePtr<Self::iovec>,
-        msg_iovlen: usize,
-    );
 }
 
 impl Architecture for X86Arch {
@@ -1160,8 +1146,6 @@ impl Architecture for X86Arch {
     type syscall_ulong_t = u32;
     type size_t = u32;
     type off_t = i32;
-    type iovec = x86::iovec;
-    type msghdr = x86::msghdr;
     type sockaddr_un = x86::sockaddr_un;
     type user_regs_struct = x86::user_regs_struct;
     type user_fpregs_struct = x86::user_fpregs_struct;
@@ -1234,11 +1218,6 @@ impl Architecture for X86Arch {
         SupportedArch::X86
     }
 
-    fn set_iovec(msgdata: &mut Self::iovec, iov_base: RemotePtr<u8>, iov_len: usize) {
-        msgdata.iov_base = iov_base.into();
-        msgdata.iov_len = iov_len.try_into().unwrap();
-    }
-
     fn as_signed_short(ss: i16) -> Self::signed_short {
         ss as Self::signed_short
     }
@@ -1287,29 +1266,12 @@ impl Architecture for X86Arch {
         u as Self::unsigned_word
     }
 
-    fn get_iovec(msgdata: &Self::iovec) -> (RemotePtr<Void>, usize) {
-        (msgdata.iov_base.rptr(), msgdata.iov_len as usize)
-    }
-
     fn usize_as_signed_long(v: usize) -> Self::signed_long {
         v as Self::signed_long
     }
 
     fn usize_as_ulong(v: usize) -> Self::unsigned_long {
         v as Self::unsigned_long
-    }
-
-    fn set_msghdr(
-        msg: &mut Self::msghdr,
-        msg_control: RemotePtr<u8>,
-        msg_controllen: usize,
-        msg_iov: RemotePtr<Self::iovec>,
-        msg_iovlen: usize,
-    ) {
-        msg.msg_control = msg_control.into();
-        msg.msg_controllen = msg_controllen.try_into().unwrap();
-        msg.msg_iov = msg_iov.into();
-        msg.msg_iovlen = msg_iovlen.try_into().unwrap();
     }
 }
 
@@ -1779,8 +1741,6 @@ impl Architecture for X64Arch {
     type syscall_ulong_t = u64;
     type size_t = u64;
     type off_t = i64;
-    type iovec = x64::iovec;
-    type msghdr = x64::msghdr;
     type sockaddr_un = x64::sockaddr_un;
     type user_regs_struct = x64::user_regs_struct;
     type user_fpregs_struct = x64::user_fpregs_struct;
@@ -1853,11 +1813,6 @@ impl Architecture for X64Arch {
         SupportedArch::X64
     }
 
-    fn set_iovec(msgdata: &mut Self::iovec, iov_base: RemotePtr<u8>, iov_len: usize) {
-        msgdata.iov_base = iov_base.into();
-        msgdata.iov_len = iov_len as _;
-    }
-
     fn as_signed_short(ss: i16) -> Self::signed_short {
         ss as Self::signed_short
     }
@@ -1906,28 +1861,11 @@ impl Architecture for X64Arch {
         u as Self::unsigned_word
     }
 
-    fn get_iovec(msgdata: &Self::iovec) -> (RemotePtr<Void>, usize) {
-        (msgdata.iov_base.rptr(), msgdata.iov_len as usize)
-    }
-
     fn usize_as_signed_long(v: usize) -> Self::signed_long {
         v as Self::signed_long
     }
 
     fn usize_as_ulong(v: usize) -> Self::unsigned_long {
         v as Self::unsigned_long
-    }
-
-    fn set_msghdr(
-        msg: &mut Self::msghdr,
-        msg_control: RemotePtr<u8>,
-        msg_controllen: usize,
-        msg_iov: RemotePtr<Self::iovec>,
-        msg_iovlen: usize,
-    ) {
-        msg.msg_control = msg_control.into();
-        msg.msg_controllen = msg_controllen as _;
-        msg.msg_iov = msg_iov.into();
-        msg.msg_iovlen = msg_iovlen as _;
     }
 }

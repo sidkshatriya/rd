@@ -71,29 +71,6 @@ pub struct pollfd {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct iovec {
-    pub iov_base: ptr<u8>,
-    pub iov_len: size_t,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct msghdr {
-    pub msg_name: ptr<u8>,
-    pub msg_namelen: socklen_t,
-    pub _padding: [u8; STD_PAD],
-
-    pub msg_iov: ptr<iovec>,
-    pub msg_iovlen: size_t,
-
-    pub msg_control: ptr<u8>,
-    pub msg_controllen: size_t,
-
-    pub msg_flags: signed_int,
-}
-
-#[repr(C)]
 pub union epoll_data {
     pub ptr_: ptr<u8>,
     pub fd: i32,
@@ -511,24 +488,6 @@ pub struct recvfrom_args {
     pub flags: signed_long,
     pub src_addr: ptr<sockaddr>,
     pub addrlen: ptr<socklen_t>,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct recvmsg_args {
-    pub fd: signed_int,
-    pub __pad: [u8; STD_PAD],
-    pub msg: ptr<msghdr>,
-    pub flags: signed_int,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct sendmsg_args {
-    pub fd: signed_int,
-    pub __pad: [u8; STD_PAD],
-    pub msg: ptr<msghdr>,
-    pub flags: signed_int,
 }
 
 #[repr(C)]
