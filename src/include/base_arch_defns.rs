@@ -574,59 +574,6 @@ pub struct snd_ctl_card_info {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct usbdevfs_iso_packet_desc {
-    pub length: unsigned_int,
-    pub actual_length: unsigned_int,
-    pub status: unsigned_int,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub union usbdevfs_urb_u {
-    pub number_of_packets: int,
-    pub stream_id: unsigned_int,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct usbdevfs_urb {
-    pub type_: u8,
-    pub endpoint: u8,
-    pub status: int,
-    pub flags: unsigned_int,
-    pub buffer: ptr<u8>,
-    pub buffer_length: int,
-    pub actual_length: int,
-    pub start_frame: int,
-    pub usbdevfs_urb_u: usbdevfs_urb_u,
-    pub error_count: int,
-    pub signr: unsigned_int,
-    pub usercontext: ptr<u8>,
-    pub iso_frame_desc: [usbdevfs_iso_packet_desc; 0],
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct usbdevfs_ioctl {
-    pub ifno: int,
-    pub ioctl_code: int,
-    pub data: ptr<u8>,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct usbdevfs_ctrltransfer {
-    pub bRequestType: uint8_t,
-    pub bRequest: uint8_t,
-    pub wValue: uint16_t,
-    pub wIndex: uint16_t,
-    pub wLength: uint16_t,
-    pub timeout: uint32_t,
-    pub data: ptr<u8>,
-}
-
-#[repr(C)]
 #[derive(Copy, Clone)]
 pub struct dirent {
     pub d_ino: ino_t,
@@ -812,33 +759,6 @@ pub struct statx {
     pub __spare2: [uint64_t; 14],
 }
 // statx not yet widely available in system headers
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct sg_io_hdr {
-    pub interface_id: int,
-    pub dxfer_direction: int,
-    pub cmd_len: u8,
-    pub mx_sb_len: u8,
-    pub iovec_count: unsigned_short,
-    pub dxfer_len: unsigned_int,
-    pub dxferp: ptr<u8>,
-    pub cmdp: ptr<u8>,
-    pub sbp: ptr<u8>,
-    pub timeout: unsigned_int,
-    pub flags: unsigned_int,
-    pub pack_id: int,
-    pub usr_ptr: ptr<u8>,
-    pub status: u8,
-    pub masked_status: u8,
-    pub msg_status: u8,
-    pub sb_len_wr: u8,
-    pub host_status: unsigned_short,
-    pub driver_status: unsigned_short,
-    pub resid: int,
-    pub duration: unsigned_int,
-    pub info: unsigned_int,
-}
 
 #[repr(C, align(8))]
 #[derive(Copy, Clone, Default)]

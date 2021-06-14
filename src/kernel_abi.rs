@@ -723,18 +723,6 @@ pub mod x64 {
         assert_eq_size!(kernel::snd_ctl_card_info, snd_ctl_card_info);
         assert_eq_align!(kernel::snd_ctl_card_info, snd_ctl_card_info);
 
-        assert_eq_size!(kernel::usbdevfs_iso_packet_desc, usbdevfs_iso_packet_desc);
-        assert_eq_align!(kernel::usbdevfs_iso_packet_desc, usbdevfs_iso_packet_desc);
-
-        assert_eq_size!(kernel::usbdevfs_urb, usbdevfs_urb);
-        assert_eq_align!(kernel::usbdevfs_urb, usbdevfs_urb);
-
-        assert_eq_size!(kernel::usbdevfs_ioctl, usbdevfs_ioctl);
-        assert_eq_align!(kernel::usbdevfs_ioctl, usbdevfs_ioctl);
-
-        assert_eq_size!(kernel::usbdevfs_ctrltransfer, usbdevfs_ctrltransfer);
-        assert_eq_align!(kernel::usbdevfs_ctrltransfer, usbdevfs_ctrltransfer);
-
         assert_eq_size!(kernel::dirent, dirent);
         assert_eq_align!(kernel::dirent, dirent);
 
@@ -755,9 +743,6 @@ pub mod x64 {
 
         assert_eq_size!(kernel::statx, statx);
         assert_eq_align!(kernel::statx, statx);
-
-        assert_eq_size!(kernel::sg_io_hdr, sg_io_hdr);
-        assert_eq_align!(kernel::sg_io_hdr, sg_io_hdr);
 
         assert_eq_size!(kernel::epoll_event, epoll_event);
         assert_eq_align!(kernel::epoll_event, epoll_event);
@@ -1129,18 +1114,6 @@ pub mod x86 {
         assert_eq_size!(kernel::snd_ctl_card_info, snd_ctl_card_info);
         assert_eq_align!(kernel::snd_ctl_card_info, snd_ctl_card_info);
 
-        assert_eq_size!(kernel::usbdevfs_iso_packet_desc, usbdevfs_iso_packet_desc);
-        assert_eq_align!(kernel::usbdevfs_iso_packet_desc, usbdevfs_iso_packet_desc);
-
-        assert_eq_size!(kernel::usbdevfs_urb, usbdevfs_urb);
-        assert_eq_align!(kernel::usbdevfs_urb, usbdevfs_urb);
-
-        assert_eq_size!(kernel::usbdevfs_ioctl, usbdevfs_ioctl);
-        assert_eq_align!(kernel::usbdevfs_ioctl, usbdevfs_ioctl);
-
-        assert_eq_size!(kernel::usbdevfs_ctrltransfer, usbdevfs_ctrltransfer);
-        assert_eq_align!(kernel::usbdevfs_ctrltransfer, usbdevfs_ctrltransfer);
-
         assert_eq_size!(kernel::dirent, dirent);
         assert_eq_align!(kernel::dirent, dirent);
 
@@ -1161,9 +1134,6 @@ pub mod x86 {
 
         assert_eq_size!(kernel::statx, statx);
         assert_eq_align!(kernel::statx, statx);
-
-        assert_eq_size!(kernel::sg_io_hdr, sg_io_hdr);
-        assert_eq_align!(kernel::sg_io_hdr, sg_io_hdr);
 
         assert_eq_size!(kernel::epoll_event, epoll_event);
         // @TODO
