@@ -5,8 +5,8 @@ use crate::{
         getsockname_args, getsockopt_args, ifconf, ifreq, iovec, ipc_kludge_args, iw_point, iwreq,
         kernel_sigaction, mmap_args, mmsghdr, msghdr, pselect6_arg6, recv_args, recvfrom_args,
         recvmmsg_args, recvmsg_args, select_args, sendmmsg_args, sendmsg_args, sg_io_hdr,
-        siginfo_t, sock_fprog, socketpair_args, usbdevfs_ctrltransfer, usbdevfs_ioctl,
-        usbdevfs_iso_packet_desc, usbdevfs_urb, v4l2_buffer,
+        siginfo_t as arch_siginfo_t, siginfo_t, sock_fprog, socketpair_args, usbdevfs_ctrltransfer,
+        usbdevfs_ioctl, usbdevfs_iso_packet_desc, usbdevfs_urb, v4l2_buffer,
     },
     auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem, MemParamsEnabled},
     bindings::{
@@ -951,7 +951,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(t: &RecordTask, regs: &Registers
     }
 
     if sys == Arch::WAITID {
-        syscall_state.reg_parameter::<Arch::siginfo_t>(3, Some(ArgMode::InOut), None);
+        syscall_state.reg_parameter::<arch_siginfo_t<Arch>>(3, Some(ArgMode::InOut), None);
         // Kludge
         t.in_wait_pid.set(regs.arg2() as id_t as pid_t);
         match regs.arg1() as idtype_t {
@@ -1506,7 +1506,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(t: &RecordTask, regs: &Registers
     }
 
     if sys == Arch::RT_SIGTIMEDWAIT_TIME64 || sys == Arch::RT_SIGTIMEDWAIT {
-        syscall_state.reg_parameter::<Arch::siginfo_t>(2, None, None);
+        syscall_state.reg_parameter::<arch_siginfo_t<Arch>>(2, None, None);
         return Switchable::AllowSwitch;
     }
 
@@ -4877,7 +4877,7 @@ fn prepare_ioctl<Arch: Architecture>(
         SIOCGIFADDR | SIOCGIFDSTADDR | SIOCGIFBRDADDR | SIOCGIFHWADDR | SIOCGIFFLAGS
         | SIOCGIFPFLAGS | SIOCGIFTXQLEN | SIOCGIFINDEX | SIOCGIFMTU | SIOCGIFNAME
         | SIOCGIFNETMASK | SIOCGIFMETRIC | SIOCGIFMAP => {
-            syscall_state.reg_parameter::<Arch::ifreq>(3, None, None);
+            syscall_state.reg_parameter::<ifreq<Arch>>(3, None, None);
             syscall_state.after_syscall_action(Box::new(record_page_below_stack_ptr));
             return Switchable::PreventSwitch;
         }
@@ -4886,7 +4886,7 @@ fn prepare_ioctl<Arch: Architecture>(
         // tracees' stacks, but we record a stack page here
         // just in the behavior is driver-dependent.
         SIOCGIWFREQ | SIOCGIWMODE | SIOCGIWNAME | SIOCGIWRATE | SIOCGIWSENS => {
-            syscall_state.reg_parameter::<Arch::iwreq>(3, None, None);
+            syscall_state.reg_parameter::<iwreq<Arch>>(3, None, None);
             syscall_state.after_syscall_action(Box::new(record_page_below_stack_ptr));
             return Switchable::PreventSwitch;
         }
@@ -5080,7 +5080,7 @@ fn prepare_ioctl<Arch: Architecture>(
                 // Reads and writes its parameter despite not having the _IOC_READ
                 // bit...
                 // And the parameter is an ifreq, not an int as in the ioctl definition!
-                syscall_state.reg_parameter::<Arch::ifreq>(3, None, None);
+                syscall_state.reg_parameter::<ifreq<Arch>>(3, None, None);
                 return Switchable::PreventSwitch;
             }
             _ => (),

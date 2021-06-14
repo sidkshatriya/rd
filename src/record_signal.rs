@@ -1,5 +1,6 @@
 use crate::{
-    arch::Architecture,
+    arch::{Architecture, NativeArch},
+    arch_structs::siginfo_t as arch_siginfo_t,
     auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem, MemParamsEnabled},
     bindings::{
         perf_event::{PERF_EVENT_IOC_DISABLE, PERF_EVENT_IOC_ENABLE},
@@ -11,7 +12,7 @@ use crate::{
     },
     file_monitor::virtual_perf_counter_monitor::VirtualPerfCounterMonitor,
     kernel_abi::{
-        is_rdcall_notify_syscall_hook_exit_syscall, is_rt_sigprocmask_syscall, native_arch,
+        is_rdcall_notify_syscall_hook_exit_syscall, is_rt_sigprocmask_syscall,
         sigaction_sigset_size, syscall_number_for_rt_sigaction, syscall_number_for_rt_sigprocmask,
     },
     kernel_metadata::syscall_name,
@@ -339,7 +340,7 @@ fn try_grow_map(t: &RecordTask, si: &siginfo_t) -> bool {
     ed_assert_eq!(t, si.si_signo, SIGSEGV);
 
     // Use kernel_abi to avoid odd inconsistencies between distros
-    let arch_si = unsafe { &*(si as *const siginfo_t as *const native_arch::siginfo_t) };
+    let arch_si = unsafe { &*(si as *const siginfo_t as *const arch_siginfo_t<NativeArch>) };
     let addr = unsafe { arch_si._sifields._sigfault.si_addr_ }.rptr();
 
     if t.vm().mapping_of(addr).is_some() {

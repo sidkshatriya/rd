@@ -453,6 +453,10 @@ pub struct ipt_replace<Arch: Architecture> {
     // Plus hangoff here
 }
 
+// @TODO: "The corresponding header requires -fpermissive, which we don't pass. Skip this check"
+// assert_eq_size!(kernel::ipt_replace, ipt_replace<NativeArch>);
+// assert_eq_align!(kernel::ipt_replace, ipt_replace<NativeArch>);
+
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
 pub struct __sysctl_args<Arch: Architecture> {
@@ -939,7 +943,6 @@ pub struct v4l2_timecode {
 }
 
 assert_eq_size!(kernel::v4l2_timecode, v4l2_timecode);
-
 assert_eq_align!(kernel::v4l2_timecode, v4l2_timecode);
 
 #[repr(C)]
@@ -969,7 +972,6 @@ pub struct v4l2_buffer<Arch: Architecture> {
 }
 
 assert_eq_size!(kernel::v4l2_buffer, v4l2_buffer<NativeArch>);
-
 assert_eq_align!(kernel::v4l2_buffer, v4l2_buffer<NativeArch>);
 
 #[repr(C)]

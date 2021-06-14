@@ -2758,7 +2758,7 @@ fn inject_ld_helper_library(env: &mut Vec<(OsString, OsString)>, name: &OsStr, v
 }
 
 pub union USiginfo {
-    pub native_api: native_arch::siginfo_t,
+    pub native_api: arch_siginfo_t<NativeArch>,
     pub linux_api: siginfo_t,
 }
 

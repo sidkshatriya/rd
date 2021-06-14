@@ -1,5 +1,6 @@
 use crate::{
     arch::Architecture,
+    arch_structs::{cmsg_data_offset, cmsg_len, cmsg_space, cmsghdr, iovec, msghdr},
     auto_remote_syscalls::MemParamsEnabled::{DisableMemoryParams, EnableMemoryParams},
     bindings::{kernel::SYS_SENDMSG, ptrace::PTRACE_EVENT_EXIT},
     kernel_abi::{
@@ -728,10 +729,10 @@ impl<'a> AutoRemoteSyscalls<'a> {
     pub fn retrieve_fd_arch<Arch: Architecture>(&mut self, fd: i32) -> ScopedFd {
         let mut data_length: usize = max(
             reserve::<Arch::sockaddr_un>(),
-            reserve::<Arch::msghdr>()
+            reserve::<msghdr<Arch>>()
                 // This is the aligned space. Don't need to align again.
-                + rd_kernel_abi_arch_function!(cmsg_space, Arch::arch(), size_of_val(&fd))
-                + reserve::<Arch::iovec>(),
+                + cmsg_space::<Arch>(size_of_val(&fd))
+                + reserve::<iovec<Arch>>(),
         );
         if has_socketcall_syscall(Arch::arch()) {
             data_length += reserve::<SocketcallArgs<Arch>>();
@@ -1402,7 +1403,7 @@ fn child_sendmsg<Arch: Architecture>(
     child_sock: i32,
     fd: i32,
 ) -> isize {
-    let cmsgbuf_size = rd_kernel_abi_arch_function!(cmsg_space, Arch::arch(), size_of_val(&fd));
+    let cmsgbuf_size = cmsg_space::<Arch>(size_of_val(&fd));
     let mut cmsgbuf = vec![0u8; cmsgbuf_size];
 
     // Pull the puppet strings to have the child send its fd
@@ -1412,34 +1413,41 @@ fn child_sendmsg<Arch: Architecture>(
     // sent us (in which case we would deadlock with the tracee).
     // We call sendmsg on child socket, but first we have to prepare a lot of
     // data.
-    let remote_msg = allocate::<Arch::msghdr>(&mut buf_end, remote_buf);
-    let remote_msgdata = allocate::<Arch::iovec>(&mut buf_end, remote_buf);
+    let remote_msg = allocate::<msghdr<Arch>>(&mut buf_end, remote_buf);
+    let remote_msgdata = allocate::<iovec<Arch>>(&mut buf_end, remote_buf);
     let remote_cmsgbuf = allocate_bytes(&mut buf_end, remote_buf, cmsgbuf_size);
 
     let mut ok = true;
-    let mut msg = Arch::msghdr::default();
-    Arch::set_msghdr(&mut msg, remote_cmsgbuf, cmsgbuf_size, remote_msgdata, 1);
+    let msg = msghdr::<Arch> {
+        msg_iov: Arch::from_remote_ptr(remote_msgdata),
+        msg_iovlen: Arch::usize_as_size_t(1),
+        msg_control: Arch::from_remote_ptr(remote_cmsgbuf),
+        msg_controllen: Arch::usize_as_size_t(cmsgbuf_size),
+        ..Default::default()
+    };
+
     write_val_mem(remote_buf.task(), remote_msg, &msg, Some(&mut ok));
 
-    let mut msgdata = Arch::iovec::default();
     // iov_base: doesn't matter much, we ignore the data
-    Arch::set_iovec(&mut msgdata, RemotePtr::cast(remote_msg), 1);
+    let msgdata = iovec::<Arch> {
+        iov_base: Arch::from_remote_ptr(RemotePtr::cast(remote_msg)),
+        iov_len: Arch::usize_as_size_t(1),
+    };
     write_val_mem(remote_buf.task(), remote_msgdata, &msgdata, Some(&mut ok));
 
-    let cmsg_data_off = rd_kernel_abi_arch_function!(cmsg_data_offset, Arch::arch());
-    let mut cmsghdr = Arch::cmsghdr::default();
-    Arch::set_csmsghdr(
-        &mut cmsghdr,
-        rd_kernel_abi_arch_function!(cmsg_len, Arch::arch(), size_of_val(&fd)),
-        SOL_SOCKET,
-        SCM_RIGHTS,
-    );
+    let cmsg_data_off = cmsg_data_offset::<Arch>();
+    let cmsghdr = cmsghdr::<Arch> {
+        cmsg_len: Arch::usize_as_size_t(cmsg_len::<Arch>(size_of_val(&fd))),
+        cmsg_level: SOL_SOCKET,
+        cmsg_type: SCM_RIGHTS,
+    };
+
     // Copy the cmsghdr into the cmsgbuf
     unsafe {
         copy_nonoverlapping(
             &raw const cmsghdr as *const u8,
             cmsgbuf.as_mut_ptr(),
-            size_of::<Arch::cmsghdr>(),
+            size_of::<cmsghdr<Arch>>(),
         );
     }
     // Copy the fd into the cmsgbuf

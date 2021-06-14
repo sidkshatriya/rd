@@ -13,6 +13,7 @@
 
 use crate::{
     arch::Architecture,
+    arch_structs::iovec,
     auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem, MemParamsEnabled},
     bindings::{
         kernel::{
@@ -1247,14 +1248,15 @@ fn on_syscall_exit_common_arch<Arch: Architecture>(t: &dyn Task, sys: i32, regs:
         let mut ranges: Vec<file_monitor::Range> = Vec::new();
         let iovecs = read_mem(
             t,
-            RemotePtr::<Arch::iovec>::new(regs.arg2()),
+            RemotePtr::<iovec<Arch>>::new(regs.arg2()),
             regs.arg3(),
             None,
         );
         let mut written = regs.syscall_result_signed();
         ed_assert!(t, written >= 0);
         for v in iovecs {
-            let (iov_remote_ptr, iov_len) = Arch::get_iovec(&v);
+            let iov_remote_ptr = Arch::as_rptr(v.iov_base);
+            let iov_len = Arch::size_t_as_usize(v.iov_len);
             let amount = min(written, iov_len.try_into().unwrap());
             if amount > 0 {
                 ranges.push(file_monitor::Range::new(iov_remote_ptr, amount as usize));
@@ -2113,8 +2115,9 @@ fn ptrace_get_regs_set<Arch: Architecture>(
     regs: &Registers,
     min_size: usize,
 ) -> Vec<u8> {
-    let iov = read_val_mem(t, RemotePtr::<Arch::iovec>::from(regs.arg4()), None);
-    let (remote_ptr, iov_len) = Arch::get_iovec(&iov);
+    let iov = read_val_mem(t, RemotePtr::<iovec<Arch>>::from(regs.arg4()), None);
+    let remote_ptr = Arch::as_rptr(iov.iov_base);
+    let iov_len = Arch::size_t_as_usize(iov.iov_len);
     ed_assert!(
         t,
         iov_len >= min_size,

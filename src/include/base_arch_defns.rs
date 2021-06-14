@@ -36,20 +36,6 @@ pub const SYSINFO_F_SIZE: usize = 20 - 2 * size_of::<__kernel_ulong_t>() - size_
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub union sigval_t {
-    pub sival_int: signed_int,
-    pub sival_ptr: ptr<u8>,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct sockaddr {
-    pub sa_family: unsigned_short,
-    pub sa_data: [u8; 14],
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
 pub struct sockaddr_un {
     pub sun_family: unsigned_short,
     pub sun_path: [u8; 108],
@@ -75,44 +61,6 @@ pub struct pollfd {
     pub fd: signed_int,
     pub events: signed_short,
     pub revents: signed_short,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct iovec {
-    pub iov_base: ptr<u8>,
-    pub iov_len: size_t,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct msghdr {
-    pub msg_name: ptr<u8>,
-    pub msg_namelen: socklen_t,
-    pub _padding: [u8; STD_PAD],
-
-    pub msg_iov: ptr<iovec>,
-    pub msg_iovlen: size_t,
-
-    pub msg_control: ptr<u8>,
-    pub msg_controllen: size_t,
-
-    pub msg_flags: signed_int,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct cmsghdr {
-    pub cmsg_len: size_t,
-    pub cmsg_level: int,
-    pub cmsg_type: int,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct mmsghdr {
-    pub msg_hdr: msghdr,
-    pub msg_len: unsigned_int,
 }
 
 #[repr(C)]
@@ -163,83 +111,6 @@ pub struct rusage {
     pub ru_nsignals: signed_long,
     pub ru_nvcsw: signed_long,
     pub ru_nivcsw: signed_long,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct siginfo_kill {
-    si_pid_: pid_t,
-    si_uid_: uid_t,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct siginfo_timer {
-    pub si_tid_: signed_int,
-    pub si_overrun_: signed_int,
-    pub si_sigval_: sigval_t,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct siginfo_rt {
-    pub si_pid_: pid_t,
-    pub si_uid_: uid_t,
-    pub si_sigval_: sigval_t,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct siginfo_sigchld {
-    pub si_pid_: pid_t,
-    pub si_uid_: uid_t,
-    pub si_status_: signed_int,
-    pub si_utime_: sigchld_clock_t,
-    pub si_stime_: sigchld_clock_t,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct siginfo_sigfault {
-    pub si_addr_: ptr<u8>,
-    pub si_addr_lsb_: signed_short,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct siginfo_sigpoll {
-    pub si_band_: signed_long,
-    pub si_fd_: signed_int,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct siginfo_sigsys {
-    pub _call_addr: ptr<u8>,
-    pub _syscall: signed_int,
-    pub _arch: unsigned_int,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub union siginfo_sifields {
-    pub padding: [i32; SIGINFO_PADDING],
-    pub _kill: siginfo_kill,
-    pub _timer: siginfo_timer,
-    pub _rt: siginfo_rt,
-    pub _sigchld: siginfo_sigchld,
-    pub _sigfault: siginfo_sigfault,
-    pub _sigpoll: siginfo_sigpoll,
-    pub _sigsys: siginfo_sigsys,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct siginfo_t {
-    pub si_signo: signed_int,
-    pub si_errno: signed_int,
-    pub si_code: signed_int,
-    pub _sifields: siginfo_sifields,
 }
 
 pub type cc_t = u8;
@@ -412,21 +283,6 @@ pub struct user_desc {
     pub data: unsigned_int,
 }
 
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct __user_cap_header_struct {
-    pub version: __u32,
-    pub pid: int,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct __user_cap_data_struct {
-    pub effective: __u32,
-    pub permitted: __u32,
-    pub inheritable: __u32,
-}
-
 // This structure uses fixed-size fields, but the padding rules
 // for 32-bit vs. 64-bit architectures dictate that it be
 // defined in full.
@@ -451,148 +307,6 @@ pub struct dqinfo {
     pub dqi_igrace: uint64_t,
     pub dqi_flags: uint32_t,
     pub dqi_valid: uint32_t,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct ifmap {
-    pub mem_start: unsigned_long,
-    pub mem_end: unsigned_long,
-    pub base_addr: unsigned_short,
-    pub irq: u8,
-    pub dma: u8,
-    pub port: u8,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub union ifs_ifsu {
-    pub raw_hdlc: ptr<u8>,
-    pub cisco: ptr<u8>,
-    pub fr: ptr<u8>,
-    pub fr_pvc: ptr<u8>,
-    pub fr_pvc_info: ptr<u8>,
-    pub sync: ptr<u8>,
-    pub tel: ptr<u8>,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct if_settings {
-    pub type_: unsigned_int,
-    pub size: unsigned_int,
-    pub ifs_ifsu: ifs_ifsu,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub union ifr_ifru {
-    pub ifru_addr: sockaddr,
-    pub ifru_dstaddr: sockaddr,
-    pub ifru_broadaddr: sockaddr,
-    pub ifru_netmask: sockaddr,
-    pub ifru_hwaddr: sockaddr,
-    pub ifru_flags: signed_short,
-    pub ifru_ivalue: signed_int,
-    pub ifru_mtu: signed_int,
-    pub ifru_map: ifmap,
-    pub ifru_slave: [u8; 16],
-    pub ifru_newname: [u8; 16],
-    pub ifru_data: ptr<u8>,
-    pub ifru_settings: if_settings,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub union ifr_ifrn {
-    pub ifrn_name: [u8; 16],
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct ifreq {
-    pub ifr_ifrn: ifr_ifrn,
-    pub ifr_ifru: ifr_ifru,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub union ifc_ifcu {
-    pub ifcu_buf: ptr<char>,
-    pub ifcu_req: ptr<ifreq>,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct ifconf {
-    pub ifc_len: signed_int,
-    pub __pad: [u8; STD_PAD],
-    pub ifc_ifcu: ifc_ifcu,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct iw_param {
-    pub value: int32_t,
-    pub fixed: uint8_t,
-    pub disabled: uint8_t,
-    pub flags: uint16_t,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct iw_point {
-    pub pointer: ptr<u8>,
-    pub length: uint16_t,
-    pub flags: uint16_t,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct iw_freq {
-    pub m: int32_t,
-    pub e: int16_t,
-    pub i: uint8_t,
-    pub flags: uint8_t,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct iw_quality {
-    pub qual: uint8_t,
-    pub level: uint8_t,
-    pub noise: uint8_t,
-    pub updated: uint8_t,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub union iwreq_data {
-    pub name: [u8; 16],
-    pub essid: iw_point,
-    pub nwid: iw_param,
-    pub freq: iw_freq,
-    pub sens: iw_param,
-    pub bitrate: iw_param,
-    pub txpower: iw_param,
-    pub rts: iw_param,
-    pub frag: iw_param,
-    pub mode: uint32_t,
-    pub retry: iw_param,
-    pub encoding: iw_point,
-    pub power: iw_param,
-    pub qual: iw_quality,
-    pub ap_addr: sockaddr,
-    pub addr: sockaddr,
-    pub param: iw_param,
-    pub data: iw_point,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct iwreq {
-    pub ifr_ifrn: ifr_ifrn,
-    pub u: iwreq_data,
 }
 
 #[repr(C)]
@@ -647,185 +361,10 @@ pub struct f_owner_ex {
     pub pid: __kernel_pid_t,
 }
 
-// Define various structures that package up syscall arguments.
-// The types of their members are part of the ABI, and defining
-// them here makes their definitions more concise.
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct accept_args {
-    pub sockfd: signed_int,
-    pub __pad: [u8; STD_PAD],
-    pub addr: ptr<sockaddr>,
-    pub addrlen: ptr<socklen_t>,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct accept4_args {
-    pub sockfd: signed_int,
-    pub __pad: [u8; STD_PAD],
-    pub addr: ptr<sockaddr>,
-    pub addrlen: ptr<socklen_t>,
-    pub flags: signed_long,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct getsockname_args {
-    pub sockfd: signed_int,
-    pub __pad: [u8; STD_PAD],
-    pub addr: ptr<sockaddr>,
-    pub addrlen: ptr<socklen_t>,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct getsockopt_args {
-    pub sockfd: signed_int,
-    pub level: signed_int,
-    pub optname: signed_int,
-    pub __pad: [u8; STD_PAD],
-    pub optval: ptr<u8>,
-    pub optlen: ptr<socklen_t>,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct setsockopt_args {
-    pub sockfd: signed_long,
-    pub level: signed_long,
-    pub optname: signed_long,
-    pub optval: ptr<u8>,
-    pub optlen: signed_long,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct connect_args {
-    pub sockfd: signed_long,
-    pub addr: ptr<u8>,
-    pub addrlen: socklen_t,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct recv_args {
-    pub sockfd: signed_int,
-    pub __pad: [u8; STD_PAD],
-    pub buf: ptr<u8>,
-    pub len: size_t,
-    pub flags: signed_int,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct recvfrom_args {
-    pub sockfd: signed_long,
-    pub buf: ptr<u8>,
-    pub len: size_t,
-    pub flags: signed_long,
-    pub src_addr: ptr<sockaddr>,
-    pub addrlen: ptr<socklen_t>,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct recvmsg_args {
-    pub fd: signed_int,
-    pub __pad: [u8; STD_PAD],
-    pub msg: ptr<msghdr>,
-    pub flags: signed_int,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct recvmmsg_args {
-    pub sockfd: signed_int,
-    pub __pad: [u8; STD_PAD],
-    pub msgvec: ptr<mmsghdr>,
-    pub vlen: unsigned_int,
-    pub flags: unsigned_int,
-    pub timeout: ptr<timespec>,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct sendmsg_args {
-    pub fd: signed_int,
-    pub __pad: [u8; STD_PAD],
-    pub msg: ptr<msghdr>,
-    pub flags: signed_int,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct sendmmsg_args {
-    pub sockfd: signed_int,
-    pub __pad: [u8; STD_PAD],
-    pub msgvec: ptr<mmsghdr>,
-    pub vlen: unsigned_int,
-    pub flags: unsigned_int,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct socketpair_args {
-    pub domain: signed_int,
-    pub type_: signed_int,
-    pub protocol: signed_int,
-    pub __pad: [u8; STD_PAD],
-    pub sv: ptr<signed_int>, // int sv[2]
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct mmap_args {
-    pub addr: ptr<u8>,
-    pub len: size_t,
-    pub prot: signed_int,
-    pub flags: signed_int,
-    pub fd: signed_int,
-    pub __pad: [u8; STD_PAD],
-    pub offset: off_t,
-}
-
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
 pub struct fd_set {
     pub fds_bits: [unsigned_long; FD_SET_NUM],
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct select_args {
-    pub n_fds: signed_int,
-    pub __pad: [u8; STD_PAD],
-    pub read_fds: ptr<fd_set>,
-    pub write_fds: ptr<fd_set>,
-    pub except_fds: ptr<fd_set>,
-    pub timeout: ptr<timeval>,
-}
-
-///  Some ipc calls require 7 params, so two of them are stashed into
-///  one of these structs and a pointer to this is passed instead.
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct ipc_kludge_args {
-    pub msgbuf: ptr<u8>,
-    pub msgtype: signed_long,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct __sysctl_args {
-    pub name: ptr<signed_int>,
-    pub nlen: signed_int,
-    pub __pad: [u8; STD_PAD],
-    pub oldval: ptr<u8>,
-    pub oldlenp: ptr<size_t>,
-    pub newval: ptr<u8>,
-    pub newlen: ptr<size_t>,
-    pub __rd_unused: [unsigned_long; 4],
 }
 
 #[repr(C)]
@@ -840,22 +379,6 @@ pub struct kernel_sigset_t {
 #[derive(Copy, Clone, Default)]
 pub struct sigset_t {
     pub __val: [unsigned_long; SIGSET_SIZE],
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct pselect6_arg6 {
-    pub ss: ptr<kernel_sigset_t>,
-    pub ss_len: size_t,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct kernel_sigaction {
-    pub k_sa_handler: ptr<u8>,
-    pub sa_flags: unsigned_long,
-    pub sa_restorer: ptr<u8>,
-    pub sa_mask: kernel_sigset_t,
 }
 
 #[repr(C)]
@@ -992,62 +515,6 @@ pub struct sched_param {
     pub __sched_priority: int,
 }
 
-pub const fn cmsg_data_offset() -> usize {
-    cmsg_align(size_of::<cmsghdr>())
-}
-
-pub const fn cmsg_align(len: usize) -> usize {
-    (len + size_of::<size_t>() - 1) & !(size_of::<size_t>() - 1)
-}
-
-pub const fn cmsg_space(len: usize) -> usize {
-    cmsg_align(size_of::<cmsghdr>()) + cmsg_align(len)
-}
-
-pub const fn cmsg_len(len: usize) -> usize {
-    cmsg_align(size_of::<cmsghdr>()) + len
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct v4l2_timecode {
-    pub type_: uint32_t,
-    pub flags: uint32_t,
-    pub frames: uint8_t,
-    pub seconds: uint8_t,
-    pub minutes: uint8_t,
-    pub hours: uint8_t,
-    pub userbits: [uint8_t; 4],
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub union v4l2_buffer_m {
-    pub offset: uint32_t,
-    pub userptr: unsigned_long,
-    pub planes: ptr<u8>,
-    pub fd: int32_t,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct v4l2_buffer {
-    pub index: uint32_t,
-    pub type_: uint32_t,
-    pub bytesused: uint32_t,
-    pub flags: uint32_t,
-    pub field: uint32_t,
-    pub __pad: [u8; STD_PAD],
-    pub timestamp: timeval,
-    pub timecode: v4l2_timecode,
-    pub sequence: uint32_t,
-    pub memory: uint32_t,
-    pub m: v4l2_buffer_m,
-    pub length: uint32_t,
-    pub reserved2: uint32_t,
-    pub reserved: uint32_t,
-}
-
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
 pub struct sock_filter {
@@ -1055,28 +522,6 @@ pub struct sock_filter {
     pub jt: uint8_t,
     pub jf: uint8_t,
     pub k: uint32_t,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct sock_fprog {
-    pub len: uint16_t,
-    pub _padding: [u8; STD_PAD],
-    pub filter: ptr<sock_filter>,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct robust_list {
-    pub next: ptr<robust_list>,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct robust_list_head {
-    pub list: robust_list,
-    pub futex_offset: signed_long,
-    pub list_op_pending: ptr<robust_list>,
 }
 
 #[repr(C)]
@@ -1091,59 +536,6 @@ pub struct snd_ctl_card_info {
     pub reserved_: [u8; 16],
     pub mixername: [u8; 80],
     pub components: [u8; 128],
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct usbdevfs_iso_packet_desc {
-    pub length: unsigned_int,
-    pub actual_length: unsigned_int,
-    pub status: unsigned_int,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub union usbdevfs_urb_u {
-    pub number_of_packets: int,
-    pub stream_id: unsigned_int,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct usbdevfs_urb {
-    pub type_: u8,
-    pub endpoint: u8,
-    pub status: int,
-    pub flags: unsigned_int,
-    pub buffer: ptr<u8>,
-    pub buffer_length: int,
-    pub actual_length: int,
-    pub start_frame: int,
-    pub usbdevfs_urb_u: usbdevfs_urb_u,
-    pub error_count: int,
-    pub signr: unsigned_int,
-    pub usercontext: ptr<u8>,
-    pub iso_frame_desc: [usbdevfs_iso_packet_desc; 0],
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct usbdevfs_ioctl {
-    pub ifno: int,
-    pub ioctl_code: int,
-    pub data: ptr<u8>,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct usbdevfs_ctrltransfer {
-    pub bRequestType: uint8_t,
-    pub bRequest: uint8_t,
-    pub wValue: uint16_t,
-    pub wIndex: uint16_t,
-    pub wLength: uint16_t,
-    pub timeout: uint32_t,
-    pub data: ptr<u8>,
 }
 
 #[repr(C)]
@@ -1175,29 +567,6 @@ pub struct mq_attr {
     pub mq_curmsgs: signed_long,
     pub __reserved: [signed_long; 4],
 }
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct xt_counters {
-    pub pcnt: uint64_t,
-    pub bcnt: uint64_t,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct ipt_replace {
-    pub name: [uint8_t; 32],
-    pub valid_hook: uint32_t,
-    pub num_entries: uint32_t,
-    pub size: uint32_t,
-    pub hook_entry: [uint32_t; 5],
-    pub underflow: [uint32_t; 5],
-    pub num_counters: uint32_t,
-    pub counters: ptr<xt_counters>,
-    // Plus hangoff here
-}
-// The corresponding header requires -fpermissive, which we don't pass. Skip
-// this check.
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -1356,100 +725,8 @@ pub struct statx {
 }
 // statx not yet widely available in system headers
 
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct sg_io_hdr {
-    pub interface_id: int,
-    pub dxfer_direction: int,
-    pub cmd_len: u8,
-    pub mx_sb_len: u8,
-    pub iovec_count: unsigned_short,
-    pub dxfer_len: unsigned_int,
-    pub dxferp: ptr<u8>,
-    pub cmdp: ptr<u8>,
-    pub sbp: ptr<u8>,
-    pub timeout: unsigned_int,
-    pub flags: unsigned_int,
-    pub pack_id: int,
-    pub usr_ptr: ptr<u8>,
-    pub status: u8,
-    pub masked_status: u8,
-    pub msg_status: u8,
-    pub sb_len_wr: u8,
-    pub host_status: unsigned_short,
-    pub driver_status: unsigned_short,
-    pub resid: int,
-    pub duration: unsigned_int,
-    pub info: unsigned_int,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct bpf_attr_u1 {
-    pub map_type: __u32,
-    pub key_size: __u32,
-    pub value_size: __u32,
-    pub max_entries: __u32,
-    pub map_flags: __u32,
-    pub inner_map_fd: __u32,
-    pub numa_node: __u32,
-    pub map_name: [u8; 16],
-    pub map_ifindex: __u32,
-    pub btf_fd: __u32,
-    pub btf_key_type_id: __u32,
-    pub btf_value_type_id: __u32,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub union bpf_attr_u2_u1 {
-    pub value: ptr64<u8>,
-    pub next_key: ptr64<u8>,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct bpf_attr_u2 {
-    pub map_fd: __u32,
-    pub key: ptr64<u8>,
-    pub bpf_attr_u2_u1: bpf_attr_u2_u1,
-    pub flags: __u64,
-}
-
 #[repr(C, align(8))]
 #[derive(Copy, Clone, Default)]
 pub struct aligned_u64 {
     pub __val: u64,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct bpf_attr_u3 {
-    pub prog_type: __u32,
-    pub insn_cnt: __u32,
-    pub insns: ptr64<u8>,
-    pub license: ptr64<u8>,
-    pub log_level: __u32,
-    pub log_size: __u32,
-    pub log_buf: ptr64<char>,
-    pub kern_version: __u32,
-    pub prog_flags: __u32,
-    pub prog_name: [u8; 16],
-    pub prog_ifindex: __u32,
-    pub expected_attach_type: __u32,
-    pub prog_btf_fd: __u32,
-    pub func_info_rec_size: __u32,
-    pub func_info: aligned_u64,
-    pub func_info_cnt: __u32,
-    pub line_info_rec_size: __u32,
-    pub line_info: aligned_u64,
-    pub line_info_cnt: __u32,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub union bpf_attr {
-    pub bpf_attr_u1: bpf_attr_u1,
-    pub bpf_attr_u2: bpf_attr_u2,
-    pub bpf_attr_u3: bpf_attr_u3,
 }

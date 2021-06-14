@@ -1,5 +1,6 @@
 use crate::{
     arch::Architecture,
+    arch_structs::msghdr,
     kernel_abi::Ptr,
     preload_interface::{preload_globals, syscall_patch_hook},
 };
@@ -100,7 +101,7 @@ pub struct preload_thread_locals<Arch: Architecture> {
     pub scratch_buf: Ptr<Arch::unsigned_word, u8>,
     pub usable_scratch_size: Arch::size_t,
 
-    pub notify_control_msg: Ptr<Arch::unsigned_word, Arch::msghdr>,
+    pub notify_control_msg: Ptr<Arch::unsigned_word, msghdr<Arch>>,
 }
 
 /// Packs up the parameters passed to `SYS_rdcall_init_preload`.
