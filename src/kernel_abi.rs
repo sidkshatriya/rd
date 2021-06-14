@@ -747,9 +747,6 @@ pub mod x64 {
         assert_eq_size!(kernel::sock_filter, sock_filter);
         assert_eq_align!(kernel::sock_filter, sock_filter);
 
-        assert_eq_size!(kernel::sock_fprog, sock_fprog);
-        assert_eq_align!(kernel::sock_fprog, sock_fprog);
-
         assert_eq_size!(kernel::robust_list, robust_list);
         assert_eq_align!(kernel::robust_list, robust_list);
 
@@ -1195,9 +1192,6 @@ pub mod x86 {
 
         assert_eq_size!(kernel::sock_filter, sock_filter);
         assert_eq_align!(kernel::sock_filter, sock_filter);
-
-        assert_eq_size!(kernel::sock_fprog, sock_fprog);
-        assert_eq_align!(kernel::sock_fprog, sock_fprog);
 
         assert_eq_size!(kernel::robust_list, robust_list);
         assert_eq_align!(kernel::robust_list, robust_list);

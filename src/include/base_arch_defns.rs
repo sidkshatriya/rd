@@ -903,14 +903,6 @@ pub struct sock_filter {
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
-pub struct sock_fprog {
-    pub len: uint16_t,
-    pub _padding: [u8; STD_PAD],
-    pub filter: ptr<sock_filter>,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
 pub struct robust_list {
     pub next: ptr<robust_list>,
 }
