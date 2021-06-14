@@ -972,7 +972,6 @@ pub struct v4l2_buffer<Arch: Architecture> {
 }
 
 assert_eq_size!(kernel::v4l2_buffer, v4l2_buffer<NativeArch>);
-
 assert_eq_align!(kernel::v4l2_buffer, v4l2_buffer<NativeArch>);
 
 #[repr(C)]

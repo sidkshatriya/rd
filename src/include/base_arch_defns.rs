@@ -367,15 +367,6 @@ pub struct fd_set {
     pub fds_bits: [unsigned_long; FD_SET_NUM],
 }
 
-///  Some ipc calls require 7 params, so two of them are stashed into
-///  one of these structs and a pointer to this is passed instead.
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct ipc_kludge_args {
-    pub msgbuf: ptr<u8>,
-    pub msgtype: signed_long,
-}
-
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
 pub struct kernel_sigset_t {
