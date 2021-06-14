@@ -657,15 +657,6 @@ pub mod x64 {
         assert_eq_size!(kernel::dqinfo, dqinfo);
         assert_eq_align!(kernel::dqinfo, dqinfo);
 
-        assert_eq_size!(kernel::iw_param, iw_param);
-        assert_eq_align!(kernel::iw_param, iw_param);
-
-        assert_eq_size!(kernel::iw_point, iw_point);
-        assert_eq_align!(kernel::iw_point, iw_point);
-
-        assert_eq_size!(kernel::iw_quality, iw_quality);
-        assert_eq_align!(kernel::iw_quality, iw_quality);
-
         assert_eq_size!(kernel::ethtool_cmd, ethtool_cmd);
         assert_eq_align!(kernel::ethtool_cmd, ethtool_cmd);
 
@@ -1047,15 +1038,6 @@ pub mod x86 {
 
         assert_eq_size!(kernel::dqinfo, dqinfo);
         assert_eq_align!(kernel::dqinfo, dqinfo);
-
-        assert_eq_size!(kernel::iw_param, iw_param);
-        assert_eq_align!(kernel::iw_param, iw_param);
-
-        assert_eq_size!(kernel::iw_point, iw_point);
-        assert_eq_align!(kernel::iw_point, iw_point);
-
-        assert_eq_size!(kernel::iw_quality, iw_quality);
-        assert_eq_align!(kernel::iw_quality, iw_quality);
 
         assert_eq_size!(kernel::ethtool_cmd, ethtool_cmd);
         assert_eq_align!(kernel::ethtool_cmd, ethtool_cmd);

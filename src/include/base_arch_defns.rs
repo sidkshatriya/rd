@@ -311,32 +311,6 @@ pub struct dqinfo {
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
-pub struct iw_param {
-    pub value: int32_t,
-    pub fixed: uint8_t,
-    pub disabled: uint8_t,
-    pub flags: uint16_t,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct iw_point {
-    pub pointer: ptr<u8>,
-    pub length: uint16_t,
-    pub flags: uint16_t,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct iw_quality {
-    pub qual: uint8_t,
-    pub level: uint8_t,
-    pub noise: uint8_t,
-    pub updated: uint8_t,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
 pub struct ethtool_cmd {
     pub cmd: uint32_t,
     pub supported: uint32_t,
