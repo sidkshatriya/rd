@@ -94,13 +94,6 @@ pub struct msghdr {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct mmsghdr {
-    pub msg_hdr: msghdr,
-    pub msg_len: unsigned_int,
-}
-
-#[repr(C)]
 pub union epoll_data {
     pub ptr_: ptr<u8>,
     pub fd: i32,
@@ -531,32 +524,11 @@ pub struct recvmsg_args {
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
-pub struct recvmmsg_args {
-    pub sockfd: signed_int,
-    pub __pad: [u8; STD_PAD],
-    pub msgvec: ptr<mmsghdr>,
-    pub vlen: unsigned_int,
-    pub flags: unsigned_int,
-    pub timeout: ptr<timespec>,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
 pub struct sendmsg_args {
     pub fd: signed_int,
     pub __pad: [u8; STD_PAD],
     pub msg: ptr<msghdr>,
     pub flags: signed_int,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Default)]
-pub struct sendmmsg_args {
-    pub sockfd: signed_int,
-    pub __pad: [u8; STD_PAD],
-    pub msgvec: ptr<mmsghdr>,
-    pub vlen: unsigned_int,
-    pub flags: unsigned_int,
 }
 
 #[repr(C)]
