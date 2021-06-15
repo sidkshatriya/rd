@@ -108,12 +108,7 @@ impl MonitoredSharedMemory {
 
     /// This feature is currently unsupported
     pub fn subrange(&self, _start: usize, _size: usize) -> MonitoredSharedMemorySharedPtr {
-        assert!(
-            false,
-            "Subranges in monitored shared memory not supported yet!"
-        );
-
-        unreachable!()
+        panic!("Subranges in monitored shared memory not supported yet!");
     }
 
     fn check_for_changes(&self, t: &RecordTask, m: address_space::Mapping) {

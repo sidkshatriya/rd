@@ -5799,8 +5799,7 @@ fn widen_buffer_unsigned(buf: &[u8]) -> u64 {
         4 => u32::from_le_bytes(buf.try_into().unwrap()) as u64,
         8 => u64::from_le_bytes(buf.try_into().unwrap()) as u64,
         s => {
-            assert!(false, "Unsupported register size: {}", s);
-            unreachable!();
+            panic!("Unsupported register size: {}", s);
         }
     }
 }
@@ -5812,8 +5811,7 @@ fn widen_buffer_signed(buf: &[u8]) -> i64 {
         4 => i32::from_le_bytes(buf.try_into().unwrap()) as i64,
         8 => i64::from_le_bytes(buf.try_into().unwrap()) as i64,
         s => {
-            assert!(false, "Unsupported register size: {}", s);
-            unreachable!();
+            panic!("Unsupported register size: {}", s);
         }
     }
 }

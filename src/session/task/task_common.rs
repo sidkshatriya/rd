@@ -877,9 +877,8 @@ pub(super) fn resume_execution_common<T: Task>(
             // executes the following instruction as well. Work around that.
             let ip = task.ip();
             let len = trapped_instruction_len(task.singlestepping_instruction.get());
-            let local_did_set_breakpoint_after_cpuid = task
-                .vm()
-                .add_breakpoint(ip + len, BreakpointType::Internal);
+            let local_did_set_breakpoint_after_cpuid =
+                task.vm().add_breakpoint(ip + len, BreakpointType::Internal);
             task.did_set_breakpoint_after_cpuid
                 .set(local_did_set_breakpoint_after_cpuid);
         }

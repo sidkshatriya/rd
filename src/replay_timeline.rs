@@ -1022,9 +1022,13 @@ impl ReplayTimeline {
         None
     }
 
+    #[allow(clippy::field_reassign_with_default)]
     pub fn new(session: SessionSharedPtr) -> Rc<RefCell<ReplayTimeline>> {
+        // Using the ..Default::default() idiom gives a strange compile error
+        // Just ignore the clippy
         let mut timeline = ReplayTimeline::default();
         timeline.current = Some(session);
+
         Rc::new_cyclic(move |w| {
             timeline.weak_self = w.clone();
             RefCell::new(timeline)
@@ -1164,8 +1168,7 @@ impl ReplayTimeline {
                 {
                     // At required IP, but not in the correct state. Singlestep over
                     // this IP.
-                    let mut constraints =
-                        StepConstraints::new(RunCommand::SinglestepFastForward);
+                    let mut constraints = StepConstraints::new(RunCommand::SinglestepFastForward);
                     constraints.stop_before_states.push(pmark.regs.clone());
                     self.current_session()
                         .replay_step_with_constraints(&constraints);
@@ -1529,9 +1532,7 @@ impl ReplayTimeline {
                 .mapping_of(mark_addr)
                 .map_or(false, |m| m.map.prot().contains(ProtFlags::PROT_EXEC)))
         {
-            let succeeded: bool = t
-                .vm()
-                .add_breakpoint(mark_addr_code, BreakpointType::User);
+            let succeeded: bool = t.vm().add_breakpoint(mark_addr_code, BreakpointType::User);
             ed_assert!(&t, succeeded);
             let constraints: StepConstraints = strategy.setup_step_constraints();
             result = self
@@ -1576,9 +1577,7 @@ impl ReplayTimeline {
     fn singlestep_with_breakpoints_disabled(&mut self) -> ReplayResult {
         self.apply_breakpoints_and_watchpoints();
         self.unapply_breakpoints_internal();
-        let result = self
-            .current_session()
-            .replay_step(RunCommand::Singlestep);
+        let result = self.current_session().replay_step(RunCommand::Singlestep);
         self.apply_breakpoints_internal();
         result
     }
@@ -2281,8 +2280,8 @@ impl Ord for Mark {
                     return Ordering::Less;
                 }
             }
-            assert!(false, "Marks missing from vector, invariants broken!");
-            unreachable!()
+
+            panic!("Marks missing from vector, invariants broken!");
         }
     }
 }

@@ -267,9 +267,7 @@ pub fn fast_forward_through_instruction<T: Task>(
         let mut tmp: Registers = r.clone();
         tmp.set_cx(iterations);
         t.set_regs(&tmp);
-        let ok = t
-            .vm()
-            .add_breakpoint(limit_ip, BreakpointType::Internal);
+        let ok = t.vm().add_breakpoint(limit_ip, BreakpointType::Internal);
         ed_assert!(t, ok, "Failed to add breakpoint");
         // Watchpoints can fire spuriously because configure_watch_registers
         // can increase the size of the watched area to conserve watch registers.
@@ -283,8 +281,7 @@ pub fn fast_forward_through_instruction<T: Task>(
             None,
         );
         t.vm().restore_watchpoints();
-        t.vm()
-            .remove_breakpoint(limit_ip, BreakpointType::Internal);
+        t.vm().remove_breakpoint(limit_ip, BreakpointType::Internal);
         result.did_fast_forward = true;
         // We should have reached the breakpoint
         ed_assert_eq!(t, t.maybe_stop_sig(), SIGTRAP);

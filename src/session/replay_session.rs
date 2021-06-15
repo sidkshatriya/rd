@@ -1802,8 +1802,7 @@ impl ReplaySession {
                 // because the breakpoint will be triggered immediately. This gives us the
                 // invariant that an internal singlestep never triggers a user breakpoint.
                 if constraints.command == RunCommand::Singlestep
-                    || t.vm().get_breakpoint_type_at_addr(t.regs_ref().ip())
-                        == BreakpointType::User
+                    || t.vm().get_breakpoint_type_at_addr(t.regs_ref().ip()) == BreakpointType::User
                 {
                     self.continue_or_step(t, constraints, TicksRequest::ResumeUnlimitedTicks, None);
                     SIGTRAP_run_command = constraints.command;

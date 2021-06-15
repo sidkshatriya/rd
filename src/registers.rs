@@ -817,8 +817,7 @@ impl Registers {
             6 => self.arg6(),
             _ => {
                 // DIFF NOTE: This is a debug assert in rr
-                assert!(false, "Argument index out of range");
-                0
+                panic!("Argument index out of range");
             }
         }
     }
@@ -834,7 +833,7 @@ impl Registers {
             6 => self.set_arg6(value),
             _ => {
                 // DIFF NOTE: This is a debug assert in rr
-                assert!(false, "Argument index out of range");
+                panic!("Argument index out of range");
             }
         }
     }
@@ -850,7 +849,7 @@ impl Registers {
             6 => self.set_arg6_from_remote_ptr(value),
             _ => {
                 // DIFF NOTE: This is a debug assert in rr
-                assert!(false, "Argument index out of range");
+                panic!("Argument index out of range");
             }
         }
     }

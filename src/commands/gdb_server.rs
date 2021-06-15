@@ -679,7 +679,7 @@ impl GdbServer {
         match req.type_ {
             DREQ_RESTART => {
                 // DIFF NOTE: This is a debug_assert in rr
-                assert!(false);
+                panic!("Did not expect DREQ_RESTART");
             }
             DREQ_GET_CURRENT_THREAD => {
                 let threadid = get_threadid_from_tuid(session, self.last_continue_tuid);
@@ -1027,10 +1027,9 @@ impl GdbServer {
                     .weak_self()
                     .ptr_eq(self.timeline_unwrap().current_session().weak_self())
                 {
-                    target.vm().remove_breakpoint(
-                        req.watch().addr.to_code_ptr(),
-                        BreakpointType::User,
-                    );
+                    target
+                        .vm()
+                        .remove_breakpoint(req.watch().addr.to_code_ptr(), BreakpointType::User);
                 }
                 self.dbg_unwrap_mut().reply_watchpoint_request(true);
                 return;
