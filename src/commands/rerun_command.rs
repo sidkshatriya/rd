@@ -77,6 +77,12 @@ union RegsData {
     regs_values: [usize; size_of::<native_user_regs_struct>() / size_of::<usize>()],
 }
 
+impl Default for RegsData {
+    fn default() -> Self {
+        unsafe { mem::zeroed() }
+    }
+}
+
 // DIFF NOTE: This is a u64 in rr. We make it a usize as x86 has 4 byte pointers.
 const SENTINEL_RET_ADDRESS: usize = 9;
 
@@ -534,8 +540,7 @@ impl ReRunCommand {
         instruction_count: u64,
         out: &mut dyn Write,
     ) -> io::Result<()> {
-        let mut got_gp_regs = false;
-        let mut gp_regs: RegsData = unsafe { mem::zeroed() };
+        let mut maybe_gp_regs: Option<RegsData> = None;
         let mut first = true;
 
         for field in &self.singlestep_trace {
@@ -619,20 +624,23 @@ impl ReRunCommand {
                 }
                 // @TODO Will this work properly if rr is a x86 build?
                 TraceFieldKind::TraceGpReg => {
-                    if !got_gp_regs {
-                        gp_regs = RegsData {
+                    let mut value: u64 = 0;
+                    if maybe_gp_regs.is_none() {
+                        let gp_regs = RegsData {
                             native: t.regs_ref().get_ptrace(),
                         };
-                        got_gp_regs = true;
+
+                        if (field.reg_num as usize) < USER_REGS_FIELDS.len() {
+                            value = unsafe {
+                                gp_regs.regs_values
+                                    [USER_REGS_FIELDS[field.reg_num as usize] / size_of::<usize>()]
+                                    as u64
+                            }
+                        };
+
+                        maybe_gp_regs = Some(gp_regs);
                     }
-                    let mut value: u64 = if (field.reg_num as usize) < USER_REGS_FIELDS.len() {
-                        (unsafe {
-                            gp_regs.regs_values
-                                [USER_REGS_FIELDS[field.reg_num as usize] / size_of::<usize>()]
-                        }) as u64
-                    } else {
-                        0
-                    };
+
                     if field.reg_num == 0 && t.arch() == SupportedArch::X86 {
                         // EAX->RAX is sign-extended, so undo that.
                         value = (value as u32) as u64;
@@ -642,6 +650,7 @@ impl ReRunCommand {
                     } else {
                         GP_REG_NAMES[field.reg_num as usize]
                     };
+
                     self.write_value(name, &value.to_le_bytes(), out)?;
                 }
                 TraceFieldKind::TraceXmmReg => {
