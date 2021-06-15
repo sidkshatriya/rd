@@ -1306,7 +1306,7 @@ fn locate_and_verify_kernel_vsyscall(t: &RecordTask, elf_obj: &Elf) -> RemotePtr
             Some(name_res) => match name_res {
                 Ok(name) if name == "__kernel_vsyscall" => {
                     let mut file_offset: usize = 0;
-                    if !addr_to_offset(&elf_obj, s.st_value as usize, &mut file_offset) {
+                    if !addr_to_offset(elf_obj, s.st_value as usize, &mut file_offset) {
                         log!(LogDebug, "Can't convert address {} to offset", s.st_value);
                         continue;
                     }

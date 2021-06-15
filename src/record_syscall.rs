@@ -2610,8 +2610,10 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
                 if sys == Arch::WAITID {
                     let sip: RemotePtr<siginfo_t<Arch>> = r.arg3().into();
                     if !sip.is_null() {
-                        let mut si: siginfo_t<Arch> = Default::default();
-                        si.si_signo = SIGCHLD;
+                        let mut si: siginfo_t<Arch> = siginfo_t::<Arch> {
+                            si_signo: SIGCHLD,
+                            ..Default::default()
+                        };
                         tracee.set_siginfo_for_waited_task::<Arch>(&mut si);
 
                         write_val_mem(t, sip, &si, None);

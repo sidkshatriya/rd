@@ -1027,7 +1027,7 @@ impl GdbConnection {
 
         debug_assert_eq!(DREQ_GET_REG, self.req.type_);
 
-        print_reg_value(&reg, &mut buf);
+        print_reg_value(reg, &mut buf);
         self.write_packet_bytes(&buf);
 
         self.consume_request();

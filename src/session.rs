@@ -163,7 +163,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
                     if m.flags.contains(MappingFlags::IS_SYSCALLBUF) {
                         group
                             .captured_memory
-                            .push((m.map.start(), capture_syscallbuf(&m, &**clone_leader)));
+                            .push((m.map.start(), capture_syscallbuf(m, &**clone_leader)));
                     } else if m.local_addr.is_some() {
                         ed_assert_eq!(
                             clone_leader,

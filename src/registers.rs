@@ -222,8 +222,8 @@ impl Registers {
                 X86(regs1_x86) => {
                     let regs2_x86 = regs2.x86();
                     debug_assert_eq!(rv.nbytes, 4);
-                    let val1_32 = rv.u32_into_x86(&regs1_x86);
-                    let val2_32 = rv.u32_into_x86(&regs2_x86);
+                    let val1_32 = rv.u32_into_x86(regs1_x86);
+                    let val2_32 = rv.u32_into_x86(regs2_x86);
 
                     val1 = val1_32 as u64;
                     val2 = val2_32 as u64;
@@ -231,11 +231,11 @@ impl Registers {
                 X64(regs1_x64) => {
                     let regs2_x64 = regs2.x64();
                     if rv.nbytes == 8 {
-                        val1 = rv.u64_into_x64(&regs1_x64);
-                        val2 = rv.u64_into_x64(&regs2_x64);
+                        val1 = rv.u64_into_x64(regs1_x64);
+                        val2 = rv.u64_into_x64(regs2_x64);
                     } else if rv.nbytes == 4 {
-                        val1 = rv.u32_into_x64(&regs1_x64) as u64;
-                        val2 = rv.u32_into_x64(&regs2_x64) as u64;
+                        val1 = rv.u32_into_x64(regs1_x64) as u64;
+                        val2 = rv.u32_into_x64(regs2_x64) as u64;
                     } else {
                         fatal!("Unexpected register size: {}", rv.nbytes);
                     }

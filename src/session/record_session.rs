@@ -449,7 +449,7 @@ impl RecordSession {
                 ld_preload.extend_from_slice(OsString::from(syscall_buffer_lib_path).as_bytes());
                 ld_preload.push(b'/');
                 ld_preload.extend_from_slice(SYSCALLBUF_LIB_FILENAME_PADDED.as_bytes());
-                inject_ld_helper_library(&mut env, &OsStr::new("LD_PRELOAD"), ld_preload);
+                inject_ld_helper_library(&mut env, OsStr::new("LD_PRELOAD"), ld_preload);
             }
             None => (),
         }
@@ -777,7 +777,7 @@ impl RecordSession {
                 (SignalHandled::DeferSignal, new_si) => {
                     t.pending_siginfo.set(new_si);
                     ed_assert!(
-                        &t,
+                        t,
                         false,
                         "Can't defer deterministic or internal signal {} at ip {}",
                         t.get_siginfo(),
@@ -801,7 +801,7 @@ impl RecordSession {
                             &mut dummy_result_ignore,
                             &mut dummy_did_enter_syscall,
                         );
-                        ed_assert!(&t, !dummy_did_enter_syscall);
+                        ed_assert!(t, !dummy_did_enter_syscall);
                     }
                 }
             }
@@ -975,7 +975,7 @@ impl RecordSession {
                                 t.as_rec_unwrap().tgkill(sig::SIGKILL);
                                 step_state.continue_type = ContinueType::Continue;
                             }
-                            _ => ed_assert!(&t, false, "Seccomp result not handled"),
+                            _ => ed_assert!(t, false, "Seccomp result not handled"),
                         }
                     }
                 }
@@ -1012,7 +1012,7 @@ impl RecordSession {
                     // Steal the exec'ing task and make it the thread-group leader, and
                     // carry on!
                     *t = self.revive_task_for_exec(tid);
-                    self.scheduler().set_current(Some(Rc::downgrade(&t)));
+                    self.scheduler().set_current(Some(Rc::downgrade(t)));
                     // Tell t that it is actually stopped, because the stop we got is really
                     // for this task, not the old dead task.
                     t.did_waitpid(status);
@@ -1025,7 +1025,7 @@ impl RecordSession {
             }
 
             _ => ed_assert!(
-                &t,
+                t,
                 false,
                 "Unhandled ptrace event {}({})",
                 event,

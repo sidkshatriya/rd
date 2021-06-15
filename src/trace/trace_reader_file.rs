@@ -148,7 +148,7 @@ impl TraceReaderFileBackend {
     }
 
     fn reader(&self, s: Substream) -> &CompressedReader {
-        &self.readers.get(&s).unwrap()
+        self.readers.get(&s).unwrap()
     }
 
     fn reader_mut(&mut self, s: Substream) -> &mut CompressedReader {

@@ -303,7 +303,7 @@ fn find_rd_trace_dir() -> PathBuf {
             xdg_dir.push("rd");
         }
         _ => {
-            xdg_dir = PathBuf::from(home);
+            xdg_dir = home;
             xdg_dir.push(".local/share/rd");
         }
     }

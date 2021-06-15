@@ -155,7 +155,7 @@ pub fn word_at(buf: &[u8]) -> u64 {
     let mut temp_buf = [0u8; 8];
     let wsize = buf.len();
 
-    temp_buf[0..wsize].copy_from_slice(&buf);
+    temp_buf[0..wsize].copy_from_slice(buf);
     u64::from_le_bytes(temp_buf)
 }
 
@@ -1998,7 +1998,7 @@ fn iterate_checksums(t: &dyn Task, mode: ChecksumMode, global_time: FrameTime) {
                     }
                 }
                 ChecksumData::StoreChecksums(checksums_file) => {
-                    if !checksum_segment_filter(&m) {
+                    if !checksum_segment_filter(m) {
                         writeln!(checksums_file, "({:x}) {}", IGNORED_CHECKSUM, raw_map_line)
                             .unwrap();
                         continue;

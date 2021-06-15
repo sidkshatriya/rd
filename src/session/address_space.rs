@@ -2439,7 +2439,7 @@ impl AddressSpace {
             value_bytes = self
                 .watchpoints
                 .borrow()
-                .get(&watchpoint_range)
+                .get(watchpoint_range)
                 .unwrap()
                 .value_bytes
                 .clone();
@@ -2468,7 +2468,7 @@ impl AddressSpace {
             }
 
             let wb = self.watchpoints.borrow();
-            let watchpoint_original = wb.get(&watchpoint_range).unwrap();
+            let watchpoint_original = wb.get(watchpoint_range).unwrap();
             changed = valid != watchpoint_original.valid
                 || unsafe {
                     libc::memcmp(
@@ -2602,17 +2602,17 @@ impl AddressSpace {
                 if !is_coalescable(prev_kv.1, first_kv.1) {
                     break;
                 } else {
-                    assert_coalesceable(t, &prev_kv.1, &first_kv.1);
+                    assert_coalesceable(t, prev_kv.1, first_kv.1);
                     first_kv = prev_kv;
                 }
             }
 
             let mut last_kv = forward_iterator.next().unwrap();
             for next_kv in forward_iterator {
-                if !is_coalescable(&last_kv.1, &next_kv.1) {
+                if !is_coalescable(last_kv.1, next_kv.1) {
                     break;
                 } else {
-                    assert_coalesceable(t, &last_kv.1, &next_kv.1);
+                    assert_coalesceable(t, last_kv.1, next_kv.1);
                     last_kv = next_kv;
                 }
             }

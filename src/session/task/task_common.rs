@@ -1238,7 +1238,7 @@ fn on_syscall_exit_common_arch<Arch: Architecture>(t: &dyn Task, sys: i32, regs:
                 amount as usize,
             ));
         }
-        let mut offset = LazyOffset::new(t, &regs, sys);
+        let mut offset = LazyOffset::new(t, regs, sys);
         offset.task().fd_table().did_write(fd, ranges, &mut offset);
         return;
     }
@@ -1263,7 +1263,7 @@ fn on_syscall_exit_common_arch<Arch: Architecture>(t: &dyn Task, sys: i32, regs:
                 written -= amount;
             }
         }
-        let mut offset = LazyOffset::new(t, &regs, sys);
+        let mut offset = LazyOffset::new(t, regs, sys);
         offset.task().fd_table().did_write(fd, ranges, &mut offset);
         return;
     }
@@ -1746,11 +1746,9 @@ fn unmap_buffers_for(
                 .task()
                 .vm()
                 .unmap(remote.task(), other_scratch_ptr, other_scratch_size),
-            Some(ref context) => {
-                context
-                    .vm()
-                    .unmap(*context, other_scratch_ptr, other_scratch_size)
-            }
+            Some(context) => context
+                .vm()
+                .unmap(context, other_scratch_ptr, other_scratch_size),
         }
     }
     if !saved_syscallbuf_child.is_null() {
@@ -1766,8 +1764,8 @@ fn unmap_buffers_for(
                 RemotePtr::<Void>::cast(saved_syscallbuf_child),
                 other_syscallbuf_size,
             ),
-            Some(ref context) => context.vm().unmap(
-                *context,
+            Some(context) => context.vm().unmap(
+                context,
                 RemotePtr::<Void>::cast(saved_syscallbuf_child),
                 other_syscallbuf_size,
             ),

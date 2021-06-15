@@ -407,7 +407,7 @@ impl GdbServer {
                 let len = c_exe_image.as_bytes_with_nul().len();
                 assert!(len <= libc::PATH_MAX as usize);
                 let mut exe_image = [0u8; libc::PATH_MAX as usize];
-                exe_image[0..len].copy_from_slice(&c_exe_image.as_bytes_with_nul());
+                exe_image[0..len].copy_from_slice(c_exe_image.as_bytes_with_nul());
                 let mut host = [0u8; 16];
                 host[0..flags.dbg_host.len()].copy_from_slice(flags.dbg_host.as_bytes());
                 let params = DebuggerParams {

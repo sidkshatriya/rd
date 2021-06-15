@@ -150,7 +150,7 @@ impl EmuFile {
     fn clone_file(&self, owner: EmuFsSharedWeakPtr) -> EmuFileSharedPtr {
         let f = EmuFile::create(
             owner,
-            &self.emu_path(),
+            self.emu_path(),
             self.device(),
             self.inode(),
             self.size_,
@@ -330,7 +330,7 @@ impl EmuFs {
 
         let vf = EmuFile::create(
             self.weak_self.clone(),
-            &recorded_km.fsname(),
+            recorded_km.fsname(),
             recorded_km.device(),
             recorded_km.inode(),
             min_file_size,

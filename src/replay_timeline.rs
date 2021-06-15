@@ -1401,7 +1401,7 @@ impl ReplayTimeline {
                     LogDebug,
                     "Singlestepping arrived at |end|, restoring session"
                 );
-            } else if !m.equal_states(&self.current_session()) {
+            } else if !m.equal_states(self.current_session()) {
                 log!(
                     LogDebug,
                     "Did fast-singlestep forward to {}",
@@ -2130,8 +2130,8 @@ impl ReplayTimeline {
 
         for m in &checkpoints_to_delete {
             log!(LogDebug, "Discarding reverse-exec checkpoint at {}", m);
-            self.remove_explicit_checkpoint(&m);
-            self.reverse_exec_checkpoints.remove(&m);
+            self.remove_explicit_checkpoint(m);
+            self.reverse_exec_checkpoints.remove(m);
         }
     }
 
@@ -2289,7 +2289,7 @@ impl Ord for Mark {
 
 impl PartialOrd for Mark {
     fn partial_cmp(&self, m2: &Self) -> Option<Ordering> {
-        Some(Self::cmp(self, &m2))
+        Some(Self::cmp(self, m2))
     }
 }
 

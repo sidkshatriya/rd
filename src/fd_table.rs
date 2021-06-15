@@ -195,7 +195,7 @@ impl FdTable {
 
         let rt = t.as_record_task().unwrap();
 
-        ed_assert!(&rt, self.task_set().has(rt.weak_self_clone()));
+        ed_assert!(rt, self.task_set().has(rt.weak_self_clone()));
 
         if rt.preload_globals.get().is_null() {
             return;

@@ -522,7 +522,7 @@ impl Scheduler {
                     if maybe_next.is_some() {
                         let nt = maybe_next.as_ref().unwrap();
                         ed_assert!(
-                            &nt,
+                            nt,
                             nt.unstable.get()
                                 || nt.as_rec_unwrap().may_be_blocked()
                                 || status.maybe_ptrace_event() == PTRACE_EVENT_EXIT,

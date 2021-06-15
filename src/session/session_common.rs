@@ -67,7 +67,7 @@ pub(super) fn kill_all_tasks<S: Session>(sess: &S) {
             // still exists and is ptraced. Retrying the PTRACE_DETACH seems to
             // work around it.
             result = t.fallible_ptrace(PTRACE_DETACH, RemotePtr::null(), &mut PtraceData::None);
-            ed_assert!(&t, result >= 0 || errno() == ESRCH);
+            ed_assert!(t, result >= 0 || errno() == ESRCH);
             // But we it might get ESRCH because it really doesn't exist.
             if errno() == ESRCH && is_zombie_process(t.tid()) {
                 break;

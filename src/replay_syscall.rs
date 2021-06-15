@@ -233,7 +233,7 @@ fn init_scratch_memory(t: &ReplayTask, km: &KernelMapping, data: &trace_stream::
             KernelMapping::NO_DEVICE,
             KernelMapping::NO_INODE,
             None,
-            Some(&km),
+            Some(km),
             None,
             None,
             None,
@@ -596,7 +596,7 @@ fn rep_process_syscall_arch<Arch: Architecture>(
     if trace_regs.original_syscallno() == SECCOMP_MAGIC_SKIP_ORIGINAL_SYSCALLNO {
         // rd vetoed this syscall. Don't do any post-processing. Do set registers
         // to match any registers rd modified to fool the signal handler.
-        t.set_regs(&trace_regs);
+        t.set_regs(trace_regs);
         return;
     }
 
@@ -1363,7 +1363,7 @@ pub fn restore_mapped_region(
         device,
         inode,
         None,
-        Some(&km),
+        Some(km),
         None,
         None,
         None,
@@ -1674,7 +1674,7 @@ fn finish_shared_mmap<'a>(
         .as_replay()
         .unwrap()
         .emufs_mut()
-        .get_or_create(&km);
+        .get_or_create(km);
     // Re-use the direct_map() machinery to map the virtual file.
     //
     // NB: the tracee will map the procfs link to our fd; there's
@@ -1713,7 +1713,7 @@ fn finish_shared_mmap<'a>(
         real_file.st_dev,
         real_file.st_ino,
         None,
-        Some(&km),
+        Some(km),
         Some(emufile.clone()),
         None,
         None,

@@ -719,7 +719,7 @@ impl ReplaySession {
 
             let t = rc_t.as_replay_task().unwrap();
             // Advance towards fulfilling `current_step`.
-            if self.try_one_trace_step(t, &constraints) == Completion::Incomplete {
+            if self.try_one_trace_step(t, constraints) == Completion::Incomplete {
                 if EventType::EvTraceTermination == self.current_trace_frame().event().event_type()
                 {
                     // An irregular trace step had to read the
@@ -744,7 +744,7 @@ impl ReplaySession {
                     !result.break_status.singlestep_complete || constraints.is_singlestep()
                 );
 
-                self.check_approaching_ticks_target(t, &constraints, &mut result.break_status);
+                self.check_approaching_ticks_target(t, constraints, &mut result.break_status);
                 result.did_fast_forward = self.fast_forward_status.get().did_fast_forward;
                 result.incomplete_fast_forward =
                     self.fast_forward_status.get().incomplete_fast_forward;
@@ -827,7 +827,7 @@ impl ReplaySession {
                 debug_memory(t);
 
                 self.check_for_watchpoint_changes(t, &mut result.break_status);
-                self.check_approaching_ticks_target(t, &constraints, &mut result.break_status);
+                self.check_approaching_ticks_target(t, constraints, &mut result.break_status);
             }
         }
 
@@ -2000,31 +2000,31 @@ impl ReplaySession {
             // Unfortunately we can't do this for TSTEP_FLUSH_SYSCALLBUF
             // because its tick count can't be trusted.
             // cont_syscall_boundary handles the ticks constraint for those cases.
-            return self.advance_to_ticks_target(t, &constraints);
+            return self.advance_to_ticks_target(t, constraints);
         }
 
         match self.current_step.get().action {
             ReplayTraceStepType::TstepRetire => Completion::Complete,
-            ReplayTraceStepType::TstepEnterSyscall => self.enter_syscall(t, &constraints),
+            ReplayTraceStepType::TstepEnterSyscall => self.enter_syscall(t, constraints),
             ReplayTraceStepType::TstepExitSyscall => self.exit_syscall(t),
             ReplayTraceStepType::TstepDeterministicSignal => self.emulate_deterministic_signal(
                 t,
                 self.current_step.get().target().signo.unwrap(),
-                &constraints,
+                constraints,
             ),
             ReplayTraceStepType::TstepProgramAsyncSignalInterrupt => {
                 // @TODO Ok to have an unwrap here?
                 self.emulate_async_signal(
                     t,
-                    &constraints,
+                    constraints,
                     self.current_step.get().target().ticks.unwrap(),
                 )
             }
             ReplayTraceStepType::TstepDeliverSignal => {
                 self.emulate_signal_delivery(t, self.current_step.get().target().signo.unwrap())
             }
-            ReplayTraceStepType::TstepFlushSyscallbuf => self.flush_syscallbuf(t, &constraints),
-            ReplayTraceStepType::TstepPatchSyscall => self.patch_next_syscall(t, &constraints),
+            ReplayTraceStepType::TstepFlushSyscallbuf => self.flush_syscallbuf(t, constraints),
+            ReplayTraceStepType::TstepPatchSyscall => self.patch_next_syscall(t, constraints),
             ReplayTraceStepType::TstepExitTask => self.exit_task(t),
             _ => {
                 fatal!("Unhandled step type: {:?}", self.current_step.get().action);
