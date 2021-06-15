@@ -2238,7 +2238,7 @@ pub(super) fn reset_syscallbuf_common<T: Task>(t: &T) {
 /// Make this task look like an identical copy of the task whose state
 /// was captured by capture_task_state(), in
 /// every way relevant to replay.  This task should have been
-/// created by calling os_clone_into() or os_fork_into(),
+/// created by calling `os_clone_into()` or `os_fork_into()`,
 /// and if it wasn't results are undefined.
 ///
 /// Some task state must be copied into this by injecting and

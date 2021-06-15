@@ -1413,14 +1413,15 @@ fn finish_direct_mmap(
         // they're not handled properly,
         // but we shouldn't do that.)
         prot,
-        // MAP_SYNC does not seem to be present in 0.17 version of nix
-        (flags & unsafe { !MapFlags::from_bits_unchecked(MAP_SYNC) }) | MapFlags::MAP_FIXED,
-        fd,
         // MAP_SYNC is used to request direct mapping
         // (DAX) from the filesystem for persistent
         // memory devices (requires
         // MAP_SHARED_VALIDATE). Drop it for the
         // backing file.
+        //
+        // MAP_SYNC does not seem to be present in 0.17 version of nix
+        (flags & unsafe { !MapFlags::from_bits_unchecked(MAP_SYNC) }) | MapFlags::MAP_FIXED,
+        fd,
         backing_offset_pages as u64,
     );
 

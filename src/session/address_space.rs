@@ -637,12 +637,16 @@ pub struct AddressSpace {
 }
 
 impl AddressSpace {
+    #[inline]
     pub fn task_set(&self) -> Ref<WeakTaskPtrSet> {
         self.task_set.borrow()
     }
+
+    #[inline]
     pub fn task_set_mut(&self) -> RefMut<WeakTaskPtrSet> {
         self.task_set.borrow_mut()
     }
+
     /// Call this after a new task has been cloned within this
     /// address space.
     pub fn after_clone(&self) {

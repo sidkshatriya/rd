@@ -47,9 +47,6 @@ pub mod session_common;
 pub mod session_inner;
 pub mod task;
 
-/// Note that this is NOT Rc<RefCell<Box<dyn Session>>>
-/// Session will be shared.
-/// Individual parts of the session can be wrapped in RefCell<> as required
 pub type SessionSharedPtr = Rc<Box<dyn Session>>;
 pub type SessionSharedWeakPtr = Weak<Box<dyn Session>>;
 
@@ -82,6 +79,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
     fn as_diversion(&self) -> Option<&DiversionSession> {
         None
     }
+
     fn as_diversion_mut(&mut self) -> Option<&DiversionSession> {
         None
     }
@@ -90,9 +88,11 @@ pub trait Session: DerefMut<Target = SessionInner> {
     fn is_recording(&self) -> bool {
         self.as_record().is_some()
     }
+
     fn is_replaying(&self) -> bool {
         self.as_replay().is_some()
     }
+
     fn is_diversion(&self) -> bool {
         self.as_diversion().is_some()
     }
@@ -214,6 +214,9 @@ pub trait Session: DerefMut<Target = SessionInner> {
                 let mut remote = AutoRemoteSyscalls::new(&**leader);
                 let mut mk_vec = Vec::new();
                 for (&mk, m) in &remote.vm().maps() {
+                    // It's possible for there to be multiple syscallbufs in a single address space
+                    // e.g. If you have different processes all sharing a single address space via
+                    // CLONE_VM. This is why we don't have a break statement inside the `if`.
                     if m.flags.contains(MappingFlags::IS_SYSCALLBUF) {
                         mk_vec.push(mk);
                     }
@@ -243,6 +246,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
                 &tgleader.clone_leader_state,
             );
         }
+
         // Don't need to set clone completion to `None`. Its already been done!
     }
 
@@ -274,22 +278,23 @@ pub trait Session: DerefMut<Target = SessionInner> {
         c
     }
 
-    /// Return the task created with `rec_tid`, or None if no such
-    /// task exists.
-    /// NOTE: Method is simply called Session::find_task() in rr
+    /// Return the task created with `rec_tid`, or None if no such task exists.
+    ///
+    /// DIFF NOTE: Method is simply called Session::find_task() in rr
     fn find_task_from_rec_tid(&self, rec_tid: pid_t) -> Option<TaskSharedPtr> {
         self.finish_initializing();
         self.tasks().get(&rec_tid).cloned()
     }
 
-    /// NOTE: Method is simply called Session::find task() in rr
+    /// DIFF NOTE: Method is simply called Session::find task() in rr
     fn find_task_from_task_uid(&self, tuid: TaskUid) -> Option<TaskSharedPtr> {
         self.find_task_from_rec_tid(tuid.tid())
     }
 
     /// Return the thread group whose unique ID is `tguid`, or None if no such
     /// thread group exists.
-    /// NOTE: Method is simply called Session::find thread_group() in rr
+    ///
+    /// DIFF NOTE: Method is simply called Session::find thread_group() in rr
     fn find_thread_group_from_tguid(&self, tguid: ThreadGroupUid) -> Option<ThreadGroupSharedPtr> {
         self.finish_initializing();
         self.thread_group_map()
@@ -297,8 +302,10 @@ pub trait Session: DerefMut<Target = SessionInner> {
             .map(|t| t.upgrade().unwrap())
     }
 
-    /// Find the thread group for a specific pid
-    /// NOTE: Method is simply called Session::find thread_group() in rr
+    /// Find the thread group for a specific pid, or None if no such thread
+    /// group exists
+    ///
+    /// DIFF NOTE: Method is simply called Session::find thread_group() in rr
     fn find_thread_group_from_pid(&self, pid: pid_t) -> Option<ThreadGroupSharedPtr> {
         self.finish_initializing();
         for (tguid, tg) in self.thread_group_map().iter() {
@@ -318,6 +325,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
     }
 
     /// Return a copy of `tg` with the same mappings.
+    ///
     /// NOTE: Called simply Session::clone() in rr
     fn clone_tg(&self, t: &dyn Task, tg: ThreadGroupSharedPtr) -> ThreadGroupSharedPtr {
         self.assert_fully_initialized();
@@ -339,6 +347,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
                     .map(|found| Rc::downgrade(&found)),
                 None => None,
             };
+
             ThreadGroup::new(
                 self.weak_self.clone(),
                 maybe_parent,

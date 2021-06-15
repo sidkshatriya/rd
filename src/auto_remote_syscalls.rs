@@ -430,6 +430,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
             enable_mem_params_: enable_mem_params,
             t,
         };
+
         // We support two paths for syscalls:
         // -- a fast path using a privileged untraced syscall and PTRACE_SINGLESTEP.
         // This only requires a single task-wait.
@@ -445,10 +446,12 @@ impl<'a> AutoRemoteSyscalls<'a> {
         let enable_singlestep_path = remote.vm().has_rd_page()
             && !running_under_rd()
             && is_sigtrap_default_and_unblocked(remote.task());
+
         remote.setup_path(enable_singlestep_path);
         if enable_mem_params == MemParamsEnabled::EnableMemoryParams {
             remote.maybe_fix_stack_pointer();
         };
+
         remote
     }
 
@@ -457,8 +460,8 @@ impl<'a> AutoRemoteSyscalls<'a> {
         Self::new_with_mem_params(t, MemParamsEnabled::EnableMemoryParams)
     }
 
-    ///  If t's stack pointer doesn't look valid, temporarily adjust it to
-    ///  the top of *some* stack area.
+    /// If t's stack pointer doesn't look valid, temporarily adjust it to
+    /// the top of *some* stack area.
     pub fn maybe_fix_stack_pointer(&mut self) {
         if !self.t.session().done_initial_exec() {
             return;
@@ -505,23 +508,25 @@ impl<'a> AutoRemoteSyscalls<'a> {
         self.initial_regs.set_sp(self.fixed_sp.unwrap());
     }
 
-    ///  "Initial" registers saved from the target task.
+    /// "Initial" registers saved from the target task.
+    /// In case changed registers need to be restored
+    ///
     /// Called regs() in rr
     pub fn initial_regs_ref(&self) -> &Registers {
         &self.initial_regs
     }
-    /// In case changed registers need to be restored
+
     pub fn initial_regs_mut(&mut self) -> &mut Registers {
         &mut self.initial_regs
     }
 
-    ///  Undo any preparations to make remote syscalls in the context of `t`.
+    /// Undo any preparations to make remote syscalls in the context of `t`.
     ///
-    ///  This is usually called automatically by the destructor;
-    ///  don't call it directly unless you really know what you'd
-    ///  doing.  *ESPECIALLY* don't call this on a `t` other than
-    ///  the one passed to the constructor, unless you really know
-    ///  what you're doing.
+    /// This is usually called automatically by the destructor;
+    /// don't call it directly unless you really know what you'd
+    /// doing. *ESPECIALLY* don't call this on a task other than
+    /// the one passed to the constructor, unless you really know
+    /// what you're doing.
     pub fn restore_state_to(&mut self, maybe_other_task: Option<&dyn Task>) {
         match maybe_other_task {
             Some(other_t) => {
@@ -891,9 +896,9 @@ impl<'a> AutoRemoteSyscalls<'a> {
         self.new_tid_
     }
 
-    /// Map the syscallbuffer for this, shared with this process.
+    /// Map the syscallbuffer for `self.t`, shared with this process.
     /// `map_hint` is the address where the syscallbuf is expected
-    /// to be mapped --- and this is asserted --- or nullptr if
+    /// to be mapped --- and this is asserted --- or 0 if
     /// there are no expectations.
     /// Initializes syscallbuf_child.
     ///
@@ -936,7 +941,6 @@ impl<'a> AutoRemoteSyscalls<'a> {
         km
     }
 
-    /// Private methods start
     fn setup_path(&mut self, enable_singlestep_path: bool) {
         if !self.replaced_bytes.is_empty() {
             // XXX what to do here to clean up if the task died unexpectedly?
@@ -1102,12 +1106,15 @@ impl<'a> AutoRemoteSyscalls<'a> {
                 0,
             )
         };
+
         if map_addr as isize == -1 {
             fatal!("Failed to mmap shmem region");
         }
+
         if !maybe_map_hint.unwrap_or_default().is_null() {
             flags |= MapFlags::MAP_FIXED;
         }
+
         // Here we map the shared memory segment into the tracee.
         let child_map_addr = self.infallible_mmap_syscall(
             maybe_map_hint,
