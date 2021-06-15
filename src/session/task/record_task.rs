@@ -1531,7 +1531,7 @@ impl RecordTask {
     /// Return a reference to the saved siginfo record for the stop-signal
     /// that we're currently in a ptrace-stop for.
     ///
-    /// @TODO? DIFF NOTE: Return a siginfo_t instead of a &siginfo_t
+    /// DIFF NOTE: Returns a siginfo_t instead of a &siginfo_t
     pub fn get_saved_ptrace_siginfo(&self) -> siginfo_t {
         let sig = self.emulated_stop_code.get().ptrace_signal().unwrap();
         for it in self.saved_ptrace_siginfos.borrow().iter() {
@@ -2065,7 +2065,7 @@ impl RecordTask {
         !self.stashed_signals.borrow().is_empty()
     }
 
-    // @TODO? DIFF NOTE:  Returns siginfo_t instead of &siginfo_t
+    /// DIFF NOTE: Returns siginfo_t instead of &siginfo_t
     pub fn stashed_sig_not_synthetic_sigchld(&self) -> Option<siginfo_t> {
         for it in self.stashed_signals.borrow().iter() {
             if !is_synthetic_sigchld(&it.siginfo) {
@@ -2842,7 +2842,6 @@ impl RecordTask {
 
     /// Return true if this is a "clone child" per the wait(2) man page.
     pub fn is_clone_child(&self) -> bool {
-        // @TODO Is this what we want? Should we unwrap?
         self.termination_signal.get() != Some(sig::SIGCHLD)
     }
 

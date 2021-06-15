@@ -98,15 +98,17 @@ pub struct RecordCommand {
     pub args: Vec<OsString>,
 }
 
-static mut STATIC_SESSION: *mut RecordSession = std::ptr::null_mut();
+/// @TODO Avoid static mut
+static mut STATIC_SESSION: *const RecordSession = std::ptr::null();
 
 /// This can be called during debugging to close the trace so it can be used
 /// later.
-pub fn force_close_record_session() {
-    unsafe {
-        if !STATIC_SESSION.is_null() {
-            (*STATIC_SESSION).terminate_recording();
-        }
+///
+/// DIFF NOTE: Called rr::force_close_record_session() in rr
+#[no_mangle]
+pub unsafe extern "C" fn rd_force_close_record_session() {
+    if !STATIC_SESSION.is_null() {
+        (*STATIC_SESSION).terminate_recording();
     }
 }
 
@@ -225,6 +227,8 @@ impl RecordCommand {
         log!(LogInfo, "Start recording...");
 
         let session = RecordSession::create(self);
+        unsafe { STATIC_SESSION = session.as_record().unwrap() };
+
         let rec_session = session.as_record().unwrap();
 
         match self.print_trace_dir_fd {
@@ -259,6 +263,7 @@ impl RecordCommand {
         }
 
         rec_session.terminate_recording();
+        unsafe { STATIC_SESSION = std::ptr::null() };
 
         match step_result {
             RecordResult::StepContinue => {

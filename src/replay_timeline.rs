@@ -735,9 +735,9 @@ impl ReplayTimeline {
 
         let mut last_stop_is_watch_or_signal: bool = false;
         let mut final_result: ReplayResult = Default::default();
-        // @TODO In rr, no value is 0. This is tricky. Check this.
+        // @TODO In rr, no value is 0. This is tricky. Check this again.
         let mut final_tuid: Option<TaskUid> = None;
-        // @TODO In rr, no value is 0. This is tricky. Check this.
+        // @TODO In rr, no value is 0. This is tricky. Check this again.
         let mut final_ticks: Option<Ticks> = None;
         let mut maybe_dest: Option<Mark> = None;
         let mut restart_points: Vec<Mark> = Vec::new();

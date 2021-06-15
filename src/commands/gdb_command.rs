@@ -274,6 +274,7 @@ fn when_tid(_: &mut GdbServer, t: &dyn Task, _: &[OsString]) -> OsString {
     OsString::from_vec(rets)
 }
 
+/// @TODO Avoid static mut
 static mut BACK_STACK: Vec<Mark> = Vec::new();
 static mut CURRENT_HISTORY_CP: Option<Mark> = None;
 static mut FORWARD_STACK: Vec<Mark> = Vec::new();

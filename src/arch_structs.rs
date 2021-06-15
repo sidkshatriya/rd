@@ -63,7 +63,6 @@ assert_eq_align!(kernel::sock_fprog, sock_fprog<NativeArch>);
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
-/// @TODO Any align and size asserts?
 pub struct kernel_sigaction<Arch: Architecture> {
     pub k_sa_handler: Ptr<Arch::unsigned_word, u8>,
     pub sa_flags: Arch::unsigned_long,
@@ -75,7 +74,6 @@ pub struct kernel_sigaction<Arch: Architecture> {
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
-/// @TODO Any align and size asserts?
 pub struct mmap_args<Arch: Architecture> {
     pub addr: Ptr<Arch::unsigned_word, u8>,
     pub len: Arch::size_t,

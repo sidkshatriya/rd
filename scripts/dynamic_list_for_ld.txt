@@ -8,4 +8,5 @@
   ps_lsetfpregs;
   ps_getpid;
   ps_get_thread_area;
+  rd_force_close_record_session;
 };

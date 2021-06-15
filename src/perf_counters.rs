@@ -231,7 +231,6 @@ fn check_for_bugs_and_extra() -> PmuBugsAndExtra {
         has_ioc_period_bug = false;
         supports_txcp = false;
         has_kvm_in_txcp_bug = false;
-        // @TODO is this a reasonable default? Should this be true?
         // In rr, it seems that only_one_counter = false by default as it is a global static bool.
         only_one_counter = false;
     } else {

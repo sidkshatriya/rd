@@ -965,8 +965,6 @@ impl GdbConnection {
     /// The first `mem.len()` bytes of the request (i.e. self.req.mem().data)
     ///  were read into the param `mem`.
     /// `mem.len()` must be less than or equal to the length of the request.
-    ///
-    /// @TODO Check the above comments again
     pub fn reply_get_mem(&mut self, mem: &[u8]) {
         debug_assert_eq!(DREQ_GET_MEM, self.req.type_);
         debug_assert!(mem.len() <= self.req.mem().len);
