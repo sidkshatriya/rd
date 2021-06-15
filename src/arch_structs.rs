@@ -6,7 +6,7 @@ use crate::{
     bindings::{kernel, kernel::sock_filter, signal},
     kernel_abi::{common, Ptr},
 };
-use std::mem::size_of;
+use std::mem::{self, size_of};
 
 #[repr(C)]
 pub struct robust_list<Arch: Architecture> {
@@ -273,6 +273,12 @@ impl<Arch: Architecture> Clone for siginfo_t<Arch> {
 }
 
 impl<Arch: Architecture> Copy for siginfo_t<Arch> {}
+
+impl<Arch: Architecture> Default for siginfo_t<Arch> {
+    fn default() -> Self {
+        unsafe { mem::zeroed() }
+    }
+}
 
 assert_eq_size!(kernel::siginfo_t, siginfo_t<NativeArch>);
 assert_eq_align!(kernel::siginfo_t, siginfo_t<NativeArch>);

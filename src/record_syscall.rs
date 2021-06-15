@@ -2610,7 +2610,7 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
                 if sys == Arch::WAITID {
                     let sip: RemotePtr<siginfo_t<Arch>> = r.arg3().into();
                     if !sip.is_null() {
-                        let mut si: siginfo_t<Arch> = unsafe { mem::zeroed() };
+                        let mut si: siginfo_t<Arch> = Default::default();
                         si.si_signo = SIGCHLD;
                         tracee.set_siginfo_for_waited_task::<Arch>(&mut si);
 
@@ -6098,7 +6098,7 @@ fn prepare_ptrace<Arch: Architecture>(
                 Some(tracee_rc) => {
                     let tracee = tracee_rc.as_rec_unwrap();
                     let datap = syscall_state.reg_parameter::<siginfo_t<Arch>>(4, None, None);
-                    let mut dest: siginfo_t<Arch> = unsafe { mem::zeroed() };
+                    let mut dest: siginfo_t<Arch> = Default::default();
                     set_arch_siginfo(&tracee.get_saved_ptrace_siginfo(), &mut dest);
                     write_val_mem(t, datap, &dest, None);
                     syscall_state.emulate_result(0);
