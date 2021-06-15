@@ -488,7 +488,7 @@ impl SessionInner {
 
         if maybe_stop_sig != SIGTRAP {
             let pending_bp: BreakpointType = t.vm().get_breakpoint_type_at_addr(t.ip());
-            if BreakpointType::BkptUser == pending_bp {
+            if BreakpointType::User == pending_bp {
                 // A signal was raised /just/ before a trap
                 // instruction for a SW breakpoint.  This is
                 // observed when debuggers write trap
@@ -539,7 +539,7 @@ impl SessionInner {
             if trap_reasons.breakpoint {
                 let retired_bp: BreakpointType =
                     t.vm().get_breakpoint_type_for_retired_insn(t.ip());
-                if BreakpointType::BkptUser == retired_bp {
+                if BreakpointType::User == retired_bp {
                     // SW breakpoint: $ip is just past the
                     // breakpoint instruction.  Move $ip back
                     // right before it.

@@ -1284,7 +1284,7 @@ impl ReplaySession {
                         if Rc::ptr_eq(rc, &t.vm())
                             && syscall_instruction == *bp_addr
                             && t.vm().get_breakpoint_type_at_addr(syscall_instruction)
-                                != BreakpointType::BkptNone =>
+                                != BreakpointType::None =>
                         true,
                     _ => false,
                 });
@@ -1297,7 +1297,7 @@ impl ReplaySession {
                     && t.vm()
                         .is_breakpoint_in_private_read_only_memory(syscall_instruction, t)
                     && t.vm()
-                        .add_breakpoint(syscall_instruction, BreakpointType::BkptInternal)
+                        .add_breakpoint(syscall_instruction, BreakpointType::Internal)
                 {
                     *self.syscall_bp_vm.borrow_mut() = Some((t.vm(), syscall_instruction));
                 }
@@ -1307,7 +1307,7 @@ impl ReplaySession {
                     && t.maybe_stop_sig() == SIGTRAP
                     && t.ip().decrement_by_bkpt_insn_length(t.arch()) == syscall_instruction
                     && t.vm().get_breakpoint_type_at_addr(syscall_instruction)
-                        == BreakpointType::BkptInternal;
+                        == BreakpointType::Internal;
                 if reached_target {
                     // Emulate syscall state change
                     let mut r: Registers = t.regs_ref().clone();
@@ -1562,8 +1562,8 @@ impl ReplaySession {
                 // An explicit breakpoint instruction in the tracee would produce a
                 // |breakpoint| reason as we emulate the deterministic SIGTRAP.
                 let type_: BreakpointType = t.vm().get_breakpoint_type_for_retired_insn(t.ip());
-                if BreakpointType::BkptNone != type_ {
-                    ed_assert_eq!(t, BreakpointType::BkptUser, type_);
+                if BreakpointType::None != type_ {
+                    ed_assert_eq!(t, BreakpointType::User, type_);
                     return Completion::Incomplete;
                 }
             }
@@ -1695,12 +1695,12 @@ impl ReplaySession {
                 }
                 if constraints.is_singlestep()
                     || (trap_reasons.watchpoint && t.vm().has_any_watchpoint_changes())
-                    || (trap_reasons.breakpoint && BreakpointType::BkptUser == breakpoint_type)
+                    || (trap_reasons.breakpoint && BreakpointType::User == breakpoint_type)
                 {
                     // Case (0) above: interrupt for the debugger.
                     log!(LogDebug, "    trap was debugger singlestep/breakpoint");
                     if did_set_internal_breakpoint {
-                        t.vm().remove_breakpoint(ip, BreakpointType::BkptInternal);
+                        t.vm().remove_breakpoint(ip, BreakpointType::Internal);
                     }
                     return Completion::Incomplete;
                 }
@@ -1759,7 +1759,7 @@ impl ReplaySession {
             // and it's simpler to start out knowing that the
             // breakpoint isn't set.
             if did_set_internal_breakpoint {
-                t.vm().remove_breakpoint(ip, BreakpointType::BkptInternal);
+                t.vm().remove_breakpoint(ip, BreakpointType::Internal);
                 did_set_internal_breakpoint = false;
             }
 
@@ -1786,7 +1786,7 @@ impl ReplaySession {
                 // no slower than single-stepping our way to
                 // the target execution point.
                 log!(LogDebug, "    breaking on target $ip");
-                t.vm().add_breakpoint(ip, BreakpointType::BkptInternal);
+                t.vm().add_breakpoint(ip, BreakpointType::Internal);
                 did_set_internal_breakpoint = true;
                 self.continue_or_step(t, constraints, TicksRequest::ResumeUnlimitedTicks, None);
                 SIGTRAP_run_command = constraints.command;
@@ -1803,7 +1803,7 @@ impl ReplaySession {
                 // invariant that an internal singlestep never triggers a user breakpoint.
                 if constraints.command == RunCommand::Singlestep
                     || t.vm().get_breakpoint_type_at_addr(t.regs_ref().ip())
-                        == BreakpointType::BkptUser
+                        == BreakpointType::User
                 {
                     self.continue_or_step(t, constraints, TicksRequest::ResumeUnlimitedTicks, None);
                     SIGTRAP_run_command = constraints.command;
@@ -1861,18 +1861,18 @@ impl ReplaySession {
 
             let added: bool = t.vm().add_breakpoint(
                 RemoteCodePtr::from(self.current_step.get().flush().stop_breakpoint_addr),
-                BreakpointType::BkptInternal,
+                BreakpointType::Internal,
             );
             ed_assert!(t, added);
             let complete =
                 self.continue_or_step(t, constraints, ticks_request, Some(ResumeRequest::Cont));
             user_breakpoint_at_addr = t.vm().get_breakpoint_type_at_addr(RemoteCodePtr::from(
                 self.current_step.get().flush().stop_breakpoint_addr,
-            )) != BreakpointType::BkptInternal;
+            )) != BreakpointType::Internal;
 
             t.vm().remove_breakpoint(
                 RemoteCodePtr::from(self.current_step.get().flush().stop_breakpoint_addr),
-                BreakpointType::BkptInternal,
+                BreakpointType::Internal,
             );
 
             // Account for buffered syscalls just completed
@@ -2050,7 +2050,7 @@ impl ReplaySession {
     fn clear_syscall_bp(&self) {
         let mut maybe_bp_vm = self.syscall_bp_vm.borrow_mut();
         if let Some((bp_vm, bp_addr)) = maybe_bp_vm.as_ref() {
-            bp_vm.remove_breakpoint(*bp_addr, BreakpointType::BkptInternal)
+            bp_vm.remove_breakpoint(*bp_addr, BreakpointType::Internal)
         }
         *maybe_bp_vm = None;
     }
@@ -2502,7 +2502,7 @@ fn guard_overshoot(
         // have been had it not hit the breakpoint (if it did
         // hit the breakpoint).
         t.vm()
-            .remove_breakpoint(target_ip, BreakpointType::BkptInternal);
+            .remove_breakpoint(target_ip, BreakpointType::Internal);
         if t.regs_ref().ip() == target_ip.increment_by_bkpt_insn_length(t.arch()) {
             t.move_ip_before_breakpoint();
         }

@@ -79,12 +79,12 @@ pub enum RecordInTrace {
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub enum MappingOrigin {
-    SyscallMapping,
+    Syscall,
     /// Just memory moved from one place to another, so no recording needed.
-    RemapMapping,
-    ExecMapping,
-    PatchMapping,
-    RdBufferMapping,
+    Remap,
+    Exec,
+    Patch,
+    RdBuffer,
 }
 
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -320,7 +320,7 @@ impl TraceWriter {
         maybe_skip_monitoring_mapped_fd: Option<bool>,
     ) -> RecordInTrace {
         let skip_monitoring_mapped_fd = maybe_skip_monitoring_mapped_fd.unwrap_or(false);
-        let origin = maybe_origin.unwrap_or(MappingOrigin::SyscallMapping);
+        let origin = maybe_origin.unwrap_or(MappingOrigin::Syscall);
 
         let mut map_msg = message::Builder::new_default();
         let record_in_trace: RecordInTrace;
@@ -353,14 +353,14 @@ impl TraceWriter {
             let mut src = map.get_source();
             let mut backing_file_name = OsString::new();
 
-            if origin == MappingOrigin::RemapMapping
-                || origin == MappingOrigin::PatchMapping
-                || origin == MappingOrigin::RdBufferMapping
+            if origin == MappingOrigin::Remap
+                || origin == MappingOrigin::Patch
+                || origin == MappingOrigin::RdBuffer
             {
                 src.reborrow().set_zero(());
             } else if km.fsname().as_bytes().starts_with(b"/SYSV") {
                 src.reborrow().set_trace(());
-            } else if origin == MappingOrigin::SyscallMapping
+            } else if origin == MappingOrigin::Syscall
                 && (km.inode() == 0 || km.fsname() == "/dev/zero (deleted)")
             {
                 src.reborrow().set_zero(());
@@ -839,9 +839,9 @@ fn to_trace_signal(mut signal: signal::Builder, ev: &Event) {
 
 fn to_trace_disposition(disposition: SignalResolvedDisposition) -> TraceSignalDisposition {
     match disposition {
-        SignalResolvedDisposition::DispositionFatal => TraceSignalDisposition::Fatal,
-        SignalResolvedDisposition::DispositionIgnored => TraceSignalDisposition::Ignored,
-        SignalResolvedDisposition::DispositionUserHandler => TraceSignalDisposition::UserHandler,
+        SignalResolvedDisposition::Fatal => TraceSignalDisposition::Fatal,
+        SignalResolvedDisposition::Ignored => TraceSignalDisposition::Ignored,
+        SignalResolvedDisposition::UserHandler => TraceSignalDisposition::UserHandler,
     }
 }
 

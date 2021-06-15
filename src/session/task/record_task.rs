@@ -620,7 +620,7 @@ impl Task for RecordTask {
                 // (and must not) perform more than one blocking syscall for any given
                 // buffered syscall.
                 for p in self.syscallbuf_syscall_entry_breakpoints() {
-                    self.vm().add_breakpoint(p, BreakpointType::BkptInternal);
+                    self.vm().add_breakpoint(p, BreakpointType::Internal);
                 }
             }
             let addr = self
@@ -629,7 +629,7 @@ impl Task for RecordTask {
                 .syscallbuf_final_exit_instruction;
 
             if self.break_at_syscallbuf_final_instruction.get() {
-                self.vm().add_breakpoint(addr, BreakpointType::BkptInternal);
+                self.vm().add_breakpoint(addr, BreakpointType::Internal);
             }
         }
     }
@@ -825,7 +825,7 @@ impl Task for RecordTask {
 
     fn did_wait(&self) {
         for p in self.syscallbuf_syscall_entry_breakpoints() {
-            self.vm().remove_breakpoint(p, BreakpointType::BkptInternal);
+            self.vm().remove_breakpoint(p, BreakpointType::Internal);
         }
         if self.break_at_syscallbuf_final_instruction.get() {
             let final_exit_instruction = self
@@ -833,7 +833,7 @@ impl Task for RecordTask {
                 .borrow()
                 .syscallbuf_final_exit_instruction;
             self.vm()
-                .remove_breakpoint(final_exit_instruction, BreakpointType::BkptInternal);
+                .remove_breakpoint(final_exit_instruction, BreakpointType::Internal);
         }
 
         if self.stashed_signals_blocking_more_signals.get() {
@@ -948,7 +948,7 @@ impl Task for RecordTask {
                 &preload_thread_locals_mapping,
                 &preload_thread_locals_mapping.fake_stat(),
                 &[],
-                Some(MappingOrigin::RdBufferMapping),
+                Some(MappingOrigin::RdBuffer),
                 None,
             );
             ed_assert_eq!(self, mode, RecordInTrace::DontRecordInTrace);
@@ -1181,7 +1181,7 @@ impl RecordTask {
                     &syscallbuf_km,
                     &syscallbuf_km.fake_stat(),
                     &[],
-                    Some(MappingOrigin::RdBufferMapping),
+                    Some(MappingOrigin::RdBuffer),
                     None,
                 );
             ed_assert_eq!(
@@ -1832,12 +1832,12 @@ impl RecordTask {
         deterministic: SignalDeterministic,
     ) -> SignalResolvedDisposition {
         if self.is_fatal_signal(sig, deterministic) {
-            return SignalResolvedDisposition::DispositionFatal;
+            return SignalResolvedDisposition::Fatal;
         }
         if self.signal_has_user_handler(sig) && !self.is_sig_blocked(sig) {
-            return SignalResolvedDisposition::DispositionUserHandler;
+            return SignalResolvedDisposition::UserHandler;
         }
-        SignalResolvedDisposition::DispositionIgnored
+        SignalResolvedDisposition::Ignored
     }
 
     /// Set the siginfo for the signal-stop of self.

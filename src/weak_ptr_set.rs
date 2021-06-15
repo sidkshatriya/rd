@@ -189,7 +189,7 @@ impl<T> Iterator for ExceptSetIterator<'_, T> {
     type Item = Rc<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some(WeakPtrWrap(it)) = self.hash_set_iterator.next() {
+        for WeakPtrWrap(it) in &mut self.hash_set_iterator {
             if it.ptr_eq(&self.except) {
                 continue;
             } else {

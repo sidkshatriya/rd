@@ -475,7 +475,7 @@ impl ReplayTimeline {
         // Apply breakpoints now; we need to actually try adding this breakpoint
         // to see if it works.
         self.apply_breakpoints_and_watchpoints();
-        if !t.vm().add_breakpoint(addr, BreakpointType::BkptUser) {
+        if !t.vm().add_breakpoint(addr, BreakpointType::User) {
             return false;
         }
         self.breakpoints.insert(
@@ -493,7 +493,7 @@ impl ReplayTimeline {
     /// place multiple breakpoints with conditions on the same location.
     pub fn remove_breakpoint(&mut self, t: &ReplayTask, addr: RemoteCodePtr) {
         if self.breakpoints_applied {
-            t.vm().remove_breakpoint(addr, BreakpointType::BkptUser);
+            t.vm().remove_breakpoint(addr, BreakpointType::User);
         }
         ed_assert!(t, self.has_breakpoint_at_address(t, addr));
         let tb = TimelineBreakpoint {
@@ -1088,7 +1088,7 @@ impl ReplayTimeline {
             // be created) and we should reapply breakpoints then.
             match maybe_vm {
                 Some(vm) => {
-                    vm.add_breakpoint(bp.addr, BreakpointType::BkptUser);
+                    vm.add_breakpoint(bp.addr, BreakpointType::User);
                 }
                 _ => (),
             }
@@ -1108,7 +1108,7 @@ impl ReplayTimeline {
         for bp in self.breakpoints.keys() {
             let maybe_vm = self.current_session().find_address_space(bp.uid);
             match maybe_vm {
-                Some(vm) => vm.remove_breakpoint(bp.addr, BreakpointType::BkptUser),
+                Some(vm) => vm.remove_breakpoint(bp.addr, BreakpointType::User),
                 None => (),
             }
             for wp in self.watchpoints.keys() {
@@ -1172,9 +1172,9 @@ impl ReplayTimeline {
                 } else {
                     // Get a shared reference to t.vm() in case t dies during replay_step
                     let vm = t.vm();
-                    vm.add_breakpoint(mark_addr, BreakpointType::BkptUser);
+                    vm.add_breakpoint(mark_addr, BreakpointType::User);
                     self.current_session().replay_step(RunCommand::Continue);
-                    vm.remove_breakpoint(mark_addr, BreakpointType::BkptUser);
+                    vm.remove_breakpoint(mark_addr, BreakpointType::User);
                 }
             }
         }
@@ -1531,14 +1531,14 @@ impl ReplayTimeline {
         {
             let succeeded: bool = t
                 .vm()
-                .add_breakpoint(mark_addr_code, BreakpointType::BkptUser);
+                .add_breakpoint(mark_addr_code, BreakpointType::User);
             ed_assert!(&t, succeeded);
             let constraints: StepConstraints = strategy.setup_step_constraints();
             result = self
                 .current_session()
                 .replay_step_with_constraints(&constraints);
             t.vm()
-                .remove_breakpoint(mark_addr_code, BreakpointType::BkptUser);
+                .remove_breakpoint(mark_addr_code, BreakpointType::User);
             // If we hit our breakpoint and there is no client breakpoint there,
             // pretend we didn't hit it.
             if result.break_status.breakpoint_hit && !self.has_breakpoint_at_address(&**t, t.ip()) {

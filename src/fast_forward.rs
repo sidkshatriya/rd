@@ -105,7 +105,7 @@ pub fn fast_forward_through_instruction<T: Task>(
     if t.ip() != ip {
         return result;
     }
-    if t.vm().get_breakpoint_type_at_addr(ip) != BreakpointType::BkptNone {
+    if t.vm().get_breakpoint_type_at_addr(ip) != BreakpointType::None {
         // breakpoint must have fired
         return result;
     }
@@ -269,7 +269,7 @@ pub fn fast_forward_through_instruction<T: Task>(
         t.set_regs(&tmp);
         let ok = t
             .vm()
-            .add_breakpoint(limit_ip, BreakpointType::BkptInternal);
+            .add_breakpoint(limit_ip, BreakpointType::Internal);
         ed_assert!(t, ok, "Failed to add breakpoint");
         // Watchpoints can fire spuriously because configure_watch_registers
         // can increase the size of the watched area to conserve watch registers.
@@ -284,7 +284,7 @@ pub fn fast_forward_through_instruction<T: Task>(
         );
         t.vm().restore_watchpoints();
         t.vm()
-            .remove_breakpoint(limit_ip, BreakpointType::BkptInternal);
+            .remove_breakpoint(limit_ip, BreakpointType::Internal);
         result.did_fast_forward = true;
         // We should have reached the breakpoint
         ed_assert_eq!(t, t.maybe_stop_sig(), SIGTRAP);

@@ -45,6 +45,7 @@ pub enum Switchable {
 /// recording and are never actually stored in traces (and are thus irrelevant
 /// to replay).
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[allow(clippy::enum_variant_names)]
 pub enum EventType {
     // @TODO EvUnassigned could potentially be removed
     EvUnassigned,
@@ -132,9 +133,9 @@ pub enum SignalDeterministic {
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub enum SignalResolvedDisposition {
-    DispositionFatal = 0,
-    DispositionUserHandler = 1,
-    DispositionIgnored = 2,
+    Fatal = 0,
+    UserHandler = 1,
+    Ignored = 2,
 }
 
 #[derive(Clone)]

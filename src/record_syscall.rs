@@ -3231,7 +3231,7 @@ fn process_mmap(
         &km,
         &st,
         &extra_fds,
-        Some(MappingOrigin::SyscallMapping),
+        Some(MappingOrigin::Syscall),
         Some(!monitor_this_fd),
     ) == RecordInTrace::RecordInTrace
     {
@@ -3425,7 +3425,7 @@ fn process_execve(t: &RecordTask, syscall_state: &mut TaskSyscallState) {
         &rd_page_mapping,
         &rd_page_mapping.fake_stat(),
         &[],
-        Some(MappingOrigin::RdBufferMapping),
+        Some(MappingOrigin::RdBuffer),
         None,
     );
     ed_assert_eq!(t, mode, RecordInTrace::DontRecordInTrace);
@@ -3442,7 +3442,7 @@ fn process_execve(t: &RecordTask, syscall_state: &mut TaskSyscallState) {
         &preload_thread_locals_mapping,
         &preload_thread_locals_mapping.fake_stat(),
         &[],
-        Some(MappingOrigin::RdBufferMapping),
+        Some(MappingOrigin::RdBuffer),
         None,
     );
     ed_assert_eq!(t, mode, RecordInTrace::DontRecordInTrace);
@@ -3526,7 +3526,7 @@ fn process_execve(t: &RecordTask, syscall_state: &mut TaskSyscallState) {
                     km,
                     &km.fake_stat(),
                     &[],
-                    Some(MappingOrigin::ExecMapping),
+                    Some(MappingOrigin::Exec),
                     None,
                 );
             ed_assert_eq!(remote.task(), mode, RecordInTrace::RecordInTrace);
@@ -3598,7 +3598,7 @@ fn process_execve(t: &RecordTask, syscall_state: &mut TaskSyscallState) {
             &km,
             &st,
             &[],
-            Some(MappingOrigin::ExecMapping),
+            Some(MappingOrigin::Exec),
             None,
         ) == RecordInTrace::RecordInTrace
         {
@@ -5533,7 +5533,7 @@ fn process_mremap(t: &RecordTask, old_addr: RemotePtr<Void>, old_length: usize, 
         &km,
         &st,
         &[],
-        Some(MappingOrigin::RemapMapping),
+        Some(MappingOrigin::Remap),
         None,
     );
     ed_assert_eq!(t, r, RecordInTrace::DontRecordInTrace);

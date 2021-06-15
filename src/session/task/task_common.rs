@@ -737,7 +737,7 @@ pub(super) fn did_waitpid_common<T: Task>(task: &T, mut status: WaitStatus) {
                 task.set_regs(&r);
             }
             task.vm()
-                .remove_breakpoint(bkpt_addr, BreakpointType::BkptInternal);
+                .remove_breakpoint(bkpt_addr, BreakpointType::Internal);
             task.did_set_breakpoint_after_cpuid.set(false);
         }
         if (task.singlestepping_instruction.get() == TrappedInstruction::Pushf
@@ -765,7 +765,7 @@ pub(super) fn did_waitpid_common<T: Task>(task: &T, mut status: WaitStatus) {
         if task
             .vm()
             .get_breakpoint_type_at_addr(task.address_of_last_execution_resume.get())
-            != BreakpointType::BkptNone
+            != BreakpointType::None
             && task.maybe_stop_sig() == SIGTRAP
             && !task.maybe_ptrace_event().is_ptrace_event()
             && task.ip()
@@ -879,7 +879,7 @@ pub(super) fn resume_execution_common<T: Task>(
             let len = trapped_instruction_len(task.singlestepping_instruction.get());
             let local_did_set_breakpoint_after_cpuid = task
                 .vm()
-                .add_breakpoint(ip + len, BreakpointType::BkptInternal);
+                .add_breakpoint(ip + len, BreakpointType::Internal);
             task.did_set_breakpoint_after_cpuid
                 .set(local_did_set_breakpoint_after_cpuid);
         }

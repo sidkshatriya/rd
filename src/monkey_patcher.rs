@@ -829,7 +829,7 @@ fn allocate_extended_jump<ExtendedJumpPatch: AssemblyTemplate>(
                         &recorded,
                         &recorded.fake_stat(),
                         &[],
-                        Some(MappingOrigin::PatchMapping),
+                        Some(MappingOrigin::Patch),
                         None,
                     );
             }

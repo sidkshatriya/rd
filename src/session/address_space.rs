@@ -80,12 +80,12 @@ use std::{
 
 #[derive(Copy, Debug, Clone, Eq, PartialEq)]
 pub enum BreakpointType {
-    BkptNone = 0,
+    None = 0,
     /// Trap for internal rd purposes, f.e. replaying async
     /// signals.
-    BkptInternal = 1,
+    Internal = 1,
     /// Trap on behalf of a debugger user.
-    BkptUser = 2,
+    User = 2,
 }
 
 /// NB: these random-looking enumeration values are chosen to
@@ -433,9 +433,9 @@ impl Breakpoint {
         // internal rd business.  So if there's a USER "ref"
         // on the breakpoint, treat it as a USER breakpoint.
         if self.user_count > 0 {
-            BreakpointType::BkptUser
+            BreakpointType::User
         } else {
-            BreakpointType::BkptInternal
+            BreakpointType::Internal
         }
     }
 
@@ -448,7 +448,7 @@ impl Breakpoint {
     }
 
     pub fn counter(&mut self, which: BreakpointType) -> &mut u32 {
-        if which == BreakpointType::BkptUser {
+        if which == BreakpointType::User {
             &mut self.user_count
         } else {
             &mut self.internal_count
@@ -778,7 +778,7 @@ impl AddressSpace {
         self.breakpoints
             .borrow()
             .get(&addr)
-            .map_or(BreakpointType::BkptNone, |bp| bp.bp_type())
+            .map_or(BreakpointType::None, |bp| bp.bp_type())
     }
 
     /// Returns true when the breakpoint at `addr` is in private

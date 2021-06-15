@@ -182,6 +182,7 @@ pub struct GdbRequest {
 }
 
 #[derive(Clone)]
+#[allow(clippy::enum_variant_names)]
 pub enum GdbRequestValue {
     GdbRequestNone,
     GdbRequestMem(gdb_request::Mem),
@@ -488,16 +489,17 @@ impl GdbRequest {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[allow(clippy::enum_variant_names)]
 pub enum GdbRestartType {
-    RestartFromPrevious,
-    RestartFromEvent,
-    RestartFromCheckpoint,
+    FromPrevious,
+    FromEvent,
+    FromCheckpoint,
 }
 
 impl Default for GdbRestartType {
     fn default() -> Self {
         // Arbitrary
-        GdbRestartType::RestartFromPrevious
+        GdbRestartType::FromPrevious
     }
 }
 
@@ -2012,7 +2014,7 @@ impl GdbConnection {
                 );
             }
             if args.is_empty() {
-                self.req.restart_mut().type_ = GdbRestartType::RestartFromPrevious;
+                self.req.restart_mut().type_ = GdbRestartType::FromPrevious;
                 return true;
             }
             let mut arg1 = args;
@@ -2035,7 +2037,7 @@ impl GdbConnection {
             if event_strb[0] == b'c' {
                 event_strb = &event_strb[1..];
                 let param = str0_to_isize(event_strb, &mut endp).unwrap();
-                self.req.restart_mut().type_ = GdbRestartType::RestartFromCheckpoint;
+                self.req.restart_mut().type_ = GdbRestartType::FromCheckpoint;
                 self.req.restart_mut().param_str = String::from_utf8_lossy(event_strb).into();
                 // Note the unwrap_or_default()
                 // A reply with param 0 will cause gdb to gracefully say the checkpoint was invalid
@@ -2046,7 +2048,7 @@ impl GdbConnection {
                     self.req.restart().param
                 );
             } else {
-                self.req.restart_mut().type_ = GdbRestartType::RestartFromEvent;
+                self.req.restart_mut().type_ = GdbRestartType::FromEvent;
                 self.req.restart_mut().param = str0_to_isize(event_strb, &mut endp)
                     .unwrap()
                     .try_into()
@@ -2063,7 +2065,7 @@ impl GdbConnection {
                     "Couldn't parse event string `{}'; restarting from previous",
                     event_str,
                 );
-                self.req.restart_mut().type_ = GdbRestartType::RestartFromPrevious;
+                self.req.restart_mut().type_ = GdbRestartType::FromPrevious;
                 // @TODO Will this be OK?
                 self.req.restart_mut().param = u64::MAX;
             }

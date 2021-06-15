@@ -765,9 +765,9 @@ fn from_trace_arch(arch: TraceArch) -> SupportedArch {
 
 fn from_trace_disposition(disposition: TraceSignalDisposition) -> SignalResolvedDisposition {
     match disposition {
-        TraceSignalDisposition::Fatal => SignalResolvedDisposition::DispositionFatal,
-        TraceSignalDisposition::Ignored => SignalResolvedDisposition::DispositionIgnored,
-        TraceSignalDisposition::UserHandler => SignalResolvedDisposition::DispositionUserHandler,
+        TraceSignalDisposition::Fatal => SignalResolvedDisposition::Fatal,
+        TraceSignalDisposition::Ignored => SignalResolvedDisposition::Ignored,
+        TraceSignalDisposition::UserHandler => SignalResolvedDisposition::UserHandler,
     }
 }
 

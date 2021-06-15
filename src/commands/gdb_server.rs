@@ -979,7 +979,7 @@ impl GdbServer {
                 {
                     let diversion_ok = target
                         .vm()
-                        .add_breakpoint(req.watch().addr.to_code_ptr(), BreakpointType::BkptUser);
+                        .add_breakpoint(req.watch().addr.to_code_ptr(), BreakpointType::User);
                     ed_assert!(target, diversion_ok);
                 }
                 self.dbg_unwrap_mut().reply_watchpoint_request(ok);
@@ -1029,7 +1029,7 @@ impl GdbServer {
                 {
                     target.vm().remove_breakpoint(
                         req.watch().addr.to_code_ptr(),
-                        BreakpointType::BkptUser,
+                        BreakpointType::User,
                     );
                 }
                 self.dbg_unwrap_mut().reply_watchpoint_request(true);
@@ -1272,7 +1272,7 @@ impl GdbServer {
             .remove_breakpoints_and_watchpoints();
 
         let mut maybe_checkpoint_to_restore = None;
-        if req.restart().type_ == GdbRestartType::RestartFromCheckpoint {
+        if req.restart().type_ == GdbRestartType::FromCheckpoint {
             let maybe_it = self.checkpoints.get(&req.restart().param).cloned();
             match maybe_it {
                 None => {
@@ -1289,7 +1289,7 @@ impl GdbServer {
                     maybe_checkpoint_to_restore = Some(c);
                 }
             }
-        } else if req.restart().type_ == GdbRestartType::RestartFromPrevious {
+        } else if req.restart().type_ == GdbRestartType::FromPrevious {
             maybe_checkpoint_to_restore = self.debugger_restart_checkpoint.clone();
         }
 
@@ -1320,7 +1320,7 @@ impl GdbServer {
 
         self.stop_replaying_to_target = false;
 
-        debug_assert_eq!(req.restart().type_, GdbRestartType::RestartFromEvent);
+        debug_assert_eq!(req.restart().type_, GdbRestartType::FromEvent);
         // Note that we don't reset the target pid; we intentionally keep targeting
         // the same process no matter what is running when we hit the event.
         self.target.event = req.restart().param;
