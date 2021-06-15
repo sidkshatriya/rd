@@ -100,6 +100,7 @@ pub enum CloneParameterOrdering {
 // switch cases without worrying about duplicated case values and makes dealing
 // with 32-bit and 64-bit tracees in the same rd process simpler.
 #[repr(C)]
+#[allow(clippy::upper_case_acronyms)]
 pub enum FcntlOperation {
     DUPFD = 0,
     GETFD = 1,
