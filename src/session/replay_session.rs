@@ -348,10 +348,8 @@ pub struct ReplaySession {
     /// all other recorded events in the timeline during the 'record' phase.
     trace_start_time: Cell<f64>,
     /// Note that this is NOT a weak pointer!!
-    /// DIFF NOTE: Made into an Option<>
-    syscall_bp_vm: RefCell<Option<AddressSpaceSharedPtr>>,
-    // @TODO Set to the 0 address on init. More principled solution?!
-    syscall_bp_addr: Cell<RemoteCodePtr>,
+    /// DIFF NOTE: Made into an Option<> and also contains the syscall_bp_addr
+    syscall_bp_vm: RefCell<Option<(AddressSpaceSharedPtr, RemoteCodePtr)>>,
 }
 
 #[derive(Copy, Clone)]
@@ -398,7 +396,6 @@ impl Clone for ReplaySession {
             trace_start_time: self.trace_start_time.clone(),
             // Implied
             syscall_bp_vm: Default::default(),
-            syscall_bp_addr: Default::default(),
         }
     }
 }
@@ -590,7 +587,6 @@ impl ReplaySession {
             cpuid_bug_detector: Default::default(),
             fast_forward_status: Default::default(),
             syscall_bp_vm: Default::default(),
-            syscall_bp_addr: Default::default(),
         };
 
         let semantics = rs.trace_in.borrow().ticks_semantics();
@@ -1282,13 +1278,16 @@ impl ReplaySession {
                 // If the breakpoint already exists, it must have been from a previous
                 // invocation of this function for the same event (once the event
                 // completes, the breakpoint is cleared).
-                debug_assert!(
-                    self.syscall_bp_vm.borrow().is_none()
-                        || Rc::ptr_eq(self.syscall_bp_vm.borrow().as_ref().unwrap(), &t.vm())
-                            && syscall_instruction == self.syscall_bp_addr.get()
+                debug_assert!(match self.syscall_bp_vm.borrow().as_ref() {
+                    None => true,
+                    Some((rc, bp_addr))
+                        if Rc::ptr_eq(rc, &t.vm())
+                            && syscall_instruction == *bp_addr
                             && t.vm().get_breakpoint_type_at_addr(syscall_instruction)
-                                != BreakpointType::BkptNone
-                );
+                                != BreakpointType::BkptNone =>
+                        true,
+                    _ => false,
+                });
 
                 // Skip this optimization if we can't set the breakpoint, or if it's
                 // in writeable or shared memory, since in those cases it could be
@@ -1300,8 +1299,7 @@ impl ReplaySession {
                     && t.vm()
                         .add_breakpoint(syscall_instruction, BreakpointType::BkptInternal)
                 {
-                    *self.syscall_bp_vm.borrow_mut() = Some(t.vm());
-                    self.syscall_bp_addr.set(syscall_instruction);
+                    *self.syscall_bp_vm.borrow_mut() = Some((t.vm(), syscall_instruction));
                 }
             }
             if self.cont_syscall_boundary(t, constraints) == Completion::Incomplete {
@@ -2055,11 +2053,10 @@ impl ReplaySession {
 
     fn clear_syscall_bp(&self) {
         let mut maybe_bp_vm = self.syscall_bp_vm.borrow_mut();
-        if let Some(bp_vm) = maybe_bp_vm.as_ref() {
-            bp_vm.remove_breakpoint(self.syscall_bp_addr.get(), BreakpointType::BkptInternal)
+        if let Some((bp_vm, bp_addr)) = maybe_bp_vm.as_ref() {
+            bp_vm.remove_breakpoint(*bp_addr, BreakpointType::BkptInternal)
         }
         *maybe_bp_vm = None;
-        self.syscall_bp_addr.set(RemoteCodePtr::null());
     }
 }
 

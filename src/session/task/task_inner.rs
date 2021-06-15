@@ -1129,6 +1129,7 @@ impl TaskInner {
 
     /// Return the virtual memory mapping (address space) of this
     /// task. Will panic if vm does not exist!
+    #[inline]
     pub fn vm(&self) -> AddressSpaceSharedPtr {
         self.as_.borrow().as_ref().unwrap().clone()
     }
