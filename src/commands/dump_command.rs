@@ -195,7 +195,7 @@ impl DumpCommand {
                             prot_flags[3] = b's';
                         }
                         let mut fsname = km.fsname().to_os_string();
-                        if data.source == MappedDataSource::SourceZero {
+                        if data.source == MappedDataSource::Zero {
                             fsname = OsString::from("<ZERO>");
                         }
 

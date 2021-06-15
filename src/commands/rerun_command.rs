@@ -209,29 +209,29 @@ fn ignore_singlestep_for_event(ev: &Event) -> bool {
 #[derive(Copy, Clone, Debug)]
 enum TraceFieldKind {
     /// outputs 64-bit value
-    TraceEventNumber,
+    EventNumber,
     /// outputs 64-bit value
-    TraceInstructionCount,
+    InstructionCount,
     /// outputs 64-bit value
-    TraceIp,
+    Ip,
     /// outputs 64-bit value
-    TraceFsbase,
+    Fsbase,
     /// outputs 64-bit value
-    TraceGsbase,
+    Gsbase,
     /// outputs 64-bit value
-    TraceFlags,
+    Flags,
     /// outputs 64-bit value
-    TraceOrigAx,
+    OrigAx,
     /// outputs 64-bit value
-    TraceSegReg,
+    SegReg,
     /// outputs 64-bit value
-    TraceXinuse,
+    Xinuse,
     /// outputs 64-bit value
-    TraceGpReg,
+    GpReg,
     /// outputs 128-bit value
-    TraceXmmReg,
+    XmmReg,
     /// outputs 256-bit value
-    TraceYmmReg,
+    YmmReg,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -259,73 +259,73 @@ pub(super) fn parse_regs(regs_s: &str) -> Result<TraceFields, clap::Error> {
     for reg in reg_strs {
         if reg == "event" {
             registers.push(TraceField {
-                kind: TraceFieldKind::TraceEventNumber,
+                kind: TraceFieldKind::EventNumber,
                 reg_num: 0,
             });
         } else if reg == "icount" {
             registers.push(TraceField {
-                kind: TraceFieldKind::TraceInstructionCount,
+                kind: TraceFieldKind::InstructionCount,
                 reg_num: 0,
             });
         } else if reg == "ip" || reg == "rip" {
             registers.push(TraceField {
-                kind: TraceFieldKind::TraceIp,
+                kind: TraceFieldKind::Ip,
                 reg_num: 0,
             });
         } else if reg == "fsbase" {
             registers.push(TraceField {
-                kind: TraceFieldKind::TraceFsbase,
+                kind: TraceFieldKind::Fsbase,
                 reg_num: 0,
             });
         } else if reg == "gsbase" {
             registers.push(TraceField {
-                kind: TraceFieldKind::TraceGsbase,
+                kind: TraceFieldKind::Gsbase,
                 reg_num: 0,
             });
         } else if reg == "flags" || reg == "rflags" {
             registers.push(TraceField {
-                kind: TraceFieldKind::TraceFlags,
+                kind: TraceFieldKind::Flags,
                 reg_num: 0,
             });
         } else if reg == "orig_rax" || reg == "orig_eax" {
             registers.push(TraceField {
-                kind: TraceFieldKind::TraceOrigAx,
+                kind: TraceFieldKind::OrigAx,
                 reg_num: 0,
             });
         } else if reg == "gp_x16" {
             for i in 0u8..16 {
                 registers.push(TraceField {
-                    kind: TraceFieldKind::TraceGpReg,
+                    kind: TraceFieldKind::GpReg,
                     reg_num: i,
                 });
             }
         } else if reg == "xmm_x16" {
             for i in 0u8..16 {
                 registers.push(TraceField {
-                    kind: TraceFieldKind::TraceXmmReg,
+                    kind: TraceFieldKind::XmmReg,
                     reg_num: i,
                 });
             }
         } else if reg == "ymm_x16" {
             for i in 0u8..16 {
                 registers.push(TraceField {
-                    kind: TraceFieldKind::TraceYmmReg,
+                    kind: TraceFieldKind::YmmReg,
                     reg_num: i,
                 });
             }
         } else if let Some(i) = find_gp_reg(reg) {
             registers.push(TraceField {
-                kind: TraceFieldKind::TraceGpReg,
+                kind: TraceFieldKind::GpReg,
                 reg_num: i,
             });
         } else if let Some(i) = find_seg_reg(reg) {
             registers.push(TraceField {
-                kind: TraceFieldKind::TraceSegReg,
+                kind: TraceFieldKind::SegReg,
                 reg_num: i,
             });
         } else if reg == "xinuse" {
             registers.push(TraceField {
-                kind: TraceFieldKind::TraceXinuse,
+                kind: TraceFieldKind::Xinuse,
                 reg_num: 0,
             });
         } else {
@@ -551,14 +551,14 @@ impl ReRunCommand {
             }
 
             match field.kind {
-                TraceFieldKind::TraceEventNumber => {
+                TraceFieldKind::EventNumber => {
                     let value: u64 = event;
                     self.write_value("event", &value.to_le_bytes(), out)?;
                 }
-                TraceFieldKind::TraceInstructionCount => {
+                TraceFieldKind::InstructionCount => {
                     self.write_value("icount", &instruction_count.to_le_bytes(), out)?;
                 }
-                TraceFieldKind::TraceIp => {
+                TraceFieldKind::Ip => {
                     // Note the `as u64` to make write_regs() output length uniform between x86 and x86_64
                     let value: u64 = t.regs_ref().ip().register_value() as u64;
                     match t.arch() {
@@ -570,7 +570,7 @@ impl ReRunCommand {
                         }
                     }
                 }
-                TraceFieldKind::TraceFsbase => {
+                TraceFieldKind::Fsbase => {
                     // @TODO will rr also give 0 for x86?
                     let value: u64 = *Ref::map(t.regs_ref(), |r| match r {
                         Registers::X86(_) => &0,
@@ -578,7 +578,7 @@ impl ReRunCommand {
                     });
                     self.write_value("fsbase", &value.to_le_bytes(), out)?;
                 }
-                TraceFieldKind::TraceGsbase => {
+                TraceFieldKind::Gsbase => {
                     // @TODO will rr also give 0 for x86?
                     let value: u64 = *Ref::map(t.regs_ref(), |r| match r {
                         Registers::X86(_) => &0,
@@ -586,7 +586,7 @@ impl ReRunCommand {
                     });
                     self.write_value("gsbase", &value.to_le_bytes(), out)?;
                 }
-                TraceFieldKind::TraceFlags => {
+                TraceFieldKind::Flags => {
                     // Note the `as u64` to make write_regs() output length uniform between x86 and x86_64
                     let value: u64 = t.regs_ref().flags() as u64;
                     match t.arch() {
@@ -598,7 +598,7 @@ impl ReRunCommand {
                         }
                     }
                 }
-                TraceFieldKind::TraceOrigAx => {
+                TraceFieldKind::OrigAx => {
                     // Note the `as u64` to make write_regs() output length uniform between x86 and x86_64
                     let value: u64 = t.regs_ref().original_syscallno() as u64;
                     match t.arch() {
@@ -610,7 +610,7 @@ impl ReRunCommand {
                         }
                     }
                 }
-                TraceFieldKind::TraceSegReg => {
+                TraceFieldKind::SegReg => {
                     let value: u64 = seg_reg(&t.regs_ref(), field.reg_num);
                     self.write_value(
                         SEG_REG_NAMES[field.reg_num as usize],
@@ -618,12 +618,12 @@ impl ReRunCommand {
                         out,
                     )?;
                 }
-                TraceFieldKind::TraceXinuse => {
+                TraceFieldKind::Xinuse => {
                     let value: u64 = t.extra_regs_ref().read_xinuse().unwrap_or(0);
                     self.write_value("xinuse", &value.to_le_bytes(), out)?;
                 }
                 // @TODO Will this work properly if rr is a x86 build?
-                TraceFieldKind::TraceGpReg => {
+                TraceFieldKind::GpReg => {
                     let mut value: u64 = 0;
                     if maybe_gp_regs.is_none() {
                         let gp_regs = RegsData {
@@ -653,7 +653,7 @@ impl ReRunCommand {
 
                     self.write_value(name, &value.to_le_bytes(), out)?;
                 }
-                TraceFieldKind::TraceXmmReg => {
+                TraceFieldKind::XmmReg => {
                     let mut value = [0u8; 16];
                     match t.arch() {
                         SupportedArch::X86 => {
@@ -677,7 +677,7 @@ impl ReRunCommand {
                     write!(name, "xmm{}", field.reg_num).unwrap();
                     self.write_value(&name, &value, out)?;
                 }
-                TraceFieldKind::TraceYmmReg => {
+                TraceFieldKind::YmmReg => {
                     let mut value = [0u8; 32];
                     match t.arch() {
                         SupportedArch::X86 => {

@@ -706,7 +706,7 @@ fn handle_desched_event(t: &RecordTask, si: &siginfo_t) {
         disarm_desched_event(t);
 
         t.resume_execution(
-            ResumeRequest::ResumeSyscall,
+            ResumeRequest::Syscall,
             WaitRequest::ResumeWait,
             TicksRequest::ResumeUnlimitedTicks,
             None,

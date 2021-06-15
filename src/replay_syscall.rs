@@ -191,7 +191,7 @@ fn maybe_dump_written_string(t: &ReplayTask) -> Option<OsString> {
 }
 
 fn init_scratch_memory(t: &ReplayTask, km: &KernelMapping, data: &trace_stream::MappedData) {
-    ed_assert_eq!(t, data.source, trace_stream::MappedDataSource::SourceZero);
+    ed_assert_eq!(t, data.source, trace_stream::MappedDataSource::Zero);
 
     t.scratch_ptr.set(km.start());
     t.scratch_size.set(km.size());
@@ -347,14 +347,7 @@ fn prepare_clone<Arch: Architecture>(t: &ReplayTask) {
     let entry_regs = r.clone();
 
     // Run; we will be interrupted by PTRACE_EVENT_CLONE/FORK/VFORK.
-    __ptrace_cont(
-        t,
-        ResumeRequest::ResumeCont,
-        Arch::arch(),
-        sys as i32,
-        None,
-        None,
-    );
+    __ptrace_cont(t, ResumeRequest::Cont, Arch::arch(), sys as i32, None, None);
 
     let mut new_tid: Option<pid_t> = None;
     while !t.clone_syscall_is_complete(&mut new_tid, Arch::arch()) {
@@ -363,20 +356,13 @@ fn prepare_clone<Arch: Architecture>(t: &ReplayTask) {
         // state to try the syscall again.
         ed_assert_eq!(t, t.regs_ref().syscall_result_signed(), -EAGAIN as isize);
         t.set_regs(&entry_regs);
-        __ptrace_cont(
-            t,
-            ResumeRequest::ResumeCont,
-            Arch::arch(),
-            sys as i32,
-            None,
-            None,
-        );
+        __ptrace_cont(t, ResumeRequest::Cont, Arch::arch(), sys as i32, None, None);
     }
 
     // Get out of the syscall
     __ptrace_cont(
         t,
-        ResumeRequest::ResumeSyscall,
+        ResumeRequest::Syscall,
         Arch::arch(),
         sys as i32,
         None,
@@ -706,22 +692,8 @@ fn rep_process_syscall_arch<Arch: Architecture>(
         if nsys == Arch::MPROTECT {
             t.vm().fixup_mprotect_growsdown_parameters(t);
         }
-        __ptrace_cont(
-            t,
-            ResumeRequest::ResumeSyscall,
-            Arch::arch(),
-            nsys,
-            None,
-            None,
-        );
-        __ptrace_cont(
-            t,
-            ResumeRequest::ResumeSyscall,
-            Arch::arch(),
-            nsys,
-            None,
-            None,
-        );
+        __ptrace_cont(t, ResumeRequest::Syscall, Arch::arch(), nsys, None, None);
+        __ptrace_cont(t, ResumeRequest::Syscall, Arch::arch(), nsys, None, None);
         ed_assert!(
             t,
             t.regs_ref().syscall_result() == trace_regs.syscall_result()
@@ -900,7 +872,7 @@ fn process_brk(t: &ReplayTask) {
     // Zero flags means it's an an unmap, or no change.
     if !km.flags().is_empty() {
         let mut remote = AutoRemoteSyscalls::new(t);
-        ed_assert_eq!(remote.task(), data.source, MappedDataSource::SourceZero);
+        ed_assert_eq!(remote.task(), data.source, MappedDataSource::Zero);
         remote.infallible_mmap_syscall(
             Some(km.start()),
             km.size(),
@@ -1094,7 +1066,7 @@ pub fn process_execve(t: &ReplayTask, step: &mut ReplayTraceStep) {
     // Enter our execve syscall.
     __ptrace_cont(
         t,
-        ResumeRequest::ResumeSyscall,
+        ResumeRequest::Syscall,
         t.arch(),
         expect_syscallno,
         None,
@@ -1110,7 +1082,7 @@ pub fn process_execve(t: &ReplayTask, step: &mut ReplayTraceStep) {
     let tgid: pid_t = t.thread_group().borrow().real_tgid;
     __ptrace_cont(
         t,
-        ResumeRequest::ResumeSyscall,
+        ResumeRequest::Syscall,
         t.arch(),
         expect_syscallno,
         Some(syscall_number_for_execve(frame_arch)),
@@ -1317,7 +1289,7 @@ pub fn restore_mapped_region(
     let mut offset_bytes: u64 = 0;
 
     match data.source {
-        MappedDataSource::SourceFile => {
+        MappedDataSource::File => {
             let real_file: FileStat;
             offset_bytes = km.file_offset_bytes();
             // Private mapping, so O_RDONLY is always OK.
@@ -1336,7 +1308,7 @@ pub fn restore_mapped_region(
             device = real_file.st_dev;
             inode = real_file.st_ino;
         }
-        MappedDataSource::SourceTrace | MappedDataSource::SourceZero => {
+        MappedDataSource::Trace | MappedDataSource::Zero => {
             real_file_name = OsString::from("");
             flags |= MapFlags::MAP_ANONYMOUS;
             remote.infallible_mmap_syscall(
@@ -1545,7 +1517,7 @@ fn process_mmap(
                 )
                 .unwrap();
 
-            if data.source == MappedDataSource::SourceFile
+            if data.source == MappedDataSource::File
                 && data.file_size_bytes > data.data_offset_bytes
             {
                 let map_bytes: usize = min(
@@ -1583,7 +1555,7 @@ fn process_mmap(
                 addr += map_bytes;
                 length -= map_bytes;
                 offset_pages += ceil_page_size(map_bytes) / page_size();
-                data.source = MappedDataSource::SourceZero;
+                data.source = MappedDataSource::Zero;
                 km = km.subrange(km_sub.end(), km.end());
             }
             if length > 0 {
@@ -1830,10 +1802,10 @@ fn write_mapped_data(
     data: &MappedData,
 ) {
     match data.source {
-        MappedDataSource::SourceTrace => {
+        MappedDataSource::Trace => {
             t.set_data_from_trace(None);
         }
-        MappedDataSource::SourceFile => {
+        MappedDataSource::File => {
             let file = ScopedFd::open_path(data.filename.as_os_str(), OFlag::O_RDONLY);
             ed_assert!(t, file.is_open(), "Can't open {:?}", data.filename);
             let offset: off_t =
@@ -1864,7 +1836,7 @@ fn write_mapped_data(
                 }
             }
         }
-        MappedDataSource::SourceZero => {}
+        MappedDataSource::Zero => {}
     }
 }
 
@@ -1898,7 +1870,7 @@ fn finish_anonymous_mmap(
             0,
         );
     } else {
-        ed_assert_eq!(remote.task(), data.source, MappedDataSource::SourceZero);
+        ed_assert_eq!(remote.task(), data.source, MappedDataSource::Zero);
         let emu_file: EmuFileSharedPtr = remote
             .task()
             .session()
@@ -1963,7 +1935,7 @@ fn process_mremap(t: &ReplayTask, trace_regs: &Registers, step: &mut ReplayTrace
     let mut data = MappedData::default();
     t.trace_reader_mut()
         .read_mapped_region(Some(&mut data), None, None, None, None);
-    ed_assert_eq!(t, data.source, MappedDataSource::SourceZero);
+    ed_assert_eq!(t, data.source, MappedDataSource::Zero);
     // We don't need to do anything; this is the mapping record for the moved
     // data.
 
@@ -2078,7 +2050,7 @@ fn process_mremap(t: &ReplayTask, trace_regs: &Registers, step: &mut ReplayTrace
     // is still the case.)
     match maybe_km {
         Some(_km) => {
-            if data.source != MappedDataSource::SourceFile
+            if data.source != MappedDataSource::File
                 || maybe_f.is_some()
                 || mapping.map.fsname().is_empty()
             {

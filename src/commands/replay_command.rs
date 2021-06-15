@@ -44,9 +44,9 @@ use super::{
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 enum CreatedHow {
-    CreatedNone,
-    CreatedExec,
-    CreatedFork,
+    None,
+    Exec,
+    Fork,
 }
 
 pub struct ReplayCommand {
@@ -109,7 +109,7 @@ impl Default for ReplayCommand {
             singlestep_to_event: 0,
             target_process: None,
             target_command: None,
-            process_created_how: CreatedHow::CreatedNone,
+            process_created_how: CreatedHow::None,
             dont_launch_debugger: false,
             dbg_port: None,
             dbg_host: "127.0.0.1".into(),
@@ -162,7 +162,7 @@ impl ReplayCommand {
 
                 if onfork.is_some() {
                     flags.target_process = onfork;
-                    flags.process_created_how = CreatedHow::CreatedFork;
+                    flags.process_created_how = CreatedHow::Fork;
                 }
 
                 if let Some(ge) = goto_event {
@@ -186,7 +186,7 @@ impl ReplayCommand {
                                 flags.target_command = Some(cmd);
                             }
                         }
-                        flags.process_created_how = CreatedHow::CreatedExec;
+                        flags.process_created_how = CreatedHow::Exec;
                     }
                 }
 
@@ -313,15 +313,15 @@ impl ReplayCommand {
     fn replay(&self) -> ExitResult<()> {
         let mut target = gdb_server::Target::default();
         match self.process_created_how {
-            CreatedHow::CreatedExec => {
+            CreatedHow::Exec => {
                 target.pid = self.target_process;
                 target.require_exec = true;
             }
-            CreatedHow::CreatedFork => {
+            CreatedHow::Fork => {
                 target.pid = self.target_process;
                 target.require_exec = false;
             }
-            CreatedHow::CreatedNone => (),
+            CreatedHow::None => (),
         }
         target.event = self.goto_event;
 
@@ -490,7 +490,7 @@ impl RdCommand for ReplayCommand {
             }
         }
 
-        if self.process_created_how != CreatedHow::CreatedNone {
+        if self.process_created_how != CreatedHow::None {
             if let Some(pid) = self.target_process {
                 if !pid_exists(self.trace_dir.as_ref(), pid) {
                     return ExitResult::err_from(
@@ -501,7 +501,7 @@ impl RdCommand for ReplayCommand {
                         2,
                     );
                 }
-                if self.process_created_how == CreatedHow::CreatedExec
+                if self.process_created_how == CreatedHow::Exec
                     && !pid_execs(self.trace_dir.as_ref(), pid)
                 {
                     return ExitResult::err_from(

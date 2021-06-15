@@ -1250,7 +1250,7 @@ impl RecordSession {
                 if is_fatal && Some(sig) != self.get_continue_through_sig() {
                     preinject_signal(t);
                     t.resume_execution(
-                        ResumeRequest::ResumeCont,
+                        ResumeRequest::Cont,
                         WaitRequest::ResumeNonblocking,
                         TicksRequest::ResumeNoTicks,
                         Some(sig),
@@ -1292,7 +1292,7 @@ impl RecordSession {
                     r.set_original_syscallno(-1);
                     t.set_regs(&r);
                     t.resume_execution(
-                        ResumeRequest::ResumeSyscall,
+                        ResumeRequest::Syscall,
                         WaitRequest::ResumeWait,
                         TicksRequest::ResumeNoTicks,
                         None,
@@ -1630,7 +1630,7 @@ impl RecordSession {
         let resume: ResumeRequest;
         if step_state.continue_type == ContinueType::ContinueSyscall {
             ticks_request = TicksRequest::ResumeNoTicks;
-            resume = ResumeRequest::ResumeSyscall;
+            resume = ResumeRequest::Syscall;
         } else {
             if t.as_rec_unwrap()
                 .has_stashed_sig(perf_counters::TIME_SLICE_SIGNAL)
@@ -1715,7 +1715,7 @@ impl RecordSession {
             }
 
             if singlestep {
-                resume = ResumeRequest::ResumeSinglestep;
+                resume = ResumeRequest::Singlestep;
             } else {
                 // We won't receive PTRACE_EVENT_SECCOMP events until
                 // the seccomp filter is installed by the
@@ -1732,7 +1732,7 @@ impl RecordSession {
                     || self.syscall_seccomp_ordering_.get()
                         == PtraceSyscallSeccompOrdering::SyscallBeforeSeccompUnknown
                 {
-                    resume = ResumeRequest::ResumeSyscall;
+                    resume = ResumeRequest::Syscall;
                 } else {
                     // When the seccomp filter is on, instead of capturing
                     // syscalls by using PTRACE_SYSCALL, the filter will
@@ -1744,7 +1744,7 @@ impl RecordSession {
                     // process to continue to the actual entry point of
                     // the syscall (using cont_syscall_block()) and then
                     // using the same logic as before.
-                    resume = ResumeRequest::ResumeCont;
+                    resume = ResumeRequest::Cont;
                 }
             }
         }
@@ -2056,7 +2056,7 @@ impl RecordSession {
                 r.set_original_syscallno(syscall_number_for_gettid(arch) as isize);
                 t.set_regs(&r);
                 t.resume_execution(
-                    ResumeRequest::ResumeSyscall,
+                    ResumeRequest::Syscall,
                     WaitRequest::ResumeWait,
                     TicksRequest::ResumeNoTicks,
                     None,
@@ -2152,7 +2152,7 @@ fn preinject_signal(t: &RecordTask) -> bool {
         let old_ip = t.ip();
         loop {
             t.resume_execution(
-                ResumeRequest::ResumeSinglestep,
+                ResumeRequest::Singlestep,
                 WaitRequest::ResumeWait,
                 TicksRequest::ResumeNoTicks,
                 None,
@@ -2220,7 +2220,7 @@ fn inject_handled_signal(t: &RecordTask) -> bool {
         // signal. We don't want to do this with signals blocked because that will
         // save a bogus signal mask in the signal frame.
         t.resume_execution(
-            ResumeRequest::ResumeSinglestep,
+            ResumeRequest::Singlestep,
             WaitRequest::ResumeWait,
             TicksRequest::ResumeNoTicks,
             Some(sig),
@@ -2887,7 +2887,7 @@ fn handle_seccomp_trap(t: &RecordTask, step_state: &mut StepState, seccomp_data:
         // syscall-exit stop so that when we try to deliver the SIGSYS via
         // PTRACE_SINGLESTEP, that doesn't trigger a SIGTRAP stop.
         t.resume_execution(
-            ResumeRequest::ResumeSyscall,
+            ResumeRequest::Syscall,
             WaitRequest::ResumeWait,
             TicksRequest::ResumeNoTicks,
             None,
@@ -3169,7 +3169,7 @@ fn advance_to_disarm_desched_syscall(t: &RecordTask) {
     // TODO: mask off signals and avoid this loop.
     loop {
         t.resume_execution(
-            ResumeRequest::ResumeSyscall,
+            ResumeRequest::Syscall,
             WaitRequest::ResumeWait,
             TicksRequest::ResumeUnlimitedTicks,
             None,
@@ -3219,7 +3219,7 @@ fn advance_to_disarm_desched_syscall(t: &RecordTask) {
 
     // Exit the syscall.
     t.resume_execution(
-        ResumeRequest::ResumeSyscall,
+        ResumeRequest::Syscall,
         WaitRequest::ResumeWait,
         TicksRequest::ResumeNoTicks,
         None,

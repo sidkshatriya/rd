@@ -229,9 +229,9 @@ pub trait Task: Deref<Target = TaskInner> {
         let mut need_seccomp_event = self.seccomp_bpf_enabled.get();
         while need_ptrace_syscall_event || need_seccomp_event {
             let resume_how = if need_ptrace_syscall_event {
-                ResumeRequest::ResumeSyscall
+                ResumeRequest::Syscall
             } else {
-                ResumeRequest::ResumeCont
+                ResumeRequest::Cont
             };
 
             self.resume_execution(
@@ -292,7 +292,7 @@ pub trait Task: Deref<Target = TaskInner> {
             && !self.is_ptrace_seccomp_event();
         loop {
             self.resume_execution(
-                ResumeRequest::ResumeSyscall,
+                ResumeRequest::Syscall,
                 WaitRequest::ResumeWait,
                 TicksRequest::ResumeNoTicks,
                 None,
@@ -334,7 +334,7 @@ pub trait Task: Deref<Target = TaskInner> {
         // but also avoids counting an event if the instruction immediately following
         // a syscall instruction is a conditional branch.
         self.resume_execution(
-            ResumeRequest::ResumeSyscall,
+            ResumeRequest::Syscall,
             WaitRequest::ResumeWait,
             TicksRequest::ResumeNoTicks,
             None,
@@ -599,5 +599,5 @@ fn is_signal_triggered_by_ptrace_interrupt(group_stop_sig: MaybeStopSignal) -> b
 }
 
 fn is_singlestep_resume(request: ResumeRequest) -> bool {
-    request == ResumeRequest::ResumeSinglestep || request == ResumeRequest::ResumeSysemuSinglestep
+    request == ResumeRequest::Singlestep || request == ResumeRequest::SysemuSinglestep
 }

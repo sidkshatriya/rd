@@ -1579,12 +1579,12 @@ pub fn has_effective_caps(mut caps: u64) -> bool {
 pub fn should_dump_memory(event: &Event, time: FrameTime) -> bool {
     let flags = Flags::get();
 
-    flags.dump_on == Some(DumpOn::DumpOnAll)
+    flags.dump_on == Some(DumpOn::All)
         || (event.is_syscall_event()
-            && Some(DumpOn::DumpOnSyscall(event.syscall_event().number)) == flags.dump_on)
+            && Some(DumpOn::Syscall(event.syscall_event().number)) == flags.dump_on)
         || (event.is_signal_event()
-            && Some(DumpOn::DumpOnSignal(event.signal_event().siginfo.si_signo)) == flags.dump_on)
-        || (flags.dump_on == Some(DumpOn::DumpOnRdtsc)
+            && Some(DumpOn::Signal(event.signal_event().siginfo.si_signo)) == flags.dump_on)
+        || (flags.dump_on == Some(DumpOn::Rdtsc)
             && event.event_type() == EventType::EvInstructionTrap)
         || flags.dump_at == Some(time)
 }
@@ -1650,10 +1650,10 @@ pub fn should_checksum(event: &Event, time: FrameTime) -> bool {
         && SyscallState::ExitingSyscall == event.syscall_event().state;
 
     match checksum {
-        Checksum::ChecksumNone => false,
-        Checksum::ChecksumSyscall => is_syscall_exit,
-        Checksum::ChecksumAll => true,
-        Checksum::ChecksumAt(at_time) => time >= at_time,
+        Checksum::None => false,
+        Checksum::Syscall => is_syscall_exit,
+        Checksum::All => true,
+        Checksum::At(at_time) => time >= at_time,
     }
 }
 

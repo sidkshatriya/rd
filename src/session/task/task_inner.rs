@@ -130,11 +130,11 @@ bitflags! {
 #[repr(u32)]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum ResumeRequest {
-    ResumeCont = PTRACE_CONT,
-    ResumeSinglestep = PTRACE_SINGLESTEP,
-    ResumeSyscall = PTRACE_SYSCALL,
-    ResumeSysemu = PTRACE_SYSEMU,
-    ResumeSysemuSinglestep = PTRACE_SYSEMU_SINGLESTEP,
+    Cont = PTRACE_CONT,
+    Singlestep = PTRACE_SINGLESTEP,
+    Syscall = PTRACE_SYSCALL,
+    Sysemu = PTRACE_SYSEMU,
+    SysemuSinglestep = PTRACE_SYSEMU_SINGLESTEP,
 }
 
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -146,6 +146,7 @@ pub enum WaitRequest {
     ResumeNonblocking,
 }
 
+#[allow(clippy::enum_variant_names)]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum TicksRequest {
     /// We don't expect to see any ticks (though we seem to on the odd buggy
@@ -1334,7 +1335,7 @@ impl TaskInner {
             prname: RefCell::new("???".into()),
             ticks: Default::default(),
             registers: RefCell::new(Registers::new(a)),
-            how_last_execution_resumed: Cell::new(ResumeRequest::ResumeCont),
+            how_last_execution_resumed: Cell::new(ResumeRequest::Cont),
             last_resume_orig_cx: Default::default(),
             did_set_breakpoint_after_cpuid: Default::default(),
             is_stopped: Default::default(),

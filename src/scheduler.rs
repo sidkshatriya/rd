@@ -1045,7 +1045,7 @@ impl Scheduler {
                 // We shouldn't run any user code since there is at least one signal
                 // pending.
                 t.resume_execution(
-                    ResumeRequest::ResumeSyscall,
+                    ResumeRequest::Syscall,
                     WaitRequest::ResumeWait,
                     TicksRequest::ResumeNoTicks,
                     None,

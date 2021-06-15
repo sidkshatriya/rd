@@ -21,6 +21,7 @@ struct LogModule {
     level: LogLevel,
 }
 
+#[allow(clippy::enum_variant_names)]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug)]
 pub enum LogLevel {
     LogFatal,

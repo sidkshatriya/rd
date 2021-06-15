@@ -136,7 +136,7 @@ impl DiversionSession {
             RunCommand::RunContinue => {
                 log!(LogDebug, "Continuing to next syscall");
                 t.resume_execution(
-                    ResumeRequest::ResumeSysemu,
+                    ResumeRequest::Sysemu,
                     WaitRequest::ResumeWait,
                     TicksRequest::ResumeUnlimitedTicks,
                     signal_to_deliver,
@@ -145,7 +145,7 @@ impl DiversionSession {
             RunCommand::RunSinglestep => {
                 log!(LogDebug, "Stepping to next insn/syscall");
                 t.resume_execution(
-                    ResumeRequest::ResumeSysemuSinglestep,
+                    ResumeRequest::SysemuSinglestep,
                     WaitRequest::ResumeWait,
                     TicksRequest::ResumeUnlimitedTicks,
                     signal_to_deliver,

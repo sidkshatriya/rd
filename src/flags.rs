@@ -11,18 +11,18 @@ lazy_static! {
 /// event time at which to start checksumming>).
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum Checksum {
-    ChecksumNone,
-    ChecksumSyscall,
-    ChecksumAll,
-    ChecksumAt(FrameTime),
+    None,
+    Syscall,
+    All,
+    At(FrameTime),
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum DumpOn {
-    DumpOnAll,
-    DumpOnRdtsc,
-    DumpOnSignal(i32),
-    DumpOnSyscall(i32),
+    All,
+    Rdtsc,
+    Signal(i32),
+    Syscall(i32),
 }
 
 #[cfg(feature = "rocksdb")]
@@ -81,7 +81,7 @@ pub fn init_flags() -> Flags {
     let options = RdOptions::from_args();
 
     Flags {
-        checksum: options.checksum.unwrap_or(Checksum::ChecksumNone),
+        checksum: options.checksum.unwrap_or(Checksum::None),
         dump_on: options.dump_on,
         dump_at: options.dump_at,
         force_things: options.force_things,

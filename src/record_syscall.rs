@@ -2640,7 +2640,7 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
                         );
                         // Continue the task since we didn't in enter_syscall
                         tracee.resume_execution(
-                            ResumeRequest::ResumeSyscall,
+                            ResumeRequest::Syscall,
                             WaitRequest::ResumeNonblocking,
                             TicksRequest::ResumeNoTicks,
                             None,
@@ -5331,7 +5331,7 @@ fn prepare_clone<Arch: Architecture>(t: &RecordTask, syscall_state: &mut TaskSys
 
     loop {
         t.resume_execution(
-            ResumeRequest::ResumeSyscall,
+            ResumeRequest::Syscall,
             WaitRequest::ResumeWait,
             TicksRequest::ResumeNoTicks,
             None,
@@ -5845,7 +5845,7 @@ fn prepare_ptrace_cont(tracee: &RecordTask, maybe_sig: Option<Sig>, command: u32
     {
         // Continue the task since we didn't in enter_syscall
         tracee.resume_execution(
-            ResumeRequest::ResumeSyscall,
+            ResumeRequest::Syscall,
             WaitRequest::ResumeNonblocking,
             TicksRequest::ResumeNoTicks,
             None,

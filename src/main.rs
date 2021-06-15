@@ -15,7 +15,6 @@
 #![allow(clippy::single_match)]
 #![allow(clippy::collapsible_if)]
 #![allow(clippy::manual_range_contains)]
-#![allow(clippy::enum_variant_names)]
 #![allow(clippy::needless_range_loop)]
 #![allow(clippy::too_many_arguments)]
 #![allow(clippy::wrong_self_convention)]

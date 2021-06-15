@@ -93,14 +93,14 @@ pub(super) struct SubstreamData {
 /// need a source. We use SourceZero for that case and it's ignored.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum MappedDataSource {
-    SourceTrace,
-    SourceFile,
-    SourceZero,
+    Trace,
+    File,
+    Zero,
 }
 
 impl Default for MappedDataSource {
     fn default() -> Self {
-        MappedDataSource::SourceTrace
+        MappedDataSource::Trace
     }
 }
 

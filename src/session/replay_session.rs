@@ -1181,15 +1181,15 @@ impl ReplaySession {
                 self.fast_forward_status.get()
                     | fast_forward_through_instruction(
                         t,
-                        ResumeRequest::ResumeSysemuSinglestep,
+                        ResumeRequest::SysemuSinglestep,
                         &constraints.stop_before_states,
                     ),
             );
         } else {
             let resume_how = if constraints.is_singlestep() {
-                ResumeRequest::ResumeSysemuSinglestep
+                ResumeRequest::SysemuSinglestep
             } else {
-                ResumeRequest::ResumeSysemu
+                ResumeRequest::Sysemu
             };
             t.resume_execution(resume_how, WaitRequest::ResumeWait, ticks_request, None);
         }
@@ -1232,7 +1232,7 @@ impl ReplaySession {
             }
             // Eat the following event, either a seccomp or syscall notification
             t.resume_execution(
-                ResumeRequest::ResumeSysemu,
+                ResumeRequest::Sysemu,
                 WaitRequest::ResumeWait,
                 ticks_request,
                 None,
@@ -1458,11 +1458,11 @@ impl ReplaySession {
         tick_request: TicksRequest,
         maybe_resume_how: Option<ResumeRequest>,
     ) -> Completion {
-        let resume_how = maybe_resume_how.unwrap_or(ResumeRequest::ResumeSysemu);
+        let resume_how = maybe_resume_how.unwrap_or(ResumeRequest::Sysemu);
 
         if constraints.command == RunCommand::RunSinglestep {
             t.resume_execution(
-                ResumeRequest::ResumeSinglestep,
+                ResumeRequest::Singlestep,
                 WaitRequest::ResumeWait,
                 tick_request,
                 None,
@@ -1473,7 +1473,7 @@ impl ReplaySession {
                 self.fast_forward_status.get()
                     | fast_forward_through_instruction(
                         t,
-                        ResumeRequest::ResumeSinglestep,
+                        ResumeRequest::Singlestep,
                         &constraints.stop_before_states,
                     ),
             );
@@ -1543,7 +1543,7 @@ impl ReplaySession {
                 t,
                 constraints,
                 TicksRequest::ResumeUnlimitedTicks,
-                Some(ResumeRequest::ResumeSysemu),
+                Some(ResumeRequest::Sysemu),
             );
 
             if complete == Completion::Complete
@@ -1817,7 +1817,7 @@ impl ReplaySession {
                         self.fast_forward_status.get()
                             | fast_forward_through_instruction(
                                 t,
-                                ResumeRequest::ResumeSinglestep,
+                                ResumeRequest::Singlestep,
                                 &states,
                             ),
                     );
@@ -1864,12 +1864,8 @@ impl ReplaySession {
                 BreakpointType::BkptInternal,
             );
             ed_assert!(t, added);
-            let complete = self.continue_or_step(
-                t,
-                constraints,
-                ticks_request,
-                Some(ResumeRequest::ResumeCont),
-            );
+            let complete =
+                self.continue_or_step(t, constraints, ticks_request, Some(ResumeRequest::Cont));
             user_breakpoint_at_addr = t.vm().get_breakpoint_type_at_addr(RemoteCodePtr::from(
                 self.current_step.get().flush().stop_breakpoint_addr,
             )) != BreakpointType::BkptInternal;
@@ -2140,7 +2136,7 @@ fn end_task(t: &ReplayTask) {
     t.set_regs(&r);
     // Enter the syscall.
     t.resume_execution(
-        ResumeRequest::ResumeCont,
+        ResumeRequest::Cont,
         WaitRequest::ResumeWait,
         TicksRequest::ResumeNoTicks,
         None,

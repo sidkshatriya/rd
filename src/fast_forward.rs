@@ -86,9 +86,7 @@ pub fn fast_forward_through_instruction<T: Task>(
     how: ResumeRequest,
     states: &[Registers],
 ) -> FastForwardStatus {
-    debug_assert!(
-        how == ResumeRequest::ResumeSinglestep || how == ResumeRequest::ResumeSysemuSinglestep
-    );
+    debug_assert!(how == ResumeRequest::Singlestep || how == ResumeRequest::SysemuSinglestep);
     let mut result = FastForwardStatus::new();
 
     let ip = t.ip();
@@ -279,7 +277,7 @@ pub fn fast_forward_through_instruction<T: Task>(
         t.vm().save_watchpoints();
         t.vm().remove_all_watchpoints();
         t.resume_execution(
-            ResumeRequest::ResumeCont,
+            ResumeRequest::Cont,
             WaitRequest::ResumeWait,
             TicksRequest::ResumeUnlimitedTicks,
             None,

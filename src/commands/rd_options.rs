@@ -188,30 +188,30 @@ fn parse_storage_backend(storage: &str) -> Result<StorageBackend, Box<dyn Error>
 
 fn parse_checksum(checksum_s: &str) -> Result<Checksum, Box<dyn Error>> {
     if checksum_s == "on-syscalls" {
-        Ok(Checksum::ChecksumSyscall)
+        Ok(Checksum::Syscall)
     } else if checksum_s == "on-all-events" {
-        Ok(Checksum::ChecksumAll)
+        Ok(Checksum::All)
     } else if checksum_s.chars().all(|c| !c.is_ascii_digit()) {
         Err(Box::new(clap::Error::with_description(
             "Only `on-syscalls` or `on-all-events` or an unsigned integer is valid here",
             clap::ErrorKind::InvalidValue,
         )))
     } else {
-        Ok(Checksum::ChecksumAt(checksum_s.parse::<FrameTime>()?))
+        Ok(Checksum::At(checksum_s.parse::<FrameTime>()?))
     }
 }
 
 fn parse_dump_on(dump_on_s: &str) -> Result<DumpOn, Box<dyn Error>> {
     if dump_on_s == "ALL" {
-        Ok(DumpOn::DumpOnAll)
+        Ok(DumpOn::All)
     } else if dump_on_s == "RDTSC" {
-        Ok(DumpOn::DumpOnRdtsc)
+        Ok(DumpOn::Rdtsc)
     } else if dump_on_s.chars().all(|c| c.is_ascii_digit() || c == '-') {
         let signal_or_syscall = dump_on_s.parse::<i32>()?;
         if signal_or_syscall < 0 {
-            Ok(DumpOn::DumpOnSignal(-signal_or_syscall))
+            Ok(DumpOn::Signal(-signal_or_syscall))
         } else {
-            Ok(DumpOn::DumpOnSyscall(signal_or_syscall))
+            Ok(DumpOn::Syscall(signal_or_syscall))
         }
     } else {
         Err(Box::new(clap::Error::with_description(

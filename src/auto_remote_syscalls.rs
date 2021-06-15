@@ -32,12 +32,7 @@ use crate::{
         task::{
             record_task::SignalDisposition,
             task_common::{read_mem, read_val_mem, write_mem, write_val_mem},
-            task_inner::{
-                ResumeRequest::{ResumeSinglestep, ResumeSyscall},
-                TicksRequest::ResumeNoTicks,
-                WaitRequest::ResumeWait,
-                WriteFlags,
-            },
+            task_inner::{ResumeRequest, TicksRequest, WaitRequest, WriteFlags},
             Task,
         },
     },
@@ -804,8 +799,12 @@ impl<'a> AutoRemoteSyscalls<'a> {
 
         if self.use_singlestep_path {
             loop {
-                self.t
-                    .resume_execution(ResumeSinglestep, ResumeWait, ResumeNoTicks, None);
+                self.t.resume_execution(
+                    ResumeRequest::Singlestep,
+                    WaitRequest::ResumeWait,
+                    TicksRequest::ResumeNoTicks,
+                    None,
+                );
                 log!(LogDebug, "Used singlestep path; status={}", self.t.status());
                 // When a PTRACE_EVENT_EXIT is returned we don't update registers
                 if self.t.ip() != callregs.ip() {
@@ -822,8 +821,12 @@ impl<'a> AutoRemoteSyscalls<'a> {
             self.t.enter_syscall();
             log!(LogDebug, "Used enter_syscall; status={}", self.t.status());
             // proceed to syscall exit
-            self.t
-                .resume_execution(ResumeSyscall, ResumeWait, ResumeNoTicks, None);
+            self.t.resume_execution(
+                ResumeRequest::Syscall,
+                WaitRequest::ResumeWait,
+                TicksRequest::ResumeNoTicks,
+                None,
+            );
             log!(LogDebug, "syscall exit status={}", self.t.status());
         }
         loop {
@@ -846,8 +849,12 @@ impl<'a> AutoRemoteSyscalls<'a> {
             {
                 debug_assert!(new_tid.is_some());
                 self.new_tid_ = new_tid;
-                self.t
-                    .resume_execution(ResumeSyscall, ResumeWait, ResumeNoTicks, None);
+                self.t.resume_execution(
+                    ResumeRequest::Syscall,
+                    WaitRequest::ResumeWait,
+                    TicksRequest::ResumeNoTicks,
+                    None,
+                );
                 log!(LogDebug, "got clone event; new status={}", self.t.status());
                 continue;
             }
@@ -859,8 +866,12 @@ impl<'a> AutoRemoteSyscalls<'a> {
                         "signal ignored; restarting syscall, status={}",
                         self.t.status()
                     );
-                    self.t
-                        .resume_execution(ResumeSyscall, ResumeWait, ResumeNoTicks, None);
+                    self.t.resume_execution(
+                        ResumeRequest::Syscall,
+                        WaitRequest::ResumeWait,
+                        TicksRequest::ResumeNoTicks,
+                        None,
+                    );
                     log!(LogDebug, "syscall exit status={}", self.t.status());
                     continue;
                 }
