@@ -221,7 +221,7 @@ pub fn handle_signal(
 }
 
 fn restore_sighandler_if_not_default(t: &RecordTask, sig: Sig) {
-    if t.sig_disposition(sig) != SignalDisposition::SignalDefault {
+    if t.sig_disposition(sig) != SignalDisposition::Default {
         log!(LogDebug, "Restoring signal handler for {}", sig);
         let sa: Vec<u8> = t.signal_action(sig);
         let mut remote = AutoRemoteSyscalls::new(t);

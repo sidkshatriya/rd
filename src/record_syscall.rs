@@ -928,14 +928,14 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(t: &RecordTask, regs: &Registers
         }
         let pid: pid_t = regs.arg1_signed() as pid_t;
         if pid < -1 {
-            t.in_wait_type.set(WaitType::WaitTypePgid);
+            t.in_wait_type.set(WaitType::Pgid);
             t.in_wait_pid.set(-pid);
         } else if pid == -1 {
-            t.in_wait_type.set(WaitType::WaitTypeAny);
+            t.in_wait_type.set(WaitType::Any);
         } else if pid == 0 {
-            t.in_wait_type.set(WaitType::WaitTypeSamePgid);
+            t.in_wait_type.set(WaitType::SamePgid);
         } else {
-            t.in_wait_type.set(WaitType::WaitTypePid);
+            t.in_wait_type.set(WaitType::Pid);
             t.in_wait_pid.set(pid);
         }
         let options = regs.arg3() as i32;
@@ -956,13 +956,13 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(t: &RecordTask, regs: &Registers
         t.in_wait_pid.set(regs.arg2() as id_t as pid_t);
         match regs.arg1() as idtype_t {
             P_ALL => {
-                t.in_wait_type.set(WaitType::WaitTypeAny);
+                t.in_wait_type.set(WaitType::Any);
             }
             P_PID => {
-                t.in_wait_type.set(WaitType::WaitTypePid);
+                t.in_wait_type.set(WaitType::Pid);
             }
             P_PGID => {
-                t.in_wait_type.set(WaitType::WaitTypePgid);
+                t.in_wait_type.set(WaitType::Pgid);
             }
             _ => {
                 syscall_state.expect_errno = EINVAL;
@@ -2224,7 +2224,7 @@ fn rec_prepare_restart_syscall_arch<Arch: Architecture>(t: &RecordTask) {
         t.set_regs(&r);
         let arch = t.arch();
         t.canonicalize_regs(arch);
-        t.in_wait_type.set(WaitType::WaitTypeNone);
+        t.in_wait_type.set(WaitType::None);
     }
 }
 
@@ -2588,7 +2588,7 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
     }
 
     if sys == Arch::WAITPID || sys == Arch::WAIT4 || sys == Arch::WAITID {
-        t.in_wait_type.set(WaitType::WaitTypeNone);
+        t.in_wait_type.set(WaitType::None);
         // Restore possibly-modified registers
         let mut r: Registers = t.regs_ref().clone();
         r.set_arg1(syscall_state.syscall_entry_registers.arg1());
@@ -5480,7 +5480,7 @@ fn ptrace_option_for_event(ptrace_event: u32) -> u32 {
 }
 
 fn maybe_pause_instead_of_waiting(t: &RecordTask, options: i32) {
-    if t.in_wait_type.get() != WaitType::WaitTypePid || (options & WNOHANG != 0) {
+    if t.in_wait_type.get() != WaitType::Pid || (options & WNOHANG != 0) {
         return;
     }
 

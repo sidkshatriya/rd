@@ -70,7 +70,7 @@ impl RdCommand for TraceInfoCommand {
 
         let environ: Vec<CString>;
         loop {
-            let result = replay_session.replay_step(RunCommand::RunContinue);
+            let result = replay_session.replay_step(RunCommand::Continue);
             if replay_session.done_initial_exec() {
                 environ = read_env(&**replay_session.current_task().unwrap());
                 break;

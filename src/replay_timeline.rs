@@ -77,13 +77,13 @@ struct ReplayStepToMarkStrategy {
 impl ReplayStepToMarkStrategy {
     pub fn setup_step_constraints(&mut self) -> StepConstraints {
         let mut constraints = StepConstraints {
-            command: RunCommand::RunContinue,
+            command: RunCommand::Continue,
             stop_at_time: Default::default(),
             ticks_target: Default::default(),
             stop_before_states: Default::default(),
         };
         if self.singlesteps_to_perform > 0 {
-            constraints.command = RunCommand::RunSinglestepFastForward;
+            constraints.command = RunCommand::SinglestepFastForward;
             self.singlesteps_to_perform -= 1;
         }
 
@@ -284,7 +284,7 @@ impl ReplayTimeline {
 
             // Allow coalescing of multiple repetitions of a single x86 string
             // instruction (as long as we don't reach one of our mark_vector states).
-            let mut constraints = StepConstraints::new(RunCommand::RunSinglestepFastForward);
+            let mut constraints = StepConstraints::new(RunCommand::SinglestepFastForward);
             for mv in self.marks.get(&key).unwrap().iter() {
                 constraints
                     .stop_before_states
@@ -689,7 +689,7 @@ impl ReplayTimeline {
         command: RunCommand,
         stop_at_time: FrameTime,
     ) -> ReplayResult {
-        debug_assert_ne!(command, RunCommand::RunSinglestepFastForward);
+        debug_assert_ne!(command, RunCommand::SinglestepFastForward);
 
         let mut result: ReplayResult;
         self.apply_breakpoints_and_watchpoints();
@@ -701,7 +701,7 @@ impl ReplayTimeline {
             .current_session()
             .replay_step_with_constraints(&constraints);
         self.current_session().set_visible_execution(false);
-        if command == RunCommand::RunContinue {
+        if command == RunCommand::Continue {
             // Since it's easy for us to fix the coalescing quirk for forward
             // execution, we may as well do so. It's nice to have forward execution
             // behave consistently with reverse execution.
@@ -717,7 +717,7 @@ impl ReplayTimeline {
             // Singlestep past the breakpoint
             self.current_session().set_visible_execution(true);
             result = self.singlestep_with_breakpoints_disabled();
-            if command == RunCommand::RunContinue {
+            if command == RunCommand::Continue {
                 result.break_status.singlestep_complete = false;
             }
             self.current_session().set_visible_execution(false);
@@ -1051,7 +1051,7 @@ impl ReplayTimeline {
             // XXX we could make this more efficient by providing a method to set
             // several watchpoints at once on a given AddressSpace.
             match maybe_vm {
-                Some(vm) if wp.watch_type != WatchType::WatchExec => {
+                Some(vm) if wp.watch_type != WatchType::Exec => {
                     vm.add_watchpoint(wp.addr, wp.size, wp.watch_type);
                 }
                 _ => (),
@@ -1072,7 +1072,7 @@ impl ReplayTimeline {
         for wp in self.watchpoints.keys() {
             let maybe_vm = self.current_session().find_address_space(wp.uid);
             match maybe_vm {
-                Some(vm) if wp.watch_type != WatchType::WatchExec => {
+                Some(vm) if wp.watch_type != WatchType::Exec => {
                     vm.remove_watchpoint(wp.addr, wp.size, wp.watch_type);
                 }
                 _ => (),
@@ -1096,7 +1096,7 @@ impl ReplayTimeline {
         for wp in self.watchpoints.keys() {
             let maybe_vm = self.current_session().find_address_space(wp.uid);
             match maybe_vm {
-                Some(vm) if wp.watch_type == WatchType::WatchExec => {
+                Some(vm) if wp.watch_type == WatchType::Exec => {
                     vm.add_watchpoint(wp.addr, wp.size, wp.watch_type);
                 }
                 _ => (),
@@ -1114,7 +1114,7 @@ impl ReplayTimeline {
             for wp in self.watchpoints.keys() {
                 let maybe_vm = self.current_session().find_address_space(wp.uid);
                 match maybe_vm {
-                    Some(vm) if wp.watch_type == WatchType::WatchExec => {
+                    Some(vm) if wp.watch_type == WatchType::Exec => {
                         vm.remove_watchpoint(wp.addr, wp.size, wp.watch_type);
                     }
                     _ => (),
@@ -1152,7 +1152,7 @@ impl ReplayTimeline {
         self.unapply_breakpoints_and_watchpoints();
         while !pmark.equal_states(self.current_session()) {
             if self.current_session().trace_reader().time() < pmark.key.trace_time {
-                let mut constraints = StepConstraints::new(RunCommand::RunContinue);
+                let mut constraints = StepConstraints::new(RunCommand::Continue);
                 constraints.stop_at_time = pmark.key.trace_time;
                 self.current_session()
                     .replay_step_with_constraints(&constraints);
@@ -1165,7 +1165,7 @@ impl ReplayTimeline {
                     // At required IP, but not in the correct state. Singlestep over
                     // this IP.
                     let mut constraints =
-                        StepConstraints::new(RunCommand::RunSinglestepFastForward);
+                        StepConstraints::new(RunCommand::SinglestepFastForward);
                     constraints.stop_before_states.push(pmark.regs.clone());
                     self.current_session()
                         .replay_step_with_constraints(&constraints);
@@ -1173,7 +1173,7 @@ impl ReplayTimeline {
                     // Get a shared reference to t.vm() in case t dies during replay_step
                     let vm = t.vm();
                     vm.add_breakpoint(mark_addr, BreakpointType::BkptUser);
-                    self.current_session().replay_step(RunCommand::RunContinue);
+                    self.current_session().replay_step(RunCommand::Continue);
                     vm.remove_breakpoint(mark_addr, BreakpointType::BkptUser);
                 }
             }
@@ -1298,7 +1298,7 @@ impl ReplayTimeline {
         let now: FrameTime = self.current_session().trace_reader().time();
         let mid: FrameTime = (now + end.ptr.borrow().proto.key.trace_time) / 2;
         if now < mid && mid < end.ptr.borrow().proto.key.trace_time {
-            let mut constraints = StepConstraints::new(RunCommand::RunContinue);
+            let mut constraints = StepConstraints::new(RunCommand::Continue);
             constraints.stop_at_time = mid;
             while self.current_session().trace_reader().time() < mid {
                 self.current_session()
@@ -1317,7 +1317,7 @@ impl ReplayTimeline {
         if self.current_session().trace_reader().time() < end.ptr.borrow().proto.key.trace_time
             && end.ptr.borrow().ticks_at_event_start < end.ptr.borrow().proto.key.ticks
         {
-            let mut constraints = StepConstraints::new(RunCommand::RunContinue);
+            let mut constraints = StepConstraints::new(RunCommand::Continue);
             constraints.stop_at_time = end.ptr.borrow().proto.key.trace_time;
             while self.current_session().trace_reader().time()
                 < end.ptr.borrow().proto.key.trace_time
@@ -1350,7 +1350,7 @@ impl ReplayTimeline {
         let m: ProtoMark = self.proto_mark();
         if target != end_ticks {
             // We can only try stepping if we won't end up at `end`
-            let mut constraints = StepConstraints::new(RunCommand::RunContinue);
+            let mut constraints = StepConstraints::new(RunCommand::Continue);
             constraints.ticks_target = target;
             let mut result: ReplayResult = self
                 .current_session()
@@ -1387,7 +1387,7 @@ impl ReplayTimeline {
                 maybe_tmp_session = Some(self.current_session().clone_replay());
                 log!(LogDebug, "Created backup tmp_session");
             }
-            let mut constraints = StepConstraints::new(RunCommand::RunSinglestepFastForward);
+            let mut constraints = StepConstraints::new(RunCommand::SinglestepFastForward);
             constraints
                 .stop_before_states
                 .push(end.ptr.borrow().proto.regs.clone());
@@ -1422,7 +1422,7 @@ impl ReplayTimeline {
         result: &mut ReplayResult,
         before: &ProtoMark,
     ) {
-        if constraints.command == RunCommand::RunContinue
+        if constraints.command == RunCommand::Continue
             && self.fix_watchpoint_coalescing_quirk(result, before)
         {
             // It's quite common for x86 string instructions to trigger the same
@@ -1556,7 +1556,7 @@ impl ReplayTimeline {
         // At required IP, but not in the correct state. Singlestep over this IP.
         // We need the FAST_FORWARD option in case the mark state occurs after
         // many iterations of a string instruction at this address.
-        let mut constraints = StepConstraints::new(RunCommand::RunSinglestepFastForward);
+        let mut constraints = StepConstraints::new(RunCommand::SinglestepFastForward);
         // We don't want to fast-forward past the mark state, so give the mark
         // state as a state we should stop before. FAST_FORWARD always does at
         // least one singlestep so one call to replay_step_to_mark will fast-forward
@@ -1578,7 +1578,7 @@ impl ReplayTimeline {
         self.unapply_breakpoints_internal();
         let result = self
             .current_session()
-            .replay_step(RunCommand::RunSinglestep);
+            .replay_step(RunCommand::Singlestep);
         self.apply_breakpoints_internal();
         result
     }
@@ -1640,7 +1640,7 @@ impl ReplayTimeline {
                     // string_instruction_ip, it will have the correct timing.
                     *result = self
                         .current_session()
-                        .replay_step(RunCommand::RunSinglestepFastForward);
+                        .replay_step(RunCommand::SinglestepFastForward);
                     if !result.break_status.data_watchpoints_hit().is_empty() {
                         let break_status_task = result.break_status.task.upgrade().unwrap();
                         log!(
@@ -1652,7 +1652,7 @@ impl ReplayTimeline {
                         break;
                     }
                 } else {
-                    let mut constraints = StepConstraints::new(RunCommand::RunContinue);
+                    let mut constraints = StepConstraints::new(RunCommand::Continue);
                     constraints.ticks_target = after_ticks - 1;
                     *result = self
                         .current_session()
@@ -1661,7 +1661,7 @@ impl ReplayTimeline {
                 }
                 ed_assert!(&t, t.tick_count() <= after_ticks, "We went too far!");
             } else {
-                self.current_session().replay_step(RunCommand::RunContinue);
+                self.current_session().replay_step(RunCommand::Continue);
             }
         }
         true
@@ -1775,7 +1775,7 @@ impl ReplayTimeline {
                 start = self.mark();
                 log!(LogDebug, "Running forward from {}", start);
                 // Now run forward until we're reasonably close to the correct tick value.
-                let mut constraints = StepConstraints::new(RunCommand::RunContinue);
+                let mut constraints = StepConstraints::new(RunCommand::Continue);
                 let mut approaching_ticks_target: bool = false;
                 let mut seen_other_task_break: bool = false;
                 while !self.at_mark(&end) {
@@ -1792,7 +1792,7 @@ impl ReplayTimeline {
                             }
                             self.unapply_breakpoints_and_watchpoints();
                             constraints.ticks_target =
-                                if constraints.command == RunCommand::RunContinue {
+                                if constraints.command == RunCommand::Continue {
                                     ticks_target
                                 } else {
                                     0
@@ -1807,7 +1807,7 @@ impl ReplayTimeline {
                                     self.current_mark_key()
                                 );
                                 constraints =
-                                    StepConstraints::new(RunCommand::RunSinglestepFastForward);
+                                    StepConstraints::new(RunCommand::SinglestepFastForward);
                             }
                         } else {
                             if seen_other_task_break {
@@ -1817,7 +1817,7 @@ impl ReplayTimeline {
                             }
                             constraints.ticks_target = 0;
                             let result: ReplayResult =
-                                self.current_session().replay_step(RunCommand::RunContinue);
+                                self.current_session().replay_step(RunCommand::Continue);
                             if result.break_status.any_break() {
                                 seen_other_task_break = true;
                             }
@@ -1825,7 +1825,7 @@ impl ReplayTimeline {
                     } else {
                         self.unapply_breakpoints_and_watchpoints();
                         constraints.ticks_target = 0;
-                        self.current_session().replay_step(RunCommand::RunContinue);
+                        self.current_session().replay_step(RunCommand::Continue);
                     }
                     if self.is_start_of_reverse_execution_barrier_event() {
                         seen_barrier = true;
@@ -1889,7 +1889,7 @@ impl ReplayTimeline {
                     if self.current_session().current_task().unwrap().tuid() == step_tuid {
                         let before_step: Mark = self.mark();
                         let mut constraints =
-                            StepConstraints::new(RunCommand::RunSinglestepFastForward);
+                            StepConstraints::new(RunCommand::SinglestepFastForward);
                         constraints
                             .stop_before_states
                             .push(end.ptr.borrow().proto.regs.clone());
@@ -1927,7 +1927,7 @@ impl ReplayTimeline {
                             step_start = now.clone();
                         }
                     } else {
-                        result = self.current_session().replay_step(RunCommand::RunContinue);
+                        result = self.current_session().replay_step(RunCommand::Continue);
                         now = self.update_observable_break_status(&result);
                         if result.break_status.any_break() {
                             seen_other_task_break = true;
@@ -1936,7 +1936,7 @@ impl ReplayTimeline {
                             self.unapply_breakpoints_and_watchpoints();
                             result = self
                                 .current_session()
-                                .replay_step(RunCommand::RunSinglestepFastForward);
+                                .replay_step(RunCommand::SinglestepFastForward);
                             now = self.update_observable_break_status(&result);
                             if result.break_status.any_break() {
                                 seen_other_task_break = true;
@@ -1945,7 +1945,7 @@ impl ReplayTimeline {
                     }
                 } else {
                     self.unapply_breakpoints_and_watchpoints();
-                    result = self.current_session().replay_step(RunCommand::RunContinue);
+                    result = self.current_session().replay_step(RunCommand::Continue);
                     self.no_watchpoints_hit_interval_start = None;
                     now = self.mark();
                 }

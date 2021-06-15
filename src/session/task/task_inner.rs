@@ -980,7 +980,7 @@ impl TaskInner {
         // is disabled but was non-size-1.
         let mut dr7 = DebugControl::default();
         for i in 0..regs.len() {
-            dr7.enable(i, WatchBytesX86::Bytes1, WatchType::WatchExec);
+            dr7.enable(i, WatchBytesX86::Bytes1, WatchType::Exec);
         }
         self.set_debug_reg(7, dr7.get());
 

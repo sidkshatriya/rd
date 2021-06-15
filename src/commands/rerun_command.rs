@@ -382,7 +382,7 @@ impl ReRunCommand {
         raise_resource_limits();
 
         while replay_session.trace_reader().time() < self.trace_end {
-            let mut cmd = RunCommand::RunContinue;
+            let mut cmd = RunCommand::Continue;
 
             let before_time: FrameTime = replay_session.trace_reader().time();
             let done_initial_exec = replay_session.done_initial_exec();
@@ -410,7 +410,7 @@ impl ReRunCommand {
                         }
                     }
 
-                    cmd = RunCommand::RunSinglestepFastForward;
+                    cmd = RunCommand::SinglestepFastForward;
                 }
             }
 
@@ -423,7 +423,7 @@ impl ReRunCommand {
 
             let after_time: FrameTime = replay_session.trace_reader().time();
             let singlestep_really_complete: bool;
-            if cmd != RunCommand::RunContinue {
+            if cmd != RunCommand::Continue {
                 {
                     let old_task =
                         old_task_tuid.and_then(|id| replay_session.find_task_from_task_uid(id));
@@ -434,7 +434,7 @@ impl ReRunCommand {
                     debug_assert!(result.break_status.watchpoints_hit.is_empty());
                     debug_assert!(!result.break_status.breakpoint_hit);
                     debug_assert!(
-                        cmd == RunCommand::RunSinglestepFastForward
+                        cmd == RunCommand::SinglestepFastForward
                             || !result.break_status.singlestep_complete
                     );
 
@@ -448,7 +448,7 @@ impl ReRunCommand {
                         (!result.incomplete_fast_forward || old_ip != after_ip ||
                             before_time < after_time);
                     if !self.singlestep_trace.is_empty()
-                        && cmd == RunCommand::RunSinglestepFastForward
+                        && cmd == RunCommand::SinglestepFastForward
                         && (singlestep_really_complete
                             || (before_time < after_time
                                 && treat_event_completion_as_singlestep_complete(&replayed_event)))
@@ -497,9 +497,9 @@ impl ReRunCommand {
         regs.set_si(0);
         t.set_regs(&regs);
         let cmd = if self.singlestep_trace.is_empty() {
-            RunCommand::RunContinue
+            RunCommand::Continue
         } else {
-            RunCommand::RunSinglestep
+            RunCommand::Singlestep
         };
 
         loop {

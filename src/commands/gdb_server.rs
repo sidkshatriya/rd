@@ -363,7 +363,7 @@ impl GdbServer {
         loop {
             let result = self
                 .timeline_unwrap_mut()
-                .replay_step_forward(RunCommand::RunContinue, self.target.event);
+                .replay_step_forward(RunCommand::Continue, self.target.event);
             if result.status == ReplayStatus::ReplayExited {
                 log!(LogInfo, "Debugger was not launched before end of trace");
                 return;
@@ -1330,7 +1330,7 @@ impl GdbServer {
         loop {
             let result = self
                 .timeline_unwrap_mut()
-                .replay_step_forward(RunCommand::RunContinue, self.target.event);
+                .replay_step_forward(RunCommand::Continue, self.target.event);
             // We should never reach the end of the trace without hitting the stop
             // condition below.
             debug_assert_ne!(result.status, ReplayStatus::ReplayExited);
@@ -1576,12 +1576,12 @@ impl GdbServer {
             let gdb_connection = self.dbg.as_ref().unwrap().clone();
             let interrupt_check = move || -> bool { gdb_connection.borrow_mut().sniff_packet() };
             match command {
-                RunCommand::RunContinue => {
+                RunCommand::Continue => {
                     result = self
                         .timeline_unwrap_mut()
                         .reverse_continue(&stop_filter, &interrupt_check);
                 }
-                RunCommand::RunSinglestep => {
+                RunCommand::Singlestep => {
                     let tick_count = self
                         .timeline_unwrap()
                         .current_session()
@@ -2105,18 +2105,18 @@ fn compute_run_command_for_reverse_exec(
     allowed_tasks: &mut Vec<AllowedTasks>,
 ) -> RunCommand {
     // Singlestep if any of the actions request singlestepping.
-    let mut result: RunCommand = RunCommand::RunContinue;
+    let mut result: RunCommand = RunCommand::Continue;
     for action in &req.cont().actions {
         if action.target.pid > 0 && action.target.pid != debuggee_tguid.tid() {
             continue;
         }
         let mut allowed = AllowedTasks {
-            command: RunCommand::RunContinue,
+            command: RunCommand::Continue,
             ..Default::default()
         };
         if action.type_ == GdbActionType::ActionStep {
-            result = RunCommand::RunSinglestep;
-            allowed.command = RunCommand::RunSinglestep;
+            result = RunCommand::Singlestep;
+            allowed.command = RunCommand::Singlestep;
         }
         if action.target.tid > 0 {
             if let Some(t) = session.find_task_from_rec_tid(action.target.tid) {
@@ -2140,9 +2140,9 @@ fn compute_run_command_from_actions(
             // multiple threads, we don't do that.
             *maybe_signal_to_deliver = action.maybe_signal_to_deliver;
             return if action.type_ == GdbActionType::ActionStep {
-                RunCommand::RunSinglestep
+                RunCommand::Singlestep
             } else {
-                RunCommand::RunContinue
+                RunCommand::Continue
             };
         }
     }
@@ -2151,7 +2151,7 @@ fn compute_run_command_from_actions(
     // blocking syscall and |t| must run before gdb's target thread can make
     // progress. So, allow |t| to run anyway.
     *maybe_signal_to_deliver = None;
-    RunCommand::RunContinue
+    RunCommand::Continue
 }
 
 fn needs_target(option: &OsStr) -> bool {
@@ -2507,15 +2507,15 @@ fn matches_threadid(t: &dyn Task, target: GdbThreadId) -> bool {
 
 fn watchpoint_type(req: GdbRequestType) -> WatchType {
     match req {
-        DREQ_SET_HW_BREAK | DREQ_REMOVE_HW_BREAK => WatchType::WatchExec,
-        DREQ_SET_WR_WATCH | DREQ_REMOVE_WR_WATCH => WatchType::WatchWrite,
+        DREQ_SET_HW_BREAK | DREQ_REMOVE_HW_BREAK => WatchType::Exec,
+        DREQ_SET_WR_WATCH | DREQ_REMOVE_WR_WATCH => WatchType::Write,
         // NB| x86 doesn't support read-only watchpoints (who would
         // ever want to use one?) so we treat them as readwrite
         // watchpoints and hope that gdb can figure out what's going
         // on.  That is, if a user ever tries to set a read
         // watchpoint.
         DREQ_REMOVE_RDWR_WATCH | DREQ_SET_RDWR_WATCH | DREQ_REMOVE_RD_WATCH | DREQ_SET_RD_WATCH => {
-            WatchType::WatchReadWrite
+            WatchType::ReadWrite
         }
         _ => fatal!("Unknown dbg request {}", req),
     }

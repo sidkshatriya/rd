@@ -99,6 +99,7 @@ pub struct ReplayFlushBufferedSyscallState {
 /// Describes the next step to be taken in order to replay a trace frame.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 #[repr(i32)]
+#[allow(clippy::enum_variant_names)]
 pub enum ReplayTraceStepType {
     TstepNone,
 
@@ -260,8 +261,7 @@ pub struct StepConstraints {
 
 impl StepConstraints {
     pub fn is_singlestep(&self) -> bool {
-        self.command == RunCommand::RunSinglestep
-            || self.command == RunCommand::RunSinglestepFastForward
+        self.command == RunCommand::Singlestep || self.command == RunCommand::SinglestepFastForward
     }
     pub fn new(command: RunCommand) -> StepConstraints {
         StepConstraints {
@@ -1174,7 +1174,7 @@ impl ReplaySession {
             }
         }
 
-        if constraints.command == RunCommand::RunSinglestepFastForward {
+        if constraints.command == RunCommand::SinglestepFastForward {
             // ignore ticks_period. We can't add more than one tick during a
             // fast_forward so it doesn't matter.
             self.fast_forward_status.set(
@@ -1460,7 +1460,7 @@ impl ReplaySession {
     ) -> Completion {
         let resume_how = maybe_resume_how.unwrap_or(ResumeRequest::Sysemu);
 
-        if constraints.command == RunCommand::RunSinglestep {
+        if constraints.command == RunCommand::Singlestep {
             t.resume_execution(
                 ResumeRequest::Singlestep,
                 WaitRequest::ResumeWait,
@@ -1468,7 +1468,7 @@ impl ReplaySession {
                 None,
             );
             self.handle_unrecorded_cpuid_fault(t, constraints);
-        } else if constraints.command == RunCommand::RunSinglestepFastForward {
+        } else if constraints.command == RunCommand::SinglestepFastForward {
             self.fast_forward_status.set(
                 self.fast_forward_status.get()
                     | fast_forward_through_instruction(
@@ -1653,7 +1653,7 @@ impl ReplaySession {
         #[allow(non_snake_case)]
         let mut pending_SIGTRAP: bool = false;
         #[allow(non_snake_case)]
-        let mut SIGTRAP_run_command: RunCommand = RunCommand::RunContinue;
+        let mut SIGTRAP_run_command: RunCommand = RunCommand::Continue;
 
         // Step 2: more slowly, find our way to the target ticks and
         // execution point.  We set an internal breakpoint on the
@@ -1801,7 +1801,7 @@ impl ReplaySession {
                 // or there is user breakpoint at the run address. The latter is safe
                 // because the breakpoint will be triggered immediately. This gives us the
                 // invariant that an internal singlestep never triggers a user breakpoint.
-                if constraints.command == RunCommand::RunSinglestep
+                if constraints.command == RunCommand::Singlestep
                     || t.vm().get_breakpoint_type_at_addr(t.regs_ref().ip())
                         == BreakpointType::BkptUser
                 {
@@ -1821,7 +1821,7 @@ impl ReplaySession {
                                 &states,
                             ),
                     );
-                    SIGTRAP_run_command = RunCommand::RunSinglestepFastForward;
+                    SIGTRAP_run_command = RunCommand::SinglestepFastForward;
                     self.check_pending_sig(t);
                 }
             }

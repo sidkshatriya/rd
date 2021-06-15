@@ -28,7 +28,6 @@ use crate::{
             kernel_map_iterator::KernelMapIterator,
             kernel_mapping::KernelMapping,
             memory_range::{MemoryRange, MemoryRangeKey},
-            BreakpointType::BkptNone,
         },
         task::{
             record_task::RecordTask,
@@ -94,9 +93,9 @@ pub enum BreakpointType {
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 #[repr(usize)]
 pub enum WatchType {
-    WatchExec = 0x00,
-    WatchWrite = 0x01,
-    WatchReadWrite = 0x03,
+    Exec = 0x00,
+    Write = 0x01,
+    ReadWrite = 0x03,
 }
 
 #[derive(Copy, Clone)]
@@ -779,7 +778,7 @@ impl AddressSpace {
         self.breakpoints
             .borrow()
             .get(&addr)
-            .map_or(BkptNone, |bp| bp.bp_type())
+            .map_or(BreakpointType::BkptNone, |bp| bp.bp_type())
     }
 
     /// Returns true when the breakpoint at `addr` is in private
@@ -2513,16 +2512,12 @@ impl AddressSpace {
             }
             let watching = v.watched_bits();
             if watching.contains(RwxBits::EXEC_BIT) {
-                result.push(WatchConfig::new(r.start(), r.size(), WatchType::WatchExec));
+                result.push(WatchConfig::new(r.start(), r.size(), WatchType::Exec));
             }
             if watching.contains(RwxBits::READ_BIT) {
-                result.push(WatchConfig::new(
-                    r.start(),
-                    r.size(),
-                    WatchType::WatchReadWrite,
-                ));
+                result.push(WatchConfig::new(r.start(), r.size(), WatchType::ReadWrite));
             } else if watching.contains(RwxBits::WRITE_BIT) {
-                result.push(WatchConfig::new(r.start(), r.size(), WatchType::WatchWrite));
+                result.push(WatchConfig::new(r.start(), r.size(), WatchType::Write));
             }
         }
         result
@@ -2538,17 +2533,12 @@ impl AddressSpace {
                 assigned_regs = Some(&mut v.debug_regs_for_exec_read);
             }
             if watching.contains(RwxBits::EXEC_BIT) {
-                configure_watch_registers(&mut result, r, WatchType::WatchExec, &mut assigned_regs);
+                configure_watch_registers(&mut result, r, WatchType::Exec, &mut assigned_regs);
             }
             if watching.contains(RwxBits::READ_BIT) {
-                configure_watch_registers(
-                    &mut result,
-                    r,
-                    WatchType::WatchReadWrite,
-                    &mut assigned_regs,
-                );
+                configure_watch_registers(&mut result, r, WatchType::ReadWrite, &mut assigned_regs);
             } else if watching.contains(RwxBits::WRITE_BIT) {
-                configure_watch_registers(&mut result, r, WatchType::WatchWrite, &mut None);
+                configure_watch_registers(&mut result, r, WatchType::Write, &mut None);
             }
         }
         result
@@ -2858,9 +2848,9 @@ impl AddressSpace {
     /// Return the access bits above needed to watch `type`.
     fn access_bits_of(type_: WatchType) -> RwxBits {
         match type_ {
-            WatchType::WatchExec => RwxBits::EXEC_BIT,
-            WatchType::WatchWrite => RwxBits::WRITE_BIT,
-            WatchType::WatchReadWrite => RwxBits::READ_WRITE_BITS,
+            WatchType::Exec => RwxBits::EXEC_BIT,
+            WatchType::Write => RwxBits::WRITE_BIT,
+            WatchType::ReadWrite => RwxBits::READ_WRITE_BITS,
         }
     }
 }
@@ -2895,7 +2885,7 @@ fn configure_watch_registers(
     // Zero-sized WatchConfigs return no ranges here, so are ignored.
     let mut split_ranges = split_range(range);
 
-    if watchtype == WatchType::WatchWrite && range.size() > 1 {
+    if watchtype == WatchType::Write && range.size() > 1 {
         // We can suppress spurious write-watchpoint triggerings by checking
         // whether memory values have changed. So we can sometimes conserve
         // debug registers by upgrading an unaligned range to an aligned range

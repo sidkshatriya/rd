@@ -92,7 +92,7 @@ impl BreakStatus {
         for w in &self.watchpoints_hit {
             // Hardware execution watchpoints behave like breakpoints: the CPU
             // stops before the instruction is executed.
-            if w.type_ == WatchType::WatchExec {
+            if w.type_ == WatchType::Exec {
                 return true;
             }
         }
@@ -104,7 +104,7 @@ impl BreakStatus {
     pub fn data_watchpoints_hit(&self) -> Vec<WatchConfig> {
         let mut result = Vec::new();
         for w in &self.watchpoints_hit {
-            if w.type_ != WatchType::WatchExec {
+            if w.type_ != WatchType::Exec {
                 result.push(*w);
             }
         }
@@ -124,25 +124,25 @@ impl BreakStatus {
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum RunCommand {
     /// Continue until we hit a breakpoint or a new replay event
-    RunContinue,
+    Continue,
     /// Execute a single instruction (unless at a breakpoint or a replay event)
-    RunSinglestep,
+    Singlestep,
     /// Like RunSinglestep, but a single-instruction loop is allowed (but not
     /// required) to execute multiple times if we don't reach a different
     /// instruction. Usable with ReplaySession::replay_step only.
-    RunSinglestepFastForward,
+    SinglestepFastForward,
 }
 
 impl Default for RunCommand {
     fn default() -> Self {
         // Arbitrary
-        Self::RunContinue
+        Self::Continue
     }
 }
 
 #[inline]
 pub fn is_singlestep(command: RunCommand) -> bool {
-    command == RunCommand::RunSinglestep || command == RunCommand::RunSinglestepFastForward
+    command == RunCommand::Singlestep || command == RunCommand::SinglestepFastForward
 }
 
 /// AddressSpaces and ThreadGroups are indexed by their first task's TaskUid

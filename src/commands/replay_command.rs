@@ -255,11 +255,11 @@ impl ReplayCommand {
         unsafe { gettimeofday(&raw mut last_dump_time, ptr::null_mut()) };
 
         loop {
-            let mut cmd = RunCommand::RunContinue;
+            let mut cmd = RunCommand::Continue;
             if self.singlestep_to_event > 0
                 && replay_session.trace_reader().time() >= self.singlestep_to_event
             {
-                cmd = RunCommand::RunSinglestep;
+                cmd = RunCommand::Singlestep;
                 write!(out, "Stepping from: ")?;
                 let t = replay_session.current_task().unwrap();
                 t.regs_ref().write_register_file_compact(out)?;
@@ -302,7 +302,7 @@ impl ReplayCommand {
             debug_assert!(result.break_status.watchpoints_hit.is_empty());
             debug_assert!(!result.break_status.breakpoint_hit);
             debug_assert!(
-                cmd == RunCommand::RunSinglestep || !result.break_status.singlestep_complete
+                cmd == RunCommand::Singlestep || !result.break_status.singlestep_complete
             );
         }
 

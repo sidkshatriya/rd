@@ -182,7 +182,7 @@ impl Sighandlers {
             // If the handler was a user handler, reset to
             // default.  If it was SIG_IGN or SIG_DFL,
             // leave it alone.
-            if h.disposition() == SignalDisposition::SignalHandler {
+            if h.disposition() == SignalDisposition::Handler {
                 reset_handler(h, arch);
             }
         }
@@ -223,14 +223,14 @@ impl Sighandler {
 
     pub fn disposition(&self) -> SignalDisposition {
         match self.k_sa_handler.as_usize() {
-            0 => SignalDisposition::SignalDefault,
-            1 => SignalDisposition::SignalIgnore,
-            _ => SignalDisposition::SignalHandler,
+            0 => SignalDisposition::Default,
+            1 => SignalDisposition::Ignore,
+            _ => SignalDisposition::Handler,
         }
     }
 
     pub fn get_user_handler(&self) -> Option<RemoteCodePtr> {
-        if self.disposition() == SignalDisposition::SignalHandler {
+        if self.disposition() == SignalDisposition::Handler {
             Some(RemoteCodePtr::from_val(self.k_sa_handler.as_usize()))
         } else {
             None
@@ -257,15 +257,15 @@ impl Default for Sighandler {
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub enum WaitType {
     /// Not waiting for anything
-    WaitTypeNone,
+    None,
     /// Waiting for any child process
-    WaitTypeAny,
+    Any,
     /// Waiting for any child with the same process group ID
-    WaitTypeSamePgid,
+    SamePgid,
     /// Waiting for any child with a specific process group ID
-    WaitTypePgid,
+    Pgid,
     /// Waiting for a specific process ID
-    WaitTypePid,
+    Pid,
 }
 
 /// Reasons why we simulate stopping of a task (see ptrace(2) man page).
@@ -297,9 +297,9 @@ pub struct SyscallbufCodeLayout {
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub enum SignalDisposition {
-    SignalDefault,
-    SignalIgnore,
-    SignalHandler,
+    Default,
+    Ignore,
+    Handler,
 }
 
 #[derive(Copy, Clone)]
@@ -1017,7 +1017,7 @@ impl RecordTask {
             emulated_sigchld_pending: Default::default(),
             emulated_ptrace_seized: Default::default(),
             emulated_ptrace_queued_exit_stop: Default::default(),
-            in_wait_type: Cell::new(WaitType::WaitTypeNone),
+            in_wait_type: Cell::new(WaitType::None),
             in_wait_pid: Default::default(),
             emulated_stop_type: Cell::new(EmulatedStopType::NotStopped),
             blocked_sigs_dirty: Cell::new(true),
@@ -1577,16 +1577,16 @@ impl RecordTask {
         }
         // XXX need to check |options| to make sure this task is eligible!!
         match self.in_wait_type.get() {
-            WaitType::WaitTypeNone => false,
-            WaitType::WaitTypeAny => true,
-            WaitType::WaitTypeSamePgid => {
+            WaitType::None => false,
+            WaitType::Any => true,
+            WaitType::SamePgid => {
                 getpgid(Some(Pid::from_raw(t.tgid()))).unwrap()
                     == getpgid(Some(Pid::from_raw(self.tgid()))).unwrap()
             }
-            WaitType::WaitTypePgid => {
+            WaitType::Pgid => {
                 getpgid(Some(Pid::from_raw(t.tgid()))).unwrap().as_raw() == self.in_wait_pid.get()
             }
-            WaitType::WaitTypePid =>
+            WaitType::Pid =>
             // When waiting for a ptracee, a specific pid is interpreted as the
             // exact tid.
             {
@@ -1609,16 +1609,16 @@ impl RecordTask {
         }
 
         match self.in_wait_type.get() {
-            WaitType::WaitTypeNone => false,
-            WaitType::WaitTypeAny => true,
-            WaitType::WaitTypeSamePgid => {
+            WaitType::None => false,
+            WaitType::Any => true,
+            WaitType::SamePgid => {
                 getpgid(Some(Pid::from_raw(t.tgid()))).unwrap()
                     == getpgid(Some(Pid::from_raw(self.tgid()))).unwrap()
             }
-            WaitType::WaitTypePgid => {
+            WaitType::Pgid => {
                 getpgid(Some(Pid::from_raw(t.tgid()))).unwrap().as_raw() == self.in_wait_pid.get()
             }
-            WaitType::WaitTypePid => t.tgid() == self.in_wait_pid.get(),
+            WaitType::Pid => t.tgid() == self.in_wait_pid.get(),
         }
     }
 
@@ -1682,7 +1682,7 @@ impl RecordTask {
 
         if !self.is_sig_ignored(sig) {
             if (sig == sig::SIGTSTP || sig == sig::SIGTTIN || sig == sig::SIGTTOU)
-                && h_disposition == SignalDisposition::SignalHandler
+                && h_disposition == SignalDisposition::Handler
             {
                 // do nothing
             } else if sig == sig::SIGTSTP
@@ -1769,8 +1769,7 @@ impl RecordTask {
     /// SIG_IGN or SIG_DFL, that is, if a user sighandler will be
     /// invoked when `sig` is received.
     pub fn signal_has_user_handler(&self, sig: Sig) -> bool {
-        self.sighandlers.borrow().borrow().get(sig).disposition()
-            == SignalDisposition::SignalHandler
+        self.sighandlers.borrow().borrow().get(sig).disposition() == SignalDisposition::Handler
     }
 
     /// If signal_has_user_handler(sig) is true, return the address of the
@@ -1814,9 +1813,9 @@ impl RecordTask {
             return false;
         }
         match self.sighandlers.borrow().borrow().get(sig).disposition() {
-            SignalDisposition::SignalIgnore => true,
-            SignalDisposition::SignalDefault => SignalAction::Ignore == default_action(sig),
-            SignalDisposition::SignalHandler => false,
+            SignalDisposition::Ignore => true,
+            SignalDisposition::Default => SignalAction::Ignore == default_action(sig),
+            SignalDisposition::Handler => false,
         }
     }
 
@@ -1923,7 +1922,7 @@ impl RecordTask {
                 ed_assert_eq!(
                     self,
                     ignored & mask != 0,
-                    disposition == SignalDisposition::SignalIgnore,
+                    disposition == SignalDisposition::Ignore,
                     "{} {}",
                     sig,
                     if ignored & mask != 0 {
@@ -1935,7 +1934,7 @@ impl RecordTask {
                 ed_assert_eq!(
                     self,
                     caught & mask != 0,
-                    disposition == SignalDisposition::SignalHandler,
+                    disposition == SignalDisposition::Handler,
                     "{} {}",
                     sig,
                     if caught & mask != 0 {

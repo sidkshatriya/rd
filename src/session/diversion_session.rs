@@ -113,7 +113,7 @@ impl DiversionSession {
         command: RunCommand,
         signal_to_deliver: Option<Sig>,
     ) -> DiversionResult {
-        debug_assert_ne!(command, RunCommand::RunSinglestepFastForward);
+        debug_assert_ne!(command, RunCommand::SinglestepFastForward);
         self.assert_fully_initialized();
 
         let mut result: DiversionResult = Default::default();
@@ -133,7 +133,7 @@ impl DiversionSession {
         t.set_syscallbuf_locked(true);
 
         match command {
-            RunCommand::RunContinue => {
+            RunCommand::Continue => {
                 log!(LogDebug, "Continuing to next syscall");
                 t.resume_execution(
                     ResumeRequest::Sysemu,
@@ -142,7 +142,7 @@ impl DiversionSession {
                     signal_to_deliver,
                 );
             }
-            RunCommand::RunSinglestep => {
+            RunCommand::Singlestep => {
                 log!(LogDebug, "Stepping to next insn/syscall");
                 t.resume_execution(
                     ResumeRequest::SysemuSinglestep,
@@ -175,7 +175,7 @@ impl DiversionSession {
             );
             ed_assert!(
                 t,
-                !result.break_status.singlestep_complete || command == RunCommand::RunSinglestep
+                !result.break_status.singlestep_complete || command == RunCommand::Singlestep
             );
             return result;
         }

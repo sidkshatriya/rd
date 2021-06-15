@@ -220,6 +220,7 @@ pub enum SyscallBuffering {
 
 /// DIFF NOTE: Subsumes RecordResult and RecordStatus from rr
 #[derive(Clone, Eq, PartialEq)]
+#[allow(clippy::enum_variant_names)]
 pub enum RecordResult {
     /// Some execution was recorded. record_step() can be called again.
     StepContinue,

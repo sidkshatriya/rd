@@ -1592,6 +1592,6 @@ fn is_sigtrap_default_and_unblocked(t: &dyn Task) -> bool {
         return true;
     }
     let rt = t.as_rec_unwrap();
-    rt.sig_disposition(sig::SIGTRAP) == SignalDisposition::SignalDefault
+    rt.sig_disposition(sig::SIGTRAP) == SignalDisposition::Default
         && !rt.is_sig_blocked(sig::SIGTRAP)
 }
