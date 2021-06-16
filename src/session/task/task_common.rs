@@ -127,7 +127,6 @@ pub(super) fn open_mem_fd_common<T: Task>(task: &T) -> bool {
     // the child has to open its own mem file (unless rr is root).
     let path = CStr::from_bytes_with_nul(b"/proc/self/mem\0").unwrap();
 
-    let arch = task.arch();
     let mut remote = AutoRemoteSyscalls::new(task);
     let remote_fd: i32;
     {
@@ -159,7 +158,7 @@ pub(super) fn open_mem_fd_common<T: Task>(task: &T) -> bool {
             let buf: String = format!("/proc/{}/mem", remote.task().tid());
             fd = ScopedFd::open_path(Path::new(&buf), OFlag::O_RDWR);
         } else {
-            fd = rd_arch_function!(remote, retrieve_fd_arch, arch, remote_fd);
+            fd = remote.retrieve_fd(remote_fd);
             // Leak fd if the syscall fails due to the task being SIGKILLed unexpectedly
             rd_syscall!(remote, syscall_number_for_close(remote.arch()), remote_fd);
         }

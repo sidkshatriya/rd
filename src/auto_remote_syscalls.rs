@@ -1,15 +1,18 @@
 use crate::{
-    arch::Architecture,
-    arch_structs::{cmsg_data_offset, cmsg_len, cmsg_space, cmsghdr, iovec, msghdr},
+    arch::{Architecture, NativeArch},
+    arch_structs::{cmsg_data_offset, cmsg_len, cmsghdr, iovec, msghdr},
     auto_remote_syscalls::MemParamsEnabled::{DisableMemoryParams, EnableMemoryParams},
-    bindings::{kernel::SYS_SENDMSG, ptrace::PTRACE_EVENT_EXIT},
+    bindings::{
+        kernel::{SYS_RECVMSG, SYS_SENDMSG},
+        ptrace::PTRACE_EVENT_EXIT,
+    },
     kernel_abi::{
         has_mmap2_syscall, has_socketcall_syscall, is_clone_syscall, is_open_syscall,
         is_openat_syscall, is_rt_sigaction_syscall, is_sigaction_syscall, is_signal_syscall,
         syscall_instruction, syscall_number_for__llseek, syscall_number_for_close,
         syscall_number_for_lseek, syscall_number_for_mmap, syscall_number_for_mmap2,
         syscall_number_for_mremap, syscall_number_for_munmap, syscall_number_for_openat,
-        syscall_number_for_sendmsg, syscall_number_for_socketcall, SupportedArch,
+        SupportedArch,
     },
     kernel_metadata::{errno_name, syscall_name},
     log::LogLevel::LogDebug,
@@ -54,14 +57,14 @@ use nix::{
     NixPath,
 };
 use std::{
-    cmp::{max, min},
+    cmp::min,
     convert::TryInto,
     ffi::{OsStr, OsString},
     fmt::Debug,
     io::Write,
-    mem::{self, size_of, size_of_val, zeroed},
+    mem::{self, size_of, size_of_val},
     ops::{Deref, DerefMut},
-    os::unix::ffi::OsStrExt,
+    os::{raw::c_int, unix::ffi::OsStrExt},
     ptr::{self, copy_nonoverlapping, NonNull},
     slice,
     sync::atomic::{AtomicUsize, Ordering},
@@ -726,47 +729,21 @@ impl<'a> AutoRemoteSyscalls<'a> {
     /// Arranges for 'fd' to be transmitted to this process and returns
     /// our opened version of it.
     /// Returns a closed fd if the process dies or has died.
-    pub fn retrieve_fd_arch<Arch: Architecture>(&mut self, fd: i32) -> ScopedFd {
-        let mut data_length: usize = max(
-            reserve::<Arch::sockaddr_un>(),
-            reserve::<msghdr<Arch>>()
-                // This is the aligned space. Don't need to align again.
-                + cmsg_space::<Arch>(size_of_val(&fd))
-                + reserve::<iovec<Arch>>(),
-        );
-        if has_socketcall_syscall(Arch::arch()) {
-            data_length += reserve::<SocketcallArgs<Arch>>();
-        }
-        let mut remote_buf = AutoRestoreMem::new(self, None, data_length);
-        if remote_buf.get().is_none() {
-            // Task must be dead
-            return ScopedFd::new();
-        }
-
-        let mut sc_args_end: RemotePtr<Void> = remote_buf.get().unwrap();
-        let mut maybe_sc_args: Option<RemotePtr<SocketcallArgs<Arch>>> = None;
-        if has_socketcall_syscall(Arch::arch()) {
-            maybe_sc_args = Some(allocate::<SocketcallArgs<Arch>>(
-                &mut sc_args_end,
-                &remote_buf,
-            ));
-        }
-
-        let child_sock = remote_buf.task().session().tracee_fd_number();
-        let child_syscall_result: isize =
-            child_sendmsg(&mut remote_buf, maybe_sc_args, sc_args_end, child_sock, fd);
+    fn retrieve_fd_arch<Arch: Architecture>(&mut self, fd: i32) -> ScopedFd {
+        let child_sock = self.task().session().tracee_fd_number();
+        let child_syscall_result: isize = child_sendmsg::<Arch>(self, child_sock, fd);
         if child_syscall_result == -ESRCH as isize {
             return ScopedFd::new();
         }
 
         ed_assert!(
-            remote_buf.task(),
+            self.task(),
             child_syscall_result > 0,
             "Failed to sendmsg() in tracee; err={}",
             errno_name((-child_syscall_result).try_into().unwrap())
         );
 
-        let our_fd: i32 = recvmsg_socket(&remote_buf.task().session().tracee_socket_fd().borrow());
+        let our_fd: i32 = recvmsg_socket(&self.task().session().tracee_socket_fd().borrow());
         ScopedFd::from_raw(our_fd)
     }
 
@@ -1284,6 +1261,36 @@ impl<'a> AutoRemoteSyscalls<'a> {
         new_addr
     }
 
+    /// Arranges for `our_fd` to be transmitted to the tracee and returns
+    /// a file descriptor in the tracee that corresponds to the same file
+    /// description.
+    /// Returns a negative value if the process dies or has died.
+    pub fn send_fd(&mut self, our_fd: &ScopedFd) -> isize {
+        rd_arch_function!(self, send_fd_arch, self.arch(), our_fd)
+    }
+
+    fn send_fd_arch<Arch: Architecture>(&mut self, our_fd: &ScopedFd) -> isize {
+        sendmsg_socket(
+            &self.task().session().tracee_socket_fd().borrow(),
+            our_fd.as_raw(),
+        );
+
+        let child_sock = self.task().session().tracee_fd_number();
+        let child_syscall_result = child_recvmsg::<Arch>(self, child_sock);
+        if child_syscall_result == -ESRCH as isize {
+            return -1;
+        }
+
+        ed_assert!(
+            self.task(),
+            child_syscall_result >= 0,
+            "Failed to recvmsg() in tracee; err={}",
+            errno_name((-child_syscall_result).try_into().unwrap())
+        );
+
+        child_syscall_result
+    }
+
     /// Takes a mapping and replaces it by one that is shared between rd and
     /// the tracee. The caller is responsible for filling the contents of the
     /// new mapping.
@@ -1362,6 +1369,7 @@ fn ignore_signal(t: &dyn Task) -> bool {
 /// the kernel is the sub-operation, and the second argument is a
 /// pointer to the args.  The args depend on the sub-op.
 #[repr(C, packed)]
+#[derive(Default)]
 struct SocketcallArgs<Arch: Architecture> {
     args: [Arch::signed_long; 3],
 }
@@ -1387,42 +1395,79 @@ fn write_socketcall_args<Arch: Architecture>(
     write_mem(t, RemotePtr::cast(remote_mem), &sc_args, maybe_ok);
 }
 
-const fn align_size(size: usize) -> usize {
-    let align_amount = size_of::<usize>();
-    (size + align_amount - 1) & !(align_amount - 1)
+#[repr(C)]
+#[derive(Default)]
+struct FdMessage<Arch: Architecture> {
+    /// Unfortunately we need to send at least one byte of data in our message
+    /// for it to work
+    data: u8,
+    msgdata: iovec<Arch>,
+    cmsgbuf: Arch::CMSG_STORE_FD,
+    msg: msghdr<Arch>,
+    /// XXX: Could make this conditional on Arch
+    socketcall: SocketcallArgs<Arch>,
 }
 
-/// Called allocate() in rr
-fn allocate_bytes(
-    buf_end: &mut RemotePtr<Void>,
-    remote_buf: &AutoRestoreMem,
-    size: usize,
-) -> RemotePtr<Void> {
-    let r = *buf_end;
-    // Note the mutation of buf_end here. A sort of bump pointer.
-    *buf_end += align_size(size);
-    if (*buf_end - remote_buf.get().unwrap()) > remote_buf.len() {
-        fatal!("overflow");
+impl<Arch: Architecture> FdMessage<Arch> {
+    pub fn init(&mut self, base: RemotePtr<FdMessage<Arch>>) {
+        self.data = 0;
+        self.msgdata.iov_base =
+            Arch::from_remote_ptr(remote_ptr_field!(base, FdMessage<Arch>, data));
+        self.msgdata.iov_len = Arch::usize_as_size_t(1);
+        self.msg = Default::default();
+        self.msg.msg_control =
+            Arch::from_remote_ptr(remote_ptr_field!(base, FdMessage<Arch>, cmsgbuf));
+        self.msg.msg_controllen = Arch::usize_as_size_t(size_of_val(&self.cmsgbuf));
+        self.msg.msg_iov = Arch::from_remote_ptr(RemotePtr::cast(remote_ptr_field!(
+            base,
+            FdMessage<Arch>,
+            msgdata
+        )));
+        self.msg.msg_iovlen = Arch::usize_as_size_t(1);
     }
-    // The data can be placed at r
-    r
+
+    pub fn new(base: RemotePtr<FdMessage<Arch>>) -> FdMessage<Arch> {
+        let mut val = Self::default();
+        val.init(base);
+        val
+    }
+
+    pub fn remote_this(&self) -> RemotePtr<FdMessage<Arch>> {
+        RemotePtr::cast(Arch::as_rptr(self.msgdata.iov_base))
+    }
+
+    pub fn remote_msg(&self) -> RemotePtr<msghdr<Arch>> {
+        RemotePtr::cast(remote_ptr_field!(self.remote_this(), FdMessage<Arch>, msg))
+    }
+
+    pub fn remote_sc_args(&self) -> RemotePtr<SocketcallArgs<Arch>> {
+        RemotePtr::cast(remote_ptr_field!(
+            self.remote_this(),
+            FdMessage<Arch>,
+            socketcall
+        ))
+    }
+
+    pub fn remote_cmsgdata(&self) -> RemotePtr<c_int> {
+        RemotePtr::cast(
+            remote_ptr_field!(self.remote_this(), FdMessage<Arch>, cmsgbuf)
+                + cmsg_data_offset::<Arch>(),
+        )
+    }
 }
 
-fn allocate<T>(buf_end: &mut RemotePtr<Void>, remote_buf: &AutoRestoreMem) -> RemotePtr<T> {
-    RemotePtr::cast(allocate_bytes(buf_end, remote_buf, size_of::<T>()))
-}
-
+/// The child tracee sends us (rd) a message
+///
 /// We don't need an AutoRemoteSyscall like rr does.
 /// AutoRestoreMem Deref-s/DerefMut-s to AutoRemoteSyscalls
 fn child_sendmsg<Arch: Architecture>(
-    remote_buf: &mut AutoRestoreMem,
-    sc_args: Option<RemotePtr<SocketcallArgs<Arch>>>,
-    mut buf_end: RemotePtr<Void>,
+    remote: &mut AutoRemoteSyscalls,
     child_sock: i32,
     fd: i32,
 ) -> isize {
-    let cmsgbuf_size = cmsg_space::<Arch>(size_of_val(&fd));
-    let mut cmsgbuf = vec![0u8; cmsgbuf_size];
+    let mut remote_mem = AutoRestoreMem::new(remote, None, size_of::<FdMessage<Arch>>());
+    let remote_buf: RemotePtr<FdMessage<Arch>> = RemotePtr::cast(remote_mem.get().unwrap());
+    let mut msg: FdMessage<Arch> = FdMessage::new(remote_buf);
 
     // Pull the puppet strings to have the child send its fd
     // to us.  Similarly to above, we DONT_WAIT on the
@@ -1431,28 +1476,6 @@ fn child_sendmsg<Arch: Architecture>(
     // sent us (in which case we would deadlock with the tracee).
     // We call sendmsg on child socket, but first we have to prepare a lot of
     // data.
-    let remote_msg = allocate::<msghdr<Arch>>(&mut buf_end, remote_buf);
-    let remote_msgdata = allocate::<iovec<Arch>>(&mut buf_end, remote_buf);
-    let remote_cmsgbuf = allocate_bytes(&mut buf_end, remote_buf, cmsgbuf_size);
-
-    let mut ok = true;
-    let msg = msghdr::<Arch> {
-        msg_iov: Arch::from_remote_ptr(remote_msgdata),
-        msg_iovlen: Arch::usize_as_size_t(1),
-        msg_control: Arch::from_remote_ptr(remote_cmsgbuf),
-        msg_controllen: Arch::usize_as_size_t(cmsgbuf_size),
-        ..Default::default()
-    };
-
-    write_val_mem(remote_buf.task(), remote_msg, &msg, Some(&mut ok));
-
-    // iov_base: doesn't matter much, we ignore the data
-    let msgdata = iovec::<Arch> {
-        iov_base: Arch::from_remote_ptr(RemotePtr::cast(remote_msg)),
-        iov_len: Arch::usize_as_size_t(1),
-    };
-    write_val_mem(remote_buf.task(), remote_msgdata, &msgdata, Some(&mut ok));
-
     let cmsg_data_off = cmsg_data_offset::<Arch>();
     let cmsghdr = cmsghdr::<Arch> {
         cmsg_len: Arch::usize_as_size_t(cmsg_len::<Arch>(size_of_val(&fd))),
@@ -1464,82 +1487,157 @@ fn child_sendmsg<Arch: Architecture>(
     unsafe {
         copy_nonoverlapping(
             &raw const cmsghdr as *const u8,
-            cmsgbuf.as_mut_ptr(),
+            msg.cmsgbuf.as_mut().as_mut_ptr(),
             size_of::<cmsghdr<Arch>>(),
         );
     }
     // Copy the fd into the cmsgbuf
-    cmsgbuf[cmsg_data_off..cmsg_data_off + size_of_val(&fd)].copy_from_slice(&fd.to_le_bytes());
+    msg.cmsgbuf.as_mut()[cmsg_data_off..cmsg_data_off + size_of_val(&fd)]
+        .copy_from_slice(&fd.to_le_bytes());
 
-    write_mem(remote_buf.task(), remote_cmsgbuf, &cmsgbuf, Some(&mut ok));
+    if has_socketcall_syscall(Arch::arch()) {
+        let addr: Arch::unsigned_long = msg.remote_msg().as_usize().try_into().unwrap();
+        let sc_args = SocketcallArgs::<Arch> {
+            args: [
+                child_sock.into(),
+                Arch::as_signed_long(addr),
+                Arch::usize_as_signed_long(0),
+            ],
+        };
+        msg.socketcall = sc_args;
+    }
+
+    let mut ok = true;
+    write_val_mem(remote_mem.task(), remote_buf, &msg, Some(&mut ok));
 
     if !ok {
         return -ESRCH as isize;
     }
 
-    let arch = remote_buf.arch();
-    if sc_args.is_none() {
-        return rd_syscall!(
-            remote_buf,
-            syscall_number_for_sendmsg(arch),
+    if !has_socketcall_syscall(Arch::arch()) {
+        rd_syscall!(
+            remote_mem,
+            Arch::SENDMSG,
             child_sock,
-            remote_msg.as_usize(),
+            msg.remote_msg().as_usize(),
             0
+        )
+    } else {
+        rd_syscall!(
+            remote_mem,
+            Arch::SOCKETCALL,
+            SYS_SENDMSG,
+            msg.remote_sc_args().as_usize()
+        )
+    }
+}
+
+fn child_recvmsg<Arch: Architecture>(remote: &mut AutoRemoteSyscalls, child_sock: i32) -> isize {
+    let mut remote_mem = AutoRestoreMem::new(remote, None, size_of::<FdMessage<Arch>>());
+    let remote_buf: RemotePtr<FdMessage<Arch>> = RemotePtr::cast(remote_mem.get().unwrap());
+    let mut msg: FdMessage<Arch> = FdMessage::new(remote_buf);
+
+    if has_socketcall_syscall(Arch::arch()) {
+        let addr: Arch::unsigned_long = msg.remote_msg().as_usize().try_into().unwrap();
+        let sc_args = SocketcallArgs::<Arch> {
+            args: [
+                child_sock.into(),
+                Arch::as_signed_long(addr),
+                Arch::usize_as_signed_long(0),
+            ],
+        };
+        msg.socketcall = sc_args;
+    }
+
+    let mut ok = true;
+    write_val_mem(remote_mem.task(), remote_buf, &msg, Some(&mut ok));
+
+    if !ok {
+        return -ESRCH as isize;
+    }
+
+    let ret: isize;
+    if !has_socketcall_syscall(Arch::arch()) {
+        ret = rd_syscall!(
+            remote_mem,
+            Arch::RECVMSG,
+            child_sock,
+            msg.remote_msg().as_usize(),
+            0
+        );
+    } else {
+        ret = rd_syscall!(
+            remote_mem,
+            Arch::SOCKETCALL,
+            SYS_RECVMSG,
+            msg.remote_sc_args().as_usize()
         );
     }
 
-    let addr: Arch::unsigned_long = remote_msg.as_usize().try_into().unwrap();
-    write_socketcall_args::<Arch>(
-        remote_buf.task(),
-        sc_args.unwrap(),
-        child_sock.into(),
-        Arch::as_signed_long(addr),
-        0i32.into(),
-        Some(&mut ok),
-    );
+    if ret < 0 {
+        return ret;
+    }
 
+    let their_fd = read_val_mem(remote_mem.task(), msg.remote_cmsgdata(), Some(&mut ok));
     if !ok {
         return -ESRCH as isize;
     }
 
-    rd_syscall!(
-        remote_buf,
-        syscall_number_for_socketcall(arch),
-        SYS_SENDMSG,
-        sc_args.unwrap().as_usize()
-    )
+    their_fd as isize
 }
 
 fn recvmsg_socket(sock: &ScopedFd) -> i32 {
-    let mut received_data: u8 = 0;
-    let mut msgdata: libc::iovec = unsafe { zeroed() };
-    msgdata.iov_base = &raw mut received_data as *mut c_void;
-    msgdata.iov_len = 1;
-
-    // The i32 is our fd
-    let cmsgbuf_size = unsafe { libc::CMSG_SPACE(size_of::<i32>() as u32) } as usize;
-    let mut cmsgbuf = vec![0u8; cmsgbuf_size];
-    let mut msg: libc::msghdr = unsafe { zeroed() };
-    msg.msg_control = cmsgbuf.as_mut_ptr().cast();
-    msg.msg_controllen = cmsgbuf_size;
-    msg.msg_iov = &raw mut msgdata;
-    msg.msg_iovlen = 1;
-
-    if 0 > unsafe { libc::recvmsg(sock.as_raw(), &raw mut msg, 0) } {
+    let mut msg: FdMessage<NativeArch> = Default::default();
+    let base = &msg as *const _ as *const u8 as usize;
+    // base is not really RemotePtr but this works fine because the underlying
+    // values (i.e. addresses) are stored as the syscalls expect them
+    msg.init(RemotePtr::from(base));
+    let msgp = &raw mut msg.msg as *mut libc::msghdr;
+    if 0 > unsafe { libc::recvmsg(sock.as_raw(), msgp, 0) } {
         fatal!("Failed to receive fd");
     }
 
-    let cmsg: *mut libc::cmsghdr = unsafe { libc::CMSG_FIRSTHDR(&raw const msg) };
+    let cmsg: *mut libc::cmsghdr = unsafe { libc::CMSG_FIRSTHDR(msgp) };
     debug_assert!(unsafe {
         !cmsg.is_null() && (*cmsg).cmsg_level == SOL_SOCKET && (*cmsg).cmsg_type == SCM_RIGHTS
     });
     let our_fd: i32 = unsafe { *(libc::CMSG_DATA(cmsg) as *const i32) };
+
     debug_assert!(our_fd >= 0);
+
     our_fd
 }
 
-const fn reserve<T>() -> usize {
-    align_size(size_of::<T>())
+fn sendmsg_socket(sock: &ScopedFd, fd_to_send: i32) {
+    let mut msg: FdMessage<NativeArch> = Default::default();
+    let base = &msg as *const _ as *const u8 as usize;
+    // base is not really RemotePtr but this works fine because the underlying
+    // values (i.e. addresses) are stored as the syscalls expect them
+    msg.init(RemotePtr::from(base));
+    let cmsg_data_off = cmsg_data_offset::<NativeArch>();
+    let cmsghdr = cmsghdr::<NativeArch> {
+        cmsg_len: NativeArch::usize_as_size_t(cmsg_len::<NativeArch>(size_of_val(&fd_to_send))),
+        cmsg_level: SOL_SOCKET,
+        cmsg_type: SCM_RIGHTS,
+    };
+
+    // Copy the cmsghdr into the cmsgbuf
+    unsafe {
+        copy_nonoverlapping(
+            &raw const cmsghdr as *const u8,
+            msg.cmsgbuf.as_mut().as_mut_ptr(),
+            size_of::<cmsghdr<NativeArch>>(),
+        );
+    }
+
+    // Copy the fd into the cmsgbuf
+    msg.cmsgbuf.as_mut()[cmsg_data_off..cmsg_data_off + size_of_val(&fd_to_send)]
+        .copy_from_slice(&fd_to_send.to_le_bytes());
+
+    let msgp = &raw mut msg.msg as *mut libc::msghdr;
+    if 0 > unsafe { libc::sendmsg(sock.as_raw(), msgp, 0) } {
+        fatal!("Failed to send fd");
+    }
 }
 
 /// Recover the name that was originally chosen by finding the part of the
