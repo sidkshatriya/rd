@@ -8,7 +8,7 @@ use crate::{
         siginfo_t as arch_siginfo_t, siginfo_t, sock_fprog, socketpair_args, usbdevfs_ctrltransfer,
         usbdevfs_ioctl, usbdevfs_iso_packet_desc, usbdevfs_urb, v4l2_buffer,
     },
-    auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem, MemParamsEnabled},
+    auto_remote_syscalls::{AutoRemoteSyscalls, MemParamsEnabled},
     bindings::{
         fcntl,
         kernel::{
@@ -91,9 +91,9 @@ use crate::{
     kernel_abi::{
         common, is_at_syscall_instruction, is_clone_syscall, is_exit_group_syscall,
         is_exit_syscall, is_vfork_syscall, syscall_instruction_length, syscall_number_for_close,
-        syscall_number_for_munmap, syscall_number_for_openat, syscall_number_for_pause,
-        syscall_number_for_rt_sigprocmask, x64, x86, CloneTLSType, FcntlOperation,
-        MmapCallingSemantics, Ptr, SelectCallingSemantics, SupportedArch,
+        syscall_number_for_munmap, syscall_number_for_pause, syscall_number_for_rt_sigprocmask,
+        x64, x86, CloneTLSType, FcntlOperation, MmapCallingSemantics, Ptr, SelectCallingSemantics,
+        SupportedArch,
     },
     kernel_metadata::{
         errno_name, is_sigreturn, ptrace_req_name, shm_flags_to_mmap_prot, syscall_name,
@@ -121,7 +121,6 @@ use crate::{
         SYS_rdcall_notify_control_msg, SYS_rdcall_notify_syscall_hook_exit,
     },
     preload_interface_arch::rdcall_init_buffers_params,
-    rd::RD_RESERVED_ROOT_DIR_FD,
     registers,
     registers::{with_converted_registers, Registers},
     remote_ptr::{RemotePtr, Void},
@@ -146,8 +145,8 @@ use crate::{
         trace_writer::{MappingOrigin, RecordInTrace},
     },
     util::{
-        ceil_page_size, clone_flags_to_task_flags, copy_file, create_temporary_file,
-        extract_clone_parameters, has_effective_caps, is_proc_fd_dir, is_proc_mem_file, page_size,
+        ceil_page_size, clone_flags_to_task_flags, copy_file, extract_clone_parameters,
+        has_effective_caps, is_proc_fd_dir, is_proc_mem_file, open_memory_file, page_size,
         read_auxv, u8_slice_mut, word_at, word_size, write_all, CloneParameters,
     },
     wait_status::WaitStatus,
@@ -171,8 +170,8 @@ use libc::{
     MADV_DOFORK, MADV_DONTDUMP, MADV_DONTFORK, MADV_DONTNEED, MADV_FREE, MADV_HUGEPAGE,
     MADV_HWPOISON, MADV_MERGEABLE, MADV_NOHUGEPAGE, MADV_NORMAL, MADV_RANDOM, MADV_REMOVE,
     MADV_SEQUENTIAL, MADV_SOFT_OFFLINE, MADV_UNMERGEABLE, MADV_WILLNEED, MAP_32BIT, MAP_FIXED,
-    MAP_GROWSDOWN, MMAP_PAGE_ZERO, MSG_DONTWAIT, O_DIRECT, O_RDONLY, PRIO_PROCESS, P_ALL, P_PGID,
-    P_PID, Q_GETFMT, Q_GETINFO, Q_GETQUOTA, Q_QUOTAOFF, Q_QUOTAON, Q_SETINFO, Q_SETQUOTA, Q_SYNC,
+    MAP_GROWSDOWN, MMAP_PAGE_ZERO, MSG_DONTWAIT, O_DIRECT, PRIO_PROCESS, P_ALL, P_PGID, P_PID,
+    Q_GETFMT, Q_GETINFO, Q_GETQUOTA, Q_QUOTAOFF, Q_QUOTAON, Q_SETINFO, Q_SETQUOTA, Q_SYNC,
     READ_IMPLIES_EXEC, SCM_RIGHTS, SECCOMP_MODE_FILTER, SECCOMP_MODE_STRICT, SHORT_INODE, SIGCHLD,
     SIGKILL, SIGSTOP, SIG_BLOCK, SOL_PACKET, SOL_SOCKET, STDERR_FILENO, STDIN_FILENO,
     STDOUT_FILENO, STICKY_TIMEOUTS, S_IWUSR, UNAME26, WHOLE_SECONDS, WNOHANG, WNOWAIT, WUNTRACED,
@@ -185,7 +184,7 @@ use nix::{
         mman::{MapFlags, ProtFlags},
         stat::{self, stat, Mode, SFlag},
     },
-    unistd::{getpid, ttyname, unlink},
+    unistd::{getpid, lseek, ttyname, Whence},
 };
 use std::{
     cell::RefMut,
@@ -2917,42 +2916,31 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
 
 fn fake_gcrypt_file(t: &RecordTask, r: &mut Registers) {
     // We hijacked this call to deal with /etc/gcrypt/hwf.deny.
-    let file = create_temporary_file(b"rd-gcrypt-hwf-deny-XXXXXX");
+    let proposed_fname = format!("rd-gcrypt-hwf-deny-{}", getpid());
+    let (fd, fname) = open_memory_file(&proposed_fname).unwrap();
 
     if stat("/etc/gcrypt/hwf.deny").is_ok() {
         // Copy the contents into our temporary file
         let existing = ScopedFd::open_path("/etc/gcrypt/hwf.deny", OFlag::O_RDONLY);
-        if !copy_file(file.fd.as_raw(), existing.as_raw()) {
+        if !copy_file(fd.as_raw(), existing.as_raw()) {
             fatal!(
                 "Can't copy file \"/etc/gcrypt/hwf.deny\" into temporary file {:?}",
-                file.name
+                fname
             );
         }
     }
 
     let disable_rdrand = b"\nintel-rdrand\n";
-    write_all(file.fd.as_raw(), disable_rdrand);
+    write_all(fd.as_raw(), disable_rdrand);
 
     // Now open the file in the child.
     let child_fd: i32;
     {
-        let sys = syscall_number_for_openat(t.arch());
         let mut remote = AutoRemoteSyscalls::new(t);
-        let mut child_str = AutoRestoreMem::push_cstr(&mut remote, file.name.as_os_str());
-        // skip leading '/' since we want the path to be relative to the root fd
-        let child_addr = child_str.get().unwrap().as_usize() + 1;
-        child_fd = rd_infallible_syscall!(
-            child_str,
-            sys,
-            RD_RESERVED_ROOT_DIR_FD,
-            child_addr,
-            O_RDONLY
-        ) as i32;
+        // DIFF NOTE: rr does not require the lseek to be successful
+        lseek(fd.as_raw(), 0, Whence::SeekSet).unwrap();
+        child_fd = remote.send_fd(&fd) as i32;
     }
-
-    // Unlink it now that the child has opened it.
-    // DIFF NOTE: rr does not ensure this happens. We do an unwrap().
-    unlink(file.name.as_os_str()).unwrap();
 
     // And hand out our fake file.
     r.set_syscall_result_signed(child_fd as isize);

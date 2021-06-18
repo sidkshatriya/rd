@@ -1,6 +1,7 @@
 #![allow(non_camel_case_types)]
 
 use crate::{
+    arch_structs::cmsg_space,
     kernel_abi::{
         x64, x86, CloneParameterOrdering, CloneTLSType, MmapCallingSemantics, Ptr,
         SelectCallingSemantics, SupportedArch,
@@ -548,6 +549,7 @@ pub trait Architecture: 'static + Default {
     type FPROG_PAD_ARR: Default + Copy + 'static;
     type STD_PAD_ARR: Default + Copy + 'static;
     type SIGINFO_PADDING_ARR: Default + Copy + 'static;
+    type CMSG_STORE_FD: Default + Copy + 'static + AsMut<[u8]>;
 
     type signed_short: Default + Copy + 'static;
     type unsigned_short: Default + Copy + 'static;
@@ -1133,6 +1135,7 @@ impl Architecture for X86Arch {
     type FPROG_PAD_ARR = [u8; size_of::<Ptr<Self::unsigned_word, Void>>() - size_of::<u16>()];
     type STD_PAD_ARR = [u8; size_of::<Self::unsigned_long>() - size_of::<i32>()];
     type SIGINFO_PADDING_ARR = [i32; x86::SIGINFO_PADDING];
+    type CMSG_STORE_FD = [u8; cmsg_space::<Self>(size_of::<i32>())];
 
     type signed_short = i16;
     type unsigned_short = u16;
@@ -1728,6 +1731,7 @@ impl Architecture for X64Arch {
     type FPROG_PAD_ARR = [u8; size_of::<Ptr<Self::unsigned_word, Void>>() - size_of::<u16>()];
     type STD_PAD_ARR = [u8; size_of::<Self::unsigned_long>() - size_of::<i32>()];
     type SIGINFO_PADDING_ARR = [i32; x64::SIGINFO_PADDING];
+    type CMSG_STORE_FD = [u8; cmsg_space::<Self>(size_of::<i32>())];
 
     type signed_short = i16;
     type unsigned_short = u16;

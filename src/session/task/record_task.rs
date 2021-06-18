@@ -29,7 +29,7 @@ use crate::{
         is_exit_group_syscall, is_exit_syscall, is_restart_syscall_syscall, is_wait4_syscall,
         is_waitid_syscall, is_waitpid_syscall, sigaction_sigset_size, syscall_number_for_close,
         syscall_number_for_dup3, syscall_number_for_execve, syscall_number_for_gettid,
-        syscall_number_for_openat, syscall_number_for_rt_sigaction, SupportedArch,
+        syscall_number_for_rt_sigaction, SupportedArch,
     },
     kernel_metadata::syscall_name,
     kernel_supplement::{sig_set_t, NUM_SIGNALS, SA_RESETHAND, SA_SIGINFO},
@@ -42,7 +42,6 @@ use crate::{
     preload_interface_arch::{
         preload_thread_locals, rdcall_init_buffers_params, rdcall_init_preload_params,
     },
-    rd::RD_RESERVED_ROOT_DIR_FD,
     record_signal::{disarm_desched_event, SIGCHLD_SYNTHETIC},
     record_syscall::TaskSyscallState,
     registers::{with_converted_registers, Registers},
@@ -87,13 +86,16 @@ use crate::{
 };
 use libc::{
     pid_t, syscall, SYS_rt_sigqueueinfo, SYS_rt_tgsigqueueinfo, SYS_tgkill, CLD_STOPPED,
-    CLD_TRAPPED, EINVAL, EIO, ENOENT, O_CLOEXEC, O_CREAT, O_RDWR, PR_TSC_ENABLE, SIGCHLD,
+    CLD_TRAPPED, EINVAL, EIO, ENOENT, O_CLOEXEC, PR_TSC_ENABLE, SIGCHLD,
 };
 use nix::{
     errno::errno,
-    fcntl::readlink,
+    fcntl::{readlink, OFlag},
     sched::sched_yield,
-    sys::{mman::ProtFlags, stat::stat},
+    sys::{
+        mman::ProtFlags,
+        stat::{stat, Mode},
+    },
     unistd::{access, getpgid, AccessFlags, Pid},
 };
 use owning_ref::OwningHandle;
@@ -1158,12 +1160,14 @@ impl RecordTask {
             args.syscallbuf_ptr =
                 Arch::from_remote_ptr(RemotePtr::<u8>::cast(remote.task().syscallbuf_child.get()));
             remote.task().desched_fd_child.set(args.desched_counter_fd);
+
             // Prevent the child from closing this fd
             remote.task().fd_table().add_monitor(
                 remote.task(),
                 args.desched_counter_fd,
                 Box::new(PreserveFileMonitor::new()),
             );
+
             *remote
                 .task()
                 .as_record_task()
@@ -1212,53 +1216,55 @@ impl RecordTask {
                     .trace_writer()
                     .trace_stream()
                     .file_data_clone_file_name(tuid);
-                let mut name = AutoRestoreMem::push_cstr(&mut remote, clone_file_name.as_os_str());
-                let filename_addr = name.get().unwrap();
-                let cloned_file_data = rd_syscall!(
-                    name,
-                    syscall_number_for_openat(arch),
-                    RD_RESERVED_ROOT_DIR_FD,
-                    // skip leading '/' since we want the path to be relative to the root fd
-                    filename_addr.as_usize() + 1,
-                    O_RDWR | O_CREAT | O_CLOEXEC,
-                    0o0600
+
+                let clone_file = ScopedFd::open_path_with_mode(
+                    clone_file_name.as_os_str(),
+                    OFlag::O_RDWR | OFlag::O_CREAT,
+                    Mode::S_IRWXU,
+                );
+                let res = remote.send_fd(&clone_file);
+                ed_assert!(self, res > 0);
+                let cloned_file_data: i32 = res.try_into().unwrap();
+
+                let tid = remote.task().tid();
+                let free_fd: i32 = find_free_file_descriptor(tid);
+                let cloned_file_data_fd_child = rd_syscall!(
+                    remote,
+                    syscall_number_for_dup3(arch),
+                    cloned_file_data,
+                    free_fd,
+                    O_CLOEXEC
                 ) as i32;
 
-                if cloned_file_data >= 0 {
-                    let tid = name.task().tid();
-                    let free_fd: i32 = find_free_file_descriptor(tid);
-                    let cloned_file_data_fd_child = rd_syscall!(
-                        name,
-                        syscall_number_for_dup3(arch),
-                        cloned_file_data,
-                        free_fd,
-                        O_CLOEXEC
-                    ) as i32;
-                    name.task()
-                        .cloned_file_data_fd_child
-                        .set(cloned_file_data_fd_child);
+                remote
+                    .task()
+                    .cloned_file_data_fd_child
+                    .set(cloned_file_data_fd_child);
 
-                    if cloned_file_data_fd_child != free_fd {
-                        ed_assert!(name.task(), cloned_file_data_fd_child < 0);
-                        log!(LogWarn, "Couldn't dup clone-data file to free fd");
-                        name.task().cloned_file_data_fd_child.set(cloned_file_data);
-                    } else {
-                        // Prevent the child from closing this fd. We're going to close it
-                        // ourselves and we don't want the child closing it and then reopening
-                        // its own file with this fd.
-                        name.task().fd_table().add_monitor(
-                            name.task(),
-                            cloned_file_data_fd_child,
-                            Box::new(PreserveFileMonitor::new()),
-                        );
-                        rd_infallible_syscall!(
-                            name,
-                            syscall_number_for_close(arch),
-                            cloned_file_data
-                        );
-                    }
-                    args.cloned_file_data_fd = name.task().cloned_file_data_fd_child.get();
+                if cloned_file_data_fd_child != free_fd {
+                    ed_assert!(remote.task(), cloned_file_data_fd_child < 0);
+                    log!(LogWarn, "Couldn't dup clone-data file to free fd");
+                    remote
+                        .task()
+                        .cloned_file_data_fd_child
+                        .set(cloned_file_data);
+                } else {
+                    // Prevent the child from closing this fd. We're going to close it
+                    // ourselves and we don't want the child closing it and then reopening
+                    // its own file with this fd.
+                    remote.task().fd_table().add_monitor(
+                        remote.task(),
+                        cloned_file_data_fd_child,
+                        Box::new(PreserveFileMonitor::new()),
+                    );
+                    rd_infallible_syscall!(
+                        remote,
+                        syscall_number_for_close(arch),
+                        cloned_file_data
+                    );
                 }
+
+                args.cloned_file_data_fd = remote.task().cloned_file_data_fd_child.get();
             }
         } else {
             args.syscallbuf_ptr = Arch::from_remote_ptr(RemotePtr::null());

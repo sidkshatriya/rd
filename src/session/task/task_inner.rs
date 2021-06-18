@@ -29,7 +29,7 @@ use crate::{
     perf_counters::PerfCounters,
     preload_interface::{preload_globals, syscallbuf_hdr, PRELOAD_THREAD_LOCALS_SIZE},
     preload_interface_arch::preload_thread_locals,
-    rd::{RD_MAGIC_SAVE_DATA_FD, RD_RESERVED_ROOT_DIR_FD, RD_RESERVED_SOCKET_FD},
+    rd::{RD_MAGIC_SAVE_DATA_FD, RD_RESERVED_SOCKET_FD},
     registers::Registers,
     remote_code_ptr::RemoteCodePtr,
     remote_ptr::{RemotePtr, Void},
@@ -49,8 +49,8 @@ use crate::{
     trace::{trace_frame::FrameTime, trace_stream::TraceStream},
     util::{
         choose_cpu, get_fd_offset, has_effective_caps, page_size, restore_initial_resource_limits,
-        running_under_rd, set_cpu_affinity, to_cstring_array, u8_slice, u8_slice_mut, write_all,
-        xsave_area_size, BindCPU, TrappedInstruction,
+        set_cpu_affinity, to_cstring_array, u8_slice, u8_slice_mut, write_all, xsave_area_size,
+        BindCPU, TrappedInstruction,
     },
     wait_status::{MaybePtraceEvent, MaybeStopSignal, WaitStatus},
 };
@@ -1880,11 +1880,6 @@ fn setup_fd_table(t: &dyn Task, fds: &FdTableSharedPtr, tracee_socket_fd_number:
     );
     fds.add_monitor(
         t,
-        RD_RESERVED_ROOT_DIR_FD,
-        Box::new(PreserveFileMonitor::new()),
-    );
-    fds.add_monitor(
-        t,
         tracee_socket_fd_number,
         Box::new(PreserveFileMonitor::new()),
     );
@@ -1917,27 +1912,6 @@ fn set_up_process(
     let maybe_dup_magic = dup2(fd_magic, RD_MAGIC_SAVE_DATA_FD);
     if maybe_dup_magic.is_err() || RD_MAGIC_SAVE_DATA_FD != maybe_dup_magic.unwrap() {
         spawned_child_fatal_error(err_fd, "error duping to RD_MAGIC_SAVE_DATA_FD");
-    }
-
-    // If we're running under rd then don't try to set up RD_RESERVED_ROOT_DIR_FD;
-    // it should already be correct (unless someone chrooted in between,
-    // which would be crazy ... though we could fix it by dynamically
-    // assigning RR_RESERVED_ROOT_DIR_FD.)
-    if !running_under_rd() {
-        // CLOEXEC so that the original fd here will be closed by the exec that's
-        // about to happen.
-        let maybe_fd_root = open(
-            "/",
-            OFlag::O_PATH | OFlag::O_DIRECTORY | OFlag::O_CLOEXEC,
-            Mode::empty(),
-        );
-        if maybe_fd_root.is_err() {
-            spawned_child_fatal_error(err_fd, "error opening root directory");
-        }
-        let maybe_dup_reserved = dup2(maybe_fd_root.unwrap(), RD_RESERVED_ROOT_DIR_FD);
-        if maybe_dup_reserved.is_err() || RD_RESERVED_ROOT_DIR_FD != maybe_dup_reserved.unwrap() {
-            spawned_child_fatal_error(err_fd, "error duping to RD_RESERVED_ROOT_DIR_FD");
-        }
     }
 
     let maybe_dup_sock_fd = dup2(sock_fd.as_raw(), sock_fd_number);

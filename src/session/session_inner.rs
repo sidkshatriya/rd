@@ -418,8 +418,9 @@ impl SessionInner {
         !Flags::get().disable_cpuid_faulting && cpuid_faulting_works()
     }
 
+    /// DIFF NOTE: Note that the leading '/' is not there compared to rr
     pub fn rd_mapping_prefix() -> &'static str {
-        "/rd-shared-"
+        "rd-shared-"
     }
 
     pub fn tracee_socket_fd(&self) -> ScopedFdSharedPtr {

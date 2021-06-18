@@ -368,19 +368,19 @@ pub struct cmsghdr<Arch: Architecture> {
 assert_eq_size!(kernel::cmsghdr, cmsghdr<NativeArch>);
 assert_eq_align!(kernel::cmsghdr, cmsghdr<NativeArch>);
 
-pub fn cmsg_data_offset<Arch: Architecture>() -> usize {
+pub const fn cmsg_data_offset<Arch: Architecture>() -> usize {
     cmsg_align::<Arch>(size_of::<cmsghdr<Arch>>())
 }
 
-pub fn cmsg_align<Arch: Architecture>(len: usize) -> usize {
+pub const fn cmsg_align<Arch: Architecture>(len: usize) -> usize {
     (len + size_of::<Arch::size_t>() - 1) & !(size_of::<Arch::size_t>() - 1)
 }
 
-pub fn cmsg_space<Arch: Architecture>(len: usize) -> usize {
+pub const fn cmsg_space<Arch: Architecture>(len: usize) -> usize {
     cmsg_align::<Arch>(size_of::<cmsghdr<Arch>>()) + cmsg_align::<Arch>(len)
 }
 
-pub fn cmsg_len<Arch: Architecture>(len: usize) -> usize {
+pub const fn cmsg_len<Arch: Architecture>(len: usize) -> usize {
     cmsg_align::<Arch>(size_of::<cmsghdr<Arch>>()) + len
 }
 

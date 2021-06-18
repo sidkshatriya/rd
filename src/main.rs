@@ -8,6 +8,7 @@
 #![feature(array_methods)]
 #![feature(arc_new_cyclic)]
 #![feature(format_args_capture)]
+#![feature(const_fn_trait_bound)]
 // Can disallow some of these in the future
 #![allow(clippy::redundant_static_lifetimes)]
 #![allow(clippy::single_match)]
@@ -42,12 +43,13 @@ mod arch;
 #[macro_use]
 mod kernel_abi;
 #[macro_use]
-mod auto_remote_syscalls;
-mod breakpoint_condition;
-#[macro_use]
 mod remote_ptr;
+#[macro_use]
+mod auto_remote_syscalls;
+
 mod arch_structs;
 mod bindings;
+mod breakpoint_condition;
 mod flags;
 mod kernel_metadata;
 mod perf_counters;
