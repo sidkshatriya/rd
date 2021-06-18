@@ -1135,7 +1135,7 @@ impl Architecture for X86Arch {
     type FPROG_PAD_ARR = [u8; size_of::<Ptr<Self::unsigned_word, Void>>() - size_of::<u16>()];
     type STD_PAD_ARR = [u8; size_of::<Self::unsigned_long>() - size_of::<i32>()];
     type SIGINFO_PADDING_ARR = [i32; x86::SIGINFO_PADDING];
-    type CMSG_STORE_FD = [u8; cmsg_space::<X86Arch>(size_of::<i32>())];
+    type CMSG_STORE_FD = [u8; cmsg_space::<Self>(size_of::<i32>())];
 
     type signed_short = i16;
     type unsigned_short = u16;
@@ -1731,7 +1731,7 @@ impl Architecture for X64Arch {
     type FPROG_PAD_ARR = [u8; size_of::<Ptr<Self::unsigned_word, Void>>() - size_of::<u16>()];
     type STD_PAD_ARR = [u8; size_of::<Self::unsigned_long>() - size_of::<i32>()];
     type SIGINFO_PADDING_ARR = [i32; x64::SIGINFO_PADDING];
-    type CMSG_STORE_FD = [u8; cmsg_space::<X64Arch>(size_of::<i32>())];
+    type CMSG_STORE_FD = [u8; cmsg_space::<Self>(size_of::<i32>())];
 
     type signed_short = i16;
     type unsigned_short = u16;
