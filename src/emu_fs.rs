@@ -35,23 +35,16 @@ use crate::{
     log::{LogDebug, LogError},
     scoped_fd::ScopedFd,
     session::address_space::kernel_mapping::KernelMapping,
-    util::{resize_shmem_segment, tmp_dir},
+    util::{open_memory_file, resize_shmem_segment},
 };
 use libc::{c_void, dev_t, ino_t, pread64, pwrite64};
-use nix::{
-    fcntl::OFlag,
-    sys::{
-        memfd::{memfd_create, MemFdCreateFlag},
-        stat::Mode,
-    },
-    unistd::{getpid, unlink},
-};
+use nix::unistd::getpid;
 use std::{
     cell::RefCell,
     cmp::min,
     collections::HashMap,
     convert::TryInto,
-    ffi::{CString, OsStr, OsString},
+    ffi::{OsStr, OsString},
     io::Write,
     os::unix::ffi::{OsStrExt, OsStringExt},
     rc::{Rc, Weak},
@@ -222,18 +215,15 @@ impl EmuFile {
         orig_inode: ino_t,
         orig_file_size: u64,
     ) -> EmuFileSharedPtr {
-        let mut fd_and_name: Option<(ScopedFd, OsString)> =
-            create_memfd_file(orig_path, orig_device, orig_inode);
+        let proposed_name = make_temp_name(orig_path, orig_device, orig_inode);
+        let fd_and_name = open_memory_file(&proposed_name);
         if fd_and_name.is_none() {
-            fd_and_name = create_tmpfs_file(orig_path, orig_device, orig_inode);
-            if fd_and_name.is_none() {
-                fatal!(
-                    "Failed to create shmem segment for {}:{} {:?}",
-                    orig_device,
-                    orig_inode,
-                    orig_path
-                );
-            }
+            fatal!(
+                "Failed to create shmem segment for {}:{} {:?}",
+                orig_device,
+                orig_inode,
+                orig_path
+            );
         }
 
         let (fd, real_name) = fd_and_name.unwrap();
@@ -393,11 +383,7 @@ impl FileId {
     }
 }
 
-fn create_memfd_file(
-    orig_path: &OsStr,
-    orig_device: dev_t,
-    orig_inode: ino_t,
-) -> Option<(ScopedFd, OsString)> {
+fn make_temp_name(orig_path: &OsStr, orig_device: dev_t, orig_inode: ino_t) -> OsString {
     let mut name: Vec<u8> = Vec::new();
     write!(
         name,
@@ -409,54 +395,5 @@ fn create_memfd_file(
     .unwrap();
     name.extend_from_slice(orig_path.as_bytes());
     name.truncate(255);
-
-    let cname = CString::new(name.clone()).unwrap();
-    let result = memfd_create(&cname, MemFdCreateFlag::empty());
-    if let Ok(fd) = result {
-        Some((ScopedFd::from_raw(fd), OsString::from_vec(name)))
-    } else {
-        None
-    }
-}
-
-/// Used only when memfd_create is not available, i.e. Linux < 3.17
-fn create_tmpfs_file(
-    orig_path: &OsStr,
-    orig_device: dev_t,
-    orig_inode: ino_t,
-) -> Option<(ScopedFd, OsString)> {
-    let path_tag = replace_char(orig_path, b'/', b'\\');
-    let mut name = tmp_dir().into_vec();
-    write!(
-        name,
-        "/rd-emufs-{}-dev-{}-inode-{}-",
-        getpid(),
-        orig_device,
-        orig_inode
-    )
-    .unwrap();
-    name.extend_from_slice(&path_tag);
-    let name_os = OsString::from_vec(name);
-    let fd = ScopedFd::open_path_with_mode(
-        name_os.as_os_str(),
-        OFlag::O_CREAT | OFlag::O_EXCL | OFlag::O_RDWR | OFlag::O_CLOEXEC,
-        Mode::S_IRWXU,
-    );
-    // DIFF NOTE: This assert is not there in rr
-    assert!(fd.is_open());
-    // DIFF NOTE: rr does not make sure unlink succeeded, unlike us
-    unlink(name_os.as_os_str()).unwrap();
-    Some((fd, name_os))
-}
-
-fn replace_char(s: &OsStr, orig: u8, replacement: u8) -> Vec<u8> {
-    let mut out = Vec::<u8>::with_capacity(s.len());
-    for &c in s.as_bytes() {
-        if c == orig {
-            out.push(replacement);
-        } else {
-            out.push(c);
-        }
-    }
-    out
+    OsString::from_vec(name)
 }

@@ -11,14 +11,12 @@ use crate::{
         is_openat_syscall, is_rt_sigaction_syscall, is_sigaction_syscall, is_signal_syscall,
         syscall_instruction, syscall_number_for__llseek, syscall_number_for_close,
         syscall_number_for_lseek, syscall_number_for_mmap, syscall_number_for_mmap2,
-        syscall_number_for_mremap, syscall_number_for_munmap, syscall_number_for_openat,
-        SupportedArch,
+        syscall_number_for_mremap, syscall_number_for_munmap, SupportedArch,
     },
     kernel_metadata::{errno_name, syscall_name},
     log::LogLevel::LogDebug,
     monitored_shared_memory::MonitoredSharedMemorySharedPtr,
     preload_interface::syscallbuf_hdr,
-    rd::RD_RESERVED_ROOT_DIR_FD,
     registers::Registers,
     remote_code_ptr::RemoteCodePtr,
     remote_ptr::{RemotePtr, Void},
@@ -44,11 +42,9 @@ use crate::{
     wait_status::{MaybeStopSignal, WaitStatus},
 };
 use core::ffi::c_void;
-use libc::{
-    pid_t, ESRCH, MREMAP_FIXED, MREMAP_MAYMOVE, O_CLOEXEC, O_CREAT, O_EXCL, O_RDWR, PATH_MAX,
-    SCM_RIGHTS, SIGTRAP, SOL_SOCKET,
-};
+use libc::{pid_t, ESRCH, MREMAP_FIXED, MREMAP_MAYMOVE, PATH_MAX, SCM_RIGHTS, SIGTRAP, SOL_SOCKET};
 use nix::{
+    fcntl::OFlag,
     sys::{
         mman::{munmap, MapFlags, ProtFlags},
         stat::fstat,
@@ -64,7 +60,10 @@ use std::{
     io::Write,
     mem::{self, size_of, size_of_val},
     ops::{Deref, DerefMut},
-    os::{raw::c_int, unix::ffi::OsStrExt},
+    os::{
+        raw::c_int,
+        unix::ffi::{OsStrExt, OsStringExt},
+    },
     ptr::{self, copy_nonoverlapping, NonNull},
     slice,
     sync::atomic::{AtomicUsize, Ordering},
@@ -1034,38 +1033,24 @@ impl<'a> AutoRemoteSyscalls<'a> {
         let tracee_flags = maybe_tracee_flags.unwrap_or(MapFlags::empty());
 
         // Create the segment we'll share with the tracee.
-        let mut path: Vec<u8> = Vec::new();
-        path.extend_from_slice(tmp_dir().as_bytes());
-        path.extend_from_slice(SessionInner::rd_mapping_prefix().as_bytes());
-        path.extend_from_slice(name.as_bytes());
+        let mut pathbuf = tmp_dir();
+        let mut filename = Vec::from(SessionInner::rd_mapping_prefix().as_bytes());
+        filename.extend_from_slice(name.as_bytes());
         write!(
-            path,
+            filename,
             "-{}-{}",
             self.task().real_tgid(),
             NONCE.fetch_add(1, Ordering::SeqCst)
         )
         .unwrap();
+        pathbuf.push(OsStr::from_bytes(&filename));
+        let mut path = pathbuf.into_os_string().into_vec();
         path.truncate(PATH_MAX as usize);
 
-        // Let the child create the shmem block and then send the fd back to us.
-        // This lets us avoid having to make the file world-writeable so that
-        // the child can read it when it's in a different user namespace (which
-        // would be a security hole, letting other users abuse rd users).
-        let child_shmem_fd: i32;
-        {
-            let arch = self.arch();
-            let mut child_path = AutoRestoreMem::push_cstr(self, path.as_slice());
-            // skip leading '/' since we want the path to be relative to the root fd
-            let path_addr_val = child_path.get().unwrap().as_usize() + 1;
-            child_shmem_fd = rd_infallible_syscall!(
-                child_path,
-                syscall_number_for_openat(arch),
-                RD_RESERVED_ROOT_DIR_FD,
-                path_addr_val,
-                (O_CREAT | O_EXCL | O_RDWR | O_CLOEXEC),
-                0o600
-            ) as i32;
-        }
+        let mut shmem_fd = ScopedFd::open_path(
+            path.as_slice(),
+            OFlag::O_CREAT | OFlag::O_EXCL | OFlag::O_RDWR,
+        );
 
         // Remove the fs name so that we don't have to worry about cleaning
         // up this segment in error conditions.
@@ -1073,7 +1058,13 @@ impl<'a> AutoRemoteSyscalls<'a> {
         // DIFF NOTE: rr swallows any potential error but we don't for now.
         unlink(path.as_slice()).unwrap();
 
-        let mut shmem_fd: ScopedFd = self.retrieve_fd(child_shmem_fd);
+        let res = self.send_fd(&shmem_fd);
+        // DIFF NOTE: This assert is not there in rr. But since we used to
+        // have an infallible syscall here earlier, this is probably a good
+        // idea
+        ed_assert!(self.task(), res > 0);
+        let child_shmem_fd = res as i32;
+
         resize_shmem_segment(&shmem_fd, size);
         log!(
             LogDebug,

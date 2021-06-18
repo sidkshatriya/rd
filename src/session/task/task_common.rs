@@ -46,7 +46,6 @@ use crate::{
         self, preload_globals, syscallbuf_hdr, syscallbuf_locked_why, syscallbuf_record,
     },
     preload_interface_arch::rdcall_init_preload_params,
-    rd::RD_RESERVED_ROOT_DIR_FD,
     registers::{with_converted_registers, Registers, X86_TF_FLAG},
     remote_code_ptr::RemoteCodePtr,
     remote_ptr::{RemotePtr, Void},
@@ -93,10 +92,9 @@ use sig::Sig;
 use std::{
     cmp::{max, min},
     convert::TryInto,
-    ffi::{c_void, CStr, CString, OsStr},
+    ffi::{c_void, CString, OsStr},
     mem::{size_of, size_of_val, zeroed},
     os::unix::ffi::OsStrExt,
-    path::Path,
     ptr,
     rc::Rc,
     slice,
@@ -107,6 +105,7 @@ use std::{
 /// Open /proc/{tid}/mem fd for our AddressSpace, closing the old one
 /// first. If necessary we force the tracee to open the file
 /// itself and smuggle the fd back to us.
+///
 /// Returns false if the process no longer exists.
 pub(super) fn open_mem_fd_common<T: Task>(task: &T) -> bool {
     // Use ptrace to read/write during open_mem_fd
@@ -121,57 +120,52 @@ pub(super) fn open_mem_fd_common<T: Task>(task: &T) -> bool {
         return false;
     }
 
-    // We could try opening /proc/<pid>/mem directly first and
-    // only do this dance if that fails. But it's simpler to
-    // always take this path, and gives better test coverage. On Ubuntu
-    // the child has to open its own mem file (unless rr is root).
-    let path = CStr::from_bytes_with_nul(b"/proc/self/mem\0").unwrap();
+    // We're expecting that either we or the child can read the mem fd.
+    // It's possible for both to not be the case (us on certain kernel
+    // configurations, the child after it did a setuid).
+    let pid_path = format!("/proc/{}", task.tid());
+    let dir_fd = ScopedFd::open_path(pid_path.as_str(), OFlag::O_PATH);
+    let mut fd: ScopedFd = ScopedFd::openat(&dir_fd, "mem", OFlag::O_RDWR);
 
-    let mut remote = AutoRemoteSyscalls::new(task);
-    let remote_fd: i32;
-    {
-        let mut remote_path: AutoRestoreMem = AutoRestoreMem::push_cstr(&mut remote, path);
-        if remote_path.get().is_some() {
-            let remote_arch = remote_path.arch();
-            let remote_addr = remote_path.get().unwrap();
+    if !fd.is_open() {
+        log!(LogDebug, "Falling back to the remote fd dance");
+        let mut remote = AutoRemoteSyscalls::new(task);
+        let remote_mem_dir_fd: i32 = remote.send_fd(&dir_fd) as i32;
 
-            // AutoRestoreMem DerefMut-s to AutoRemoteSyscalls
-            // skip leading '/' since we want the path to be relative to the root fd
-            remote_fd = rd_syscall!(
-                remote_path,
-                syscall_number_for_openat(remote_arch),
-                RD_RESERVED_ROOT_DIR_FD,
-                // Skip the leading '/' in the path as this is a relative path.
-                remote_addr.as_usize() + 1,
-                libc::O_RDWR
-            ) as i32;
-        } else {
-            remote_fd = -ESRCH;
-        }
+        // If the remote dies, any of these can fail. That's ok, we'll just
+        // find that the fd wasn't successfully opened.
+        let mut remote_path = AutoRestoreMem::push_cstr(&mut remote, "mem");
+        let arch = remote_path.arch();
+        let addr = remote_path.get().unwrap() + 1usize;
+        let remote_mem_fd = rd_syscall!(
+            remote_path,
+            syscall_number_for_openat(arch),
+            remote_mem_dir_fd,
+            addr.as_usize(),
+            libc::O_RDWR
+        ) as i32;
+
+        fd = remote_path.retrieve_fd(remote_mem_fd);
+        rd_syscall!(remote_path, syscall_number_for_close(arch), remote_mem_fd);
+        rd_syscall!(
+            remote_path,
+            syscall_number_for_close(arch),
+            remote_mem_dir_fd
+        );
     }
-    let mut fd: ScopedFd = ScopedFd::new();
-    if remote_fd != -ESRCH {
-        if remote_fd < 0 {
-            // This can happen when a process fork()s after setuid; it can no longer
-            // open its own /proc/self/mem. Hopefully we can read the child's
-            // mem file in this case (because rd is probably running as root).
-            let buf: String = format!("/proc/{}/mem", remote.task().tid());
-            fd = ScopedFd::open_path(Path::new(&buf), OFlag::O_RDWR);
-        } else {
-            fd = remote.retrieve_fd(remote_fd);
-            // Leak fd if the syscall fails due to the task being SIGKILLed unexpectedly
-            rd_syscall!(remote, syscall_number_for_close(remote.arch()), remote_fd);
-        }
-    }
+
     if !fd.is_open() {
         log!(
             LogInfo,
             "Can't retrieve mem fd for {}; process no longer exists?",
-            remote.task().tid()
+            task.tid()
         );
+
         return false;
     }
-    remote.task().vm().set_mem_fd(fd);
+
+    task.vm().set_mem_fd(fd);
+
     true
 }
 

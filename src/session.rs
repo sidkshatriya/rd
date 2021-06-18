@@ -1,13 +1,9 @@
 use crate::{
-    auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem},
+    auto_remote_syscalls::AutoRemoteSyscalls,
     emu_fs::EmuFs,
-    kernel_abi::{
-        syscall_number_for_close, syscall_number_for_munmap, syscall_number_for_openat,
-        SupportedArch,
-    },
+    kernel_abi::{syscall_number_for_close, syscall_number_for_munmap, SupportedArch},
     log::LogDebug,
     preload_interface::syscallbuf_hdr,
-    rd::RD_RESERVED_ROOT_DIR_FD,
     remote_ptr::{RemotePtr, Void},
     session::{
         address_space::{
@@ -34,6 +30,7 @@ use nix::sys::mman::MapFlags;
 use session_inner::{AddressSpaceClone, CloneCompletion};
 use std::{
     cell::{Ref, RefMut},
+    convert::TryInto,
     mem::size_of,
     ops::DerefMut,
     rc::{Rc, Weak},
@@ -444,27 +441,10 @@ fn remap_shared_mmap(
 
     // TODO: this duplicates some code in replay_syscall.cc, but
     // it's somewhat nontrivial to factor that code out.
-    let remote_fd: i32;
-    {
-        let path = emu_file.borrow().proc_path();
-        let arch = remote.arch();
-        let mut child_path = AutoRestoreMem::push_cstr(remote, path.as_str());
-        // Always open the emufs file O_RDWR, even if the current mapping prot
-        // is read-only. We might mprotect it to read-write later.
-        // skip leading '/' since we want the path to be relative to the root fd
-        let addr: RemotePtr<Void> = child_path.get().unwrap() + 1usize;
-        let res = rd_infallible_syscall!(
-            child_path,
-            syscall_number_for_openat(arch),
-            RD_RESERVED_ROOT_DIR_FD,
-            addr.as_usize(),
-            libc::O_RDWR
-        );
-        if 0 > res {
-            fatal!("Couldn't open {} in tracee", path);
-        }
-        remote_fd = res as i32;
-    }
+    let res: isize = remote.send_fd(emu_file.borrow().fd());
+    ed_assert!(remote.task(), res > 0);
+    let remote_fd: i32 = res.try_into().unwrap();
+
     let real_file = remote.task().stat_fd(remote_fd);
     let real_file_name = remote.task().file_name_of_fd(remote_fd);
     // XXX this condition is x86/x64-specific, I imagine.

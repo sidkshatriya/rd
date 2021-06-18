@@ -1,5 +1,5 @@
 use nix::{
-    fcntl::{open, OFlag},
+    fcntl::{open, openat, OFlag},
     sys::stat::Mode,
     unistd::close,
     NixPath,
@@ -34,11 +34,19 @@ impl ScopedFd {
         ScopedFd { fd }
     }
 
+    /// @TODO Ideally, return a Result<>?
     pub fn open_path<P: ?Sized + NixPath>(path: &P, oflag: OFlag) -> Self {
         let rawfd = open(path, oflag, Mode::empty()).unwrap_or(-1);
         ScopedFd { fd: rawfd }
     }
 
+    /// @TODO Ideally, return a Result<>?
+    pub fn openat<P: ?Sized + NixPath>(dirfd: &ScopedFd, path: &P, oflag: OFlag) -> Self {
+        let rawfd = openat(dirfd.as_raw(), path, oflag, Mode::empty()).unwrap_or(-1);
+        ScopedFd { fd: rawfd }
+    }
+
+    /// @TODO Ideally, return a Result<>?
     pub fn open_path_with_mode<P: ?Sized + NixPath>(path: &P, oflag: OFlag, mode: Mode) -> Self {
         let rawfd = open(path, oflag, mode).unwrap_or(-1);
         ScopedFd { fd: rawfd }

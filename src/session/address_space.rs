@@ -4,11 +4,11 @@ pub mod memory_range;
 
 use crate::{
     arch::Architecture,
-    auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem},
+    auto_remote_syscalls::AutoRemoteSyscalls,
     emu_fs::EmuFileSharedPtr,
     kernel_abi::{
         is_execve_syscall, syscall_instruction, syscall_number_for_brk, syscall_number_for_close,
-        syscall_number_for_munmap, syscall_number_for_openat, SupportedArch,
+        syscall_number_for_munmap, SupportedArch,
     },
     log::LogLevel::{LogDebug, LogError},
     monitored_shared_memory::MonitoredSharedMemorySharedPtr,
@@ -18,7 +18,6 @@ use crate::{
         RD_PAGE_SYSCALL_INSTRUCTION_END, RD_PAGE_SYSCALL_STUB_SIZE,
     },
     preload_interface_arch::rdcall_init_preload_params,
-    rd::RD_RESERVED_ROOT_DIR_FD,
     registers::Registers,
     remote_code_ptr::RemoteCodePtr,
     remote_ptr::{RemotePtr, Void},
@@ -45,17 +44,14 @@ use crate::{
     },
 };
 use core::ffi::c_void;
-use libc::{
-    dev_t, ino_t, pid_t, EACCES, ENOENT, MADV_DOFORK, MADV_DONTFORK, O_RDONLY, PROT_GROWSDOWN,
-    PROT_GROWSUP,
-};
+use libc::{dev_t, ino_t, pid_t, MADV_DOFORK, MADV_DONTFORK, PROT_GROWSDOWN, PROT_GROWSUP};
 use nix::{
     fcntl::OFlag,
     sys::{
         mman::{munmap, MapFlags, ProtFlags},
         stat::stat,
     },
-    unistd::{getpid, read},
+    unistd::getpid,
 };
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
@@ -2292,25 +2288,19 @@ impl AddressSpace {
     /// Also sets brk_ptr.
     fn map_rd_page(&self, remote: &mut AutoRemoteSyscalls) {
         let prot = ProtFlags::PROT_EXEC | ProtFlags::PROT_READ;
-        let mut flags = MapFlags::MAP_PRIVATE | MapFlags::MAP_FIXED;
+        let flags = MapFlags::MAP_PRIVATE | MapFlags::MAP_FIXED;
 
         let file_name: OsString;
         let arch = remote.arch();
 
         let path = find_rd_page_file(remote.task());
-        let mut child_path = AutoRestoreMem::push_cstr(remote, path.as_os_str());
-        // skip leading '/' since we want the path to be relative to the root fd
-        let remote_path_addr = child_path.get().unwrap() + 1usize;
-        let child_fd: i32 = rd_syscall!(
-            child_path,
-            syscall_number_for_openat(arch),
-            RD_RESERVED_ROOT_DIR_FD,
-            remote_path_addr.as_usize(),
-            O_RDONLY
-        ) as i32;
+        {
+            let page = ScopedFd::open_path(path.as_os_str(), OFlag::O_RDONLY);
+            let child_fd_isize = remote.send_fd(&page);
+            ed_assert!(remote.task(), child_fd_isize >= 0);
+            let child_fd: i32 = child_fd_isize.try_into().unwrap();
 
-        if child_fd >= 0 {
-            child_path.infallible_mmap_syscall(
+            remote.infallible_mmap_syscall(
                 Some(Self::rd_page_start()),
                 Self::rd_page_size(),
                 prot,
@@ -2319,13 +2309,13 @@ impl AddressSpace {
                 0,
             );
 
-            let fstat: libc::stat = child_path.task().stat_fd(child_fd);
-            file_name = child_path.task().file_name_of_fd(child_fd);
+            let fstat: libc::stat = remote.task().stat_fd(child_fd);
+            file_name = remote.task().file_name_of_fd(child_fd);
 
-            rd_infallible_syscall!(child_path, syscall_number_for_close(arch), child_fd);
+            rd_infallible_syscall!(remote, syscall_number_for_close(arch), child_fd);
 
             self.map(
-                child_path.task(),
+                remote.task(),
                 Self::rd_page_start(),
                 Self::rd_page_size(),
                 prot,
@@ -2340,71 +2330,17 @@ impl AddressSpace {
                 None,
                 None,
             );
-        } else {
-            ed_assert!(
-                child_path.task(),
-                child_fd != -ENOENT,
-                "rd_page file not found: {:?}",
-                path
-            );
-            ed_assert!(
-                child_path.task(),
-                child_fd == -EACCES,
-                "Unexpected error mapping rd_page"
-            );
-            flags |= MapFlags::MAP_ANONYMOUS;
-            child_path.infallible_mmap_syscall(
-                Some(Self::rd_page_start()),
-                Self::rd_page_size(),
-                prot,
-                flags,
-                -1,
-                0,
-            );
-            let page = ScopedFd::open_path(path.as_os_str(), OFlag::O_RDONLY);
-            ed_assert!(
-                child_path.task(),
-                page.is_open(),
-                "Error opening rd_page ourselves"
-            );
-            // @TODO Different from rr. Make sure this is correct.
-            file_name = child_path.task().file_name_of_fd(page.as_raw());
-
-            let page_data: Vec<u8> = read_all(child_path.task(), &page);
-            child_path.task().write_bytes_helper(
-                Self::rd_page_start(),
-                &page_data,
-                None,
-                WriteFlags::empty(),
-            );
-
-            self.map(
-                child_path.task(),
-                Self::rd_page_start(),
-                Self::rd_page_size(),
-                prot,
-                flags,
-                0,
-                &file_name,
-                0,
-                0,
-                None,
-                None,
-                None,
-                None,
-                None,
-            );
         }
+
         *self.mapping_flags_of_mut(Self::rd_page_start()) = MappingFlags::IS_RD_PAGE;
 
-        if child_path.task().session().is_recording() {
+        if remote.task().session().is_recording() {
             // brk() will not have been called yet so the brk area is empty.
             self.brk_start.set(
-                (rd_infallible_syscall!(child_path, syscall_number_for_brk(arch), 0) as usize)
-                    .into(),
+                (rd_infallible_syscall!(remote, syscall_number_for_brk(arch), 0) as usize).into(),
             );
             self.brk_end.set(self.brk_start.get());
-            ed_assert!(child_path.task(), !self.brk_end.get().is_null());
+            ed_assert!(remote.task(), !self.brk_end.get().is_null());
         }
 
         self.traced_syscall_ip_
@@ -2412,14 +2348,14 @@ impl AddressSpace {
                 Traced::Traced,
                 Privileged::Unprivileged,
                 Enabled::RecordingAndReplay,
-                child_path.arch(),
+                remote.arch(),
             ));
         self.privileged_traced_syscall_ip_
             .set(Some(Self::rd_page_syscall_entry_point(
                 Traced::Traced,
                 Privileged::Privileged,
                 Enabled::RecordingAndReplay,
-                child_path.arch(),
+                remote.arch(),
             )));
     }
 
@@ -3134,23 +3070,6 @@ fn find_rd_page_file(t: &dyn Task) -> OsString {
     }
     path.push(file_name);
     OsString::from(path)
-}
-
-fn read_all(t: &dyn Task, fd: &ScopedFd) -> Vec<u8> {
-    let mut buf = [0u8; 4096];
-    let mut result = Vec::<u8>::new();
-    loop {
-        let ret = read(fd.as_raw(), &mut buf);
-        match ret {
-            Ok(0) => {
-                return result;
-            }
-            Ok(nread) => {
-                result.extend_from_slice(&buf[0..nread]);
-            }
-            Err(e) => ed_assert!(t, false, "Error in performing read from fd {}: {:?}", fd, e),
-        }
-    }
 }
 
 /// Returns true if a task in t's task-group other than t is doing an exec.

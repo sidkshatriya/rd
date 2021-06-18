@@ -41,6 +41,7 @@ use nix::{
     fcntl::{open, OFlag},
     sched::{sched_setaffinity, CpuSet},
     sys::{
+        memfd::{memfd_create, MemFdCreateFlag},
         mman::{MapFlags, ProtFlags},
         signal::{sigaction, SaFlags, SigAction, SigHandler, SigSet, Signal},
         socket::{
@@ -52,8 +53,8 @@ use nix::{
         uio::pread,
     },
     unistd::{
-        access, ftruncate, getpid, isatty, mkdir, mkstemp, read, sysconf, write, AccessFlags, Pid,
-        SysconfVar::PAGE_SIZE,
+        access, ftruncate, getpid, isatty, mkdir, mkstemp, read, sysconf, unlink, write,
+        AccessFlags, Pid, SysconfVar::PAGE_SIZE,
     },
     Error as NixError, NixPath,
 };
@@ -514,12 +515,12 @@ pub fn is_kernel_trap(si_code: i32) -> bool {
 
 /// Returns $TMPDIR or "/tmp". We call ensure_dir to make sure the directory
 /// exists and is writeable.
-pub fn tmp_dir() -> OsString {
+pub fn tmp_dir() -> PathBuf {
     let mut maybe_dir = var_os("RD_TMPDIR");
     match maybe_dir {
         Some(dir) => {
             ensure_dir(&dir, "temporary file directory (RD_TMPDIR)", Mode::S_IRWXU);
-            return dir;
+            return PathBuf::from(dir);
         }
         None => (),
     }
@@ -527,7 +528,7 @@ pub fn tmp_dir() -> OsString {
     maybe_dir = var_os("TMPDIR");
     if let Some(dir) = maybe_dir {
         ensure_dir(&dir, "temporary file directory (TMPDIR)", Mode::S_IRWXU);
-        return dir;
+        return PathBuf::from(dir);
     }
 
     // Don't try to create "/tmp", that probably won't work well.
@@ -535,7 +536,7 @@ pub fn tmp_dir() -> OsString {
         fatal!("Can't write to temporary file directory /tmp: {:?}", e)
     }
 
-    OsString::from("/tmp")
+    PathBuf::from("/tmp")
 }
 
 /// Create directory `dir`, creating parent directories as needed.
@@ -2151,17 +2152,18 @@ fn compute_checksum(data: &[u8]) -> u32 {
 /// temp directory ourselves. The file is not automatically deleted, the caller
 /// must take care of that.
 pub fn create_temporary_file(pattern: &[u8]) -> TempFile {
-    let mut buf = tmp_dir().into_vec();
-    buf.push(b'/');
-    buf.extend_from_slice(pattern);
-    buf.truncate(PATH_MAX as usize);
-    let res = mkstemp(OsString::from_vec(buf).as_os_str()).unwrap();
+    let mut buf = tmp_dir();
+    buf.push(OsStr::from_bytes(pattern));
+    // DIFF NOTE: In rr, this is truncated, here we assert!()
+    assert!(buf.len() < PATH_MAX as usize);
+    let res = mkstemp(buf.as_os_str()).unwrap();
     TempFile {
         name: res.1.into_os_string(),
         fd: ScopedFd::from_raw(res.0),
     }
 }
 
+/// @TODO Should name be a PathBuf?
 pub struct TempFile {
     pub name: OsString,
     pub fd: ScopedFd,
@@ -2490,4 +2492,67 @@ pub fn flat_env(envp: &[(OsString, OsString)]) -> Vec<OsString> {
             kv
         })
         .collect()
+}
+
+/// NOTE: ScopedFd has a way of indicating failure by making the fd = -1.
+/// Returning Result<ScopedFd> is a bit more ergonomic
+fn create_memfd_file(real_name: &OsStr) -> Result<ScopedFd, Box<dyn std::error::Error>> {
+    let cname = CString::new(real_name.as_bytes())?;
+    let fd = memfd_create(&cname, MemFdCreateFlag::empty())?;
+    Ok(ScopedFd::from_raw(fd))
+}
+
+/// Used only when memfd_create is not available, i.e. Linux < 3.17
+///
+/// NOTE: ScopedFd has a way of indicating failure by making the fd = -1.
+/// Returning ScopedFd in an Option<> is just simpler
+///
+/// @TODO Should return a Result<>
+fn create_tmpfs_file(real_name: &OsStr) -> Option<(ScopedFd, OsString)> {
+    let path_tag = replace_char(real_name, b'/', b'\\');
+    let mut name = tmp_dir();
+    name.push(path_tag);
+    let mut name_vec = name.into_os_string().into_vec();
+    // @TODO Is truncation to only 255 chars a good idea? Should we even truncate?
+    name_vec.truncate(255);
+    let final_name = OsString::from_vec(name_vec);
+
+    let fd = ScopedFd::open_path_with_mode(
+        final_name.as_os_str(),
+        OFlag::O_CREAT | OFlag::O_EXCL | OFlag::O_RDWR | OFlag::O_CLOEXEC,
+        Mode::S_IRWXU,
+    );
+
+    if !fd.is_open() {
+        None
+    } else {
+        // Remove the fs name so that we don't have to worry about
+        // cleaning this segment in error conditions
+        // DIFF NOTE: rr does not make sure unlink succeeded, unlike us
+        unlink(final_name.as_os_str()).unwrap();
+        Some((fd, final_name))
+    }
+}
+
+/// Opens a temporary file backed by RAM
+///
+/// @TODO This should return a Result<>
+pub fn open_memory_file<T: AsRef<OsStr>>(name: T) -> Option<(ScopedFd, OsString)> {
+    match create_memfd_file(name.as_ref()) {
+        Ok(fd) => Some((fd, OsString::from(name.as_ref()))),
+        Err(_) => create_tmpfs_file(name.as_ref()),
+    }
+}
+
+fn replace_char(s: &OsStr, orig: u8, replacement: u8) -> OsString {
+    let mut out = Vec::<u8>::with_capacity(s.len());
+    for &c in s.as_bytes() {
+        if c == orig {
+            out.push(replacement);
+        } else {
+            out.push(c);
+        }
+    }
+
+    OsString::from_vec(out)
 }

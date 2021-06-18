@@ -11,18 +11,16 @@ use super::{
 };
 use crate::{
     arch::Architecture,
-    auto_remote_syscalls::{AutoRemoteSyscalls, AutoRestoreMem},
+    auto_remote_syscalls::AutoRemoteSyscalls,
     bindings::kernel::user_desc,
     file_monitor::preserve_file_monitor::PreserveFileMonitor,
-    kernel_abi::{
-        syscall_number_for_close, syscall_number_for_dup3, syscall_number_for_openat, SupportedArch,
-    },
+    kernel_abi::{syscall_number_for_close, syscall_number_for_dup3, SupportedArch},
     log::LogLevel::LogWarn,
     preload_interface::syscallbuf_record,
     preload_interface_arch::rdcall_init_buffers_params,
-    rd::RD_RESERVED_ROOT_DIR_FD,
     registers::{MismatchBehavior, Registers},
     remote_ptr::{RemotePtr, Void},
+    scoped_fd::ScopedFd,
     session::{
         address_space::AddressSpace,
         task::{
@@ -46,7 +44,8 @@ use crate::{
     util::page_size,
     wait_status::WaitStatus,
 };
-use libc::{pid_t, O_CLOEXEC, O_RDONLY};
+use libc::{pid_t, O_CLOEXEC};
+use nix::fcntl::OFlag;
 use owning_ref::OwningHandle;
 use std::{
     cell::{Ref, RefMut},
@@ -335,19 +334,9 @@ impl ReplayTask {
                     .trace_reader()
                     .trace_stream()
                     .file_data_clone_file_name(tuid);
-                let fd: i32 = {
-                    let mut name_restore =
-                        AutoRestoreMem::push_cstr(&mut remote, clone_file_name.as_os_str());
-                    let name = name_restore.get().unwrap();
-                    rd_infallible_syscall!(
-                        name_restore,
-                        syscall_number_for_openat(arch),
-                        RD_RESERVED_ROOT_DIR_FD,
-                        // skip leading '/' since we want the path to be relative to the root fd
-                        name.as_usize() + 1,
-                        O_RDONLY | O_CLOEXEC
-                    ) as i32
-                };
+
+                let clone_file = ScopedFd::open_path(clone_file_name.as_os_str(), OFlag::O_RDONLY);
+                let fd = remote.send_fd(&clone_file) as i32;
                 if fd != cloned_file_data_fd {
                     let ret = rd_infallible_syscall!(
                         remote,
