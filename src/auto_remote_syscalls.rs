@@ -1058,12 +1058,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         // DIFF NOTE: rr swallows any potential error but we don't for now.
         unlink(path.as_slice()).unwrap();
 
-        let res = self.send_fd(&shmem_fd);
-        // DIFF NOTE: This assert is not there in rr. But since we used to
-        // have an infallible syscall here earlier, this is probably a good
-        // idea
-        ed_assert!(self.task(), res > 0);
-        let child_shmem_fd = res as i32;
+        let child_shmem_fd = self.send_fd(&shmem_fd) as i32;
 
         resize_shmem_segment(&shmem_fd, size);
         log!(
