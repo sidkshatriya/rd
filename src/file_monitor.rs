@@ -237,8 +237,8 @@ pub trait FileMonitor {
     ///
     /// DIFF NOTE: - param `l` is a usize instead of a u64
     ///            - We don't need task as that is already there in LazyOffset
-    fn emulate_read(&self, _vr: &[Range], _o: &mut LazyOffset, _l: &mut usize) -> bool {
-        false
+    fn emulate_read(&self, _vr: &[Range], _o: &LazyOffset) -> Option<usize> {
+        None
     }
 
     /// Allows the FileMonitor to rewrite the output of a getdents/getdents64 call

@@ -82,16 +82,10 @@ impl FdTable {
     }
 
     /// DIFF NOTE: We don't need to pass in task param because we have that in offset itself
-    pub fn emulate_read(
-        &self,
-        fd: i32,
-        ranges: &[Range],
-        offset: &mut LazyOffset,
-        result: &mut usize,
-    ) -> bool {
+    pub fn emulate_read(&self, fd: i32, ranges: &[Range], offset: &LazyOffset) -> Option<usize> {
         match self.fds.borrow().get(&fd) {
-            Some(f) => f.borrow().emulate_read(ranges, offset, result),
-            None => false,
+            Some(f) => f.borrow().emulate_read(ranges, offset),
+            None => None,
         }
     }
 

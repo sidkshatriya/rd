@@ -622,17 +622,13 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(t: &RecordTask, regs: &Registers
     sys == Arch::READ
     {
         let fd = regs.arg1() as i32;
-        let mut result: usize = 0;
         let ranges: Vec<file_monitor::Range> = vec![file_monitor::Range::new(
             RemotePtr::from(regs.arg2()),
             regs.arg3(),
         )];
-        let mut offset = LazyOffset::new(t, regs, sys);
-        if offset
-            .task()
-            .fd_table()
-            .emulate_read(fd, &ranges, &mut offset, &mut result)
-        {
+
+        let offset = LazyOffset::new(t, regs, sys);
+        if let Some(result) = offset.task().fd_table().emulate_read(fd, &ranges, &offset) {
             // Don't perform this syscall.
             let mut r: Registers = regs.clone();
             r.set_arg1_signed(-1);
@@ -1739,7 +1735,6 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(t: &RecordTask, regs: &Registers
         );
         let iovecsp = RemotePtr::<iovec<Arch>>::cast(iovecsp_void);
         let iovecs = read_mem(t, iovecsp, iovcnt, None);
-        let mut result: usize = 0;
         let mut ranges = Vec::<Range>::new();
         for i in 0..iovcnt {
             ranges.push(Range::new(
@@ -1747,12 +1742,9 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(t: &RecordTask, regs: &Registers
                 Arch::size_t_as_usize(iovecs[i].iov_len),
             ));
         }
-        let mut offset = LazyOffset::new(t, regs, sys);
-        if offset
-            .task()
-            .fd_table()
-            .emulate_read(fd, &ranges, &mut offset, &mut result)
-        {
+
+        let offset = LazyOffset::new(t, regs, sys);
+        if let Some(result) = offset.task().fd_table().emulate_read(fd, &ranges, &offset) {
             // Don't perform this syscall.
             let mut r: Registers = regs.clone();
             r.set_arg1_signed(-1);
@@ -1761,6 +1753,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(t: &RecordTask, regs: &Registers
             syscall_state.emulate_result(result);
             return Switchable::PreventSwitch;
         }
+
         let io_size = ParamSize::from_syscall_result::<Arch::ssize_t>();
         for i in 0..iovcnt {
             syscall_state.mem_ptr_parameter_with_size(

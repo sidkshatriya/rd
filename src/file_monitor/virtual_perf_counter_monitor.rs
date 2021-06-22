@@ -296,31 +296,26 @@ impl FileMonitor for VirtualPerfCounterMonitor {
         Some(result)
     }
 
-    fn emulate_read(
-        &self,
-        ranges: &[Range],
-        lazy_offset: &mut LazyOffset,
-        result: &mut usize,
-    ) -> bool {
+    fn emulate_read(&self, ranges: &[Range], lazy_offset: &LazyOffset) -> Option<usize> {
         let maybe_target = lazy_offset
             .t
             .session()
             .find_task_from_task_uid(self.target_tuid());
-        match maybe_target {
+
+        let result = match maybe_target {
             Some(target) => {
                 let val = if lazy_offset.t.tid() == self.target_tuid().tid() {
                     lazy_offset.t.tick_count() - self.initial_ticks
                 } else {
                     target.tick_count() - self.initial_ticks
                 };
-                *result = write_ranges(lazy_offset.t, ranges, &val.to_le_bytes());
-            }
-            None => {
-                *result = 0;
-            }
-        }
 
-        true
+                write_ranges(lazy_offset.t, ranges, &val.to_le_bytes())
+            }
+            None => 0,
+        };
+
+        Some(result)
     }
 }
 
