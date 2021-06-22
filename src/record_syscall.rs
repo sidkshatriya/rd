@@ -4782,8 +4782,7 @@ fn prepare_ioctl<Arch: Architecture>(
     syscall_state: &mut TaskSyscallState,
 ) -> Switchable {
     let fd = t.regs_ref().arg1() as i32;
-    let mut result: usize = 0;
-    if t.fd_table().emulate_ioctl(fd, t, &mut result) {
+    if let Some(result) = t.fd_table().emulate_ioctl(fd, t) {
         // Don't perform this syscall.
         let mut r: Registers = t.regs_ref().clone();
         r.set_arg1_signed(-1);

@@ -204,19 +204,18 @@ impl FileMonitor for VirtualPerfCounterMonitor {
         FileMonitorType::VirtualPerfCounter
     }
 
-    fn emulate_ioctl(&mut self, t: &RecordTask, result: &mut usize) -> bool {
+    fn emulate_ioctl(&mut self, t: &RecordTask) -> Option<usize> {
         let arg2 = t.regs_ref().arg2();
-        match arg2 as _ {
+        let result: usize = match arg2 as _ {
             PERF_EVENT_IOC_ENABLE => {
-                *result = 0;
                 self.enabled = true;
+                0
             }
             PERF_EVENT_IOC_DISABLE => {
-                *result = 0;
                 self.enabled = false;
+                0
             }
             PERF_EVENT_IOC_RESET => {
-                *result = 0;
                 let target_tid = self.target_tuid().tid();
                 if target_tid == t.tid() {
                     self.initial_ticks = t.tick_count();
@@ -224,12 +223,13 @@ impl FileMonitor for VirtualPerfCounterMonitor {
                     let target = t.session().find_task_from_rec_tid(target_tid).unwrap();
                     self.initial_ticks = target.tick_count();
                 }
+                0
             }
             PERF_EVENT_IOC_PERIOD => {
-                *result = 0;
                 let child_addr = RemotePtr::<u64>::from(t.regs_ref().arg3());
                 let after = read_val_mem(t, child_addr, None);
                 self.maybe_enable_interrupt(t, after);
+                0
             }
             _ => {
                 ed_assert!(
@@ -238,10 +238,11 @@ impl FileMonitor for VirtualPerfCounterMonitor {
                     "Unsupported perf event ioctl {:#x}",
                     t.regs_ref().arg2() as u32
                 );
+                unreachable!();
             }
-        }
+        };
 
-        true
+        Some(result)
     }
 
     fn emulate_fcntl(&mut self, t: &RecordTask, result: &mut usize) -> bool {
