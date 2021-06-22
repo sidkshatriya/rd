@@ -81,7 +81,7 @@ impl<'b, 'a: 'b> LazyOffset<'b, 'a> {
 
     /// DIFF NOTE: In rr this returns an i64. We return a Option<u64>.
     /// Need to be careful with the logic here
-    pub fn retrieve(&mut self, needed_for_replay: bool) -> Option<u64> {
+    pub fn retrieve(&self, needed_for_replay: bool) -> Option<u64> {
         let is_replay = self.t.session().is_replaying();
         let is_implicit_offset = is_implict_offset_syscall(self.t.arch(), self.syscallno);
         ed_assert!(self.t, needed_for_replay || !is_replay);
@@ -214,7 +214,7 @@ pub trait FileMonitor {
 
     /// DIFF NOTE: We don't have a task param like in rr as the task is included
     /// in `l`, the LazyOffset
-    fn did_write<'b, 'a: 'b>(&mut self, _rv: &[Range], _l: &mut LazyOffset<'b, 'a>) {}
+    fn did_write<'b, 'a: 'b>(&mut self, _rv: &[Range], _l: &LazyOffset<'b, 'a>) {}
 
     /// Return true if the ioctl should be fully emulated. If so the result
     /// is stored in the last parameter.

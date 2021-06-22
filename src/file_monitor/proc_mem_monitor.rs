@@ -64,7 +64,7 @@ impl FileMonitor for ProcMemMonitor {
         Switchable::PreventSwitch
     }
 
-    fn did_write<'b, 'a: 'b>(&mut self, ranges: &[Range], lazy_offset: &mut LazyOffset<'b, 'a>) {
+    fn did_write<'b, 'a: 'b>(&mut self, ranges: &[Range], lazy_offset: &LazyOffset<'b, 'a>) {
         if self.maybe_tuid.is_none() {
             return;
         }

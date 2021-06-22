@@ -73,7 +73,7 @@ impl FileMonitor for StdioMonitor {
     }
 
     /// During replay, echo writes to stdout/stderr.
-    fn did_write<'b, 'a: 'b>(&mut self, ranges: &[Range], l: &mut LazyOffset<'b, 'a>) {
+    fn did_write<'b, 'a: 'b>(&mut self, ranges: &[Range], l: &LazyOffset<'b, 'a>) {
         let session_rc = l.t.session();
 
         match session_rc.as_replay() {

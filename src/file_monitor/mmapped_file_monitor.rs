@@ -70,7 +70,7 @@ impl FileMonitor for MmappedFileMonitor {
         }
     }
 
-    fn did_write<'b, 'a: 'b>(&mut self, ranges: &[Range], offset: &mut LazyOffset<'b, 'a>) {
+    fn did_write<'b, 'a: 'b>(&mut self, ranges: &[Range], offset: &LazyOffset<'b, 'a>) {
         // If there are no remaining mappings that we care about, those can't reappear
         // without going through mmap again, at which point this will be reset to
         // false.

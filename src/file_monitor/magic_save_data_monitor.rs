@@ -14,7 +14,7 @@ impl FileMonitor for MagicSaveDataMonitor {
         MagicSaveData
     }
 
-    fn did_write<'b, 'a: 'b>(&mut self, rv: &[Range], l: &mut LazyOffset<'b, 'a>) {
+    fn did_write<'b, 'a: 'b>(&mut self, rv: &[Range], l: &LazyOffset<'b, 'a>) {
         for r in rv {
             if l.t.session().is_recording() {
                 let rec_task = l.t.as_record_task().unwrap();
