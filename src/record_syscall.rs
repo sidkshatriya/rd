@@ -682,8 +682,7 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(t: &RecordTask, regs: &Registers
 
     if sys == Arch::FCNTL || sys == Arch::FCNTL64 {
         let fd = regs.arg1() as i32;
-        let mut result: usize = 0;
-        if t.fd_table().emulate_fcntl(fd, t, &mut result) {
+        if let Some(result) = t.fd_table().emulate_fcntl(fd, t) {
             // Don't perform this syscall.
             let mut r: Registers = regs.clone();
             r.set_arg1_signed(-1);

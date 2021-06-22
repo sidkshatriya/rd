@@ -74,10 +74,10 @@ impl FdTable {
     }
 
     /// DIFF NOTE: Changed this from u64 to usize
-    pub fn emulate_fcntl(&self, fd: i32, t: &RecordTask, result: &mut usize) -> bool {
+    pub fn emulate_fcntl(&self, fd: i32, t: &RecordTask) -> Option<usize> {
         match self.fds.borrow().get(&fd) {
-            Some(f) => f.borrow_mut().emulate_fcntl(t, result),
-            None => false,
+            Some(f) => f.borrow_mut().emulate_fcntl(t),
+            None => None,
         }
     }
 

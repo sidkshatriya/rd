@@ -24,7 +24,7 @@ use crate::{
     taskish_uid::TaskUid,
     ticks::Ticks,
 };
-use libc::{pid_t, EINVAL, O_ASYNC};
+use libc::{pid_t, O_ASYNC};
 use std::{
     cell::RefCell,
     cmp::min,
@@ -245,10 +245,9 @@ impl FileMonitor for VirtualPerfCounterMonitor {
         Some(result)
     }
 
-    fn emulate_fcntl(&mut self, t: &RecordTask, result: &mut usize) -> bool {
-        *result = (-EINVAL as isize) as usize;
+    fn emulate_fcntl(&mut self, t: &RecordTask) -> Option<usize> {
         let arg2 = t.regs_ref().arg2();
-        match arg2 as u32 {
+        let result = match arg2 as u32 {
             F_SETOWN_EX => {
                 let child_addr = RemotePtr::<f_owner_ex>::from(t.regs_ref().arg3());
                 let owner = read_val_mem(t, child_addr, None);
@@ -266,7 +265,7 @@ impl FileMonitor for VirtualPerfCounterMonitor {
                     "Perf event F_SETOWN_EX is only supported to the target tid"
                 );
                 self.owner_tid = owner.pid;
-                *result = 0;
+                0
             }
             F_SETFL => {
                 ed_assert_eq!(
@@ -277,11 +276,11 @@ impl FileMonitor for VirtualPerfCounterMonitor {
                     t.regs_ref().arg3() as i32
                 );
                 self.flags = t.regs_ref().arg3() as i32;
-                *result = 0;
+                0
             }
             F_SETSIG => {
                 self.sig = Sig::try_from(t.regs_ref().arg3() as i32).ok();
-                *result = 0;
+                0
             }
             _ => {
                 ed_assert!(
@@ -290,9 +289,11 @@ impl FileMonitor for VirtualPerfCounterMonitor {
                     "Unsupported perf event fnctl {}",
                     t.regs_ref().arg2() as i32
                 );
+                unreachable!()
             }
-        }
-        true
+        };
+
+        Some(result)
     }
 
     fn emulate_read(

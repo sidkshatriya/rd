@@ -226,8 +226,8 @@ pub trait FileMonitor {
     /// Return true if the fcntl should should be fully emulated. If so the
     /// result is stored in the last parameter.
     /// Only called during recording.
-    fn emulate_fcntl(&mut self, _t: &RecordTask, _r: &mut usize) -> bool {
-        false
+    fn emulate_fcntl(&mut self, _t: &RecordTask) -> Option<usize> {
+        None
     }
 
     /// Return true if the read should should be fully emulated. If so the
