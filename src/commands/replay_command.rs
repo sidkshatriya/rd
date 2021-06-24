@@ -11,10 +11,8 @@ use crate::{
         session_inner::{RunCommand, Statistics},
         SessionSharedPtr,
     },
-    trace::{
-        trace_frame::FrameTime, trace_reader::TraceReader, trace_task_event::TraceTaskEventType,
-    },
-    util::{check_for_leaks, find, running_under_rd},
+    trace::trace_frame::FrameTime,
+    util::{check_for_leaks, find_pid_for_command, pid_execs, pid_exists, running_under_rd},
 };
 use io::stderr;
 use libc::{pid_t, WEXITSTATUS, WIFEXITED, WIFSIGNALED};
@@ -25,16 +23,7 @@ use nix::{
     unistd::{close, fork, getpid, getppid, pipe2, ForkResult},
 };
 use replay_session::{ReplaySession, ReplayStatus};
-use std::{
-    cell::RefCell,
-    ffi::{OsStr, OsString},
-    io,
-    io::Write,
-    os::unix::ffi::OsStrExt,
-    path::{Path, PathBuf},
-    ptr,
-    rc::Rc,
-};
+use std::{cell::RefCell, ffi::OsString, io, io::Write, path::PathBuf, ptr, rc::Rc};
 
 use super::{
     exit_result::ExitResult,
@@ -586,55 +575,4 @@ extern "C" fn handle_sigint_in_child(sig: i32) {
 extern "C" fn handle_sigint_in_parent(sig: i32) {
     debug_assert_eq!(sig, libc::SIGINT);
     // Just ignore it.
-}
-
-fn pid_exists<T: AsRef<Path>>(maybe_trace_dir: Option<T>, pid: pid_t) -> bool {
-    let mut trace = TraceReader::new(maybe_trace_dir);
-
-    while let Some(e) = trace.read_task_event(None) {
-        if e.tid() == pid {
-            return true;
-        }
-    }
-
-    false
-}
-
-fn pid_execs<T: AsRef<Path>>(maybe_trace_dir: Option<T>, pid: pid_t) -> bool {
-    let mut trace = TraceReader::new(maybe_trace_dir);
-
-    while let Some(e) = trace.read_task_event(None) {
-        if e.tid() == pid && e.event_type() == TraceTaskEventType::Exec {
-            return true;
-        }
-    }
-
-    false
-}
-
-fn find_pid_for_command<T: AsRef<Path>>(
-    maybe_trace_dir: Option<T>,
-    command_os_str: &OsStr,
-) -> Option<pid_t> {
-    let mut trace = TraceReader::new(maybe_trace_dir);
-    while let Some(e) = trace.read_task_event(None) {
-        if e.event_type() != TraceTaskEventType::Exec {
-            continue;
-        }
-        if e.exec_variant().cmd_line().is_empty() {
-            continue;
-        }
-        let cmd: &[u8] = e.exec_variant().cmd_line()[0].as_bytes();
-        let command: &[u8] = command_os_str.as_bytes();
-        let mut command_with_slash = vec![b'/'];
-        command_with_slash.extend_from_slice(command_os_str.as_bytes());
-
-        if cmd == command
-            || (cmd.len() > command.len()
-                && find(cmd, &command_with_slash) == Some(cmd.len() - command_with_slash.len()))
-        {
-            return Some(e.tid());
-        }
-    }
-    None
 }

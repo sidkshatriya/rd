@@ -364,6 +364,22 @@ pub enum RdSubCommand {
         debugger_options: Vec<OsString>,
     },
 
+    /// Print initial environment of a process when it is exec-ed
+    #[structopt(name = "env")]
+    Env {
+        /// Where <process> := <pid>
+        #[structopt(short = "p", long = "process")]
+        process: pid_t,
+
+        /// Allow replay to run on any CPU. Default is to run on the CPU stored in the trace.
+        /// Note that this may cause a diverge from the recording in some cases.
+        #[structopt(short = "u", long = "cpu-unbound")]
+        cpu_unbound: bool,
+
+        /// Which directory is the trace data in? If omitted the latest trace dir is used
+        trace_dir: Option<PathBuf>,
+    },
+
     /// Record a trace
     #[structopt(name = "record")]
     Record {

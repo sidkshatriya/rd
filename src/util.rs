@@ -28,7 +28,9 @@ use crate::{
         },
     },
     sig::Sig,
-    trace::trace_frame::FrameTime,
+    trace::{
+        trace_frame::FrameTime, trace_reader::TraceReader, trace_task_event::TraceTaskEventType,
+    },
 };
 use libc::{
     pid_t, pwrite64, siginfo_t, ucontext_t, CLONE_CHILD_CLEARTID, CLONE_CHILD_SETTID, CLONE_FILES,
@@ -2555,4 +2557,55 @@ fn replace_char(s: &OsStr, orig: u8, replacement: u8) -> OsString {
     }
 
     OsString::from_vec(out)
+}
+
+pub fn pid_exists<T: AsRef<Path>>(maybe_trace_dir: Option<T>, pid: pid_t) -> bool {
+    let mut trace = TraceReader::new(maybe_trace_dir);
+
+    while let Some(e) = trace.read_task_event(None) {
+        if e.tid() == pid {
+            return true;
+        }
+    }
+
+    false
+}
+
+pub fn pid_execs<T: AsRef<Path>>(maybe_trace_dir: Option<T>, pid: pid_t) -> bool {
+    let mut trace = TraceReader::new(maybe_trace_dir);
+
+    while let Some(e) = trace.read_task_event(None) {
+        if e.tid() == pid && e.event_type() == TraceTaskEventType::Exec {
+            return true;
+        }
+    }
+
+    false
+}
+
+pub fn find_pid_for_command<T: AsRef<Path>>(
+    maybe_trace_dir: Option<T>,
+    command_os_str: &OsStr,
+) -> Option<pid_t> {
+    let mut trace = TraceReader::new(maybe_trace_dir);
+    while let Some(e) = trace.read_task_event(None) {
+        if e.event_type() != TraceTaskEventType::Exec {
+            continue;
+        }
+        if e.exec_variant().cmd_line().is_empty() {
+            continue;
+        }
+        let cmd: &[u8] = e.exec_variant().cmd_line()[0].as_bytes();
+        let command: &[u8] = command_os_str.as_bytes();
+        let mut command_with_slash = vec![b'/'];
+        command_with_slash.extend_from_slice(command_os_str.as_bytes());
+
+        if cmd == command
+            || (cmd.len() > command.len()
+                && find(cmd, &command_with_slash) == Some(cmd.len() - command_with_slash.len()))
+        {
+            return Some(e.tid());
+        }
+    }
+    None
 }

@@ -100,6 +100,7 @@ use crate::{
     commands::{
         build_id_command::BuildIdCommand,
         dump_command::DumpCommand,
+        env_command::EnvCommand,
         ps_command::PsCommand,
         rd_options::{RdOptions, RdSubCommand},
         rerun_command::ReRunCommand,
@@ -171,6 +172,9 @@ fn main() -> ExitResult<()> {
         }
         RdSubCommand::Replay { .. } => {
             return ReplayCommand::new(&options).run();
+        }
+        RdSubCommand::Env { .. } => {
+            return EnvCommand::new(&options).run();
         }
         RdSubCommand::TraceInfo { .. } => {
             return TraceInfoCommand::new(&options).run();
