@@ -1,7 +1,7 @@
 use crate::{
     event::Switchable,
     file_monitor::{FileMonitor, FileMonitorSharedPtr, LazyOffset, Range},
-    log::LogLevel::LogDebug,
+    log::LogLevel::{LogDebug, LogInfo},
     preload_interface::{preload_globals, SYSCALLBUF_FDS_DISABLED_SIZE},
     remote_ptr::RemotePtr,
     session::{
@@ -15,6 +15,8 @@ use nix::sys::stat::lstat;
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
     collections::{HashMap, HashSet},
+    ffi::OsString,
+    os::unix::ffi::OsStringExt,
     rc::{Rc, Weak},
 };
 
@@ -110,9 +112,29 @@ impl FdTable {
         }
     }
 
-    pub fn did_write(&self, fd: i32, ranges: Vec<Range>, offset: &LazyOffset) {
+    pub fn did_write(&self, fd: i32, ranges: &[Range], offset: &LazyOffset) {
+        let session_rc = offset.task().session();
+        if let Some(rs) = session_rc.as_replay() {
+            if let Some(fds) = rs.flags().log_writes_fd.get(&offset.task().rec_tid()) {
+                if fds.contains(&fd) {
+                    for r in ranges {
+                        let mut buf: Vec<u8> = vec![0; r.length];
+                        offset.task().read_bytes_helper(r.data, &mut buf, None);
+                        log!(
+                            LogInfo,
+                            "[WRITE] [rec_tid: {}, fd: {}, time: {}]\n{:?}\n",
+                            offset.task().rec_tid(),
+                            fd,
+                            offset.task().trace_time(),
+                            OsString::from_vec(buf)
+                        );
+                    }
+                }
+            }
+        }
+
         match self.fds.borrow().get(&fd) {
-            Some(f) => f.borrow_mut().did_write(&ranges, offset),
+            Some(f) => f.borrow_mut().did_write(ranges, offset),
             None => (),
         }
     }

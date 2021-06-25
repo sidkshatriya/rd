@@ -1231,7 +1231,7 @@ fn on_syscall_exit_common_arch<Arch: Architecture>(t: &dyn Task, sys: i32, regs:
             ));
         }
         let offset = LazyOffset::new(t, regs, sys);
-        offset.task().fd_table().did_write(fd, ranges, &offset);
+        offset.task().fd_table().did_write(fd, &ranges, &offset);
         return;
     }
 
@@ -1256,7 +1256,7 @@ fn on_syscall_exit_common_arch<Arch: Architecture>(t: &dyn Task, sys: i32, regs:
             }
         }
         let offset = LazyOffset::new(t, regs, sys);
-        offset.task().fd_table().did_write(fd, ranges, &offset);
+        offset.task().fd_table().did_write(fd, &ranges, &offset);
         return;
     }
 

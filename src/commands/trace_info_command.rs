@@ -61,6 +61,7 @@ impl RdCommand for TraceInfoCommand {
         }
 
         let flags = Flags {
+            log_writes_fd: Default::default(),
             redirect_stdio: false,
             share_private_mappings: false,
             cpu_unbound: true,

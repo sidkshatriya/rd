@@ -352,6 +352,16 @@ pub enum RdSubCommand {
         #[structopt(short = "x", long = "gdb-x")]
         gdb_x_file: Option<OsString>,
 
+        #[structopt(
+            short = "l",
+            long = "log-writes-fd", parse(try_from_str = parse_pid_fd),
+            help = "log writes (at the info level) to fds in particular processes.\n\
+                    Where <log-writes-fd> := PID=FD\n\
+                    e.g. --log-writes-fd=\"98765=1\"\n\
+                    There can be any number of --log-writes-fd params each with a PID=FD."
+        )]
+        log_writes_fd: Option<Vec<(pid_t, i32)>>,
+
         /// Display brief stats every N steps (eg 10000)
         #[structopt(long = "stats", parse(try_from_str = parse_stats))]
         stats: Option<u32>,
@@ -592,6 +602,20 @@ fn parse_env_name_val(maybe_name_val: &OsStr) -> Result<(OsString, OsString), Os
         None => Err(OsString::from(format!(
             "Could not find `=` separator in {:?}",
             maybe_name_val
+        ))),
+    }
+}
+
+fn parse_pid_fd(name_val: &str) -> Result<(pid_t, i32), Box<dyn Error>> {
+    match name_val.find('=') {
+        Some(n) => {
+            let pid = name_val[0..n].parse::<pid_t>()?;
+            let fd = name_val[n + 1..].parse::<i32>()?;
+            Ok((pid, fd))
+        }
+        None => Err(Box::new(clap::Error::with_description(
+            &format!("Could not find `=` separator in {:?}", name_val),
+            clap::ErrorKind::InvalidValue,
         ))),
     }
 }

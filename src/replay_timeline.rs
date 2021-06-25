@@ -1230,7 +1230,7 @@ impl ReplayTimeline {
                 // nowhere earlier to go, so restart from beginning.
                 let s = Some(ReplaySession::create(
                     Some(&self.current_session().trace_reader().trace_stream().dir()),
-                    *self.current_session().flags(),
+                    self.current_session().flags().clone(),
                 ));
                 self.current = s;
                 self.breakpoints_applied = false;

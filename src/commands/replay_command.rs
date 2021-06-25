@@ -23,7 +23,9 @@ use nix::{
     unistd::{close, fork, getpid, getppid, pipe2, ForkResult},
 };
 use replay_session::{ReplaySession, ReplayStatus};
-use std::{cell::RefCell, ffi::OsString, io, io::Write, path::PathBuf, ptr, rc::Rc};
+use std::{
+    cell::RefCell, collections::HashMap, ffi::OsString, io, io::Write, path::PathBuf, ptr, rc::Rc,
+};
 
 use super::{
     exit_result::ExitResult,
@@ -39,6 +41,8 @@ enum CreatedHow {
 }
 
 pub struct ReplayCommand {
+    log_writes_fd: Option<Vec<(pid_t, i32)>>,
+
     /// Start a debug server for the task scheduled at the first
     /// event at which reached this event AND target_process has
     /// been "created".
@@ -94,6 +98,7 @@ pub struct ReplayCommand {
 impl Default for ReplayCommand {
     fn default() -> Self {
         Self {
+            log_writes_fd: Default::default(),
             goto_event: 0,
             singlestep_to_event: 0,
             target_process: None,
@@ -118,6 +123,7 @@ impl ReplayCommand {
     pub fn new(options: &RdOptions) -> ReplayCommand {
         match options.cmd.clone() {
             RdSubCommand::Replay {
+                log_writes_fd,
                 autopilot,
                 onfork,
                 goto_event,
@@ -139,6 +145,8 @@ impl ReplayCommand {
                 share_private_mappings,
             } => {
                 let mut flags = ReplayCommand::default();
+
+                flags.log_writes_fd = log_writes_fd;
 
                 if autopilot {
                     flags.goto_event = FrameTime::MAX;
@@ -226,7 +234,19 @@ impl ReplayCommand {
     }
 
     fn session_flags(&self) -> replay_session::Flags {
+        let mut map: HashMap<pid_t, Vec<i32>> = HashMap::new();
+        if let Some(ref pid_fds) = self.log_writes_fd {
+            for (pid, _) in pid_fds {
+                map.insert(*pid, Vec::new());
+            }
+
+            for (pid, fd) in pid_fds {
+                map.get_mut(pid).unwrap().push(*fd);
+            }
+        }
+
         replay_session::Flags {
+            log_writes_fd: map,
             redirect_stdio: self.redirect,
             share_private_mappings: self.share_private_mappings,
             cpu_unbound: self.cpu_unbound,

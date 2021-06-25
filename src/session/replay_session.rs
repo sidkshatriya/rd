@@ -74,6 +74,7 @@ use nix::sys::mman::{MapFlags, ProtFlags};
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
     cmp::min,
+    collections::HashMap,
     convert::{TryFrom, TryInto},
     ffi::{OsStr, OsString},
     intrinsics::copy_nonoverlapping,
@@ -352,8 +353,9 @@ pub struct ReplaySession {
     syscall_bp_vm: RefCell<Option<(AddressSpaceSharedPtr, RemoteCodePtr)>>,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct Flags {
+    pub log_writes_fd: HashMap<pid_t, Vec<i32>>,
     pub redirect_stdio: bool,
     pub share_private_mappings: bool,
     pub cpu_unbound: bool,
@@ -391,7 +393,7 @@ impl Clone for ReplaySession {
             ticks_at_start_of_event: self.ticks_at_start_of_event.clone(),
             cpuid_bug_detector: self.cpuid_bug_detector.clone(),
             last_siginfo_: self.last_siginfo_.clone(),
-            flags_: self.flags_,
+            flags_: self.flags_.clone(),
             fast_forward_status: self.fast_forward_status.clone(),
             trace_start_time: self.trace_start_time.clone(),
             // Implied
