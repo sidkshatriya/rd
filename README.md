@@ -44,7 +44,7 @@ However, because `rd` is not as complete and mature as `rr` there are some addit
 * Only 64-bit Linux distributions are currently supported (Hopefully this should not be a big issue because both 32-bit and 64-bit programs _are_ supported on 64-bit distributions)
   * 32-bit Linux distributions are currently not supported
 
-`rd` has unfortunatately not received testing in a variety of Linux distributions apart from Ubuntu 20.04. In general if `rr` works on your current setup, `rd` should work there too -- except for the additional restrictions outlined above. Please report any problems!
+`rd` has unfortunately not received testing in a variety of Linux distributions apart from Ubuntu 20.04. In general if `rr` works on your current setup, `rd` should work there too -- except for the additional restrictions outlined above. Please report any problems!
 
 ## Building 
 
