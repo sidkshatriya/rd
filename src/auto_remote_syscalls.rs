@@ -229,7 +229,7 @@ pub struct AutoRestoreMem<'a, 'b> {
     saved_data: Vec<u8>,
     /// (We keep this around for error checking.)
     saved_sp: RemotePtr<Void>,
-    /// Length of tmp mem
+    /// Length of temporary mem
     len: usize,
 }
 
