@@ -132,9 +132,8 @@ impl FdTable {
             }
         }
 
-        match self.fds.borrow().get(&fd) {
-            Some(f) => f.borrow_mut().did_write(ranges, offset),
-            None => (),
+        if let Some(f) = self.fds.borrow().get(&fd) {
+            f.borrow_mut().did_write(ranges, offset)
         }
     }
 

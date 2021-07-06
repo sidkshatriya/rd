@@ -509,17 +509,14 @@ impl ReRunCommand {
                 .unwrap()
                 .diversion_step(&**t, cmd, None);
             self.write_regs(&**t, 0, 0, &mut stdout())?;
-            match result.break_status.signal {
-                Some(siginfo) => {
-                    if siginfo.si_signo == libc::SIGSEGV
-                        && unsafe { siginfo._sifields._sigfault.si_addr } as usize
-                            == SENTINEL_RET_ADDRESS
-                    {
-                        return Ok(());
-                    }
-                    ed_assert!(task, false, "Unexpected signal {:?}", siginfo);
+            if let Some(siginfo) = result.break_status.signal {
+                if siginfo.si_signo == libc::SIGSEGV
+                    && unsafe { siginfo._sifields._sigfault.si_addr } as usize
+                        == SENTINEL_RET_ADDRESS
+                {
+                    return Ok(());
                 }
-                None => (),
+                ed_assert!(task, false, "Unexpected signal {:?}", siginfo);
             }
         }
     }

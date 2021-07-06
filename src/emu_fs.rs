@@ -308,14 +308,11 @@ impl EmuFs {
         let file_id = FileId::from_kernel_mapping(recorded_km);
         let maybe_file_weak_ptr = self.files.get(&file_id);
         let min_file_size: u64 = recorded_km.file_offset_bytes() + recorded_km.size() as u64;
-        match maybe_file_weak_ptr {
-            Some(file_weak_ptr) => {
-                let rc = file_weak_ptr.upgrade().unwrap();
-                rc.borrow_mut()
-                    .update(recorded_km.device(), recorded_km.inode(), min_file_size);
-                return rc;
-            }
-            None => (),
+        if let Some(file_weak_ptr) = maybe_file_weak_ptr {
+            let rc = file_weak_ptr.upgrade().unwrap();
+            rc.borrow_mut()
+                .update(recorded_km.device(), recorded_km.inode(), min_file_size);
+            return rc;
         };
 
         let vf = EmuFile::create(

@@ -819,18 +819,12 @@ impl PerfCounters {
             let maybe_minus_attr = PMU_ATTRIBUTES.minus_ticks_attr;
             attr.__bindgen_anon_1.sample_period = ticks_period;
             self.fd_ticks_interrupt = start_counter(self.tid, -1, &mut attr).0;
-            match maybe_minus_attr {
-                Some(mut minus_attr) => {
-                    if minus_attr.config != 0 {
-                        self.fd_minus_ticks_measure = start_counter(
-                            self.tid,
-                            self.fd_ticks_interrupt.as_raw(),
-                            &mut minus_attr,
-                        )
-                        .0;
-                    }
+            if let Some(mut minus_attr) = maybe_minus_attr {
+                if minus_attr.config != 0 {
+                    self.fd_minus_ticks_measure =
+                        start_counter(self.tid, self.fd_ticks_interrupt.as_raw(), &mut minus_attr)
+                            .0;
                 }
-                None => (),
             }
 
             if !PMU_BUGS_AND_EXTRA.only_one_counter && PMU_BUGS_AND_EXTRA.supports_txcp {
