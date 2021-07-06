@@ -99,9 +99,8 @@ impl MonitoredSharedMemory {
             let rc_v = t.vm();
             let m = rc_v.mapping_of(a).unwrap().clone();
             let maybe_mm = m.monitored_shared_memory.clone();
-            match maybe_mm {
-                Some(mm) => mm.borrow().check_for_changes(t, m),
-                None => (),
+            if let Some(mm) = maybe_mm {
+                mm.borrow().check_for_changes(t, m)
             }
         }
     }

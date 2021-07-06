@@ -1099,22 +1099,19 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(t: &RecordTask, regs: &Registers
                 }
             };
 
-            match maybe_target {
-                Some(target) => {
-                    log!(
-                        LogDebug,
-                        "Setting nice value for tid {} to {}",
-                        target.tid(),
-                        regs.arg3()
-                    );
-                    target
-                        .session()
-                        .as_record()
-                        .unwrap()
-                        .scheduler()
-                        .update_task_priority(target, regs.arg3_signed() as i32);
-                }
-                None => (),
+            if let Some(target) = maybe_target {
+                log!(
+                    LogDebug,
+                    "Setting nice value for tid {} to {}",
+                    target.tid(),
+                    regs.arg3()
+                );
+                target
+                    .session()
+                    .as_record()
+                    .unwrap()
+                    .scheduler()
+                    .update_task_priority(target, regs.arg3_signed() as i32);
             }
         }
         return Switchable::PreventSwitch;
@@ -2127,22 +2124,19 @@ fn prepare_exit(t: &RecordTask, exit_code: i32) {
 
 fn check_signals_while_exiting(t: &RecordTask) {
     let maybe_s = t.peek_stashed_sig_to_deliver();
-    match maybe_s {
-        Some(s) => {
-            // An unblockable signal (SIGKILL, SIGSTOP) might be received
-            // and stashed. Since these signals are unblockable they take
-            // effect no matter what and we don't need to deliver them to an exiting
-            // thread.
-            let siginfo = unsafe { (*s).siginfo };
-            let sig = siginfo.si_signo;
-            ed_assert!(
-                t,
-                sig == SIGKILL || sig == SIGSTOP,
-                "Got unexpected signal {} (should have been blocked)",
-                siginfo
-            );
-        }
-        None => (),
+    if let Some(s) = maybe_s {
+        // An unblockable signal (SIGKILL, SIGSTOP) might be received
+        // and stashed. Since these signals are unblockable they take
+        // effect no matter what and we don't need to deliver them to an exiting
+        // thread.
+        let siginfo = unsafe { (*s).siginfo };
+        let sig = siginfo.si_signo;
+        ed_assert!(
+            t,
+            sig == SIGKILL || sig == SIGSTOP,
+            "Got unexpected signal {} (should have been blocked)",
+            siginfo
+        );
     }
 }
 
@@ -2344,20 +2338,13 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
             .did_exit_execve(t);
         process_execve(t, syscall_state);
         let emulated_ptracer = t.emulated_ptracer();
-        match emulated_ptracer {
-            Some(_tracer_rc) => {
-                if t.emulated_ptrace_options.get() & PTRACE_O_TRACEEXEC != 0 {
-                    t.emulate_ptrace_stop(
-                        WaitStatus::for_ptrace_event(PTRACE_EVENT_EXEC),
-                        None,
-                        None,
-                    );
-                } else if !t.emulated_ptrace_seized.get() {
-                    // Inject legacy SIGTRAP-after-exec
-                    t.tgkill(sig::SIGTRAP);
-                }
+        if let Some(_tracer_rc) = emulated_ptracer {
+            if t.emulated_ptrace_options.get() & PTRACE_O_TRACEEXEC != 0 {
+                t.emulate_ptrace_stop(WaitStatus::for_ptrace_event(PTRACE_EVENT_EXEC), None, None);
+            } else if !t.emulated_ptrace_seized.get() {
+                // Inject legacy SIGTRAP-after-exec
+                t.tgkill(sig::SIGTRAP);
             }
-            None => (),
         }
         return;
     }

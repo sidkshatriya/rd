@@ -2664,12 +2664,10 @@ fn read_exe_info<T: AsRef<OsStr>>(full_path: T) -> ExeInfo {
                     }
                 }
                 for s in elf_obj.dynsyms.iter() {
-                    if let Some(name_res) = elf_obj.dynstrtab.get(s.st_name) {
-                        if let Ok(name) = name_res {
-                            if name == "__asan_init" {
-                                has_asan_init = true;
-                                break;
-                            }
+                    if let Some(Ok(name)) = elf_obj.dynstrtab.get(s.st_name) {
+                        if name == "__asan_init" {
+                            has_asan_init = true;
+                            break;
                         }
                     }
                 }

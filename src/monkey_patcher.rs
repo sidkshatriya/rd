@@ -660,25 +660,22 @@ fn setup_library_path_arch<Arch: Architecture>(
             }
             Some(lib_pos) => lib_pos,
         };
-        match find(&env[lib_pos..], b":") {
-            Some(next) => {
-                let mut next_colon = next + lib_pos;
-                // DIFF NOTE: There is a env[next_colon + 1] == 0 check in rr
-                // Don't need it in rd as there is no terminating nul in the `env` var
-                while next_colon + 1 < env.len() && env[next_colon + 1] == b':' {
-                    next_colon += 1;
-                }
-                if next_colon < lib_pos + soname_padded.len() - 1 {
-                    log!(
-                        LogDebug,
-                        "Insufficient space for {:?} in {:?} before next ':'",
-                        lib_name,
-                        env_var
-                    );
-                    return;
-                }
+        if let Some(next) = find(&env[lib_pos..], b":") {
+            let mut next_colon = next + lib_pos;
+            // DIFF NOTE: There is a env[next_colon + 1] == 0 check in rr
+            // Don't need it in rd as there is no terminating nul in the `env` var
+            while next_colon + 1 < env.len() && env[next_colon + 1] == b':' {
+                next_colon += 1;
             }
-            None => (),
+            if next_colon < lib_pos + soname_padded.len() - 1 {
+                log!(
+                    LogDebug,
+                    "Insufficient space for {:?} in {:?} before next ':'",
+                    lib_name,
+                    env_var
+                );
+                return;
+            }
         }
         if env.len() - 1 < lib_pos + soname_padded.len() - 1 {
             log!(
@@ -1243,8 +1240,8 @@ fn patch_after_exec_arch_x86arch(t: &RecordTask, patcher: &mut MonkeyPatcher) {
 
     for syscall in &X86_SYSCALLS_TO_MONKEYPATCH {
         for s in elf_obj.dynsyms.iter() {
-            match elf_obj.dynstrtab.get(s.st_name) {
-                Some(name_res) => match name_res {
+            if let Some(name_res) = elf_obj.dynstrtab.get(s.st_name) {
+                match name_res {
                     Ok(name) if name == syscall.name => {
                         let mut file_offset: usize = 0;
                         if !addr_to_offset(&elf_obj, s.st_value as usize, &mut file_offset) {
@@ -1281,8 +1278,7 @@ fn patch_after_exec_arch_x86arch(t: &RecordTask, patcher: &mut MonkeyPatcher) {
                         );
                     }
                     _ => (),
-                },
-                None => {}
+                }
             }
         }
     }
@@ -1302,8 +1298,8 @@ fn locate_and_verify_kernel_vsyscall(t: &RecordTask, elf_obj: &Elf) -> RemotePtr
     // this possibility.
     let mut seen_kernel_vsyscall = false;
     for s in elf_obj.dynsyms.iter() {
-        match elf_obj.dynstrtab.get(s.st_name) {
-            Some(name_res) => match name_res {
+        if let Some(name_res) = elf_obj.dynstrtab.get(s.st_name) {
+            match name_res {
                 Ok(name) if name == "__kernel_vsyscall" => {
                     let mut file_offset: usize = 0;
                     if !addr_to_offset(elf_obj, s.st_value as usize, &mut file_offset) {
@@ -1334,8 +1330,7 @@ fn locate_and_verify_kernel_vsyscall(t: &RecordTask, elf_obj: &Elf) -> RemotePtr
                     }
                 }
                 _ => (),
-            },
-            None => {}
+            }
         }
     }
 
@@ -1370,8 +1365,8 @@ fn patch_after_exec_arch_x64arch(t: &RecordTask, patcher: &mut MonkeyPatcher) {
 
     for syscall in &X64_SYSCALLS_TO_MONKEYPATCH {
         for s in elf_obj.dynsyms.iter() {
-            match elf_obj.dynstrtab.get(s.st_name) {
-                Some(name_res) => match name_res {
+            if let Some(name_res) = elf_obj.dynstrtab.get(s.st_name) {
+                match name_res {
                     Ok(name) if name == syscall.name => {
                         let mut file_offset: usize = 0;
                         if !addr_to_offset(&elf_obj, s.st_value as usize, &mut file_offset) {
@@ -1428,8 +1423,7 @@ fn patch_after_exec_arch_x64arch(t: &RecordTask, patcher: &mut MonkeyPatcher) {
                         }
                     }
                     _ => (),
-                },
-                None => {}
+                }
             }
         }
     }

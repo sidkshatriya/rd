@@ -133,22 +133,19 @@ use CpuMicroarch::*;
 #[allow(clippy::branches_sharing_code)]
 fn get_cpu_microarch() -> CpuMicroarch {
     let maybe_forced_uarch = Flags::get().forced_uarch.as_ref().map(|u| u.to_lowercase());
-    match maybe_forced_uarch {
-        Some(forced_uarch) => {
-            for pmu in &PMU_CONFIGS {
-                let name: String = pmu.name.to_lowercase();
-                if name.contains(&forced_uarch) {
-                    log!(LogInfo, "Using forced uarch {}", pmu.name);
-                    return pmu.uarch;
-                }
+    if let Some(forced_uarch) = maybe_forced_uarch {
+        for pmu in &PMU_CONFIGS {
+            let name: String = pmu.name.to_lowercase();
+            if name.contains(&forced_uarch) {
+                log!(LogInfo, "Using forced uarch {}", pmu.name);
+                return pmu.uarch;
             }
-
-            clean_fatal!(
-                "Forced uarch {} isn't known",
-                Flags::get().forced_uarch.as_ref().unwrap()
-            );
         }
-        None => (),
+
+        clean_fatal!(
+            "Forced uarch {} isn't known",
+            Flags::get().forced_uarch.as_ref().unwrap()
+        );
     }
 
     let cpuid = CpuId::new();

@@ -347,16 +347,13 @@ impl<'a, 'b> AutoRestoreMem<'a, 'b> {
         // @TODO what do we do if ok is false due to read_bytes_helper call above?
         // Adding a debug_assert!() for now.
         debug_assert!(ok);
-        match maybe_mem {
-            Some(mem) => {
-                self.remote.task().write_bytes_helper(
-                    self.addr.unwrap(),
-                    mem,
-                    Some(&mut ok),
-                    WriteFlags::empty(),
-                );
-            }
-            None => (),
+        if let Some(mem) = maybe_mem {
+            self.remote.task().write_bytes_helper(
+                self.addr.unwrap(),
+                mem,
+                Some(&mut ok),
+                WriteFlags::empty(),
+            );
         };
         if !ok {
             self.addr = None;
@@ -465,15 +462,12 @@ impl<'a> AutoRemoteSyscalls<'a> {
         }
 
         let last_stack_byte: RemotePtr<Void> = self.t.regs_ref().sp() - 1usize;
-        match self.t.vm().mapping_of(last_stack_byte) {
-            Some(m) => {
-                if is_usable_area(&m.map) && m.map.start() + 2048usize <= self.t.regs_ref().sp() {
-                    // 'sp' is in a stack region and there's plenty of space there. No need
-                    // to fix anything.
-                    return;
-                }
+        if let Some(m) = self.t.vm().mapping_of(last_stack_byte) {
+            if is_usable_area(&m.map) && m.map.start() + 2048usize <= self.t.regs_ref().sp() {
+                // 'sp' is in a stack region and there's plenty of space there. No need
+                // to fix anything.
+                return;
             }
-            None => (),
         }
 
         let mut found_stack: Option<MemoryRange> = None;
@@ -1233,16 +1227,13 @@ impl<'a> AutoRemoteSyscalls<'a> {
         // DIFF NOTE: Logic slightly different from rr. We are only returning start of recreated
         // mapping.
         let new_map_local_addr = self.vm().mapping_of(new_addr).unwrap().local_addr;
-        match maybe_preserved_data {
-            Some(preserved_data) => {
-                let new_map_local = new_map_local_addr.unwrap();
-                unsafe {
-                    // @TODO This should be non-overlapping but think about this more to be sure.
-                    copy_nonoverlapping(preserved_data.as_ptr(), new_map_local.as_ptr(), size);
-                    munmap(preserved_data.as_ptr(), size).unwrap();
-                }
+        if let Some(preserved_data) = maybe_preserved_data {
+            let new_map_local = new_map_local_addr.unwrap();
+            unsafe {
+                // @TODO This should be non-overlapping but think about this more to be sure.
+                copy_nonoverlapping(preserved_data.as_ptr(), new_map_local.as_ptr(), size);
+                munmap(preserved_data.as_ptr(), size).unwrap();
             }
-            None => (),
         }
         new_addr
     }

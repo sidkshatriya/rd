@@ -92,9 +92,8 @@ impl FdTable {
     }
 
     pub fn filter_getdents(&self, fd: i32, t: &RecordTask) {
-        match self.fds.borrow().get(&fd) {
-            Some(f) => f.borrow().filter_getdents(t),
-            None => (),
+        if let Some(f) = self.fds.borrow().get(&fd) {
+            f.borrow().filter_getdents(t)
         }
     }
 

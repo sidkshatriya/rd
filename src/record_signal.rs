@@ -179,36 +179,33 @@ pub fn handle_signal(
     // source, record it normally.
 
     let emulated_ptracer = t.emulated_ptracer();
-    match emulated_ptracer {
-        Some(_tracer) => {
-            t.emulate_ptrace_stop(WaitStatus::for_stop_sig(sig), Some(&si), None);
-            // Record an event so that replay progresses the tracee to the
-            // current point before we notify the tracer.
-            // If the signal is deterministic, record it as an EV_SIGNAL so that
-            // we replay it using the deterministic-signal replay path. This is
-            // more efficient than emulate_async_signal. Also emulate_async_signal
-            // currently assumes it won't encounter a deterministic SIGTRAP (due to
-            // a hardcoded breakpoint in the tracee).
-            if deterministic == SignalDeterministic::DeterministicSig {
-                let resolved_disposition = t.sig_resolved_disposition(sig, deterministic);
-                t.record_event(
-                    Some(Event::new_signal_event(
-                        EventType::EvSignal,
-                        SignalEventData::new(&si, deterministic, resolved_disposition),
-                    )),
-                    None,
-                    None,
-                    None,
-                );
-            } else {
-                t.record_event(Some(Event::sched()), None, None, None);
-            }
-            // ptracer has been notified, so don't deliver the signal now.
-            // The signal won't be delivered for real until the ptracer calls
-            // PTRACE_CONT with the signal number (which we don't support yet!).
-            return (SignalHandled::SignalPtraceStop, si);
+    if let Some(_tracer) = emulated_ptracer {
+        t.emulate_ptrace_stop(WaitStatus::for_stop_sig(sig), Some(&si), None);
+        // Record an event so that replay progresses the tracee to the
+        // current point before we notify the tracer.
+        // If the signal is deterministic, record it as an EV_SIGNAL so that
+        // we replay it using the deterministic-signal replay path. This is
+        // more efficient than emulate_async_signal. Also emulate_async_signal
+        // currently assumes it won't encounter a deterministic SIGTRAP (due to
+        // a hardcoded breakpoint in the tracee).
+        if deterministic == SignalDeterministic::DeterministicSig {
+            let resolved_disposition = t.sig_resolved_disposition(sig, deterministic);
+            t.record_event(
+                Some(Event::new_signal_event(
+                    EventType::EvSignal,
+                    SignalEventData::new(&si, deterministic, resolved_disposition),
+                )),
+                None,
+                None,
+                None,
+            );
+        } else {
+            t.record_event(Some(Event::sched()), None, None, None);
         }
-        None => (),
+        // ptracer has been notified, so don't deliver the signal now.
+        // The signal won't be delivered for real until the ptracer calls
+        // PTRACE_CONT with the signal number (which we don't support yet!).
+        return (SignalHandled::SignalPtraceStop, si);
     }
 
     let resolved_disposition = t.sig_resolved_disposition(sig, deterministic);
