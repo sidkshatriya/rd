@@ -1146,13 +1146,10 @@ impl AddressSpace {
         };
 
         self.for_each_in_range(addr, num_bytes, protector, IterateHow::IterateContiguous);
-        match last_overlap {
-            Some(last_overlap_key) => {
-                // All mappings that we altered which might need coalescing
-                // are adjacent to `last_overlap_key`.
-                self.coalesce_around(t, last_overlap_key);
-            }
-            None => (),
+        if let Some(last_overlap_key) = last_overlap {
+            // All mappings that we altered which might need coalescing
+            // are adjacent to `last_overlap_key`.
+            self.coalesce_around(t, last_overlap_key);
         }
     }
 
@@ -1317,13 +1314,10 @@ impl AddressSpace {
     /// destroyed.
     pub fn remove_breakpoint(&self, addr: RemoteCodePtr, type_: BreakpointType) {
         let mut can_destroy_bp = false;
-        match self.breakpoints.borrow_mut().get_mut(&addr) {
-            Some(bp) => {
-                if bp.do_unref(type_) == 0 {
-                    can_destroy_bp = true;
-                }
+        if let Some(bp) = self.breakpoints.borrow_mut().get_mut(&addr) {
+            if bp.do_unref(type_) == 0 {
+                can_destroy_bp = true;
             }
-            _ => (),
         }
         if can_destroy_bp {
             self.destroy_breakpoint_at(addr);
@@ -1344,23 +1338,17 @@ impl AddressSpace {
 
     /// Temporarily remove the breakpoint at `addr`.
     pub fn suspend_breakpoint_at(&self, addr: RemoteCodePtr) {
-        match self.breakpoints.borrow().get(&addr) {
-            Some(bp) => {
-                let t = self.any_task_from_task_set().unwrap();
-                write_val_mem::<u8>(&**t, addr.to_data_ptr::<u8>(), &bp.overwritten_data, None);
-            }
-            None => (),
+        if let Some(bp) = self.breakpoints.borrow().get(&addr) {
+            let t = self.any_task_from_task_set().unwrap();
+            write_val_mem::<u8>(&**t, addr.to_data_ptr::<u8>(), &bp.overwritten_data, None);
         }
     }
 
     /// Restore any temporarily removed breakpoint at `addr`.
     pub fn restore_breakpoint_at(&self, addr: RemoteCodePtr) {
-        match self.breakpoints.borrow().get(&addr) {
-            Some(_bp) => {
-                let t = self.any_task_from_task_set().unwrap();
-                write_val_mem::<u8>(&**t, addr.to_data_ptr::<u8>(), &Self::BREAKPOINT_INSN, None);
-            }
-            None => (),
+        if let Some(_bp) = self.breakpoints.borrow().get(&addr) {
+            let t = self.any_task_from_task_set().unwrap();
+            write_val_mem::<u8>(&**t, addr.to_data_ptr::<u8>(), &Self::BREAKPOINT_INSN, None);
         }
     }
 
@@ -2265,20 +2253,16 @@ impl AddressSpace {
                 slf.add_to_map(overflow);
             }
 
-            match m.local_addr {
-                Some(local_addr) => {
-                    let size = min(rem.size(), m.map.size() - (rem.start() - m.map.start()));
-                    let res = unsafe {
-                        let addr = local_addr.as_ptr().add(rem.start() - m.map.start());
-                        munmap(addr, size)
-                    };
+            if let Some(local_addr) = m.local_addr {
+                let size = min(rem.size(), m.map.size() - (rem.start() - m.map.start()));
+                let res = unsafe {
+                    let addr = local_addr.as_ptr().add(rem.start() - m.map.start());
+                    munmap(addr, size)
+                };
 
-                    match res {
-                        Err(e) => fatal!("Can't munmap: {:?}", e),
-                        Ok(_) => (),
-                    }
+                if let Err(e) = res {
+                    fatal!("Can't munmap: {:?}", e)
                 }
-                None => (),
             }
         };
         self.for_each_in_range(addr, num_bytes, unmapper, IterateHow::IterateDefault);
@@ -2796,12 +2780,10 @@ impl Drop for AddressSpace {
         // DIFF NOTE: This assertion is not present in rr.
         debug_assert_eq!(self.task_set().len(), 0);
         for (_, m) in self.mem.borrow().iter() {
-            match m.local_addr {
-                Some(local) => match unsafe { munmap(local.as_ptr(), m.map.size()) } {
-                    Err(e) => fatal!("Can't munmap: {:?}", e),
-                    Ok(_) => (),
-                },
-                None => (),
+            if let Some(local) = m.local_addr {
+                if let Err(e) = unsafe { munmap(local.as_ptr(), m.map.size()) } {
+                    fatal!("Can't munmap: {:?}", e)
+                }
             }
         }
         if let Some(sess) = self.try_session() {
@@ -2845,9 +2827,8 @@ fn configure_watch_registers(
     }
 
     for r in &split_ranges {
-        match maybe_assigned_regs {
-            Some(assigned_regs) => assigned_regs.push(regs.len().try_into().unwrap()),
-            _ => (),
+        if let Some(assigned_regs) = maybe_assigned_regs {
+            assigned_regs.push(regs.len().try_into().unwrap())
         }
         regs.push(WatchConfig::new(r.start(), r.size(), watchtype));
     }

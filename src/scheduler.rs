@@ -327,52 +327,46 @@ impl Scheduler {
             self.last_reschedule_in_high_priority_only_interval
                 .set(self.in_high_priority_only_interval(now));
 
-            match self.current() {
-                Some(curr) => {
-                    // Determine if we should run current_ again
-                    let round_robin_task = self.get_round_robin_task();
-                    if round_robin_task.is_none() {
-                        maybe_next = self.find_next_runnable_task(
-                            Some(&curr),
-                            &mut result.by_waitpid,
-                            curr.as_record_task().unwrap().priority.get() - 1,
-                        );
+            if let Some(curr) = self.current() {
+                // Determine if we should run current_ again
+                let round_robin_task = self.get_round_robin_task();
+                if round_robin_task.is_none() {
+                    maybe_next = self.find_next_runnable_task(
+                        Some(&curr),
+                        &mut result.by_waitpid,
+                        curr.as_record_task().unwrap().priority.get() - 1,
+                    );
 
-                        if maybe_next.is_some() {
-                            // There is a runnable higher-priority task (different from current btw). Run it.
-                            break;
-                        }
+                    if maybe_next.is_some() {
+                        // There is a runnable higher-priority task (different from current btw). Run it.
+                        break;
                     }
-                    // To run current_ again:
-                    // -- its timeslice must not have expired
-                    // -- it must be high priority if we're in a high-priority-only interval
-                    // -- it must be the head of the round-robin queue or the queue is empty
-                    // (this might not hold if it was at the head of the queue but we
-                    // rejected current_ and popped it in a previous iteration of this loop)
-                    // -- it must be runnable, and not in an unstable exit.
-                    let tick_count = curr.tick_count();
-                    let is_unstable = curr.unstable.get();
-                    if !is_unstable
-                        && !self.always_switch.get()
-                        && (round_robin_task.is_none()
-                            || Rc::ptr_eq(round_robin_task.as_ref().unwrap(), &curr))
-                        && (self.treat_as_high_priority(&curr)
-                            || !self.last_reschedule_in_high_priority_only_interval.get())
-                        && tick_count < self.current_timeslice_end()
-                        && self.is_task_runnable(
-                            curr.as_record_task().unwrap(),
-                            &mut result.by_waitpid,
-                        )
-                    {
-                        log!(LogDebug, "  Carrying on with task {}", curr.tid());
-                        self.validate_scheduled_task();
-                        return result;
-                    }
-                    // Having rejected current_, be prepared to run the next task in the
-                    // round-robin queue.
-                    self.maybe_pop_round_robin_task(curr.as_rec_unwrap());
                 }
-                None => (),
+                // To run current_ again:
+                // -- its timeslice must not have expired
+                // -- it must be high priority if we're in a high-priority-only interval
+                // -- it must be the head of the round-robin queue or the queue is empty
+                // (this might not hold if it was at the head of the queue but we
+                // rejected current_ and popped it in a previous iteration of this loop)
+                // -- it must be runnable, and not in an unstable exit.
+                let tick_count = curr.tick_count();
+                let is_unstable = curr.unstable.get();
+                if !is_unstable
+                    && !self.always_switch.get()
+                    && (round_robin_task.is_none()
+                        || Rc::ptr_eq(round_robin_task.as_ref().unwrap(), &curr))
+                    && (self.treat_as_high_priority(&curr)
+                        || !self.last_reschedule_in_high_priority_only_interval.get())
+                    && tick_count < self.current_timeslice_end()
+                    && self.is_task_runnable(curr.as_record_task().unwrap(), &mut result.by_waitpid)
+                {
+                    log!(LogDebug, "  Carrying on with task {}", curr.tid());
+                    self.validate_scheduled_task();
+                    return result;
+                }
+                // Having rejected current_, be prepared to run the next task in the
+                // round-robin queue.
+                self.maybe_pop_round_robin_task(curr.as_rec_unwrap());
             }
 
             log!(LogDebug, "  need to reschedule");
@@ -662,11 +656,8 @@ impl Scheduler {
                     break;
                 }
             }
-            match maybe_remove {
-                Some(i) => {
-                    self.task_round_robin_queue.borrow_mut().remove(i);
-                }
-                None => (),
+            if let Some(i) = maybe_remove {
+                self.task_round_robin_queue.borrow_mut().remove(i);
             }
         } else {
             self.task_priority_set.borrow_mut().remove(&PriorityTup(

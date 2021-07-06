@@ -315,9 +315,8 @@ impl CompressedWriter {
 
             let mut completed_pos: u64 = g.next_thread_pos;
             for i in 0..g.thread_pos.len() {
-                match g.thread_pos[i] {
-                    Some(pos) => completed_pos = min(completed_pos, pos),
-                    None => (),
+                if let Some(pos) = g.thread_pos[i] {
+                    completed_pos = min(completed_pos, pos)
                 }
             }
 

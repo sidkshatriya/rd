@@ -231,13 +231,10 @@ impl RecordCommand {
 
         let rec_session = session.as_record().unwrap();
 
-        match self.print_trace_dir_fd {
-            Some(fd) => {
-                let dir = rec_session.trace_writer().trace_stream().dir().to_owned();
-                write_all(fd, dir.as_bytes());
-                write_all(fd, b"\n");
-            }
-            None => (),
+        if let Some(fd) = self.print_trace_dir_fd {
+            let dir = rec_session.trace_writer().trace_stream().dir().to_owned();
+            write_all(fd, dir.as_bytes());
+            write_all(fd, b"\n");
         }
 
         if self.copy_preload_src {

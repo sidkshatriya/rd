@@ -32,22 +32,19 @@ impl ProcMemMonitor {
                 Some(Component::Normal(OsStr::new("mem"))),
             )
         {
-            match maybe_tid_os_str {
-                Some(Component::Normal(tid_os_str)) => {
-                    let tid_str = String::from_utf8_lossy(tid_os_str.as_bytes());
-                    let maybe_tid = tid_str.parse::<pid_t>();
-                    let tid = maybe_tid.unwrap();
-                    let maybe_found = if t.rec_tid() == tid {
-                        Some(t.tuid())
-                    } else {
-                        t.session().find_task_from_rec_tid(tid).map(|ft| ft.tuid())
-                    };
+            if let Some(Component::Normal(tid_os_str)) = maybe_tid_os_str {
+                let tid_str = String::from_utf8_lossy(tid_os_str.as_bytes());
+                let maybe_tid = tid_str.parse::<pid_t>();
+                let tid = maybe_tid.unwrap();
+                let maybe_found = if t.rec_tid() == tid {
+                    Some(t.tuid())
+                } else {
+                    t.session().find_task_from_rec_tid(tid).map(|ft| ft.tuid())
+                };
 
-                    return ProcMemMonitor {
-                        maybe_tuid: maybe_found,
-                    };
-                }
-                _ => (),
+                return ProcMemMonitor {
+                    maybe_tuid: maybe_found,
+                };
             }
         }
         ProcMemMonitor { maybe_tuid: None }

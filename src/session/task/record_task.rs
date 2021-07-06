@@ -581,10 +581,8 @@ impl Task for RecordTask {
             // configurations (see https://github.com/rr-debugger/rr/issues/1979),
             // causing them to stop counting events.
             let mut sigset = !self.session().as_record().unwrap().rd_signal_mask();
-            match maybe_sig {
-                // We're injecting a signal, so make sure that signal is unblocked.
-                Some(sig) => sigset &= !signal_bit(sig),
-                None => (),
+            if let Some(sig) = maybe_sig {
+                sigset &= !signal_bit(sig)
             }
             let ret = self.fallible_ptrace(
                 PTRACE_SETSIGMASK,
@@ -640,23 +638,20 @@ impl Task for RecordTask {
     fn destroy(&self, maybe_detach: Option<bool>, sess: &dyn Session) {
         destroy_common(self, maybe_detach);
         let maybe_emulated_ptracer = self.emulated_ptracer();
-        match maybe_emulated_ptracer {
-            Some(emulated_ptracer) => {
-                emulated_ptracer
-                    .as_record_task()
-                    .unwrap()
-                    .emulated_ptrace_tracees
-                    .borrow_mut()
-                    .erase_task(self);
-                if self.emulated_ptrace_options.get() & PTRACE_O_TRACEEXIT != 0 {
-                    ed_assert!(
-                        self,
-                        self.stable_exit.get(),
-                        "PTRACE_O_TRACEEXIT only supported for stable exits for now"
-                    );
-                }
+        if let Some(emulated_ptracer) = maybe_emulated_ptracer {
+            emulated_ptracer
+                .as_record_task()
+                .unwrap()
+                .emulated_ptrace_tracees
+                .borrow_mut()
+                .erase_task(self);
+            if self.emulated_ptrace_options.get() & PTRACE_O_TRACEEXIT != 0 {
+                ed_assert!(
+                    self,
+                    self.stable_exit.get(),
+                    "PTRACE_O_TRACEEXIT only supported for stable exits for now"
+                );
             }
-            None => (),
         }
 
         for tt in self.emulated_ptrace_tracees.borrow().iter() {
@@ -1305,14 +1300,13 @@ impl RecordTask {
         self.post_exec_for_exe(&exe_file);
         {
             let maybe_emulated_ptracer = self.emulated_ptracer.borrow().clone();
-            match maybe_emulated_ptracer {
-                Some(emulated_ptracer) => ed_assert!(
+            if let Some(emulated_ptracer) = maybe_emulated_ptracer {
+                ed_assert!(
                     self,
                     !(emulated_ptracer.upgrade().unwrap().arch() == SupportedArch::X86
                         && self.arch() == SupportedArch::X64),
                     "We don't support a 32-bit process tracing a 64-bit process"
-                ),
-                None => (),
+                )
             }
         }
 
@@ -1655,12 +1649,11 @@ impl RecordTask {
                     self.emulated_stop_code.set(status);
                     self.emulated_stop_pending.set(true);
                     self.emulated_sigchld_pending.set(true);
-                    match self
+                    if let Some(t) = self
                         .session()
                         .find_task_from_rec_tid(get_ppid(self.tid()).unwrap())
                     {
-                        Some(t) => t.as_rec_unwrap().send_synthetic_sigchld_if_necessary(),
-                        None => (),
+                        t.as_rec_unwrap().send_synthetic_sigchld_if_necessary()
                     }
                 }
                 Some(_tracer) => {

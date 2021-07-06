@@ -484,10 +484,9 @@ pub fn floor_page_size<T: Into<usize> + From<usize>>(sz: T) -> T {
 }
 
 pub fn resize_shmem_segment(fd: &ScopedFd, num_bytes: usize) {
-    match ftruncate(fd.as_raw(), num_bytes as libc::off_t) {
+    if let Err(e) = ftruncate(fd.as_raw(), num_bytes as libc::off_t) {
         // errno will be reported as part of fatal
-        Err(e) => fatal!("Failed to resize shmem to {}: {:?}", num_bytes, e),
-        Ok(_) => (),
+        fatal!("Failed to resize shmem to {}: {:?}", num_bytes, e);
     }
 }
 
@@ -515,27 +514,22 @@ pub fn is_kernel_trap(si_code: i32) -> bool {
     si_code == TRAP_BRKPT as i32 || si_code == SI_KERNEL
 }
 
-/// Returns $TMPDIR or "/tmp". We call ensure_dir to make sure the directory
-/// exists and is writeable.
+/// Returns $RD_TMPDIR or $TMPDIR or "/tmp" in this order of priority.
+/// We call `ensure_dir()` to make sure the directory exists and is writeable.
 pub fn tmp_dir() -> PathBuf {
-    let mut maybe_dir = var_os("RD_TMPDIR");
-    match maybe_dir {
-        Some(dir) => {
-            ensure_dir(&dir, "temporary file directory (RD_TMPDIR)", Mode::S_IRWXU);
-            return PathBuf::from(dir);
-        }
-        None => (),
+    if let Some(dir) = var_os("RD_TMPDIR") {
+        ensure_dir(&dir, "temporary file directory (RD_TMPDIR)", Mode::S_IRWXU);
+        return PathBuf::from(dir);
     }
 
-    maybe_dir = var_os("TMPDIR");
-    if let Some(dir) = maybe_dir {
+    if let Some(dir) = var_os("TMPDIR") {
         ensure_dir(&dir, "temporary file directory (TMPDIR)", Mode::S_IRWXU);
         return PathBuf::from(dir);
     }
 
     // Don't try to create "/tmp", that probably won't work well.
     if let Err(e) = access("/tmp", AccessFlags::W_OK) {
-        fatal!("Can't write to temporary file directory /tmp: {:?}", e)
+        fatal!("Can't write to temporary file directory `/tmp': {:?}", e)
     }
 
     PathBuf::from("/tmp")

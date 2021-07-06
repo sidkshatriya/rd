@@ -1,7 +1,7 @@
 use super::{
     address_space::{AddressSpace, Privileged},
     on_create_task_common,
-    session_common::kill_all_tasks,
+    session_common::kill_all_tasks_common,
     session_inner::PtraceSyscallSeccompOrdering,
     task::{
         record_task::{
@@ -433,26 +433,23 @@ impl RecordSession {
 
         // LD_PRELOAD the syscall interception lib
         let maybe_syscall_buffer_lib_path = find_helper_library(SYSCALLBUF_LIB_FILENAME);
-        match maybe_syscall_buffer_lib_path {
-            Some(syscall_buffer_lib_path) => {
-                let mut ld_preload = Vec::<u8>::new();
-                match &exe_info.libasan_path {
-                    Some(asan_path) => {
-                        log!(LogDebug, "Prepending {:?} to LD_PRELOAD", asan_path);
-                        // Put an LD_PRELOAD entry for it before our preload library, because
-                        // it checks that it's loaded first
-                        ld_preload.extend_from_slice(asan_path.as_bytes());
-                        ld_preload.push(b':');
-                    }
-                    None => (),
+        if let Some(syscall_buffer_lib_path) = maybe_syscall_buffer_lib_path {
+            let mut ld_preload = Vec::<u8>::new();
+            match &exe_info.libasan_path {
+                Some(asan_path) => {
+                    log!(LogDebug, "Prepending {:?} to LD_PRELOAD", asan_path);
+                    // Put an LD_PRELOAD entry for it before our preload library, because
+                    // it checks that it's loaded first
+                    ld_preload.extend_from_slice(asan_path.as_bytes());
+                    ld_preload.push(b':');
                 }
-
-                ld_preload.extend_from_slice(OsString::from(syscall_buffer_lib_path).as_bytes());
-                ld_preload.push(b'/');
-                ld_preload.extend_from_slice(SYSCALLBUF_LIB_FILENAME_PADDED.as_bytes());
-                inject_ld_helper_library(&mut env, OsStr::new("LD_PRELOAD"), ld_preload);
+                None => (),
             }
-            None => (),
+
+            ld_preload.extend_from_slice(OsString::from(syscall_buffer_lib_path).as_bytes());
+            ld_preload.push(b'/');
+            ld_preload.extend_from_slice(SYSCALLBUF_LIB_FILENAME_PADDED.as_bytes());
+            inject_ld_helper_library(&mut env, OsStr::new("LD_PRELOAD"), ld_preload);
         }
 
         env.push(("RUNNING_UNDER_RD".into(), "1".into()));
@@ -1657,45 +1654,42 @@ impl RecordSession {
             t.as_rec_unwrap().next_pmc_interrupt_is_for_user.set(false);
             let maybe_vpmc = VirtualPerfCounterMonitor::interrupting_virtual_pmc_for_task(&**t);
 
-            match maybe_vpmc {
-                Some(vpmc) => {
-                    ed_assert!(
-                        &t,
-                        vpmc.borrow()
-                            .as_virtual_perf_counter_monitor()
-                            .unwrap()
-                            .target_tuid()
-                            == t.tuid()
-                    );
+            if let Some(vpmc) = maybe_vpmc {
+                ed_assert!(
+                    &t,
+                    vpmc.borrow()
+                        .as_virtual_perf_counter_monitor()
+                        .unwrap()
+                        .target_tuid()
+                        == t.tuid()
+                );
 
-                    let after: Ticks = max(
-                        vpmc.borrow()
-                            .as_virtual_perf_counter_monitor()
-                            .unwrap()
-                            .target_ticks()
-                            - t.tick_count(),
-                        0,
-                    );
+                let after: Ticks = max(
+                    vpmc.borrow()
+                        .as_virtual_perf_counter_monitor()
+                        .unwrap()
+                        .target_ticks()
+                        - t.tick_count(),
+                    0,
+                );
 
-                    match ticks_request {
-                        TicksRequest::ResumeWithTicksRequest(num_ticks_request)
-                            if after < num_ticks_request =>
-                        {
-                            debug_assert!(after > 0);
-                            let after_ticks_request = TicksRequest::ResumeWithTicksRequest(after);
-                            log!(
-                                LogDebug,
-                                "ticks_request constrained from {:?} to {:?} for vpmc",
-                                ticks_request,
-                                after_ticks_request
-                            );
-                            ticks_request = after_ticks_request;
-                            t.as_rec_unwrap().next_pmc_interrupt_is_for_user.set(true);
-                        }
-                        _ => (),
+                match ticks_request {
+                    TicksRequest::ResumeWithTicksRequest(num_ticks_request)
+                        if after < num_ticks_request =>
+                    {
+                        debug_assert!(after > 0);
+                        let after_ticks_request = TicksRequest::ResumeWithTicksRequest(after);
+                        log!(
+                            LogDebug,
+                            "ticks_request constrained from {:?} to {:?} for vpmc",
+                            ticks_request,
+                            after_ticks_request
+                        );
+                        ticks_request = after_ticks_request;
+                        t.as_rec_unwrap().next_pmc_interrupt_is_for_user.set(true);
                     }
+                    _ => (),
                 }
-                None => (),
             }
 
             let mut singlestep = t.as_rec_unwrap().emulated_ptrace_cont_command.get()
@@ -1891,11 +1885,8 @@ impl RecordSession {
     /// Flush buffers and write a termination record to the trace. Don't call
     /// record_step() after this.
     pub fn terminate_recording(&self) {
-        match self.scheduler().current() {
-            Some(t) => {
-                t.as_rec_unwrap().maybe_flush_syscallbuf();
-            }
-            None => (),
+        if let Some(t) = self.scheduler().current() {
+            t.as_rec_unwrap().maybe_flush_syscallbuf();
         }
 
         log!(LogInfo, "Processing termination request ...");
@@ -2533,7 +2524,7 @@ impl Session for RecordSession {
 
     /// Forwarded method
     fn kill_all_tasks(&self) {
-        kill_all_tasks(self)
+        kill_all_tasks_common(self)
     }
 
     fn on_destroy_task(&self, t: &dyn Task) {
@@ -2673,17 +2664,11 @@ fn read_exe_info<T: AsRef<OsStr>>(full_path: T) -> ExeInfo {
                     }
                 }
                 for s in elf_obj.dynsyms.iter() {
-                    match elf_obj.dynstrtab.get(s.st_name) {
-                        Some(name_res) => match name_res {
-                            Ok(name) => {
-                                if name == "__asan_init" {
-                                    has_asan_init = true;
-                                    break;
-                                }
-                            }
-                            Err(_) => (),
-                        },
-                        None => {}
+                    if let Some(Ok(name)) = elf_obj.dynstrtab.get(s.st_name) {
+                        if name == "__asan_init" {
+                            has_asan_init = true;
+                            break;
+                        }
                     }
                 }
                 ExeInfo {

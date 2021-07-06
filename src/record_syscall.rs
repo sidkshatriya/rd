@@ -1099,22 +1099,19 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(t: &RecordTask, regs: &Registers
                 }
             };
 
-            match maybe_target {
-                Some(target) => {
-                    log!(
-                        LogDebug,
-                        "Setting nice value for tid {} to {}",
-                        target.tid(),
-                        regs.arg3()
-                    );
-                    target
-                        .session()
-                        .as_record()
-                        .unwrap()
-                        .scheduler()
-                        .update_task_priority(target, regs.arg3_signed() as i32);
-                }
-                None => (),
+            if let Some(target) = maybe_target {
+                log!(
+                    LogDebug,
+                    "Setting nice value for tid {} to {}",
+                    target.tid(),
+                    regs.arg3()
+                );
+                target
+                    .session()
+                    .as_record()
+                    .unwrap()
+                    .scheduler()
+                    .update_task_priority(target, regs.arg3_signed() as i32);
             }
         }
         return Switchable::PreventSwitch;
@@ -1949,16 +1946,16 @@ fn protect_rd_sigs_sa_mask_arch<Arch: Architecture>(
         return false;
     }
 
-    match maybe_save {
-        Some(save) => unsafe {
+    if let Some(save) = maybe_save {
+        unsafe {
             copy_nonoverlapping(
                 &raw const sa as *const u8,
                 save.as_mut_ptr(),
                 size_of::<kernel_sigaction<Arch>>(),
             );
-        },
-        None => (),
+        }
     }
+
     sa.sa_mask = new_sig_set;
     write_val_mem(t, sap, &sa, None);
 
@@ -1982,15 +1979,14 @@ fn protect_rd_sigs(t: &RecordTask, p: RemotePtr<Void>, maybe_save: Option<&mut [
     }
 
     write_val_mem(t, setp, &new_sig_set, None);
-    match maybe_save {
-        Some(save) => unsafe {
+    if let Some(save) = maybe_save {
+        unsafe {
             copy_nonoverlapping(
                 &raw const sig_set as *const u8,
                 save.as_mut_ptr(),
                 size_of::<sig_set_t>(),
             );
-        },
-        None => (),
+        }
     }
 
     true
@@ -2127,22 +2123,19 @@ fn prepare_exit(t: &RecordTask, exit_code: i32) {
 
 fn check_signals_while_exiting(t: &RecordTask) {
     let maybe_s = t.peek_stashed_sig_to_deliver();
-    match maybe_s {
-        Some(s) => {
-            // An unblockable signal (SIGKILL, SIGSTOP) might be received
-            // and stashed. Since these signals are unblockable they take
-            // effect no matter what and we don't need to deliver them to an exiting
-            // thread.
-            let siginfo = unsafe { (*s).siginfo };
-            let sig = siginfo.si_signo;
-            ed_assert!(
-                t,
-                sig == SIGKILL || sig == SIGSTOP,
-                "Got unexpected signal {} (should have been blocked)",
-                siginfo
-            );
-        }
-        None => (),
+    if let Some(s) = maybe_s {
+        // An unblockable signal (SIGKILL, SIGSTOP) might be received
+        // and stashed. Since these signals are unblockable they take
+        // effect no matter what and we don't need to deliver them to an exiting
+        // thread.
+        let siginfo = unsafe { (*s).siginfo };
+        let sig = siginfo.si_signo;
+        ed_assert!(
+            t,
+            sig == SIGKILL || sig == SIGSTOP,
+            "Got unexpected signal {} (should have been blocked)",
+            siginfo
+        );
     }
 }
 
@@ -2344,20 +2337,13 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
             .did_exit_execve(t);
         process_execve(t, syscall_state);
         let emulated_ptracer = t.emulated_ptracer();
-        match emulated_ptracer {
-            Some(_tracer_rc) => {
-                if t.emulated_ptrace_options.get() & PTRACE_O_TRACEEXEC != 0 {
-                    t.emulate_ptrace_stop(
-                        WaitStatus::for_ptrace_event(PTRACE_EVENT_EXEC),
-                        None,
-                        None,
-                    );
-                } else if !t.emulated_ptrace_seized.get() {
-                    // Inject legacy SIGTRAP-after-exec
-                    t.tgkill(sig::SIGTRAP);
-                }
+        if let Some(_tracer_rc) = emulated_ptracer {
+            if t.emulated_ptrace_options.get() & PTRACE_O_TRACEEXEC != 0 {
+                t.emulate_ptrace_stop(WaitStatus::for_ptrace_event(PTRACE_EVENT_EXEC), None, None);
+            } else if !t.emulated_ptrace_seized.get() {
+                // Inject legacy SIGTRAP-after-exec
+                t.tgkill(sig::SIGTRAP);
             }
-            None => (),
         }
         return;
     }
@@ -2380,17 +2366,14 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
 
     if sys == Arch::IPC {
         let arg1 = t.regs_ref().arg1();
-        match arg1 as u32 {
-            SHMAT => {
-                // DIFF NOTE: Arch::unsigned_long in rr
-                let child_addr = RemotePtr::<Arch::unsigned_word>::from(t.regs_ref().arg4());
-                let out_ptr = read_val_mem(t, child_addr, None);
-                let out_rptr = RemotePtr::<Void>::new(out_ptr.try_into().unwrap());
-                let arg2_signed = t.regs_ref().arg2_signed();
-                let arg3_signed = t.regs_ref().arg3_signed();
-                process_shmat(t, arg2_signed as i32, arg3_signed as i32, out_rptr);
-            }
-            _ => (),
+        if arg1 as u32 == SHMAT {
+            // DIFF NOTE: Arch::unsigned_long in rr
+            let child_addr = RemotePtr::<Arch::unsigned_word>::from(t.regs_ref().arg4());
+            let out_ptr = read_val_mem(t, child_addr, None);
+            let out_rptr = RemotePtr::<Void>::new(out_ptr.try_into().unwrap());
+            let arg2_signed = t.regs_ref().arg2_signed();
+            let arg3_signed = t.regs_ref().arg3_signed();
+            process_shmat(t, arg2_signed as i32, arg3_signed as i32, out_rptr);
         }
         return;
     }
@@ -3013,21 +2996,18 @@ fn handle_opened_file(t: &RecordTask, fd: i32, flags: i32) -> OsString {
         file_monitor = Some(Box::new(BaseFileMonitor::new()));
     }
 
-    match file_monitor {
-        Some(mon) => {
-            // Write absolute file name
-            {
-                let mut syscall = RefMut::map(t.ev_mut(), |r| r.syscall_event_mut());
-                syscall.opened.push(OpenedFd {
-                    path: pathname.clone(),
-                    fd,
-                    device: st.st_dev,
-                    inode: st.st_ino,
-                });
-            }
-            t.fd_table().add_monitor(t, fd, mon);
+    if let Some(mon) = file_monitor {
+        // Write absolute file name
+        {
+            let mut syscall = RefMut::map(t.ev_mut(), |r| r.syscall_event_mut());
+            syscall.opened.push(OpenedFd {
+                path: pathname.clone(),
+                fd,
+                device: st.st_dev,
+                inode: st.st_ino,
+            });
         }
-        None => (),
+        t.fd_table().add_monitor(t, fd, mon);
     }
 
     pathname
@@ -3478,22 +3458,19 @@ fn process_execve(t: &RecordTask, syscall_state: &mut TaskSyscallState) {
         let mut remote =
             AutoRemoteSyscalls::new_with_mem_params(t, MemParamsEnabled::DisableMemoryParams);
 
-        match maybe_vvar {
-            Some(vvar) => {
-                // We're not going to map [vvar] during replay --- that wouldn't
-                // make sense, since it contains data from the kernel that isn't correct
-                // for replay, and we patch out the vdso syscalls that would use it.
-                // Unmapping it now makes recording look more like replay.
-                // Also note that under 4.0.7-300.fc22.x86_64 (at least) /proc/<pid>/mem
-                // can't read the contents of [vvar].
-                let munmap_no: i32 = syscall_number_for_munmap(remote.arch());
-                rd_infallible_syscall!(remote, munmap_no, vvar.start().as_usize(), vvar.size());
-                remote
-                    .task()
-                    .vm()
-                    .unmap(remote.task(), vvar.start(), vvar.size());
-            }
-            None => (),
+        if let Some(vvar) = maybe_vvar {
+            // We're not going to map [vvar] during replay --- that wouldn't
+            // make sense, since it contains data from the kernel that isn't correct
+            // for replay, and we patch out the vdso syscalls that would use it.
+            // Unmapping it now makes recording look more like replay.
+            // Also note that under 4.0.7-300.fc22.x86_64 (at least) /proc/<pid>/mem
+            // can't read the contents of [vvar].
+            let munmap_no: i32 = syscall_number_for_munmap(remote.arch());
+            rd_infallible_syscall!(remote, munmap_no, vvar.start().as_usize(), vvar.size());
+            remote
+                .task()
+                .vm()
+                .unmap(remote.task(), vvar.start(), vvar.size());
         }
 
         for km in &stacks {
@@ -5237,28 +5214,25 @@ fn prepare_ioctl<Arch: Architecture>(
     }
 
     // These ioctls are mostly regular but require additional recording.
-    match ioctl_mask_size(request) {
-        IOCTL_MASK_SIZE_VIDIOC_DQBUF => {
-            if size as usize == size_of::<v4l2_buffer<Arch>>() {
-                syscall_state.reg_parameter_with_size(
-                    3,
-                    ParamSize::from(size as usize),
-                    Some(ArgMode::InOut),
-                    None,
-                );
-                syscall_state.after_syscall_action(Box::new(record_v4l2_buffer_contents::<Arch>));
-                // VIDIOC_DQBUF can block. It can't if the fd was opened O_NONBLOCK,
-                // but we don't try to determine that.
-                // Note that we're exposed to potential race conditions here because
-                // VIDIOC_DQBUF (blocking or not) assumes the driver has filled
-                // the mmapped data region at some point since the buffer was queued
-                // with VIDIOC_QBUF, and we don't/can't know exactly when that
-                // happened. Replay could fail if this thread or another thread reads
-                // the contents of mmapped contents queued with the driver.
-                return Switchable::AllowSwitch;
-            }
+    if ioctl_mask_size(request) == IOCTL_MASK_SIZE_VIDIOC_DQBUF {
+        if size as usize == size_of::<v4l2_buffer<Arch>>() {
+            syscall_state.reg_parameter_with_size(
+                3,
+                ParamSize::from(size as usize),
+                Some(ArgMode::InOut),
+                None,
+            );
+            syscall_state.after_syscall_action(Box::new(record_v4l2_buffer_contents::<Arch>));
+            // VIDIOC_DQBUF can block. It can't if the fd was opened O_NONBLOCK,
+            // but we don't try to determine that.
+            // Note that we're exposed to potential race conditions here because
+            // VIDIOC_DQBUF (blocking or not) assumes the driver has filled
+            // the mmapped data region at some point since the buffer was queued
+            // with VIDIOC_QBUF, and we don't/can't know exactly when that
+            // happened. Replay could fail if this thread or another thread reads
+            // the contents of mmapped contents queued with the driver.
+            return Switchable::AllowSwitch;
         }
-        _ => (),
     }
 
     syscall_state.expect_errno = EINVAL;
@@ -5661,15 +5635,14 @@ fn check_scm_rights_fd<Arch: Architecture>(t: &RecordTask, msg: &msghdr<Arch>) {
 }
 
 fn block_sock_opt(level: i32, optname: u32, syscall_state: &mut TaskSyscallState) -> bool {
-    match level {
-        SOL_PACKET => match optname {
+    if level == SOL_PACKET {
+        match optname {
             PACKET_RX_RING | PACKET_TX_RING => {
                 syscall_state.emulate_result_signed(-ENOPROTOOPT as isize);
                 return true;
             }
             _ => (),
-        },
-        _ => (),
+        }
     }
 
     false
@@ -5688,8 +5661,8 @@ fn prepare_setsockopt<Arch: Architecture>(
         t.set_regs(&r);
     } else {
         match level {
-            IPPROTO_IP | IPPROTO_IPV6 => match optname {
-                SO_SET_REPLACE => {
+            IPPROTO_IP | IPPROTO_IPV6 => {
+                if optname == SO_SET_REPLACE {
                     if Arch::long_as_usize(args.optlen) < size_of::<ipt_replace<Arch>>() {
                         return Switchable::PreventSwitch;
                     }
@@ -5714,8 +5687,7 @@ fn prepare_setsockopt<Arch: Architecture>(
                         None,
                     );
                 }
-                _ => (),
-            },
+            }
             _ => (),
         }
     }
@@ -5729,25 +5701,22 @@ fn verify_ptrace_target(
     pid: pid_t,
 ) -> Option<TaskSharedPtr> {
     if tracer.rec_tid() != pid {
-        match tracer.session().find_task_from_rec_tid(pid) {
-            Some(rc_tracee) => {
+        if let Some(rc_tracee) = tracer.session().find_task_from_rec_tid(pid) {
+            {
+                let tracee = rc_tracee.as_rec_unwrap();
+                if tracee
+                    .emulated_ptracer
+                    .borrow()
+                    .as_ref()
+                    .map_or(true, |ep| !ep.ptr_eq(&tracer.weak_self))
+                    || tracee.emulated_stop_type.get() == EmulatedStopType::NotStopped
                 {
-                    let tracee = rc_tracee.as_rec_unwrap();
-                    if tracee
-                        .emulated_ptracer
-                        .borrow()
-                        .as_ref()
-                        .map_or(true, |ep| !ep.ptr_eq(&tracer.weak_self))
-                        || tracee.emulated_stop_type.get() == EmulatedStopType::NotStopped
-                    {
-                        syscall_state.emulate_result_signed(-ESRCH as isize);
-                        return None;
-                    }
+                    syscall_state.emulate_result_signed(-ESRCH as isize);
+                    return None;
                 }
-
-                return Some(rc_tracee);
             }
-            None => (),
+
+            return Some(rc_tracee);
         }
     }
 
@@ -5796,20 +5765,17 @@ fn widen_buffer_signed(buf: &[u8]) -> i64 {
 }
 
 fn prepare_ptrace_cont(tracee: &RecordTask, maybe_sig: Option<Sig>, command: u32) {
-    match maybe_sig {
-        Some(sig) => {
-            let si = tracee.take_ptrace_signal_siginfo(sig);
-            log!(LogDebug, "Doing ptrace resume with signal {}", sig);
-            // Treat signal as nondeterministic; it won't happen just by
-            // replaying the tracee.
-            let disposition =
-                tracee.sig_resolved_disposition(sig, SignalDeterministic::NondeterministicSig);
-            tracee.push_event(Event::new_signal_event(
-                EventType::EvSignal,
-                SignalEventData::new(&si, SignalDeterministic::NondeterministicSig, disposition),
-            ));
-        }
-        None => (),
+    if let Some(sig) = maybe_sig {
+        let si = tracee.take_ptrace_signal_siginfo(sig);
+        log!(LogDebug, "Doing ptrace resume with signal {}", sig);
+        // Treat signal as nondeterministic; it won't happen just by
+        // replaying the tracee.
+        let disposition =
+            tracee.sig_resolved_disposition(sig, SignalDeterministic::NondeterministicSig);
+        tracee.push_event(Event::new_signal_event(
+            EventType::EvSignal,
+            SignalEventData::new(&si, SignalDeterministic::NondeterministicSig, disposition),
+        ));
     }
 
     tracee.emulated_stop_type.set(EmulatedStopType::NotStopped);
@@ -5985,144 +5951,118 @@ fn prepare_ptrace<Arch: Architecture>(
     match command {
         PTRACE_ATTACH => {
             let maybe_tracee = prepare_ptrace_attach(t, pid, syscall_state);
-            match maybe_tracee {
-                Some(tracee_rc) => {
-                    let tracee = tracee_rc.as_rec_unwrap();
-                    tracee.set_emulated_ptracer(Some(t));
-                    tracee.emulated_ptrace_seized.set(false);
-                    tracee.emulated_ptrace_options.set(0);
-                    syscall_state.emulate_result(0);
-                    if tracee.emulated_stop_type.get() == EmulatedStopType::NotStopped {
-                        // Send SIGSTOP to this specific thread. Otherwise the kernel might
-                        // deliver SIGSTOP to some other thread of the process, and we won't
-                        // generate any ptrace event if that thread isn't being ptraced.
-                        tracee.tgkill(sig::SIGSTOP);
-                    } else {
-                        ptrace_attach_to_already_stopped_task(tracee);
-                    }
+            if let Some(tracee_rc) = maybe_tracee {
+                let tracee = tracee_rc.as_rec_unwrap();
+                tracee.set_emulated_ptracer(Some(t));
+                tracee.emulated_ptrace_seized.set(false);
+                tracee.emulated_ptrace_options.set(0);
+                syscall_state.emulate_result(0);
+                if tracee.emulated_stop_type.get() == EmulatedStopType::NotStopped {
+                    // Send SIGSTOP to this specific thread. Otherwise the kernel might
+                    // deliver SIGSTOP to some other thread of the process, and we won't
+                    // generate any ptrace event if that thread isn't being ptraced.
+                    tracee.tgkill(sig::SIGSTOP);
+                } else {
+                    ptrace_attach_to_already_stopped_task(tracee);
                 }
-                None => (),
             }
         }
         PTRACE_TRACEME => {
             let maybe_tracer = prepare_ptrace_traceme(t, syscall_state);
-            match maybe_tracer {
-                Some(tracer_rc) => {
-                    let tracer = tracer_rc.as_rec_unwrap();
-                    t.set_emulated_ptracer(Some(tracer));
-                    t.emulated_ptrace_seized.set(false);
-                    t.emulated_ptrace_options.set(0);
-                    syscall_state.emulate_result(0);
-                }
-                None => (),
+            if let Some(tracer_rc) = maybe_tracer {
+                let tracer = tracer_rc.as_rec_unwrap();
+                t.set_emulated_ptracer(Some(tracer));
+                t.emulated_ptrace_seized.set(false);
+                t.emulated_ptrace_options.set(0);
+                syscall_state.emulate_result(0);
             }
         }
         PTRACE_SEIZE => {
             let maybe_tracee = prepare_ptrace_attach(t, pid, syscall_state);
-            match maybe_tracee {
-                Some(tracee_rc) => {
-                    if t.regs_ref().arg3() != 0 {
-                        syscall_state.emulate_result_signed(-EIO as isize);
-                    } else if verify_ptrace_options(t, syscall_state) {
-                        let tracee = tracee_rc.as_rec_unwrap();
-                        tracee.set_emulated_ptracer(Some(t));
-                        tracee.emulated_ptrace_seized.set(true);
-                        tracee
-                            .emulated_ptrace_options
-                            .set(t.regs_ref().arg4() as u32);
-                        if tracee.emulated_stop_type.get() == EmulatedStopType::GroupStop {
-                            ptrace_attach_to_already_stopped_task(tracee);
-                        }
-                        syscall_state.emulate_result(0);
+            if let Some(tracee_rc) = maybe_tracee {
+                if t.regs_ref().arg3() != 0 {
+                    syscall_state.emulate_result_signed(-EIO as isize);
+                } else if verify_ptrace_options(t, syscall_state) {
+                    let tracee = tracee_rc.as_rec_unwrap();
+                    tracee.set_emulated_ptracer(Some(t));
+                    tracee.emulated_ptrace_seized.set(true);
+                    tracee
+                        .emulated_ptrace_options
+                        .set(t.regs_ref().arg4() as u32);
+                    if tracee.emulated_stop_type.get() == EmulatedStopType::GroupStop {
+                        ptrace_attach_to_already_stopped_task(tracee);
                     }
+                    syscall_state.emulate_result(0);
                 }
-                None => (),
             }
         }
         PTRACE_OLDSETOPTIONS | PTRACE_SETOPTIONS => {
             let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
-            match maybe_tracee {
-                Some(tracee_rc) => {
-                    let tracee = tracee_rc.as_rec_unwrap();
-                    if verify_ptrace_options(t, syscall_state) {
-                        tracee
-                            .emulated_ptrace_options
-                            .set(t.regs_ref().arg4() as u32);
-                        syscall_state.emulate_result(0);
-                    }
+            if let Some(tracee_rc) = maybe_tracee {
+                let tracee = tracee_rc.as_rec_unwrap();
+                if verify_ptrace_options(t, syscall_state) {
+                    tracee
+                        .emulated_ptrace_options
+                        .set(t.regs_ref().arg4() as u32);
+                    syscall_state.emulate_result(0);
                 }
-                None => (),
             }
         }
         PTRACE_GETEVENTMSG => {
             let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
-            match maybe_tracee {
-                Some(tracee_rc) => {
-                    let tracee = tracee_rc.as_rec_unwrap();
-                    let datap = syscall_state.reg_parameter::<Arch::unsigned_long>(4, None, None);
-                    write_val_mem(
-                        t,
-                        datap,
-                        &Arch::usize_as_ulong(tracee.emulated_ptrace_event_msg.get()),
-                        None,
-                    );
-                    syscall_state.emulate_result(0);
-                }
-                None => (),
+            if let Some(tracee_rc) = maybe_tracee {
+                let tracee = tracee_rc.as_rec_unwrap();
+                let datap = syscall_state.reg_parameter::<Arch::unsigned_long>(4, None, None);
+                write_val_mem(
+                    t,
+                    datap,
+                    &Arch::usize_as_ulong(tracee.emulated_ptrace_event_msg.get()),
+                    None,
+                );
+                syscall_state.emulate_result(0);
             }
         }
         PTRACE_GETSIGINFO => {
             let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
-            match maybe_tracee {
-                Some(tracee_rc) => {
-                    let tracee = tracee_rc.as_rec_unwrap();
-                    let datap = syscall_state.reg_parameter::<siginfo_t<Arch>>(4, None, None);
-                    let mut dest: siginfo_t<Arch> = Default::default();
-                    set_arch_siginfo(&tracee.get_saved_ptrace_siginfo(), &mut dest);
-                    write_val_mem(t, datap, &dest, None);
-                    syscall_state.emulate_result(0);
-                }
-                None => (),
+            if let Some(tracee_rc) = maybe_tracee {
+                let tracee = tracee_rc.as_rec_unwrap();
+                let datap = syscall_state.reg_parameter::<siginfo_t<Arch>>(4, None, None);
+                let mut dest: siginfo_t<Arch> = Default::default();
+                set_arch_siginfo(&tracee.get_saved_ptrace_siginfo(), &mut dest);
+                write_val_mem(t, datap, &dest, None);
+                syscall_state.emulate_result(0);
             }
         }
         PTRACE_GETREGS => {
             let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
             let data = syscall_state.reg_parameter::<Arch::user_regs_struct>(4, None, None);
-            match maybe_tracee {
-                Some(tracee_rc) => {
-                    let tracee = tracee_rc.as_rec_unwrap();
-                    let regs: Vec<u8> = tracee.regs_ref().get_ptrace_for_arch(Arch::arch());
-                    ed_assert_eq!(t, regs.len(), data.referent_size());
-                    t.write_bytes_helper(
-                        RemotePtr::<u8>::cast(data),
-                        &regs,
-                        None,
-                        WriteFlags::empty(),
-                    );
-                    syscall_state.emulate_result(0);
-                }
-                None => (),
+            if let Some(tracee_rc) = maybe_tracee {
+                let tracee = tracee_rc.as_rec_unwrap();
+                let regs: Vec<u8> = tracee.regs_ref().get_ptrace_for_arch(Arch::arch());
+                ed_assert_eq!(t, regs.len(), data.referent_size());
+                t.write_bytes_helper(
+                    RemotePtr::<u8>::cast(data),
+                    &regs,
+                    None,
+                    WriteFlags::empty(),
+                );
+                syscall_state.emulate_result(0);
             }
         }
         PTRACE_GETFPREGS => {
             let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
-            match maybe_tracee {
-                Some(tracee_rc) => {
-                    let tracee = tracee_rc.as_rec_unwrap();
-                    let data =
-                        syscall_state.reg_parameter::<Arch::user_fpregs_struct>(4, None, None);
-                    let regs: Vec<u8> =
-                        tracee.extra_regs_ref().get_user_fpregs_struct(Arch::arch());
-                    ed_assert_eq!(t, regs.len(), data.referent_size());
-                    t.write_bytes_helper(
-                        RemotePtr::<u8>::cast(data),
-                        &regs,
-                        None,
-                        WriteFlags::empty(),
-                    );
-                    syscall_state.emulate_result(0);
-                }
-                None => (),
+            if let Some(tracee_rc) = maybe_tracee {
+                let tracee = tracee_rc.as_rec_unwrap();
+                let data = syscall_state.reg_parameter::<Arch::user_fpregs_struct>(4, None, None);
+                let regs: Vec<u8> = tracee.extra_regs_ref().get_user_fpregs_struct(Arch::arch());
+                ed_assert_eq!(t, regs.len(), data.referent_size());
+                t.write_bytes_helper(
+                    RemotePtr::<u8>::cast(data),
+                    &regs,
+                    None,
+                    WriteFlags::empty(),
+                );
+                syscall_state.emulate_result(0);
             }
         }
         PTRACE_GETFPXREGS => {
@@ -6131,16 +6071,13 @@ fn prepare_ptrace<Arch: Architecture>(
                 syscall_state.expect_errno = EIO;
             } else {
                 let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
-                match maybe_tracee {
-                    Some(tracee_rc) => {
-                        let tracee = tracee_rc.as_rec_unwrap();
-                        let data =
-                            syscall_state.reg_parameter::<x86::user_fpxregs_struct>(4, None, None);
-                        let regs = tracee.extra_regs_ref().get_user_fpxregs_struct();
-                        write_val_mem(t, data, &regs, None);
-                        syscall_state.emulate_result(0);
-                    }
-                    None => (),
+                if let Some(tracee_rc) = maybe_tracee {
+                    let tracee = tracee_rc.as_rec_unwrap();
+                    let data =
+                        syscall_state.reg_parameter::<x86::user_fpxregs_struct>(4, None, None);
+                    let regs = tracee.extra_regs_ref().get_user_fpxregs_struct();
+                    write_val_mem(t, data, &regs, None);
+                    syscall_state.emulate_result(0);
                 }
             }
         }
@@ -6149,42 +6086,33 @@ fn prepare_ptrace<Arch: Architecture>(
             match arg3 as u32 {
                 NT_PRSTATUS => {
                     let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
-                    match maybe_tracee {
-                        Some(tracee_rc) => {
-                            let tracee = tracee_rc.as_rec_unwrap();
-                            let regs = tracee.regs_ref().get_ptrace_for_arch(Arch::arch());
-                            ptrace_get_reg_set::<Arch>(t, syscall_state, &regs);
-                        }
-                        None => (),
+                    if let Some(tracee_rc) = maybe_tracee {
+                        let tracee = tracee_rc.as_rec_unwrap();
+                        let regs = tracee.regs_ref().get_ptrace_for_arch(Arch::arch());
+                        ptrace_get_reg_set::<Arch>(t, syscall_state, &regs);
                     }
                 }
                 NT_FPREGSET => {
                     let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
-                    match maybe_tracee {
-                        Some(tracee_rc) => {
-                            let tracee = tracee_rc.as_rec_unwrap();
-                            let regs = tracee.extra_regs_ref().get_user_fpregs_struct(Arch::arch());
-                            ptrace_get_reg_set::<Arch>(t, syscall_state, &regs);
-                        }
-                        None => (),
+                    if let Some(tracee_rc) = maybe_tracee {
+                        let tracee = tracee_rc.as_rec_unwrap();
+                        let regs = tracee.extra_regs_ref().get_user_fpregs_struct(Arch::arch());
+                        ptrace_get_reg_set::<Arch>(t, syscall_state, &regs);
                     }
                 }
                 NT_X86_XSTATE => {
                     let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
-                    match maybe_tracee {
-                        Some(tracee_rc) => {
-                            let tracee = tracee_rc.as_rec_unwrap();
-                            let format = tracee.extra_regs_ref().format();
-                            match format {
-                                Format::XSave => ptrace_get_reg_set::<Arch>(
-                                    t,
-                                    syscall_state,
-                                    tracee.extra_regs_ref().data_bytes(),
-                                ),
-                                _ => syscall_state.emulate_result_signed(-EINVAL as isize),
-                            }
+                    if let Some(tracee_rc) = maybe_tracee {
+                        let tracee = tracee_rc.as_rec_unwrap();
+                        let format = tracee.extra_regs_ref().format();
+                        match format {
+                            Format::XSave => ptrace_get_reg_set::<Arch>(
+                                t,
+                                syscall_state,
+                                tracee.extra_regs_ref().data_bytes(),
+                            ),
+                            _ => syscall_state.emulate_result_signed(-EINVAL as isize),
                         }
-                        None => (),
                     }
                 }
                 _ => {
@@ -6249,23 +6177,20 @@ fn prepare_ptrace<Arch: Architecture>(
                 }
                 NT_X86_XSTATE => {
                     let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
-                    match maybe_tracee {
-                        Some(tracee_rc) => {
-                            let format = tracee_rc.extra_regs_ref().format();
-                            match format {
-                                Format::XSave => {
-                                    ptrace_verify_set_reg_set::<Arch>(
-                                        t,
-                                        tracee_rc.extra_regs_ref().data_size(),
-                                        syscall_state,
-                                    );
-                                }
-                                _ => {
-                                    syscall_state.emulate_result_signed(-EINVAL as isize);
-                                }
+                    if let Some(tracee_rc) = maybe_tracee {
+                        let format = tracee_rc.extra_regs_ref().format();
+                        match format {
+                            Format::XSave => {
+                                ptrace_verify_set_reg_set::<Arch>(
+                                    t,
+                                    tracee_rc.extra_regs_ref().data_size(),
+                                    syscall_state,
+                                );
+                            }
+                            _ => {
+                                syscall_state.emulate_result_signed(-EINVAL as isize);
                             }
                         }
-                        None => (),
                     }
                 }
                 _ => {
@@ -6276,141 +6201,128 @@ fn prepare_ptrace<Arch: Architecture>(
         }
         PTRACE_PEEKTEXT | PTRACE_PEEKDATA => {
             let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
-            match maybe_tracee {
-                Some(tracee_rc) => {
-                    // The actual syscall returns the data via the 'data' out-parameter.
-                    // The behavior of returning the data as the system call result is
-                    // provided by the glibc wrapper.
-                    let datap = syscall_state.reg_parameter::<Arch::unsigned_word>(4, None, None);
-                    let addr = RemotePtr::<Arch::unsigned_word>::from(t.regs_ref().arg3());
-                    let mut ok = true;
-                    let tracee = tracee_rc.as_rec_unwrap();
-                    let v = read_val_mem(tracee, addr, Some(&mut ok));
-                    if ok {
-                        write_val_mem(t, datap, &v, None);
-                        syscall_state.emulate_result(0);
-                    } else {
-                        syscall_state.emulate_result_signed(-EIO as isize);
-                    }
+            if let Some(tracee_rc) = maybe_tracee {
+                // The actual syscall returns the data via the 'data' out-parameter.
+                // The behavior of returning the data as the system call result is
+                // provided by the glibc wrapper.
+                let datap = syscall_state.reg_parameter::<Arch::unsigned_word>(4, None, None);
+                let addr = RemotePtr::<Arch::unsigned_word>::from(t.regs_ref().arg3());
+                let mut ok = true;
+                let tracee = tracee_rc.as_rec_unwrap();
+                let v = read_val_mem(tracee, addr, Some(&mut ok));
+                if ok {
+                    write_val_mem(t, datap, &v, None);
+                    syscall_state.emulate_result(0);
+                } else {
+                    syscall_state.emulate_result_signed(-EIO as isize);
                 }
-                None => (),
             }
         }
         PTRACE_POKETEXT | PTRACE_POKEDATA => {
             let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
-            match maybe_tracee {
-                Some(tracee_rc) => {
-                    let tracee = tracee_rc.as_rec_unwrap();
-                    let addr = RemotePtr::<Arch::unsigned_word>::from(t.regs_ref().arg3());
-                    let data = Arch::as_unsigned_word(t.regs_ref().arg4());
-                    let mut ok = true;
-                    write_val_mem(tracee, addr, &data, Some(&mut ok));
-                    if ok {
-                        // Since we're recording data that might not be for `t`, we have to
-                        // handle this specially during replay.
-                        tracee.record_local_for(addr, &data);
-                        syscall_state.emulate_result(0);
-                    } else {
-                        syscall_state.emulate_result_signed(-EIO as isize);
-                    }
+            if let Some(tracee_rc) = maybe_tracee {
+                let tracee = tracee_rc.as_rec_unwrap();
+                let addr = RemotePtr::<Arch::unsigned_word>::from(t.regs_ref().arg3());
+                let data = Arch::as_unsigned_word(t.regs_ref().arg4());
+                let mut ok = true;
+                write_val_mem(tracee, addr, &data, Some(&mut ok));
+                if ok {
+                    // Since we're recording data that might not be for `t`, we have to
+                    // handle this specially during replay.
+                    tracee.record_local_for(addr, &data);
+                    syscall_state.emulate_result(0);
+                } else {
+                    syscall_state.emulate_result_signed(-EIO as isize);
                 }
-                None => (),
             }
         }
         PTRACE_PEEKUSER => {
             let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
-            match maybe_tracee {
-                Some(tracee) => {
-                    // The actual syscall returns the data via the 'data' out-parameter.
-                    // The behavior of returning the data as the system call result is
-                    // provided by the glibc wrapper.
-                    let addr = t.regs_ref().arg3();
-                    let mut data: Arch::unsigned_word = 0u8.into();
-                    if (addr & (size_of_val(&data) - 1) != 0) || addr >= size_of::<Arch::user>() {
-                        syscall_state.emulate_result_signed(-EIO as isize);
-                    } else {
-                        let datap =
-                            syscall_state.reg_parameter::<Arch::unsigned_word>(4, None, None);
-                        if addr < size_of::<Arch::user_regs_struct>() {
-                            let mut buf = [0u8; registers::MAX_REG_SIZE_BYTES];
-                            let res = tracee
-                                .regs_ref()
-                                .read_register_by_user_offset(&mut buf, addr);
-                            match res {
-                                Some(size) => {
-                                    // For unclear reasons, all 32-bit user_regs_struct members are
-                                    // signed while all 64-bit user_regs_struct members are unsigned.
-                                    match Arch::arch() {
-                                        SupportedArch::X86 => {
-                                            data = Arch::as_unsigned_word(widen_buffer_signed(
-                                                &buf[0..size],
-                                            )
-                                                as usize);
-                                        }
-                                        SupportedArch::X64 => {
-                                            data = Arch::as_unsigned_word(widen_buffer_unsigned(
-                                                &buf[0..size],
-                                            )
-                                                as usize);
-                                        }
+            if let Some(tracee) = maybe_tracee {
+                // The actual syscall returns the data via the 'data' out-parameter.
+                // The behavior of returning the data as the system call result is
+                // provided by the glibc wrapper.
+                let addr = t.regs_ref().arg3();
+                let mut data: Arch::unsigned_word = 0u8.into();
+                if (addr & (size_of_val(&data) - 1) != 0) || addr >= size_of::<Arch::user>() {
+                    syscall_state.emulate_result_signed(-EIO as isize);
+                } else {
+                    let datap = syscall_state.reg_parameter::<Arch::unsigned_word>(4, None, None);
+                    if addr < size_of::<Arch::user_regs_struct>() {
+                        let mut buf = [0u8; registers::MAX_REG_SIZE_BYTES];
+                        let res = tracee
+                            .regs_ref()
+                            .read_register_by_user_offset(&mut buf, addr);
+                        match res {
+                            Some(size) => {
+                                // For unclear reasons, all 32-bit user_regs_struct members are
+                                // signed while all 64-bit user_regs_struct members are unsigned.
+                                match Arch::arch() {
+                                    SupportedArch::X86 => {
+                                        data = Arch::as_unsigned_word(widen_buffer_signed(
+                                            &buf[0..size],
+                                        )
+                                            as usize);
+                                    }
+                                    SupportedArch::X64 => {
+                                        data = Arch::as_unsigned_word(widen_buffer_unsigned(
+                                            &buf[0..size],
+                                        )
+                                            as usize);
                                     }
                                 }
-                                None => {
-                                    data = 0u8.into();
-                                }
                             }
-                        } else {
-                            match Arch::arch() {
-                                SupportedArch::X86
-                                    if addr >= offset_of!(x86::user, u_debugreg)
-                                        && addr
-                                            < offset_of!(x86::user, u_debugreg)
-                                                + 8 * size_of_val(&data) =>
-                                {
-                                    let regno = (addr - offset_of!(x86::user, u_debugreg))
-                                        / size_of_val(&data);
-                                    data = Arch::as_unsigned_word(tracee.get_debug_reg(regno));
-                                }
-                                SupportedArch::X64
-                                    if addr >= offset_of!(x64::user, u_debugreg)
-                                        && addr
-                                            < offset_of!(x64::user, u_debugreg)
-                                                + 8 * size_of_val(&data) =>
-                                {
-                                    let regno = (addr - offset_of!(x64::user, u_debugreg))
-                                        / size_of_val(&data);
-                                    data = Arch::as_unsigned_word(tracee.get_debug_reg(regno));
-                                }
-                                _ => {
-                                    data = 0u8.into();
-                                }
+                            None => {
+                                data = 0u8.into();
                             }
                         }
-
-                        write_val_mem(t, datap, &data, None);
-                        syscall_state.emulate_result(0);
+                    } else {
+                        match Arch::arch() {
+                            SupportedArch::X86
+                                if addr >= offset_of!(x86::user, u_debugreg)
+                                    && addr
+                                        < offset_of!(x86::user, u_debugreg)
+                                            + 8 * size_of_val(&data) =>
+                            {
+                                let regno =
+                                    (addr - offset_of!(x86::user, u_debugreg)) / size_of_val(&data);
+                                data = Arch::as_unsigned_word(tracee.get_debug_reg(regno));
+                            }
+                            SupportedArch::X64
+                                if addr >= offset_of!(x64::user, u_debugreg)
+                                    && addr
+                                        < offset_of!(x64::user, u_debugreg)
+                                            + 8 * size_of_val(&data) =>
+                            {
+                                let regno =
+                                    (addr - offset_of!(x64::user, u_debugreg)) / size_of_val(&data);
+                                data = Arch::as_unsigned_word(tracee.get_debug_reg(regno));
+                            }
+                            _ => {
+                                data = 0u8.into();
+                            }
+                        }
                     }
+
+                    write_val_mem(t, datap, &data, None);
+                    syscall_state.emulate_result(0);
                 }
-                None => (),
             }
         }
         PTRACE_POKEUSER => {
             let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
-            match maybe_tracee {
-                Some(_tracee_rc) => {
-                    // The actual syscall returns the data via the 'data' out-parameter.
-                    // The behavior of returning the data as the system call result is
-                    // provided by the glibc wrapper.
-                    let addr = t.regs_ref().arg3();
-                    if addr & (size_of::<Arch::unsigned_word>() - 1) != 0
-                        || addr >= size_of::<Arch::user>()
-                    {
-                        syscall_state.emulate_result_signed(-EIO as isize);
-                    } else {
-                        syscall_state.emulate_result(0);
-                    }
+            if let Some(_tracee_rc) = maybe_tracee {
+                // The actual syscall returns the data via the 'data' out-parameter.
+                // The behavior of returning the data as the system call result is
+                // provided by the glibc wrapper.
+                let addr = t.regs_ref().arg3();
+                if addr & (size_of::<Arch::unsigned_word>() - 1) != 0
+                    || addr >= size_of::<Arch::user>()
+                {
+                    syscall_state.emulate_result_signed(-EIO as isize);
+                } else {
+                    syscall_state.emulate_result(0);
                 }
-                None => (),
             }
         }
         PTRACE_SYSCALL
@@ -6426,99 +6338,86 @@ fn prepare_ptrace<Arch: Architecture>(
             // try to avoid delivering signals (e.g. PTRACE_SINGLESTEP's SIGTRAP)
             // inside syscallbuf code. However, if the syscallbuf if locked, doing
             // so should be safe.
-            match maybe_tracee {
-                Some(tracee_rc) => {
-                    if t.regs_ref().arg4() as u32 >= NUM_SIGNALS as u32 {
-                        // Invalid signals in ptrace resume cause EIO
-                        syscall_state.emulate_result_signed(-EIO as isize);
-                    } else {
-                        let tracee = tracee_rc.as_rec_unwrap();
-                        tracee.set_syscallbuf_locked(command != PTRACE_CONT);
-                        prepare_ptrace_cont(
-                            tracee,
-                            Sig::try_from(t.regs_ref().arg4() as i32).ok(),
-                            command,
-                        );
-                        syscall_state.emulate_result(0);
-                    }
+            if let Some(tracee_rc) = maybe_tracee {
+                if t.regs_ref().arg4() as u32 >= NUM_SIGNALS as u32 {
+                    // Invalid signals in ptrace resume cause EIO
+                    syscall_state.emulate_result_signed(-EIO as isize);
+                } else {
+                    let tracee = tracee_rc.as_rec_unwrap();
+                    tracee.set_syscallbuf_locked(command != PTRACE_CONT);
+                    prepare_ptrace_cont(
+                        tracee,
+                        Sig::try_from(t.regs_ref().arg4() as i32).ok(),
+                        command,
+                    );
+                    syscall_state.emulate_result(0);
                 }
-                None => (),
             }
         }
         PTRACE_DETACH => {
             let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
-            match maybe_tracee {
-                Some(tracee_rc) => {
-                    let tracee = tracee_rc.as_rec_unwrap();
-                    tracee.set_syscallbuf_locked(false);
-                    tracee.emulated_ptrace_options.set(0);
-                    tracee.emulated_ptrace_cont_command.set(0);
-                    tracee.emulated_stop_pending.set(false);
-                    tracee.emulated_ptrace_queued_exit_stop.set(false);
-                    prepare_ptrace_cont(tracee, Sig::try_from(t.regs_ref().arg4() as i32).ok(), 0);
-                    tracee.set_emulated_ptracer(None);
-                    syscall_state.emulate_result(0);
-                }
-                None => (),
+            if let Some(tracee_rc) = maybe_tracee {
+                let tracee = tracee_rc.as_rec_unwrap();
+                tracee.set_syscallbuf_locked(false);
+                tracee.emulated_ptrace_options.set(0);
+                tracee.emulated_ptrace_cont_command.set(0);
+                tracee.emulated_stop_pending.set(false);
+                tracee.emulated_ptrace_queued_exit_stop.set(false);
+                prepare_ptrace_cont(tracee, Sig::try_from(t.regs_ref().arg4() as i32).ok(), 0);
+                tracee.set_emulated_ptracer(None);
+                syscall_state.emulate_result(0);
             }
         }
         PTRACE_KILL => {
             let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
-            match maybe_tracee {
-                Some(tracee_rc) => {
-                    let tracee = tracee_rc.as_rec_unwrap();
-                    // The tracee could already be dead, in which case sending it a signal
-                    // would move it out of the exit stop, preventing us from doing our
-                    // clean up work.
-                    tracee.try_wait();
-                    tracee.kill_if_alive();
-                    syscall_state.emulate_result(0);
-                }
-                None => (),
+            if let Some(tracee_rc) = maybe_tracee {
+                let tracee = tracee_rc.as_rec_unwrap();
+                // The tracee could already be dead, in which case sending it a signal
+                // would move it out of the exit stop, preventing us from doing our
+                // clean up work.
+                tracee.try_wait();
+                tracee.kill_if_alive();
+                syscall_state.emulate_result(0);
             }
         }
         PTRACE_GET_THREAD_AREA | PTRACE_SET_THREAD_AREA => {
             let maybe_tracee = verify_ptrace_target(t, syscall_state, pid);
-            match maybe_tracee {
-                Some(tracee) => {
-                    if tracee.arch() != SupportedArch::X86 {
-                        // This syscall should fail if the tracee is not x86
-                        syscall_state.expect_errno = EIO;
-                        emulate = false;
-                    } else {
-                        let remote_addr = RemotePtr::<user_desc>::from(t.regs_ref().arg4());
-                        let mut ok = true;
-                        let mut desc = user_desc::default();
-                        // Do the ptrace request ourselves
-                        if command == PTRACE_GET_THREAD_AREA {
-                            let ret = -tracee
-                                .emulate_get_thread_area(t.regs_ref().arg3() as u32, &mut desc);
-                            if ret == 0 {
-                                write_val_mem(t, remote_addr, &desc, Some(&mut ok));
-                                if !ok {
-                                    syscall_state.emulate_result_signed(-EFAULT as isize);
-                                } else {
-                                    t.record_local_for(remote_addr, &desc);
-                                    syscall_state.emulate_result_signed(0);
-                                }
-                            } else {
-                                syscall_state.emulate_result_signed(ret as isize);
-                            }
-                        } else {
-                            desc = read_val_mem(t, remote_addr, Some(&mut ok));
+            if let Some(tracee) = maybe_tracee {
+                if tracee.arch() != SupportedArch::X86 {
+                    // This syscall should fail if the tracee is not x86
+                    syscall_state.expect_errno = EIO;
+                    emulate = false;
+                } else {
+                    let remote_addr = RemotePtr::<user_desc>::from(t.regs_ref().arg4());
+                    let mut ok = true;
+                    let mut desc = user_desc::default();
+                    // Do the ptrace request ourselves
+                    if command == PTRACE_GET_THREAD_AREA {
+                        let ret =
+                            -tracee.emulate_get_thread_area(t.regs_ref().arg3() as u32, &mut desc);
+                        if ret == 0 {
+                            write_val_mem(t, remote_addr, &desc, Some(&mut ok));
                             if !ok {
                                 syscall_state.emulate_result_signed(-EFAULT as isize);
                             } else {
-                                syscall_state.emulate_result_signed(
-                                    -tracee
-                                        .emulate_set_thread_area(t.regs_ref().arg3() as u32, desc)
-                                        as isize,
-                                );
+                                t.record_local_for(remote_addr, &desc);
+                                syscall_state.emulate_result_signed(0);
                             }
+                        } else {
+                            syscall_state.emulate_result_signed(ret as isize);
+                        }
+                    } else {
+                        desc = read_val_mem(t, remote_addr, Some(&mut ok));
+                        if !ok {
+                            syscall_state.emulate_result_signed(-EFAULT as isize);
+                        } else {
+                            syscall_state.emulate_result_signed(
+                                -tracee.emulate_set_thread_area(t.regs_ref().arg3() as u32, desc)
+                                    as isize,
+                            );
                         }
                     }
                 }
-                None => (),
             }
         }
         PTRACE_ARCH_PRCTL => {

@@ -222,13 +222,14 @@ pub enum PreserveContents {
 /// Do NOT want Copy or Clone for this struct
 pub struct AutoRestoreMem<'a, 'b> {
     remote: &'a mut AutoRemoteSyscalls<'b>,
-    /// Address of tmp mem.
+    /// Address of temporary mem on the stack
     addr: Option<RemotePtr<Void>>,
     /// Saved data
-    data: Vec<u8>,
+    /// DIFF NOTE: Simply called `data` in rr
+    saved_data: Vec<u8>,
     /// (We keep this around for error checking.)
     saved_sp: RemotePtr<Void>,
-    /// Length of tmp mem
+    /// Length of temporary mem
     len: usize,
 }
 
@@ -251,19 +252,16 @@ impl<'a, 'b> Drop for AutoRestoreMem<'a, 'b> {
         let new_sp = self.remote.initial_regs_ref().sp() + self.len;
         ed_assert_eq!(self.remote.task(), self.saved_sp, new_sp);
 
-        match self.addr {
-            Some(child_addr) => {
-                // XXX what should we do if this task was sigkilled but the address
-                // space is used by other live tasks?
-                self.remote.task().write_bytes_helper(
-                    child_addr,
-                    &self.data,
-                    None,
-                    WriteFlags::empty(),
-                );
-            }
-            None => (),
-        };
+        if let Some(child_addr) = self.addr {
+            // XXX what should we do if this task was sigkilled but the address
+            // space is used by other live tasks?
+            self.remote.task().write_bytes_helper(
+                child_addr,
+                &self.saved_data,
+                None,
+                WriteFlags::empty(),
+            );
+        }
 
         self.remote.initial_regs_mut().set_sp(new_sp);
         let initial_regs = self.remote.initial_regs_ref().clone();
@@ -288,7 +286,7 @@ impl<'a, 'b> AutoRestoreMem<'a, 'b> {
         let mut result = AutoRestoreMem {
             remote,
             addr: None,
-            data: v,
+            saved_data: v,
             // We don't need an Option here because init will always add a value.
             saved_sp: 0usize.into(),
             len,
@@ -341,22 +339,21 @@ impl<'a, 'b> AutoRestoreMem<'a, 'b> {
         self.addr = Some(self.remote.initial_regs_ref().sp());
 
         let mut ok = true;
-        self.remote
-            .task()
-            .read_bytes_helper(self.addr.unwrap(), &mut self.data, Some(&mut ok));
+        self.remote.task().read_bytes_helper(
+            self.addr.unwrap(),
+            &mut self.saved_data,
+            Some(&mut ok),
+        );
         // @TODO what do we do if ok is false due to read_bytes_helper call above?
         // Adding a debug_assert!() for now.
         debug_assert!(ok);
-        match maybe_mem {
-            Some(mem) => {
-                self.remote.task().write_bytes_helper(
-                    self.addr.unwrap(),
-                    mem,
-                    Some(&mut ok),
-                    WriteFlags::empty(),
-                );
-            }
-            None => (),
+        if let Some(mem) = maybe_mem {
+            self.remote.task().write_bytes_helper(
+                self.addr.unwrap(),
+                mem,
+                Some(&mut ok),
+                WriteFlags::empty(),
+            );
         };
         if !ok {
             self.addr = None;
@@ -365,7 +362,7 @@ impl<'a, 'b> AutoRestoreMem<'a, 'b> {
 
     /// Return size of reserved memory buffer.
     pub fn len(&self) -> usize {
-        self.data.len()
+        self.saved_data.len()
     }
 }
 
@@ -465,15 +462,12 @@ impl<'a> AutoRemoteSyscalls<'a> {
         }
 
         let last_stack_byte: RemotePtr<Void> = self.t.regs_ref().sp() - 1usize;
-        match self.t.vm().mapping_of(last_stack_byte) {
-            Some(m) => {
-                if is_usable_area(&m.map) && m.map.start() + 2048usize <= self.t.regs_ref().sp() {
-                    // 'sp' is in a stack region and there's plenty of space there. No need
-                    // to fix anything.
-                    return;
-                }
+        if let Some(m) = self.t.vm().mapping_of(last_stack_byte) {
+            if is_usable_area(&m.map) && m.map.start() + 2048usize <= self.t.regs_ref().sp() {
+                // 'sp' is in a stack region and there's plenty of space there. No need
+                // to fix anything.
+                return;
             }
-            None => (),
         }
 
         let mut found_stack: Option<MemoryRange> = None;
@@ -1233,16 +1227,13 @@ impl<'a> AutoRemoteSyscalls<'a> {
         // DIFF NOTE: Logic slightly different from rr. We are only returning start of recreated
         // mapping.
         let new_map_local_addr = self.vm().mapping_of(new_addr).unwrap().local_addr;
-        match maybe_preserved_data {
-            Some(preserved_data) => {
-                let new_map_local = new_map_local_addr.unwrap();
-                unsafe {
-                    // @TODO This should be non-overlapping but think about this more to be sure.
-                    copy_nonoverlapping(preserved_data.as_ptr(), new_map_local.as_ptr(), size);
-                    munmap(preserved_data.as_ptr(), size).unwrap();
-                }
+        if let Some(preserved_data) = maybe_preserved_data {
+            let new_map_local = new_map_local_addr.unwrap();
+            unsafe {
+                // @TODO This should be non-overlapping but think about this more to be sure.
+                copy_nonoverlapping(preserved_data.as_ptr(), new_map_local.as_ptr(), size);
+                munmap(preserved_data.as_ptr(), size).unwrap();
             }
-            None => (),
         }
         new_addr
     }

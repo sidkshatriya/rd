@@ -1476,12 +1476,9 @@ impl GdbConnection {
         let mut checkedlen: usize = 0;
         loop {
             let maybe_p = memchr(b'#', &self.inbuf[checkedlen..]);
-            match maybe_p {
-                Some(p) => {
-                    self.packetend = p;
-                    break;
-                }
-                None => (),
+            if let Some(p) = maybe_p {
+                self.packetend = p;
+                break;
             };
             checkedlen = self.inbuf.len();
             self.read_data_once();
@@ -2000,12 +1997,9 @@ impl GdbConnection {
 
             let mut filename = args;
             let maybe_args_loc = memchr(b';', args);
-            match maybe_args_loc {
-                Some(l) => {
-                    filename = &filename[0..l];
-                    args = &args[l + 1..]
-                }
-                None => (),
+            if let Some(l) = maybe_args_loc {
+                filename = &filename[0..l];
+                args = &args[l + 1..]
             }
             if !filename.is_empty() {
                 fatal!(
@@ -2019,17 +2013,14 @@ impl GdbConnection {
             }
             let mut arg1 = args;
             let maybe_args_loc = memchr(b';', args);
-            match maybe_args_loc {
-                Some(l) => {
-                    arg1 = &args[..l];
-                    args = &args[l + 1..];
-                    log!(
-                        LogDebug,
-                        "Ignoring extra parameters {}",
-                        String::from_utf8_lossy(args)
-                    );
-                }
-                None => (),
+            if let Some(l) = maybe_args_loc {
+                arg1 = &args[..l];
+                args = &args[l + 1..];
+                log!(
+                    LogDebug,
+                    "Ignoring extra parameters {}",
+                    String::from_utf8_lossy(args)
+                );
             }
             let event_str = decode_ascii_encoded_hex_str(arg1);
             let mut event_strb = event_str.as_bytes();

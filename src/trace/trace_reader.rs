@@ -622,12 +622,9 @@ impl TraceReader {
         let mut version_str = String::new();
         let mut buf_reader = BufReader::new(version_file);
         let res = buf_reader.read_line(&mut version_str);
-        match res {
-            Err(e) => {
-                eprintln!("Could not read from the version file {:?}: {:?}", path, e);
-                exit(EX_DATAERR as i32);
-            }
-            Ok(_) => (),
+        if let Err(e) = res {
+            eprintln!("Could not read from the version file {:?}: {:?}", path, e);
+            exit(EX_DATAERR as i32);
         }
 
         let maybe_version = version_str.trim().parse::<u32>();
