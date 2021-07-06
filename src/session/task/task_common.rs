@@ -1062,6 +1062,7 @@ pub(in super::super) fn os_fork_into(t: &dyn Task, session: SessionSharedPtr) ->
         None,
         None,
     );
+
     // When we forked ourselves, the child inherited the setup we
     // did to make the clone() call.  So we have to "finish" the
     // remote calls (i.e. undo fudged state) in the child too,

@@ -383,6 +383,8 @@ impl Drop for ReplaySession {
 }
 
 impl Clone for ReplaySession {
+    /// One interesting thing about this clone is that it creates an empty EmuFs
+    /// This empty EmuFs is populated handled outside this method
     fn clone(&self) -> Self {
         ReplaySession {
             session_inner: self.as_session_inner().clone(),
@@ -396,7 +398,7 @@ impl Clone for ReplaySession {
             flags_: self.flags_.clone(),
             fast_forward_status: self.fast_forward_status.clone(),
             trace_start_time: self.trace_start_time.clone(),
-            // Implied
+            // No breakpoint to start with initially
             syscall_bp_vm: Default::default(),
         }
     }
@@ -427,10 +429,10 @@ impl ReplaySession {
         self.ticks_at_start_of_event.get()
     }
 
-    /// Return a semantic copy of all the state managed by this,
+    /// Return a semantic copy of all the state managed by `self`,
     /// that is the entire tracee tree and the state it depends on.
-    /// Any mutations of the returned Session can't affect the
-    /// state of this, and vice versa.
+    /// Any mutations of the returned `SessionSharedPtr` can't affect the
+    /// state of `self`, and vice versa.
     ///
     /// This operation is also called "checkpointing" the replay
     /// session.
@@ -448,28 +450,29 @@ impl ReplaySession {
         self.finish_initializing();
         self.clear_syscall_bp();
 
-        let mut replay_session = self.clone();
+        // see `impl Clone for ReplaSession`
+        let mut cloned_replay_session = self.clone();
         log!(
             LogDebug,
             "  deepfork session is {}",
-            replay_session.unique_id
+            cloned_replay_session.unique_id
         );
 
-        let emufs = self.emu_fs.clone();
-        let session_emufs = replay_session.emu_fs.clone();
-        let session_shr_ptr = Rc::new_cyclic(move |w| {
-            replay_session.weak_self = w.clone();
-            let b: Box<dyn Session> = Box::new(replay_session);
+        let orig_emufs = self.emu_fs.clone();
+        let new_emufs = cloned_replay_session.emu_fs.clone();
+        let cloned_session_shr_ptr = Rc::new_cyclic(move |w| {
+            cloned_replay_session.weak_self = w.clone();
+            let b: Box<dyn Session> = Box::new(cloned_replay_session);
             b
         });
 
         self.copy_state_to_session(
-            session_shr_ptr.clone(),
-            &emufs.borrow(),
-            &mut session_emufs.borrow_mut(),
+            cloned_session_shr_ptr.clone(),
+            &orig_emufs.borrow(),
+            &mut new_emufs.borrow_mut(),
         );
 
-        session_shr_ptr
+        cloned_session_shr_ptr
     }
 
     /// Return true if we're in a state where it's OK to clone. For example,

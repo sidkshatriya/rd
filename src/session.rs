@@ -173,6 +173,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
                         shared_maps_to_clone.push(k);
                     }
                 }
+
                 // Do this in a separate loop to avoid iteration invalidation issues
                 for k in shared_maps_to_clone {
                     remap_shared_mmap(&mut remote, emu_fs, dest_emu_fs, k);
@@ -182,11 +183,13 @@ pub trait Session: DerefMut<Target = SessionInner> {
                     if Rc::ptr_eq(&group_leader, &t) {
                         continue;
                     }
+
                     log!(LogDebug, "    cloning {}", t.rec_tid());
 
                     group.member_states.push(t.capture_state());
                 }
             }
+
             group.clone_leader_state = group_leader.capture_state();
             completion.address_spaces.push(group);
         }
@@ -195,14 +198,14 @@ pub trait Session: DerefMut<Target = SessionInner> {
         debug_assert!(!dest.vms().is_empty());
     }
 
-    /// Call this before doing anything that requires access to the full set
+    /// Call this method before doing anything that requires access to the full set
     /// of tasks (i.e., almost anything!).
     fn finish_initializing(&self) {
         if self.clone_completion.borrow().is_none() {
             return;
         }
 
-        // DIFF NOTE: We're setting clone completion to None here instead of at the end of the
+        // DIFF NOTE: We're setting clone completion to `None` here instead of at the end of the
         // method.
         let cc = self.clone_completion.replace(None).unwrap();
         for tgleader in &cc.address_spaces {
@@ -213,7 +216,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
                 for (&mk, m) in &remote.vm().maps() {
                     // It's possible for there to be multiple syscallbufs in a single address space
                     // e.g. If you have different processes all sharing a single address space via
-                    // CLONE_VM. This is why we don't have a break statement inside the `if`.
+                    // CLONE_VM. This is why we _don't_ have a break statement inside the `if`.
                     if m.flags.contains(MappingFlags::IS_SYSCALLBUF) {
                         mk_vec.push(mk);
                     }
@@ -247,8 +250,9 @@ pub trait Session: DerefMut<Target = SessionInner> {
         // Don't need to set clone completion to `None`. Its already been done!
     }
 
-    /// See Task::clone().
-    /// This method is simply called Session::clone in rr.
+    /// See `Task::clone_task()`.
+    ///
+    /// DIFF NOTE: This method is simply called `Session::clone()` in rr.
     fn clone_task(
         &self,
         p: &dyn Task,
@@ -277,13 +281,13 @@ pub trait Session: DerefMut<Target = SessionInner> {
 
     /// Return the task created with `rec_tid`, or None if no such task exists.
     ///
-    /// DIFF NOTE: Method is simply called Session::find_task() in rr
+    /// DIFF NOTE: Method is simply called `Session::find_task()` in rr
     fn find_task_from_rec_tid(&self, rec_tid: pid_t) -> Option<TaskSharedPtr> {
         self.finish_initializing();
         self.tasks().get(&rec_tid).cloned()
     }
 
-    /// DIFF NOTE: Method is simply called Session::find task() in rr
+    /// DIFF NOTE: Method is simply called `Session::find task()` in rr
     fn find_task_from_task_uid(&self, tuid: TaskUid) -> Option<TaskSharedPtr> {
         self.find_task_from_rec_tid(tuid.tid())
     }
@@ -291,7 +295,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
     /// Return the thread group whose unique ID is `tguid`, or None if no such
     /// thread group exists.
     ///
-    /// DIFF NOTE: Method is simply called Session::find thread_group() in rr
+    /// DIFF NOTE: Method is simply called `Session::find thread_group()` in rr
     fn find_thread_group_from_tguid(&self, tguid: ThreadGroupUid) -> Option<ThreadGroupSharedPtr> {
         self.finish_initializing();
         self.thread_group_map()
@@ -302,7 +306,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
     /// Find the thread group for a specific pid, or None if no such thread
     /// group exists
     ///
-    /// DIFF NOTE: Method is simply called Session::find thread_group() in rr
+    /// DIFF NOTE: Method is simply called `Session::find thread_group()` in rr
     fn find_thread_group_from_pid(&self, pid: pid_t) -> Option<ThreadGroupSharedPtr> {
         self.finish_initializing();
         for (tguid, tg) in self.thread_group_map().iter() {
@@ -313,7 +317,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
         None
     }
 
-    /// Return the AddressSpace whose unique ID is `vmuid`, or None if no such
+    /// Return the AddressSpace whose unique ID is `vmuid`, or `None` if no such
     /// address space exists.
     fn find_address_space(&self, vmuid: AddressSpaceUid) -> Option<AddressSpaceSharedPtr> {
         self.finish_initializing();
@@ -323,7 +327,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
 
     /// Return a copy of `tg` with the same mappings.
     ///
-    /// NOTE: Called simply Session::clone() in rr
+    /// NOTE: Called simply `Session::clone()` in rr
     fn clone_tg(&self, t: &dyn Task, tg: ThreadGroupSharedPtr) -> ThreadGroupSharedPtr {
         self.assert_fully_initialized();
         // If tg already belongs to our session this is a fork to create a new
@@ -357,29 +361,29 @@ pub trait Session: DerefMut<Target = SessionInner> {
     }
 
     /// Return the set of Tasks being traced in this session.
-    fn tasks(&self) -> Ref<'_, TaskMap> {
+    fn tasks(&self) -> Ref<TaskMap> {
         self.finish_initializing();
         self.as_session_inner().task_map.borrow()
     }
 
-    fn tasks_mut(&self) -> RefMut<'_, TaskMap> {
+    fn tasks_mut(&self) -> RefMut<TaskMap> {
         self.finish_initializing();
         self.as_session_inner().task_map.borrow_mut()
     }
 
-    fn thread_group_map(&self) -> Ref<'_, ThreadGroupMap> {
+    fn thread_group_map(&self) -> Ref<ThreadGroupMap> {
         self.as_session_inner().thread_group_map.borrow()
     }
 
-    fn thread_group_map_mut(&self) -> RefMut<'_, ThreadGroupMap> {
+    fn thread_group_map_mut(&self) -> RefMut<ThreadGroupMap> {
         self.as_session_inner().thread_group_map.borrow_mut()
     }
 
-    fn vm_map(&self) -> Ref<'_, AddressSpaceMap> {
+    fn vm_map(&self) -> Ref<AddressSpaceMap> {
         self.as_session_inner().vm_map.borrow()
     }
 
-    fn vm_map_mut(&self) -> RefMut<'_, AddressSpaceMap> {
+    fn vm_map_mut(&self) -> RefMut<AddressSpaceMap> {
         self.as_session_inner().vm_map.borrow_mut()
     }
 
@@ -447,7 +451,8 @@ fn remap_shared_mmap(
 
     let real_file = remote.task().stat_fd(remote_fd);
     let real_file_name = remote.task().file_name_of_fd(remote_fd);
-    // XXX this condition is x86/x64-specific, I imagine.
+
+    // XXX this condition is only x86/x64-specific, most probably
     remote.infallible_mmap_syscall(
         Some(m.map.start()),
         m.map.size(),
@@ -483,26 +488,23 @@ fn remap_shared_mmap(
     remote.infallible_syscall(syscall_number_for_close(arch), &[remote_fd as usize]);
 }
 
-fn capture_syscallbuf(m: &Mapping, clone_leader: &dyn Task) -> Vec<u8> {
+/// Capture the syscall buffer and return its value as a Vec<u8>
+fn capture_syscallbuf(m: &Mapping, task: &dyn Task) -> Vec<u8> {
     let start = m.map.start();
     let data_size: usize;
-    let num_byes_addr =
+    let num_bytes_addr =
         RemotePtr::<u32>::cast(remote_ptr_field!(start, syscallbuf_hdr, num_rec_bytes));
-    if read_val_mem(
-        clone_leader,
-        remote_ptr_field!(start, syscallbuf_hdr, locked),
-        None,
-    ) != 0u8
-    {
-        // There may be an incomplete syscall record after num_rec_bytes that
+
+    if read_val_mem(task, remote_ptr_field!(start, syscallbuf_hdr, locked), None) != 0u8 {
+        // There may be an incomplete syscall record after `num_rec_bytes` that
         // we need to capture here. We don't know how big that record is,
         // so just record the entire buffer. This should not be common.
         data_size = m.map.size();
     } else {
-        data_size =
-            read_val_mem(clone_leader, num_byes_addr, None) as usize + size_of::<syscallbuf_hdr>();
+        data_size = read_val_mem(task, num_bytes_addr, None) as usize + size_of::<syscallbuf_hdr>();
     }
-    read_mem(clone_leader, start, data_size, None)
+
+    read_mem(task, start, data_size, None)
 }
 
 fn on_create_task_common<S: Session>(sess: &S, t: TaskSharedPtr) {
