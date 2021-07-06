@@ -222,10 +222,11 @@ pub enum PreserveContents {
 /// Do NOT want Copy or Clone for this struct
 pub struct AutoRestoreMem<'a, 'b> {
     remote: &'a mut AutoRemoteSyscalls<'b>,
-    /// Address of tmp mem.
+    /// Address of temporary mem on the stack
     addr: Option<RemotePtr<Void>>,
     /// Saved data
-    data: Vec<u8>,
+    /// DIFF NOTE: Simply called `data` in rr
+    saved_data: Vec<u8>,
     /// (We keep this around for error checking.)
     saved_sp: RemotePtr<Void>,
     /// Length of tmp mem
@@ -251,19 +252,16 @@ impl<'a, 'b> Drop for AutoRestoreMem<'a, 'b> {
         let new_sp = self.remote.initial_regs_ref().sp() + self.len;
         ed_assert_eq!(self.remote.task(), self.saved_sp, new_sp);
 
-        match self.addr {
-            Some(child_addr) => {
-                // XXX what should we do if this task was sigkilled but the address
-                // space is used by other live tasks?
-                self.remote.task().write_bytes_helper(
-                    child_addr,
-                    &self.data,
-                    None,
-                    WriteFlags::empty(),
-                );
-            }
-            None => (),
-        };
+        if let Some(child_addr) = self.addr {
+            // XXX what should we do if this task was sigkilled but the address
+            // space is used by other live tasks?
+            self.remote.task().write_bytes_helper(
+                child_addr,
+                &self.saved_data,
+                None,
+                WriteFlags::empty(),
+            );
+        }
 
         self.remote.initial_regs_mut().set_sp(new_sp);
         let initial_regs = self.remote.initial_regs_ref().clone();
@@ -288,7 +286,7 @@ impl<'a, 'b> AutoRestoreMem<'a, 'b> {
         let mut result = AutoRestoreMem {
             remote,
             addr: None,
-            data: v,
+            saved_data: v,
             // We don't need an Option here because init will always add a value.
             saved_sp: 0usize.into(),
             len,
@@ -341,9 +339,11 @@ impl<'a, 'b> AutoRestoreMem<'a, 'b> {
         self.addr = Some(self.remote.initial_regs_ref().sp());
 
         let mut ok = true;
-        self.remote
-            .task()
-            .read_bytes_helper(self.addr.unwrap(), &mut self.data, Some(&mut ok));
+        self.remote.task().read_bytes_helper(
+            self.addr.unwrap(),
+            &mut self.saved_data,
+            Some(&mut ok),
+        );
         // @TODO what do we do if ok is false due to read_bytes_helper call above?
         // Adding a debug_assert!() for now.
         debug_assert!(ok);
@@ -365,7 +365,7 @@ impl<'a, 'b> AutoRestoreMem<'a, 'b> {
 
     /// Return size of reserved memory buffer.
     pub fn len(&self) -> usize {
-        self.data.len()
+        self.saved_data.len()
     }
 }
 
