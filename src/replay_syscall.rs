@@ -794,13 +794,10 @@ fn rep_process_syscall_arch<Arch: Architecture>(
                 None => None,
             }
         };
-        match maybe_dest {
-            Some(dest) => {
-                for _ in 0..iov_cnt {
-                    dest.set_data_from_trace(None);
-                }
+        if let Some(dest) = maybe_dest {
+            for _ in 0..iov_cnt {
+                dest.set_data_from_trace(None);
             }
-            None => (),
         }
         return;
     }
@@ -2048,16 +2045,13 @@ fn process_mremap(t: &ReplayTask, trace_regs: &Registers, step: &mut ReplayTrace
     // above.
     // (If we started storing partial files, we'd have to careful to ensure this
     // is still the case.)
-    match maybe_km {
-        Some(_km) => {
-            if data.source != MappedDataSource::File
-                || maybe_f.is_some()
-                || mapping.map.fsname().is_empty()
-            {
-                write_mapped_data(t, new_addr + old_size, new_size - old_size, &data);
-            }
+    if let Some(_km) = maybe_km {
+        if data.source != MappedDataSource::File
+            || maybe_f.is_some()
+            || mapping.map.fsname().is_empty()
+        {
+            write_mapped_data(t, new_addr + old_size, new_size - old_size, &data);
         }
-        None => (),
     }
 
     t.validate_regs(ReplayTaskIgnore::default());

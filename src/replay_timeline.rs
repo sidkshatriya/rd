@@ -239,11 +239,8 @@ impl ReplayTimeline {
     /// where we are relative to other Marks. So don't call this unless you
     /// need it.
     pub fn mark(&mut self) -> Mark {
-        match self.current_mark() {
-            Some(mark) => {
-                return Mark::from_internal_mark(mark);
-            }
-            None => (),
+        if let Some(mark) = self.current_mark() {
+            return Mark::from_internal_mark(mark);
         }
 
         let key = self.current_mark_key();
@@ -1090,11 +1087,8 @@ impl ReplayTimeline {
             // XXX handle cases where we can't apply a breakpoint right now. Later
             // during replay the address space might be created (or new mappings might
             // be created) and we should reapply breakpoints then.
-            match maybe_vm {
-                Some(vm) => {
-                    vm.add_breakpoint(bp.addr, BreakpointType::User);
-                }
-                _ => (),
+            if let Some(vm) = maybe_vm {
+                vm.add_breakpoint(bp.addr, BreakpointType::User);
             }
         }
         for wp in self.watchpoints.keys() {
@@ -1111,9 +1105,8 @@ impl ReplayTimeline {
     fn unapply_breakpoints_internal(&self) {
         for bp in self.breakpoints.keys() {
             let maybe_vm = self.current_session().find_address_space(bp.uid);
-            match maybe_vm {
-                Some(vm) => vm.remove_breakpoint(bp.addr, BreakpointType::User),
-                None => (),
+            if let Some(vm) = maybe_vm {
+                vm.remove_breakpoint(bp.addr, BreakpointType::User)
             }
             for wp in self.watchpoints.keys() {
                 let maybe_vm = self.current_session().find_address_space(wp.uid);
@@ -2344,16 +2337,12 @@ impl Display for InternalMark {
 
 impl Drop for InternalMark {
     fn drop(&mut self) {
-        match self.owner.upgrade() {
-            Some(owner) => match self.checkpoint.as_ref() {
-                Some(_session) => {
-                    owner
-                        .borrow_mut()
-                        .remove_mark_with_checkpoint(self.proto.key);
-                }
-                None => (),
-            },
-            None => (),
+        if let Some(owner) = self.owner.upgrade() {
+            if let Some(_session) = self.checkpoint.as_ref() {
+                owner
+                    .borrow_mut()
+                    .remove_mark_with_checkpoint(self.proto.key);
+            }
         }
     }
 }
