@@ -190,21 +190,15 @@ impl TraceWriter {
         self.raw_recs.clear();
         frame.set_arch(to_trace_arch(t.arch()));
         {
-            match maybe_registers {
-                Some(registers) => {
-                    let raw_regs = registers.get_ptrace_for_self_arch();
-                    frame.reborrow().init_registers().set_raw(raw_regs);
-                }
-                None => (),
+            if let Some(registers) = maybe_registers {
+                let raw_regs = registers.get_ptrace_for_self_arch();
+                frame.reborrow().init_registers().set_raw(raw_regs);
             }
         }
         {
-            match maybe_extra_registers {
-                Some(extra_registers) => {
-                    let raw_regs = extra_registers.data_bytes();
-                    frame.reborrow().init_extra_registers().set_raw(raw_regs);
-                }
-                None => (),
+            if let Some(extra_registers) = maybe_extra_registers {
+                let raw_regs = extra_registers.data_bytes();
+                frame.reborrow().init_extra_registers().set_raw(raw_regs);
             }
         }
 
@@ -296,12 +290,11 @@ impl TraceWriter {
             }
         }
 
-        match self
+        if let Err(e) = self
             .trace_writer_backend
             .write_message(Substream::Events, &frame_msg)
         {
-            Err(e) => fatal!("Unable to write events: {:?}", e),
-            Ok(_) => (),
+            fatal!("Unable to write events: {:?}", e)
         }
 
         self.trace_writer_backend.tick_time()
@@ -434,12 +427,11 @@ impl TraceWriter {
             }
         }
 
-        match self
+        if let Err(e) = self
             .trace_writer_backend
             .write_message(Substream::Mmaps, &map_msg)
         {
-            Err(e) => fatal!("Unable to write mmaps: {:?}", e),
-            Ok(_) => (),
+            fatal!("Unable to write mmaps: {:?}", e);
         }
 
         self.mmap_count += 1;
@@ -562,9 +554,8 @@ impl TraceWriter {
 
         // Take an exclusive lock and hold it until we rename the file at
         // the end of recording and then close our file descriptor.
-        match flock(tw.version_fd.as_raw(), LockExclusiveNonblock) {
-            Err(e) => fatal!("Unable to lock {:?}: {:?}", ver_path, e),
-            Ok(_) => (),
+        if let Err(e) = flock(tw.version_fd.as_raw(), LockExclusiveNonblock) {
+            fatal!("Unable to lock {:?}: {:?}", ver_path, e);
         }
 
         let buf = format!("{}\n", TRACE_VERSION);

@@ -1282,26 +1282,23 @@ impl TaskInner {
         // Switch thread-locals to the new task.
         if self.tuid() != self.vm().thread_locals_tuid() {
             let maybe_local_addr = preload_thread_locals_local_addr(&self.vm());
-            match maybe_local_addr {
-                Some(local_addr) => {
-                    let maybe_t = self
-                        .session()
-                        .find_task_from_task_uid(self.vm().thread_locals_tuid());
+            if let Some(local_addr) = maybe_local_addr {
+                let maybe_t = self
+                    .session()
+                    .find_task_from_task_uid(self.vm().thread_locals_tuid());
 
-                    if let Some(t) = maybe_t {
-                        t.fetch_preload_thread_locals();
-                    }
-
-                    unsafe {
-                        copy_nonoverlapping(
-                            self.thread_locals.as_ptr() as *const u8,
-                            local_addr.as_ptr().cast::<u8>(),
-                            PRELOAD_THREAD_LOCALS_SIZE,
-                        );
-                    }
-                    self.vm().set_thread_locals_tuid(self.tuid());
+                if let Some(t) = maybe_t {
+                    t.fetch_preload_thread_locals();
                 }
-                None => (),
+
+                unsafe {
+                    copy_nonoverlapping(
+                        self.thread_locals.as_ptr() as *const u8,
+                        local_addr.as_ptr().cast::<u8>(),
+                        PRELOAD_THREAD_LOCALS_SIZE,
+                    );
+                }
+                self.vm().set_thread_locals_tuid(self.tuid());
             }
         }
     }
@@ -2011,16 +2008,13 @@ fn preload_thread_locals_local_addr(as_: &AddressSpace) -> Option<NonNull<c_void
 fn setup_preload_thread_locals_arch<Arch: Architecture>(t: &TaskInner) {
     let maybe_local_addr = preload_thread_locals_local_addr(&t.vm());
 
-    match maybe_local_addr {
-        Some(local_addr) => {
-            let preload_ptr = local_addr.as_ptr() as *mut preload_thread_locals<Arch>;
-            debug_assert!(size_of::<preload_thread_locals<Arch>>() <= PRELOAD_THREAD_LOCALS_SIZE);
-            unsafe {
-                (*preload_ptr).syscallbuf_stub_alt_stack =
-                    Arch::from_remote_ptr(t.syscallbuf_alt_stack())
-            };
-        }
-        None => (),
+    if let Some(local_addr) = maybe_local_addr {
+        let preload_ptr = local_addr.as_ptr() as *mut preload_thread_locals<Arch>;
+        debug_assert!(size_of::<preload_thread_locals<Arch>>() <= PRELOAD_THREAD_LOCALS_SIZE);
+        unsafe {
+            (*preload_ptr).syscallbuf_stub_alt_stack =
+                Arch::from_remote_ptr(t.syscallbuf_alt_stack())
+        };
     }
 }
 
@@ -2030,16 +2024,13 @@ fn setup_preload_thread_locals_from_clone_arch<Arch: Architecture>(
 ) {
     let maybe_local_addr = preload_thread_locals_local_addr(&t.vm());
 
-    match maybe_local_addr {
-        Some(local_addr) => {
-            t.activate_preload_thread_locals();
-            let locals = local_addr.as_ptr() as *mut preload_thread_locals<Arch>;
-            let origin_locals =
-                origin.fetch_preload_thread_locals().as_ptr() as *mut preload_thread_locals<Arch>;
-            unsafe { (*locals).alt_stack_nesting_level = (*origin_locals).alt_stack_nesting_level };
-            // clone() syscalls set the child stack pointer, so the child is no
-            // longer in the syscallbuf code even if the parent was.
-        }
-        None => (),
+    if let Some(local_addr) = maybe_local_addr {
+        t.activate_preload_thread_locals();
+        let locals = local_addr.as_ptr() as *mut preload_thread_locals<Arch>;
+        let origin_locals =
+            origin.fetch_preload_thread_locals().as_ptr() as *mut preload_thread_locals<Arch>;
+        unsafe { (*locals).alt_stack_nesting_level = (*origin_locals).alt_stack_nesting_level };
+        // clone() syscalls set the child stack pointer, so the child is no
+        // longer in the syscallbuf code even if the parent was.
     }
 }

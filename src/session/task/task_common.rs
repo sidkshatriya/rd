@@ -185,12 +185,9 @@ pub(super) fn read_bytes_fallible_common<T: Task>(
         return Ok(0);
     }
 
-    match task.vm().local_mapping(addr, buf.len()) {
-        Some(found) => {
-            buf.copy_from_slice(&found[0..buf.len()]);
-            return Ok(buf.len());
-        }
-        None => (),
+    if let Some(found) = task.vm().local_mapping(addr, buf.len()) {
+        buf.copy_from_slice(&found[0..buf.len()]);
+        return Ok(buf.len());
     }
 
     if !task.vm().mem_fd().is_open() {
@@ -1569,40 +1566,37 @@ pub(in super::super) fn clone_task_common(
             *t.as_.borrow_mut() = clone_this.as_.borrow().clone();
             if !stack.is_null() {
                 let last_stack_byte: RemotePtr<Void> = stack - 1usize;
-                match t.vm().mapping_of(last_stack_byte) {
-                    Some(mapping) => {
-                        if !mapping.recorded_map.is_heap() {
-                            let m: &KernelMapping = &mapping.map;
-                            log!(LogDebug, "mapping stack for {} at {}", new_tid, m);
-                            let m_start = m.start();
-                            let m_size = m.size();
-                            let m_prot = m.prot();
-                            let m_flags = m.flags();
-                            let m_file_offset_bytes = m.file_offset_bytes();
-                            let m_device = m.device();
-                            let m_inode = m.inode();
+                if let Some(mapping) = t.vm().mapping_of(last_stack_byte) {
+                    if !mapping.recorded_map.is_heap() {
+                        let m: &KernelMapping = &mapping.map;
+                        log!(LogDebug, "mapping stack for {} at {}", new_tid, m);
+                        let m_start = m.start();
+                        let m_size = m.size();
+                        let m_prot = m.prot();
+                        let m_flags = m.flags();
+                        let m_file_offset_bytes = m.file_offset_bytes();
+                        let m_device = m.device();
+                        let m_inode = m.inode();
 
-                            // Release the borrow because we may want to modify the vm MemoryMap
-                            drop(mapping);
-                            t.vm().map(
-                                &*t,
-                                m_start,
-                                m_size,
-                                m_prot,
-                                m_flags,
-                                m_file_offset_bytes,
-                                OsStr::new("[stack]"),
-                                m_device,
-                                m_inode,
-                                None,
-                                None,
-                                None,
-                                None,
-                                None,
-                            );
-                        }
+                        // Release the borrow because we may want to modify the vm MemoryMap
+                        drop(mapping);
+                        t.vm().map(
+                            &*t,
+                            m_start,
+                            m_size,
+                            m_prot,
+                            m_flags,
+                            m_file_offset_bytes,
+                            OsStr::new("[stack]"),
+                            m_device,
+                            m_inode,
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                        );
                     }
-                    None => (),
                 };
             }
         } else {
