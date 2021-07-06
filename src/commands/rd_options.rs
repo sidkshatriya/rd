@@ -222,6 +222,7 @@ fn parse_dump_on(dump_on_s: &str) -> Result<DumpOn, Box<dyn Error>> {
 }
 
 #[derive(StructOpt, Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum RdSubCommand {
     /// Accepts paths on stdin, prints buildids on stdout. Will terminate when either an empty
     /// line or an invalid path is provided.

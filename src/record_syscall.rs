@@ -1946,16 +1946,16 @@ fn protect_rd_sigs_sa_mask_arch<Arch: Architecture>(
         return false;
     }
 
-    match maybe_save {
-        Some(save) => unsafe {
+    if let Some(save) = maybe_save {
+        unsafe {
             copy_nonoverlapping(
                 &raw const sa as *const u8,
                 save.as_mut_ptr(),
                 size_of::<kernel_sigaction<Arch>>(),
             );
-        },
-        None => (),
+        }
     }
+
     sa.sa_mask = new_sig_set;
     write_val_mem(t, sap, &sa, None);
 
@@ -1979,15 +1979,14 @@ fn protect_rd_sigs(t: &RecordTask, p: RemotePtr<Void>, maybe_save: Option<&mut [
     }
 
     write_val_mem(t, setp, &new_sig_set, None);
-    match maybe_save {
-        Some(save) => unsafe {
+    if let Some(save) = maybe_save {
+        unsafe {
             copy_nonoverlapping(
                 &raw const sig_set as *const u8,
                 save.as_mut_ptr(),
                 size_of::<sig_set_t>(),
             );
-        },
-        None => (),
+        }
     }
 
     true
@@ -2367,17 +2366,14 @@ pub fn rec_process_syscall_arch<Arch: Architecture>(
 
     if sys == Arch::IPC {
         let arg1 = t.regs_ref().arg1();
-        match arg1 as u32 {
-            SHMAT => {
-                // DIFF NOTE: Arch::unsigned_long in rr
-                let child_addr = RemotePtr::<Arch::unsigned_word>::from(t.regs_ref().arg4());
-                let out_ptr = read_val_mem(t, child_addr, None);
-                let out_rptr = RemotePtr::<Void>::new(out_ptr.try_into().unwrap());
-                let arg2_signed = t.regs_ref().arg2_signed();
-                let arg3_signed = t.regs_ref().arg3_signed();
-                process_shmat(t, arg2_signed as i32, arg3_signed as i32, out_rptr);
-            }
-            _ => (),
+        if arg1 as u32 == SHMAT {
+            // DIFF NOTE: Arch::unsigned_long in rr
+            let child_addr = RemotePtr::<Arch::unsigned_word>::from(t.regs_ref().arg4());
+            let out_ptr = read_val_mem(t, child_addr, None);
+            let out_rptr = RemotePtr::<Void>::new(out_ptr.try_into().unwrap());
+            let arg2_signed = t.regs_ref().arg2_signed();
+            let arg3_signed = t.regs_ref().arg3_signed();
+            process_shmat(t, arg2_signed as i32, arg3_signed as i32, out_rptr);
         }
         return;
     }
@@ -5218,28 +5214,25 @@ fn prepare_ioctl<Arch: Architecture>(
     }
 
     // These ioctls are mostly regular but require additional recording.
-    match ioctl_mask_size(request) {
-        IOCTL_MASK_SIZE_VIDIOC_DQBUF => {
-            if size as usize == size_of::<v4l2_buffer<Arch>>() {
-                syscall_state.reg_parameter_with_size(
-                    3,
-                    ParamSize::from(size as usize),
-                    Some(ArgMode::InOut),
-                    None,
-                );
-                syscall_state.after_syscall_action(Box::new(record_v4l2_buffer_contents::<Arch>));
-                // VIDIOC_DQBUF can block. It can't if the fd was opened O_NONBLOCK,
-                // but we don't try to determine that.
-                // Note that we're exposed to potential race conditions here because
-                // VIDIOC_DQBUF (blocking or not) assumes the driver has filled
-                // the mmapped data region at some point since the buffer was queued
-                // with VIDIOC_QBUF, and we don't/can't know exactly when that
-                // happened. Replay could fail if this thread or another thread reads
-                // the contents of mmapped contents queued with the driver.
-                return Switchable::AllowSwitch;
-            }
+    if ioctl_mask_size(request) == IOCTL_MASK_SIZE_VIDIOC_DQBUF {
+        if size as usize == size_of::<v4l2_buffer<Arch>>() {
+            syscall_state.reg_parameter_with_size(
+                3,
+                ParamSize::from(size as usize),
+                Some(ArgMode::InOut),
+                None,
+            );
+            syscall_state.after_syscall_action(Box::new(record_v4l2_buffer_contents::<Arch>));
+            // VIDIOC_DQBUF can block. It can't if the fd was opened O_NONBLOCK,
+            // but we don't try to determine that.
+            // Note that we're exposed to potential race conditions here because
+            // VIDIOC_DQBUF (blocking or not) assumes the driver has filled
+            // the mmapped data region at some point since the buffer was queued
+            // with VIDIOC_QBUF, and we don't/can't know exactly when that
+            // happened. Replay could fail if this thread or another thread reads
+            // the contents of mmapped contents queued with the driver.
+            return Switchable::AllowSwitch;
         }
-        _ => (),
     }
 
     syscall_state.expect_errno = EINVAL;
@@ -5642,15 +5635,14 @@ fn check_scm_rights_fd<Arch: Architecture>(t: &RecordTask, msg: &msghdr<Arch>) {
 }
 
 fn block_sock_opt(level: i32, optname: u32, syscall_state: &mut TaskSyscallState) -> bool {
-    match level {
-        SOL_PACKET => match optname {
+    if level == SOL_PACKET {
+        match optname {
             PACKET_RX_RING | PACKET_TX_RING => {
                 syscall_state.emulate_result_signed(-ENOPROTOOPT as isize);
                 return true;
             }
             _ => (),
-        },
-        _ => (),
+        }
     }
 
     false
@@ -5669,8 +5661,8 @@ fn prepare_setsockopt<Arch: Architecture>(
         t.set_regs(&r);
     } else {
         match level {
-            IPPROTO_IP | IPPROTO_IPV6 => match optname {
-                SO_SET_REPLACE => {
+            IPPROTO_IP | IPPROTO_IPV6 => {
+                if optname == SO_SET_REPLACE {
                     if Arch::long_as_usize(args.optlen) < size_of::<ipt_replace<Arch>>() {
                         return Switchable::PreventSwitch;
                     }
@@ -5695,8 +5687,7 @@ fn prepare_setsockopt<Arch: Architecture>(
                         None,
                     );
                 }
-                _ => (),
-            },
+            }
             _ => (),
         }
     }

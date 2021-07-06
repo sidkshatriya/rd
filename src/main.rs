@@ -11,7 +11,6 @@
 #![feature(const_fn_trait_bound)]
 // Can disallow some of these in the future
 #![allow(clippy::redundant_static_lifetimes)]
-#![allow(clippy::single_match)]
 #![allow(clippy::collapsible_if)]
 #![allow(clippy::manual_range_contains)]
 #![allow(clippy::needless_range_loop)]

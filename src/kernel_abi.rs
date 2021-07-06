@@ -184,22 +184,19 @@ pub fn get_syscall_instruction_arch(
     if t.vm().has_rd_page() {
         let maybe_type = AddressSpace::rd_page_syscall_from_entry_point(ptr);
 
-        match maybe_type {
-            Some(type_) => {
-                if type_.enabled == Enabled::RecordingAndReplay
-                    || type_.enabled
-                        == (if t.session().is_recording() {
-                            Enabled::RecordingOnly
-                        } else {
-                            Enabled::ReplayOnly
-                        })
-                {
-                    // rd-page syscalls are always the task's arch
-                    *arch = t.arch();
-                    return true;
-                }
+        if let Some(type_) = maybe_type {
+            if type_.enabled == Enabled::RecordingAndReplay
+                || type_.enabled
+                    == (if t.session().is_recording() {
+                        Enabled::RecordingOnly
+                    } else {
+                        Enabled::ReplayOnly
+                    })
+            {
+                // rd-page syscalls are always the task's arch
+                *arch = t.arch();
+                return true;
             }
-            None => (),
         }
     }
 
