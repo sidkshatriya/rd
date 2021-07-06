@@ -1,6 +1,6 @@
 use super::{
     on_create_task_common,
-    session_common::kill_all_tasks,
+    session_common::kill_all_tasks_common,
     task::{replay_task::ReplayTask, TaskSharedPtr, TaskSharedWeakPtr},
 };
 use crate::{
@@ -216,7 +216,7 @@ impl Session for DiversionSession {
 
     // Forwarded method
     fn kill_all_tasks(&self) {
-        kill_all_tasks(self)
+        kill_all_tasks_common(self)
     }
 
     fn as_session_inner(&self) -> &SessionInner {

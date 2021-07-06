@@ -631,10 +631,10 @@ impl TraceWriter {
         }
     }
 
-    /// Call close() on all the relevant trace files.
-    ///  Normally this will be called by the destructor. It's helpful to
-    ///  call this before a crash that won't call the destructor, to ensure
-    ///  buffered data is flushed.
+    /// Call close() on trace writer backend and write a version file.
+    ///
+    /// Normally this will be called by RecordSession close_trace_writer().
+    ///
     /// If `uuid` is `None` then a uuid will be generated for you.
     pub fn close(&mut self, status: CloseStatus, maybe_uuid: Option<TraceUuid>) {
         self.trace_writer_backend.close();
@@ -673,20 +673,18 @@ impl TraceWriter {
         }
         header.set_ok(status == CloseStatus::CloseOk);
         let mut f = unsafe { File::from_raw_fd(self.version_fd.as_raw()) };
-        match write_message(&mut f, &header_msg) {
-            Err(e) => fatal!(
+        if let Err(e) = write_message(&mut f, &header_msg) {
+            fatal!(
                 "Unable to write {:?}: {:?}",
                 self.trace_stream().incomplete_version_path(),
                 e
-            ),
-            Ok(_) => (),
+            );
         }
 
         let incomplete_path = self.trace_stream().incomplete_version_path();
         let path = self.trace_stream().version_path();
-        match rename(&incomplete_path, &path) {
-            Err(e) => fatal!("Unable to create version file {:?}: {:?}", path, e),
-            Ok(_) => (),
+        if let Err(e) = rename(&incomplete_path, &path) {
+            fatal!("Unable to create version file {:?}: {:?}", path, e);
         }
 
         self.version_fd.close();

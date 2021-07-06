@@ -1,7 +1,7 @@
 use super::{
     address_space::{kernel_mapping::KernelMapping, MappingFlags},
     on_create_task_common,
-    session_common::kill_all_tasks,
+    session_common::kill_all_tasks_common,
     session_inner::{is_singlestep, PtraceSyscallSeccompOrdering},
     task::{
         replay_task::ReplayTaskIgnore,
@@ -2173,7 +2173,7 @@ impl Session for ReplaySession {
 
     /// Forwarded method
     fn kill_all_tasks(&self) {
-        kill_all_tasks(self)
+        kill_all_tasks_common(self)
     }
 
     fn as_session_inner(&self) -> &SessionInner {

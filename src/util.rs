@@ -484,10 +484,9 @@ pub fn floor_page_size<T: Into<usize> + From<usize>>(sz: T) -> T {
 }
 
 pub fn resize_shmem_segment(fd: &ScopedFd, num_bytes: usize) {
-    match ftruncate(fd.as_raw(), num_bytes as libc::off_t) {
+    if let Err(e) = ftruncate(fd.as_raw(), num_bytes as libc::off_t) {
         // errno will be reported as part of fatal
-        Err(e) => fatal!("Failed to resize shmem to {}: {:?}", num_bytes, e),
-        Ok(_) => (),
+        fatal!("Failed to resize shmem to {}: {:?}", num_bytes, e);
     }
 }
 

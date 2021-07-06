@@ -1,7 +1,7 @@
 use super::{
     address_space::{AddressSpace, Privileged},
     on_create_task_common,
-    session_common::kill_all_tasks,
+    session_common::kill_all_tasks_common,
     session_inner::PtraceSyscallSeccompOrdering,
     task::{
         record_task::{
@@ -1891,11 +1891,8 @@ impl RecordSession {
     /// Flush buffers and write a termination record to the trace. Don't call
     /// record_step() after this.
     pub fn terminate_recording(&self) {
-        match self.scheduler().current() {
-            Some(t) => {
-                t.as_rec_unwrap().maybe_flush_syscallbuf();
-            }
-            None => (),
+        if let Some(t) = self.scheduler().current() {
+            t.as_rec_unwrap().maybe_flush_syscallbuf();
         }
 
         log!(LogInfo, "Processing termination request ...");
@@ -2533,7 +2530,7 @@ impl Session for RecordSession {
 
     /// Forwarded method
     fn kill_all_tasks(&self) {
-        kill_all_tasks(self)
+        kill_all_tasks_common(self)
     }
 
     fn on_destroy_task(&self, t: &dyn Task) {
