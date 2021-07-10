@@ -30,7 +30,6 @@ use nix::sys::mman::MapFlags;
 use session_inner::{AddressSpaceClone, CloneCompletion};
 use std::{
     cell::{Ref, RefMut},
-    convert::TryInto,
     mem::size_of,
     ops::DerefMut,
     rc::{Rc, Weak},
@@ -445,9 +444,8 @@ fn remap_shared_mmap(
 
     // TODO: this duplicates some code in replay_syscall.cc, but
     // it's somewhat nontrivial to factor that code out.
-    let res: isize = remote.send_fd(emu_file.borrow().fd());
-    ed_assert!(remote.task(), res > 0);
-    let remote_fd: i32 = res.try_into().unwrap();
+    let remote_fd = remote.send_fd(emu_file.borrow().fd());
+    ed_assert!(remote.task(), remote_fd > 0);
 
     let real_file = remote.task().stat_fd(remote_fd);
     let real_file_name = remote.task().file_name_of_fd(remote_fd);

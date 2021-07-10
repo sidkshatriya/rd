@@ -731,9 +731,12 @@ impl<'a> AutoRemoteSyscalls<'a> {
 
         ed_assert!(
             self.task(),
-            child_syscall_result > 0,
-            "Failed to sendmsg() in tracee; err={}",
-            errno_name((-child_syscall_result).try_into().unwrap())
+            child_syscall_result >= 0,
+            "Failed to recvmsg() in tracee; syscall result={}",
+            match (-child_syscall_result).try_into() {
+                Ok(res) => format!("-{}", errno_name(res)),
+                Err(_) => format!("{}", child_syscall_result),
+            }
         );
 
         let our_fd: i32 = recvmsg_socket(&self.task().session().tracee_socket_fd().borrow());
@@ -1241,12 +1244,13 @@ impl<'a> AutoRemoteSyscalls<'a> {
     /// Arranges for `our_fd` to be transmitted to the tracee and returns
     /// a file descriptor in the tracee that corresponds to the same file
     /// description.
+    ///
     /// Returns a negative value if the process dies or has died.
-    pub fn send_fd(&mut self, our_fd: &ScopedFd) -> isize {
+    pub fn send_fd(&mut self, our_fd: &ScopedFd) -> i32 {
         rd_arch_function!(self, send_fd_arch, self.arch(), our_fd)
     }
 
-    fn send_fd_arch<Arch: Architecture>(&mut self, our_fd: &ScopedFd) -> isize {
+    fn send_fd_arch<Arch: Architecture>(&mut self, our_fd: &ScopedFd) -> i32 {
         sendmsg_socket(
             &self.task().session().tracee_socket_fd().borrow(),
             our_fd.as_raw(),
@@ -1261,11 +1265,14 @@ impl<'a> AutoRemoteSyscalls<'a> {
         ed_assert!(
             self.task(),
             child_syscall_result >= 0,
-            "Failed to recvmsg() in tracee; err={}",
-            errno_name((-child_syscall_result).try_into().unwrap())
+            "Failed to recvmsg() in tracee; syscall result={}",
+            match (-child_syscall_result).try_into() {
+                Ok(res) => format!("-{}", errno_name(res)),
+                Err(_) => format!("{}", child_syscall_result),
+            }
         );
 
-        child_syscall_result
+        child_syscall_result.try_into().unwrap()
     }
 
     /// Takes a mapping and replaces it by one that is shared between rd and

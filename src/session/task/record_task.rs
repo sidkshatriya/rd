@@ -920,12 +920,13 @@ impl Task for RecordTask {
     fn write_bytes(&self, child_addr: RemotePtr<u8>, buf: &[u8]) {
         write_bytes_common(self, child_addr, buf);
     }
-    // Forwarded method
+
+    /// Forwarded method
     fn post_exec_syscall(&self) {
         post_exec_syscall_common(self)
     }
 
-    // Forwarded method
+    /// Forwarded method
     fn compute_trap_reasons(&self) -> TrapReasons {
         compute_trap_reasons_common(self)
     }

@@ -1289,6 +1289,9 @@ pub(super) fn post_exec_syscall_common(t: &dyn Task) {
     t.vm().post_exec_syscall(t);
 
     if SessionInner::has_cpuid_faulting() {
+        // A SIGSEGV will be generated henceforward for every cpuid instruction
+        // This setting needs to be set afresh for every execve.
+        // (It gets propogated on fork and clone syscalls)
         let mut remote = AutoRemoteSyscalls::new(t);
         rd_infallible_syscall!(
             remote,
