@@ -1001,8 +1001,12 @@ fn rep_after_enter_syscall_arch<Arch: Architecture>(t: &ReplayTask) {
     t.apply_all_data_records_from_trace();
 }
 
-// DIFF NOTE: This does not take an extra param `trace_frame` as it can be
-// obtained from `t` itself
+/// execve a stub executable, remove all its mappings and map in the mappings
+/// we saved during the record phase so that it matches the executable encountered
+/// during record exactly
+///
+/// DIFF NOTE: This does not take an extra param `trace_frame` as it can be
+/// obtained from `t` itself
 pub fn process_execve(t: &ReplayTask, step: &mut ReplayTraceStep) {
     step.action = ReplayTraceStepType::TstepRetire;
     let frame_arch = t.current_trace_frame().regs_ref().arch();
@@ -1085,8 +1089,8 @@ pub fn process_execve(t: &ReplayTask, step: &mut ReplayTraceStep) {
         Some(syscall_number_for_execve(frame_arch)),
         if tgid == t.tid() { None } else { Some(tgid) },
     );
+
     if t.regs_ref().syscall_result() != 0 {
-        // @TODO check this. Is this what we want -- especially the cast to i32?
         unsafe { *__errno_location() = -(t.regs_ref().syscall_result() as i32) };
         if access(stub_filename.as_c_str(), AccessFlags::F_OK).is_err()
             && errno() == ENOENT
@@ -1117,14 +1121,19 @@ pub fn process_execve(t: &ReplayTask, step: &mut ReplayTraceStep) {
     // fact that the kernel also loads the dynamic linker (if the main
     // executable specifies an interpreter).
     let mut exe_km_option1: Option<usize> = None;
+    // Loop over all mappings available in the trace at current trace time
+    // and save them for later processing
     loop {
         let mut data: trace_stream::MappedData = Default::default();
         let maybe_km: Option<KernelMapping> =
             t.trace_reader_mut()
                 .read_mapped_region(Some(&mut data), None, None, None, None);
+
+        // We've run out of mappings at this trace time so we're done
         if maybe_km.is_none() {
             break;
         }
+
         let km = maybe_km.unwrap();
         if km.start() == AddressSpace::rd_page_start()
             || km.start() == AddressSpace::preload_thread_locals_start()
@@ -1136,6 +1145,8 @@ pub fn process_execve(t: &ReplayTask, step: &mut ReplayTraceStep) {
         if !tte.exe_base().is_null() {
             // We recorded the executable's start address so we can just use that
             if tte.exe_base() == km.start() {
+                // Store the index of the current mapping (we've not pushed
+                // to kms yet so the index will be correct)
                 exe_km_option1 = Some(kms.len());
             }
         } else {
@@ -1174,6 +1185,7 @@ pub fn process_execve(t: &ReplayTask, step: &mut ReplayTraceStep) {
     } else {
         &datas[exe_km].filename
     };
+
     t.post_exec_syscall_for_replay_exe(exe_name);
 
     let fds_to_close = t
@@ -1182,6 +1194,7 @@ pub fn process_execve(t: &ReplayTask, step: &mut ReplayTraceStep) {
         .syscall_event()
         .exec_fds_to_close
         .clone();
+
     t.fd_table().close_after_exec(t, &fds_to_close);
 
     {
@@ -1306,7 +1319,7 @@ pub fn restore_mapped_region(
             inode = real_file.st_ino;
         }
         MappedDataSource::Trace | MappedDataSource::Zero => {
-            real_file_name = OsString::from("");
+            real_file_name = OsString::new();
             flags |= MapFlags::MAP_ANONYMOUS;
             remote.infallible_mmap_syscall(
                 Some(km.start()),

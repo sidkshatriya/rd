@@ -3416,6 +3416,7 @@ fn process_execve(t: &RecordTask, syscall_state: &mut TaskSyscallState) {
 
     // Write out stack mappings first since during replay we need to set up the
     // stack before any files get mapped.
+    // As a side effect of this loop also save the executable base
     let mut stacks: Vec<KernelMapping> = Vec::new();
     for (_, m) in &t.vm().maps() {
         let km = m.map.clone();

@@ -249,9 +249,10 @@ impl FdTable {
 
     /// Get list of fds that have been closed after `t` has done an execve.
     /// Rather than tracking CLOEXEC flags (which would be complicated), we just
-    /// scan /proc/<pid>/fd during recording and note any monitored fds that have
-    /// been closed.
-    /// This also updates our table to match reality.
+    /// scan /proc/<pid>/fd during recording after an execve and note any
+    /// monitored fds that have been closed.
+    ///
+    /// This also updates our fd table to match reality.
     pub fn fds_to_close_after_exec(&self, t: &RecordTask) -> Vec<i32> {
         ed_assert!(t, self.task_set().has(t.weak_self_clone()));
 
@@ -261,6 +262,7 @@ impl FdTable {
                 fds_to_close.push(fd);
             }
         }
+
         for &fd in &fds_to_close {
             self.did_close(fd);
         }

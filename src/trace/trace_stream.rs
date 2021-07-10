@@ -208,7 +208,7 @@ pub struct MappedData {
     /// Name of file to map the data from.
     pub filename: OsString,
     /// Data offset within `filename`.
-    /// NOTE: This is unsigned and NOT signed
+    /// NOTE: This is NOT a signed offset
     pub data_offset_bytes: usize,
     /// Original size of mapped file.
     pub file_size_bytes: usize,

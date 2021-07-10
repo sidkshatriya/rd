@@ -100,7 +100,7 @@ impl ReplayTask {
     }
 
     /// Initialize tracee buffers in this, i.e., implement
-    /// RRCALL_init_syscall_buffer.  This task must be at the point
+    /// RDCALL_init_syscall_buffer.  This task must be at the point
     /// of *exit from* the rrcall.  Registers will be updated with
     /// the return value from the rrcall, which is also returned
     /// from this call.  `map_hint` suggests where to map the
@@ -120,7 +120,7 @@ impl ReplayTask {
         // regular stack instead of having to search the address space for usable
         // pages (which is error prone, e.g. if we happen to find the scratch space
         // allocated by an rd recorder under which we're running).
-        post_exec_syscall_common(self);
+        self.post_exec_syscall();
 
         // Delay setting the replay_regs until here so the original registers
         // are set while we populate AddressSpace. We need that for the kernel

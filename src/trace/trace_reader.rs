@@ -273,6 +273,11 @@ impl TraceReader {
         ret
     }
 
+    /// We use `None` in some parameters to indicate "use the default" rather than
+    /// "dont do something". For example:
+    /// - If maybe_time_constraint is `None`, add a default constraint of the current time
+    /// - If maybe_validate is `None`, validate the source file
+    ///
     /// DIFF NOTE: `found` param as in rr seems to be unnecessary as we return an Option<KernelMapping>
     pub fn read_mapped_region(
         &mut self,
@@ -315,7 +320,7 @@ impl TraceReader {
             data.time = map.get_frame_time() as u64;
             data.data_offset_bytes = 0;
             if map.get_stat_size() < 0 {
-                fatal!("Invalid stat size");
+                fatal!("Invalid stat size `{}'", map.get_stat_size());
             }
             data.file_size_bytes = map.get_stat_size() as usize;
             if let Some(extra_fds) = maybe_extra_fds {

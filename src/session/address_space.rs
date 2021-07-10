@@ -648,8 +648,11 @@ impl AddressSpace {
         self.allocate_watchpoints();
     }
 
-    /// Call this after a successful execve syscall has completed. At this point
-    /// it is safe to perform remote syscalls.
+    /// Call this after a successful execve syscall has completed. After this method
+    /// completes it is safe to perform remote syscalls.
+    ///
+    /// This method also maps in the "rd page" and the preload_thread_locals shared
+    /// area
     pub fn post_exec_syscall(&self, t: &dyn Task) {
         // First locate a syscall instruction we can use for remote syscalls.
         self.traced_syscall_ip_
@@ -660,9 +663,11 @@ impl AddressSpace {
 
         // Set up AutoRemoteSyscalls again now that the mem-fd is open.
         let mut remote = AutoRemoteSyscalls::new(t);
+
         // Now we can set up the "rd page" at its fixed address. This gives
         // us traced and untraced syscall instructions at known, fixed addresses.
         self.map_rd_page(&mut remote);
+
         // Set up the preload_thread_locals shared area.
         remote.create_shared_mmap(
             PRELOAD_THREAD_LOCALS_SIZE,
@@ -1652,6 +1657,7 @@ impl AddressSpace {
     pub fn rd_page_size() -> usize {
         4096
     }
+
     pub fn rd_page_end() -> RemotePtr<Void> {
         Self::rd_page_start() + Self::rd_page_size()
     }
@@ -1659,6 +1665,7 @@ impl AddressSpace {
     pub fn preload_thread_locals_start() -> RemotePtr<Void> {
         Self::rd_page_start() + page_size()
     }
+
     pub fn preload_thread_locals_size() -> usize {
         PRELOAD_THREAD_LOCALS_SIZE
     }
