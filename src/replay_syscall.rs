@@ -1111,8 +1111,7 @@ pub fn process_execve(t: &ReplayTask, step: &mut ReplayTraceStep) {
         }
     }
 
-    let mut kms: Vec<KernelMapping> = Vec::new();
-    let mut datas: Vec<trace_stream::MappedData> = Vec::new();
+    let mut kms_and_data: Vec<(KernelMapping, trace_stream::MappedData)> = Vec::new();
 
     let maybe_exec = read_task_trace_event(t, TraceTaskEventType::Exec);
     let tte = maybe_exec.exec_variant();
@@ -1147,7 +1146,7 @@ pub fn process_execve(t: &ReplayTask, step: &mut ReplayTraceStep) {
             if tte.exe_base() == km.start() {
                 // Store the index of the current mapping (we've not pushed
                 // to kms yet so the index will be correct)
-                exe_km_option1 = Some(kms.len());
+                exe_km_option1 = Some(kms_and_data.len());
             }
         } else {
             // To disambiguate, we use the following criterion: The dynamic linker
@@ -1163,8 +1162,7 @@ pub fn process_execve(t: &ReplayTask, step: &mut ReplayTraceStep) {
             // hairy and can always be filled in later.
             unimplemented!()
         }
-        kms.push(km);
-        datas.push(data);
+        kms_and_data.push((km, data));
     }
 
     ed_assert!(t, exe_km_option1.is_some(), "No executable mapping?");
@@ -1174,16 +1172,16 @@ pub fn process_execve(t: &ReplayTask, step: &mut ReplayTraceStep) {
     // This is because we assume that the trace format is a newer one and
     // always contains the exe_base
 
-    ed_assert!(t, kms[0].is_stack(), "Can't find stack");
+    ed_assert!(t, kms_and_data[0].0.is_stack(), "Can't find stack");
 
     // The exe name we pass in here will be passed to gdb. Pass the backing file
     // name if there is one, otherwise pass the original file name (which means
     // we declined to copy it to the trace file during recording for whatever
     // reason).
-    let exe_name: &OsStr = if datas[exe_km].filename.is_empty() {
-        kms[exe_km].fsname()
+    let exe_name: &OsStr = if kms_and_data[exe_km].1.filename.is_empty() {
+        kms_and_data[exe_km].0.fsname()
     } else {
-        &datas[exe_km].filename
+        &kms_and_data[exe_km].1.filename
     };
 
     t.post_exec_syscall_for_replay_exe(exe_name);
@@ -1231,10 +1229,10 @@ pub fn process_execve(t: &ReplayTask, step: &mut ReplayTraceStep) {
         // need any memory parameters for its remote syscalls.
 
         // Process the [stack] mapping.
-        restore_mapped_region(&mut remote, &kms[0], &datas[0]);
+        restore_mapped_region(&mut remote, &kms_and_data[0].0, &kms_and_data[0].1);
     }
 
-    let recorded_exe_name: &OsStr = kms[exe_km].fsname();
+    let recorded_exe_name: &OsStr = kms_and_data[exe_km].0.fsname();
 
     {
         let arch = t.arch();
@@ -1243,8 +1241,10 @@ pub fn process_execve(t: &ReplayTask, step: &mut ReplayTraceStep) {
         let mut remote = AutoRemoteSyscalls::new(t);
 
         // Now map in all the mappings that we recorded from the real exec.
-        for i in 1..kms.len() - 1 {
-            restore_mapped_region(&mut remote, &kms[i], &datas[i]);
+        // Note that we skip the first one because we have already dealt with it
+        // above
+        for (km, data) in &kms_and_data[1..] {
+            restore_mapped_region(&mut remote, km, data);
         }
 
         let mut name: Vec<u8> = Vec::new();
@@ -1268,7 +1268,11 @@ pub fn process_execve(t: &ReplayTask, step: &mut ReplayTraceStep) {
         );
     }
 
-    init_scratch_memory(t, kms.last().unwrap(), datas.last().unwrap());
+    init_scratch_memory(
+        t,
+        &kms_and_data.last().unwrap().0,
+        &kms_and_data.last().unwrap().1,
+    );
 
     // Apply final data records --- fixing up the last page in each data segment
     // for zeroing applied by the kernel, and applying monkeypatches.
