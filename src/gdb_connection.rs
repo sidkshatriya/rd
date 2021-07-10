@@ -2596,7 +2596,7 @@ fn poll_socket(sock_fd: &ScopedFd, events: PollFlags, timeout_ms: i32) -> bool {
 
     match poll(&mut pfds, timeout_ms) {
         Ok(ret) if ret > 0 => return true,
-        Err(Error::Sys(err)) if err != Errno::EINTR => log!(LogInfo, "gdb socket has been closed"),
+        Err(err) if err != Errno::EINTR => log!(LogInfo, "gdb socket has been closed"),
         _ => (),
     }
 

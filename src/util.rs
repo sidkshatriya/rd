@@ -58,7 +58,7 @@ use nix::{
         access, ftruncate, getpid, isatty, mkdir, mkstemp, read, sysconf, unlink, write,
         AccessFlags, Pid, SysconfVar::PAGE_SIZE,
     },
-    Error as NixError, NixPath,
+    NixPath,
 };
 use rand::random;
 use regex::bytes::Regex;
@@ -2458,12 +2458,10 @@ pub fn open_socket(dbg_host: &str, port: &mut u16, probe: ProbePort) -> ScopedFd
         let addr = SockAddr::new_inet(InetAddr::from_std(&sock_addr));
 
         match bind(listen_fd.as_raw(), &addr) {
-            Err(NixError::Sys(Errno::EADDRINUSE))
-            | Err(NixError::Sys(Errno::EACCES))
-            | Err(NixError::Sys(Errno::EINVAL)) => {}
+            Err(Errno::EADDRINUSE) | Err(Errno::EACCES) | Err(Errno::EINVAL) => {}
             Err(e) => fatal!("Couldn't bind to port: {:?}", e),
             Ok(()) => match listen(listen_fd.as_raw(), 1) {
-                Err(NixError::Sys(Errno::EADDRINUSE)) => (),
+                Err(Errno::EADDRINUSE) => (),
                 Err(e) => {
                     fatal!("Couldn't listen on port {}: {:?}", *port, e)
                 }

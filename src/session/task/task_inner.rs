@@ -70,7 +70,6 @@ use nix::{
         stat::{lstat, stat, FileStat, Mode},
     },
     unistd::{dup2, execve, getpid, getuid, setsid, Pid},
-    Error,
 };
 use owning_ref::OwningHandle;
 use std::{
@@ -1834,7 +1833,7 @@ fn run_initial_child(
     CPUIDBugDetector::run_detection_code();
 
     match execve(exe_path_cstr, argv_array, envp_array) {
-        Err(Error::Sys(Errno::ENOENT)) => {
+        Err(Errno::ENOENT) => {
             spawned_child_fatal_error(
                 error_fd,
                 &format!(

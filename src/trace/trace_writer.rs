@@ -52,7 +52,6 @@ use nix::{
         stat::Mode,
     },
     unistd::unlink,
-    Error,
 };
 use std::{
     collections::HashMap,
@@ -693,7 +692,7 @@ impl TraceWriter {
         //
         // DIFF NOTE: rr swallows any error on unlink. We don't for now.
         match unlink(&link_name) {
-            Err(Error::Sys(Errno::ENOENT)) => (),
+            Err(Errno::ENOENT) => (),
             Err(e) => fatal!("Unable to unlink {:?}: {:?}", link_name, e),
             Ok(_) => (),
         }

@@ -39,7 +39,6 @@ use nix::{
         stat::fstat,
     },
     unistd::read,
-    Error,
 };
 use object::{self, Object};
 use std::{
@@ -505,7 +504,7 @@ fn open_debug_file(bytes: &[u8], fsname: OsString) -> Option<ScopedFd> {
             Ok(0) => break,
             Ok(nread) => hash.update(&buf[0..nread]),
             //  Try again
-            Err(Error::Sys(Errno::EINTR)) => (),
+            Err(Errno::EINTR) => (),
             Err(e) => {
                 log!(LogDebug, "Error reading {:?}: {:?}", debug_so_path, e);
                 return None;

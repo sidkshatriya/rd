@@ -62,7 +62,6 @@ use nix::{
         stat::{major, minor},
     },
     unistd::{dup, execvpe, getpid, read, unlink, write},
-    Error,
 };
 use std::{
     cell::{Ref, RefCell, RefMut},
@@ -492,7 +491,7 @@ impl GdbServer {
                     // pipe was closed. Probably rd failed/died.
                     return;
                 }
-                Err(Error::Sys(Errno::EINTR)) => continue,
+                Err(Errno::EINTR) => continue,
                 _ => break,
             }
         }

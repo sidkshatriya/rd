@@ -3,6 +3,7 @@ include!(concat!(
     env!("OUT_DIR"),
     "/check_syscall_numbers_generated.rs"
 ));
+
 use crate::{
     arch::Architecture,
     arch_structs::mmap_args,
@@ -90,6 +91,7 @@ use std::{
     ffi::{CString, OsStr, OsString},
     mem::size_of,
     os::unix::ffi::{OsStrExt, OsStringExt},
+    path::Path,
 };
 use trace_stream::{MappedDataSource, TraceRemoteFd};
 
@@ -1247,18 +1249,11 @@ pub fn process_execve(t: &ReplayTask, step: &mut ReplayTraceStep) {
             restore_mapped_region(&mut remote, km, data);
         }
 
-        let mut name: Vec<u8> = Vec::new();
-        name.extend_from_slice(b"rd:");
-        let pos = recorded_exe_name
-            .as_bytes()
-            .iter()
-            .rposition(|&c| c == b'/')
-            .unwrap_or(0);
-        debug_assert!(recorded_exe_name.as_bytes().len() != pos + 1);
-        name.extend_from_slice(&recorded_exe_name.as_bytes()[pos + 1..]);
-        name.extend_from_slice(b"\0");
-        // Note: NOT using AutorestoreMem::push_cstr() as we already have a '\0' at the end
-        let mut mem = AutoRestoreMem::new(&mut remote, Some(&name), name.len());
+        let mut name = OsString::new();
+        name.push(OsStr::new("rd:"));
+        let filename = Path::new(recorded_exe_name).file_name().unwrap();
+        name.push(filename);
+        let mut mem = AutoRestoreMem::push_cstr(&mut remote, name.as_os_str());
         let addr = mem.get().unwrap();
         rd_infallible_syscall!(
             mem,
