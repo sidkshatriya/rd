@@ -143,15 +143,19 @@ pub trait Session: DerefMut<Target = SessionInner> {
 
             let mut group: AddressSpaceClone = AddressSpaceClone::default();
 
-            let clone_leader: TaskSharedPtr = os_fork_into(&**group_leader, dest.clone());
-            group.clone_leader = Rc::downgrade(&clone_leader);
-            dest.on_create_task(clone_leader.clone());
-            log!(LogDebug, "  forked new group leader {}", clone_leader.tid());
+            let cloned_leader: TaskSharedPtr = os_fork_into(&**group_leader, dest.clone());
+            group.clone_leader = Rc::downgrade(&cloned_leader);
+            dest.on_create_task(cloned_leader.clone());
+            log!(
+                LogDebug,
+                "  forked new group leader {}",
+                cloned_leader.tid()
+            );
 
             {
-                let mut remote = AutoRemoteSyscalls::new(&**clone_leader);
+                let mut remote = AutoRemoteSyscalls::new(&**cloned_leader);
                 let mut shared_maps_to_clone = Vec::new();
-                for (&k, m) in &clone_leader.vm().maps() {
+                for (&k, m) in &cloned_leader.vm().maps() {
                     // Special case the syscallbuf as a performance optimization. The amount
                     // of data we need to capture is usually significantly smaller than the
                     // size of the mapping, so allocating the whole mapping here would be
@@ -159,10 +163,10 @@ pub trait Session: DerefMut<Target = SessionInner> {
                     if m.flags.contains(MappingFlags::IS_SYSCALLBUF) {
                         group
                             .captured_memory
-                            .push((m.map.start(), capture_syscallbuf(m, &**clone_leader)));
+                            .push((m.map.start(), capture_syscallbuf(m, &**cloned_leader)));
                     } else if m.local_addr.is_some() {
                         ed_assert_eq!(
-                            clone_leader,
+                            cloned_leader,
                             m.map.start(),
                             AddressSpace::preload_thread_locals_start()
                         );

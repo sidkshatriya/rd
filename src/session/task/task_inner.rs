@@ -432,7 +432,7 @@ pub enum CloneReason {
     SessionCloneLeader,
     /// Cloning a task into the same session to recreate threads while
     /// restoring a checkpoint
-    SessionCloneNonleader,
+    SessionCloneNonLeader,
 }
 
 pub enum SaveTraceeFdNumber<'a> {

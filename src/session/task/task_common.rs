@@ -993,7 +993,7 @@ pub(in super::super) fn os_clone_into(
 ) -> TaskSharedPtr {
     let session = remote.task().session();
     os_clone(
-        CloneReason::SessionCloneNonleader,
+        CloneReason::SessionCloneNonLeader,
         session,
         remote,
         state.rec_tid,
@@ -1549,15 +1549,19 @@ pub(in super::super) fn clone_task_common(
 ) -> TaskSharedPtr {
     let mut new_task_session = clone_this.session();
     match maybe_other_session {
-        Some(other_session) => {
-            ed_assert_ne!(clone_this, reason, CloneReason::TraceeClone);
+        Some(other_session) if !Rc::ptr_eq(&new_task_session, &other_session) => {
+            ed_assert_eq!(clone_this, reason, CloneReason::SessionCloneLeader);
             new_task_session = other_session;
         }
-        None => {
-            ed_assert_eq!(clone_this, reason, CloneReason::TraceeClone);
+        _ => {
+            ed_assert!(
+                clone_this,
+                reason == CloneReason::TraceeClone || reason == CloneReason::SessionCloneNonLeader
+            );
         }
     }
-    // No longer mutable.
+    // No longer mutable. Note that the LHS variable and RHS variable have the
+    // same name
     let new_task_session = new_task_session;
 
     let rc_t = Rc::new_cyclic(|weak_self| {
@@ -1570,6 +1574,10 @@ pub(in super::super) fn clone_task_common(
         );
 
         if flags.contains(CloneFlags::CLONE_SHARE_VM) {
+            ed_assert!(
+                clone_this,
+                reason == CloneReason::TraceeClone || reason == CloneReason::SessionCloneNonLeader
+            );
             // The cloned task has the same AddressSpace
             *t.as_.borrow_mut() = clone_this.as_.borrow().clone();
             if !stack.is_null() {
@@ -1608,6 +1616,8 @@ pub(in super::super) fn clone_task_common(
                 };
             }
         } else {
+            // This will work both for session cloning related forks or within the
+            // same session clones that _don't_ specify CLONE_SHARE_VM
             *t.as_.borrow_mut() = Some(new_task_session.clone_vm(&*t, clone_this.vm()));
         }
 

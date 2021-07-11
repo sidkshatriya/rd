@@ -447,7 +447,10 @@ impl ReplaySession {
     pub fn clone_replay(&self) -> SessionSharedPtr {
         log!(LogDebug, "Deepforking ReplaySession {} ...", self.unique_id);
 
+        // If the current session is partially initialized then fully initialize
+        // it. We can't clone a partially initialized session.
         self.finish_initializing();
+        // Clear any breakpoints placed on syscalls
         self.clear_syscall_bp();
 
         // see `impl Clone for ReplaSession`
