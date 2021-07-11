@@ -326,11 +326,11 @@ fn rec_prepare_syscall_arch<Arch: Architecture>(t: &RecordTask, regs: &Registers
 
         // Save the event. We can't record it here because the exec might fail.
         let raw_filename = t.read_c_str(RemotePtr::from(regs.arg1()));
-        syscall_state.exec_saved_event = Some(Box::new(TraceTaskEvent::for_exec(
+        syscall_state.exec_saved_event = Some(TraceTaskEvent::for_exec(
             t.tid(),
             &OsString::from_vec(raw_filename.into_bytes()),
             &cmd_line,
-        )));
+        ));
 
         // This can trigger unstable exits of non-main threads, so we have to
         // allow them to be handled.
@@ -3373,6 +3373,7 @@ fn process_execve(t: &RecordTask, syscall_state: &mut TaskSyscallState) {
 
     check_privileged_exe(t);
 
+    // This mapping was setup in the post_exec_syscall() above
     let rd_page_mapping: KernelMapping = t
         .vm()
         .mapping_of(AddressSpace::rd_page_start())
@@ -3390,6 +3391,7 @@ fn process_execve(t: &RecordTask, syscall_state: &mut TaskSyscallState) {
     );
     ed_assert_eq!(t, mode, RecordInTrace::DontRecordInTrace);
 
+    // This mapping was setup in the post_exec_syscall() above
     let preload_thread_locals_mapping: KernelMapping = t
         .vm()
         .mapping_of(AddressSpace::preload_thread_locals_start())
@@ -3409,14 +3411,14 @@ fn process_execve(t: &RecordTask, syscall_state: &mut TaskSyscallState) {
 
     let mut maybe_vvar: Option<KernelMapping> = None;
 
-    // get the remote executable entry point
+    // Get the remote executable entry point
     // with the pointer, we find out which mapping is the executable
     let exe_entry: RemotePtr<Void> = get_exe_entry(t);
     ed_assert!(t, !exe_entry.is_null(), "AT_ENTRY not found");
 
     // Write out stack mappings first since during replay we need to set up the
     // stack before any files get mapped.
-    // As a side effect of this loop also save the executable base
+    // As a side effect of this loop also save the executable base addr
     let mut stacks: Vec<KernelMapping> = Vec::new();
     for (_, m) in &t.vm().maps() {
         let km = m.map.clone();
@@ -3775,8 +3777,8 @@ pub struct TaskSyscallState {
 
     after_syscall_actions: Vec<AfterSyscallAction>,
 
-    /// DIFF NOTE: Made into an Option<>
-    exec_saved_event: Option<Box<TraceTaskEvent>>,
+    /// DIFF NOTE: Made into an Option<>, also no need for a Box<>
+    exec_saved_event: Option<TraceTaskEvent>,
     /// DIFF NOTE: Made into an Option<>
     emulate_wait_for_child: Option<TaskSharedWeakPtr>,
 

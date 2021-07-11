@@ -590,7 +590,7 @@ pub fn write_mem<D: 'static>(
 
 /// Forwarded method definition
 ///
-/// Force the wait status of this to `status`, as if
+/// Force the wait status of `task` to `status`, as if
 /// `wait()/try_wait()` had returned it. Call this whenever a waitpid
 /// returned activity for this past.
 pub(super) fn did_waitpid_common<T: Task>(task: &T, mut status: WaitStatus) {
@@ -1281,6 +1281,11 @@ pub(super) fn on_syscall_exit_common(
     })
 }
 
+/// Among other things this function makes sure:
+/// - Remote system calls can be made, mem fd is setup
+/// - rd page, preload thread locals page is mapped in
+/// - cpuid calls generate a SIGSEGV
+///
 /// Call this method when this task has exited a successful execve() syscall.
 /// At this point it is safe to make remote syscalls.
 pub(super) fn post_exec_syscall_common(t: &dyn Task) {

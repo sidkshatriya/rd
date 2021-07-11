@@ -390,6 +390,7 @@ impl Task for ReplayTask {
         )
     }
 
+    /// Forwarded method
     fn post_wait_clone(&self, clone_from: &dyn Task, flags: CloneFlags) {
         post_wait_clone_common(self, clone_from, flags)
     }
@@ -453,7 +454,7 @@ impl Task for ReplayTask {
         on_syscall_exit_common(self, syscallno, arch, regs)
     }
 
-    // Forwarded method
+    /// Forwarded method
     fn at_preload_init(&self) {
         at_preload_init_common(self)
     }
@@ -508,7 +509,7 @@ impl Task for ReplayTask {
         post_exec_syscall_common(self)
     }
 
-    // Forwarded method
+    /// Forwarded method
     fn compute_trap_reasons(&self) -> TrapReasons {
         compute_trap_reasons_common(self)
     }
