@@ -3454,6 +3454,9 @@ fn process_execve(t: &RecordTask, syscall_state: &mut TaskSyscallState) {
             .is_null()
     );
 
+    // The exec task event is now complete:
+    // We know the exe base and other details for the exec_saved_event were already
+    // added in the syscall prepare phase. So write it out to the trace!
     t.trace_writer_mut()
         .write_task_event(syscall_state.exec_saved_event.as_ref().unwrap());
 

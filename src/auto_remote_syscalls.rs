@@ -210,6 +210,10 @@ macro_rules! rd_infallible_syscall_ptr {
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub enum MemParamsEnabled {
     EnableMemoryParams,
+    /// Won't have access to the stack to push in some parameters
+    /// e.g. paths, filenames etc. In other words, we cannot
+    /// use AutoRestoreMem if we setup AutoRemoteSyscalls with
+    /// memory parameters disabled
     DisableMemoryParams,
 }
 

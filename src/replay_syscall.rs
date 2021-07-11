@@ -267,6 +267,9 @@ fn maybe_noop_restore_syscallbuf_scratch(t: &ReplayTask) {
     }
 }
 
+/// Read the next task event from the trace that is of type `task_event_type`
+/// While doing so, make sure the time at which the task event occurs is the
+/// current frame time (otherwise fail an assertion).
 fn read_task_trace_event(t: &ReplayTask, task_event_type: TraceTaskEventType) -> TraceTaskEvent {
     let mut tte: Option<TraceTaskEvent>;
     let mut time: FrameTime = 0;
@@ -287,6 +290,7 @@ fn read_task_trace_event(t: &ReplayTask, task_event_type: TraceTaskEventType) ->
             break;
         }
     }
+    // Important: The event must occur at the current frame time!
     ed_assert_eq!(t, time, t.current_frame_time());
     tte.unwrap()
 }
@@ -1115,8 +1119,8 @@ pub fn process_execve(t: &ReplayTask, step: &mut ReplayTraceStep) {
 
     let mut kms_and_data: Vec<(KernelMapping, trace_stream::MappedData)> = Vec::new();
 
-    let maybe_exec = read_task_trace_event(t, TraceTaskEventType::Exec);
-    let tte = maybe_exec.exec_variant();
+    let exec = read_task_trace_event(t, TraceTaskEventType::Exec);
+    let tte = exec.exec_variant();
 
     // Find the text mapping of the main executable. This is complicated by the
     // fact that the kernel also loads the dynamic linker (if the main
@@ -1139,7 +1143,8 @@ pub fn process_execve(t: &ReplayTask, step: &mut ReplayTraceStep) {
         if km.start() == AddressSpace::rd_page_start()
             || km.start() == AddressSpace::preload_thread_locals_start()
         {
-            // Skip rd-page mapping record, that gets mapped automatically
+            // Skip rd-page mapping record and preload locals, those gets mapped
+            // automatically
             continue;
         }
 
@@ -1186,6 +1191,9 @@ pub fn process_execve(t: &ReplayTask, step: &mut ReplayTraceStep) {
         &kms_and_data[exe_km].1.filename
     };
 
+    // Among other things this will map in rd page and preload thread
+    // locals, restore the registers from the trace and activate
+    // remote syscalls
     t.post_exec_syscall_for_replay_exe(exe_name);
 
     let fds_to_close = t
@@ -1197,11 +1205,12 @@ pub fn process_execve(t: &ReplayTask, step: &mut ReplayTraceStep) {
 
     t.fd_table().close_after_exec(t, &fds_to_close);
 
+    // Unmap almost all mappings and restore the stack mapping
     {
         let arch = t.arch();
 
         // Now fix up the address space. First unmap all the mappings other than
-        // our rd page.
+        // our rd page and preload thread locals
         let mut unmaps: Vec<MemoryRangeKey> = Vec::new();
         for (&k, m) in &t.vm().maps() {
             // Do not attempt to unmap [vsyscall] --- it doesn't work.
@@ -1226,11 +1235,11 @@ pub fn process_execve(t: &ReplayTask, step: &mut ReplayTraceStep) {
             );
             remote.task().vm().unmap(remote.task(), m.start(), m.size());
         }
-        // We will have unmapped the stack memory that `remote` would have used for
-        // memory parameters. Fortunately process_mapped_region below doesn't
+        // We will have unmapped the stack memory that `remote` _could_ have used for
+        // memory parameters. Fortunately `restore_mapped_region()` below doesn't
         // need any memory parameters for its remote syscalls.
 
-        // Process the [stack] mapping.
+        // Process the [stack] mapping recorded in the trace.
         restore_mapped_region(&mut remote, &kms_and_data[0].0, &kms_and_data[0].1);
     }
 
@@ -1271,6 +1280,8 @@ pub fn process_execve(t: &ReplayTask, step: &mut ReplayTraceStep) {
 
     // Apply final data records --- fixing up the last page in each data segment
     // for zeroing applied by the kernel, and applying monkeypatches.
+    // These are very specific monkey patches that happen in the monkey patcher
+    // method `patch_after_exec()`
     t.apply_all_data_records_from_trace();
 
     // Now it's safe to save the auxv data
@@ -1280,6 +1291,8 @@ pub fn process_execve(t: &ReplayTask, step: &mut ReplayTraceStep) {
     unsafe { syscall(SYS_rdcall_reload_auxv as _, t.tid()) };
 }
 
+/// It is important that this method does _not_ try to obtain an AutoRestoreMem
+/// from `remote` because it has memory parameters disabled
 pub fn restore_mapped_region(
     remote: &mut AutoRemoteSyscalls,
     km: &KernelMapping,

@@ -1787,6 +1787,7 @@ impl AddressSpace {
     pub fn set_first_run_event(&self, event: FrameTime) {
         self.first_run_event_.set(event);
     }
+
     pub fn first_run_event(&self) -> FrameTime {
         self.first_run_event_.get()
     }
@@ -1794,6 +1795,7 @@ impl AddressSpace {
     pub fn saved_auxv(&self) -> Ref<[u8]> {
         Ref::map(self.saved_auxv_.borrow(), |v| v.as_slice())
     }
+
     pub fn save_auxv(&self, t: &dyn Task) {
         *self.saved_auxv_.borrow_mut() = read_auxv(t);
     }
