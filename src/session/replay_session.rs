@@ -373,7 +373,7 @@ impl Drop for ReplaySession {
         self.kill_all_tasks();
         debug_assert!(self.task_map.borrow().is_empty());
         debug_assert!(self.vm_map.borrow().is_empty());
-        debug_assert_eq!(self.emufs().size(), 0);
+        debug_assert_eq!(self.emufs().num_files(), 0);
         log!(
             LogDebug,
             "ReplaySession having session id: {} dropped",
