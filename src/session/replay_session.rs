@@ -453,7 +453,7 @@ impl ReplaySession {
         // Clear any breakpoints placed on syscalls
         self.clear_syscall_bp();
 
-        // see `impl Clone for ReplaSession`
+        // see `impl Clone for ReplaySession`
         let mut cloned_replay_session = self.clone();
         log!(
             LogDebug,

@@ -271,33 +271,40 @@ impl SessionInner {
     /// Return a copy of `vm` with the same mappings.  If any
     /// mapping is changed, only the `clone()`d copy is updated,
     /// not its origin (i.e. copy-on-write semantics).
+    ///
     /// NOTE: Called simply Session::clone() in rr
-    pub fn clone_vm(&self, t: &dyn Task, vm: AddressSpaceSharedPtr) -> AddressSpaceSharedPtr {
+    pub fn clone_vm(
+        &self,
+        t: &dyn Task,
+        clone_from_vm: AddressSpaceSharedPtr,
+    ) -> AddressSpaceSharedPtr {
         self.assert_fully_initialized();
         // If vm already belongs to our session this is a fork, otherwise it's
         // a session-clone
         let addr_space: AddressSpace;
-        if self.weak_self.ptr_eq(vm.session_weak()) {
+        if self.weak_self.ptr_eq(clone_from_vm.session_weak()) {
+            // This is a fork
             addr_space = AddressSpace::new_after_fork_or_session_clone(
                 self.weak_self.clone(),
-                &vm,
+                &clone_from_vm,
                 t.rec_tid(),
                 t.tuid().serial(),
                 0,
             );
         } else {
+            // This is a session clone
             let vm_uid_tid: i32;
             let vm_uid_serial: u32;
             let vm_uid_exec_count: u32;
             {
-                let vmb = vm.uid();
+                let vmb = clone_from_vm.uid();
                 vm_uid_tid = vmb.tid();
                 vm_uid_serial = vmb.serial();
                 vm_uid_exec_count = vmb.exec_count();
             }
             addr_space = AddressSpace::new_after_fork_or_session_clone(
                 self.weak_self.clone(),
-                &vm,
+                &clone_from_vm,
                 vm_uid_tid,
                 vm_uid_serial,
                 vm_uid_exec_count,

@@ -2087,36 +2087,38 @@ impl AddressSpace {
     /// clone. After this, and the task is properly set up, post_vm_clone will
     /// be called.
     pub(in super::super) fn new_after_fork_or_session_clone(
-        session: SessionSharedWeakPtr,
-        o: &AddressSpace,
+        dest_session: SessionSharedWeakPtr,
+        clone_from_vm: &AddressSpace,
         leader_tid: pid_t,
         leader_serial: u32,
         exec_count: u32,
     ) -> AddressSpace {
-        let maybe_monkey_patcher = o
+        // Clone the monkey patcher state, only if it is available
+        let maybe_monkey_patcher = clone_from_vm
             .monkeypatch_state
             .as_ref()
             .map(|rc| Rc::new(RefCell::new(rc.borrow().clone())));
+        // Create a new address space, cloning from vm `clone_from_vm`
         let mut addr_space = AddressSpace {
-            exe: o.exe.clone(),
+            exe: clone_from_vm.exe.clone(),
             leader_tid_: leader_tid,
             leader_serial,
             exec_count,
-            brk_start: o.brk_start.clone(),
-            brk_end: o.brk_end.clone(),
-            mem: o.mem.clone(),
-            shm_sizes: o.shm_sizes.clone(),
-            monitored_mem: o.monitored_mem.clone(),
-            session_: session.clone(),
-            vdso_start_addr: o.vdso_start_addr.clone(),
+            brk_start: clone_from_vm.brk_start.clone(),
+            brk_end: clone_from_vm.brk_end.clone(),
+            mem: clone_from_vm.mem.clone(),
+            shm_sizes: clone_from_vm.shm_sizes.clone(),
+            monitored_mem: clone_from_vm.monitored_mem.clone(),
+            session_: dest_session.clone(),
+            vdso_start_addr: clone_from_vm.vdso_start_addr.clone(),
             monkeypatch_state: maybe_monkey_patcher,
-            traced_syscall_ip_: o.traced_syscall_ip_.clone(),
-            privileged_traced_syscall_ip_: o.privileged_traced_syscall_ip_.clone(),
-            syscallbuf_enabled_: o.syscallbuf_enabled_.clone(),
-            saved_auxv_: o.saved_auxv_.clone(),
+            traced_syscall_ip_: clone_from_vm.traced_syscall_ip_.clone(),
+            privileged_traced_syscall_ip_: clone_from_vm.privileged_traced_syscall_ip_.clone(),
+            syscallbuf_enabled_: clone_from_vm.syscallbuf_enabled_.clone(),
+            saved_auxv_: clone_from_vm.saved_auxv_.clone(),
             first_run_event_: Default::default(),
-            watchpoints: o.watchpoints.clone(),
-            breakpoints: o.breakpoints.clone(),
+            watchpoints: clone_from_vm.watchpoints.clone(),
+            breakpoints: clone_from_vm.breakpoints.clone(),
             // rd does not explicitly initialize these.
             child_mem_fd: Default::default(),
             dont_fork: Default::default(),
@@ -2132,9 +2134,9 @@ impl AddressSpace {
             m.local_addr = None;
         }
 
-        if !Rc::ptr_eq(&addr_space.session(), &o.session()) {
+        if !Rc::ptr_eq(&addr_space.session(), &clone_from_vm.session()) {
             // Cloning into a new session means we're checkpointing.
-            addr_space.first_run_event_ = o.first_run_event_.clone();
+            addr_space.first_run_event_ = clone_from_vm.first_run_event_.clone();
         }
         // cloned tasks will automatically get cloned debug registers and
         // cloned address-space memory, so we don't need to do any more work here.

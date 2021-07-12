@@ -74,6 +74,11 @@ impl TraceReaderRocksDBBackend {
         }
     }
 
+    /// If there is no current key for the substream, start from the beginning
+    /// of the substream. If however we DO have a current key then that means
+    /// if was already read as part of a previous read_message() or read_data_exact().
+    /// In that case, we start the iterator at the current key and skip to the next
+    /// before returning the iterator.
     fn iter(&self, substream: Substream) -> DBIteratorWithThreadMode<DB> {
         if let Some(lexical_key) = self.current_keys[substream as usize] {
             let mut it = self.db.iterator_cf_opt(
@@ -92,6 +97,7 @@ impl TraceReaderRocksDBBackend {
         }
     }
 
+    /// Return the column family handle for a substream
     fn cf(&self, s: Substream) -> &ColumnFamily {
         &self.cf_handles[s as usize]
     }
@@ -143,6 +149,7 @@ impl TraceReaderBackend for TraceReaderRocksDBBackend {
         self.saved_states[substream as usize] = Some(self.current_keys[substream as usize]);
     }
 
+    /// There MUST be a saved state to restore or will panic
     fn restore_state(&mut self, substream: Substream) {
         self.current_keys[substream as usize] = self.saved_states[substream as usize].unwrap();
     }

@@ -1547,6 +1547,7 @@ pub(in super::super) fn clone_task_common(
     new_serial: u32,
     maybe_other_session: Option<SessionSharedPtr>,
 ) -> TaskSharedPtr {
+    // By default the value of new_task_session is the same session as the session of clone_this task
     let mut new_task_session = clone_this.session();
     match maybe_other_session {
         Some(other_session) if !Rc::ptr_eq(&new_task_session, &other_session) => {
