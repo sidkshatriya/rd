@@ -739,7 +739,7 @@ impl AddressSpace {
 
     /// Return AddressSpaceUid for this address space.
     pub fn uid(&self) -> AddressSpaceUid {
-        AddressSpaceUid::new_with(self.leader_tid_, self.leader_serial, self.exec_count)
+        AddressSpaceUid::new(self.leader_tid_, self.leader_serial, self.exec_count)
     }
 
     #[inline]

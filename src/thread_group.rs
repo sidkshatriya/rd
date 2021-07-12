@@ -246,7 +246,7 @@ impl ThreadGroup {
     }
 
     pub fn tguid(&self) -> ThreadGroupUid {
-        ThreadGroupUid::new_with(self.tgid, self.serial)
+        ThreadGroupUid::new(self.tgid, self.serial)
     }
 
     pub fn weak_self_clone(&self) -> ThreadGroupSharedWeakPtr {

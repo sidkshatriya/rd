@@ -1105,7 +1105,7 @@ impl TaskInner {
     }
 
     pub fn tuid(&self) -> TaskUid {
-        TaskUid::new_with(self.rec_tid(), self.serial.get())
+        TaskUid::new(self.rec_tid(), self.serial.get())
     }
 
     /// Return the dir of the trace we're using.

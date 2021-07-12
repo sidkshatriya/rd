@@ -83,7 +83,7 @@ impl<T> Default for TaskishUid<T> {
 /// and AddressSpaces.
 /// This is needed because tids can be recycled during a long-running session.
 impl<T> TaskishUid<T> {
-    pub fn new_with(tid: pid_t, serial: u32) -> TaskishUid<T> {
+    pub fn new(tid: pid_t, serial: u32) -> TaskishUid<T> {
         TaskishUid {
             tid_: tid,
             serial_: serial,
@@ -115,9 +115,9 @@ impl Default for AddressSpaceUid {
     }
 }
 impl AddressSpaceUid {
-    pub fn new_with(tid: pid_t, serial: u32, exec_count: u32) -> AddressSpaceUid {
+    pub fn new(tid: pid_t, serial: u32, exec_count: u32) -> AddressSpaceUid {
         AddressSpaceUid {
-            taskish: TaskishUid::new_with(tid, serial),
+            taskish: TaskishUid::new(tid, serial),
             exec_count,
         }
     }
@@ -144,10 +144,10 @@ mod test {
 
     #[test]
     pub fn compare_taskish_addr_space_uid() {
-        let auid1 = AddressSpaceUid::new_with(1, 1, 2);
-        let auid2 = AddressSpaceUid::new_with(0, 2, 3);
-        let auid3 = AddressSpaceUid::new_with(0, 1, 4);
-        let auid4 = AddressSpaceUid::new_with(0, 0, 9);
+        let auid1 = AddressSpaceUid::new(1, 1, 2);
+        let auid2 = AddressSpaceUid::new(0, 2, 3);
+        let auid3 = AddressSpaceUid::new(0, 1, 4);
+        let auid4 = AddressSpaceUid::new(0, 0, 9);
         assert!(auid1 > auid2);
         assert!(auid2 > auid3);
         assert!(auid3 > auid4);
@@ -163,9 +163,9 @@ mod test {
 
     #[test]
     pub fn compare_taskish() {
-        let tuid1 = TaskUid::new_with(1, 1);
-        let tuid2 = TaskUid::new_with(0, 9);
-        let tuid3 = TaskUid::new_with(0, 7);
+        let tuid1 = TaskUid::new(1, 1);
+        let tuid2 = TaskUid::new(0, 9);
+        let tuid3 = TaskUid::new(0, 7);
         assert!(tuid1 > tuid2);
         assert!(tuid2 > tuid3);
 
@@ -174,7 +174,7 @@ mod test {
 
     #[test]
     pub fn taskish_is_copy() {
-        let tuid1 = TaskUid::new_with(1, 1);
+        let tuid1 = TaskUid::new(1, 1);
         let tuid2 = tuid1;
         assert!(tuid1 == tuid2);
     }
