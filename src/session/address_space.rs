@@ -2208,7 +2208,7 @@ impl AddressSpace {
         ed_assert_eq!(t, found_stacks, 1);
     }
 
-    /// DIFF NOTE: @TODO In rr `num_bytes` is signed. Why?
+    /// DIFF NOTE: In rr `num_bytes` is signed. Why?
     fn unmap_internal(&self, _t: &dyn Task, addr: RemotePtr<Void>, num_bytes: usize) {
         log!(
             LogDebug,

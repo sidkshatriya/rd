@@ -1330,9 +1330,9 @@ pub(super) fn post_exec_for_exe_common<T: Task>(t: &T, exe_file: &OsStr) {
             let scratch_ptr = t.scratch_ptr.get();
             let scratch_size = t.scratch_size.get();
 
-            let mut remote = AutoRemoteSyscalls::new(&**stopped);
+            let mut remote_stopped = AutoRemoteSyscalls::new(&**stopped);
             unmap_buffers_for(
-                &mut remote,
+                &mut remote_stopped,
                 Some(t),
                 syscallbuf_child,
                 syscallbuf_size,
@@ -1358,11 +1358,15 @@ pub(super) fn post_exec_for_exe_common<T: Task>(t: &T, exe_file: &OsStr) {
     }
     t.session().post_exec(t);
 
+    // As t has exec-ed, it now has different address space
+    // So remove it from the current one
     t.vm().task_set_mut().erase_task(t);
+    // Similarly it has a new fd table
     t.fd_table().task_set_mut().erase_task(t);
 
     *t.extra_registers.borrow_mut() = None;
     let mut e = t.extra_regs_ref().clone();
+    // Reset to post-exec initial state
     e.reset();
     t.set_extra_regs(&e);
 
@@ -1377,10 +1381,17 @@ pub(super) fn post_exec_for_exe_common<T: Task>(t: &T, exe_file: &OsStr) {
     t.thread_group().borrow_mut().execed = true;
     t.thread_areas_.borrow_mut().clear();
     *t.thread_locals.borrow_mut() = [0u8; PRELOAD_THREAD_LOCALS_SIZE];
+
+    // Take the t's old vm's exec count and add 1 to it
     let exec_count = t.vm().uid().exec_count() + 1;
+
+    // Its time for the task to get a brand new AddressSpace!
+    // Now t.vm() will point to the new vm
     *t.as_.borrow_mut() = Some(t.session().create_vm(t, Some(exe_file), Some(exec_count)));
+
     // It's barely-documented, but Linux unshares the fd table on exec
     *t.fds.borrow_mut() = Some(t.fd_table().clone_into_task(t));
+
     let prname = prname_from_exe_image(t.vm().exe_image()).to_owned();
     *t.prname.borrow_mut() = prname;
 }
@@ -1730,11 +1741,18 @@ fn set_thread_area_from_clone_arch<Arch: Architecture>(t: &dyn Task, tls: Remote
     }
 }
 
-// DIFF NOTE: Param list different from rr version
+/// A function that does some buffer related cleanups
+///
+/// `remote` is used for the actual syscall munmap of mapping
+/// `maybe_unmap_for` (if available) is used to remove
+/// the mapping from our data structure, otherwise remote.task()
+/// is used
+///
+/// DIFF NOTE: Param list different from rr version
 fn unmap_buffers_for(
     remote: &mut AutoRemoteSyscalls,
-    maybe_context: Option<&dyn Task>,
-    saved_syscallbuf_child: RemotePtr<syscallbuf_hdr>,
+    maybe_unmap_for: Option<&dyn Task>,
+    other_syscallbuf_child: RemotePtr<syscallbuf_hdr>,
     other_syscallbuf_size: usize,
     other_scratch_ptr: RemotePtr<Void>,
     other_scratch_size: usize,
@@ -1747,32 +1765,34 @@ fn unmap_buffers_for(
             other_scratch_ptr.as_usize(),
             other_scratch_size
         );
-        match maybe_context {
+        match maybe_unmap_for {
             None => remote
                 .task()
                 .vm()
                 .unmap(remote.task(), other_scratch_ptr, other_scratch_size),
-            Some(context) => context
-                .vm()
-                .unmap(context, other_scratch_ptr, other_scratch_size),
+            Some(unmap_for) => {
+                unmap_for
+                    .vm()
+                    .unmap(unmap_for, other_scratch_ptr, other_scratch_size)
+            }
         }
     }
-    if !saved_syscallbuf_child.is_null() {
+    if !other_syscallbuf_child.is_null() {
         rd_infallible_syscall!(
             remote,
             syscall_number_for_munmap(arch),
-            saved_syscallbuf_child.as_usize(),
+            other_syscallbuf_child.as_usize(),
             other_syscallbuf_size
         );
-        match maybe_context {
+        match maybe_unmap_for {
             None => remote.task().vm().unmap(
                 remote.task(),
-                RemotePtr::<Void>::cast(saved_syscallbuf_child),
+                RemotePtr::<Void>::cast(other_syscallbuf_child),
                 other_syscallbuf_size,
             ),
-            Some(context) => context.vm().unmap(
-                context,
-                RemotePtr::<Void>::cast(saved_syscallbuf_child),
+            Some(unmap_for) => unmap_for.vm().unmap(
+                unmap_for,
+                RemotePtr::<Void>::cast(other_syscallbuf_child),
                 other_syscallbuf_size,
             ),
         }

@@ -244,11 +244,13 @@ impl SessionInner {
     }
 
     /// Create and return a new address space that's constructed
-    /// from `t`'s actual OS address space. When spawning, `exe` is the empty
-    /// string; it will be replaced during the first execve(), when we first
-    /// start running real tracee code.
-    /// If `exe` is not specified it is assumed to be an empty string.
-    /// If `exec_count` is not specified it is assumed to be 0.
+    /// from `t`'s actual OS address space.
+    ///
+    /// When spawning, `exe` is the empty string; it will be replaced during
+    /// the first execve(), when we first start running real tracee code.
+    ///
+    /// If `maybe_exe` is `None` it is assumed to be an empty string.
+    /// If `maybe_exec_count` is `None` it is assumed to be 0.
     pub fn create_vm(
         &self,
         t: &dyn Task,
@@ -258,14 +260,14 @@ impl SessionInner {
         let exe = maybe_exe.unwrap_or(OsStr::new(""));
         let exec_count = maybe_exec_count.unwrap_or(0);
         self.assert_fully_initialized();
-        let as_ = AddressSpace::new_after_execve(t, exe, exec_count);
-        as_.task_set_mut().insert_task(t);
-        let as_uid = as_.uid();
-        let shr_ptr = Rc::new(as_);
+        let addr_space = AddressSpace::new_after_execve(t, exe, exec_count);
+        addr_space.task_set_mut().insert_task(t);
+        let as_uid = addr_space.uid();
+        let as_shr_ptr = Rc::new(addr_space);
         self.vm_map
             .borrow_mut()
-            .insert(as_uid, Rc::downgrade(&shr_ptr));
-        shr_ptr
+            .insert(as_uid, Rc::downgrade(&as_shr_ptr));
+        as_shr_ptr
     }
 
     /// Return a copy of `vm` with the same mappings.  If any
