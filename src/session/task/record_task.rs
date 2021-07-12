@@ -2397,11 +2397,11 @@ impl RecordTask {
     }
 
     pub fn record_remote_range(&self, range: MemoryRange) {
-        self.record_remote(range.start(), range.size())
+        self.record_remote(range.start(), range.len())
     }
 
     pub fn record_remote_range_fallible(&self, range: MemoryRange) -> Result<usize, ()> {
-        self.record_remote_fallible(range.start(), range.size())
+        self.record_remote_fallible(range.start(), range.len())
     }
 
     /// Record as much as we can of the bytes in this range. Will record only

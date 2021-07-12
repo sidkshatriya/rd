@@ -215,7 +215,7 @@ impl DumpCommand {
                                 device:{}, inode:{}, \
                                 data_file:\"",
                                 km.start().as_usize(),
-                                km.size(),
+                                km.len(),
                                 OsString::from_vec(prot_flags),
                                 km.file_offset_bytes(),
                                 km.device(),
@@ -240,7 +240,7 @@ impl DumpCommand {
                                 file_size:{:#x} }}",
                                 fsname,
                                 km.start().as_usize(),
-                                km.size(),
+                                km.len(),
                                 OsString::from_vec(prot_flags),
                                 km.file_offset_bytes(),
                                 km.device(),

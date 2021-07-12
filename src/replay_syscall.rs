@@ -196,7 +196,7 @@ fn init_scratch_memory(t: &ReplayTask, km: &KernelMapping, data: &trace_stream::
     ed_assert_eq!(t, data.source, trace_stream::MappedDataSource::Zero);
 
     t.scratch_ptr.set(km.start());
-    t.scratch_size.set(km.size());
+    t.scratch_size.set(km.len());
     let sz = t.scratch_size.get();
     let scratch_ptr = t.scratch_ptr.get();
     // Make the scratch buffer read/write during replay so that
@@ -352,7 +352,7 @@ fn prepare_clone<Arch: Architecture>(t: &ReplayTask) {
     t.set_regs(&r);
     let entry_regs = r.clone();
 
-    // Run; we will be interrupted by PTRACE_EVENT_CLONE/FORK/VFORK.
+    // Run; we will be interrupted by PTRACE_EVENT_CLONE/PTRACE_EVENT_FORK/PTRACE_EVENT_VFORK.
     __ptrace_cont(t, ResumeRequest::Cont, Arch::arch(), sys as i32, None, None);
 
     let mut new_tid: Option<pid_t> = None;
@@ -411,9 +411,9 @@ fn prepare_clone<Arch: Architecture>(t: &ReplayTask) {
     if Arch::CLONE as isize == t.regs_ref().original_syscallno() {
         params = extract_clone_parameters(t);
     }
-    let shr_ptr = t.session();
+    let sess_shr_ptr = t.session();
 
-    let new_task_shr_ptr: TaskSharedPtr = shr_ptr.clone_task(
+    let new_task_shr_ptr: TaskSharedPtr = sess_shr_ptr.clone_task(
         t,
         clone_flags_to_task_flags(flags),
         params.stack,
@@ -878,7 +878,7 @@ fn process_brk(t: &ReplayTask) {
         ed_assert_eq!(remote.task(), data.source, MappedDataSource::Zero);
         remote.infallible_mmap_syscall(
             Some(km.start()),
-            km.size(),
+            km.len(),
             km.prot(),
             MapFlags::MAP_ANONYMOUS | MapFlags::MAP_FIXED | km.flags(),
             -1,
@@ -887,7 +887,7 @@ fn process_brk(t: &ReplayTask) {
         remote.task().vm().map(
             remote.task(),
             km.start(),
-            km.size(),
+            km.len(),
             km.prot(),
             MapFlags::MAP_ANONYMOUS | km.flags(),
             0,
@@ -900,19 +900,19 @@ fn process_brk(t: &ReplayTask) {
             None,
             None,
         );
-    } else if km.size() > 0 {
+    } else if km.len() > 0 {
         let arch = t.arch();
         let mut remote = AutoRemoteSyscalls::new(t);
         rd_infallible_syscall!(
             remote,
             syscall_number_for_munmap(arch),
             km.start().as_usize(),
-            km.size()
+            km.len()
         );
         remote
             .task()
             .vm()
-            .unmap(remote.task(), km.start(), km.size());
+            .unmap(remote.task(), km.start(), km.len());
     }
 }
 
@@ -1231,9 +1231,9 @@ pub fn process_execve(t: &ReplayTask, step: &mut ReplayTraceStep) {
                 remote,
                 syscall_number_for_munmap(arch),
                 m.start().as_usize(),
-                m.size()
+                m.len()
             );
-            remote.task().vm().unmap(remote.task(), m.start(), m.size());
+            remote.task().vm().unmap(remote.task(), m.start(), m.len());
         }
         // We will have unmapped the stack memory that `remote` _could_ have used for
         // memory parameters. Fortunately `restore_mapped_region()` below doesn't
@@ -1318,7 +1318,7 @@ pub fn restore_mapped_region(
             let res = finish_direct_mmap(
                 remote,
                 km.start(),
-                km.size(),
+                km.len(),
                 km.prot(),
                 km.flags(),
                 &data.filename,
@@ -1335,7 +1335,7 @@ pub fn restore_mapped_region(
             flags |= MapFlags::MAP_ANONYMOUS;
             remote.infallible_mmap_syscall(
                 Some(km.start()),
-                km.size(),
+                km.len(),
                 km.prot(),
                 (flags & !MapFlags::MAP_GROWSDOWN) | MapFlags::MAP_FIXED,
                 -1,
@@ -1349,7 +1349,7 @@ pub fn restore_mapped_region(
     remote.task().vm().map(
         remote.task(),
         km.start(),
-        km.size(),
+        km.len(),
         km.prot(),
         flags,
         offset_bytes,
@@ -1679,7 +1679,7 @@ fn finish_shared_mmap<'a>(
     let (real_file, real_file_name) = finish_direct_mmap(
         remote,
         rec_addr,
-        km.size(),
+        km.len(),
         prot,
         flags,
         &OsString::from(emufile.borrow().proc_path()),
@@ -1699,7 +1699,7 @@ fn finish_shared_mmap<'a>(
     remote.task().vm().map(
         remote.task(),
         rec_addr,
-        km.size(),
+        km.len(),
         prot,
         flags,
         offset_bytes,
@@ -1716,7 +1716,7 @@ fn finish_shared_mmap<'a>(
     write_mapped_data(
         remote.task().as_replay_task().unwrap(),
         rec_addr,
-        km.size(),
+        km.len(),
         data,
     );
 
@@ -1812,7 +1812,7 @@ fn finish_private_mmap(
     write_mapped_data(
         remote.task().as_replay_task().unwrap(),
         rec_addr,
-        km.size(),
+        km.len(),
         data,
     );
 }
@@ -2103,7 +2103,7 @@ fn process_shmat(
         finish_shared_mmap(
             &mut remote,
             km.start(),
-            km.size(),
+            km.len(),
             prot,
             flags,
             &[],
@@ -2111,7 +2111,7 @@ fn process_shmat(
             &km,
             &data,
         );
-        remote.task().vm().set_shm_size(km.start(), km.size());
+        remote.task().vm().set_shm_size(km.start(), km.len());
 
         // Finally, we finish by emulating the return value.
         // On x86-32 this is not the shm address...

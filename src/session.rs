@@ -436,7 +436,7 @@ fn remap_shared_mmap(
         remote,
         syscall_number_for_munmap(arch),
         m.map.start().as_usize(),
-        m.map.size()
+        m.map.len()
     );
 
     let emu_file;
@@ -457,7 +457,7 @@ fn remap_shared_mmap(
     // XXX this condition is only x86/x64-specific, most probably
     remote.infallible_mmap_syscall(
         Some(m.map.start()),
-        m.map.size(),
+        m.map.len(),
         m.map.prot(),
         // The remapped segment *must* be
         // remapped at the same address,
@@ -473,7 +473,7 @@ fn remap_shared_mmap(
     remote.vm().map(
         remote.task(),
         m.map.start(),
-        m.map.size(),
+        m.map.len(),
         m.map.prot(),
         m.map.flags(),
         m.map.file_offset_bytes(),
@@ -501,7 +501,7 @@ fn capture_syscallbuf(m: &Mapping, task: &dyn Task) -> Vec<u8> {
         // There may be an incomplete syscall record after `num_rec_bytes` that
         // we need to capture here. We don't know how big that record is,
         // so just record the entire buffer. This should not be common.
-        data_size = m.map.size();
+        data_size = m.map.len();
     } else {
         data_size = read_val_mem(task, num_bytes_addr, None) as usize + size_of::<syscallbuf_hdr>();
     }

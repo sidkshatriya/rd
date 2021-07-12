@@ -360,7 +360,7 @@ pub(super) fn safe_pwrite64(t: &dyn Task, buf: &[u8], addr: RemotePtr<Void>) -> 
             remote,
             mprotect_syscallno,
             m.0.start().as_usize(),
-            m.0.size(),
+            m.0.len(),
             (m.1 | ProtFlags::PROT_WRITE).bits()
         );
     }
@@ -372,7 +372,7 @@ pub(super) fn safe_pwrite64(t: &dyn Task, buf: &[u8], addr: RemotePtr<Void>) -> 
             remote,
             mprotect_syscallno,
             m.0.start().as_usize(),
-            m.0.size(),
+            m.0.len(),
             m.1.bits()
         );
     }
@@ -1599,7 +1599,7 @@ pub(in super::super) fn clone_task_common(
                         let m: &KernelMapping = &mapping.map;
                         log!(LogDebug, "mapping stack for {} at {}", new_tid, m);
                         let m_start = m.start();
-                        let m_size = m.size();
+                        let m_len = m.len();
                         let m_prot = m.prot();
                         let m_flags = m.flags();
                         let m_file_offset_bytes = m.file_offset_bytes();
@@ -1611,7 +1611,7 @@ pub(in super::super) fn clone_task_common(
                         t.vm().map(
                             &*t,
                             m_start,
-                            m_size,
+                            m_len,
                             m_prot,
                             m_flags,
                             m_file_offset_bytes,

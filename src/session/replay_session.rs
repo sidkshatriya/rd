@@ -1957,7 +1957,7 @@ impl ReplaySession {
                     ed_assert!(remote.task(), km.flags().contains(MapFlags::MAP_ANONYMOUS));
                     remote.infallible_mmap_syscall(
                         Some(km.start()),
-                        km.size(),
+                        km.len(),
                         km.prot(),
                         km.flags() | MapFlags::MAP_FIXED,
                         -1,
@@ -1966,7 +1966,7 @@ impl ReplaySession {
                     remote.task().vm().map(
                         remote.task(),
                         km.start(),
-                        km.size(),
+                        km.len(),
                         km.prot(),
                         km.flags(),
                         0,
@@ -2306,7 +2306,7 @@ fn process_grow_map(t: &ReplayTask) {
         .trace_reader_mut()
         .read_mapped_region(Some(&mut data), None, None, None, None)
         .unwrap();
-    ed_assert!(t, km.size() > 0);
+    ed_assert!(t, km.len() > 0);
     let mut remote = AutoRemoteSyscalls::new(t);
     restore_mapped_region(&mut remote, &km, &data);
 }

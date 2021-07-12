@@ -76,7 +76,7 @@ impl MemoryRange {
         self.end_
     }
 
-    pub fn size(&self) -> usize {
+    pub fn len(&self) -> usize {
         // Should automatically flag an error in debug mode if size() is negative
         self.end_ - self.start_
     }

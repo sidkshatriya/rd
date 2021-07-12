@@ -70,7 +70,7 @@ impl MonitoredSharedMemory {
         let real_mem_ptr = unsafe {
             mmap(
                 ptr::null_mut(),
-                m.map.size(),
+                m.map.len(),
                 ProtFlags::PROT_READ,
                 MapFlags::MAP_SHARED,
                 fd.as_raw(),
@@ -79,13 +79,13 @@ impl MonitoredSharedMemory {
             .unwrap()
         };
 
-        let real_mem = unsafe { slice::from_raw_parts(real_mem_ptr as *const u8, m.map.size()) };
+        let real_mem = unsafe { slice::from_raw_parts(real_mem_ptr as *const u8, m.map.len()) };
         let result = Rc::new(RefCell::new(MonitoredSharedMemory::new(real_mem)));
         let shared = remote.steal_mapping(m, Some(result));
         // m may be invalid now
         let copy_to = remote
             .vm()
-            .local_mapping_mut(shared.map.start(), shared.map.size())
+            .local_mapping_mut(shared.map.start(), shared.map.len())
             .unwrap();
         copy_to.copy_from_slice(real_mem);
     }
@@ -111,7 +111,7 @@ impl MonitoredSharedMemory {
     }
 
     fn check_for_changes(&self, t: &RecordTask, m: address_space::Mapping) {
-        ed_assert_eq!(t, m.map.size(), self.real_mem.len());
+        ed_assert_eq!(t, m.map.len(), self.real_mem.len());
         let local_slice: &'static mut [u8] = match m.local_addr {
             None => {
                 // reestablish local mapping after a fork or whatever

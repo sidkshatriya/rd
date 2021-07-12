@@ -528,7 +528,7 @@ impl Task for ReplayTask {
             ed_assert!(
                 self,
                 km.start() == AddressSpace::preload_thread_locals_start()
-                    && km.size() == page_size()
+                    && km.len() == page_size()
             );
             true
         } else {

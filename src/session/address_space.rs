@@ -1743,7 +1743,7 @@ impl AddressSpace {
         };
 
         if offset == 0 {
-            let vdso = read_mem::<u8>(t, self.vdso().start(), self.vdso().size(), None);
+            let vdso = read_mem::<u8>(t, self.vdso().start(), self.vdso().len(), None);
             let maybe_offset = find_offset_of_syscall_instruction_in(arch, &vdso);
             match maybe_offset {
                 None => ed_assert!(t, false, "No syscall instruction found in VDSO"),
@@ -1777,10 +1777,10 @@ impl AddressSpace {
                     remote,
                     syscall_number_for_munmap(arch),
                     range.start().as_usize(),
-                    range.size()
+                    range.len()
                 );
             }
-            t.vm().unmap(t, range.start(), range.size());
+            t.vm().unmap(t, range.start(), range.len());
         }
     }
 
@@ -1953,7 +1953,7 @@ impl AddressSpace {
 
             if !(mapping.map.flags().contains(MapFlags::MAP_ANONYMOUS)) {
                 // Direct-mapped piece. Turn it into an anonymous mapping.
-                let mut buffer: Vec<u8> = vec![0; mapping.map.size()];
+                let mut buffer: Vec<u8> = vec![0; mapping.map.len()];
                 t.read_bytes_helper(mapping.map.start(), &mut buffer, None);
                 {
                     let mut remote = AutoRemoteSyscalls::new(t);
@@ -1993,7 +1993,7 @@ impl AddressSpace {
 
         self.for_each_in_range(
             range.start(),
-            range.size(),
+            range.len(),
             fixer,
             IterateHow::IterateDefault,
         );
@@ -2265,7 +2265,7 @@ impl AddressSpace {
             }
 
             if let Some(local_addr) = m.local_addr {
-                let size = min(rem.size(), m.map.size() - (rem.start() - m.map.start()));
+                let size = min(rem.len(), m.map.len() - (rem.start() - m.map.start()));
                 let res = unsafe {
                     let addr = local_addr.as_ptr().add(rem.start() - m.map.start());
                     munmap(addr, size)
@@ -2378,7 +2378,7 @@ impl AddressSpace {
                 value_bytes[i] = 0xFF;
             }
             let mut addr: RemotePtr<Void> = watchpoint_range.start();
-            let mut num_bytes: usize = watchpoint_range.size();
+            let mut num_bytes: usize = watchpoint_range.len();
             let mut bytes_read: usize;
             while num_bytes > 0 {
                 let buf_pos = addr.as_usize() - watchpoint_range.start().as_usize();
@@ -2443,12 +2443,12 @@ impl AddressSpace {
             }
             let watching = v.watched_bits();
             if watching.contains(RwxBits::EXEC_BIT) {
-                result.push(WatchConfig::new(r.start(), r.size(), WatchType::Exec));
+                result.push(WatchConfig::new(r.start(), r.len(), WatchType::Exec));
             }
             if watching.contains(RwxBits::READ_BIT) {
-                result.push(WatchConfig::new(r.start(), r.size(), WatchType::ReadWrite));
+                result.push(WatchConfig::new(r.start(), r.len(), WatchType::ReadWrite));
             } else if watching.contains(RwxBits::WRITE_BIT) {
-                result.push(WatchConfig::new(r.start(), r.size(), WatchType::Write));
+                result.push(WatchConfig::new(r.start(), r.len(), WatchType::Write));
             }
         }
         result
@@ -2792,7 +2792,7 @@ impl Drop for AddressSpace {
         debug_assert_eq!(self.task_set().len(), 0);
         for (_, m) in self.mem.borrow().iter() {
             if let Some(local) = m.local_addr {
-                if let Err(e) = unsafe { munmap(local.as_ptr(), m.map.size()) } {
+                if let Err(e) = unsafe { munmap(local.as_ptr(), m.map.len()) } {
                     fatal!("Can't munmap: {:?}", e)
                 }
             }
@@ -2814,15 +2814,15 @@ fn configure_watch_registers(
     // Zero-sized WatchConfigs return no ranges here, so are ignored.
     let mut split_ranges = split_range(range);
 
-    if watchtype == WatchType::Write && range.size() > 1 {
+    if watchtype == WatchType::Write && range.len() > 1 {
         // We can suppress spurious write-watchpoint triggerings by checking
         // whether memory values have changed. So we can sometimes conserve
         // debug registers by upgrading an unaligned range to an aligned range
         // of a larger size.
         let align: usize;
-        if range.size() <= 2 {
+        if range.len() <= 2 {
             align = 2;
-        } else if range.size() <= 4 || size_of::<usize>() <= 4 {
+        } else if range.len() <= 4 || size_of::<usize>() <= 4 {
             align = 4;
         } else {
             align = 8;
@@ -2841,14 +2841,14 @@ fn configure_watch_registers(
         if let Some(assigned_regs) = maybe_assigned_regs {
             assigned_regs.push(regs.len().try_into().unwrap())
         }
-        regs.push(WatchConfig::new(r.start(), r.size(), watchtype));
+        regs.push(WatchConfig::new(r.start(), r.len(), watchtype));
     }
 }
 
 fn split_range(range: &MemoryRange) -> Vec<MemoryRange> {
     let mut result = Vec::new();
     let mut r: MemoryRange = *range;
-    while r.size() > 0 {
+    while r.len() > 0 {
         if (size_of::<usize>() < 8 || !try_split_unaligned_range(&mut r, 8, &mut result))
             && !try_split_unaligned_range(&mut r, 4, &mut result)
             && !try_split_unaligned_range(&mut r, 2, &mut result)
@@ -2865,7 +2865,7 @@ fn try_split_unaligned_range(
     bytes: usize,
     result: &mut Vec<MemoryRange>,
 ) -> bool {
-    if range.start().as_usize() & (bytes - 1) != 0 || range.size() < bytes {
+    if range.start().as_usize() & (bytes - 1) != 0 || range.len() < bytes {
         return false;
     }
 
@@ -2917,7 +2917,7 @@ fn assert_coalesceable(t: &dyn Task, lower: &Mapping, higher: &Mapping) {
     let local_addr_comparison = match lower.local_addr {
         Some(lower_local) => match higher.local_addr {
             Some(higher_local) => {
-                lower_local.as_ptr() as usize + lower.map.size() == higher_local.as_ptr() as usize
+                lower_local.as_ptr() as usize + lower.map.len() == higher_local.as_ptr() as usize
             }
             None => false,
         },
@@ -2972,7 +2972,7 @@ fn is_adjacent_mapping(
         return false;
     }
     if mleft.is_real_device()
-        && mleft.file_offset_bytes() + mleft.size() as u64 != mright.file_offset_bytes()
+        && mleft.file_offset_bytes() + mleft.len() as u64 != mright.file_offset_bytes()
     {
         return false;
     }

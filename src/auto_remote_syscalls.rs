@@ -1135,7 +1135,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
 
         // Find a place to map the current segment to temporarily
         let start = m.map.start();
-        let sz = m.map.size();
+        let sz = m.map.len();
         let free_mem = self.task().vm().find_free_memory(sz, None);
         let arch = self.arch();
         rd_infallible_syscall!(
@@ -1206,7 +1206,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
             .unwrap();
         ed_assert!(self.task(), map.fsname().len() <= PATH_MAX as usize);
         let flags = flags;
-        let size = map.size();
+        let size = map.len();
         let name = map.fsname();
         let maybe_preserved_data = match maybe_option_preserve {
             Some(option_preserve)
@@ -1305,7 +1305,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
 
         // Now create the new mapping in its place
         let start = m.map.start();
-        let sz = m.map.size();
+        let sz = m.map.len();
         let km = self.create_shared_mmap(
             sz,
             Some(start),

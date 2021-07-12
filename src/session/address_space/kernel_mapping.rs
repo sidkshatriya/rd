@@ -95,7 +95,7 @@ impl KernelMapping {
 
     pub fn assert_valid(&self) {
         debug_assert!(self.end() >= self.start());
-        debug_assert_eq!(self.size() % page_size(), 0);
+        debug_assert_eq!(self.len() % page_size(), 0);
         debug_assert!((self.flags_ & !KernelMapping::MAP_FLAGS_MASK).is_empty());
         debug_assert_eq!(self.offset % page_size() as u64, 0);
     }
@@ -217,7 +217,7 @@ impl KernelMapping {
         let mut fake_stat: stat = unsafe { zeroed() };
         fake_stat.st_dev = self.device();
         fake_stat.st_ino = self.inode();
-        fake_stat.st_size = self.size() as c_long;
+        fake_stat.st_size = self.len() as c_long;
         fake_stat
     }
 

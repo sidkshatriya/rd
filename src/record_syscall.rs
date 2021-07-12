@@ -3196,7 +3196,7 @@ fn process_mmap(
     ) == RecordInTrace::RecordInTrace
     {
         let end = st.st_size as u64 - km.file_offset_bytes();
-        let nbytes = min(end, km.size() as u64);
+        let nbytes = min(end, km.len() as u64);
         let nread = t
             .record_remote_fallible(addr, nbytes.try_into().unwrap())
             .unwrap();
@@ -3472,11 +3472,11 @@ fn process_execve(t: &RecordTask, syscall_state: &mut TaskSyscallState) {
             // Also note that under 4.0.7-300.fc22.x86_64 (at least) /proc/<pid>/mem
             // can't read the contents of [vvar].
             let munmap_no: i32 = syscall_number_for_munmap(remote.arch());
-            rd_infallible_syscall!(remote, munmap_no, vvar.start().as_usize(), vvar.size());
+            rd_infallible_syscall!(remote, munmap_no, vvar.start().as_usize(), vvar.len());
             remote
                 .task()
                 .vm()
-                .unmap(remote.task(), vvar.start(), vvar.size());
+                .unmap(remote.task(), vvar.start(), vvar.len());
         }
 
         for km in &stacks {
@@ -3493,7 +3493,7 @@ fn process_execve(t: &RecordTask, syscall_state: &mut TaskSyscallState) {
                     None,
                 );
             ed_assert_eq!(remote.task(), mode, RecordInTrace::RecordInTrace);
-            let buf = read_mem(remote.task(), km.start(), km.size(), None);
+            let buf = read_mem(remote.task(), km.start(), km.len(), None);
             remote.task().as_rec_unwrap().trace_writer_mut().write_raw(
                 remote.task().rec_tid(),
                 &buf,
@@ -3504,7 +3504,7 @@ fn process_execve(t: &RecordTask, syscall_state: &mut TaskSyscallState) {
             // writing the contents back.
             let flags = (km.flags() & !MapFlags::MAP_GROWSDOWN) | MapFlags::MAP_ANONYMOUS;
             let munmap_no: i32 = syscall_number_for_munmap(remote.arch());
-            rd_infallible_syscall!(remote, munmap_no, km.start().as_usize(), km.size());
+            rd_infallible_syscall!(remote, munmap_no, km.start().as_usize(), km.len());
             if remote
                 .task()
                 .vm()
@@ -3521,7 +3521,7 @@ fn process_execve(t: &RecordTask, syscall_state: &mut TaskSyscallState) {
                     page_size()
                 );
             }
-            remote.infallible_mmap_syscall(Some(km.start()), km.size(), km.prot(), flags, -1, 0);
+            remote.infallible_mmap_syscall(Some(km.start()), km.len(), km.prot(), flags, -1, 0);
             write_mem(remote.task(), km.start(), &buf, None);
         }
     }
@@ -3567,11 +3567,11 @@ fn process_execve(t: &RecordTask, syscall_state: &mut TaskSyscallState) {
         {
             if st.st_size > 0 {
                 let end = st.st_size as u64 - km.file_offset_bytes();
-                t.record_remote(km.start(), min(end.try_into().unwrap(), km.size()));
+                t.record_remote(km.start(), min(end.try_into().unwrap(), km.len()));
             } else {
                 // st_size is not valid. Some device files are mmappable but have zero
                 // size. We also take this path if there's no file at all (vdso etc).
-                t.record_remote(km.start(), km.size());
+                t.record_remote(km.start(), km.len());
             }
         } else {
             // See https://github.com/rr-debugger/rr/issues/1568; in some cases
@@ -5521,7 +5521,7 @@ fn process_mremap(t: &RecordTask, old_addr: RemotePtr<Void>, old_length: usize, 
         };
         // Allow failure; the underlying file may have true zero size, in which
         // case this may try to record unmapped memory.
-        t.record_remote_fallible(km.start(), min(end.try_into().unwrap(), km.size()))
+        t.record_remote_fallible(km.start(), min(end.try_into().unwrap(), km.len()))
             .unwrap_or(0);
     }
 
@@ -6987,7 +6987,7 @@ fn process_shmat(t: &RecordTask, shmid: i32, shm_flags: i32, addr: RemotePtr<Voi
         None,
         None,
     );
-    t.vm().set_shm_size(km.start(), km.size());
+    t.vm().set_shm_size(km.start(), km.len());
     let disposition =
         t.trace_writer_mut()
             .write_mapped_region(t, &km, &km.fake_stat(), &[], None, None);
@@ -7015,7 +7015,7 @@ fn record_file_change(t: &RecordTask, fd: i32, offset: u64, length: u64) {
             let start = max(offset, m.map.file_offset_bytes());
             let end = min(
                 offset + length,
-                m.map.file_offset_bytes() + m.map.size() as u64,
+                m.map.file_offset_bytes() + m.map.len() as u64,
             );
             if start < end {
                 t.record_remote(

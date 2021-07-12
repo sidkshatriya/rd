@@ -2467,8 +2467,8 @@ fn search_memory(t: &dyn Task, where_: MemoryRange, find_s: &[u8]) -> Option<Rem
         // command isn't really suited to that.
         // Reading page by page lets us avoid problems where some pages in a
         // mapping aren't readable (e.g. reading beyond end of file).
-        while r.size() >= find_s.len() {
-            let l = min(buf.len(), r.size());
+        while r.len() >= find_s.len() {
+            let l = min(buf.len(), r.len());
             let res = t.read_bytes_fallible(r.start(), &mut buf[0..l]);
             match res {
                 Ok(nread) if nread >= find_s.len() => {

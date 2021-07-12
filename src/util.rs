@@ -1600,7 +1600,7 @@ pub fn dump_process_memory(t: &dyn Task, global_time: FrameTime, tag: &str) {
     let mut dump_file = BufWriter::new(dump_file_raw);
 
     for (_, m) in &t.vm().maps() {
-        let mut mem = vec![0u8; m.map.size()];
+        let mut mem = vec![0u8; m.map.len()];
 
         let mem_len = t.read_bytes_fallible(m.map.start(), &mut mem).unwrap_or(0);
 
@@ -2002,7 +2002,7 @@ fn iterate_checksums(t: &dyn Task, mode: ChecksumMode, global_time: FrameTime) {
                     }
                 }
             }
-            let mut mem = vec![0u8; m.map.size()];
+            let mut mem = vec![0u8; m.map.len()];
             let maybe_valid_mem_len = t.read_bytes_fallible(m.map.start(), &mut mem);
             // Areas not read are treated as zero. We have to do this because
             // mappings not backed by valid file data are not readable during
@@ -2084,20 +2084,20 @@ fn notify_checksum_error(
 /// DIFF NOTE: Takes `t` instead of the address space as param
 fn is_task_buffer(t: &dyn Task, m: &Mapping) -> bool {
     if RemotePtr::cast(t.syscallbuf_child.get()) == m.map.start()
-        && t.syscallbuf_size.get() == m.map.size()
+        && t.syscallbuf_size.get() == m.map.len()
     {
         return true;
     }
-    if t.scratch_ptr.get() == m.map.start() && t.scratch_size.get() == m.map.size() {
+    if t.scratch_ptr.get() == m.map.start() && t.scratch_size.get() == m.map.len() {
         return true;
     }
     for tt in t.vm().task_set().iter_except(t.weak_self_clone()) {
         if RemotePtr::cast(tt.syscallbuf_child.get()) == m.map.start()
-            && tt.syscallbuf_size.get() == m.map.size()
+            && tt.syscallbuf_size.get() == m.map.len()
         {
             return true;
         }
-        if tt.scratch_ptr.get() == m.map.start() && tt.scratch_size.get() == m.map.size() {
+        if tt.scratch_ptr.get() == m.map.start() && tt.scratch_size.get() == m.map.len() {
             return true;
         }
     }

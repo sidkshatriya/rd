@@ -1209,7 +1209,7 @@ fn addr_to_offset<'a>(elf_obj: &Elf<'a>, addr: usize, offset: &mut usize) -> boo
 fn patch_after_exec_arch_x86arch(t: &RecordTask, patcher: &mut MonkeyPatcher) {
     setup_preload_library_path::<X86Arch>(t);
     let vdso_start = t.vm().vdso().start();
-    let vdso_size = t.vm().vdso().size();
+    let vdso_size = t.vm().vdso().len();
 
     let mut data = vec![0u8; vdso_size];
     t.read_bytes_helper(vdso_start, &mut data, None);
@@ -1353,7 +1353,7 @@ fn patch_after_exec_arch_x64arch(t: &RecordTask, patcher: &mut MonkeyPatcher) {
     setup_preload_library_path::<X64Arch>(t);
 
     let vdso_start = t.vm().vdso().start();
-    let vdso_size = t.vm().vdso().size();
+    let vdso_size = t.vm().vdso().len();
 
     let mut data = vec![0u8; vdso_size];
     t.read_bytes_helper(t.vm().vdso().start(), &mut data, None);
@@ -1433,7 +1433,7 @@ fn patch_after_exec_arch_x64arch(t: &RecordTask, patcher: &mut MonkeyPatcher) {
     for (_, m) in &t.vm().maps() {
         let km = &m.map;
         let km_start = km.start();
-        let km_size = km.size();
+        let km_size = km.len();
         let km_offset = km.file_offset_bytes();
         after_mmap_vec.push((km_start, km_size, km_offset));
     }
