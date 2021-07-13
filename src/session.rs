@@ -418,6 +418,12 @@ pub trait Session: DerefMut<Target = SessionInner> {
     }
 }
 
+/// - Copies the emu file corresponding to `k` from `emu_fs` to `dest_emu_fs` if the file
+///   already does NOT exist in `dest_emu_fs`
+/// - Subsequently maps the emu file corresponding to `k` in `dest_emu_fs` into remote.vm()'s
+///   address space
+/// - Updates remote.vm()'s internal memory map to reflect that we have a new mapping corresponding
+///   to `k`
 fn remap_shared_mmap(
     remote: &mut AutoRemoteSyscalls,
     emu_fs: &EmuFs,
@@ -446,12 +452,12 @@ fn remap_shared_mmap(
         emu_file = dest_emu_fs.clone_file(emu_fs.at(&m.recorded_map).unwrap());
     }
 
-    // TODO: this duplicates some code in replay_syscall.cc, but
+    // TODO: this duplicates some code in replay_syscall.rs, but
     // it's somewhat nontrivial to factor that code out.
     let remote_fd = remote.send_fd(emu_file.borrow().fd());
     ed_assert!(remote.task(), remote_fd > 0);
 
-    let real_file = remote.task().stat_fd(remote_fd);
+    let real_file_stat = remote.task().stat_fd(remote_fd);
     let real_file_name = remote.task().file_name_of_fd(remote_fd);
 
     // XXX this condition is only x86/x64-specific, most probably
@@ -478,8 +484,8 @@ fn remap_shared_mmap(
         m.map.flags(),
         m.map.file_offset_bytes(),
         &real_file_name,
-        real_file.st_dev,
-        real_file.st_ino,
+        real_file_stat.st_dev,
+        real_file_stat.st_ino,
         None,
         Some(&m.recorded_map),
         Some(emu_file),

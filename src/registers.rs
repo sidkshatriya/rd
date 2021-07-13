@@ -436,6 +436,7 @@ impl Registers {
         }
     }
 
+    #[inline]
     pub fn arch(&self) -> SupportedArch {
         match self {
             X86(_) => SupportedArch::X86,

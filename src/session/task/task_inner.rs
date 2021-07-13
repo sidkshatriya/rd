@@ -847,6 +847,7 @@ impl TaskInner {
     }
 
     /// Return the current arch of this. This can change due to exec().
+    #[inline]
     pub fn arch(&self) -> SupportedArch {
         self.registers.borrow().arch()
     }

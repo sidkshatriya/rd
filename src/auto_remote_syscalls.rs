@@ -902,11 +902,10 @@ impl<'a> AutoRemoteSyscalls<'a> {
             None,
             None,
         );
-        *self.task().vm().mapping_flags_of_mut(km.start()) |= MappingFlags::IS_SYSCALLBUF;
+        *self.vm().mapping_flags_of_mut(km.start()) |= MappingFlags::IS_SYSCALLBUF;
         unsafe {
             // No entries to begin with.
             *self
-                .task()
                 .vm()
                 .mapping_of(km.start())
                 .unwrap()
@@ -1103,7 +1102,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         let maybe_st = fstat(shmem_fd.as_raw());
         ed_assert!(self.task(), maybe_st.is_ok());
         let st = maybe_st.unwrap();
-        let km: KernelMapping = self.task().vm().map(
+        let km: KernelMapping = self.vm().map(
             self.task(),
             child_map_addr,
             size,
@@ -1136,7 +1135,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
         // Find a place to map the current segment to temporarily
         let start = m.map.start();
         let sz = m.map.len();
-        let free_mem = self.task().vm().find_free_memory(sz, None);
+        let free_mem = self.vm().find_free_memory(sz, None);
         let arch = self.arch();
         rd_infallible_syscall!(
             self,
@@ -1147,7 +1146,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
             MREMAP_MAYMOVE | MREMAP_FIXED,
             free_mem.as_usize()
         );
-        self.task().vm().remap(self.task(), start, sz, free_mem, sz);
+        self.vm().remap(self.task(), start, sz, free_mem, sz);
 
         // AutoRemoteSyscalls may have gotten unlucky and picked the old stack
         // segment as it's scratch space, reevaluate that choice
@@ -1179,7 +1178,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
             free_mem.as_usize(),
             sz
         );
-        remote2.task().vm().unmap(remote2.task(), free_mem, sz);
+        remote2.vm().unmap(remote2.task(), free_mem, sz);
         true
     }
 
@@ -1214,7 +1213,7 @@ impl<'a> AutoRemoteSyscalls<'a> {
                     && local_addr.is_some() =>
             {
                 // @TODO Check this
-                self.task().vm().detach_local_mapping(map.start());
+                self.vm().detach_local_mapping(map.start());
                 Some(local_addr.unwrap())
             }
             _ => None,

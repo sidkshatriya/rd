@@ -290,6 +290,7 @@ impl SyscallEventData {
         syscall_name(self.number, self.arch())
     }
 
+    #[inline]
     pub fn arch(&self) -> SupportedArch {
         self.arch_
     }

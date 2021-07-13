@@ -139,10 +139,10 @@ impl EmuFile {
         }
     }
 
-    /// Return a copy of this file
-    fn clone_file(&self, owner: EmuFsSharedWeakPtr) -> EmuFileSharedPtr {
+    /// Return a copy of this file with the owning emu fs set to `new_owner`
+    fn clone_file(&self, new_owner: EmuFsSharedWeakPtr) -> EmuFileSharedPtr {
         let f = EmuFile::create(
-            owner,
+            new_owner,
             self.emu_path(),
             self.device(),
             self.inode(),

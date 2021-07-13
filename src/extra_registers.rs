@@ -246,6 +246,7 @@ impl ExtraRegisters {
         self.format_
     }
 
+    #[inline]
     pub fn arch(&self) -> SupportedArch {
         self.arch_
     }

@@ -1791,7 +1791,7 @@ fn unmap_buffers_for(
             other_syscallbuf_size
         );
         match maybe_unmap_for {
-            None => remote.task().vm().unmap(
+            None => remote.vm().unmap(
                 remote.task(),
                 RemotePtr::<Void>::cast(other_syscallbuf_child),
                 other_syscallbuf_size,

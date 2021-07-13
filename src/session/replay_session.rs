@@ -1963,7 +1963,7 @@ impl ReplaySession {
                         -1,
                         0,
                     );
-                    remote.task().vm().map(
+                    remote.vm().map(
                         remote.task(),
                         km.start(),
                         km.len(),
@@ -1979,8 +1979,7 @@ impl ReplaySession {
                         None,
                         None,
                     );
-                    *remote.task().vm().mapping_flags_of_mut(km.start()) |=
-                        MappingFlags::IS_PATCH_STUBS;
+                    *remote.vm().mapping_flags_of_mut(km.start()) |= MappingFlags::IS_PATCH_STUBS;
                 }
             }
         }

@@ -895,7 +895,7 @@ fn process_brk(t: &ReplayTask) {
             -1,
             0,
         );
-        remote.task().vm().map(
+        remote.vm().map(
             remote.task(),
             km.start(),
             km.len(),
@@ -1244,7 +1244,7 @@ pub fn process_execve(t: &ReplayTask, step: &mut ReplayTraceStep) {
                 m.start().as_usize(),
                 m.len()
             );
-            remote.task().vm().unmap(remote.task(), m.start(), m.len());
+            remote.vm().unmap(remote.task(), m.start(), m.len());
         }
         // We will have unmapped the stack memory that `remote` _could_ have used for
         // memory parameters. Fortunately `restore_mapped_region()` below doesn't
@@ -1357,7 +1357,7 @@ pub fn restore_mapped_region(
         }
     }
 
-    remote.task().vm().map(
+    remote.vm().map(
         remote.task(),
         km.start(),
         km.len(),
@@ -1569,7 +1569,7 @@ fn process_mmap(
                 );
                 let km_sub: KernelMapping =
                     km.subrange(km.start(), km.start() + ceil_page_size(map_bytes));
-                remote.task().vm().map(
+                remote.vm().map(
                     remote.task(),
                     km.start(),
                     map_bytes,
@@ -1640,7 +1640,7 @@ fn process_mmap(
                 .flags()
                 .share_private_mappings
         {
-            let vm_shr_ptr = remote.task().vm();
+            let vm_shr_ptr = remote.vm();
             let mapping = vm_shr_ptr.mapping_of(addr).unwrap().clone();
             remote.make_private_shared(mapping);
         }
@@ -1707,7 +1707,7 @@ fn finish_shared_mmap<'a>(
     // kernel-bug-workarounds when writing to tracee memory see the up-to-date
     // virtual map.
     let offset_bytes: u64 = page_size() as u64 * offset_pages as u64;
-    remote.task().vm().map(
+    remote.vm().map(
         remote.task(),
         rec_addr,
         km.len(),
@@ -1802,7 +1802,7 @@ fn finish_private_mmap(
     // Update AddressSpace before loading data from the trace. This ensures our
     // kernel-bug-workarounds when writing to tracee memory see the up-to-date
     // virtual map.
-    remote.task().vm().map(
+    remote.vm().map(
         remote.task(),
         rec_addr,
         length,
@@ -1930,7 +1930,7 @@ fn finish_anonymous_mmap(
         maybe_emu_file = Some(emu_file);
     }
 
-    remote.task().vm().map(
+    remote.vm().map(
         remote.task(),
         rec_addr,
         length,
@@ -2051,8 +2051,8 @@ fn process_mremap(t: &ReplayTask, trace_regs: &Registers, step: &mut ReplayTrace
                     -1,
                     0,
                 );
-                remote.task().vm().unmap(remote.task(), new_addr, new_size);
-                remote.task().vm().map(
+                remote.vm().unmap(remote.task(), new_addr, new_size);
+                remote.vm().map(
                     remote.task(),
                     new_addr,
                     new_size,
@@ -2071,7 +2071,7 @@ fn process_mremap(t: &ReplayTask, trace_regs: &Registers, step: &mut ReplayTrace
                 remote
                     .task()
                     .write_bytes_helper(new_addr, &buf, None, WriteFlags::empty());
-                mapping = remote.task().vm().mapping_of(new_addr).unwrap().clone();
+                mapping = remote.vm().mapping_of(new_addr).unwrap().clone();
             }
         }
         _ => (),
@@ -2122,7 +2122,7 @@ fn process_shmat(
             &km,
             &data,
         );
-        remote.task().vm().set_shm_size(km.start(), km.len());
+        remote.vm().set_shm_size(km.start(), km.len());
 
         // Finally, we finish by emulating the return value.
         // On x86-32 this is not the shm address...

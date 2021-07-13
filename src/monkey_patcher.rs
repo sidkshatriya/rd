@@ -799,7 +799,7 @@ fn allocate_extended_jump<ExtendedJumpPatch: AssemblyTemplate>(
                     flags,
                     0,
                 );
-                remote.task().vm().map(
+                remote.vm().map(
                     remote.task(),
                     addr,
                     page_size(),
@@ -815,7 +815,7 @@ fn allocate_extended_jump<ExtendedJumpPatch: AssemblyTemplate>(
                     None,
                     None,
                 );
-                *remote.task().vm().mapping_flags_of_mut(addr) |= MappingFlags::IS_PATCH_STUBS;
+                *remote.vm().mapping_flags_of_mut(addr) |= MappingFlags::IS_PATCH_STUBS;
                 remote
                     .task()
                     .as_rec_unwrap()
