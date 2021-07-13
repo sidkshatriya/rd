@@ -5350,7 +5350,7 @@ fn prepare_clone<Arch: Architecture>(t: &RecordTask, syscall_state: &mut TaskSys
             t.real_tgid()
         });
     }
-    let new_task_shr_ptr = t.session().clone_task(
+    let new_task_shr_ptr = t.session().add_cloned_task(
         t,
         clone_flags_to_task_flags(flags),
         params.stack,

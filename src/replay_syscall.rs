@@ -19,6 +19,7 @@ use crate::{
         },
     },
     emu_fs::EmuFileSharedPtr,
+    event::SyscallEventData,
     file_monitor::{
         base_file_monitor::BaseFileMonitor, mmapped_file_monitor::MmappedFileMonitor,
         proc_fd_dir_monitor::ProcFdDirMonitor, proc_mem_monitor::ProcMemMonitor,
@@ -296,19 +297,23 @@ fn read_task_trace_event(t: &ReplayTask, task_event_type: TraceTaskEventType) ->
 }
 
 fn prepare_clone<Arch: Architecture>(t: &ReplayTask) {
-    let trace_frame = t.current_trace_frame();
-    let trace_frame_regs = trace_frame.regs_ref().clone();
-    let syscall_event = trace_frame.event().syscall_event();
-    let syscall_event_arch = syscall_event.arch();
+    let trace_frame_regs: Registers;
+    let syscall_event: &SyscallEventData;
+    let syscall_event_arch: SupportedArch;
+    {
+        let trace_frame = t.current_trace_frame();
+        trace_frame_regs = trace_frame.regs_ref().clone();
+        syscall_event = trace_frame.event().syscall_event();
+        syscall_event_arch = syscall_event.arch();
 
-    // We're being called with the syscall entry event, so we can't inspect the result
-    // of the syscall exit to see whether the clone succeeded (that event can happen
-    // much later, even after the spawned task has run).
-    if syscall_event.failed_during_preparation {
-        // creation failed, nothing special to do
-        return;
+        // We're being called with the syscall entry event, so we can't inspect the result
+        // of the syscall exit to see whether the clone succeeded (that event can happen
+        // much later, even after the spawned task has run).
+        if syscall_event.failed_during_preparation {
+            // creation failed, nothing special to do
+            return;
+        }
     }
-    drop(trace_frame);
 
     let mut r = t.regs_ref().clone();
     let mut sys: i32 = r.original_syscallno() as i32;
@@ -364,6 +369,8 @@ fn prepare_clone<Arch: Architecture>(t: &ReplayTask) {
         t.set_regs(&entry_regs);
         __ptrace_cont(t, ResumeRequest::Cont, Arch::arch(), sys as i32, None, None);
     }
+    // Can't mutate new_tid anymore
+    let new_tid = new_tid;
 
     // Get out of the syscall
     __ptrace_cont(
@@ -407,13 +414,17 @@ fn prepare_clone<Arch: Architecture>(t: &ReplayTask) {
     );
     let rec_tid = tte.tid();
 
-    let mut params: CloneParameters = Default::default();
-    if Arch::CLONE as isize == t.regs_ref().original_syscallno() {
-        params = extract_clone_parameters(t);
-    }
+    let params: CloneParameters = if Arch::CLONE as isize == t.regs_ref().original_syscallno() {
+        extract_clone_parameters(t)
+    } else {
+        Default::default()
+    };
     let sess_shr_ptr = t.session();
 
-    let new_task_shr_ptr: TaskSharedPtr = sess_shr_ptr.clone_task(
+    // Important. We now create the data structures to track this
+    // new task going forward. Note that we get a TaskSharedPtr back
+    // representing this brand new task
+    let new_task_shr_ptr: TaskSharedPtr = sess_shr_ptr.add_cloned_task(
         t,
         clone_flags_to_task_flags(flags),
         params.stack,

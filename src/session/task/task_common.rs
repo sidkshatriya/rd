@@ -1546,6 +1546,12 @@ fn do_preload_init<T: Task>(t: &T) {
     rd_arch_task_function_selfless!(T, do_preload_init_arch, t.arch(), t);
 }
 
+/// Prior to calling this method a new process was created in the OS with
+/// tid `new_tid`. The broad job of this method is to create all the state within
+/// rd that will track this new process henceforward. Notice that the method
+/// returns a TaskSharedPtr representing the new process. By the time the
+/// method returns, the new process will point correctly to its address space,
+/// fd_table etc. The new process will also be placed in the appropriate session.
 pub(in super::super) fn clone_task_common(
     clone_this: &dyn Task,
     reason: CloneReason,

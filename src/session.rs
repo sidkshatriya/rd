@@ -256,9 +256,9 @@ pub trait Session: DerefMut<Target = SessionInner> {
     /// See `Task::clone_task()`.
     ///
     /// DIFF NOTE: This method is simply called `Session::clone()` in rr.
-    fn clone_task(
+    fn add_cloned_task(
         &self,
-        p: &dyn Task,
+        clone_this: &dyn Task,
         flags: CloneFlags,
         stack: RemotePtr<Void>,
         tls: RemotePtr<Void>,
@@ -267,7 +267,7 @@ pub trait Session: DerefMut<Target = SessionInner> {
         new_rec_tid: Option<pid_t>,
     ) -> TaskSharedPtr {
         self.assert_fully_initialized();
-        let c = p.clone_task(
+        let new_task = clone_this.clone_task(
             CloneReason::TraceeClone,
             flags,
             stack,
@@ -278,8 +278,8 @@ pub trait Session: DerefMut<Target = SessionInner> {
             self.next_task_serial(),
             None,
         );
-        self.on_create_task(c.clone());
-        c
+        self.on_create_task(new_task.clone());
+        new_task
     }
 
     /// Return the task created with `rec_tid`, or None if no such task exists.
