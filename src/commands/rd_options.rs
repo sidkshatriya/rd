@@ -356,12 +356,26 @@ pub enum RdSubCommand {
         #[structopt(
             short = "l",
             long = "log-writes-fd", parse(try_from_str = parse_pid_fd),
-            help = "log writes (at the info level) to fds in particular processes.\n\
+            help = "log writes (at the INFO level) to fds in particular processes.\n\
                     Where <log-writes-fd> := PID=FD\n\
                     e.g. --log-writes-fd=\"98765=1\"\n\
-                    There can be any number of --log-writes-fd params each with a PID=FD."
+                    There can be any number of --log-writes-fd params each with a PID=FD.\
+                    Please note that only writes _outside_ the syscall buffer can be intercepted.\
+                    To intercept *all* writes, disable syscall buffering (via -n during record)"
         )]
         log_writes_fd: Option<Vec<(pid_t, i32)>>,
+
+        #[structopt(
+            short = "r",
+            long = "log-reads-fd", parse(try_from_str = parse_pid_fd),
+            help = "log reads (at the INFO level) to fds in particular processes.\n\
+                    Where <log-reads-fd> := PID=FD\n\
+                    e.g. --log-reads-fd=\"98765=1\"\n\
+                    There can be any number of --log-reads-fd params each with a PID=FD.\
+                    Please note that only reads _outside_ the syscall buffer can be intercepted.\
+                    To intercept *all* writes, disable syscall buffering (via -n during record)"
+        )]
+        log_reads_fd: Option<Vec<(pid_t, i32)>>,
 
         /// Display brief stats every N steps (eg 10000)
         #[structopt(long = "stats", parse(try_from_str = parse_stats))]

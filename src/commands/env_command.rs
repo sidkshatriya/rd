@@ -45,6 +45,7 @@ impl EnvCommand {
     fn session_flags(&self) -> replay_session::Flags {
         replay_session::Flags {
             log_writes_fd: Default::default(),
+            log_reads_fd: Default::default(),
             redirect_stdio: false,
             share_private_mappings: false,
             cpu_unbound: self.cpu_unbound,

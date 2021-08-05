@@ -121,7 +121,7 @@ impl FdTable {
                         offset.task().read_bytes_helper(r.data, &mut buf, None);
                         log!(
                             LogInfo,
-                            "[WRITE] [rec_tid: {}, fd: {}, time: {}]\n{:?}\n",
+                            "[WRITE] [rec_tid: {}, fd: {}, time: {}]\n{:?}",
                             offset.task().rec_tid(),
                             fd,
                             offset.task().trace_time(),
@@ -134,6 +134,28 @@ impl FdTable {
 
         if let Some(f) = self.fds.borrow().get(&fd) {
             f.borrow_mut().did_write(ranges, offset)
+        }
+    }
+
+    pub fn did_read(&self, fd: i32, ranges: &[Range], offset: &LazyOffset) {
+        let session_rc = offset.task().session();
+        if let Some(rs) = session_rc.as_replay() {
+            if let Some(fds) = rs.flags().log_reads_fd.get(&offset.task().rec_tid()) {
+                if fds.contains(&fd) {
+                    for r in ranges {
+                        let mut buf: Vec<u8> = vec![0; r.length];
+                        offset.task().read_bytes_helper(r.data, &mut buf, None);
+                        log!(
+                            LogInfo,
+                            "[READ] [rec_tid: {}, fd: {}, time: {}]\n{:?}",
+                            offset.task().rec_tid(),
+                            fd,
+                            offset.task().trace_time(),
+                            OsString::from_vec(buf)
+                        );
+                    }
+                }
+            }
         }
     }
 

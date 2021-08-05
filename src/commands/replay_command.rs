@@ -42,6 +42,7 @@ enum CreatedHow {
 
 pub struct ReplayCommand {
     log_writes_fd: Option<Vec<(pid_t, i32)>>,
+    log_reads_fd: Option<Vec<(pid_t, i32)>>,
 
     /// Start a debug server for the task scheduled at the first
     /// event at which reached this event AND target_process has
@@ -99,6 +100,7 @@ impl Default for ReplayCommand {
     fn default() -> Self {
         Self {
             log_writes_fd: Default::default(),
+            log_reads_fd: Default::default(),
             goto_event: 0,
             singlestep_to_event: 0,
             target_process: None,
@@ -124,6 +126,7 @@ impl ReplayCommand {
         match options.cmd.clone() {
             RdSubCommand::Replay {
                 log_writes_fd,
+                log_reads_fd,
                 autopilot,
                 onfork,
                 goto_event,
@@ -147,6 +150,7 @@ impl ReplayCommand {
                 let mut flags = ReplayCommand::default();
 
                 flags.log_writes_fd = log_writes_fd;
+                flags.log_reads_fd = log_reads_fd;
 
                 if autopilot {
                     flags.goto_event = FrameTime::MAX;
@@ -234,19 +238,31 @@ impl ReplayCommand {
     }
 
     fn session_flags(&self) -> replay_session::Flags {
-        let mut map: HashMap<pid_t, Vec<i32>> = HashMap::new();
+        let mut writes_map: HashMap<pid_t, Vec<i32>> = HashMap::new();
         if let Some(ref pid_fds) = self.log_writes_fd {
             for (pid, _) in pid_fds {
-                map.insert(*pid, Vec::new());
+                writes_map.insert(*pid, Vec::new());
             }
 
             for (pid, fd) in pid_fds {
-                map.get_mut(pid).unwrap().push(*fd);
+                writes_map.get_mut(pid).unwrap().push(*fd);
+            }
+        }
+
+        let mut reads_map: HashMap<pid_t, Vec<i32>> = HashMap::new();
+        if let Some(ref pid_fds) = self.log_reads_fd {
+            for (pid, _) in pid_fds {
+                reads_map.insert(*pid, Vec::new());
+            }
+
+            for (pid, fd) in pid_fds {
+                reads_map.get_mut(pid).unwrap().push(*fd);
             }
         }
 
         replay_session::Flags {
-            log_writes_fd: map,
+            log_writes_fd: writes_map,
+            log_reads_fd: reads_map,
             redirect_stdio: self.redirect,
             share_private_mappings: self.share_private_mappings,
             cpu_unbound: self.cpu_unbound,

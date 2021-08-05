@@ -11,6 +11,7 @@ use super::{
 };
 use crate::{
     arch::{Architecture, X86Arch},
+    arch_structs::iovec,
     auto_remote_syscalls::AutoRemoteSyscalls,
     bindings::{
         ptrace::{PTRACE_EVENT_EXIT, PTRACE_EVENT_SECCOMP},
@@ -20,6 +21,8 @@ use crate::{
     emu_fs::{EmuFs, EmuFsSharedPtr},
     event::{Event, EventType, SignalDeterministic, SignalEventData, SyscallState},
     fast_forward::{fast_forward_through_instruction, FastForwardStatus},
+    file_monitor,
+    file_monitor::LazyOffset,
     flags::Flags as ProgramFlags,
     kernel_abi::{is_execve_syscall, syscall_number_for_exit, SupportedArch},
     kernel_metadata::syscall_name,
@@ -356,6 +359,7 @@ pub struct ReplaySession {
 #[derive(Clone)]
 pub struct Flags {
     pub log_writes_fd: HashMap<pid_t, Vec<i32>>,
+    pub log_reads_fd: HashMap<pid_t, Vec<i32>>,
     pub redirect_stdio: bool,
     pub share_private_mappings: bool,
     pub cpu_unbound: bool,
@@ -1347,13 +1351,60 @@ impl ReplaySession {
         Completion::Complete
     }
 
+    /// DIFF NOTE: In rr there is only 1 method: exit_sycall(). Here,
+    /// this method calls exit_sycall_arch()
     fn exit_syscall(&self, t: &ReplayTask) -> Completion {
         let arch = self.current_step.get().syscall().arch;
+        rd_arch_function!(self, exit_syscall_arch, arch, t)
+    }
+
+    fn exit_syscall_arch<Arch: Architecture>(&self, t: &ReplayTask) -> Completion {
         let sys = self.current_step.get().syscall().number;
-        t.on_syscall_exit(sys, arch, self.current_trace_frame().regs_ref());
+        let regs = self.current_trace_frame().regs_ref().clone();
+        t.on_syscall_exit(sys, Arch::arch(), &regs);
 
         t.apply_all_data_records_from_trace();
         t.set_return_value_from_trace();
+
+        // Ability to log reads (not available in rr)
+        if sys == Arch::PREAD64 || sys == Arch::READ {
+            let fd: i32 = regs.arg1_signed() as i32;
+            let mut ranges: Vec<file_monitor::Range> = Vec::new();
+            let amount: isize = regs.syscall_result_signed();
+            if amount > 0 {
+                ranges.push(file_monitor::Range::new(
+                    regs.arg2().into(),
+                    amount as usize,
+                ));
+            }
+            let offset = LazyOffset::new(t, &regs, sys);
+            offset.task().fd_table().did_read(fd, &ranges, &offset);
+        }
+
+        // Ability to log reads (not available in rr)
+        if sys == Arch::PREADV || sys == Arch::READV {
+            let fd: i32 = regs.arg1_signed() as i32;
+            let mut ranges: Vec<file_monitor::Range> = Vec::new();
+            let iovecs = read_mem(
+                t,
+                RemotePtr::<iovec<Arch>>::new(regs.arg2()),
+                regs.arg3(),
+                None,
+            );
+            let mut amount_read = regs.syscall_result_signed();
+            ed_assert!(t, amount_read >= 0);
+            for v in iovecs {
+                let iov_remote_ptr = Arch::as_rptr(v.iov_base);
+                let iov_len = Arch::size_t_as_usize(v.iov_len);
+                let amount = min(amount_read, iov_len.try_into().unwrap());
+                if amount > 0 {
+                    ranges.push(file_monitor::Range::new(iov_remote_ptr, amount as usize));
+                    amount_read -= amount;
+                }
+            }
+            let offset = LazyOffset::new(t, &regs, sys);
+            offset.task().fd_table().did_read(fd, &ranges, &offset);
+        }
 
         let mut flags = ReplayTaskIgnore::IgnoreNone;
         if t.arch() == SupportedArch::X86
