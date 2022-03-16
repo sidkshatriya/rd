@@ -24,6 +24,7 @@ use nix::{
 };
 use rand::random;
 use std::{
+    convert::TryInto,
     env::var_os,
     ffi::{OsStr, OsString},
     io,
@@ -371,7 +372,7 @@ impl RdCommand for RecordCommand {
                             io::ErrorKind::Other,
                             format!("Tracee exited with non-zero exit code: {}", exit_code),
                         ),
-                        exit_code,
+                        exit_code.try_into().unwrap(),
                     )
                 }
             }

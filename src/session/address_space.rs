@@ -54,6 +54,7 @@ use nix::{
     unistd::getpid,
 };
 use std::{
+    arch::asm,
     cell::{Cell, Ref, RefCell, RefMut},
     cmp::{max, min},
     collections::{
@@ -3222,10 +3223,7 @@ pub fn read_kernel_mapping(tid: pid_t, addr: RemotePtr<Void>) -> KernelMapping {
 #[cfg(target_arch = "x86_64")]
 pub extern "C" fn rd_syscall_addr() {
     unsafe {
-        llvm_asm!("syscall" :::: "volatile");
-        llvm_asm!("nop" :::: "volatile");
-        llvm_asm!("nop" :::: "volatile");
-        llvm_asm!("nop" :::: "volatile");
+        asm!("syscall", "nop", "nop", "nop");
     }
 }
 
@@ -3233,10 +3231,7 @@ pub extern "C" fn rd_syscall_addr() {
 #[cfg(target_arch = "x86")]
 pub extern "C" fn rd_syscall_addr() {
     unsafe {
-        llvm_asm!("int $$0x80" :::: "volatile");
-        llvm_asm!("nop" :::: "volatile");
-        llvm_asm!("nop" :::: "volatile");
-        llvm_asm!("nop" :::: "volatile");
+        asm!("int {number}", "nop", "nop", "nop", number = const 0x80);
     }
 }
 

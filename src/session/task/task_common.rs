@@ -90,6 +90,7 @@ use nix::{
 };
 use sig::Sig;
 use std::{
+    arch::asm,
     cmp::{max, min},
     convert::TryInto,
     ffi::{c_void, CString, OsStr},
@@ -797,7 +798,7 @@ const AR_L: u32 = 1 << 21;
 /// Helper method
 fn is_long_mode_segment(segment: u32) -> bool {
     let ar: u32;
-    unsafe { llvm_asm!("lar $1, $0" : "=r"(ar) : "r"(segment)) };
+    unsafe { asm!("lar {0:e}, {1:e}", out(reg) ar, in(reg) segment) };
     ar & AR_L == AR_L
 }
 

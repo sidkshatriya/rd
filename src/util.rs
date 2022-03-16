@@ -63,6 +63,7 @@ use nix::{
 use rand::random;
 use regex::bytes::Regex;
 use std::{
+    arch::asm,
     cmp::{max, min},
     convert::TryInto,
     env,
@@ -628,6 +629,7 @@ pub fn uses_invisible_guard_page() -> bool {
     !*IS_PAX_KERNEL
 }
 
+/// @TODO Inefficient??
 #[allow(unreachable_code)]
 pub fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     let haystack_len = haystack.len();
@@ -876,10 +878,11 @@ pub fn xcr0() -> u64 {
     let eax: u32;
     let edx: u32;
     unsafe {
-        llvm_asm!("xgetbv"
-            : "={eax}"(eax), "={edx}"(edx)
-            : "{ecx}"(0)
-            :: "volatile"
+        asm!(
+            "xgetbv",
+            out("eax") eax,
+            out("edx") edx,
+            in("ecx") 0,
         );
     }
 

@@ -24,7 +24,8 @@ use nix::{
 };
 use replay_session::{ReplaySession, ReplayStatus};
 use std::{
-    cell::RefCell, collections::HashMap, ffi::OsString, io, io::Write, path::PathBuf, ptr, rc::Rc,
+    cell::RefCell, collections::HashMap, convert::TryInto, ffi::OsString, io, io::Write,
+    path::PathBuf, ptr, rc::Rc,
 };
 
 use super::{
@@ -470,12 +471,13 @@ impl ReplayCommand {
                     if WIFEXITED(status) || WIFSIGNALED(status) {
                         log!(LogInfo, "Debugger server died.  Exiting.");
                         if WIFEXITED(status) {
+                            let code = WEXITSTATUS(status);
                             return ExitResult::err_from(
                                 io::Error::new(
                                     io::ErrorKind::Other,
                                     "Debugger server died.  Exiting.",
                                 ),
-                                WEXITSTATUS(status),
+                                code.try_into().unwrap(),
                             );
                         } else {
                             return ExitResult::err_from(
