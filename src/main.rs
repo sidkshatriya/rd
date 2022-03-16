@@ -6,9 +6,6 @@
 #![feature(associated_type_defaults)]
 #![feature(slice_ptr_get)]
 #![feature(array_methods)]
-#![feature(arc_new_cyclic)]
-#![feature(format_args_capture)]
-#![feature(const_fn_trait_bound)]
 // Can disallow some of these in the future
 #![allow(clippy::redundant_static_lifetimes)]
 #![allow(clippy::collapsible_if)]
