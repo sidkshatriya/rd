@@ -1,11 +1,9 @@
 #![feature(get_mut_unchecked)]
 #![feature(map_first_last)]
 #![feature(raw_ref_op)]
-#![feature(termination_trait_lib)]
 #![feature(associated_type_defaults)]
 #![feature(slice_ptr_get)]
 #![feature(array_methods)]
-#![feature(process_exitcode_placeholder)]
 // Can disallow some of these in the future
 #![allow(clippy::redundant_static_lifetimes)]
 #![allow(clippy::collapsible_if)]
